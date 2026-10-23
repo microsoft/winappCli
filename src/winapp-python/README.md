@@ -94,7 +94,7 @@ See the [CLI reference](https://github.com/microsoft/WinAppCli/blob/main/docs/us
 
 The [Python identity sample](https://github.com/microsoft/WinAppCli/blob/main/samples/python-identity/README.md) demonstrates ordinary and identity-backed console execution, cleanup and manual PyInstaller/MSIX packaging.
 
-The [Python WinUI sample](https://github.com/microsoft/WinAppCli/blob/main/samples/python-winui/README.md) provides an in-memory counter and a file picker. Both run unpackaged using Bootstrap, without development identity.
+The [Python WinUI sample](https://github.com/microsoft/WinAppCli/blob/main/samples/python-winui/README.md) provides an in-memory counter. It runs unpackaged using Bootstrap, without development identity.
 
 ## Development
 

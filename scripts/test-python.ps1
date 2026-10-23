@@ -148,7 +148,7 @@ with zipfile.ZipFile(wheel) as archive:
         throw "A project without Python configuration unexpectedly generated bindings."
     }
 
-    $project = Join-Path $temporary 'uri project'
+    $project = Join-Path $temporary 'uri-project'
     New-Item -ItemType Directory -Path $project | Out-Null
     foreach ($name in @('app.py', 'pyproject.toml', 'winapp.yaml', 'requirements.txt', 'requirements-dev.txt')) {
         Copy-Item -LiteralPath (Join-Path $package "tests\fixtures\uri\$name") -Destination $project
@@ -212,7 +212,7 @@ with zipfile.ZipFile(wheel) as archive:
         throw "Bindings did not run after full native update and restore: $actual"
     }
 
-    $clone = Join-Path $temporary 'fresh requirements clone'
+    $clone = Join-Path $temporary 'fresh-requirements-clone'
     New-Item -ItemType Directory -Path $clone | Out-Null
     foreach ($name in @('app.py', 'pyproject.toml', 'winapp.yaml', 'requirements.txt', 'requirements-dev.txt')) {
         Copy-Item -LiteralPath (Join-Path $project $name) -Destination $clone
@@ -286,7 +286,7 @@ with zipfile.ZipFile(wheel) as archive:
         throw "Default non-UI bindings did not produce the expected Uri output: $actual"
     }
 
-    $standardProject = Join-Path $temporary 'standard pyproject'
+    $standardProject = Join-Path $temporary 'standard-pyproject'
     New-Item -ItemType Directory -Path $standardProject | Out-Null
     [IO.File]::WriteAllText((Join-Path $standardProject 'pyproject.toml'), @'
 [project]
@@ -354,7 +354,7 @@ types = ["Windows.Foundation.Uri"]
             Pop-Location
         }
         Invoke-Checked $uvPython @('-c', 'from myapp_winrt.windows.foundation import Uri; import dynwinrt')
-        $uvClone = Join-Path $temporary 'fresh uv clone'
+        $uvClone = Join-Path $temporary 'fresh-uv-clone'
         New-Item -ItemType Directory -Path $uvClone | Out-Null
         foreach ($name in @('app.py', 'pyproject.toml', 'winapp.yaml', 'uv.lock')) {
             Copy-Item -LiteralPath (Join-Path $uvProject $name) -Destination $uvClone

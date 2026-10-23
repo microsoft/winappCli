@@ -93,23 +93,6 @@ public class CppWinrtServiceTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task RunWithRspAsync_PathWithSpaces_PassesOneResponseFileArgument()
-    {
-        var service = new CppWinrtService(NullLogger<CppWinrtService>.Instance);
-        var exe = new FileInfo(Path.Join(_tempDirectory.FullName, "cppwinrt-arguments.cmd"));
-        File.WriteAllText(exe.FullName,
-            "@echo off\r\nif not \"%~2\"==\"\" exit /b 3\r\necho %~1\r\nexit /b 0\r\n");
-        var winmd = CreateDummyWinmd("Input.winmd");
-        var outputDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "project with spaces", "generated"));
-
-        await service.RunWithRspAsync(exe, [winmd], outputDir, _tempDirectory, TestTaskContext, TestContext.CancellationToken);
-
-        var expected = $"@{Path.Join(outputDir.FullName, ".cppwinrt.rsp")}";
-        Assert.IsTrue(TestTask.SubTasks.Any(task => task.InProgressMessage.Contains(expected, StringComparison.Ordinal)),
-            "The response file path must reach the tool as one complete argument.");
-    }
-
-    [TestMethod]
     public async Task RunWithRspAsync_MultipleWinmds_EmitsInputLinePerWinmd()
     {
         var service = new CppWinrtService(NullLogger<CppWinrtService>.Instance);

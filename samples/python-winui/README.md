@@ -1,4 +1,4 @@
-# Python WinUI counter and file picker
+# Python WinUI counter
 
 ```powershell
 cd .\samples\python-winui
@@ -6,7 +6,7 @@ winapp init --use-defaults --add-python-bindings
 winapp run .\app.py
 ```
 
-This sample runs code-only WinUI 3 windows in ordinary Python without package identity, a C# host or XAML. Windows App Runtime is initialized with its Bootstrap DLL. For identity and MSIX packaging, use the separate [Python identity sample](../python-identity).
+This sample runs a code-only WinUI 3 counter in ordinary Python without package identity, a C# host or XAML. Windows App Runtime is initialized with its Bootstrap DLL. For identity and MSIX packaging, use the separate [Python identity sample](../python-identity).
 
 ## Prerequisites
 
@@ -41,18 +41,6 @@ The window shows **Bootstrap - memory only** and starts at **0**. Click **+** to
 
 Close the window and run again: the count returns to **0**. No counter data is saved. The terminal prints the Bootstrap DLL and Python interpreter used by the app.
 
-## 3. Try the file picker
-
-Close the counter, then run:
-
-```powershell
-winapp run .\picker.py
-```
-
-Click **Pick an image** and select a PNG or JPEG. Its path appears in the window and terminal; cancelling displays **Cancelled**. The picker is associated with the WinUI window and does not require package identity.
-
-Both entry points use the same Bootstrap initialization. Neither creates a private identity environment or registers a development package.
-
 ## Restore and customize
 
 After cloning an initialized project, restore its recorded versions:
@@ -66,7 +54,6 @@ Edit the existing `types` list in `pyproject.toml`, then run `winapp generate` t
 | File | Purpose |
 |---|---|
 | `app.py`, `counter.py`, `window.py` | In-memory counter and WinUI events |
-| `picker.py` | File-picker window and asynchronous selection |
 | `runtime.py` | Bootstrap initialization and WinRT lifetime |
 | `pyproject.toml` | Selected types and generator version |
 
@@ -76,7 +63,6 @@ Edit the existing `types` list in `pyproject.toml`, then run `winapp generate` t
 |---|---|
 | Bootstrap DLL or SDK metadata is missing | Run `winapp restore`. |
 | WinUI or an import fails | Read the terminal error, verify Windows/Python prerequisites, then restore and regenerate. |
-| File selection fails | Read the picker error in the terminal and retry with an accessible image file. |
 | You need identity or an installable MSIX | Follow the [Python identity sample](../python-identity); this sample only demonstrates unpackaged GUI execution. |
 
 ## Test

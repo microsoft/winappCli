@@ -308,52 +308,6 @@ public class ProjectDetectionServiceTests
     // --- BFS tests ---
 
     [TestMethod]
-    [DataRow("[project]\nname = \"python-app\"\nversion = \"0.1.0\"\n", "pyproject.toml")]
-    [DataRow("import setuptools\nsetuptools.setup()\n", "setup.py")]
-    [DataRow("[metadata]\nname = python-app\n[options]\npackages = find:\n", "setup.cfg")]
-    [DataRow("packaging==26.3\n", "requirements.txt")]
-    public void DetectProject_PythonFiles_AreNotProjectMarkers(string contents, string filename)
-    {
-        CreateFile(filename, contents);
-        CreateFile("app.py", "print('hello')\n");
-        Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
-    }
-
-    [TestMethod]
-    public async Task DetectProjects_SkipsCustomNamedVirtualEnvironments()
-    {
-        CreateFile(Path.Join("environment", "pyvenv.cfg"), "home = Python\n");
-        CreateFile(Path.Join("environment", "library", "Cargo.toml"), "[package]");
-        CreateFile(Path.Join("visible", "Cargo.toml"), "[package]");
-        var results = await _sut.DetectProjectsAsync(Root, 5, null, CancellationToken.None);
-        Assert.HasCount(1, results);
-        Assert.AreEqual(DetectedProjectType.Rust, results[0].Type);
-        Assert.AreEqual("visible", results[0].DisplayPath);
-    }
-
-    [TestMethod]
-    public async Task DetectProjects_PythonMarkersDoNotHideNestedApplications()
-    {
-        CreateFile("pyproject.toml", "[tool.ruff]\nline-length=100\n");
-        CreateFile(Path.Join("desktop", "package.json"), """{"dependencies":{"electron":"1.0"}}""");
-        CreateFile(Path.Join("service", "Service.csproj"),
-            "<Project><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup></Project>");
-        var results = await _sut.DetectProjectsAsync(Root, 10, null, CancellationToken.None);
-        Assert.HasCount(2, results);
-        CollectionAssert.AreEquivalent(
-            new[] { DetectedProjectType.Electron, DetectedProjectType.Dotnet },
-            results.Select(project => project.Type).ToArray());
-    }
-
-    [TestMethod]
-    public void DetectProject_VirtualEnvironmentIsNotAProjectEvenWithProjectMarkers()
-    {
-        CreateFile("pyvenv.cfg", "home = Python\n");
-        CreateFile("Cargo.toml", "[package]");
-        Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
-    }
-
-    [TestMethod]
     public async Task DetectProjects_BFS_FindsRootFirst()
     {
         CreateFile("MyApp.csproj", """

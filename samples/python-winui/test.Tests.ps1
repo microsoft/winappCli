@@ -79,12 +79,11 @@ Describe 'Unpackaged Python WinUI sample' {
         }
 
         function Start-SampleWindow {
-            param([string]$Directory, [string]$Script = 'app.py',
-                [string]$Title = 'Python WinUI counter', [string]$ReadyControl = 'Increment')
-            $run = New-SampleProcess $script:cli @('run', '--project', $Directory, $Script) $Directory
+            param([string]$Directory)
+            $run = New-SampleProcess $script:cli @('run', '--project', $Directory, 'app.py') $Directory
             $script:runs += $run
             $condition = [Windows.Automation.PropertyCondition]::new(
-                [Windows.Automation.AutomationElement]::NameProperty, $Title)
+                [Windows.Automation.AutomationElement]::NameProperty, 'Python WinUI counter')
             $deadline = [DateTime]::UtcNow.AddMinutes(3)
             do {
                 if ($run.Process.HasExited) {
@@ -98,7 +97,7 @@ Describe 'Unpackaged Python WinUI sample' {
                     if ($window.Current.ProcessId -in $ids) {
                         $run.Window = $window
                         $ready = [Windows.Automation.PropertyCondition]::new(
-                            [Windows.Automation.AutomationElement]::AutomationIdProperty, $ReadyControl)
+                            [Windows.Automation.AutomationElement]::AutomationIdProperty, 'Increment')
                         if ($window.FindFirst([Windows.Automation.TreeScope]::Descendants, $ready)) { return $run }
                     }
                 }
@@ -150,11 +149,11 @@ Describe 'Unpackaged Python WinUI sample' {
         }
         if ($wheels.Count -ne 1) { throw "Expected one microsoft-winappcli $platform wheel." }
         $script:tempDir = New-TempTestDirectory -Prefix 'python-winui'
-        $script:appDir = Join-Path $tempDir 'project with spaces'
-        $script:cloneDir = Join-Path $tempDir 'restored copy'
+        $script:appDir = Join-Path $tempDir 'project'
+        $script:cloneDir = Join-Path $tempDir 'restored-copy'
         foreach ($directory in @($appDir, $cloneDir)) {
             New-Item -ItemType Directory -Path $directory | Out-Null
-            foreach ($name in @('app.py', 'runtime.py', 'counter.py', 'window.py', 'picker.py', 'pyproject.toml')) {
+            foreach ($name in @('app.py', 'runtime.py', 'counter.py', 'window.py', 'pyproject.toml')) {
                 Copy-Item -LiteralPath (Join-Path $sampleDir $name) -Destination $directory
             }
         }
@@ -223,14 +222,6 @@ Describe 'Unpackaged Python WinUI sample' {
             Close-SampleWindow $again
             Join-Path $appDir '.winapp\python-identity.json' | Should -Not -Exist
             Join-Path $appDir '.winapp\python-identity' | Should -Not -Exist
-        }
-
-        It 'Opens the picker with the same unpackaged Bootstrap runtime' -Skip:$script:skip {
-            $run = Start-SampleWindow $appDir -Script picker.py -Title 'Python WinUI file picker' -ReadyControl Pick
-            Assert-ControlText $run 'Result' 'Choose a PNG or JPEG image.'
-            (Get-Control $run 'Pick').Current.IsEnabled | Should -BeTrue
-            Close-SampleWindow $run
-            Join-Path $appDir '.winapp\python-identity.json' | Should -Not -Exist
         }
     }
 

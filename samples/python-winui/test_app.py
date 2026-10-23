@@ -86,10 +86,11 @@ class CounterTests(unittest.TestCase):
         configuration = tomllib.loads((sample / "pyproject.toml").read_text(encoding="utf-8"))
         selected = configuration["tool"]["winapp"]["python-bindings"]["types"]
         self.assertIn("Microsoft.UI.Xaml.Controls.StackPanel", selected)
-        self.assertIn("Microsoft.Windows.Storage.Pickers.FileOpenPicker", selected)
+        self.assertNotIn("Microsoft.Windows.Storage.Pickers.FileOpenPicker", selected)
+        self.assertNotIn("Microsoft.UI.Windowing.OverlappedPresenter", selected)
         self.assertNotIn("Windows.Storage.ApplicationData", selected)
         self.assertNotIn("dependency-groups", configuration)
-        for name in ("app.py", "runtime.py", "window.py", "counter.py", "picker.py"):
+        for name in ("app.py", "runtime.py", "window.py", "counter.py"):
             text = (sample / name).read_text(encoding="utf-8")
             self.assertNotIn("has_package_identity", text)
             self.assertNotIn("from_package_data", text)

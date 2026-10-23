@@ -67,7 +67,7 @@ winapp init [base-directory] [options]
 
 **Automatic project detection:**
 
-`init` run without a directory argument performs a breadth-first search of the current directory tree to find compatible projects (up to 10). Supported project types:
+When `init` is run without a directory argument, it performs a breadth-first search of the current directory tree to find compatible projects (up to 10). Supported project types:
 
 - **Tauri** — `tauri.conf.json` found one level below the directory
 - **Electron** — `package.json` with `electron` in dependencies or devDependencies
@@ -76,7 +76,7 @@ winapp init [base-directory] [options]
 - **Rust** — `Cargo.toml` at project root
 - **C++** — `CMakeLists.txt` at project root
 
-The search skips commonly ignored directories (node_modules, bin, obj, .git, virtual environments, etc.). When a compatible project is found, subdirectories below it are not searched.
+The search skips commonly ignored directories (node_modules, bin, obj, .git, etc.). When a compatible project is found, subdirectories below it are not searched.
 
 For Python projects, use the [Python initialization workflow](guides/python.md#selecting-an-initialization-directory).
 

@@ -18,26 +18,12 @@ internal static class IncrementalCopyHelper
         List<(FileInfo SourceFile, string RelativePath)> files,
         DirectoryInfo targetDir)
     {
-        var resolvedFiles = new List<(FileInfo SourceFile, FileInfo TargetFile)>(files.Count);
-        foreach (var (sourceFile, relativePath) in files)
-        {
-            if (Path.IsPathRooted(relativePath))
-            {
-                throw new ArgumentException($"The file path '{relativePath}' must be relative to the target directory.", nameof(files));
-            }
-
-            var destinationPath = Path.GetFullPath(Path.Join(targetDir.FullName, relativePath));
-            if (!MsixService.IsPathInsideDirectory(destinationPath, targetDir.FullName))
-            {
-                throw new ArgumentException($"The file path '{relativePath}' resolves outside the target directory.", nameof(files));
-            }
-            resolvedFiles.Add((sourceFile, new FileInfo(destinationPath)));
-        }
-
         int copied = 0, skipped = 0;
 
-        foreach (var (sourceFile, targetFile) in resolvedFiles)
+        foreach (var (sourceFile, relativePath) in files)
         {
+            var targetFile = new FileInfo(Path.Combine(targetDir.FullName, relativePath));
+
             if (targetFile.Exists && targetFile.Length == sourceFile.Length && targetFile.LastWriteTimeUtc == sourceFile.LastWriteTimeUtc)
             {
                 skipped++;

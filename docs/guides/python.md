@@ -10,7 +10,7 @@ winapp run --identity .\app.py
 
 This guide builds a small console app that prints **Not packaged** during ordinary execution and its package family name when run with Windows package identity. Identity enables Windows APIs that require a registered app. No WinUI window or C# host is needed.
 
-For the complete source and packaging walkthrough, use the [Python identity sample](../../samples/python-identity). For code-only WinUI windows and a file picker without identity, use the separate [WinUI sample](../../samples/python-winui).
+For the complete source and packaging walkthrough, use the [Python identity sample](../../samples/python-identity). For a code-only WinUI counter without identity, use the separate [WinUI sample](../../samples/python-winui).
 
 ## Prerequisites
 
@@ -215,5 +215,5 @@ Select `.venv\Scripts\python.exe` as the editor interpreter. Do not edit generat
 ## Next steps
 
 - [Python identity sample](../../samples/python-identity): complete console source and manual MSIX packaging.
-- [Python WinUI sample](../../samples/python-winui): Bootstrap-based counter and file picker, without development identity.
+- [Python WinUI sample](../../samples/python-winui): Bootstrap-based counter without development identity.
 - [CLI reference](../usage.md): manifests, certificates, signing and packaging.

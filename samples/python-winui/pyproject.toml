@@ -18,8 +18,6 @@ types = [
     "Microsoft.UI.Xaml.Controls.TextBlock",
     "Microsoft.UI.Xaml.Automation.AutomationProperties",
     "Microsoft.UI.Xaml.Media.SolidColorBrush",
-    "Microsoft.UI.Windowing.OverlappedPresenter",
-    "Microsoft.Windows.Storage.Pickers.FileOpenPicker",
     "Windows.UI.ColorHelper",
 ]
 additional-winmds = []

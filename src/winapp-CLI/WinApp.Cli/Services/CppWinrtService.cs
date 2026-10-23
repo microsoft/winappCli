@@ -66,13 +66,13 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
         var psi = new ProcessStartInfo
         {
             FileName = verifiedCppWinrt.Path,
+            Arguments = $"@{rspPath}",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
             WorkingDirectory = workingDirectory.FullName
         };
-        psi.ArgumentList.Add($"@{rspPath.FullName}");
 
         using var p = Process.Start(psi)!;
         var stdout = await p.StandardOutput.ReadToEndAsync(cancellationToken);

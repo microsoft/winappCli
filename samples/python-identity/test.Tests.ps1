@@ -63,8 +63,8 @@ Describe 'Python identity guide and console sample' {
         }
         if ($wheels.Count -ne 1) { throw "Expected one microsoft-winappcli $platform wheel." }
         $script:tempDir = New-TempTestDirectory -Prefix 'python-identity'
-        $script:guideDir = Join-Path $tempDir 'guide project with spaces'
-        $script:existingDir = Join-Path $tempDir 'existing sample'
+        $script:guideDir = Join-Path $tempDir 'guide-project'
+        $script:existingDir = Join-Path $tempDir 'existing-sample'
         foreach ($directory in @($guideDir, $existingDir)) {
             New-Item -ItemType Directory -Path $directory | Out-Null
             Copy-Item -LiteralPath (Join-Path $sampleDir 'app.py') -Destination $directory

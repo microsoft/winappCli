@@ -46,8 +46,6 @@ internal sealed class ProjectDetectionService(
         ".pub-cache",
         ".nuget",
         ".cargo",
-        "venv",
-        "site-packages",
     };
 
     /// <summary>
@@ -105,10 +103,6 @@ internal sealed class ProjectDetectionService(
     /// </summary>
     internal static DetectedProject? DetectProject(DirectoryInfo directory, DirectoryInfo searchRoot)
     {
-        if (File.Exists(Path.Join(directory.FullName, "pyvenv.cfg")))
-        {
-            return null;
-        }
         var displayPath = GetRelativeDisplayPath(directory, searchRoot);
 
         // Tauri: check immediate subdirectories for tauri.conf.json
@@ -528,12 +522,6 @@ internal sealed class ProjectDetectionService(
                     if (ignoredNames.Contains(subDir.Name))
                     {
                         logger.LogDebug("Skipping ignored directory: {Path}", subDir.FullName);
-                        continue;
-                    }
-
-                    if (File.Exists(Path.Join(subDir.FullName, "pyvenv.cfg")))
-                    {
-                        logger.LogDebug("Skipping Python virtual environment: {Path}", subDir.FullName);
                         continue;
                     }
 
