@@ -388,13 +388,22 @@ static void RefreshInspectorSnapshot()
     }
 }
 
+// Window-wide keys: F5 re-reads the snapshot; Ctrl+Shift+P toggles pick mode, as the Pick button's tooltip says.
 struct SnapshotRefreshSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
     {
         if (gen != g_route1Gen) return S_OK;
         int key = 0;
-        if (!args || FAILED(DevToolsGetKey(args, &key)) || key != VK_F5) return S_OK;
+        if (!args || FAILED(DevToolsGetKey(args, &key))) return S_OK;
+        if (key == 'P') {
+            const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            if (!ctrl || !shift || (GetKeyState(VK_MENU) & 0x8000)) return S_OK;
+            DevToolsPutHandled(args, true);
+            ToggleWindowPick();
+            return S_OK;
+        }
+        if (key != VK_F5) return S_OK;
         DevToolsPutHandled(args, true);
         RefreshInspectorSnapshot();
         return S_OK;
@@ -454,6 +463,8 @@ static void ResetRoute1State()
     if (g_focusOnUi) { reinterpret_cast<IUnknown*>(g_focusOnUi)->Release(); g_focusOnUi = nullptr; }
     if (g_focusNoticeUi) { reinterpret_cast<IUnknown*>(g_focusNoticeUi)->Release(); g_focusNoticeUi = nullptr; }
     if (g_focusNoticeTb) { reinterpret_cast<IUnknown*>(g_focusNoticeTb)->Release(); g_focusNoticeTb = nullptr; }
+    if (g_treeNoMatchUi) { reinterpret_cast<IUnknown*>(g_treeNoMatchUi)->Release(); g_treeNoMatchUi = nullptr; }
+    if (g_treeNoMatchTb) { reinterpret_cast<IUnknown*>(g_treeNoMatchTb)->Release(); g_treeNoMatchTb = nullptr; }
     if (g_pickRoute.IsWindowPickArmed()) { DevToolsOverlay_DisarmPick(); g_pickRoute.CancelWindowPick(); }
     if (g_hoverRevertTimer) { KillTimer(nullptr, g_hoverRevertTimer); g_hoverRevertTimer = 0; }
     if (g_focusActive) { DevToolsOverlay_SetFocusTracking(false); g_focusActive = false; }
