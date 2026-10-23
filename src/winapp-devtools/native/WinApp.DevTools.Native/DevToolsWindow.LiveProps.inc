@@ -140,7 +140,7 @@ static void LiveUnwatch()
 }
 
 static void UpdateSelectedTreePreview();
-static bool ReplaceLayoutSection(const DevToolsWindowLayout& layout);
+static void RedrawLayoutSectionFromRows(InstanceHandle wire);
 
 // Property rows whose values the Size & spacing section reads.
 static bool FeedsLayoutSection(const std::wstring& name)
@@ -188,11 +188,7 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
                 reinterpret_cast<IUnknown*>(value)->Release();
             }
         }
-        // The explanation is computed from these rows, so redraw it even if the geometry did not change.
-        if (layoutInputChanged && g_paneHaveLayout && g_ctx.layoutFn) {
-            DevToolsWindowLayout now;
-            if (g_ctx.layoutFn(g_live.wire, now) && ReplaceLayoutSection(now)) g_paneLayout = now;
-        }
+        if (layoutInputChanged) RedrawLayoutSectionFromRows(g_live.wire);
     }
     // The caption can change even when no shown row did (it may come from a property the pane does not list).
     UpdateSelectedTreePreview();
@@ -212,7 +208,12 @@ static bool SameLayout(const DevToolsWindowLayout& a, const DevToolsWindowLayout
            eq(a.offsetX, b.offsetX) && eq(a.offsetY, b.offsetY) &&
            eq(a.parentW, b.parentW) && eq(a.parentH, b.parentH) &&
            eq(a.inParentX, b.inParentX) && eq(a.inParentY, b.inParentY) &&
-           a.childIndex == b.childIndex && a.childCount == b.childCount;
+           a.childIndex == b.childIndex && a.childCount == b.childCount &&
+           a.haveActual == b.haveActual && eq(a.actualW, b.actualW) && eq(a.actualH, b.actualH) &&
+           a.parentType == b.parentType && a.parentOrientation == b.parentOrientation &&
+           a.parentSpacing == b.parentSpacing && a.parentPadding == b.parentPadding &&
+           a.gridRow == b.gridRow && a.gridColumn == b.gridColumn &&
+           a.gridRowSpan == b.gridRowSpan && a.gridColumnSpan == b.gridColumnSpan;
 }
 
 // Replaces only the Size & spacing section's contents, so the property rows, focus and scroll are untouched.
@@ -237,6 +238,15 @@ static bool ReplaceLayoutSection(const DevToolsWindowLayout& layout)
     } catch (...) {
         return false;
     }
+}
+
+// The section is drawn from the property rows too, so redraw it after one it reads changed, even when the
+// element's geometry did not.
+static void RedrawLayoutSectionFromRows(InstanceHandle wire)
+{
+    if (!g_paneHaveLayout || !g_ctx.layoutFn) return;
+    DevToolsWindowLayout now;
+    if (g_ctx.layoutFn(wire, now) && ReplaceLayoutSection(now)) g_paneLayout = now;
 }
 
 // A layout pass ran (the window resized, a sibling grew): re-read the selected element's layout and redraw

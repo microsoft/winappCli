@@ -916,6 +916,9 @@ static void* PaneRowChild(const std::wstring& prop, const wchar_t* childName)
     return nullptr;
 }
 
+static bool FeedsLayoutSection(const std::wstring& name);
+static void RedrawLayoutSectionFromRows(InstanceHandle wire);
+
 static bool RefreshCommittedValue(const std::wstring& prop)
 {
     std::vector<DevToolsCardRow> fresh;
@@ -942,6 +945,8 @@ static bool RefreshCommittedValue(const std::wstring& prop)
         PopulateRowValue(static_cast<IInspectable*>(value), *current);
         reinterpret_cast<IUnknown*>(value)->Release();
     }
+    // The live refresh will see this row already up to date, so redraw Size & spacing here.
+    if (FeedsLayoutSection(prop)) RedrawLayoutSectionFromRows(g_selWire);
     return true;
 }
 static int WirePropRepeater(void* fragFe)

@@ -264,6 +264,18 @@ int main()
     values[88]=L"";g_propRows={row};
     check(RefreshCommittedValue(row.name) && testValue.text.empty() && testFontStyle==0,
         "real empty String refresh removes prior absence styling");
+    {
+        int layoutReads=0;
+        g_ctx.layoutFn=[&](InstanceHandle,DevToolsWindowLayout&) { ++layoutReads; return true; };
+        g_paneHaveLayout=true;
+        RefreshCommittedValue(row.name);
+        check(layoutReads==0,"editing a property Size & spacing does not show leaves the section alone");
+        row.name=L"Padding";g_propRows={row};
+        RefreshCommittedValue(row.name);
+        check(layoutReads==1,"editing Padding redraws Size & spacing even though the live refresh will see no change");
+        g_ctx.layoutFn=nullptr;g_paneHaveLayout=false;
+        row.name=L"Text";g_propRows={row};
+    }
     g_ctx.rowsFn=[](InstanceHandle,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>&,std::wstring&,std::wstring&) {
         return false;
     };
@@ -476,6 +488,10 @@ int main()
             check(SameLayout(box,same),"an unchanged layout does not rebuild the pane");
             same.parentW=560;same.haveParentBox=true;
             check(!SameLayout(box,same),"a changed offered size rebuilds the pane");
+            same=box;same.parentSpacing=L"24";
+            check(!SameLayout(box,same),"a changed parent Spacing redraws Size & spacing");
+            same=box;same.gridColumn=L"1";
+            check(!SameLayout(box,same),"a changed Grid column redraws Size & spacing");
             check(!g_layoutBody && !ReplaceLayoutSection(same),
                 "with no Size & spacing section on screen, a layout change falls back to rebuilding the pane");
         }
