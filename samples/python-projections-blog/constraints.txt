@@ -1,0 +1,2 @@
+dynwinrt==0.1.0rc23
+dynwinrt-codegen==0.1.0rc23
