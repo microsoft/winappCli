@@ -650,17 +650,25 @@ static bool IsDeclaredElement(InstanceHandle h)
 }
 
 // Whether `node` was placed by whoever built the UI rather than by a control template: a ContentPresenter's
-// content, a UserControl's content, an item in an items panel, a popup's child, or the window's root. A
-// ScrollViewer's presenter does not count, because controls such as TextBox put their template parts there.
+// content, a UserControl's content, an item in an items panel or ItemsRepeater, a popup's child, or the window's
+// root. A ScrollViewer's content counts only when the ScrollViewer itself was placed: controls such as TextBox put
+// their template parts in a ScrollViewer of their own.
 static bool IsPlacedContent(DevToolsX::DependencyObject const& node, DevToolsX::DependencyObject const& parent)
 {
     if (auto element = node.try_as<DevToolsX::UIElement>()) {
         if (auto root = element.XamlRoot(); root && root.Content() == element) return true;
     }
     if (!parent) return true;
-    if (parent.try_as<DevToolsXC::ScrollContentPresenter>()) return false;
+    if (parent.try_as<DevToolsXC::ScrollContentPresenter>()) {
+        DevToolsX::DependencyObject scroller = parent;
+        for (int depth = 0; scroller && depth < 8 && !scroller.try_as<DevToolsXC::ScrollViewer>(); ++depth)
+            scroller = DevToolsXM::VisualTreeHelper::GetParent(scroller);
+        return scroller && scroller.try_as<DevToolsXC::ScrollViewer>() &&
+               IsPlacedContent(scroller, DevToolsXM::VisualTreeHelper::GetParent(scroller));
+    }
     if (auto presenter = parent.try_as<DevToolsXC::ContentPresenter>()) return presenter.Content() == node;
-    if (parent.try_as<DevToolsXC::UserControl>() || parent.try_as<DevToolsXCP::Popup>()) return true;
+    if (parent.try_as<DevToolsXC::UserControl>() || parent.try_as<DevToolsXCP::Popup>() ||
+        parent.try_as<DevToolsXC::ItemsRepeater>()) return true;
     if (auto panel = parent.try_as<DevToolsXC::Panel>()) return panel.IsItemsHost();
     return false;
 }
