@@ -114,9 +114,10 @@ HRESULT DevToolsOverlay_RecoverHost(IXamlDiagnostics* diag, DevToolsFindHostPane
                                   InstanceHandle* currentPanel);
 bool DevToolsOverlay_IsToolbarRequested();
 
-// Highlight a live app handle by probing the same hit-test path used by picking.
+// Highlight a live app handle by probing the same hit-test path used by picking. `preview` draws the lighter
+// hover outline (inspector tree hover) unless the target is already the selection.
 HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle rootHandle, InstanceHandle target,
-                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay);
+                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay, bool preview = false);
 
 // Commit selection chrome on the UI thread; hover callers use highlight-only state.
 HRESULT DevToolsOverlay_SelectHandle(IXamlDiagnostics* diag, InstanceHandle rootHandle, InstanceHandle target,

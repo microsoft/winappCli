@@ -797,11 +797,12 @@ static bool TryElementLayoutBox(IXamlDiagnostics* diag, InstanceHandle rootHandl
 // Highlight by handle on the UI thread. Prefer layout bounds, then bounded hit-test scanning only when geometry
 // is unavailable.
 HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle rootHandle, InstanceHandle target,
-                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay)
+                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay, bool preview)
 {
     (void)isOverlay;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::OverlayHighlight);
     if (!diag) return E_INVALIDARG;
+    preview = preview && target != g_selectedHandle;
 
     auto applied = [](InstanceHandle h) { g_lastHighlightHandle = h; TrackingSync(); NotifyStateChanged(); };
 
@@ -824,7 +825,7 @@ HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle r
         if (TryElementRootBounds(diag, rootHandle, target, &g, &noVisibleBox)) {
             DevToolsOverlayLog(L"overlay.highlight target=%llu geometric bounds L=%ld T=%ld R=%ld B=%ld",
                 (unsigned long long)target, g.left, g.top, g.right, g.bottom);
-            const HRESULT draw = DrawAdorner(diag, g.left, g.top, g.right - g.left, g.bottom - g.top, seed);
+            const HRESULT draw = DrawAdorner(diag, g.left, g.top, g.right - g.left, g.bottom - g.top, seed, preview);
             if (FAILED(draw)) return draw;
             g_lastPickBoundsDip = g;
             applied(target);
@@ -879,7 +880,7 @@ HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle r
         RECT b{ (LONG)L, (LONG)T, (LONG)(R + 1), (LONG)(B + 1) };
         DevToolsOverlayLog(L"overlay.highlight target=%llu seed=%ld,%ld bounds L=%ld T=%ld R=%ld B=%ld",
             (unsigned long long)target, seedX, seedY, b.left, b.top, b.right, b.bottom);
-        const HRESULT draw = DrawAdorner(diag, b.left, b.top, b.right - b.left, b.bottom - b.top, seed);
+        const HRESULT draw = DrawAdorner(diag, b.left, b.top, b.right - b.left, b.bottom - b.top, seed, preview);
         if (FAILED(draw)) return draw;
         g_lastPickBoundsDip = b;
         result = S_OK;
