@@ -583,23 +583,28 @@ try {
             Check-PropertyState 'Collapsed'
             $null = Invoke-Cli @('ui', 'screenshot', '-w', $inspectorWindow, '-o', (Join-Path $evidence 'property-header-collapsed.png'))
             $scale = [BindingOwnersGuard]::GetDpiForWindow([IntPtr][long]$inspectorWindow) / 96.0
+            $initialHeader = @(Nodes (Invoke-Cli @('ui', 'inspect', '-w', $inspectorWindow, '--depth', '40')).windows[0].elements |
+                Where-Object automationId -eq 'Opacity value')
+            Check ($initialHeader.Count -eq 1 -and $initialHeader[0].height -le 32 * $scale) 'property headers remain compact'
             foreach ($part in @('name', 'value', 'empty space', 'chevron')) {
                 $pane = Invoke-Cli @('ui', 'inspect', '-w', $inspectorWindow, '--depth', '40')
                 $headers = @(Nodes $pane.windows[0].elements | Where-Object automationId -eq 'Opacity value')
                 Check ($headers.Count -eq 1) 'one accessible header represents the property'
                 $header = $headers[0]
-                Check ($header.height -le 32 * $scale) 'property headers remain compact'
+                # A collapsed Expander's UIA bounds can include clipped content above its visible header.
+                $headerHeight = 26 * $scale
                 $offset = switch ($part) {
                     'name' { 24 * $scale }
                     'value' { 150 * $scale }
                     'empty space' { $header.width - 48 * $scale }
                     'chevron' { $header.width - 16 * $scale }
                 }
-                $point = '{0},{1}' -f [int]($header.x + $offset), [int]($header.y + $header.height / 2)
+                $point = '{0},{1}' -f [int]($header.x + $offset), [int]($header.y + $header.height - $headerHeight / 2)
                 $null = Invoke-Cli @('ui', 'click', '--at', $point, '-w', $inspectorWindow)
                 Check-PropertyState 'Expanded'
                 $null = Invoke-Cli @('ui', 'click', '--at', $point, '-w', $inspectorWindow)
                 Check-PropertyState 'Collapsed'
+                Start-Sleep -Milliseconds 400
             }
             $null = Invoke-Cli @('ui', 'send-keys', 'tab', '-w', $inspectorWindow, '--via', 'send-input')
             $null = Invoke-Cli @('ui', 'wait-for', 'Opacity value', '-w', $inspectorWindow,
