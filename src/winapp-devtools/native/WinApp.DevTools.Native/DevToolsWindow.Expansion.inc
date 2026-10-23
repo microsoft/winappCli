@@ -629,46 +629,6 @@ static bool EnsureExpansion(void* rowFe, const DevToolsCardRow& r, const std::ws
     return ok;
 }
 
-// Choose the editor by live Visibility; templated collapsed editors still exist in the namescope.
-static bool FocusExpansionEditor(void* rowFe, const std::wstring& path)
-{
-    static const wchar_t* const kFocusable[] =
-        { L"PEdit", L"PToggle", L"PCombo", L"PHex", L"PResKey", L"PPath" };
-    IInspectable* e = nullptr;
-    for (const wchar_t* nm : kFocusable) {
-        IInspectable* cand = FindInRow(rowFe, nm);
-        if (!cand) continue;
-        void* ui = nullptr;
-        bool visible = false;
-        if (SUCCEEDED(cand->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-            int vis = 1;
-            if (SUCCEEDED(DevToolsGetVisibility(ui, &vis))) visible = (vis == 0);
-            reinterpret_cast<IUnknown*>(ui)->Release();
-        }
-        if (visible && !e) { e = cand; continue; }
-        cand->Release();
-    }
-    // A multi-field row has no templated editor at all -- its boxes are created per wire label -- so the
-    // first box is the target and it is reachable only through the registry that created it.
-    if (!e) {
-        for (const FieldBoxRef& f : g_fieldBoxes)
-            if (f.path == path && f.index == 0 && f.box) { e = f.box; e->AddRef(); break; }
-    }
-    if (!e) return false;
-    void* ui = nullptr;
-    bool moved = false;
-    if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-        DevToolsFocus(ui, 2 /*Programmatic*/, &moved);
-        reinterpret_cast<IUnknown*>(ui)->Release();
-    }
-    e->Release();
-    // An editor that appeared but never took focus never raises LostFocus, so it would also never commit
-    // -- a row that opened and looks ready and is not.
-    if (!moved)
-        DevToolsOverlayLog(L"route1.props editor for '%s' did not take focus -- it will not commit", path.c_str());
-    return moved;
-}
-
 static void* BuildRowElement(const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
     IInspectable* tmpl = g_tmplRow;
@@ -939,8 +899,12 @@ static bool RefreshCommittedValue(const std::wstring& prop)
         g_propRowLabels[i] = std::move(label);
     }
     if (void* value = PaneRowChild(prop, L"PValue")) {
-        PopulateRowValue(static_cast<IInspectable*>(value), *current);
+        PopulateRowValue(static_cast<IInspectable*>(value), *current, prop);
         reinterpret_cast<IUnknown*>(value)->Release();
+    }
+    if (void* header = PaneRowChild(prop, L"PHeader")) {
+        NamePropertyHeader(static_cast<IInspectable*>(header), *current, prop);
+        reinterpret_cast<IUnknown*>(header)->Release();
     }
     return true;
 }

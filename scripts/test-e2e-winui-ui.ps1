@@ -483,6 +483,20 @@ if (-not $devPid) {
     $windows = (Invoke-Winapp @("ui", "list-windows", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
     $inspectorHwnd = [string](@($windows | Where-Object title -like "WinApp DevTools*")[0].hwnd)
     $mainHwnd = [string](@($windows | Where-Object { $_.title -notlike "WinApp DevTools*" })[0].hwnd)
+    try {
+        $titleBar = (Invoke-Winapp @("devtools", "search", "AppTitleBar", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
+        Assert-WinappSuccess "select TitleBar properties" @(
+            "devtools", "call", "Selection.select", "handle=$($titleBar.matches[0].handle)", "-a", "$devPid") | Out-Null
+        foreach ($value in @("Auto", "120", "Auto")) {
+            Assert-WinappSuccess "set TitleBar.Height to $value" @(
+                "devtools", "set-property", "AppTitleBar", "Height", $value, "-a", "$devPid") | Out-Null
+            Assert-WinappSuccess "Height header announces its current value $value" @(
+                "ui", "wait-for", "Height value", "-w", $inspectorHwnd,
+                "-p", "Name", "--value", "Height, $value", "-t", "5000") | Out-Null
+        }
+    } catch {
+        Write-TestFail "property accessible names include the current value" $_.Exception.Message
+    }
     for ($i = 0; $i -lt 10; $i++) {
         $null = Invoke-Winapp @("ui", "focus", "-w", $inspectorHwnd)
         $null = Invoke-Winapp @("ui", "focus", "-w", $mainHwnd)
