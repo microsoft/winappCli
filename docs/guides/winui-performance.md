@@ -135,6 +135,34 @@ incomplete evidence still produces a nonzero exit status.
 All text views omit the repeated interpretation disclaimers; use `--json` to
 include the structured `limitations` field.
 
+The default summary also reports the target's **window experience**: the first
+top-level window observation, first visible observation, first responsive
+observation, and any response-delay/recovery intervals in the selected range.
+For `run --profile`, observations begin when the recorder binds to the launched
+process. The default attach mode can miss early startup; elevated mode starts
+recording before launch. For `perf start`, the app is already running, so the
+values are only the first observations after capture readiness and are not
+startup timings.
+
+Every 250 ms, winapp enumerates top-level windows owned by the target PID. It
+checks at most one visible window with `SendMessageTimeout(WM_NULL)` and a
+100 ms timeout, rotating between windows when the app has more than one.
+After a window has responded at least once, a timeout records
+`response-delayed`; a later successful probe records `response-recovered`.
+This is sampled responsiveness evidence, not a Windows hang verdict or a
+root-cause diagnosis. A delay shorter than the cadence can be missed, and a
+busy UI thread can exceed the threshold without Windows declaring the app hung.
+Reported delay spans run between sampled probe timestamps, not the exact onset
+and recovery of the underlying condition. Interpret them with the reported
+250 ms sampling cadence and 100 ms response-probe timeout.
+Probe failures such as access denied are reported separately rather than as
+response delays. Window titles, UI text, and input values are not collected.
+
+With `--json`, these summary fields are under `windowExperience`. The underlying
+bounded transitions are stored in `capture.json` as `windowEvidence` and use the
+same QPC clock as ETW events and markers. If probing fails or reaches its event
+limit, the window summary is marked partial.
+
 | Category | What it includes |
 |---|---|
 | Parsing | Timed XAML parsing and component-loading scopes |
@@ -393,10 +421,11 @@ composition work, GPU execution, displayed FPS, or input-to-display latency.
 
 ## Files, privacy, and troubleshooting
 
-`capture.json` records identity, runtime provenance, limits, markers, process counter samples, actual ETL
-filenames, and stop/loss information. The standard `trace.etl` files are the raw
-evidence. Windows tools such as WPA or PerfView may need manifests matching the
-recorded WinUI runtime to interpret legacy events.
+`capture.json` records identity, runtime provenance, limits, markers, bounded
+window state transitions, process counter samples, actual ETL filenames, and
+stop/loss information. The standard `trace.etl` files are the raw evidence.
+Windows tools such as WPA or PerfView may need manifests matching the recorded
+WinUI runtime to interpret legacy events.
 
 Offline analysis requires a winapp capture directory, not an arbitrary ETL file.
 It creates a disposable `analysis` cache with `manifest.json`, `events.ndjson`,
@@ -413,8 +442,9 @@ That fallback can record additional informational GC, composition, or XAML diagn
 and increase overhead.
 
 Raw ETL and metadata can contain names, source paths, URIs, resource keys, and
-messages. Keep captures local and review them before sharing. A filtered query
-does not sanitize the raw files.
+messages. Window evidence does not read window titles, UI text, or input values.
+Keep captures local and review them before sharing. A filtered query does not
+sanitize the raw files.
 
 | Problem | Action |
 |---|---|
