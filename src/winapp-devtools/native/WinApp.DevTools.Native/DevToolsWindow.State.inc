@@ -196,8 +196,6 @@ static void CALLBACK HoverRevertProc(HWND, UINT, UINT_PTR id, DWORD)
                   (unsigned long long)g_selWire);
 }
 
-struct EditRow { std::wstring prop; std::wstring type; std::wstring original; IInspectable* box = nullptr; };
-static std::vector<EditRow> g_editRows;
 static IInspectable*        g_statusTb = nullptr;
 // Props-pane breadcrumb: the elided one-line chain and the full wrapped chain, both QI'd to IUIElement
 // and AddRef-held for the pane's lifetime so BreadcrumbSink can flip between them with put_Visibility.
@@ -213,9 +211,34 @@ static std::wstring         g_selBreadcrumb;
 static std::wstring         g_selSourceFile;
 static unsigned int         g_selSourceLine = 0;
 
-// Dirty tracking records what this pane changed because runtime local values cannot recover resource keys.
+// The element whose per-selection pane state (pending writes, lost links, staged kinds) is current.
 static InstanceHandle g_dirtyNode = 0;
-static std::vector<std::pair<std::wstring, std::wstring>> g_dirtySeed;
+
+// What Restore puts back, per element and property, for the whole session. Only the first edit records it.
+// Value: write `original` back. Unset: clear the local value. Resource: re-assign `key`; `original` is its markup.
+enum class DevToolsOriginal { Value, Unset, Resource };
+struct EditRecord
+{
+    InstanceHandle   wire = 0;
+    std::wstring     prop;
+    DevToolsOriginal kind = DevToolsOriginal::Value;
+    std::wstring     original;
+    std::wstring     key;
+    bool             theme = false;
+    // The value read back after DevTools' last write. A different value later means the app changed it, and
+    // putting the original back would undo the app's change rather than the user's.
+    std::wstring     baseline;
+    bool             needsBaseline = true;
+    // The element's ActualTheme when `baseline` was read, or -1 if unknown. A theme switch changes theme-following
+    // values without the app touching them, so a different theme takes a new baseline instead of dropping Restore.
+    int              baselineTheme = -1;
+};
+static std::vector<EditRecord> g_editRecords;
+// Properties whose record was dropped because the app changed the value after the user's edit, and the value the
+// app set, which is what a later edit's Restore must put back. `setHere` is false when the app's value isn't set on
+// the element (the app cleared it back to a style or default), so Restore clears the property instead.
+struct AppChange { InstanceHandle wire = 0; std::wstring prop; std::wstring value; bool setHere = true; };
+static std::vector<AppChange> g_appChanged;
 // Resolve a named child of the REALIZED row for `prop`, AddRef'd, or null when that row is not currently on
 // screen. Defined with the repeater below. Looked up live rather than cached because a virtualized row's
 // elements are released the moment it leaves the viewport, and a cached pointer would outlive the element.
@@ -299,9 +322,40 @@ static void ReleasePropFilterState()
 // somewhere other than this element's own declaration -- the exact set-in-code vs inherited distinction.
 static bool SourceIsSetHere(const std::wstring& s) { return s == L"Local" || s == L"Binding"; }
 
-static std::wstring* DirtyFind(const std::wstring& p) { for (auto& e : g_dirtySeed) if (e.first == p) return &e.second; return nullptr; }
+static EditRecord* RecordFind(InstanceHandle w, const std::wstring& p)
+{
+    for (auto& e : g_editRecords) if (e.wire == w && e.prop == p) return &e;
+    return nullptr;
+}
+static void RecordErase(InstanceHandle w, const std::wstring& p)
+{
+    for (size_t i = 0; i < g_editRecords.size(); ++i)
+        if (g_editRecords[i].wire == w && g_editRecords[i].prop == p) { g_editRecords.erase(g_editRecords.begin() + i); return; }
+}
+static EditRecord* DirtyFind(const std::wstring& p) { return RecordFind(g_selWire, p); }
 static bool DirtyHas(const std::wstring& p) { return DirtyFind(p) != nullptr; }
-static void DirtyErase(const std::wstring& p) { for (size_t i = 0; i < g_dirtySeed.size(); ++i) if (g_dirtySeed[i].first == p) { g_dirtySeed.erase(g_dirtySeed.begin() + i); return; } }
+static void DirtyErase(const std::wstring& p) { RecordErase(g_selWire, p); }
+static const AppChange* AppChangedFind(InstanceHandle w, const std::wstring& p)
+{
+    for (const auto& e : g_appChanged) if (e.wire == w && e.prop == p) return &e;
+    return nullptr;
+}
+static bool AppChanged(InstanceHandle w, const std::wstring& p) { return AppChangedFind(w, p) != nullptr; }
+static void AppChangedErase(InstanceHandle w, const std::wstring& p)
+{
+    for (size_t i = 0; i < g_appChanged.size(); ++i)
+        if (g_appChanged[i].wire == w && g_appChanged[i].prop == p) { g_appChanged.erase(g_appChanged.begin() + i); return; }
+}
+// After an app change, the next edit replaces what the app set, not the element's old resource or authored value.
+static bool OriginalFromAppChange(InstanceHandle w, const std::wstring& p, EditRecord& out)
+{
+    const AppChange* app = AppChangedFind(w, p);
+    if (!app) return false;
+    out = EditRecord{};
+    out.wire = w; out.prop = p; out.original = app->value;
+    out.kind = app->setHere ? DevToolsOriginal::Value : DevToolsOriginal::Unset;
+    return true;
+}
 
 static std::vector<std::wstring> g_bindingLost;
 static bool BindingLost(const std::wstring& p) { for (const auto& e : g_bindingLost) if (e == p) return true; return false; }
