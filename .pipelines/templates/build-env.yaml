@@ -31,6 +31,17 @@ steps:
     inputs:
       version: '24.x'
 
+  - task: UsePythonVersion@0
+    displayName: Setup Python 3.12
+    inputs:
+      versionSpec: '3.12'
+      architecture: x64
+
+  - pwsh: |
+      Write-Host "##vso[task.setvariable variable=PIP_INDEX_URL]https://packagefeedproxy.microsoft.io/pypi/simple/"
+      Write-Host "##vso[task.setvariable variable=PIP_DEFAULT_TIMEOUT]60"
+    displayName: Add release Python source
+
   - script: |
       if not exist "%APPDATA%\NuGet" mkdir "%APPDATA%\NuGet"
       copy /Y $(Build.SourcesDirectory)\.pipelines\release-nuget.config "%APPDATA%\NuGet\NuGet.Config"
