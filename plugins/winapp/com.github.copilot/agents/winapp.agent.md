@@ -20,6 +20,7 @@ Each skill has the exact commands, flags, and failure handling. Load it before a
 | .NET MAUI Windows packaging | `winapp-maui` |
 | Find or verify a Windows/WinRT/Windows App SDK API, enum, or member | `winapp-find-api` |
 | Find a WinUI control and a working sample | `winapp-find-ui` |
+| Search official docs and WinUI samples for a Windows development question | `winapp-ask` |
 | Inspect or drive a running app's UI, screenshots | `winapp-ui-automation` |
 | Investigate slow WinUI 3 layout, scrolling, rendering, or managed GC pauses | `winapp-performance` |
 | Run or test in Windows Sandbox | `winapp-sandbox` |

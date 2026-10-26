@@ -198,6 +198,7 @@ parse, that's winapp's extraction — report it here instead.
 
 ## Related skills
 
+- **winapp-ask** — combine samples with official docs for broader Windows development questions. See the [ask reference](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#ask) before sending a question.
 - **winapp-ui-automation** — inspect and drive a *running* app's UI tree (a
   different job from discovering controls to write).
 

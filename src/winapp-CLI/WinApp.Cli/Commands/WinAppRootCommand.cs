@@ -82,6 +82,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         CreateExternalCatalogCommand createExternalCatalogCommand,
         CompleteCommand completeCommand,
         FindUiCommand findUiCommand,
+        AskCommand askCommand,
         UiCommand uiCommand,
         GuestAgentCommand guestAgentCommand,
         GuestDesktopCaptureCommand guestDesktopCaptureCommand,
@@ -109,6 +110,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(msStoreCommand);
         Subcommands.Add(createExternalCatalogCommand);
         Subcommands.Add(findUiCommand);
+        Subcommands.Add(askCommand);
         Subcommands.Add(uiCommand);
         Subcommands.Add(findApiCommand);
         if (perfCommand is not null)
@@ -143,7 +145,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         helpOption.Action = new CustomHelpAction(this, ansiConsole,
             ("Get Started", [typeof(NewCommand), typeof(InitCommand), typeof(RestoreCommand), typeof(UpdateCommand)]),
             ("Run & Debug", [typeof(RunCommand), typeof(CreateDebugIdentityCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
-            ("Discovery", [typeof(FindUiCommand), typeof(FindApiCommand)]),
+            ("Discovery", [typeof(AskCommand), typeof(FindUiCommand), typeof(FindApiCommand)]),
             ("UI Automation", [typeof(UiCommand)]),
             ("Performance", [typeof(PerfCommand)]),
             ("Package, Sign & Publish", [typeof(PackageCommand), typeof(ManifestCommand), typeof(CertCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(MSStoreCommand)]),
