@@ -17,7 +17,10 @@ BeforeAll {
         Set-Content "$root\plugin.json" '{"version":"1.2.3","skills":["plugins/winapp/skills"],"agents":["plugins/winapp/com.github.copilot/agents/winapp.agent.md"]}'
         Set-Content "$root\plugins\winapp\plugin.json" '{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"winapp","version":"1.2.3"}'
         Set-Content "$root\plugins\winapp\.claude-plugin\plugin.json" '{"version":"1.2.3","agents":["com.github.copilot/agents/winapp.agent.md"]}'
-        Set-Content "$root\.github\plugin\marketplace.json", "$root\.claude-plugin\marketplace.json" '{"version":"1.2.3"}'
+        $entries = '{"version":"1.2.3","plugins":[{"name":"winappcli","version":"1.2.3","source":"./plugins/winapp"},{"name":"winui","version":"1.2.3","source":"./plugins/winui"}]}'
+        Set-Content "$root\.github\plugin\marketplace.json", "$root\.claude-plugin\marketplace.json" $entries
+        New-Item -ItemType Directory -Path "$root\.agents\plugins" -Force | Out-Null
+        Set-Content "$root\.agents\plugins\marketplace.json" '{"name":"fixture","plugins":[{"name":"winui","source":{"source":"local","path":"./plugins/winui"}}]}'
         foreach ($winui in @('agent-plugin', '.claude-plugin', '.codex-plugin')) {
             Set-Content "$root\plugins\winui\$winui\plugin.json" '{"name":"winui","version":"1.2.3"}'
         }
