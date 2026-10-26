@@ -1,0 +1,155 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+#include <Windows.h>
+#include <UIAutomation.h>
+#include <wrl/client.h>
+#include <cstdio>
+#include <cstdlib>
+#include <stdexcept>
+#include <string>
+
+using Microsoft::WRL::ComPtr;
+
+static void Require(HRESULT hr)
+{
+    if (FAILED(hr)) throw std::runtime_error("UI Automation call failed: " + std::to_string(hr));
+}
+
+static ComPtr<IUIAutomationElement> Find(IUIAutomation* automation, IUIAutomationElement* root, const wchar_t* id)
+{
+    VARIANT value;
+    VariantInit(&value);
+    value.vt = VT_BSTR;
+    value.bstrVal = SysAllocString(id);
+    ComPtr<IUIAutomationCondition> condition;
+    const HRESULT hr = automation->CreatePropertyCondition(UIA_AutomationIdPropertyId, value, &condition);
+    VariantClear(&value);
+    Require(hr);
+    ComPtr<IUIAutomationElement> element;
+    Require(root->FindFirst(TreeScope_Subtree, condition.Get(), &element));
+    if (!element) throw std::runtime_error("Required inspector element was not found");
+    return element;
+}
+
+static std::wstring Id(IUIAutomationElement* element)
+{
+    if (!element) return L"(null)";
+    BSTR id = nullptr;
+    Require(element->get_CurrentAutomationId(&id));
+    const std::wstring result = id ? id : L"";
+    SysFreeString(id);
+    return result;
+}
+
+static unsigned checks = 0, failures = 0;
+
+static void CheckParent(IUIAutomationTreeWalker* walker, IUIAutomationElement* row,
+                        const wchar_t* expected, const char* phase)
+{
+    ComPtr<IUIAutomationElement> parent;
+    std::wstring actual;
+    const ULONGLONG deadline = GetTickCount64() + 3000;
+    do {
+        parent.Reset();
+        Require(walker->GetParentElement(row, &parent));
+        actual = Id(parent.Get());
+        if (actual == expected) break;
+        Sleep(20);
+    } while (GetTickCount64() < deadline);
+    ++checks;
+    if (actual != expected) {
+        ++failures;
+        std::wprintf(L"FAIL %hs: %ls parent is %ls, expected %ls\n",
+            phase, Id(row).c_str(), actual.c_str(), expected);
+    }
+}
+
+static void SetFilter(IUIAutomationValuePattern* filter, const wchar_t* query)
+{
+    BSTR value = SysAllocString(query);
+    const HRESULT hr = filter->SetValue(value);
+    SysFreeString(value);
+    Require(hr);
+}
+
+static void CheckNextSibling(IUIAutomationTreeWalker* walker, IUIAutomationElement* row, const wchar_t* expected)
+{
+    std::wstring actual;
+    const ULONGLONG deadline = GetTickCount64() + 3000;
+    do {
+        ComPtr<IUIAutomationElement> sibling;
+        Require(walker->GetNextSiblingElement(row, &sibling));
+        actual = Id(sibling.Get());
+        if (actual == expected) break;
+        Sleep(20);
+    } while (GetTickCount64() < deadline);
+    ++checks;
+    if (actual != expected) {
+        ++failures;
+        std::wprintf(L"FAIL filtered sibling: %ls next sibling is %ls, expected %ls\n",
+            Id(row).c_str(), actual.c_str(), expected);
+    }
+}
+
+static int Run(HWND hwnd)
+{
+    ComPtr<IUIAutomation> automation;
+    Require(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&automation)));
+    ComPtr<IUIAutomationTreeWalker> walker;
+    Require(automation->get_ControlViewWalker(&walker));
+    ComPtr<IUIAutomationElement> window;
+    Require(automation->ElementFromHandle(hwnd, &window));
+    auto tree = Find(automation.Get(), window.Get(), L"WinAppDevToolsTree");
+    auto title = Find(automation.Get(), tree.Get(), L"TreeNode1");
+    auto branch = Find(automation.Get(), tree.Get(), L"TreeNode3");
+    auto child = Find(automation.Get(), tree.Get(), L"TreeNode6");
+    auto firstText = Find(automation.Get(), tree.Get(), L"TreeNode4");
+    auto secondText = Find(automation.Get(), tree.Get(), L"TreeNode5");
+    auto filterElement = Find(automation.Get(), window.Get(), L"TreeFilter");
+    ComPtr<IUIAutomationValuePattern> filter;
+    Require(filterElement->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(&filter)));
+
+    CheckParent(walker.Get(), branch.Get(), L"TreeNode2", "initial branch");
+    CheckParent(walker.Get(), child.Get(), L"TreeNode3", "initial child");
+    try {
+        // Keep the same row providers; never enumerate downward after changing the filter.
+        for (int pass = 0; pass < 2; ++pass) {
+            SetFilter(filter.Get(), L"StackPanel");
+            CheckParent(walker.Get(), branch.Get(), L"WinAppDevToolsTree", "filtered branch");
+            CheckParent(walker.Get(), child.Get(), L"TreeNode3", "filtered child");
+            SetFilter(filter.Get(), L"");
+            CheckParent(walker.Get(), branch.Get(), L"TreeNode2", "restored branch");
+            CheckParent(walker.Get(), child.Get(), L"TreeNode3", "restored child");
+            SetFilter(filter.Get(), L"AppTitleBar");
+            CheckParent(walker.Get(), title.Get(), L"WinAppDevToolsTree", "filtered leaf");
+            SetFilter(filter.Get(), L"");
+            CheckParent(walker.Get(), title.Get(), L"TreeNode0", "restored leaf");
+            SetFilter(filter.Get(), L"TextBlock");
+            CheckNextSibling(walker.Get(), firstText.Get(), L"TreeNode5");
+            CheckNextSibling(walker.Get(), secondText.Get(), L"TreeNode8");
+            SetFilter(filter.Get(), L"");
+        }
+    } catch (...) {
+        SetFilter(filter.Get(), L"");
+        throw;
+    }
+    std::printf("Tree parent navigation: checks=%u passed=%u failed=%u\n", checks, checks - failures, failures);
+    return failures ? 1 : 0;
+}
+
+int wmain(int argc, wchar_t** argv)
+{
+    if (argc != 2) return 2;
+    const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hr)) return 2;
+    int result;
+    try {
+        result = Run(reinterpret_cast<HWND>(_wcstoui64(argv[1], nullptr, 0)));
+    } catch (const std::exception& error) {
+        std::printf("FAIL tree parent navigation: %s\n", error.what());
+        result = 1;
+    }
+    CoUninitialize();
+    return result;
+}

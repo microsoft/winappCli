@@ -7,7 +7,11 @@ static HRESULT FindTestName(void*, HSTRING, IInspectable**);
 static HRESULT PutTestText(void*, HSTRING);
 static HRESULT GetTestElement(void*, int, IInspectable**);
 static HRESULT GetTestToggle(void*, bool*);
-static HRESULT PutTestVisibility(void*, int) { return S_OK; }
+static HRESULT PutTestVisibility(void*, int);
+static HRESULT PutTestChecked(void*, IInspectable*);
+static HRESULT PutTestEnabled(void*, bool);
+static bool focusTrackingAvailable = true;
+static bool TestSetFocusTracking(bool) { return focusTrackingAvailable; }
 static int testFontStyle = -1;
 static HRESULT PutTestFontStyle(void*, int style) { testFontStyle=style; return S_OK; }
 static HRESULT PutTestForeground(void*, void*) { return S_OK; }
@@ -27,6 +31,9 @@ static HRESULT TestViewport(void*, double* value) { *value = testViewport; retur
 #define DevToolsRepeaterTryGetElement GetTestElement
 #define DevToolsToggleGetIsOn GetTestToggle
 #define DevToolsPutVisibility PutTestVisibility
+#define DevToolsToggleButtonPutIsChecked PutTestChecked
+#define DevToolsPutIsEnabled PutTestEnabled
+#define DevToolsOverlay_SetFocusTracking TestSetFocusTracking
 #define DevToolsPutFontStyle PutTestFontStyle
 #define DevToolsPutTextForeground PutTestForeground
 #define DevToolsFocus TestFocus
@@ -43,6 +50,9 @@ static HRESULT TestViewport(void*, double* value) { *value = testViewport; retur
 struct TestElement : IInspectable {
     ULONG refs = 1;
     std::wstring text;
+    bool checked = false;
+    bool enabled = true;
+    int visibility = 1;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** value) override {
         *value=static_cast<IInspectable*>(this); AddRef(); return S_OK;
     }
@@ -52,6 +62,23 @@ struct TestElement : IInspectable {
     HRESULT STDMETHODCALLTYPE GetRuntimeClassName(HSTRING* value) override { *value=nullptr; return S_OK; }
     HRESULT STDMETHODCALLTYPE GetTrustLevel(TrustLevel* value) override { *value=BaseTrust; return S_OK; }
 };
+static HRESULT PutTestVisibility(void* element, int value)
+{
+    static_cast<TestElement*>(element)->visibility = value;
+    return S_OK;
+}
+static HRESULT PutTestChecked(void* element, IInspectable* value)
+{
+    winrt::Windows::Foundation::IInspectable boxed{nullptr};
+    winrt::copy_from_abi(boxed, value);
+    static_cast<TestElement*>(element)->checked = boxed.as<winrt::Windows::Foundation::IPropertyValue>().GetBoolean();
+    return S_OK;
+}
+static HRESULT PutTestEnabled(void* element, bool value)
+{
+    static_cast<TestElement*>(element)->enabled = value;
+    return S_OK;
+}
 static TestElement testRow, testValue, testStatus, testInput;
 static TestElement testAppWindow, testCaption;
 static HRESULT appWindowResult = S_OK, captionResult = S_OK, addThemeResult = S_OK, putThemeResult = S_OK;
@@ -124,8 +151,112 @@ static LRESULT CALLBACK TestNativeClose(HWND, UINT message, WPARAM, LPARAM)
 
 int main()
 {
+    winrt::init_apartment();
     unsigned checks=0, failed=0, writes=0;
     auto check=[&](bool ok,const char* name){++checks;if(!ok){++failed;std::printf("FAIL %s\n",name);}};
+    {
+        TestElement pickButton, pickIndicator, focusButton, focusIndicator;
+        g_pickBtnCtrl = &pickButton; g_pickOnUi = &pickIndicator;
+        g_focusBtnCtrl = &focusButton; g_focusOnUi = &focusIndicator;
+        for (bool on : {true, false}) {
+            SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, on);
+            check(pickButton.checked == on && pickIndicator.visibility == (on ? 0 : 1),
+                "pick checked state and active indicator follow the actual mode");
+        }
+        FocusSink focus; focus.Init();
+        focusButton.checked = true;
+        focusTrackingAvailable = false;
+        focus.Invoke(nullptr, nullptr);
+        check(!g_focusActive && !focusButton.checked && focusIndicator.visibility == 1,
+            "failed focus activation restores the unchecked state");
+        focusTrackingAvailable = true;
+        focusButton.checked = true;
+        focus.Invoke(nullptr, nullptr);
+        check(g_focusActive && focusButton.checked && focusIndicator.visibility == 0,
+            "focus activation checks the button and shows its indicator");
+        focusButton.checked = false;
+        focus.Invoke(nullptr, nullptr);
+        check(!g_focusActive && !focusButton.checked && focusIndicator.visibility == 1,
+            "focus deactivation unchecks the button and hides its indicator");
+        focus.Invoke(nullptr, nullptr);
+        ResetAppVisibleModes(nullptr);
+        check(!g_focusActive && !focusButton.checked && focusIndicator.visibility == 1,
+            "closing the inspector clears focus mode and its accessible state");
+        g_pickBtnCtrl = g_pickOnUi = g_focusBtnCtrl = g_focusOnUi = nullptr;
+    }
+    {
+        TestElement first, second;
+        g_selBrushTried = true;
+        SelectRowVisual(&first);
+        check(g_selCtrl == &first && first.refs == 2,
+            "tree selection is tracked even when selection brushes are unavailable");
+        SelectRowVisual(&second);
+        check(g_selCtrl == &second && first.refs == 1 && second.refs == 2,
+            "changing tree selection releases the old row and retains the new row");
+        g_selectedWire = 77;
+        SelectNodeByWire(0);
+        check(!g_selCtrl && !g_selectedWire && second.refs == 1,
+            "clearing the selected element clears tree selection and releases the retained row");
+        g_selBrushTried = false;
+    }
+    {
+        TestElement rows[5], expander, glyph;
+        for (auto& row : rows) {
+            g_treeRows.push_back(&row);
+            g_treeControls.push_back(&row);
+        }
+        g_treeDepth = {0, 1, 1, 2, 2};
+        g_treeAppAuthored = {1, 1, 1, 1, 1};
+        g_treeShortType = {L"Grid", L"TitleBar", L"Grid", L"Button", L"TextBlock"};
+        g_treeLabel = {L"grid", L"titlebar", L"grid", L"button", L"textblock"};
+        g_treeCollapsed = {1, 0, 0, 0, 0};
+        g_treeVisible.resize(5);
+        g_treeA11y.resize(5);
+        g_treeA11y[0].branch = g_treeA11y[2].branch = true;
+        g_treeAutomationParents = {DevToolsTreeLayout::kNoRow, 0, 0, 2, 2};
+        g_treeChevronToggle = {&expander, nullptr, nullptr, nullptr, nullptr};
+        g_treeGlyph = {&glyph, nullptr, nullptr, nullptr, nullptr};
+        check(!HandleTreeRowKey(0, VK_RETURN) && !HandleTreeRowKey(0, VK_SPACE),
+            "tree rows leave Enter and Space to Button selection");
+        RecomputeTreeVisibility();
+        check(HandleTreeRowKey(0, VK_RIGHT) && !g_treeCollapsed[0] &&
+              g_treeVisible == std::vector<char>({1, 1, 1, 1, 1}),
+            "Right arrow expands a collapsed row and reveals its descendants");
+        const unsigned beforeFocus = focusCalls;
+        check(HandleTreeRowKey(0, VK_RIGHT) && focusCalls == beforeFocus + 1 && !g_selCtrl,
+            "Right arrow on an expanded row focuses its first child without selecting it");
+        check(HandleTreeRowKey(1, VK_LEFT) && focusCalls == beforeFocus + 2 && !g_selCtrl,
+            "Left arrow on a leaf focuses its parent without selecting it");
+        check(HandleTreeRowKey(0, VK_LEFT) && g_treeCollapsed[0] &&
+              g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
+            "Left arrow collapses an expanded row and hides its descendants");
+        ApplyTreeFilter(L"Grid");
+        const auto filteredVisibility = g_treeVisible;
+        const auto filteredCollapse = g_treeCollapsed;
+        check(filteredVisibility == std::vector<char>({1, 0, 1, 0, 0}) && !expander.enabled,
+            "filtering shows all matches across collapsed branches and disables expand arrows");
+        check(!SetTreeRowExpanded(0, true) && !SetTreeRowExpanded(0, false) &&
+              g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse &&
+              g_treeFilterQuery == L"grid",
+            "provider expansion and collapse preserve the active filter and saved collapse state");
+        ChevronSink chevron; chevron.Init(0);
+        chevron.Invoke(nullptr, nullptr);
+        check(g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse,
+            "a chevron callback cannot expose nonmatching rows while filtering");
+        check(HandleTreeRowKey(0, VK_RIGHT) && HandleTreeRowKey(2, VK_LEFT) &&
+              g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse && !g_selCtrl,
+            "arrow keys navigate filtered matches without changing expansion or selection");
+        ApplyTreeFilter(L"");
+        check(expander.enabled && g_treeCollapsed[0] && g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
+            "clearing the filter restores the saved collapse state and enables expand arrows");
+        check(HandleTreeRowKey(0, VK_RIGHT) && !g_treeCollapsed[0] && g_treeVisible[1],
+            "keyboard expansion works again after clearing the filter");
+        g_treeRows.clear(); g_treeControls.clear(); g_treeDepth.clear(); g_treeAppAuthored.clear();
+        g_treeShortType.clear(); g_treeLabel.clear(); g_treeCollapsed.clear(); g_treeVisible.clear();
+        g_treeA11y.clear(); g_treeAutomationParents.clear(); g_treeChevronToggle.clear();
+        g_treeGlyph.clear(); g_treeViewDepth.clear();
+        focusCalls = 0;
+    }
     {
         // Only open comments are pushed; with none open but some resolved, the pane must not claim there are none.
         size_t open = 0;
