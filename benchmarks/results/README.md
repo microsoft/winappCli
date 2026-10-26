@@ -19,6 +19,7 @@ file names.
   "status": "completed",
   "passed": true,
   "result": {
+    "summary": { "requiredMet": 2, "requiredTotal": 2, "improvementsMet": 0, "improvementsTotal": 1 },
     "checks": [
       { "id": "msix-built", "required": true, "passed": true, "detail": "C:\\src\\TaskBoard\\bin\\TaskBoard.msix" },
       { "id": "msix-trusted", "required": false, "passed": false, "detail": "the certificate is not in a trusted store" },
