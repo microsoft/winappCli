@@ -10,7 +10,7 @@
     "websocket": "1.0.34"
   },
   "devDependencies": {
-    "electron": "41.10.6",
+    "electron": "42.11.16",
     "electron-builder": "24.4.0"
   }
 }
