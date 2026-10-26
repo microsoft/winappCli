@@ -102,7 +102,7 @@ if ($Validate) {
     foreach ($t in $tasks) {
         foreach ($mode in 'solve', 'noop') {
             if ($mode -eq 'solve' -and -not $t.Solve) { continue }
-            $runList.Add([pscustomobject]@{ Task = $t; Configuration = 'none'; Model = $mode; Iteration = 1; Mode = $mode })
+            $runList.Add([pscustomobject]@{ Task = $t; Configuration = 'cli-only'; Model = $mode; Iteration = 1; Mode = $mode })
         }
     }
 }
@@ -324,7 +324,7 @@ try {
         Copy-Item $t.Check (Join-Path $check 'check.ps1')
         [ordered]@{
             runId = $runId; task = $t.Id; mode = $run.Mode; prompt = $t.Prompt; model = $run.Model; agent = $spec.Agent
-            plugins = @($spec.Plugins); copilotVersion = $pinned; timeoutMinutes = $t.TimeoutMinutes; workspace = $t.Workspace
+            plugins = @($spec.Plugins); hideWinapp = [bool]($spec.HideWinapp -and $run.Mode -eq 'agent'); copilotVersion = $pinned; timeoutMinutes = $t.TimeoutMinutes; workspace = $t.Workspace
         } | ConvertTo-Json | Set-Content (Join-Path $in 'run.json') -Encoding utf8NoBOM
 
         $record = [ordered]@{

@@ -147,7 +147,16 @@ Describe 'Configurations and sandbox configuration' {
         (Get-ConfigurationSpec 'both-agent').Plugins | Should -Be @('winapp', 'winui')
         (Get-ConfigurationSpec 'both-agent').Agent | Should -Be 'winappcli:winapp'
         (Get-ConfigurationSpec 'none').Plugins | Should -BeNullOrEmpty
+        (Get-ConfigurationSpec 'cli-only').Plugins | Should -BeNullOrEmpty
+        (Get-ConfigurationSpec 'cli-plus-plugins').Plugins | Should -Be @('winapp', 'winui')
+        { Get-ConfigurationSpec 'both' } | Should -Throw
         { Get-ConfigurationSpec 'bogus' } | Should -Throw
+    }
+    It 'hides winapp from the agent only in none' {
+        (Get-ConfigurationSpec 'none').HideWinapp | Should -BeTrue
+        foreach ($name in 'cli-only', 'cli-plus-plugins', 'winapp', 'winui', 'both-agent') {
+            (Get-ConfigurationSpec $name).HideWinapp | Should -BeFalse
+        }
     }
     It 'writes read-only and writable mapped folders and escapes paths' {
         $xml = [xml](New-SandboxConfiguration -Maps @(

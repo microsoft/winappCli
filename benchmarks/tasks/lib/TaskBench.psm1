@@ -5,11 +5,14 @@ Set-StrictMode -Version Latest
 # secret scrubbing, and the summary.
 
 $script:Configurations = [ordered]@{
-    'none'       = @{ Plugins = @(); Agent = $null }
-    'winapp'     = @{ Plugins = @('winapp'); Agent = $null }
-    'winui'      = @{ Plugins = @('winui'); Agent = $null }
-    'both'       = @{ Plugins = @('winapp', 'winui'); Agent = $null }
-    'both-agent' = @{ Plugins = @('winapp', 'winui'); Agent = 'winappcli:winapp' }
+    # The three arms. HideWinapp removes winapp from the agent's PATH only; setup and checks still run it.
+    'none'             = @{ Plugins = @(); Agent = $null; HideWinapp = $true }
+    'cli-only'         = @{ Plugins = @(); Agent = $null; HideWinapp = $false }
+    'cli-plus-plugins' = @{ Plugins = @('winapp', 'winui'); Agent = $null; HideWinapp = $false }
+    # Debugging configurations; not part of the three arms.
+    'winapp'           = @{ Plugins = @('winapp'); Agent = $null; HideWinapp = $false }
+    'winui'            = @{ Plugins = @('winui'); Agent = $null; HideWinapp = $false }
+    'both-agent'       = @{ Plugins = @('winapp', 'winui'); Agent = 'winappcli:winapp'; HideWinapp = $false }
 }
 
 function Get-ConfigurationNames { return @($script:Configurations.Keys) }
@@ -18,7 +21,7 @@ function Get-ConfigurationSpec {
     param([Parameter(Mandatory)][string]$Name)
     if (-not $script:Configurations.Contains($Name)) { throw "Unknown configuration '$Name'. Use one of: $($script:Configurations.Keys -join ', ')." }
     $c = $script:Configurations[$Name]
-    return [pscustomobject]@{ Name = $Name; Plugins = @($c.Plugins); Agent = $c.Agent }
+    return [pscustomobject]@{ Name = $Name; Plugins = @($c.Plugins);     Agent = $c.Agent; HideWinapp = [bool]$c.HideWinapp }
 }
 
 function Get-TaskDefinitions {
@@ -286,9 +289,9 @@ function Write-TaskSummary {
         $f = $g.Group[0]; & $line "| $($f.task) | $($f.configuration) $(& $fmt (Get-RunGroupRow $g.Group))"
     }
     & $line
-    & $line '## Versus no plugins'
+    & $line '## Versus none'
     & $line
-    & $line 'Paired by task, model, and iteration with the `none` run. Positive score means the plugins helped.'
+    & $line 'Paired by task, model, and iteration with the `none` run (no `winapp`, no plugins). Positive score means the configuration did better than `none`.'
     & $line
     & $line '| Configuration | Model | Pairs | Score Δ | Pass (config / none) | Minutes Δ | Credits Δ | Output tok Δ |'
     & $line '|---|---|---:|---:|---|---:|---:|---:|'

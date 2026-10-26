@@ -101,6 +101,11 @@ try {
     # --- The agent (or, for checker validation, the reference solution or nothing).
     $result.phase = 'agent'
     Save-Result
+    if ($run.hideWinapp) {
+        # Setup and the baseline already ran winapp. From here the agent's processes inherit a PATH without it.
+        $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and $_.TrimEnd('\') -ne 'C:\Program Files\WinAppCli' }) -join ';'
+        Write-Log 'winapp hidden from the agent PATH'
+    }
     switch ($run.mode) {
         'agent' {
             $agentArgs = @('-p', $run.prompt, '--model', $run.model, '--output-format', 'json', '--stream', 'off',

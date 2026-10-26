@@ -1,6 +1,6 @@
 {
   "models": ["claude-sonnet-5.5", "claude-opus-5.5", "gpt-6.1-sol"],
-  "configurations": ["none", "winapp", "winui", "both", "both-agent"],
+  "configurations": ["none", "cli-only", "cli-plus-plugins"],
   "iterations": 2,
   "copilotVersion": null,
   "sandboxMemoryMB": 8192,
