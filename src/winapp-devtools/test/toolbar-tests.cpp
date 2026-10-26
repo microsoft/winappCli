@@ -64,6 +64,8 @@ static void TestToolbarContract()
     Check(!windowShell.empty(), "window-shell.xaml is readable");
     Check(!overlay.empty(), "DevToolsOverlay.cpp is readable");
     Check(!window.empty(), "DevToolsWindow.cpp is readable");
+    Check(CountOf(windowShell, "<Border x:Name=\"PExpFrame\" Padding=\"8\" Background=\"Transparent\">") == 2,
+                 "editable and read-only Expander content has padding without an extra frame or fill");
     Check(CountOf(selectionPanel, "AutomationProperties.AutomationId=\"DevToolsSelCommentSave\"") == 1 &&
                      selectionPanel.find("AutomationProperties.Name=\"Save comment\"") != std::string::npos &&
                      overlay.find("g_selCommentSaveSink.Bind(&IID_RoutedEventHandler_Del, &OnSelCommentSaveClick)") != std::string::npos,
@@ -333,15 +335,12 @@ static void TestToolbarContract()
                      window.find("else if (ek == L\"color\")  { show = L\"PEdColor\";") != std::string::npos &&
                      window.find("DevToolsIsBoolType(r.type)") == std::string::npos,
                  "a Literal's editor follows the tap's editKind, not a second taxonomy in the window");
-    // AN {x:Bind} ROW HAS NO EDITABLE FIELD. PXExpr is a TextBlock, so there is nothing on the row that can
-    // take a keystroke -- and it is deliberately absent from the focus list, so clicking the value opens the
-    // row and focuses nothing instead of landing a caret in something read-only.
+    // An {x:Bind} expression stays read-only and keeps its exit action.
+    // The window runtime tests check that expansion leaves focus on the header.
     Check(windowShell.find("<TextBlock x:Name=\"PXExpr\"") != std::string::npos &&
                      windowShell.find("<TextBox x:Name=\"PXExpr\"") == std::string::npos &&
-                     windowShell.find("x:Name=\"PXBindExit\"") != std::string::npos &&
-                     window.find("{ L\"PEdit\", L\"PToggle\", L\"PCombo\", L\"PHex\", L\"PResKey\", L\"PPath\" };")
-                         != std::string::npos,
-                 "an {x:Bind} row's expression is a TextBlock, it carries an exit, and it is not a focus target");
+                     windowShell.find("x:Name=\"PXBindExit\"") != std::string::npos,
+                 "an {x:Bind} row's expression is a read-only TextBlock and carries an exit");
     // A KIND CHANGE STAGES. Selecting writes the pending kind and re-renders; only Apply/Enter commits. A
     // build that called CommitKind from the selection sink would destroy a binding on the way past it.
     Check(window.find("PendingKindSet(ctx.path, chosen);") != std::string::npos &&
@@ -365,8 +364,8 @@ static void TestToolbarContract()
     Check(windowShell.find("<TextBox x:Name=\"PEdit\" MinHeight=\"30\" FontSize=\"12\"") != std::string::npos,
                  "inspector property TextBoxes match the flyout's compact 12-DIP text");
     // And the collapsed row's own type is the same size, so expanding a row does not resize its value.
-    Check(windowShell.find("x:Name=\"PName\" Grid.Column=\"1\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos &&
-                     windowShell.find("x:Name=\"PValue\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos,
+    Check(windowShell.find("x:Name=\"PName\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos &&
+                     windowShell.find("x:Name=\"PValue\" Grid.Column=\"1\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos,
                  "the collapsed row's name and value are the same compact 12 DIP as the editor");
     // The chevron is a real ToggleButton, so its Checked visual state painted the accent
     // fill and every expanded branch rendered a blue block. The checked brushes are re-pointed in the shell's
