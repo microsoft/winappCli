@@ -106,11 +106,8 @@
         },
         "aiCredits": { "type": "number", "minimum": 0 },
         "premiumRequests": { "type": "number", "minimum": 0 },
-        "usd": { "type": "number", "minimum": 0, "description": "Computed from 'priceTableVersion'. Not what GitHub billed." },
-        "priceTableVersion": { "type": "string", "minLength": 1, "description": "Required whenever 'usd' is present." },
         "wallClockMs": { "type": "integer", "minimum": 0, "description": "Agent session, start to end. Excludes sandbox start-up and checking." }
-      },
-      "dependencies": { "usd": ["priceTableVersion"] }
+      }
     },
     "tasksResult": {
       "type": "object",

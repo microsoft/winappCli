@@ -56,7 +56,7 @@ Describe 'Test-TrialFiles.ps1' {
         (Invoke-Validator { param($t) $t.commit = '3f2a9c1' }).ExitCode | Should -Be 1
     }
 
-    It 'rejects usd without a price table version' {
+    It 'rejects a dollar cost field' {
         $r = Invoke-Validator { param($t) $t.cost | Add-Member usd 1.5 }
         $r.ExitCode | Should -Be 1
     }

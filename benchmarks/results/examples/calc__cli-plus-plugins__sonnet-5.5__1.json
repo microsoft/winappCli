@@ -44,8 +44,6 @@
     "subAgentTokens": { "input": 120000, "output": 6000, "cacheRead": 95000 },
     "aiCredits": 21.37,
     "premiumRequests": 1,
-    "usd": 1.79,
-    "priceTableVersion": "2026-10",
     "wallClockMs": 1083000
   }
 }

@@ -100,11 +100,11 @@ There is no 1 / 0.5 / 0 score. A partial result is a fail; the checks show how f
 | `subAgentTokens` | Same three fields, for sub-agents the main agent started, summed. |
 | `aiCredits` | AI credits the session used (Copilot reports nano-credits; this is that ÷ 1e9). |
 | `premiumRequests` | Premium requests Copilot counted. |
-| `usd` | Dollars, computed from a per-model price table. An estimate, not what GitHub billed. |
-| `priceTableVersion` | Which price table `usd` used. Required when `usd` is present. |
 | `wallClockMs` | Agent session, start to end, in milliseconds. Excludes sandbox start-up and checking. |
 
 Omit a field the harness can't measure. Don't write `0` for unknown.
+
+Files hold no dollar amounts and no price table. Token counts are exact, so readers can apply their own per-model prices.
 
 ## What each harness can fill today
 
@@ -117,7 +117,6 @@ Read from the code, not yet confirmed on a real run.
 | `subAgentTokens` | No. Main-session totals only; not confirmed whether sub-agent usage is in them. | Yes, as rounded strings, per model. |
 | `aiCredits` | Yes. | Yes (`credits`). |
 | `premiumRequests` | Yes. | Yes. |
-| `usd` and `priceTableVersion` | No. | `usd`: yes, from a fixed table in `src\runner\pricing.ts`. That table has no version, no price for current models (unknown models are billed as `claude-sonnet-4.5`), and starts from the rounded token strings. |
 | `wallClockMs` | Yes (`durationMs`, agent phase only). | Text such as `"18m 3s"` (`session_time`). Needs milliseconds. |
 | `harness.*` | `copilotVersion`, `configName`, `modelsUsed` partly (selected model). | `judgeModel`, `modelsUsed`, `configName` (the condition). |
 | `commit`, `release` | Not recorded per run. `run-info.json` has the plugin SHAs and winapp version. | `agent_source.sha` for repo-based setups, and `toolchain.winapp`. |
