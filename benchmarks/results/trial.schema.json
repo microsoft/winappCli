@@ -79,6 +79,18 @@
   ],
   "definitions": {
     "tokenCount": { "type": "integer", "minimum": 0 },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredMet", "requiredTotal", "improvementsMet", "improvementsTotal"],
+      "description": "Derived from the checks; checks with status na are not counted. A required check is one that must pass. An improvement is any other check.",
+      "properties": {
+        "requiredMet": { "type": "integer", "minimum": 0 },
+        "requiredTotal": { "type": "integer", "minimum": 0 },
+        "improvementsMet": { "type": "integer", "minimum": 0 },
+        "improvementsTotal": { "type": "integer", "minimum": 0 }
+      }
+    },
     "cost": {
       "type": "object",
       "additionalProperties": false,
@@ -112,8 +124,9 @@
     "tasksResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["checks"],
+      "required": ["checks", "summary"],
       "properties": {
+        "summary": { "$ref": "#/definitions/summary" },
         "checks": {
           "type": "array",
           "minItems": 1,
@@ -135,18 +148,21 @@
     "appsResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["gates", "qualityChecks", "requirements", "designScore"],
+      "required": ["summary", "gates", "qualityChecks", "requirements", "designScore"],
+
       "properties": {
+        "summary": { "$ref": "#/definitions/summary" },
         "gates": {
           "type": "array",
           "minItems": 2,
-          "description": "Script-checked gates: 'builds', 'launches', and any gate check the harness ran (G0, G3). They decide 'passed'.",
+          "description": "Script-checked gates: 'builds', 'launches', and any gate check the harness ran (G0, G3). All are required.",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "status"],
+            "required": ["id", "required", "status"],
             "properties": {
               "id": { "type": "string", "minLength": 1 },
+              "required": { "type": "boolean" },
               "label": { "type": "string" },
               "status": { "enum": ["pass", "fail", "na"] },
               "detail": { "type": "string" }
@@ -155,13 +171,14 @@
         },
         "qualityChecks": {
           "type": "array",
-          "description": "Harness quality checks (source scan, build warnings, accessible names, keyboard) and the judge's Q5. Detail only.",
+          "description": "Harness quality checks (source scan, build warnings, accessible names, keyboard) and the judge's Q5. Improvements unless marked required.",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "source", "status"],
+            "required": ["id", "required", "source", "status"],
             "properties": {
               "id": { "type": "string", "minLength": 1 },
+              "required": { "type": "boolean" },
               "label": { "type": "string" },
               "source": { "enum": ["harness", "judge"] },
               "status": { "enum": ["pass", "fail", "na"] },
@@ -171,20 +188,21 @@
         },
         "requirements": {
           "type": "array",
-          "description": "The scenario's requirements as the judge scored them. Detail only.",
+          "description": "The scenario's requirements as the judge scored them. Improvements unless marked required.",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "text", "status"],
+            "required": ["id", "required", "text", "status"],
             "properties": {
               "id": { "type": "integer", "minimum": 1 },
+              "required": { "type": "boolean", "description": "False by default; a scenario may mark a requirement required." },
               "text": { "type": "string" },
               "status": { "enum": ["pass", "fail"] },
               "reason": { "type": "string" }
             }
           }
         },
-        "designScore": { "type": ["number", "null"], "minimum": 0, "maximum": 10, "description": "The judge's design score. Detail only." }
+        "designScore": { "type": ["number", "null"], "minimum": 0, "maximum": 10, "description": "The judge's design score. Not counted in the summary." }
       }
     }
   }

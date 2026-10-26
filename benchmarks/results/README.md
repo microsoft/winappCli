@@ -80,16 +80,24 @@ There is no 1 / 0.5 / 0 score. A partial result is a fail; the checks show how f
 
 ### Pass or fail
 
-- **`tasks`:** `passed` is true when every check with `required: true` passed. `result.checks` lists
-  every check: `id`, `required`, `passed`, `detail`, and `guard` for a required check that only protects
-  what the fixture already had.
-- **`apps`:** `passed` is true when no gate failed. `result.gates` holds `builds`, `launches`, and the
-  harness's gate checks (`G0` right framework, `G3` Native AOT). Everything else is detail:
-  `result.qualityChecks` (harness checks plus the judge's `Q5`), `result.requirements` (the scenario's
-  requirements, as the judge scored them) and `result.designScore` (0–10, from the judge).
+Every check is either **required** or an **improvement**.
 
-`Test-TrialFiles.ps1` also checks that `passed` agrees with the checks.
+- A trial passes (`passed: true`) when every required check passed.
+- A failed improvement does not fail the trial. It lowers `result.summary.improvementsMet`.
+- `result.summary` is derived from the checks: `requiredMet`, `requiredTotal`, `improvementsMet`,
+  `improvementsTotal`. Checks with status `na` are not counted.
 
+There is no 1 / 0.5 / 0 score. A partial result is a fail; the checks show how far it got.
+
+| | `tasks` | `apps` |
+|---|---|---|
+| Where | `result.checks`: `id`, `required`, `passed`, `detail`, and `guard` for a required check that only protects what the fixture already had. | `result.gates`, `result.qualityChecks`, `result.requirements`. Each has `required` and a `status` of `pass`, `fail` or `na`. |
+| Required | Whatever the task marks required. | Every gate: `builds`, `launches`, and the gate checks (`G0` right framework, `G3` Native AOT). A scenario may also mark a requirement required. |
+| Improvements | The other checks. | The harness quality checks, the judge's `Q5`, and requirements not marked required. |
+
+`apps` also records `result.designScore` (0–10, from the judge). It is detail only and is not in the summary counts.
+
+`Test-TrialFiles.ps1` checks that `passed` and `result.summary` agree with the checks.
 ### Cost
 
 | Field | Meaning |

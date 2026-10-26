@@ -17,25 +17,26 @@
   "status": "completed",
   "passed": true,
   "result": {
+    "summary": { "requiredMet": 4, "requiredTotal": 4, "improvementsMet": 6, "improvementsTotal": 9 },
     "gates": [
-      { "id": "builds", "label": "App builds", "status": "pass" },
-      { "id": "launches", "label": "App launches and shows a window", "status": "pass" },
-      { "id": "G0", "label": "Right framework (WinUI 3 project)", "status": "pass" }
+      { "id": "builds", "required": true, "label": "App builds", "status": "pass" },
+      { "id": "launches", "required": true, "label": "App launches and shows a window", "status": "pass" },
+      { "id": "G0", "required": true, "label": "Right framework (WinUI 3 project)", "status": "pass" }
     ],
     "qualityChecks": [
-      { "id": "P2", "label": "App manifest present", "source": "harness", "status": "pass" },
-      { "id": "P3", "label": "Packaged app", "source": "harness", "status": "pass" },
-      { "id": "V2", "label": "Mica/Acrylic backdrop", "source": "harness", "status": "fail" },
-      { "id": "Q0", "label": "Accessible names on interactive controls", "source": "harness", "status": "fail", "detail": "3/21 interactive elements unnamed or type-name labels: Button, Button, Button" },
-      { "id": "Q1", "label": "Keyboard navigation (Tab moves focus through controls)", "source": "harness", "status": "pass" },
-      { "id": "Q4", "label": "No build warnings (C#, XAML, WinUI analyzer, trim/AOT, analyzers)", "source": "harness", "status": "pass" },
-      { "id": "Q5", "label": "Usable empty, loading, and error states", "source": "judge", "status": "na" }
+      { "id": "P2", "required": false, "label": "App manifest present", "source": "harness", "status": "pass" },
+      { "id": "P3", "required": false, "label": "Packaged app", "source": "harness", "status": "pass" },
+      { "id": "V2", "required": false, "label": "Mica/Acrylic backdrop", "source": "harness", "status": "fail" },
+      { "id": "Q0", "required": false, "label": "Accessible names on interactive controls", "source": "harness", "status": "fail", "detail": "3/21 interactive elements unnamed or type-name labels: Button, Button, Button" },
+      { "id": "Q1", "required": false, "label": "Keyboard navigation (Tab moves focus through controls)", "source": "harness", "status": "pass" },
+      { "id": "Q4", "required": false, "label": "No build warnings (C#, XAML, WinUI analyzer, trim/AOT, analyzers)", "source": "harness", "status": "pass" },
+      { "id": "Q5", "required": false, "label": "Usable empty, loading, and error states", "source": "judge", "status": "na" }
     ],
     "requirements": [
-      { "id": 1, "text": "Core arithmetic is correct: digit and decimal entry, chained + − × ÷, =, ± sign toggle, C to clear and ⌫ to delete the last character", "status": "pass", "reason": "12.5 × 2 = 25 and 7 − 10 = −3 verified in the UI" },
-      { "id": 2, "text": "Division by zero shows a message instead of crashing or showing Infinity/NaN", "status": "pass", "reason": "Shows 'Cannot divide by zero'" },
-      { "id": 3, "text": "Keyboard input works: digits, '.', '+', '-', '*', '/', Enter or '=' to evaluate, Backspace to delete, Escape to clear", "status": "fail", "reason": "Escape does not clear the display" },
-      { "id": 4, "text": "A history pane lists each completed calculation as 'expression = result'", "status": "pass", "reason": "History shows '12.5 × 2 = 25'" }
+      { "id": 1, "required": true, "text": "Core arithmetic is correct: digit and decimal entry, chained + − × ÷, =, ± sign toggle, C to clear and ⌫ to delete the last character", "status": "pass", "reason": "12.5 × 2 = 25 and 7 − 10 = −3 verified in the UI" },
+      { "id": 2, "required": false, "text": "Division by zero shows a message instead of crashing or showing Infinity/NaN", "status": "pass", "reason": "Shows 'Cannot divide by zero'" },
+      { "id": 3, "required": false, "text": "Keyboard input works: digits, '.', '+', '-', '*', '/', Enter or '=' to evaluate, Backspace to delete, Escape to clear", "status": "fail", "reason": "Escape does not clear the display" },
+      { "id": 4, "required": false, "text": "A history pane lists each completed calculation as 'expression = result'", "status": "pass", "reason": "History shows '12.5 × 2 = 25'" }
     ],
     "designScore": 7
   },

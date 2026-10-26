@@ -16,6 +16,7 @@
   "status": "completed",
   "passed": true,
   "result": {
+    "summary": { "requiredMet": 5, "requiredTotal": 5, "improvementsMet": 1, "improvementsTotal": 2 },
     "checks": [
       { "id": "installed-from-msix", "required": true, "passed": true, "detail": "TaskBoard_1.0.0.0_x64__8wekyb3d8bbwe installed from a package archive" },
       { "id": "msix-built", "required": true, "passed": true, "detail": "C:\\src\\TaskBoard\\bin\\TaskBoard.msix" },

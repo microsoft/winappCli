@@ -3,8 +3,9 @@
 .SYNOPSIS
     Checks benchmark trial files against trial.schema.json.
 .DESCRIPTION
-    Runs the JSON Schema, then two rules a schema cannot express: 'passed' must agree with the
-    per-check results, and a tasks trial needs at least one required check.
+    Runs the JSON Schema, then rules a schema cannot express: 'passed' must be true exactly when every
+    required check passed, 'result.summary' must match the checks, a tasks trial needs at least one
+    required check, and every apps gate is required.
     Exits 1 if any file is invalid. See README.md in this folder.
 .EXAMPLE
     pwsh benchmarks\results\Test-TrialFiles.ps1 -Path benchmarks\results\examples
@@ -25,22 +26,40 @@ function Get-SemanticErrors {
     $errors = [System.Collections.Generic.List[string]]::new()
     if ($Trial.status -ne 'completed') { return $errors }
 
+    # Normalise both benchmarks to (required, ok) pairs; apps checks with status 'na' do not count.
     if ($Trial.benchmark -eq 'tasks') {
-        $required = @($Trial.result.checks | Where-Object { $_.required })
-        if (-not $required) { $errors.Add('tasks: no check is marked required, so pass/fail is undefined.') }
-        $expected = $required.Count -gt 0 -and -not @($required | Where-Object { -not $_.passed })
-        if ($required -and $Trial.passed -ne $expected) {
-            $errors.Add("passed is $($Trial.passed) but the required checks say $expected (passed = every required check passed).")
-        }
+        $items = @($Trial.result.checks | ForEach-Object { [pscustomobject]@{ Required = [bool]$_.required; Ok = [bool]$_.passed } })
     }
-    elseif ($Trial.benchmark -eq 'apps') {
-        $expected = -not @($Trial.result.gates | Where-Object { $_.status -eq 'fail' })
-        if ($Trial.passed -ne $expected) {
-            $errors.Add("passed is $($Trial.passed) but the gates say $expected (passed = no gate failed).")
-        }
-        $ids = @($Trial.result.gates.id)
+    else {
+        $all = @($Trial.result.gates) + @($Trial.result.qualityChecks) + @($Trial.result.requirements)
+        $items = @($all | Where-Object { $_.status -ne 'na' } | ForEach-Object { [pscustomobject]@{ Required = [bool]$_.required; Ok = $_.status -eq 'pass' } })
+        $gates = @($Trial.result.gates)
         foreach ($need in 'builds', 'launches') {
-            if ($need -notin $ids) { $errors.Add("apps: gates must include '$need'.") }
+            $g = $gates | Where-Object id -eq $need
+            if (-not $g) { $errors.Add("apps: gates must include '$need'.") }
+            elseif (-not $g.required) { $errors.Add("apps: gate '$need' must be required.") }
+        }
+        foreach ($g in ($gates | Where-Object { -not $_.required })) { $errors.Add("apps: gate '$($g.id)' must be required.") }
+    }
+
+    $required = @($items | Where-Object Required)
+    $improvements = @($items | Where-Object { -not $_.Required })
+    if ($Trial.benchmark -eq 'tasks' -and -not $required) { $errors.Add('tasks: no check is marked required, so pass/fail is undefined.') }
+
+    $expected = -not @($required | Where-Object { -not $_.Ok })
+    if ($Trial.passed -ne $expected) {
+        $errors.Add("passed is $($Trial.passed) but the required checks say $expected (passed = every required check passed).")
+    }
+
+    $want = [ordered]@{
+        requiredMet       = @($required | Where-Object Ok).Count
+        requiredTotal     = $required.Count
+        improvementsMet   = @($improvements | Where-Object Ok).Count
+        improvementsTotal = $improvements.Count
+    }
+    foreach ($k in $want.Keys) {
+        if ($Trial.result.summary.$k -ne $want[$k]) {
+            $errors.Add("result.summary.$k is $($Trial.result.summary.$k) but the checks give $($want[$k]).")
         }
     }
     return $errors

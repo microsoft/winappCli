@@ -96,14 +96,44 @@ Describe 'Test-TrialFiles.ps1' {
     It 'rejects apps passed=true when a gate failed' {
         $r = Invoke-Validator -Benchmark 'calc' { param($t) $t.result.gates[0].status = 'fail' }
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -Match 'gates say False'
+        $r.Output | Should -Match 'required checks say False'
     }
 
-    It 'keeps apps passing when only judge results fail' {
-        $r = Invoke-Validator -Benchmark 'calc' { param($t) $t.result.requirements | ForEach-Object { $_.status = 'fail' }; $t.result.designScore = 0 }
+    It 'rejects apps passed=true when a required requirement failed' {
+        $r = Invoke-Validator -Benchmark 'calc' { param($t) $t.result.requirements[0].status = 'fail' }
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -Match 'required checks say False'
+    }
+
+    It 'keeps apps passing when only improvement checks fail' {
+        $r = Invoke-Validator -Benchmark 'calc' { param($t)
+            $t.result.requirements | Where-Object { -not $_.required } | ForEach-Object { $_.status = 'fail' }
+            $t.result.summary.improvementsMet = 4
+            $t.result.designScore = 0
+        }
         $r.ExitCode | Should -Be 0
     }
 
+    It 'rejects a summary that disagrees with the checks' {
+        $r = Invoke-Validator { param($t) $t.result.summary.improvementsMet = 2 }
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -Match 'result.summary.improvementsMet'
+    }
+
+    It 'rejects a result with no summary' {
+        (Invoke-Validator { param($t) $t.result.PSObject.Properties.Remove('summary') }).ExitCode | Should -Be 1
+    }
+
+    It 'rejects an apps check without its required flag' {
+        $r = Invoke-Validator -Benchmark 'calc' { param($t) $t.result.qualityChecks[0].PSObject.Properties.Remove('required') }
+        $r.ExitCode | Should -Be 1
+    }
+
+    It 'rejects an apps gate that is not required' {
+        $r = Invoke-Validator -Benchmark 'calc' { param($t) $t.result.gates[0].required = $false }
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -Match 'must be required'
+    }
     It 'rejects apps without a builds gate' {
         $r = Invoke-Validator -Benchmark 'calc' { param($t) $t.result.gates = @($t.result.gates | Where-Object id -ne 'builds') }
         $r.ExitCode | Should -Be 1
