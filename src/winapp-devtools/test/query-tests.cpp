@@ -35,6 +35,15 @@ int RunQueryTests()
         row.valueState = state;
         check(Compare(&row, {L"Text", L"!=", L"Save"}).verdict == Verdict::Unevaluated, "unavailable state never matches");
     }
+    row.valueState = L"null";
+    check(Compare(&row, {L"Text", L"==", L"Save"}).verdict == Verdict::NoMatch, "local null never equals a non-empty literal");
+    check(Compare(&row, {L"Text", L"*=", L"Save"}).verdict == Verdict::NoMatch, "local null never contains a non-empty literal");
+    check(Compare(&row, {L"Text", L"==", L""}).verdict == Verdict::Unevaluated, "null vs empty stays unknown");
+    check(Compare(&row, {L"Text", L"*=", L""}).verdict == Verdict::Unevaluated, "null contains empty stays unknown");
+    row.source = L"Binding";
+    check(Compare(&row, {L"Text", L"==", L"Save"}).verdict == Verdict::Unevaluated,
+        "null from a binding stays unknown even when the binding can't be described");
+    row.source.clear();
     row.valueState = L"binding"; row.value = L"Today"; row.binding = L"{Binding Heading}";
     check(Compare(&row, {L"Text", L"==", L"Today"}).verdict == Verdict::Match, "binding compares effective value");
     check(Compare(&row, {L"Text", L"==", L"{Binding Heading}"}).verdict == Verdict::NoMatch, "not the binding expression");
@@ -67,7 +76,7 @@ int RunQueryTests()
     for (bool reversed : {false, true}) {
         std::vector<Predicate> predicates = {{id.name, L"==", L"SpacesHeading"}, {L"Text", L"==", L"Spaces"}};
         if (reversed) std::reverse(predicates.begin(), predicates.end());
-        for (const auto* state : {L"null", L"unset", L"unresolved", L"unreadable", L"unavailable"}) {
+        for (const auto* state : {L"unset", L"unresolved", L"unreadable", L"unavailable"}) {
             row.valueState = state;
             id.value = L"Other";
             check(Match({id, row}, predicates).verdict == Verdict::NoMatch, "ID mismatch excludes unknown Text in either order");
@@ -77,6 +86,8 @@ int RunQueryTests()
             check(Match({id, row}, predicates).verdict == Verdict::Unevaluated, "both unknown remain unknown");
             id.valueState.clear();
         }
+        id.value = L"SpacesHeading"; row.valueState = L"null"; row.binding.clear();
+        check(Match({id, row}, predicates).verdict == Verdict::NoMatch, "matching ID with local null Text is excluded");
         id.value = L"Other";
         check(Match({id}, predicates).verdict == Verdict::NoMatch, "ID mismatch excludes missing Text");
         check(Match({id, row, row}, predicates).reason == L"ambiguous-property", "duplicate Text blocks despite false ID");

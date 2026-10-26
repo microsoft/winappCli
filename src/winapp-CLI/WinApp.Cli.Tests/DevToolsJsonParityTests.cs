@@ -115,6 +115,14 @@ public class DevToolsJsonParityTests
     [DataRow("SolidColorBrush", "#0067C0", "#FF0067C0", true)]
     [DataRow("SolidColorBrush", "#abc", "#FFAABBCC", true)]
     [DataRow("SolidColorBrush", "#1abc", "#11AABBCC", true)]
+    [DataRow("SolidColorBrush", "red", "#FFFF0000", true)]
+    [DataRow("SolidColorBrush", "  Blue\t", "#FF0000FF", true)]
+    [DataRow("SolidColorBrush", "AliceBlue", "#FFF0F8FF", true)]
+    [DataRow("SolidColorBrush", "Transparent", "#00000000", false)]
+    [DataRow("SolidColorBrush", "Blue", "#FFFF0000", false)]
+    [DataRow("SolidColorBrush", "NotAColor", "#00000000", false)]
+    [DataRow("SolidColorBrush", "Empty", "#00000000", false)]
+    [DataRow("String", "Red", "#FFFF0000", false)]
     [DataRow("String", "foo", "Foo", false)]
     [DataRow("String", "01", "1", false)]
     [DataRow("Int64", "9007199254740993", "9007199254740992", false)]
@@ -132,6 +140,58 @@ public class DevToolsJsonParityTests
         using var doc = JsonDocument.Parse(output);
         Assert.AreEqual(matches, doc.RootElement.GetProperty("matchesRequested").GetBoolean());
         Assert.AreEqual(matches ? 0 : 1, exit);
+    }
+
+    [TestMethod]
+    [DataRow("Red", "#FFFF0000", false)]
+    [DataRow("Blue", "#FF0000FF", false)]
+    [DataRow("Transparent", "#00FFFFFF", false)]
+    [DataRow("Red", "#FFFF0000", true)]
+    [DataRow("Blue", "#FF0000FF", true)]
+    [DataRow("Transparent", "#00FFFFFF", true)]
+    public async Task SetProperty_NamedColor_MatchesHexReadback(string requested, string observed, bool changed)
+    {
+        foreach (var json in new[] { false, true })
+        {
+            string Row(string value) => JsonSerializer.Serialize(new
+            {
+                name = "Background",
+                value,
+                valueType = "Microsoft.UI.Xaml.Media.SolidColorBrush",
+                writeType = "Microsoft.UI.Xaml.Media.SolidColorBrush",
+                valueSource = "Style",
+            });
+            var before = changed ? "#FF000000" : observed;
+            var reads = 0;
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Property.get", $$"""{"props":[{{Row(before)}}]}""", _ => Interlocked.Increment(ref reads) == 1)
+                .Answer("Property.get", $$"""{"props":[{{Row(observed)}}]}""")
+                .Answer("HotReload.setProperty", "null")
+                .Answer("VisualTree.enumerate", Tree);
+            var args = new List<string> { "42", "Background", requested };
+            if (json) { args.Add("--json"); }
+
+            var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+            Assert.AreEqual(0, exit, output);
+            if (json)
+            {
+                using var doc = JsonDocument.Parse(output);
+                var result = doc.RootElement;
+                Assert.IsTrue(result.GetProperty("ok").GetBoolean());
+                Assert.IsTrue(result.GetProperty("matchesRequested").GetBoolean());
+                Assert.AreEqual(changed, result.GetProperty("changed").GetBoolean());
+                Assert.AreEqual(requested, result.GetProperty("requested").GetString());
+                Assert.AreEqual(before, result.GetProperty("before").GetString());
+                Assert.AreEqual(observed, result.GetProperty("after").GetString());
+                Assert.IsFalse(result.TryGetProperty("error", out _));
+            }
+            else
+            {
+                StringAssert.Contains(output, changed ? "->" : $"already {observed}, unchanged.");
+                Assert.IsFalse(output.Contains("normalized", StringComparison.Ordinal), output);
+            }
+        }
     }
 
     /// <summary>The tree the fake serves: a Grid with one named Button child.</summary>
