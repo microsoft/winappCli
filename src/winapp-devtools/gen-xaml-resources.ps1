@@ -76,18 +76,33 @@ function ConvertTo-Identifier([string]$baseName) {
     }) -join ''
 }
 
-function ConvertTo-CppLiteral([string]$content) {
-    # Keep individual wide literals below MSVC's 16 KB limit. C++ joins adjacent literals.
-    $chunks = [System.Collections.Generic.List[string]]::new()
-    for ($offset = 0; $offset -lt $content.Length; $offset += 4000) {
-        $chunk = $content.Substring($offset, [Math]::Min(4000, $content.Length - $offset))
-        $chunks.Add("LR`"$delim($chunk)$delim`"")
+function ConvertTo-CppWideLiteral([string]$content) {
+    # Keep each literal below MSVC's size limit; adjacent literals preserve the original XAML.
+    $parts = for ($offset = 0; $offset -lt $content.Length;) {
+        $length = [Math]::Min(4000, $content.Length - $offset)
+        if ([char]::IsHighSurrogate($content[$offset + $length - 1])) { $length-- }
+        'LR"' + $delim + '(' + $content.Substring($offset, $length) + ')' + $delim + '"'
+        $offset += $length
     }
-    if ($chunks.Count -eq 0) { $chunks.Add("LR`"$delim()$delim`"") }
-    return $chunks -join "`n"
+    $parts -join "`n"
 }
 
 if ($SelfTest) {
+    $prefix = '<TextBlock Text="'
+    $longContent = $prefix + ('a' * (3999 - $prefix.Length)) + [char]::ConvertFromUtf32(0x1F600) +
+        ('b' * 20000) + '" />'
+    $literal = ConvertTo-CppWideLiteral $longContent
+    $chunks = [regex]::Matches($literal, '(?s)LR"' + $delim + '\((.*?)\)' + $delim + '"')
+    if (($chunks | ForEach-Object { $_.Groups[1].Value }) -join '' -cne $longContent) {
+        throw 'Chunked C++ literals did not preserve the original XAML.'
+    }
+    if ($chunks.Count -lt 2 -or @($chunks | Where-Object {
+        $_.Groups[1].Length -gt 4000 -or [char]::IsHighSurrogate($_.Groups[1].Value[-1])
+    }).Count) {
+        throw 'Chunked C++ literals exceeded the size limit or split a surrogate pair.'
+    }
+    Write-Host '    C++ literal self-test passed (large fragment, exact round-trip, surrogate boundary).'
+
     # Cover supported fragment shapes and a mismatched closing-tag negative control.
     $accept = @{
         'two roots, no xmlns of its own (the selection-panel.xaml shape)' =
@@ -110,16 +125,7 @@ if ($SelfTest) {
     if ($caught -notmatch 'not well-formed') {
         throw "Well-formedness gate rejected mismatched closing tags with an unexpected message: $caught"
     }
-    $large = '<Grid>' + ('<TextBlock Text="$TOKEN$"/>' * 2000) + '</Grid>'
-    $literal = ConvertTo-CppLiteral $large
-    $chunks = [regex]::Matches($literal, "(?s)LR`"$delim\((.*?)\)$delim`"")
-    $roundTrip = ($chunks | ForEach-Object { $_.Groups[1].Value }) -join ''
-    if ($chunks.Count -lt 2 -or $roundTrip -cne $large -or
-        @($chunks | Where-Object { $_.Groups[1].Value.Length -gt 4000 }).Count) {
-        throw 'Large XAML must round-trip through bounded, adjacent C++ literals.'
-    }
     Write-Host "    XAML gate self-test passed ($($accept.Count) accepted, 1 rejected; C++ delimiter $($delim.Length)/16 characters)." -ForegroundColor Green
-    Write-Host '    Large XAML literal round-trip passed.' -ForegroundColor Green
     exit 0
 }
 
@@ -148,7 +154,8 @@ foreach ($f in $files) {
         throw "Fragment $($f.Name) contains the raw-string delimiter sentinel ')$delim`"'; choose a different delimiter."
     }
     [void]$sb.AppendLine("// ---- $($f.Name) ----")
-    [void]$sb.AppendLine("inline constexpr const wchar_t* $id = $(ConvertTo-CppLiteral $content);")
+    [void]$sb.AppendLine("inline constexpr const wchar_t* $id =")
+    [void]$sb.AppendLine((ConvertTo-CppWideLiteral $content) + ';')
 }
 [void]$sb.AppendLine('} // namespace DevToolsXaml')
 
