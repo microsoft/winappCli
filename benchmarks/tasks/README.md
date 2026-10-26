@@ -39,6 +39,8 @@ with `-Configuration`):
   Sandbox it did not start.
 - PowerShell 7.4+, the .NET SDK (10.x), Node.js, Git for Windows, and PowerShell 7 installed in their
   default folders. They are mapped read-only into each Sandbox at the same paths.
+- On ARM64, also the x64 .NET 10 Desktop Runtime: the Order Calculator fixture targets `win-x64`,
+  and the native ARM64 SDK does not include it.
 - Copilot CLI on `PATH`, authenticated through `COPILOT_GITHUB_TOKEN` or `GH_TOKEN`.
 - A winapp build: by default `artifacts\cli\win-<arch>` from this checkout (`<arch>` is `x64` or `arm64`, matching this machine):
 
