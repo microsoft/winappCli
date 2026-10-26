@@ -300,7 +300,7 @@ static void ReleasePropFilterState()
 // A property is "set here" (in code/XAML on this element) when its winning value comes from a Local assignment
 // or a Binding. Everything else (Style/Built-in style/Inherited/Default/Trigger/Animation/Visual state) came from
 // somewhere other than this element's own declaration -- the exact set-in-code vs inherited distinction.
-static bool SourceIsSetHere(const std::wstring& s) { return s == L"Local" || s == L"Binding"; }
+static bool SourceIsSetHere(const std::wstring& s) { return s == L"Local" || s == L"Binding" || s == kDevToolsReadLiveEditSource; }
 
 static std::wstring* DirtyFind(const std::wstring& p) { for (auto& e : g_dirtySeed) if (e.first == p) return &e.second; return nullptr; }
 static bool DirtyHas(const std::wstring& p) { return DirtyFind(p) != nullptr; }

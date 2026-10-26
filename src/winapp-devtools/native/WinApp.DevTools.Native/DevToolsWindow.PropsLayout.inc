@@ -117,6 +117,7 @@ static std::wstring OriginTooltip(const DevToolsCardRow& r)
     if (r.authoredKind == L"templateBinding")
         return L"Supplied by the control template, from the templated parent's property of the same name.";
     if (r.authoredKind == L"customMarkup") return L"Set on this element by a markup extension.";
+    if (r.source == kDevToolsReadLiveEditSource) return L"Set on this element by a live edit in DevTools";
     if (SourceIsSetHere(r.source))         return L"Set on this element (in code / XAML)";
     return L"Not set here. Value comes from " + r.source;
 }
