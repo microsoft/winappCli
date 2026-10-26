@@ -69,7 +69,9 @@ If the app is already running, `run` closes it first, so DevTools can start it
 
 ## Use the toolbar
 
-- **Select element** shows the element you click in the DevTools window.
+- **Select element** shows the element you click in the DevTools window, then turns
+  picking off. Your next click reaches the app. Select **Select element** again to
+  inspect another element, or press **Esc** before picking to cancel.
 - **Comments** opens the comment panel on the element you click.
 - Clicking a control's template part or generated text selects the control from your
   XAML; turn off **Just my XAML** in the DevTools window to pick the parts themselves.

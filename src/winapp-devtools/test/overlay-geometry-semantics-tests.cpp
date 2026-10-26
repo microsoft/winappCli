@@ -27,7 +27,13 @@ static HRESULT GeometryLoadMarkup(void*, HSTRING, IInspectable**);
 static bool GeometryScreenToLocal(const DevToolsSurface&, int, int, float*, float*);
 static unsigned switchWindowSearches = 0;
 static BOOL WINAPI SwitchEnumWindows(WNDENUMPROC, LPARAM) { ++switchWindowSearches; return FALSE; }
-static UINT_PTR WINAPI SwitchTimer(HWND, UINT_PTR, UINT, TIMERPROC) { return 1; }
+static TIMERPROC scheduledTimerProc = nullptr;
+static UINT_PTR WINAPI SwitchTimer(HWND, UINT_PTR, UINT, TIMERPROC proc)
+{
+    static UINT_PTR nextId = 0;
+    scheduledTimerProc = proc;
+    return ++nextId;
+}
 static BOOL WINAPI SwitchKillTimer(HWND, UINT_PTR) { return TRUE; }
 static BOOL WINAPI GeometryCursor(POINT* point) { *point = {0, 0}; return TRUE; }
 static bool CommentMutationEnabled() { return true; }
@@ -537,6 +543,7 @@ struct PickerHosts
     }
     ~PickerHosts()
     {
+        CancelPickCompletion();
         ClearAdorner();
         g_selectionPanel = nullptr;
         g_selectionRootIdentity = nullptr;
@@ -566,6 +573,99 @@ static InstanceHandle FindRecoveryPanel(unsigned long long rootKey)
     recoveryRootKey = rootKey;
     if (hideDuringFind) DevToolsOverlay_SetToolbarVisible(false);
     return recoveryCandidate;
+}
+
+static void TestOneShotPicks(unsigned& checks, unsigned& failures)
+{
+    auto check = [&](bool ok, const char* entry, const char* name) {
+        ++checks; if (!ok) ++failures;
+        std::printf("%s %s: %s\n", ok ? "PASS" : "FAIL", entry, name);
+    };
+    SwitchDiagnostics diag;
+    PickerHosts hosts(diag);
+    GeometryObject catcher;
+    SwitchObject canvas;
+    g_canvasChildren = &canvas;
+    g_pickDiag = &diag; g_pickRoot = 10;
+    static bool fromWindow = false, pickButtonOn = false;
+    static unsigned inspectorOpens = 0;
+    DevToolsOverlay_SetPickedSink([](InstanceHandle) { return fromWindow; });
+    DevToolsOverlay_SetPickModeSink([](bool armed) { pickButtonOn = armed; });
+    DevToolsOverlay_SetInprocInspect([]() { ++inspectorOpens; return true; });
+    for (const bool windowPick : {false, true}) {
+        fromWindow = windowPick;
+        inspectorOpens = 0;
+        g_pickCatcher = &catcher; catcher.AddRef();
+        ArmInputMode(nullptr, false);
+        diag.hitHandle = 0;
+        OnCatcherPointerPressed(&catcher, nullptr);
+        OnCatcherClick(&catcher, nullptr);
+        check(!g_pickCompleteTimer && DevToolsOverlay_IsPickArmed(),
+            "one-shot pick", "an empty hit keeps the picker armed without scheduling completion");
+        diag.hitResult = E_FAIL;
+        OnCatcherPointerPressed(&catcher, nullptr);
+        OnCatcherClick(&catcher, nullptr);
+        check(!g_pickCompleteTimer && DevToolsOverlay_IsPickArmed(),
+            "one-shot pick", "a failed hit-test keeps the picker armed for another try");
+        diag.hitResult = S_OK; diag.hitHandle = 11;
+        OnCatcherPointerPressed(&catcher, nullptr);
+        OnCatcherClick(&catcher, nullptr);
+        check(g_pickCompleteTimer && scheduledTimerProc == &CompletePickTimerProc &&
+            DevToolsOverlay_IsPickArmed() && pickButtonOn && g_selectedHandle == 11,
+            "one-shot pick", "a successful pick defers catcher removal until after PointerReleased");
+        check(inspectorOpens == (windowPick ? 0u : 1u),
+            "one-shot pick", "toolbar picks open the inspector; inspector picks keep their existing route");
+        CompletePickTimerProc(nullptr, 0, g_pickCompleteTimer, 0);
+        check(!DevToolsOverlay_IsPickArmed() && !g_pickCompleteTimer && !pickButtonOn && catcher.refs == 1,
+            "one-shot pick", "completion releases app clicks and clears both surfaces' pick indicator");
+        TrackingTick();
+        check(g_selectedHandle == 11 && g_lastHighlightHandle == 11 && g_adorner &&
+            GeometryRect(g_selectedBounds, 32, 161, 132, 241),
+            "one-shot pick", "the picked element stays selected and its highlight is redrawn");
+        const auto hits = diag.hits;
+        OnCatcherPointerPressed(&catcher, nullptr);
+        OnCatcherClick(&catcher, nullptr);
+        check(diag.hits == hits && !g_pressValid,
+            "one-shot pick", "late catcher events cannot intercept another app click");
+        DeselectAll();
+    }
+    g_pickCatcher = &catcher; catcher.AddRef();
+    ArmInputMode(nullptr, false);
+    OnCatcherPointerPressed(&catcher, nullptr);
+    OnCatcherClick(&catcher, nullptr);
+    const auto pending = g_pickCompleteTimer;
+    OnCommentModeClick(nullptr, nullptr);
+    CompletePickTimerProc(nullptr, 0, pending, 0);
+    check(pending && !g_pickCompleteTimer && CommentModeOn() && DevToolsOverlay_IsPickArmed(),
+        "one-shot pick", "switching to Comments cancels pending pick completion");
+    for (int pick = 0; pick < 2; ++pick) {
+        OnCatcherPointerPressed(&catcher, nullptr);
+        OnCatcherClick(&catcher, nullptr);
+        check(!g_pickCompleteTimer && CommentModeOn() && DevToolsOverlay_IsPickArmed(),
+            "one-shot pick", "comment mode keeps accepting picks without scheduling completion");
+    }
+    OnPickClick(nullptr, nullptr);
+    OnCatcherPointerPressed(&catcher, nullptr);
+    OnCatcherClick(&catcher, nullptr);
+    const auto canceled = g_pickCompleteTimer;
+    DevToolsOverlay_DisarmPick();
+    g_pickCatcher = &catcher; catcher.AddRef();
+    ArmInputMode(nullptr, false);
+    OnCatcherPointerPressed(&catcher, nullptr);
+    OnCatcherClick(&catcher, nullptr);
+    const auto current = g_pickCompleteTimer;
+    CompletePickTimerProc(nullptr, 0, canceled, 0);
+    check(canceled && current && canceled != current && g_pickCompleteTimer == current &&
+        DevToolsOverlay_IsPickArmed(),
+        "one-shot pick", "completion from a canceled pick cannot consume a new pick's completion");
+    CompletePickTimerProc(nullptr, 0, current, 0);
+    check(!DevToolsOverlay_IsPickArmed() && g_selectedHandle == 11,
+        "one-shot pick", "the new pick still completes and retains its selection");
+    DevToolsOverlay_DisarmPick();
+    DevToolsOverlay_SetPickedSink(nullptr);
+    DevToolsOverlay_SetPickModeSink(nullptr);
+    DevToolsOverlay_SetInprocInspect(nullptr);
+    g_canvasChildren = nullptr; g_pickDiag = nullptr; g_pickRoot = 0;
 }
 
 int main()
@@ -856,6 +956,7 @@ int main()
         DeselectAll();
         g_canvasChildren=nullptr;
     }
+    TestOneShotPicks(checks, failures);
     {
         // A point where two app windows overlap belongs to the one in front, never to the window it covers.
         auto make = [](int x) {

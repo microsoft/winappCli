@@ -574,7 +574,6 @@ if (g_route1WindowHidden) {
 static void ResetAppVisibleModes(HWND h)
 {
     if (h) {
-        KillTimer(h, kDisarmAfterWindowPickTimerId);
         KillTimer(h, kRefreshTimerId);
     }
     if (g_hoverRevertTimer) { KillTimer(nullptr, g_hoverRevertTimer); g_hoverRevertTimer = 0; }
@@ -642,7 +641,6 @@ bool DevToolsWindow_OnPicked(InstanceHandle wire, bool releaseCommit)
     if (!DevToolsWindow_IsOpen()) return false;
     const bool fromWindow = releaseCommit && g_pickRoute.CommitReleasedPick();
     if (fromWindow) {
-        ArmDisarmAfterWindowPick();   // complete the one-shot contract (see the timer's own comment)
         FocusInspectorAfterPick();
     }
     if (g_commentsView) {
