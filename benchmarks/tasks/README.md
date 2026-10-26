@@ -40,11 +40,11 @@ with `-Configuration`):
 - PowerShell 7.4+, the .NET SDK (10.x), Node.js, Git for Windows, and PowerShell 7 installed in their
   default folders. They are mapped read-only into each Sandbox at the same paths.
 - Copilot CLI on `PATH`, authenticated through `COPILOT_GITHUB_TOKEN` or `GH_TOKEN`.
-- A winapp build: by default `artifacts\cli\win-x64` from this checkout:
+- A winapp build: by default `artifacts\cli\win-<arch>` from this checkout (`<arch>` is `x64` or `arm64`, matching this machine):
 
   ```powershell
   $env:PATH = "C:\Program Files (x86)\Microsoft Visual Studio\Installer;$env:PATH"   # vswhere, for the native link step
-  dotnet publish src\winapp-CLI\WinApp.Cli -c Release -r win-x64 --self-contained -o artifacts\cli\win-x64
+  dotnet publish src\winapp-CLI\WinApp.Cli -c Release -r win-x64 --self-contained -o artifacts\cli\win-x64   # use win-arm64 on ARM64
   ```
 
   Or pass `-Winapp release` to use the pinned release from `config.json`, or `-Winapp <folder>`.
@@ -83,7 +83,7 @@ pwsh benchmarks\tasks\run.ps1 -Summarize benchmarks\tasks\results\<stamp>
 | `-Model <id[]>` | `claude-sonnet-5.5`, `claude-opus-5.5`, `gpt-6.1-sol` | |
 | `-Iterations <n>` | 2 | |
 | `-MaxCredits <n>` | none | Stops launching runs once this invocation has spent `n` AI credits. A run without a credit count counts at the running average (or `creditsPerRunEstimate` before any is measured) |
-| `-Winapp <folder\|release>` | `artifacts\cli\win-x64` | winapp mapped to `C:\Program Files\WinAppCli` in the Sandbox |
+| `-Winapp <folder\|release>` | `artifacts\cli\win-<arch>` | winapp mapped to `C:\Program Files\WinAppCli` in the Sandbox |
 | `-WinAppPlugin`, `-WinUIPlugin <folder>` | this repo's plugins | Plugins are copied once per invocation |
 | `-CopilotVersion <v>` | the version `copilot --version` reports | Every Copilot call uses `--prefer-version <v>`; the build is copied from `%LOCALAPPDATA%\copilot\pkg` |
 | `-Validate` | | Runs `solve.ps1` and a no-op instead of an agent. Exits 1 unless every reference solution passes and every no-op fails |

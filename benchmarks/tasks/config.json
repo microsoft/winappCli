@@ -6,7 +6,7 @@
   "sandboxMemoryMB": 8192,
   "creditsPerRunEstimate": 15,
   "winapp": {
-    "localBuild": "../../artifacts/cli/win-x64",
+    "localBuild": "../../artifacts/cli/win-{arch}",
     "release": "v0.7.1"
   },
   "plugins": {

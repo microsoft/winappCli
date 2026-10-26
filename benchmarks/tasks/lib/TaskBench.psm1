@@ -323,5 +323,16 @@ function Write-TaskSummary {
     Set-Content -LiteralPath $Path -Value $sb.ToString() -Encoding utf8NoBOM
 }
 
-Export-ModuleMember -Function Get-ConfigurationNames, Get-ConfigurationSpec, Get-TaskDefinitions, New-SandboxConfiguration, Read-ToolActivity,
+# The host's CPU architecture as winapp and Copilot CLI name it: 'x64' or 'arm64'.
+function Get-HostArchitecture {
+    param([string]$ProcessArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString())
+    switch ($ProcessArchitecture) {
+        { $_ -in 'X64', 'AMD64' } { return 'x64' }
+        'Arm64' { return 'arm64' }
+        'ARM64' { return 'arm64' }
+        default { throw "Unsupported host architecture '$ProcessArchitecture'. The task benchmark supports x64 and arm64." }
+    }
+}
+
+Export-ModuleMember -Function Get-HostArchitecture, Get-ConfigurationNames, Get-ConfigurationSpec, Get-TaskDefinitions, New-SandboxConfiguration, Read-ToolActivity,
 Get-UnsafeActions, Remove-SecretFromFiles, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate

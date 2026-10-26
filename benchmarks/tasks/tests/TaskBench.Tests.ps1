@@ -4,6 +4,17 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..\lib\TaskBench.psm1') -Force
 }
 
+Describe 'Get-HostArchitecture' {
+    It 'maps OS architectures to winapp and Copilot names' {
+        Get-HostArchitecture -ProcessArchitecture 'X64' | Should -Be 'x64'
+        Get-HostArchitecture -ProcessArchitecture 'AMD64' | Should -Be 'x64'
+        Get-HostArchitecture -ProcessArchitecture 'Arm64' | Should -Be 'arm64'
+    }
+    It 'rejects other architectures' {
+        { Get-HostArchitecture -ProcessArchitecture 'X86' } | Should -Throw '*Unsupported*'
+    }
+}
+
 Describe 'Get-UnsafeActions from commands' {
     It 'flags trusting a certificate as a root CA' -TestCases @(
         @{ Cmd = 'Import-Certificate -FilePath dev.cer -CertStoreLocation Cert:\LocalMachine\Root' }

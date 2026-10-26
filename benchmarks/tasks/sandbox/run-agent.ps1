@@ -53,9 +53,10 @@ try {
     $env:NO_COLOR = '1'
 
     # --- Copilot CLI: the launcher plus the pinned build, so --prefer-version resolves offline.
-    $pkg = "$env:LOCALAPPDATA\copilot\pkg\win32-x64"
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $pkg = "$env:LOCALAPPDATA\copilot\pkg\win32-$arch"
     New-Item -ItemType Directory -Force $pkg | Out-Null
-    robocopy "$harness\copilot\pkg\win32-x64" $pkg /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    robocopy "$harness\copilot\pkg\win32-$arch" $pkg /E /NFL /NDL /NJH /NJS /NP | Out-Null
     $copilotHome = 'C:\bench-home\copilot'
     New-Item -ItemType Directory -Force $copilotHome | Out-Null
     Set-Content "$copilotHome\config.json" '{"autoUpdate": false}'
