@@ -24,12 +24,23 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         Description = "Replace an existing recording only after the new take finishes. Previous frame bundles are retained under a .previous-<id> directory.",
     };
 
+    internal static readonly Option<bool> CursorOption = new("--cursor")
+    {
+        Description = "Draw the mouse pointer into the video, with a short ring where each click happens. With --frames, frames.ndjson also records the pointer position and clicks.",
+    };
+
+    internal static readonly Option<bool> NoClickHighlightOption = new("--no-click-highlight")
+    {
+        Description = "With --cursor, draw the pointer but no click rings.",
+    };
+
     public string ShortDescription => "Record a window or element region to MP4";
 
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp ui record -a <app> --duration-sec 10 -o demo.mp4",
         "winapp ui record <selector> -w <hwnd> --duration-sec 5",
+        "winapp ui record -a <app> --cursor --duration-sec 10 -o demo.mp4",
     ];
 
     public string? Usage => "winapp ui record [<selector>] (-a <app> | -w <hwnd>) [options]";
@@ -50,6 +61,8 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         Options.Add(SharedUiOptions.OutputOption);
         Options.Add(FramesOption);
         Options.Add(OverwriteOption);
+        Options.Add(CursorOption);
+        Options.Add(NoClickHighlightOption);
         Options.Add(WinAppRootCommand.JsonOption);
         UiQueryOptions.AddTo(this);
     }
@@ -142,6 +155,14 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
             return parseResult.GetValue(SharedUiOptions.CaptureScreenOption);
         }
 
+        /// <summary>Whether to draw the pointer, and whether to draw click rings with it.</summary>
+        protected virtual (bool Cursor, bool ClickHighlight) PointerOverlay(ParseResult parseResult)
+        {
+            ArgumentNullException.ThrowIfNull(parseResult);
+
+            return (parseResult.GetValue(CursorOption), !parseResult.GetValue(NoClickHighlightOption));
+        }
+
         /// <summary>How the recording is described while it runs.</summary>
         protected virtual string DescribeSubject(UiTarget uiTarget)
         {
@@ -164,6 +185,15 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 return ReportOptionError(parseResult, optionError);
             }
             _resolvedOptions = validated;
+
+            var (cursor, clickHighlight) = PointerOverlay(parseResult);
+            if (!cursor && !clickHighlight)
+            {
+                return ReportOptionError(parseResult, new UiRecordOptionError(
+                    UiJsonError.CodeInvalidArguments,
+                    "--no-click-highlight only applies with --cursor.",
+                    "Add --cursor to draw the pointer, or remove --no-click-highlight."));
+            }
 
             if (!TrySelectSubject(parseResult, json))
             {
@@ -206,13 +236,13 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
                 uiTarget = IsDesktop ? null : await ResolveSubjectAsync(parseResult, cancellationToken);
-                if (uiTarget is not null && selector is not null)
+                if (uiTarget is not null && (selector is not null || UiQueryOptions.HasElementFilters(parseResult)))
                 {
                     var exact = await UiQueryOptions.ResolveExactSelectorAsync(
                         parseResult, selectorParser, uiAutomation, uiTarget, selector, searchOtherWindows: true, cancellationToken);
                     if (exact is null)
                     {
-                        UiErrors.ElementNotFound(logger, selector, json, target: uiTarget);
+                        UiErrors.ElementNotFound(logger, UiQueryOptions.Describe(parseResult, selector), json, target: uiTarget);
                         return 1;
                     }
                     selector = exact.Selector!;
@@ -277,6 +307,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                     }
                 }
 
+                var (cursor, clickHighlight) = PointerOverlay(parseResult);
                 var options = new RecordOptions
                 {
                     OutputPath = filePath,
@@ -286,6 +317,8 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                     MaxEdge = maxEdge,
                     CaptureScreen = captureScreen,
                     FramesDirectory = framesDirectory,
+                    Cursor = cursor,
+                    ClickHighlight = clickHighlight,
                 };
 
                 var (result, coordinationWarning) = await RecordUnderTurnAsync(

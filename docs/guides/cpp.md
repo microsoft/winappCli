@@ -8,6 +8,7 @@ Package identity is a core concept in the Windows app model. It allows your appl
 
 A standard executable (like one created with `cmake --build`) does not have package identity. This guide shows how to add it for debugging and then package it for distribution.
 
+> [!TIP]
 > **Using a Visual Studio C++ project (`.vcxproj`) instead of CMake?** Run `winapp run .` in the project folder: winapp builds it with Visual Studio's MSBuild and launches it with package identity. See [C++ projects](../usage.md#c-projects-vcxproj) and the [cpp-winui-app sample](../../samples/cpp-winui-app/).
 
 ## Prerequisites

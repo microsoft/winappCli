@@ -1,0 +1,16 @@
+<Window x:Class="Ledgerly.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Ledgerly" Height="600" Width="900">
+  <DockPanel>
+    <StatusBar DockPanel.Dock="Bottom">
+      <StatusBarItem>
+        <TextBlock x:Name="FooterTotal" Text="{Binding TotalText}" />
+      </StatusBarItem>
+    </StatusBar>
+    <ToolBar DockPanel.Dock="Top">
+      <Button x:Name="RecalculateButton" Content="Recalculate" Command="{Binding RecalculateCommand}" />
+    </ToolBar>
+    <DataGrid ItemsSource="{Binding Entries}" AutoGenerateColumns="True" />
+  </DockPanel>
+</Window>

@@ -25,6 +25,48 @@ public class UiSessionServiceTests
     }
 
     [TestMethod]
+    [DataRow("500")]
+    [DataRow("myapp")]
+    public async Task ResolveProcess_DoesNotChoosePopupOrMainWindow(string app)
+    {
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[500] = new UiProcessInfo(500, "myapp", 100, "Main");
+        sys.ByNameResult = [sys.ProcessesById[500]!.Value];
+        uia.WindowsByPidResult = [(100, 500, "Main"), (200, 500, "Popup")];
+        uia.FindWindowsThrow = new AssertFailedException("Process-only targeting must not discover or choose an HWND.");
+        sys.ForegroundWindowResult = 200;
+        var target = await service.ResolveProcessAsync(app, CancellationToken.None);
+        Assert.AreEqual(500, target.ProcessId);
+        Assert.AreEqual(0L, target.WindowHandle);
+        Assert.IsFalse(target.IsExplicitWindow);
+        Assert.IsNull(target.WindowTitle);
+    }
+
+    [TestMethod]
+    public async Task ResolveProcess_SameProcessTitleMatchesNeedNoWindowChoice()
+    {
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[500] = new UiProcessInfo(500, "myapp", 100, "Main");
+        uia.WindowsByTitleResult = [(100, 500, "Shared main"), (200, 500, "Shared popup")];
+        var target = await service.ResolveProcessAsync("Shared", CancellationToken.None);
+        Assert.AreEqual(500, target.ProcessId);
+        Assert.AreEqual(0L, target.WindowHandle);
+    }
+
+    [TestMethod]
+    public async Task ResolveProcess_SharedTitleAcrossProcessesRefusesForegroundGuess()
+    {
+        var (service, uia, sys) = NewService();
+        uia.WindowsByTitleResult = [(100, 500, "Shared"), (200, 600, "Shared")];
+        sys.ForegroundWindowResult = 200;
+        var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            service.ResolveProcessAsync("Shared", CancellationToken.None));
+        StringAssert.Contains(error.Message, "500, 600");
+        StringAssert.Contains(error.Message, "--app with a PID");
+        Assert.IsFalse(error.Message.Contains("--window", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void UiTarget_IsExplicitWindow_DefaultsToFalse()
     {
         var info = new UiTarget();

@@ -418,4 +418,263 @@ public partial class UiCommandTests
             "the refusal must name the action the command was attempting");
     }
 
+    // ---------------------------------------------------------------------
+    // scroll --wheel-horizontal (#1092) — synthetic horizontal (tilt) wheel input
+    // ---------------------------------------------------------------------
+
+    [TestMethod]
+    public async Task Scroll_WheelHorizontal_SendsHorizontalDeltaAtElementCenter()
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "List", Selector = "lst-items-1234", X = 50, Y = 60, Width = 120, Height = 40 };
+
+        var command = GetRequiredService<UiScrollCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "-a", "TestApp", "--wheel-horizontal", "3", "--json"]);
+        Assert.AreEqual(0, exitCode);
+
+        Assert.AreEqual(1, _fakeMouse.ScrollWheelCalls.Count);
+        var wheel = _fakeMouse.ScrollWheelCalls[0];
+        Assert.IsTrue(wheel.Horizontal);
+        Assert.AreEqual(110, wheel.ScreenX);
+        Assert.AreEqual(80, wheel.ScreenY);
+        Assert.AreEqual(360, wheel.Delta); // 3 notches right * 120 (WHEEL_DELTA)
+
+        var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(TestAnsiConsole.Output);
+        Assert.AreEqual(3, result.GetProperty("wheelHorizontal").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task Scroll_Wheel_IsVertical()
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "List", Selector = "lst-items-1234", X = 0, Y = 0, Width = 100, Height = 100 };
+
+        var command = GetRequiredService<UiScrollCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "-a", "TestApp", "--wheel", "1", "--json"]);
+        Assert.AreEqual(0, exitCode);
+
+        Assert.AreEqual(1, _fakeMouse.ScrollWheelCalls.Count);
+        Assert.IsFalse(_fakeMouse.ScrollWheelCalls[0].Horizontal);
+    }
+
+    [TestMethod]
+    [DataRow("--wheel", "1")]
+    [DataRow("--direction", "left")]
+    [DataRow("--to", "top")]
+    public async Task Scroll_WheelHorizontal_WithAnotherMode_ReturnsError(string otherOption, string otherValue)
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "List", Selector = "lst-items-1234", X = 0, Y = 0, Width = 100, Height = 100 };
+
+        var command = GetRequiredService<UiScrollCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "-a", "TestApp", "--wheel-horizontal", "-1", otherOption, otherValue, "--json"]);
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeMouse.ScrollWheelCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task Scroll_WheelHorizontal_ForegroundGuardDenies_NamesTheOption()
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "List", Selector = "lst-items-1234", X = 50, Y = 60, Width = 120, Height = 40, WindowHandle = 7777 };
+        _fakeForeground.Allow = false;
+        _fakeForeground.DenyReason = ForegroundCheck.ForegroundNotTarget;
+
+        var command = GetRequiredService<UiScrollCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "-a", "TestApp", "--wheel-horizontal", "-1", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeMouse.ScrollWheelCalls.Count);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to scroll --wheel-horizontal");
+    }
+
+    // ---------------------------------------------------------------------
+    // click / hover --at x,y (#1091) — act on a screen point instead of an element
+    // ---------------------------------------------------------------------
+
+    [TestMethod]
+    [DataRow(new string[0], false, false, "click")]
+    [DataRow(new[] { "--right" }, false, true, "right-click")]
+    [DataRow(new[] { "--double" }, true, false, "double-click")]
+    public async Task Click_At_ClicksThePointWithoutElementLookup(string[] extra, bool expectDouble, bool expectRight, string expectType)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        // No element is configured: an element lookup would fail with element_not_found.
+        _fakeUia.FindSingleResult = null;
+
+        var command = GetRequiredService<UiClickCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--at", "150,250", "-a", "TestApp", "--json", .. extra]);
+
+        Assert.AreEqual(0, exitCode, ConsoleStdErr.ToString());
+        Assert.AreEqual(1, _fakeMouse.ClickCalls.Count);
+        var click = _fakeMouse.ClickCalls[0];
+        Assert.AreEqual(150, click.ScreenX);
+        Assert.AreEqual(250, click.ScreenY);
+        Assert.AreEqual(expectDouble, click.DoubleClick);
+        Assert.AreEqual(expectRight, click.RightClick);
+        CollectionAssert.Contains(_fakeDesktopForeground.ForegroundRequests, 4242L,
+            "the session window is brought to the foreground before the click");
+        Assert.AreEqual(2, _fakeForeground.Calls.Count, "the foreground guard runs before and after the cursor settles");
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters, "the click runs inside a desktop section");
+
+        var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(TestAnsiConsole.Output);
+        Assert.AreEqual(expectType, result.GetProperty("clickType").GetString());
+        Assert.AreEqual(150, result.GetProperty("x").GetInt32());
+        Assert.AreEqual(250, result.GetProperty("y").GetInt32());
+        Assert.AreEqual(4242L, result.GetProperty("hwnd").GetInt64());
+        Assert.IsFalse(result.TryGetProperty("warnings", out _), "an in-window point has no warnings");
+    }
+
+    [TestMethod]
+    public async Task Click_At_FinalForegroundGateDenies_AbortsWithoutClicking()
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        _fakeForeground.DenyOnCallNumber = 2;
+        _fakeForeground.DenyReason = ForegroundCheck.ForegroundNotTarget;
+
+        var exitCode = await InvokeMouseAtAsync("click", ["--at", "100,100", "-a", "TestApp"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode("foreground_not_target");
+        Assert.AreEqual(1, _fakeMouse.MoveCursorCalls.Count, "the cursor was positioned before the final gate");
+        Assert.AreEqual(0, _fakeMouse.ClickCalls.Count, "the final gate must abort before the button-down");
+    }
+
+    [TestMethod]
+    public async Task Hover_At_HoversThePointAndDwells()
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        _fakeUia.FindSingleResult = null;
+
+        var command = GetRequiredService<UiHoverCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--at", "300,400", "-a", "TestApp", "--dwell-time", "0", "--json"]);
+
+        Assert.AreEqual(0, exitCode, ConsoleStdErr.ToString());
+        Assert.AreEqual(1, _fakeMouse.HoverCalls.Count);
+        Assert.AreEqual(300, _fakeMouse.HoverCalls[0].ScreenX);
+        Assert.AreEqual(400, _fakeMouse.HoverCalls[0].ScreenY);
+        Assert.AreEqual(1, _fakeForeground.Calls.Count);
+
+        var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(TestAnsiConsole.Output);
+        Assert.AreEqual(300, result.GetProperty("x").GetInt32());
+        Assert.AreEqual(400, result.GetProperty("y").GetInt32());
+        Assert.AreEqual(0, result.GetProperty("dwellTimeMs").GetInt32());
+    }
+
+    [TestMethod]
+    [DataRow("click")]
+    [DataRow("hover")]
+    public async Task MouseAt_PointOutsideWindow_WarnsAndInjects(string verb)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        // Same as touch/pen --at: a point outside the target window is an advisory, not a failure.
+        _fakeUia.WindowRect = new PointerRect(0, 0, 800, 600);
+
+        var exitCode = await InvokeMouseAtAsync(verb, ["--at", "5000,5000", "-a", "TestApp"]);
+
+        Assert.AreEqual(0, exitCode, ConsoleStdErr.ToString());
+        Assert.AreEqual(1, _fakeMouse.ClickCalls.Count + _fakeMouse.HoverCalls.Count);
+        var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(TestAnsiConsole.Output);
+        Assert.IsTrue(result.TryGetProperty("warnings", out var warnings));
+        StringAssert.Contains(warnings[0].GetString(), "outside the target window");
+    }
+
+    [TestMethod]
+    [DataRow("click")]
+    [DataRow("hover")]
+    public async Task MouseAt_ForegroundGuardDenies_AbortsWithoutInput(string verb)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        _fakeForeground.Allow = false;
+        _fakeForeground.DenyReason = ForegroundCheck.ForegroundNotTarget;
+
+        var exitCode = await InvokeMouseAtAsync(verb, ["--at", "100,100", "-a", "TestApp"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode("foreground_not_target");
+        Assert.AreEqual(0, _fakeMouse.ClickCalls.Count + _fakeMouse.HoverCalls.Count);
+    }
+
+    [TestMethod]
+    [DataRow("click")]
+    [DataRow("hover")]
+    public async Task MouseAt_TargetWindowRecycled_RefusesBeforeForeground(string verb)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        // The handle now belongs to a different process: Windows reused it while this command queued.
+        _fakeSystemQuery.ProcessIdForWindowResult = 9999;
+
+        var exitCode = await InvokeMouseAtAsync(verb, ["--at", "100,100", "-a", "TestApp"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode("stale_element");
+        Assert.AreEqual(0, _fakeDesktopForeground.ForegroundRequests.Count);
+        Assert.AreEqual(0, _fakeMouse.ClickCalls.Count + _fakeMouse.HoverCalls.Count);
+    }
+
+    [TestMethod]
+    [DataRow("click")]
+    [DataRow("hover")]
+    public async Task MouseAt_NoTargetWindow_Refuses(string verb)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 0;
+
+        var exitCode = await InvokeMouseAtAsync(verb, ["--at", "100,100", "-a", "TestApp"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode("no_target");
+        Assert.AreEqual(0, _fakeMouse.ClickCalls.Count + _fakeMouse.HoverCalls.Count);
+    }
+
+    [TestMethod]
+    [DataRow("click", new[] { "btn-1234", "--at", "100,100" }, "not both")]
+    [DataRow("hover", new[] { "btn-1234", "--at", "100,100" }, "not both")]
+    [DataRow("click", new[] { "--at", "100,100", "--type", "Button" }, "cannot be combined with --at")]
+    [DataRow("hover", new[] { "--at", "100,100", "--root", "pane-1" }, "cannot be combined with --at")]
+    [DataRow("click", new[] { "--at", "100,abc" }, "valid x,y pair")]
+    [DataRow("hover", new[] { "--at", "100" }, "valid x,y pair")]
+    public async Task MouseAt_InvalidCombination_ReturnsInvalidArguments(string verb, string[] args, string expected)
+    {
+        _fakeUia.FindSingleResult = StableButton();
+
+        var exitCode = await InvokeMouseAtAsync(verb, [.. args, "-a", "TestApp"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode("invalid_arguments");
+        StringAssert.Contains(ConsoleStdErr.ToString(), expected);
+        Assert.AreEqual(0, _fakeMouse.ClickCalls.Count + _fakeMouse.HoverCalls.Count);
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters, "validation fails before taking the desktop");
+    }
+
+    [TestMethod]
+    [DataRow("click")]
+    [DataRow("hover")]
+    public async Task MouseAt_NoSelectorAndNoAt_ReturnsMissingSelector(string verb)
+    {
+        var exitCode = await InvokeMouseAtAsync(verb, ["-a", "TestApp"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode("missing_selector");
+        foreach (var target in new[] { "--at", "--type", "--class-name" })
+        {
+            StringAssert.Contains(ConsoleStdErr.ToString(), target);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("click", "--type", "Button")]
+    [DataRow("hover", "--type", "Button")]
+    [DataRow("click", "--class-name", "CalendarSurface")]
+    public async Task MouseFilterOnly_TargetsTheOneMatchingElement(string verb, string option, string value)
+    {
+        _fakeUia.FindSingleResult = StableButton();
+
+        var exitCode = await InvokeMouseAtAsync(verb, [option, value, "-a", "TestApp"]);
+
+        Assert.AreEqual(0, exitCode, TestAnsiConsole.Output + ConsoleStdErr);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.All(unique => unique));
+        Assert.IsTrue(_fakeUia.Queries.All(q => q.Query is null && q.Slug is null));
+        Assert.AreEqual(1, _fakeMouse.ClickCalls.Count + _fakeMouse.HoverCalls.Count);
+    }
+
+    /// <summary>Runs click or hover with <paramref name="args"/> plus --json; hover also gets --dwell-time 0.</summary>
+    private Task<int> InvokeMouseAtAsync(string verb, string[] args) => verb == "click"
+        ? ParseAndInvokeWithCaptureAsync(GetRequiredService<UiClickCommand>(), [.. args, "--json"])
+        : ParseAndInvokeWithCaptureAsync(GetRequiredService<UiHoverCommand>(), [.. args, "--dwell-time", "0", "--json"]);
 }

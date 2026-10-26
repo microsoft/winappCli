@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.CommandLine;
+
 namespace WinApp.Cli.Commands;
 
 /// <summary>
@@ -24,4 +26,49 @@ internal interface IHelpExamples
 
     /// <summary>Usage line override, for commands whose arguments are optional.</summary>
     string? Usage => null;
+}
+
+/// <summary>
+/// A top-level command whose help shows described examples (which may use other commands, such as
+/// <c>winapp cert generate</c> before <c>winapp package</c>) and options grouped by purpose. Every
+/// visible option must belong to exactly one group.
+/// </summary>
+internal interface ICompactHelpCommand
+{
+    /// <summary>Example command lines with a few words each. A line that doesn't start with
+    /// <c>winapp</c> (for example <c>Add-AppxPackage</c>) is shown as written.</summary>
+    IReadOnlyList<(string Command, string Description)> Examples { get; }
+
+    /// <summary>Option groups, in display order.</summary>
+    IReadOnlyList<(string Heading, Option[] Options)> OptionGroups { get; }
+
+    /// <summary>Usage line override, for commands whose arguments are optional.</summary>
+    string? Usage => null;
+}
+
+/// <summary>
+/// A command group (<c>winapp ui</c>, <c>winapp devtools</c>) whose help is the compact plain-text
+/// layout agents read. Its description is a one-line summary; its commands implement
+/// <see cref="IHelpExamples"/>.
+/// </summary>
+internal interface ICompactHelpGroup
+{
+    /// <summary>The workflow block shown under the summary in the group's help only, so it stays out of the
+    /// command's description (and the CLI schema).</summary>
+    string GoldenPath { get; }
+
+    /// <summary>Command-list categories, in display order.</summary>
+    IReadOnlyList<(string Category, Type[] CommandTypes)> Categories { get; }
+
+    /// <summary>The option rows shown in the group's help.</summary>
+    IReadOnlyList<(string Name, string Description)> GroupOptions { get; }
+
+    /// <summary>How the group's commands take their target app, when they accept both -a and -w.</summary>
+    string TargetUsage { get; }
+
+    /// <summary>Words other tools use, mapped to the command that does the job, for "Did you mean".</summary>
+    IReadOnlyDictionary<string, string> Synonyms { get; }
+
+    /// <summary>The commands listed when a command name is unknown.</summary>
+    IReadOnlyList<string> CommonCommands { get; }
 }

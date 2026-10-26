@@ -81,7 +81,7 @@ internal class UiFocusCommand : Command, IShortDescription, IHelpExamples
                 return 1;
             }
 
-            if (selectorStr is not null && string.IsNullOrWhiteSpace(selectorStr))
+            if (selectorStr is not null && !UiQueryOptions.HasQuery(parseResult, selectorStr))
             {
                 UiErrors.MissingSelector(logger, "focus", json);
                 return 1;
@@ -101,12 +101,13 @@ internal class UiFocusCommand : Command, IShortDescription, IHelpExamples
             {
                 var errorOut = parseResult.InvocationConfiguration.Error;
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                if (selectorStr is null)
+                if (selectorStr is null && !UiQueryOptions.HasElementFilters(parseResult))
                 {
                     return await FocusWindowAsync(uiTarget, turn, json, errorOut, cancellationToken);
                 }
 
                 var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                selectorStr = UiQueryOptions.Describe(parseResult, selectorStr);
                 var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 // Some apps (packaged apps hosted in ApplicationFrameHost, such as Calculator) expose

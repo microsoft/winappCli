@@ -436,6 +436,90 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    [DataRow(false, DisplayName = "Streamed build (agent/CI)")]
+    [DataRow(true, DisplayName = "--json build")]
+    public async Task BuildAndResolveAsync_RunBuild_ImportsPackagingReferenceTargetsThroughTheEnvironment(bool json)
+    {
+        // The targets reach the build through CustomAfterDirectoryBuildTargets in the dotnet process environment,
+        // so the build arguments stay exactly as before and nothing is written into the project.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService { RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty) };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+
+        await service.BuildAndResolveAsync(csproj, new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: json), CancellationToken.None);
+
+        var index = dotnet.StreamingCalls.FindIndex(a => a.StartsWith("build ", StringComparison.Ordinal));
+        Assert.IsGreaterThanOrEqualTo(0, index);
+        var path = dotnet.StreamingEnvironments[index]![ProjectRunService.CustomAfterDirectoryBuildTargetsVariable].Split(';')[^1];
+        Assert.AreEqual(ProjectRunService.PackagingReferenceTargets, File.ReadAllText(path));
+        StringAssert.Contains(dotnet.StreamingCalls[index], "-r win-x64", "the build arguments are unchanged");
+        Assert.IsFalse(dotnet.StreamingCalls[index].Contains("CustomAfter", StringComparison.Ordinal), dotnet.StreamingCalls[index]);
+        Assert.IsFalse(Directory.EnumerateFiles(_tempDir.FullName, "*.targets", SearchOption.AllDirectories).Any(), "nothing is written into the project");
+    }
+
+    [TestMethod]
+    [DataRow(null, DisplayName = "Not set")]
+    [DataRow(@"C:\repo\eng\mine.targets", DisplayName = "Set by the user's environment")]
+    public void WithPackagingReferenceTargets_AppendsToAnInheritedValueAndKeepsOtherVariables(string? inherited)
+    {
+        var directory = Path.Join(_tempDir.FullName, "msbuild");
+        var environment = new Dictionary<string, string> { ["PATH"] = @"C:\tools" };
+
+        var merged = ProjectRunService.WithPackagingReferenceTargets(environment, inherited, directory)!;
+
+        var path = ProjectRunService.EnsurePackagingReferenceTargetsFile(directory)!;
+        var expected = inherited is null ? path : $"{inherited};{path}";
+        Assert.AreEqual(expected, merged[ProjectRunService.CustomAfterDirectoryBuildTargetsVariable]);
+        Assert.AreEqual(@"C:\tools", merged["PATH"]);
+        Assert.AreEqual(expected, ProjectRunService.WithPackagingReferenceTargets(null, expected, directory)![ProjectRunService.CustomAfterDirectoryBuildTargetsVariable], "already listed once");
+    }
+
+    [TestMethod]
+    public void EnsurePackagingReferenceTargetsFile_UnchangedContent_KeepsTheTimestamp()
+    {
+        // Rewriting an identical file would change its timestamp and invalidate incremental builds.
+        var directory = Path.Join(_tempDir.FullName, "msbuild");
+        var path = ProjectRunService.EnsurePackagingReferenceTargetsFile(directory)!;
+        var stamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, stamp);
+
+        Assert.AreEqual(path, ProjectRunService.EnsurePackagingReferenceTargetsFile(directory));
+        Assert.AreEqual(stamp, File.GetLastWriteTimeUtc(path));
+
+        File.WriteAllText(path, "<Project />");
+        ProjectRunService.EnsurePackagingReferenceTargetsFile(directory);
+        Assert.AreEqual(ProjectRunService.PackagingReferenceTargets, File.ReadAllText(path), "a damaged file is rewritten");
+    }
+
+    [TestMethod]
+    [DataRow("100%Dev", DisplayName = "'%' followed by hex digits")]
+    [DataRow("a;b", DisplayName = "';'")]
+    public void WithPackagingReferenceTargets_EscapesThePathForMSBuild(string folder)
+    {
+        // MSBuild decodes %XX in the value and splits on ';', so the path must be escaped or the import misses it.
+        var directory = Path.Join(_tempDir.FullName, folder);
+
+        var value = ProjectRunService.WithPackagingReferenceTargets(null, null, directory)![ProjectRunService.CustomAfterDirectoryBuildTargetsVariable];
+
+        var path = ProjectRunService.EnsurePackagingReferenceTargetsFile(directory)!;
+        Assert.AreEqual(path.Replace("%", "%25", StringComparison.Ordinal).Replace(";", "%3B", StringComparison.Ordinal), value);
+    }
+
+    [TestMethod]
+    public void WithPackagingReferenceTargets_UnwritableDirectory_LeavesTheEnvironmentAsIs()
+    {
+        // A file where the directory should be makes the write fail; the build then runs exactly as before.
+        var blocker = WriteFile("blocker", string.Empty);
+        var environment = new Dictionary<string, string> { ["PATH"] = @"C:\tools" };
+
+        Assert.AreSame(environment, ProjectRunService.WithPackagingReferenceTargets(environment, null, Path.Join(blocker.FullName, "msbuild")));
+    }
+
+
+
+
+
+    [TestMethod]
     public void BuildNativeMsixPublishArguments_TriggersSdkPackagingAndCapturesOutput()
     {
         var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
@@ -2538,6 +2622,258 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task BuildAndResolveAsync_PropertyTfm_ShimChecksEvaluatedTfmWithOneEvaluate()
+    {
+        // A single TargetFramework set through a property (e.g. $(SamplesTargetFrameworkMoniker)) is invisible
+        // to the static read. The shim must still check the targeted SDK against the evaluated TFM, reusing
+        // the effective-framework evaluate rather than running a second one.
+        var csproj = WriteFile("App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>WinExe</OutputType>
+                <TargetFramework>$(SamplesTargetFrameworkMoniker)</TargetFramework>
+              </PropertyGroup>
+            </Project>
+            """);
+        var discoveryCalls = 0;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.Contains("--getProperty:TargetFrameworks", StringComparison.Ordinal))
+                {
+                    discoveryCalls++;
+                    return (0, """{ "Properties": { "TargetFramework": "net9.0-windows10.0.22621.0", "TargetFrameworks": "" } }""", string.Empty);
+                }
+
+                return (0, PackagedPropertiesJson(), string.Empty);
+            },
+        };
+        var folder = @"C:\cache\microsoft.windows.sdk.net.ref\10.0.22621.57\winmd";
+        var shim = new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = true, FolderToReturn = folder };
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.AreEqual(1, discoveryCalls, "the TFM discovery evaluate must run once and be reused by the shim");
+        Assert.AreEqual("net9.0-windows10.0.22621.0", shim.ResolvedMonikers[0]);
+        var buildCall = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
+        StringAssert.Contains(buildCall, $"-p:CsWinRTWindowsMetadata={folder}");
+        Assert.IsFalse(buildCall.Contains(" -f ", StringComparison.Ordinal),
+            "a single-targeted project's evaluated TFM must not be pinned into the build");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_TargetedSdkMissing_PassesProjectMetadataToShim()
+    {
+        // Only when the shim would inject does winapp read the project's own CsWinRTWindowsMetadata, so a
+        // project-set value (e.g. a winmd folder) can stop the shim from overriding it.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var probes = 0;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.Contains("--getProperty:CsWinRTWindowsMetadata", StringComparison.Ordinal))
+                {
+                    probes++;
+                    StringAssert.Contains(args, "-p:Configuration=Debug");
+                    return (0, """{ "Properties": { "CsWinRTWindowsMetadata": "sdk+", "TargetFramework": "net10.0-windows10.0.26100.0" } }""", string.Empty);
+                }
+
+                return (0, PackagedPropertiesJson(), string.Empty);
+            },
+        };
+        var shim = new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = true };
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual(1, probes, "the project's CsWinRTWindowsMetadata should be read once");
+        Assert.AreEqual("sdk+", shim.ResolvedProjectMetadata[0]);
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_TargetedSdkInstalled_DoesNotReadProjectMetadata()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var commandArgs = new List<string>();
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args => { commandArgs.Add(args); return (0, PackagedPropertiesJson(), string.Empty); },
+        };
+        var shim = new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = false };
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsFalse(commandArgs.Any(a => a.Contains("--getProperty:CsWinRTWindowsMetadata", StringComparison.Ordinal)),
+            "a host with the targeted SDK must not pay for the extra evaluate");
+        Assert.IsNull(shim.ResolvedProjectMetadata.Single());
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_TargetedSdkInstalled_ProjectMentionsMetadata_ReadsIt()
+    {
+        // The TFM's SDK is installed, but the project pins its own CsWinRTWindowsMetadata, which may name a
+        // missing SDK version, so winapp reads it rather than trusting the default.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj.Replace(
+            "</PropertyGroup>",
+            "<CsWinRTWindowsMetadata>10.0.22621.0</CsWinRTWindowsMetadata></PropertyGroup>",
+            StringComparison.Ordinal));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args => args.Contains("--getProperty:CsWinRTWindowsMetadata", StringComparison.Ordinal)
+                ? (0, """{ "Properties": { "CsWinRTWindowsMetadata": "10.0.22621.0", "TargetFramework": "net10.0-windows10.0.26100.0" } }""", string.Empty)
+                : (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var shim = new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = false };
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual("10.0.22621.0", shim.ResolvedProjectMetadata[0]);
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_ConditionalSingleTfm_UsesEvaluatedTfmWithoutPinning()
+    {
+        // Per-Configuration <TargetFramework>: the first textual one (Debug) is not what a Release run builds,
+        // so the shim must see the evaluated TFM, and a single-targeted project is still never pinned with -f.
+        var csproj = WriteFile("App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><OutputType>WinExe</OutputType></PropertyGroup>
+              <PropertyGroup Condition="'$(Configuration)' == 'Debug'"><TargetFramework>net10.0-windows10.0.26100.0</TargetFramework></PropertyGroup>
+              <PropertyGroup Condition="'$(Configuration)' == 'Release'"><TargetFramework>net10.0-windows10.0.19041.0</TargetFramework></PropertyGroup>
+            </Project>
+            """);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args => args.Contains("--getProperty:TargetFrameworks", StringComparison.Ordinal)
+                ? (0, """{ "Properties": { "TargetFramework": "net10.0-windows10.0.19041.0", "TargetFrameworks": "" } }""", string.Empty)
+                : (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var shim = new FakeCsWinRTMetadataShimService();
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Release", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual("net10.0-windows10.0.19041.0", shim.SdkAbsentMonikers[0]);
+        var buildCall = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
+        Assert.IsFalse(buildCall.Contains(" -f ", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_EvaluatedTargetFrameworkWinsOverImportedList_NotPinned()
+    {
+        // An imported <TargetFrameworks> plus a conditional <TargetFramework>: the SDK builds TargetFramework,
+        // so winapp must not pin the list's first entry with -f.
+        var csproj = WriteFile("App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><OutputType>WinExe</OutputType></PropertyGroup>
+              <PropertyGroup Condition="'$(Configuration)' == 'Debug'"><TargetFramework>net10.0-windows10.0.26100.0</TargetFramework></PropertyGroup>
+              <PropertyGroup Condition="'$(Configuration)' != 'Debug'"><TargetFramework>net10.0-windows10.0.26100.0</TargetFramework></PropertyGroup>
+            </Project>
+            """);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args => args.Contains("--getProperty:TargetFrameworks", StringComparison.Ordinal)
+                ? (0, """{ "Properties": { "TargetFramework": "net10.0-windows10.0.26100.0", "TargetFrameworks": "net10.0-windows10.0.19041.0;net10.0-windows10.0.26100.0" } }""", string.Empty)
+                : (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var shim = new FakeCsWinRTMetadataShimService();
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual("net10.0-windows10.0.26100.0", shim.SdkAbsentMonikers[0]);
+        var buildCall = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
+        Assert.IsFalse(buildCall.Contains(" -f ", StringComparison.Ordinal),
+            "an evaluated TargetFramework must not be replaced by the first of TargetFrameworks");
+    }
+
+    [TestMethod]
+    public async Task RunFlow_ReadsProjectCsWinRTMetadataOnce()
+    {
+        // `winapp run` checks packaging and then builds; both prepare the project, but the
+        // CsWinRTWindowsMetadata probe (a full MSBuild evaluate) must run only once per command.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var probes = 0;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.Contains("--getProperty:CsWinRTWindowsMetadata", StringComparison.Ordinal))
+                {
+                    probes++;
+                    return (0, """{ "Properties": { "CsWinRTWindowsMetadata": "", "TargetFramework": "net10.0-windows10.0.26100.0" } }""", string.Empty);
+                }
+
+                return (0, PackagedPropertiesJson(), string.Empty);
+            },
+        };
+        var shim = new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = true };
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        await service.IsDefinitivelyUnpackagedAsync(csproj, options, CancellationToken.None);
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual(1, probes);
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_UserWindowsSdkVersion_ReadsMetadataAndFallsBackToIt()
+    {
+        // -p WindowsSDKVersion can request a missing SDK even when the TFM's is installed. Before restore the
+        // probe returns nothing, so the user's version stands in for CsWinRT's default.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var probes = 0;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.Contains("--getProperty:CsWinRTWindowsMetadata", StringComparison.Ordinal))
+                {
+                    probes++;
+                    StringAssert.Contains(args, @"-p:WindowsSDKVersion=10.0.19041.0");
+                    return (0, """{ "Properties": { "CsWinRTWindowsMetadata": "", "TargetFramework": "net10.0-windows10.0.26100.0" } }""", string.Empty);
+                }
+
+                return (0, PackagedPropertiesJson(), string.Empty);
+            },
+        };
+        var shim = new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = false };
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false,
+            Properties: ["WindowsSDKVersion=10.0.19041.0"]);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsTrue(probes >= 1, "a user-passed WindowsSDKVersion must trigger the probe");
+        Assert.AreEqual("10.0.19041.0", shim.ResolvedProjectMetadata[0]);
+    }
+
+    [TestMethod]
+    public void ProjectMentionsCsWinRTMetadata_FindsProjectAndParentDirectoryBuildFiles()
+    {
+        var plain = WriteFileAt(@"src\Plain\Plain.csproj", ExecutableCsproj);
+        Assert.IsFalse(ProjectRunService.ProjectMentionsCsWinRTMetadata(plain));
+
+        WriteFileAt(@"src\Directory.Build.props",
+            "<Project><PropertyGroup><CsWinRTWindowsMetadata>sdk</CsWinRTWindowsMetadata></PropertyGroup></Project>");
+        Assert.IsTrue(ProjectRunService.ProjectMentionsCsWinRTMetadata(plain),
+            "a pin in a parent Directory.Build.props must be found");
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_SdkPresent_NoPreShimRestore()
     {
         // C1: when a Windows SDK is registered the shim no-ops; there is nothing to restore-and-retry.
@@ -3454,6 +3790,38 @@ public class ProjectRunServiceTests
 
         Assert.AreEqual(1, siblings.Count, "the BuildDependency element must not add a second Server entry");
         Assert.AreEqual(Path.Combine(_tempDir.FullName, "src", "Server", "Server.csproj"), siblings[0].FullName);
+    }
+
+    [TestMethod]
+    public void ComputeSolutionRestorePlan_SiblingsThatReferenceTarget_Excluded()
+    {
+        // Restoring a project that references the app also restores the app, with the solution restore's
+        // settings rather than the build's, so the two restores keep rewriting the app's restore output.
+        var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
+        WriteProjectsAt("src/Lib/Lib.csproj", "src/Server/Server.csproj");
+        WriteFileAt(@"tests\App.Tests\App.Tests.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"..\\..\\src\\App\\App.csproj\" /></ItemGroup></Project>");
+        WriteFileAt(@"tests\Integration\Integration.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"..\\App.Tests\\App.Tests.csproj\" /><ProjectReference Include=\"..\\..\\src\\Lib\\Lib.csproj\" /></ItemGroup></Project>");
+        // References that may not apply to this build don't count, so these siblings stay in the restore.
+        WriteFileAt(@"src\Conditional\Conditional.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup Condition=\"'$(Configuration)' == 'Release'\"><ProjectReference Include=\"..\\App\\App.csproj\" /></ItemGroup></Project>");
+        WriteFileAt(@"src\InTarget\InTarget.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><Target Name=\"AddApp\"><ItemGroup><ProjectReference Include=\"..\\App\\App.csproj\" /></ItemGroup></Target></Project>");
+        var solution = WriteFile("App.slnx", SlnxListing(
+            "src/App/App.csproj", "src/Lib/Lib.csproj", "src/Server/Server.csproj",
+            "tests/App.Tests/App.Tests.csproj", "tests/Integration/Integration.csproj",
+            "src/Conditional/Conditional.csproj", "src/InTarget/InTarget.csproj"));
+
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+
+        Assert.AreEqual(
+            "Lib.csproj;Server.csproj;Conditional.csproj;InTarget.csproj",
+            string.Join(';', plan.ManagedSiblings.Select(s => s.Name)),
+            "only unconditional direct and transitive referrers of the app are left out");
+        Assert.AreEqual(
+            "src/Lib/Lib.csproj;src/Server/Server.csproj;src/Conditional/Conditional.csproj;src/InTarget/InTarget.csproj",
+            string.Join(';', plan.ManagedSiblingEntries));
     }
 
     [TestMethod]

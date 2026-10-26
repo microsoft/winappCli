@@ -22,6 +22,7 @@ Each skill has the exact commands, flags, and failure handling. Load it before a
 | Find a WinUI control and a working sample | `winapp-find-ui` |
 | Search official docs and WinUI samples for a Windows development question | `winapp-ask` |
 | Inspect or drive a running app's UI, screenshots | `winapp-ui-automation` |
+| A running WinUI 3 app's XAML: source lines, live properties, bindings, the user's UI comments (`winapp devtools`) | `winui-devtools` |
 | Investigate slow WinUI 3 layout, scrolling, rendering, or managed GC pauses | `winapp-performance` |
 | Run or test in Windows Sandbox | `winapp-sandbox` |
 | An error from packaging, signing, installing, identity, or SDK setup | `winapp-troubleshoot` |

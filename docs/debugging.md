@@ -4,6 +4,7 @@
 
 Many Windows APIs (push notifications, background tasks, share target, startup tasks, Windows AI APIs) require your app to have **package identity**. During development, you don't want to build a full MSIX installer every time you test — winapp provides two commands to give your app identity on the fly.
 
+> [!TIP]
 > **Using Visual Studio with a packaging project?** If you are already using Visual Studio for your packaged project, you likely don't need winapp for debugging. Visual Studio already handles package registration, identity, AUMID activation, debugger attachment, and activation-code debugging — all from F5. It also offers **Debug → Other Debug Targets → Debug Installed App Package** for advanced scenarios. The workflows below are most useful for **VS Code users, terminal-based workflows, and frameworks that VS doesn't natively package** (Rust, Flutter, Tauri, Electron, plain C++).
 
 ## Two approaches: `winapp run` vs `create-debug-identity`
@@ -87,6 +88,7 @@ Then in your IDE:
 - **VS Code**: Run and Debug → select "Attach" configuration (see [IDE setup](#ide-setup) below)
 - **WinDbg**: `windbg -p 12345`
 
+> [!NOTE]
 > **Limitation:** You'll miss any code that runs before you attach. For startup debugging, use Scenario D (`create-debug-identity`).
 
 ### Scenario C: Register identity, then launch via AUMID or alias from your IDE
@@ -103,7 +105,8 @@ winapp run .\build\Debug --no-launch
 * Launching with AUMID: Use the command `start shell:AppsFolder\<AUMID>`. `winapp run` outputs the AUMID when the app is registered.
 * Launching with the alias: Use the alias name `run` prints. With `--unique-identity`, it differs from the one in your manifest.
 
-> **Important:** Simply launching the exe in the build folder will **not** give it identity. The app must be started via AUMID activation or its execution alias. This is how loose layout packages work - identity is tied to the activation path, not the exe file.
+> [!IMPORTANT]
+> Simply launching the exe in the build folder will **not** give it identity. The app must be started via AUMID activation or its execution alias. This is how loose layout packages work - identity is tied to the activation path, not the exe file.
 
 ### Scenario D: Launch from your IDE with identity (startup debugging)
 
@@ -115,6 +118,7 @@ winapp create-debug-identity .\build\Debug\myapp.exe
 
 Now launch the exe any way you like — from the terminal, from VS Code's F5, from a script. The exe has identity because Windows registered a **sparse package** pointing directly at it.
 
+> [!NOTE]
 > **How it differs from `winapp run`:** With `create-debug-identity`, identity is tied to the exe itself (via `Add-AppxPackage -ExternalLocation`). With `winapp run`, identity is tied to the loose layout package — the app must be launched through AUMID or an alias. This makes `create-debug-identity` the better choice when you need your IDE to launch and debug the exe directly.
 
 > This is also the best approach for **Electron apps** where the exe path differs from your source directory.
@@ -135,7 +139,8 @@ On crash, the output includes the exception type, message, and stack trace with 
 winapp run .\build\Debug --debug-output --symbols
 ```
 
-> **Important:** This attaches winapp as the debugger. Windows only allows one debugger per process, so you **cannot** also attach Visual Studio, VS Code, or WinDbg.
+> [!IMPORTANT]
+> This attaches winapp as the debugger. Windows only allows one debugger per process, so you **cannot** also attach Visual Studio, VS Code, or WinDbg.
 
 #### WinUI stowed-exception triage
 
@@ -183,7 +188,8 @@ When you press **F5**:
 
 Once the debugger attaches, you get the full VS Code debugging experience — set breakpoints by clicking the gutter, step through code line-by-line (`F10`), step into functions (`F11`), inspect variables in the **Variables** pane, and evaluate expressions in the **Debug Console**. The app runs with package identity throughout, so identity-dependent APIs behave exactly as they would in production.
 
-> **Important:** The `winapp` debug type does **not** build your project automatically. After making code changes, rebuild before pressing F5.
+> [!IMPORTANT]
+> The `winapp` debug type does **not** build your project automatically. After making code changes, rebuild before pressing F5.
 
 #### Automate builds with `preLaunchTask`
 

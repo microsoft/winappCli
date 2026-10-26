@@ -22,7 +22,7 @@ namespace WinApp.Cli.Commands;
 /// </summary>
 internal sealed class FindUiCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Agent-first: search WinUI controls & samples for a working example";
+    public string ShortDescription => "Search WinUI controls and samples for working code";
 
     public static Argument<string?> QueryArgument { get; }
     public static Option<string[]> IdOption { get; }

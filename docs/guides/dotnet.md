@@ -121,6 +121,7 @@ Because we're building a console app, console output needs to stay in the curren
 
 winapp handles this for you: an app with `OutputType=Exe` is launched through an execution alias instead, which inherits your terminal's stdin/stdout/stderr. It adds the required `uap5:ExecutionAlias` to the manifest it stages, so there is nothing to configure.
 
+> [!NOTE]
 > **UI apps** (WPF, WinForms, WinUI) render their own window, so they keep AUMID activation.
 
 To force AUMID for a console app anyway, set the following inside any `<PropertyGroup>` in `dotnet-app.csproj` — the app then runs without a console and prints nothing to the terminal:
@@ -145,8 +146,8 @@ Arguments you write after `dotnet run` go to **your application**, exactly as th
 project did not reference this package:
 
 ```powershell
-dotnet run --devtools          # your app receives --devtools
-dotnet run -- --devtools       # identical: the SDK consumes the -- before forwarding
+dotnet run --demo-mode          # your app receives --demo-mode
+dotnet run -- --demo-mode       # identical: the SDK consumes the -- before forwarding
 ```
 
 Use `--` when your app's flag is also a `dotnet run` option (`--configuration`, `--framework`,
@@ -161,10 +162,10 @@ Configure the WinApp launcher itself with the `WinAppRun*` MSBuild properties. M
 these, so they never reach your application:
 
 ```powershell
-dotnet run -p:WinAppRunDebugOutput=true --devtools
+dotnet run -p:WinAppRunDebugOutput=true --demo-mode
 ```
 
-Here the property configures WinApp while `--devtools` is passed to your app. See
+Here the property configures WinApp while `--demo-mode` is passed to your app. See
 [`dotnet run` support](../dotnet-run-support.md) for the full property list, including which
 properties cannot be combined.
 
@@ -221,7 +222,8 @@ winapp unregister .\dotnet-app.csproj
 See [unique identity for parallel checkouts](../usage.md#unique-identity-for-parallel-checkouts).
 Don't pass `--unique-identity` to `dotnet run`; it would go to your app, not to winapp.
 
-> **No Windows SDK installed?** C#/WinRT authoring projects normally need a registered Windows SDK to build. When project mode detects none (clean CI, containers, SDK-less dev boxes), it points cswinrt at the winmds from the auto-restored `Microsoft.Windows.SDK.NET.Ref` package so the build still succeeds — no action needed. It does nothing when an SDK is installed or when you set `-p CsWinRTWindowsMetadata=…` yourself.
+> [!NOTE]
+> **Targeted Windows SDK not installed?** If the Windows SDK version your C#/WinRT project builds against isn't installed, `winapp run` builds against the Windows metadata from the auto-restored `Microsoft.Windows.SDK.NET.Ref` package instead. No action is needed. winapp leaves your setting alone if you pass `-p CsWinRTWindowsMetadata=…` or set it to `local` or a winmd folder.
 
 To add the NuGet package back: `dotnet add package Microsoft.Windows.SDK.BuildTools.WinApp --prerelease`
 
@@ -259,6 +261,7 @@ With this configuration, `dotnet build` applies the debug identity and you can r
 > [!TIP]
 > For advanced debugging workflows (attaching debuggers, IDE setup, startup debugging), see the [Debugging Guide](../debugging.md).
 
+> [!TIP]
 > **When to skip this**: If you prefer explicit control over when identity is applied, or if you're working on code that doesn't need identity for most of your development cycle, the manual approach above may be simpler.
 
 ## 6. Using Windows App SDK (Optional)

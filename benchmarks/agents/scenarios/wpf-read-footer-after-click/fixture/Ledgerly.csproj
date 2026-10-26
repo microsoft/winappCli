@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Ledgerly</RootNamespace>
+    <Platforms>x64;ARM64</Platforms>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+</Project>

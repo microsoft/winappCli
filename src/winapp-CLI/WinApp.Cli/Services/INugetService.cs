@@ -57,6 +57,15 @@ internal interface INugetService
     DirectoryInfo GetNuGetGlobalPackagesDir();
 
     /// <summary>
+    /// Returns the NuGet global packages directory configured for the nuget.config hierarchy rooted at
+    /// <paramref name="configRoot"/> (the NUGET_PACKAGES environment variable or the
+    /// <c>globalPackagesFolder</c> setting, falling back to ~/.nuget/packages/). Unlike
+    /// <see cref="GetNuGetGlobalPackagesDir()"/>, this does not depend on the process working directory and
+    /// does not create the directory, so read-only callers can inspect another project's packages.
+    /// </summary>
+    DirectoryInfo GetNuGetGlobalPackagesDir(string configRoot);
+
+    /// <summary>
     /// Returns the directory for a specific package version in the NuGet global packages cache, using
     /// NuGet's normalized on-disk layout: {cache}/{lowercase-id}/{normalized-version}/.
     /// </summary>

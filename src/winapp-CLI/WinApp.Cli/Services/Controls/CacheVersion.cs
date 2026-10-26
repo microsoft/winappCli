@@ -134,6 +134,10 @@ namespace WinApp.Cli.Services.Controls;
 ///          This change also re-bakes the snapshot. CommunityToolkit/Windows now
 ///          publishes catalog/toolkit-samples.json, so the baked corpus carries the
 ///          Toolkit again instead of the reduced floor it held while that index 404'd.
+///   "27" — gallery-tags.json gains a tableview entry and listview loses its table,
+///          column, sort, editable and datagrid tags, so tabular-data queries reach
+///          TableView instead of ListView (issue #1120). Rule 2: an unbumped cache keeps
+///          serving the old tags, and the offline fallback ignores the TTL.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
@@ -141,5 +145,5 @@ namespace WinApp.Cli.Services.Controls;
 /// </summary>
 internal static class CacheVersion
 {
-    public const string Current = "26";
+    public const string Current = "27";
 }

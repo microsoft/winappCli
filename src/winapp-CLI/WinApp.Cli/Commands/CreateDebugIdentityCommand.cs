@@ -11,7 +11,7 @@ namespace WinApp.Cli.Commands;
 
 internal class CreateDebugIdentityCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Enable package identity for debugging without full MSIX";
+    public string ShortDescription => "Add package identity to an exe for debugging";
 
     public static Argument<FileInfo> EntryPointArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }

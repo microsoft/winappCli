@@ -30,18 +30,22 @@ internal sealed class FakeCsWinRTMetadataShimService : ICsWinRTMetadataShimServi
 
     public List<string?> ResolvedMonikers { get; } = [];
 
-    /// <summary>Number of times <see cref="IsWindowsSdkAbsent"/> was consulted.</summary>
-    public int IsWindowsSdkAbsentCalls { get; private set; }
+    /// <summary>Project <c>CsWinRTWindowsMetadata</c> values passed to <see cref="ResolveMetadataFolder"/>, in call order.</summary>
+    public List<string?> ResolvedProjectMetadata { get; } = [];
 
-    public string? ResolveMetadataFolder(string? targetFrameworkMoniker)
+    /// <summary>Monikers <see cref="IsWindowsSdkAbsent"/> was consulted with, in call order.</summary>
+    public List<string?> SdkAbsentMonikers { get; } = [];
+
+    public string? ResolveMetadataFolder(string? targetFrameworkMoniker, string? projectWindowsMetadata = null)
     {
         ResolvedMonikers.Add(targetFrameworkMoniker);
+        ResolvedProjectMetadata.Add(projectWindowsMetadata);
         return FolderSequence.Count > 0 ? FolderSequence.Dequeue() : FolderToReturn;
     }
 
-    public bool IsWindowsSdkAbsent()
+    public bool IsWindowsSdkAbsent(string? targetFrameworkMoniker, string? projectWindowsMetadata = null)
     {
-        IsWindowsSdkAbsentCalls++;
+        SdkAbsentMonikers.Add(targetFrameworkMoniker);
         return WindowsSdkAbsent;
     }
 }

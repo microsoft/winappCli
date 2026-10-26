@@ -24,7 +24,7 @@ namespace WinApp.Cli.Commands;
 /// </summary>
 internal sealed class FindApiCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Agent-first: search a project's Windows/WinRT API surface (types, members, enums)";
+    public string ShortDescription => "Search the Windows APIs your project references";
 
     public static Argument<string[]> QueryArgument { get; } = new("query")
     {

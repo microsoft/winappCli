@@ -34,6 +34,18 @@ public sealed class RecordOptions
     /// <see langword="null"/> records video only.
     /// </summary>
     public string? FramesDirectory { get; init; }
+
+    /// <summary>
+    /// Draw the mouse pointer into each frame. When <see cref="FramesDirectory"/> is set, each index
+    /// entry also records the pointer position and the mouse-button events since the previous sample.
+    /// </summary>
+    public bool Cursor { get; init; }
+
+    /// <summary>
+    /// When <see cref="Cursor"/> is set, draw a short fading ring where each mouse button is pressed.
+    /// Ignored when <see cref="Cursor"/> is <see langword="false"/>.
+    /// </summary>
+    public bool ClickHighlight { get; init; } = true;
 }
 
 /// <summary>Result of an MP4 recording.</summary>
@@ -127,6 +139,43 @@ internal sealed class RecordFrameSample
     public int SampleIndex { get; init; }
     public long ElapsedMs { get; init; }
     public double MediaTimeMs { get; init; }
+    public RecordFrameCursor? Cursor { get; init; }
+    public RecordFrameClick[]? Clicks { get; init; }
+}
+
+/// <summary>Where the mouse pointer was when a frame was sampled, in that frame's pixel coordinates.</summary>
+public sealed class RecordFrameCursor
+{
+    /// <summary>Horizontal position of the pointer's tip, in frame pixels. Can fall outside the image.</summary>
+    public int X { get; init; }
+
+    /// <summary>Vertical position of the pointer's tip, in frame pixels. Can fall outside the image.</summary>
+    public int Y { get; init; }
+
+    /// <summary><see langword="false"/> when Windows was hiding the pointer, for example while typing.</summary>
+    public bool Visible { get; init; }
+
+    /// <summary><see langword="true"/> when the pointer's tip was inside the recorded area.</summary>
+    public bool InFrame { get; init; }
+}
+
+/// <summary>A mouse-button press or release that happened during the recording.</summary>
+public sealed class RecordFrameClick
+{
+    /// <summary>"left", "right", "middle", "x1", or "x2".</summary>
+    public string Button { get; init; } = "left";
+
+    /// <summary>"down" for a press, or "up" for a release.</summary>
+    public string Kind { get; init; } = "down";
+
+    /// <summary>Milliseconds from the start of the recording to the event.</summary>
+    public long ElapsedMs { get; init; }
+
+    /// <summary>Horizontal position of the event, in frame pixels. Can fall outside the image.</summary>
+    public int X { get; init; }
+
+    /// <summary>Vertical position of the event, in frame pixels. Can fall outside the image.</summary>
+    public int Y { get; init; }
 }
 
 /// <summary>One line of the frame index, describing a single sampled frame.</summary>
@@ -149,6 +198,18 @@ public sealed class RecordFrameIndexEntry
 
     /// <summary><see langword="true"/> when this sample's pixels differ from the previous sample.</summary>
     public bool Changed { get; init; }
+
+    /// <summary>
+    /// Pointer position at this sample, or <see langword="null"/> when the recording did not request
+    /// <see cref="RecordOptions.Cursor"/>.
+    /// </summary>
+    public RecordFrameCursor? Cursor { get; init; }
+
+    /// <summary>
+    /// Mouse-button events since the previous sample, oldest first, or <see langword="null"/> when
+    /// there were none.
+    /// </summary>
+    public RecordFrameClick[]? Clicks { get; init; }
 }
 
 /// <summary>Manifest describing a frame bundle: what was requested, and what was produced.</summary>
@@ -199,6 +260,12 @@ public sealed class RecordFrameRequestManifest
 
     /// <summary>Requested longest-edge limit in pixels. 0 means no downscale.</summary>
     public int MaxEdge { get; init; }
+
+    /// <summary><see langword="true"/> when the pointer was drawn; <see langword="null"/> when it was not requested.</summary>
+    public bool? Cursor { get; init; }
+
+    /// <summary>Whether click rings were drawn; <see langword="null"/> when the pointer was not requested.</summary>
+    public bool? ClickHighlight { get; init; }
 }
 
 /// <summary>What the recording achieved, against what it was asked for.</summary>

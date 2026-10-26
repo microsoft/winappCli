@@ -497,6 +497,178 @@ public class FindUiSearchTests
         }
     }
 
+    [TestMethod]
+    public void SearchVocabulary_EmbeddedFileLoads()
+    {
+        var vocabulary = SearchVocabulary.LoadEmbedded();
+
+        Assert.AreEqual(SearchVocabulary.SupportedSchemaVersion, vocabulary.SchemaVersion);
+        Assert.IsTrue(vocabulary.Phrases.Length > 0, "phrases must not be empty");
+        Assert.IsTrue(vocabulary.Expansions.Length > 0, "expansions must not be empty");
+        Assert.IsTrue(Synonyms.Phrases.Count > 0 && Synonyms.ReplacePhrases.Length > 0 && Synonyms.Map.Count > 0,
+            "Synonyms must be built from the embedded vocabulary");
+    }
+
+    [TestMethod]
+    public void Preprocess_ReplacePhrase_SubstitutesToken()
+    {
+        var tokens = BM25.Tokenize(Synonyms.Preprocess("sign in page"));
+
+        CollectionAssert.Contains(tokens, "login");
+        CollectionAssert.DoesNotContain(tokens, "sign", "a replace phrase must drop its original words");
+    }
+
+    [TestMethod]
+    public void Preprocess_AddPhrase_KeepsOriginalWords()
+    {
+        var tokens = BM25.Tokenize(Synonyms.Preprocess("data grid"));
+
+        foreach (var expected in new[] { "data", "grid", "datagrid" })
+        {
+            CollectionAssert.Contains(tokens, expected);
+        }
+    }
+
+    [TestMethod]
+    public void Expand_SiteGroups_DoNotAddUnrelatedControlNames()
+    {
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["audio"]).ToList(), "sound");
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["picture"]).ToList(), "photo");
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["camera"]).ToList(), "webcam");
+    }
+
+    [TestMethod]
+    public void Expand_Expansion_IsOneWay()
+    {
+        CollectionAssert.Contains(Synonyms.Expand(["modal"]).ToList(), "contentdialog");
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["contentdialog"]).ToList(), "modal");
+    }
+
+    /// <summary>Common ways people describe a control without naming it must reach that control.</summary>
+    [TestMethod]
+    [DataRow("toolbar with icons", "commandbar")]
+    [DataRow("speed gauge", "radialgauge")]
+    [DataRow("battery meter", "radialgauge")]
+    [DataRow("editor with tabs", "tabview")]
+    [DataRow("tabbed documents", "tabview")]
+    [DataRow("notification badge", "infobadge")]
+    [DataRow("warning alert", "infobar")]
+    [DataRow("reorder items", "listview")]
+    [DataRow("chat messages", "listview")]
+    [DataRow("signup form", "textbox")]
+    [DataRow("text field", "textbox")]
+    [DataRow("option selector", "combobox")]
+    [DataRow("slide out panel", "splitview")]
+    [DataRow("slide-out panel", "splitview")]
+    [DataRow("side sheet", "splitview")]
+    [DataRow("range slider", "rangeselector")]
+    [DataRow("coach mark", "teachingtip")]
+    [DataRow("scale image to fit", "viewbox")]
+    [DataRow("file picker", "pickers")]
+    public void Expand_DescriptivePhrase_ReachesControl(string query, string control)
+    {
+        var expanded = Synonyms.Expand(BM25.Tokenize(Synonyms.Preprocess(query))).ToList();
+        CollectionAssert.Contains(expanded, control, $"'{query}' must reach {control}");
+    }
+
+    private static SearchEngine BuildEmbeddedEngine()
+    {
+        var scenarios = new List<Scenario>();
+        var tags = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var keywords = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var provider in ProviderRegistry.Descriptors.Where(p => !ProviderRegistry.IsReactorSource(p.Id)))
+        {
+            var data = EmbeddedSnapshot.TryLoad(provider.Id);
+            Assert.IsNotNull(data, $"the {provider.Id} snapshot must be available");
+            scenarios.AddRange(data.Scenarios);
+            foreach (var pair in data.Tags)
+            {
+                tags[$"{provider.Id}:{pair.Key}"] = pair.Value;
+            }
+            foreach (var pair in data.Keywords)
+            {
+                keywords[$"{provider.Id}:{pair.Key}"] = pair.Value;
+            }
+        }
+
+        return new SearchEngine(scenarios.ToArray(), DataLoader.LoadCorePatterns(), tags, keywords);
+    }
+
+    [TestMethod]
+    [DataRow("play audio", "MediaPlayerElement")]
+    [DataRow("play audio file", "MediaPlayerElement")]
+    [DataRow("range slider", "RangeSelector")]
+    [DataRow("coach mark", "TeachingTip")]
+    [DataRow("side sheet", "SplitView")]
+    [DataRow("slide-out", "SplitView")]
+    [DataRow("toolbar", "CommandBar")]
+    public void SearchGrouped_EmbeddedVocabulary_RanksIntendedControlFirst(string query, string expected)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual(expected, groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    /// <summary>TableView is the control built for tabular data, so table, grid and
+    /// spreadsheet wording must reach it ahead of ListView.</summary>
+    [TestMethod]
+    [DataRow("table")]
+    [DataRow("tables")]
+    [DataRow("data table")]
+    [DataRow("data grid")]
+    [DataRow("datagrid")]
+    [DataRow("spreadsheet")]
+    [DataRow("sortable table")]
+    [DataRow("editable table")]
+    [DataRow("table with sorting")]
+    [DataRow("table grouping")]
+    [DataRow("sortable columns")]
+    [DataRow("sort by column")]
+    [DataRow("resize columns")]
+    [DataRow("edit cells")]
+    [DataRow("table sort group resize edit")]
+    [DataRow("datagrid sort group resize columns edit cells")]
+    [DataRow("table view")]
+    [DataRow("tabular data")]
+    [DataRow("grid with sorting and grouping")]
+    public void SearchGrouped_EmbeddedVocabulary_RanksTableViewFirstForTabularData(string query)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual("TableView", groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    [TestMethod]
+    [DataRow("list view")]
+    [DataRow("reorder items")]
+    public void SearchGrouped_EmbeddedVocabulary_KeepsListViewFirstForLists(string query)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual("ListView", groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    [TestMethod]
+    [DataRow("picture grid", "GridView")]
+    [DataRow("camera", "CameraHelper")]
+    [DataRow("date field", "DatePicker")]
+    [DataRow("numeric field", "NumberBox")]
+    [DataRow("rows and columns", "Grid")]
+    [DataRow("toolbar with icons", "CommandBar")]
+    public void SearchGrouped_EmbeddedVocabulary_KeepsRelevantControls(string query, string expected)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsTrue(groups.Any(g => g.ControlName == expected),
+            $"'{query}' must include {expected}; returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
     /// <summary>
     /// The Toolkit groups helpers, converters and behaviors under an umbrella control and
     /// names the specific type in the scenario header, so the header carries vocabulary that

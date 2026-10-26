@@ -1,6 +1,6 @@
 ---
 name: winapp-performance
-description: Investigate slow WinUI 3 layout, scrolling and virtualization using native ETW captures, timed operation trees and managed GC suspension context. Use bounded queries for runtime performance questions, not crash dumps or UI correctness.
+description: Investigate slow WinUI 3 layout, scrolling and virtualization using native ETW captures, timed operation trees and managed GC suspension context. Use bounded queries for runtime performance questions, not crash analysis or UI correctness.
 ---
 
 ## Workflow

@@ -62,6 +62,7 @@ npx winapp node generate-bindings
 
 All generated classes are exported through `#winapp/bindings`:
 
+> [!IMPORTANT]
 > **Requires `@microsoft/dynwinrt-codegen` ≥ `0.1.0-preview.8`** — see [Get started with Electron](index.md#2-call-windows-apis-from-javascript) for older-project fallbacks.
 
 ```js
