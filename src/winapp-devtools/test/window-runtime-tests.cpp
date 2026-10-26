@@ -5,6 +5,8 @@
 #include <commctrl.h>
 static HRESULT FindTestName(void*, HSTRING, IInspectable**);
 static HRESULT PutTestText(void*, HSTRING);
+static HRESULT PutTestAutomationName(void*, void*, HSTRING);
+static HRESULT PutTestAutomationId(void*, void*, HSTRING);
 static HRESULT GetTestElement(void*, int, IInspectable**);
 static HRESULT GetTestToggle(void*, bool*);
 static HRESULT PutTestVisibility(void*, int) { return S_OK; }
@@ -24,6 +26,8 @@ static double testViewport = 0.0;
 static HRESULT TestViewport(void*, double* value) { *value = testViewport; return S_OK; }
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
+#define DevToolsSetAutomationName PutTestAutomationName
+#define DevToolsSetAutomationId PutTestAutomationId
 #define DevToolsRepeaterTryGetElement GetTestElement
 #define DevToolsToggleGetIsOn GetTestToggle
 #define DevToolsPutVisibility PutTestVisibility
@@ -43,6 +47,7 @@ static HRESULT TestViewport(void*, double* value) { *value = testViewport; retur
 struct TestElement : IInspectable {
     ULONG refs = 1;
     std::wstring text;
+    std::wstring automationName, automationId;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** value) override {
         *value=static_cast<IInspectable*>(this); AddRef(); return S_OK;
     }
@@ -52,7 +57,8 @@ struct TestElement : IInspectable {
     HRESULT STDMETHODCALLTYPE GetRuntimeClassName(HSTRING* value) override { *value=nullptr; return S_OK; }
     HRESULT STDMETHODCALLTYPE GetTrustLevel(TrustLevel* value) override { *value=BaseTrust; return S_OK; }
 };
-static TestElement testRow, testValue, testStatus, testInput;
+static TestElement testRow, testValue, testStatus, testInput, testHeader;
+static bool exposeHeader = false;
 static TestElement testAppWindow, testCaption;
 static HRESULT appWindowResult = S_OK, captionResult = S_OK, addThemeResult = S_OK, putThemeResult = S_OK;
 static unsigned themeAdds = 0;
@@ -82,6 +88,7 @@ static HRESULT FindTestName(void*, HSTRING name, IInspectable** found)
     const auto* chars=WindowsGetStringRawBuffer(name,&length);
     *found=nullptr;
     if(std::wstring(chars,length)==L"PValue") { *found=&testValue; testValue.AddRef(); }
+    if(exposeHeader && std::wstring(chars,length)==L"PHeader") { *found=&testHeader; testHeader.AddRef(); }
     return S_OK;
 }
 static HRESULT PutTestText(void* element, HSTRING value)
@@ -89,6 +96,20 @@ static HRESULT PutTestText(void* element, HSTRING value)
     UINT32 length=0;
     const auto* chars=WindowsGetStringRawBuffer(value,&length);
     static_cast<TestElement*>(element)->text.assign(chars ? chars : L"",length);
+    return S_OK;
+}
+static HRESULT PutTestAutomationName(void*, void* element, HSTRING value)
+{
+    UINT32 length=0;
+    const auto* chars=WindowsGetStringRawBuffer(value,&length);
+    static_cast<TestElement*>(element)->automationName.assign(chars ? chars : L"",length);
+    return S_OK;
+}
+static HRESULT PutTestAutomationId(void*, void* element, HSTRING value)
+{
+    UINT32 length=0;
+    const auto* chars=WindowsGetStringRawBuffer(value,&length);
+    static_cast<TestElement*>(element)->automationId.assign(chars ? chars : L"",length);
     return S_OK;
 }
 static HRESULT GetTestElement(void*, int, IInspectable** element)
@@ -158,12 +179,29 @@ int main()
     bool on=false;
     BoolToggleSink toggle;
     toggle.Init(77,row.name,row.type,L"True",&on);
+    g_apStatics=&testRow;exposeHeader=true;
     toggle.Invoke(nullptr,nullptr);
+    g_apStatics=nullptr;exposeHeader=false;
     check(values[77]==L"False","boolean commit updates actual target");
     check(testValue.text==L"False","successful commit refreshes shown value in place");
     check(g_propRows[0].value==L"False","recycled row retains committed value");
+    check(testHeader.automationName==L"IsEnabled, False" && testHeader.automationId==L"IsEnabled value",
+        "committing a value refreshes the header's accessible name without changing its identity");
+    check(testValue.automationName==L"IsEnabled, False" && testValue.automationId==L"IsEnabled shown",
+        "committing a value refreshes the child text's accessible name without changing its identity");
     check(expansion.ExpansionRow().value==L"False","collapse/reopen resolves the refreshed row instead of captured snapshot");
     check(focusCalls==0,"commit does not move focus");
+    g_apStatics=&testRow;exposeHeader=true;
+    g_live.wire=g_selWire;g_live.gen=g_route1Gen;g_live.changed={row.name};
+    g_valuesFn=[](InstanceHandle, const std::vector<std::wstring>&, std::vector<DevToolsCardRow>* fresh) {
+        auto updated=g_propRows[0];updated.value=L"True";*fresh={updated};return true;
+    };
+    LiveRefreshProc(nullptr,0,0,0);
+    check(testValue.text==L"True" && testHeader.automationName==L"IsEnabled, True" &&
+        testValue.automationName==L"IsEnabled, True","live property changes refresh header and child accessible names");
+    check(testHeader.automationId==L"IsEnabled value" && testValue.automationId==L"IsEnabled shown",
+        "live property changes preserve AutomationIds");
+    g_live={};g_valuesFn=nullptr;g_apStatics=nullptr;exposeHeader=false;
     realized=false;on=true;
     toggle.Invoke(nullptr,nullptr);
     check(g_propRows[0].value==L"True","offscreen commit refreshes model without a realized element");
@@ -181,16 +219,49 @@ int main()
     values[88]=L"False";
     g_pendingWrites={{L"Other",L"String",L"x"}};
     RowExpandSink guarded;
-    guarded.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,false);
+    guarded.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,true);
     guarded.Invoke(nullptr,nullptr);
     check(g_propRows[0].value==L"True" && !CanRereadSelection(),"a pending write keeps the snapshot");
     g_pendingWrites.clear();g_propExpanded.clear();
     check(CanRereadSelection(),"a clean pane can be re-read");
     RowExpandSink opener;
-    opener.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,false);
+    opener.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,true);
     opener.Invoke(nullptr,nullptr);
     check(g_propRows[0].value==L"False" && testValue.text==L"False","opening a row re-reads its live value");
     check(CanRereadSelection(),"an expanded row whose editor is not being typed in does not block a re-read");
+    check(focusCalls==0,"expanding a property leaves focus on the header");
+    RowExpandSink closer;
+    closer.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,false);
+    closer.Invoke(nullptr,nullptr);
+    check(!PropIsExpanded(row.name),"the collapsed event clears saved expansion state");
+    closer.Invoke(nullptr,nullptr);
+    check(!PropIsExpanded(row.name),"repeated collapsed events cannot reopen a property");
+    auto shown = row;
+    shown.name=L"Height";shown.value=L"NaN";shown.valueState=L"unset";
+    check(RowShownValue(shown)==L"Auto","the accessible summary uses Auto rather than an unset sentinel");
+    g_apStatics=&testRow;
+    NamePropertyHeader(&testHeader,shown,L"Height");
+    PopulateRowValue(&testValue,shown,L"Height");
+    check(testHeader.automationName==L"Height, Auto" && testValue.automationName==L"Height, Auto" &&
+        testValue.text==L"Auto","unset height names include the displayed Auto value");
+    check(testHeader.automationId==L"Height value" && testValue.automationId==L"Height shown",
+        "initial property AutomationIds remain stable");
+    shown.valueState=L"null";
+    check(RowShownValue(shown)==L"(null)","the accessible summary names null values");
+    shown.valueState.clear();shown.value=L"200";
+    check(RowShownValue(shown)==L"200","the accessible summary includes the current literal");
+    PopulateRowValue(&testValue,shown,L"Size.Height");
+    NamePropertyHeader(&testHeader,shown,L"Size.Height");
+    check(testHeader.automationName==L"Size.Height, 200" && testValue.automationName==L"Size.Height, 200",
+        "recycled nested rows name their current path and value");
+    shown.type=L"String";shown.value.clear();
+    NamePropertyHeader(&testHeader,shown,L"Child.Text");
+    PopulateRowValue(&testValue,shown,L"Child.Text");
+    check(testHeader.automationName==L"Child.Text, (empty)" && testHeader.automationId==L"Child.Text value",
+        "empty and nested properties keep an explicit accessible value and full path");
+    check(testValue.text.empty() && testValue.automationName==L"Child.Text, (empty)" &&
+        testValue.automationId==L"Child.Text shown","an empty value clears the previous child accessible value");
+    g_apStatics=nullptr;
     g_propExpanded.clear();values[88]=L"True";g_propRows={row};testValue.text=L"True";
 
     g_ctx.readInputFn=[](IInspectable*,std::wstring& text){text=L"bad read";return false;};
@@ -271,8 +342,12 @@ int main()
         RefreshCommittedValue(row.name);
         check(layoutReads==0,"editing a property Size & spacing does not show leaves the section alone");
         row.name=L"Padding";g_propRows={row};
+        g_apStatics=&testRow;exposeHeader=true;
         RefreshCommittedValue(row.name);
         check(layoutReads==1,"editing Padding redraws Size & spacing even though the live refresh will see no change");
+        check(testHeader.automationName==L"Padding, (empty)" && testHeader.automationId==L"Padding value",
+            "editing a layout property refreshes its accessible header as well as Size & spacing");
+        g_apStatics=nullptr;exposeHeader=false;
         g_ctx.layoutFn=nullptr;g_paneHaveLayout=false;
         row.name=L"Text";g_propRows={row};
     }

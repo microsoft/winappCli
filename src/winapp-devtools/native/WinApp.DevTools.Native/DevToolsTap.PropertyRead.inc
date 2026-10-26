@@ -451,7 +451,7 @@ static DevToolsAuthoredState ReadElementAuthoredContext(InstanceHandle h, const 
 static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>* out, std::wstring* outAuthoredState,
                                 std::wstring* outAuthoredXaml = nullptr,
                                 const std::set<std::wstring>* projection = nullptr, size_t* retrievedRows = nullptr,
-                                std::map<std::wstring, std::pair<unsigned int, std::wstring>>* outIndices = nullptr)
+                                std::map<std::wstring, std::pair<unsigned int, std::wstring>>* outIndices)
 {
     if (!g_vts3) return E_FAIL;
     // Authored values come from the app's OWN.xaml, because the runtime discards authorship for
