@@ -56,7 +56,7 @@ struct DevToolsTreePeer : DevToolsTreeAP::FrameworkElementAutomationPeerT<
     {
         if (m_generation != g_treeRowsGen) throw winrt::hresult_error(UIA_E_ELEMENTNOTAVAILABLE);
         for (size_t i = 0; i < g_treeControls.size(); ++i) {
-            if (g_treeVisible[i] && g_treeControls[i] && g_treeControls[i] == g_selCtrl) {
+            if (g_treeControls[i] && g_treeControls[i] == g_selCtrl) {
                 auto peer = DevToolsTreeAP::FrameworkElementAutomationPeer::CreatePeerForElement(
                     TreeAutomationElement(g_treeControls[i]));
                 return {ProviderFromPeer(peer)};
@@ -111,20 +111,20 @@ struct DevToolsTreeItemPeer : DevToolsTreeAP::FrameworkElementAutomationPeerT<
             return *this;
         return FrameworkElementAutomationPeerT::GetPatternCore(pattern);
     }
-    void CheckAvailable()
+    void CheckAvailable(bool requireVisible = true)
     {
         if (m_generation != g_treeRowsGen || m_index >= g_treeControls.size() ||
-            !g_treeControls[m_index] || !g_treeVisible[m_index])
+            !g_treeControls[m_index] || (requireVisible && !g_treeVisible[m_index]))
             throw winrt::hresult_error(UIA_E_ELEMENTNOTAVAILABLE);
     }
     bool IsSelected()
     {
-        CheckAvailable();
+        CheckAvailable(false);
         return g_treeControls[m_index] == g_selCtrl;
     }
     DevToolsTreeProvider::IRawElementProviderSimple SelectionContainer()
     {
-        CheckAvailable();
+        CheckAvailable(false);
         return ProviderFromPeer(DevToolsTreeAP::FrameworkElementAutomationPeer::CreatePeerForElement(g_treeAutomationRoot));
     }
     void Select()
@@ -144,6 +144,7 @@ struct DevToolsTreeItemPeer : DevToolsTreeAP::FrameworkElementAutomationPeerT<
     }
     void RemoveFromSelection()
     {
+        CheckAvailable();
         if (!IsSelected()) return;
         g_selectedWire = 0;
         SelectRowVisual(nullptr);

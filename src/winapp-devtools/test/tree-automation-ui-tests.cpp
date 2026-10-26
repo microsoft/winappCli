@@ -44,6 +44,50 @@ static std::wstring Id(IUIAutomationElement* element)
 
 static unsigned checks = 0, failures = 0;
 
+static void Check(bool condition, const char* message)
+{
+    ++checks;
+    if (!condition) {
+        ++failures;
+        std::printf("FAIL %s\n", message);
+    }
+}
+
+static void CheckHiddenSelection(IUIAutomationElement* tree, IUIAutomationElement* row)
+{
+    BOOL offscreen = FALSE;
+    const ULONGLONG deadline = GetTickCount64() + 3000;
+    do {
+        Require(row->get_CurrentIsOffscreen(&offscreen));
+        if (offscreen) break;
+        Sleep(20);
+    } while (GetTickCount64() < deadline);
+    Check(offscreen != FALSE, "selected row is hidden");
+    ComPtr<IUIAutomationSelectionPattern> selection;
+    Require(tree->GetCurrentPatternAs(UIA_SelectionPatternId, IID_PPV_ARGS(&selection)));
+    ComPtr<IUIAutomationElementArray> selected;
+    Require(selection->GetCurrentSelection(&selected));
+    int count = 0;
+    Require(selected->get_Length(&count));
+    Check(count == 1, "hidden selection remains in Selection.GetSelection");
+    if (count == 1) {
+        ComPtr<IUIAutomationElement> element;
+        Require(selected->GetElement(0, &element));
+        Check(Id(element.Get()) == Id(row), "selection returns the retained hidden row");
+    }
+    ComPtr<IUIAutomationSelectionItemPattern> item;
+    Require(row->GetCurrentPatternAs(UIA_SelectionItemPatternId, IID_PPV_ARGS(&item)));
+    BOOL isSelected = FALSE;
+    Require(item->get_CurrentIsSelected(&isSelected));
+    Check(isSelected != FALSE, "hidden row reports IsSelected");
+    ComPtr<IUIAutomationElement> container;
+    Require(item->get_CurrentSelectionContainer(&container));
+    Check(Id(container.Get()) == Id(tree), "hidden row reports its selection container");
+    Check(item->Select() == UIA_E_ELEMENTNOTAVAILABLE, "hidden row cannot be selected");
+    Check(item->AddToSelection() == UIA_E_ELEMENTNOTAVAILABLE, "hidden row cannot be added to selection");
+    Check(item->RemoveFromSelection() == UIA_E_ELEMENTNOTAVAILABLE, "hidden row cannot clear selection");
+}
+
 static void CheckParent(IUIAutomationTreeWalker* walker, IUIAutomationElement* row,
                         const wchar_t* expected, const char* phase)
 {
@@ -101,6 +145,7 @@ static int Run(HWND hwnd)
     ComPtr<IUIAutomationElement> window;
     Require(automation->ElementFromHandle(hwnd, &window));
     auto tree = Find(automation.Get(), window.Get(), L"WinAppDevToolsTree");
+    auto root = Find(automation.Get(), tree.Get(), L"TreeNode0");
     auto title = Find(automation.Get(), tree.Get(), L"TreeNode1");
     auto branch = Find(automation.Get(), tree.Get(), L"TreeNode3");
     auto child = Find(automation.Get(), tree.Get(), L"TreeNode6");
@@ -113,6 +158,17 @@ static int Run(HWND hwnd)
     CheckParent(walker.Get(), branch.Get(), L"TreeNode2", "initial branch");
     CheckParent(walker.Get(), child.Get(), L"TreeNode3", "initial child");
     try {
+        ComPtr<IUIAutomationSelectionItemPattern> titleSelection;
+        Require(title->GetCurrentPatternAs(UIA_SelectionItemPatternId, IID_PPV_ARGS(&titleSelection)));
+        Require(titleSelection->Select());
+        ComPtr<IUIAutomationExpandCollapsePattern> rootExpansion;
+        Require(root->GetCurrentPatternAs(UIA_ExpandCollapsePatternId, IID_PPV_ARGS(&rootExpansion)));
+        Require(rootExpansion->Collapse());
+        CheckHiddenSelection(tree.Get(), title.Get());
+        Require(rootExpansion->Expand());
+        SetFilter(filter.Get(), L"StackPanel");
+        CheckHiddenSelection(tree.Get(), title.Get());
+        SetFilter(filter.Get(), L"");
         // Keep the same row providers; never enumerate downward after changing the filter.
         for (int pass = 0; pass < 2; ++pass) {
             SetFilter(filter.Get(), L"StackPanel");
