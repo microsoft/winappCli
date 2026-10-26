@@ -4,14 +4,12 @@
 import os
 import json
 from pathlib import Path
-import shutil
 import subprocess
-import zipfile
 
 from packaging.version import InvalidVersion, Version
 
 from .errors import WinappError
-from .native import bundled_cli
+
 
 def _child_environment(environment: dict[str, str] | None = None) -> dict[str, str]:
     result = dict(os.environ if environment is None else environment)
@@ -86,28 +84,6 @@ def find_codegen(project: Path, expected_version: Version, python: Path) -> Path
     missing = {"lang.py", "selector.namespace-class", "input.winmd-list", "input.ref-list"} - capabilities
     if missing:
         raise WinappError(f"dynwinrt-codegen is missing required capabilities: {', '.join(sorted(missing))}")
-    return executable
-
-
-def find_native_cli(override: str | None) -> Path:
-    name = override or os.environ.get("WINAPP_CLI_PATH")
-    if not name:
-        name = bundled_cli() or shutil.which("winapp.exe")
-    if not name:
-        raise WinappError(
-            "Native winapp.exe was not found in this source installation. "
-            "Use --winapp <path>, set WINAPP_CLI_PATH, or install a platform wheel containing the native CLI."
-        )
-    executable = Path(name).expanduser().absolute()
-    if not executable.is_file() or executable.suffix.lower() != ".exe":
-        raise WinappError(f"--winapp must point to a native winapp.exe file: {executable}")
-    if zipfile.is_zipfile(executable):
-        with zipfile.ZipFile(executable) as launcher:
-            if "__main__.py" in launcher.namelist():
-                raise WinappError(
-                    f"Refusing to use a Python wrapper as the native CLI: {executable}. "
-                    "Use --winapp <native-exe> or set WINAPP_CLI_PATH to the native build."
-                )
     return executable
 
 

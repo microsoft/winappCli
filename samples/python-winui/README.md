@@ -31,6 +31,17 @@ winapp init --use-defaults --add-python-bindings
 
 Continue when it reports **Python bindings ready**. The sample's type selections are already in `pyproject.toml`; initialization preserves them.
 
+winapp also generates SDK information and a Bootstrap DLL path helper in the binding package:
+
+```python
+from pathlib import Path
+from winapp_bindings._winapp_runtime import WINDOWS_APP_SDK_VERSION, bootstrap_dll_path
+
+dll = bootstrap_dll_path(Path(__file__).resolve().parent)
+```
+
+The helper selects x64 or ARM64 from the running Python interpreter, locates the DLL under the supplied project directory, and reports missing files. It does not load the DLL, change environment variables or initialize WinUI. The sample's `runtime.py` still handles those steps and object lifetime through the existing DynWinRT APIs. This sample uses stable Windows App SDK packages.
+
 ## 2. Run the counter
 
 ```powershell
@@ -54,7 +65,7 @@ Edit the existing `types` list in `pyproject.toml`, then run `winapp generate` t
 | File | Purpose |
 |---|---|
 | `app.py`, `counter.py`, `window.py` | In-memory counter and WinUI events |
-| `runtime.py` | Bootstrap initialization and WinRT lifetime |
+| `runtime.py` | Bootstrap initialization using generated SDK information |
 | `pyproject.toml` | Selected types and generator version |
 
 ## Troubleshooting
@@ -62,6 +73,7 @@ Edit the existing `types` list in `pyproject.toml`, then run `winapp generate` t
 | Problem | Action |
 |---|---|
 | Bootstrap DLL or SDK metadata is missing | Run `winapp restore`. |
+| `winapp_bindings._winapp_runtime` cannot be imported | Use the current Python winapp package and run `winapp restore` with stable Windows App SDK packages. |
 | WinUI or an import fails | Read the terminal error, verify Windows/Python prerequisites, then restore and regenerate. |
 | You need identity or an installable MSIX | Follow the [Python identity sample](../python-identity); this sample only demonstrates unpackaged GUI execution. |
 

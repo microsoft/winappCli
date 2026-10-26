@@ -21,7 +21,7 @@ class HelpTests(ProjectTest):
         (self.project / "pyproject.toml").write_text("invalid project metadata", encoding="utf-8")
         for patcher in (
             patch("winappcli.cli.Path.cwd", return_value=self.project),
-            patch("winappcli.cli.find_native_cli", return_value=self.native),
+            patch("winappcli.cli.bundled_cli", return_value=self.native),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -101,21 +101,12 @@ class HelpTests(ProjectTest):
             forward.assert_not_called()
             codegen.assert_not_called()
 
-    def test_native_selection_prefix_is_respected_by_help(self):
-        for arguments in (
-            ["--winapp", "chosen.exe", "--help"],
-            ["--winapp=chosen.exe", "run", "--help"],
-            ["run", "--winapp", "chosen.exe", "--help"],
-            ["--quiet", "--winapp", "chosen.exe", "run", "--help"],
-        ):
-            with self.subTest(arguments=arguments):
-                with (
-                    patch("winappcli.cli.find_native_cli", return_value=self.native) as locate,
-                    patch("winappcli.cli.forward_native", side_effect=self.forward_help),
-                ):
-                    self.invoke_help(arguments)
-                self.assertEqual(locate.call_args.args[0], "chosen.exe")
-                locate.assert_called_once_with("chosen.exe")
+    def test_help_does_not_advertise_native_overrides(self):
+        for arguments in (["--help"], ["restore", "--help"], ["update", "--help"], ["run", "--help"]):
+            with self.subTest(arguments=arguments), patch("winappcli.cli.forward_native", side_effect=self.forward_help):
+                text = self.invoke_help(arguments)
+                self.assertNotIn("--winapp", text)
+                self.assertNotIn("WINAPP_CLI_PATH", text)
 
     def test_run_help_distinguishes_existing_venv_identity_and_native_inputs(self):
         with patch("winappcli.cli.forward_native", side_effect=self.forward_help):
@@ -136,7 +127,7 @@ class HelpTests(ProjectTest):
 
     def test_missing_native_cli_reports_an_error_instead_of_combined_success(self):
         with (
-            patch("winappcli.cli.find_native_cli", side_effect=WinappError("Native CLI is missing")),
+            patch("winappcli.cli.bundled_cli", side_effect=WinappError("Native CLI is missing")),
             redirect_stdout(self.stdout), redirect_stderr(self.stderr),
         ):
             self.assertEqual(main(["--help"]), 1)
@@ -149,7 +140,7 @@ class HelpTests(ProjectTest):
             ["identity", "--help"], ["identity", "clear", "--help"],
         ):
             with self.subTest(arguments=arguments):
-                with patch("winappcli.cli.find_native_cli") as locate:
+                with patch("winappcli.cli.bundled_cli") as locate:
                     text = self.invoke_help(arguments)
                 locate.assert_not_called()
                 self.assertIn(f"winapp {' '.join(arguments[:-1])}", text)
@@ -190,17 +181,17 @@ class HelpTests(ProjectTest):
         codegen.assert_not_called()
         self.assertFalse((self.project / ".venv").exists())
 
-    def test_version_respects_native_override_and_propagates_failure(self):
+    def test_version_uses_the_bundle_and_propagates_failure(self):
         with (
-            patch("winappcli.cli.find_native_cli", return_value=self.native) as locate,
+            patch("winappcli.cli.bundled_cli", return_value=self.native) as locate,
             patch("winappcli.cli.forward_native", return_value=37),
         ):
-            self.invoke_help(["--winapp", "chosen.exe", "--version"], expected_code=37)
-        locate.assert_called_once_with("chosen.exe")
+            self.invoke_help(["--version"], expected_code=37)
+        locate.assert_called_once_with()
 
     def test_missing_native_version_is_reported_as_an_error(self):
         with (
-            patch("winappcli.cli.find_native_cli", side_effect=WinappError("Native CLI is missing")),
+            patch("winappcli.cli.bundled_cli", side_effect=WinappError("Native CLI is missing")),
             redirect_stdout(self.stdout), redirect_stderr(self.stderr),
         ):
             self.assertEqual(main(["--version"]), 1)
@@ -215,33 +206,27 @@ class HelpTests(ProjectTest):
 
     def test_native_root_schema_preserves_output_arguments_and_exit_status(self):
         payload = '{"commands":[]}\n'
-        cases = (
-            (["--cli-schema"], None),
-            (["--cli-schema"], "chosen.exe"),
-            (["--quiet", "--cli-schema"], None),
-        )
-        for arguments, override in cases:
+        for arguments in (["--cli-schema"], ["--quiet", "--cli-schema"]):
             for exit_code in (0, 37):
-                with self.subTest(arguments=arguments, override=override, exit_code=exit_code):
+                with self.subTest(arguments=arguments, exit_code=exit_code):
                     self.stdout.seek(0)
                     self.stdout.truncate()
                     self.stderr.seek(0)
                     self.stderr.truncate()
-                    prefix = ["--winapp", override] if override else []
 
                     def forward_schema(*_args):
                         print(payload, end="")
                         return exit_code
 
                     with (
-                        patch("winappcli.cli.find_native_cli", return_value=self.native) as locate,
+                        patch("winappcli.cli.bundled_cli", return_value=self.native) as locate,
                         patch("winappcli.cli.forward_native", side_effect=forward_schema) as forward,
                         patch("winappcli.cli.build_parser") as parser,
                         redirect_stdout(self.stdout), redirect_stderr(self.stderr),
                     ):
-                        self.assertEqual(main([*prefix, *arguments]), exit_code)
+                        self.assertEqual(main(arguments), exit_code)
 
-                    locate.assert_called_once_with(override)
+                    locate.assert_called_once_with()
                     forward.assert_called_once_with(self.native, arguments, self.project)
                     parser.assert_not_called()
                     self.assertEqual(self.stdout.getvalue(), payload)

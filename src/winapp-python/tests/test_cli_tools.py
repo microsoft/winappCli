@@ -7,14 +7,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import zipfile
 from unittest.mock import patch
 
 from packaging.version import Version
 
 from winappcli.cli import _prepare_codegen, main
 from winappcli.errors import WinappError
-from winappcli.tools import find_codegen, find_native_cli, forward_native, run_tool
+from winappcli.tools import find_codegen, forward_native, run_tool
 
 from helpers import ProjectTest
 
@@ -29,9 +28,6 @@ class ToolTests(ProjectTest):
         self.python = self.scripts / "python.exe"
         self.native = self.root / "native winapp.exe"
         self.native.write_bytes(b"fake executable")
-        bundle = patch("winappcli.tools.bundled_cli", return_value=None)
-        bundle.start()
-        self.addCleanup(bundle.stop)
 
     def test_codegen_uses_project_interpreter_scripts_directory(self):
         with (
@@ -51,7 +47,7 @@ class ToolTests(ProjectTest):
 
     def test_codegen_missing_does_not_fall_back_to_path(self):
         self.codegen.unlink()
-        with patch("winappcli.tools.shutil.which") as search:
+        with patch("shutil.which") as search:
             with self.assertRaisesRegex(WinappError, "project environment"):
                 find_codegen(self.project, Version("0.1.0rc21"), self.python)
         search.assert_not_called()
@@ -72,50 +68,6 @@ class ToolTests(ProjectTest):
             self.assertRaisesRegex(WinappError, "capabilities"),
         ):
             find_codegen(self.project, Version("0.1.0rc21"), self.python)
-
-    def test_native_path_override_resolves_without_running_the_cli(self):
-        with patch("winappcli.tools.run_tool") as run:
-            found = find_native_cli(str(self.native))
-        self.assertEqual(found, self.native)
-        run.assert_not_called()
-
-    def test_native_environment_override(self):
-        with patch.dict(os.environ, {"WINAPP_CLI_PATH": str(self.native)}):
-            self.assertEqual(find_native_cli(None), self.native)
-
-    def test_bundled_cli_is_used_before_path_without_environment_override(self):
-        with (
-            patch.dict(os.environ, {"WINAPP_CLI_PATH": ""}),
-            patch("winappcli.tools.bundled_cli", return_value=self.native),
-            patch("winappcli.tools.shutil.which") as search,
-        ):
-            self.assertEqual(find_native_cli(None), self.native)
-        search.assert_not_called()
-
-    def test_explicit_override_wins_over_environment_and_bundle(self):
-        with (
-            patch.dict(os.environ, {"WINAPP_CLI_PATH": "other.exe"}),
-            patch("winappcli.tools.bundled_cli") as bundle,
-        ):
-            self.assertEqual(find_native_cli(str(self.native)), self.native)
-        bundle.assert_not_called()
-
-    def test_source_installation_can_find_cli_on_path(self):
-        with (
-            patch.dict(os.environ, {"WINAPP_CLI_PATH": ""}),
-            patch("winappcli.tools.shutil.which", return_value=str(self.native)),
-        ):
-            self.assertEqual(find_native_cli(None), self.native)
-
-    def test_broken_bundle_does_not_silently_use_path(self):
-        with (
-            patch.dict(os.environ, {"WINAPP_CLI_PATH": ""}),
-            patch("winappcli.tools.bundled_cli", side_effect=WinappError("Bundled CLI is missing")),
-            patch("winappcli.tools.shutil.which") as search,
-            self.assertRaisesRegex(WinappError, "Bundled CLI"),
-        ):
-            find_native_cli(None)
-        search.assert_not_called()
 
     def test_process_failure_surfaces_output(self):
         result = subprocess.CompletedProcess(["fake.exe"], 9, "real diagnostic")
@@ -152,38 +104,6 @@ class ToolTests(ProjectTest):
         ])
         self.assertEqual(launch.call_args.kwargs["cwd"], self.project)
         self.assertNotIn("capture_output", launch.call_args.kwargs)
-
-    def test_native_cli_cannot_resolve_to_the_python_wrapper_itself(self):
-        python_entry = self.root / "winapp.exe"
-        python_entry.write_bytes(b"MZ launcher stub")
-        with zipfile.ZipFile(python_entry, "a") as launcher:
-            launcher.writestr("__main__.py", "from winappcli.cli import main\nmain()\n")
-        with self.assertRaisesRegex(WinappError, "Python wrapper"):
-            find_native_cli(str(python_entry))
-
-    def test_python_launcher_is_rejected_even_when_copied_or_selected_by_path(self):
-        python_entry = self.root / "another-environment.exe"
-        python_entry.write_bytes(b"MZ launcher stub")
-        with zipfile.ZipFile(python_entry, "a") as launcher:
-            launcher.writestr("__main__.py", "from winappcli.cli import main\nmain()\n")
-        with (
-            patch.dict(os.environ, {"WINAPP_CLI_PATH": str(python_entry)}),
-            self.assertRaisesRegex(WinappError, "native build"),
-        ):
-            find_native_cli(None)
-        with (
-            patch.dict(os.environ, {"WINAPP_CLI_PATH": ""}),
-            patch("winappcli.tools.shutil.which", return_value=str(python_entry)),
-            self.assertRaisesRegex(WinappError, "Python wrapper"),
-        ):
-            find_native_cli(None)
-        with self.assertRaisesRegex(WinappError, "Python wrapper"):
-            find_native_cli(str(python_entry))
-
-    def test_native_winapp_executable_is_not_rejected_for_sharing_the_command_name(self):
-        native = self.root / "winapp.exe"
-        native.write_bytes(b"native executable")
-        self.assertEqual(find_native_cli(str(native)), native)
 
     def test_init_forwarding_inherits_stdio_and_does_not_inject_command_options(self):
         arguments = ["init", "some project", "--setup-sdks", "preview", "--use-defaults"]
@@ -245,7 +165,7 @@ class CliTests(ProjectTest):
     def test_restore_precedes_codegen_and_install(self):
         order = []
         with patch("winappcli.cli._prepare_codegen", return_value=(Path("codegen.exe"), self.project_python, self.codegen_version)):
-            with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")):
+            with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")):
                 with patch("winappcli.cli.run_tool", side_effect=lambda *a, **kw: order.append("restore")) as run:
                     with patch("winappcli.cli.generate", side_effect=lambda *a, **kw: order.append("generate") or self.config().output):
                         with patch("winappcli.cli.synchronize_project", side_effect=lambda *a, **kw: order.append("install")):
@@ -270,7 +190,7 @@ class CliTests(ProjectTest):
                     self.stdout.truncate()
                     with (
                         self.subTest(command=command, flags=flags, leading=leading),
-                        patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+                        patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
                         patch("winappcli.cli.run_tool") as native,
                         patch("winappcli.cli.forward_native") as forward,
                         patch("winappcli.cli._bindings_after_sdk",
@@ -309,7 +229,7 @@ class CliTests(ProjectTest):
                     self.stderr.truncate()
                     with (
                         self.subTest(command=command, flags=flags, leading=leading),
-                        patch("winappcli.cli.find_native_cli") as native,
+                        patch("winappcli.cli.bundled_cli") as native,
                         patch("winappcli.cli._bindings_after_sdk") as bindings,
                         patch("winappcli.cli.clear_identity") as clear,
                         patch("winappcli.cli._run_in_project_venv") as ordinary,
@@ -328,7 +248,7 @@ class CliTests(ProjectTest):
 
     def test_quiet_python_workflow_keeps_error_diagnostics(self):
         with (
-            patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
             patch("winappcli.cli.run_tool", side_effect=WinappError("SDK restore failed")),
         ):
             self.assertEqual(self.invoke("--quiet", "restore"), 1)
@@ -344,7 +264,7 @@ class CliTests(ProjectTest):
             with (
                 self.subTest(arguments=arguments),
                 patch("winappcli.cli.clear_identity", side_effect=lambda *a: print("Cleared identity") or 0) as clear,
-                patch("winappcli.cli.find_native_cli") as native,
+                patch("winappcli.cli.bundled_cli") as native,
             ):
                 self.assertEqual(self.invoke(*arguments), 0)
                 clear.assert_called_once_with(self.project)
@@ -353,7 +273,7 @@ class CliTests(ProjectTest):
 
     def test_restore_failure_stops_generation(self):
         with patch("winappcli.cli._prepare_codegen", return_value=(Path("codegen.exe"), self.project_python, self.codegen_version)):
-            with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")):
+            with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")):
                 with patch("winappcli.cli.run_tool", side_effect=WinappError("restore failed")):
                     with patch("winappcli.cli.generate") as generate:
                         self.assertEqual(self.invoke("restore"), 1)
@@ -468,7 +388,7 @@ class CliTests(ProjectTest):
         for command in ("restore", "generate"):
             with self.subTest(command=command):
                 with (
-                    patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+                    patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
                     patch("winappcli.cli.run_tool"),
                     patch("winappcli.cli._prepare_codegen") as prepare,
                     patch("winappcli.cli.generate") as generate,
@@ -481,7 +401,7 @@ class CliTests(ProjectTest):
     def test_explicit_update_advances_the_project_version_and_uses_it_for_generation(self):
         selected = Version("0.1.0rc23")
         with (
-            patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
             patch("winappcli.cli.run_tool"),
             patch("winappcli.cli.ensure_project_python", return_value=self.project_python),
             patch("winappcli.cli.install_codegen") as install,
@@ -500,7 +420,7 @@ class CliTests(ProjectTest):
         source = self.project / "pyproject.toml"
         before = source.read_bytes()
         with (
-            patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
             patch("winappcli.cli.run_tool"),
             patch("winappcli.cli.ensure_project_python", return_value=self.project_python),
             patch("winappcli.cli.install_codegen", side_effect=WinappError("package source unavailable")),
@@ -518,7 +438,7 @@ class CliTests(ProjectTest):
 
     def test_restore_without_python_opt_in_only_restores_sdk(self):
         (self.project / "pyproject.toml").unlink()
-        with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")):
+        with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")):
             with patch("winappcli.cli.run_tool") as native:
                 with patch("winappcli.cli.find_codegen") as codegen:
                     self.assertEqual(self.invoke("restore"), 0)
@@ -530,7 +450,7 @@ class CliTests(ProjectTest):
         (self.project / "pyproject.toml").unlink()
         (self.project / "winapp.yaml").unlink()
         with (
-            patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
             patch("winappcli.cli.run_tool") as native,
             patch("winappcli.cli.ensure_project_python") as environment,
         ):
@@ -551,7 +471,7 @@ class CliTests(ProjectTest):
             with self.subTest(command=command):
                 with (
                     patch("winappcli.cli.ensure_project_python", return_value=self.project_python),
-                    patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+                    patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
                     patch("winappcli.cli.run_tool"),
                     patch("winappcli.cli._bindings_after_sdk") as bindings,
                 ):
@@ -560,7 +480,7 @@ class CliTests(ProjectTest):
 
     def test_update_runs_full_native_update_and_restore_before_regeneration(self):
         order = []
-        with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")):
+        with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")):
             with patch("winappcli.cli.run_tool", side_effect=lambda args, *a, **kw: order.append(args[1])) as run:
                 with patch("winappcli.cli._bindings_after_sdk", side_effect=lambda *a, **kw: order.append("generate")):
                     self.assertEqual(self.invoke("update", "--channel", "preview"), 0)
@@ -574,7 +494,7 @@ class CliTests(ProjectTest):
 
     def test_update_restore_failure_stops_binding_generation_and_installation(self):
         with (
-            patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
             patch("winappcli.cli.run_tool", side_effect=["update succeeded", WinappError("restore failed")]) as native,
             patch("winappcli.cli._bindings_after_sdk") as bindings,
         ):
@@ -585,7 +505,7 @@ class CliTests(ProjectTest):
 
     def test_update_without_python_configuration_does_not_load_codegen(self):
         (self.project / "pyproject.toml").unlink()
-        with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")):
+        with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")):
             with patch("winappcli.cli.run_tool") as native:
                 with patch("winappcli.cli.find_codegen") as codegen:
                     self.assertEqual(self.invoke("update"), 0)
@@ -593,45 +513,41 @@ class CliTests(ProjectTest):
         codegen.assert_not_called()
 
     def test_update_failure_does_not_generate_or_install_bindings(self):
-        with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")):
+        with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")):
             with patch("winappcli.cli.run_tool", side_effect=WinappError("feed failure")):
                 with patch("winappcli.cli.generate") as codegen:
                     self.assertEqual(self.invoke("update"), 1)
         codegen.assert_not_called()
         self.assertIn("feed failure", self.stderr.getvalue())
 
-    def test_native_path_prefix_preserves_command_and_exit_code(self):
-        with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")) as locate:
-            with patch("winappcli.cli.forward_native", return_value=37) as native:
-                self.assertEqual(main(["--winapp", "selected.exe", "cert", "info", "--json"]), 37)
-        locate.assert_called_once()
-        self.assertEqual(locate.call_args.args[0], "selected.exe")
-        locate.assert_called_once_with("selected.exe")
-        self.assertEqual(native.call_args.args[1], ["cert", "info", "--json"])
+    def test_removed_native_override_is_not_consumed_by_the_wrapper(self):
+        with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")) as locate:
+            with patch("winappcli.cli.forward_native", return_value=2) as native:
+                self.assertEqual(main(["--winapp", "selected.exe", "cert", "info", "--json"]), 2)
+        locate.assert_called_once_with()
+        self.assertEqual(native.call_args.args[1], ["--winapp", "selected.exe", "cert", "info", "--json"])
 
-    def test_native_forwarding_keeps_output_options_and_prefix_selection(self):
-        for arguments, override, forwarded in (
-            (["--quiet", "package", "--help"], None, ["--quiet", "package", "--help"]),
-            (["--json", "false", "cert", "info", "--verbose=false"], None,
-             ["--json", "false", "cert", "info", "--verbose=false"]),
-            (["-v", "--winapp", "chosen.exe", "tool", "--help"], "chosen.exe", ["-v", "tool", "--help"]),
-            (["--quiet=false", "--winapp=chosen.exe", "--json", "cert", "info"], "chosen.exe",
-             ["--quiet=false", "--json", "cert", "info"]),
-            (["--winapp", "chosen.exe", "-q", "package", "--help"], "chosen.exe", ["-q", "package", "--help"]),
+    def test_native_forwarding_keeps_output_options(self):
+        for arguments in (
+            ["--quiet", "package", "--help"],
+            ["--json", "false", "cert", "info", "--verbose=false"],
+            ["-v", "tool", "--help"],
+            ["--quiet=false", "--json", "cert", "info"],
+            ["-q", "package", "--help"],
         ):
             with (
                 self.subTest(arguments=arguments),
-                patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")) as locate,
+                patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")) as locate,
                 patch("winappcli.cli.forward_native", return_value=37) as native,
             ):
                 self.assertEqual(main(arguments), 37)
-                locate.assert_called_once_with(override)
-                self.assertEqual(native.call_args.args[1], forwarded)
+                locate.assert_called_once_with()
+                self.assertEqual(native.call_args.args[1], arguments)
 
     def test_native_word_is_not_a_wrapper_escape(self):
         arguments = ["native", "cert", "info", "--json"]
         with (
-            patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
             patch("winappcli.cli.forward_native", return_value=2) as native,
         ):
             self.assertEqual(main(arguments), 2)
@@ -639,7 +555,7 @@ class CliTests(ProjectTest):
 
     def test_other_native_commands_are_forwarded_without_python_config(self):
         (self.project / "pyproject.toml").unlink()
-        with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")):
+        with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")):
             with patch("winappcli.cli.forward_native", return_value=0) as native:
                 self.assertEqual(main(["package", "--help"]), 0)
         self.assertEqual(native.call_args.args[1], ["package", "--help"])
@@ -649,7 +565,7 @@ class CliTests(ProjectTest):
             with self.subTest(argument=argument):
                 arguments = ["run", ".\\dist", "--", argument]
                 with (
-                    patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+                    patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
                     patch("winappcli.cli.forward_native", return_value=37) as native,
                     patch("winappcli.cli.run_with_identity") as identity,
                     redirect_stdout(self.stdout), redirect_stderr(self.stderr),
@@ -678,13 +594,13 @@ class CliTests(ProjectTest):
         ):
             with (
                 self.subTest(arguments=arguments),
-                patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")) as locate,
+                patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")) as locate,
                 patch("winappcli.cli.forward_native", return_value=37) as native,
                 patch("winappcli.cli._run_in_project_venv") as ordinary,
                 patch("winappcli.cli.run_with_identity") as identity,
             ):
                 self.assertEqual(main(arguments), 37)
-                locate.assert_called_once_with(None)
+                locate.assert_called_once_with()
                 self.assertEqual(native.call_args.args[1], arguments)
                 ordinary.assert_not_called()
                 identity.assert_not_called()
@@ -696,7 +612,7 @@ class CliTests(ProjectTest):
         with (
             patch("winappcli.cli.Path.cwd", return_value=self.project),
             patch("winappcli.cli.subprocess.run", return_value=subprocess.CompletedProcess([], 37)) as launch,
-            patch("winappcli.cli.find_native_cli") as native,
+            patch("winappcli.cli.bundled_cli") as native,
             patch("winappcli.cli.run_with_identity") as identity,
             patch("winappcli.cli.ensure_project_python") as environment,
             patch("winappcli.cli.synchronize_project") as install,
@@ -767,7 +683,7 @@ class CliTests(ProjectTest):
                 arguments = [*flags, "run"] if leading else ["run", *flags]
                 with (
                     self.subTest(flags=flags, leading=leading),
-                    patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+                    patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
                     patch("winappcli.cli.run_with_identity", return_value=37) as identity,
                     redirect_stdout(self.stdout), redirect_stderr(self.stderr),
                 ):
@@ -783,7 +699,7 @@ class CliTests(ProjectTest):
         directory.mkdir()
         arguments = ["run", "--project", str(self.project), str(directory)]
         with (
-            patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
             patch("winappcli.cli.forward_native", return_value=37) as native,
             patch("winappcli.cli._run_in_project_venv") as ordinary,
         ):
@@ -817,6 +733,7 @@ class CliTests(ProjectTest):
             ["--", "--project", "elsewhere", "--python", "custom.exe"],
             ["--quiet", "--verbose", "false", "--json", "true"],
             ["--", "-q", "FALSE", "-v=true", "--json=false"],
+            ["--winapp", "application-argument.exe"],
         ):
             with (
                 self.subTest(suffix=suffix),
@@ -851,7 +768,7 @@ class CliTests(ProjectTest):
         self.project_python.unlink()
         with (
             patch("winappcli.cli.subprocess.run") as launch,
-            patch("winappcli.cli.find_native_cli") as native,
+            patch("winappcli.cli.bundled_cli") as native,
             patch("winappcli.cli.ensure_project_python") as environment,
             redirect_stdout(self.stdout), redirect_stderr(self.stderr),
         ):
@@ -893,11 +810,11 @@ class CliTests(ProjectTest):
         self.assertIn("not executable", self.stderr.getvalue())
 
     def test_identity_only_options_are_not_silently_ignored_by_ordinary_run(self):
-        for option in ("--python", "--requirements", "--manifest", "--winapp"):
+        for option in ("--python", "--requirements", "--manifest"):
             with (
                 self.subTest(option=option),
                 patch("winappcli.cli.subprocess.run") as launch,
-                patch("winappcli.cli.find_native_cli") as native,
+                patch("winappcli.cli.bundled_cli") as native,
                 redirect_stdout(self.stdout), redirect_stderr(self.stderr),
             ):
                 self.assertEqual(main([
@@ -918,14 +835,14 @@ class CliTests(ProjectTest):
 
     def test_identity_clear_dispatches_without_generator_or_native_cli(self):
         with patch("winappcli.cli.clear_identity", return_value=0) as clear:
-            with patch("winappcli.cli.find_native_cli") as native:
+            with patch("winappcli.cli.bundled_cli") as native:
                 self.assertEqual(self.invoke("identity", "clear"), 0)
         clear.assert_called_once_with(self.project)
         native.assert_not_called()
 
     def test_identity_script_args_and_exit_code_are_preserved(self):
         (self.project / "app.py").write_text("print('hi')", encoding="utf-8")
-        with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")):
+        with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")):
             with patch("winappcli.cli.run_with_identity", return_value=37) as launch:
                 self.assertEqual(main([
                     "run", "--identity", "--project", str(self.project),
@@ -936,7 +853,7 @@ class CliTests(ProjectTest):
     def test_identity_short_command_uses_current_project_and_default_python(self):
         with (
             patch("winappcli.cli.Path.cwd", return_value=self.project),
-            patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
             patch("winappcli.cli.run_with_identity", return_value=0) as launch,
         ):
             self.assertEqual(main(["run", "--identity", ".\\app.py"]), 0)
@@ -945,7 +862,7 @@ class CliTests(ProjectTest):
         self.assertIsNone(launch.call_args.kwargs["requirements_option"])
 
     def test_identity_project_interpreter_and_requirements_are_forwarded(self):
-        with patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")):
+        with patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")):
             with patch("winappcli.cli.run_with_identity", return_value=0) as launch:
                 self.assertEqual(main([
                     "run", "--identity", "--project", str(self.project),
@@ -957,7 +874,7 @@ class CliTests(ProjectTest):
 
     def test_explicit_project_environment_checked_before_restore(self):
         with patch("winappcli.cli.ensure_project_python", side_effect=WinappError("not a venv")):
-            with patch("winappcli.cli.find_native_cli") as native:
+            with patch("winappcli.cli.bundled_cli") as native:
                 self.assertEqual(self.invoke("restore", "--python", str(self.project_python)), 1)
         native.assert_not_called()
 

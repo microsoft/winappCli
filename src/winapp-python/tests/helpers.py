@@ -68,6 +68,9 @@ class ProjectTest(unittest.TestCase):
             + "  - name: Microsoft.WindowsAppSDK\n    version: 1.8.260416003\n",
             encoding="utf-8",
         )
+        self.inventory["packages"].append({
+            "name": "Microsoft.WindowsAppSDK", "version": "1.8.260416003", "winmds": [],
+        })
         for name, filename in (
             ("Microsoft.WindowsAppSDK.Foundation", "Microsoft.Windows.AppNotifications.winmd"),
             ("Microsoft.WindowsAppSDK.InteractiveExperiences", "Microsoft.UI.Windowing.winmd"),

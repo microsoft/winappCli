@@ -10,12 +10,17 @@ BeforeAll {
             $global:LASTEXITCODE = $state.PythonProbeExit
             return $state.PythonPlatform
         }
-        if ($arguments[1] -eq '-c' -and $arguments[2] -match 'native_platform') {
+        if ($arguments[1] -eq '-c' -and $arguments[2] -match 'native_payload_platform') {
             $state.Probes.Add([pscustomobject]@{
                 Executable = $arguments[4]
                 Platform = $arguments[5]
             })
             $global:LASTEXITCODE = $state.NativeProbeExit
+            foreach ($name in @('winapp.exe', 'libHarfBuzzSharp.dll', 'libSkiaSharp.dll',
+                'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'winapp-devtools-schema.json')) {
+                $path = Join-Path (Split-Path $arguments[4] -Parent) $name
+                if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { $global:LASTEXITCODE = 1 }
+            }
             return
         }
         if ($arguments[1] -eq '-c' -and $arguments[2] -match 'tomllib') {
@@ -40,6 +45,9 @@ BeforeAll {
                     '(?m)^version = "([^"]+)"').Groups[1].Value
                 Name = [regex]::Match((Get-Content -LiteralPath (Join-Path $stage 'pyproject.toml') -Raw),
                     '(?m)^name = "([^"]+)"').Groups[1].Value
+                Files = @(Get-ChildItem -LiteralPath $native -Recurse -File | ForEach-Object {
+                    [IO.Path]::GetRelativePath($native, $_.FullName)
+                })
             })
             $global:LASTEXITCODE = $state.WheelExit
             return
@@ -64,6 +72,9 @@ BeforeAll {
         New-Item -ItemType Directory -Path $output -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $output 'winapp.exe') -Value "fresh $runtime"
         Set-Content -LiteralPath (Join-Path $output 'winapp.pdb') -Value 'symbols'
+        foreach ($name in @('libHarfBuzzSharp.dll', 'libSkiaSharp.dll')) {
+            Set-Content -LiteralPath (Join-Path $output $name) -Value "fresh $runtime $name"
+        }
         $global:LASTEXITCODE = 0
     }
 }
@@ -74,7 +85,17 @@ Describe 'Local Python wheel builds' {
         $script:copiedScript = Join-Path $fixture 'scripts\package-python.ps1'
         $package = Join-Path $fixture 'src\winapp-python'
         New-Item -ItemType Directory -Path (Split-Path $copiedScript -Parent),
-            (Join-Path $package 'src\winappcli'), (Join-Path $fixture 'artifacts') -Force | Out-Null
+            (Join-Path $package 'src\winappcli'), (Join-Path $fixture 'artifacts'),
+            (Join-Path $fixture 'src\winapp-devtools') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $fixture 'src\winapp-devtools\build-devtools.ps1') -Value @'
+param($Configuration, $Arch, $EngineOut, [switch]$SkipNativeUnitTests)
+$packageTestState.Engines.Add("$Configuration|$Arch")
+if ($packageTestState.EngineExit) { $global:LASTEXITCODE = $packageTestState.EngineExit; return }
+foreach ($name in @('WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'winapp-devtools-schema.json')) {
+    Set-Content -LiteralPath (Join-Path $EngineOut $name) -Value "fresh $Arch $name"
+}
+$global:LASTEXITCODE = 0
+'@
         Copy-Item -LiteralPath $script:packageScript -Destination $copiedScript
         Set-Content -LiteralPath (Join-Path $fixture 'version.json') -Value '{"version":"0.7.2"}'
         Set-Content -LiteralPath (Join-Path $fixture 'scripts\get-build-number.ps1') -Value '$global:LASTEXITCODE = 0; 37'
@@ -94,6 +115,10 @@ version = "0.1.0.dev0"
             $directory = Join-Path $fixture "artifacts\cli\win-$arch"
             New-Item -ItemType Directory -Path $directory -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $directory 'winapp.exe') -Value "existing win-$arch"
+            foreach ($name in @('libHarfBuzzSharp.dll', 'libSkiaSharp.dll',
+                'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'winapp-devtools-schema.json')) {
+                Set-Content -LiteralPath (Join-Path $directory $name) -Value "existing win-$arch $name"
+            }
         }
         $script:publishes = [Collections.Generic.List[object]]::new()
         $script:probes = [Collections.Generic.List[object]]::new()
@@ -103,6 +128,8 @@ version = "0.1.0.dev0"
             PythonProbeExit = 0
             NativeProbeExit = 0
             NativeVersion = '0.7.2-prerelease.37'
+            EngineExit = 0
+            Engines = [Collections.Generic.List[string]]::new()
             VersionStageExit = 0
             WheelExit = 0
             FailedRuntime = $null
@@ -134,6 +161,11 @@ version = "0.1.0.dev0"
         $wheels[0].Pdbs.Count | Should -Be 0
         $wheels[0].Version | Should -Be '0.7.2.dev37'
         $wheels[0].Name | Should -Be 'microsoft-winappcli'
+        $packageTestState.Engines | Should -Contain 'Release|x64'
+        foreach ($name in @('libHarfBuzzSharp.dll', 'libSkiaSharp.dll',
+            'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'winapp-devtools-schema.json')) {
+            $wheels[0].Files | Should -Contain $name
+        }
         $publishes[0].Arguments | Should -Contain '/p:InformationalVersion=0.7.2-prerelease.37'
         $publishes[0].Arguments | Should -Contain '/p:AssemblyVersion=0.7.2.37'
         Get-Content -LiteralPath (Join-Path $fixture 'src\winapp-python\pyproject.toml') -Raw |
@@ -176,6 +208,27 @@ version = "0.1.0.dev0"
         $publishes.Count | Should -Be 0
         $wheels.Count | Should -Be 2
         @($wheels.Executable | ForEach-Object Trim) | Should -Be @('existing win-x64', 'existing win-arm64')
+        $packageTestState.Engines.Count | Should -Be 0
+    }
+
+    It 'copies nested companion files from the complete selected publish' {
+        $directory = Join-Path $fixture 'artifacts\cli\win-x64\resources'
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $directory 'payload.json') -Value '{}'
+        & $copiedScript -Architecture x64 @options
+        $wheels[0].Files | Should -Contain 'resources\payload.json'
+    }
+
+    It 'rejects an executable-only publish instead of producing an incomplete wheel' {
+        Remove-Item -LiteralPath (Join-Path $fixture 'artifacts\cli\win-x64\libSkiaSharp.dll')
+        { & $copiedScript -Architecture x64 @options } | Should -Throw '*publish is incomplete*'
+        $wheels.Count | Should -Be 0
+    }
+
+    It 'does not package the CLI when its same-build engines fail' {
+        $packageTestState.EngineExit = 17
+        { & $copiedScript -BuildCli @options } | Should -Throw '*DevTools engine build failed*'
+        $wheels.Count | Should -Be 0
     }
 
     It 'uses the repository base version for stable native and Python packages' {

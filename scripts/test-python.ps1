@@ -22,10 +22,8 @@ New-Item -ItemType Directory -Path $output -Force | Out-Null
 $temporary = [IO.Directory]::CreateTempSubdirectory('winapp-python-').FullName
 $identityProject = $null
 $identityName = $null
-$savedCliPath = $env:WINAPP_CLI_PATH
 $savedCacheDirectory = $env:WINAPP_CLI_CACHE_DIRECTORY
 $savedUpdateCheck = $env:WINAPP_CLI_UPDATE_CHECK
-$env:WINAPP_CLI_PATH = $null
 $env:WINAPP_CLI_CACHE_DIRECTORY = Join-Path $temporary 'native-cache'
 $env:WINAPP_CLI_UPDATE_CHECK = '0'
 
@@ -75,7 +73,9 @@ assert wheel.name.startswith("microsoft_winappcli-"), wheel
 assert wheel.name.endswith(f"-py3-none-{sys.argv[2]}.whl"), wheel
 with zipfile.ZipFile(wheel) as archive:
     names = archive.namelist()
-    assert "winappcli/_native/winapp.exe" in names
+    for name in ("winapp.exe", "libHarfBuzzSharp.dll", "libSkiaSharp.dll",
+                 "WinApp.DevTools.Native.dll", "WinApp.DevTools.Managed.dll", "winapp-devtools-schema.json"):
+        assert archive.getinfo(f"winappcli/_native/{name}").file_size > 0, name
     assert "winappcli/_native/LICENSE" in names
     assert not any(name.startswith(("winapp_cli/", "winapp/")) for name in names)
     assert not any(name.lower().endswith(".pdb") for name in names)
@@ -87,7 +87,7 @@ with zipfile.ZipFile(wheel) as archive:
 '@
     Invoke-Checked $interpreter @('-c', $verifyWheel, $wheels[0].FullName, $platform)
     Invoke-Checked $interpreter @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-input', $wheels[0].FullName)
-    $cli = (& $interpreter -c 'from winappcli.tools import find_native_cli; print(find_native_cli(None))').Trim()
+    $cli = (& $interpreter -c 'from winappcli.native import bundled_cli; print(bundled_cli())').Trim()
     if ($LASTEXITCODE -ne 0 -or -not $cli.StartsWith($environment, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Installed Python wheel did not resolve its own bundled native CLI: $cli"
     }
@@ -113,14 +113,9 @@ with zipfile.ZipFile(wheel) as archive:
     if ($LASTEXITCODE -ne 0 -or ($pythonCallerHelp -join "`n") -ne ($nativeHelp -join "`n")) {
         throw "The native CLI still changes its help for the Python caller."
     }
-    $selfReference = & $interpreter -m winappcli --winapp (Join-Path $environment 'Scripts\winapp.exe') --help 2>&1
-    if ($LASTEXITCODE -eq 0 -or ($selfReference -join "`n") -notlike '*Refusing to use a Python wrapper*') {
-        throw "The Python command was not rejected as its own native CLI: $selfReference"
-    }
     Invoke-Checked (Join-Path $environment 'Scripts\winapp.exe') @('--help')
     Invoke-Checked (Join-Path $environment 'Scripts\winapp.exe') @('manifest', '--help')
     Invoke-Checked (Join-Path $environment 'Scripts\winapp.exe') @('tool', '--help')
-    Invoke-Checked (Join-Path $environment 'Scripts\winapp.exe') @('--winapp', $cli, 'manifest', '--help')
 
     $detectionProject = Join-Path $temporary 'python-detection-project'
     New-Item -ItemType Directory -Path $detectionProject | Out-Null
@@ -549,7 +544,6 @@ types = ["Windows.Foundation.Uri"]
 
     Write-Host "Python wrapper, project dependency restore, additive bindings, wheels, and optional uv/identity succeeded."
 } finally {
-    $env:WINAPP_CLI_PATH = $savedCliPath
     $env:WINAPP_CLI_CACHE_DIRECTORY = $savedCacheDirectory
     $env:WINAPP_CLI_UPDATE_CHECK = $savedUpdateCheck
     if ($identityName) {

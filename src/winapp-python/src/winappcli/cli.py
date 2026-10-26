@@ -28,11 +28,11 @@ from .generate import generate
 from .identity import clear_identity, run_with_identity
 from .init_workspace import find_init_workspaces, resolve_init_workspace, validate_init_workspace
 from .metadata import load_inventory, packages_hash
+from .native import bundled_cli
 from .paths import local_path
 from .progress import Workflow
 from .tools import (
     find_codegen,
-    find_native_cli,
     forward_native,
     installed_codegen_version,
     run_tool,
@@ -41,18 +41,17 @@ from .tools import (
 PYTHON_COMMANDS = frozenset({"init", "restore", "generate", "update", "run", "identity"})
 HELP_FLAGS = frozenset({"--help", "-h", "-?", "/?"})
 OUTPUT_OPTIONS = frozenset({"--verbose", "-v", "--quiet", "-q", "--json"})
-RUN_VALUE_OPTIONS = frozenset({"--project", "--manifest", "--winapp", "--python", "--requirements"})
-NATIVE_CLI_HELP = "Native winapp.exe path (otherwise WINAPP_CLI_PATH, bundled CLI, then PATH for source installs)."
+RUN_VALUE_OPTIONS = frozenset({"--project", "--manifest", "--python", "--requirements"})
 
 
 def _show_forwarded_help(
-    parser: argparse.ArgumentParser, command: str | None, override: str | None,
+    parser: argparse.ArgumentParser, command: str | None,
 ) -> int:
     if command in {"restore", "update"}:
         parser.print_help()
         return 0
     directory = Path.cwd()
-    native = find_native_cli(override)
+    native = bundled_cli()
     if command == "run":
         print("Native run modes (non-Python inputs):", flush=True)
     result = forward_native(native, [command, "--help"] if command else ["--help"], directory)
@@ -70,25 +69,18 @@ def _show_forwarded_help(
 
 
 class _NativeHelpAction(argparse.Action):
-    def __init__(self, option_strings, dest, *, command=None, override=None, **kwargs):
+    def __init__(self, option_strings, dest, *, command=None, **kwargs):
         super().__init__(option_strings, dest, nargs=0, **kwargs)
         self.command = command
-        self.override = override
 
     def __call__(self, parser, namespace, values, option_string=None):
-        parser.exit(_show_forwarded_help(
-            parser, self.command, getattr(namespace, "winapp", None) or self.override,
-        ))
+        parser.exit(_show_forwarded_help(parser, self.command))
 
 
 class _VersionAction(argparse.Action):
-    def __init__(self, option_strings, dest, *, override=None, **kwargs):
-        super().__init__(option_strings, dest, nargs=0, **kwargs)
-        self.override = override
-
     def __call__(self, parser, namespace, values, option_string=None):
         print(f"Python Package: microsoft-winappcli v{version('microsoft-winappcli')}", flush=True)
-        native = find_native_cli(self.override)
+        native = bundled_cli()
         print("Native CLI:", flush=True)
         parser.exit(forward_native(native, ["--version"], Path.cwd()))
 
@@ -109,7 +101,7 @@ def _add_output_options(parser: argparse.ArgumentParser) -> None:
                             default=argparse.SUPPRESS, help=help_text)
 
 
-def build_parser(override: str | None = None) -> argparse.ArgumentParser:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="winapp",
         add_help=False,
@@ -118,9 +110,9 @@ def build_parser(override: str | None = None) -> argparse.ArgumentParser:
             "Other commands are forwarded to the native winapp CLI."
         ),
     )
-    parser.add_argument("-h", "--help", action=_NativeHelpAction, override=override,
+    parser.add_argument("-h", "--help", action=_NativeHelpAction,
                         help="Show native CLI help followed by Python extensions.")
-    parser.add_argument("--version", action=_VersionAction, override=override,
+    parser.add_argument("--version", action=_VersionAction, nargs=0,
                         help="Show Python package and native CLI versions.")
     _add_output_options(parser)
     parser.set_defaults(verbose=False, quiet=False, json=False)
@@ -138,14 +130,12 @@ def build_parser(override: str | None = None) -> argparse.ArgumentParser:
                                     help=help_text, description=help_text)
         if command != "generate":
             child.add_argument("-h", "--help", action=_NativeHelpAction, command=command,
-                               override=override, help="Show native help followed by the Python workflow.")
+                               help="Show native help followed by the Python workflow.")
         child.add_argument("--project", type=Path, default=Path.cwd(),
                            help="Project directory (default: current directory).")
         child.add_argument("--python", type=Path,
                            help="Project venv Python for generation and dependency installation (default: project .venv).")
         _add_output_options(child)
-        if command != "generate":
-            child.add_argument("--winapp", help=NATIVE_CLI_HELP)
         if command == "update":
             child.add_argument("--channel", choices=("stable", "preview", "experimental"),
                                default="stable", help="SDK version channel (default: stable).")
@@ -161,14 +151,13 @@ def build_parser(override: str | None = None) -> argparse.ArgumentParser:
 
     run = commands.add_parser("run", add_help=False,
                               help="Run a Python script in the project .venv, optionally with development identity.")
-    run.add_argument("-h", "--help", action=_NativeHelpAction, command="run", override=override,
+    run.add_argument("-h", "--help", action=_NativeHelpAction, command="run",
                      help="Show native run help followed by Python run options.")
     run.add_argument("--identity", action="store_true",
                      help="Use an exact-match private PBS identity environment; rebuild it when project inputs change.")
     run.add_argument("--project", type=Path, default=Path.cwd())
     run.add_argument("--manifest", type=Path,
                      help="Identity only: project manifest (default: auto-detect in project).")
-    run.add_argument("--winapp", help=NATIVE_CLI_HELP)
     _add_output_options(run)
     run.add_argument("--python", type=Path,
                      help="Identity only: project Python to match exactly (default: project .venv).")
@@ -187,15 +176,6 @@ def _command_index(argv: list[str]) -> int:
         if not attached and index < len(argv) and argv[index].lower() in {"true", "false"}:
             index += 1
     return index
-
-
-def _native_prefix(argv: list[str]) -> tuple[str | None, list[str]]:
-    index = _command_index(argv)
-    if len(argv) >= index + 2 and argv[index] == "--winapp":
-        return argv[index + 1], argv[:index] + argv[index + 2:]
-    if index < len(argv) and argv[index].startswith("--winapp="):
-        return argv[index].partition("=")[2], argv[:index] + argv[index + 1:]
-    return None, argv
 
 
 def _normalize_output_options(argv: list[str], command_index: int) -> list[str]:
@@ -407,10 +387,10 @@ def _init_arguments(arguments: list[str]) -> tuple[list[str], bool]:
     return forwarded, add
 
 
-def _initialize(native_args: list[str], override: str | None) -> int:
+def _initialize(native_args: list[str]) -> int:
     native_args, add = _init_arguments(native_args)
     working_directory = Path.cwd()
-    native = find_native_cli(override)
+    native = bundled_cli()
     result = forward_native(native, native_args, working_directory)
     if result:
         return result
@@ -506,22 +486,21 @@ def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    args_list = list(sys.argv[1:] if argv is None else argv)
-    override, parsed = _native_prefix(args_list)
+    parsed = list(sys.argv[1:] if argv is None else argv)
     try:
         if not parsed:
-            return _show_forwarded_help(build_parser(override), None, override) or 2
+            return _show_forwarded_help(build_parser(), None) or 2
         command_index = _command_index(parsed)
         command = parsed[command_index] if command_index < len(parsed) else None
         if command == "init":
-            return _initialize(parsed, override)
+            return _initialize(parsed)
         if (
             command not in PYTHON_COMMANDS
             and command not in {"--help", "-h", "--version", "help"}
         ):
-            native = find_native_cli(override)
+            native = bundled_cli()
             return forward_native(native, parsed, Path.cwd())
-        parser = build_parser(override)
+        parser = build_parser()
         python_args = _normalize_output_options(parsed, command_index)
         if command == "run":
             args, unknown = parser.parse_known_args(python_args)
@@ -530,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.script.suffix.lower() != ".py" or (args.project / args.script).is_dir()
                 )
             ):
-                native = find_native_cli(override)
+                native = bundled_cli()
                 return forward_native(native, parsed, Path.cwd())
         else:
             args = parser.parse_args(python_args)
@@ -545,13 +524,13 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error("the following arguments are required: script")
             script_args = args.script_args[1:] if args.script_args[:1] == ["--"] else args.script_args
             if not args.identity:
-                if args.python is not None or args.requirements is not None or args.manifest is not None or args.winapp:
+                if args.python is not None or args.requirements is not None or args.manifest is not None:
                     raise WinappError(
-                        "--python, --requirements, --manifest and --winapp require --identity for Python scripts. "
+                        "--python, --requirements and --manifest require --identity for Python scripts. "
                         "Ordinary Python runs use the project .venv."
                     )
                 return _run_in_project_venv(local_path(args.project), args.script, script_args, quiet=args.quiet)
-            native = find_native_cli(args.winapp or override)
+            native = bundled_cli()
             return run_with_identity(local_path(args.project), args.script, script_args, native, args.manifest,
                                      python_option=args.python, requirements_option=args.requirements,
                                      verbose=args.verbose, quiet=args.quiet)
@@ -571,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
                     config = try_load_config(project)
                     if config is not None:
                         packages_hash(project)
-                    native = find_native_cli(args.winapp or override)
+                    native = bundled_cli()
                     if args.command == "restore":
                         native_args = [str(native), "restore", str(project)]
                     else:

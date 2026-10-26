@@ -22,7 +22,7 @@ class NativeInitTests(ProjectTest):
         self.stderr = io.StringIO()
         for patcher in (
             patch("winappcli.cli.Path.cwd", return_value=self.project),
-            patch("winappcli.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winappcli.cli.bundled_cli", return_value=Path("winapp.exe")),
             patch("winappcli.cli.sys.platform", "win32"),
             patch("winappcli.cli.platform.python_implementation", return_value="CPython"),
             patch("winappcli.cli.platform.machine", return_value="AMD64"),

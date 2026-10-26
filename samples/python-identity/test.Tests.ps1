@@ -28,7 +28,6 @@ Describe 'Python identity guide and console sample' {
             $info.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
             $info.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
             $info.WorkingDirectory = $Directory
-            $info.Environment.Remove('WINAPP_CLI_PATH') | Out-Null
             foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
             $process = [Diagnostics.Process]::Start($info)
             $outputTask = $process.StandardOutput.ReadToEndAsync()

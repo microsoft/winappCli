@@ -1,7 +1,10 @@
 # Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 # Licensed under the MIT License.
 
+import ast
+import importlib.util
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,12 +12,35 @@ from packaging.version import Version
 
 from winappcli.config import set_codegen_version
 from winappcli.errors import WinappError
-from winappcli.generate import MARKER, generate, require_current_package, validate_output
+from winappcli.generate import (
+    BOOTSTRAP_DIRECTORY, MARKER, RUNTIME_INFO, generate, require_current_package, validate_output,
+)
+from winappcli.metadata import packages_hash
 
 from helpers import ProjectTest
 
 
 class GenerationTests(ProjectTest):
+    def runtime_constants(self, output):
+        statements = ast.parse((output / RUNTIME_INFO).read_text(encoding="utf-8")).body
+        assignments = [statement for statement in statements if isinstance(statement, ast.Assign)]
+        self.assertEqual(len(assignments), 2)
+        return {statement.targets[0].id: ast.literal_eval(statement.value) for statement in assignments}
+
+    def runtime_module(self, output):
+        spec = importlib.util.spec_from_file_location("_generated_runtime_test", output / RUNTIME_INFO)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def change_appsdk_version(self, version):
+        package = next(item for item in self.inventory["packages"] if item["name"] == "Microsoft.WindowsAppSDK")
+        source = self.project / "winapp.yaml"
+        source.write_text(source.read_text().replace(package["version"], version), encoding="utf-8")
+        package["version"] = version
+        self.inventory["yaml_packages_hash"] = packages_hash(self.project)
+        self.save_inventory()
+
     def test_one_pass_uses_all_references_and_explicit_types(self):
         def verify(arguments, project, **kwargs):
             self.assertEqual(arguments[:4], ["codegen.exe", "generate", "--lang", "py"])
@@ -147,6 +173,159 @@ class GenerationTests(ProjectTest):
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
         self.assertEqual(tool.call_count, 1)
         self.assertTrue((output / "AppNotification.py").is_file())
+
+    def test_runtime_info_is_written_by_winapp_without_new_codegen_options(self):
+        self.add_appsdk_inventory()
+        self.write_config(scope="default", types=["Microsoft.UI.Xaml.Window"], extra=(
+            'additional-winmds = [{namespace = "Windows.Foundation", classes = ["Uri"]}]\n'
+        ))
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        self.assertEqual(tool.call_count, 3)
+        for call in tool.call_args_list:
+            arguments = call.args[0]
+            self.assertNotIn("--winappsdk-version", arguments)
+            self.assertNotIn("--winappsdk-bootstrap-dir", arguments)
+        self.assertEqual(self.runtime_constants(output), {
+            "WINDOWS_APP_SDK_VERSION": (1, 8), "BOOTSTRAP_DIRECTORY": BOOTSTRAP_DIRECTORY,
+        })
+        text = (output / RUNTIME_INFO).read_text(encoding="utf-8")
+        self.assertNotIn(str(self.project), text)
+        self.assertNotIn(str(self.cache), text)
+        self.assertEqual(require_current_package(self.config()), output)
+
+    def test_runtime_info_uses_restored_sdk_version_and_updates_with_it(self):
+        self.add_appsdk_inventory()
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+            self.change_appsdk_version("2.5.1")
+            generate(self.config(), Path("codegen.exe"), self.codegen_version)
+            generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        self.assertEqual(tool.call_count, 2)
+        self.assertEqual(self.runtime_constants(output)["WINDOWS_APP_SDK_VERSION"], (2, 5))
+
+    def test_generated_bootstrap_path_selects_architecture_at_call_time(self):
+        self.add_appsdk_inventory()
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        runtime = self.runtime_module(output)
+        relocated = self.root / "relocated project"
+        for platform, architecture in (("win-amd64", "x64"), ("win-arm64", "arm64")):
+            dll = relocated / BOOTSTRAP_DIRECTORY / architecture / "Microsoft.WindowsAppRuntime.Bootstrap.dll"
+            dll.parent.mkdir(parents=True)
+            dll.touch()
+            with self.subTest(platform=platform), patch("sysconfig.get_platform", return_value=platform):
+                self.assertEqual(runtime.bootstrap_dll_path(relocated), dll)
+        with patch("sysconfig.get_platform", return_value="win-amd64"):
+            self.assertEqual(
+                runtime.bootstrap_dll_path(relocated),
+                relocated / BOOTSTRAP_DIRECTORY / "x64" / "Microsoft.WindowsAppRuntime.Bootstrap.dll",
+            )
+
+    def test_generated_bootstrap_path_reports_missing_dll_and_unsupported_python(self):
+        self.add_appsdk_inventory()
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        runtime = self.runtime_module(output)
+        for platform in ("win-amd64", "win-arm64"):
+            with self.subTest(platform=platform), patch("sysconfig.get_platform", return_value=platform):
+                with self.assertRaisesRegex(FileNotFoundError, "Bootstrap DLL is missing:.*Run winapp restore"):
+                    runtime.bootstrap_dll_path(self.project)
+        with (
+            patch("sysconfig.get_platform", return_value="win32"),
+            self.assertRaisesRegex(RuntimeError, "Windows x64 or ARM64 CPython"),
+        ):
+            runtime.bootstrap_dll_path(self.project)
+
+    def test_generated_runtime_import_and_path_lookup_do_not_initialize_the_process(self):
+        self.add_appsdk_inventory()
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        statements = ast.parse((output / RUNTIME_INFO).read_text(encoding="utf-8")).body
+        self.assertTrue(all(isinstance(statement, (ast.Import, ast.ImportFrom, ast.Assign, ast.FunctionDef))
+                            for statement in statements))
+        imports = [
+            statement.module if isinstance(statement, ast.ImportFrom) else alias.name
+            for statement in statements if isinstance(statement, (ast.Import, ast.ImportFrom))
+            for alias in statement.names
+        ]
+        self.assertCountEqual(imports, ["pathlib", "sysconfig"])
+        environment = dict(os.environ)
+        with (
+            patch.dict("sys.modules", {"dynwinrt": None}),
+            patch("sysconfig.get_platform", side_effect=AssertionError("Architecture queried during import")),
+            patch.object(Path, "is_file", side_effect=AssertionError("DLL checked during import")),
+        ):
+            runtime = self.runtime_module(output)
+        dll = self.project / BOOTSTRAP_DIRECTORY / "x64" / "Microsoft.WindowsAppRuntime.Bootstrap.dll"
+        dll.parent.mkdir(parents=True)
+        dll.write_bytes(b"not a DLL: path lookup must not try to load it")
+        with patch.dict("sys.modules", {"dynwinrt": None}), patch("sysconfig.get_platform", return_value="win-amd64"):
+            self.assertEqual(runtime.bootstrap_dll_path(self.project), dll)
+        self.assertTrue(dict(os.environ) == environment, "Runtime information changed the process environment.")
+
+    def test_runtime_info_name_collision_preserves_previous_output(self):
+        self.add_appsdk_inventory()
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        before = {path.name: path.read_bytes() for path in output.iterdir()}
+
+        def collision(arguments, project, **kwargs):
+            result = self.fake_codegen(arguments, project, **kwargs)
+            generated = Path(arguments[arguments.index("--output") + 1])
+            (generated / RUNTIME_INFO).write_text("Existing codegen output\n", encoding="utf-8")
+            return result
+
+        with (
+            patch("winappcli.generate.run_tool", side_effect=collision),
+            self.assertRaisesRegex(WinappError, "reserved file"),
+        ):
+            generate(self.config(), Path("codegen.exe"), self.codegen_version, force=True)
+        self.assertEqual({path.name: path.read_bytes() for path in output.iterdir()}, before)
+        self.assertEqual(list(output.parent.iterdir()), [output])
+
+    def test_deleted_runtime_info_is_regenerated(self):
+        self.add_appsdk_inventory()
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+            (output / RUNTIME_INFO).unlink()
+            generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        self.assertEqual(tool.call_count, 2)
+        self.assertTrue((output / RUNTIME_INFO).is_file())
+
+    def test_existing_codegen_also_receives_winapp_runtime_info(self):
+        self.add_appsdk_inventory()
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        self.assertNotIn("--winappsdk-version", tool.call_args.args[0])
+        self.assertNotIn("--winappsdk-bootstrap-dir", tool.call_args.args[0])
+        self.assertEqual(self.runtime_constants(output)["WINDOWS_APP_SDK_VERSION"], (1, 8))
+
+    def test_windows_sdk_only_generation_has_no_appsdk_runtime_info(self):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        self.assertNotIn("--winappsdk-version", tool.call_args.args[0])
+        self.assertFalse((output / RUNTIME_INFO).exists())
+
+    def test_preview_sdk_bindings_still_generate_without_stable_runtime_info(self):
+        self.add_appsdk_inventory()
+        self.change_appsdk_version("2.5.1-preview1")
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
+            output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        self.assertNotIn("--winappsdk-version", tool.call_args.args[0])
+        self.assertFalse((output / RUNTIME_INFO).exists())
+
+    def test_duplicate_appsdk_versions_are_not_guessed(self):
+        self.add_appsdk_inventory()
+        self.inventory["packages"].append({"name": "Microsoft.WindowsAppSDK", "version": "2.5.1", "winmds": []})
+        self.save_inventory()
+        with (
+            patch("winappcli.generate.run_tool") as tool,
+            self.assertRaisesRegex(WinappError, "multiple Microsoft.WindowsAppSDK"),
+        ):
+            generate(self.config(), Path("codegen.exe"), self.codegen_version)
+        tool.assert_not_called()
+        self.assertFalse(self.config().output.exists())
 
     def test_marker_for_another_package_is_rejected(self):
         output = self.config().output

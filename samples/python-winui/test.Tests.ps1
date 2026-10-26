@@ -30,7 +30,6 @@ Describe 'Unpackaged Python WinUI sample' {
             $info.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
             $info.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
             $info.WorkingDirectory = $Directory
-            $info.Environment.Remove('WINAPP_CLI_PATH') | Out-Null
             foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
             $process = [Diagnostics.Process]::Start($info)
             [pscustomobject]@{
@@ -188,7 +187,8 @@ Describe 'Unpackaged Python WinUI sample' {
             Invoke-SampleCommand $script:cli @('init', '--use-defaults', '--add-python-bindings') $appDir |
                 Should -Match 'Python bindings ready'
             foreach ($name in @('winapp.yaml', '.venv\Scripts\python.exe',
-                '.winapp\python\winapp_bindings\pyproject.toml')) {
+                '.winapp\python\winapp_bindings\pyproject.toml',
+                '.winapp\python\winapp_bindings\_winapp_runtime.py')) {
                 Join-Path $appDir $name | Should -Exist
             }
         }
@@ -238,7 +238,7 @@ Describe 'Unpackaged Python WinUI sample' {
             Close-SampleWindow $run
         }
 
-        It 'Checks memory-counter and Bootstrap helpers' -Skip:$script:skip {
+        It 'Checks counter state and Bootstrap helpers' -Skip:$script:skip {
             Invoke-SampleCommand $Python @('-I', '-B', '-m', 'unittest', 'discover',
                 '-s', $sampleDir, '-p', 'test_app.py') | Out-Null
         }

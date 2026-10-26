@@ -1,13 +1,17 @@
 # Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 # Licensed under the MIT License.
 
+from contextlib import redirect_stderr, redirect_stdout
 from importlib.metadata import distribution
+import io
+import os
 from pathlib import Path
 import struct
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
+from winappcli.cli import main
 from winappcli.errors import WinappError
-from winappcli.native import bundled_cli, native_platform
+from winappcli.native import REQUIRED_NATIVE_FILES, bundled_cli, native_payload_platform, native_platform
 
 from helpers import ProjectTest
 
@@ -31,6 +35,9 @@ class NativePayloadTests(ProjectTest):
         content[64:68] = b"PE\0\0"
         struct.pack_into("<H", content, 68, machine)
         path.write_bytes(content)
+        for name in REQUIRED_NATIVE_FILES:
+            if name != "winapp.exe":
+                (path.parent / name).write_bytes(b"fixture")
         return path
 
     def test_platform_tag_uses_executable_not_build_host(self):
@@ -69,27 +76,69 @@ class NativePayloadTests(ProjectTest):
         path.unlink()
         with (
             patch("winappcli.native.__file__", str(self.project / "native.py")),
-            self.assertRaisesRegex(WinappError, "reinstall"),
+            self.assertRaisesRegex(WinappError, "Reinstall"),
         ):
             bundled_cli()
 
-    def test_deleted_payload_directory_is_detected_from_wheel_metadata(self):
-        metadata = Mock()
-        metadata.read_text.return_value = "Tag: py3-none-win_amd64\n"
+    def test_missing_payload_fails_for_source_and_wheel_installs_without_lookup(self):
         with (
             patch("winappcli.native.__file__", str(self.project / "native.py")),
-            patch("winappcli.native.distribution", return_value=metadata) as lookup,
-            self.assertRaisesRegex(WinappError, "Bundled native CLI is missing"),
+            patch("shutil.which") as search,
+            self.assertRaisesRegex(WinappError, "Native CLI files are missing"),
         ):
             bundled_cli()
-        lookup.assert_called_once_with("microsoft-winappcli")
+        search.assert_not_called()
 
-    def test_editable_source_can_use_external_cli(self):
-        metadata = Mock()
-        metadata.read_text.return_value = "Tag: py3-none-any\n"
+    def test_bundle_ignores_external_path_and_environment_override(self):
+        path = self.executable()
+        external = self.project / "winapp.exe"
+        external.write_bytes(b"not executed")
         with (
             patch("winappcli.native.__file__", str(self.project / "native.py")),
-            patch("winappcli.native.distribution", return_value=metadata) as lookup,
+            patch("winappcli.native.sysconfig.get_platform", return_value="win-amd64"),
+            patch.dict(os.environ, {"PATH": str(self.project), "WINAPP_CLI_PATH": str(external)}),
+            patch("shutil.which") as search,
         ):
-            self.assertIsNone(bundled_cli())
-        lookup.assert_called_once_with("microsoft-winappcli")
+            self.assertEqual(bundled_cli(), path.resolve())
+        search.assert_not_called()
+
+    def test_help_never_starts_a_project_executable_when_bundle_is_missing(self):
+        external = self.project / "winapp.exe"
+        external.write_bytes(b"not executed")
+        errors = io.StringIO()
+        with (
+            patch("winappcli.native.__file__", str(self.project / "native.py")),
+            patch.dict(os.environ, {"PATH": str(self.project), "WINAPP_CLI_PATH": str(external)}),
+            patch("winappcli.cli.Path.cwd", return_value=self.project),
+            patch("shutil.which") as search,
+            patch("winappcli.cli.forward_native") as forward,
+            redirect_stdout(io.StringIO()), redirect_stderr(errors),
+        ):
+            self.assertEqual(main(["--help"]), 1)
+        search.assert_not_called()
+        forward.assert_not_called()
+        self.assertIn("Reinstall microsoft-winappcli", errors.getvalue())
+
+    def test_incomplete_native_payload_is_rejected_before_install_or_execution(self):
+        for name in REQUIRED_NATIVE_FILES:
+            for empty in (False, True):
+                with self.subTest(name=name, empty=empty):
+                    path = self.executable()
+                    missing = path.parent / name
+                    if empty:
+                        missing.write_bytes(b"")
+                    else:
+                        missing.unlink()
+                    with self.assertRaises(WinappError) as failure:
+                        native_payload_platform(path.parent)
+                    self.assertIn(name, str(failure.exception))
+
+    def test_bundled_resolution_does_not_execute_or_probe_the_cli(self):
+        path = self.executable()
+        with (
+            patch("winappcli.native.__file__", str(self.project / "native.py")),
+            patch("winappcli.native.sysconfig.get_platform", return_value="win-amd64"),
+            patch("subprocess.run") as run,
+        ):
+            self.assertEqual(bundled_cli(), path.resolve())
+        run.assert_not_called()

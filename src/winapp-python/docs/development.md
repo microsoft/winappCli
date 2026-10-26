@@ -4,24 +4,35 @@ This page covers source setup, building platform wheels and validating the Pytho
 
 ## Developing this package
 
-Source development requires Windows, CPython 3.11-3.14 and the .NET 10 SDK. Run these commands from the repository root:
+Source development requires Windows, CPython 3.11-3.14, the .NET 10 SDK and Visual Studio C++ build tools. Prepare the complete native payload before installing the editable Python package. Run these commands from the repository root:
 
 ```powershell
 python -m venv .\src\winapp-python\.venv
 .\src\winapp-python\.venv\Scripts\Activate.ps1
-python -m pip install -e .\src\winapp-python
-
-dotnet build .\src\winapp-CLI\WinApp.Cli\WinApp.Cli.csproj -c Debug -r win-x64 `
+$publish = Join-Path $PWD 'artifacts\python-dev\win-x64'
+dotnet publish .\src\winapp-CLI\WinApp.Cli\WinApp.Cli.csproj -c Debug -r win-x64 `
   -p:PlatformTarget=x64 -p:PublishAot=false `
-  -p:PublishSingleFile=false -p:SelfContained=false
+  -p:PublishSingleFile=false --self-contained -o $publish
+if ($LASTEXITCODE -ne 0) { throw 'Native publish failed.' }
 
-$env:WINAPP_CLI_PATH = (Resolve-Path `
-  .\src\winapp-CLI\WinApp.Cli\bin\Debug\net10.0-windows10.0.19041.0\win-x64\winapp.exe).Path
+.\src\winapp-devtools\build-devtools.ps1 -Configuration Debug -Arch x64 `
+  -EngineOut $publish -SkipNativeUnitTests
+if ($LASTEXITCODE -ne 0) { throw 'DevTools engine build failed.' }
 
-winapp --help
+$native = Join-Path $PWD 'src\winapp-python\src\winappcli\_native'
+if (Test-Path -LiteralPath $native) { Remove-Item -LiteralPath $native -Recurse -Force }
+New-Item -ItemType Directory -Path $native -Force | Out-Null
+Copy-Item "$publish\*" -Destination $native -Recurse
+
+python -m pip install -e .\src\winapp-python
+python -m winappcli --help
 ```
 
-For ARM64 Python, use `win-arm64` and `-p:PlatformTarget=ARM64`. Editable installations have no bundled native CLI. Lookup order is an explicit `--winapp <path>`, `WINAPP_CLI_PATH`, the installed bundle, then `winapp.exe` on `PATH` for a source installation. A damaged platform-wheel bundle fails rather than silently selecting another binary.
+For ARM64 Python, use `win-arm64`, `-p:PlatformTarget=ARM64` and `-Arch arm64`. You can instead copy a complete matching publish from `artifacts\cli\win-x64` or `win-arm64` into `_native`.
+
+Both editable installs and platform wheels use only `winappcli\_native\winapp.exe`. There are no command-line or environment overrides and no PATH search. Missing files or a mismatched architecture produce an error instead of using another installation. `_native` is ignored by Git.
+
+Python source edits take effect immediately through the editable install. Rebuild and replace the whole `_native` directory only when native code changes; use an empty publish directory when changing architectures or publish settings. Do not copy `winapp.exe` alone: its DLLs, engines and other publish files belong to the same build.
 
 ## Build and install a local wheel
 
@@ -33,7 +44,7 @@ To build a local `microsoft-winappcli` wheel, run one command from the repositor
 
 Windows CPython 3.11-3.14, PowerShell 7, the .NET 10 SDK and Visual Studio C++ build tools for the target architecture are required. If publishing reports a missing platform linker, install the C++ tools for that architecture before retrying.
 
-The script selects the architecture of `python` by default, publishes a fresh Release native CLI, then packages it with the Python wrapper. It includes the license, omits PDBs and checks the executable architecture. Native publishing uses a temporary directory that is removed afterward; existing native publishes and unrelated artifacts are not deleted.
+The script selects the architecture of `python` by default, builds a fresh Release native CLI and DevTools engines, then packages the complete payload with the Python wrapper. It includes the license, omits PDBs and checks required files, version and executable architecture. Native publishing uses a temporary directory that is removed afterward; existing native publishes and unrelated artifacts are not deleted.
 
 The wheel is written to `artifacts\python`. Its version uses the same repository `version.json`, build number and prerelease label as native and npm packages. For example, shared version `0.7.2-prerelease.37` produces Python version `0.7.2.dev37` and an x64 wheel named `microsoft_winappcli-0.7.2.dev37-py3-none-win_amd64.whl`; ARM64 uses the corresponding `win_arm64` tag. Source `pyproject.toml` keeps its editable-development version; only the staged copy receives the build version. The script does not upload to PyPI, install or replace your tool, or package the counter application.
 
@@ -51,7 +62,7 @@ Pass `-Python <python.exe>` to use a different build interpreter or `-OutputDire
 
 ### Install and try the local wheel
 
-Use a separate test environment so the local build does not replace your installed tool. Run this in a fresh PowerShell session without `WINAPP_CLI_PATH`, so the tool uses the native CLI bundled in the wheel:
+Use a separate test environment so the local build does not replace your installed tool. The installed package always uses its bundled native CLI:
 
 ```powershell
 python -m venv .\artifacts\python-local-test
@@ -94,7 +105,7 @@ $wheel = Get-ChildItem .\artifacts\python\microsoft_winappcli-*-py3-none-win_amd
   -IncludeIdentity -IncludeUv
 ```
 
-`-IncludeIdentity` exercises the PBS runner and cleans its test registrations; Windows Developer Mode is required. `-IncludeUv` requires uv and covers declarations, lockfiles and fresh clones. The installed-wheel tests use the bundle rather than the editable installation's native path override.
+`-IncludeIdentity` exercises the PBS runner and cleans its test registrations; Windows Developer Mode is required. `-IncludeUv` requires uv and covers declarations, lockfiles and fresh clones. Both source and installed-wheel tests use the same bundled-CLI lookup.
 
 To validate the user-facing WinUI workflow with Pester 5:
 

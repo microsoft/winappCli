@@ -116,6 +116,11 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 throw "Native CLI publish failed for $arch. Check the build output and Visual Studio C++ tools for that architecture."
             }
+            & (Join-Path $root 'src\winapp-devtools\build-devtools.ps1') `
+                -Configuration Release -Arch $arch -EngineOut (Join-Path $cli "win-$arch") -SkipNativeUnitTests
+            if (-not $? -or $LASTEXITCODE -ne 0) {
+                throw "DevTools engine build failed for $arch; the Python wheel was not created."
+            }
         }
     } else {
         $cli = (Resolve-Path -LiteralPath $CliPath).Path
@@ -126,10 +131,10 @@ try {
         if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
             throw "Native CLI publish is missing: $executable. Use -BuildCli or build it before packaging Python wheels."
         }
-        $probe = 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from winappcli.native import native_platform; actual=native_platform(Path(sys.argv[2])); assert actual==sys.argv[3], f"Expected {sys.argv[3]}, found {actual}"'
+        $probe = 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from winappcli.native import native_payload_platform; actual=native_payload_platform(Path(sys.argv[2]).parent); assert actual==sys.argv[3], f"Expected {sys.argv[3]}, found {actual}"'
         & $Python -I -c $probe (Join-Path $package 'src') $executable $platforms[$arch]
         if ($LASTEXITCODE -ne 0) {
-            throw "Native CLI publish has the wrong architecture or an invalid executable: $executable"
+            throw "Native CLI publish is incomplete, has the wrong architecture or an invalid executable: $executable"
         }
         $nativeVersion = (Get-Item -LiteralPath $executable).VersionInfo.ProductVersion
         if ($nativeVersion -ne $Version) {

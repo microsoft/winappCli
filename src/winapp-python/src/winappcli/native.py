@@ -1,12 +1,16 @@
 # Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 # Licensed under the MIT License.
 
-from importlib.metadata import distribution
 from pathlib import Path
 import struct
 import sysconfig
 
 from .errors import WinappError
+
+REQUIRED_NATIVE_FILES = (
+    "winapp.exe", "libHarfBuzzSharp.dll", "libSkiaSharp.dll",
+    "WinApp.DevTools.Native.dll", "WinApp.DevTools.Managed.dll", "winapp-devtools-schema.json",
+)
 
 
 def native_platform(executable: Path) -> str:
@@ -29,21 +33,24 @@ def native_platform(executable: Path) -> str:
     return platforms[machine]
 
 
-def bundled_cli() -> Path | None:
+def native_payload_platform(directory: Path) -> str:
+    missing = [
+        name for name in REQUIRED_NATIVE_FILES
+        if not (directory / name).is_file() or (directory / name).stat().st_size == 0
+    ]
+    if missing:
+        raise WinappError(
+            f"Native CLI files are missing or empty in {directory}: {', '.join(missing)}. "
+            "Reinstall microsoft-winappcli, or prepare the complete _native directory for source development "
+            "as described in docs/development.md."
+        )
+    return native_platform(directory / "winapp.exe")
+
+
+def bundled_cli() -> Path:
     root = Path(__file__).resolve().parent / "_native"
-    executable = root / "winapp.exe"
-    if not root.exists():
-        metadata = distribution("microsoft-winappcli").read_text("WHEEL")
-        if metadata is None:
-            raise WinappError("Python package wheel metadata is missing; reinstall microsoft-winappcli.")
-        if any(line in metadata.splitlines() for line in
-               ("Tag: py3-none-win_amd64", "Tag: py3-none-win_arm64")):
-            raise WinappError("Bundled native CLI is missing; reinstall the microsoft-winappcli wheel.")
-        return None
-    if not executable.is_file():
-        raise WinappError(f"Bundled native CLI is missing at {executable}; reinstall microsoft-winappcli.")
-    actual = native_platform(executable)
+    actual = native_payload_platform(root)
     expected = sysconfig.get_platform().replace("-", "_")
     if actual != expected:
         raise WinappError(f"Bundled CLI targets {actual}, but this Python uses {expected}; install the matching wheel.")
-    return executable
+    return root / "winapp.exe"
