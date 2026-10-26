@@ -672,7 +672,9 @@ try {
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoLayout', '-a', $app)
         Check ((Wait-Focused 'ShortcutReturn') -eq 'ShortcutReturn') 'a toolbar command invoked through UI Automation returns focus to the app'
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoLayout', '-a', $app)
-        $null = Invoke-Cli @('ui', 'hover', 'ShortcutReturn', '-a', $app)
+        # Keep the app's button hover animation out of the screenshot comparison.
+        $null = Invoke-Cli @('ui', 'hover', 'WindowHeading', '-a', $app)
+        Start-Sleep -Milliseconds 400
 
         # A screenshot shows the app alone: the toolbar on screen leaves no pixels, and stays on screen afterwards.
         $shown = Join-Path $evidence 'screenshot-toolbar-shown.png'
