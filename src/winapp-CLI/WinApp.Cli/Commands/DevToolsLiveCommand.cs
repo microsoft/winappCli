@@ -50,10 +50,13 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var root = parseResult.GetValue(SharedDevToolsOptions.RootOption);
-            if (root is not null && (!ulong.TryParse(root, System.Globalization.NumberStyles.None,
-                System.Globalization.CultureInfo.InvariantCulture, out var rootHandle) || rootHandle == 0))
+            if (root is not null)
             {
-                return Fail(json, 0, "--root requires a nonzero opaque handle from DevTools inspect or Surface.list.", "bad-root");
+                if (!SharedUiOptions.TryParseHandle(root, out var rootHandle) || rootHandle == 0)
+                {
+                    return Fail(json, 0, "--root requires a nonzero opaque handle from DevTools inspect or Surface.list.", "bad-root");
+                }
+                root = rootHandle.ToString(System.Globalization.CultureInfo.InvariantCulture);
             }
 
             var target = await resolver.ResolveAsync(app, window, cancellationToken, AttachIfNeeded(parseResult));
