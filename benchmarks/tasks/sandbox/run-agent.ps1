@@ -53,7 +53,7 @@ try {
     $env:NO_COLOR = '1'
 
     # --- Copilot CLI: the launcher plus the pinned build, so --prefer-version resolves offline.
-    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
     $pkg = "$env:LOCALAPPDATA\copilot\pkg\win32-$arch"
     New-Item -ItemType Directory -Force $pkg | Out-Null
     robocopy "$harness\copilot\pkg\win32-$arch" $pkg /E /NFL /NDL /NJH /NJS /NP | Out-Null
