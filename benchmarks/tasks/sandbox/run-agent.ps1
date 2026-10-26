@@ -107,6 +107,10 @@ try {
         $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and $_.TrimEnd('\') -ne 'C:\Program Files\WinAppCli' }) -join ';'
         Write-Log 'winapp hidden from the agent PATH'
     }
+    else {
+        $winappVersion = (& cmd /c 'winapp --version 2>&1' | Select-Object -Last 1)
+        Write-Log "winapp on PATH: $((Get-Command winapp -ErrorAction SilentlyContinue).Source) version $winappVersion"
+    }
     switch ($run.mode) {
         'agent' {
             $agentArgs = @('-p', $run.prompt, '--model', $run.model, '--output-format', 'json', '--stream', 'off',
