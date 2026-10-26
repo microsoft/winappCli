@@ -644,4 +644,56 @@ public class UiSessionServiceTests
     [TestMethod]
     public void ClassifyWindow_OrdinaryClass_ReturnsWindow()
         => Assert.AreEqual("window", UiTargetResolver.ClassifyWindow("Button"));
+
+    // ---- DevTools inspector and exact titles (#1147) -----------------------
+
+    [TestMethod]
+    public async Task ResolveByPid_ForegroundDevToolsInspector_TargetsAppWindow()
+    {
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[500] = new UiProcessInfo(500, "myapp", 100, "My App");
+        uia.WindowsByPidResult = [(100, 500, "My App"), (200, 500, "WinApp DevTools · PID 500")];
+        sys.ForegroundWindowResult = 200;
+
+        var target = await service.ResolveAsync("500", null, CancellationToken.None);
+
+        Assert.AreEqual(100L, target.WindowHandle);
+        Assert.AreEqual("My App", target.WindowTitle);
+    }
+
+    [TestMethod]
+    public async Task ResolveByPid_OnlyDevToolsInspector_StillTargetsIt()
+    {
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[500] = new UiProcessInfo(500, "myapp", 200, "WinApp DevTools · PID 500");
+        uia.WindowsByPidResult = [(200, 500, "WinApp DevTools · PID 500")];
+
+        var target = await service.ResolveAsync("500", null, CancellationToken.None);
+
+        Assert.AreEqual(200L, target.WindowHandle);
+    }
+
+    [TestMethod]
+    public async Task ResolveByTitle_ExactTitleWinsOverLongerTitle()
+    {
+        var (service, uia, sys) = NewService();
+        uia.WindowsByTitleResult = [(100, 500, "DevTools BB App"), (200, 600, "DevTools BB App 2")];
+        sys.ForegroundWindowResult = 200;
+
+        var target = await service.ResolveAsync("devtools bb app", null, CancellationToken.None);
+
+        Assert.AreEqual(100L, target.WindowHandle);
+        Assert.AreEqual(500, target.ProcessId);
+    }
+
+    [TestMethod]
+    public async Task ResolveProcessByTitle_ExactTitleIsNotAmbiguous()
+    {
+        var (service, uia, _) = NewService();
+        uia.WindowsByTitleResult = [(100, 500, "DevTools BB App"), (200, 600, "DevTools BB App 2")];
+
+        var target = await service.ResolveProcessAsync("DevTools BB App", CancellationToken.None);
+
+        Assert.AreEqual(500, target.ProcessId);
+    }
 }

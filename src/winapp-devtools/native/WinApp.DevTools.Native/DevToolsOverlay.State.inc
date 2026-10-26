@@ -420,11 +420,16 @@ static std::wstring BuildPrototypeMarkup(int wDip, int hDip)
 }
 
 
-static std::wstring BuildAdornerMarkup(int x, int y, int w, int h)
+// A preview (hovering an inspector tree row) is a thin, unfilled outline so it doesn't look like the filled box
+// that picking and selecting draw.
+static std::wstring BuildAdornerMarkup(int x, int y, int w, int h, bool preview)
 {
     return DevToolsXamlSubst(DevToolsXaml::Adorner, {
         { L"X", std::to_wstring(x) }, { L"Y", std::to_wstring(y) },
-        { L"W", std::to_wstring(w) }, { L"H", std::to_wstring(h) } });
+        { L"W", std::to_wstring(w) }, { L"H", std::to_wstring(h) },
+        { L"NAME", preview ? std::wstring(L"Hovered element preview") : std::wstring(L"Selected element highlight") },
+        { L"THICKNESS", preview ? std::wstring(L"1") : std::wstring(L"2") },
+        { L"FILL", preview ? std::wstring(L"#00000000") : std::wstring(L"#333B9EFF") } });
 }
 
 // Record the WinRT runtime class name of an IInspectable (opt-in log) so the anchor probe captures exactly what

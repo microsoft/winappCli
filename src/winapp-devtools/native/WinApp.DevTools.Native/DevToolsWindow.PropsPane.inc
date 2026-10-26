@@ -77,6 +77,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
 
     DevToolsWindowLayout layout; bool haveLayout = false;
     if (g_ctx.layoutFn && wire) haveLayout = g_ctx.layoutFn(wire, layout);
+    g_paneLayout = layout; g_paneHaveLayout = haveLayout;
 
     IInspectable* frag = nullptr;
     LARGE_INTEGER freq{}, tAuthor0{}, tAuthor1{}, tParse1{}, tWire1{};

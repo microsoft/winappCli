@@ -83,4 +83,28 @@ public class WinAppParserConfigurationTests : BaseCommandTests
         Assert.AreEqual(0, parseResult.Errors.Count, ErrorSummary(parseResult));
         Assert.AreEqual("assistant", parseResult.GetValue(SharedUiOptions.SelectorArgument));
     }
+
+    [TestMethod]
+    [DataRow("1772174")]
+    [DataRow("0x1B0A8E")]
+    [DataRow("0X1b0a8e")]
+    public void WindowHandle_AcceptsDecimalAndHex(string value)
+    {
+        var rootCommand = GetRequiredService<WinAppRootCommand>();
+        var parseResult = rootCommand.Parse(["ui", "inspect", "-w", value], WinAppParserConfiguration.Default);
+
+        Assert.AreEqual(0, parseResult.Errors.Count, string.Join("; ", parseResult.Errors.Select(e => e.Message)));
+        Assert.AreEqual(1772174L, parseResult.GetValue(SharedUiOptions.WindowOption));
+    }
+
+    [TestMethod]
+    public void WindowHandle_BadValueExplainsWhatAHandleLooksLike()
+    {
+        var rootCommand = GetRequiredService<WinAppRootCommand>();
+        var parseResult = rootCommand.Parse(["ui", "inspect", "-w", "notepad"], WinAppParserConfiguration.Default);
+
+        var message = parseResult.Errors.Select(e => e.Message).Single(m => m.Contains("is not a window handle"));
+        StringAssert.Contains(message, "'notepad'");
+        StringAssert.Contains(message, "0x1B0A8E");
+    }
 }
