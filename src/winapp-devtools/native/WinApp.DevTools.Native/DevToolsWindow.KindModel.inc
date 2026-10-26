@@ -541,7 +541,6 @@ struct BindRestoreSink : DevToolsSinkBase
             return S_OK;
         }
         for (size_t i = g_bindingLost.size(); i-- > 0;) if (g_bindingLost[i] == prop) g_bindingLost.erase(g_bindingLost.begin() + i);
-        DevToolsBindingRow_ForgetLiveWrite(wire, prop);
         return S_OK;
     }
     void Init(const std::wstring& p, bool x) { prop = p; xbind = x; wire = g_selWire; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }

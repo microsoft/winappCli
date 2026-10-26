@@ -997,17 +997,19 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // Step 2: Create and register the debug identity
                     taskContext.AddDebugMessage($"{UiSymbols.Package} Creating debug identity...");
                     // DevTools must start the app itself: a running instance would either keep the old
-                    // files locked or receive this launch without DevTools, depending on the app.
+                    // files locked or receive this launch without DevTools, depending on the app. Without
+                    // DevTools the running instance is still closed so its files can be replaced.
                     var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
-                    if (devTools && runningBefore.Count > 0)
+                    if (runningBefore.Count > 0)
                     {
+                        var closedAll = runningBefore.All(CloseRunningProcess);
                         // Otherwise every second run of an edit loop would lose DevTools.
-                        if (runningBefore.All(CloseRunningProcess))
+                        if (devTools && closedAll)
                         {
                             closedForDevTools = [.. runningBefore];
                             runningBefore = [];
                         }
-                        else if (devToolsRun.FailOpen)
+                        else if (devTools && devToolsRun.FailOpen)
                         {
                             devToolsStepAside = $"the app is already running (PID {string.Join(", ", runningBefore)}) and could not be closed.";
                             devTools = false;

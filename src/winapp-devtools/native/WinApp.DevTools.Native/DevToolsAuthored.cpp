@@ -268,7 +268,8 @@ bool OpensElementTag(const std::wstring& l, size_t c)
 }
 
 // Join the element's OPENING TAG, starting from the '<' that opens it and ending at its unquoted '>'.
-std::wstring ElementSpan(const std::vector<std::wstring>& lines, unsigned int line, unsigned int column)
+std::wstring ElementSpan(const std::vector<std::wstring>& lines, unsigned int line, unsigned int column,
+                         size_t* endLine = nullptr, size_t* endCol = nullptr)
 {
     if (line == 0 || line > lines.size()) return L"";
     const size_t target = (size_t)line - 1;
@@ -339,16 +340,24 @@ std::wstring ElementSpan(const std::vector<std::wstring>& lines, unsigned int li
         const std::wstring& l = lines[i];
         const size_t begin = (i == startLine) ? startCol : 0;
         std::wstring piece = l.substr(begin);
+        size_t shift = begin;   // piece[c] is l[c + shift], less the two indent spaces added below
+        bool indented = false;
         if (i != startLine && quote == 0) {
             size_t lead = 0;
             while (lead < piece.size() && (piece[lead] == L' ' || piece[lead] == L'\t')) ++lead;
             piece = std::wstring(2, L' ') + piece.substr(lead);
+            shift = lead; indented = true;
         }
         for (size_t c = 0; c < piece.size(); ++c) {
             const wchar_t ch = piece[c];
             if (quote != 0) { if (ch == quote) quote = 0; continue; }
             if (ch == L'"' || ch == L'\'') { quote = ch; continue; }
-            if (ch == L'>') { span += piece.substr(0, c + 1); return span; }
+            if (ch == L'>') {
+                if (endLine) *endLine = i;
+                if (endCol) *endCol = c + 1 + shift - (indented ? 2 : 0);
+                span += piece.substr(0, c + 1);
+                return span;
+            }
         }
         span += piece;
         if (i + 1 < lines.size()) span += L'\n';
@@ -356,6 +365,62 @@ std::wstring ElementSpan(const std::vector<std::wstring>& lines, unsigned int li
     return L""; // unterminated markup is not an available declaration
 }
 
+// The direct children of an element whose opening tag ends just before lines[line][col]: the names set as
+// <Type.Property> children, and whether anything else (text or an element) is its content. False when the body
+// cannot be followed to its closing tag.
+bool ScanElementBody(const std::vector<std::wstring>& lines, size_t line, size_t col,
+                     std::vector<std::wstring>* properties, bool* content)
+{
+    std::wstring body;
+    for (size_t i = line; i < lines.size() && i < line + 4000; ++i) {
+        body += i == line ? lines[i].substr((std::min)(col, lines[i].size())) : lines[i];
+        body += L'\n';
+    }
+    int depth = 0;
+    for (size_t c = 0; c < body.size(); ++c) {
+        const wchar_t ch = body[c];
+        if (ch != L'<') {
+            if (depth == 0 && ch != L' ' && ch != L'\t' && ch != L'\r' && ch != L'\n') *content = true;
+            continue;
+        }
+        const wchar_t* skip = body.compare(c, 4, L"<!--") == 0 ? L"-->" :
+                              body.compare(c, 9, L"<![CDATA[") == 0 ? L"]]>" :
+                              body.compare(c, 2, L"<?") == 0 ? L"?>" : nullptr;
+        if (skip) {
+            if (depth == 0 && body[c + 1] == L'!' && body[c + 2] == L'[') *content = true;
+            const size_t end = body.find(skip, c + 2);
+            if (end == std::wstring::npos) return false;
+            c = end + wcslen(skip) - 1;
+            continue;
+        }
+        const bool closing = c + 1 < body.size() && body[c + 1] == L'/';
+        if (closing && depth == 0) return true;
+        const size_t nameStart = c + (closing ? 2 : 1);
+        size_t nameEnd = nameStart;
+        while (nameEnd < body.size() && !wcschr(L" \t\r\n/>", body[nameEnd])) ++nameEnd;
+        std::wstring tag = body.substr(nameStart, nameEnd - nameStart);
+        tag = tag.substr(tag.find_last_of(L':') + 1);
+        if (!closing && depth == 0) {
+            const size_t dot = tag.find_last_of(L'.');
+            if (dot == std::wstring::npos) *content = true;
+            else { properties->push_back(tag.substr(dot + 1)); properties->push_back(tag); }
+        }
+        wchar_t quote = 0, previous = 0;
+        size_t end = nameEnd;
+        for (; end < body.size(); ++end) {
+            const wchar_t tch = body[end];
+            if (quote) { if (tch == quote) quote = 0; continue; }
+            if (tch == L'"' || tch == L'\'') { quote = tch; continue; }
+            if (tch == L'>') break;
+            if (!wcschr(L" \t\r\n", tch)) previous = tch;
+        }
+        if (end >= body.size()) return false;
+        if (closing) --depth;
+        else if (previous != L'/') ++depth;
+        c = end;
+    }
+    return false;
+}
 bool FindAttribute(const std::wstring& span, const std::wstring& prop, std::wstring* out)
 {
     size_t pos = 0;
@@ -676,7 +741,8 @@ DevToolsAuthoredState DevToolsAuthored_ReadElement(const std::wstring& fileUri, 
             authoredLocation->evidence = coordinates->evidence;
         }
     }
-    std::wstring span = ElementSpan(f.lines, line, column);
+    size_t spanEndLine = 0, spanEndCol = 0;
+    std::wstring span = ElementSpan(f.lines, line, column, &spanEndLine, &spanEndCol);
     if (span.empty()) return DevToolsAuthoredState::Unavailable;
     if (!type.empty()) {
         const size_t end = span.find_first_of(L" \t\r\n/>", 1);
@@ -690,11 +756,15 @@ DevToolsAuthoredState DevToolsAuthored_ReadElement(const std::wstring& fileUri, 
         const bool declared = FindAttribute(span, L"x:Name", &authoredName) || FindAttribute(span, L"Name", &authoredName);
         if (declared ? authoredName != name : !SelfNamedType(type, name)) return DevToolsAuthoredState::Unavailable;
     }
+    const bool selfClosing = span.size() >= 2 && span.compare(span.size() - 2, 2, L"/>") == 0;
     if (out) *out = std::move(span);
     if (authoredLocation) {
         authoredLocation->line = line; authoredLocation->column = column;
         authoredLocation->mapped = coordinates != nullptr;
         authoredLocation->sourceFile = coordinates ? coordinates->source : L"";
+        authoredLocation->bodyRead = selfClosing ||
+            ScanElementBody(f.lines, spanEndLine, spanEndCol, &authoredLocation->bodyProperties,
+                            &authoredLocation->bodyContent);
     }
     return coordinates && coordinates->likely ? DevToolsAuthoredState::Likely : DevToolsAuthoredState::Available;
 }

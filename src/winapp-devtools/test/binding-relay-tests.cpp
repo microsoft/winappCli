@@ -232,6 +232,7 @@ static void Test_NoAgentReasonDoesNotConflateTheTwoCases()
     const std::wstring managed = DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime::Clr);
     Check(managed.find(L"DOTNET_STARTUP_HOOKS") != std::wstring::npos, "the .NET case identifies the startup prerequisite");
     Check(managed.find(L"before app startup") != std::wstring::npos, "the prerequisite must precede startup");
+    Check(managed.find(L"winapp run --devtools on") != std::wstring::npos, "the .NET case names the command that fixes it");
     // Do not recommend a removed watch command.
     Check(managed.find(L"--watch") == std::wstring::npos, "no unavailable watch command is recommended");
 
@@ -518,7 +519,7 @@ static void Test_ConfiguredHostIsAwaitedNotDeclaredAbsent()
     Check(late && answer == L"{\"state\":\"none\"}", "a configured host that starts listening late is waited for");
 
     Check(!relay(answer, elapsed) && answer.find(L"not accepting connections yet") != std::wstring::npos &&
-        answer.find(L"no loaded managed binding host") == std::wstring::npos && elapsed >= 1400,
+        answer.find(L"started without the managed binding host") == std::wstring::npos && elapsed >= 1400,
         "a configured host that never listens is reported as not ready, not as absent");
     SetEnvironmentVariableW(L"DOTNET_STARTUP_HOOKS", nullptr);
     owner.Reset();

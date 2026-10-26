@@ -158,7 +158,8 @@ Live commands return `ok`, `processId` and an `error` object; `attach` and comme
 commands return a string `error`. Check the exit code and `ok`. Elements carry `file`,
 and when confirmed `line`, `endLine` and `column`. `set-property` reports `valueSource`,
 `binding`, `authored`, `chain` (every competing value, `winner` marking the effective
-one) and `replacedBinding`. Password values add `"redacted": true`.
+one) and `replacedBinding`. `valueSource` is `DevTools` for a value you changed live with
+DevTools, until you clear, undo or restore it, or the app sets that property itself. Password values add `"redacted": true`.
 
 ## Use the DevTools protocol
 
