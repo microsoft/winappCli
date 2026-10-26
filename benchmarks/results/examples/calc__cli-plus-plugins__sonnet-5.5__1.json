@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "apps",
+  "release": "v0.7.1",
+  "commit": "3f2a9c1e7b4d5a60918c2e0f6d7b8a1c4e5f9023",
+  "set": "tuning",
+  "scenario": "calc",
+  "arm": "cli-plus-plugins",
+  "model": "claude-sonnet-5.5",
+  "trial": 1,
+  "startedAt": "2026-10-21T09:40:02Z",
+  "harness": {
+    "configName": "winappcli",
+    "judgeModel": "claude-opus-5.5",
+    "modelsUsed": ["claude-sonnet-5.5"]
+  },
+  "status": "completed",
+  "passed": true,
+  "result": {
+    "gates": [
+      { "id": "builds", "label": "App builds", "status": "pass" },
+      { "id": "launches", "label": "App launches and shows a window", "status": "pass" },
+      { "id": "G0", "label": "Right framework (WinUI 3 project)", "status": "pass" }
+    ],
+    "qualityChecks": [
+      { "id": "P2", "label": "App manifest present", "source": "harness", "status": "pass" },
+      { "id": "P3", "label": "Packaged app", "source": "harness", "status": "pass" },
+      { "id": "V2", "label": "Mica/Acrylic backdrop", "source": "harness", "status": "fail" },
+      { "id": "Q0", "label": "Accessible names on interactive controls", "source": "harness", "status": "fail", "detail": "3/21 interactive elements unnamed or type-name labels: Button, Button, Button" },
+      { "id": "Q1", "label": "Keyboard navigation (Tab moves focus through controls)", "source": "harness", "status": "pass" },
+      { "id": "Q4", "label": "No build warnings (C#, XAML, WinUI analyzer, trim/AOT, analyzers)", "source": "harness", "status": "pass" },
+      { "id": "Q5", "label": "Usable empty, loading, and error states", "source": "judge", "status": "na" }
+    ],
+    "requirements": [
+      { "id": 1, "text": "Core arithmetic is correct: digit and decimal entry, chained + − × ÷, =, ± sign toggle, C to clear and ⌫ to delete the last character", "status": "pass", "reason": "12.5 × 2 = 25 and 7 − 10 = −3 verified in the UI" },
+      { "id": 2, "text": "Division by zero shows a message instead of crashing or showing Infinity/NaN", "status": "pass", "reason": "Shows 'Cannot divide by zero'" },
+      { "id": 3, "text": "Keyboard input works: digits, '.', '+', '-', '*', '/', Enter or '=' to evaluate, Backspace to delete, Escape to clear", "status": "fail", "reason": "Escape does not clear the display" },
+      { "id": 4, "text": "A history pane lists each completed calculation as 'expression = result'", "status": "pass", "reason": "History shows '12.5 × 2 = 25'" }
+    ],
+    "designScore": 7
+  },
+  "cost": {
+    "tokens": { "input": 1850000, "output": 41000, "cacheRead": 1620000 },
+    "subAgentTokens": { "input": 120000, "output": 6000, "cacheRead": 95000 },
+    "aiCredits": 21.37,
+    "premiumRequests": 1,
+    "usd": 1.79,
+    "priceTableVersion": "2026-10",
+    "wallClockMs": 1083000
+  }
+}

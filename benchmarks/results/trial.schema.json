@@ -1,0 +1,194 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/microsoft/winappCli/benchmarks/results/trial.schema.json",
+  "title": "winapp benchmark trial",
+  "description": "One file per trial. See benchmarks/results/README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "benchmark", "release", "commit", "set", "scenario", "arm", "model", "trial", "startedAt", "status", "passed", "cost"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "benchmark": { "enum": ["tasks", "apps"] },
+    "release": {
+      "type": ["string", "null"],
+      "pattern": "^v\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$",
+      "description": "Release tag the trial measured, for example v0.7.1. null for a development trial."
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Full SHA of the winapp commit that was measured."
+    },
+    "set": { "enum": ["tuning", "held-out"] },
+    "scenario": { "type": "string", "minLength": 1, "description": "Task id (tasks) or scenario name (apps)." },
+    "arm": { "enum": ["none", "cli-only", "cli-plus-plugins"] },
+    "model": { "type": "string", "minLength": 1, "description": "Model the trial asked for." },
+    "trial": { "type": "integer", "minimum": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where this trial's numbers came from.",
+      "properties": {
+        "configName": { "type": "string", "description": "The harness's own name for the arm, for example 'both' (tasks) or 'published' (apps)." },
+        "copilotVersion": { "type": "string" },
+        "judgeModel": { "type": "string", "description": "apps only: the model that judged requirements and design." },
+        "modelsUsed": { "type": "array", "items": { "type": "string" }, "description": "Models that actually ran. Differs from 'model' when Copilot served another one." }
+      }
+    },
+    "status": {
+      "enum": ["completed", "invalid"],
+      "description": "completed: the harness could judge the trial. invalid: it could not (sandbox failure, checker crash, wrong skills installed); 'passed' is null and the trial is not counted."
+    },
+    "invalidReason": { "type": "string", "minLength": 1 },
+    "passed": { "type": ["boolean", "null"] },
+    "result": {
+      "type": "object",
+      "description": "Per-check results. The shape depends on 'benchmark'."
+    },
+    "skillsUsed": {
+      "type": "array",
+      "description": "Skills the agent invoked. Omit when the harness does not record this.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "at": { "type": "string", "format": "date-time", "description": "When the skill was invoked. Omit when not recorded." }
+        }
+      }
+    },
+    "cost": { "$ref": "#/definitions/cost" },
+    "notes": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "completed" } } },
+      "then": { "required": ["result"], "properties": { "passed": { "type": "boolean" } } },
+      "else": { "required": ["invalidReason"], "properties": { "passed": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "benchmark": { "const": "tasks" }, "status": { "const": "completed" } } },
+      "then": { "properties": { "result": { "$ref": "#/definitions/tasksResult" } } }
+    },
+    {
+      "if": { "properties": { "benchmark": { "const": "apps" }, "status": { "const": "completed" } } },
+      "then": { "properties": { "result": { "$ref": "#/definitions/appsResult" } } }
+    }
+  ],
+  "definitions": {
+    "tokenCount": { "type": "integer", "minimum": 0 },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Every field is optional. Omit a field the harness cannot measure; never write 0 for 'unknown'.",
+      "properties": {
+        "tokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Main agent. 'input' is the full prompt size and includes 'cacheRead'.",
+          "properties": {
+            "input": { "$ref": "#/definitions/tokenCount" },
+            "output": { "$ref": "#/definitions/tokenCount" },
+            "cacheRead": { "$ref": "#/definitions/tokenCount" }
+          }
+        },
+        "subAgentTokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Sub-agents the main agent started, summed. Same meaning as 'tokens'.",
+          "properties": {
+            "input": { "$ref": "#/definitions/tokenCount" },
+            "output": { "$ref": "#/definitions/tokenCount" },
+            "cacheRead": { "$ref": "#/definitions/tokenCount" }
+          }
+        },
+        "aiCredits": { "type": "number", "minimum": 0 },
+        "premiumRequests": { "type": "number", "minimum": 0 },
+        "usd": { "type": "number", "minimum": 0, "description": "Computed from 'priceTableVersion'. Not what GitHub billed." },
+        "priceTableVersion": { "type": "string", "minLength": 1, "description": "Required whenever 'usd' is present." },
+        "wallClockMs": { "type": "integer", "minimum": 0, "description": "Agent session, start to end. Excludes sandbox start-up and checking." }
+      },
+      "dependencies": { "usd": ["priceTableVersion"] }
+    },
+    "tasksResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checks"],
+      "properties": {
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "required", "passed"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "required": { "type": "boolean" },
+              "guard": { "type": "boolean", "description": "A required check that only protects what the fixture already had." },
+              "passed": { "type": "boolean" },
+              "detail": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "appsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gates", "qualityChecks", "requirements", "designScore"],
+      "properties": {
+        "gates": {
+          "type": "array",
+          "minItems": 2,
+          "description": "Script-checked gates: 'builds', 'launches', and any gate check the harness ran (G0, G3). They decide 'passed'.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "status"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "label": { "type": "string" },
+              "status": { "enum": ["pass", "fail", "na"] },
+              "detail": { "type": "string" }
+            }
+          }
+        },
+        "qualityChecks": {
+          "type": "array",
+          "description": "Harness quality checks (source scan, build warnings, accessible names, keyboard) and the judge's Q5. Detail only.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "source", "status"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "label": { "type": "string" },
+              "source": { "enum": ["harness", "judge"] },
+              "status": { "enum": ["pass", "fail", "na"] },
+              "detail": { "type": "string" }
+            }
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "description": "The scenario's requirements as the judge scored them. Detail only.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "text", "status"],
+            "properties": {
+              "id": { "type": "integer", "minimum": 1 },
+              "text": { "type": "string" },
+              "status": { "enum": ["pass", "fail"] },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "designScore": { "type": ["number", "null"], "minimum": 0, "maximum": 10, "description": "The judge's design score. Detail only." }
+      }
+    }
+  }
+}

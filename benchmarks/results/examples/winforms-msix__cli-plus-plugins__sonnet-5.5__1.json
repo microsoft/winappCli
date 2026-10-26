@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "tasks",
+  "release": "v0.7.1",
+  "commit": "3f2a9c1e7b4d5a60918c2e0f6d7b8a1c4e5f9023",
+  "set": "tuning",
+  "scenario": "winforms-msix",
+  "arm": "cli-plus-plugins",
+  "model": "claude-sonnet-5.5",
+  "trial": 1,
+  "startedAt": "2026-10-20T14:03:11Z",
+  "harness": {
+    "configName": "both",
+    "copilotVersion": "1.0.96"
+  },
+  "status": "completed",
+  "passed": true,
+  "result": {
+    "checks": [
+      { "id": "installed-from-msix", "required": true, "passed": true, "detail": "TaskBoard_1.0.0.0_x64__8wekyb3d8bbwe installed from a package archive" },
+      { "id": "msix-built", "required": true, "passed": true, "detail": "C:\\src\\TaskBoard\\bin\\TaskBoard.msix" },
+      { "id": "msix-signed", "required": true, "passed": true, "detail": "status Valid; signer CN=Contoso Dev" },
+      { "id": "msix-trusted", "required": false, "passed": false, "detail": "status UnknownError: the certificate is not in a trusted store" },
+      { "id": "installed", "required": true, "passed": true, "detail": "TaskBoard_1.0.0.0_x64__8wekyb3d8bbwe runs TaskBoard.exe" },
+      { "id": "installed-matches-msix", "required": false, "passed": true, "detail": "identity matches the built .msix" },
+      { "id": "launches", "required": true, "passed": true, "detail": "TaskBoard.exe started from the package" }
+    ]
+  },
+  "skillsUsed": [
+    { "name": "winapp-setup" },
+    { "name": "winapp-package" }
+  ],
+  "cost": {
+    "tokens": { "input": 1412873, "output": 18204, "cacheRead": 1190442 },
+    "aiCredits": 14.2,
+    "premiumRequests": 1,
+    "wallClockMs": 427000
+  }
+}
