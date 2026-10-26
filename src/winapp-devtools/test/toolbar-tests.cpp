@@ -120,6 +120,39 @@ static void TestToolbarContract()
     Check(xaml.find("<ToggleButton x:Name=\"DevToolsProtoPick\"") != std::string::npos &&
                      overlay.find("ProtoSetToggle(L\"DevToolsProtoPick\", L\"DevToolsPickOn\", L\"DevToolsPickOff\", on);") != std::string::npos,
                  "Select element is a toggle whose state UI Automation reads, like Comment mode");
+    const auto themeStart = xaml.find("<ResourceDictionary.ThemeDictionaries>");
+    const auto themeEnd = xaml.find("</ResourceDictionary.ThemeDictionaries>", themeStart);
+    const std::string toggleThemes = themeStart != std::string::npos && themeEnd != std::string::npos
+        ? xaml.substr(themeStart, themeEnd - themeStart) : std::string();
+    for (const char* name : { "Light", "Dark", "HighContrast" })
+        Check(CountOf(toggleThemes, std::string("<ResourceDictionary x:Key=\"") + name + "\">") == 1,
+            "selected toolbar content defines Light, Dark and High Contrast brushes");
+    Check(CountOf(toggleThemes,
+              "<StaticResource x:Key=\"DevToolsToggleBackground\" ResourceKey=\"AccentFillColorDefaultBrush\" />") == 2 &&
+          CountOf(toggleThemes,
+              "<StaticResource x:Key=\"DevToolsToggleForeground\" ResourceKey=\"TextOnAccentFillColorPrimaryBrush\" />") == 2,
+        "Light and Dark retain the existing accent fill and matching icon");
+    const auto hcStart = toggleThemes.find("<ResourceDictionary x:Key=\"HighContrast\">");
+    const auto hcEnd = toggleThemes.find("</ResourceDictionary>", hcStart);
+    const std::string highContrast = hcStart != std::string::npos && hcEnd != std::string::npos
+        ? toggleThemes.substr(hcStart, hcEnd - hcStart) : std::string();
+    Check(highContrast.find(
+              "<SolidColorBrush x:Key=\"DevToolsToggleBackground\" Color=\"{ThemeResource SystemColorHighlightColor}\" />") != std::string::npos &&
+          highContrast.find(
+              "<SolidColorBrush x:Key=\"DevToolsToggleForeground\" Color=\"{ThemeResource SystemColorHighlightTextColor}\" />") != std::string::npos,
+        "High Contrast uses the user's paired system highlight and highlight text colours");
+    for (const char* name : { "DevToolsPickOn", "DevToolsCommentsOn", "DevToolsLayoutOn" }) {
+        const auto start = xaml.find(std::string("<Grid x:Name=\"") + name + "\"");
+        const auto end = xaml.find("</Grid>", start);
+        const std::string selected = start != std::string::npos && end != std::string::npos
+            ? xaml.substr(start, end - start) : std::string();
+        Check(selected.find("HighContrastAdjustment=\"None\"") != std::string::npos &&
+              selected.find("Background=\"{ThemeResource DevToolsToggleBackground}\"") != std::string::npos &&
+              selected.find("Foreground=\"{ThemeResource DevToolsToggleForeground}\"") != std::string::npos,
+            "each selected mode preserves its system-aware background and icon pairing");
+    }
+    Check(CountOf(xaml, "HighContrastAdjustment=\"None\"") == 3,
+        "only the three system-aware selected mode surfaces opt out of automatic contrast adjustment");
     Check(xaml.find("<ToggleButton x:Name=\"DevToolsProtoPin\"") != std::string::npos &&
                      xaml.find("x:Name=\"DevToolsPinOn\"") != std::string::npos &&
                      xaml.find("DevToolsProtoPinDot") == std::string::npos &&
