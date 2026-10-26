@@ -285,7 +285,8 @@ static void ClearOriginatedError()
 // Defined in DevToolsTap.PropertyRead.inc; SetLiteral reads the property it wrote through it.
 static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>* out, std::wstring* outAuthoredState,
                                 std::wstring* outAuthoredXaml, const std::set<std::wstring>* projection,
-                                size_t* retrievedRows);
+                                size_t* retrievedRows,
+                                std::map<std::wstring, std::pair<unsigned int, std::wstring>>* outIndices);
 
 // Set a literal property: CreateInstance from a XAML type-converter literal, then SetProperty. UI thread.
 static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std::wstring& type, const std::wstring& value,
@@ -334,7 +335,7 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
         // Read the property once now, so the edit records the value it wrote before the app can write its own.
         std::vector<DevToolsReadProp> written;
         const std::set<std::wstring> only{ prop };
-        ReadCuratedProps(h, &written, nullptr, nullptr, &only, nullptr);
+        ReadCuratedProps(h, &written, nullptr, nullptr, &only, nullptr, nullptr);
     }
     return hr;
 }
