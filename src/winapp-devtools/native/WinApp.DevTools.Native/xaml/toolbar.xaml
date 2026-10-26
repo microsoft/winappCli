@@ -7,27 +7,44 @@
 
   <Canvas.Resources>
 
-    <!-- Toolbar toggles show their checked state with their own content, not the default checked fill. -->
-    <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
-    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
-    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
-    <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
-    <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
-    <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <StaticResource x:Key="DevToolsToggleBackground" ResourceKey="AccentFillColorDefaultBrush" />
+          <StaticResource x:Key="DevToolsToggleForeground" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <StaticResource x:Key="DevToolsToggleBackground" ResourceKey="AccentFillColorDefaultBrush" />
+          <StaticResource x:Key="DevToolsToggleForeground" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+          <SolidColorBrush x:Key="DevToolsToggleBackground" Color="{ThemeResource SystemColorHighlightColor}" />
+          <SolidColorBrush x:Key="DevToolsToggleForeground" Color="{ThemeResource SystemColorHighlightTextColor}" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
 
-    <!-- FillBehavior="Stop" returns the glow to its local opacity, so the attach pulse does not keep running. -->
-    <Storyboard x:Name="DevToolsAttachPulse">
-      <DoubleAnimation Storyboard.TargetName="DevToolsGlowHalo" Storyboard.TargetProperty="Opacity"
-                       From="0.22" To="0.66" Duration="0:0:0.5" AutoReverse="True" FillBehavior="Stop" />
-    </Storyboard>
+      <!-- Toolbar toggles show their checked state with their own content, not the default checked fill. -->
+      <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+      <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+      <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+      <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
 
-    <!-- One-shot reveal holds the visible end state after the bar docks. -->
-    <Storyboard x:Name="DevToolsBarReveal">
-      <DoubleAnimation Storyboard.TargetName="DevToolsBar" Storyboard.TargetProperty="Opacity"
-                       From="0.0" To="1.0" Duration="0:0:0.18" />
-      <DoubleAnimation Storyboard.TargetName="DevToolsBarShift" Storyboard.TargetProperty="Y"
-                       From="8" To="0" Duration="0:0:0.18" />
-    </Storyboard>
+      <!-- FillBehavior="Stop" returns the glow to its local opacity, so the attach pulse does not keep running. -->
+      <Storyboard x:Name="DevToolsAttachPulse">
+        <DoubleAnimation Storyboard.TargetName="DevToolsGlowHalo" Storyboard.TargetProperty="Opacity"
+                         From="0.22" To="0.66" Duration="0:0:0.5" AutoReverse="True" FillBehavior="Stop" />
+      </Storyboard>
+
+      <!-- One-shot reveal holds the visible end state after the bar docks. -->
+      <Storyboard x:Name="DevToolsBarReveal">
+        <DoubleAnimation Storyboard.TargetName="DevToolsBar" Storyboard.TargetProperty="Opacity"
+                         From="0.0" To="1.0" Duration="0:0:0.18" />
+        <DoubleAnimation Storyboard.TargetName="DevToolsBarShift" Storyboard.TargetProperty="Y"
+                         From="8" To="0" Duration="0:0:0.18" />
+      </Storyboard>
+    </ResourceDictionary>
   </Canvas.Resources>
 
   <!-- NO fixed Width -- it auto-sizes to its label and the code re-anchors it from the selected corner.
@@ -109,10 +126,12 @@
         <Grid Width="30" Height="26">
           <FontIcon x:Name="DevToolsPickOff" FlowDirection="LeftToRight" Glyph="&#xE7C9;"
                     FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
-          <Grid x:Name="DevToolsPickOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsPickOn">
-            <Border Width="30" Height="26" CornerRadius="6" Background="$ACCENT$" />
+          <!-- Keep the system highlight pair intact instead of auto-adjusting the selected icon to window text. -->
+          <Grid x:Name="DevToolsPickOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsPickOn"
+                HighContrastAdjustment="None">
+            <Border Width="30" Height="26" CornerRadius="6" Background="{ThemeResource DevToolsToggleBackground}" />
             <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7C9;" FontSize="15"
-                      Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
         </Grid>
       </ToggleButton>
@@ -126,10 +145,11 @@
         <Grid Width="34" Height="26">
           <FontIcon x:Name="DevToolsCommentsOff" FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15"
                     Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
-          <Grid x:Name="DevToolsCommentsOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsCommentsOn">
-            <Border Width="34" Height="26" CornerRadius="6,0,0,6" Background="$ACCENT$" />
+          <Grid x:Name="DevToolsCommentsOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsCommentsOn"
+                HighContrastAdjustment="None">
+            <Border Width="34" Height="26" CornerRadius="6,0,0,6" Background="{ThemeResource DevToolsToggleBackground}" />
             <FontIcon FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15"
-                      Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
           <Border x:Name="DevToolsCommentBadge" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top"
                   MinWidth="14" Height="14" CornerRadius="7" Padding="4,0" Background="$ACCENT$"
@@ -155,10 +175,11 @@
         <Grid Width="30" Height="26">
           <FontIcon x:Name="DevToolsLayoutOff" FlowDirection="LeftToRight" Glyph="&#xE80A;"
                     FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
-          <Grid x:Name="DevToolsLayoutOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsLayoutOn">
-            <Border Width="30" Height="26" CornerRadius="6" Background="$ACCENT$" />
+          <Grid x:Name="DevToolsLayoutOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsLayoutOn"
+                HighContrastAdjustment="None">
+            <Border Width="30" Height="26" CornerRadius="6" Background="{ThemeResource DevToolsToggleBackground}" />
             <FontIcon FlowDirection="LeftToRight" Glyph="&#xE80A;" FontSize="15"
-                      Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
         </Grid>
       </ToggleButton>

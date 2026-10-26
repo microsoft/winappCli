@@ -395,6 +395,18 @@ int main()
     values[88]=L"";g_propRows={row};
     check(RefreshCommittedValue(row.name) && testValue.text.empty() && testFontStyle==0,
         "real empty String refresh removes prior absence styling");
+    {
+        int layoutReads=0;
+        g_ctx.layoutFn=[&](InstanceHandle,DevToolsWindowLayout&) { ++layoutReads; return true; };
+        g_paneHaveLayout=true;
+        RefreshCommittedValue(row.name);
+        check(layoutReads==0,"editing a property Size & spacing does not show leaves the section alone");
+        row.name=L"Padding";g_propRows={row};
+        RefreshCommittedValue(row.name);
+        check(layoutReads==1,"editing Padding redraws Size & spacing even though the live refresh will see no change");
+        g_ctx.layoutFn=nullptr;g_paneHaveLayout=false;
+        row.name=L"Text";g_propRows={row};
+    }
     g_ctx.rowsFn=[](InstanceHandle,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>&,std::wstring&,std::wstring&) {
         return false;
     };
@@ -552,6 +564,68 @@ int main()
         alignment.value=L"Left";
         check(BuildLayoutSection(stretched,{alignment}).find(L"even though HorizontalAlignment is Left")!=std::wstring::npos,
             "extra width despite a non-default alignment is called out");
+        {
+            // <TextBox Width="320" Margin="18,12"/>: DesiredSize includes the margin, RenderSize does not.
+            DevToolsWindowLayout box{};
+            box.haveDesired=box.haveRender=true;
+            box.desiredW=356;box.desiredH=114;box.renderW=320;box.renderH=90;
+            DevToolsCardRow margin;margin.name=L"Margin";margin.value=L"18,12,18,12";
+            DevToolsCardRow width;width.name=L"Width";width.value=L"320";
+            const auto section=BuildLayoutSection(box,{margin,width});
+            check(section.find(L"LESS width")==std::wstring::npos && section.find(L"clipped")==std::wstring::npos,
+                "a margin is not reported as a constraint");
+            check(section.find(L"with margin")!=std::wstring::npos,
+                "the asked-for size says it includes the margin");
+            // <Border Width="400"/> in a 275 column: DesiredSize is clipped to the slot, RenderSize keeps Width.
+            DevToolsWindowLayout wide{};
+            wide.haveDesired=wide.haveRender=true;
+            wide.desiredW=275;wide.desiredH=20;wide.renderW=400;wide.renderH=20;
+            width.value=L"400";
+            for (const wchar_t* align : {L"Stretch", L"Left"}) {
+                alignment.value=align;
+                const auto clipped=BuildLayoutSection(wide,{width,alignment});
+                check(clipped.find(L"Its Width (400) is larger than the 275 its parent offered, so it is clipped")!=std::wstring::npos &&
+                    clipped.find(L"MORE width")==std::wstring::npos,
+                    "a fixed Width larger than its slot is described as clipped");
+            }
+            wide.desiredW=275+36;
+            check(BuildLayoutSection(wide,{width,margin}).find(L"larger than the 275 its parent offered inside its Margin")!=std::wstring::npos,
+                "the clipped explanation subtracts the margin from the offered space");
+            DevToolsWindowLayout same=box;
+            {
+                // <Border Width="10" Margin="-20,0"/> fits; DesiredSize is floored at zero.
+                DevToolsWindowLayout neg{};
+                neg.haveDesired=neg.haveRender=true;
+                neg.desiredW=0;neg.desiredH=10;neg.renderW=10;neg.renderH=10;
+                DevToolsCardRow negMargin;negMargin.name=L"Margin";negMargin.value=L"-20,0,-20,0";
+                DevToolsCardRow negWidth;negWidth.name=L"Width";negWidth.value=L"10";
+                const auto negSection=BuildLayoutSection(neg,{negMargin,negWidth});
+                check(negSection.find(L"LESS width")==std::wstring::npos && negSection.find(L"clipped")==std::wstring::npos,
+                    "a negative margin is not reported as clipping");
+                // <Border Width="400" Margin="10"/> in a 15 slot: the usable width is zero, not -5.
+                DevToolsWindowLayout tiny{};
+                tiny.haveDesired=tiny.haveRender=true;
+                tiny.desiredW=15;tiny.desiredH=20;tiny.renderW=400;tiny.renderH=20;
+                DevToolsCardRow tenMargin;tenMargin.name=L"Margin";tenMargin.value=L"10,10,10,10";
+                width.value=L"400";
+                const auto tinySection=BuildLayoutSection(tiny,{width,tenMargin});
+                check(tinySection.find(L"larger than the 0 its parent offered inside its Margin")!=std::wstring::npos &&
+                    tinySection.find(L"-5")==std::wstring::npos,
+                    "a margin wider than the slot reports zero offered space, not a negative number");
+            }
+            check(FeedsLayoutSection(L"Margin") && FeedsLayoutSection(L"MaxWidth") &&
+                FeedsLayoutSection(L"HorizontalAlignment") && !FeedsLayoutSection(L"Text"),
+                "changing a property the explanation reads redraws Size & spacing");
+            check(SameLayout(box,same),"an unchanged layout does not rebuild the pane");
+            same.parentW=560;same.haveParentBox=true;
+            check(!SameLayout(box,same),"a changed offered size rebuilds the pane");
+            same=box;same.parentSpacing=L"24";
+            check(!SameLayout(box,same),"a changed parent Spacing redraws Size & spacing");
+            same=box;same.gridColumn=L"1";
+            check(!SameLayout(box,same),"a changed Grid column redraws Size & spacing");
+            check(!g_layoutBody && !ReplaceLayoutSection(same),
+                "with no Size & spacing section on screen, a layout change falls back to rebuilding the pane");
+        }
         DevToolsCardRow text;text.name=L"Text";text.type=L"String";text.value=L"Hi";text.source=L"Local";
         g_layoutSectionOpen=0;
         const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",

@@ -282,6 +282,11 @@ static void ClearOriginatedError()
     if (SUCCEEDED(GetRestrictedErrorInfo(&info)) && info) info->Release();
 }
 
+// Defined in DevToolsTap.PropertyRead.inc; SetLiteral reads the property it wrote through it.
+static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>* out, std::wstring* outAuthoredState,
+                                std::wstring* outAuthoredXaml, const std::set<std::wstring>* projection,
+                                size_t* retrievedRows);
+
 // Set a literal property: CreateInstance from a XAML type-converter literal, then SetProperty. UI thread.
 static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std::wstring& type, const std::wstring& value,
                           std::wstring* error = nullptr)
@@ -326,6 +331,10 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
         const unsigned long long wire = PackWire_nolock(h);
         ReleaseSRWLockShared(&g_censusLock);
         DevToolsBindingRow_NoteLiveWrite(wire, prop);
+        // Read the property once now, so the edit records the value it wrote before the app can write its own.
+        std::vector<DevToolsReadProp> written;
+        const std::set<std::wstring> only{ prop };
+        ReadCuratedProps(h, &written, nullptr, nullptr, &only, nullptr);
     }
     return hr;
 }
@@ -337,7 +346,14 @@ static HRESULT ClearLiteral(InstanceHandle h, const std::wstring& prop)
     unsigned int idx = FindPropIndex(h, prop);
     if (idx == 0xFFFFFFFF) { Log(L"clearprop: '%s' not found on %llu", prop.c_str(), h); return E_INVALIDARG; }
     if (!g_vts3) return E_NOINTERFACE;
-    return WindowElementCurrent_ui(h) ? g_vts3->ClearProperty(h, idx) : E_ACCESSDENIED;
+    if (!WindowElementCurrent_ui(h)) return E_ACCESSDENIED;
+    const HRESULT hr = g_vts3->ClearProperty(h, idx);
+    if (SUCCEEDED(hr) && TryAcquireSRWLockShared(&g_censusLock)) {
+        const unsigned long long wire = PackWire_nolock(h);
+        ReleaseSRWLockShared(&g_censusLock);
+        DevToolsBindingRow_ForgetLiveWrite(wire, prop);
+    }
+    return hr;
 }
 
 // Defined below, next to the write path it was extracted from. Declared here because the `hotreload.clearprop`

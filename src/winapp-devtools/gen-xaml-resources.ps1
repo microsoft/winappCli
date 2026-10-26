@@ -92,6 +92,21 @@ function ConvertTo-CppWideLiteral([string]$content) {
 }
 
 if ($SelfTest) {
+    $prefix = '<TextBlock Text="'
+    $longContent = $prefix + ('a' * (3999 - $prefix.Length)) + [char]::ConvertFromUtf32(0x1F600) +
+        ('b' * 20000) + '" />'
+    $literal = ConvertTo-CppWideLiteral $longContent
+    $chunks = [regex]::Matches($literal, '(?s)LR"' + $delim + '\((.*?)\)' + $delim + '"')
+    if (($chunks | ForEach-Object { $_.Groups[1].Value }) -join '' -cne $longContent) {
+        throw 'Chunked C++ literals did not preserve the original XAML.'
+    }
+    if ($chunks.Count -lt 2 -or @($chunks | Where-Object {
+        $_.Groups[1].Length -gt 4000 -or [char]::IsHighSurrogate($_.Groups[1].Value[-1])
+    }).Count) {
+        throw 'Chunked C++ literals exceeded the size limit or split a surrogate pair.'
+    }
+    Write-Host '    C++ literal self-test passed (large fragment, exact round-trip, surrogate boundary).'
+
     # Cover supported fragment shapes and a mismatched closing-tag negative control.
     $accept = @{
         'two roots, no xmlns of its own (the selection-panel.xaml shape)' =
@@ -155,7 +170,8 @@ foreach ($f in $files) {
     # rewriting $TOKEN$-looking text inside comments and shrinks the embedded literal.
     $content = ([regex]::Replace($content, '(?s)<!--.*?-->', '')).Trim()
     [void]$sb.AppendLine("// ---- $($f.Name) ----")
-    [void]$sb.AppendLine("inline constexpr const wchar_t* $id = $(ConvertTo-CppWideLiteral $content);")
+    [void]$sb.AppendLine("inline constexpr const wchar_t* $id =")
+    [void]$sb.AppendLine((ConvertTo-CppWideLiteral $content) + ';')
 }
 [void]$sb.AppendLine('} // namespace DevToolsXaml')
 

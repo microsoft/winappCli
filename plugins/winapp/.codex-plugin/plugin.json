@@ -1,0 +1,44 @@
+{
+  "name": "winappcli",
+  "version": "0.7.2",
+  "description": "Windows app development, packaging, and distribution. Helps with creating Windows installers (MSIX), code signing, certificates, Windows SDK and Windows App SDK setup, package identity for Windows APIs (push notifications, background tasks, share target), appxmanifest authoring, and Microsoft Store distribution. Supports Electron, .NET, C++, Rust, Flutter, and Tauri apps.",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://github.com/microsoft/WinAppCli"
+  },
+  "homepage": "https://github.com/microsoft/WinAppCli",
+  "repository": "https://github.com/microsoft/WinAppCli",
+  "license": "MIT",
+  "keywords": [
+    "windows",
+    "msix",
+    "packaging",
+    "installer",
+    "package identity",
+    "code signing",
+    "windows app sdk",
+    "microsoft store",
+    "electron",
+    "dotnet",
+    "cpp",
+    "rust",
+    "flutter",
+    "tauri"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "WinApp CLI",
+    "shortDescription": "Package, sign, and add Windows features to your app with the winapp CLI.",
+    "longDescription": "Skills for the winapp CLI: set up the Windows SDK and Windows App SDK, add package identity, build and sign MSIX packages, author appxmanifest files, and prepare apps for the Microsoft Store. Works with Electron, .NET, C++, Rust, Flutter, and Tauri apps.",
+    "developerName": "Microsoft",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/microsoft/WinAppCli",
+    "defaultPrompt": [
+      "Add package identity to this app with winapp.",
+      "Package this app as a signed MSIX.",
+      "Set up the Windows SDK and Windows App SDK for this project."
+    ],
+    "brandColor": "#1f7fd6"
+  }
+}
