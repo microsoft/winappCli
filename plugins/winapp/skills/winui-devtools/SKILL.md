@@ -157,7 +157,8 @@ app's content. The subtree must belong to `--window` when both are supplied.
 Never reuse a closed window or stale root, and do not substitute UIA slugs.
 Use `search --of-type TextBlock --with 'FontSize>=20' --fields 'Text,FontSize'`
 for multi-element reads; repeat `--with` for AND. A definite typed mismatch excludes
-an element even if another predicate value is unknown; without a mismatch, unknown
+an element even if another predicate value is unknown; a local null value does not
+match `==` or `*=` with a non-empty value. Without a mismatch, unknown
 values still block exact targeting. Check completeness and unevaluated candidates
 before acting. Query-targeted `get-property` and
 `set-property --value` require exactly one provable match; omit the positional

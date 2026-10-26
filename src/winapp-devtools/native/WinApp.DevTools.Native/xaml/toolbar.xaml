@@ -30,20 +30,27 @@
     </Storyboard>
   </Canvas.Resources>
 
-  <!-- NO fixed Width -- it auto-sizes to its label and the code re-anchors it from the selected corner. -->
-  <Border x:Name="DevToolsChip" Canvas.Left="$CHIPX$" Canvas.Top="$CHIPY$" Canvas.ZIndex="1000" Height="$CHIPH$"
-          RequestedTheme="$TOOLBARTHEME$"
-          Background="$SURFACE$" CornerRadius="14" BorderBrush="$RIM$" BorderThickness="1"
-          BackgroundSizing="InnerBorderEdge"
-          IsTabStop="True" UseSystemFocusVisuals="True"
+  <!-- NO fixed Width -- it auto-sizes to its label and the code re-anchors it from the selected corner.
+       A Button, so UI Automation can invoke it; the template keeps the pill's own look. -->
+  <Button x:Name="DevToolsChip" Style="{x:Null}" AllowFocusOnInteraction="False" Canvas.Left="$CHIPX$" Canvas.Top="$CHIPY$" Canvas.ZIndex="1000" Height="$CHIPH$"
+          RequestedTheme="$TOOLBARTHEME$" CornerRadius="14" Padding="0"
+          UseSystemFocusVisuals="True"
           AutomationProperties.AutomationId="DevToolsProtoRailL"
           AutomationProperties.Name="DevTools (open toolbar)"
           AutomationProperties.AcceleratorKey="Ctrl+Shift+F12">
-    <Border.Transitions>
+    <Button.Template>
+      <ControlTemplate TargetType="Button">
+        <Border Background="$SURFACE$" CornerRadius="14" BorderBrush="$RIM$" BorderThickness="1"
+                BackgroundSizing="InnerBorderEdge">
+          <ContentPresenter />
+        </Border>
+      </ControlTemplate>
+    </Button.Template>
+    <Button.Transitions>
       <TransitionCollection>
         <EntranceThemeTransition FromVerticalOffset="6" />
       </TransitionCollection>
-    </Border.Transitions>
+    </Button.Transitions>
     <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" Margin="12,0,13,0">
 
       <!-- The container MUST be >= the halo: a 16px halo in a 10px Grid was clipped to the Grid's bounds and
@@ -65,7 +72,7 @@
                  VerticalAlignment="Center" Foreground="$TEXT$"
                  AutomationProperties.AutomationId="DevToolsChipLabel" />
     </StackPanel>
-  </Border>
+  </Button>
 
   <!-- Hidden controls must not enlarge the Popup's bounds. -->
   <Border x:Name="DevToolsBar" Visibility="Collapsed" Canvas.ZIndex="1001" Width="$BARW$" Height="$BARH$"

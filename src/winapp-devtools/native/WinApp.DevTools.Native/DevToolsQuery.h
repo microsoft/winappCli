@@ -106,6 +106,10 @@ inline Evaluation Compare(const DevToolsReadProp* row, const Predicate& predicat
 {
     const auto unknown = [](const wchar_t* reason) { return Evaluation{Verdict::Unevaluated, reason}; };
     if (!row) return unknown(L"property-not-exposed");
+    // A locally null value holds no text, so it cannot equal or contain a non-empty literal.
+    // A null from a binding may still be loading, and null vs "" is indistinguishable, so those stay unknown.
+    if (row->valueState == L"null" && row->source != L"Binding" && !predicate.literal.empty() &&
+        (predicate.op == L"==" || predicate.op == L"*=")) return {Verdict::NoMatch, L""};
     if (!row->valueState.empty() && row->valueState != L"binding") return {Verdict::Unevaluated, row->valueState};
     const auto type = ShortType(row->type);
     const bool equality = predicate.op == L"==" || predicate.op == L"!=";

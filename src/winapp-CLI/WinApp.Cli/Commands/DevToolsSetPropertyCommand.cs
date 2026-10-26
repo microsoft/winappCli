@@ -346,15 +346,23 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                 "Decimal" => decimal.TryParse(actual, NumberStyles.Float, CultureInfo.InvariantCulture, out var a) &&
                     decimal.TryParse(requested, NumberStyles.Float, CultureInfo.InvariantCulture, out var b) && a == b,
                 "Boolean" => bool.TryParse(actual, out var a) && bool.TryParse(requested, out var b) && a == b,
-                "SolidColorBrush" => NormalizeHexColor(actual) is string color && color == NormalizeHexColor(requested),
+                "SolidColorBrush" => NormalizeColor(actual) is string color && color == NormalizeColor(requested),
                 _ => false,
             };
         }
 
-        private static string? NormalizeHexColor(string value)
+        private static string? NormalizeColor(string value)
         {
             var text = value.Trim(' ', '\t');
-            if (text.Length is not (4 or 5 or 7 or 9) || text[0] != '#' ||
+            if (!text.StartsWith('#'))
+            {
+                var color = System.Drawing.Color.FromName(text);
+                // System palette names such as Control are not XAML named colors.
+                return color.IsKnownColor && !color.IsSystemColor
+                    ? color.ToArgb().ToString("X8", CultureInfo.InvariantCulture)
+                    : null;
+            }
+            if (text.Length is not (4 or 5 or 7 or 9) ||
                 text.Skip(1).Any(c => !char.IsAsciiHexDigit(c)))
             {
                 return null;

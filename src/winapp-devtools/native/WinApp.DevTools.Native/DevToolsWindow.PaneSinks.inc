@@ -344,6 +344,28 @@ struct SplitterSink : DevToolsSinkBase
     }
 };
 
+// Left and Right move the focused splitter; Shift moves it further.
+struct SplitterKeySink : DevToolsSinkBase
+{
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
+    {
+        if (gen != g_route1Gen || !args || !g_splitPaneFe) return S_OK;
+        int key = 0;
+        if (FAILED(DevToolsGetKey(args, &key)) || (key != VK_LEFT && key != VK_RIGHT)) return S_OK;
+        if (g_splitTarget <= 0.0) {
+            double cur = 0.0;
+            if (FAILED(DevToolsGetActualWidth(g_splitPaneFe, &cur)) || cur <= 0.0) return S_OK;
+            g_splitTarget = cur;
+        }
+        const double step = (GetKeyState(VK_SHIFT) & 0x8000) ? 64.0 : 16.0;
+        g_splitTarget += key == VK_LEFT ? -step : step;
+        ClampInspectorSplit();
+        DevToolsPutHandled(args, true);
+        return S_OK;
+    }
+    void Init() { InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
+};
+
 // Switch Set/Computed view and rebuild from Click. WinUI retains the sender; the sink's
 // generation guard makes stale callbacks inert.
 // Segment clicks set the target view rather than flip state, so re-clicking the active half is stable.

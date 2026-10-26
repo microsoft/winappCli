@@ -277,6 +277,12 @@ if (g_route1WindowHidden) {
             if (!g_focusNoticeUi || !g_focusNoticeTb)
                 DevToolsOverlayLog(L"route1.wire MISS: focus notice host=%p text=%p -- focus redirects will move "
                               L"the tree with no explanation", g_focusNoticeUi, g_focusNoticeTb);
+            grabUi(L"TreeNoMatches", &g_treeNoMatchUi);
+            if (g_treeNoMatchTb) { reinterpret_cast<IUnknown*>(g_treeNoMatchTb)->Release(); g_treeNoMatchTb = nullptr; }
+            if (IInspectable* nm = findByName(L"TreeNoMatches")) {
+                nm->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_treeNoMatchTb);
+                nm->Release();
+            }
             grabUi(L"CommentsBadge", &g_commentsBadgeUi);
             if (g_commentsLbl) { reinterpret_cast<IUnknown*>(g_commentsLbl)->Release(); g_commentsLbl = nullptr; }
             if (IInspectable* lbl = findByName(L"CommentsLbl")) {
@@ -418,6 +424,14 @@ if (g_route1WindowHidden) {
                     // A failed subscription here is a splitter that looks draggable and is not -- the exact
                     // subscribed-but-never-invoked shape this file keeps having to detect, so say it.
                     if (FAILED(hrS)) DevToolsOverlayLog(L"route1.splitter add_DragDelta FAILED hr=0x%08X -- the divider will not resize", hrS);
+                    void* splitUi = nullptr;
+                    if (SUCCEEDED(splitInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &splitUi)) && splitUi) {
+                        auto* splitKeys = new SplitterKeySink(); splitKeys->Init();
+                        __int64 ktok = 0;
+                        const HRESULT hrK = DevToolsAddPreviewKeyDown(splitUi, splitKeys, &ktok);
+                        if (FAILED(hrK)) DevToolsOverlayLog(L"route1.splitter keyboard subscription FAILED hr=0x%08X", hrK);
+                        reinterpret_cast<IUnknown*>(splitUi)->Release();
+                    }
                     reinterpret_cast<IUnknown*>(thumb)->Release();
                 } else {
                     DevToolsOverlayLog(L"route1.splitter MISS: PaneSplitter is not a Thumb, or TreePane has no IFrameworkElement -- the divider will not resize");

@@ -176,6 +176,49 @@ static bool QuerySnapshotCurrent(const CensusSnapshot& cs)
     return true;
 }
 
+// Runtime type -> property name -> {chain index, declared type}, learned from full reads within one query.
+using QueryKnownProperties = std::map<std::wstring, std::map<std::wstring, std::pair<unsigned int, std::wstring>>>;
+
+// Reads one property as a plain string without the whole property chain. Returns false for anything else
+// (null, failure, another type), so the full read still decides. Null falls back too: only the chain can tell
+// a local null (a mismatch) from a binding that hasn't produced a value yet (unknown).
+static bool QueryQuickString_ui(InstanceHandle raw, const std::wstring& name,
+    const std::pair<unsigned int, std::wstring>& known, std::wstring* value)
+{
+    if (name == L"Text" && g_diag) {
+        winrt::com_ptr<IInspectable> element;
+        HRESULT hr = g_diag->GetIInspectableFromHandle(raw, element.put());
+        if (SUCCEEDED(hr)) hr = ReadControlText(element.get(), value);
+        if (hr != S_FALSE) return hr == S_OK;
+    }
+    if (DevToolsQuery::ShortType(known.second) != L"String" || DevToolsRead_IsSecretProperty(name)) return false;
+    PropertyChainValue row{};
+    row.Index = known.first;
+    std::wstring type;
+    return ReadEvaluatedValue(raw, row, name, known.second, value, &type) && DevToolsQuery::ShortType(type) == L"String";
+}
+
+// True when a quick read already proves one predicate false, so the element cannot match and needs no chain read.
+static bool QueryQuickExcluded_ui(InstanceHandle raw, const std::wstring& type,
+    const std::vector<DevToolsQuery::Predicate>& predicates, const QueryKnownProperties& known)
+{
+    const auto learned = known.find(type);
+    if (learned == known.end()) return false;
+    for (const auto& predicate : predicates) {
+        const auto index = learned->second.find(predicate.property);
+        if (index == learned->second.end()) continue;
+        DevToolsReadProp prop;
+        prop.name = predicate.property;
+        prop.type = L"Windows.Foundation.String";
+        if (QueryQuickString_ui(raw, predicate.property, index->second, &prop.value) &&
+            DevToolsQuery::Compare(&prop, predicate).verdict == DevToolsQuery::Verdict::NoMatch) return true;
+    }
+    return false;
+}
+
+// Each UI-thread pass (find, then recheck before a write) gets this long, well under the 10 s dispatch timeout.
+static constexpr auto kQueryBudget = std::chrono::milliseconds(500);
+
 static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
 {
     const auto started = std::chrono::steady_clock::now();
@@ -242,6 +285,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
     const auto normalizedText = DevToolsTreeLayout::NormalizeTreeFilterQuery(request.text);
     size_t evaluated = 0, unevaluated = 0, propertyReads = 0, propertyRows = 0, valueUnits = 0;
     std::map<std::wstring, size_t> reasons;
+    QueryKnownProperties known;
     std::vector<TapQueryRow> matches, context;
     std::vector<TapQueryDiagnostic> diagnostics;
     size_t diagnosticsOmitted = 0;
@@ -261,7 +305,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         context.push_back({raw, node, {}, {}});
         if (!failure.empty() || (authoredFilter && !authored.authored.count(raw)) ||
             (!exactType.empty() && node.type != exactType)) continue;
-        if (std::chrono::steady_clock::now() - started > std::chrono::milliseconds(500)) {
+        if (std::chrono::steady_clock::now() - started > kQueryBudget) {
             markTruncated(L"time-budget"); continue;
         }
         if (!request.text.empty()) {
@@ -271,20 +315,25 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
                 Route1ReadPreview(node.handle, caption, &text);
                 matchesText = !text.empty() && DevToolsTreeLayout::TreeFilterMatches(L"", L"", text, normalizedText);
             }
-            if (std::chrono::steady_clock::now() - started > std::chrono::milliseconds(500)) {
+            if (std::chrono::steady_clock::now() - started > kQueryBudget) {
                 markTruncated(L"time-budget"); break;
             }
             if (!matchesText) { ++evaluated; continue; }
         }
+        if (!request.predicates.empty() && QueryQuickExcluded_ui(raw, node.type, request.predicates, known)) {
+            ++evaluated; continue;
+        }
         TapQueryRow row{raw, node, {}, {}};
         if (!projection.empty()) {
             ++propertyReads;
+            std::map<std::wstring, std::pair<unsigned int, std::wstring>> indices;
             const HRESULT hr = ReadCuratedProps(raw, &row.properties, nullptr, nullptr,
-                projection.empty() ? nullptr : &projection, &propertyRows);
+                projection.empty() ? nullptr : &projection, &propertyRows, &indices);
             if (FAILED(hr)) row.readError = HrStr(hr);
+            else known[node.type].insert(indices.begin(), indices.end());
         }
         for (const auto& property : row.properties) valueUnits += property.value.size();
-        if (valueUnits > 4 * 1024 * 1024 || std::chrono::steady_clock::now() - started > std::chrono::milliseconds(500)) {
+        if (valueUnits > 4 * 1024 * 1024 || std::chrono::steady_clock::now() - started > kQueryBudget) {
             markTruncated(valueUnits > 4 * 1024 * 1024 ? L"value-budget" : L"time-budget"); break;
         }
         auto verdict = DevToolsQuery::Match(row.properties, request.predicates);
@@ -337,6 +386,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         if (failure.empty()) exactProperties = DevToolsRead_SerializeProps(matches.front().node.handle, matches.front().properties, authoredState);
     }
     std::wstring before, after, status = request.write ? L"not-applied" : L"read";
+    bool writeTimedOut = false;
     if (request.write && failure.empty()) {
         auto& match = matches.front();
         const auto* selected = QueryProperty(match, request.property);
@@ -345,14 +395,19 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         else {
             std::vector<DevToolsReadProp> current;
             size_t currentMatches = 0;
+            const auto recheckStarted = std::chrono::steady_clock::now();
             for (const auto& candidate : context) {
                 if (!exactType.empty() && candidate.node.type != exactType) continue;
-                if (std::chrono::steady_clock::now() - started > std::chrono::milliseconds(500)) {
-                    failure = L"incomplete"; break;
+                if (std::chrono::steady_clock::now() - recheckStarted > kQueryBudget) {
+                    failure = L"incomplete"; writeTimedOut = true; break;
                 }
+                if (candidate.raw != match.raw &&
+                    QueryQuickExcluded_ui(candidate.raw, candidate.node.type, request.predicates, known)) continue;
                 std::vector<DevToolsReadProp> observed;
+                std::map<std::wstring, std::pair<unsigned int, std::wstring>> indices;
                 ++propertyReads;
-                const HRESULT read = ReadCuratedProps(candidate.raw, &observed, nullptr, nullptr, &projection, &propertyRows);
+                const HRESULT read = ReadCuratedProps(candidate.raw, &observed, nullptr, nullptr, &projection, &propertyRows, &indices);
+                if (SUCCEEDED(read)) known[candidate.node.type].insert(indices.begin(), indices.end());
                 const auto verdict = DevToolsQuery::Match(observed, request.predicates);
                 if (FAILED(read) || verdict.verdict == DevToolsQuery::Verdict::Unevaluated) {
                     recordDiagnostic({candidate.raw, candidate.node, std::move(observed), FAILED(read) ? HrStr(read) : L""},
@@ -369,8 +424,9 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
             const auto* currentProperty = QueryProperty(currentRow, request.property);
             if (currentMatches != 1 || !QuerySnapshotCurrent(cs) || !currentProperty || currentProperty->writeType.empty())
                 failure = L"target-changed";
-            if (std::chrono::steady_clock::now() - started > std::chrono::milliseconds(500))
-                failure = L"incomplete";
+            if (std::chrono::steady_clock::now() - recheckStarted > kQueryBudget) {
+                failure = L"incomplete"; writeTimedOut = true;
+            }
             if (failure.empty()) {
                 before = QueryValueJson(currentProperty, request.property, L"");
                 const auto type = request.writeType.empty() ? currentProperty->writeType : request.writeType;
@@ -400,7 +456,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         }
     }
     if (failure == L"incomplete" || failure == L"target-changed") complete = false;
-    if (failure == L"incomplete" && request.write) markTruncated(L"time-budget");
+    if (writeTimedOut) markTruncated(L"time-budget");
     std::vector<std::wstring> fields = request.fields;
     if (request.exact && !request.write) {
         if (!request.property.empty()) fields = {request.property};

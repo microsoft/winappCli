@@ -78,6 +78,24 @@ static void TestToolbarContract()
                      overlay.find("DevToolsUiEvent::GotFocus, g_protoSink[13], &OnToolbarGotFocus") != std::string::npos &&
                      overlay.find("DevToolsUiEvent::LostFocus, g_protoSink[14], &OnToolbarLostFocus") != std::string::npos,
                  "keyboard focus opens actions and keeps the toolbar visible");
+    Check(xaml.find("<Button x:Name=\"DevToolsChip\" Style=\"{x:Null}\" AllowFocusOnInteraction=\"False\"") != std::string::npos &&
+                     overlay.find("wireNamedClick(L\"DevToolsChip\", g_protoSink[23], &OnPillInvoked)") != std::string::npos &&
+                     overlay.find("AddHandler(DevToolsX::UIElement::PointerPressedEvent()") != std::string::npos,
+                 "the collapsed pill is a Button UI Automation can invoke, and pressing it starts a drag");
+    Check(overlay.find("SetWindowsHookExW(WH_GETMESSAGE, &PickShortcutHookProc") != std::string::npos &&
+                     overlay.find("InstallPickShortcutHook();") != std::string::npos &&
+                     window.find("if (key == 'P')") != std::string::npos &&
+                     window.find("ToggleWindowPick();") != std::string::npos,
+                 "Ctrl+Shift+P toggles pick mode from the app, including open flyouts, and from the inspector");
+    const size_t splitterAt = windowShell.find("<Thumb x:Name=\"PaneSplitter\"");
+    Check(splitterAt != std::string::npos &&
+                     windowShell.find("IsTabStop=\"True\"", splitterAt) < windowShell.find("/>", splitterAt) &&
+                     window.find("DevToolsAddPreviewKeyDown(splitUi, splitKeys, &ktok)") != std::string::npos &&
+                     window.find("DevToolsAddPreviewKeyDown(thumb,") == std::string::npos,
+                 "the pane splitter is a tab stop that the arrow keys move");
+    Check(windowShell.find("<TextBlock x:Name=\"TreeNoMatches\" Visibility=\"Collapsed\"") != std::string::npos &&
+                     window.find("SetTreeNoMatches(queryRaw, shown == 0);") != std::string::npos,
+                 "a tree filter with no matches says so instead of showing an empty pane");
     const auto readStart = windowShell.find("<ContentControl x:Name=\"TmplExpRead\">");
     const auto readEnd = windowShell.find("</ContentControl>", readStart);
     const std::string readExpansion = readStart != std::string::npos && readEnd != std::string::npos
@@ -479,7 +497,7 @@ static void TestToolbarContract()
     Check(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
                      window.find("DevToolsOverlay_AddComment(element, value, saved->id") != std::string::npos,
                  "the inspector's Comment action saves through the in-app comment writer");
-    Check(overlay.find("static EventSink g_protoSink[23];") != std::string::npos,
+    Check(overlay.find("static EventSink g_protoSink[24];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);") != std::string::npos,
                  "Pick is wired by namescope identity, and gives focus back to the app after a command run through UI Automation");

@@ -25,6 +25,7 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
     g_pickDiag = diag; g_pickRoot = rootHandle; g_pickSeed = seed; g_pickIsOverlay = isOverlay;
     if (!DevToolsSurface_Resolve(diag, appPanel, &g_toolbarSurface)) return E_PENDING;
     g_overlayUiThreadId = GetCurrentThreadId();
+    InstallPickShortcutHook();
     if (g_appPanel) g_appPanel->Release();
     g_appPanel = themePanel.detach();
 
