@@ -395,7 +395,9 @@ static std::wstring BuildBoxModel(const DevToolsWindowLayout& L, const std::vect
     out += L"</StackPanel>";
 
     more = DetailGroup(L"THIS ELEMENT", dim);
-    if (L.haveDesired) more += DetailRow(L"asked for", BoxSizeText(L.desiredW, L.desiredH), ink, dim);
+    if (L.haveDesired)
+        more += DetailRow(L"asked for", BoxSizeText(L.desiredW, L.desiredH) +
+                          (margin.present && !margin.Zero() ? std::wstring(L" with margin") : std::wstring()), ink, dim);
     if (L.haveRender)  more += DetailRow(L"arranged",  sBorder, ink, dim);
     if (L.haveOffset)  more += DetailRow(L"placed at", LayoutNumW(L.offsetX) + L", " + LayoutNumW(L.offsetY), ink, dim);
     if (L.haveActual && L.haveRender &&
@@ -543,23 +545,34 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
     };
     std::wstring why;
     if (haveBoth) {
-        const double dw = L.desiredW, rw = L.renderW;
-        double maxW = 0, minW = 0;
+        // DesiredSize includes Margin and never exceeds the slot the parent offered; RenderSize excludes Margin
+        // and keeps an explicit Width even when that overflows the slot. Compare like with like.
+        const DevToolsRing margin = RingFromRows(rows, L"Margin");
+        const double mw = margin.present ? margin.l + margin.r : 0;
+        // DesiredSize is floored at zero, so negative margins or a margin wider than the slot must be clamped too.
+        const double dw = L.desiredW, rw = L.renderW, took = (std::max)(0.0, rw + mw);
+        const double inside = (std::max)(0.0, dw - mw);
+        double maxW = 0, minW = 0, fixedW = 0;
         const bool hasMax = asNumber(rowValue(L"MaxWidth"), maxW);
         const bool hasMin = asNumber(rowValue(L"MinWidth"), minW);
-        if (hasMax && fabs((double)rw - maxW) < 0.5)
+        const bool hasWidth = asNumber(rowValue(L"Width"), fixedW);
+        if (hasMax && fabs(rw - maxW) < 0.5)
             why = L"Its width is sitting exactly on MaxWidth (" + LayoutNumW(maxW) +
                   L"). That clamp is what decided this size, not the content and not the parent.";
-        else if (hasMin && fabs((double)rw - minW) < 0.5 && minW > dw + 0.5)
+        else if (hasWidth && fabs(rw - fixedW) < 0.5 && took > dw + 0.5)
+            why = L"Its Width (" + LayoutNumW(fixedW) + L") is larger than the " + LayoutNumW(inside) +
+                  L" its parent offered" + (mw > 0.5 ? std::wstring(L" inside its Margin") : std::wstring()) +
+                  L", so it is clipped. Lower Width, or give the parent more room.";
+        else if (hasMin && fabs(rw - minW) < 0.5 && minW > inside + 0.5)
             why = L"Its width is being held up by MinWidth (" + LayoutNumW(minW) +
-                  L"), which is larger than the " + LayoutNumW(dw) + L" the content asked for.";
-        else if (rw > dw + 0.5 && !rowValue(L"HorizontalAlignment").empty() && rowValue(L"HorizontalAlignment") != L"Stretch")
+                  L"), which is larger than the " + LayoutNumW(inside) + L" the content asked for.";
+        else if (took > dw + 0.5 && !rowValue(L"HorizontalAlignment").empty() && rowValue(L"HorizontalAlignment") != L"Stretch")
             why = L"It got MORE width than it asked for even though HorizontalAlignment is " +
                   rowValue(L"HorizontalAlignment") + L". Check the parent's layout.";
-        else if (rw < dw - 0.5)
-            why = L"It got LESS width than it asked for. It is being constrained. Check MaxWidth on this "
-                  L"element and the space the parent had to give.";
-        else if ((double)rw <= 0.5 && (double)L.renderH <= 0.5)
+        else if (took < dw - 0.5)
+            why = L"It got LESS width than it asked for, so part of it may be clipped. Check the space the "
+                  L"parent had to give.";
+        else if (rw <= 0.5 && (double)L.renderH <= 0.5)
             why = L"It has no size. Check Visibility, an empty parent, or a zero-width constraint.";
     }
     if (!why.empty()) {
