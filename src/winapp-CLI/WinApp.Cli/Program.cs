@@ -406,12 +406,12 @@ internal static class Program
             }
 
             if (parsedArgs.Action is System.CommandLine.Invocation.ParseErrorAction parseError
-                && IsUiDescendant(parsedArgs)
-                && parsedArgs.CommandResult.Command is not UiCommand)
+                && (IsUiDescendant(parsedArgs) && parsedArgs.CommandResult.Command is not UiCommand
+                    || !effectiveJson && IsDescendantOf(parsedArgs, "devtools") && parsedArgs.CommandResult.Command.Subcommands.Count == 0))
             {
-                // The error names the mistake; the full ui command help after it would bury that
-                // error, so point at --help instead. A bare "winapp ui" keeps its help: that is
-                // how people discover the commands.
+                // The error names the mistake; the full command help after it would bury that
+                // error, so point at --help instead. A bare "winapp ui" or command group keeps its
+                // help: that is how people discover the commands.
                 parseError.ShowHelp = false;
                 return InvokeWithHelpPointerAsync(parsedArgs);
             }
@@ -445,12 +445,13 @@ internal static class Program
     private static async Task<int> InvokeWithHelpPointerAsync(System.CommandLine.ParseResult parsedArgs)
     {
         var exitCode = await parsedArgs.InvokeAsync();
-        var path = string.Join(" ", parsedArgs.CommandResult.Command.Parents
-            .OfType<System.CommandLine.Command>()
-            .Where(c => c is not System.CommandLine.RootCommand)
-            .Select(c => c.Name)
-            .Prepend(parsedArgs.CommandResult.Command.Name)
-            .Reverse());
+        var names = new List<string>();
+        for (var command = parsedArgs.CommandResult.Command; command is not null and not System.CommandLine.RootCommand;
+            command = command.Parents.OfType<System.CommandLine.Command>().FirstOrDefault())
+        {
+            names.Insert(0, command.Name);
+        }
+        var path = string.Join(" ", names);
         parsedArgs.InvocationConfiguration.Error.WriteLine($"Run 'winapp {path} --help' for usage.");
         return exitCode;
     }
