@@ -141,11 +141,28 @@ public class LearnSearchClientTests
     }
 
     [TestMethod]
+    [DataRow("https://raw.githubusercontent.com/Azure/example/main/doc.md")]
+    [DataRow("http://learn.microsoft.com/doc")]
+    [DataRow("not a URL")]
+    public async Task SearchAsync_KeepsLearnDocsWhenOtherResultsHaveUnsupportedUrls(string url)
+    {
+        var payload = new JsonObject
+        {
+            ["results"] = new JsonArray(
+                new JsonObject { ["title"] = "Other source", ["contentUrl"] = url },
+                new JsonObject { ["title"] = "Learn guide", ["contentUrl"] = "https://learn.microsoft.com/windows/apps/example" })
+        };
+        using var handler = new LearnHandler { Payload = payload.ToJsonString() };
+        using var http = new HttpClient(handler);
+        var results = await new LearnSearchClient(http).SearchAsync("query");
+        Assert.HasCount(1, results);
+        Assert.AreEqual("Learn guide", results[0].Title);
+    }
+
+    [TestMethod]
     [DataRow("{}")]
     [DataRow("""{"results":null}""")]
     [DataRow("""{"results":[{}]}""")]
-    [DataRow("""{"results":[{"title":"Title","contentUrl":"https://example.com/doc"}]}""")]
-    [DataRow("""{"results":[{"title":"Title","contentUrl":"http://learn.microsoft.com/doc"}]}""")]
     [DataRow("""{"results":[{"title":"Title","contentUrl":"https://learn.microsoft.com/doc","content":42}]}""")]
     public async Task SearchAsync_RejectsUnexpectedResultShape(string payload)
     {

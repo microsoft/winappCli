@@ -340,7 +340,7 @@ internal sealed class LearnSearchClient(HttpClient httpClient, ILogger<LearnSear
                 || uri.Scheme != Uri.UriSchemeHttps
                 || !string.Equals(uri.Host, "learn.microsoft.com", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidDataException("Microsoft Learn returned a documentation URL outside https://learn.microsoft.com.");
+                continue;
             }
             var content = "";
             if (result.TryGetProperty("content", out var excerpt) && excerpt.ValueKind != JsonValueKind.Null)
