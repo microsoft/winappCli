@@ -236,6 +236,18 @@ public class UiHelpTests : BaseCommandTests
 
     [TestMethod]
     [DoNotParallelize]
+    public async Task DevToolsMissingRequiredOption_PointsToHelpInsteadOfPrintingIt()
+    {
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(["devtools", "comments", "add", "-a", "1"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(stderr, "'--text'");
+        StringAssert.Contains(stderr, "Run 'winapp devtools comments add --help' for usage.");
+        Assert.DoesNotContain("Usage:", stdout + stderr);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
     public async Task BareUiGroup_StillShowsItsHelp()
     {
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(["ui"]);

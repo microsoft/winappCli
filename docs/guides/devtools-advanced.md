@@ -97,9 +97,13 @@ and says so. A search with no match exits nonzero.
 
 `get-property` and `set-property` with `--of-type`/`--with` instead of a selector need
 exactly one provable match. Zero, several, unreadable or truncated matches refuse the
-operation and list each candidate's predicate results. A query write rechecks its
-target in the app before writing. If it times out, the outcome is indeterminate: read
-the property to check, and don't retry automatically.
+operation and list each candidate's predicate results. To get past a refusal, narrow the
+query with `--root`, `--window`, or another `--with` that rules out the listed
+candidates, then run it again. A value set to nothing (null) doesn't equal or contain a
+non-empty value, so `--with 'AutomationProperties.AutomationId==Save'` skips Buttons
+with no AutomationId. A null that comes from a binding still counts as unknown. A query
+write rechecks its target in the app before writing. If it times out, the outcome is
+indeterminate: read the property to check, and don't retry automatically.
 
 ## Source locations
 
@@ -154,7 +158,8 @@ Live commands return `ok`, `processId` and an `error` object; `attach` and comme
 commands return a string `error`. Check the exit code and `ok`. Elements carry `file`,
 and when confirmed `line`, `endLine` and `column`. `set-property` reports `valueSource`,
 `binding`, `authored`, `chain` (every competing value, `winner` marking the effective
-one) and `replacedBinding`. Password values add `"redacted": true`.
+one) and `replacedBinding`. `valueSource` is `DevTools` for a value you changed live with
+DevTools, until you clear, undo or restore it, or the app sets that property itself. Password values add `"redacted": true`.
 
 ## Use the DevTools protocol
 
