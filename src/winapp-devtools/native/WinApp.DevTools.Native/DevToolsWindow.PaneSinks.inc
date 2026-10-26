@@ -239,7 +239,10 @@ struct UndoSink : DevToolsSinkBase
         DevToolsWriteOutcome oc = CommitWrite(selWire, prop, type, seed, /*confirmBindingReplace*/ false);
         DirtyErase(prop);
         // an incorrect resource-link claim.
-        if (DevToolsWriteLanded(oc)) SessionAssignErase(prop);
+        if (DevToolsWriteLanded(oc)) {
+            SessionAssignErase(prop);
+            DevToolsBindingRow_ForgetLiveWrite(selWire, prop);
+        }
         ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
         SetStatusText(DevToolsWriteLanded(oc) ? (L"Restored " + prop + L" to the value it had before your change")
                                          : (L"Couldn't restore " + prop));
