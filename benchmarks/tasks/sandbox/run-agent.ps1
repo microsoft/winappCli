@@ -110,7 +110,7 @@ try {
     switch ($run.mode) {
         'agent' {
             $agentArgs = @('-p', $run.prompt, '--model', $run.model, '--output-format', 'json', '--stream', 'off',
-                '--allow-all', '--no-ask-user', '--disable-builtin-mcps', '--no-custom-instructions', '--no-remote')
+                '--allow-all', '--no-ask-user', '--disable-builtin-mcps', '--no-custom-instructions')
             if ($run.agent) { $agentArgs += @('--agent', $run.agent) }
             if ($run.reasoningEffort) { $agentArgs += @('--reasoning-effort', $run.reasoningEffort) }
             $r = Invoke-Timed -File $copilot -Arguments ($prefix + $agentArgs) -WorkingDirectory $ws -Name 'agent' -TimeoutSeconds ($run.timeoutMinutes * 60)

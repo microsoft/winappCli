@@ -231,6 +231,12 @@ Describe 'Summary' {
         Get-StatusScore 'partial' | Should -Be 0.5
         Get-StatusScore 'timeout' | Should -Be 0
     }
+    It 'writes a summary when no run recorded credits' {
+        $runs = @([pscustomobject]@{ runId = '001'; task = 't1'; configuration = 'none'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'harness_error'; taskReason = 'no events'; durationMs = 100; aiCredits = $null; tokens = $null; skillContextTokensApprox = 0; pluginReadChars = 0; modelTurns = 0; toolCalls = 0; winappCommandsRun = @(); unsafeActions = @(); skillsLoaded = @() })
+        $path = Join-Path $TestDrive 'summary-nocredits.md'
+        { Write-TaskSummary -Runs $runs -Path $path -Header ([ordered]@{ Results = 'x' }) } | Should -Not -Throw
+        $path | Should -Exist
+    }
     It 'writes grouped tables' {
         $runs = @(
             [pscustomobject]@{ runId = '001'; task = 't1'; configuration = 'none'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'pass'; taskReason = ''; durationMs = 60000; aiCredits = 10; tokens = [pscustomobject]@{ input = 100; output = 10 }; skillContextTokensApprox = 0; pluginReadChars = 0; modelTurns = 3; toolCalls = 5; winappCommandsRun = @(); unsafeActions = @(); skillsLoaded = @() }

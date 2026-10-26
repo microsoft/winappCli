@@ -257,7 +257,7 @@ function Write-TaskSummary {
     & $line
     foreach ($k in $Header.Keys) { & $line "- **$k**: $($Header[$k])" }
     $agentRuns = @($Runs | Where-Object { $_.mode -eq 'agent' })
-    $credits = if ($agentRuns) { ($agentRuns | Where-Object { $null -ne $_.aiCredits } | Measure-Object -Property aiCredits -Sum).Sum } else { 0 }
+    $credits = 0; foreach ($r in @($agentRuns)) { if ($null -ne $r.aiCredits) { $credits += $r.aiCredits } }
     & $line "- **Runs**: $($Runs.Count) ($(@($Runs | Where-Object taskStatus -in 'pass','partial','fail').Count) checked; credits $(Format-Num $credits '0.0'))"
     & $line
     & $line 'Score: pass 1, partial 0.5, fail/timeout/error 0. Skill tokens: SKILL.md content delivered plus plugin files the agent read (chars/4).'

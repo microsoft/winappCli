@@ -107,7 +107,7 @@ pwsh benchmarks\tasks\run.ps1 -Summarize benchmarks\tasks\results\<stamp>
 
    ```text
    copilot --prefer-version <v> -p "<prompt>" --model <id> --allow-all --no-ask-user
-           --disable-builtin-mcps --no-custom-instructions --no-remote [--agent <name>]
+           --disable-builtin-mcps --no-custom-instructions [--agent <name>]
    ```
 
    The token reaches the Sandbox only on the guest command line and in the agent's environment.
