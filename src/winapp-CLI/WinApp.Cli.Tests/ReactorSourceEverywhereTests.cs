@@ -45,6 +45,8 @@ public class ReactorSourceEverywhereTests
         Assert.IsNotNull(ReactorSelector.Parse("key=inc"));
         Assert.IsNotNull(ReactorSelector.Parse("App.cs:75"));
         Assert.IsNotNull(ReactorSelector.Parse("App.cs:75:13"));
+        Assert.IsNotNull(ReactorSelector.Parse("Widget.rxt:3"), "a #line directive can map a call site to any file");
+        Assert.IsNull(ReactorSelector.Parse("MainPage.xaml:12"), "a XAML line is not a Reactor call site");
         Assert.IsNull(ReactorSelector.Parse("SubmitButton"), "an x:Name is not a Reactor selector");
         Assert.IsNull(ReactorSelector.Parse("button-submit-0123456789"), "a slug is not a Reactor selector");
         Assert.IsNull(ReactorSelector.Parse("12345"));
@@ -76,6 +78,9 @@ public class ReactorSourceEverywhereTests
         CollectionAssert.AreEquivalent(Expected("5", "11"), Match("app.CS:75:13"));
         Assert.AreEqual(0, Match("App.cs:75:14").Length);
         Assert.AreEqual(0, Match("Other.cs:75").Length);
+        CollectionAssert.AreEquivalent(Expected("6", "7"), Match("TaskBoard/App.cs:47"), "a path ending, with either separator");
+        CollectionAssert.AreEquivalent(Expected("6", "7"), Match(@"..\TaskBoard\App.cs:47"), "a relative path from another project");
+        Assert.AreEqual(0, Match("Other/App.cs:47").Length, "a same-named file in another folder");
     }
 
     [TestMethod]

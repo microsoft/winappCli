@@ -29,8 +29,10 @@ internal sealed partial class ReactorSelector
         {
             return null;
         }
-        // A call site is one step on its own: File.cs:35 or File.cs:35:13.
-        if (SiteStep().Match(selector) is { Success: true } site)
+        // A call site is one step on its own: File.cs:35 or File.cs:35:13. A #line directive can name a file of any
+        // kind (Widget.rxt:3); XAML lines are not Reactor call sites.
+        if (SiteStep().Match(selector) is { Success: true } site &&
+            !site.Groups["file"].Value.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
         {
             return new([new Step(StepKind.Site, site.Groups["file"].Value, int.Parse(site.Groups["line"].Value,
                 System.Globalization.CultureInfo.InvariantCulture),
@@ -94,7 +96,7 @@ internal sealed partial class ReactorSelector
         StepKind.Key => string.Equals(node.Key, step.Value, StringComparison.Ordinal),
         StepKind.Element => string.Equals(node.Element, step.Value, StringComparison.OrdinalIgnoreCase),
         StepKind.Site => node.File is { } file && node.Line == step.Line && (step.Column == 0 || node.Column == step.Column) &&
-            string.Equals(FileName(file), step.Value, StringComparison.OrdinalIgnoreCase),
+            SameFile(file, step.Value),
         _ => false,
     };
 
@@ -119,10 +121,15 @@ internal sealed partial class ReactorSelector
         }
     }
 
-    private static string FileName(string path)
+    // A file name (App.cs) or the end of a path, with either separator (Panels/Footer.cs, ..\Shared\Badge.cs): the
+    // recorded file is relative to the project that compiled it, or a full path, so leading ..\ and .\ are dropped.
+    private static bool SameFile(string recorded, string wanted)
     {
-        var normalized = path.Replace('/', '\\');
-        return normalized[(normalized.LastIndexOf('\\') + 1)..];
+        var parts = wanted.Replace('/', '\\').Split('\\', StringSplitOptions.RemoveEmptyEntries).SkipWhile(part => part is "." or "..");
+        var tail = string.Join('\\', parts);
+        var path = recorded.Replace('/', '\\');
+        return tail.Length > 0 && (string.Equals(path, tail, StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith('\\' + tail, StringComparison.OrdinalIgnoreCase));
     }
 
     // Steps are separated by '/' outside a <...> component name (generic names such as <List<int>> stay whole).
@@ -145,7 +152,7 @@ internal sealed partial class ReactorSelector
         yield return selector[start..];
     }
 
-    [GeneratedRegex(@"^(?<file>[^\\/:<>""|?*]+\.cs):(?<line>\d{1,9})(:(?<column>\d{1,9}))?$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(?<file>[^:<>""|?*]+\.[A-Za-z][A-Za-z0-9_]{0,15}):(?<line>\d{1,9})(:(?<column>\d{1,9}))?$", RegexOptions.IgnoreCase)]
     private static partial Regex SiteStep();
 
     [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*$")]

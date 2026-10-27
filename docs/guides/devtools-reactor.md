@@ -52,7 +52,7 @@ what your C# says about them:
 | `incrementButton` or `#incrementButton` | the element assigned to that C# variable, when only one is |
 | `"<Counter>/Button"` | a `Button` element inside `Counter` (steps can repeat: `"<SettingsPage>/<Counter>/Button"`) |
 | `key=t1` | the element with that Reactor key |
-| `App.cs:67` | the element created on that line (`App.cs:67:13` adds the column) |
+| `App.cs:67` | the element created on that line (`App.cs:67:13` adds the column; `..\Shared\Badge.cs:14` or `Panels/Footer.cs:6` picks one of several same-named files; a file a `#line` directive names, such as `Widget.rxt:3`, works too) |
 
 ```powershell
 winapp devtools get-source "<Counter>/Button"
