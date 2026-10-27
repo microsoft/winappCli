@@ -496,28 +496,6 @@ static void ArmTreeRefresh()
         DevToolsOverlayLog(L"route1.refresh SetTimer FAILED (err=%lu) -- the tree will stay out of date", GetLastError());
 }
 
-static const UINT_PTR kDisarmAfterWindowPickTimerId = 0xD73; // unique on the inspector HWND (see kRefreshTimerId etc.)
-
-static VOID CALLBACK DisarmAfterWindowPickTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD)
-{
-    KillTimer(hwnd, id);
-    DevToolsOverlay_CompleteOneShotPick();
-}
-
-static void ArmDisarmAfterWindowPick()
-{
-    HWND h = Route1WindowHwnd();
-    if (!h) {
-        // Should not happen while DevToolsWindow_IsOpen() (the only caller checks that first), but skip rather
-        // than fall back to a direct call here -- a direct call is exactly the reentrant shape this exists
-        // to avoid, and a rare miss just leaves the catcher armed for a future explicit disarm/Esc/toggle.
-        DevToolsOverlayLog(L"route1.pick disarm NOT armed -- no inspector HWND; shared pick catcher stays armed");
-        return;
-    }
-    if (!SetTimer(h, kDisarmAfterWindowPickTimerId, 1, DisarmAfterWindowPickTimerProc))
-        DevToolsOverlayLog(L"route1.pick disarm SetTimer FAILED (err=%lu) -- shared pick catcher stays armed", GetLastError());
-}
-
 static void RecomputeCommentLiveness();
 
 static void OnAppTreeChanged()

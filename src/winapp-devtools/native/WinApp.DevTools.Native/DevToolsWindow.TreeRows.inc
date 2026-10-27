@@ -475,7 +475,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
         releasePalette();
         return nullptr;
     }
-    SetAutomationTextOn(panel, L"Visual tree", L"WinAppDevToolsTree", L"");
+    SetAutomationTextOn(panel, L"UI Elements", L"WinAppDevToolsTree", L"");
 
     const size_t renderCount = nodes.size();
     // Indent is measured from the SHALLOWEST rendered row: the census forest's roots are not guaranteed

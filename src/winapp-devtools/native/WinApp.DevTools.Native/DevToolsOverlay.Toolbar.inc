@@ -552,8 +552,9 @@ static bool PositionToolbarMenu(const wchar_t* menu, const wchar_t* anchor)
     try {
         winrt::Windows::Foundation::IInspectable barObject{ nullptr };
         winrt::copy_from_abi(barObject, g_aRow);
-        auto anchorElement = ToolbarPart(anchor).as<DevToolsX::UIElement>();
-        auto panel = ToolbarPart(menu).as<DevToolsX::FrameworkElement>();
+        auto anchorElement = ToolbarPart(anchor).try_as<DevToolsX::UIElement>();
+        auto panel = ToolbarPart(menu).try_as<DevToolsX::FrameworkElement>();
+        if (!anchorElement || !panel) return false;
         const double availableW = (std::max)(1.0, g_protoW - 8.0);
         const double availableH = (std::max)(1.0, g_protoH - 8.0);
         panel.MaxWidth(availableW);

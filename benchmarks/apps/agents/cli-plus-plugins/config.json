@@ -1,0 +1,8 @@
+{
+  "description": "The winapp CLI on PATH plus both plugins (winapp + winui) from microsoft/winappCli at a git ref: main by default, or any branch, tag, SHA or pull/N/head. Each ref is pinned to one commit per run. Pick refs in the dashboard, or use --agent cli-plus-plugins@main,cli-plus-plugins@my-branch.",
+  "from_repo": {
+    "repo": "microsoft/winappCli",
+    "default_ref": "main",
+    "plugins": ["plugins/winapp", "plugins/winui/agent-plugin"]
+  }
+}
