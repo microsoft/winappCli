@@ -267,7 +267,7 @@ export function SetupView({ onComplete }: Props) {
    *
    *   none
    *   production
-   *   winappcli main
+   *   cli-plus-plugins main
    *   PRs:
    *     #1234 Title (author)
    *

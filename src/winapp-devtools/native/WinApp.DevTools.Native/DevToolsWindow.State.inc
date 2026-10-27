@@ -31,6 +31,8 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
 static bool CanRereadSelection(bool* filterFocused = nullptr);
 
 static void SelectRowVisual(void* rowControl);
+static void NotifyTreeSelectionChanged(void* previous, void* current);
+static void SyncTreeAutomation();
 
 static unsigned g_route1Gen = 0;
 static unsigned g_treeRowsGen = 0;
@@ -309,6 +311,10 @@ static void DirtyErase(const std::wstring& p) { for (size_t i = 0; i < g_dirtySe
 static std::vector<std::wstring> g_bindingLost;
 static bool BindingLost(const std::wstring& p) { for (const auto& e : g_bindingLost) if (e == p) return true; return false; }
 static void NoteBindingLost(const std::wstring& p) { if (!BindingLost(p)) g_bindingLost.push_back(p); }
+static void BindingLostErase(const std::wstring& p)
+{
+    for (size_t i = g_bindingLost.size(); i-- > 0;) if (g_bindingLost[i] == p) g_bindingLost.erase(g_bindingLost.begin() + i);
+}
 
 // Track authored resource links and links replaced in this selection. Runtime local-value bits
 // cannot recover a resolved resource key, so the pane's authoredKind supplies the pre-write
@@ -462,23 +468,27 @@ static void EnsureSelBrushes()
 static void SelectRowVisual(void* rowControl)
 {
     EnsureSelBrushes();
-    if (!g_selBrush || !g_clearBrush) return;
     if (g_selCtrl == rowControl) return;
+    void* previous = g_selCtrl;
     if (g_selCtrl) {
-        DevToolsPutBackground(g_selCtrl, g_clearBrush);
-        reinterpret_cast<IUnknown*>(g_selCtrl)->Release();
+        if (g_clearBrush) DevToolsPutBackground(g_selCtrl, g_clearBrush);
         g_selCtrl = nullptr;
     }
     if (rowControl) {
-        DevToolsPutBackground(rowControl, g_selBrush);
+        if (g_selBrush) DevToolsPutBackground(rowControl, g_selBrush);
         reinterpret_cast<IUnknown*>(rowControl)->AddRef();
         g_selCtrl = rowControl;
     }
+    NotifyTreeSelectionChanged(previous, g_selCtrl);
+    if (previous) reinterpret_cast<IUnknown*>(previous)->Release();
 }
 
 static std::vector<void*> g_treeRows;      // per rendered row: the Row<i> Grid QI'd to IUIElement (AddRef'd)
 static std::vector<void*> g_treeRowFe;
 static std::vector<void*> g_treeControls;  // per rendered row: node Button as IControl (AddRef'd; current subtree only)
+static winrt::Microsoft::UI::Xaml::FrameworkElement g_treeAutomationRoot{nullptr};
+static winrt::Microsoft::UI::Xaml::FrameworkElement g_treeAutomationNote{nullptr};
+static std::vector<size_t> g_treeAutomationParents;
 static std::vector<int>   g_treeDepth;
 static std::vector<char>  g_treeCollapsed;
 static std::vector<char>  g_treeVisible;
@@ -526,6 +536,7 @@ static bool  g_focusActive  = false;
 static void* g_jmxLbl       = nullptr;
 static void* g_jmxBtnCtrl   = nullptr;
 static void* g_pickBtnCtrl  = nullptr;
+static void* g_focusBtnCtrl = nullptr;
 static void* g_pickOnUi     = nullptr; // icon-button active indicator (IUIElement, AddRef'd)
 static void* g_focusOnUi    = nullptr; // icon-button active indicator (IUIElement, AddRef'd)
 // focus notice: the Border as IUIElement (shown/hidden) and its TextBlock (the message). Both AddRef'd.
