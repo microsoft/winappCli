@@ -544,8 +544,9 @@ static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, const 
     try {
         winrt::Windows::Foundation::IInspectable barObject{ nullptr };
         winrt::copy_from_abi(barObject, g_aRow);
-        auto anchorElement = ToolbarPart(anchor).as<DevToolsX::UIElement>();
-        auto panel = ToolbarPart(menu).as<DevToolsX::FrameworkElement>();
+        auto anchorElement = ToolbarPart(anchor).try_as<DevToolsX::UIElement>();
+        auto panel = ToolbarPart(menu).try_as<DevToolsX::FrameworkElement>();
+        if (!anchorElement || !panel) return;
         keyboard = anchorElement.FocusState() != DevToolsX::FocusState::Unfocused;
         panel.Visibility(DevToolsX::Visibility::Visible);
         panel.Measure({ static_cast<float>(panel.Width()), std::numeric_limits<float>::infinity() });
