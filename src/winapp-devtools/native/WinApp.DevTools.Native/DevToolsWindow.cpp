@@ -312,6 +312,7 @@ static std::wstring ShortType(const std::wstring& t)
 #include "DevToolsWindow.TreeView.inc"
 #include "DevToolsWindow.PaneSinks.inc"
 #include "DevToolsWindow.SourceAndResources.inc"
+#include "DevToolsWindow.TreeAutomation.inc"
 #include "DevToolsWindow.TreeRows.inc"
 #include "DevToolsWindow.TreeRefresh.inc"
 #include "DevToolsWindow.PropsLayout.inc"

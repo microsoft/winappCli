@@ -40,7 +40,17 @@ internal static class SharedUiOptions
         WindowOption = new Option<long?>("--window", "-w")
         {
             HelpName = "hwnd",
-            Description = "Target window by handle (printed by -a and list-windows; overrides --app)"
+            Description = "Target window by handle, in decimal or 0x hex (printed by -a and list-windows; overrides --app)",
+            CustomParser = result =>
+            {
+                var text = result.Tokens[0].Value;
+                if (TryParseHandle(text, out var handle) && handle <= long.MaxValue)
+                {
+                    return (long)handle;
+                }
+                result.AddError($"'{text}' is not a window handle. Use the number printed by 'winapp ui list-windows', such as 1772174 or 0x1B0A8E.");
+                return null;
+            }
         };
 
         SelectorArgument= new Argument<string?>("selector")
@@ -126,5 +136,19 @@ internal static class SharedUiOptions
             DefaultValueFactory = _ => 0
         };
 
+    }
+
+    /// <summary>Parses a handle written in decimal or as 0x-prefixed hex, the way Spy++ and debuggers show it.</summary>
+    internal static bool TryParseHandle(string? text, out ulong handle)
+    {
+        handle = 0;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+        text = text.Trim();
+        return text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            ? ulong.TryParse(text.AsSpan(2), System.Globalization.NumberStyles.AllowHexSpecifier, System.Globalization.CultureInfo.InvariantCulture, out handle)
+            : ulong.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out handle);
     }
 }

@@ -64,6 +64,8 @@ static void TestToolbarContract()
     Check(!windowShell.empty(), "window-shell.xaml is readable");
     Check(!overlay.empty(), "DevToolsOverlay.cpp is readable");
     Check(!window.empty(), "DevToolsWindow.cpp is readable");
+    Check(CountOf(windowShell, "<Border x:Name=\"PExpFrame\" Padding=\"8\" Background=\"Transparent\">") == 2,
+                 "editable and read-only Expander content has padding without an extra frame or fill");
     Check(CountOf(selectionPanel, "AutomationProperties.AutomationId=\"DevToolsSelCommentSave\"") == 1 &&
                      selectionPanel.find("AutomationProperties.Name=\"Save comment\"") != std::string::npos &&
                      overlay.find("g_selCommentSaveSink.Bind(&IID_RoutedEventHandler_Del, &OnSelCommentSaveClick)") != std::string::npos,
@@ -78,6 +80,24 @@ static void TestToolbarContract()
                      overlay.find("DevToolsUiEvent::GotFocus, g_protoSink[13], &OnToolbarGotFocus") != std::string::npos &&
                      overlay.find("DevToolsUiEvent::LostFocus, g_protoSink[14], &OnToolbarLostFocus") != std::string::npos,
                  "keyboard focus opens actions and keeps the toolbar visible");
+    Check(xaml.find("<Button x:Name=\"DevToolsChip\" Style=\"{x:Null}\" AllowFocusOnInteraction=\"False\"") != std::string::npos &&
+                     overlay.find("wireNamedClick(L\"DevToolsChip\", g_protoSink[23], &OnPillInvoked)") != std::string::npos &&
+                     overlay.find("AddHandler(DevToolsX::UIElement::PointerPressedEvent()") != std::string::npos,
+                 "the collapsed pill is a Button UI Automation can invoke, and pressing it starts a drag");
+    Check(overlay.find("SetWindowsHookExW(WH_GETMESSAGE, &PickShortcutHookProc") != std::string::npos &&
+                     overlay.find("InstallPickShortcutHook();") != std::string::npos &&
+                     window.find("if (key == 'P')") != std::string::npos &&
+                     window.find("ToggleWindowPick();") != std::string::npos,
+                 "Ctrl+Shift+P toggles pick mode from the app, including open flyouts, and from the inspector");
+    const size_t splitterAt = windowShell.find("<Thumb x:Name=\"PaneSplitter\"");
+    Check(splitterAt != std::string::npos &&
+                     windowShell.find("IsTabStop=\"True\"", splitterAt) < windowShell.find("/>", splitterAt) &&
+                     window.find("DevToolsAddPreviewKeyDown(splitUi, splitKeys, &ktok)") != std::string::npos &&
+                     window.find("DevToolsAddPreviewKeyDown(thumb,") == std::string::npos,
+                 "the pane splitter is a tab stop that the arrow keys move");
+    Check(windowShell.find("<TextBlock x:Name=\"TreeNoMatches\" Visibility=\"Collapsed\"") != std::string::npos &&
+                     window.find("SetTreeNoMatches(queryRaw, shown == 0);") != std::string::npos,
+                 "a tree filter with no matches says so instead of showing an empty pane");
     const auto readStart = windowShell.find("<ContentControl x:Name=\"TmplExpRead\">");
     const auto readEnd = windowShell.find("</ContentControl>", readStart);
     const std::string readExpansion = readStart != std::string::npos && readEnd != std::string::npos
@@ -102,6 +122,39 @@ static void TestToolbarContract()
     Check(xaml.find("<ToggleButton x:Name=\"DevToolsProtoPick\"") != std::string::npos &&
                      overlay.find("ProtoSetToggle(L\"DevToolsProtoPick\", L\"DevToolsPickOn\", L\"DevToolsPickOff\", on);") != std::string::npos,
                  "Select element is a toggle whose state UI Automation reads, like Comment mode");
+    const auto themeStart = xaml.find("<ResourceDictionary.ThemeDictionaries>");
+    const auto themeEnd = xaml.find("</ResourceDictionary.ThemeDictionaries>", themeStart);
+    const std::string toggleThemes = themeStart != std::string::npos && themeEnd != std::string::npos
+        ? xaml.substr(themeStart, themeEnd - themeStart) : std::string();
+    for (const char* name : { "Light", "Dark", "HighContrast" })
+        Check(CountOf(toggleThemes, std::string("<ResourceDictionary x:Key=\"") + name + "\">") == 1,
+            "selected toolbar content defines Light, Dark and High Contrast brushes");
+    Check(CountOf(toggleThemes,
+              "<StaticResource x:Key=\"DevToolsToggleBackground\" ResourceKey=\"AccentFillColorDefaultBrush\" />") == 2 &&
+          CountOf(toggleThemes,
+              "<StaticResource x:Key=\"DevToolsToggleForeground\" ResourceKey=\"TextOnAccentFillColorPrimaryBrush\" />") == 2,
+        "Light and Dark retain the existing accent fill and matching icon");
+    const auto hcStart = toggleThemes.find("<ResourceDictionary x:Key=\"HighContrast\">");
+    const auto hcEnd = toggleThemes.find("</ResourceDictionary>", hcStart);
+    const std::string highContrast = hcStart != std::string::npos && hcEnd != std::string::npos
+        ? toggleThemes.substr(hcStart, hcEnd - hcStart) : std::string();
+    Check(highContrast.find(
+              "<SolidColorBrush x:Key=\"DevToolsToggleBackground\" Color=\"{ThemeResource SystemColorHighlightColor}\" />") != std::string::npos &&
+          highContrast.find(
+              "<SolidColorBrush x:Key=\"DevToolsToggleForeground\" Color=\"{ThemeResource SystemColorHighlightTextColor}\" />") != std::string::npos,
+        "High Contrast uses the user's paired system highlight and highlight text colours");
+    for (const char* name : { "DevToolsPickOn", "DevToolsCommentsOn", "DevToolsLayoutOn" }) {
+        const auto start = xaml.find(std::string("<Grid x:Name=\"") + name + "\"");
+        const auto end = xaml.find("</Grid>", start);
+        const std::string selected = start != std::string::npos && end != std::string::npos
+            ? xaml.substr(start, end - start) : std::string();
+        Check(selected.find("HighContrastAdjustment=\"None\"") != std::string::npos &&
+              selected.find("Background=\"{ThemeResource DevToolsToggleBackground}\"") != std::string::npos &&
+              selected.find("Foreground=\"{ThemeResource DevToolsToggleForeground}\"") != std::string::npos,
+            "each selected mode preserves its system-aware background and icon pairing");
+    }
+    Check(CountOf(xaml, "HighContrastAdjustment=\"None\"") == 3,
+        "only the three system-aware selected mode surfaces opt out of automatic contrast adjustment");
     Check(xaml.find("<ToggleButton x:Name=\"DevToolsProtoPin\"") != std::string::npos &&
                      xaml.find("x:Name=\"DevToolsPinOn\"") != std::string::npos &&
                      xaml.find("DevToolsProtoPinDot") == std::string::npos &&
@@ -130,6 +183,15 @@ static void TestToolbarContract()
     Check(xaml.find("<TextBlock Text=\"WHEN THE APP STARTS\"") != std::string::npos &&
                      overlay.find("ProtoSetToggle(name, L\"\", L\"\", true);") != std::string::npos,
                  "the start-mode header is text, and opening the menu re-selects the saved mode");
+    // Choosing "Don't start DevTools" must leave a visible re-enable hint, not just a hover tooltip (#1148).
+    Check(xaml.find("x:Name=\"DevToolsStartOffHint\"") != std::string::npos &&
+                     xaml.find("To turn it back on, run `winapp config set run.devtools on`, or launch with `winapp run . --devtools on`.") != std::string::npos,
+                 "the off-mode hint names both ways to turn DevTools back on");
+    Check(overlay.find("ProtoSetPartVisible(L\"DevToolsStartOffHint\", mode == \"off\")") != std::string::npos,
+                 "the re-enable hint is only visible while the off start mode is selected");
+    Check(overlay.find("OnStartOffClick") != std::string::npos &&
+                     overlay.find("SetDefaultMode(\"off\"); ToggleToolbarMenu(L\"DevToolsMoreMenu\", L\"DevToolsProtoMore\", L\"DevToolsStartOff\")") != std::string::npos,
+                 "choosing \"Don't start DevTools\" reopens the menu so the re-enable hint stays visible");
     Check(xaml.find("<ToggleButton x:Name=\"DevToolsToggleMarkers\"") != std::string::npos &&
                      xaml.find("AutomationProperties.Name=\"Show comment markers\"") != std::string::npos &&
                      overlay.find("DevToolsToggleMarkersText") == std::string::npos,
@@ -273,15 +335,12 @@ static void TestToolbarContract()
                      window.find("else if (ek == L\"color\")  { show = L\"PEdColor\";") != std::string::npos &&
                      window.find("DevToolsIsBoolType(r.type)") == std::string::npos,
                  "a Literal's editor follows the tap's editKind, not a second taxonomy in the window");
-    // AN {x:Bind} ROW HAS NO EDITABLE FIELD. PXExpr is a TextBlock, so there is nothing on the row that can
-    // take a keystroke -- and it is deliberately absent from the focus list, so clicking the value opens the
-    // row and focuses nothing instead of landing a caret in something read-only.
+    // An {x:Bind} expression stays read-only and keeps its exit action.
+    // The window runtime tests check that expansion leaves focus on the header.
     Check(windowShell.find("<TextBlock x:Name=\"PXExpr\"") != std::string::npos &&
                      windowShell.find("<TextBox x:Name=\"PXExpr\"") == std::string::npos &&
-                     windowShell.find("x:Name=\"PXBindExit\"") != std::string::npos &&
-                     window.find("{ L\"PEdit\", L\"PToggle\", L\"PCombo\", L\"PHex\", L\"PResKey\", L\"PPath\" };")
-                         != std::string::npos,
-                 "an {x:Bind} row's expression is a TextBlock, it carries an exit, and it is not a focus target");
+                     windowShell.find("x:Name=\"PXBindExit\"") != std::string::npos,
+                 "an {x:Bind} row's expression is a read-only TextBlock and carries an exit");
     // A KIND CHANGE STAGES. Selecting writes the pending kind and re-renders; only Apply/Enter commits. A
     // build that called CommitKind from the selection sink would destroy a binding on the way past it.
     Check(window.find("PendingKindSet(ctx.path, chosen);") != std::string::npos &&
@@ -305,8 +364,8 @@ static void TestToolbarContract()
     Check(windowShell.find("<TextBox x:Name=\"PEdit\" MinHeight=\"30\" FontSize=\"12\"") != std::string::npos,
                  "inspector property TextBoxes match the flyout's compact 12-DIP text");
     // And the collapsed row's own type is the same size, so expanding a row does not resize its value.
-    Check(windowShell.find("x:Name=\"PName\" Grid.Column=\"1\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos &&
-                     windowShell.find("x:Name=\"PValue\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos,
+    Check(windowShell.find("x:Name=\"PName\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos &&
+                     windowShell.find("x:Name=\"PValue\" Grid.Column=\"1\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos,
                  "the collapsed row's name and value are the same compact 12 DIP as the editor");
     // The chevron is a real ToggleButton, so its Checked visual state painted the accent
     // fill and every expanded branch rendered a blue block. The checked brushes are re-pointed in the shell's
@@ -352,6 +411,16 @@ static void TestToolbarContract()
     Check(windowShell.find("<RadioButton x:Name=\"TreeTabBtn\"") != std::string::npos &&
                      windowShell.find("<RadioButton x:Name=\"CommentsTabBtn\"") != std::string::npos,
                  "each tab is a RadioButton, so the showing view is reported by SelectionItemPattern");
+    Check(windowShell.find("<ToggleButton x:Name=\"PickBtn\"") != std::string::npos &&
+                     windowShell.find("<ToggleButton x:Name=\"FocusBtn\"") != std::string::npos,
+                 "inspector pick and focus modes expose TogglePattern through standard ToggleButtons");
+    Check(window.find("expander.IsTabStop(false);") != std::string::npos &&
+                     window.find("expander, DevToolsTreeAP::AccessibilityView::Raw") != std::string::npos,
+                 "tree expand arrows remain mouse controls, not separate keyboard or screen reader targets");
+    Check(window.find("void OnKeyDown(DevToolsXI::KeyRoutedEventArgs const& args)") != std::string::npos &&
+                     window.find("HandleTreeRowKey(m_index, static_cast<int>(args.Key()))") != std::string::npos &&
+                     window.find("ButtonT::OnKeyDown(args)") != std::string::npos,
+                 "tree rows route arrow keys to expansion while preserving Button selection keys");
     // Inspector and overlay share an accessibility namespace; qualify the inspector Comments tab.
     Check(windowShell.find("AutomationProperties.Name=\"Comments (inspector)\"") != std::string::npos &&
                      windowShell.find("AutomationProperties.Name=\"Comments\"") == std::string::npos,
@@ -479,7 +548,7 @@ static void TestToolbarContract()
     Check(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
                      window.find("DevToolsOverlay_AddComment(element, value, saved->id") != std::string::npos,
                  "the inspector's Comment action saves through the in-app comment writer");
-    Check(overlay.find("static EventSink g_protoSink[23];") != std::string::npos,
+    Check(overlay.find("static EventSink g_protoSink[24];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);") != std::string::npos,
                  "Pick is wired by namescope identity, and gives focus back to the app after a command run through UI Automation");

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 enum class DevToolsAuthoredState
 {
@@ -41,6 +42,11 @@ struct DevToolsAuthoredLocation
     std::wstring evidence;
     unsigned int parentLine = 0;
     std::wstring parentType, parentName;
+    // What the element's body sets, read only when the opening tag does not self-close. bodyRead is false when the
+    // body could not be followed, so nothing is known about it.
+    bool bodyRead = false;
+    bool bodyContent = false;                 // text or a child element: a value for the type's content property
+    std::vector<std::wstring> bodyProperties; // <Type.Property> children, as "Property" and "Type.Property"
 };
 
 DevToolsAuthoredState DevToolsAuthored_ReadElement(const std::wstring& fileUri, unsigned int line, std::wstring* out,

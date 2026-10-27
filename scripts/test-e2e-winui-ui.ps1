@@ -9,6 +9,7 @@ This script tests all winapp ui commands against the WinUI 3 sample app:
 3. Tests all winapp ui commands (inspect, search, invoke, set-value, etc.)
 4. Uses wait-for assertions to verify UI state
 5. Takes screenshots at each stage
+Requires MSVC and a Windows SDK for the direct UI Automation parent-navigation test.
 
 .PARAMETER WinAppPath
 Path to the winapp CLI executable. Default: auto-detect from repo artifacts.
@@ -483,6 +484,131 @@ if (-not $devPid) {
     $windows = (Invoke-Winapp @("ui", "list-windows", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
     $inspectorHwnd = [string](@($windows | Where-Object title -like "WinApp DevTools*")[0].hwnd)
     $mainHwnd = [string](@($windows | Where-Object { $_.title -notlike "WinApp DevTools*" })[0].hwnd)
+    foreach ($toggleId in @("PickElementToggle", "FocusTrackingToggle")) {
+        Assert-WinappSuccess "$toggleId starts off" @("ui", "wait-for", $toggleId, "-w", $inspectorHwnd, "-p", "ToggleState", "--value", "Off", "-t", "3000") | Out-Null
+        foreach ($state in @("On", "Off")) {
+            Assert-WinappSuccess "$toggleId UI Automation activation ($state)" @("ui", "invoke", $toggleId, "-w", $inspectorHwnd) | Out-Null
+            Assert-WinappSuccess "$toggleId exposes $state" @("ui", "wait-for", $toggleId, "-w", $inspectorHwnd, "-p", "ToggleState", "--value", $state, "-t", "3000") | Out-Null
+        }
+    }
+    Assert-WinappSuccess "visual tree exposes Tree control type" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "Tree", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "visual tree row exposes TreeItem control type" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "TreeItem", "-t", "3000") | Out-Null
+    $parentTestDir = Join-Path ([IO.Path]::GetTempPath()) ("winapp-tree-uia-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $parentTestDir | Out-Null
+    try {
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+        $component = if ($Platform -eq "ARM64") { "Microsoft.VisualStudio.Component.VC.Tools.ARM64" } else { "Microsoft.VisualStudio.Component.VC.Tools.x86.x64" }
+        $vsPath = & $vswhere -latest -products * -requires $component -property installationPath
+        if (-not $vsPath) { throw "MSVC with $component is required for the tree parent-navigation test." }
+        $vcvarsName = if ($Platform -eq "ARM64") { "vcvarsamd64_arm64.bat" } else { "vcvars64.bat" }
+        $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\$vcvarsName"
+        $parentTest = Join-Path $parentTestDir "tree-automation-ui-tests.exe"
+        $parentSource = Join-Path $repoRoot "src\winapp-devtools\test\tree-automation-ui-tests.cpp"
+        $compile = & $env:ComSpec /c "call `"$vcvars`" >nul && cl /nologo /std:c++20 /W3 /WX /EHsc /MT `"$parentSource`" /Fo:`"$parentTestDir\test.obj`" /Fe:`"$parentTest`" /link ole32.lib oleaut32.lib uiautomationcore.lib" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Tree parent-navigation test did not compile: $compile" }
+        $parentResult = & $parentTest $inspectorHwnd 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Tree parent-navigation regression: $parentResult" }
+        Write-TestPass "tree parents update after filtering without downward enumeration" "$parentResult"
+    } catch {
+        Write-TestFail "tree parents update after filtering without downward enumeration" "$_"
+    } finally {
+        Remove-Item -LiteralPath $parentTestDir -Recurse -Force
+    }
+    $treeResult = Invoke-Winapp @("ui", "inspect", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-d", "2", "--json")
+    try {
+        $tree = ($treeResult.Output | ConvertFrom-Json).windows[0].elements[0]
+        if ($treeResult.ExitCode -eq 0 -and $tree.children[0].automationId -eq "TreeNode0" -and
+            $tree.children[0].children[0].automationId -eq "TreeNode1") {
+            Write-TestPass "visual tree exposes nested TreeItem children"
+        } else { Write-TestFail "visual tree exposes nested TreeItem children" $treeResult.Output }
+    } catch { Write-TestFail "visual tree exposes nested TreeItem children" "$_" }
+    foreach ($selectedId in @("TreeNode0", "TreeNode1")) {
+        $otherId = if ($selectedId -eq "TreeNode0") { "TreeNode1" } else { "TreeNode0" }
+        Assert-WinappSuccess "$selectedId supports SelectionItem.Select" @("ui", "invoke", $selectedId, "-w", $inspectorHwnd, "--action", "select") | Out-Null
+        Assert-WinappSuccess "$selectedId reports selected" @("ui", "wait-for", $selectedId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "$otherId reports unselected" @("ui", "wait-for", $otherId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "False", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "reopen inspector with $selectedId selected" @("devtools", "call", "Window.open", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "$selectedId stays selected after reopening" @("ui", "wait-for", $selectedId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "hide inspector with $selectedId selected" @("devtools", "call", "Window.close", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "reopen hidden inspector with $selectedId selected" @("devtools", "call", "Window.open", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "$selectedId stays selected after hiding and reopening" @("ui", "wait-for", $selectedId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+    }
+    Assert-WinappSuccess "focus can move to an unselected tree row" @("ui", "focus", "TreeNode0", "-w", $inspectorHwnd) | Out-Null
+    Assert-WinappSuccess "focused tree row has keyboard focus" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "keyboard focus does not select the tree row" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "False", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "selection stays on the other tree row" @("ui", "wait-for", "TreeNode1", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "tree Selection.GetSelection returns the selected row" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "--value", "TitleBar #AppTitleBar", "-t", "3000") | Out-Null
+    foreach ($action in @("collapse", "expand")) {
+        $state = if ($action -eq "collapse") { "Collapsed" } else { "Expanded" }
+        Assert-WinappSuccess "tree row supports ExpandCollapse.$action" @("ui", "invoke", "TreeNode0", "-w", $inspectorHwnd, "--action", $action) | Out-Null
+        Assert-WinappSuccess "tree row reports $state" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", $state, "-t", "3000") | Out-Null
+        $childArgs = @("ui", "wait-for", "TreeNode1", "-w", $inspectorHwnd, "-t", "3000")
+        if ($action -eq "collapse") { $childArgs += "--gone" }
+        Assert-WinappSuccess "tree child visibility follows $action" $childArgs | Out-Null
+    }
+    Assert-WinappSuccess "filter the accessible tree" @("ui", "set-value", "TreeFilter", "AppTitleBar", "-w", $inspectorHwnd) | Out-Null
+    $filteredResult = Invoke-Winapp @("ui", "inspect", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-d", "2", "--json")
+    try {
+        $filteredTree = ($filteredResult.Output | ConvertFrom-Json).windows[0].elements[0]
+        if ($filteredResult.ExitCode -eq 0 -and @($filteredTree.children).Count -eq 1 -and
+            $filteredTree.children[0].automationId -eq "TreeNode1") {
+            Write-TestPass "filter promotes the remaining row to an accessible root"
+        } else { Write-TestFail "filter promotes the remaining row to an accessible root" $filteredResult.Output }
+    } catch { Write-TestFail "filter promotes the remaining row to an accessible root" "$_" }
+    Assert-WinappSuccess "clear the accessible tree filter" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+    Assert-WinappSuccess "clearing filter restores the tree root" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-t", "3000") | Out-Null
+    Assert-WinappSuccess "filter tree before requesting expansion" @("ui", "set-value", "TreeFilter", "Grid", "-w", $inspectorHwnd) | Out-Null
+    $filteredExpand = Invoke-Winapp @("ui", "invoke", "TreeNode0", "-w", $inspectorHwnd, "--action", "expand")
+    if ($filteredExpand.ExitCode -ne 0) { Write-TestPass "filtered tree refuses expansion" }
+    else { Write-TestFail "filtered tree refuses expansion" $filteredExpand.Output }
+    Assert-WinappSuccess "expansion leaves filter text intact" @("ui", "wait-for", "TreeFilter", "-w", $inspectorHwnd, "--value", "Grid", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "expansion does not reveal a nonmatching title bar" @("ui", "wait-for", "TreeNode1", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "expansion does not reveal a nonmatching scroller" @("ui", "wait-for", "TreeNode2", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "clear filter after refused expansion" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+    Assert-WinappSuccess "clearing filter restores descendants before expansion" @("ui", "wait-for", "TreeNode1", "-w", $inspectorHwnd, "-t", "3000") | Out-Null
+    Assert-WinappSuccess "expansion works after clearing filter" @("ui", "invoke", "TreeNode0", "-w", $inspectorHwnd, "--action", "expand") | Out-Null
+    Assert-WinappSuccess "filter tree before requesting collapse" @("ui", "set-value", "TreeFilter", "StackPanel", "-w", $inspectorHwnd) | Out-Null
+    $filteredCollapse = Invoke-Winapp @("ui", "invoke", "TreeNode3", "-w", $inspectorHwnd, "--action", "collapse")
+    if ($filteredCollapse.ExitCode -ne 0) { Write-TestPass "filtered tree refuses collapse" }
+    else { Write-TestFail "filtered tree refuses collapse" $filteredCollapse.Output }
+    Assert-WinappSuccess "collapse leaves matching descendants visible" @("ui", "wait-for", "TreeNode6", "-w", $inspectorHwnd, "-t", "3000") | Out-Null
+    Assert-WinappSuccess "collapse does not reveal a nonmatching button" @("ui", "wait-for", "TreeNode7", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "clear filter before keyboard navigation" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+    Assert-WinappSuccess "Left arrow collapses the focused tree row" @("ui", "send-keys", "left", "--target", "TreeNode0", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "keyboard collapse updates the accessible state" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", "Collapsed", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "Right arrow expands the focused tree row" @("ui", "send-keys", "right", "--target", "TreeNode0", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "keyboard expansion updates the accessible state" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", "Expanded", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "Tab from a leaf skips the next row's expand arrow" @("ui", "send-keys", "tab", "--target", "TreeNode1", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "Tab lands on the next tree row" @("ui", "wait-for", "TreeNode2", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "Tab does not change tree selection" @("ui", "wait-for", "TreeNode1", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "inspector keyboard focus and selection screenshot" @("ui", "screenshot", "-w", $inspectorHwnd, "-o", (Join-Path $ScreenshotDir "08-inspector-tree.png")) | Out-Null
+    foreach ($textId in @("PageTitle", "PageSubtitle")) {
+        Assert-WinappSuccess "$textId gets the duplicate-name fixture text" @("devtools", "set-property", $textId, "Text", "Shared label", "-a", "$devPid") | Out-Null
+    }
+    Assert-WinappSuccess "refresh inspector after changing sibling labels" @("ui", "send-keys", "f5", "--target", "TreeNode0", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    foreach ($row in @(@("TreeNode4", "1"), @("TreeNode5", "2"))) {
+        Assert-WinappSuccess "$($row[0]) has a distinct sibling name" @("ui", "wait-for", $row[0], "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Shared label ($($row[1]) of 2)", "-t", "3000") | Out-Null
+    }
+    Assert-WinappSuccess "filter matching duplicate sibling labels" @("ui", "set-value", "TreeFilter", "Shared label", "-w", $inspectorHwnd) | Out-Null
+    foreach ($row in @(@("TreeNode4", "1"), @("TreeNode5", "2"))) {
+        Assert-WinappSuccess "$($row[0]) keeps a distinct name when promoted to the tree root" @("ui", "wait-for", $row[0], "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Shared label ($($row[1]) of 2)", "-t", "3000") | Out-Null
+    }
+    Assert-WinappSuccess "filtered inspector screenshot" @("ui", "screenshot", "-w", $inspectorHwnd, "-o", (Join-Path $ScreenshotDir "09-inspector-filter.png")) | Out-Null
+    Assert-WinappSuccess "clear duplicate-name fixture filter" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+    try {
+        $titleBar = (Invoke-Winapp @("devtools", "search", "AppTitleBar", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
+        Assert-WinappSuccess "select TitleBar properties" @(
+            "devtools", "call", "Selection.select", "handle=$($titleBar.matches[0].handle)", "-a", "$devPid") | Out-Null
+        foreach ($value in @("Auto", "120", "Auto")) {
+            Assert-WinappSuccess "set TitleBar.Height to $value" @(
+                "devtools", "set-property", "AppTitleBar", "Height", $value, "-a", "$devPid") | Out-Null
+            Assert-WinappSuccess "Height header announces its current value $value" @(
+                "ui", "wait-for", "Height value", "-w", $inspectorHwnd,
+                "-p", "Name", "--value", "Height, $value", "-t", "5000") | Out-Null
+        }
+    } catch {
+        Write-TestFail "property accessible names include the current value" $_.Exception.Message
+    }
     for ($i = 0; $i -lt 10; $i++) {
         $null = Invoke-Winapp @("ui", "focus", "-w", $inspectorHwnd)
         $null = Invoke-Winapp @("ui", "focus", "-w", $mainHwnd)

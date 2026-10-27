@@ -31,6 +31,10 @@ and troubleshooting, see [Advanced DevTools](devtools-advanced.md). Every comman
 
    ![The DevTools inspector window with the element tree and properties](../images/devtools-inspector.png)
 
+   Click anywhere in a property's header, such as **Height Auto**, to expand or
+   collapse it. With the keyboard, Tab to the header and press Enter or Space.
+   Tab again to reach its editors; editing does not collapse the property.
+
 5. Ask your agent to read the comments and make the changes:
 
    ```powershell
@@ -64,11 +68,14 @@ winapp config unset run.devtools      # back to the default, on
 
 If DevTools can't start in a run where you didn't pass `--devtools`, the app runs
 without it and winapp says why; with `--devtools on` or `headless`, that's an error.
-If the app is already running, `run` closes it so DevTools can start it.
+If the app is already running, `run` closes it first, so DevTools can start it
+([details](../usage.md#run)).
 
 ## Use the toolbar
 
-- **Select element** shows the element you click in the DevTools window.
+- **Select element** shows the element you click in the DevTools window, then turns
+  picking off. Your next click reaches the app. Select **Select element** again to
+  inspect another element, or press **Esc** before picking to cancel.
 - **Comments** opens the comment panel on the element you click.
 - Clicking a control's template part or generated text selects the control from your
   XAML; turn off **Just my XAML** in the DevTools window to pick the parts themselves.
@@ -79,6 +86,14 @@ If the app is already running, `run` closes it so DevTools can start it.
 - When collapsed, the toolbar reads **DevTools**. It reads **Picking** or **Commenting** while that mode is on,
   because then your clicks go to DevTools instead of the app.
 - `winapp ui screenshot` leaves the toolbar, markers and comment panel out of the image.
+
+In the **Visual tree**, press **Tab** to focus a row and **Enter** or **Space** to
+select it. **Right arrow** expands a collapsed row or moves focus to its first
+child. **Left arrow** collapses an expanded row or moves focus to its parent.
+The expand arrows remain clickable but are not separate tab stops.
+
+While the tree filter contains text, all matching rows stay visible and expansion
+is disabled. Clear the filter to expand or collapse rows again.
 
 ## Review comments with an agent
 

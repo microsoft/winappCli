@@ -255,6 +255,56 @@ static bool IsLateToolbarShortcut(int key)
     return true;
 }
 
+// Ctrl+Shift+P turns pick mode on or off anywhere in the app. It is read from the UI thread's message queue, not
+// from a XAML key event: an open flyout or menu keeps key events from reaching the app's content, and clicking
+// Pick in the inspector window would close that flyout.
+static HHOOK g_pickShortcutHook = nullptr;
+
+static bool IsCtrlShiftOnly()
+{
+    const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool other = (GetKeyState(VK_MENU) & 0x8000) || (GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000);
+    return ctrl && shift && !other;
+}
+
+// The app's own windows, including popups they own. The inspector window is not one of them and handles the
+// shortcut itself.
+static bool IsAppSurfaceWindow(HWND hwnd)
+{
+    if (!hwnd) return false;
+    const HWND root = GetAncestor(hwnd, GA_ROOT), owner = GetAncestor(hwnd, GA_ROOTOWNER);
+    for (const auto& surface : g_allSurfaces)
+        if (surface.hostHwnd && (surface.hostHwnd == root || surface.hostHwnd == owner)) return true;
+    return g_activeSurface.hostHwnd && (g_activeSurface.hostHwnd == root || g_activeSurface.hostHwnd == owner);
+}
+
+static void CALLBACK PickShortcutProc(HWND, UINT, UINT_PTR id, DWORD)
+{
+    KillTimer(nullptr, id);
+    DevToolsOverlayLog(L"overlay.pick shortcut Ctrl+Shift+P (armed=%d)", (int)(g_pickCatcher != nullptr));
+    OnPickClick(nullptr, nullptr);
+}
+
+static LRESULT CALLBACK PickShortcutHookProc(int code, WPARAM removal, LPARAM lParam)
+{
+    auto* msg = reinterpret_cast<MSG*>(lParam);
+    if (code == HC_ACTION && removal == PM_REMOVE && msg && msg->message == WM_KEYDOWN && msg->wParam == 'P' &&
+        !(msg->lParam & (1 << 30)) && IsCtrlShiftOnly() && IsAppSurfaceWindow(msg->hwnd)) {
+        msg->message = WM_NULL;
+        // The toggle changes the XAML tree, so it runs after the hook returns.
+        SetTimer(nullptr, 0, 0, &PickShortcutProc);
+    }
+    return CallNextHookEx(nullptr, code, removal, lParam);
+}
+
+static void InstallPickShortcutHook()
+{
+    if (g_pickShortcutHook) return;
+    g_pickShortcutHook = SetWindowsHookExW(WH_GETMESSAGE, &PickShortcutHookProc, nullptr, GetCurrentThreadId());
+    DevToolsOverlayLog(L"overlay.pick shortcut hook %s err=%lu", g_pickShortcutHook ? L"installed" : L"FAILED",
+        g_pickShortcutHook ? 0ul : GetLastError());
+}
+
 // The element with keyboard focus in the toolbar's XamlRoot, and whether it is part of the toolbar.
 static DevToolsX::UIElement ToolbarFocusedElement(bool* inToolbar)
 {
@@ -494,8 +544,9 @@ static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, const 
     try {
         winrt::Windows::Foundation::IInspectable barObject{ nullptr };
         winrt::copy_from_abi(barObject, g_aRow);
-        auto anchorElement = ToolbarPart(anchor).as<DevToolsX::UIElement>();
-        auto panel = ToolbarPart(menu).as<DevToolsX::FrameworkElement>();
+        auto anchorElement = ToolbarPart(anchor).try_as<DevToolsX::UIElement>();
+        auto panel = ToolbarPart(menu).try_as<DevToolsX::FrameworkElement>();
+        if (!anchorElement || !panel) return;
         keyboard = anchorElement.FocusState() != DevToolsX::FocusState::Unfocused;
         panel.Visibility(DevToolsX::Visibility::Visible);
         panel.Measure({ static_cast<float>(panel.Width()), std::numeric_limits<float>::infinity() });
@@ -570,10 +621,12 @@ static std::string DefaultMode()
 }
 
 // "When the app starts" is a view of that setting: Show toolbar is on, Hide toolbar is headless, Don't start is off.
+// The re-enable hint under the radios is only visible while "off" is the selected mode (issue #1148).
 static void SetStartModeUi(const std::string& mode)
 {
     const wchar_t* name = mode == "headless" ? L"DevToolsStartHidden" : mode == "off" ? L"DevToolsStartOff" : L"DevToolsStartShown";
     ProtoSetToggle(name, L"", L"", true);
+    ProtoSetPartVisible(L"DevToolsStartOffHint", mode == "off");
 }
 
 static void OnMoreMenuClick(void*, void*)
@@ -603,7 +656,9 @@ static void SetDefaultMode(const char* mode)
 }
 static void OnStartShownClick(void*, void*) { SetDefaultMode("on"); }
 static void OnStartHiddenClick(void*, void*) { SetDefaultMode("headless"); }
-static void OnStartOffClick(void*, void*) { SetDefaultMode("off"); }
+// The off choice leaves a re-enable hint in the More menu, so the menu must stay open to show it:
+// SetDefaultMode closes the menu first, then this reopens it (re-measured for the added hint text).
+static void OnStartOffClick(void*, void*) { SetDefaultMode("off"); ToggleToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore", L"DevToolsStartOff"); }
 static std::wstring ChipSurfaceLabel()
 {
     const std::vector<DevToolsSurface>& all = DevToolsOverlay_AllSurfaces();
@@ -790,6 +845,22 @@ static void OnDragCatcherReleased(void*, void*)
 
 static void OnDragHandleEnter(void*, void*) { ProtoSetPartVisible(L"DevToolsDragHaloOn", true); }
 static void OnDragHandleExit(void*, void*)  { ProtoSetPartVisible(L"DevToolsDragHaloOn", false); }
+
+// The collapsed pill drags like the bar's handle. A press that ends without moving opens the bar where it was.
+static void OnPillPressed(const winrt::Windows::Foundation::IInspectable& sender, const DevToolsXI::PointerRoutedEventArgs& args)
+{
+    if (!args.GetCurrentPoint(nullptr).Properties().IsLeftButtonPressed()) return;
+    // The Button captured the pointer; the drag catcher has to receive it instead.
+    sender.as<DevToolsX::UIElement>().ReleasePointerCaptures();
+    OnDragHandlePressed(nullptr, nullptr);
+}
+
+// Enter, Space and UI Automation's Invoke open the bar.
+static void OnPillInvoked(void*, void*)
+{
+    if (g_dragging || !g_toolbarVisible) return;
+    ShowARow(true);
+}
 
 static void ClearAdorner();
 
@@ -996,6 +1067,16 @@ static void WirePrototype(IInspectable* canvas)
     if (g_railL) {
         wireUiEvent(g_railL, DevToolsUiEvent::PointerEntered, g_protoSink[0], &OnAExpand);
         wireUiEvent(g_railL, DevToolsUiEvent::GotFocus, g_protoSink[12], &OnPillGotFocus);
+        wireNamedClick(L"DevToolsChip", g_protoSink[23], &OnPillInvoked);
+        try {
+            winrt::Windows::Foundation::IInspectable chip{ nullptr };
+            winrt::copy_from_abi(chip, g_railL);
+            // Handled events too: the Button marks its own press handled.
+            chip.as<DevToolsX::UIElement>().AddHandler(DevToolsX::UIElement::PointerPressedEvent(),
+                winrt::box_value(DevToolsXI::PointerEventHandler(&OnPillPressed)), true);
+        } catch (...) {
+            DevToolsOverlayLog(L"overlay.pill press subscription failed hr=0x%08X", (unsigned)winrt::to_hresult());
+        }
         void* fe = nullptr;
         if (SUCCEEDED(g_railL->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
             g_protoSink[8].Bind(&IID_SizeChanged_Del, &OnChipResize);

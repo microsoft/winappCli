@@ -303,20 +303,30 @@ Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio
 
 ## 🤖 Using with AI Coding Agents
 
-winapp ships a single plugin (at [`plugins/winapp/`](./plugins/winapp/)) — an agent plus skills — that conforms to the [Agent Plugins 1.0](https://agent-plugins.org/) specification and is distributed to GitHub Copilot and Claude Code through their respective plugin marketplaces.
+This repo ships two plugins, each published to the GitHub Copilot, Claude Code, and Codex marketplaces on every release:
+
+- **`winappcli`** ([`plugins/winapp/`](./plugins/winapp/)): an agent plus skills for winapp commands, workflows, and troubleshooting. It conforms to the [Agent Plugins 1.0](https://agent-plugins.org/) specification.
+- **`winui`** ([`plugins/winui/`](./plugins/winui/)): skills for building, packaging, and testing WinUI 3 apps.
 
 **GitHub Copilot CLI** (global — works across all projects)
 ```bash
-copilot plugin install microsoft/WinAppCli
+copilot plugin marketplace add microsoft/WinAppCli
+copilot plugin install winappcli@winappcli
+copilot plugin install winui@winappcli
 ```
 
 **Claude Code**
 ```bash
 claude plugin marketplace add microsoft/WinAppCli
 claude plugin install winappcli@winappcli
+claude plugin install winui@winappcli
 ```
 
-This gives agents full understanding of winapp commands, workflows, and troubleshooting.
+**Codex**
+```bash
+codex plugin marketplace add microsoft/WinAppCli
+```
+Then install `winappcli` and `winui` from the Plugins directory.
 
 
 ## 🔧 Feedback and Support

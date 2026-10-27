@@ -7,6 +7,26 @@ static void SetIconToggleState(void* indicator, bool on)
     if (indicator) DevToolsPutVisibility(indicator, on ? 0 : 1);
 }
 
+static void SetModeToggleState(void* control, void* indicator, bool on)
+{
+    SetIconToggleState(indicator, on);
+    if (!control) return;
+    void* toggle = nullptr;
+    HRESULT hr = reinterpret_cast<IUnknown*>(control)->QueryInterface(
+        DevToolsIid<DevToolsXCP::IToggleButton>(), &toggle);
+    if (SUCCEEDED(hr) && toggle) {
+        IInspectable* boxed = nullptr;
+        hr = BoxBool(on, &boxed);
+        if (SUCCEEDED(hr) && boxed) {
+            hr = DevToolsToggleButtonPutIsChecked(toggle, boxed);
+            boxed->Release();
+        }
+        reinterpret_cast<IUnknown*>(toggle)->Release();
+    }
+    if (FAILED(hr))
+        DevToolsOverlayLog(L"route1.mode toggle state update failed hr=0x%08X", hr);
+}
+
 // Show or clear the focus-tracking notice. An empty string hides the whole band, so "nothing to say"
 // is a state the pane can be in rather than an empty box the user has to interpret. UI thread only.
 static void SetFocusNotice(const std::wstring& text)
@@ -60,6 +80,13 @@ static void SyncChevronState(size_t i)
         WindowsDeleteString(hs);
     }
     if (i < g_treeChevronToggle.size() && g_treeChevronToggle[i]) {
+        void* control = nullptr;
+        if (SUCCEEDED(reinterpret_cast<IUnknown*>(g_treeChevronToggle[i])->QueryInterface(
+                DevToolsIid<DevToolsXC::IControl>(), &control)) && control) {
+            const HRESULT hr = DevToolsPutIsEnabled(control, g_treeFilterQuery.empty());
+            if (FAILED(hr)) DevToolsOverlayLog(L"tree.expander enabled state failed hr=0x%08X", hr);
+            reinterpret_cast<IUnknown*>(control)->Release();
+        }
         IInspectable* boxed = nullptr;
         if (SUCCEEDED(BoxBool(!g_treeCollapsed[i], &boxed)) && boxed) {
             DevToolsToggleButtonPutIsChecked(g_treeChevronToggle[i], boxed);
@@ -119,6 +146,7 @@ static void RecomputeTreeVisibility()
     for (size_t j = 0; j < visible.size(); ++j) { SetRowVisible(j, visible[j] != 0); if (visible[j]) ++shown; }
     DevToolsOverlayLog(L"route1.tree recompute rows=%zu visible=%zu jmx=%d", visible.size(), shown, (int)g_jmxActive);
     for (size_t i = 0; i < g_treeGlyph.size(); ++i) SyncChevronState(i);
+    SyncTreeAutomation();
 }
 
 static void ApplyDefaultCollapse()
@@ -233,6 +261,7 @@ static void ForceRowVisible(size_t si)
         EnsureRowsRealized(one);
     }
     SetRowVisible(si, true);
+    SyncTreeAutomation();
 }
 
 // Passive focus tracking and comment selection must not rewrite the user's tree filter.
@@ -242,7 +271,7 @@ enum class SelectCause { Explicit, Focus, Comment };
 static void SelectNodeByWire(InstanceHandle wire, SelectCause cause = SelectCause::Explicit)
 {
     if (cause != SelectCause::Focus) SetFocusNotice(L"");
-    if (!wire) { g_selectedWire = 0; return; }
+    if (!wire) { g_selectedWire = 0; SelectRowVisual(nullptr); return; }
     auto it = g_nodeIdxByWire.find(wire);
     if (it == g_nodeIdxByWire.end()) {
         if (RefreshTreeFromApp()) it = g_nodeIdxByWire.find(wire);
@@ -325,14 +354,64 @@ static void RevealPendingRow()
 
 static bool RebuildTreeRows();
 
+static bool SetTreeRowExpanded(size_t index, bool expanded)
+{
+    if (!g_treeFilterQuery.empty()) {
+        SetStatusText(L"Clear the tree filter to expand or collapse rows.");
+        DevToolsOverlayLog(L"tree.expander refused while the tree filter is active");
+        return false;
+    }
+    if (index >= g_treeCollapsed.size() || index >= g_treeA11y.size() || !g_treeA11y[index].branch)
+        return false;
+    if ((g_treeCollapsed[index] == 0) == expanded) return true;
+    g_treeCollapsed[index] = expanded ? 0 : 1;
+    RecomputeTreeVisibility();
+    return true;
+}
+
+static bool HandleTreeRowKey(size_t index, int key)
+{
+    if (key != VK_LEFT && key != VK_RIGHT) return false;
+    if (index >= g_treeControls.size() || !g_treeControls[index] ||
+        index >= g_treeVisible.size() || !g_treeVisible[index]) return false;
+    const bool branch = index < g_treeA11y.size() && g_treeA11y[index].branch;
+    if (g_treeFilterQuery.empty() && branch &&
+        ((key == VK_RIGHT && g_treeCollapsed[index]) || (key == VK_LEFT && !g_treeCollapsed[index]))) {
+        SetTreeRowExpanded(index, key == VK_RIGHT);
+        return true;
+    }
+    size_t target = DevToolsTreeLayout::kNoRow;
+    if (key == VK_LEFT && index < g_treeAutomationParents.size()) target = g_treeAutomationParents[index];
+    if (key == VK_RIGHT) {
+        for (size_t i = index + 1; i < g_treeAutomationParents.size(); ++i) {
+            if (g_treeVisible[i] && g_treeAutomationParents[i] == index) { target = i; break; }
+        }
+    }
+    if (target < g_treeControls.size() && g_treeControls[target]) {
+        void* ui = nullptr;
+        HRESULT hr = reinterpret_cast<IUnknown*>(g_treeControls[target])->QueryInterface(
+            DevToolsIid<DevToolsX::IUIElement>(), &ui);
+        bool moved = false;
+        if (SUCCEEDED(hr) && ui) {
+            hr = DevToolsFocus(ui, 2 /*Keyboard*/, &moved);
+            reinterpret_cast<IUnknown*>(ui)->Release();
+        }
+        if (SUCCEEDED(hr) && moved) BringRowIntoView(target);
+        else {
+            DevToolsOverlayLog(L"tree.keyboard could not focus row %zu hr=0x%08X", target, hr);
+            SetStatusText(L"Could not focus the tree row. Retry after layout finishes.");
+        }
+    }
+    return true;
+}
+
 struct ChevronSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void* /*sender*/, void* /*args*/)
     {
         if (gen != g_route1Gen || rowsGen != g_treeRowsGen) return S_OK;
         if (idx < g_treeCollapsed.size()) {
-            g_treeCollapsed[idx] = g_treeCollapsed[idx] ? 0 : 1;
-            RecomputeTreeVisibility();
+            if (!SetTreeRowExpanded(idx, g_treeCollapsed[idx] != 0)) SyncChevronState(idx);
         }
         return S_OK;
     }
@@ -359,29 +438,36 @@ struct JmxSink : DevToolsSinkBase
     void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
 };
 
+// The inspector's Pick button and its Ctrl+Shift+P shortcut.
+static void ToggleWindowPick()
+{
+    if (!g_ctx.writeFn) {
+        DevToolsOverlay_DisarmPick();
+        g_pickRoute.CancelWindowPick();
+        SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, false);
+        DevToolsOverlayLog(L"route1.pick refused by process posture");
+        return;
+    }
+    if (DevToolsOverlay_IsPickArmed()) {
+        DevToolsOverlay_DisarmPick();
+        g_pickRoute.CancelWindowPick();
+        return;
+    }
+    if (!DevToolsOverlay_ArmPick()) {
+        g_pickRoute.CancelWindowPick();
+        SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, DevToolsOverlay_IsPickArmed());
+        DevToolsOverlayLog(L"route1.pick arm failed: overlay catcher not ready");
+        return;
+    }
+    g_pickRoute.ArmWindowPick();
+    FocusTargetAppForPick();
+}
+
 struct PickSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void* /*sender*/, void* /*args*/)
     {
-        if (gen != g_route1Gen) return S_OK;
-        if (!g_ctx.writeFn) {
-            DevToolsOverlay_DisarmPick();
-            g_pickRoute.CancelWindowPick();
-            DevToolsOverlayLog(L"route1.pick refused by process posture");
-            return S_OK;
-        }
-        if (DevToolsOverlay_IsPickArmed()) {
-            DevToolsOverlay_DisarmPick();
-            g_pickRoute.CancelWindowPick();
-            return S_OK;
-        }
-        if (!DevToolsOverlay_ArmPick()) {
-            g_pickRoute.CancelWindowPick();
-            DevToolsOverlayLog(L"route1.pick arm failed: overlay catcher not ready");
-            return S_OK;
-        }
-        g_pickRoute.ArmWindowPick();
-        FocusTargetAppForPick();
+        if (gen == g_route1Gen) ToggleWindowPick();
         return S_OK;
     }
     void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
@@ -394,11 +480,12 @@ struct FocusSink : DevToolsSinkBase
         if (gen != g_route1Gen) return S_OK;
         const bool next = !g_focusActive;
         if (!DevToolsOverlay_SetFocusTracking(next)) {
+            SetModeToggleState(g_focusBtnCtrl, g_focusOnUi, g_focusActive);
             DevToolsOverlayLog(L"route1.focus toggle could not wire the app content root");
             return S_OK;
         }
         g_focusActive = next;
-        SetIconToggleState(g_focusOnUi, g_focusActive);
+        SetModeToggleState(g_focusBtnCtrl, g_focusOnUi, g_focusActive);
         return S_OK;
     }
     void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
@@ -409,6 +496,16 @@ struct FocusSink : DevToolsSinkBase
 // (case-insensitive substring), ignoring collapse state so every match is reachable. The "Just my XAML" gate
 // still applies so a search stays within the active scope. Operates only on the realized (<=
 // node-budget) rows, so a per-keystroke pass is cheap. UI thread only.
+static void SetTreeNoMatches(const std::wstring& query, bool none)
+{
+    if (g_treeNoMatchTb && none) {
+        HSTRING hs = MakeStr((L"No elements match \"" + query + L"\"").c_str());
+        DevToolsPutText(g_treeNoMatchTb, hs);
+        WindowsDeleteString(hs);
+    }
+    if (g_treeNoMatchUi) DevToolsPutVisibility(g_treeNoMatchUi, none ? 0 : 1);
+}
+
 static void ApplyTreeFilter(const std::wstring& queryRaw)
 {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinTreeFilter);
@@ -416,7 +513,7 @@ static void ApplyTreeFilter(const std::wstring& queryRaw)
     g_treeFilterQuery = q;
     const auto rows = SnapshotLayoutRows();
     const auto viewDepth = DevToolsTreeLayout::ComputeViewDepths(rows, g_jmxActive);
-    if (q.empty()) { ApplyIndent(viewDepth, 0); RecomputeTreeVisibility(); return; }
+    if (q.empty()) { SetTreeNoMatches(q, false); ApplyIndent(viewDepth, 0); RecomputeTreeVisibility(); return; }
     const size_t n = g_treeRows.size();
     std::vector<char> match(n, 0);
     int minDepth = -1;
@@ -437,6 +534,9 @@ static void ApplyTreeFilter(const std::wstring& queryRaw)
     // this the filter would silently drop exactly the results the user could not already see.
     EnsureRowsRealized(match);
     for (size_t j = 0; j < n; ++j) SetRowVisible(j, match[j] != 0);
+    SetTreeNoMatches(queryRaw, shown == 0);
+    for (size_t j = 0; j < g_treeChevronToggle.size(); ++j) SyncChevronState(j);
+    SyncTreeAutomation();
     DevToolsOverlayLog(L"route1.filter q='%s' rows=%zu shown=%zu indentBase=%d", q.c_str(), n, shown, minDepth);
 }
 

@@ -5,9 +5,15 @@
 #include <commctrl.h>
 static HRESULT FindTestName(void*, HSTRING, IInspectable**);
 static HRESULT PutTestText(void*, HSTRING);
+static HRESULT PutTestAutomationName(void*, void*, HSTRING);
+static HRESULT PutTestAutomationId(void*, void*, HSTRING);
 static HRESULT GetTestElement(void*, int, IInspectable**);
 static HRESULT GetTestToggle(void*, bool*);
-static HRESULT PutTestVisibility(void*, int) { return S_OK; }
+static HRESULT PutTestVisibility(void*, int);
+static HRESULT PutTestChecked(void*, IInspectable*);
+static HRESULT PutTestEnabled(void*, bool);
+static bool focusTrackingAvailable = true;
+static bool TestSetFocusTracking(bool) { return focusTrackingAvailable; }
 static int testFontStyle = -1;
 static HRESULT PutTestFontStyle(void*, int style) { testFontStyle=style; return S_OK; }
 static HRESULT PutTestForeground(void*, void*) { return S_OK; }
@@ -24,9 +30,14 @@ static double testViewport = 0.0;
 static HRESULT TestViewport(void*, double* value) { *value = testViewport; return S_OK; }
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
+#define DevToolsSetAutomationName PutTestAutomationName
+#define DevToolsSetAutomationId PutTestAutomationId
 #define DevToolsRepeaterTryGetElement GetTestElement
 #define DevToolsToggleGetIsOn GetTestToggle
 #define DevToolsPutVisibility PutTestVisibility
+#define DevToolsToggleButtonPutIsChecked PutTestChecked
+#define DevToolsPutIsEnabled PutTestEnabled
+#define DevToolsOverlay_SetFocusTracking TestSetFocusTracking
 #define DevToolsPutFontStyle PutTestFontStyle
 #define DevToolsPutTextForeground PutTestForeground
 #define DevToolsFocus TestFocus
@@ -43,6 +54,10 @@ static HRESULT TestViewport(void*, double* value) { *value = testViewport; retur
 struct TestElement : IInspectable {
     ULONG refs = 1;
     std::wstring text;
+    bool checked = false;
+    bool enabled = true;
+    int visibility = 1;
+    std::wstring automationName, automationId;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** value) override {
         *value=static_cast<IInspectable*>(this); AddRef(); return S_OK;
     }
@@ -52,7 +67,25 @@ struct TestElement : IInspectable {
     HRESULT STDMETHODCALLTYPE GetRuntimeClassName(HSTRING* value) override { *value=nullptr; return S_OK; }
     HRESULT STDMETHODCALLTYPE GetTrustLevel(TrustLevel* value) override { *value=BaseTrust; return S_OK; }
 };
-static TestElement testRow, testValue, testStatus, testInput;
+static HRESULT PutTestVisibility(void* element, int value)
+{
+    static_cast<TestElement*>(element)->visibility = value;
+    return S_OK;
+}
+static HRESULT PutTestChecked(void* element, IInspectable* value)
+{
+    winrt::Windows::Foundation::IInspectable boxed{nullptr};
+    winrt::copy_from_abi(boxed, value);
+    static_cast<TestElement*>(element)->checked = boxed.as<winrt::Windows::Foundation::IPropertyValue>().GetBoolean();
+    return S_OK;
+}
+static HRESULT PutTestEnabled(void* element, bool value)
+{
+    static_cast<TestElement*>(element)->enabled = value;
+    return S_OK;
+}
+static TestElement testRow, testValue, testStatus, testInput, testHeader;
+static bool exposeHeader = false;
 static TestElement testAppWindow, testCaption;
 static HRESULT appWindowResult = S_OK, captionResult = S_OK, addThemeResult = S_OK, putThemeResult = S_OK;
 static unsigned themeAdds = 0;
@@ -82,6 +115,7 @@ static HRESULT FindTestName(void*, HSTRING name, IInspectable** found)
     const auto* chars=WindowsGetStringRawBuffer(name,&length);
     *found=nullptr;
     if(std::wstring(chars,length)==L"PValue") { *found=&testValue; testValue.AddRef(); }
+    if(exposeHeader && std::wstring(chars,length)==L"PHeader") { *found=&testHeader; testHeader.AddRef(); }
     return S_OK;
 }
 static HRESULT PutTestText(void* element, HSTRING value)
@@ -89,6 +123,20 @@ static HRESULT PutTestText(void* element, HSTRING value)
     UINT32 length=0;
     const auto* chars=WindowsGetStringRawBuffer(value,&length);
     static_cast<TestElement*>(element)->text.assign(chars ? chars : L"",length);
+    return S_OK;
+}
+static HRESULT PutTestAutomationName(void*, void* element, HSTRING value)
+{
+    UINT32 length=0;
+    const auto* chars=WindowsGetStringRawBuffer(value,&length);
+    static_cast<TestElement*>(element)->automationName.assign(chars ? chars : L"",length);
+    return S_OK;
+}
+static HRESULT PutTestAutomationId(void*, void* element, HSTRING value)
+{
+    UINT32 length=0;
+    const auto* chars=WindowsGetStringRawBuffer(value,&length);
+    static_cast<TestElement*>(element)->automationId.assign(chars ? chars : L"",length);
     return S_OK;
 }
 static HRESULT GetTestElement(void*, int, IInspectable** element)
@@ -124,8 +172,112 @@ static LRESULT CALLBACK TestNativeClose(HWND, UINT message, WPARAM, LPARAM)
 
 int main()
 {
+    winrt::init_apartment();
     unsigned checks=0, failed=0, writes=0;
     auto check=[&](bool ok,const char* name){++checks;if(!ok){++failed;std::printf("FAIL %s\n",name);}};
+    {
+        TestElement pickButton, pickIndicator, focusButton, focusIndicator;
+        g_pickBtnCtrl = &pickButton; g_pickOnUi = &pickIndicator;
+        g_focusBtnCtrl = &focusButton; g_focusOnUi = &focusIndicator;
+        for (bool on : {true, false}) {
+            SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, on);
+            check(pickButton.checked == on && pickIndicator.visibility == (on ? 0 : 1),
+                "pick checked state and active indicator follow the actual mode");
+        }
+        FocusSink focus; focus.Init();
+        focusButton.checked = true;
+        focusTrackingAvailable = false;
+        focus.Invoke(nullptr, nullptr);
+        check(!g_focusActive && !focusButton.checked && focusIndicator.visibility == 1,
+            "failed focus activation restores the unchecked state");
+        focusTrackingAvailable = true;
+        focusButton.checked = true;
+        focus.Invoke(nullptr, nullptr);
+        check(g_focusActive && focusButton.checked && focusIndicator.visibility == 0,
+            "focus activation checks the button and shows its indicator");
+        focusButton.checked = false;
+        focus.Invoke(nullptr, nullptr);
+        check(!g_focusActive && !focusButton.checked && focusIndicator.visibility == 1,
+            "focus deactivation unchecks the button and hides its indicator");
+        focus.Invoke(nullptr, nullptr);
+        ResetAppVisibleModes(nullptr);
+        check(!g_focusActive && !focusButton.checked && focusIndicator.visibility == 1,
+            "closing the inspector clears focus mode and its accessible state");
+        g_pickBtnCtrl = g_pickOnUi = g_focusBtnCtrl = g_focusOnUi = nullptr;
+    }
+    {
+        TestElement first, second;
+        g_selBrushTried = true;
+        SelectRowVisual(&first);
+        check(g_selCtrl == &first && first.refs == 2,
+            "tree selection is tracked even when selection brushes are unavailable");
+        SelectRowVisual(&second);
+        check(g_selCtrl == &second && first.refs == 1 && second.refs == 2,
+            "changing tree selection releases the old row and retains the new row");
+        g_selectedWire = 77;
+        SelectNodeByWire(0);
+        check(!g_selCtrl && !g_selectedWire && second.refs == 1,
+            "clearing the selected element clears tree selection and releases the retained row");
+        g_selBrushTried = false;
+    }
+    {
+        TestElement rows[5], expander, glyph;
+        for (auto& row : rows) {
+            g_treeRows.push_back(&row);
+            g_treeControls.push_back(&row);
+        }
+        g_treeDepth = {0, 1, 1, 2, 2};
+        g_treeAppAuthored = {1, 1, 1, 1, 1};
+        g_treeShortType = {L"Grid", L"TitleBar", L"Grid", L"Button", L"TextBlock"};
+        g_treeLabel = {L"grid", L"titlebar", L"grid", L"button", L"textblock"};
+        g_treeCollapsed = {1, 0, 0, 0, 0};
+        g_treeVisible.resize(5);
+        g_treeA11y.resize(5);
+        g_treeA11y[0].branch = g_treeA11y[2].branch = true;
+        g_treeAutomationParents = {DevToolsTreeLayout::kNoRow, 0, 0, 2, 2};
+        g_treeChevronToggle = {&expander, nullptr, nullptr, nullptr, nullptr};
+        g_treeGlyph = {&glyph, nullptr, nullptr, nullptr, nullptr};
+        check(!HandleTreeRowKey(0, VK_RETURN) && !HandleTreeRowKey(0, VK_SPACE),
+            "tree rows leave Enter and Space to Button selection");
+        RecomputeTreeVisibility();
+        check(HandleTreeRowKey(0, VK_RIGHT) && !g_treeCollapsed[0] &&
+              g_treeVisible == std::vector<char>({1, 1, 1, 1, 1}),
+            "Right arrow expands a collapsed row and reveals its descendants");
+        const unsigned beforeFocus = focusCalls;
+        check(HandleTreeRowKey(0, VK_RIGHT) && focusCalls == beforeFocus + 1 && !g_selCtrl,
+            "Right arrow on an expanded row focuses its first child without selecting it");
+        check(HandleTreeRowKey(1, VK_LEFT) && focusCalls == beforeFocus + 2 && !g_selCtrl,
+            "Left arrow on a leaf focuses its parent without selecting it");
+        check(HandleTreeRowKey(0, VK_LEFT) && g_treeCollapsed[0] &&
+              g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
+            "Left arrow collapses an expanded row and hides its descendants");
+        ApplyTreeFilter(L"Grid");
+        const auto filteredVisibility = g_treeVisible;
+        const auto filteredCollapse = g_treeCollapsed;
+        check(filteredVisibility == std::vector<char>({1, 0, 1, 0, 0}) && !expander.enabled,
+            "filtering shows all matches across collapsed branches and disables expand arrows");
+        check(!SetTreeRowExpanded(0, true) && !SetTreeRowExpanded(0, false) &&
+              g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse &&
+              g_treeFilterQuery == L"grid",
+            "provider expansion and collapse preserve the active filter and saved collapse state");
+        ChevronSink chevron; chevron.Init(0);
+        chevron.Invoke(nullptr, nullptr);
+        check(g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse,
+            "a chevron callback cannot expose nonmatching rows while filtering");
+        check(HandleTreeRowKey(0, VK_RIGHT) && HandleTreeRowKey(2, VK_LEFT) &&
+              g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse && !g_selCtrl,
+            "arrow keys navigate filtered matches without changing expansion or selection");
+        ApplyTreeFilter(L"");
+        check(expander.enabled && g_treeCollapsed[0] && g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
+            "clearing the filter restores the saved collapse state and enables expand arrows");
+        check(HandleTreeRowKey(0, VK_RIGHT) && !g_treeCollapsed[0] && g_treeVisible[1],
+            "keyboard expansion works again after clearing the filter");
+        g_treeRows.clear(); g_treeControls.clear(); g_treeDepth.clear(); g_treeAppAuthored.clear();
+        g_treeShortType.clear(); g_treeLabel.clear(); g_treeCollapsed.clear(); g_treeVisible.clear();
+        g_treeA11y.clear(); g_treeAutomationParents.clear(); g_treeChevronToggle.clear();
+        g_treeGlyph.clear(); g_treeViewDepth.clear();
+        focusCalls = 0;
+    }
     {
         // Only open comments are pushed; with none open but some resolved, the pane must not claim there are none.
         size_t open = 0;
@@ -158,12 +310,29 @@ int main()
     bool on=false;
     BoolToggleSink toggle;
     toggle.Init(77,row.name,row.type,L"True",&on);
+    g_apStatics=&testRow;exposeHeader=true;
     toggle.Invoke(nullptr,nullptr);
+    g_apStatics=nullptr;exposeHeader=false;
     check(values[77]==L"False","boolean commit updates actual target");
     check(testValue.text==L"False","successful commit refreshes shown value in place");
     check(g_propRows[0].value==L"False","recycled row retains committed value");
+    check(testHeader.automationName==L"IsEnabled, False" && testHeader.automationId==L"IsEnabled value",
+        "committing a value refreshes the header's accessible name without changing its identity");
+    check(testValue.automationName==L"IsEnabled, False" && testValue.automationId==L"IsEnabled shown",
+        "committing a value refreshes the child text's accessible name without changing its identity");
     check(expansion.ExpansionRow().value==L"False","collapse/reopen resolves the refreshed row instead of captured snapshot");
     check(focusCalls==0,"commit does not move focus");
+    g_apStatics=&testRow;exposeHeader=true;
+    g_live.wire=g_selWire;g_live.gen=g_route1Gen;g_live.changed={row.name};
+    g_valuesFn=[](InstanceHandle, const std::vector<std::wstring>&, std::vector<DevToolsCardRow>* fresh) {
+        auto updated=g_propRows[0];updated.value=L"True";*fresh={updated};return true;
+    };
+    LiveRefreshProc(nullptr,0,0,0);
+    check(testValue.text==L"True" && testHeader.automationName==L"IsEnabled, True" &&
+        testValue.automationName==L"IsEnabled, True","live property changes refresh header and child accessible names");
+    check(testHeader.automationId==L"IsEnabled value" && testValue.automationId==L"IsEnabled shown",
+        "live property changes preserve AutomationIds");
+    g_live={};g_valuesFn=nullptr;g_apStatics=nullptr;exposeHeader=false;
     realized=false;on=true;
     toggle.Invoke(nullptr,nullptr);
     check(g_propRows[0].value==L"True","offscreen commit refreshes model without a realized element");
@@ -181,16 +350,49 @@ int main()
     values[88]=L"False";
     g_pendingWrites={{L"Other",L"String",L"x"}};
     RowExpandSink guarded;
-    guarded.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,false);
+    guarded.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,true);
     guarded.Invoke(nullptr,nullptr);
     check(g_propRows[0].value==L"True" && !CanRereadSelection(),"a pending write keeps the snapshot");
     g_pendingWrites.clear();g_propExpanded.clear();
     check(CanRereadSelection(),"a clean pane can be re-read");
     RowExpandSink opener;
-    opener.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,false);
+    opener.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,true);
     opener.Invoke(nullptr,nullptr);
     check(g_propRows[0].value==L"False" && testValue.text==L"False","opening a row re-reads its live value");
     check(CanRereadSelection(),"an expanded row whose editor is not being typed in does not block a re-read");
+    check(focusCalls==0,"expanding a property leaves focus on the header");
+    RowExpandSink closer;
+    closer.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,false);
+    closer.Invoke(nullptr,nullptr);
+    check(!PropIsExpanded(row.name),"the collapsed event clears saved expansion state");
+    closer.Invoke(nullptr,nullptr);
+    check(!PropIsExpanded(row.name),"repeated collapsed events cannot reopen a property");
+    auto shown = row;
+    shown.name=L"Height";shown.value=L"NaN";shown.valueState=L"unset";
+    check(RowShownValue(shown)==L"Auto","the accessible summary uses Auto rather than an unset sentinel");
+    g_apStatics=&testRow;
+    NamePropertyHeader(&testHeader,shown,L"Height");
+    PopulateRowValue(&testValue,shown,L"Height");
+    check(testHeader.automationName==L"Height, Auto" && testValue.automationName==L"Height, Auto" &&
+        testValue.text==L"Auto","unset height names include the displayed Auto value");
+    check(testHeader.automationId==L"Height value" && testValue.automationId==L"Height shown",
+        "initial property AutomationIds remain stable");
+    shown.valueState=L"null";
+    check(RowShownValue(shown)==L"(null)","the accessible summary names null values");
+    shown.valueState.clear();shown.value=L"200";
+    check(RowShownValue(shown)==L"200","the accessible summary includes the current literal");
+    PopulateRowValue(&testValue,shown,L"Size.Height");
+    NamePropertyHeader(&testHeader,shown,L"Size.Height");
+    check(testHeader.automationName==L"Size.Height, 200" && testValue.automationName==L"Size.Height, 200",
+        "recycled nested rows name their current path and value");
+    shown.type=L"String";shown.value.clear();
+    NamePropertyHeader(&testHeader,shown,L"Child.Text");
+    PopulateRowValue(&testValue,shown,L"Child.Text");
+    check(testHeader.automationName==L"Child.Text, (empty)" && testHeader.automationId==L"Child.Text value",
+        "empty and nested properties keep an explicit accessible value and full path");
+    check(testValue.text.empty() && testValue.automationName==L"Child.Text, (empty)" &&
+        testValue.automationId==L"Child.Text shown","an empty value clears the previous child accessible value");
+    g_apStatics=nullptr;
     g_propExpanded.clear();values[88]=L"True";g_propRows={row};testValue.text=L"True";
 
     g_ctx.readInputFn=[](IInspectable*,std::wstring& text){text=L"bad read";return false;};
@@ -264,6 +466,22 @@ int main()
     values[88]=L"";g_propRows={row};
     check(RefreshCommittedValue(row.name) && testValue.text.empty() && testFontStyle==0,
         "real empty String refresh removes prior absence styling");
+    {
+        int layoutReads=0;
+        g_ctx.layoutFn=[&](InstanceHandle,DevToolsWindowLayout&) { ++layoutReads; return true; };
+        g_paneHaveLayout=true;
+        RefreshCommittedValue(row.name);
+        check(layoutReads==0,"editing a property Size & spacing does not show leaves the section alone");
+        row.name=L"Padding";g_propRows={row};
+        g_apStatics=&testRow;exposeHeader=true;
+        RefreshCommittedValue(row.name);
+        check(layoutReads==1,"editing Padding redraws Size & spacing even though the live refresh will see no change");
+        check(testHeader.automationName==L"Padding, (empty)" && testHeader.automationId==L"Padding value",
+            "editing a layout property refreshes its accessible header as well as Size & spacing");
+        g_apStatics=nullptr;exposeHeader=false;
+        g_ctx.layoutFn=nullptr;g_paneHaveLayout=false;
+        row.name=L"Text";g_propRows={row};
+    }
     g_ctx.rowsFn=[](InstanceHandle,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>&,std::wstring&,std::wstring&) {
         return false;
     };
@@ -421,6 +639,68 @@ int main()
         alignment.value=L"Left";
         check(BuildLayoutSection(stretched,{alignment}).find(L"even though HorizontalAlignment is Left")!=std::wstring::npos,
             "extra width despite a non-default alignment is called out");
+        {
+            // <TextBox Width="320" Margin="18,12"/>: DesiredSize includes the margin, RenderSize does not.
+            DevToolsWindowLayout box{};
+            box.haveDesired=box.haveRender=true;
+            box.desiredW=356;box.desiredH=114;box.renderW=320;box.renderH=90;
+            DevToolsCardRow margin;margin.name=L"Margin";margin.value=L"18,12,18,12";
+            DevToolsCardRow width;width.name=L"Width";width.value=L"320";
+            const auto section=BuildLayoutSection(box,{margin,width});
+            check(section.find(L"LESS width")==std::wstring::npos && section.find(L"clipped")==std::wstring::npos,
+                "a margin is not reported as a constraint");
+            check(section.find(L"with margin")!=std::wstring::npos,
+                "the asked-for size says it includes the margin");
+            // <Border Width="400"/> in a 275 column: DesiredSize is clipped to the slot, RenderSize keeps Width.
+            DevToolsWindowLayout wide{};
+            wide.haveDesired=wide.haveRender=true;
+            wide.desiredW=275;wide.desiredH=20;wide.renderW=400;wide.renderH=20;
+            width.value=L"400";
+            for (const wchar_t* align : {L"Stretch", L"Left"}) {
+                alignment.value=align;
+                const auto clipped=BuildLayoutSection(wide,{width,alignment});
+                check(clipped.find(L"Its Width (400) is larger than the 275 its parent offered, so it is clipped")!=std::wstring::npos &&
+                    clipped.find(L"MORE width")==std::wstring::npos,
+                    "a fixed Width larger than its slot is described as clipped");
+            }
+            wide.desiredW=275+36;
+            check(BuildLayoutSection(wide,{width,margin}).find(L"larger than the 275 its parent offered inside its Margin")!=std::wstring::npos,
+                "the clipped explanation subtracts the margin from the offered space");
+            DevToolsWindowLayout same=box;
+            {
+                // <Border Width="10" Margin="-20,0"/> fits; DesiredSize is floored at zero.
+                DevToolsWindowLayout neg{};
+                neg.haveDesired=neg.haveRender=true;
+                neg.desiredW=0;neg.desiredH=10;neg.renderW=10;neg.renderH=10;
+                DevToolsCardRow negMargin;negMargin.name=L"Margin";negMargin.value=L"-20,0,-20,0";
+                DevToolsCardRow negWidth;negWidth.name=L"Width";negWidth.value=L"10";
+                const auto negSection=BuildLayoutSection(neg,{negMargin,negWidth});
+                check(negSection.find(L"LESS width")==std::wstring::npos && negSection.find(L"clipped")==std::wstring::npos,
+                    "a negative margin is not reported as clipping");
+                // <Border Width="400" Margin="10"/> in a 15 slot: the usable width is zero, not -5.
+                DevToolsWindowLayout tiny{};
+                tiny.haveDesired=tiny.haveRender=true;
+                tiny.desiredW=15;tiny.desiredH=20;tiny.renderW=400;tiny.renderH=20;
+                DevToolsCardRow tenMargin;tenMargin.name=L"Margin";tenMargin.value=L"10,10,10,10";
+                width.value=L"400";
+                const auto tinySection=BuildLayoutSection(tiny,{width,tenMargin});
+                check(tinySection.find(L"larger than the 0 its parent offered inside its Margin")!=std::wstring::npos &&
+                    tinySection.find(L"-5")==std::wstring::npos,
+                    "a margin wider than the slot reports zero offered space, not a negative number");
+            }
+            check(FeedsLayoutSection(L"Margin") && FeedsLayoutSection(L"MaxWidth") &&
+                FeedsLayoutSection(L"HorizontalAlignment") && !FeedsLayoutSection(L"Text"),
+                "changing a property the explanation reads redraws Size & spacing");
+            check(SameLayout(box,same),"an unchanged layout does not rebuild the pane");
+            same.parentW=560;same.haveParentBox=true;
+            check(!SameLayout(box,same),"a changed offered size rebuilds the pane");
+            same=box;same.parentSpacing=L"24";
+            check(!SameLayout(box,same),"a changed parent Spacing redraws Size & spacing");
+            same=box;same.gridColumn=L"1";
+            check(!SameLayout(box,same),"a changed Grid column redraws Size & spacing");
+            check(!g_layoutBody && !ReplaceLayoutSection(same),
+                "with no Size & spacing section on screen, a layout change falls back to rebuilding the pane");
+        }
         DevToolsCardRow text;text.name=L"Text";text.type=L"String";text.value=L"Hi";text.source=L"Local";
         g_layoutSectionOpen=0;
         const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
@@ -624,13 +904,25 @@ int main()
         EditRecord themed; themed.wire=500; themed.prop=L"Text"; themed.original=L"Hello";
         themed.baseline=L"Light"; themed.needsBaseline=false; themed.baselineTheme=1;
         g_editRecords.push_back(themed);
-        std::vector<DevToolsCardRow> dark{text}; dark[0].value=L"Dark";
+        DevToolsCardRow themeRow=text; themeRow.authoredKind=L"themeResource"; themeRow.authoredKey=L"Greeting";
+        std::vector<DevToolsCardRow> dark{themeRow}; dark[0].value=L"Dark";
         ReconcileEditRecordsAt(500,dark,2);
         check(DirtyFind(L"Text") && DirtyFind(L"Text")->baseline==L"Dark" && !AppChanged(500,L"Text"),
             "a theme switch keeps Restore");
         dark[0].value=L"FromApp";
         ReconcileEditRecordsAt(500,dark,2);
         check(!DirtyFind(L"Text") && AppChanged(500,L"Text"), "an app change in the same theme still drops Restore");
+        // A literal set on the element looks the same in every theme, so a change during a theme switch is the app's.
+        g_editRecords.clear(); g_appChanged.clear();
+        g_editRecords.push_back(themed);
+        std::vector<DevToolsCardRow> literalDark{text}; literalDark[0].value=L"FromApp";
+        ReconcileEditRecordsAt(500,literalDark,2);
+        check(!DirtyFind(L"Text") && AppChanged(500,L"Text"), "an app change to a literal during a theme switch still drops Restore");
+        g_editRecords.push_back(themed);
+        literalDark[0].value=L"Light";
+        ReconcileEditRecordsAt(500,literalDark,2);
+        check(DirtyFind(L"Text") && DirtyFind(L"Text")->baselineTheme==2, "an unchanged literal keeps Restore across a theme switch");
+        g_editRecords.clear(); g_appChanged.clear();
 
         // A failed resource Restore can clear the property; the value before it is put back and Restore stays.
         g_editRecords.clear(); g_appChanged.clear();
@@ -643,6 +935,58 @@ int main()
         check(live[500]==L"Lit" && DirtyFind(L"Text") && !AppChanged(500,L"Text") &&
               testStatus.text.find(L"Nothing was changed")!=std::wstring::npos,
             "a failed resource Restore keeps the current value and the record");
+        // An empty string is a real value: a failed lookup that cleared it puts the empty string back.
+        g_editRecords.clear(); g_appChanged.clear();
+        live[500]=L""; liveSource=L"Local"; g_propRows={text}; g_propRows[0].value=L"";
+        linked.baseline=L""; g_editRecords.push_back(linked);
+        g_ctx.resolveFn=[](InstanceHandle wire,const std::wstring&,const std::wstring&,bool){ live[wire]=L""; liveSource=L"Default"; return false; };
+        const unsigned editsEmpty=edits;
+        RestoreRowValue(500,L"Text",L"String");
+        check(edits==editsEmpty+1 && liveSource==L"Local" && DirtyFind(L"Text") &&
+              testStatus.text.find(L"Nothing was changed")!=std::wstring::npos,
+            "a failed resource Restore puts back an empty string");
+        g_ctx.resolveFn=nullptr; liveSource=L"Local";
+
+        // Coming back to an element forgets that its resource link was replaced; Restore must still write directly.
+        g_editRecords.clear(); g_appChanged.clear();
+        live[500]=L"Mine"; g_propRows={text}; g_propRows[0].value=L"Mine";
+        g_linkedRows={L"Text"}; g_linkLost.clear(); g_pendingWrites.clear();
+        EditRecord literalOverLink; literalOverLink.wire=500; literalOverLink.prop=L"Text"; literalOverLink.original=L"Hello";
+        literalOverLink.baseline=L"Mine"; literalOverLink.needsBaseline=false;
+        g_editRecords.push_back(literalOverLink);
+        RestoreRowValue(500,L"Text",L"String");
+        check(live[500]==L"Hello" && !DirtyFind(L"Text") && g_pendingWrites.empty(),
+            "Restore on a resource-backed row works after leaving and coming back to the element");
+        g_linkedRows.clear(); g_linkLost.clear();
+
+        // A field such as Foreground.Color isn't in the live read, so its baseline comes from a full read rather
+        // than the pane's cached value, and the next full read doesn't mistake DevTools' own write for the app's.
+        {
+            static std::wstring color;
+            color=L"Red";
+            DevToolsCardRow fg; fg.name=L"Foreground"; fg.type=L"Brush"; fg.value=L"SolidColorBrush"; fg.source=L"Local";
+            DevToolsCardRow fgColor; fgColor.name=L"Color"; fgColor.type=L"Color"; fgColor.value=L"Blue";
+            fg.children={fgColor};
+            const auto rowsAll=g_ctx.rowsFn;
+            g_ctx.rowsFn=[fg](InstanceHandle,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>& rows,std::wstring&,std::wstring&) {
+                auto fresh=fg; fresh.children[0].value=color; rows={fresh}; return true;
+            };
+            g_editRecords.clear(); g_appChanged.clear(); g_propRows={fg};
+            EditRecord colorRec; colorRec.wire=500; colorRec.prop=L"Foreground.Color"; colorRec.original=L"Blue";
+            g_editRecords.push_back(colorRec);
+            CheckEditRecordsNow(500);
+            check(DirtyFind(L"Foreground.Color") && DirtyFind(L"Foreground.Color")->baseline==L"Red",
+                "an edited field takes its baseline from a full read, not the pane's cached value");
+            std::vector<DevToolsCardRow> full; std::wstring t,n,s,x;
+            g_ctx.rowsFn(500,t,n,full,s,x);
+            ReconcileEditRecords(500,full);
+            check(DirtyFind(L"Foreground.Color") && !AppChanged(500,L"Foreground.Color"),
+                "editing a field keeps its Restore");
+            DevToolsCardRow liveFg=fg; liveFg.children.clear();
+            ReconcileLiveValues(500,{liveFg});
+            check(DirtyFind(L"Foreground.Color") != nullptr, "a live read without fields leaves a field's Restore alone");
+            g_ctx.rowsFn=rowsAll; g_editRecords.clear(); g_propRows={text};
+        }
         g_ctx.resolveFn=nullptr;
 
         // An editor removed by a rebuild can still deliver a focus-out; it must not write again.
@@ -691,6 +1035,15 @@ int main()
             "after the app clears a property back to its style, Restore clears it again");
         DevToolsCardRow styledNow=text; styledNow.source=L"Style"; styledNow.authoredKind.clear();
         check(!SetHereIn({styledNow},L"Text") && SetHereIn({text},L"Text"), "a style value is not set on the element");
+        DevToolsCardRow clearedAuthored=text; clearedAuthored.source=L"Style";
+        check(!SetHereIn({clearedAuthored},L"Text"),
+            "a property authored in XAML that the app cleared back to its style is not set on the element");
+        DevToolsCardRow animated=text; animated.source=L"Animation";
+        check(SetHereIn({animated},L"Text"), "an animation over an authored value still counts as set on the element");
+        g_propRows={clearedAuthored}; g_appChanged.clear();
+        EditRecord clearedOriginal;
+        check(OriginalFor(L"Text",L"FromStyle",clearedOriginal) && clearedOriginal.kind==DevToolsOriginal::Unset,
+            "Restore clears an authored property the app had cleared, instead of pinning the style's value");
         g_linkedRows.clear(); g_appChanged.clear(); g_propRows={text};
 
         // Attached properties keep their full name in the pre-write read; fields read their owning property.

@@ -451,6 +451,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         var app = Prepare("folder", true);
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ProcessesRunningFromLayout = _ => [4242];
+        handler.CloseRunningProcess = _ => true;
         handler.ProcessHasExited = pid => pid == 4242;
         Assert.AreEqual(0, await Run(app.Input, "--detach"), TestAnsiConsole.Output);
         StringAssert.Contains(TestAnsiConsole.Output, "Closed the running instance (PID 4242)");
@@ -698,6 +699,14 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
+    public void StepAside_DoesNotSayTheAppRunsWhenItExited()
+    {
+        Assert.AreEqual(
+            "DevTools unavailable: the app exited right after launch (exit code 1)",
+            RunCommand.Handler.StepAsideLine("the app exited right after launch (exit code 1).", runsWithoutDevTools: false));
+    }
+
+    [TestMethod]
     public async Task Setting_Headless_AttachesWithoutTheToolbar()
     {
         var app = WinUIProject(true, setting: DevToolsMode.Headless);
@@ -942,6 +951,21 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(4242, closed.Single());
         Assert.HasCount(1, _attach.Calls);
         StringAssert.Contains(TestAnsiConsole.Output, "Closed 1 running instance(s) of this app (PID 4242) so DevTools starts cold.");
+    }
+
+    [TestMethod]
+    public async Task Off_AppAlreadyRunning_IsClosedSoItsFilesCanBeReplaced()
+    {
+        var app = WinUIProject(true);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        var closed = new List<int>();
+        handler.ProcessesRunningFromLayout = _ => [4242];
+        handler.CloseRunningProcess = pid => { closed.Add(pid); return true; };
+        handler.ProcessHasExited = pid => closed.Contains(pid);
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "off", "--detach"), TestAnsiConsole.Output);
+        Assert.AreEqual(4242, closed.Single());
+        Assert.IsEmpty(_attach.Calls);
+        StringAssert.Contains(TestAnsiConsole.Output, "Closed the running instance (PID 4242)");
     }
 
     [TestMethod]

@@ -26,7 +26,8 @@ folders, .cs files and non-WinUI projects; pass `--devtools on` there). Let the 
 leave comments there:
 turn on **Comments** in the toolbar, click an element, type, press Enter (Shift+Enter for a
 new line), or click the next element to save and move on. **Select element** opens the
-DevTools window on the element the user clicks. Ctrl+Shift+F12 moves keyboard
+DevTools window on the element the user clicks, then turns picking off so the next
+click reaches the app. Ctrl+Shift+F12 moves keyboard
 focus to the toolbar (showing it if the user hid it), and Esc returns it. Use a second terminal for commands, or add `--detach`
 to return to the terminal with the app still running and its PID printed.
 Use an exact PID with `-a` when multiple apps are attached.
@@ -157,7 +158,8 @@ app's content. The subtree must belong to `--window` when both are supplied.
 Never reuse a closed window or stale root, and do not substitute UIA slugs.
 Use `search --of-type TextBlock --with 'FontSize>=20' --fields 'Text,FontSize'`
 for multi-element reads; repeat `--with` for AND. A definite typed mismatch excludes
-an element even if another predicate value is unknown; without a mismatch, unknown
+an element even if another predicate value is unknown; a local null value does not
+match `==` or `*=` with a non-empty value. Without a mismatch, unknown
 values still block exact targeting. Check completeness and unevaluated candidates
 before acting. Query-targeted `get-property` and
 `set-property --value` require exactly one provable match; omit the positional

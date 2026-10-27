@@ -102,7 +102,7 @@ if ($Validate) {
     foreach ($t in $tasks) {
         foreach ($mode in 'solve', 'noop') {
             if ($mode -eq 'solve' -and -not $t.Solve) { continue }
-            $runList.Add([pscustomobject]@{ Task = $t; Configuration = 'none'; Model = $mode; Iteration = 1; Mode = $mode })
+            $runList.Add([pscustomobject]@{ Task = $t; Configuration = 'cli-only'; Model = $mode; Iteration = 1; Mode = $mode })
         }
     }
 }
@@ -138,10 +138,11 @@ $copilotExe = (Get-Command copilot -CommandType Application -ErrorAction Stop | 
 $pinned = if ($CopilotVersion) { $CopilotVersion } elseif ($config.copilotVersion) { $config.copilotVersion } else {
     ((& $copilotExe --version 2>&1 | Out-String) -match '(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)') | Out-Null; $Matches[1].TrimEnd('.')
 }
-$pkgSource = Join-Path $env:LOCALAPPDATA "copilot\pkg\win32-x64\$pinned"
+$arch = Get-HostArchitecture
+$pkgSource = Join-Path $env:LOCALAPPDATA "copilot\pkg\win32-$arch\$pinned"
 if (-not (Test-Path $pkgSource)) { throw "Copilot CLI build $pinned is not on this machine ($pkgSource). Run 'copilot --prefer-version $pinned --version' once, or pass -CopilotVersion." }
 $copilotCache = Join-Path $cache 'copilot'
-$pkgCache = Join-Path $copilotCache "pkg\win32-x64\$pinned"
+$pkgCache = Join-Path $copilotCache "pkg\win32-$arch\$pinned"
 if (-not (Test-Path "$pkgCache\.extraction-complete")) {
     robocopy $pkgSource $pkgCache /E /XF 'inuse.*.lock' /NFL /NDL /NJH /NJS /NP | Out-Null
 }
@@ -150,15 +151,15 @@ Copy-Item $copilotExe (Join-Path $copilotCache 'copilot.exe') -Force
 $winappDir = if ($Winapp -eq 'release') {
     $rel = Join-Path $cache "winapp-$($config.winapp.release)"
     if (-not (Test-Path "$rel\winapp.exe")) {
-        $zip = Join-Path $cache 'winappcli-x64.zip'
-        & gh release download $config.winapp.release -R microsoft/winappCli -p 'winappcli-x64.zip' -O $zip --clobber
+        $zip = Join-Path $cache "winappcli-$arch.zip"
+        & gh release download $config.winapp.release -R microsoft/winappCli -p "winappcli-$arch.zip" -O $zip --clobber
         Expand-Archive $zip $rel -Force
     }
     $rel
 }
 elseif ($Winapp) { (Resolve-Path $Winapp).Path }
-else { & $resolve $config.winapp.localBuild }
-if (-not (Test-Path (Join-Path $winappDir 'winapp.exe'))) { throw "No winapp.exe in $winappDir. Run: dotnet publish src\winapp-CLI\WinApp.Cli -c Release -r win-x64 --self-contained -o artifacts\cli\win-x64 (vswhere must be on PATH), or pass -Winapp release." }
+else { & $resolve $config.winapp.localBuild.Replace('{arch}', $arch) }
+if (-not (Test-Path (Join-Path $winappDir 'winapp.exe'))) { throw "No winapp.exe in $winappDir. Run: dotnet publish src\winapp-CLI\WinApp.Cli -c Release -r win-$arch --self-contained -o artifacts\cli\win-$arch (vswhere must be on PATH), or pass -Winapp release." }
 $winappStage = Join-Path $cache 'winapp-current'
 robocopy $winappDir $winappStage /MIR /XF *.pdb /NFL /NDL /NJH /NJS /NP | Out-Null
 $winappVersion = (& (Join-Path $winappStage 'winapp.exe') --version 2>$null | Select-Object -Last 1)
@@ -167,7 +168,7 @@ $sdkCache = Join-Path $cache 'sdk'
 if (-not (Test-Path "$sdkCache\makeappx.exe")) {
     $nugetRoot = $env:NUGET_PACKAGES ? $env:NUGET_PACKAGES : (Join-Path $env:USERPROFILE '.nuget\packages')
     $bt = Get-ChildItem (Join-Path $nugetRoot 'microsoft.windows.sdk.buildtools') -Directory -ErrorAction SilentlyContinue |
-        ForEach-Object { Get-ChildItem "$($_.FullName)\bin\*\x64\makeappx.exe" -ErrorAction SilentlyContinue } | Sort-Object FullName -Descending | Select-Object -First 1
+        ForEach-Object { Get-ChildItem "$($_.FullName)\bin\*\$arch\makeappx.exe" -ErrorAction SilentlyContinue } | Sort-Object FullName -Descending | Select-Object -First 1
     if (-not $bt) { throw 'Microsoft.Windows.SDK.BuildTools is not in the NuGet cache. Run any winapp packaging command once on this machine.' }
     robocopy $bt.DirectoryName $sdkCache /E /NFL /NDL /NJH /NJS /NP | Out-Null
 }
@@ -324,7 +325,7 @@ try {
         Copy-Item $t.Check (Join-Path $check 'check.ps1')
         [ordered]@{
             runId = $runId; task = $t.Id; mode = $run.Mode; prompt = $t.Prompt; model = $run.Model; agent = $spec.Agent
-            plugins = @($spec.Plugins); copilotVersion = $pinned; timeoutMinutes = $t.TimeoutMinutes; workspace = $t.Workspace
+            plugins = @($spec.Plugins); hideWinapp = [bool]($spec.HideWinapp -and $run.Mode -eq 'agent'); copilotVersion = $pinned; timeoutMinutes = $t.TimeoutMinutes; workspace = $t.Workspace
         } | ConvertTo-Json | Set-Content (Join-Path $in 'run.json') -Encoding utf8NoBOM
 
         $record = [ordered]@{

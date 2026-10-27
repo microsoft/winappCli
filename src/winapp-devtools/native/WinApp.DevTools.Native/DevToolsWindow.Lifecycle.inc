@@ -104,13 +104,14 @@ if (g_route1WindowHidden) {
                 reinterpret_cast<IUnknown*>(win)->Release();
             }
             DevToolsOverlayLog(L"route1.open re-activate existing (live) window");
-            SelectNodeByWire(preselectWire);
+            if (preselectWire) SelectNodeByWire(preselectWire);
             // The app may have changed this element since the window last read it.
             if (preselectWire && preselectWire == g_selWire) {
                 WalkForget();
                 ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
             }
             LiveWatchSelection();
+            SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, DevToolsOverlay_IsPickArmed());
             return S_OK;
         }
         DevToolsOverlayLog(L"route1.open existing window was closed; rebuilding");
@@ -277,6 +278,12 @@ if (g_route1WindowHidden) {
             if (!g_focusNoticeUi || !g_focusNoticeTb)
                 DevToolsOverlayLog(L"route1.wire MISS: focus notice host=%p text=%p -- focus redirects will move "
                               L"the tree with no explanation", g_focusNoticeUi, g_focusNoticeTb);
+            grabUi(L"TreeNoMatches", &g_treeNoMatchUi);
+            if (g_treeNoMatchTb) { reinterpret_cast<IUnknown*>(g_treeNoMatchTb)->Release(); g_treeNoMatchTb = nullptr; }
+            if (IInspectable* nm = findByName(L"TreeNoMatches")) {
+                nm->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_treeNoMatchTb);
+                nm->Release();
+            }
             grabUi(L"CommentsBadge", &g_commentsBadgeUi);
             if (g_commentsLbl) { reinterpret_cast<IUnknown*>(g_commentsLbl)->Release(); g_commentsLbl = nullptr; }
             if (IInspectable* lbl = findByName(L"CommentsLbl")) {
@@ -374,7 +381,9 @@ if (g_route1WindowHidden) {
         wireToggle(L"JmxBtn",  L"JmxLbl",  reinterpret_cast<IUnknown*>(jmxSink),  &g_jmxLbl, &g_jmxBtnCtrl);
         wireToggle(L"PickBtn", nullptr, reinterpret_cast<IUnknown*>(pickSink), nullptr, &g_pickBtnCtrl);
         if (g_pickBtnCtrl) DevToolsPutIsEnabled(g_pickBtnCtrl, g_ctx.writeFn != nullptr);
-        wireToggle(L"FocusBtn", nullptr, reinterpret_cast<IUnknown*>(focusSink), nullptr);
+        wireToggle(L"FocusBtn", nullptr, reinterpret_cast<IUnknown*>(focusSink), nullptr, &g_focusBtnCtrl);
+        SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, DevToolsOverlay_IsPickArmed());
+        SetModeToggleState(g_focusBtnCtrl, g_focusOnUi, g_focusActive);
         void* rootUi = nullptr;
         if (SUCCEEDED(static_cast<IUnknown*>(feRoot)->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &rootUi)) && rootUi) {
             auto* keys = new SnapshotRefreshSink(); keys->Init();
@@ -418,6 +427,14 @@ if (g_route1WindowHidden) {
                     // A failed subscription here is a splitter that looks draggable and is not -- the exact
                     // subscribed-but-never-invoked shape this file keeps having to detect, so say it.
                     if (FAILED(hrS)) DevToolsOverlayLog(L"route1.splitter add_DragDelta FAILED hr=0x%08X -- the divider will not resize", hrS);
+                    void* splitUi = nullptr;
+                    if (SUCCEEDED(splitInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &splitUi)) && splitUi) {
+                        auto* splitKeys = new SplitterKeySink(); splitKeys->Init();
+                        __int64 ktok = 0;
+                        const HRESULT hrK = DevToolsAddPreviewKeyDown(splitUi, splitKeys, &ktok);
+                        if (FAILED(hrK)) DevToolsOverlayLog(L"route1.splitter keyboard subscription FAILED hr=0x%08X", hrK);
+                        reinterpret_cast<IUnknown*>(splitUi)->Release();
+                    }
                     reinterpret_cast<IUnknown*>(thumb)->Release();
                 } else {
                     DevToolsOverlayLog(L"route1.splitter MISS: PaneSplitter is not a Thumb, or TreePane has no IFrameworkElement -- the divider will not resize");
@@ -560,7 +577,6 @@ if (g_route1WindowHidden) {
 static void ResetAppVisibleModes(HWND h)
 {
     if (h) {
-        KillTimer(h, kDisarmAfterWindowPickTimerId);
         KillTimer(h, kRefreshTimerId);
     }
     if (g_hoverRevertTimer) { KillTimer(nullptr, g_hoverRevertTimer); g_hoverRevertTimer = 0; }
@@ -569,12 +585,12 @@ static void ResetAppVisibleModes(HWND h)
     if (g_pickRoute.IsWindowPickArmed()) {
         DevToolsOverlay_DisarmPick();
         g_pickRoute.CancelWindowPick();
-        SetIconToggleState(g_pickOnUi, false);
+        SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, false);
     }
     if (g_focusActive) {
         DevToolsOverlay_SetFocusTracking(false);
         g_focusActive = false;
-        SetIconToggleState(g_focusOnUi, false);
+        SetModeToggleState(g_focusBtnCtrl, g_focusOnUi, false);
     }
 }
 
@@ -628,7 +644,6 @@ bool DevToolsWindow_OnPicked(InstanceHandle wire, bool releaseCommit)
     if (!DevToolsWindow_IsOpen()) return false;
     const bool fromWindow = releaseCommit && g_pickRoute.CommitReleasedPick();
     if (fromWindow) {
-        ArmDisarmAfterWindowPick();   // complete the one-shot contract (see the timer's own comment)
         FocusInspectorAfterPick();
     }
     if (g_commentsView) {
@@ -674,15 +689,14 @@ void DevToolsWindow_RereadSelection(InstanceHandle wire)
     } catch (const winrt::hresult_error&) {}
 }
 
-// The overlay reports every pick-mode transition here, whichever surface caused it (the window's toggle, the
-// rail's Pick button, or Esc). One owner, one state: this is the only writer of the window's indicator, and
-// the routing bit is cleared with the mode so a later overlay-armed pick is not mistakenly claimed by this
-// window. UI thread only.
+// Overlay, inspector and Esc transitions share the same checked state and indicator.
+// Clear the routing bit with the mode so a later overlay pick is not claimed by the inspector.
+// UI thread only.
 void DevToolsWindow_OnPickModeChanged(bool armed)
 {
     if (!armed) g_pickRoute.CancelWindowPick();
     if (!DevToolsWindow_IsOpen()) return;
-    SetIconToggleState(g_pickOnUi, armed);
+    SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, armed);
     DevToolsOverlayLog(L"route1.pick mode -> %s (overlay armed=%d)", armed ? L"ON" : L"OFF",
                   (int)DevToolsOverlay_IsPickArmed());
 }

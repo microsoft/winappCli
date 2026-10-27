@@ -10,7 +10,7 @@ static bool          g_pinned     = false;
 static double        g_protoW = 0.0;
 static double        g_protoH = 0.0;
 static double        g_chipW = 104.0;
-static EventSink g_protoSink[23];
+static EventSink g_protoSink[24];
 static int g_toolbarFocusWithin = 0;
 static EventSink g_resizeSink;
 static EventSink g_originSink;
@@ -414,8 +414,32 @@ static void OpenPicked(InstanceHandle picked, bool claimedByWindow)
     }
 }
 
-// Pick mode stays armed, so The catcher sits at Canvas.ZIndex 0, below the toolbar (1000), pins (1900) and the
-// selection anchor (2000-2002), so staying armed never swallows clicks on our own chrome.
+static UINT_PTR g_pickCompleteTimer = 0;
+
+static void CancelPickCompletion()
+{
+    if (!g_pickCompleteTimer) return;
+    KillTimer(nullptr, g_pickCompleteTimer);
+    g_pickCompleteTimer = 0;
+}
+
+static void CALLBACK CompletePickTimerProc(HWND, UINT, UINT_PTR id, DWORD)
+{
+    if (!g_pickCompleteTimer || id != g_pickCompleteTimer) return;
+    CancelPickCompletion();
+    DevToolsOverlay_CompleteOneShotPick();
+}
+
+static void CompletePickAfterRelease()
+{
+    // Removing the catcher inside its PointerReleased handler can reenter XAML input processing.
+    if (!g_pickCompleteTimer)
+        g_pickCompleteTimer = SetTimer(nullptr, 0, 1, &CompletePickTimerProc);
+    if (!g_pickCompleteTimer)
+        DevToolsOverlayLog(L"overlay.pick completion NOT armed (err=%lu) -- pick catcher stays armed", GetLastError());
+}
+
+// The catcher sits below the toolbar, pins and selection anchor so comment mode can keep accepting picks.
 static void OnCatcherClick(void* sender, void*)
 {
     if (!IsCurrentCatcher(sender)) return;
@@ -489,7 +513,7 @@ static void OnCatcherClick(void* sender, void*)
         }
 
         if (!picked) {
-            DevToolsOverlayLog(L"overlay.pick empty hit -> deselect (sticky pick stays armed)");
+            DevToolsOverlayLog(L"overlay.pick empty hit -> deselect (picker stays armed)");
             DeselectAll();
             return;
         }
@@ -500,6 +524,7 @@ static void OnCatcherClick(void* sender, void*)
         if (picked) OpenPicked(picked, claimedByWindow);
 
         TrackingSync();
+        if (!CommentModeOn()) CompletePickAfterRelease();
     }
 }
 
@@ -546,6 +571,7 @@ static void ArmInputMode(void* sender, bool commentMode)
         if (g_pickCatcher) { ExitPickMode(); DeselectAll(); }
         return;
     }
+    CancelPickCompletion();
     if (g_pickCatcher) {
         // Leaving comment mode saves and closes the flyout first.
         if (!commentMode && DevToolsSelPanelIsOpen() && !DismissSelectionPanel()) return;
@@ -622,7 +648,7 @@ static void ArmInputMode(void* sender, bool commentMode)
     SetPickButtonOn(true);
     WireAppEscapeOnce();
     if (!g_pickFollowTimer) g_pickFollowTimer = SetTimer(nullptr, 0, 250, &PickFollowTimerProc);
-    DevToolsOverlayLog(L"overlay.pickmode armed (%dx%d catcher, sticky, %s)", w, h, commentMode ? L"comments" : L"inspect");
+    DevToolsOverlayLog(L"overlay.pickmode armed (%dx%d catcher, %s)", w, h, commentMode ? L"comments" : L"inspect");
     NotifyStateChanged();
 }
 
