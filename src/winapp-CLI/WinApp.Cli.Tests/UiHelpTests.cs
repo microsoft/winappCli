@@ -75,6 +75,7 @@ public class UiHelpTests : BaseCommandTests
         }
 
         Assert.DoesNotContain("--json", output);
+        StringAssert.Contains(output, "--expect-sandbox <guid>");
     }
 
     [TestMethod]
@@ -87,6 +88,7 @@ public class UiHelpTests : BaseCommandTests
             Assert.IsTrue(output.StartsWith($"winapp ui {command.Name} - ", StringComparison.Ordinal), output);
             StringAssert.Contains(output, "\nExamples:\n");
             Assert.AreEqual(1, Regex.Count(output, "^Global options:", RegexOptions.Multiline), command.Name);
+            StringAssert.Contains(output, "--expect-sandbox <guid>", command.Name);
             Assert.DoesNotContain("--verbose", output, command.Name);
             Assert.DoesNotContain("--quiet", output, command.Name);
             Assert.DoesNotMatchRegex(new Regex(@"^\s+--cli-schema", RegexOptions.Multiline), output, command.Name);

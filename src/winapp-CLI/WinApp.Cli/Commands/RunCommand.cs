@@ -45,7 +45,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         ("Build (project and .cs input)",
             [ConfigurationOption, ArchOption, RuntimeOption, FrameworkOption, ProjectOption, PropertyOption, AotOption, NoBuildOption, NoRestoreOption]),
         ("Launch",
-            [DetachOption, ArgsOption, WithAliasOption, WithoutAliasOption, NoLaunchOption, CleanOption, UnregisterOnExitOption, UniqueIdentityOption]),
+            [DetachOption, ArgsOption, WithAliasOption, WithoutAliasOption, NoLaunchOption, CleanOption, UnregisterOnExitOption, UniqueIdentityOption, ExecutionTargetSelection.ExpectSandboxOption]),
         ("Package layout",
             [ManifestOption, ExecutableOption, OutputAppXDirectoryOption]),
         ("Debug and profile",
