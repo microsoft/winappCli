@@ -124,6 +124,13 @@ int main()
           "an unavailable restore is not restored");
     check(!RestoreLanded(L"{\"state\":\"restored\",\"bound\":\"False\"}"),
           "a reattached binding the app dropped again is not restored");
+    check(!DiagMayCapture(DevToolsBindingTone::Works, L"", L"", /*afterLiveWrite*/ true),
+          "a literal written over the binding keeps the saved binding for Restore");
+    check(DiagMayCapture(DevToolsBindingTone::Works, L"", L"", false), "a live binding is captured");
+    check(DiagMayCapture(DevToolsBindingTone::Works, L"restore", L"{\"state\":\"restored\",\"bound\":\"True\"}", true),
+          "a restored binding is captured again");
+    check(!DiagMayCapture(DevToolsBindingTone::Works, L"restore", L"{\"state\":\"restored\",\"bound\":\"False\"}", true),
+          "a failed restore keeps the saved binding");
     row.name = L"Text";
     row.authoredKind = L"xBind";
     g_propRows = {row};

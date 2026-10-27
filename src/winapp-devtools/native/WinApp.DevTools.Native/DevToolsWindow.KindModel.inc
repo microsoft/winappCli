@@ -485,6 +485,16 @@ static void NoteRestoredBinding(const std::wstring& prop, const std::wstring& ac
     NoteSessionAssign(prop, DevToolsKind::Binding, BindingExprFrom(bindPath, mode));
 }
 
+// A literal written over the binding leaves nothing live to capture, even though the diagnosis of the XAML binding
+// still reads as working. Capturing then would drop the saved binding Restore needs ({Binding OtherTitle} after
+// x:Bind -> {Binding OtherTitle} -> Literal). After a restore, capture only once the binding is back.
+static bool DiagMayCapture(DevToolsBindingTone tone, const std::wstring& op, const std::wstring& action, bool afterLiveWrite)
+{
+    if (tone != DevToolsBindingTone::Works && tone != DevToolsBindingTone::Broken && tone != DevToolsBindingTone::Warning)
+        return false;
+    return op.empty() ? !afterLiveWrite : RestoreLanded(action);
+}
+
 struct DiagAsk { InstanceHandle wire; std::wstring prop; std::wstring op; unsigned gen; bool afterLiveWrite; };
 
 static DWORD WINAPI DiagWorker(LPVOID param)
@@ -494,8 +504,7 @@ static DWORD WINAPI DiagWorker(LPVOID param)
     if (g_ctx.bindFn) {
         if (!ask->op.empty()) g_ctx.bindFn(ask->wire, ask->op, ask->prop, std::wstring(), std::wstring(), &r.action);
         g_ctx.bindFn(ask->wire, L"diagnose", ask->prop, std::wstring(), std::wstring(), &r.json);
-        const DevToolsBindingTone tone = DevToolsBindingRow_Summary(r.json).tone;
-        if (tone == DevToolsBindingTone::Works || tone == DevToolsBindingTone::Broken || tone == DevToolsBindingTone::Warning) {
+        if (DiagMayCapture(DevToolsBindingRow_Summary(r.json).tone, ask->op, r.action, ask->afterLiveWrite)) {
             std::wstring ignored;
             g_ctx.bindFn(ask->wire, L"capture", ask->prop, std::wstring(), std::wstring(), &ignored);
         }
