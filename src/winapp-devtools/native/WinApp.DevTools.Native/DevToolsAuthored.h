@@ -73,8 +73,10 @@ DevToolsAuthoredState DevToolsAuthored_Read(const std::wstring& fileUri, unsigne
                                   const std::wstring& prop, std::wstring* out);
 
 // The C# statement at line/column of a file on this machine (a Reactor call site), secrets redacted. Same file limits
-// as XAML reads. False when the file cannot be read or has no such line.
-bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, unsigned int column, std::wstring* out);
+// as XAML reads. False when the file cannot be read or has no such line. With `site`, also how the call site reads now
+// (DevToolsReactorNames::SiteState for an element of `kind`), and the file's line count in `lineCount`.
+bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, unsigned int column, std::wstring* out,
+                                 const std::wstring& kind = L"", std::wstring* site = nullptr, size_t* lineCount = nullptr);
 
 // The C# variable or member the call at line/column of a file on this machine is assigned to, read from the line's
 // text (DevToolsReactorNames); empty when it is not assigned or the file cannot be read.

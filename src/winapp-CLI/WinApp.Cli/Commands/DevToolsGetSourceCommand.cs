@@ -87,8 +87,9 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             var noSourceToken = "source-unavailable";
             // Without source information for the whole app (DevTools attached after it started) no element has a
             // source, so that is the reason, not this element being framework XAML.
-            var noSource = !hasSource &&
-                DevToolsAppAuthored.Parse(target.Tap!.RequestAppAuthored(cancellationToken).ResultJson) is { SourceInstrumented: false }
+            var xamlUninstrumented = !hasSource &&
+                DevToolsAppAuthored.Parse(target.Tap!.RequestAppAuthored(cancellationToken).ResultJson) is { SourceInstrumented: false };
+            var noSource = xamlUninstrumented
                     ? "No XAML source is recorded for this element because this app reports no XAML source information. " +
                       DevToolsAppAuthored.RelaunchForSource
                     : "No XAML source is recorded for this element. Framework, template or generated elements " +
@@ -110,18 +111,24 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 // A Reactor app may hold the answer the agent could not give: say which Reactor fact is missing.
                 var describeResponse = target.Tap!.RequestReactorDescribe(cancellationToken);
                 var described = describeResponse.Ok ? ReactorDescription.Parse(describeResponse.ResultJson) : null;
+                var reactorNode = described is { IsReactor: true } && described.ByHandle.TryGetValue(handle, out var node) ? node : null;
+                var missing = described?.ExplainMissingSource();
                 if (described is { Present: true, IsReactor: false })
                 {
                     noSourceToken = ReactorDescription.UnavailableToken;
                     noSource = described.ExplainUnavailable();
                 }
-                else if (described?.ExplainMissingSource() is { } missing)
+                else if (missing is not null)
                 {
-                    noSourceToken = ReactorDescription.NoSourceMapToken;
-                    noSource = missing;
+                    // Without any C# locations that is the reason, unless this is a XAML element and XAML recorded no
+                    // sources either (a late attach): then the XAML reason, which says how to relaunch, applies.
+                    if (reactorNode is not null || !xamlUninstrumented)
+                    {
+                        noSourceToken = ReactorDescription.NoSourceMapToken;
+                        noSource = missing;
+                    }
                 }
-                else if (described is { IsReactor: true } && described.ByHandle.TryGetValue(handle, out var reactorNode) &&
-                    reactorNode.File is null)
+                else if (reactorNode is { File: null })
                 {
                     // Other elements have call sites, so source mapping is on: Reactor did not stamp this one. Reactor
                     // builds before microsoft/microsoft-ui-reactor#1405 dropped them after a Hot Reload edit.
@@ -248,6 +255,22 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 : [];
             string? path = onDisk && Path.IsPathFullyQualified(file) ? file : null;
             string? unavailable = null;
+            string? changed = null;
+            if (onDisk)
+            {
+                // The app compares the call site with the file on disk: an edit since the build moves the code.
+                var lineCount = ReadInt(root, "lineCount");
+                var shortName = Path.GetFileName(file.Replace('/', '\\'));
+                if (authoredState == "stale")
+                {
+                    changed = DescribeChangedCSharp(shortName, line, lineCount, element);
+                }
+                else if (authoredState == "pastEnd")
+                {
+                    unavailable = $"{shortName} has {lineCount} lines, so it has no line {line}. A #line directive in the " +
+                        "source maps this call to a line the file does not have; open the file the directive names to read it.";
+                }
+            }
             if (!onDisk)
             {
                 // The app looked for the file under its project and the projects it references; a launch without a
@@ -313,6 +336,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                         reactor.WriteTo(writer);
                     }
                     if (code.Length > 0) { writer.WriteString("csharp", code); }
+                    if (changed is not null) { writer.WriteString("csharpChanged", changed); }
                     if (unavailable is not null) { writer.WriteString("csharpUnavailable", unavailable); }
                 }));
                 return 0;
@@ -336,6 +360,10 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             {
                 DevToolsRender.WriteMarkupLine(Console, $"  [yellow]{Markup.Escape(unavailable)}[/]");
             }
+            if (changed is not null)
+            {
+                DevToolsRender.WriteMarkupLine(Console, $"  [yellow]{Markup.Escape(changed)}[/]");
+            }
             if (code.Length > 0)
             {
                 Console.WriteLine();
@@ -345,6 +373,21 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 }
             }
             return 0;
+        }
+
+        // A file the build wrote under an obj folder: source generator output, which is on disk only when emitted.
+        internal static bool IsGenerated(string file) =>
+            file.Replace('\\', '/').Split('/').Contains("obj", StringComparer.OrdinalIgnoreCase);
+
+        // The call site no longer matches the file on disk: it was edited after the app was built.
+        internal static string DescribeChangedCSharp(string file, int line, int lineCount, string element)
+        {
+            var call = element.Length > 0 ? $"the {element} call" : "the call";
+            return lineCount > 0 && line > lineCount
+                ? $"{file} changed since the app was built: it now has {lineCount} lines, and {call} was on line {line}. " +
+                  "Rebuild and run the app (or apply the edit with Hot Reload) to see where it is now."
+                : $"{file} changed since the app was built, and line {line} no longer holds {call}; the code below is what " +
+                  "that line holds now. Rebuild and run the app (or apply the edit with Hot Reload) to see where it is now.";
         }
 
         private static int ReadInt(JsonElement element, string name) =>
@@ -443,6 +486,12 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 return $"The build recorded {file} relative to the project that compiled it, and more than one of this app's " +
                     $"projects has that file: {string.Join(", ", candidates)}. DevTools cannot tell which one created this element, " +
                     $"so it shows no code.{owner}";
+            }
+            if (IsGenerated(file))
+            {
+                return $"This call site is in code a source generator produced during the build ({Path.GetFileName(file.Replace('/', '\\'))}). " +
+                    "The build keeps that code only in the app's PDB, not on disk. To read it, set " +
+                    "<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles> in the project that compiles it and rebuild.";
             }
             if (!IsRelative(file))
             {

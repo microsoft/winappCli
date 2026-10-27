@@ -655,13 +655,25 @@ std::shared_ptr<const DevToolsCSharpArguments::Declarations> ProjectDeclarations
 
 } // namespace
 
-bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, unsigned int column, std::wstring* out)
+bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, unsigned int column, std::wstring* out,
+                                 const std::wstring& kind, std::wstring* site, size_t* lineCount)
 {
     if (!out) return false;
     out->clear();
+    if (site) site->clear();
+    if (lineCount) *lineCount = 0;
     std::vector<std::wstring> lines;
     std::wstring hash;
     if (path.empty() || !ReadLines(path, &lines, &hash)) return false;
+    if (lineCount) *lineCount = lines.size();
+    if (site) {
+        AcquireSRWLockShared(&g_lock);
+        const unsigned long long built = g_buildTimeUnix;
+        ReleaseSRWLockShared(&g_lock);
+        const unsigned long long written = built ? LastWriteUnix(path) : 0;
+        // 2s slack for filesystem timestamp granularity, as for XAML.
+        *site = DevToolsReactorNames::SiteState(lines, line, column, kind, written != 0 && written > built + 2);
+    }
     // A string passed to a password parameter is redacted even when the statement never says "password".
     const auto declarations = ProjectDeclarations(path);
     *out = DevToolsCSharpSource::Statement(DevToolsCSharpArguments::RedactLines(lines, *declarations), line, column);

@@ -159,6 +159,36 @@ void Test_PropertyName()
     Check(!IsPropertyName(L".ReactorState"), "Reactor's other attached properties do not match");
 }
 
+void Test_SiteState()
+{
+    using DevToolsReactorNames::CallSiteHolds;
+    using DevToolsReactorNames::SiteState;
+    const std::vector<std::wstring> built = {
+        L"        var title = TextBlock(\"Hi\");",
+        L"        return VStack(4,",
+        L"            Ui.Button(\"+1\", inc),",
+        L"            Component<Counter>());",
+    };
+    Check(CallSiteHolds(built, 1, 21, L"TextBlock"), "the call at the column makes the element");
+    Check(CallSiteHolds(built, 3, 13, L"Button"), "a qualified call at the column");
+    Check(CallSiteHolds(built, 3, 16, L"Button"), "the column of the name itself");
+    Check(CallSiteHolds(built, 4, 13, L"Component"), "a generic component call");
+    Check(CallSiteHolds(built, 2, 16, L"Stack"), "a factory named loosely after the element (VStack makes a Stack)");
+    Check(CallSiteHolds(built, 3, 0, L"Button"), "without a column, any call on the line that makes the element");
+    Check(!CallSiteHolds(built, 1, 21, L"Button"), "another element's call");
+    Check(!CallSiteHolds(built, 1, 9, L"TextBlock"), "the column is not at a call");
+    Check(!CallSiteHolds(built, 9, 1, L"Button"), "a line past the end");
+
+    // A line inserted above line 1 moved the call: line 1 now holds a comment.
+    const std::vector<std::wstring> edited = { L"        // a new line", built[0], built[1], built[2], built[3] };
+    Check(std::wstring(SiteState(edited, 1, 21, L"TextBlock", true)) == L"stale", "edited since the build: the call moved");
+    Check(std::wstring(SiteState(edited, 2, 21, L"TextBlock", true)).empty(), "a Hot Reload edit keeps the line current");
+    Check(std::wstring(SiteState(edited, 1, 21, L"TextBlock", false)).empty(),
+        "a file not changed since the build is trusted (the text check is loose)");
+    Check(std::wstring(SiteState(built, 500, 0, L"Button", false)) == L"pastEnd", "#line maps the call past the end");
+    Check(std::wstring(SiteState(built, 500, 0, L"Button", true)) == L"stale", "an edited file that lost the line");
+}
+
 } // namespace
 
 int RunReactorPublishedTests()
@@ -172,5 +202,6 @@ int RunReactorPublishedTests()
     Test_Hooks();
     Test_SourceNames();
     Test_PropertyName();
+    Test_SiteState();
     return g_failures;
 }

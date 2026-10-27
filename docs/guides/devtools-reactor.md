@@ -107,6 +107,14 @@ code (`"authoredState": "ambiguous"` with `--json`). Open the one in the project
 defines the component. After `winapp devtools attach`, run `get-source` from your app's
 project folder so DevTools knows the projects.
 
+If you edit a file after building, the recorded line may now hold other code.
+`get-source` says the file changed since the app was built (`"authoredState": "stale"`
+with `--json`); rebuild and run the app, or apply the edit with Hot Reload, to see the
+call site again. A `#line` directive can point a call site past the end of its file;
+`get-source` says so instead of showing nothing. Code a source generator produced is
+not on disk unless you set `<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>`
+in the project and rebuild.
+
 ## Properties your C# sets
 
 ```powershell

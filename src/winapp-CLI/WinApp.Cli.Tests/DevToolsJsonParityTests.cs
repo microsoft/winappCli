@@ -334,6 +334,116 @@ public class DevToolsJsonParityTests
         Assert.IsFalse(message.Contains("Framework", StringComparison.Ordinal));
     }
 
+    // A late attach to an app that hosts Reactor: Reactor recorded no C# locations either, but this element is XAML.
+    [TestMethod]
+    [DataRow(false, "this app reports no XAML source information")]
+    [DataRow(true, "Reactor source mapping is off")]
+    public async Task GetSource_AfterALateAttach_GivesTheReasonForTheElementsKind(bool reactorElement, string expected)
+    {
+        var nodes = reactorElement
+            ? """[{"handle":"20","element":"Stack"},{"handle":"42","parent":"20","element":"Button"}]"""
+            : """[{"handle":"20","element":"Stack"}]""";
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Source.get", """{"handle":"42","fileName":"","lineNumber":0,"columnNumber":0,"authoredState":"noSourceInfo"}""")
+            .Answer("VisualTree.getAppAuthored", """{"appAuthored":[],"sourceInstrumented":false}""")
+            .Answer("Reactor.describe", $$"""{"state":"ok","sourceMap":false,"files":[],"nodes":{{nodes}}}""");
+
+        var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+        Assert.AreEqual(1, jsonExit);
+        using var doc = JsonDocument.Parse(jsonOut);
+        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(), expected);
+    }
+
+    // The app compares the call site with the file on disk; an edit since the build is said, not shown as current.
+    [TestMethod]
+    public async Task GetSource_ACallSiteEditedSinceTheBuild_SaysTheFileChanged()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"winapp-csharp-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(file, "// a new line\nvar b = Button(\"+1\");");
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Source.get", JsonSerializer.Serialize(new
+                {
+                    handle = "42", kind = "csharp", fileName = file, lineNumber = 1, columnNumber = 9, onDisk = true,
+                    authoredState = "stale", lineCount = 2, csharp = "// a new line",
+                    reactor = new { element = "Button", handle = "42", exact = true },
+                }));
+
+            var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+            var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
+
+            Assert.AreEqual(0, jsonExit, jsonOut);
+            using var doc = JsonDocument.Parse(jsonOut);
+            Assert.AreEqual("stale", doc.RootElement.GetProperty("authoredState").GetString());
+            StringAssert.Contains(doc.RootElement.GetProperty("csharpChanged").GetString(), "changed since the app was built");
+            StringAssert.Contains(doc.RootElement.GetProperty("csharpChanged").GetString(), "no longer holds the Button call");
+            Assert.AreEqual(0, exit, output);
+            StringAssert.Contains(output, "changed since the app was built");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetSource_ALineMappedPastTheEnd_SaysWhy()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"winapp-csharp-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(file, "var b = Button(\"+1\");");
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Source.get", JsonSerializer.Serialize(new
+                {
+                    handle = "42", kind = "csharp", fileName = file, lineNumber = 500, columnNumber = 9, onDisk = true,
+                    authoredState = "pastEnd", lineCount = 1,
+                    reactor = new { element = "Button", handle = "42", exact = true },
+                }));
+
+            var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+            Assert.AreEqual(0, exit, output);
+            using var doc = JsonDocument.Parse(output);
+            var reason = doc.RootElement.GetProperty("csharpUnavailable").GetString()!;
+            StringAssert.Contains(reason, "has 1 lines, so it has no line 500");
+            StringAssert.Contains(reason, "#line");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    // Source generator output is compiled from obj and kept in the PDB, not written to disk.
+    [TestMethod]
+    public async Task GetSource_GeneratedSource_SaysHowToEmitIt()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Internal.sourceRoot", """{"sourceRoot":"C:\\repo\\App"}""")
+            .Answer("Source.get", JsonSerializer.Serialize(new
+            {
+                handle = "42", kind = "csharp", lineNumber = 14, columnNumber = 13, onDisk = false, authoredState = "noFile",
+                fileName = "obj/x64/Debug/net10.0/win-x64/Gen/Gen.GreetingGenerator/Greeting.g.cs",
+                reactor = new { element = "Button", handle = "42", exact = true },
+            }));
+
+        var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+        Assert.AreEqual(0, exit, output);
+        using var doc = JsonDocument.Parse(output);
+        var reason = doc.RootElement.GetProperty("csharpUnavailable").GetString()!;
+        StringAssert.Contains(reason, "source generator");
+        StringAssert.Contains(reason, "EmitCompilerGeneratedFiles");
+        Assert.IsFalse(reason.Contains("moved", StringComparison.Ordinal));
+    }
+
     [TestMethod]
     public async Task GetSource_WithASourceRecord_IsASuccessInBothShapes()
     {

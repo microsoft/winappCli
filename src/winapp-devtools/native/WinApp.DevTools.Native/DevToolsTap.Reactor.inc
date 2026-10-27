@@ -1090,6 +1090,8 @@ struct ReactorSource
     bool onDisk = false;
     std::vector<std::wstring> ambiguous; // when the recorded path names a file in more than one of the app's projects
     std::wstring code;          // the statement at the call site, secrets redacted
+    std::wstring site;          // DevToolsReactorNames::SiteState: "" (holds), "stale" or "pastEnd"
+    size_t lineCount = 0;       // lines in the file on disk
 };
 
 static bool TapReactorMapFile(const std::wstring& file, std::wstring* onDisk, std::vector<std::wstring>* ambiguous);
@@ -1100,7 +1102,9 @@ static bool TapReactorSourceFor(InstanceHandle ih, ReactorSource* out, bool read
     *out = ReactorSource{};
     if (!TapReactorAnnotationFor(ih, true, &out->node, &out->exact, &out->ih, /*requireFile*/ true)) return false;
     out->onDisk = TapReactorMapFile(out->node.file, &out->path, &out->ambiguous);
-    if (readCode && out->onDisk) DevToolsAuthored_ReadCSharp(out->path, out->node.line, out->node.column, &out->code);
+    if (readCode && out->onDisk)
+        DevToolsAuthored_ReadCSharp(out->path, out->node.line, out->node.column, &out->code, out->node.element, &out->site,
+            &out->lineCount);
     return true;
 }
 
@@ -1694,10 +1698,13 @@ static std::wstring TapReactorSourceAnswer(unsigned long long wire)
     out += L",\"columnNumber\":" + std::to_wstring(source.node.column);
     if (source.path != source.node.file) out += L",\"compiledFileName\":\"" + DevToolsJsonEscape(source.node.file) + L"\"";
     out += source.onDisk ? L",\"onDisk\":true" : L",\"onDisk\":false";
-    // Same meaning as for XAML: whether the authored text could be read from here.
-    out += !source.code.empty() ? L",\"authoredState\":\"available\""
+    // Same meaning as for XAML: whether the authored text could be read from here, and whether it is still the code the
+    // app was built from ("stale": edited since; "pastEnd": a #line directive names a line this file does not have).
+    out += !source.site.empty() ? L",\"authoredState\":\"" + source.site + L"\""
+         : !source.code.empty() ? L",\"authoredState\":\"available\""
          : !source.ambiguous.empty() ? L",\"authoredState\":\"ambiguous\""
          : source.onDisk ? L",\"authoredState\":\"noSourceInfo\"" : L",\"authoredState\":\"noFile\"";
+    if (!source.site.empty()) out += L",\"lineCount\":" + std::to_wstring(source.lineCount);
     if (!source.ambiguous.empty()) {
         out += L",\"candidates\":[";
         for (size_t i = 0; i < source.ambiguous.size(); ++i)

@@ -19,6 +19,7 @@
 #include <cwctype>
 #include <regex>
 #include <string>
+#include <vector>
 
 namespace DevToolsReactorNames {
 
@@ -116,6 +117,64 @@ inline bool CallMakes(const std::wstring& call, const std::wstring& kind)
     auto lower = [](std::wstring text) { for (auto& c : text) c = static_cast<wchar_t>(std::towlower(c)); return text; };
     const std::wstring a = lower(call), b = lower(kind);
     return a.find(b) != std::wstring::npos || b.find(a) != std::wstring::npos;
+}
+
+// Whether `lines` still hold, at `line` (1-based) and `column` (1-based; 0 when unknown), a call that makes `kind`
+// (`Button(` for a Button, `Component<Counter>(` for a Component). False when the file is shorter, or when an edit since
+// the build put other code there. Loose, like CallMakes: a factory named unlike its element also reads as moved.
+inline bool CallSiteHolds(const std::vector<std::wstring>& lines, unsigned int line, unsigned int column,
+                          const std::wstring& kind)
+{
+    if (line == 0 || line > lines.size()) return false;
+    const std::wstring& text = lines[line - 1];
+    auto isName = [](wchar_t c) { return std::iswalnum(c) || c == L'_' || c == L'@'; };
+    // The call whose (possibly qualified: `Ui.Button`) name starts at `at`; empty when no call starts there.
+    auto callAt = [&](size_t at) -> std::wstring {
+        for (;;) {
+            size_t end = at;
+            while (end < text.size() && isName(text[end])) ++end;
+            if (end == at) return {};
+            size_t next = end;
+            while (next < text.size() && std::iswspace(text[next])) ++next;
+            if (next < text.size() && text[next] == L'.') {
+                at = next + 1;
+                while (at < text.size() && std::iswspace(text[at])) ++at;
+                continue;
+            }
+            if (next < text.size() && text[next] == L'<') {
+                int depth = 0;
+                for (; next < text.size(); ++next) {
+                    if (text[next] == L'<') ++depth;
+                    else if (text[next] == L'>' && --depth == 0) { ++next; break; }
+                }
+                while (next < text.size() && std::iswspace(text[next])) ++next;
+            }
+            return next < text.size() && text[next] == L'(' ? text.substr(at, end - at) : std::wstring();
+        }
+    };
+    if (column > 0) {
+        if (column - 1 >= text.size()) return false;
+        const std::wstring call = callAt(column - 1);
+        return !call.empty() && CallMakes(call, kind);
+    }
+    for (size_t at = 0; at < text.size(); ++at) {
+        if (!isName(text[at]) || (at > 0 && isName(text[at - 1]))) continue;
+        const std::wstring call = callAt(at);
+        if (!call.empty() && CallMakes(call, kind)) return true;
+    }
+    return false;
+}
+
+// How a call site reads in the file on disk: L"" when it still holds the call; L"stale" when the file was written after
+// the app was built (`changedSinceBuild`) and the call is not there (an edit moved it); L"pastEnd" when the file, not
+// changed since, has no such line (a #line directive maps the call to a line of another file). A file not changed since
+// the build is trusted even when the text check misses: factory and element names can differ.
+inline const wchar_t* SiteState(const std::vector<std::wstring>& lines, unsigned int line, unsigned int column,
+                                const std::wstring& kind, bool changedSinceBuild)
+{
+    if (CallSiteHolds(lines, line, column, kind)) return L"";
+    if (changedSinceBuild) return L"stale";
+    return line > lines.size() ? L"pastEnd" : L"";
 }
 
 // The name the call at `column` (1-based; 0 when unknown) on `line` is assigned to. `previous` is the line above, for
