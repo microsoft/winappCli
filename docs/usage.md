@@ -319,7 +319,7 @@ winapp update --setup-sdks experimental
 
 Create MSIX packages from a project or prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
 
-Pass a single `.csproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
+Pass a single `.csproj` or C++ `.vcxproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
 
 ```bash
 winapp pack <input-folder> [input-folder...] [options]
@@ -327,7 +327,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Arguments:**
 
-- `input-folder` - A single `.csproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
+- `input-folder` - A single `.csproj` or C++ `.vcxproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
 
 **Options:**
 
@@ -344,11 +344,11 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--skip-pri` - Skip PRI file generation
 - `--executable <path>` - Path to the executable relative to the input folder (also `--exe`). Used to resolve `$targetnametoken$` placeholders in the manifest.
 
-**Project-mode options** (require a `.csproj` input; rejected for folder/bundle/manifest inputs):
+**Project-mode options** (require a `.csproj` or `.vcxproj` input; rejected for folder/bundle/manifest inputs):
 
 - `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
-- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture)
-- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted projects
+- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture). Repeat it to build a multi-architecture bundle from a `.csproj`.
+- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted .NET projects
 - `--no-build` - Package the existing build output without rebuilding
 - `--no-restore` - Skip restoring the project before building
 - `--property <name=value>` (`-p`) - MSBuild property, forwarded to build and evaluation (repeatable)
@@ -386,7 +386,19 @@ The target architecture comes from `--arch`, or from a lone `-p RuntimeIdentifie
 
 The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
 
-Project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
+.NET project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
+
+**C++ projects (`.vcxproj`).** winapp builds the project with Visual Studio's MSBuild, the same build `winapp run` uses (see [C++ projects](#c-projects-vcxproj) for prerequisites), then packages the build output folder:
+
+```powershell
+winapp pack .\MyApp.vcxproj --cert .\devcert.pfx
+winapp pack .\MyApp.vcxproj -p Platform=ARM64 --generate-cert
+```
+
+- Builds `Release` for the current architecture by default. `-c` or `-p Configuration=<name>` selects the configuration, and `--arch` or `-p Platform=x64|ARM64|Win32` selects the architecture.
+- A packaged project, such as the **WinUI Blank App (Packaged)** template, is packaged with the `AppxManifest.xml` its build generates. Any other application project needs an `appxmanifest.xml`: run `winapp init` in the project folder once, or pass `--manifest`. The built `.exe` fills a `$targetnametoken$` placeholder in that manifest.
+- `--self-contained` builds the project with `WindowsAppSDKSelfContained=true`, so the package carries the Windows App SDK runtime. With `--no-build`, the existing build must already be self-contained.
+- `--framework` and multiple `--arch` values aren't supported. To build a multi-architecture bundle, build each architecture and pass the output folders: `winapp pack <x64-folder> <arm64-folder>`.
 
 #### Sparse identity packages
 
@@ -982,6 +994,7 @@ winapp run . --no-build --detach --json
 - Build output shows MSBuild's warnings and errors only, with a spinner while it builds; `--verbose` shows MSBuild's full output and exact command.
 - In a folder or solution that also has a runnable C# app, the C# app is selected; use `--project <name>` to run the C++ app. C# libraries and test projects next to a C++ app don't get in the way.
 - A C# app that references a C++ project (for example a native DLL) can't be built with `dotnet`. Build it with Visual Studio or `MSBuild.exe`, then run `winapp run <app>.csproj --no-build`, or package its output folder with `winapp package <folder>`.
+- To create an MSIX from a C++ project, run `winapp package .\MyApp.vcxproj`. See [Packaging a project directly](#packaging-a-project-directly).
 
 **Prerequisites:** Visual Studio or Build Tools for Visual Studio 2022 version 17.8 or later, with the MSVC C++ build tools for the target architecture (the **Desktop development with C++** workload) and the Windows SDK the project targets. WinUI 3 apps also need **C++ WinUI app development tools**; with several installs, winapp uses the newest one that can build the project. The .NET SDK is not required. When the build tools, platform toolset (`MSB8020`), or Windows SDK (`MSB8036`) are missing, `winapp run` says what to install, including a `winget` command. A project with a `vcpkg.json` needs vcpkg integrated with MSBuild: run `vcpkg integrate install` once.
 

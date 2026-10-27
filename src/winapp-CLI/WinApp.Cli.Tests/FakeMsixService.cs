@@ -73,7 +73,9 @@ internal class FakeMsixService : IMsixService
         PackageGraphSource? PackageGraph = null,
         bool AutoSign = false,
         string? TimestampUrl = null,
-        FileInfo? AppxRecipe = null);
+        FileInfo? AppxRecipe = null,
+        string? Executable = null,
+        DirectoryInfo? WindowsAppSdkPackageDirectory = null);
 
     /// <summary>The most recent <see cref="CreateMsixPackageAsync"/> call's captured arguments, or null.</summary>
     public CreatePackageArgs? LastCreatePackageArgs { get; private set; }
@@ -277,11 +279,12 @@ internal class FakeMsixService : IMsixService
         bool runtimeAlreadyBundled = false,
         string? timestampUrl = null,
         FileInfo? appxRecipe = null,
+        DirectoryInfo? windowsAppSdkPackageDirectory = null,
         CancellationToken cancellationToken = default)
     {
         CreatePackageCalls.Add(inputFolder);
         LastCreatePackageArgs = new CreatePackageArgs(
-            inputFolder, projectFile, framework, noRestore, targetArch, selfContained, runtimeAlreadyBundled, manifestPath, packageGraph, autoSign, timestampUrl, appxRecipe);
+            inputFolder, projectFile, framework, noRestore, targetArch, selfContained, runtimeAlreadyBundled, manifestPath, packageGraph, autoSign, timestampUrl, appxRecipe, executable, windowsAppSdkPackageDirectory);
         if (PackageExceptionToThrow != null)
         {
             throw PackageExceptionToThrow;

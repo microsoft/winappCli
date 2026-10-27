@@ -28,6 +28,14 @@ winapp run . --no-build
 
 Click **Show package identity** to see the package family name the app is running under.
 
+## Packaging
+
+Build the project and create a signed MSIX in one step:
+
+```powershell
+winapp package .\CppWinUIApp.vcxproj --generate-cert
+```
+
 ## Testing with winapp ui
 
 ```powershell
