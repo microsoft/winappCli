@@ -1778,6 +1778,76 @@ int wmain(int argc, wchar_t** argv)
         g_sourceInfo.clear();
         ReleaseSRWLockExclusive(&g_sourceUriLock);
     }
+    {
+        // Reactor.component asks about one element. While a list churns elsewhere (the cache is never current), an
+        // element already described is answered from the cache, a new one gets a description of its own subtree,
+        // and a whole-tree refresh describes once instead of retrying while the tree keeps changing.
+        static int describes = 0;
+        static InstanceHandle described = 1;
+        g_testReactorDescribeOnce = [](InstanceHandle subtree, bool* complete) {
+            ++describes;
+            described = subtree;
+            *complete = false;
+            g_treeEpoch.fetch_add(1);
+            return true;
+        };
+        static bool exactAnswer = true;
+        g_testReactorAgent = [](unsigned long long, const wchar_t*) -> std::wstring {
+            return std::wstring(L"{\"state\":\"ok\",\"exact\":") + (exactAnswer ? L"true" : L"false") +
+                   L",\"component\":{\"kind\":\"class\",\"name\":\"VRow\"},"
+                   L"\"hooks\":[{\"index\":0,\"kind\":\"state\",\"value\":\"0\"}]}";
+        };
+        {
+            std::lock_guard<std::mutex> lock(g_reactorStatusLock);
+            g_reactorStatus = TapReactorStatus{};
+            g_reactorStatus.present = true;
+            g_reactorStatus.agent = L"ok";
+            g_reactorStatus.annotations = L"agent";
+            g_reactorStatusAt = GetTickCount64();
+        }
+        MintSlot_nolock(7001);
+        MintSlot_nolock(7002);
+        MintSlot_nolock(7003);
+        const auto row = PackWire_nolock(7001), fresh = PackWire_nolock(7002), inner = PackWire_nolock(7003);
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        ReactorAnnotation vrow;
+        vrow.wire = row;
+        vrow.element = L"Component";
+        vrow.component = L"VRow";
+        DevToolsReactorPublished::Hook clicks;
+        clicks.name = L"clicks";
+        vrow.hooks.push_back(clicks);
+        g_reactorAnnotations[7001] = vrow;
+        g_reactorCacheWhole = false;
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+
+        const std::wstring known = CmdReactorComponent(row);
+        check(describes == 0 && known.find(L"\"name\":\"clicks\"") != std::wstring::npos,
+              "Reactor.component on a described element asks the agent only, and names hooks from the cache");
+        CmdReactorComponent(fresh);
+        check(describes == 1 && described == 7002,
+              "a component the cache does not know yet gets one description of its own subtree, not the whole tree");
+        describes = 0;
+        exactAnswer = false;
+        CmdReactorComponent(inner);
+        check(describes == 2 && described == 0,
+              "an element inside a component the cache does not know yet: its subtree, then the whole tree to find the component");
+        exactAnswer = true;
+        describes = 0;
+        TapReactorRefreshAuthored();
+        check(describes == 1 && described == 0, "a whole-tree refresh describes once while the tree keeps changing");
+
+        g_testReactorDescribeOnce = nullptr;
+        g_testReactorAgent = nullptr;
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        g_reactorAnnotations.clear();
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+        {
+            std::lock_guard<std::mutex> lock(g_reactorStatusLock);
+            g_reactorStatus = TapReactorStatus{};
+            g_reactorStatusAt = 0;
+        }
+    }
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     check(SUCCEEDED(apartment), "binding test COM initialization");
     if (SUCCEEDED(apartment)) {

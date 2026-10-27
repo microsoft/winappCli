@@ -1016,18 +1016,30 @@ static bool TapReactorDescribeOnce(TapReactorStatus& status, std::wstring* membe
 }
 
 // Describes run one at a time (the inspector's background refresh and protocol requests would otherwise compete for
-// the agent), and a description taken while the tree was changing is retried before it is reported incomplete.
+// the agent). A description taken while elements were still reaching the census is incomplete; only an explicit
+// whole-tree request (`attempts` 2) tries once more, so a tree that keeps changing is never described in a loop.
 static std::mutex g_reactorDescribeLock;
-static bool TapReactorDescribe(TapReactorStatus& status, std::wstring* members, InstanceHandle subtree)
+// Tests stand in for the agent's description (the subtree asked, or 0 for the whole tree).
+static bool (*g_testReactorDescribeOnce)(InstanceHandle subtree, bool* complete) = nullptr;
+static bool TapReactorDescribe(TapReactorStatus& status, std::wstring* members, InstanceHandle subtree, int attempts)
 {
     std::lock_guard<std::mutex> lock(g_reactorDescribeLock);
-    constexpr int kAttempts = 3;
     for (int attempt = 1;; ++attempt) {
         bool complete = true;
-        const bool ok = TapReactorDescribeOnce(status, members, subtree, &complete);
-        if (!ok || complete || attempt == kAttempts) return ok;
-        Sleep(150 * attempt);
+        const bool ok = g_testReactorDescribeOnce ? g_testReactorDescribeOnce(subtree, &complete)
+                                                  : TapReactorDescribeOnce(status, members, subtree, &complete);
+        if (!ok || complete || attempt >= attempts) return ok;
+        Sleep(150);
     }
+}
+
+// Whether the cache holds a whole description of the current tree.
+static bool TapReactorCacheCurrent()
+{
+    AcquireSRWLockShared(&g_reactorAuthoredLock);
+    const bool current = g_reactorCacheWhole && g_reactorCacheEpoch == g_treeEpoch.load(std::memory_order_acquire);
+    ReleaseSRWLockShared(&g_reactorAuthoredLock);
+    return current;
 }
 
 // Refresh the annotation cache before a read that needs it, so "just my code", sources and searches include Reactor
@@ -1037,27 +1049,68 @@ static void TapReactorRefreshAuthored()
 {
     TapReactorStatus status = TapReactorStatusNow();
     if (!TapReactorCanDescribe(status)) return;
-    AcquireSRWLockShared(&g_reactorAuthoredLock);
-    const bool current = g_reactorCacheWhole && g_reactorCacheEpoch == g_treeEpoch.load(std::memory_order_acquire);
-    ReleaseSRWLockShared(&g_reactorAuthoredLock);
-    if (!current) TapReactorDescribe(status, nullptr);
+    if (!TapReactorCacheCurrent()) TapReactorDescribe(status, nullptr, 0, 1);
+}
+
+// Refresh what a command about ONE element needs: that element's annotation and the Reactor elements above it. An
+// element already described at its current generation is answered from the cache, even when other parts of the tree
+// changed since (a list churning elsewhere); otherwise only its subtree is described, never the whole tree. True
+// when it described.
+static bool TapReactorRefreshFor(unsigned long long wire)
+{
+    TapReactorStatus status = TapReactorStatusNow();
+    if (!TapReactorCanDescribe(status) || TapReactorCacheCurrent()) return false;
+    InstanceHandle ih = 0;
+    {
+        CensusSharedLock lock;
+        const wchar_t* error = nullptr;
+        if (!ResolveWire_nolock(wire, &ih, &error)) return false;
+    }
+    if (TapReactorAnnotationFor(ih, false, nullptr)) return false;
+    TapReactorDescribe(status, nullptr, ih, 1);
+    return true;
 }
 
 // The overlay and the inspector window read the cache on the UI thread, where the agent cannot be asked. Describe on
-// a worker and reclassify the window when the Reactor elements changed. At most one refresh runs at a time.
-static std::atomic<bool> g_reactorInspectorRefreshing{false};
+// a worker and reclassify the window when the Reactor elements changed. Requests are coalesced, and the next
+// description starts no sooner than kReactorRefreshGapMs (or twice as long as the last one took) after the last one
+// ended, so a UI that keeps changing is described now and then, not continuously.
+static constexpr ULONGLONG kReactorRefreshGapMs = 1000;
+static std::mutex g_reactorRefreshLock;
+static bool g_reactorRefreshRunning = false;
+static bool g_reactorRefreshPending = false;
+static ULONGLONG g_reactorRefreshNextAt = 0;
 static bool TapReactorPumpEnsure(std::wstring* reason);
 static void TapReactorRefreshInspectorAsync()
 {
-    if (g_reactorInspectorRefreshing.exchange(true)) return;
+    {
+        std::lock_guard<std::mutex> lock(g_reactorRefreshLock);
+        g_reactorRefreshPending = true;
+        if (g_reactorRefreshRunning) return;
+        g_reactorRefreshRunning = true;
+    }
     std::thread([]() {
-        const auto before = g_reactorAuthoredVersion.load(std::memory_order_acquire);
-        TapReactorRefreshAuthored();
-        // A Reactor app streams its trace events for the overlay's error badge and highlight updates.
-        TapReactorPumpEnsure(nullptr);
-        if (g_reactorAuthoredVersion.load(std::memory_order_acquire) != before)
-            RunOnUiThread([]() { DevToolsWindow_Reclassify(); return S_OK; });
-        g_reactorInspectorRefreshing.store(false, std::memory_order_release);
+        for (;;) {
+            ULONGLONG wait = 0;
+            {
+                std::lock_guard<std::mutex> lock(g_reactorRefreshLock);
+                if (!g_reactorRefreshPending) { g_reactorRefreshRunning = false; return; }
+                g_reactorRefreshPending = false;
+                const ULONGLONG now = GetTickCount64();
+                if (g_reactorRefreshNextAt > now) wait = g_reactorRefreshNextAt - now;
+            }
+            if (wait) Sleep(static_cast<DWORD>(wait));
+            const ULONGLONG started = GetTickCount64();
+            const auto before = g_reactorAuthoredVersion.load(std::memory_order_acquire);
+            TapReactorRefreshAuthored();
+            // A Reactor app streams its trace events for the overlay's error badge and highlight updates.
+            TapReactorPumpEnsure(nullptr);
+            if (g_reactorAuthoredVersion.load(std::memory_order_acquire) != before)
+                RunOnUiThread([]() { DevToolsWindow_Reclassify(); return S_OK; });
+            const ULONGLONG ended = GetTickCount64();
+            std::lock_guard<std::mutex> lock(g_reactorRefreshLock);
+            g_reactorRefreshNextAt = ended + (std::max)(kReactorRefreshGapMs, 2 * (ended - started));
+        }
     }).detach();
 }
 
@@ -1069,7 +1122,7 @@ static std::wstring CmdReactorDescribe(InstanceHandle subtree = 0)
     static const wchar_t* kEmpty = L",\"nodes\":[],\"files\":[],\"unmapped\":0,\"truncated\":false}";
     if (!status.present) return std::wstring(L"{\"state\":\"absent\"") + kEmpty;
     std::wstring members;
-    if (TapReactorCanDescribe(status) && TapReactorDescribe(status, &members, subtree)) {
+    if (TapReactorCanDescribe(status) && TapReactorDescribe(status, &members, subtree, 2)) {
         std::wstring out = L"{\"state\":\"ok\"";
         if (!status.version.empty()) out += L",\"version\":\"" + DevToolsJsonEscape(status.version) + L"\"";
     if (!status.api.empty()) out += L",\"api\":\"" + DevToolsJsonEscape(status.api) + L"\"";
@@ -1142,6 +1195,8 @@ static std::wstring TapReactorSourceJson(const ReactorSource& source, unsigned i
 // Ask the managed agent one Reactor (or resource) question about one element: `op` with up to two string arguments.
 // Answers the agent's JSON, `ERR <token>` for a handle that no longer resolves, or an absent/unavailable state.
 // `needsReactor` false lets resource ops run in any app with the agent.
+// Tests stand in for the managed agent's answer to one element operation.
+static std::wstring (*g_testReactorAgent)(unsigned long long wire, const wchar_t* op) = nullptr;
 static std::wstring CmdReactorAgent(unsigned long long wire, const wchar_t* op, const std::wstring& arg = {},
                                     const std::wstring& value = {}, bool needsReactor = true)
 {
@@ -1150,6 +1205,7 @@ static std::wstring CmdReactorAgent(unsigned long long wire, const wchar_t* op, 
         InstanceHandle ih = 0; const wchar_t* error = nullptr;
         if (!ResolveWire_nolock(wire, &ih, &error)) return std::wstring(L"ERR ") + (error ? error : L"stale-handle");
     }
+    if (g_testReactorAgent) return g_testReactorAgent(wire, op);
     if (needsReactor) {
         TapReactorStatus status = TapReactorStatusNow();
         if (!status.present) return L"{\"state\":\"absent\"}";
@@ -1578,24 +1634,25 @@ static std::vector<DevToolsReactorPublished::Hook> TapReactorHostedRootHooks(Ins
 // published on the component's element (`hooks=`). The component is the nearest element at or above `wire` that
 // mounts it (or whose host renders it as the root). Hooks Reactor did not name keep only their index; when Reactor
 // published no names at all, they are read from the component's source. The agent formats values before the name is
-// known, so a hook whose name says it holds a secret is redacted here.
-static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
+// known, so a hook whose name says it holds a secret is redacted here. False when the cache does not hold the
+// component (it mounted after the last description).
+static bool TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
 {
     auto hooks = answer.obj.find(L"hooks");
     const DevToolsJson* component = answer.Find(L"component");
     if (hooks == answer.obj.end() || hooks->second.type != DevToolsJsonType::Array || hooks->second.arr.empty() ||
-        !component || !component->IsObject()) return;
+        !component || !component->IsObject()) return true;
     const std::wstring name = component->GetString(L"name");
     std::vector<DevToolsReactorPublished::Hook> named;
     InstanceHandle ih = 0;
-    bool resolved = false;
     {
         CensusSharedLock lock;
         const wchar_t* error = nullptr;
-        resolved = ResolveWire_nolock(wire, &ih, &error);
+        if (!ResolveWire_nolock(wire, &ih, &error)) return true;
     }
     InstanceHandle start = 0;
-    if (resolved && TapReactorAnnotationFor(ih, true, nullptr, nullptr, &start)) {
+    bool found = false;
+    if (TapReactorAnnotationFor(ih, true, nullptr, nullptr, &start)) {
         AcquireSRWLockShared(&g_reactorAuthoredLock);
         InstanceHandle current = start;
         for (int guard = 0; current && guard < 4096; ++guard) {
@@ -1603,6 +1660,7 @@ static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
             if (a == g_reactorAnnotations.end()) break;
             if (a->second.component == name || (a->second.host && a->second.rootName == name)) {
                 named = a->second.hooks;
+                found = true;
                 break;
             }
             current = a->second.parent;
@@ -1610,13 +1668,16 @@ static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         ReleaseSRWLockShared(&g_reactorAuthoredLock);
     }
     // A ReactorHostControl (selected by its XAML x:Name) is above the root it renders, not at or below it.
-    if (named.empty() && resolved) named = TapReactorHostedRootHooks(ih, name);
-    bool anyName = false;
-    for (const auto& hook : hooks->second.arr) anyName = anyName || !hook.GetString(L"name").empty();
+    if (!found) {
+        named = TapReactorHostedRootHooks(ih, name);
+        found = !named.empty();
+    }
     if (named.empty()) {
+        bool anyName = false;
+        for (const auto& hook : hooks->second.arr) anyName = anyName || !hook.GetString(L"name").empty();
         if (!anyName) TapReactorNameHooksFromSource(answer, hooks->second);
         TapReactorRedactNamedContexts(answer, hooks->second);
-        return;
+        return found;
     }
     // Hooks after one whose position is not fixed (in a branch, a loop or a composite hook) have no static index:
     // they are listed by name only.
@@ -1640,20 +1701,36 @@ static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         TapReactorApplyHookName(hook, hookName, line);
     }
     TapReactorRedactNamedContexts(answer, hooks->second);
+    return true;
 }
 
 // Reactor.component: the component that renders an element, with its props, hooks, contexts and where it is declared
 // and defined (the definition checked against the file on disk).
 static std::wstring CmdReactorComponent(unsigned long long wire)
 {
-    TapReactorRefreshAuthored();
+    const bool described = TapReactorRefreshFor(wire);
     std::wstring json = CmdReactorAgent(wire, L"reactorcomponent");
     DevToolsJson parsed;
     if (json.rfind(L"ERR ", 0) == 0 || !DevToolsJsonParse(json, parsed) || !parsed.IsObject() || parsed.GetString(L"state") != L"ok")
         return json;
     TapReactorLocateMember(parsed, L"declared");
     TapReactorLocateMember(parsed, L"definition");
-    TapReactorNameHooks(wire, parsed);
+    const bool exact = parsed.GetBool(L"exact", false);
+    if (!TapReactorNameHooks(wire, parsed) && !(described && exact) && !TapReactorCacheCurrent()) {
+        // A component that mounted since the last description: describe it (its own subtree when the element is its
+        // anchor; otherwise the anchor is somewhere above, so the whole tree) and name the hooks again.
+        TapReactorStatus status = TapReactorStatusNow();
+        InstanceHandle ih = 0;
+        {
+            CensusSharedLock lock;
+            const wchar_t* error = nullptr;
+            ResolveWire_nolock(wire, &ih, &error);
+        }
+        if (ih && TapReactorCanDescribe(status)) {
+            TapReactorDescribe(status, nullptr, exact ? ih : 0, 1);
+            TapReactorNameHooks(wire, parsed);
+        }
+    }
     return DevToolsJsonSerialize(parsed);
 }
 
@@ -1707,7 +1784,7 @@ static std::wstring CmdReactorSetState(unsigned long long wire, const std::wstri
 
 static std::wstring CmdReactorElement(unsigned long long wire)
 {
-    TapReactorRefreshAuthored();
+    TapReactorRefreshFor(wire);
     std::wstring json = CmdReactorAgent(wire, L"reactorelement");
     DevToolsJson parsed;
     if (json.rfind(L"ERR ", 0) == 0 || !DevToolsJsonParse(json, parsed) || !parsed.IsObject() || parsed.GetString(L"state") != L"ok")
@@ -1731,7 +1808,7 @@ static std::wstring CmdReactorElement(unsigned long long wire)
 
 static std::wstring TapReactorSourceAnswer(unsigned long long wire)
 {
-    TapReactorRefreshAuthored();
+    TapReactorRefreshFor(wire);
     InstanceHandle ih = 0;
     {
         CensusSharedLock lock;
@@ -1996,6 +2073,8 @@ static void OverlayHighlightUpdatesBridge(bool on)
 {
     g_reactorHighlight.store(on);
     try { std::thread([]() { if (TapReactorPumpEnsure(nullptr)) TapReactorPumpSyncMask(); }).detach(); } catch (...) {}
+    // Renders are flashed on the elements a description maps; tree changes keep it current while this is on.
+    if (on) TapReactorRefreshInspectorAsync();
 }
 
 // Reactor.enable / Reactor.disable: delivery opt-in plus, with `renders`, component render events.

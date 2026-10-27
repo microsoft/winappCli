@@ -838,8 +838,8 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         // One bounded pass; unresolved competing instances remain weak, never presumed absent.
         const auto classification = ClassifyAuthored(census);
         const wchar_t* reason = nullptr;
-        // A Reactor element's anchor is its call site, which only a current description knows.
-        TapReactorRefreshAuthored();
+        // A Reactor element's anchor is its call site, which a description of the element knows.
+        TapReactorRefreshFor(wire);
         TapAnchorOf(ih, &anchor, &unique, &reason);
         if (classification.err) { unique = false; reason = classification.err; }
         else if (classification.truncated && unique) { unique = false; reason = L"incomplete-source-census"; }

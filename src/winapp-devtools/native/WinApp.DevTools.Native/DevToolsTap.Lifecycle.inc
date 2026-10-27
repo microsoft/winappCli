@@ -164,8 +164,10 @@ static void CALLBACK OnAppForeground(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG
 
 static void OnOverlayTreeChanged()
 {
-    // Keep the Reactor annotations the overlay reads current; skipped once an app is known not to use Reactor.
-    if (TapReactorMaybePresent()) TapReactorRefreshInspectorAsync();
+    // Keep the Reactor annotations current while something on screen shows them (the inspector window, or highlight
+    // updates, which map renders to elements through them); skipped once an app is known not to use Reactor. With
+    // neither, nothing is described until a command or a pick asks, so a UI that keeps changing costs no CPU here.
+    if (TapReactorMaybePresent() && (DevToolsWindow_IsOpen() || DevToolsOverlay_HighlightUpdatesOn())) TapReactorRefreshInspectorAsync();
     if (!g_overlayBuilt.load(std::memory_order_acquire) || !g_diag) return;
     OverlayBuildScope scope;
     InstanceHandle panel = 0;

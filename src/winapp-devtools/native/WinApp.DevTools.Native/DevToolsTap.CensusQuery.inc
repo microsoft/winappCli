@@ -629,7 +629,7 @@ static bool TapReactorCanDescribe(const TapReactorStatus& status)
 }
 static TapReactorStatus TapReactorStatusNow();
 static std::wstring TapReactorStatusJson(const TapReactorStatus& status);
-static bool TapReactorDescribe(TapReactorStatus& status, std::wstring* members, InstanceHandle subtree = 0);
+static bool TapReactorDescribe(TapReactorStatus& status, std::wstring* members, InstanceHandle subtree = 0, int attempts = 1);
 static void TapReactorAddAuthored(const CensusSnapshot& cs, std::set<InstanceHandle>& authored);
 static void TapReactorRefreshAuthored();
 
