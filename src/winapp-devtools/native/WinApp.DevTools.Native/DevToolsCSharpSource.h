@@ -147,10 +147,11 @@ inline bool MentionsPassword(const std::wstring& code)
     return false;
 }
 
-// Code that mentions a password (`PasswordBox("hunter2")`, `Password = "..."`) shows no string literal values.
-inline void Redact(std::wstring& code)
+// Replaces the value of each string literal whose opening quote (its index in `code`) `redact` selects with
+// <redacted>. A literal ends at its line's end unless it is a raw literal.
+template <typename Predicate>
+inline void RedactLiterals(std::wstring& code, Predicate redact)
 {
-    if (!MentionsPassword(code)) return;
     std::wstring out;
     out.reserve(code.size());
     size_t i = 0;
@@ -172,7 +173,6 @@ inline void Redact(std::wstring& code)
             while (j + quotes < n && code[j + quotes] == L'"') ++quotes;
             if (quotes == 2 && !verbatim) { out.append(code, i, j + 2 - i); i = j + 2; continue; }  // ""
             const size_t open = quotes >= 3 ? quotes : 1;
-            out.append(code, i, j + open - i);
             size_t k = j + open;
             if (open >= 3) {
                 const size_t end = code.find(std::wstring(open, L'"'), k);
@@ -187,15 +187,25 @@ inline void Redact(std::wstring& code)
                     ++k;
                 }
             }
+            const size_t close = k < n ? (std::min)(n, k + (open >= 3 ? open : 1)) : n;
+            if (!redact(i)) { out.append(code, i, close - i); i = close; continue; }
+            out.append(code, i, j + open - i);
             out += kRedacted;
-            if (k < n) out.append(code, k, open >= 3 ? open : 1);
-            i = k < n ? k + (open >= 3 ? open : 1) : n;
+            if (k < n) out.append(code, k, close - k);
+            i = close;
             continue;
         }
         out += c;
         ++i;
     }
     code = std::move(out);
+}
+
+// Code that mentions a password (`PasswordBox("hunter2")`, `Password = "..."`) shows no string literal values.
+inline void Redact(std::wstring& code)
+{
+    if (!MentionsPassword(code)) return;
+    RedactLiterals(code, [](size_t) { return true; });
 }
 
 // The lines with comments and the contents of string and character literals replaced by spaces, so columns still line

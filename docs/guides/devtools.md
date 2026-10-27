@@ -166,8 +166,12 @@ what a binding resolves to; add `--json` for every observation.
 Passwords never leave the app. A property whose name ends in `Password` (in a
 [Reactor app](devtools-reactor.md), also a prop, hook or context with such a name)
 shows as `<redacted>`, and DevTools refuses to set it. Source previews and comments
-show `<redacted>` for password values in your XAML and for the text values on a line
-of C# that mentions a password.
+show `<redacted>` for password values in your XAML, for the text values on a line
+of C# that mentions a password, and for text your C# passes to a parameter whose
+name ends in `Password`, such as `new Login("bob", "<redacted>")` for
+`record Login(string User, string Password)`. DevTools finds that parameter in your
+project and the projects it references; text passed to code it can't find there is
+shown as written.
 
 For a terminal you keep using, launch with `winapp run . --detach`: it prints the PID
 and the next command. For scripts, add `--json`; see

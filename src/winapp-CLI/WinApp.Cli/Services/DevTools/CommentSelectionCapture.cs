@@ -290,7 +290,7 @@ internal static class CommentSelectionCapture
         {
             throw new InvalidDataException($"The captured C# location {relative}:{source.Line} is not in the file on disk. Rebuild the app or capture it again.");
         }
-        var text = lines[source.Line - 1];
+        var text = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(path))[source.Line - 1];
         var masked = CSharpSourceText.Mask(lines)[source.Line - 1];
         var sites = CSharpSourceText.CallSites(masked);
         string? factory;

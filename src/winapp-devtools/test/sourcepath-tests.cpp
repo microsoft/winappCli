@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "DevToolsSourcePath.h"
+#include "DevToolsCSharpArguments.h"
 #include "DevToolsCSharpSource.h"
 
 #include <windows.h>
@@ -214,6 +215,45 @@ int RunSourcePathTests()
         Check(!HookNames(body(L"        var form = UseForm();"), 4, 5, {L"state"}, &names), "a custom hook names nothing");
         Check(!HookNames(body(L"        var a = Props.On ? UseState(1).Value : 0;"), 4, 5, {L"state"}, &names),
               "a hook in a conditional expression names nothing");
+    }
+
+    std::printf("== C# password parameters ==\n");
+    {
+        using namespace DevToolsCSharpArguments;
+        Declarations models;
+        models.Add(DevToolsCSharpSource::SplitLines(
+            L"record Login2Props(string User, string UserPassword, Creds Account);\n"
+            L"public record Creds(string Name, string Password);\n"
+            L"static class F\n{\n"
+            L"    public static Element Component<TComponent, TProps>(TProps props, string? key = null) => null!;\n"
+            L"    public static Element Pair(string a, string bPassword) => null!;\n"
+            L"    public static Element Pair(string a, string b, int c = 0) => null!;\n"
+            L"    public static Element Pin(this Element element, string label, string pinPassword) => element;\n"
+            L"}\n"));
+        auto shown = [&](const std::wstring& code) {
+            const auto lines = RedactLines(DevToolsCSharpSource::SplitLines(code), models);
+            std::wstring out;
+            for (size_t k = 0; k < lines.size(); ++k) { if (k) out += L'\n'; out += lines[k]; }
+            return out;
+        };
+        Check(shown(L"Component<Login2, Login2Props>(new Login2Props(\"bob\", \"pos-secret-1\", new Creds(\"alice\", \"nested-pw-1\"))),") ==
+                  L"Component<Login2, Login2Props>(new Login2Props(\"bob\", \"<redacted>\", new Creds(\"alice\", \"<redacted>\"))),",
+              "a positional argument of a password parameter is redacted, in nested constructors too");
+        Check(shown(L"Component<Login2, Login2Props>(new(\"bob\", \"pw-1\", new(\"alice\", \"pw-2\")))") ==
+                  L"Component<Login2, Login2Props>(new(\"bob\", \"<redacted>\", new(\"alice\", \"<redacted>\")))",
+              "a target-typed new takes its type from the parameter");
+        Check(shown(L"Login2Props p = new(\"bob\", \"pw-3\", null!);") == L"Login2Props p = new(\"bob\", \"<redacted>\", null!);",
+              "a target-typed new takes its type from the declaration");
+        Check(shown(L"TextBlock(\"x\").Pin(\"PIN\", \"1234\")") == L"TextBlock(\"x\").Pin(\"PIN\", \"<redacted>\")",
+              "an extension method called on its receiver skips its this parameter");
+        Check(shown(L"var login = new Login2Props(\n    \"bob\",\n    \"pw-5\",\n    null);") ==
+                  L"var login = new Login2Props(\n    \"bob\",\n    \"<redacted>\",\n    null);",
+              "a call over several lines is read whole");
+        Check(shown(L"new Mystery(\"bob\", \"not-known\")") == L"new Mystery(\"bob\", \"not-known\")", "an unknown declaration is left alone");
+        Check(shown(L"Pair(\"a\", \"b\")") == L"Pair(\"a\", \"b\")", "overloads that disagree are left alone");
+        Check(shown(L"Unknown(userPassword: \"x\")") == L"Unknown(userPassword: \"<redacted>\")", "a named argument is redacted by its name");
+        Check(shown(L"new Options { User = \"bob\", ApiPassword = \"x\" }") == L"new Options { User = \"bob\", ApiPassword = \"<redacted>\" }",
+              "an initializer member is redacted by its name");
     }
 
     DeleteFileW((pages + L"\\MainPage.xaml").c_str());

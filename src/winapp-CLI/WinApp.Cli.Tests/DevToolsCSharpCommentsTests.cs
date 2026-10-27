@@ -167,6 +167,35 @@ public class DevToolsCSharpCommentsTests
     // ---- resolver ----
 
     [TestMethod]
+    public void OfflineAdd_AStringPassedToAPasswordParameter_IsNotStored_AndTheAnchorStillResolves()
+    {
+        File.WriteAllText(Path.Combine(_root, "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        File.WriteAllText(Path.Combine(_root, "Models.cs"),
+            "record Login2Props(string User, string UserPassword, Creds Account);\nrecord Creds(string Name, string Password);\n");
+        File.WriteAllText(AppFile, AppSource.Replace("Counter());",
+            "Component<Login2, Login2Props>(new Login2Props(\"bob\", \"pos-secret-1\", new Creds(\"alice\", \"nested-pw-1\"))));",
+            StringComparison.Ordinal));
+
+        var (exit, output) = Add("--text", "x", "--file", "App.cs", "--line", "11");
+
+        Assert.AreEqual(0, exit, output);
+        var stored = File.ReadAllText(StorePath);
+        Assert.IsFalse(stored.Contains("pos-secret-1", StringComparison.Ordinal) || stored.Contains("nested-pw-1", StringComparison.Ordinal), stored);
+        var comment = new CommentStore().Load(StorePath).Comments.Single();
+        StringAssert.Contains(comment.Anchor.CSharp!.LineText, "new Login2Props(\"bob\", \"<redacted>\", new Creds(\"alice\", \"<redacted>\"))");
+        var view = View(comment);
+        Assert.IsTrue(view.AnchorConfirmed, "the line is compared by its redacted text");
+        Assert.AreEqual("call-site", view.Hits.Single().Via);
+        Assert.IsFalse(view.Hits.Single().Text!.Contains("pos-secret-1", StringComparison.Ordinal));
+
+        File.WriteAllText(AppFile, File.ReadAllText(AppFile).Replace("    public override Element Render()\n    {",
+            "    // moved\n    public override Element Render()\n    {", StringComparison.Ordinal));
+        view = View(new CommentStore().Load(StorePath).Comments.Single());
+        Assert.IsTrue(view.AnchorConfirmed, "a moved line is found by the same redacted text");
+        Assert.AreEqual(12, view.Hits.Single().Line);
+    }
+
+    [TestMethod]
     public void Resolver_MovedLine_StaysConfirmed()
     {
         Add("--text", "x", "--file", "App.cs", "--line", "10");

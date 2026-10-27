@@ -436,7 +436,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             {
                 site = sites[0];
             }
-            var text = lines[anchor.Line.Value - 1];
+            var text = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(path))[anchor.Line.Value - 1];
             anchor.CSharp = new CommentCSharpAnchor
             {
                 ProjectRoot = root,

@@ -372,6 +372,43 @@ public class DevToolsJsonParityTests
         StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(), "Hot Reload");
     }
 
+    // A string passed to a password parameter is hidden even though the statement never says "password".
+    [TestMethod]
+    public async Task GetSource_RedactsAStringPassedToAPasswordParameter()
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"winapp-positional-{Guid.NewGuid():N}")).FullName;
+        var file = Path.Combine(folder, "Panels.cs");
+        const string statement = "Component<Login2, Login2Props>(new Login2Props(\"bob\", \"pos-secret-1\", new Creds(\"alice\", \"nested-pw-1\"))),";
+        File.WriteAllText(Path.Combine(folder, "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        File.WriteAllText(Path.Combine(folder, "Models.cs"),
+            "record Login2Props(string User, string UserPassword, Creds Account);\nrecord Creds(string Name, string Password);\n");
+        File.WriteAllText(file, "class Panel : Component\n{\n    public override Element Render() => VStack(\n        " + statement + "\n        TextBlock(\"x\"));\n}\n");
+        try
+        {
+            foreach (var json in new[] { false, true })
+            {
+                using var agent = new FakeDevToolsProtocolAgent()
+                    .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                    .Answer("Source.get", JsonSerializer.Serialize(new
+                    {
+                        handle = "42", kind = "csharp", fileName = file, lineNumber = 4, columnNumber = 9, onDisk = true,
+                        authoredState = "available", csharp = statement,
+                    }));
+
+                var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, json ? ["42", "--json"] : ["42"]);
+
+                Assert.AreEqual(0, exit, output);
+                Assert.IsFalse(output.Contains("pos-secret-1", StringComparison.Ordinal) || output.Contains("nested-pw-1", StringComparison.Ordinal), output);
+                var shown = json ? JsonDocument.Parse(output).RootElement.GetProperty("csharp").GetString()! : output;
+                StringAssert.Contains(shown, "new Login2Props(\"bob\", \"<redacted>\", new Creds(\"alice\", \"<redacted>\"))");
+            }
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     [TestMethod]
     public async Task GetSource_ACSharpCallSite_UsesTheSameLocationNames()
     {

@@ -305,12 +305,52 @@ internal static class CSharpSourceText
     internal static bool MentionsPassword(string code) => code.Contains("password", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Code that mentions a password shows no string literal values (<c>PasswordBox("&lt;redacted&gt;")</c>).</summary>
-    internal static string Redact(string code)
+    internal static string Redact(string code) => MentionsPassword(code) ? RedactLiterals(code, _ => true) : code;
+
+    /// <summary>
+    /// Code as DevTools shows or stores it: <see cref="Redact(string)"/>, and the string literals a password parameter
+    /// receives (<c>new Login("bob", "&lt;redacted&gt;")</c> for <c>record Login(string User, string Password)</c>)
+    /// when <paramref name="declarations"/> declares the called method, constructor or record.
+    /// </summary>
+    internal static string Redact(string code, CSharpDeclarations declarations)
     {
-        if (!MentionsPassword(code))
+        if (MentionsPassword(code))
         {
-            return code;
+            return Redact(code);
         }
+        var lines = SplitLines(code);
+        var ranges = CSharpArguments.SecretRanges(string.Join('\n', Mask(lines)), declarations);
+        return ranges.Count == 0 ? code : RedactLiterals(string.Join('\n', lines), at => Inside(ranges, at));
+    }
+
+    /// <summary>
+    /// The lines of a file with the string literals a password parameter receives redacted, reading each call whole
+    /// (its arguments may continue on later lines). Store and compare a line through <see cref="StoredText"/> and
+    /// <see cref="LineHash"/> of these lines, so a comment's line is matched by the text it was stored with.
+    /// </summary>
+    internal static string[] RedactLines(IReadOnlyList<string> lines, CSharpDeclarations declarations)
+    {
+        var result = lines.ToArray();
+        var ranges = CSharpArguments.SecretRanges(string.Join('\n', Mask(lines)), declarations);
+        var offset = 0;
+        for (var index = 0; index < result.Length && ranges.Count > 0; index++)
+        {
+            var start = offset;
+            var end = offset + result[index].Length;
+            if (ranges.Any(range => range.Start < end && range.End > start))
+            {
+                result[index] = RedactLiterals(result[index], at => Inside(ranges, start + at));
+            }
+            offset = end + 1;
+        }
+        return result;
+    }
+
+    private static bool Inside(List<(int Start, int End)> ranges, int at) => ranges.Any(range => at >= range.Start && at < range.End);
+
+    // Replaces the value of each string literal whose opening quote `redact` selects with <redacted>.
+    private static string RedactLiterals(string code, Func<int, bool> redact)
+    {
         var output = new StringBuilder(code.Length);
         var i = 0;
         var n = code.Length;
@@ -319,8 +359,11 @@ internal static class CSharpSourceText
             var c = code[i];
             if (c == '/' && i + 1 < n && code[i + 1] == '/')
             {
-                output.Append(code, i, n - i);
-                break;
+                var lineEnd = code.IndexOf('\n', i);
+                var stop = lineEnd < 0 ? n : lineEnd;
+                output.Append(code, i, stop - i);
+                i = stop;
+                continue;
             }
             if (c == '"' || ((c == '@' || c == '$') && i + 1 < n && code[i + 1] is '"' or '@' or '$'))
             {
@@ -336,7 +379,6 @@ internal static class CSharpSourceText
                     continue;
                 }
                 var open = quotes >= 3 ? quotes : 1;
-                output.Append(code, i, j + open - i);
                 var k = j + open;
                 if (open >= 3)
                 {
@@ -352,16 +394,29 @@ internal static class CSharpSourceText
                             if (verbatim && k + 1 < n && code[k + 1] == '"') { k += 2; continue; }
                             break;
                         }
+                        if (!verbatim && code[k] == '\n') { break; }
                         if (!verbatim && code[k] == '\\') { k++; }
                         k++;
                     }
                 }
+                if (!redact(i))
+                {
+                    var stop = k < n ? Math.Min(n, k + open) : n;
+                    output.Append(code, i, stop - i);
+                    i = stop;
+                    continue;
+                }
+                output.Append(code, i, j + open - i);
                 output.Append(Redacted);
-                if (k < n)
+                if (k < n && code[k] == '"')
                 {
                     output.Append(code, k, Math.Min(open, n - k));
+                    i = k + open;
                 }
-                i = k < n ? k + open : n;
+                else
+                {
+                    i = k;
+                }
                 continue;
             }
             output.Append(c);

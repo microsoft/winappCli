@@ -242,6 +242,23 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             var code = ReadString(root, "csharp");
             var onDisk = !root.TryGetProperty("onDisk", out var disk) || disk.ValueKind != JsonValueKind.False;
             var compiled = ReadString(root, "compiledFileName");
+            string? sourcePath = null;
+            var sourcePathRead = false;
+            string? SourcePath()
+            {
+                if (!sourcePathRead)
+                {
+                    sourcePathRead = true;
+                    sourcePath = onDisk && Path.IsPathFullyQualified(file) ? file
+                        : DevToolsJson.ProjectPath(DevToolsJson.SourceRoot(target.Tap!, cancellationToken), file) ?? FindRelativeSource(file);
+                }
+                return sourcePath;
+            }
+            // A string passed to a password parameter is redacted even when the statement never says "password".
+            if (code.Length > 0)
+            {
+                code = CSharpSourceText.Redact(code, CSharpDeclarations.ForSource(SourcePath()));
+            }
             if (json)
             {
                 WriteJson(DevToolsJson.Serialize(writer =>
@@ -253,9 +270,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     writer.WriteString("kind", "csharp");
                     // The location vocabulary the XAML answer uses: the recorded file, its path here, line and column.
                     writer.WriteString("file", file);
-                    var path = onDisk && Path.IsPathFullyQualified(file) ? file
-                        : DevToolsJson.ProjectPath(DevToolsJson.SourceRoot(target.Tap!, cancellationToken), file) ?? FindRelativeSource(file);
-                    if (path is not null) { writer.WriteString("path", path); }
+                    if (SourcePath() is { } path) { writer.WriteString("path", path); }
                     writer.WriteNumber("line", line);
                     if (column > 0) { writer.WriteNumber("column", column); }
                     if (compiled.Length > 0) { writer.WriteString("compiledFileName", compiled); }
@@ -290,9 +305,21 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 if (FindRelativeSource(file) is { } local)
                 {
                     DevToolsRender.WriteMarkupLine(Console, $"  [grey]Found here: {Markup.Escape(local)}[/]");
-                    if (code.Length == 0 && line > 0 && File.ReadLines(local).Skip(line - 1).FirstOrDefault() is { } text)
+                    if (code.Length == 0 && line > 0)
                     {
-                        code = CSharpSourceText.Redact(text.Trim());
+                        try
+                        {
+                            var lines = CSharpSourceText.ReadLines(local, Path.GetDirectoryName(local)!);
+                            if (line <= lines.Length)
+                            {
+                                code = CSharpSourceText.Redact(
+                                    CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(local))[line - 1].Trim());
+                            }
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                        {
+                            // The location still tells the reader where to look.
+                        }
                     }
                 }
                 else

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "DevToolsAuthored.h"
+#include "DevToolsCSharpArguments.h"
 #include "DevToolsCSharpSource.h"
 #include "DevToolsReactorNames.h"
 #include "DevToolsSourcePath.h"
@@ -528,6 +529,132 @@ bool DevToolsAuthored_IsProjectSource(const std::wstring& fileUri)
     return !UriToDiskPath(fileUri).empty();
 }
 
+namespace {
+
+bool IsDirectory(const std::wstring& path)
+{
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) && !(attributes & FILE_ATTRIBUTE_REPARSE_POINT);
+}
+
+std::wstring ParentFolder(const std::wstring& path)
+{
+    const size_t slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? std::wstring() : path.substr(0, slash);
+}
+
+// The only .csproj in the nearest folder above `file` that has one; empty when there is none or several.
+std::wstring ProjectFileFor(const std::wstring& file)
+{
+    for (std::wstring folder = ParentFolder(file); folder.size() > 2; folder = ParentFolder(folder)) {
+        WIN32_FIND_DATAW data{};
+        HANDLE find = FindFirstFileW((folder + L"\\*.csproj").c_str(), &data);
+        if (find == INVALID_HANDLE_VALUE) continue;
+        std::wstring project;
+        int count = 0;
+        do { if (!(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) { ++count; project = folder + L"\\" + data.cFileName; } }
+        while (FindNextFileW(find, &data));
+        FindClose(find);
+        return count == 1 ? project : std::wstring();
+    }
+    return {};
+}
+
+std::wstring AttributeValue(const std::wstring& tag, const wchar_t* name)
+{
+    const std::wstring key = std::wstring(name) + L"=\"";
+    const size_t at = tag.find(key);
+    if (at == std::wstring::npos || (at > 0 && !iswspace(tag[at - 1]))) return {};
+    const size_t end = tag.find(L'"', at + key.size());
+    return end == std::wstring::npos ? std::wstring() : tag.substr(at + key.size(), end - at - key.size());
+}
+
+// The project's folder, then each referenced project's folder (one level; analyzers excluded).
+std::vector<std::wstring> ProjectFolders(const std::wstring& project)
+{
+    std::vector<std::wstring> folders{ParentFolder(project)};
+    std::vector<std::wstring> lines;
+    std::wstring hash;
+    if (!ReadLines(project, &lines, &hash)) return folders;
+    std::wstring text;
+    for (const auto& line : lines) { text += line; text += L'\n'; }
+    for (size_t at = text.find(L"<ProjectReference"); at != std::wstring::npos; at = text.find(L"<ProjectReference", at + 1)) {
+        const size_t end = text.find(L'>', at);
+        if (end == std::wstring::npos) break;
+        const std::wstring tag = text.substr(at, end - at);
+        const std::wstring include = AttributeValue(tag, L"Include");
+        if (include.empty() || include.find(L"$(") != std::wstring::npos ||
+            _wcsicmp(AttributeValue(tag, L"OutputItemType").c_str(), L"Analyzer") == 0 ||
+            _wcsicmp(AttributeValue(tag, L"ReferenceOutputAssembly").c_str(), L"false") == 0) continue;
+        std::wstring combined = include.size() > 1 && include[1] == L':' ? include : folders.front() + L"\\" + include;
+        std::replace(combined.begin(), combined.end(), L'/', L'\\');
+        wchar_t full[MAX_PATH * 2]{};
+        if (!GetFullPathNameW(combined.c_str(), MAX_PATH * 2, full, nullptr)) continue;
+        const DWORD attributes = GetFileAttributesW(full);
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        const std::wstring referenced = ParentFolder(full);
+        bool known = false;
+        for (const auto& folder : folders)
+            known = known || _wcsicmp(folder.c_str(), referenced.c_str()) == 0 ||
+                (referenced.size() > folder.size() && _wcsnicmp(referenced.c_str(), folder.c_str(), folder.size()) == 0 &&
+                 referenced[folder.size()] == L'\\');
+        if (!known) folders.push_back(referenced);
+    }
+    return folders;
+}
+
+void CollectSources(const std::wstring& folder, std::vector<std::wstring>* files, size_t limit, int depth = 0)
+{
+    if (files->size() >= limit || depth > 32) return;
+    WIN32_FIND_DATAW data{};
+    HANDLE find = FindFirstFileW((folder + L"\\*").c_str(), &data);
+    if (find == INVALID_HANDLE_VALUE) return;
+    do {
+        const std::wstring name = data.cFileName;
+        if (name == L"." || name == L".." || (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) continue;
+        if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            static const wchar_t* const kSkipped[] = {L"bin", L"obj", L".git", L".vs", L"node_modules", L"packages", L"AppPackages"};
+            bool skipped = false;
+            for (const wchar_t* s : kSkipped) skipped = skipped || _wcsicmp(name.c_str(), s) == 0;
+            if (!skipped) CollectSources(folder + L"\\" + name, files, limit, depth + 1);
+        } else if (name.size() > 3 && _wcsicmp(name.c_str() + name.size() - 3, L".cs") == 0) {
+            files->push_back(folder + L"\\" + name);
+        }
+    } while (files->size() < limit && FindNextFileW(find, &data));
+    FindClose(find);
+}
+
+// The declarations of the project a C# file belongs to and of the projects it references (the file alone when it is
+// in no project), read again after a few seconds so edits are seen.
+std::shared_ptr<const DevToolsCSharpArguments::Declarations> ProjectDeclarations(const std::wstring& file)
+{
+    struct Entry { ULONGLONG built = 0; std::shared_ptr<const DevToolsCSharpArguments::Declarations> index; };
+    static std::mutex lock;
+    static std::map<std::wstring, Entry> cache;
+    const std::wstring project = ProjectFileFor(file);
+    const std::wstring key = project.empty() ? file : project;
+    {
+        std::lock_guard<std::mutex> guard(lock);
+        const auto known = cache.find(key);
+        if (known != cache.end() && GetTickCount64() - known->second.built < 5000) return known->second.index;
+    }
+    std::vector<std::wstring> files;
+    if (project.empty()) files.push_back(file);
+    else for (const auto& folder : ProjectFolders(project)) if (IsDirectory(folder)) CollectSources(folder, &files, 4096);
+    auto index = std::make_shared<DevToolsCSharpArguments::Declarations>();
+    for (const auto& source : files) {
+        std::vector<std::wstring> lines;
+        std::wstring hash;
+        if (ReadLines(source, &lines, &hash)) index->Add(lines);
+    }
+    std::lock_guard<std::mutex> guard(lock);
+    if (cache.size() >= 16) cache.clear();
+    cache[key] = Entry{GetTickCount64(), index};
+    return index;
+}
+
+} // namespace
+
 bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, unsigned int column, std::wstring* out)
 {
     if (!out) return false;
@@ -535,7 +662,9 @@ bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, un
     std::vector<std::wstring> lines;
     std::wstring hash;
     if (path.empty() || !ReadLines(path, &lines, &hash)) return false;
-    *out = DevToolsCSharpSource::Statement(lines, line, column);
+    // A string passed to a password parameter is redacted even when the statement never says "password".
+    const auto declarations = ProjectDeclarations(path);
+    *out = DevToolsCSharpSource::Statement(DevToolsCSharpArguments::RedactLines(lines, *declarations), line, column);
     DevToolsCSharpSource::Redact(*out);
     return !out->empty();
 }

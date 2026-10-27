@@ -42,11 +42,13 @@ internal static class CSharpAnchorResolver
                 var sameFile = sameProject && relative.Equals(cs.SourceFile, StringComparison.OrdinalIgnoreCase);
                 var lines = CSharpSourceText.ReadLines(file, sourceRoot);
                 var masked = CSharpSourceText.Mask(lines);
+                // Compared and shown as stored: with the strings a password parameter receives redacted.
+                var shown = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(file));
                 if (sameFile && cs.Line >= 1 && cs.Line <= lines.Length &&
-                    CSharpSourceText.LineHash(lines[cs.Line - 1]) == cs.LineHash &&
+                    CSharpSourceText.LineHash(shown[cs.Line - 1]) == cs.LineHash &&
                     FactoryColumn(masked[cs.Line - 1], cs) is int column)
                 {
-                    return [Hit(relative, cs.Line, column, "strong", 0, "call-site", lines[cs.Line - 1])];
+                    return [Hit(relative, cs.Line, column, "strong", 0, "call-site", shown[cs.Line - 1])];
                 }
                 var span = CSharpSourceText.DeclarationSpan(masked, cs.Component);
                 var from = span?.Start ?? 1;
@@ -57,15 +59,15 @@ internal static class CSharpAnchorResolver
                     {
                         continue;
                     }
-                    var sameText = CSharpSourceText.LineHash(lines[line - 1]) == cs.LineHash;
+                    var sameText = CSharpSourceText.LineHash(shown[line - 1]) == cs.LineHash;
                     // A project-wide search (the captured file is gone) looks for the captured line only.
                     if (!sameText && broad)
                     {
                         continue;
                     }
-                    var text = CSharpSourceText.StoredText(lines[line - 1]);
+                    var text = CSharpSourceText.StoredText(shown[line - 1]);
                     var keyed = !string.IsNullOrEmpty(cs.Key) && lines[line - 1].Contains(cs.Key, StringComparison.Ordinal);
-                    hits.Add((Hit(relative, line, at, "weak", sameText ? 1 : 2, sameText ? "line-text" : "factory", lines[line - 1]),
+                    hits.Add((Hit(relative, line, at, "weak", sameText ? 1 : 2, sameText ? "line-text" : "factory", shown[line - 1]),
                         sameText ? 100 : Similarity(cs.LineText, text), keyed));
                 }
             }
