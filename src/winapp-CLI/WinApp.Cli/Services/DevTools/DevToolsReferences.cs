@@ -9,7 +9,8 @@ namespace WinApp.Cli.Services.DevTools;
 /// <summary>
 /// One element reference from <c>Property.references</c>: an accessibility relation (LabeledBy, DescribedBy, FlowsTo,
 /// FlowsFrom) or an XY keyboard focus target (XYFocusUp/Down/Left/Right), from this element (<c>out</c>) or to it (<c>in</c>).
-/// <see cref="Pending"/>: Reactor knows the target, but it isn't shown (not created yet), so WinUI has nothing to point at.
+/// <see cref="Pending"/>: the target isn't shown: it exists outside the live tree (an unselected tab, a closed popup), or
+/// Reactor hasn't created it yet.
 /// </summary>
 internal sealed record DevToolsReference(string Kind, bool Incoming, string? Handle, string Element, bool Cycle, bool Pending = false)
 {

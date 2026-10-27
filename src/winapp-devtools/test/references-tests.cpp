@@ -103,6 +103,24 @@ void Test_PendingFromReactor()
     Check(DevToolsPendingReferencesMarkup(pending, false).find(L"Text=\"References\"") == std::wstring::npos, "and not when it already has one");
 }
 
+void Test_TargetOutsideTheLiveTree()
+{
+    // LabeledBy names a TextBlock in an unselected tab: it exists, but isn't in the live tree, so there is nothing to select.
+    DevToolsReferenceEdge edge;
+    edge.kind = L"LabeledBy";
+    edge.wire = 77;
+    DevToolsMarkReferenceNotShown(edge, L"Microsoft.UI.Xaml.Controls.TextBlock");
+    Check(DevToolsReferenceLine(edge) == L"LabeledBy \u2192 TextBlock (not shown)", "reads (not shown), like a pending target");
+    Check(DevToolsReferenceLine(edge).find(L"outside the inspected tree") == std::wstring::npos, "not 'outside the inspected tree'");
+    const auto json = DevToolsReferencesJson({ edge });
+    Check(json.find(L"\"element\":\"TextBlock\",\"pending\":true,\"targetType\":\"TextBlock\"") != std::wstring::npos,
+          "the JSON marks it pending with its type");
+    Check(json.find(L"\"handle\"") == std::wstring::npos, "and has no handle to select");
+    DevToolsReferenceEdge bare;
+    DevToolsMarkReferenceNotShown(bare, L"CustomLabel");
+    Check(bare.label == L"CustomLabel", "a class name without a namespace is kept whole");
+}
+
 } // namespace
 
 int RunReferencesTests()
@@ -112,5 +130,6 @@ int RunReferencesTests()
     Test_Json();
     Test_Markup();
     Test_PendingFromReactor();
+    Test_TargetOutsideTheLiveTree();
     return g_failures;
 }

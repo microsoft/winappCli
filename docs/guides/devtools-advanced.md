@@ -191,11 +191,14 @@ through `AutomationProperties.LabeledBy`, `DescribedBy`, `FlowsTo`, `FlowsFrom` 
 `↺ cycle` means following the same property comes back to this element. `--json`
 returns the edges as `references`, with each target's handle.
 
-In a Reactor app, a reference can name an element that hasn't been created yet, such
+A target that exists but isn't in the live tree, such as a label on an unselected tab
+or in a closed popup, reads `LabeledBy → TextBlock (not shown)`; in `--json` the edge
+has `pending: true` and no handle.
+
+In a Reactor app, a reference can also name an element that hasn't been created yet, such
 as a button on a tab that isn't open. The line names the element Reactor expects and
-says it isn't shown (`XYFocusRight → Button (not shown)`); in `--json` the edge has
-`pending: true` and no handle. This needs a Reactor version that reports its
-references to DevTools.
+says it isn't shown (`XYFocusRight → Button (not shown)`), the same way. This needs a
+Reactor version that reports its references to DevTools.
 
 ## Look up and change resources
 

@@ -598,7 +598,7 @@ static std::uintptr_t TapReferenceIdentity(const winrt::Windows::Foundation::IIn
     return unknown ? reinterpret_cast<std::uintptr_t>(winrt::get_abi(unknown)) : 0;
 }
 
-// `TextBlock #NameLabel` from the census, or the runtime class when the element is outside it.
+// `TextBlock #NameLabel` from the census; empty when the element is not in the live tree.
 static std::wstring TapReactorNameOf(InstanceHandle h); // DevToolsTap.Reactor.inc
 static std::wstring TapReferenceLabel_ui(const winrt::Windows::Foundation::IInspectable& object, unsigned long long* wire)
 {
@@ -606,10 +606,10 @@ static std::wstring TapReferenceLabel_ui(const winrt::Windows::Foundation::IInsp
     InstanceHandle h = 0;
     if (g_diag && SUCCEEDED(g_diag->GetHandleFromIInspectable(reinterpret_cast<IInspectable*>(winrt::get_abi(object)), &h)) && h) {
         AcquireSRWLockShared(&g_censusLock);
-        *wire = PackWire_nolock(h);
         std::wstring type, name;
         if (auto it = g_type.find(h); it != g_type.end()) type = it->second;
         if (auto it = g_nameOf.find(h); it != g_nameOf.end()) name = it->second;
+        if (!type.empty()) *wire = PackWire_nolock(h);
         ReleaseSRWLockShared(&g_censusLock);
         if (!type.empty()) {
             const auto dot = type.find_last_of(L'.');
@@ -624,9 +624,7 @@ static std::wstring TapReferenceLabel_ui(const winrt::Windows::Foundation::IInsp
             return preview.empty() ? label : label + L" " + preview;
         }
     }
-    std::wstring name(winrt::get_class_name(object));
-    const auto dot = name.find_last_of(L'.');
-    return (dot == std::wstring::npos ? name : name.substr(dot + 1)) + L" (outside the inspected tree)";
+    return {};
 }
 
 static const size_t kReferenceIncomingScan = 3000;
@@ -665,6 +663,7 @@ static std::vector<DevToolsReferenceEdge> TapReferences_ui(InstanceHandle ih, bo
             DevToolsReferenceEdge edge;
             edge.kind = kind;
             edge.label = TapReferenceLabel_ui(target, &edge.wire);
+            if (edge.label.empty()) DevToolsMarkReferenceNotShown(edge, std::wstring(winrt::get_class_name(target)));
             const auto targetId = TapReferenceIdentity(target);
             if (auto element = target.try_as<DevToolsX::UIElement>()) known.emplace(targetId, element);
             edge.cycle = DevToolsReferenceLeadsBack(selfId, targetId, follow(kind));
@@ -696,6 +695,7 @@ static std::vector<DevToolsReferenceEdge> TapReferences_ui(InstanceHandle ih, bo
                 edge.kind = kind;
                 edge.incoming = true;
                 edge.label = TapReferenceLabel_ui(source, &edge.wire);
+                if (edge.label.empty()) DevToolsMarkReferenceNotShown(edge, std::wstring(winrt::get_class_name(source)));
                 const auto sourceId = TapReferenceIdentity(source);
                 known.emplace(sourceId, source);
                 edge.cycle = DevToolsReferenceLeadsBack(sourceId, selfId, follow(kind));

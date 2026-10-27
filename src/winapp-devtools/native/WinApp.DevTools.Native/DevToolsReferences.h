@@ -39,8 +39,9 @@ struct DevToolsReferenceEdge
     unsigned long long wire = 0;    // the other element's wire handle; 0 when it is outside the inspected tree
     std::wstring label;             // the other element, as the tree names it (`TextBlock #NameLabel`)
     bool cycle = false;             // following `kind` from the other element comes back here
-    bool pending = false;           // Reactor knows the target, but it isn't shown (not created yet), so WinUI has nothing
-    std::wstring targetType;        // pending: the type Reactor expects the target to be
+    bool pending = false;           // the target isn't shown: Reactor hasn't created it yet, or it exists outside the live
+                                    // tree (an unselected tab, a closed popup), so there is nothing to select
+    std::wstring targetType;        // pending: the type Reactor expects the target to be, or the detached target's type
     std::wstring automationId;      // pending: the AutomationId the reference names
 };
 
@@ -50,6 +51,17 @@ inline std::wstring DevToolsPendingReferenceLabel(const std::wstring& targetType
     std::wstring label = targetType;
     if (!automationId.empty()) label += (label.empty() ? L"" : L" ") + std::wstring(L"AutomationId \"") + automationId + L"\"";
     return label.empty() ? L"an element" : label;
+}
+
+// A target that exists but isn't in the live tree (an unselected tab's content, a closed popup) reads like a pending
+// one: `LabeledBy → TextBlock (not shown)`, with no handle to select. `runtimeClass` is its full WinRT class name.
+inline void DevToolsMarkReferenceNotShown(DevToolsReferenceEdge& edge, const std::wstring& runtimeClass)
+{
+    const auto dot = runtimeClass.find_last_of(L'.');
+    edge.wire = 0;
+    edge.pending = true;
+    edge.targetType = dot == std::wstring::npos ? runtimeClass : runtimeClass.substr(dot + 1);
+    edge.label = DevToolsPendingReferenceLabel(edge.targetType, {});
 }
 
 // The managed agent's `reactorreferences` answer, `{"state":"ok","edges":[{"property":"XYFocusRight","targetType":"Button",
@@ -120,7 +132,7 @@ inline std::wstring DevToolsReferencesJson(const std::vector<DevToolsReferenceEd
 }
 
 // One line per edge: `LabeledBy → TextBlock #NameLabel` (or `← ... XYFocusDown` for an incoming edge), and
-// `XYFocusRight → Button (not shown)` when Reactor's target hasn't been created.
+// `XYFocusRight → Button (not shown)` when the target isn't in the live tree (or Reactor hasn't created it).
 inline std::wstring DevToolsReferenceLine(const DevToolsReferenceEdge& edge)
 {
     std::wstring line = edge.incoming ? (edge.label + L" \u2192 this (" + edge.kind + L")")
@@ -142,7 +154,8 @@ inline std::wstring DevToolsReferencesHeaderMarkup()
     return L"<TextBlock Text=\"References\" Style=\"{StaticResource CaptionTextBlockStyle}\""
            L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
            L" ToolTipService.ToolTip=\"Accessibility relations and XY keyboard focus targets that point at or from this element. "
-           L"A cycle means following the same property comes back here; (not shown) means Reactor's target hasn't been created yet.\"/>";
+           L"A cycle means following the same property comes back here; (not shown) means the target isn't in the live tree "
+           L"(an unselected tab, a closed popup, or a Reactor element not created yet).\"/>";
 }
 
 // The inspector's References section, or empty when the element has none.
