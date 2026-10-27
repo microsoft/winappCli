@@ -1,0 +1,32 @@
+{
+  "name": "winappcli",
+  "interface": {
+    "displayName": "WinApp CLI"
+  },
+  "plugins": [
+    {
+      "name": "winappcli",
+      "source": {
+        "source": "local",
+        "path": "./plugins/winapp"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "winui",
+      "source": {
+        "source": "local",
+        "path": "./plugins/winui"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

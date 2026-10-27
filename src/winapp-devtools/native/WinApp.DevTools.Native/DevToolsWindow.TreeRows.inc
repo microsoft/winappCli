@@ -223,6 +223,11 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
             IInspectable* chev  = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Primitives.ToggleButton");
             IInspectable* glyph = NewTextBlock(L"\uE70D");
             if (chev && glyph) {
+                auto expander = TreeAutomationElement(chev).as<DevToolsXC::Control>();
+                expander.IsTabStop(false);
+                expander.IsEnabled(g_treeFilterQuery.empty());
+                DevToolsTreeA::AutomationProperties::SetAccessibilityView(
+                    expander, DevToolsTreeAP::AccessibilityView::Raw);
                 void* gtb = nullptr;
                 if (SUCCEEDED(glyph->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &gtb)) && gtb) {
                     if (pal.glyph) DevToolsPutFontFamily(gtb, pal.glyph);
@@ -271,7 +276,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                     reinterpret_cast<IUnknown*>(ctb)->Release();
                 }
                 SetAutomationTextOn(chev, L"Expand or collapse " + identity,
-                                    L"TreeToggle" + std::to_wstring(i), L"tree item expander");
+                                    L"TreeToggle" + std::to_wstring(i), L"");
                 setGridColumn(chev, 0);
                 void* cbb = nullptr;
                 if (SUCCEEDED(chev->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &cbb)) && cbb) {
@@ -290,7 +295,8 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
             if (chev)  chev->Release();
         }
 
-        IInspectable* nodeBtn = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Button");
+        IInspectable* nodeBtn = reinterpret_cast<IInspectable*>(
+            winrt::detach_abi(winrt::make<DevToolsTreeRow>(i, g_treeRowsGen)));
         IInspectable* caption = NewTextBlock(std::wstring());
         if (!nodeBtn || !caption) {
             DevToolsOverlayLog(L"route1.rows row %zu: node button did not build (button=%p caption=%p)",
@@ -372,7 +378,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
             }
             std::wstring aname = identity;
             if (!n.preview.empty()) { aname += L" "; aname += n.preview; }
-            SetAutomationTextOn(nodeBtn, aname, L"TreeNode" + std::to_wstring(i), L"tree item");
+            SetAutomationTextOn(nodeBtn, aname, L"TreeNode" + std::to_wstring(i), L"");
             // The caption ends in an ellipsis when the row is too narrow; the tooltip holds all of it.
             std::wstring full = g_treeShortType[i];
             if (!n.name.empty()) full += L"  #" + n.name;
@@ -447,7 +453,9 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
     DevToolsRowPalette pal = AcquireRowPalette();
     auto releasePalette = [&]() { ReleaseRowPalette(pal); };
 
-    IInspectable* panel = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.StackPanel");
+    auto treePanel = winrt::make<DevToolsTreePanel>(g_treeRowsGen);
+    g_treeAutomationRoot = treePanel;
+    IInspectable* panel = reinterpret_cast<IInspectable*>(winrt::detach_abi(treePanel));
     IInspectable* panelChildren = nullptr;
     if (panel) {
         void* pp = nullptr;
@@ -467,7 +475,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
         releasePalette();
         return nullptr;
     }
-    SetAutomationTextOn(panel, L"Visual tree", L"WinAppDevToolsTree", L"tree");
+    SetAutomationTextOn(panel, L"Visual tree", L"WinAppDevToolsTree", L"");
 
     const size_t renderCount = nodes.size();
     // Indent is measured from the SHALLOWEST rendered row: the census forest's roots are not guaranteed
@@ -509,6 +517,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
                          populationTotal - renderCount, kMaxRenderNodes);
         }
         if (IInspectable* tb = NewTextBlock(note)) {
+            g_treeAutomationNote = TreeAutomationElement(tb).as<DevToolsX::FrameworkElement>();
             void* itb = nullptr;
             if (SUCCEEDED(tb->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &itb)) && itb) {
                 if (pal.tertiary) DevToolsPutTextForeground(itb, pal.tertiary);
