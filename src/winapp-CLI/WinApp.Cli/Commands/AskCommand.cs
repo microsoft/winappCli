@@ -81,7 +81,7 @@ internal sealed class AskCommand : Command, IShortDescription
                 }
                 else
                 {
-                    if (searchService.LoadedOrigin == CorpusOrigin.Embedded)
+                    if (searchService.LoadedOrigin == CorpusOrigin.Embedded && logger.IsEnabled(LogLevel.Information))
                     {
                         console.MarkupLine("[grey]Using samples built into the CLI; they may lag upstream.[/]");
                     }

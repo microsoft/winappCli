@@ -272,6 +272,34 @@ public class AskCommandTests : BaseCommandTests
         Assert.AreEqual(0, _learn.Calls);
     }
 
+    [TestClass]
+    public sealed class QuietLogging() : BaseCommandTests(logLevel: Microsoft.Extensions.Logging.LogLevel.Warning)
+    {
+        private readonly FakeControlsSearchService _samples = FakeControlsSearchService.WithEngine(new SearchEngine(
+            [
+                new Scenario
+                {
+                    Id = "tabview-1", ControlId = "tabview", ControlName = "TabView",
+                    HeaderText = "Tabs [example]", Source = "gallery", Xaml = "<TabView />"
+                }
+            ], [], new(), new()));
+
+        protected override IServiceCollection ConfigureServices(IServiceCollection services) => services
+            .AddSingleton<IControlsSearchService>(_ => _samples)
+            .AddSingleton<ILearnSearchClient>(_ => new FakeLearnClient());
+
+        [TestMethod]
+        public async Task Search_Text_QuietOmitsEmbeddedSamplesNoticeButKeepsResults()
+        {
+            _samples.LoadedOrigin = CorpusOrigin.Embedded;
+            var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<AskCommand>(), ["tabview", "--quiet"]);
+            Assert.AreEqual(0, exit);
+            Assert.IsFalse(TestAnsiConsole.Output.Contains("built into the CLI", StringComparison.Ordinal));
+            StringAssert.Contains(TestAnsiConsole.Output, "tabview-1");
+            StringAssert.Contains(TestAnsiConsole.Output, "Short excerpt");
+        }
+    }
+
     private sealed class FakeLearnClient : ILearnSearchClient
     {
         public int Calls { get; private set; }
