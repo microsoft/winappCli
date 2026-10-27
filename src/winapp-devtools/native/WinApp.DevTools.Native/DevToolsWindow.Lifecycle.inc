@@ -104,13 +104,14 @@ if (g_route1WindowHidden) {
                 reinterpret_cast<IUnknown*>(win)->Release();
             }
             DevToolsOverlayLog(L"route1.open re-activate existing (live) window");
-            SelectNodeByWire(preselectWire);
+            if (preselectWire) SelectNodeByWire(preselectWire);
             // The app may have changed this element since the window last read it.
             if (preselectWire && preselectWire == g_selWire) {
                 WalkForget();
                 ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
             }
             LiveWatchSelection();
+            SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, DevToolsOverlay_IsPickArmed());
             return S_OK;
         }
         DevToolsOverlayLog(L"route1.open existing window was closed; rebuilding");
@@ -380,7 +381,9 @@ if (g_route1WindowHidden) {
         wireToggle(L"JmxBtn",  L"JmxLbl",  reinterpret_cast<IUnknown*>(jmxSink),  &g_jmxLbl, &g_jmxBtnCtrl);
         wireToggle(L"PickBtn", nullptr, reinterpret_cast<IUnknown*>(pickSink), nullptr, &g_pickBtnCtrl);
         if (g_pickBtnCtrl) DevToolsPutIsEnabled(g_pickBtnCtrl, g_ctx.writeFn != nullptr);
-        wireToggle(L"FocusBtn", nullptr, reinterpret_cast<IUnknown*>(focusSink), nullptr);
+        wireToggle(L"FocusBtn", nullptr, reinterpret_cast<IUnknown*>(focusSink), nullptr, &g_focusBtnCtrl);
+        SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, DevToolsOverlay_IsPickArmed());
+        SetModeToggleState(g_focusBtnCtrl, g_focusOnUi, g_focusActive);
         void* rootUi = nullptr;
         if (SUCCEEDED(static_cast<IUnknown*>(feRoot)->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &rootUi)) && rootUi) {
             auto* keys = new SnapshotRefreshSink(); keys->Init();
@@ -582,12 +585,12 @@ static void ResetAppVisibleModes(HWND h)
     if (g_pickRoute.IsWindowPickArmed()) {
         DevToolsOverlay_DisarmPick();
         g_pickRoute.CancelWindowPick();
-        SetIconToggleState(g_pickOnUi, false);
+        SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, false);
     }
     if (g_focusActive) {
         DevToolsOverlay_SetFocusTracking(false);
         g_focusActive = false;
-        SetIconToggleState(g_focusOnUi, false);
+        SetModeToggleState(g_focusBtnCtrl, g_focusOnUi, false);
     }
 }
 
@@ -686,15 +689,14 @@ void DevToolsWindow_RereadSelection(InstanceHandle wire)
     } catch (const winrt::hresult_error&) {}
 }
 
-// The overlay reports every pick-mode transition here, whichever surface caused it (the window's toggle, the
-// rail's Pick button, or Esc). One owner, one state: this is the only writer of the window's indicator, and
-// the routing bit is cleared with the mode so a later overlay-armed pick is not mistakenly claimed by this
-// window. UI thread only.
+// Overlay, inspector and Esc transitions share the same checked state and indicator.
+// Clear the routing bit with the mode so a later overlay pick is not claimed by the inspector.
+// UI thread only.
 void DevToolsWindow_OnPickModeChanged(bool armed)
 {
     if (!armed) g_pickRoute.CancelWindowPick();
     if (!DevToolsWindow_IsOpen()) return;
-    SetIconToggleState(g_pickOnUi, armed);
+    SetModeToggleState(g_pickBtnCtrl, g_pickOnUi, armed);
     DevToolsOverlayLog(L"route1.pick mode -> %s (overlay armed=%d)", armed ? L"ON" : L"OFF",
                   (int)DevToolsOverlay_IsPickArmed());
 }

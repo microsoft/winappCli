@@ -460,6 +460,7 @@ static void ResetRoute1State()
     if (g_jmxLbl)  { reinterpret_cast<IUnknown*>(g_jmxLbl)->Release();  g_jmxLbl  = nullptr; }
     if (g_jmxBtnCtrl) { reinterpret_cast<IUnknown*>(g_jmxBtnCtrl)->Release(); g_jmxBtnCtrl = nullptr; }
     if (g_pickBtnCtrl) { reinterpret_cast<IUnknown*>(g_pickBtnCtrl)->Release(); g_pickBtnCtrl = nullptr; }
+    if (g_focusBtnCtrl) { reinterpret_cast<IUnknown*>(g_focusBtnCtrl)->Release(); g_focusBtnCtrl = nullptr; }
     if (g_pickOnUi) { reinterpret_cast<IUnknown*>(g_pickOnUi)->Release(); g_pickOnUi = nullptr; }
     if (g_focusOnUi) { reinterpret_cast<IUnknown*>(g_focusOnUi)->Release(); g_focusOnUi = nullptr; }
     if (g_focusNoticeUi) { reinterpret_cast<IUnknown*>(g_focusNoticeUi)->Release(); g_focusNoticeUi = nullptr; }

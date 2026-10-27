@@ -131,7 +131,7 @@
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="PickBtn" Grid.Column="0" Width="32" Height="32" Padding="0"
+        <ToggleButton x:Name="PickBtn" Grid.Column="0" Width="32" Height="32" Padding="0"
                ToolTipService.ToolTip="Pick element (Ctrl+Shift+P)"
                AutomationProperties.Name="Pick element (inspector)"
                AutomationProperties.AutomationId="PickElementToggle">
@@ -141,8 +141,8 @@
                    Background="{ThemeResource AccentFillColorDefaultBrush}"
                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Visibility="Collapsed"/>
           </Grid>
-        </Button>
-        <Button x:Name="FocusBtn" Grid.Column="1" Width="32" Height="32" Padding="0"
+        </ToggleButton>
+        <ToggleButton x:Name="FocusBtn" Grid.Column="1" Width="32" Height="32" Padding="0"
                ToolTipService.ToolTip="Track keyboard focus"
                AutomationProperties.Name="Track keyboard focus"
                AutomationProperties.AutomationId="FocusTrackingToggle">
@@ -152,7 +152,7 @@
                    Background="{ThemeResource AccentFillColorDefaultBrush}"
                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Visibility="Collapsed"/>
           </Grid>
-        </Button>
+        </ToggleButton>
         <TextBox x:Name="TreeFilter" Grid.Column="2" PlaceholderText="Filter tree: type or #name" AutomationProperties.Name="TreeFilter"/>
         <!-- The wrapper owns the tooltip so the unavailable reason remains discoverable even while the
              ToggleButton itself is disabled. JmxLbl is the single live text source: it is collapsed, so it is
