@@ -9,6 +9,12 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public class ReactorHookSourceTests
 {
+    private static readonly string[] PasswordAndTheme = ["userPassword", "theme"];
+    private static readonly string[] CountOnly = ["count"];
+    private static readonly string[] SortAndRows = ["sort", "rows"];
+    private static readonly string[] AOnly = ["a"];
+    private static readonly string[] LabelOnly = ["label"];
+
     private static IReadOnlyList<string?>? Names(string source, int line, int column, params string[] kinds) =>
         ReactorHookSource.Names(CSharpSourceText.SplitLines(source), line, column, kinds);
 
@@ -72,9 +78,9 @@ public class ReactorHookSourceTests
                 }
             }
             """;
-        CollectionAssert.AreEqual(new[] { "userPassword", "theme" }, Names(source, 4, 9, "state", "context")?.ToArray(),
+        CollectionAssert.AreEqual(PasswordAndTheme, Names(source, 4, 9, "state", "context")?.ToArray(),
             "a function component's lambda body");
-        CollectionAssert.AreEqual(new[] { "count" }, Names(source, 14, 5, "state")?.ToArray(), "this.UseState");
+        CollectionAssert.AreEqual(CountOnly, Names(source, 14, 5, "state")?.ToArray(), "this.UseState");
     }
 
     [TestMethod]
@@ -93,7 +99,7 @@ public class ReactorHookSourceTests
                 }
             }
             """;
-        CollectionAssert.AreEqual(new[] { "sort", "rows" }, Names(source, 6, 5, "state", "memo")?.ToArray());
+        CollectionAssert.AreEqual(SortAndRows, Names(source, 6, 5, "state", "memo")?.ToArray());
     }
 
     [TestMethod]
@@ -114,7 +120,7 @@ public class ReactorHookSourceTests
         Assert.IsNull(Names(Body("        var (a, setA) = UseState(0);"), 4, 5, "state", "state"), "fewer hook calls than live hooks");
         Assert.IsNull(Names(Body("        var (a, setA) = UseState(0);"), 4, 5, "ref"), "a kind that does not line up");
         Assert.IsNull(Names(Body("        var a = Helper.UseState(0);"), 4, 5, "state"), "a qualified call that is not ctx. or this.");
-        CollectionAssert.AreEqual(new[] { "a" },
+        CollectionAssert.AreEqual(AOnly,
             Names(Body("        var (a, setA) = UseState(0);\n        Action reset = () => { setA(0); return; };"), 4, 5, "state")?.ToArray(),
             "a return inside a lambda is not an early return");
     }
@@ -133,7 +139,7 @@ public class ReactorHookSourceTests
                 }
             }
             """;
-        CollectionAssert.AreEqual(new[] { "label" }, Names(source, 4, 5, "state")?.ToArray());
+        CollectionAssert.AreEqual(LabelOnly, Names(source, 4, 5, "state")?.ToArray());
     }
 
     [TestMethod]

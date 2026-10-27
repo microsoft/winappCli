@@ -20,6 +20,8 @@ namespace WinApp.Cli.Tests;
 [DoNotParallelize]
 public class DevToolsJsonParityTests
 {
+    private static readonly string[] FooterCandidates = [@"C:\repo\App\Panels\Footer.cs", @"C:\repo\Lib\Panels\Footer.cs"];
+
     [TestMethod]
     public async Task Correction_Search_PreservesRemoteError()
     {
@@ -562,7 +564,7 @@ public class DevToolsJsonParityTests
             .Answer("Source.get", JsonSerializer.Serialize(new
             {
                 handle = "42", kind = "csharp", fileName = "Panels/Footer.cs", lineNumber = 6, columnNumber = 9, onDisk = false,
-                authoredState = "ambiguous", candidates = new[] { @"C:\repo\App\Panels\Footer.cs", @"C:\repo\Lib\Panels\Footer.cs" },
+                authoredState = "ambiguous", candidates = FooterCandidates,
                 reactor = new { element = "Button", handle = "42", exact = true, component = "LibPanel" },
             }));
 

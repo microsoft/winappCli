@@ -9,6 +9,8 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public class ReactorRelativeSourceTests
 {
+    private static readonly string[] LibReference = ["../Lib/Lib.csproj"];
+
     [TestMethod]
     public void RelativeCallSites_AreFoundFromTheProjectFolderOrBelowIt()
     {
@@ -80,7 +82,7 @@ public class ReactorRelativeSourceTests
                 "cannot tell which one");
 
             var references = ReactorBuildFacts.ReadProjectReferences(Path.Combine(app.FullName, "obj", "project.assets.json"));
-            CollectionAssert.AreEqual(new[] { "../Lib/Lib.csproj" }, references, "only project libraries are project references");
+            CollectionAssert.AreEqual(LibReference, references, "only project libraries are project references");
             var environment = ReactorBuildFacts.ApplyEnvironment(
                 new Dictionary<string, string?> { [ReactorBuildFacts.SourceRootVariable] = app.FullName },
                 new ReactorBuildFacts(true, null, true, false, null, references));
