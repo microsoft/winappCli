@@ -379,6 +379,8 @@
                   <StackPanel x:Name="PEdRes" Visibility="Collapsed" Spacing="3">
                     <TextBlock x:Name="PResLbl" Text="RESOURCE KEY" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                     <TextBox x:Name="PResKey" MinHeight="30" FontSize="12" FontFamily="Consolas" PlaceholderText="type a key"/>
+                    <TextBlock x:Name="PResError" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed"
+                               IsTextSelectionEnabled="True" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
                     <StackPanel x:Name="PResSug" Spacing="0" Visibility="Collapsed"/>
                     <TextBlock x:Name="PResNote" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Text="the key, as text. The resolved value is on the row above."/>
