@@ -56,6 +56,7 @@ static void NoteChange(const std::wstring& prop, const std::wstring& preVal, con
         if (newVal != before && OriginalFor(prop, before, first)) g_editRecords.push_back(std::move(first));
     }
     AppChangedErase(g_selWire, prop);
+    if (EditRecord* rec = DirtyFind(prop)) rec->themeAssigned = false;
     RebaselineRecords(g_selWire);
     UpdateEditedUi(prop);
 }
@@ -127,6 +128,8 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
             else if (captured) g_editRecords.push_back(*captured);
             AppChangedErase(wire, prop);
         }
+        if (oc == DevToolsWriteOutcome::Ok)
+            if (EditRecord* rec = RecordFind(wire, prop)) rec->themeAssigned = false;
         if (DevToolsWriteLanded(oc)) RebaselineRecords(wire);
         return DevToolsWriteLanded(oc);
     }

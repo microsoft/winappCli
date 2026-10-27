@@ -234,6 +234,9 @@ struct EditRecord
     // The element's ActualTheme when `baseline` was read, or -1 if unknown. A theme switch changes theme-following
     // values without the app touching them, so a different theme takes a new baseline instead of dropping Restore.
     int              baselineTheme = -1;
+    // DevTools last set the property to a {ThemeResource}. Kept here because the pane forgets its session
+    // assignments when the selection moves, and the value still follows the theme.
+    bool             themeAssigned = false;
 };
 static std::vector<EditRecord> g_editRecords;
 // Properties whose record was dropped because the app changed the value after the user's edit, and the value the

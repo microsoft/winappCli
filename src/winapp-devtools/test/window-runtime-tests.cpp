@@ -923,6 +923,21 @@ int main()
         ReconcileEditRecordsAt(500,literalDark,2);
         check(DirtyFind(L"Text") && DirtyFind(L"Text")->baselineTheme==2, "an unchanged literal keeps Restore across a theme switch");
         g_editRecords.clear(); g_appChanged.clear();
+        // A {ThemeResource} that DevTools assigned still follows the theme after the selection moves away and back.
+        live[500]=L"Hello"; liveSource=L"Local"; g_propRows={text};
+        g_ctx.resolveFn=[](InstanceHandle wire,const std::wstring&,const std::wstring&,bool){ live[wire]=L"LightBrush"; return true; };
+        check(ApplyResourceKey(text,L"Text",L"Accent",/*asTheme*/ true,L"Hello") && DirtyFind(L"Text") &&
+              DirtyFind(L"Text")->themeAssigned, "assigning a ThemeResource marks its record as following the theme");
+        g_ctx.resolveFn=nullptr;
+        if (EditRecord* r=DirtyFind(L"Text")) r->baselineTheme=1;
+        g_sessionAssign.clear();
+        std::vector<DevToolsCardRow> darkBrush{text}; darkBrush[0].value=L"DarkBrush";
+        ReconcileEditRecordsAt(500,darkBrush,2);
+        check(DirtyFind(L"Text") && !AppChanged(500,L"Text"),
+            "a theme switch after reselecting keeps Restore for a ThemeResource DevTools assigned");
+        ApplyLiteralValue(L"Text",L"String",L"DarkBrush",L"Mine",false);
+        check(DirtyFind(L"Text") && !DirtyFind(L"Text")->themeAssigned, "typing a literal over it stops following the theme");
+        g_editRecords.clear(); g_appChanged.clear(); g_sessionAssign.clear(); live[500]=L"Hello";
 
         // A failed resource Restore can clear the property; the value before it is put back and Restore stays.
         g_editRecords.clear(); g_appChanged.clear();

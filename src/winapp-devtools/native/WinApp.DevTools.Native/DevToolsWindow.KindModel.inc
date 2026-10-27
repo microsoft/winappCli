@@ -116,18 +116,16 @@ static bool OriginalFor(const std::wstring& prop, const std::wstring& preVal, Ed
 static int ElementThemeOf(InstanceHandle wire);
 
 // Whether a theme switch can change the property's value without the app touching it: a value from a style,
-// default or parent, or a {ThemeResource}. A plain literal set on the element stays the same in every theme.
-static bool ValueFollowsTheme(InstanceHandle wire, const std::vector<DevToolsCardRow>& rows, const std::wstring& prop)
+// default or parent, or a {ThemeResource} from the XAML or from DevTools. A literal stays the same in every theme.
+static bool ValueFollowsTheme(const EditRecord& rec, const std::vector<DevToolsCardRow>& rows)
 {
-    const std::wstring owner = OwningRowName(rows, prop);
+    const std::wstring owner = OwningRowName(rows, rec.prop);
     if (!SetHereIn(rows, owner)) return true;
     if (const DevToolsCardRow* row = FindPropertyRowIn(rows, owner))
         if (row->authoredKind == L"themeResource") return true;
-    if (wire == g_selWire)
-        for (const std::wstring& p : { prop, owner })
-            if (const SessionAssign* sa = SessionAssignFind(p))
-                if (sa->kind == DevToolsKind::Theme) return true;
-    return false;
+    if (rec.themeAssigned) return true;
+    const EditRecord* ownerRec = owner == rec.prop ? nullptr : RecordFind(rec.wire, owner);
+    return ownerRec && ownerRec->themeAssigned;
 }
 
 // Compare the element's freshly read rows with what DevTools last wrote. A difference means the app changed the
@@ -142,7 +140,7 @@ static void ReconcileEditRecordsAt(InstanceHandle wire, const std::vector<DevToo
         if (!row) continue;
         const std::wstring now = RowEditSeed(*row);
         const bool themeSwitched = theme >= 0 && rec.baselineTheme >= 0 && theme != rec.baselineTheme;
-        if (rec.needsBaseline || (themeSwitched && ValueFollowsTheme(wire, rows, rec.prop))) {
+        if (rec.needsBaseline || (themeSwitched && ValueFollowsTheme(rec, rows))) {
             rec.baseline = now; rec.baselineTheme = theme; rec.needsBaseline = false;
             continue;
         }
@@ -189,6 +187,7 @@ static void ClearRowValue(InstanceHandle wire, const std::wstring& prop)
         // Clear is an edit too: Restore still puts back what the property was before the first one.
         if (EditRecord* rec = DirtyFind(prop)) {
             if (rec->kind == DevToolsOriginal::Unset) DirtyErase(prop);
+            else rec->themeAssigned = false;
         } else if (recordable && first.kind != DevToolsOriginal::Unset) {
             g_editRecords.push_back(std::move(first));
         }
@@ -431,6 +430,7 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
     NoteChange(path, preVal, std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
     NoteSessionAssign(path, asTheme ? DevToolsKind::Theme : DevToolsKind::Static,
                       std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
+    if (EditRecord* rec = DirtyFind(path)) rec->themeAssigned = asTheme;
     // The value FOLLOWS a resource now, so an earlier "this link is gone" verdict is retired.
     for (size_t i = 0; i < g_linkLost.size(); ++i) if (g_linkLost[i] == path) { g_linkLost.erase(g_linkLost.begin() + i); break; }
     // THE SUCCESS LINE IS THE CALLER'S TO SET, AFTER ITS RE-RENDER. Setting it here is what the failure
