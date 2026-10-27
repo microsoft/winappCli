@@ -418,7 +418,7 @@ static void ResetRoute1State()
     LiveUnwatch();
     g_route1Gen++;
     ReleaseInspectorCaptionTheme();
-    if (HWND h = Route1WindowHwnd()) { KillTimer(h, kRefreshTimerId); KillTimer(h, kDisarmAfterWindowPickTimerId); }
+    if (HWND h = Route1WindowHwnd()) KillTimer(h, kRefreshTimerId);
     if (g_ctx.highlightFn) g_ctx.highlightFn(0, true);
     // Release the editable inspector state (tracked TextBox refs + status line + props-host children).
     for (auto& r : g_editRows) if (r.box) reinterpret_cast<IUnknown*>(r.box)->Release();

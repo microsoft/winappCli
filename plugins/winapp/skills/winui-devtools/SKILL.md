@@ -26,7 +26,8 @@ folders, .cs files and non-WinUI projects; pass `--devtools on` there). Let the 
 leave comments there:
 turn on **Comments** in the toolbar, click an element, type, press Enter (Shift+Enter for a
 new line), or click the next element to save and move on. **Select element** opens the
-DevTools window on the element the user clicks. Ctrl+Shift+F12 moves keyboard
+DevTools window on the element the user clicks, then turns picking off so the next
+click reaches the app. Ctrl+Shift+F12 moves keyboard
 focus to the toolbar (showing it if the user hid it), and Esc returns it. Use a second terminal for commands, or add `--detach`
 to return to the terminal with the app still running and its PID printed.
 Use an exact PID with `-a` when multiple apps are attached.
