@@ -154,8 +154,12 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
             ("mode", "mode"),
             ("segment", "failed segment"),
             ("reason", "reason"),
+            ("sourceValue", "source value"),
+            ("converterEvaluation", "converter"),
             ("resolvedValue", "resolved value"),
             ("resolvedType", "resolved type"),
+            ("targetValue", "target value"),
+            ("targetUnavailable", "target unavailable"),
             ("targetProperty", "target property"),
             ("targetType", "target type"),
         ];

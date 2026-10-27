@@ -794,7 +794,10 @@ int main()
         OnStartHiddenClick(nullptr, nullptr);
         check(DevToolsSettingsGetText(L"DefaultMode") == L"headless" && DefaultMode() == "headless",
             "default mode", "When the app starts > Hide toolbar makes the default headless");
+        // The click also reopens the More menu; with no real toolbar row (the fake bar) the menu stays closed.
+        g_aRow = nullptr;
         OnStartOffClick(nullptr, nullptr);
+        g_aRow = &bar;
         check(DevToolsSettingsGetText(L"DefaultMode") == L"off" && DefaultMode() == "off",
             "default mode", "Don't start DevTools makes the default off");
         OnStartShownClick(nullptr, nullptr);
