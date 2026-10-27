@@ -12,7 +12,7 @@ namespace WinApp.Cli.Commands;
 
 internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "Read the XAML or Reactor C# line an element was declared at";
+    public override string ShortDescription => "Read the XAML or C# line an element was declared at";
 
     public IReadOnlyList<string> Examples { get; } =
     [

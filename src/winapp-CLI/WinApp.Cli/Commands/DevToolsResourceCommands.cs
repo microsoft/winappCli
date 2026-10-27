@@ -17,7 +17,7 @@ namespace WinApp.Cli.Commands;
 /// </summary>
 internal class DevToolsGetResourceCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "Show where a resource key resolves and its value";
+    public override string ShortDescription => "Show a resource's value and source";
 
     public IReadOnlyList<string> Examples { get; } =
     [

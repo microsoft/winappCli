@@ -16,7 +16,7 @@ namespace WinApp.Cli.Commands;
 /// </summary>
 internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "Show a Reactor app's warnings and errors since launch";
+    public override string ShortDescription => "Show a Reactor app's warnings and errors";
 
     public IReadOnlyList<string> Examples { get; } =
     [

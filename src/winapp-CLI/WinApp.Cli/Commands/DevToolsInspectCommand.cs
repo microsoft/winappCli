@@ -12,7 +12,7 @@ namespace WinApp.Cli.Commands;
 
 internal partial class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "View a running app's XAML and Reactor visual tree";
+    public override string ShortDescription => "View a running app's XAML or Reactor tree";
 
     public IReadOnlyList<string> Examples { get; } =
     [

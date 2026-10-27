@@ -11,7 +11,7 @@ namespace WinApp.Cli.Commands;
 
 internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "Find elements in a running app's XAML and Reactor visual tree";
+    public override string ShortDescription => "Find elements in a running app's XAML or Reactor tree";
 
     public IReadOnlyList<string> Examples { get; } =
     [
