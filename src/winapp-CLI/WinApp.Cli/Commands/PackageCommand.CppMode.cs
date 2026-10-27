@@ -108,6 +108,17 @@ internal partial class PackageCommand
             var noBuild = parseResult.GetValue(NoBuildOption);
             var noRestore = parseResult.GetValue(NoRestoreOption);
 
+            // --self-contained builds the project with WindowsAppSDKSelfContained=true, as the .csproj path does,
+            // so the build lays out the runtime and its generated manifest has no installed-runtime dependency.
+            if (selfContainedFlag && !noBuild)
+            {
+                if (ProjectRunService.CppSelfContainedFromProperties(properties) == false)
+                {
+                    return Fail("--self-contained conflicts with -p WindowsAppSDKSelfContained=false. Pass only one of them.");
+                }
+                properties = [.. properties, "WindowsAppSDKSelfContained=true"];
+            }
+
             if (logger.IsEnabled(LogLevel.Information))
             {
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Search} {project.Name}  ·  {configuration} | {architecture}");
@@ -136,6 +147,13 @@ internal partial class PackageCommand
             if (NetworkOutputDirError(project.Name, resolution.TargetDir) is { } targetDirError)
             {
                 return Fail(targetDirError);
+            }
+
+            if (selfContainedFlag && !resolution.SelfContained)
+            {
+                return Fail(noBuild
+                    ? $"--self-contained needs a self-contained build, but '{project.Name}' is built framework-dependent. Remove --no-build so winapp rebuilds it with WindowsAppSDKSelfContained=true."
+                    : $"'{project.Name}' didn't build self-contained. Check that it references the Windows App SDK.");
             }
 
             var targetDir = new DirectoryInfo(resolution.TargetDir);
@@ -193,7 +211,9 @@ internal partial class PackageCommand
                 {
                     var result = await msixService.CreateMsixPackageAsync(
                         targetDir, output, taskContext, name, skipPri, shouldSign, certPath, certPassword,
-                        generateCert, installCert, publisher, effectiveManifest, resolution.SelfContained || selfContainedFlag, executable,
+                        generateCert, installCert, publisher, effectiveManifest, resolution.SelfContained, executable,
+                        projectFile: project,
+                        noRestore: noRestore,
                         targetArch: resolution.Architecture,
                         runtimeAlreadyBundled: resolution.SelfContained,
                         appxRecipe: appxRecipe,

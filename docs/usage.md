@@ -397,7 +397,9 @@ winapp pack .\MyApp.vcxproj -p Platform=ARM64 --generate-cert
 
 - Builds `Release` for the current architecture by default. `-c` or `-p Configuration=<name>` selects the configuration, and `--arch` or `-p Platform=x64|ARM64|Win32` selects the architecture.
 - A packaged project, such as the **WinUI Blank App (Packaged)** template, is packaged with the `AppxManifest.xml` its build generates. Any other application project needs an `appxmanifest.xml`: run `winapp init` in the project folder once, or pass `--manifest`. The built `.exe` fills a `$targetnametoken$` placeholder in that manifest.
+- `--self-contained` builds the project with `WindowsAppSDKSelfContained=true`, so the package carries the Windows App SDK runtime. With `--no-build`, the existing build must already be self-contained.
 - `--framework` and multiple `--arch` values aren't supported. To build a multi-architecture bundle, build each architecture and pass the output folders: `winapp pack <x64-folder> <arm64-folder>`.
+
 #### Sparse identity packages
 
 When the input is a **sparse `appxmanifest.xml` file** (one declaring `<uap10:AllowExternalContent>true</uap10:AllowExternalContent>` under `<Properties>`) rather than a folder, `winapp pack` builds an **identity-only** `.msix` — it packages just the manifest, with no application binaries or assets. This is step 2 of the [sparse packaging workflow](guides/sparse.md).

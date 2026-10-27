@@ -1015,8 +1015,69 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(generatedManifest, args.ManifestPath!.FullName);
         Assert.AreEqual(recipe, args.AppxRecipe!.FullName);
         Assert.AreEqual("arm64", args.TargetArch);
-        Assert.IsNull(args.ProjectFile, "The vcxproj must not be passed to the .NET package-list probe");
+        Assert.AreEqual(vcxproj.FullName, args.ProjectFile!.FullName, "Packaging must read the selected project's packages, not a .csproj in the current folder");
         Assert.AreEqual(sdkDir.FullName, args.WindowsAppSdkPackageDirectory!.FullName, "Packaging must use the Windows App SDK the build imported");
+    }
+
+    [TestMethod]
+    public async Task CppMode_NoRestore_ForwardedToPackaging()
+    {
+        var vcxproj = CreateVcxproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(vcxproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64"), 0);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName, "--no-build", "--no-restore"]);
+
+        Assert.AreEqual(0, exitCode);
+        var args = _fakeMsixService.LastCreatePackageArgs!;
+        Assert.AreEqual(vcxproj.FullName, args.ProjectFile!.FullName);
+        Assert.IsTrue(args.NoRestore);
+    }
+
+    [TestMethod]
+    public async Task CppMode_SelfContained_BuildsSelfContainedAndPackagesThatLayout()
+    {
+        var vcxproj = CreateVcxproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(vcxproj, targetDir.FullName, null, ProjectPackaging.Packaged, true, "x64"), 0);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName, "--self-contained"]);
+
+        Assert.AreEqual(0, exitCode);
+        CollectionAssert.Contains(_fakeProjectRunService.BuildOptions.Single().Properties.ToList(), "WindowsAppSDKSelfContained=true");
+        var args = _fakeMsixService.LastCreatePackageArgs!;
+        Assert.IsTrue(args.SelfContained);
+        Assert.IsTrue(args.RuntimeAlreadyBundled, "The self-contained build already laid out the runtime; packaging must not inject it again");
+    }
+
+    [TestMethod]
+    public async Task CppMode_SelfContainedNoBuild_FrameworkDependentBuild_AsksToRebuild()
+    {
+        var vcxproj = CreateVcxproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(vcxproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64"), 0);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName, "--self-contained", "--no-build"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.DoesNotContain("WindowsAppSDKSelfContained=true", _fakeProjectRunService.BuildOptions.Single().Properties.ToList());
+        Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "Remove --no-build");
+    }
+
+    [TestMethod]
+    public async Task CppMode_SelfContainedWithSelfContainedFalseProperty_RejectedBeforeBuilding()
+    {
+        var vcxproj = CreateVcxproj();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(),
+            [vcxproj.FullName, "--self-contained", "-p", "WindowsAppSDKSelfContained=false"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
     }
 
     [TestMethod]
