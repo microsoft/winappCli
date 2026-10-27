@@ -431,6 +431,49 @@ public class ReactorStateCommandTests
         }
     }
 
+    [TestMethod]
+    public async Task SetResource_AValueTheAppSetsBackIsAFailureWithTheLiveValue()
+    {
+        // The Border's Resources are filled by a Reactor .Set(...) that runs again on the refresh's re-render.
+        const string Answer = """{"state":"ok","key":"Rx4Plain","scope":"element","theme":"Light","requested":"elem value 2","written":"Resources","before":"scoped plain","after":"scoped plain","valueType":"System.String","added":false,"refreshedRoots":1,"settled":true,"reverted":true,"setBy":{"file":"C:\\src\\Panels.cs","line":42}}""";
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Resource.set", Answer))
+        {
+            var (exit, output) = await Run(new DevToolsSetResourceCommand(), agent, ["Rx4Plain", "elem value 2", "42", "--json"]);
+            Assert.AreEqual(1, exit, output);
+            using var doc = JsonDocument.Parse(output);
+            Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.AreEqual("scoped plain", doc.RootElement.GetProperty("after").GetString(), "JSON reports the live value, not the one written");
+            Assert.IsTrue(doc.RootElement.GetProperty("reverted").GetBoolean());
+            var error = doc.RootElement.GetProperty("error");
+            Assert.AreEqual("resource-reverted", error.GetProperty("token").GetString());
+            StringAssert.Contains(error.GetProperty("message").GetString(), "Panels.cs:42");
+        }
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Resource.set", Answer))
+        {
+            var (exit, output) = await Run(new DevToolsSetResourceCommand(), agent, ["Rx4Plain", "elem value 2", "42"]);
+            Assert.AreEqual(1, exit, output);
+            StringAssert.Contains(output, "set it back to scoped plain");
+            StringAssert.Contains(output, "won't stick");
+            Assert.IsFalse(output.Contains("-> elem value 2", StringComparison.Ordinal), output);
+        }
+    }
+
+    [TestMethod]
+    public async Task SetResource_AnAppResourcesDictionaryThatTakesNoKeysIsASpecificRefusal()
+    {
+        // A Reactor app's Application.Resources is a XamlControlsResources; when even a merged dictionary cannot be added,
+        // the agent refuses with its own token and the next step, not a raw COM error reported as "reactor-unavailable".
+        var refusal = """{"state":"refused","code":"resource-read-only","reason":"Application.Resources is loaded from a Source (such as XamlControlsResources), so it cannot take this key. Set it on an element with --scope element <selector>, or add a ResourceDictionary to Application.Resources.MergedDictionaries in the app"}""";
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.enumerate", WindowTree).Answer("Resource.set", refusal);
+        var (exit, output) = await Run(new DevToolsSetResourceCommand(), agent, ["NewKey", "x", "--scope", "app", "--json"]);
+
+        Assert.AreEqual(1, exit, output);
+        var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
+        Assert.AreEqual("resource-read-only", error.GetProperty("token").GetString());
+        StringAssert.Contains(error.GetProperty("message").GetString(), "--scope element");
+        Assert.IsFalse(output.Contains("COMException", StringComparison.Ordinal), output);
+    }
+
     private const string ElementWithText = """
         {"state":"ok","tagged":true,"element":"TextBlock","file":"C:\\src\\App.cs","line":75,"owner":"Counter",
          "props":[{"name":"Content","property":"Text","value":"Done today: 3"}],"modifiers":[],

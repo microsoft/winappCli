@@ -221,6 +221,13 @@ or replaces the key in that element's own resources. Brushes and colors take
 only; restart the app to undo it. Both commands work in any WinUI app with DevTools, XAML or
 Reactor.
 
+`set-resource` reads the value back after the app has re-rendered. If the app's own
+code sets the key again on every render (a Reactor `.Set(b => b.Resources[...] = ...)`),
+the command fails with `resource-reverted` and shows the value that is live now and,
+when known, the C# line that creates the element; change the key in that code instead.
+A new `--scope app` key in an app whose `Application.Resources` is a
+`XamlControlsResources` (as in Reactor apps) goes into a dictionary merged into it.
+
 ## JSON output
 
 `winapp run --json`'s `devTools` fields are listed under [devtools](../usage.md#devtools) in the

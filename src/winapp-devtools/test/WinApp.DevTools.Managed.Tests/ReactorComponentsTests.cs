@@ -293,4 +293,22 @@ public sealed class ReactorComponentsTests
         Assert.AreEqual((byte)0xFF, color.A);
         Assert.IsFalse(ResourceOps.TryColor("#12", out _));
     }
+
+    [TestMethod]
+    public void Resources_RevertedWhenTheLiveValueIsNotTheOneWritten()
+    {
+        Assert.IsTrue(ResourceOps.Reverted("elem value 2", "scoped plain", found: true), "the app wrote the key again");
+        Assert.IsTrue(ResourceOps.Reverted("elem value 2", null, found: false), "the app removed the key");
+        Assert.IsFalse(ResourceOps.Reverted("elem value 2", "elem value 2", found: true));
+        var written = new object();
+        Assert.IsFalse(ResourceOps.Reverted(written, written, found: true));
+    }
+
+    [TestMethod]
+    public void Resources_ReadOnlyAppResourcesNamesTheNextStep()
+    {
+        StringAssert.Contains(ResourceOps.ReadOnlyAppResources, "--scope element");
+        StringAssert.Contains(ResourceOps.ReadOnlyAppResources, "MergedDictionaries");
+        Assert.IsFalse(ResourceOps.ReadOnlyAppResources.Contains("COMException", StringComparison.Ordinal));
+    }
 }

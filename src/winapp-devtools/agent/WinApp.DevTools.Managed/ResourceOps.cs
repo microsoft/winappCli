@@ -4,6 +4,7 @@
 using System.Globalization;
 using System.Reflection;
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
@@ -30,7 +31,12 @@ internal static class ResourceOps
                 done(ReactorComponentOps.Refused("bad-args", "a resource key is required"));
                 return;
             }
-            done(op == "resourceget" ? Get(element, key, payload == "element") : Set(element, key, payload));
+            if (op == "resourceget")
+            {
+                done(Get(element, key, payload == "element"));
+                return;
+            }
+            Set(element, key, payload, done);
         });
     }
 
@@ -51,14 +57,15 @@ internal static class ResourceOps
         });
     }
 
-    private static string Set(UIElement element, string key, string payload)
+    private static void Set(UIElement element, string key, string payload, Action<string> done)
     {
         var newline = payload.IndexOf('\n');
         var scope = newline < 0 ? "" : payload[..newline];
         var text = newline < 0 ? payload : payload[(newline + 1)..];
         if (scope is not ("element" or "app"))
         {
-            return ReactorComponentOps.Refused("bad-args", "scope must be element or app");
+            done(ReactorComponentOps.Refused("bad-args", "scope must be element or app"));
+            return;
         }
         var theme = ThemeName(element);
         var before = Find(element, key, theme, scope == "element");
@@ -68,7 +75,8 @@ internal static class ResourceOps
         {
             if (element is not FrameworkElement fe)
             {
-                return ReactorComponentOps.Refused("bad-target", "only a FrameworkElement has resources of its own");
+                done(ReactorComponentOps.Refused("bad-target", "only a FrameworkElement has resources of its own"));
+                return;
             }
             dictionary = fe.Resources;
             path = "Resources";
@@ -81,36 +89,145 @@ internal static class ResourceOps
         }
         else if (Application.Current?.Resources is { } app)
         {
-            dictionary = app;
-            path = "Resources";
+            try
+            {
+                (dictionary, path) = DictionaryForNewAppKeys(app);
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                done(ReactorComponentOps.Refused("resource-read-only", ReadOnlyAppResources));
+                return;
+            }
         }
         else
         {
-            return ReactorComponentOps.Refused("no-application", "this app has no Application resources");
+            done(ReactorComponentOps.Refused("no-application", "this app has no Application resources"));
+            return;
         }
 
         var exampleType = before?.Value?.GetType();
         if (!TryParse(text, exampleType, out var value, out var error))
         {
-            return ReactorComponentOps.Refused("bad-value", error!);
+            done(ReactorComponentOps.Refused("bad-value", error!));
+            return;
         }
-        dictionary[key] = value;
-        var refreshed = Refresh(element, scope == "app");
-        var after = Find(element, key, theme, scope == "element");
-        return ReactorComponentOps.Json(w =>
+        try
         {
-            w.WriteString("state", "ok");
-            w.WriteString("key", key);
-            w.WriteString("scope", scope);
-            w.WriteString("theme", theme);
-            w.WriteString("requested", text);
-            w.WriteString("written", path);
-            if (before is not null) { w.WriteString("before", FormatValue(before.Value)); } else { w.WriteNull("before"); }
-            if (after is not null) { w.WriteString("after", FormatValue(after.Value)); } else { w.WriteNull("after"); }
-            w.WriteString("valueType", value?.GetType().FullName ?? "null");
-            w.WriteBoolean("added", before is null || (scope == "element" && before.Scope != "element"));
-            w.WriteNumber("refreshedRoots", refreshed);
-        }); 
+            try
+            {
+                dictionary[key] = value;
+            }
+            catch (System.Runtime.InteropServices.COMException) when (scope == "app" && ReferenceEquals(dictionary, Application.Current?.Resources))
+            {
+                // Application.Resources refused a new key without reporting a Source: merge one that takes it.
+                (dictionary, path) = AddedAppKeys(dictionary);
+                dictionary[key] = value;
+            }
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            done(ReactorComponentOps.Refused("resource-read-only", scope == "app" ? ReadOnlyAppResources :
+                $"{path} cannot take new keys (it is loaded from a Source); set the key on another element with --scope element <selector>"));
+            return;
+        }
+        var refreshed = Refresh(element, scope == "app");
+        // The refresh re-renders Reactor hosts on later dispatcher turns, and a render can write the key again (a
+        // .Set(b => b.Resources[...] = ...) in the app's C#), so the value is read back once the renders have finished.
+        var api = ReactorApi.TryLoad(AppDomain.CurrentDomain.GetAssemblies()) is { Error: null } loaded ? loaded : null;
+        var host = api?.HostFor(element);
+        void Report(bool settled)
+        {
+            try
+            {
+                var after = Find(element, key, theme, scope == "element");
+                // Judge by the dictionary written: a closer dictionary that shadows an app-scope key is not a revert.
+                var stored = TryOwn(dictionary, key, out var live);
+                var reverted = Reverted(value, live, stored);
+                var setBy = reverted && scope == "element" && api?.GetTag(element) is { } tag ? api.CallSite(element, tag) : null;
+                done(ReactorComponentOps.Json(w =>
+                {
+                    w.WriteString("state", "ok");
+                    w.WriteString("key", key);
+                    w.WriteString("scope", scope);
+                    w.WriteString("theme", theme);
+                    w.WriteString("requested", text);
+                    w.WriteString("written", path);
+                    if (before is not null) { w.WriteString("before", FormatValue(before.Value)); } else { w.WriteNull("before"); }
+                    if (after is not null) { w.WriteString("after", FormatValue(after.Value)); } else { w.WriteNull("after"); }
+                    w.WriteString("valueType", value?.GetType().FullName ?? "null");
+                    w.WriteBoolean("added", before is null || (scope == "element" && before.Scope != "element"));
+                    w.WriteNumber("refreshedRoots", refreshed);
+                    w.WriteBoolean("settled", settled);
+                    if (reverted)
+                    {
+                        w.WriteBoolean("reverted", true);
+                        if (setBy is { } site)
+                        {
+                            w.WriteStartObject("setBy");
+                            w.WriteString("file", site.File);
+                            w.WriteNumber("line", site.Line);
+                            w.WriteEndObject();
+                        }
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                done(ReactorComponentOps.Unavailable(ex.GetType().Name + ": " + ex.Message));
+            }
+        }
+        if (!element.DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low,
+                () => ReactorComponentOps.WhenIdle(element.DispatcherQueue, () => ReactorApi.IsIdle(host), RenderBudgetMs, Report)))
+        {
+            Report(false);
+        }
+    }
+
+    private const int RenderBudgetMs = 3000;
+
+    /// <summary>
+    /// Whether the live value is no longer the one written: the app set the key again (or removed it) while re-rendering.
+    /// </summary>
+    internal static bool Reverted(object? written, object? live, bool found) =>
+        !found || !(ReferenceEquals(written, live) || Equals(written, live) || FormatValue(written) == FormatValue(live));
+
+    /// <summary>What to do when the application's resources cannot take the key.</summary>
+    internal const string ReadOnlyAppResources =
+        "Application.Resources is loaded from a Source (such as XamlControlsResources), so it cannot take this key. " +
+        "Set it on an element with --scope element <selector>, or add a ResourceDictionary to Application.Resources.MergedDictionaries in the app";
+
+    private static ResourceDictionary? s_addedAppKeys;
+
+    /// <summary>
+    /// Where a new application-scope key goes: <c>Application.Resources</c> itself, or, when that dictionary is loaded
+    /// from a <c>Source</c> and takes no local keys (Reactor apps set it to a <c>XamlControlsResources</c>), a dictionary
+    /// DevTools merges into it once and reuses.
+    /// </summary>
+    private static (ResourceDictionary Dictionary, string Path) DictionaryForNewAppKeys(ResourceDictionary app)
+    {
+        return HasSource(app) ? AddedAppKeys(app) : (app, "Resources");
+    }
+
+    private static (ResourceDictionary Dictionary, string Path) AddedAppKeys(ResourceDictionary app)
+    {
+        var merged = app.MergedDictionaries;
+        for (var i = 0; i < merged.Count; i++)
+        {
+            if (ReferenceEquals(merged[i], s_addedAppKeys))
+            {
+                return (merged[i], $"Application.Resources.MergedDictionaries[{i}]");
+            }
+        }
+        var added = new ResourceDictionary();
+        merged.Add(added);
+        s_addedAppKeys = added;
+        return (added, $"Application.Resources.MergedDictionaries[{merged.Count - 1}]");
+    }
+
+    internal static bool HasSource(ResourceDictionary dictionary)
+    {
+        try { return dictionary.Source is not null; }
+        catch (System.Runtime.InteropServices.COMException) { return false; }
     }
 
     private static void WriteHit(System.Text.Json.Utf8JsonWriter w, ResourceHit hit)

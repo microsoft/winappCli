@@ -157,6 +157,15 @@ internal class DevToolsSetResourceCommand : DevToolsLiveCommand, IHelpExamples
                 return Task.FromResult(exitCode);
             }
             var response = target.Tap!.RequestResourceSet(handle, key.Trim(), value, scope, cancellationToken);
+            using (var answer = response.TryParseResult())
+            {
+                if (answer?.RootElement is { ValueKind: JsonValueKind.Object } written &&
+                    ReactorDescription.ReadString(written, "state") == "ok" &&
+                    written.TryGetProperty("reverted", out var reverted) && reverted.ValueKind == JsonValueKind.True)
+                {
+                    return Task.FromResult(ReportReverted(target, handle, json, written, cancellationToken));
+                }
+            }
             return Task.FromResult(ReportAgentAnswer(target, handle, json, response, (writer, root) =>
             {
                 foreach (var member in root.EnumerateObject())
@@ -181,12 +190,53 @@ internal class DevToolsSetResourceCommand : DevToolsLiveCommand, IHelpExamples
             }, cancellationToken));
         }
 
+        /// <summary>
+        /// The value was written, but the app wrote the key again while it re-rendered (a Reactor <c>.Set(...)</c> that
+        /// fills <c>Resources</c>), so the change did not stick. Reported as a failure with the value that is live now.
+        /// </summary>
+        private int ReportReverted(DevToolsTarget target, string handle, bool json, JsonElement root, CancellationToken cancellationToken)
+        {
+            var message = ResourceTargets.RevertedMessage(root);
+            if (!json)
+            {
+                Console.MarkupLineInterpolated($"[red]Error:[/] {message}");
+                return 1;
+            }
+            WriteJson(DevToolsJson.Serialize(writer =>
+            {
+                writer.WriteBoolean("ok", false);
+                writer.WriteNumber("processId", target.Pid);
+                WriteIdentity(writer, target, handle, cancellationToken);
+                foreach (var member in root.EnumerateObject())
+                {
+                    if (member.Name != "state")
+                    {
+                        member.WriteTo(writer);
+                    }
+                }
+                DevToolsJson.WriteError(writer, new DevToolsProtocolError(0, "resource-reverted", message));
+            }));
+            return 1;
+        }
     }
 }
 
 /// <summary>Shared targeting and rendering for the resource commands.</summary>
 internal static class ResourceTargets
 {
+    /// <summary>Why a written resource did not stick, and what to do instead.</summary>
+    public static string RevertedMessage(JsonElement root)
+    {
+        var key = ReactorDescription.ReadString(root, "key") ?? "The key";
+        var live = ReactorDescription.ReadString(root, "after");
+        var where = root.TryGetProperty("setBy", out var setBy) && setBy.ValueKind == JsonValueKind.Object &&
+                    ReactorDescription.ReadString(setBy, "file") is { } file
+            ? " on the element it creates at " + ReactorNode.Short(file, setBy.TryGetProperty("line", out var line) && line.TryGetInt32(out var number) ? number : 0)
+            : "";
+        return $"{key} was changed, but the app set it back to {live ?? "nothing"} when it re-rendered: the app's C# sets this key{where}, " +
+               "so a live change won't stick. Change it in that code instead.";
+    }
+
     public static IEnumerable<string> Describe(JsonElement root)
     {
         var key = ReactorDescription.ReadString(root, "key") ?? "";
