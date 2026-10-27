@@ -64,6 +64,14 @@ static void TestToolbarContract()
     Check(!windowShell.empty(), "window-shell.xaml is readable");
     Check(!overlay.empty(), "DevToolsOverlay.cpp is readable");
     Check(!window.empty(), "DevToolsWindow.cpp is readable");
+    Check(window.find("SetAutomationTextOn(panel, L\"UI Elements\", L\"WinAppDevToolsTree\", L\"\")") != std::string::npos,
+                 "the visual tree name describes its contents without repeating its role");
+    const auto propsScroll = windowShell.find("<ScrollViewer x:Name=\"PropsScroll\"");
+    const auto propsScrollEnd = windowShell.find('>', propsScroll);
+    Check(propsScroll != std::string::npos && propsScrollEnd != std::string::npos &&
+                     windowShell.substr(propsScroll, propsScrollEnd - propsScroll).find(
+                         "AutomationProperties.Name=\"Properties\"") != std::string::npos,
+                 "the properties scroller name describes its contents without repeating its role");
     Check(CountOf(windowShell, "<Border x:Name=\"PExpFrame\" Padding=\"8\" Background=\"Transparent\">") == 2,
                  "editable and read-only Expander content has padding without an extra frame or fill");
     Check(CountOf(selectionPanel, "AutomationProperties.AutomationId=\"DevToolsSelCommentSave\"") == 1 &&
