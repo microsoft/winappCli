@@ -1527,6 +1527,36 @@ static void TapReactorRedactNamedContexts(DevToolsJson& answer, const DevToolsJs
     }
 }
 
+// The hooks Reactor published for the root `name` of a host whose root control is inside `ih` (a few levels down, as a
+// ReactorHostControl's content is), or none.
+static std::vector<DevToolsReactorPublished::Hook> TapReactorHostedRootHooks(InstanceHandle ih, const std::wstring& name)
+{
+    std::vector<InstanceHandle> roots;
+    AcquireSRWLockShared(&g_reactorAuthoredLock);
+    for (const auto& [handle, annotation] : g_reactorAnnotations)
+        if (annotation.host && annotation.rootName == name && !annotation.hooks.empty()) roots.push_back(handle);
+    ReleaseSRWLockShared(&g_reactorAuthoredLock);
+    InstanceHandle inside = 0;
+    {
+        CensusSharedLock lock;
+        for (InstanceHandle root : roots) {
+            InstanceHandle current = root;
+            for (int depth = 0; current && depth < 8 && !inside; ++depth) {
+                const auto parent = g_parent.find(current);
+                current = parent == g_parent.end() ? 0 : parent->second;
+                if (current == ih) inside = root;
+            }
+            if (inside) break;
+        }
+    }
+    std::vector<DevToolsReactorPublished::Hook> hooks;
+    if (!inside) return hooks;
+    AcquireSRWLockShared(&g_reactorAuthoredLock);
+    if (const auto a = g_reactorAnnotations.find(inside); a != g_reactorAnnotations.end()) hooks = a->second.hooks;
+    ReleaseSRWLockShared(&g_reactorAuthoredLock);
+    return hooks;
+}
+
 // Names each hook of a Reactor.component answer with the C# variable it was assigned to, from the hooks Reactor
 // published on the component's element (`hooks=`). The component is the nearest element at or above `wire` that
 // mounts it (or whose host renders it as the root). Hooks Reactor did not name keep only their index; when Reactor
@@ -1562,6 +1592,8 @@ static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         }
         ReleaseSRWLockShared(&g_reactorAuthoredLock);
     }
+    // A ReactorHostControl (selected by its XAML x:Name) is above the root it renders, not at or below it.
+    if (named.empty() && resolved) named = TapReactorHostedRootHooks(ih, name);
     bool anyName = false;
     for (const auto& hook : hooks->second.arr) anyName = anyName || !hook.GetString(L"name").empty();
     if (named.empty()) {

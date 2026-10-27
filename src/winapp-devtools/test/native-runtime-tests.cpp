@@ -1468,6 +1468,27 @@ int wmain(int argc, wchar_t** argv)
               "an inspector row keeps a matching WinUI type and shows the key and call site");
         check(rows[1].reactorLabel == L"<Counter>" && rows[2].reactorLabel.empty() && rows[2].reactorSource.empty(),
               "a component row reads <Counter>; a control no Reactor element produced is unchanged");
+        {
+            // A ReactorHostControl selected by its XAML x:Name sits above the island root it renders, so get-state
+            // through it still names the root component's hooks.
+            ReactorAnnotation island;
+            island.wire = 1401;
+            island.host = true;
+            island.hostKind = L"island";
+            island.rootName = L"LibPanel";
+            DevToolsReactorPublished::Hook on;
+            on.name = L"on";
+            island.hooks = { on };
+            AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+            g_reactorAnnotations[14] = island;
+            ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+            g_parent[14] = 15; g_parent[15] = 16; // island root -> ContentPresenter -> ReactorHostControl
+            const auto hosted = TapReactorHostedRootHooks(16, L"LibPanel");
+            check(hosted.size() == 1 && hosted[0].name == L"on", "a host control above an island root names its root's hooks");
+            check(TapReactorHostedRootHooks(16, L"OtherPanel").empty(), "but not for another root component");
+            check(TapReactorHostedRootHooks(17, L"LibPanel").empty(), "and not from an element the island is not inside");
+            g_parent.erase(14); g_parent.erase(15);
+        }
         AcquireSRWLockExclusive(&g_reactorAuthoredLock);
         g_reactorAnnotations.clear();
         g_reactorByWire.clear();
