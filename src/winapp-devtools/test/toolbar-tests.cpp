@@ -411,6 +411,16 @@ static void TestToolbarContract()
     Check(windowShell.find("<RadioButton x:Name=\"TreeTabBtn\"") != std::string::npos &&
                      windowShell.find("<RadioButton x:Name=\"CommentsTabBtn\"") != std::string::npos,
                  "each tab is a RadioButton, so the showing view is reported by SelectionItemPattern");
+    Check(windowShell.find("<ToggleButton x:Name=\"PickBtn\"") != std::string::npos &&
+                     windowShell.find("<ToggleButton x:Name=\"FocusBtn\"") != std::string::npos,
+                 "inspector pick and focus modes expose TogglePattern through standard ToggleButtons");
+    Check(window.find("expander.IsTabStop(false);") != std::string::npos &&
+                     window.find("expander, DevToolsTreeAP::AccessibilityView::Raw") != std::string::npos,
+                 "tree expand arrows remain mouse controls, not separate keyboard or screen reader targets");
+    Check(window.find("void OnKeyDown(DevToolsXI::KeyRoutedEventArgs const& args)") != std::string::npos &&
+                     window.find("HandleTreeRowKey(m_index, static_cast<int>(args.Key()))") != std::string::npos &&
+                     window.find("ButtonT::OnKeyDown(args)") != std::string::npos,
+                 "tree rows route arrow keys to expansion while preserving Button selection keys");
     // Inspector and overlay share an accessibility namespace; qualify the inspector Comments tab.
     Check(windowShell.find("AutomationProperties.Name=\"Comments (inspector)\"") != std::string::npos &&
                      windowShell.find("AutomationProperties.Name=\"Comments\"") == std::string::npos,

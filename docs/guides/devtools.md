@@ -85,6 +85,14 @@ If the app is already running, `run` closes it first, so DevTools can start it
   because then your clicks go to DevTools instead of the app.
 - `winapp ui screenshot` leaves the toolbar, markers and comment panel out of the image.
 
+In the **Visual tree**, press **Tab** to focus a row and **Enter** or **Space** to
+select it. **Right arrow** expands a collapsed row or moves focus to its first
+child. **Left arrow** collapses an expanded row or moves focus to its parent.
+The expand arrows remain clickable but are not separate tab stops.
+
+While the tree filter contains text, all matching rows stay visible and expansion
+is disabled. Clear the filter to expand or collapse rows again.
+
 ## Review comments with an agent
 
 ```powershell

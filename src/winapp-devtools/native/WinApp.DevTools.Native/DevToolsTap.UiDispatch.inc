@@ -335,7 +335,7 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
         // Read the property once now, so the edit records the value it wrote before the app can write its own.
         std::vector<DevToolsReadProp> written;
         const std::set<std::wstring> only{ prop };
-        ReadCuratedProps(h, &written, nullptr, nullptr, &only, nullptr);
+        ReadCuratedProps(h, &written, nullptr, nullptr, &only, nullptr, nullptr);
     }
     return hr;
 }
