@@ -540,11 +540,14 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
 
     case DevToolsKind::Binding: {
         // SEEDING: -> {Binding} takes the EXISTING path, which is the graft case. Coming from an {x:Bind}
-        // that is exactly what makes the exit useful: the path the developer wrote is already there.
+        // that is exactly what makes the exit useful: the path the developer wrote is already there. An x:Bind
+        // path starts at the page, though, so it is checked right away instead of waiting for the first keystroke.
+        const std::wstring seeded = BindingPathOf(r, path);
+        const bool fromXBind = CurrentKindOf(r, path) == DevToolsKind::XBind;
         if (IInspectable* e = FindInRow(fe, L"PPath")) {
             void* tx = nullptr;
             if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
-                HSTRING h = MakeStr(BindingPathOf(r, path)); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
+                HSTRING h = MakeStr(seeded); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
                 reinterpret_cast<IUnknown*>(tx)->Release();
             }
             if (edit >= 0) {
@@ -566,7 +569,9 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
         g_validateBad = false;
         g_validateProp = path;
         g_validatePath.clear();
+        g_validateFromXBind = fromXBind;
         if (IInspectable* m = FindInRow(fe, L"PPathMsg")) { SetTextOn(m, L""); ShowEl(m, false); m->Release(); }
+        if (fromXBind && edit >= 0 && !seeded.empty()) ValidateOnType(path, seeded);
         const std::wstring mode = BindingModeOf(r, path);
         if (IInspectable* e = FindInRow(fe, L"PMode")) {
             FillCombo(e, BindingModes());

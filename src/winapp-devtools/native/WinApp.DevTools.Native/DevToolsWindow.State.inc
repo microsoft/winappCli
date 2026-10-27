@@ -311,6 +311,10 @@ static void DirtyErase(const std::wstring& p) { for (size_t i = 0; i < g_dirtySe
 static std::vector<std::wstring> g_bindingLost;
 static bool BindingLost(const std::wstring& p) { for (const auto& e : g_bindingLost) if (e == p) return true; return false; }
 static void NoteBindingLost(const std::wstring& p) { if (!BindingLost(p)) g_bindingLost.push_back(p); }
+static void BindingLostErase(const std::wstring& p)
+{
+    for (size_t i = g_bindingLost.size(); i-- > 0;) if (g_bindingLost[i] == p) g_bindingLost.erase(g_bindingLost.begin() + i);
+}
 
 // Track authored resource links and links replaced in this selection. Runtime local-value bits
 // cannot recover a resolved resource key, so the pane's authoredKind supplies the pre-write
