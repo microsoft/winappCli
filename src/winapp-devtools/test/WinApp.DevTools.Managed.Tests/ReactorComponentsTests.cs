@@ -311,4 +311,19 @@ public sealed class ReactorComponentsTests
         StringAssert.Contains(ResourceOps.ReadOnlyAppResources, "MergedDictionaries");
         Assert.IsFalse(ResourceOps.ReadOnlyAppResources.Contains("COMException", StringComparison.Ordinal));
     }
+
+    [TestMethod]
+    public void ErrorScreen_RecognizesReactorsBuiltInHeadlinesAndSaysWhatToDo()
+    {
+        Assert.IsTrue(ReactorApi.IsErrorScreenHeadline("Render error: ArgumentException: ShowAttached failed."));
+        Assert.IsTrue(ReactorApi.IsErrorScreenHeadline("Something went wrong."));
+        Assert.IsFalse(ReactorApi.IsErrorScreenHeadline("⚠ Render error: in-tree placeholder"), "a component's in-tree placeholder is not the host's screen");
+        Assert.IsFalse(ReactorApi.IsErrorScreenHeadline("Render errors: 2"));
+        Assert.IsFalse(ReactorApi.IsErrorScreenHeadline(null));
+
+        var reason = ReactorApi.ErrorScreenReason("MainShell", "Render error: ArgumentException: ShowAttached failed.");
+        StringAssert.StartsWith(reason, "this window shows Reactor's error screen instead of <MainShell>");
+        StringAssert.Contains(reason, "Render error: ArgumentException: ShowAttached failed. Fix the error");
+        StringAssert.Contains(ReactorApi.ErrorScreenReason(null, "Something went wrong."), "instead of its root component");
+    }
 }

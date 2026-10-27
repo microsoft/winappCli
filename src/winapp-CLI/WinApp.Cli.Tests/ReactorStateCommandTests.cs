@@ -99,6 +99,28 @@ public class ReactorStateCommandTests
     }
 
     [TestMethod]
+    public async Task GetStateAndRerender_SayWhenTheWindowShowsReactorsErrorScreen()
+    {
+        const string Reason = "this window shows Reactor's error screen instead of <MainShell>, so no component is rendered here. " +
+            "Render error: ArgumentException: ShowAttached failed. Fix the error in the app's C#, then use Hot Reload or restart the app";
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", $$"""{"state":"none","errorScreen":true,"reason":"{{Reason}}"}"""))
+        {
+            var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42", "--json"]);
+            Assert.AreEqual(1, exit);
+            var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
+            Assert.AreEqual("reactor-error-screen", error.GetProperty("token").GetString());
+            StringAssert.StartsWith(error.GetProperty("message").GetString(), "This window shows Reactor's error screen instead of <MainShell>");
+        }
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.rerender", $$"""{"state":"refused","code":"reactor-error-screen","reason":"{{Reason}}"}"""))
+        {
+            var (exit, output) = await Run(new DevToolsRerenderCommand(), agent, ["42"]);
+            Assert.AreEqual(1, exit);
+            StringAssert.Contains(output, "error screen");
+            Assert.IsFalse(output.Contains("No Reactor component renders", StringComparison.Ordinal), output);
+        }
+    }
+
+    [TestMethod]
     public async Task SetState_SendsTheIndexAndValueAndReportsTheReadBack()
     {
         using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.setState", """

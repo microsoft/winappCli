@@ -449,6 +449,7 @@ internal static class ReactorProvider
                 if (mount.Column > 0) { w.WriteNumber("column", mount.Column); }
                 w.WriteEndObject();
             }
+            if (host.ErrorScreen is { } headline) { w.WriteString("errorScreen", headline); }
             w.WriteEndObject();
         }
         w.WriteEndObject();
@@ -531,7 +532,8 @@ internal sealed record ReactorHostInfo(
     string? WindowKey,
     string? Title,
     (string Kind, string? Type, string Name)? Root,
-    (string File, int Line, int Column)? Mount = null);
+    (string File, int Line, int Column)? Mount = null,
+    string? ErrorScreen = null);
 /// <summary>
 /// Reflection over Reactor, bound once per Reactor assembly. Reactor versions with the public diagnostics API
 /// (<c>ReactorDiagnostics.GetHosts</c> with <c>DescribeComponent</c>) are read only through it;
@@ -708,7 +710,8 @@ internal sealed partial class ReactorApi
                     Member(reactorWindow, "Key")?.ToString(),
                     Member(window, "Title") as string,
                     root,
-                    Location(Member(item, "MountSite"))));
+                    Location(Member(item, "MountSite")),
+                    GetTag(control) is null ? ErrorScreenHeadline(control) : null));
             }
             catch (Exception ex) when (ex is TargetInvocationException or InvalidCastException or MemberAccessException)
             {

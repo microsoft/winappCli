@@ -20,6 +20,12 @@ internal sealed record ReactorHost(string Kind, string? Window, string? WindowId
 
     public int MountLine { get; init; }
 
+    /// <summary>
+    /// The headline of the error screen Reactor shows instead of the root after a render or commit failed
+    /// (<c>Render error: ...</c>); null while the root is shown.
+    /// </summary>
+    public string? ErrorScreen { get; init; }
+
     /// <summary>The mount site as <c>File.cs:line</c>.</summary>
     public string? ShortMount => MountFile is null ? null : ReactorNode.Short(MountFile, MountLine);
 }
@@ -125,6 +131,16 @@ internal sealed record ReactorDescription(
     public const string AbsentToken = "reactor-absent";
     public const string UnavailableToken = "reactor-unavailable";
     public const string NoSourceMapToken = "reactor-no-sourcemap";
+    public const string ErrorScreenToken = "reactor-error-screen";
+
+    /// <summary>What a host showing Reactor's error screen means, for the inspect note.</summary>
+    public static string ExplainErrorScreen(ReactorHost host)
+    {
+        var where = host.Title is { Length: > 0 } title ? $"Window \"{title}\"" : host.Kind == "island" ? "A Reactor island" : "A Reactor window";
+        var root = host.Root is { } component ? $"<{component.Name}>" : "its root component";
+        return $"{where} shows Reactor's error screen instead of {root}: {host.ErrorScreen!.TrimEnd('.')}. " +
+               "Fix the error in the app's C#, then use Hot Reload or restart the app.";
+    }
 
     public bool IsReactor => State == "ok";
 
@@ -349,7 +365,7 @@ internal sealed record ReactorDescription(
             host = new ReactorHost(ReadString(h, "kind") ?? "host", ReadString(h, "window"), ReadString(h, "windowId"),
                 ReadString(h, "windowKey"), ReadString(h, "title"),
                 h.TryGetProperty("root", out var r) && r.ValueKind == JsonValueKind.Object ? ParseComponent(r) : null)
-            { MountFile = mountFile, MountLine = mountLine };
+            { MountFile = mountFile, MountLine = mountLine, ErrorScreen = ReadString(h, "errorScreen") };
         }
 
         return new ReactorNode(

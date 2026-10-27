@@ -308,6 +308,13 @@ dialog in Reactor's in-app developer menu.
 After a .NET Hot Reload edit, DevTools reads the tree again, so sources, comment
 markers and the inspector follow the new code; component state is kept.
 
+When a window's root component throws while rendering, or Reactor fails to apply a
+render to the window's controls, Reactor replaces the window's content with its error
+screen. `inspect` marks that window's root `showing Reactor's error
+screen` and prints the error's headline, and `get-state`, `set-state` and `rerender` on
+it fail with `reactor-error-screen`. Fix the error in your C#, then use Hot Reload or
+restart the app.
+
 ## Launch and limits
 
 Call sites need a Debug build, or `<ReactorSourceMap>true</ReactorSourceMap>` in
@@ -344,8 +351,9 @@ with one note saying the components cannot be read. `winapp devtools attach` loa
 agent into a running .NET 8 or later app; C# call sites still need the
 `winapp run` launch with DevTools.
 
-Other error tokens are `reactor-absent` (the app does not use Reactor) and
-`reactor-no-sourcemap` (no C# call sites were recorded).
+Other error tokens are `reactor-absent` (the app does not use Reactor),
+`reactor-no-sourcemap` (no C# call sites were recorded) and `reactor-error-screen` (the
+window shows Reactor's error screen instead of its root).
 
 `winapp run --on sandbox --devtools on` starts a Reactor app with or without XAML
 files. The launch copies the project's `.cs` files with its XAML, read-only, so

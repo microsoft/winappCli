@@ -128,7 +128,10 @@ internal sealed record ReactorComponentState(
                 case "absent":
                     return (null, "This app does not use Microsoft.UI.Reactor.", "reactor-absent");
                 case "none":
-                    return (null, "No Reactor component renders this element.", "no-component");
+                    return root.TryGetProperty("errorScreen", out var errorScreen) && errorScreen.ValueKind == JsonValueKind.True &&
+                           ReactorDescription.ReadString(root, "reason") is { Length: > 0 } why
+                        ? (null, char.ToUpperInvariant(why[0]) + why[1..] + (why.EndsWith('.') ? "" : "."), ReactorDescription.ErrorScreenToken)
+                        : (null, "No Reactor component renders this element.", "no-component");
                 default:
                     var reason = ReactorDescription.ReadString(root, "reason");
                     return (null, ReactorDescription.IsBusy(reason) ? ReactorDescription.BusyMessage : "Reactor component state is unavailable: " +

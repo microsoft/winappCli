@@ -37,7 +37,8 @@ internal sealed class DevToolsTreeAnnotations
 
     /// <summary>
     /// The one note for Reactor apps whose components could not be read, or whose call sites were not recorded,
-    /// with its error token; null when there is nothing to say.
+    /// with its error token; null when there is nothing to say. A window showing Reactor's error screen comes first:
+    /// its root's elements are gone, which is why it has no call sites.
     /// </summary>
     public (string Token, string Message)? Note
     {
@@ -50,6 +51,12 @@ internal sealed class DevToolsTreeAnnotations
             if (!Reactor.IsReactor)
             {
                 return (ReactorDescription.UnavailableToken, Reactor.ExplainUnavailable());
+            }
+            var errorScreens = Reactor.ByHandle.Values.Select(node => node.Host).OfType<ReactorHost>()
+                .Where(host => host.ErrorScreen is not null).Select(ReactorDescription.ExplainErrorScreen).ToList();
+            if (errorScreens.Count > 0)
+            {
+                return (ReactorDescription.ErrorScreenToken, string.Join(Environment.NewLine, errorScreens));
             }
             return Reactor.ExplainMissingSource() is { } missing ? (ReactorDescription.NoSourceMapToken, missing) : null;
         }
@@ -119,7 +126,8 @@ internal sealed class DevToolsTreeAnnotations
         };
         var kind = root.Kind == "class" ? "" : $" [grey]{Markup.Escape(root.Kind)}[/]";
         var mount = host.ShortMount is { } site ? $" [blue]{Markup.Escape(site)}[/]" : "";
-        return $"{DevToolsRender.Handle(node.Selector)} [bold]<{Markup.Escape(root.Name)}>[/]{kind} [grey]{where}[/]{mount}";
+        var errorScreen = host.ErrorScreen is null ? "" : " [red]showing Reactor's error screen[/]";
+        return $"{DevToolsRender.Handle(node.Selector)} [bold]<{Markup.Escape(root.Name)}>[/]{kind} [grey]{where}[/]{mount}{errorScreen}";
     }
 
     /// <summary>Top-level elements in window order; a single group with no window when the tree is not grouped.</summary>
@@ -199,6 +207,7 @@ internal sealed class DevToolsTreeAnnotations
             if (host.WindowKey is not null) { writer.WriteString("windowKey", host.WindowKey); }
             if (host.Root is { } root) { WriteComponent(writer, "root", root); }
             WriteMount(writer, host);
+            if (host.ErrorScreen is not null) { writer.WriteString("errorScreen", host.ErrorScreen); }
             writer.WriteEndObject();
         }
         writer.WriteEndObject();
@@ -258,6 +267,7 @@ internal sealed class DevToolsTreeAnnotations
                     if (host.WindowKey is not null) { writer.WriteString("windowKey", host.WindowKey); }
                     if (host.Root is { } root) { WriteComponent(writer, "root", root); }
                     WriteMount(writer, host);
+                    if (host.ErrorScreen is not null) { writer.WriteString("errorScreen", host.ErrorScreen); }
                     writer.WriteEndObject();
                 }
                 writer.WriteEndObject();

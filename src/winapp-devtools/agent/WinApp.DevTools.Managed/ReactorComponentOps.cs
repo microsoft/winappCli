@@ -147,6 +147,12 @@ internal static class ReactorComponentOps
             w.WriteString("version", api.Version);
             if (component is null)
             {
+                if (api.ErrorScreenReason(element) is { } errorScreen)
+                {
+                    w.WriteString("reason", errorScreen);
+                    w.WriteBoolean("errorScreen", true);
+                    return;
+                }
                 w.WriteString("reason", "no Reactor component renders this element");
                 return;
             }
@@ -341,7 +347,7 @@ internal static class ReactorComponentOps
             var component = api.FindComponent(element, out _);
             if (component is null)
             {
-                done(Refused("no-component", "no Reactor component renders this element"));
+                done(NoComponent(element, api));
                 return;
             }
             if (component is SnapshotReactorComponent shown)
@@ -452,7 +458,7 @@ internal static class ReactorComponentOps
             var component = api.FindComponent(element, out _);
             if (component is null)
             {
-                done(Refused("no-component", "no Reactor component renders this element"));
+                done(NoComponent(element, api));
                 return;
             }
             if (!component.Rerender())
@@ -523,6 +529,12 @@ internal static class ReactorComponentOps
         w.WriteString("code", code);
         w.WriteString("reason", reason);
     });
+
+    // No component renders the element; say so, or that its window shows Reactor's error screen instead of its root.
+    private static string NoComponent(UIElement element, ReactorApi api) =>
+        api.ErrorScreenReason(element) is { } errorScreen
+            ? Refused("reactor-error-screen", errorScreen)
+            : Refused("no-component", "no Reactor component renders this element");
 
     internal static string Unavailable(string reason, bool indeterminate = false) => Json(w =>
     {
@@ -709,6 +721,56 @@ internal sealed partial class ReactorApi
         }
         return null;
     }
+
+    /// <summary>
+    /// The headline of Reactor's built-in error screen (<c>Render error: ...</c>, or the neutral <c>Something went
+    /// wrong.</c>) when <paramref name="control"/>, a host's untagged root control, is that screen; null otherwise.
+    /// Reactor shows it in place of the root's content after a render or commit fails, and it is a plain Border.
+    /// </summary>
+    internal static string? ErrorScreenHeadline(UIElement control)
+    {
+        if (control is not Microsoft.UI.Xaml.Controls.Border border)
+        {
+            return null;
+        }
+        var text = border.Child switch
+        {
+            Microsoft.UI.Xaml.Controls.TextBlock neutral => neutral.Text,
+            Microsoft.UI.Xaml.Controls.ScrollViewer { Content: Microsoft.UI.Xaml.Controls.StackPanel stack } when stack.Children.Count > 0 &&
+                stack.Children[0] is Microsoft.UI.Xaml.Controls.TextBlock header => header.Text,
+            _ => null,
+        };
+        // One line: the exception message can span several.
+        return IsErrorScreenHeadline(text) ? string.Join(' ', text!.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)) : null;
+    }
+
+    internal static bool IsErrorScreenHeadline(string? text) =>
+        text is not null && (text.StartsWith("Render error: ", StringComparison.Ordinal) || text == "Something went wrong.");
+
+    /// <summary>
+    /// Why no component renders <paramref name="element"/> when its window or island shows Reactor's error screen
+    /// instead of its root; null when it does not.
+    /// </summary>
+    public string? ErrorScreenReason(UIElement element)
+    {
+        if (!PublicDiagnostics)
+        {
+            return null;
+        }
+        var hosts = WindowHosts();
+        foreach (var ancestor in Ancestors(element))
+        {
+            if (hosts.TryGetValue(ancestor, out var host))
+            {
+                return host.ErrorScreen is { } headline ? ErrorScreenReason(host.Root?.Name, headline) : null;
+            }
+        }
+        return null;
+    }
+
+    internal static string ErrorScreenReason(string? root, string headline) =>
+        $"this window shows Reactor's error screen instead of {(root is null ? "its root component" : $"<{root}>")}, so no component " +
+        $"is rendered here. {headline.TrimEnd('.')}. Fix the error in the app's C#, then use Hot Reload or restart the app";
 
     /// <summary>The element and its ancestors, nearest first.</summary>
     internal static List<UIElement> Ancestors(UIElement element)

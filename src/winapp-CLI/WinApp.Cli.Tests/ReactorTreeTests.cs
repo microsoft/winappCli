@@ -173,6 +173,26 @@ public class ReactorTreeTests
     }
 
     [TestMethod]
+    public void Annotations_AWindowShowingReactorsErrorScreenSaysSo()
+    {
+        // A commit-phase error replaced the TaskBoard window's root with Reactor's error screen: its elements are gone, so
+        // the note must name the error screen, not missing C# locations, and the root line must say what it shows.
+        var forest = AuthoredForest.Parse(Annotated.Replace("""
+            "type":"TaskBoard.App"}}}
+            """, """
+            "type":"TaskBoard.App"},"errorScreen":"Render error: ArgumentException: ShowAttached failed."}}
+            """, StringComparison.Ordinal))!;
+        var annotations = new DevToolsTreeAnnotations(forest.Reactor, forest.Windows, raw: false);
+
+        var note = annotations.Note!.Value;
+        Assert.AreEqual(ReactorDescription.ErrorScreenToken, note.Token);
+        StringAssert.Contains(note.Message, "Window \"TaskBoard\" shows Reactor's error screen instead of <App>: Render error: ArgumentException: ShowAttached failed.");
+        StringAssert.Contains(note.Message, "Hot Reload");
+        StringAssert.Contains(Spectre.Console.Markup.Remove(annotations.RootLine(Node("1"))!), "<App> root showing Reactor's error screen");
+        Assert.IsFalse(Spectre.Console.Markup.Remove(Annotations().RootLine(Node("1"))!).Contains("error screen", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void Line_ShowsComponentKeyAndCallSite_AndKeepsXamlLines()
     {
         var annotations = Annotations();

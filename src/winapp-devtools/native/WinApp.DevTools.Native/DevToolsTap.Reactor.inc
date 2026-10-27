@@ -916,6 +916,8 @@ static bool TapReactorDescribeOnce(TapReactorStatus& status, std::wstring* membe
                         out += L"}";
                     }
                 }
+                if (const std::wstring errorScreen = host->GetString(L"errorScreen"); !errorScreen.empty())
+                    out += L",\"errorScreen\":\"" + DevToolsJsonEscape(errorScreen) + L"\"";
                 out += L"}";
             }
             out += L"}";
