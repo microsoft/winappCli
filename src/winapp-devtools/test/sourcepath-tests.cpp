@@ -294,6 +294,15 @@ int RunSourcePathTests()
         Check(shown(L"Unknown(userPassword: \"x\")") == L"Unknown(userPassword: \"<redacted>\")", "a named argument is redacted by its name");
         Check(shown(L"new Options { User = \"bob\", ApiPassword = \"x\" }") == L"new Options { User = \"bob\", ApiPassword = \"<redacted>\" }",
               "an initializer member is redacted by its name");
+        Declarations first, second, merged;
+        first.Add(DevToolsCSharpSource::SplitLines(L"record Login2Props(string User, string UserPassword, Creds Account);\n"));
+        second.Add(DevToolsCSharpSource::SplitLines(L"public record Creds(string Name, string Password);\n"));
+        merged.Merge(first);
+        merged.Merge(second);
+        const auto mergedLines = RedactLines(DevToolsCSharpSource::SplitLines(
+            L"new Login2Props(\"bob\", \"pw-6\", new Creds(\"alice\", \"pw-7\"))"), merged);
+        Check(mergedLines.size() == 1 && mergedLines[0] == L"new Login2Props(\"bob\", \"<redacted>\", new Creds(\"alice\", \"<redacted>\"))",
+              "declarations merged from separately read files redact as one index");
     }
 
     DeleteFileW((pages + L"\\MainPage.xaml").c_str());

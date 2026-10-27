@@ -1175,14 +1175,17 @@ struct ReactorSource
 
 static bool TapReactorMapFile(const std::wstring& file, std::wstring* onDisk, std::vector<std::wstring>* ambiguous);
 
-static bool TapReactorSourceFor(InstanceHandle ih, ReactorSource* out, bool readCode)
+// `index` says whether reading the code may build the project's declaration index here (DevToolsCSharpIndex): Cached
+// on the UI thread, Build on pipe and worker threads.
+static bool TapReactorSourceFor(InstanceHandle ih, ReactorSource* out, bool readCode,
+    DevToolsCSharpIndex index = DevToolsCSharpIndex::Cached)
 {
     if (!out) return false;
     *out = ReactorSource{};
     if (!TapReactorAnnotationFor(ih, true, &out->node, &out->exact, &out->ih, /*requireFile*/ true)) return false;
     out->onDisk = TapReactorMapFile(out->node.file, &out->path, &out->ambiguous);
     if (readCode && out->onDisk)
-        DevToolsAuthored_ReadCSharp(out->path, out->node.line, out->node.column, &out->code, out->node.element, &out->site,
+        DevToolsAuthored_ReadCSharp(out->path, out->node.line, out->node.column, &out->code, index, out->node.element, &out->site,
             &out->lineCount);
     return true;
 }
@@ -1825,7 +1828,7 @@ static std::wstring TapReactorSourceAnswer(unsigned long long wire)
         if (!ResolveWire_nolock(wire, &ih, &error)) return {};
     }
     ReactorSource source;
-    if (!TapReactorSourceFor(ih, &source, true)) return {};
+    if (!TapReactorSourceFor(ih, &source, true, DevToolsCSharpIndex::Build)) return {};
     std::wstring out = L"{\"handle\":" + std::to_wstring(wire);
     out += L",\"kind\":\"csharp\"";
     out += L",\"fileName\":\"" + DevToolsJsonEscape(source.path) + L"\"";

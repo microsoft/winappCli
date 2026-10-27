@@ -9,6 +9,7 @@
 #pragma comment(lib, "bcrypt.lib")
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -91,6 +92,21 @@ struct CachedFile
 };
 std::map<std::wstring, CachedFile> g_files;
 SRWLOCK g_lock = SRWLOCK_INIT;
+
+using DeclarationIndex = std::shared_ptr<const DevToolsCSharpArguments::Declarations>;
+
+// The C# declaration indexes (ProjectDeclarations) and the per-file declarations they are merged from. Background
+// builds hold a reference, so what they write to outlives the engine's own.
+struct DeclarationCache
+{
+    struct Project { ULONGLONG built = 0; bool building = false; DeclarationIndex index; };
+    struct File { FILETIME written{}; unsigned long long size = 0; DeclarationIndex declarations; };
+    std::mutex lock;
+    std::map<std::wstring, Project> projects;   // by .csproj, or by file for a file in no project
+    std::map<std::wstring, File> files;          // by path
+};
+const std::shared_ptr<DeclarationCache> g_declarations = std::make_shared<DeclarationCache>();
+std::atomic<unsigned long long> g_csharpFilesParsed{0};
 
 // Not the app's own source, the same folders the CLI's comment resolver skips: build output, the XAML compiler's
 // copies of each page, restored packages and tool folders.
@@ -514,6 +530,9 @@ void DevToolsAuthored_Init(const std::wstring& sourceRoot, unsigned long long bu
     g_indexRoot.clear();
     g_indexedXaml.clear();
     ReleaseSRWLockExclusive(&g_indexLock);
+    // Parsed files stay cached by path, size and write time; only the project indexes are built again.
+    std::lock_guard<std::mutex> guard(g_declarations->lock);
+    g_declarations->projects.clear();
 }
 
 bool DevToolsAuthored_HasSourceRoot()
@@ -603,7 +622,14 @@ std::vector<std::wstring> ProjectFolders(const std::wstring& project)
     return folders;
 }
 
-void CollectSources(const std::wstring& folder, std::vector<std::wstring>* files, size_t limit, int depth = 0)
+struct SourceFile
+{
+    std::wstring path;
+    FILETIME written{};
+    unsigned long long size = 0;
+};
+
+void CollectSources(const std::wstring& folder, std::vector<SourceFile>* files, size_t limit, int depth = 0)
 {
     if (files->size() >= limit || depth > 32) return;
     WIN32_FIND_DATAW data{};
@@ -618,45 +644,126 @@ void CollectSources(const std::wstring& folder, std::vector<std::wstring>* files
             for (const wchar_t* s : kSkipped) skipped = skipped || _wcsicmp(name.c_str(), s) == 0;
             if (!skipped) CollectSources(folder + L"\\" + name, files, limit, depth + 1);
         } else if (name.size() > 3 && _wcsicmp(name.c_str() + name.size() - 3, L".cs") == 0) {
-            files->push_back(folder + L"\\" + name);
+            files->push_back({folder + L"\\" + name, data.ftLastWriteTime,
+                (static_cast<unsigned long long>(data.nFileSizeHigh) << 32) | data.nFileSizeLow});
         }
     } while (files->size() < limit && FindNextFileW(find, &data));
     FindClose(find);
 }
 
-// The declarations of the project a C# file belongs to and of the projects it references (the file alone when it is
-// in no project), read again after a few seconds so edits are seen.
-std::shared_ptr<const DevToolsCSharpArguments::Declarations> ProjectDeclarations(const std::wstring& file)
+// Reads the declarations of the project's files (the file alone when it is in no project), parsing only the files
+// whose size or write time changed since they were last parsed. Takes no lock but the cache's, and that only briefly.
+DeclarationIndex BuildDeclarations(DeclarationCache& cache, const std::wstring& project, const std::wstring& file)
 {
-    struct Entry { ULONGLONG built = 0; std::shared_ptr<const DevToolsCSharpArguments::Declarations> index; };
-    static std::mutex lock;
-    static std::map<std::wstring, Entry> cache;
-    const std::wstring project = ProjectFileFor(file);
-    const std::wstring key = project.empty() ? file : project;
-    {
-        std::lock_guard<std::mutex> guard(lock);
-        const auto known = cache.find(key);
-        if (known != cache.end() && GetTickCount64() - known->second.built < 5000) return known->second.index;
+    std::vector<SourceFile> files;
+    if (project.empty()) {
+        WIN32_FILE_ATTRIBUTE_DATA attributes{};
+        if (GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &attributes))
+            files.push_back({file, attributes.ftLastWriteTime,
+                (static_cast<unsigned long long>(attributes.nFileSizeHigh) << 32) | attributes.nFileSizeLow});
+    } else {
+        for (const auto& folder : ProjectFolders(project)) if (IsDirectory(folder)) CollectSources(folder, &files, 4096);
     }
-    std::vector<std::wstring> files;
-    if (project.empty()) files.push_back(file);
-    else for (const auto& folder : ProjectFolders(project)) if (IsDirectory(folder)) CollectSources(folder, &files, 4096);
     auto index = std::make_shared<DevToolsCSharpArguments::Declarations>();
     for (const auto& source : files) {
-        std::vector<std::wstring> lines;
-        std::wstring hash;
-        if (ReadLines(source, &lines, &hash)) index->Add(lines);
+        DeclarationIndex declarations;
+        {
+            std::lock_guard<std::mutex> guard(cache.lock);
+            const auto known = cache.files.find(source.path);
+            if (known != cache.files.end() && known->second.size == source.size &&
+                CompareFileTime(&known->second.written, &source.written) == 0)
+                declarations = known->second.declarations;
+        }
+        if (!declarations) {
+            auto parsed = std::make_shared<DevToolsCSharpArguments::Declarations>();
+            std::vector<std::wstring> lines;
+            std::wstring hash;
+            if (ReadLines(source.path, &lines, &hash)) parsed->Add(lines);
+            g_csharpFilesParsed.fetch_add(1, std::memory_order_relaxed);
+            declarations = parsed;
+            std::lock_guard<std::mutex> guard(cache.lock);
+            if (cache.files.size() >= 65536) cache.files.clear();
+            cache.files[source.path] = DeclarationCache::File{source.written, source.size, declarations};
+        }
+        index->Merge(*declarations);
     }
-    std::lock_guard<std::mutex> guard(lock);
-    if (cache.size() >= 16) cache.clear();
-    cache[key] = Entry{GetTickCount64(), index};
+    return index;
+}
+
+struct DeclarationJob
+{
+    std::shared_ptr<DeclarationCache> cache;
+    std::wstring key, project, file;
+    HMODULE module = nullptr;
+};
+
+void CALLBACK BuildDeclarationsInBackground(PTP_CALLBACK_INSTANCE instance, void* context)
+{
+    std::unique_ptr<DeclarationJob> job(static_cast<DeclarationJob*>(context));
+    // The engine stays loaded until this returns.
+    if (job->module) FreeLibraryWhenCallbackReturns(instance, job->module);
+    DeclarationIndex index;
+    try { index = BuildDeclarations(*job->cache, job->project, job->file); } catch (...) {}
+    try {
+        std::lock_guard<std::mutex> guard(job->cache->lock);
+        auto& entry = job->cache->projects[job->key];
+        entry.building = false;
+        if (index) { entry.index = std::move(index); entry.built = GetTickCount64(); }
+    } catch (...) {}
+}
+
+// Under cache->lock: starts a background build of `key`'s index unless one is running.
+void ScheduleDeclarations_locked(const std::shared_ptr<DeclarationCache>& cache, DeclarationCache::Project& entry,
+    const std::wstring& key, const std::wstring& project, const std::wstring& file)
+{
+    if (entry.building) return;
+    auto job = std::make_unique<DeclarationJob>(DeclarationJob{cache, key, project, file, nullptr});
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        reinterpret_cast<LPCWSTR>(&BuildDeclarationsInBackground), &job->module);
+    const HMODULE module = job->module;
+    if (TrySubmitThreadpoolCallback(&BuildDeclarationsInBackground, job.get(), nullptr)) {
+        job.release();
+        entry.building = true;
+    } else if (module) {
+        FreeLibrary(module);
+    }
+}
+
+// The declarations of the project a C# file belongs to and of the projects it references (the file alone when it is
+// in no project), rebuilt in the background once they are a few seconds old so edits are seen. Null when there is no
+// index yet and `mode` may not build one here.
+DeclarationIndex ProjectDeclarations(const std::wstring& file, DevToolsCSharpIndex mode)
+{
+    const std::shared_ptr<DeclarationCache> cache = g_declarations;
+    const std::wstring project = ProjectFileFor(file);
+    const std::wstring key = project.empty() ? file : project;
+    DeclarationIndex index;
+    {
+        std::lock_guard<std::mutex> guard(cache->lock);
+        auto known = cache->projects.find(key);
+        if (known == cache->projects.end()) {
+            if (cache->projects.size() >= 16) cache->projects.clear();
+            known = cache->projects.emplace(key, DeclarationCache::Project{}).first;
+        }
+        index = known->second.index;
+        const bool stale = !index || GetTickCount64() - known->second.built >= 5000;
+        // A Build caller with no index builds one itself below instead.
+        if (stale && (index || mode == DevToolsCSharpIndex::Cached))
+            ScheduleDeclarations_locked(cache, known->second, key, project, file);
+    }
+    if (index || mode == DevToolsCSharpIndex::Cached) return index;
+    index = BuildDeclarations(*cache, project, file);
+    std::lock_guard<std::mutex> guard(cache->lock);
+    auto& entry = cache->projects[key];
+    entry.index = index;
+    entry.built = GetTickCount64();
     return index;
 }
 
 } // namespace
 
 bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, unsigned int column, std::wstring* out,
-                                 const std::wstring& kind, std::wstring* site, size_t* lineCount)
+                                 DevToolsCSharpIndex index, const std::wstring& kind, std::wstring* site, size_t* lineCount)
 {
     if (!out) return false;
     out->clear();
@@ -675,10 +782,20 @@ bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, un
         *site = DevToolsReactorNames::SiteState(lines, line, column, kind, written != 0 && written > built + 2);
     }
     // A string passed to a password parameter is redacted even when the statement never says "password".
-    const auto declarations = ProjectDeclarations(path);
-    *out = DevToolsCSharpSource::Statement(DevToolsCSharpArguments::RedactLines(lines, *declarations), line, column);
-    DevToolsCSharpSource::Redact(*out);
+    if (const auto declarations = ProjectDeclarations(path, index)) {
+        *out = DevToolsCSharpSource::Statement(DevToolsCSharpArguments::RedactLines(lines, *declarations), line, column);
+        DevToolsCSharpSource::Redact(*out);
+    } else {
+        // Which parameters take a password is not known until the index is built, so no literal is shown until then.
+        *out = DevToolsCSharpSource::Statement(lines, line, column);
+        DevToolsCSharpSource::RedactLiterals(*out, [](size_t) { return true; });
+    }
     return !out->empty();
+}
+
+unsigned long long DevToolsAuthored_CSharpFilesParsed()
+{
+    return g_csharpFilesParsed.load(std::memory_order_relaxed);
 }
 
 std::wstring DevToolsAuthored_CSharpName(const std::wstring& path, unsigned int line, unsigned int column,

@@ -202,6 +202,15 @@ public:
         }
     }
 
+    // Adds the declarations another index holds, after this one's: the same result as Add-ing its files here.
+    void Merge(const Declarations& other)
+    {
+        for (const auto& [name, declarations] : other.byName_) {
+            auto& mine = byName_[name];
+            mine.insert(mine.end(), declarations.begin(), declarations.end());
+        }
+    }
+
 private:
     static bool Read(const std::wstring& text, size_t start, size_t end, Declaration* out)
     {
