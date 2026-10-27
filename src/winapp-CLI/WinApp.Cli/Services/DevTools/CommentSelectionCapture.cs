@@ -37,6 +37,9 @@ internal sealed class CapturedElement
 
     public string? SourceFile { get; init; }
 
+    /// <summary>Why a Reactor element's C# call site could not be anchored, when it could not.</summary>
+    public string? UnanchoredReason { get; init; }
+
     public int? Line { get; init; }
 
     public int? Column { get; init; }
@@ -255,6 +258,10 @@ internal static class CommentSelectionCapture
                 Name = Nullify(node.Name),
                 Content = content,
                 SourceFile = anchor?.SourceFile,
+                UnanchoredReason = anchor is not null ? null
+                    : sourceRoot is null ? "the app was launched without its project folder, so DevTools cannot read its C#"
+                    : !source.OnDisk ? $"DevTools did not find its C# file ({source.FileName}) on this machine"
+                    : $"its C# file ({source.FileName}) is outside this project's repository",
                 Line = anchor?.Line,
                 Column = anchor is { Column: > 0 } ? anchor.Column : null,
                 SourceProvenance = anchor is null ? null : anchor.Exact ? "reactor-call-site" : "likely-source-line",
@@ -274,18 +281,20 @@ internal static class CommentSelectionCapture
         };
     }
 
-    /// <summary>The C# anchor for a Reactor call site in a file under <paramref name="sourceRoot"/>; null when it is elsewhere.</summary>
+    /// <summary>
+    /// The C# anchor for a Reactor call site in a file under <paramref name="sourceRoot"/>, or elsewhere in its
+    /// repository (a referenced project or a linked file, stored as <c>..\Lib\Panel.cs</c>); null when it is outside.
+    /// </summary>
     internal static CommentCSharpAnchor? BuildCSharpAnchor(string sourceRoot, ReactorSourceReply source)
     {
         var root = Path.GetFullPath(sourceRoot);
-        var path = Path.GetFullPath(source.FileName);
-        var relative = Path.GetRelativePath(root, path);
-        if (Path.IsPathRooted(relative) || relative.Split('\\', '/').Contains("..") ||
-            !relative.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        if (CSharpAnchorResolver.ResolveFile(root, source.FileName) is not { } path ||
+            !path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
-        var lines = CSharpSourceText.ReadLines(path, root);
+        var relative = Path.GetRelativePath(root, path);
+        var lines = CSharpSourceText.ReadLines(path, CSharpAnchorResolver.SourceBoundary(root));
         if (source.Line < 1 || source.Line > lines.Length)
         {
             throw new InvalidDataException($"The captured C# location {relative}:{source.Line} is not in the file on disk. Rebuild the app or capture it again.");

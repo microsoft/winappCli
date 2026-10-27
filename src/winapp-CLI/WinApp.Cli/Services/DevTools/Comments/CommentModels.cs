@@ -349,6 +349,9 @@ internal sealed class CommentResultPayload
 
     public string? Warning { get; set; }
 
+    /// <summary>Set when the comment was saved without a source location: why, and how to anchor it.</summary>
+    public string? Unanchored { get; set; }
+
     public CommentView? Comment { get; set; }
 }
 

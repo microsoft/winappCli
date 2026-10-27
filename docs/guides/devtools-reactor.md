@@ -247,6 +247,11 @@ winapp devtools comments add --file App.cs --line 35 --text "Make this larger"
 
 `--file App.cs --line 35` needs exactly one element call, such as `Button(...)`, on
 that line; if the line has several, the error lists them and `--column` picks one.
+A call site in a project your app references, or in a linked file, is anchored too when
+the file is in the same repository: pass its path from your project
+(`--file ..\MyLibrary\Panels\Footer.cs --line 6`) or its full path. When DevTools cannot
+link a comment to source, for example for an element with no C# call site, `comments add`
+still saves it and says why, with how to link it (`"unanchored"` with `--json`).
 To move an existing comment to the element picked in the app, keep its text:
 
 ```powershell

@@ -161,7 +161,8 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
         }
         var anchor = new System.Text.StringBuilder("reactor:");
         void Field(string value) => anchor.Append(value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(':').Append(value);
-        Field(cs.SourceFile);
+        // The app names a file outside the project (a referenced project's, a linked one) by its leaf.
+        Field(cs.SourceFile.Replace('/', '\\').Split('\\').Contains("..") ? Path.GetFileName(cs.SourceFile) : cs.SourceFile);
         Field(cs.Line.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Field(cs.Column.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Field(cs.Element ?? cs.Factory ?? string.Empty);

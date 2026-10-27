@@ -299,9 +299,17 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             }
 
             // Without a source file the anchor is weak: an agent has to search the project and must not guess.
+            string? unanchored = null;
             if (string.IsNullOrEmpty(comment.Anchor.SourceFile))
             {
                 comment.Anchor.Weak = true;
+                if (captured is not null)
+                {
+                    unanchored = "Saved without a source location: " +
+                        (captured.UnanchoredReason ?? "DevTools found no XAML declaration or C# call site for this element") +
+                        ". An agent has to search for it by its type and text. To link it, add it again with " +
+                        "--file <path> --line <line> (--source-root <project folder> for a file in another project).";
+                }
             }
             else if (captured is null && comment.Anchor.SourceFile.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
             {
@@ -341,13 +349,18 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                 var view = CommentViewBuilder.ToView(comment, resolver, sourceRoot);
                 if (json)
                 {
-                    var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning };
+                    var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning, Unanchored = unanchored };
                     ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
                 }
                 else
                 {
                     DevToolsRender.WriteMarkupLine(ansiConsole, $"[green]{verb}[/] comment [cyan]{Markup.Escape(comment.Id)}[/] → {Markup.Escape(storePath)}");
-                    if (CommentViewBuilder.AnchorHealthWarning(view) is string anchorWarning)
+                    // The capture's own reason says why and how to link it, so it replaces the generic anchor warning.
+                    if (unanchored is not null)
+                    {
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"[yellow]⚠ {Markup.Escape(unanchored)}[/]");
+                    }
+                    else if (CommentViewBuilder.AnchorHealthWarning(view) is string anchorWarning)
                     {
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"[yellow]⚠ {Markup.Escape(anchorWarning)}[/]");
                     }
@@ -402,11 +415,11 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
         {
             if (ResolveCSharpFile(sourceRoot, file) is not { } path)
             {
-                return $"No single file '{file}' under {sourceRoot}. Pass its project-relative path, or --source-root for its project.";
+                return $"No single file '{file}' under {sourceRoot} or elsewhere in its repository. Pass its path relative to the project (for example ..\\Lib\\Panel.cs), or --source-root for its project.";
             }
             var root = Path.GetFullPath(sourceRoot);
             var relative = Path.GetRelativePath(root, path);
-            var lines = CSharpSourceText.ReadLines(path, root);
+            var lines = CSharpSourceText.ReadLines(path, CSharpAnchorResolver.SourceBoundary(root));
             if (anchor.Line > lines.Length)
             {
                 return $"{relative} has {lines.Length} lines; there is no line {anchor.Line}.";
@@ -466,13 +479,16 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             string.Join(", ", sites.Select(site => $"{at}:{site.Column} {site.Name}"));
     }
 
-    /// <summary>A <c>.cs</c> path under the project root, or a leaf name that names exactly one file there.</summary>
+    /// <summary>
+    /// A <c>.cs</c> path under the project root, a leaf name that names exactly one file there, or a path to a file
+    /// elsewhere in the project's repository (a referenced project or a linked file: <c>..\Lib\Panel.cs</c> or absolute).
+    /// </summary>
     internal static string? ResolveCSharpFile(string sourceRoot, string file)
     {
         var root = Path.GetFullPath(sourceRoot);
         if (CommentAnchorResolver.RelativeSourcePath(file, root) is not { } relative)
         {
-            return null;
+            return CSharpAnchorResolver.ResolveFile(root, file);
         }
         var direct = Path.GetFullPath(Path.Combine(root, relative));
         if (File.Exists(direct) && !Helpers.PathSafety.HasReparsePointOnPath(direct, root))

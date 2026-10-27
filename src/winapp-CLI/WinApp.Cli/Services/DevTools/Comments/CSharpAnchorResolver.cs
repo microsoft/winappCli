@@ -18,6 +18,31 @@ internal static class CSharpAnchorResolver
     private const int MaxHits = 10;
     private const int MaxFiles = 2048;
 
+    /// <summary>
+    /// How far a comment's C# may be from its project: the repository the project is in (where the comment store
+    /// is), so a call site in a referenced project or a linked file (<c>..\Lib\Panel.cs</c>) is anchored too. Outside
+    /// a repository, the project folder.
+    /// </summary>
+    internal static string SourceBoundary(string projectRoot) => CommentStoreLocator.Resolve(projectRoot).Root;
+
+    /// <summary>
+    /// The full path of a C# file named relative to <paramref name="projectRoot"/> (<c>..\</c> allowed) or absolutely,
+    /// when it exists inside <see cref="SourceBoundary"/> without passing a reparse point; otherwise null.
+    /// </summary>
+    internal static string? ResolveFile(string projectRoot, string file)
+    {
+        try
+        {
+            var root = Path.GetFullPath(projectRoot);
+            var full = Path.GetFullPath(Path.IsPathRooted(file) ? file : Path.Combine(root, file.Replace('/', '\\')));
+            return !PathSafety.HasReparsePointOnPath(full, SourceBoundary(root)) && File.Exists(full) ? full : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     internal static IReadOnlyList<SourceHit> ReAnchor(CommentAnchor anchor, string sourceRoot, ILogger? logger = null)
     {
         var cs = anchor.CSharp!;
@@ -33,6 +58,7 @@ internal static class CSharpAnchorResolver
             return [];
         }
         var sameProject = CommentStoreLocator.SameProject(cs.ProjectRoot, sourceRoot);
+        var boundary = SourceBoundary(sourceRoot);
         var hits = new List<(SourceHit Hit, int Similarity, bool Keyed)>();
         foreach (var file in files)
         {
@@ -40,7 +66,7 @@ internal static class CSharpAnchorResolver
             {
                 var relative = Path.GetRelativePath(sourceRoot, file);
                 var sameFile = sameProject && relative.Equals(cs.SourceFile, StringComparison.OrdinalIgnoreCase);
-                var lines = CSharpSourceText.ReadLines(file, sourceRoot);
+                var lines = CSharpSourceText.ReadLines(file, boundary);
                 var masked = CSharpSourceText.Mask(lines);
                 // Compared and shown as stored: with the strings a password parameter receives redacted.
                 var shown = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(file));
@@ -172,13 +198,9 @@ internal static class CSharpAnchorResolver
         {
             throw new IOException($"The source directory is redirected or inaccessible: {sourceRoot}");
         }
-        if (CommentAnchorResolver.RelativeSourcePath(sourceFile, sourceRoot) is { } relative)
+        if (ResolveFile(sourceRoot, sourceFile) is { } known)
         {
-            var known = Path.GetFullPath(Path.Combine(sourceRoot, relative));
-            if (!PathSafety.HasReparsePointOnPath(known, Path.GetFullPath(sourceRoot)) && File.Exists(known))
-            {
-                return ([known], false);
-            }
+            return ([known], false);
         }
         var all = Directory.EnumerateFiles(sourceRoot, "*.cs",
                 new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false })

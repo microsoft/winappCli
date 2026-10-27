@@ -103,8 +103,9 @@ internal static class CommentViewBuilder
                 return null;
             }
             var known = CommentAnchorResolver.ResolveKnownSourcePath(sourceRoot, c.Anchor);
-            c.Hits.RemoveAll(hit =>
-                CommentAnchorResolver.RelativeSourcePath(hit.File, sourceRoot) is not string relative ||
+            c.Hits.RemoveAll(hit => c.Anchor.CSharp is not null
+                ? CSharpAnchorResolver.ResolveFile(sourceRoot, hit.File) is null
+                : CommentAnchorResolver.RelativeSourcePath(hit.File, sourceRoot) is not string relative ||
                 Helpers.PathSafety.HasReparsePointOnPath(Path.Combine(sourceRoot, relative), sourceRoot) ||
                 !File.Exists(Path.Combine(sourceRoot, relative)));
             var strong = c.Hits.Where(hit => hit.Confidence == "strong").Take(2).ToArray();

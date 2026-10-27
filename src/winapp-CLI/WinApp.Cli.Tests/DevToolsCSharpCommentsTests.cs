@@ -424,19 +424,114 @@ public class DevToolsCSharpCommentsTests
             "a call site outside the project is not anchored");
     }
 
-    private FakeDevToolsProtocolAgent ReactorAgent(bool exact) => new FakeDevToolsProtocolAgent()
+    private FakeDevToolsProtocolAgent ReactorAgent(bool exact, string? file = null, bool onDisk = true, string? sourceRoot = null) => new FakeDevToolsProtocolAgent()
         .Answer("VisualTree.find", """{"matches":[{"handle":"7","name":"","type":"Microsoft.UI.Xaml.Controls.Button"}]}""")
         .Answer("VisualTree.enumerate", """[{"handle":"7","name":"","type":"Microsoft.UI.Xaml.Controls.Button","children":[]}]""")
         .Answer("Property.get", """{"props":[]}""")
         .Answer("Source.get", JsonSerializer.Serialize(new
         {
-            handle = "7", kind = "csharp", fileName = AppFile, lineNumber = 10, columnNumber = 13, onDisk = true,
+            handle = "7", kind = "csharp", fileName = file ?? AppFile, lineNumber = 10, columnNumber = 13, onDisk,
             authoredState = "available",
             reactor = new { element = "Button", handle = "7", exact, key = "k1", component = "App", ordinal = 2 },
         }))
         .Answer("Internal.elementAnchor", """{"anchor":"reactor:opaque","unique":true}""")
-        .Answer("Internal.sourceRoot", JsonSerializer.Serialize(new { sourceRoot = _root }))
+        .Answer("Internal.sourceRoot", JsonSerializer.Serialize(new { sourceRoot = sourceRoot ?? _root }))
         .Answer("Internal.setComments", """{"total":1,"placed":1}""");
+
+    // ---- call sites outside the project ----
+
+    // repo\App is the app's project; repo\Lib\Panel.cs is in a library it references (or a linked file).
+    private (string App, string LibFile) LibraryLayout()
+    {
+        var app = Directory.CreateDirectory(Path.Combine(_root, "App")).FullName;
+        var lib = Directory.CreateDirectory(Path.Combine(_root, "Lib")).FullName;
+        var file = Path.Combine(lib, "Panel.cs");
+        File.WriteAllText(file, AppSource);
+        return (app, file);
+    }
+
+    [TestMethod]
+    public async Task LiveCapture_ACallSiteInAnotherProjectOfTheRepository_IsAnchored()
+    {
+        var (app, libFile) = LibraryLayout();
+        using var agent = ReactorAgent(exact: true, file: libFile, sourceRoot: app);
+        var console = new TestConsole();
+        var store = new CommentStore();
+        var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+            new CommentTestTargetResolver(agent.Pid), new FixedCwd(app), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
+        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(
+            ["--app", agent.Pid.ToString(), "--from-element", "7", "--text", "bigger", "--json"]));
+
+        Assert.AreEqual(0, exit, console.Output);
+        var anchor = store.Load(StorePath).Comments.Single().Anchor;
+        Assert.AreEqual(@"..\Lib\Panel.cs", anchor.SourceFile, "stored relative to the app's project, inside the repository");
+        Assert.AreEqual(@"..\Lib\Panel.cs", anchor.CSharp!.SourceFile);
+        Assert.IsFalse(anchor.Weak);
+        using var output = JsonDocument.Parse(console.Output);
+        Assert.IsTrue(output.RootElement.GetProperty("comment").GetProperty("anchorConfirmed").GetBoolean());
+        Assert.IsFalse(output.RootElement.TryGetProperty("unanchored", out _));
+    }
+
+    [TestMethod]
+    public void OfflineFile_InAnotherProjectOfTheRepository_IsAnchored()
+    {
+        var (app, libFile) = LibraryLayout();
+        var (exit, output) = Add("--text", "x", "--file", @"..\Lib\Panel.cs", "--line", "10", "--source-root", app);
+        Assert.AreEqual(0, exit, output);
+        (exit, output) = Add("--text", "y", "--file", libFile, "--line", "10", "--source-root", app);
+        Assert.AreEqual(0, exit, output);
+        foreach (var comment in new CommentStore().Load(StorePath).Comments)
+        {
+            Assert.AreEqual(@"..\Lib\Panel.cs", comment.Anchor.CSharp!.SourceFile);
+            var view = View(comment);
+            Assert.IsTrue(view.AnchorConfirmed, "listing finds the call site in the other project");
+            Assert.AreEqual(@"..\Lib\Panel.cs", view.Hits.Single().File);
+        }
+    }
+
+    [TestMethod]
+    public void BuildCSharpAnchor_OutsideTheRepository_IsNotAnchored()
+    {
+        var (app, _) = LibraryLayout();
+        var outside = Path.Combine(Path.GetTempPath(), $"winapp-outside-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(outside, AppSource);
+        try
+        {
+            Assert.IsNull(CommentSelectionCapture.BuildCSharpAnchor(app,
+                new ReactorSourceReply(outside, 10, 13, true, "Button", null, "App", 0, true)));
+        }
+        finally
+        {
+            File.Delete(outside);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task LiveCapture_AnElementWithNoSourceOnDisk_SaysItIsNotLinked(bool json)
+    {
+        using var agent = ReactorAgent(exact: true, file: "Generated/Wrapper.g.cs", onDisk: false);
+        var console = new TestConsole();
+        var store = new CommentStore();
+        var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+            new CommentTestTargetResolver(agent.Pid), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
+        List<string> args = ["--app", agent.Pid.ToString(), "--from-element", "7", "--text", "bigger"];
+        if (json) { args.Add("--json"); }
+        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(args.ToArray()));
+
+        Assert.AreEqual(0, exit, console.Output);
+        Assert.IsTrue(store.Load(StorePath).Comments.Single().Anchor.Weak);
+        var notice = console.Output;
+        if (json)
+        {
+            using var output = JsonDocument.Parse(console.Output);
+            notice = output.RootElement.GetProperty("unanchored").GetString()!;
+        }
+        StringAssert.Contains(notice, "Saved without a source location");
+        StringAssert.Contains(notice, "Generated/Wrapper.g.cs");
+        StringAssert.Contains(notice, "--file");
+    }
 
     private (int Exit, string Output) Add(params string[] args)
     {
