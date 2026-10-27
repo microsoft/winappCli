@@ -233,16 +233,22 @@ diagnosed as before.
 ## Drive Reactor elements with `winapp ui`
 
 `winapp ui` commands accept the same Reactor selectors when the app runs with
-DevTools:
+DevTools, including `#incrementButton`, a C# name such as `incrementButton`, and the
+bracketed selectors an ambiguity error lists:
 
 ```powershell
 winapp ui invoke "<Counter>/Button" -a TaskBoard
 winapp ui get-value key=t2 -a TaskBoard
+winapp ui invoke button-baacfbdb21 -a TaskBoard
 ```
 
-DevTools finds the element, and `winapp ui` acts on the UI Automation element at the
-same place on screen. Without DevTools attached, the text keeps its usual `winapp ui`
-meaning (a name search).
+DevTools finds the element, and `winapp ui` acts on the same element in the UI
+Automation tree: the one with its AutomationId, or the one at the same place on screen,
+in any of the app's windows and inside a `ReactorHostControl` or XAML island. An
+element scrolled out of view is found by its name. Layout panels such as `Stack` have
+no UI Automation element, so select a control inside them instead
+(`"key=t2/Button"`). Without DevTools attached, the text keeps its usual `winapp ui`
+meaning (a name search), and so does a word that is not a rendered element's C# name.
 
 ## Leave comments on Reactor code
 

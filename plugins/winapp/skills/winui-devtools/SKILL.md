@@ -212,7 +212,8 @@ which follows a C#-set value to the component state that produced it (`"kind": "
 authorization like `set-property`. An `indeterminate` result means the write may have
 happened: read back with `get-state`, never retry blindly. `get-resource` and
 `set-resource --scope app|element` read and live-edit XAML resources in any app.
-`winapp ui` commands accept the same Reactor selectors when DevTools is attached.
+`winapp ui` commands accept the same Reactor selectors when DevTools is attached, including
+`#name`, a C# name and the bracketed selectors an ambiguity error lists.
 `get-property <selector>` (no property name) also lists **References**: the
 `LabeledBy`, `DescribedBy`, `FlowsTo`, `FlowsFrom` and `XYFocus*` targets from and to the
 element (`references` in `--json`), with `cycle: true` when following one comes back.
