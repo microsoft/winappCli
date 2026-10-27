@@ -5,6 +5,24 @@
 #include "../native/WinApp.DevTools.Native/DevToolsTrust.h"
 #include "../native/WinApp.DevTools.Native/DevToolsSurface.h"
 #include "../native/WinApp.DevTools.Native/DevToolsOwnedState.h"
+#include <shlobj.h>
+
+static std::wstring settingsProfile;
+static HRESULT TestSettingsProfile(REFKNOWNFOLDERID, DWORD, HANDLE, PWSTR* path)
+{
+    *path = nullptr;
+    if (settingsProfile.empty()) return E_UNEXPECTED;
+    const auto bytes = (settingsProfile.size() + 1) * sizeof(wchar_t);
+    *path = static_cast<PWSTR>(CoTaskMemAlloc(bytes));
+    if (!*path) return E_OUTOFMEMORY;
+    memcpy(*path, settingsProfile.c_str(), bytes);
+    return S_OK;
+}
+// Exercise the real setting-file reads and writes without touching the user's preferences.
+#define SHGetKnownFolderPath TestSettingsProfile
+#include "../native/WinApp.DevTools.Native/DevToolsSettings.h"
+#undef SHGetKnownFolderPath
+
 static HRESULT SwitchChildren(void*, IInspectable**);
 static HRESULT SwitchSize(void*, unsigned*);
 static HRESULT SwitchIndex(void*, IInspectable*, unsigned*, unsigned char*);
@@ -670,6 +688,13 @@ static void TestOneShotPicks(unsigned& checks, unsigned& failures)
 
 int main()
 {
+    wchar_t temp[MAX_PATH]{}, profile[MAX_PATH]{};
+    const DWORD tempLength = GetTempPathW(MAX_PATH, temp);
+    winrt::check_bool(tempLength && tempLength < MAX_PATH);
+    winrt::check_bool(GetTempFileNameW(temp, L"wov", 0, profile));
+    winrt::check_bool(DeleteFileW(profile));
+    winrt::check_bool(CreateDirectoryW(profile, nullptr));
+    settingsProfile = profile;
     // The local writer saves into the app's project folder; the tests below run as an app that has one.
     SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_COMMENT_ROOT", L"C:\\project");
     unsigned checks = 0, failures = 0;
@@ -679,8 +704,7 @@ int main()
     };
     {
         // Stored comments pushed at launch draw their markers without a trip to the comments menu. Unchecking "Show
-        // comment markers" is remembered for the user; Comment mode shows them anyway; checking it shows them again. The test
-        // restores the user's real setting file.
+        // comment markers" is remembered for the user; Comment mode shows them anyway; checking it shows them again.
         check(g_commentsShown, "comment markers", "a fresh launch shows the markers of stored comments");
         const std::wstring hiddenFile = DevToolsSettingsFile(L"CommentMarkersHidden");
         const bool hadHidden = GetFileAttributesW(hiddenFile.c_str()) != INVALID_FILE_ATTRIBUTES;
@@ -747,8 +771,7 @@ int main()
     }
     {
         // Hide toolbar lasts for this run; Ctrl+Shift+F12 brings a hidden toolbar back. The "When the app starts" items
-        // write the default mode `winapp run` and `winapp config` (run.devtools) read. The
-        // test restores the user's real setting file.
+        // write the default mode `winapp run` and `winapp config` (run.devtools) read.
         const std::wstring modeFile = DevToolsSettingsFile(L"DefaultMode");
         const bool hadMode = GetFileAttributesW(modeFile.c_str()) != INVALID_FILE_ATTRIBUTES;
         const std::wstring savedMode = DevToolsSettingsGetText(L"DefaultMode");
@@ -766,6 +789,8 @@ int main()
         FocusToolbarFromShortcut();
         check(g_toolbarVisible && bar.visibility == 0, "toolbar hide", "Ctrl+Shift+F12 shows a hidden toolbar");
         g_protoRoot = savedRoot;
+        // These settings checks have no XAML menu; the fake bar cannot reopen it for the off-mode hint.
+        g_aRow = nullptr;
         OnStartHiddenClick(nullptr, nullptr);
         check(DevToolsSettingsGetText(L"DefaultMode") == L"headless" && DefaultMode() == "headless",
             "default mode", "When the app starts > Hide toolbar makes the default headless");
@@ -2191,6 +2216,11 @@ int main()
                           entry, "padding corners transformed with ancestor scale");
         check(d.Balanced(), entry, "final references balanced");
     }
+    for (const auto* name : {L"CommentMarkersHidden", L"DefaultMode", L"ToolbarPinned", L"ToolbarCorner", L"LayoutAdorners"})
+        DeleteFileW(DevToolsSettingsFile(name).c_str());
+    winrt::check_bool(RemoveDirectoryW((settingsProfile + L"\\.winapp\\state").c_str()));
+    winrt::check_bool(RemoveDirectoryW((settingsProfile + L"\\.winapp").c_str()));
+    winrt::check_bool(RemoveDirectoryW(settingsProfile.c_str()));
     std::printf("overlay geometry semantics: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }
