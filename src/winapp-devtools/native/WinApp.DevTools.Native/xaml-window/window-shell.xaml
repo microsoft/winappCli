@@ -544,7 +544,7 @@
           BorderThickness="1"
           CornerRadius="8,0,0,0">
       <ScrollViewer x:Name="PropsScroll" AutomationProperties.AutomationId="WinAppDevToolsPropScroll"
-                    AutomationProperties.Name="Properties pane scroller">
+                    AutomationProperties.Name="Properties">
         <StackPanel x:Name="PropsHost" Margin="14">
           <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Text="Select a node on the left to inspect and edit its properties."/>
         </StackPanel>
