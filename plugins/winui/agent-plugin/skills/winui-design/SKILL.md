@@ -19,6 +19,8 @@ winapp find-ui "<feature>" --refresh                 # force a corpus refresh
 
 Default search covers the WinUI Gallery, Windows Community Toolkit, and curated core patterns. Reactor's C#-only/MVU samples are opt-in with `--source reactor`; use them only for Reactor projects. The Gallery/Toolkit/Reactor corpus is fetched and cached by WinApp CLI, while core patterns work offline.
 
+When samples alone don't explain a feature (title bar drag regions, pickers, app lifecycle, packaging or identity prerequisites), use `winapp ask "<focused question>" --json` to search Microsoft Learn docs and samples together. Load the `winapp-ask` skill for how to read the results. The question is sent to Microsoft Learn, so never include private code or names. If `ask` isn't available in the installed CLI, keep using `find-ui`.
+
 ## Verify APIs against the restored project
 
 Before coding API assumptions, run from the **restored app project directory** so `winapp find-api` uses its exact references, not a sample's possibly newer package versions:
