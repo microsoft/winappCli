@@ -292,10 +292,11 @@ winapp devtools logs -a TaskBoard
 winapp devtools logs -a TaskBoard --level error --follow
 ```
 
-`logs` lists what Reactor reported since the app started: render errors, errors Reactor
-caught and continued past, framework warnings, failed Windows calls, keyed lists with
-null or duplicate keys, hot reload and windows opening or closing. Entries name
-components and exception types; they never carry exception messages or app data.
+`logs` lists what Reactor reported since the app started: render errors, errors applying
+a render to the UI, errors Reactor caught and continued past, framework warnings, failed
+Windows calls, keyed lists with null or duplicate keys, hot reload and windows opening or
+closing. Entries name components and exception types; they never carry exception messages
+or app data.
 The app keeps the latest 500. `--follow` keeps printing new entries until you press
 Ctrl+C or the app exits, and `--json` returns the entries (one JSON object per line
 with `--follow`).

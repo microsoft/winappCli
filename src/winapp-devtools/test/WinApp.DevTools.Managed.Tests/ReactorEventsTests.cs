@@ -32,6 +32,21 @@ public sealed class ReactorEventsTests
     }
 
     [TestMethod]
+    public void Translate_ReportsCommitErrorsWithoutMessages()
+    {
+        var record = ReactorEvents.Translate("CommitError", EventLevel.Error,
+            ["phase", "rootComponent", "exceptionType", "message"], ["layout", "App", "System.ArgumentException", "secret detail"])!;
+        Assert.AreEqual("commitError", record.Kind);
+        Assert.AreEqual("error", record.Level);
+        Assert.IsTrue(record.Log);
+        var json = JsonDocument.Parse(ReactorEvents.ToJson(record, 3, DateTime.UtcNow)).RootElement;
+        Assert.AreEqual("layout", json.GetProperty("phase").GetString());
+        Assert.AreEqual("App", json.GetProperty("component").GetString());
+        Assert.AreEqual("System.ArgumentException", json.GetProperty("exception").GetString());
+        Assert.IsFalse(json.GetRawText().Contains("secret detail", StringComparison.Ordinal), "only the payload fields DevTools names are reported");
+    }
+
+    [TestMethod]
     [DataRow("StateChange", "state", false)]
     [DataRow("ComponentUnmount", "unmount", false)]
     [DataRow("SwallowedError", "swallowedError", true)]

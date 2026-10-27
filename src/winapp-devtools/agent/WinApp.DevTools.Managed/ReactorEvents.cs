@@ -14,7 +14,7 @@ using Microsoft.UI.Xaml;
 namespace WinApp.DevTools.Managed;
 
 /// <summary>One Microsoft-UI-Reactor event as DevTools reports it.</summary>
-/// <param name="Kind">state, unmount, renderError, swallowedError, hresult, warning, hotReload, windowOpened, windowClosed, rendered or other.</param>
+/// <param name="Kind">state, unmount, renderError, commitError, swallowedError, hresult, warning, hotReload, windowOpened, windowClosed, rendered or other.</param>
 /// <param name="Level">error, warning, info or verbose.</param>
 /// <param name="Log">Whether <c>winapp devtools logs</c> keeps it (warnings, errors, hot reload and windows).</param>
 internal sealed record ReactorEventRecord(string Kind, string Level, string Event, bool Log, IReadOnlyList<(string Name, object? Value)> Fields);
@@ -83,6 +83,7 @@ internal static class ReactorEvents
             "StateChange" => new("state", "verbose", name, false, [F("hook", "hookKind"), F("valueType", "valueType"), F("changed", "changed")]),
             "ComponentUnmount" => new("unmount", "info", name, false, [F("component", "componentName")]),
             "RenderError" => new("renderError", "error", name, true, [F("component", "componentName"), F("exception", "exceptionType")]),
+            "CommitError" => new("commitError", "error", name, true, [F("phase", "phase"), F("component", "rootComponent"), F("exception", "exceptionType")]),
             "SwallowedError" => new("swallowedError", "warning", name, true,
                 [F("category", "category"), F("operation", "operation"), F("exception", "exceptionType")]),
             "HResultFailed" => new("hresult", "warning", name, true,

@@ -118,6 +118,8 @@ public class DevToolsLogsCommandTests
     public void Format_DescribesEachKind()
     {
         string Line(string json) => DevToolsLogsCommand.Format(JsonDocument.Parse(json).RootElement);
+        StringAssert.Contains(Line("""{"kind":"commitError","level":"error","phase":"layout","component":"App","exception":"System.ArgumentException"}"""),
+            "Commit error in <App> (layout): System.ArgumentException");
         StringAssert.Contains(Line("""{"kind":"hresult","level":"warning","category":"Hosting","operation":"Dpi","hresult":"0x80004005"}"""),
             "Hosting/Dpi failed with 0x80004005");
         StringAssert.Contains(Line("""{"kind":"hotReload","level":"info","source":"metadataUpdate"}"""), "Hot reload applied an edit");

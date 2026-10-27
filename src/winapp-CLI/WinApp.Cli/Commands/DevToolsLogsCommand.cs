@@ -170,6 +170,8 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
         var text = Read("kind") switch
         {
             "renderError" => $"Render error in <{Read("component")}>: {Read("exception")}",
+            "commitError" => $"Commit error in <{Read("component")}>" +
+                (Read("phase") is { } phase ? $" ({phase})" : "") + $": {Read("exception")}",
             "swallowedError" => $"Swallowed error in {where}: {Read("exception")}",
             "hresult" => $"{where} failed with {Read("hresult")}",
             "warning" => $"{where}: {Read("message")}",

@@ -1982,7 +1982,7 @@ static void TapReactorPumpLine(const std::string& raw)
             std::lock_guard<std::mutex> lock(g_reactorPumpLock);
             g_reactorLog.push_back({ (unsigned long long)event.GetInt(L"seq", 0), ReactorSeverity(event.GetString(L"level")), json });
             while (g_reactorLog.size() > kReactorLogCapacity) { g_reactorLog.pop_front(); ++g_reactorLogDropped; }
-            if (kind == L"renderError" || kind == L"swallowedError") { ++g_reactorErrors; counted = true; }
+            if (kind == L"renderError" || kind == L"commitError" || kind == L"swallowedError") { ++g_reactorErrors; counted = true; }
             // A keyed list is counted when it first goes wrong, not again each time the same bailout fires.
             else if (kind == L"keyedList" && event.GetBool(L"first", false)) { ++g_reactorWarnings; counted = true; }
             problems = g_reactorErrors + g_reactorWarnings;
