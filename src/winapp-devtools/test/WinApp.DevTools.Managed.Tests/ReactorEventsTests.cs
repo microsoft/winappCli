@@ -178,28 +178,21 @@ public sealed class ReactorEventsTests
             ReactorEvents.KeyedLists.Poll();
             Assert.HasCount(1, published, "an unchanged list reports nothing new");
 
-            // The list changes: the same bailout fires twice more, and another list goes wrong (an older Reactor shape).
+            // The same bailout fires twice more with the same keys, and another list goes wrong (an older Reactor shape).
             source[0] = ((FakeKeyedListDiagnosticWithSite)source[0]) with { Count = 3 };
             source.Add(new FakeKeyedListDiagnostic(at.AddSeconds(1), "GridView", FakeKind.DuplicateKey, ["a", "a"], 1));
             ReactorEvents.KeyedLists.Poll();
-            Assert.HasCount(3, published);
-            StringAssert.Contains(published[1], "\"count\":3");
-            Assert.IsFalse(published[1].Contains("\"first\"", StringComparison.Ordinal), "a repeat is logged, not counted again");
-            StringAssert.Contains(published[2], "\"first\":true");
-            Assert.IsFalse(published[2].Contains("\"component\"", StringComparison.Ordinal) || published[2].Contains("\"file\"", StringComparison.Ordinal),
+            Assert.HasCount(2, published, "firing again with the same keys is not a new report");
+            StringAssert.Contains(published[1], "\"first\":true");
+            Assert.IsFalse(published[1].Contains("\"component\"", StringComparison.Ordinal) || published[1].Contains("\"file\"", StringComparison.Ordinal),
                 "nothing is made up when Reactor doesn't say");
 
-            // What Reactor does when a list fires again: the same entry with a later time and a higher count. Still not first.
-            source[1] = ((FakeKeyedListDiagnostic)source[1]) with { TimestampUtc = at.AddSeconds(30), Count = 2 };
+            // The list's problem changes: more keys collide. Reported again, but not first.
+            source[1] = ((FakeKeyedListDiagnostic)source[1]) with { TimestampUtc = at.AddSeconds(30), SampleKeys = ["a", "a", "b", "b"], Count = 2 };
             ReactorEvents.KeyedLists.Poll();
-            Assert.HasCount(4, published);
-            StringAssert.Contains(published[3], "\"count\":2");
-            Assert.IsFalse(published[3].Contains("\"first\"", StringComparison.Ordinal), "a list is first only once, whatever its time");
-
-            // CONTROL: a count that did not grow, at a time already seen, is not a new report.
-            source[0] = ((FakeKeyedListDiagnosticWithSite)source[0]) with { Count = 2 };
-            ReactorEvents.KeyedLists.Poll();
-            Assert.HasCount(4, published);
+            Assert.HasCount(3, published);
+            StringAssert.Contains(published[2], "\"keys\":4");
+            Assert.IsFalse(published[2].Contains("\"first\"", StringComparison.Ordinal), "a list is first only once");
         }
         finally
         {
@@ -229,7 +222,31 @@ public sealed class ReactorEventsTests
     }
 
     [TestMethod]
-    public void KeyedLists_ReportEachBailoutOnceAndAgainWhenItFiresMore_WithoutTheKeys()
+    public void KeyedLists_AListThatKeepsFiring_IsReportedAtMostOnceMore()
+    {
+        // One list wrong on every render: Reactor's count grows every poll (a 2-second timer, 449 entries in 15 minutes).
+        var at = new DateTime(2026, 10, 2, 8, 0, 0, DateTimeKind.Utc);
+        var reports = 0;
+        for (var count = 1; count <= 450; count++)
+        {
+            if (ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at.AddSeconds(2 * count), "FloodList", FakeKind.DuplicateKey,
+                    ["a", "c"], count)) is not null)
+            {
+                reports++;
+            }
+        }
+        Assert.AreEqual(1, reports, "reported when it first goes wrong, never again while nothing changes");
+
+        Assert.IsNotNull(ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "FloodList", FakeKind.DuplicateKey, ["a", "d"], 1)),
+            "different keys are a change");
+        Assert.IsNull(ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "FloodList", FakeKind.DuplicateKey, ["c", "a"], 500)),
+            "keys seen before, in any order, are not");
+        Assert.IsNull(ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "FloodList", FakeKind.DuplicateKey, ["a"], 501)),
+            "and neither are fewer keys");
+    }
+
+    [TestMethod]
+    public void KeyedLists_ReportEachBailoutOnceAndAgainWhenItsKeysChange_WithoutTheKeys()
     {
         var at = new DateTime(2026, 10, 2, 9, 0, 0, DateTimeKind.Utc);
         var first = ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "ListView", FakeKind.DuplicateKey, ["alice@example.com", "alice@example.com"], 1))!;
@@ -239,10 +256,20 @@ public sealed class ReactorEventsTests
         StringAssert.Contains(json, "\"problem\":\"duplicateKey\"");
         StringAssert.Contains(json, "\"keys\":2");
         Assert.IsFalse(json.Contains("alice", StringComparison.Ordinal), "keys are app data and are not reported");
-        Assert.IsNull(ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "ListView", FakeKind.DuplicateKey, ["x"], 1)),
-            "the same bailout is reported once");
-        Assert.IsNotNull(ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "ListView", FakeKind.DuplicateKey, ["x"], 5)),
-            "and again when it fired more often");
+        Assert.IsNull(ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "ListView", FakeKind.DuplicateKey, ["alice@example.com", "alice@example.com"], 5)),
+            "the same bailout is reported once, however often it fires");
+        Assert.IsNotNull(ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "ListView", FakeKind.DuplicateKey, ["x", "y", "x"], 1)),
+            "and again when more keys are affected");
+    }
+
+    [TestMethod]
+    public void KeyedLists_CountTheKeysReactorLeftOutOfItsSample()
+    {
+        var at = new DateTime(2026, 10, 2, 10, 0, 0, DateTimeKind.Utc);
+        var record = ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "BigList", FakeKind.DuplicateKey,
+            ["k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "…and 12 more"], 1))!;
+        StringAssert.Contains(ReactorEvents.ToJson(record, 1, at), "\"keys\":20");
+        Assert.AreEqual(3, ReactorEvents.KeyedLists.KeyCount(["a", "b", "c"]), "CONTROL: a whole sample is counted as is");
     }
 
     [EventSource(Name = "Microsoft-UI-Reactor")]

@@ -301,11 +301,12 @@ Ctrl+C or the app exits, and `--json` returns the entries (one JSON object per l
 with `--follow`).
 
 A keyed list with a null or duplicate key re-creates its rows instead of moving them,
-which loses their state. `logs` reports each such list once, and again when it keeps
-happening, with how many keys were affected but never the keys themselves:
+which loses their state. `logs` reports each such list once, and again only when more keys
+are affected, or as many but different ones. It shows how many keys were affected, never the
+keys themselves:
 
 ```text
-14:02:11.483 warning Keyed list in ListView of <TaskList> at TaskList.cs:42 has duplicate keys (x3); it re-creates its rows instead of moving them
+14:02:11.483 warning Keyed list in ListView of <TaskList> at TaskList.cs:42 has duplicate keys (3 keys affected); it re-creates its rows instead of moving them
 ```
 
 The component and the C# location appear when your Reactor version reports them. Each

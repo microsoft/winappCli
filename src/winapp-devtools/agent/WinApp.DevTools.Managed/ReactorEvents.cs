@@ -331,15 +331,20 @@ internal static class ReactorEvents
 
     /// <summary>
     /// Reactor's keyed-list bailouts (a null or duplicate key makes a list re-create its rows), from the public
-    /// <c>ReactorDiagnostics.RecentKeyedListWarnings</c>, reported as log entries when they first appear (<c>first</c>,
-    /// which the toolbar badge counts) or fire again. Reactor's in-app dev menu used to be the only place to see them.
-    /// The offending keys are app data, so only how many are reported. The component and the C# call site are added
-    /// when the Reactor version reports them.
+    /// <c>ReactorDiagnostics.RecentKeyedListWarnings</c>, reported as a log entry when a list first goes wrong
+    /// (<c>first</c>, which the toolbar badge counts) and again only when its problem grows: more keys, or as many but
+    /// other ones. A bailout that keeps firing with the same keys (every render of a list that is always wrong) is not
+    /// reported again. Reactor's in-app dev menu used to be the only place to see them. The offending keys are app
+    /// data, so only how many are reported. The component and the C# call site are added when the Reactor version
+    /// reports them.
     /// </summary>
     internal static class KeyedLists
     {
-        // One entry per list as Reactor identifies it; Reactor bumps the entry's count and time each time it fires again.
-        private static readonly Dictionary<(string?, string, string?, string?, int?), (int Count, DateTime Time)> Seen = [];
+        // Sets of offending keys remembered per list, so a list alternating between a few known problems is quiet.
+        private const int MaximumKeySets = 64;
+
+        // One entry per list: the most keys it reported at once, and (as hashes, never the keys) the key sets seen.
+        private static readonly Dictionary<(string?, string, string?, string?, int?), (int Keys, HashSet<int> KeySets)> Seen = [];
         private static Timer? timer;
         private static PropertyInfo? warnings;
 
@@ -387,9 +392,11 @@ internal static class ReactorEvents
             object? Read(string name) => type.GetProperty(name)?.GetValue(warning);
             var control = Read("ControlContext") as string;
             var kind = Read("Kind")?.ToString() ?? "";
-            var time = Read("TimestampUtc") is DateTime stamp ? stamp : default;
             var count = Read("Count") is int n ? n : 1;
-            var keys = Read("SampleKeys") is System.Collections.ICollection sample ? sample.Count : 0;
+            var sample = Read("SampleKeys") as System.Collections.IEnumerable;
+            var sampleKeys = sample?.Cast<object?>().Select(key => key?.ToString() ?? "").ToList() ?? [];
+            var keys = KeyCount(sampleKeys);
+            var keySet = KeySetHash(sampleKeys);
             var component = (Read("ComponentName") ?? Read("Component")) switch
             {
                 string name => name,
@@ -402,17 +409,46 @@ internal static class ReactorEvents
             lock (Seen)
             {
                 first = !Seen.TryGetValue(list, out var known);
-                if (!first && count <= known.Count && time <= known.Time)
+                if (first)
                 {
-                    return null;
+                    Seen[list] = (keys, [keySet]);
                 }
-                Seen[list] = (Math.Max(count, known.Count), time > known.Time ? time : known.Time);
+                else
+                {
+                    var moreKeys = keys > known.Keys;
+                    // As many keys as before but other ones; fewer keys is the list getting better, not a new problem.
+                    var newKeys = keys == known.Keys && !known.KeySets.Contains(keySet) && known.KeySets.Count < MaximumKeySets;
+                    if (!moreKeys && !newKeys)
+                    {
+                        return null;
+                    }
+                    known.KeySets.Add(keySet);
+                    Seen[list] = (Math.Max(keys, known.Keys), known.KeySets);
+                }
             }
             return new("keyedList", "warning", "KeyedListDiagnostic", true,
                 [("control", control), ("problem", kind == "NullKey" ? "nullKey" : kind == "DuplicateKey" ? "duplicateKey" : kind),
                  ("count", count), ("keys", keys), ("component", component),
                  ("file", site?.File), ("line", site?.Line), ("column", site?.Column is > 0 and var column ? (object?)column : null),
                  ("first", first ? (object?)true : null)]);
+        }
+
+        // Reactor keeps at most a few sample keys and ends a longer list with "…and N more".
+        internal static int KeyCount(IReadOnlyList<string> sample) =>
+            sample.Count > 0 && System.Text.RegularExpressions.Regex.Match(sample[^1], @"^(?:…|\.\.\.)and (\d+) more$") is { Success: true } more &&
+            int.TryParse(more.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var rest)
+                ? sample.Count - 1 + rest
+                : sample.Count;
+
+        // The same keys in any order hash the same.
+        private static int KeySetHash(IEnumerable<string> keys)
+        {
+            var hash = new HashCode();
+            foreach (var key in keys.Order(StringComparer.Ordinal))
+            {
+                hash.Add(key, StringComparer.Ordinal);
+            }
+            return hash.ToHashCode();
         }
     }
 

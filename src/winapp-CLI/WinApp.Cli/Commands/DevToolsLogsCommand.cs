@@ -180,7 +180,8 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
                 (Read("component") is { } owner ? $" of <{owner}>" : "") +
                 (Read("file") is { } file ? $" at {Path.GetFileName(file)}:{Read("line")}" : "") + " " +
                 (Read("problem") == "nullKey" ? "has an item with a null key" : "has duplicate keys") +
-                $" (x{Read("count")}); it re-creates its rows instead of moving them",
+                (Read("keys") is { } keys ? $" ({keys} {(keys == "1" ? "key" : "keys")} affected)" : "") +
+                "; it re-creates its rows instead of moving them",
             "windowOpened" => $"Window opened: {Read("windowType")}",
             "windowClosed" => $"Window closed: {Read("windowType")}",
             _ => $"{Read("event")}: {Read("detail")}",

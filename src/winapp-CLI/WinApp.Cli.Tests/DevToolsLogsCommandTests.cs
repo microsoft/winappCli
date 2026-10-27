@@ -125,8 +125,8 @@ public class DevToolsLogsCommandTests
             "Swallowed error in Theme/Apply: COMException");
         StringAssert.Contains(Line("""{"kind":"other","level":"warning","event":"IntlMissingKey","detail":"key=Title"}"""), "IntlMissingKey: key=Title");
         StringAssert.Contains(Line("""{"kind":"keyedList","level":"warning","control":"ListView","problem":"duplicateKey","count":3,"keys":2}"""),
-            "Keyed list in ListView has duplicate keys (x3)");
+            "Keyed list in ListView has duplicate keys (2 keys affected); it re-creates its rows");
         StringAssert.Contains(Line("""{"kind":"keyedList","level":"warning","control":"ItemsRepeater","problem":"nullKey","count":1,"keys":1,"component":"TaskList","file":"C:\\src\\App\\TaskList.cs","line":42,"column":13,"first":true}"""),
-            "Keyed list in ItemsRepeater of <TaskList> at TaskList.cs:42 has an item with a null key (x1)");
+            "Keyed list in ItemsRepeater of <TaskList> at TaskList.cs:42 has an item with a null key (1 key affected)");
     }
 }
