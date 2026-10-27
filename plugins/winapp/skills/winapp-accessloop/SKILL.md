@@ -140,23 +140,6 @@ resolves fresh owned processes and controls, not old HWNDs. It inherits capture
 policy and cannot request repairs. Changed evidence or tools require review,
 not edited hashes or fabricated execution records.
 
-### Replay a single-window action recording
-
-This is the separate, unchanged low-level workflow, not an accessibility plan:
-
-```powershell
-.\winapp.exe ui record-actions -w 123456 --output .\actions-001.json
-.\winapp.exe ui replay .\actions-001.json -w 123456 --accept-recording
-```
-
-Obtain recording approval first. Before replay, review the complete draft,
-locators, values and required parameters; supply only approved values with
-`--parameter`. Separately approve replay and any restoration of the starting
-test state. Never force an incomplete draft to replay or reset user data.
-Successful input delivery is not an accessibility pass. See
-[action recording and replay](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#record-actions)
-for privacy, parameter and completeness requirements.
-
 ## Verify supported source repairs
 
 For a project other than the bundled loop, use reviewed configurations pointing

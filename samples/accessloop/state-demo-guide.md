@@ -26,8 +26,8 @@ preparation may focus the selected tab header; the subsequent keyboard steps
 must reach their own targets without programmatic focus correction.
 Each key step uses `winapp ui send-keys --via send-input` without `--target`,
 after checking the actual focused control. The loop records that command and
-its observed result. `loop --replay` re-executes this frozen route; it is separate
-from the general-purpose `winapp ui record-actions` / `ui replay` workflow.
+its observed result. `loop --replay` re-executes this frozen route using the
+same individual UI commands.
 
 The fixture has two intentional missing accessible names: the refresh-preview
 icon and the save-layout icon at the bottom of the long page. It changes no

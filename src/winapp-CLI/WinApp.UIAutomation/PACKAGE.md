@@ -41,10 +41,6 @@ await ui.InvokeAsync(target, button!, CancellationToken.None);
   text.
 - **Input injection** — keyboard, mouse, touch and pen, including gestures.
 - **Window capture** — screenshots as raw BGRA pixels.
-- **Action recording and replay** — `IUiActionService` records an explicitly selected
-  window into a reviewed `UiActionFlow`; `UiActionFlowDocument` reads and writes
-  bounded JSON files. Text is parameterized by default. Replay requires explicit
-  approval, and never replays incomplete recordings.
 - **Scoped audit evidence** — bounded UIA snapshots with typed text attributes
   and explicit collection gaps; UIA event observation and optional, approved
   keyboard focus probes. Missing AutomationIds do not prevent these observations.
@@ -94,11 +90,6 @@ inspect and drive UI do not take a dependency on SkiaSharp.
 Use `SlugGenerator.Normalize(text)` when constructing searchable, shell-safe labels with the same
 normalization as UI Automation selectors. It returns the normalized text, not a complete element
 selector; use the selector returned by inspection to address a specific element.
-For the recording workflow, supported actions, text handling, and safety limits,
-see [Action recording and replay](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#record-actions).
-Recording inputs does not generate a correctness test: add reviewed assertions
-for the behavior that must succeed.
-
 ## Choosing a target framework
 
 The package ships two targets with the same public API:

@@ -160,6 +160,22 @@ public sealed class UiAccessibilityCommandTests : IDisposable
     }
 
     [TestMethod]
+    public void UiCommandsKeepAccessibilityAndVideoWithoutActionRecording()
+    {
+        var ui = _services.GetRequiredService<UiCommand>();
+        var names = ui.Subcommands.Select(command => command.Name).ToArray();
+        foreach (var name in new[] { "audit", "accessibility", "audit-snapshot", "audit-tabs", "audit-observe", "audit-screenshot", "record" })
+        {
+            CollectionAssert.Contains(names, name);
+        }
+        CollectionAssert.DoesNotContain(names, "record-actions");
+        CollectionAssert.DoesNotContain(names, "replay");
+        var loop = _services.GetRequiredService<UiAccessibilityLoopCommand>();
+        Assert.IsTrue(loop.Options.Any(option => option.Name == "--replay"));
+        Assert.AreEqual(0, _worker.Calls);
+    }
+
+    [TestMethod]
     public async Task DefaultAuditSelectsStandardTabsWithoutExtraPublicFlags()
     {
         Assert.AreEqual(0, await InvokeAsync(["audit", "-a", "My app"]));

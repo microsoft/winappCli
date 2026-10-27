@@ -50,8 +50,6 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
         UiGetValueCommand getValueCommand,
         UiScreenshotCommand screenshotCommand,
         UiRecordCommand recordCommand,
-        UiRecordActionsCommand recordActionsCommand,
-        UiReplayCommand replayCommand,
         UiAuditCommand auditCommand,
         UiAuditSnapshotCommand auditSnapshotCommand,
         UiAuditTabsCommand auditTabsCommand,
@@ -87,8 +85,6 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
         Subcommands.Add(getValueCommand);
         Subcommands.Add(screenshotCommand);
         Subcommands.Add(recordCommand);
-        Subcommands.Add(recordActionsCommand);
-        Subcommands.Add(replayCommand);
         Subcommands.Add(auditCommand);
         Subcommands.Add(auditSnapshotCommand);
         Subcommands.Add(auditTabsCommand);

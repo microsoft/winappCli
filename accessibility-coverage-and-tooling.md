@@ -237,7 +237,6 @@ WCAG 2.2 增加了新的要求，并移除了 4.1.1 Parsing；不要把已移除
 | --- | --- |
 | Axe.Windows 扫描 | 已在 AccessLoop 普通 .NET 程序中接入 2.4.2；能取得规则、控件属性和修复指导 |
 | UIA／截图／输入 | WinAppCLI 已提供相应命令 |
-| 操作录制／回放 | 已新增 `record-actions`／`replay` 首版，默认文本参数化、显式审核、密码拒录 |
 | 场景报告 | 已生成 HTML／JSON；扫描与五个场景断言分开展示 |
 | 多场景、多问题处理 | 已有选择问题、最小名称修复、全部场景回归及剩余问题清单 |
 | 连接既有窗口的一键报告 | **已实现 `scan --pid`／`scan --window`**；不要求目标 App 源码、场景文件或 AutomationId，不重建或关闭目标 App |
@@ -259,7 +258,6 @@ WCAG 2.2 增加了新的要求，并移除了 4.1.1 Parsing；不要把已移除
 - `samples\accessloop\AccessLoop\AxeWindowsScanner.cs`：SDK 适配和扫描内去重。
 - `samples\accessloop\AccessLoop\Models.cs`／`ReportRenderer.cs`：保留既有场景修复报告，与新的运行中窗口报告分开。
 - `src\winapp-CLI\WinApp.UIAutomation\Audit\`：有界原始树、类型化文字属性、事件与焦点观察；`Commands\UiAudit*Command.cs` 提供对应 native CLI 入口。
-- `src\winapp-CLI\WinApp.UIAutomation\Actions\`：动作录制、回放与安全边界，不是通用无障碍规则引擎。
 
 已有真实例子中，测试页面报出保存与导出按钮的 **2 个独立 `NameNotNull` 问题**。SDK 的重叠结果组可能报告 4 次，不能因此说有 4 个独立问题。保存用例的 **4/5 场景断言通过**也不能解读为无障碍完成度 80%。
 
@@ -462,7 +460,7 @@ Playwright `forcedColors` 模拟的是浏览器 CSS `forced-colors`，**不是�
 ### P1：结构化观测与安全主动巡检
 
 - 扩展 `WinApp.UIAutomation\Services\IUiAutomation.cs` 及 `UiAutomationService` 的属性、文本范围和采集健康输出；不要把未支持的属性值默认为合法值。
-- 新增独立键盘巡检器，复用 `IKeyboardInput` 和前台保护；不要把 `record-actions` 当成自动巡检器。
+- 新增独立键盘巡检器，复用 `IKeyboardInput` 和前台保护；不依赖用户操作录制。
 - 对已知标准控件建立小型交互模型：方向键、切换、展开、选择；按规则判断技术子条件，不自动推断保存／支付等业务含义。
 - 订阅并过滤到目标范围的 UIA 焦点、属性、结构和通知事件，保存时间线；事件与操作关联是观察，不保证因果或实际朗读。管理 MTA、订阅生命周期和退出清理。
 - 用截图上的控件标记、UIA 树联动、编号焦点路径改善报告可读性；展示改进不增加规则覆盖率。
@@ -625,136 +623,3 @@ Playwright `forcedColors` 模拟的是浏览器 CSS `forced-colors`，**不是�
 [T11]: https://github.com/dequelabs/axe-core-npm/tree/v4.13.0/packages/playwright
 [T12]: https://learn.microsoft.com/en-us/windows/apps/design/accessibility/high-contrast-themes
 [T13]: https://github.com/microsoft/axe-windows/blob/v2.4.2/docs/AutomationReference.md#L169-L216
-
-## 补充附录：动作录制与回放的当前实现
-
-### R1. 用户怎样开始录制
-
-从仓库根目录使用当前构建，先打开目标应用，将 `myapp` 替换为目标进程名：
-
-```powershell
-.\artifacts\cli\win-x64\winapp.exe ui record-actions -a myapp --duration-sec 20 --output .\flow.json --json
-```
-
-命令开始录制后，用户在指定窗口中正常点击、输入和滚动；20 秒后保存动作草稿。应用有多个窗口时，先用 `ui list-windows` 查询，再用 `--window <HWND>` 明确选择一个窗口。输出文件必须是新文件，不会覆盖已有录制。
-
-省略 `--duration-sec` 时，默认持续录制，直到回到运行录制命令的终端按 Ctrl+C 停止；不要在目标应用里按 Ctrl+C 来结束录制，那是应用的复制快捷键。
-
-**这里描述的是当前工作区新增的 `ui record-actions`，不是所有已安装／已发布版本都已有此命令。** 原来的 `ui record` 仍然用于 MP4 视频；动作录制本身不保存截图或视频。
-
-### R2. 实现逻辑：用户操作如何变成动作
-
-整个录制过程不需要 AI，也不是先录视频再让模型识别操作：
-
-1. **监听输入**：通过 Windows 原生键盘／鼠标事件监听，按固定的目标进程和窗口检查范围。
-2. **识别控件**：通过 UI Automation 查找被点击、滚动或获得焦点的对象，生成可验证的控件定位信息。
-3. **整理动作**：鼠标点击保存按钮、次数和控件内的相对位置；按键保存为键动作；文字编辑合并为整字段替换操作。
-4. **保留顺序并输出**：停止后写入版本化 JSON。不能可靠归属目标或遇到不支持的输入时，明确失败，不猜测缺失步骤。
-
-它不是只保存绝对屏幕坐标。回放会重新寻找目标控件，再根据其当前边界计算点击位置。记录中的 `elapsedMs` 用于诊断，不表示回放必须按原来的操作速度等待。
-
-### R3. 已经实现了哪些 action
-
-| 类型 | 自动录制 | 回放能力与边界 |
-| --- | --- | --- |
-| `click` | 支持左右键单击、双击 | 重新定位控件并发送真实鼠标输入；不是任意复杂鼠标手势 |
-| `key` | 支持 Tab、Enter 等允许的按键／组合键 | 发送真实按键；不是支持所有系统快捷键 |
-| `text` | 支持普通编辑控件的整字段替换 | 使用真实 Ctrl+A 加输入／删除；不重放原始光标、选择范围或逐字符编辑过程 |
-| `wheel` | 支持垂直滚轮 | 定位相应滚动目标；不支持 Ctrl＋滚轮缩放等带修饰键的操作 |
-| `assert` | **不会自动生成，需要明确编写** | 检查 Name、Value、IsEnabled 或 ToggleState 是否与指定预期匹配 |
-
-**这些基础动作的录制／回放链路已有实现，不代表任意 App 的整段流程都能完整录制。** 遇到能力范围外的操作，不能以“其他几步录到了”代替整段流程成功。
-
-### R4. 输出什么格式
-
-例如，用户“点击标题输入框 → 输入文字 → 点击保存”，可以形成如下简化示意；省略了时间、点击位置和警告等字段：
-
-```json
-{
-  "schemaVersion": 1,
-  "status": "recorded",
-  "processName": "myapp",
-  "steps": [
-    {
-      "kind": "click",
-      "target": { "automationId": "TitleInput", "controlType": "Edit" },
-      "button": "left"
-    },
-    {
-      "kind": "text",
-      "target": { "automationId": "TitleInput", "controlType": "Edit" },
-      "parameter": "text1"
-    },
-    {
-      "kind": "click",
-      "target": { "automationId": "SaveButton", "controlType": "Button" },
-      "button": "left"
-    }
-  ]
-}
-```
-
-这是 **WinAppCLI 自定义的 schema-1 动作格式**，不是 Windows 或 WCAG 的行业统一录制标准。
-
-| 输出位置 | 内容 |
-| --- | --- |
-| 动作 JSON 文件 | 应用名称、录制状态、初始焦点（如有）、按顺序排列的步骤及警告 |
-| 启用 `--json` 后的 stdout | 最终摘要：`path`、`status`、`stepCount`、`stopReason`、`warnings`、`parameters`；不是完整动作列表 |
-| stderr | 就绪时的 `recording-actions-started` 事件，以及相应诊断／错误信息 |
-
-默认不保存输入框文字值，而是产生 `text1` 等参数。编辑同一字段的不同片段可能产生不同参数，回放时应提供录制结果列出的每个名称。
-
-### R5. 没有 AutomationId 时怎样处理
-
-| 目标情况 | 当前策略 |
-| --- | --- |
-| 有可唯一匹配的 AutomationId | 优先用该 ID 定位，并核对控件类型 |
-| 非编辑控件没有 ID，但 Name＋ControlType 在选定窗口内唯一 | 可以使用这两个属性录制和回放，例如 `Name="保存"`、`ControlType="Button"` |
-| 多个控件具有相同 Name 和 ControlType | 拒绝模糊定位，不随便选第一个 |
-| 没有 ID，也没有可用 Name | 无法生成可靠的目标定位 |
-| **编辑控件没有 ID**，即使 Name 唯一 | **当前版本不支持该目标**；编辑控件要求稳定的 AutomationId |
-
-名称定位在回放时必须仍能唯一匹配；名称改变或出现重复项就停止。当前没有自动退回“第几个元素”、绝对屏幕坐标或图像识别的策略。RuntimeId 也不作为跨进程重启的稳定身份。
-
-### R6. 为什么不能保证全面录制
-
-当前范围是**一个明确选择的窗口、解锁的交互桌面、可可靠识别的 UIA 目标，以及支持的输入类型**。窗口外操作不在记录范围内，前台切换到其他窗口时暂停捕获，不记录另一窗口的输入。
-
-主要缺口包括拖拽、跨窗口流程、触摸／笔、系统快捷键、IME 组合输入，以及带 Ctrl／Shift／Alt／Win 的点击或滚轮操作。双击分组采用固定 500 ms 间隔，不支持自定义双击节奏。
-
-如果文本控件没有暴露 UIA 的输入组合状态，首版只接受目标应用使用标准 **English (United States) - US** 键盘布局；把中文输入法切成英文输入模式不等于换成该布局。WinAppCLI 不会替用户切换或安装输入配置。
-
-隐私与失败处理也属于录制边界：
-
-- `--capture-text` 才会保存非密码字段的完整值，包括字段原有内容；默认使用参数占位。
-- 密码字段会中止录制并标记为 `incomplete`，即使开启 `--capture-text` 也不例外。
-- 参数化不是匿名化：本地 JSON 仍含进程名、AutomationId 和可能使用的 Name 定位器，分享前需要检查。
-- 不支持的输入、无法可靠归属目标、捕获上限或空录制，会导致报错或不完整草稿。`incomplete` 草稿禁止回放，不能手工改状态来绕过限制。
-
-因此，它目前适合可控的测试场景，**不是通用、无损的用户操作录制器**。
-
-### R7. 回放成功意味着什么
-
-先检查动作文件中的所有目标、操作、参数和断言，恢复应用的初始状态，再显式批准回放：
-
-```powershell
-.\artifacts\cli\win-x64\winapp.exe ui replay .\flow.json -a myapp --accept-recording --parameter 'text1=AccessLoop'
-```
-
-应用必须已经运行，进程名称要与录制匹配，但可以使用新的 PID。回放会先校验整个文件和参数，再向明确选定的窗口发送输入；不会根据录制文件自行启动或重置应用。
-
-回放只允许在开始时设置记录的初始焦点；后续键盘步骤必须通过实际输入到达预期焦点。目标缺失、定位不唯一、前台丢失或输入失败就停止，不会偷偷调用 UIA Invoke 或重新移动焦点来掩盖失败。
-
-文本替换后还会读取字段，要求完整值与提供的参数精确一致；应用截断或改写文字时可能失败。停止前已经发生的真实操作不会自动撤销。
-
-**回放成功只表示输入步骤完成、明确编写的断言匹配；不代表业务正确，也不代表无障碍通过。** 录制器不会推断“保存应该产生什么结果”，也不会自动在每一步运行 Axe。
-
-### R8. 与第一部分静态页面检查的关系
-
-**静态无障碍扫描不依赖动作录制，也不要求事先给所有控件补 AutomationId。** 工具可以遍历当前 UIA 树检查名称、类型、模式和属性；它不需要先证明这个控件能在下一次运行中被重新定位。
-
-AutomationId 主要帮助稳定定位、跨次匹配、回放和源码关联。静态报告可以把缺少 ID 列为“定位／可测试性提示”，但不应统一判成 WCAG 违规。当前录制器对编辑控件的 ID 要求，是首版实现的可靠性约束，不是所有 Windows 控件的通用无障碍要求。
-
-因此，录制不完整会限制自动重走流程，但**不能据此推断没有 ID 的控件不能被静态扫描**。App 没有提供可用 UIA 信息则是另一类采集缺口，应如实报告未覆盖或无法判定。
-
-完整命令参数、错误码及恢复步骤见仓库 `docs\ui-automation.md` 的 `record-actions`／`replay` 章节；本附录说明这些功能在 AccessLoop 方案中的现状和边界。

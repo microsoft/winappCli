@@ -111,7 +111,7 @@ $inventory = @(Get-ChildItem -LiteralPath $output -Recurse -File -Force | ForEac
     schemaVersion=1; runtime=$Runtime; createdAtUtc=[DateTime]::UtcNow.ToString('O')
     nativeCli='winapp.exe'; accessibilityWorker='accessibility\winapp-accessibility-worker.exe'
     distribution='local-demo'; nativeAotCli=$true; selfContainedManagedWorker=$true
-    capabilities='ui audit with automatic standard-tab navigation, --current-page audits, configured workflows, recorded replay, and supported source repair. No arbitrary-control traversal or arbitrary-app autonomous planning.'
+    capabilities='ui audit with automatic standard-tab navigation, --current-page audits, configured workflows, preset-route reproduction, and supported source repair. No arbitrary-control traversal or arbitrary-app autonomous planning.'
     files=$inventory
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $output 'bundle.json') -Encoding utf8
 [IO.Compression.ZipFile]::CreateFromDirectory($output, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
