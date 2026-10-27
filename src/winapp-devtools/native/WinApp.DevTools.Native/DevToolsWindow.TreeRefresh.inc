@@ -18,6 +18,12 @@ static void ReleaseTreeRowState()
     g_treeDepth.clear(); g_treeCollapsed.clear(); g_treeVisible.clear();
     g_treeLabel.clear(); g_treeShortType.clear(); g_treeAppAuthored.clear();
     g_nodeSinks.clear(); g_nodeIdxByWire.clear(); g_renderedOriginalIndices.clear();
+    // The rows these sinks were wired to are gone or about to go; the next build re-initializes them.
+    for (int pool = 0; pool < 2; ++pool) {
+        g_treeRowSinksSpare[pool].insert(g_treeRowSinksSpare[pool].end(), g_treeRowSinksInUse[pool].begin(),
+                                         g_treeRowSinksInUse[pool].end());
+        g_treeRowSinksInUse[pool].clear();
+    }
 }
 
 // Refreshing replaces stale handles after navigation so picks resolve against the current app tree.

@@ -825,5 +825,26 @@ int main()
         check(!SelectedElementComment(999, &found), "an element without a comment starts with an empty box");
         g_commentsFn = nullptr; g_anchorWireFn = nullptr;
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // Row sinks are never freed, so a rebuild must reuse the previous rows' sinks: a tree that keeps changing
+        // rebuilds the rows several times a second and would otherwise grow the app without bound.
+        ReleaseTreeRowState();
+        auto* click = TakeTreeRowSink<NodeClickSink>(1);
+        auto* chevron = TakeTreeRowSink<ChevronSink>(0);
+        ReleaseTreeRowState();
+        auto* clickAgain = TakeTreeRowSink<NodeClickSink>(1);
+        auto* chevronAgain = TakeTreeRowSink<ChevronSink>(0);
+        auto* more = TakeTreeRowSink<NodeClickSink>(1);
+        check(click == clickAgain && chevron == chevronAgain, "a rebuild reuses the previous rows' sinks");
+        check(more != click, "CONTROL: a sink still in use is not handed out twice");
+        ReleaseTreeRowState();
+    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // The live tree refresh follows a tree that never settles at a steady pace.
+        check(TreeRefreshDueAt(10000, 10000, 0) == 10250, "a single change refreshes after the debounce");
+        check(TreeRefreshDueAt(10300, 10000, 0) == 10550, "a burst keeps pushing the refresh back");
+        check(TreeRefreshDueAt(12900, 10000, 0) == 13000, "but no later than three seconds after its first change");
+        check(TreeRefreshDueAt(20300, 20300, 20000) == 22000, "and no sooner than two seconds after the last refresh");
+    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

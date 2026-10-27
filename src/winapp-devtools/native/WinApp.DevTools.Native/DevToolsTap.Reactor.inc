@@ -980,6 +980,15 @@ static bool TapReactorDescribeOnce(TapReactorStatus& status, std::wstring* membe
             g_reactorAnnotations[entry.first] = std::move(entry.second);
         }
     }
+    if (!(whole && *complete)) {
+        // What a partial description keeps must still be in the tree: under churn most descriptions are partial, and
+        // the elements a list re-creates would otherwise pile up here for as long as the app runs.
+        CensusSharedLock lock;
+        for (auto it = g_reactorAnnotations.begin(); it != g_reactorAnnotations.end();) {
+            if (PackWire_nolock(it->first) != it->second.wire) it = g_reactorAnnotations.erase(it);
+            else ++it;
+        }
+    }
     // The component whose render created each element: the nearest component (or host root) above it.
     for (auto& [ih, annotation] : g_reactorAnnotations) {
         annotation.owner.clear();

@@ -44,9 +44,8 @@ void DevToolsWindow_SetCodeAuthored(DevToolsWindowAuthoredFn authoredFn, std::fu
 void DevToolsWindow_Reclassify()
 {
     if (!DevToolsWindow_IsOpen()) return;
-    g_reclassifying = true;
-    struct Reset { ~Reset() { g_reclassifying = false; } } reset;
-    RefreshTreeFromApp(true);
+    g_treeReclassifyPending = true;
+    ArmTreeRefresh();
 }
 
 void DevToolsWindow_RefreshComments()

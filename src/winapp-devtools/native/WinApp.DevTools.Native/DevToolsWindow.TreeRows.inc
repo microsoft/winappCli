@@ -2,6 +2,18 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+// A sink for one row of this build: a spare from an earlier build when there is one (see g_treeRowSinksSpare).
+template <typename Sink>
+static Sink* TakeTreeRowSink(int pool)
+{
+    auto& spare = g_treeRowSinksSpare[pool];
+    Sink* sink = nullptr;
+    if (spare.empty()) sink = new Sink();
+    else { sink = static_cast<Sink*>(spare.back()); spare.pop_back(); }
+    g_treeRowSinksInUse[pool].push_back(sink);
+    return sink;
+}
+
 // The row palette, resolved off the shell donors for one BATCH of row builds. Held only for the duration of
 // a build: reading the donors live each time is what keeps the rows following the app's theme (after a theme
 // change the donors have re-resolved), and caching them across builds would defeat that.
@@ -281,7 +293,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                 setGridColumn(chev, 0);
                 void* cbb = nullptr;
                 if (SUCCEEDED(chev->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &cbb)) && cbb) {
-                    ChevronSink* cs = new ChevronSink();
+                    ChevronSink* cs = TakeTreeRowSink<ChevronSink>(0);
                     cs->Init(i);
                     __int64 ctok = 0;
                     DevToolsAddClick(cbb, cs, &ctok);
@@ -406,8 +418,9 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
             if (SUCCEEDED(nodeBtn->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 std::wstring lbl = n.type;
                 if (!n.name.empty()) { lbl += L"  #"; lbl += n.name; }
-                NodeClickSink* sink = new NodeClickSink();
+                NodeClickSink* sink = TakeTreeRowSink<NodeClickSink>(1);
                 sink->Init(n.handle, lbl, BuildBreadcrumb(g_allTreeNodes, original), &g_ctx, false);
+                sink->hoverExit = false;
                 g_nodeSinks[i] = sink;
                 nodeBtn->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), &g_treeControls[i]);
                 __int64 tok = 0;
@@ -417,11 +430,12 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
             }
             void* rowUi = nullptr;
             if (SUCCEEDED(nodeBtn->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &rowUi)) && rowUi) {
-                NodeClickSink* hover = new NodeClickSink();
+                NodeClickSink* hover = TakeTreeRowSink<NodeClickSink>(1);
                 hover->Init(n.handle, std::wstring(), std::wstring(), &g_ctx, true);
+                hover->hoverExit = false;
                 __int64 htok = 0;
                 DevToolsAddPointerEntered(rowUi, hover, &htok);
-                NodeClickSink* hoverOut = new NodeClickSink();
+                NodeClickSink* hoverOut = TakeTreeRowSink<NodeClickSink>(1);
                 hoverOut->Init(n.handle, std::wstring(), std::wstring(), &g_ctx, true);
                 hoverOut->hoverExit = true;
                 __int64 xtok = 0;

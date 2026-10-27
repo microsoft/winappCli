@@ -488,12 +488,37 @@ static void ShowCommentDraftNotice(const wchar_t* text, const std::wstring& draf
 // arriving inside the window produce exactly one rebuild, once the app has settled.
 static const UINT_PTR kRefreshTimerId  = 0xD72; // unique on the inspector HWND (see kPlaceTimerId / kWatchTimerId)
 static const UINT     kRefreshDebounceMs = 250;
+// A tree that never settles (a list re-created on a timer) is followed at a steady pace instead of after every change:
+// at most one rebuild every two seconds, and none later than three seconds after the first change it shows. Each row
+// rebuild costs the app memory it does not give back, so a list that changes several times a second must not set
+// the pace.
+static const ULONGLONG kRefreshMinGapMs = 2000;
+static const ULONGLONG kRefreshMaxWaitMs = 3000;
+static ULONGLONG g_treeRefreshFirstPending = 0, g_treeRefreshLast = 0;
 static HWND Route1WindowHwnd();
+
+// When the live tree refresh runs, for a change at `now`: the debounce, held to the pace above.
+static ULONGLONG TreeRefreshDueAt(ULONGLONG now, ULONGLONG firstPending, ULONGLONG lastRefresh)
+{
+    ULONGLONG due = now + kRefreshDebounceMs;
+    if (lastRefresh) due = (std::max)(due, lastRefresh + kRefreshMinGapMs);
+    if (firstPending) due = (std::min)(due, firstPending + kRefreshMaxWaitMs);
+    return (std::max)(due, now);
+}
+
+// A new Reactor description changes which rows are the app's own; it is applied with the next paced refresh.
+static bool g_treeReclassifyPending = false;
 
 static VOID CALLBACK RefreshTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD)
 {
     KillTimer(hwnd, id);
-    RefreshTreeFromApp();
+    g_treeRefreshFirstPending = 0;
+    g_treeRefreshLast = GetTickCount64();
+    if (!g_treeReclassifyPending) { RefreshTreeFromApp(); return; }
+    g_treeReclassifyPending = false;
+    g_reclassifying = true;
+    struct Reset { ~Reset() { g_reclassifying = false; } } reset;
+    RefreshTreeFromApp(true);
 }
 
 static void ArmTreeRefresh()
@@ -514,7 +539,10 @@ static void ArmTreeRefresh()
     }
     // SetTimer returns 0 on failure. A refresh that never got scheduled must say so rather than leave the
     // window sitting on a stale tree looking like it is about to update.
-    if (!SetTimer(h, kRefreshTimerId, kRefreshDebounceMs, RefreshTimerProc))
+    const ULONGLONG now = GetTickCount64();
+    if (!g_treeRefreshFirstPending) g_treeRefreshFirstPending = now;
+    const UINT wait = static_cast<UINT>(TreeRefreshDueAt(now, g_treeRefreshFirstPending, g_treeRefreshLast) - now);
+    if (!SetTimer(h, kRefreshTimerId, (std::max)(wait, static_cast<UINT>(USER_TIMER_MINIMUM)), RefreshTimerProc))
         DevToolsOverlayLog(L"route1.refresh SetTimer FAILED (err=%lu) -- the tree will stay out of date", GetLastError());
 }
 

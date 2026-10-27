@@ -523,6 +523,10 @@ static int g_treeMinDepth = 0;
 static std::vector<int> g_treeViewDepth;
 static int g_treeIndentBaseline = 0;
 static std::vector<NodeClickSink*> g_nodeSinks;
+// Row sinks outlive their rows (DevToolsSinkBase never frees), so each rebuild takes the previous generation's
+// instead of allocating new ones: a tree that keeps changing rebuilds the rows every few hundred milliseconds, and
+// grew the app by every rebuild's sinks. Pool 0 holds expander sinks, pool 1 row click and hover sinks.
+static std::vector<DevToolsSinkBase*> g_treeRowSinksInUse[2], g_treeRowSinksSpare[2];
 static std::map<InstanceHandle, size_t> g_nodeIdxByWire;
 static IInspectable*      g_filterBox = nullptr; // the tree filter TextBox (AddRef'd; read via readInputFn)
 static void*              g_filterTextBox = nullptr;
