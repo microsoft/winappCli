@@ -210,6 +210,7 @@ static_assert(true, "the pane assigns resources through ResolveResource, never t
 struct BindOpResult
 {
     unsigned     gen = 0;
+    InstanceHandle wire = 0;
     std::wstring op;
     std::wstring prop;
     std::wstring payload;
@@ -224,6 +225,8 @@ static UINT_PTR                    g_bindOpTimer = 0;
 static volatile LONG               g_bindOpBusy = 0;
 
 struct BindOpAsk { InstanceHandle wire; std::wstring op, prop, payload, mode, shown; unsigned gen; };
+
+static void BindingAnswersForget(const std::wstring& prop);
 
 static void CALLBACK BindOpTimerProc(HWND, UINT, UINT_PTR id, DWORD)
 {
@@ -242,6 +245,8 @@ static void CALLBACK BindOpTimerProc(HWND, UINT, UINT_PTR id, DWORD)
     for (const BindOpResult& r : done) {
         if (r.gen != g_route1Gen) continue;
         const bool graft = (r.op == L"bind");
+        // Whatever happened, the binding's earlier status, path and value no longer describe the app.
+        if (r.wire == g_selWire) BindingAnswersForget(r.prop);
         if (!r.ok) {
             status = (graft ? L"Could not bind " : L"Could not write ") + r.prop + L": " + r.reason;
             continue;
@@ -250,6 +255,9 @@ static void CALLBACK BindOpTimerProc(HWND, UINT, UINT_PTR id, DWORD)
             NoteSessionAssign(r.prop, DevToolsKind::Binding, r.shown);
             PendingKindErase(r.prop);
             DirtyErase(r.prop);
+            // A binding is installed again, so an earlier "replaced by a local value" no longer applies.
+            if (r.wire == g_selWire) BindingLostErase(r.prop);
+            DevToolsBindingRow_ForgetLiveWrite(r.wire, r.prop);
             status = L"Bound " + r.prop + L" to " + r.shown
                    + L". The running app only - your .xaml is unchanged";
         } else {
@@ -268,7 +276,7 @@ static DWORD WINAPI BindOpWorker(LPVOID param)
 {
     BindOpAsk* ask = reinterpret_cast<BindOpAsk*>(param);
     BindOpResult res;
-    res.gen = ask->gen; res.op = ask->op; res.prop = ask->prop; res.payload = ask->payload;
+    res.gen = ask->gen; res.wire = ask->wire; res.op = ask->op; res.prop = ask->prop; res.payload = ask->payload;
     res.mode = ask->mode; res.shown = ask->shown;
     std::wstring json;
     if (!g_ctx.bindFn) {
@@ -438,6 +446,55 @@ static DiagAnswer* DiagFind(const std::wstring& prop)
 }
 static void DiagForgetAll() { g_diagAnswers.clear(); }
 
+static void BindingAnswersForget(const std::wstring& prop)
+{
+    for (size_t i = g_walkAnswers.size(); i-- > 0;)
+        if (g_walkAnswers[i].prop == prop && g_walkAnswers[i].tryPath.empty()) g_walkAnswers.erase(g_walkAnswers.begin() + i);
+    for (size_t i = g_diagAnswers.size(); i-- > 0;)
+        if (g_diagAnswers[i].prop == prop) g_diagAnswers.erase(g_diagAnswers.begin() + i);
+}
+
+// A {Binding} restore reports "restored"; an {x:Bind} restore can only say it re-pushed the owner's bindings.
+// An x:Bind restore only reports that the page re-ran its compiled bindings. That counts as restored only when
+// the target's value visibly changed; otherwise the override may still be in place.
+static bool RestoreLanded(const std::wstring& actionJson)
+{
+    DevToolsJson act;
+    if (!DevToolsJsonParse(actionJson, act) || !act.IsObject()) return false;
+    // The app can drop the binding again while it is being reattached, so "restored" alone is not enough.
+    if (act.GetString(L"state") == L"restored") return act.GetString(L"bound") == L"True";
+    const DevToolsJson* before = act.Find(L"before");
+    const DevToolsJson* after = act.Find(L"after");
+    return act.GetString(L"ownerUpdated") == L"True" && before && after &&
+           before->type == DevToolsJsonType::String && after->type == DevToolsJsonType::String &&
+           before->str != after->str;
+}
+
+// Restore reattaches the last binding DevTools saw, which can be one applied from the panel rather than the
+// one in the XAML (x:Bind -> {Binding Title} -> Literal -> Restore). Record it so the panel shows what is installed.
+static void NoteRestoredBinding(const std::wstring& prop, const std::wstring& actionJson)
+{
+    DevToolsJson act;
+    if (!DevToolsJsonParse(actionJson, act) || !act.IsObject() || act.GetString(L"restoreKind") != L"binding") return;
+    const std::wstring bindPath = act.GetString(L"path");
+    if (bindPath.empty()) return;
+    const DevToolsCardRow* row = FindPropertyRow(g_propRows, prop);
+    if (!row || (row->authoredKind == L"binding" && bindPath == row->authoredKey)) return;
+    std::wstring mode = act.GetString(L"mode");
+    if (std::find(BindingModes().begin(), BindingModes().end(), mode) == BindingModes().end()) mode = L"OneWay";
+    NoteSessionAssign(prop, DevToolsKind::Binding, BindingExprFrom(bindPath, mode));
+}
+
+// A literal written over the binding leaves nothing live to capture, even though the diagnosis of the XAML binding
+// still reads as working. Capturing then would drop the saved binding Restore needs ({Binding OtherTitle} after
+// x:Bind -> {Binding OtherTitle} -> Literal). After a restore, capture only once the binding is back.
+static bool DiagMayCapture(DevToolsBindingTone tone, const std::wstring& op, const std::wstring& action, bool afterLiveWrite)
+{
+    if (tone != DevToolsBindingTone::Works && tone != DevToolsBindingTone::Broken && tone != DevToolsBindingTone::Warning)
+        return false;
+    return op.empty() ? !afterLiveWrite : RestoreLanded(action);
+}
+
 struct DiagAsk { InstanceHandle wire; std::wstring prop; std::wstring op; unsigned gen; bool afterLiveWrite; };
 
 static DWORD WINAPI DiagWorker(LPVOID param)
@@ -447,8 +504,7 @@ static DWORD WINAPI DiagWorker(LPVOID param)
     if (g_ctx.bindFn) {
         if (!ask->op.empty()) g_ctx.bindFn(ask->wire, ask->op, ask->prop, std::wstring(), std::wstring(), &r.action);
         g_ctx.bindFn(ask->wire, L"diagnose", ask->prop, std::wstring(), std::wstring(), &r.json);
-        const DevToolsBindingTone tone = DevToolsBindingRow_Summary(r.json).tone;
-        if (tone == DevToolsBindingTone::Works || tone == DevToolsBindingTone::Broken || tone == DevToolsBindingTone::Warning) {
+        if (DiagMayCapture(DevToolsBindingRow_Summary(r.json).tone, ask->op, r.action, ask->afterLiveWrite)) {
             std::wstring ignored;
             g_ctx.bindFn(ask->wire, L"capture", ask->prop, std::wstring(), std::wstring(), &ignored);
         }
@@ -473,12 +529,27 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
         return;
     }
     bool any = false, restored = false;
-    for (const DiagAnswer& a : done) {
+    for (DiagAnswer a : done) {
         if (a.gen != g_route1Gen || a.wire != g_selWire) continue;
+        const bool hadAction = !a.action.empty();
+        if (hadAction && RestoreLanded(a.action)) {
+            // Only now is the binding back. Clearing these when the button was clicked kept a failed restore
+            // looking like it worked, and kept a successful one saying the binding could not come back.
+            BindingLostErase(a.prop);
+            SessionAssignErase(a.prop);
+            NoteRestoredBinding(a.prop, a.action);
+            DevToolsBindingRow_ForgetLiveWrite(a.wire, a.prop);
+            for (size_t i = g_walkAnswers.size(); i-- > 0;)
+                if (g_walkAnswers[i].prop == a.prop && g_walkAnswers[i].tryPath.empty()) g_walkAnswers.erase(g_walkAnswers.begin() + i);
+            // This answer now describes the restored binding: a later edit must ask again rather than reuse it,
+            // and must not be reported as a failed restore.
+            a.action.clear();
+            a.afterLiveWrite = false;
+        }
         if (DiagAnswer* existing = DiagFind(a.prop)) *existing = a;
         else g_diagAnswers.push_back(a);
         any = true;
-        restored = restored || !a.action.empty();
+        restored = restored || hadAction;
     }
     if (!any) return;
     // A restore changed a value the tree's caption may show.
@@ -540,7 +611,6 @@ struct BindRestoreSink : DevToolsSinkBase
             SetStatusText(L"Could not start restoring " + prop);
             return S_OK;
         }
-        for (size_t i = g_bindingLost.size(); i-- > 0;) if (g_bindingLost[i] == prop) g_bindingLost.erase(g_bindingLost.begin() + i);
         return S_OK;
     }
     void Init(const std::wstring& p, bool x) { prop = p; xbind = x; wire = g_selWire; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
@@ -559,6 +629,9 @@ static unsigned      g_validateAsks = 0;
 static std::wstring  g_validateVerdict;
 static bool          g_validateBad = false;
 static void*         g_validateExpFe = nullptr;
+// Set when the {Binding} path box was seeded from an x:Bind path, which starts at the page rather than at the
+// DataContext, so a path that does not resolve gets a hint about the difference.
+static bool          g_validateFromXBind = false;
 
 static void ValidateRender()
 {
@@ -601,6 +674,9 @@ static void ApplyValidateAnswer(const std::wstring& json)
         g_validateVerdict = v.answer.empty() ? std::wstring(L"This path does not resolve.") : v.answer;
     }
     if (!v.againstNote.empty()) g_validateVerdict = v.againstNote + L" " + g_validateVerdict;
+    if (g_validateBad && g_validateFromXBind)
+        g_validateVerdict += L" This path was copied from x:Bind, which starts at the page. {Binding} starts at "
+                             L"the DataContext, so you may need to remove the first part (for example, ViewModel.).";
     ValidateRender();
 }
 

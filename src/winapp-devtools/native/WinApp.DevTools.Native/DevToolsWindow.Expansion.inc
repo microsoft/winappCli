@@ -132,12 +132,12 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
                 if (current == DevToolsKind::XBind)
                     body += L" The authored x:Bind is compiled and read-only; this is a separate classic binding, not an edit to generated code.";
             } else if (current == DevToolsKind::XBind || current == DevToolsKind::Binding) {
-                head = L"This cannot be undone.";
+                head = L"This replaces the binding.";
                 body = (current == DevToolsKind::XBind)
-                     ? std::wstring(L"The compiled x:Bind ends for this run. Nothing in DevTools re-creates "
-                                    L"one - restarting the app is the only way back.")
+                     ? std::wstring(L"The compiled x:Bind stops updating this value. Restore binding can re-run the "
+                                    L"page's compiled bindings; if that doesn't bring it back, restart the app.")
                      : ((r.authored.empty() ? std::wstring(L"The binding") : r.authored)
-                        + L" will be gone. Nothing in DevTools can re-attach it; restart the app.");
+                        + L" stops updating this value. Restore binding can put it back; if it can't, restart the app.");
             } else if (KindIsResource(current) && !KindIsResource(shown)) {
                 head = L"This cannot be undone.";
                 body = L"This value stops following " + (r.authoredKey.empty() ? std::wstring(L"the resource") : r.authoredKey)
@@ -305,15 +305,16 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             text = sa->detail;
             note = KindIsResource(sa->kind)
                 ? L"assigned by ResolveResource - an ASSIGN, not a rebind. The element no longer reports this "
-                  L"key, and this line dies when the selection changes."
-                : L"grafted with SetBinding onto the running app. Your .xaml still says what it always said, "
-                  L"and this line dies when the selection changes.";
+                  L"key; DevTools names it only because it made the change."
+                : L"grafted with SetBinding onto the running app. Your .xaml still says what it always said.";
         } else if (BindingLost(path)) {
             text = L"the binding was replaced with a literal";
-            note = L"DevTools cannot re-attach it. Restart the app to get it back.";
+            note = g_ctx.bindFn
+                ? L"Restore binding below can put it back. If it can't, restart the app."
+                : L"This build of DevTools cannot re-attach it. Restart the app to get it back.";
         } else if (LinkLost(path)) {
             text = L"no longer follows " + (r.authoredKey.empty() ? r.authored : r.authoredKey);
-            note = L"DevTools cannot re-attach it. Restart the app to get it back.";
+            note = L"To follow a resource again, choose ThemeResource or StaticResource above and enter its key.";
         }
         if (IInspectable* t = FindInRow(fe, L"PSessionText")) {
             SetTextOn(t, text);
@@ -330,6 +331,8 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
     // says nothing the other witnesses do not.
     if (IInspectable* w = FindInRow(fe, L"PWitChain")) {
         const bool have = r.chain.size() > 1;
+        const bool setByDevTools = BindingLost(path) || LinkLost(path) || SessionAssignFind(path) != nullptr ||
+                                   DirtyFind(path) != nullptr || DevToolsBindingRow_WasWrittenLive(g_selWire, path);
         if (have) {
             if (IInspectable* who = FindInRow(fe, L"PChainWho")) {
                 SetTextOn(who, KindIsResource(current)
@@ -355,7 +358,11 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
                             if (handleLike) cv = ShortType(r.valueType.empty() ? r.type : r.valueType);
                             std::wstring line = (ce.winner ? std::wstring(L"\u25B8 ") : std::wstring(L"   "))
                                               + ce.source + L"  " + cv;
-                            if (!ce.file.empty() && ce.line)
+                            // The runtime reports the element's XAML line for a local value. When DevTools set
+                            // that value, the line points at markup that no longer produces it.
+                            if (ce.winner && ce.source == L"Local" && setByDevTools)
+                                line += L"   set by DevTools";
+                            else if (!ce.file.empty() && ce.line)
                                 line += L"   " + SourceFileName(ce.file) + L":" + std::to_wstring(ce.line);
                             HSTRING h = MakeStr(line);
                             DevToolsPutText(tbi, h); WindowsDeleteString(h);
@@ -416,7 +423,11 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         blk->Release();
     }
 
-    const bool bound = (shown == DevToolsKind::XBind || shown == DevToolsKind::Binding);
+    // A binding replaced by a literal still gets the BINDING block, so Restore binding stays reachable.
+    // This includes bindings set in code or applied from the panel, which the XAML doesn't declare.
+    const bool lostBinding = shown == DevToolsKind::Literal && BindingLost(path);
+    const bool bound = (shown == DevToolsKind::XBind || shown == DevToolsKind::Binding) || lostBinding;
+    const bool xbind = shown == DevToolsKind::XBind || (lostBinding && r.authoredKind == L"xBind");
     if (bound) { PostWalk(path); PostDiagnose(path); }
     const WalkAnswer* answer = bound ? WalkFind(path) : nullptr;
     DevToolsPathWalkView wv;
@@ -436,8 +447,10 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         DevToolsBindingRow_ApplyLiveOverride(sum, DevToolsBindingRow_WasWrittenLive(g_selWire, path), r.value);
     if (replaced || overridden) {
         DevToolsJson act;
-        if (DevToolsJsonParse(diag->action, act) && act.IsObject() && act.GetString(L"state") != L"restored")
-            sum.reason = L"Restore failed: " + act.GetString(L"reason");
+        if (DevToolsJsonParse(diag->action, act) && act.IsObject() && !RestoreLanded(diag->action))
+            sum.reason = (act.GetString(L"ownerUpdated") == L"True" ? std::wstring(L"Restore not confirmed: ")
+                                                                    : std::wstring(L"Restore failed: "))
+                       + act.GetString(L"reason");
     }
     // Without the managed answer the native walk still names a segment where a path stops, as in the quick panel;
     // otherwise the status is unknown rather than guessed.
@@ -481,13 +494,13 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         // nothing.
         const bool offer = bound && g_ctx.bindFn && (replaced || overridden);
         if (IInspectable* row = FindInRow(fe, L"PBindRestoreRow")) { ShowEl(row, offer); row->Release(); }
-        if (IInspectable* note = FindInRow(fe, L"PBindRestoreNote")) { ShowEl(note, offer && shown == DevToolsKind::XBind); note->Release(); }
+        if (IInspectable* note = FindInRow(fe, L"PBindRestoreNote")) { ShowEl(note, offer && xbind); note->Release(); }
         if (IInspectable* b = FindInRow(fe, L"PBindRestore")) {
             SetAutomationTextOn(b, L"Restore the binding on " + path, L"", L"");
             void* bb = nullptr;
             if (offer && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 BindRestoreSink* rs = new BindRestoreSink();
-                rs->Init(path, shown == DevToolsKind::XBind);
+                rs->Init(path, xbind);
                 __int64 tok = 0;
                 DevToolsAddClick(bb, rs, &tok);
                 reinterpret_cast<IUnknown*>(bb)->Release();
