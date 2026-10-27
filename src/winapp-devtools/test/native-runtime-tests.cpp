@@ -1848,6 +1848,32 @@ int wmain(int argc, wchar_t** argv)
             g_reactorStatusAt = 0;
         }
     }
+    {
+        // Classification under churn: an element a Reactor call site created needs no XAML source read, and one that
+        // left the tree since the snapshot has nothing left to read; neither leaves `search` incomplete forever.
+        MintSlot_nolock(7101);
+        const auto rowWire = PackWire_nolock(7101);
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        ReactorAnnotation row;
+        row.wire = rowWire;
+        row.element = L"Component";
+        row.component = L"ChurnRow";
+        g_reactorAnnotations[7101] = row;
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+        CensusSnapshot cs;
+        cs.type[7101] = L"Microsoft.UI.Xaml.Controls.Border";
+        cs.type[7102] = L"Microsoft.UI.Xaml.Controls.TextBlock";
+        cs.wire[7101] = rowWire;
+        cs.wire[7102] = rowWire + 1; // re-created since: its handle no longer resolves
+        cs.parent[7102] = 7101;
+        cs.children[7101] = { 7102 };
+        const AuthoredVerdicts verdicts = ClassifyAuthored(cs, true);
+        check(!verdicts.err && !verdicts.truncated && verdicts.authored.count(7101) == 1,
+              "a Reactor element is classified without a source read, and a re-created one does not block completion");
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        g_reactorAnnotations.clear();
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+    }
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     check(SUCCEEDED(apartment), "binding test COM initialization");
     if (SUCCEEDED(apartment)) {

@@ -484,13 +484,19 @@ static AuthoredVerdicts ClassifyAuthored(CensusSnapshot& cs, bool onUiThread)
         if (!unreached.empty()) SelectBoundedBreadthFirst(cs, unreached, -1, budget, included);
     }
 
+    // Elements a Reactor call site created have no XAML declaration to read: they are the app's own code (added to
+    // `authored` below) and need no backfill. A list that keeps re-creating its rows otherwise adds unread elements
+    // faster than the bounded backfill reads them, and the classification never completes.
+    std::set<InstanceHandle> reactorAuthored;
+    TapReactorAddAuthored(cs, reactorAuthored);
+
     // Backfill in UI-thread batches, but finish a whole navigation's new elements in one request when that is quick:
     // one batch per request left `search` and `inspect` unclassified for several calls after navigating.
     static const size_t kBackfillBatch = 100;
     static const ULONGLONG kBackfillBudgetMs = 250;
     std::vector<unsigned long long> pending;
     for (InstanceHandle h : included) {
-        if (cs.sourceUri.find(h) != cs.sourceUri.end()) continue;
+        if (cs.sourceUri.find(h) != cs.sourceUri.end() || reactorAuthored.count(h)) continue;
         auto wi = cs.wire.find(h);
         if (wi == cs.wire.end() || !wi->second) continue;
         pending.push_back(wi->second);
@@ -521,10 +527,19 @@ static AuthoredVerdicts ClassifyAuthored(CensusSnapshot& cs, bool onUiThread)
 
     std::vector<InstanceHandle> srcHandles;
     std::vector<std::wstring> srcUris;
+    size_t gone = 0;
     for (InstanceHandle h : included) {
         auto su = cs.sourceUri.find(h);
         auto wi = cs.wire.find(h);
-        if (su == cs.sourceUri.end() || wi == cs.wire.end() || !wi->second) continue;
+        if (reactorAuthored.count(h)) { ++out.classifiedNodes; continue; }
+        if (su == cs.sourceUri.end() || wi == cs.wire.end() || !wi->second) {
+            // An element that left the tree since the snapshot (a list that keeps re-creating its rows) has nothing
+            // left to classify; only elements still there and unread leave the classification incomplete.
+            CensusSharedLock lock;
+            InstanceHandle raw = 0; const wchar_t* err = nullptr;
+            if (wi == cs.wire.end() || !wi->second || !ResolveWire_nolock(wi->second, &raw, &err) || raw != h) ++gone;
+            continue;
+        }
         ++out.classifiedNodes;
         if (su->second.empty()) continue;
         srcHandles.push_back(h);
@@ -547,10 +562,10 @@ static AuthoredVerdicts ClassifyAuthored(CensusSnapshot& cs, bool onUiThread)
     for (size_t i = 0; i < verdicts.size() && i < srcHandles.size(); ++i)
         if (verdicts[i]) out.authored.insert(srcHandles[i]);
     // Elements a Reactor call site created are the app's own code too (cached by the last Reactor description).
-    TapReactorAddAuthored(cs, out.authored);
+    out.authored.insert(reactorAuthored.begin(), reactorAuthored.end());
 
     out.sourceInstrumented = !srcUris.empty();
-    out.truncated = included.size() < cs.type.size() || out.classifiedNodes < included.size();
+    out.truncated = included.size() < cs.type.size() || out.classifiedNodes + gone < included.size();
     out.denylistFallback = !DevToolsAuthored_HasSourceRoot() && DevToolsAppXaml_ScanDiscredited();
     return out;
 }
