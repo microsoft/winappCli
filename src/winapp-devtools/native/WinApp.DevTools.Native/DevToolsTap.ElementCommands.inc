@@ -297,6 +297,44 @@ static HRESULT ReadElementLayout_ui(InstanceHandle ih, DevToolsReadLayout& out, 
     return S_OK;
 }
 
+// Where the element is on screen in physical pixels, which is what UI Automation reports whatever the app's DPI
+// awareness. Its XamlRoot rectangle goes through the root's coordinate converter, which knows where a XAML island
+// sits in its window; the result is in this process's logical pixels, so a window that is not per-monitor DPI aware
+// is then scaled to the physical pixels Windows stretches it to. UI thread; leaves `out` unchanged when unreadable.
+static void ReadElementScreenRect_ui(InstanceHandle ih, DevToolsReadLayout& out)
+{
+    if (!g_diag || !out.haveRender || out.renderW <= 0 || out.renderH <= 0) return;
+    DevToolsSurface surface;
+    if (!DevToolsSurface_Resolve(g_diag, ih, &surface)) return;
+    IInspectable* insp = nullptr;
+    if (FAILED(g_diag->GetIInspectableFromHandle(ih, &insp)) || !insp) return;
+    void* ui = nullptr;
+    void* gt = nullptr;
+    float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    const bool mapped = SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui &&
+        SUCCEEDED(DevToolsTransformToVisual(ui, nullptr, &gt)) && gt &&
+        SUCCEEDED(DevToolsTransformPoint(gt, 0.0f, 0.0f, &x0, &y0)) &&
+        SUCCEEDED(DevToolsTransformPoint(gt, out.renderW, out.renderH, &x1, &y1));
+    if (gt) reinterpret_cast<IUnknown*>(gt)->Release();
+    if (ui) reinterpret_cast<IUnknown*>(ui)->Release();
+    insp->Release();
+    POINT a{}, b{};
+    if (!mapped || !DevToolsSurface_LocalToScreen(surface, (std::min)(x0, x1), (std::min)(y0, y1), &a) ||
+        !DevToolsSurface_LocalToScreen(surface, (std::max)(x0, x1), (std::max)(y0, y1), &b)) return;
+    double x = a.x, y = a.y, w = (double)b.x - a.x, h = (double)b.y - a.y;
+    const HWND hwnd = surface.hostHwnd;
+    RECT client{};
+    POINT l0{ 0, 0 };
+    if (hwnd && IsWindow(hwnd) && GetClientRect(hwnd, &client) && ClientToScreen(hwnd, &l0)) {
+        POINT l1{ l0.x + (client.right - client.left), l0.y + (client.bottom - client.top) };
+        POINT p0 = l0, p1 = l1;
+        if (LogicalToPhysicalPointForPerMonitorDPI(hwnd, &p0) && LogicalToPhysicalPointForPerMonitorDPI(hwnd, &p1))
+            DevToolsRead_LogicalToPhysical(l0.x, l0.y, l1.x, l1.y, p0.x, p0.y, p1.x, p1.y, x, y, w, h);
+    }
+    out.screenX = x; out.screenY = y; out.screenW = w; out.screenH = h;
+    out.haveScreen = true;
+}
+
 static std::wstring CmdElementLayout(const std::vector<std::wstring>& p)
 {
     if (p.size() < 2 || p[1].empty()) return L"ERR bad-args";
@@ -316,6 +354,7 @@ static std::wstring CmdElementLayout(const std::vector<std::wstring>& p)
         if (!ok) { *rerr = e; return E_INVALIDARG; }
         InstanceHandle parent = 0;
         const HRESULT read = ReadElementLayout_ui(ih, *facts, &parent);
+        if (SUCCEEDED(read)) ReadElementScreenRect_ui(ih, *facts);
         // Reported as type + wire handle so a client can offer "select the parent".
         if (SUCCEEDED(read) && parent) {
             AcquireSRWLockExclusive(&g_censusLock);
