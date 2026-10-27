@@ -177,7 +177,9 @@ internal static class ResourceOps
             }
         }
         if (!element.DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low,
-                () => ReactorComponentOps.WhenIdle(element.DispatcherQueue, () => ReactorApi.IsIdle(host), RenderBudgetMs, Report)))
+                () => ReactorComponentOps.WhenIdle(
+                    work => element.DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => work()),
+                    () => ReactorApi.IsIdle(host), RenderBudgetMs, done, Report)))
         {
             Report(false);
         }
