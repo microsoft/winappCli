@@ -286,7 +286,7 @@ static void ClearOriginatedError()
 static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>* out, std::wstring* outAuthoredState,
                                 std::wstring* outAuthoredXaml, const std::set<std::wstring>* projection,
                                 size_t* retrievedRows,
-                                std::map<std::wstring, std::pair<unsigned int, std::wstring>>* outIndices);
+                                std::map<std::wstring, std::pair<unsigned int, std::wstring>>* outIndices = nullptr);
 
 // Set a literal property: CreateInstance from a XAML type-converter literal, then SetProperty. UI thread.
 static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std::wstring& type, const std::wstring& value,

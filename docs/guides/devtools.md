@@ -31,6 +31,10 @@ and troubleshooting, see [Advanced DevTools](devtools-advanced.md). Every comman
 
    ![The DevTools inspector window with the element tree and properties](../images/devtools-inspector.png)
 
+   Click anywhere in a property's header, such as **Height Auto**, to expand or
+   collapse it. With the keyboard, Tab to the header and press Enter or Space.
+   Tab again to reach its editors; editing does not collapse the property.
+
 5. Ask your agent to read the comments and make the changes:
 
    ```powershell

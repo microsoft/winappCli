@@ -180,7 +180,7 @@ struct WriteToSourceSink : DevToolsSinkBase
 };
 
 // Unset editors say which value is absent instead of showing runtime sentinel tokens as editable text.
-static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r)
+static std::wstring RowShownValue(const DevToolsCardRow& r)
 {
     std::wstring shown = r.value;
     const bool unset = r.valueState == L"unset";
@@ -191,7 +191,25 @@ static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r)
     const bool noValue = RowValueIsMissing(r);
     if (noValue && shown.size() > 2 && shown.front() == L'{' && shown.back() == L'}')
         shown = shown.substr(1, shown.size() - 2);
-    SetTextOn(v, shown);
+    return shown;
+}
+
+static std::wstring RowAccessibleName(const DevToolsCardRow& r, const std::wstring& path)
+{
+    const auto shown = RowShownValue(r);
+    return path + L", " + (shown.empty() ? L"(empty)" : shown);
+}
+
+static void NamePropertyHeader(IInspectable* header, const DevToolsCardRow& r, const std::wstring& path)
+{
+    SetAutomationTextOn(header, RowAccessibleName(r, path), path + L" value", L"");
+}
+
+static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r, const std::wstring& path)
+{
+    SetTextOn(v, RowShownValue(r));
+    SetAutomationTextOn(v, RowAccessibleName(r, path), path + L" shown", L"");
+    const bool noValue = RowValueIsMissing(r);
     void* tb = nullptr;
     if (SUCCEEDED(v->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tb)) && tb) {
         if (void* brush = noValue ? static_cast<void*>(g_palSecondary) : static_cast<void*>(g_palPrimary))
@@ -223,20 +241,12 @@ static void PopulateRowLine(void* fe, const DevToolsCardRow& r, const std::wstri
         n->Release();
     }
 
-    // Explicit accessible identities follow recycled row data. Property value opens the row;
-// Property editor names its separate input control. Keep names distinct across both inspector views.
-    if (IInspectable* e = FindInRow(fe, L"PValueBtn"))
-        { SetAutomationTextOn(e, path + L" value", path + L" value", L""); e->Release(); }
-    if (IInspectable* e = FindInRow(fe, L"PValue"))
-        { SetAutomationTextOn(e, path + L" shown", path + L" shown", L""); e->Release(); }
     // The changed MARKER states a fact; it is not an action, and its name must not read as one.
     if (IInspectable* d = FindInRow(fe, L"PDot"))
         { SetAutomationTextOn(d, path + L" changed", L"", L""); d->Release(); }
 
-    if (IInspectable* c = FindInRow(fe, L"PChevron"))
-        { SetAutomationTextOn(c, L"Expand " + path, L"", L""); c->Release(); }
     if (IInspectable* v = FindInRow(fe, L"PValue")) {
-        PopulateRowValue(v, r);
+        PopulateRowValue(v, r, path);
         v->Release();
     }
 
@@ -248,38 +258,28 @@ static void PopulateRowLine(void* fe, const DevToolsCardRow& r, const std::wstri
     const bool expandable = RowHasExpansion(r, path, edit);
     std::shared_ptr<const DevToolsCardRow> shared;
     if (expandable) shared = std::make_shared<const DevToolsCardRow>(r);
-    if (IInspectable* ch = FindInRow(fe, L"PChevron")) {
-        ShowEl(ch, expandable);
-        void* bb = nullptr;
-        if (expandable && SUCCEEDED(ch->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-            void* rowUi = nullptr;
-            reinterpret_cast<IUnknown*>(fe)->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &rowUi);
-            RowExpandSink* es = new RowExpandSink();
-            es->Init(shared, path, edit, rowUi, /*wantsEditor*/ false);
-            __int64 tok = 0;
-            const HRESULT hrE = DevToolsAddClick(bb, es, &tok);
-            if (FAILED(hrE))
-                DevToolsOverlayLog(L"route1.props row '%s' triangle add_Click FAILED hr=0x%08X -- it will not open",
-                              path.c_str(), hrE);
-            reinterpret_cast<IUnknown*>(bb)->Release();
+    if (IInspectable* header = FindInRow(fe, L"PHeader")) {
+        NamePropertyHeader(header, r, path);
+        void* control = nullptr;
+        if (!expandable && SUCCEEDED(header->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), &control)) && control) {
+            DevToolsPutIsEnabled(control, false);
+            reinterpret_cast<IUnknown*>(control)->Release();
         }
-        ch->Release();
-    }
-    if (IInspectable* btn = FindInRow(fe, L"PValueBtn")) {
-        void* bb = nullptr;
-        if (expandable && SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-            void* rowUi = nullptr;
-            reinterpret_cast<IUnknown*>(fe)->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &rowUi);
-            RowExpandSink* vs = new RowExpandSink();
-            vs->Init(shared, path, edit, rowUi, /*wantsEditor*/ edit >= 0);
-            __int64 tok = 0;
-            const HRESULT hrV = DevToolsAddClick(bb, vs, &tok);
-            if (FAILED(hrV))
-                DevToolsOverlayLog(L"route1.props row '%s' value add_Click FAILED hr=0x%08X -- it will not open",
-                              path.c_str(), hrV);
-            reinterpret_cast<IUnknown*>(bb)->Release();
+        void* expander = nullptr;
+        if (expandable && SUCCEEDED(header->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &expander)) && expander) {
+            for (bool open : { true, false }) {
+                RowExpandSink* sink = new RowExpandSink();
+                sink->Init(shared, path, edit, fe, open);
+                __int64 token = 0;
+                const HRESULT hr = open
+                    ? DevToolsAbi<DevToolsXC::IExpander>(expander)->add_Expanding(sink, DevToolsAbiTok(&token))
+                    : DevToolsAbi<DevToolsXC::IExpander>(expander)->add_Collapsed(sink, DevToolsAbiTok(&token));
+                if (FAILED(hr))
+                    DevToolsOverlayLog(L"route1.props row '%s' expansion event failed hr=0x%08X", path.c_str(), hr);
+            }
+            reinterpret_cast<IUnknown*>(expander)->Release();
         }
-        btn->Release();
+        header->Release();
     }
 
     if (expandable && PropIsExpanded(r.name)) {
