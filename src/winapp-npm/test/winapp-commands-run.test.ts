@@ -10,7 +10,7 @@ import { EventEmitter } from 'node:events';
 import childProcess = require('child_process');
 
 import {
-  run, devtoolsSetProperty, uiInvoke, uiSearch, uiGetProperty, uiGetValue, uiWaitFor,
+  run, uiReplay, devtoolsSetProperty, uiInvoke, uiSearch, uiGetProperty, uiGetValue, uiWaitFor,
   perfStart, perfStatus, perfMark, perfStop, perfAnalyze,
   devtoolsCommentsList, devtoolsCommentsGet, devtoolsCommentsUpdate,
   configList, configGet, configSet, configUnset, type ConfigSetOptions,
@@ -473,4 +473,28 @@ test('run prefers `input` over the deprecated `inputFolder` when both are set', 
   const argv = state.calls[0];
   assert.equal(argv[1], './new', 'the canonical input wins over the deprecated alias');
   assert.equal(argv.indexOf('./old'), -1, 'the deprecated alias value is not forwarded when input is set');
+});
+
+test('uiReplay forwards approval and each literal parameter without shell expansion', async () => {
+  const state = captureSpawnArgs();
+  await uiReplay({
+    flow: 'C:\\test flows\\save.json',
+    app: 'Demo',
+    acceptRecording: true,
+    parameter: ['text1=hello world', 'text2=', 'text3=$env:SECRET'],
+    json: true,
+  });
+  const argv = state.calls[0];
+  assert.deepEqual(argv.slice(0, 2), ['ui', 'replay']);
+  assert.deepEqual(argv.slice(argv.indexOf('--')), ['--', 'C:\\test flows\\save.json']);
+  assert.ok(argv.includes('--accept-recording'));
+  assert.ok(argv.includes('--json'));
+  const values = argv.flatMap((value, index) => (value === '--parameter' ? [argv[index + 1]] : []));
+  assert.deepEqual(values, ['text1=hello world', 'text2=', 'text3=$env:SECRET']);
+});
+
+test('uiReplay never implicitly approves an action recording', async () => {
+  const state = captureSpawnArgs();
+  await uiReplay({ flow: 'flow.json', app: 'Demo' });
+  assert.ok(!state.calls[0].includes('--accept-recording'));
 });

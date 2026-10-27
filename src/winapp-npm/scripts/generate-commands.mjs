@@ -575,6 +575,7 @@ const FN_NAME_OVERRIDES = {
   // A recording the caller cannot stop is a hang, so both record verbs go through a guard that
   // requires a duration. See target-record-guard.ts.
   'target record': '_targetRecordGenerated',
+  'ui record-actions': '_uiRecordActionsGenerated', // action capture also needs a bounded npm lifetime
 };
 
 function getFunctionName(cmdPath) {

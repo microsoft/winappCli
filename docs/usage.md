@@ -2389,6 +2389,8 @@ winapp ui [command] [options]
 - `get-text` / `get-value` - Read value/text from element (TextPattern, ValuePattern, or Name)
 - `screenshot` - Capture window/element as PNG (multiple windows form one labeled composite PNG; see [capture scope](ui-automation.md#screenshot))
 - `record` - Record a window/element region to an H.264 MP4 video (Windows Graphics Capture + Media Foundation)
+- `record-actions` - Record a single window's inputs as a reviewable JSON action draft
+- `replay` - Replay an explicitly approved action draft in a running window
 - `invoke` - Activate element (click, toggle, expand); `--action` selects an exact operation (see [invoke](ui-automation.md#invoke))
 - `click` - Click element via mouse simulation (for controls that don't support invoke), or a screen point with `--at x,y`
 - `hover` - Move mouse to an element, or a screen point with `--at x,y`, to trigger tooltips, flyouts, and hover states (default dwell: 800ms)
@@ -2445,5 +2447,24 @@ stop reason, optional `frameArtifacts`, and warnings.
 
 Recordings draw open menus, flyouts and tooltips in place; see
 [Menus and flyouts in recordings](ui-automation.md#menus-and-flyouts-in-recordings).
+
+#### ui record-actions
+
+```powershell
+winapp ui record-actions -a myapp --output draft.json
+```
+
+Interact with the selected window, then stop with Ctrl+C. This creates an action draft, not the video produced by `ui record`.
+
+For recording limits, parameterized text, the `--capture-text` privacy opt-in, and JSON output, see [Record actions](ui-automation.md#record-actions).
+
+#### ui replay
+
+```powershell
+# Review the draft and restore the running app's starting state before replay.
+winapp ui replay draft.json -a myapp --accept-recording --parameter 'text1=Hello'
+```
+
+Use the parameter names reported for your draft. For approval requirements, literal parameters, supported assertions, and failure recovery, see [Replay actions](ui-automation.md#replay).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).

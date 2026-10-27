@@ -10,10 +10,10 @@ Used by AI agents and developers for UI testing, debugging, and automation.
 
 `winapp ui` provides commands for inspecting and interacting with Windows app UIs.
 Uses Windows UI Automation (UIA). Works with any Windows app — WPF, WinForms, Win32, Electron, and WinUI 3.
-Most commands drive the app through UIA patterns (no input injection). The exceptions inject real input: `ui click`/`ui hover`/`ui drag` use mouse simulation, `ui touch`/`ui pen` synthesize touch and pen/stylus input, and `ui send-keys` synthesizes keyboard input — for controls and scenarios that UIA patterns can't drive.
+Most commands drive the app through UIA patterns (no input injection). The exceptions inject real input: `ui click`/`ui hover`/`ui drag` use mouse simulation, `ui touch`/`ui pen` synthesize touch and pen/stylus input, `ui send-keys` synthesizes keyboard input, and `ui replay` delivers reviewed mouse and keyboard actions — for controls and scenarios that UIA patterns can't drive.
 
 > [!IMPORTANT]
-> **Interactive-desktop requirement (input-injecting verbs).** `click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`/`--wheel-horizontal`, and `send-keys --via send-input` synthesize OS-level input, so they need an **unlocked, interactive desktop** with the target window in the foreground. On a **locked workstation or secure desktop** (LogonUI/UAC) they can't inject and fail fast with **`no_interactive_desktop`** (distinct from the elevation/`foreground_not_target` cases). `touch`/`pen` additionally refuse when no window resolves (**`no_target`**); a coordinate outside the target window is a **non-fatal warning** (a `warnings[]` entry under `--json`, or a warning line in text mode) and injection still proceeds — consistent with the mouse verbs. Everything else — `inspect`, `search`, `get-property`, `get-value`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to` — drives the app through UIA patterns and is **headless/locked-session friendly**. `screenshot` is the exception among the non-injecting verbs: it takes an exclusive turn and its capture can need a usable interactive desktop, because the engine restores a minimized target and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used. Prefer the UIA-pattern verbs in CI; reserve the injection verbs for scenarios that genuinely need real input. Before injecting, the gesture verbs also **re-resolve the target element** and refuse with **`target_moved`** if it's still animating/relocating, rather than landing input on empty space.
+> **Interactive-desktop requirement (input-injecting verbs).** `click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`/`--wheel-horizontal`, `send-keys --via send-input`, and `replay` synthesize OS-level input, so they need an **unlocked, interactive desktop** with the target window in the foreground. On a **locked workstation or secure desktop** (LogonUI/UAC) they can't inject and fail fast with **`no_interactive_desktop`** (distinct from the elevation/`foreground_not_target` cases). `touch`/`pen` additionally refuse when no window resolves (**`no_target`**); a coordinate outside the target window is a **non-fatal warning** (a `warnings[]` entry under `--json`, or a warning line in text mode) and injection still proceeds — consistent with the mouse verbs. Everything else — `inspect`, `search`, `get-property`, `get-value`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to` — drives the app through UIA patterns and is **headless/locked-session friendly**. `screenshot` is the exception among the non-injecting verbs: it takes an exclusive turn and its capture can need a usable interactive desktop, because the engine restores a minimized target and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used. Prefer the UIA-pattern verbs in CI; reserve the injection verbs for scenarios that genuinely need real input. Before injecting, the gesture verbs also **re-resolve the target element** and refuse with **`target_moved`** if it's still animating/relocating, rather than landing input on empty space.
 
 ## Quick Start
 
@@ -688,6 +688,129 @@ An element selector records that element's region from the window it is drawn in
 menu, flyout, tooltip, or teaching tip that opens in its own popup window, the recording shows the
 popup rather than the window behind it.
 
+
+### record-actions
+
+```powershell
+winapp ui record-actions -a myapp --output draft.json
+```
+
+Interact with the selected app, then switch back to **the terminal running this recording** and press Ctrl+C to stop. Ctrl+C inside the target app is a copy shortcut; it ends the draft as `incomplete` with stop reason `unsupported_clipboard`.
+
+The command saves a **draft action file**, not a passing test. `record-actions` itself captures no screenshots or video. Use [`ui record`](#record) for MP4 video; that command is unchanged.
+
+Recording is limited to one explicitly selected window on an unlocked, interactive desktop. Use `-w <HWND>` instead of `-a` to choose a specific window from `winapp ui list-windows`. When the foreground moves outside that window, capture pauses and does not log the other window's input.
+
+**Privacy and text entry**
+
+- By default, editable text becomes named replay parameters such as `text1`; the field values are not stored. The result lists the required parameter names. Editing the same field again after another action can require a new parameter, so use every name listed rather than assuming one parameter per field.
+- `--capture-text` explicitly opts in to storing complete **non-password** field values, including text already in the field—not just newly typed characters. Do not use it with secrets in ordinary text fields.
+- Password fields stop recording with status `incomplete`, even with `--capture-text`. Review the retained draft and record again without entering a password.
+- Parameterization is **not anonymization**. The local, unencrypted JSON still contains the process name, target AutomationIds, and any non-editable accessible-name locators. These can contain identifying information; inspect the file before sharing it, even without `--capture-text`.
+- Text actions represent a **whole-field replacement**, not a raw physical-key log. Replay sends real Ctrl+A followed by typing, or Delete for an empty parameter. Cursor positions, selections, typing cadence, and replay of the original per-key event sequence are not supported.
+
+**Options**
+
+| Option | Behavior |
+|---|---|
+| `-o, --output <file>` | New JSON file; defaults to `ui-actions-<timestamp>-<guid>.json`. Creates the parent directory if needed. Existing files and directories are never replaced. |
+| `--duration-sec <n>` | `0` (default) records until Ctrl+C or redirected-stdin newline/EOF. Values `1`–`3600` record for that many seconds after capture is ready and ignore stdin as a stop signal. |
+| `--capture-text` | Store non-password field values rather than parameter placeholders. |
+| `--include-injected` | Also capture OS-injected input for controlled automation tests. The default records hardware input only. |
+| `--max-steps <n>` | Retain at most `1`–`10000` actions (default `1000`). Reaching the limit stops recording as incomplete. |
+| `--json` | Emit the final summary on stdout and a `recording-actions-started` event on stderr after capture is ready. |
+
+```powershell
+# Timed recording with parameter placeholders
+winapp ui record-actions -w 123456 --duration-sec 20 --output draft.json --json
+
+# Opt in to storing non-password test data
+winapp ui record-actions -a myapp --capture-text --output captured-text.json
+```
+
+The first version supports left/right single and double clicks, supported non-system key chords, full-field text replacement, and vertical mouse-wheel input. Targets use an exact AutomationId where possible; otherwise an exact Name plus ControlType must uniquely identify a non-editable control. Editable controls need a stable AutomationId.
+
+Double-click grouping assumes a 500 ms interval; custom mouse timing is not supported. Review the recorded click counts before approving a flow.
+
+Clicks or wheel input while Ctrl, Shift, Alt, or Win is held are unsupported, including Ctrl/Shift-click and Ctrl+wheel zoom. Pressing a key while a mouse button is held is also unsupported. These inputs stop recording as `incomplete` with `unsupported_input`; they are not recorded as unmodified mouse actions.
+
+IME/composition, AltGr input, custom rich-text editing, clipboard shortcuts, drag paths, touch, pen, system hotkeys, and workflows spanning additional windows are not supported.
+
+**Text input profile limitation:** When a control does not expose UI Automation's `TextEditPattern` composition state, this first version supports only the standard **English (United States) - US** keyboard profile in the target app. Other or unavailable profiles are rejected with `unsupported_input`; switching an IME to English mode or disabling IME on a control does not change its profile. Select the existing standard US profile for the app before retrying. Winapp never switches or installs input profiles for you. Controls that expose composition state are still rejected while a composition is active.
+
+Recorded actions are limited to the first hour. With `--duration-sec 0`, passing one hour while idle does not stop capture; attempting a later action in the selected window ends the draft as `incomplete` with stop reason `duration_limit`, preserving earlier valid steps. Split longer workflows into shorter recordings.
+
+Unsupported or privacy-sensitive input, capture limits, or an empty recording produce an `incomplete` draft and exit code `1`. Do not change its status to bypass the failure; review its warnings and record a fresh supported flow.
+
+In JSON mode, the final summary contains `path`, `status`, `stepCount`, `stopReason`, `warnings`, and `parameters`—not captured values or the whole action list. A saved incomplete draft still receives that summary with exit code `1`. Failures that prevent saving produce a JSON `error` on stderr. Text-mode warnings also go to stderr.
+
+### replay
+
+```powershell
+# Review draft.json and restore the app to the recording's starting state first.
+winapp ui replay draft.json -a myapp --accept-recording --parameter 'text1=Hello'
+```
+
+Use the parameter names listed by `record-actions` and review **every action, target, literal value, and assertion** before passing `--accept-recording`. Recording what happened does not establish what should happen. A replay may submit forms, save data, or trigger other real app behavior.
+
+The app must already be running. Specify `-a <name|title|PID>` or `-w <HWND>` on every replay. The selected process name must match `processName` in the file (case-insensitively); a new PID is allowed. The recorded name never launches, stops, or selects an app. Bring the selected window into view and restore its starting state yourself.
+
+**Options**
+
+| Option | Behavior |
+|---|---|
+| `--accept-recording` | Required approval to execute the reviewed inputs. Without it replay fails with `review_required`. |
+| `--parameter NAME=VALUE` | Repeat once per declared parameter. Names are case-sensitive; missing, duplicate, malformed, and unused names are rejected. `--parameter 'text1='` clears the field. |
+| `--timeout <ms>` / `-t <ms>` | Timeout for each target, focus, or assertion checkpoint: `100`–`120000` ms, default `5000`. |
+| `--json` | Final `{ "status": "completed", "completedSteps": ..., "assertionsChecked": ... }` on stdout, or a JSON error on stderr with a nonzero exit code. |
+
+Parameter values are literal text: winapp does not evaluate shell commands or expand environment variables. Quote arguments for your shell, which may otherwise expand them before winapp receives them. Command-line values can appear in shell history or process listings; use non-secret test data. Each text value is limited to 16384 characters.
+
+Replay validates the entire schema-1 file (at most 4 MiB) and all parameters **before resolving the app or injecting any input**. Unknown or duplicate JSON fields, unsupported actions, and `incomplete` recordings are rejected. Replay never modifies the file.
+
+Each action re-resolves its exact target in the selected window. Replay may set the recorded initial focus once; subsequent keyboard actions must reach their expected focused control through the reviewed input sequence. Missing or ambiguous targets, focus loss, and failed input delivery stop replay rather than falling back to UIA `invoke` or silently moving focus to make a step succeed. Recorded `elapsedMs` values are diagnostic timestamps, not fixed replay sleeps.
+
+After replacing text, replay reads back the same field and requires its full value to match the requested replacement exactly, including case, within `--timeout`. If the app rejects, truncates, or reformats the text and no exact match arrives, replay stops with `text_not_applied`; it does not resend input or refocus the control to force a match. The text step counts as completed only after the match. This delivery check does not increase `assertionsChecked` or establish business correctness.
+
+**Assertions are authored, not inferred.** A successful replay reports completed steps and counts only explicit `assert` steps you added. An assertion checks an exact `Name`, `Value`, `IsEnabled`, or `ToggleState` against an `expected` string.
+
+Comparisons are case-sensitive. Use `"True"` or `"False"` for `IsEnabled`, and `"on"`, `"off"`, or `"indeterminate"` for `ToggleState`; `"On"` does not match `"on"`.
+
+For example, this reviewed flow clicks Save and waits for a status label:
+
+```json
+{
+  "schemaVersion": 1,
+  "status": "recorded",
+  "processName": "myapp",
+  "steps": [
+    {
+      "kind": "click",
+      "target": { "automationId": "SaveButton", "controlType": "Button" },
+      "button": "left"
+    },
+    {
+      "kind": "assert",
+      "target": { "automationId": "StatusText", "controlType": "Text" },
+      "property": "Name",
+      "expected": "Saved"
+    }
+  ]
+}
+```
+
+Completed input delivery is **not** an automatic correctness or accessibility verdict. Action recording/replay does not run an accessibility audit; add the checks your scenario actually needs.
+
+**Recovery**
+
+- `output_exists` during recording: choose a new output path; keep the existing draft.
+- `input_backlog` during recording: input arrived too late or crossed a focus checkpoint before its target could be identified. Re-record with deliberate steps, waiting for the app to respond before continuing.
+- `invalid_flow`, `missing_parameter`, or `incomplete_recording`: inspect the draft and its parameter names before retrying; re-record incomplete input.
+- `text_not_applied`: check the app's validation and formatting, review the requested replacement value, and restore the app's starting state before retrying.
+- `target_mismatch`: select a running instance of the recorded application.
+- `no_target`, `target_closed`, `target_not_found`, or `ambiguous_selector`: inspect the running app, select its HWND, and review or re-record its exact locators.
+- `no_interactive_desktop` or a focus/input failure: unlock the desktop, restore the app's starting state, and retry without interacting with other windows.
+- `cancelled` during replay: earlier actions may already have completed. Restore the app's state before retrying; there is no automatic rollback.
 
 ### invoke
 

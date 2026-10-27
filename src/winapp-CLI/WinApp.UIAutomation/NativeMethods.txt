@@ -15,6 +15,7 @@ IUIAutomationScrollPattern
 IUIAutomationRangeValuePattern
 IUIAutomationLegacyIAccessiblePattern
 IUIAutomationTextPattern
+IUIAutomationTextEditPattern
 
 // Window discovery and metadata
 GetForegroundWindow
@@ -73,6 +74,29 @@ POINTER_FLAGS
 POINTER_INPUT_TYPE
 POINTER_FEEDBACK_MODE
 TOUCH_FEEDBACK_MODE
+
+// Opt-in, single-window action recording
+WindowFromPoint
+GetCursorPos
+GetAsyncKeyState
+SetWindowsHookEx
+UnhookWindowsHookEx
+CallNextHookEx
+KBDLLHOOKSTRUCT
+MSLLHOOKSTRUCT
+GetCurrentThreadId
+GetModuleHandle
+PeekMessage
+GetMessage
+PostThreadMessage
+SetTimer
+KillTimer
+WaitForSingleObject
+OpenInputDesktop
+CloseDesktop
+GetThreadDesktop
+GetUserObjectInformation
+GetKeyboardLayout
 
 // GDI screenshot capture
 PrintWindow

@@ -10,6 +10,7 @@ description: "Inspect, drive, and verify a running Windows app UI via winapp ui 
 - AI agents interacting with Windows applications (clicking buttons, reading text, taking screenshots)
 - Verifying UI state during development or testing
 - Automating UI workflows without Playwright or Selenium
+- Recording and replaying explicitly approved, single-window action drafts
 - Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs by what the user sees and can operate
 - Not for a WinUI 3 app's XAML internals (why a value or binding resolved the way it did, which XAML line made an element, live property edits, UI review comments): use `winui-devtools`
 
@@ -25,7 +26,7 @@ To measure WinUI work while driving a scenario, use the
 [performance skill](../winapp-performance/SKILL.md) to bracket UI actions with capture markers.
 
 - For UIA mode (any app): No setup needed — works with any running Windows app
-- For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`/`--wheel-horizontal`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
+- For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`/`--wheel-horizontal`, `send-keys --via send-input`, `replay`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
 - `screenshot` is **not** in that group: it always takes an exclusive turn, so it queues behind other UI workflows, and capture can need a usable interactive desktop — the engine restores the target if it is minimized, and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used.
 - `--capture-screen` needs **exactly one window**. `-w <hwnd>` gives it one: that window's screen region, including anything visibly on top of it. If `-a` matches several top-level or owned windows the command fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`.
 - **If other UI workflows may run at the same time**, set one workflow id per logical workflow (see below). Nothing breaks without it, but your commands will not be recognized as belonging together.
@@ -251,6 +252,28 @@ winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
 - Providing a selector that doesn't match any element fails immediately with `element_not_found` (rather than silently recording the whole window).
 - A selector for an item in an open menu, flyout, tooltip, or teaching tip records from that item's popup window, not the window behind it.
 - `--json` writes the final result to stdout and one JSON event per line to stderr.
+
+### Record and replay action drafts
+
+```powershell
+# Record the user's interactions in one selected window.
+winapp ui record-actions -a myapp --output draft.json
+
+# Only after reviewing the file, obtaining approval, and restoring the app's starting state:
+winapp ui replay draft.json -a myapp --accept-recording --parameter 'text1=Hello'
+```
+
+- `record-actions` is separate from `ui record`, which remains video capture. Action capture also needs an unlocked, interactive desktop.
+- Use only the explicitly selected window. Do not expand to other windows or add global-input bypasses when a step fails.
+- Text is parameterized by default. Use the names reported in the result; only add `--capture-text` if the user explicitly approves storing full non-password field values. Password input and unsupported actions produce a non-replayable incomplete draft.
+- Treat the file as a **draft**, not an oracle. Review its complete action list, locators, literal values, and parameters with the user before `--accept-recording`; never change an incomplete status to force replay. Do not auto-share a parameterized draft; follow the recording privacy guidance linked below.
+- Text steps replace the whole field, not individual typing history. For unsupported editing or multi-window workflows, use explicit supported commands and verification instead of claiming an equivalent replay.
+- On `text_not_applied`, stop and review the app's validation and requested replacement text. Do not mask failed delivery with UIA value-setting or automatic refocus.
+- For an input-profile failure, follow the recording limitations linked below. Do not switch keyboard profiles or relax composition safeguards automatically.
+- Success means input steps completed and any manually authored assertions matched. It does not mean business correctness or accessibility passed. Add deliberate `assert` steps or independent verification appropriate to the scenario.
+- When recording through a CLI subprocess, wait for stderr's `recording-actions-started` event before interacting. `--duration-sec 0` stops on Ctrl+C in the recording terminal or redirected-stdin newline/EOF; a positive duration ignores stdin. Add `--include-injected` only for a controlled automation recording requested by the user.
+
+See [Record actions](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#record-actions) and [Replay actions](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#replay) for options, privacy limits, the file format, and recovery.
 
 ### Hover (for tooltips, flyouts, hover states)
 `--dwell-time <ms>` sets how long to wait after hovering (default: 800, range: 0–10000).

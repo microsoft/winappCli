@@ -28,6 +28,9 @@ namespace WinApp.Cli.Helpers;
 [JsonSerializable(typeof(UiScreenshotResult[]))]
 [JsonSerializable(typeof(UiRecordResult))]
 [JsonSerializable(typeof(UiRecordStartedEvent))]
+[JsonSerializable(typeof(UiActionsRecordResult))]
+[JsonSerializable(typeof(UiActionsRecordStartedEvent))]
+[JsonSerializable(typeof(UiActionsReplayResult))]
 [JsonSerializable(typeof(RecordFrameArtifactResult))]
 [JsonSerializable(typeof(RecordFrameIndexEntry))]
 [JsonSerializable(typeof(RecordFrameBundleManifest))]
@@ -62,6 +65,7 @@ namespace WinApp.Cli.Helpers;
 internal partial class UiJsonContext : JsonSerializerContext;
 
 [JsonSerializable(typeof(UiRecordStartedEvent))]
+[JsonSerializable(typeof(UiActionsRecordStartedEvent))]
 [JsonSerializable(typeof(UiErrorResult))]
 [JsonSourceGenerationOptions(
     WriteIndented = false,
@@ -226,6 +230,32 @@ internal sealed class UiRecordStartedEvent
     public string? FramesDirectory { get; set; }
     public string? FramesManifest { get; set; }
     public string? FramesIndex { get; set; }
+}
+
+internal sealed class UiActionsRecordResult
+{
+    public string Path { get; set; } = "";
+    public string Status { get; set; } = "";
+    public int StepCount { get; set; }
+    public string StopReason { get; set; } = "";
+    public IReadOnlyList<string> Warnings { get; set; } = [];
+    public IReadOnlyList<string> Parameters { get; set; } = [];
+}
+
+internal sealed class UiActionsRecordStartedEvent
+{
+    public string Event { get; set; } = "recording-actions-started";
+    public string Path { get; set; } = "";
+    public int DurationSec { get; set; }
+    public bool CaptureText { get; set; }
+    public bool IncludeInjected { get; set; }
+}
+
+internal sealed class UiActionsReplayResult
+{
+    public string Status { get; set; } = "completed";
+    public int CompletedSteps { get; set; }
+    public int AssertionsChecked { get; set; }
 }
 
 internal sealed class UiWaitForResult

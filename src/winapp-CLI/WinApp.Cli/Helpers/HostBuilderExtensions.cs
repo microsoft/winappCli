@@ -212,6 +212,8 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UiGetValueCommand, UiGetValueCommand.Handler>()
                 .UseCommandHandler<UiScreenshotCommand, UiScreenshotCommand.Handler>()
                 .UseCommandHandler<UiRecordCommand, UiRecordCommand.Handler>()
+                .UseCommandHandler<UiRecordActionsCommand, UiRecordActionsCommand.Handler>()
+                .UseCommandHandler<UiReplayCommand, UiReplayCommand.Handler>()
                 .UseCommandHandler<UiInvokeCommand, UiInvokeCommand.Handler>()
                 .UseCommandHandler<UiClickCommand, UiClickCommand.Handler>()
                 .UseCommandHandler<UiDragCommand, UiDragCommand.Handler>()

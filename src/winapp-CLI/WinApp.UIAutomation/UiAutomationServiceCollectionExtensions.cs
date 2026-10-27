@@ -34,6 +34,9 @@ public static class UiAutomationServiceCollectionExtensions
             .AddSingleton<IUiSelectorParser, UiSelectorParser>()
             .AddSingleton<ISystemUiQuery, SystemUiQuery>()
             .AddSingleton<IUiTargetResolver, UiTargetResolver>()
+            .AddSingleton<IUiActionEnvironmentFactory, NativeUiActionEnvironmentFactory>()
+            .AddSingleton<IUiActionInputSourceFactory, NativeUiActionInputSourceFactory>()
+            .AddSingleton<IUiActionService, UiActionService>()
 #if WINDOWS10_0_19041_0_OR_GREATER
             .AddSingleton<IWindowCapture, WgcWindowCapture>()
 #else
