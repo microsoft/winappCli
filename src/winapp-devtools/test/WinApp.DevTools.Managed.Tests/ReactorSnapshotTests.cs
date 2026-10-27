@@ -171,4 +171,27 @@ public sealed class ReactorSnapshotTests
         Assert.AreEqual("secret", doc.RootElement.GetProperty("code").GetString());
         Assert.IsFalse(asked, "the value never reaches Reactor");
     }
+
+    [TestMethod]
+    public void RowState_ARowItsListRecycled_HasNoComponent_AndAParkedOneIsOffScreen()
+    {
+        // The handle's element, the repeater, then the list's own component wrapper at 2.
+        Assert.AreEqual(ReactorRowState.Recycled, ReactorApi.RowState([true, false, false], 2),
+            "a parked row below the anchor: the walk up reached the list's component, not the row's");
+        Assert.AreEqual(ReactorRowState.Parked, ReactorApi.RowState([false, true, false], 1),
+            "the row parked at the anchor keeps its component, off screen");
+        Assert.AreEqual(ReactorRowState.Parked, ReactorApi.RowState([false, false, true], 1),
+            "a component inside a parked row is off screen too");
+        Assert.AreEqual(ReactorRowState.Live, ReactorApi.RowState([false, false, false], 2), "CONTROL: nothing parked");
+    }
+
+    [TestMethod]
+    public void WriteRendered_SaysRenderedOnlyWhenTheRenderReachedTheScreen()
+    {
+        string Rendered(bool idle, bool parked) => ReactorComponentOps.Json(w => ReactorComponentOps.WriteRendered(w, idle, parked));
+        Assert.AreEqual("{\"rendered\":true}", Rendered(idle: true, parked: false));
+        Assert.AreEqual("{\"rendered\":false,\"parked\":true}", Rendered(idle: true, parked: true),
+            "a parked row renders into a collapsed container: nothing on screen changed");
+        Assert.AreEqual("{\"rendered\":false}", Rendered(idle: false, parked: false));
+    }
 }

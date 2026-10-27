@@ -195,7 +195,11 @@ internal static class ReactorComponentOps
 
     internal static string Describe(UIElement element, ReactorApi api)
     {
-        var component = api.FindComponent(element, out var exact);
+        var component = api.FindComponent(element, out var exact, out var row);
+        if (row == ReactorRowState.Recycled)
+        {
+            return Refused("unmounted", RecycledReason);
+        }
         var host = api.HostFor(element);
         return Json(w =>
         {
@@ -213,6 +217,7 @@ internal static class ReactorComponentOps
                 return;
             }
             w.WriteBoolean("exact", exact);
+            if (row == ReactorRowState.Parked) { w.WriteBoolean("parked", true); }
             if (ReactorApi.IsIdle(host) is bool idle) { w.WriteBoolean("idle", idle); }
             WriteComponent(w, component, api);
         });
@@ -400,15 +405,21 @@ internal static class ReactorComponentOps
         var host = api.HostFor(element);
         WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, idleBefore =>
         {
-            var component = api.FindComponent(element, out _);
+            var component = api.FindComponent(element, out _, out var row);
+            if (row == ReactorRowState.Recycled)
+            {
+                done(Refused("unmounted", RecycledReason));
+                return;
+            }
             if (component is null)
             {
                 done(NoComponent(element, api));
                 return;
             }
+            var parked = row == ReactorRowState.Parked;
             if (component is SnapshotReactorComponent shown)
             {
-                SetStateText(element, api, host, shown, index, text, idleBefore, done);
+                SetStateText(element, api, host, shown, index, text, idleBefore, done, parked);
                 return;
             }
             var hook = component.Hooks().FirstOrDefault(h => h.Index == index);
@@ -456,7 +467,7 @@ internal static class ReactorComponentOps
                     else { w.WriteString("after", ReactorComponents.Format("", after.ValueType, after.Value).Text); }
                     w.WriteBoolean("changed", after is not null && !Equals(hook.Value, after.Value));
                     w.WriteBoolean("waitedForIdle", idleBefore);
-                    w.WriteBoolean("rendered", idleAfter);
+                    WriteRendered(w, idleAfter, parked);
                     w.WriteString("api", current.Api);
                 }));
             });
@@ -465,7 +476,7 @@ internal static class ReactorComponentOps
 
     // Reactor parses, checks and writes the value (TrySetState); its refusal is shown as Reactor words it.
     internal static void SetStateText(UIElement element, ReactorApi api, object? host, SnapshotReactorComponent component, int index,
-        string text, bool idleBefore, Action<string> done)
+        string text, bool idleBefore, Action<string> done, bool parked = false)
     {
         var before = component.Hook(index);
         // Reactor writes any text-typed hook; DevTools never writes one whose name says it holds a secret.
@@ -500,7 +511,7 @@ internal static class ReactorComponentOps
                 else { w.WriteString("after", after.Value); }
                 w.WriteBoolean("changed", after is not null && before is not null && after.Value != before.Value);
                 w.WriteBoolean("waitedForIdle", idleBefore);
-                w.WriteBoolean("rendered", idleAfter);
+                WriteRendered(w, idleAfter, parked);
                 w.WriteString("api", current.Api);
             }));
         });
@@ -511,7 +522,12 @@ internal static class ReactorComponentOps
         var host = api.HostFor(element);
         WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, _ =>
         {
-            var component = api.FindComponent(element, out _);
+            var component = api.FindComponent(element, out _, out var row);
+            if (row == ReactorRowState.Recycled)
+            {
+                done(Refused("unmounted", RecycledReason));
+                return;
+            }
             if (component is null)
             {
                 done(NoComponent(element, api));
@@ -522,14 +538,28 @@ internal static class ReactorComponentOps
                 done(Refused("refused", $"<{component.Name}> could not re-render (it has unmounted or never rendered)"));
                 return;
             }
-            WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, rendered => done(Json(w =>
+            WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, idle => done(Json(w =>
             {
                 w.WriteString("state", "ok");
                 w.WriteString("component", component.Name);
-                w.WriteBoolean("rendered", rendered);
+                WriteRendered(w, idle, row == ReactorRowState.Parked);
                 w.WriteString("api", component.Api);
             })));
         });
+    }
+
+    internal const string RecycledReason =
+        "this element was in a list row that its list has since recycled, so the component that rendered it is gone; " +
+        "find the row again with `winapp devtools search` and use its new handle";
+
+    /// <summary>
+    /// <c>rendered</c>: true only when the host finished the render and the component is on screen. A component in a
+    /// row its list parked for reuse renders into a collapsed row, so nothing visible changed (<c>parked</c>).
+    /// </summary>
+    internal static void WriteRendered(Utf8JsonWriter w, bool idle, bool parked)
+    {
+        w.WriteBoolean("rendered", idle && !parked);
+        if (parked) { w.WriteBoolean("parked", true); }
     }
 
     private static void Invoke(UIElement element, ReactorApi api, string name, string valueText, Action<string> done)
@@ -737,27 +767,60 @@ internal static class ReactorHandlers
     }
 }
 
+/// <summary>Where the list row an element sits in stands: on screen, parked off screen for reuse, or recycled.</summary>
+internal enum ReactorRowState { Live, Parked, Recycled }
+
 internal sealed partial class ReactorApi
 {
     /// <summary>
     /// The component that renders <paramref name="element"/>: the component mounted at it (a component's wrapper or
     /// a host's root control) or at its nearest ancestor that is one. <paramref name="exact"/> is true for the former.
     /// </summary>
-    public ReactorComponentHandle? FindComponent(UIElement element, out bool exact)
+    public ReactorComponentHandle? FindComponent(UIElement element, out bool exact) => FindComponent(element, out exact, out _);
+
+    /// <summary>
+    /// <see cref="FindComponent(UIElement, out bool)"/>, with where the element's list row stands
+    /// (<see cref="RowState"/>). A recycled row has no component: null.
+    /// </summary>
+    public ReactorComponentHandle? FindComponent(UIElement element, out bool exact, out ReactorRowState row)
     {
         exact = false;
+        row = ReactorRowState.Live;
         var chain = Ancestors(element);
         var hosts = Internals?.HostObjects(chain);
         for (var i = 0; i < chain.Count; i++)
         {
             if ((Internals is { } internals ? internals.ComponentAt(chain[i], hosts!) : SnapshotComponentAt(chain[i])) is { } component)
             {
+                row = RowState(chain.Select(IsParkedRow).ToList(), i);
+                if (row == ReactorRowState.Recycled)
+                {
+                    return null;
+                }
                 exact = i == 0;
                 return component;
             }
         }
         return null;
     }
+
+    /// <summary>
+    /// Where an element's list row stands, from which elements on its way up (nearest first) are rows their list parked
+    /// for reuse. One parked below the component's anchor (<paramref name="anchor"/>) lost its component: the walk up
+    /// reached the component rendering the whole list instead (<see cref="ReactorRowState.Recycled"/>). One parked at
+    /// or above the anchor keeps the component, off screen (<see cref="ReactorRowState.Parked"/>).
+    /// </summary>
+    internal static ReactorRowState RowState(IReadOnlyList<bool> parked, int anchor)
+    {
+        var first = parked.Select((value, index) => value ? index : -1).FirstOrDefault(index => index >= 0, -1);
+        return first < 0 ? ReactorRowState.Live : first < anchor ? ReactorRowState.Recycled : ReactorRowState.Parked;
+    }
+
+    // Reactor parks a row it keeps for reuse by collapsing it in place: a repeater's child (VirtualList, LazyVStack) or
+    // an ItemContainer's content (ItemsView).
+    private static bool IsParkedRow(UIElement element) =>
+        element.Visibility == Visibility.Collapsed &&
+        VisualTreeHelper.GetParent(element) is Microsoft.UI.Xaml.Controls.ItemsRepeater or Microsoft.UI.Xaml.Controls.ItemContainer;
 
     /// <summary>The host whose render loop owns <paramref name="element"/>, for its <c>IsIdle</c>; null when unknown.</summary>
     public object? HostFor(UIElement element)

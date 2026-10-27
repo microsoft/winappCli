@@ -83,6 +83,10 @@ internal class DevToolsGetStateCommand : DevToolsLiveCommand, IHelpExamples
             {
                 DevToolsRender.WriteMarkupLine(Console, line);
             }
+            if (state.Parked)
+            {
+                DevToolsRender.WriteMarkupLine(Console, $"[grey]{Markup.Escape(ReactorComponentState.ParkedNote)}[/]");
+            }
             if (state.Hooks.Any(h => h.Editable))
             {
                 Console.WriteLine();

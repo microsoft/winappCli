@@ -373,6 +373,48 @@ public class ReactorStateCommandTests
     }
 
     [TestMethod]
+    public async Task ARowItsListRecycled_IsRefused_AndAParkedRowIsNotReportedAsShown()
+    {
+        const string recycled = """{"state":"refused","code":"unmounted","reason":"this element was in a list row that its list has since recycled, so the component that rendered it is gone; find the row again with `winapp devtools search` and use its new handle"}""";
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", recycled))
+        {
+            var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42", "--json"]);
+            Assert.AreEqual(1, exit);
+            var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
+            Assert.AreEqual("unmounted", error.GetProperty("token").GetString());
+            StringAssert.StartsWith(error.GetProperty("message").GetString(), "This element was in a list row");
+        }
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.rerender", recycled))
+        {
+            var (exit, output) = await Run(new DevToolsRerenderCommand(), agent, ["42", "--json"]);
+            Assert.AreEqual(1, exit);
+            Assert.AreEqual("unmounted", JsonDocument.Parse(output).RootElement.GetProperty("error").GetProperty("token").GetString());
+        }
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", Counter.Replace("\"exact\":true", "\"exact\":true,\"parked\":true")))
+        {
+            var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
+            Assert.AreEqual(0, exit, output);
+            StringAssert.Contains(output, "Not on screen: its list parked this row for reuse");
+        }
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.rerender", """{"state":"ok","component":"VRow","rendered":false,"parked":true,"api":"reactor"}"""))
+        {
+            var (exit, output) = await Run(new DevToolsRerenderCommand(), agent, ["42"]);
+            Assert.AreEqual(0, exit, output);
+            StringAssert.Contains(output, "<VRow> rendered again, off screen.");
+            Assert.IsFalse(output.Contains("still rendering", StringComparison.Ordinal), "parked is not a render in progress");
+        }
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.setState", """
+            {"state":"ok","component":"VRow","index":0,"kind":"state","type":"int","requested":"5","before":"0","after":"5","changed":true,"waitedForIdle":true,"rendered":false,"parked":true,"api":"reactor"}
+            """))
+        {
+            var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["42", "0", "5"]);
+            Assert.AreEqual(0, exit, output);
+            StringAssert.Contains(output, "Not on screen");
+            Assert.IsFalse(output.Contains("still rendering", StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
     public async Task InvokeHandler_SendsTheEventAndValueAndReportsAThrow()
     {
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.invokeHandler",

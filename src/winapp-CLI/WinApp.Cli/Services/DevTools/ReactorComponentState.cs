@@ -56,6 +56,12 @@ internal sealed record ReactorComponentState(
     /// </summary>
     public IReadOnlyList<(string Name, int Line)> UnindexedHooks { get; init; } = [];
 
+    /// <summary>The element is in a list row its list parked off screen for reuse: the component is kept but not shown.</summary>
+    public bool Parked { get; init; }
+
+    internal const string ParkedNote =
+        "Not on screen: its list parked this row for reuse, so a change here does not show until the list shows the row again.";
+
     /// <summary>
     /// The hook a set-state argument names: its index (<c>0</c>), or the C# variable Reactor recorded for it
     /// (<c>count</c>). Null with the reason when it names none, or more than one.
@@ -132,6 +138,9 @@ internal sealed record ReactorComponentState(
                            ReactorDescription.ReadString(root, "reason") is { Length: > 0 } why
                         ? (null, char.ToUpperInvariant(why[0]) + why[1..] + (why.EndsWith('.') ? "" : "."), ReactorDescription.ErrorScreenToken)
                         : (null, "No Reactor component renders this element.", "no-component");
+                case "refused":
+                    var refusal = ReactorDescription.ReadString(root, "reason") ?? "the app refused to describe this element";
+                    return (null, char.ToUpperInvariant(refusal[0]) + refusal[1..].TrimEnd('.') + ".", ReactorDescription.ReadString(root, "code") ?? "refused");
                 default:
                     var reason = ReactorDescription.ReadString(root, "reason");
                     return (null, ReactorDescription.IsBusy(reason) ? ReactorDescription.BusyMessage : "Reactor component state is unavailable: " +
@@ -207,7 +216,7 @@ internal sealed record ReactorComponentState(
                 props,
                 hooks,
                 contexts)
-            { UnindexedHooks = Unindexed(root) }, null, null);
+            { UnindexedHooks = Unindexed(root), Parked = Bool(root, "parked") }, null, null);
         }
         catch (JsonException)
         {

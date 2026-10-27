@@ -58,12 +58,17 @@ internal class DevToolsRerenderCommand : DevToolsLiveCommand, IHelpExamples
                 }
                 writer.WriteString("note", Note);
             }, root =>
-            [
-                $"{UiSymbols.Check} <{Markup.Escape(ReactorDescription.ReadString(root, "component") ?? "component")}> rendered again." +
-                    (root.TryGetProperty("rendered", out var rendered) && rendered.ValueKind == JsonValueKind.False
-                        ? " [grey](still rendering when this returned)[/]" : ""),
-                $"   [grey]{Markup.Escape(Note)}[/]",
-            ], cancellationToken));
+                root.TryGetProperty("parked", out var parked) && parked.ValueKind == JsonValueKind.True
+                ? [
+                    $"{UiSymbols.Check} <{Markup.Escape(ReactorDescription.ReadString(root, "component") ?? "component")}> rendered again, off screen.",
+                    $"   [grey]{Markup.Escape(ReactorComponentState.ParkedNote)}[/]",
+                ]
+                : [
+                    $"{UiSymbols.Check} <{Markup.Escape(ReactorDescription.ReadString(root, "component") ?? "component")}> rendered again." +
+                        (root.TryGetProperty("rendered", out var rendered) && rendered.ValueKind == JsonValueKind.False
+                            ? " [grey](still rendering when this returned)[/]" : ""),
+                    $"   [grey]{Markup.Escape(Note)}[/]",
+                ], cancellationToken));
         }
     }
 

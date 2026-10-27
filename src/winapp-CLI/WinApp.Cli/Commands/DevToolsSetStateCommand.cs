@@ -124,7 +124,11 @@ internal class DevToolsSetStateCommand : DevToolsLiveCommand, IHelpExamples
                         ? $"{UiSymbols.Check} {label}: {Markup.Escape(before)} [grey]->[/] [green]{Markup.Escape(after ?? "?")}[/]"
                         : $"{UiSymbols.Check} {label}: already {Markup.Escape(after ?? before)}, unchanged.",
                 };
-                if (root.TryGetProperty("rendered", out var rendered) && rendered.ValueKind == JsonValueKind.False)
+                if (root.TryGetProperty("parked", out var parked) && parked.ValueKind == JsonValueKind.True)
+                {
+                    lines.Add($"   [grey]{Markup.Escape(ReactorComponentState.ParkedNote)}[/]");
+                }
+                else if (root.TryGetProperty("rendered", out var rendered) && rendered.ValueKind == JsonValueKind.False)
                 {
                     lines.Add("   [grey]The component was still rendering when this was read back; run get-state again to see where it settled.[/]");
                 }

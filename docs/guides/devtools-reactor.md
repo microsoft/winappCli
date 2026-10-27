@@ -201,6 +201,13 @@ it reads or writes. If the app does not answer in time, the command fails with
 `indeterminate`: the change may or may not have happened, so read it back with
 `get-state` before retrying.
 
+Virtualized lists (`VirtualList`, `LazyVStack`) reuse their rows as you scroll, so a
+handle you copied for a row can go stale. When the list has parked the row off screen
+for reuse, `get-state` says it is not on screen, and `set-state` and `rerender` report
+`rendered: false` with `parked: true` because nothing visible changed. When the list
+has recycled the row, the commands fail with `unmounted`: run `winapp devtools search`
+again and use the row's new handle.
+
 In the app, select a Reactor element with **Select element**: the inspector's
 properties pane has a **Component** section with the same props, hooks and handlers.
 Type a new value into a state hook and press Enter, or select **Run** next to a
