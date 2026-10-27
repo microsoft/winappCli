@@ -340,6 +340,7 @@ internal partial class MsixService(
         bool runtimeAlreadyBundled = false,
         string? timestampUrl = null,
         FileInfo? appxRecipe = null,
+        DirectoryInfo? windowsAppSdkPackageDirectory = null,
         CancellationToken cancellationToken = default)
     {
         // Validate input folder and manifest
@@ -430,7 +431,7 @@ internal partial class MsixService(
             }
         }
 
-        (manifestContent, var packageArch) = await UpdateAppxManifestContentAsync(manifestContent, null, null, resolvedExePath, sparse: isSparseManifest, selfContained: selfContained, dotNetPackageList, taskContext, cancellationToken, targetArch);
+        (manifestContent, var packageArch) = await UpdateAppxManifestContentAsync(manifestContent, null, null, resolvedExePath, sparse: isSparseManifest, selfContained: selfContained, dotNetPackageList, taskContext, cancellationToken, targetArch, windowsAppSdkPackageDirectory);
 
         // Parse the manifest to extract identity, executable, and architecture info
         var manifestDoc = AppxManifestDocument.Parse(manifestContent);
@@ -1028,7 +1029,8 @@ internal partial class MsixService(
         DotNetPackageListJson? dotNetPackageList,
         TaskContext taskContext,
         CancellationToken cancellationToken,
-        string? targetArch = null)
+        string? targetArch = null,
+        DirectoryInfo? windowsAppSdkPackageDirectory = null)
     {
         var doc = AppxManifestDocument.Parse(originalAppxManifestContent);
 
@@ -1124,7 +1126,7 @@ internal partial class MsixService(
         // Update or insert Windows App SDK dependency (skip for self-contained packages)
         if (!selfContained && (entryPointPath == null || isExe))
         {
-            modifiedContent = await UpdateWindowsAppSdkDependencyAsync(modifiedContent, dotNetPackageList, taskContext, cancellationToken);
+            modifiedContent = await UpdateWindowsAppSdkDependencyAsync(modifiedContent, dotNetPackageList, taskContext, cancellationToken, windowsAppSdkPackageDirectory);
         }
 
         // Add InProcessServer entries for third-party WinRT components (e.g., Win2D, WebView2)

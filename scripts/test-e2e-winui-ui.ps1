@@ -493,6 +493,18 @@ if (-not $devPid) {
     }
     Assert-WinappSuccess "visual tree exposes Tree control type" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "Tree", "-t", "3000") | Out-Null
     Assert-WinappSuccess "visual tree row exposes TreeItem control type" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "TreeItem", "-t", "3000") | Out-Null
+    foreach ($tab in @("ViewTabTree", "ViewTabComments", "ViewTabTree")) {
+        Assert-WinappSuccess "select $tab for accessible pane names" @("ui", "invoke", $tab, "-w", $inspectorHwnd, "--action", "select") | Out-Null
+        Assert-WinappSuccess "$tab reports selected" @("ui", "wait-for", $tab, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "properties name omits its role on $tab" @("ui", "wait-for", "WinAppDevToolsPropScroll", "-w", $inspectorHwnd, "-p", "Name", "--value", "Properties", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "properties keeps its Pane control type on $tab" @("ui", "wait-for", "WinAppDevToolsPropScroll", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "Pane", "-t", "3000") | Out-Null
+        if ($tab -eq "ViewTabComments") {
+            Assert-WinappSuccess "comments tab hides the visual tree" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
+        } else {
+            Assert-WinappSuccess "tree name omits its role on $tab" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-p", "Name", "--value", "UI Elements", "-t", "3000") | Out-Null
+            Assert-WinappSuccess "tree keeps its Tree control type on $tab" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "Tree", "-t", "3000") | Out-Null
+        }
+    }
     $parentTestDir = Join-Path ([IO.Path]::GetTempPath()) ("winapp-tree-uia-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $parentTestDir | Out-Null
     try {
@@ -586,6 +598,7 @@ if (-not $devPid) {
         Assert-WinappSuccess "$textId gets the duplicate-name fixture text" @("devtools", "set-property", $textId, "Text", "Shared label", "-a", "$devPid") | Out-Null
     }
     Assert-WinappSuccess "refresh inspector after changing sibling labels" @("ui", "send-keys", "f5", "--target", "TreeNode0", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "rebuilt tree keeps its UI Elements name" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-p", "Name", "--value", "UI Elements", "-t", "3000") | Out-Null
     foreach ($row in @(@("TreeNode4", "1"), @("TreeNode5", "2"))) {
         Assert-WinappSuccess "$($row[0]) has a distinct sibling name" @("ui", "wait-for", $row[0], "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Shared label ($($row[1]) of 2)", "-t", "3000") | Out-Null
     }
