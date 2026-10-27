@@ -187,13 +187,14 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                 }
                 if (defs) {
                     const double widths[2] = { 18.0, 1.0 };
-                    const int    units[2]  = { (int)DevToolsX::GridUnitType::Pixel, (int)DevToolsX::GridUnitType::Star };
+                    const int    units[2]  = { (int)DevToolsX::GridUnitType::Auto, (int)DevToolsX::GridUnitType::Star };
                     for (int c = 0; c < 2; ++c) {
                         IInspectable* cd = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.ColumnDefinition");
                         if (!cd) continue;
                         void* icd = nullptr;
                         if (SUCCEEDED(cd->QueryInterface(DevToolsIid<DevToolsXC::IColumnDefinition>(), &icd)) && icd) {
                             DevToolsColumnDefPutWidth(icd, widths[c], units[c]);
+                            if (c == 0) DevToolsAbi<DevToolsXC::IColumnDefinition>(icd)->put_MinWidth(18);
                             DevToolsColumnDefsAppend(defs, reinterpret_cast<IInspectable*>(icd));
                             reinterpret_cast<IUnknown*>(icd)->Release();
                         }
@@ -245,14 +246,13 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                 if (SUCCEEDED(chev->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), &cctl)) && cctl) {
                     if (pal.transparent) DevToolsPutBackground(cctl, pal.transparent);
                     DevToolsPutBorderThickness(cctl, 0, 0, 0, 0);
-                    DevToolsPutPadding(cctl, 0, 0, 0, 0);
+                    DevToolsPutPadding(cctl, 2, 2, 2, 2);
                     reinterpret_cast<IUnknown*>(cctl)->Release();
                 }
                 void* cfe = nullptr;
                 if (SUCCEEDED(chev->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &cfe)) && cfe) {
-                    DevToolsPutMinWidth(cfe, 0);
-                    DevToolsPutWidth(cfe, 18);
-                    DevToolsPutHeight(cfe, 20);
+                    DevToolsPutMinWidth(cfe, 18);
+                    DevToolsAbi<DevToolsX::IFrameworkElement>(cfe)->put_MinHeight(20);
                     DevToolsPutVerticalAlignment(cfe, (int)DevToolsX::VerticalAlignment::Center);
                     reinterpret_cast<IUnknown*>(cfe)->Release();
                 }

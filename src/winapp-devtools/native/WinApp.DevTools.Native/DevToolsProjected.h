@@ -519,6 +519,8 @@ inline HRESULT DevToolsPutVerticalAlignment(void* fe, int alignment) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_VerticalAlignment(alignment); }
 inline HRESULT DevToolsPutMinWidth(void* fe, double value) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_MinWidth(value); }
+inline HRESULT DevToolsPutMaxWidth(void* fe, double value) noexcept
+{ return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_MaxWidth(value); }
 
 inline HRESULT DevToolsPutBorderThickness(void* control, double l, double t, double r, double b) noexcept
 { return DevToolsAbi<DevToolsXC::IControl>(control)->put_BorderThickness({ l, t, r, b }); }

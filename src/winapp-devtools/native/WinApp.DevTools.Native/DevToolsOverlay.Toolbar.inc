@@ -130,17 +130,31 @@ static IInspectable* DevToolsSelFindName(IInspectable* root, const wchar_t* name
 // Shared anchor for the pill and bar.
 // Pill and bar share one anchor so corner and center parking remain aligned.
 static Client ClientGeom() { return Client{ g_protoW, g_protoH, g_titleBarInsetDip }; }
-static double ChipX() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, (double)kChipH, &x, &y); return x; }
-static double ChipY() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, (double)kChipH, &x, &y); return y; }
-static double BarX()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), (double)kBarW, (double)kBarH, &x, &y); return x; }
-static double BarY()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), (double)kBarW, (double)kBarH, &x, &y); return y; }
+static double ChipX() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, g_chipH, &x, &y); return x; }
+static double ChipY() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, g_chipH, &x, &y); return y; }
+static double BarX()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_barW, g_barH, &x, &y); return x; }
+static double BarY()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_barW, g_barH, &x, &y); return y; }
+
+static void ConstrainToolbarWidth()
+{
+    if (!g_aRow) return;
+    try {
+        winrt::com_ptr<IUnknown> bar;
+        winrt::check_hresult(g_aRow->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), bar.put_void()));
+        const double width = (std::max)(1.0, g_protoW - 2 * kEdgeGap);
+        winrt::check_hresult(DevToolsPutMinWidth(bar.get(), (std::min)(double(kBarW), width)));
+        winrt::check_hresult(DevToolsPutMaxWidth(bar.get(), width));
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar viewport sizing failed hr=0x%08X", e.code().value);
+    }
+}
 
 static void SnapTargetPos(int c, double* x, double* y)
 {
     double cx = 0.0, cy = 0.0;
-    Anchor(c, ClientGeom(), g_chipW, (double)kChipH, &cx, &cy);
+    Anchor(c, ClientGeom(), g_chipW, g_chipH, &cx, &cy);
     *x = cx + g_chipW / 2.0 - (double)kSnapW / 2.0;
-    *y = cy + (double)kChipH / 2.0 - (double)kSnapH / 2.0;
+    *y = cy + g_chipH / 2.0 - (double)kSnapH / 2.0;
 }
 
 static bool g_dragging = false;
@@ -165,8 +179,8 @@ static bool ToolbarRectDip(RECT* out)
 {
     if (!g_toolbarVisible || (!g_railL && !g_aRow)) return false;
     const double left = (std::min)(ChipX(), BarX()), top = (std::min)(ChipY(), BarY());
-    const double right = (std::max)(ChipX() + g_chipW, BarX() + kBarW);
-    const double bottom = (std::max)(ChipY() + kChipH, BarY() + kBarH);
+    const double right = (std::max)(ChipX() + g_chipW, BarX() + g_barW);
+    const double bottom = (std::max)(ChipY() + g_chipH, BarY() + g_barH);
     *out = RECT{ (LONG)std::floor(left), (LONG)std::floor(top), (LONG)std::ceil(right), (LONG)std::ceil(bottom) };
     return true;
 }
@@ -533,37 +547,50 @@ static void CALLBACK ToolbarMenuLeaveProc(HWND, UINT, UINT_PTR, DWORD)
     if (!g_pinned && !g_dragging && g_toolbarFocusWithin == 0) ShowARow(false);
 }
 
-// Opens `menu` under its `anchor` button, above the bar when the toolbar sits at the bottom. A menu opened from the
-// keyboard puts focus on its first action.
-static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, const wchar_t* first)
+static bool PositionToolbarMenu(const wchar_t* menu, const wchar_t* anchor)
 {
-    const bool wasOpen = g_toolbarMenu && wcscmp(g_toolbarMenu, menu) == 0;
-    CloseToolbarMenu();
-    if (wasOpen || !g_aRow) return;
-    bool keyboard = false;
     try {
         winrt::Windows::Foundation::IInspectable barObject{ nullptr };
         winrt::copy_from_abi(barObject, g_aRow);
         auto anchorElement = ToolbarPart(anchor).as<DevToolsX::UIElement>();
         auto panel = ToolbarPart(menu).as<DevToolsX::FrameworkElement>();
-        keyboard = anchorElement.FocusState() != DevToolsX::FocusState::Unfocused;
+        const double availableW = (std::max)(1.0, g_protoW - 8.0);
+        const double availableH = (std::max)(1.0, g_protoH - 8.0);
+        panel.MaxWidth(availableW);
+        panel.MaxHeight(availableH);
         panel.Visibility(DevToolsX::Visibility::Visible);
-        panel.Measure({ static_cast<float>(panel.Width()), std::numeric_limits<float>::infinity() });
-        const double width = panel.Width(), height = panel.DesiredSize().Height;
+        panel.Measure({ static_cast<float>(availableW), static_cast<float>(availableH) });
+        const auto size = panel.DesiredSize();
+        const double width = size.Width, height = size.Height;
         const double offset = anchorElement.TransformToVisual(barObject.as<DevToolsX::UIElement>()).TransformPoint({ 0, 0 }).X;
         const double x = (std::clamp)(BarX() + offset, 4.0, (std::max)(4.0, g_protoW - width - 4.0));
-        const double y = CornerIsTop(g_corner) ? BarY() + kBarH + 4.0 : BarY() - height - 4.0;
+        const double preferredY = CornerIsTop(g_corner) ? BarY() + g_barH + 4.0 : BarY() - height - 4.0;
+        const double y = (std::clamp)(preferredY, 4.0, (std::max)(4.0, g_protoH - height - 4.0));
         MoveOverlayElement(reinterpret_cast<IInspectable*>(winrt::get_abi(panel)), x, y);
+        return true;
     } catch (const winrt::hresult_error& e) {
-        ProtoSetPartVisible(menu, false);
         DevToolsOverlayLog(L"overlay.toolbar menu placement failed hr=0x%08X", e.code().value);
+        return false;
+    }
+}
+
+// Keep menus beside their button after text or display scaling changes.
+static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, const wchar_t* first)
+{
+    const bool wasOpen = g_toolbarMenu && wcscmp(g_toolbarMenu, menu) == 0;
+    CloseToolbarMenu();
+    if (wasOpen || !g_aRow) return;
+    if (!PositionToolbarMenu(menu, anchor)) {
+        ProtoSetPartVisible(menu, false);
         return;
     }
     g_toolbarMenu = menu;
     g_toolbarMenuAnchor = anchor;
-    if (keyboard) {
-        try { ToolbarPart(first).as<DevToolsX::UIElement>().Focus(DevToolsX::FocusState::Keyboard); }
-        catch (const winrt::hresult_error&) {}
+    try {
+        if (ToolbarPart(anchor).as<DevToolsX::UIElement>().FocusState() != DevToolsX::FocusState::Unfocused)
+            ToolbarPart(first).as<DevToolsX::UIElement>().Focus(DevToolsX::FocusState::Keyboard);
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar menu focus failed hr=0x%08X", e.code().value);
     }
     DevToolsOverlayLog(L"overlay.toolbar menu %s open", menu);
 }
@@ -585,6 +612,11 @@ static void WireToolbarMenu(const wchar_t* menu)
         if (auto element = ToolbarPart(menu).try_as<DevToolsX::UIElement>())
             element.KeyDown([](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
                 if (args.Key() == winrt::Windows::System::VirtualKey::Escape && CloseToolbarMenu(true)) args.Handled(true);
+            });
+        if (auto element = ToolbarPart(menu).try_as<DevToolsX::FrameworkElement>())
+            element.SizeChanged([menu](auto&&, auto&&) {
+                if (g_toolbarMenu && wcscmp(g_toolbarMenu, menu) == 0)
+                    PositionToolbarMenu(menu, g_toolbarMenuAnchor);
             });
         static bool barWired = false;
         if (!std::exchange(barWired, true)) wireHover(L"DevToolsBar", &g_barHover);
@@ -691,24 +723,31 @@ static void UpdateChipLabel()
                        surface.c_str());
 }
 
-// Re-anchor from SizeChanged, after ActualWidth reflects the new label. Label assignment alone cannot supply
-// the final width.
-// Re-anchor after SizeChanged because text assignment alone lacks final ActualWidth.
-static void OnChipResize(void*, void*)
+// Both surfaces measure their content. Placement and hit testing use those same dimensions.
+static void OnToolbarSizeChanged(void*, void*)
 {
-    if (!g_railL) return;
-    void* fe = nullptr;
-    if (FAILED(g_railL->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) || !fe) return;
-    double w = 0.0;
-    HRESULT hr = DevToolsGetActualWidth(fe, &w);
-    reinterpret_cast<IUnknown*>(fe)->Release();
-    if (FAILED(hr) || w <= 0.0) return;
-    if (w == g_chipW) return;
-    g_chipW = w;
-    if (!g_aRowOpen && !g_dragging) MoveOverlayElement(g_railL, ChipX(), ChipY());
-    DevToolsOverlayLog(L"overlay.pill width=%.0f -> anchored %s position=%d", w,
-                  CornerIsCenter(g_corner) ? L"center" : (CornerIsLeft(g_corner) ? L"left" : L"right"),
-                  g_corner);
+    try {
+        auto measure = [](IInspectable* raw, double& width, double& height) {
+            if (!raw) return;
+            winrt::com_ptr<IUnknown> element;
+            winrt::check_hresult(raw->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), element.put_void()));
+            double w = 0, h = 0;
+            winrt::check_hresult(DevToolsGetActualWidth(element.get(), &w));
+            winrt::check_hresult(DevToolsGetActualHeight(element.get(), &h));
+            if (w > 0 && h > 0) {
+                width = w;
+                height = h;
+            }
+        };
+        measure(g_railL, g_chipW, g_chipH);
+        measure(g_aRow, g_barW, g_barH);
+        if (!g_dragging) MoveOverlayElement(g_railL, ChipX(), ChipY());
+        MoveOverlayElement(g_aRow, BarX(), BarY());
+        if (g_toolbarMenu) PositionToolbarMenu(g_toolbarMenu, g_toolbarMenuAnchor);
+        HostYieldToWindowedPopups();
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar size update failed hr=0x%08X", e.code().value);
+    }
 }
 
 static void SetCorner(int corner, bool persist)
@@ -736,7 +775,7 @@ static void ShowSnapTargets(bool on)
 
 static int NearestCornerForPill(double px, double py)
 {
-    return NearestCorner(ClientGeom(), g_chipW, (double)kChipH, px, py);
+    return NearestCorner(ClientGeom(), g_chipW, g_chipH, px, py);
 }
 
 static void HighlightSnapTarget(int corner)
@@ -771,7 +810,7 @@ static void OnDragHandlePressed(void*, void*)
     g_dragOffX = (double)dx - ChipX();
     g_dragOffY = (double)dy - ChipY();
     if (g_dragOffX < 0.0 || g_dragOffX > g_chipW) g_dragOffX = g_chipW / 2.0;
-    if (g_dragOffY < 0.0 || g_dragOffY > (double)kChipH) g_dragOffY = (double)kChipH / 2.0;
+    if (g_dragOffY < 0.0 || g_dragOffY > g_chipH) g_dragOffY = g_chipH / 2.0;
     g_dragNear = g_corner;
     ShowSnapTargets(true);
     HighlightSnapTarget(g_dragNear);
@@ -906,7 +945,9 @@ static void RepositionToolbar()
     if (wDip <= 0 || hDip <= 0) return;
     g_protoW = (double)wDip; g_protoH = (double)hDip;
     g_titleBarInsetDip = MeasureTitleBarInsetDip();
+    ConstrainToolbarWidth();
     ShowARow(g_aRowOpen);
+    if (g_toolbarMenu) PositionToolbarMenu(g_toolbarMenu, g_toolbarMenuAnchor);
     if (g_pinned)       ProtoSetPinned(true);
     if (g_dragging)     ShowSnapTargets(true);
 }
@@ -1016,6 +1057,21 @@ static void WirePrototype(IInspectable* canvas)
           } }
         borderInsp->Release();
         if (!sp) return false;
+        try {
+            winrt::Windows::Foundation::IInspectable content{ nullptr };
+            winrt::copy_from_abi(content, sp);
+            if (const auto scroll = content.try_as<DevToolsXC::ScrollViewer>()) {
+                auto panelContent = scroll.Content();
+                sp->Release();
+                sp = nullptr;
+                winrt::copy_to_abi(panelContent, *reinterpret_cast<void**>(&sp));
+            }
+        } catch (const winrt::hresult_error& e) {
+            sp->Release();
+            DevToolsOverlayLog(L"overlay.toolbar scroll content unavailable hr=0x%08X", e.code().value);
+            return false;
+        }
+        if (!sp) return false;
         IInspectable* panel = nullptr;
         if (SUCCEEDED(sp->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), reinterpret_cast<void**>(&panel))) && panel) {
             IInspectable* kids = nullptr;
@@ -1056,6 +1112,7 @@ static void WirePrototype(IInspectable* canvas)
 // Cache the movable groups (AddRef'd for the agent lifetime).
     if (g_aRow)    { g_aRow->Release();    g_aRow = nullptr; }    childAt(1, &g_aRow);
     if (g_railL)   { g_railL->Release();   g_railL = nullptr; }   childAt(0, &g_railL);
+    ConstrainToolbarWidth();
     for (int i = 0; i < kCornerCount; ++i) {
         if (g_snapUi[i]) { g_snapUi[i]->Release(); g_snapUi[i] = nullptr; }
         childAt(2 + (unsigned int)i, &g_snapUi[i]);
@@ -1078,7 +1135,7 @@ static void WirePrototype(IInspectable* canvas)
         }
         void* fe = nullptr;
         if (SUCCEEDED(g_railL->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
-            g_protoSink[8].Bind(&IID_SizeChanged_Del, &OnChipResize);
+            g_protoSink[8].Bind(&IID_SizeChanged_Del, &OnToolbarSizeChanged);
             __int64 tok = 0;
             HRESULT hr = DevToolsAddSizeChanged(fe, &g_protoSink[8], &tok);
             reinterpret_cast<IUnknown*>(fe)->Release();
@@ -1129,6 +1186,14 @@ static void WirePrototype(IInspectable* canvas)
         DevToolsOverlayLog(L"overlay.toolbar GettingFocus subscription failed hr=0x%08X", e.code().value);
     }
     if (barUi) {
+        void* fe = nullptr;
+        if (SUCCEEDED(barUi->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+            g_protoSink[24].Bind(&IID_SizeChanged_Del, &OnToolbarSizeChanged);
+            __int64 token = 0;
+            const HRESULT hr = DevToolsAddSizeChanged(fe, &g_protoSink[24], &token);
+            reinterpret_cast<IUnknown*>(fe)->Release();
+            if (FAILED(hr)) DevToolsOverlayLog(L"overlay.toolbar size subscription failed hr=0x%08X", hr);
+        }
         wireUiEvent(barUi, DevToolsUiEvent::PointerExited, g_protoSink[1], &OnACollapse);
         wireUiEvent(barUi, DevToolsUiEvent::GotFocus, g_protoSink[13], &OnToolbarGotFocus);
         wireUiEvent(barUi, DevToolsUiEvent::LostFocus, g_protoSink[14], &OnToolbarLostFocus);

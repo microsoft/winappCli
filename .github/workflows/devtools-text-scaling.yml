@@ -1,0 +1,26 @@
+name: DevTools Text Scaling
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-devtools-text-scaling:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test scaling source checker
+        shell: pwsh
+        run: .\scripts\tests\Test-DevToolsTextScaling.ps1
+      - name: Check DevTools styling
+        shell: pwsh
+        run: .\scripts\validate-devtools-text-scaling.ps1

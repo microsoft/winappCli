@@ -1,0 +1,72 @@
+[
+  {
+    "file": "DevToolsWindow.Editors.inc",
+    "rule": "constant-size-setter",
+    "target": "DevToolsPutWidth(bfe, 64.0)",
+    "count": 1,
+    "reason": "Compound numeric editors use a compact width and TextBox horizontal scrolling. Their height remains content-sized."
+  },
+  {
+    "file": "DevToolsWindow.PropsLayout.inc",
+    "rule": "fixed-content-height",
+    "target": "TextBlock[Height=8]",
+    "count": 1,
+    "reason": "This empty TextBlock is an eight-pixel spacer, not a label."
+  },
+  {
+    "file": "xaml/selection-panel.xaml",
+    "rule": "fixed-icon-width",
+    "target": "DevToolsSelPanel",
+    "count": 1,
+    "reason": "Popup placement constrains the panel width to the viewport. Its body scrolls and its header reserves an Auto column for the close button."
+  },
+  {
+    "file": "xaml/selection.xaml",
+    "rule": "fixed-content-height",
+    "target": "DevToolsSelRoot",
+    "count": 1,
+    "reason": "The canvas matches the app viewport for overlay coordinates; its children size independently."
+  },
+  {
+    "file": "xaml/toolbar.xaml",
+    "rule": "fixed-content-height",
+    "target": "DevToolsRoot",
+    "count": 1,
+    "reason": "The canvas matches the app viewport for overlay coordinates; its children size independently."
+  },
+  {
+    "file": "xaml/toolbar.xaml",
+    "rule": "fixed-icon-width",
+    "target": "DevToolsRoot",
+    "count": 1,
+    "reason": "The viewport canvas contains independently measured toolbar and menu surfaces."
+  },
+  {
+    "file": "xaml/toolbar.xaml",
+    "rule": "command-icon-scaling",
+    "target": "DevToolsMarkersCheck",
+    "count": 1,
+    "reason": "Decorative checked-state indicator beside a text label, not a command icon."
+  },
+  {
+    "file": "xaml/toolbar.xaml",
+    "rule": "command-icon-scaling",
+    "target": "DevToolsPinOn",
+    "count": 1,
+    "reason": "Decorative checked-state indicator beside a text label, not a command icon."
+  },
+  {
+    "file": "xaml-window/window-shell.xaml",
+    "rule": "fixed-icon-width",
+    "target": "TreePane",
+    "count": 1,
+    "reason": "The user-resizable tree pane is a viewport. Toolbar commands occupy Auto columns and the filter takes remaining space."
+  },
+  {
+    "file": "xaml-window/window-shell.xaml",
+    "rule": "fixed-content-height",
+    "target": "PSwatchBtn",
+    "count": 1,
+    "reason": "The color swatch button contains a solid-color Border, not text or a glyph."
+  }
+]

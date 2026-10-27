@@ -49,7 +49,7 @@
 
   <!-- NO fixed Width -- it auto-sizes to its label and the code re-anchors it from the selected corner.
        A Button, so UI Automation can invoke it; the template keeps the pill's own look. -->
-  <Button x:Name="DevToolsChip" Style="{x:Null}" AllowFocusOnInteraction="False" Canvas.Left="$CHIPX$" Canvas.Top="$CHIPY$" Canvas.ZIndex="1000" Height="$CHIPH$"
+  <Button x:Name="DevToolsChip" Style="{x:Null}" AllowFocusOnInteraction="False" Canvas.Left="$CHIPX$" Canvas.Top="$CHIPY$" Canvas.ZIndex="1000" MinHeight="$CHIPH$"
           RequestedTheme="$TOOLBARTHEME$" CornerRadius="14" Padding="0"
           UseSystemFocusVisuals="True"
           AutomationProperties.AutomationId="DevToolsProtoRailL"
@@ -68,7 +68,7 @@
         <EntranceThemeTransition FromVerticalOffset="6" />
       </TransitionCollection>
     </Button.Transitions>
-    <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" Margin="12,0,13,0">
+    <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" Margin="12,4,13,4">
 
       <!-- The container MUST be >= the halo: a 16px halo in a 10px Grid was clipped to the Grid's bounds and
 
@@ -92,9 +92,9 @@
   </Button>
 
   <!-- Hidden controls must not enlarge the Popup's bounds. -->
-  <Border x:Name="DevToolsBar" Visibility="Collapsed" Canvas.ZIndex="1001" Width="$BARW$" Height="$BARH$"
+  <Border x:Name="DevToolsBar" Visibility="Collapsed" Canvas.ZIndex="1001" MinWidth="$BARW$" MinHeight="$BARH$"
           RequestedTheme="$TOOLBARTHEME$"
-          Background="$SURFACE$" CornerRadius="8" BorderBrush="$RIM$" BorderThickness="1" Padding="6,0"
+          Background="$SURFACE$" CornerRadius="8" BorderBrush="$RIM$" BorderThickness="1" Padding="6,4"
           BackgroundSizing="InnerBorderEdge"
           AutomationProperties.AutomationId="DevToolsProtoPill"
           AutomationProperties.Name="DevTools toolbar"
@@ -103,6 +103,7 @@
     <Border.RenderTransform>
       <TranslateTransform x:Name="DevToolsBarShift" />
     </Border.RenderTransform>
+    <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
     <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
       <Border x:Name="DevToolsDragHandle" Width="24" Height="24" CornerRadius="5" Background="#00000000"
               VerticalAlignment="Center" Margin="0,0,2,0"
@@ -117,42 +118,42 @@
           <Ellipse Width="8" Height="8" Fill="$LIVE$" HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Grid>
       </Border>
-      <ToggleButton x:Name="DevToolsProtoPick" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <ToggleButton x:Name="DevToolsProtoPick" Style="{x:Null}" AllowFocusOnInteraction="False" MinWidth="30" MinHeight="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               IsEnabled="$PICKENABLED$"
               ToolTipService.ToolTip="Select an element to inspect (Esc to exit)"
               AutomationProperties.AutomationId="DevToolsProtoPick"
               AutomationProperties.Name="Select element">
-        <Grid Width="30" Height="26">
+        <Grid MinWidth="30" MinHeight="26">
           <FontIcon x:Name="DevToolsPickOff" FlowDirection="LeftToRight" Glyph="&#xE7C9;"
-                    FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    FontSize="15" IsTextScaleFactorEnabled="True" Margin="7,5" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
           <!-- Keep the system highlight pair intact instead of auto-adjusting the selected icon to window text. -->
           <Grid x:Name="DevToolsPickOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsPickOn"
                 HighContrastAdjustment="None">
-            <Border Width="30" Height="26" CornerRadius="6" Background="{ThemeResource DevToolsToggleBackground}" />
-            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7C9;" FontSize="15"
+            <Border CornerRadius="6" Background="{ThemeResource DevToolsToggleBackground}" />
+            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7C9;" FontSize="15" IsTextScaleFactorEnabled="True" Margin="7,5"
                       Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
         </Grid>
       </ToggleButton>
       <!-- Comment mode is a mode like Pick; the chevron beside it opens the comment actions. -->
-      <ToggleButton x:Name="DevToolsProtoComments" Style="{x:Null}" AllowFocusOnInteraction="False" Width="34" Height="26" Padding="0" BorderThickness="0" CornerRadius="6,0,0,6"
+      <ToggleButton x:Name="DevToolsProtoComments" Style="{x:Null}" AllowFocusOnInteraction="False" MinWidth="34" MinHeight="26" Padding="0" BorderThickness="0" CornerRadius="6,0,0,6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               IsEnabled="$PICKENABLED$"
               ToolTipService.ToolTip="Comment on elements (Esc to exit)"
               AutomationProperties.AutomationId="DevToolsProtoComments"
               AutomationProperties.Name="Comment mode">
-        <Grid Width="34" Height="26">
-          <FontIcon x:Name="DevToolsCommentsOff" FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15"
+        <Grid MinWidth="34" MinHeight="26">
+          <FontIcon x:Name="DevToolsCommentsOff" FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15" IsTextScaleFactorEnabled="True" Margin="9,5"
                     Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
           <Grid x:Name="DevToolsCommentsOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsCommentsOn"
                 HighContrastAdjustment="None">
-            <Border Width="34" Height="26" CornerRadius="6,0,0,6" Background="{ThemeResource DevToolsToggleBackground}" />
-            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15"
+            <Border CornerRadius="6,0,0,6" Background="{ThemeResource DevToolsToggleBackground}" />
+            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15" IsTextScaleFactorEnabled="True" Margin="9,5"
                       Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
           <Border x:Name="DevToolsCommentBadge" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top"
-                  MinWidth="14" Height="14" CornerRadius="7" Padding="4,0" Background="$ACCENT$"
+                  MinWidth="14" MinHeight="14" CornerRadius="7" Padding="4,1" Background="$ACCENT$"
                   BorderBrush="$SURFACE$" BorderThickness="1"
                   AutomationProperties.AutomationId="DevToolsCommentBadge">
             <TextBlock x:Name="DevToolsCommentBadgeText" Text="0" FontSize="9" FontWeight="SemiBold"
@@ -160,58 +161,59 @@
           </Border>
         </Grid>
       </ToggleButton>
-      <Button x:Name="DevToolsProtoCommentsMenu" Style="{x:Null}" AllowFocusOnInteraction="False" Width="16" Height="26" Padding="0" BorderThickness="0" CornerRadius="0,6,6,0"
+      <Button x:Name="DevToolsProtoCommentsMenu" Style="{x:Null}" AllowFocusOnInteraction="False" MinWidth="16" MinHeight="26" Padding="4,5" BorderThickness="0" CornerRadius="0,6,6,0"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center" Margin="-3,0,0,0"
               ToolTipService.ToolTip="More comment actions"
               AutomationProperties.AutomationId="DevToolsProtoCommentsMenu"
               AutomationProperties.Name="More comment actions">
-        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE70D;" FontSize="8" Foreground="$TEXT$" />
+        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE70D;" FontSize="8" IsTextScaleFactorEnabled="True" Foreground="$TEXT$" />
       </Button>      <!-- Layout adorners are a mode: a ToggleButton exposes the on-state to UI Automation. -->
-      <ToggleButton x:Name="DevToolsProtoLayout" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <ToggleButton x:Name="DevToolsProtoLayout" Style="{x:Null}" AllowFocusOnInteraction="False" MinWidth="30" MinHeight="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               ToolTipService.ToolTip="Layout adorners: margin, padding and alignment of the element you hover or select"
               AutomationProperties.AutomationId="DevToolsProtoLayout"
               AutomationProperties.Name="Layout adorners">
-        <Grid Width="30" Height="26">
+        <Grid MinWidth="30" MinHeight="26">
           <FontIcon x:Name="DevToolsLayoutOff" FlowDirection="LeftToRight" Glyph="&#xE80A;"
-                    FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    FontSize="15" IsTextScaleFactorEnabled="True" Margin="7,5" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
           <Grid x:Name="DevToolsLayoutOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsLayoutOn"
                 HighContrastAdjustment="None">
-            <Border Width="30" Height="26" CornerRadius="6" Background="{ThemeResource DevToolsToggleBackground}" />
-            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE80A;" FontSize="15"
+            <Border CornerRadius="6" Background="{ThemeResource DevToolsToggleBackground}" />
+            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE80A;" FontSize="15" IsTextScaleFactorEnabled="True" Margin="7,5"
                       Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
         </Grid>
       </ToggleButton>
 
       <!-- The overlay itself keeps its fixed opaque palette, so this action cannot make the tooling illegible. -->
-      <Button x:Name="DevToolsProtoTheme" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <Button x:Name="DevToolsProtoTheme" Style="{x:Null}" AllowFocusOnInteraction="False" MinWidth="30" MinHeight="26" Padding="7,5" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               IsEnabled="$THEMEENABLED$"
               ToolTipService.ToolTip="Switch app theme"
               AutomationProperties.AutomationId="DevToolsProtoTheme"
               AutomationProperties.Name="Switch app theme">
-        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE706;" FontSize="15"
+        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE706;" FontSize="15" IsTextScaleFactorEnabled="True"
                   Foreground="$TEXT$" />
       </Button>
 
       <!-- Separator uses the internal border brush, not the outer rim. -->
       <Border Width="1" Height="18" Background="$BORDER$" Margin="3,0" VerticalAlignment="Center" />
 
-      <Button x:Name="DevToolsProtoInspect" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <Button x:Name="DevToolsProtoInspect" Style="{x:Null}" AllowFocusOnInteraction="False" MinWidth="30" MinHeight="26" Padding="7,5" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               ToolTipService.ToolTip="Open the DevTools window"
               AutomationProperties.AutomationId="DevToolsProtoInspect"
               AutomationProperties.Name="Open DevTools window">
-        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="15" Foreground="$TEXT$" />
+        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="15" IsTextScaleFactorEnabled="True" Foreground="$TEXT$" />
       </Button>
-      <Button x:Name="DevToolsProtoMore" Style="{x:Null}" AllowFocusOnInteraction="False" Width="24" Height="24" Padding="0" BorderThickness="0" CornerRadius="5"
+      <Button x:Name="DevToolsProtoMore" Style="{x:Null}" AllowFocusOnInteraction="False" MinWidth="24" MinHeight="24" Padding="5" BorderThickness="0" CornerRadius="5"
               Background="#00000000" Foreground="$TEXTDIM$" VerticalAlignment="Center"
               ToolTipService.ToolTip="More options"
               AutomationProperties.AutomationId="DevToolsProtoMore"
               AutomationProperties.Name="More options">
-        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE712;" FontSize="14" Foreground="$TEXTDIM$" />
+        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE712;" FontSize="14" IsTextScaleFactorEnabled="True" Foreground="$TEXTDIM$" />
       </Button>    </StackPanel>
+    </ScrollViewer>
   </Border>
   <Grid Visibility="Collapsed" Canvas.ZIndex="1010" Width="$SNAPW$" Height="$SNAPH$"
         IsHitTestVisible="False" AutomationProperties.AutomationId="DevToolsSnapBR">
@@ -252,37 +254,39 @@
   <!-- Toolbar menus open beside the bar, in the same layer, so they stay out of the app's popups. They follow the snap
        targets because those are found by their position among the canvas children. -->
   <!-- Every menu row shares one 14px check column, so check marks, radio marks and labels line up. -->
-  <Border x:Name="DevToolsCommentsMenu" Visibility="Collapsed" Canvas.ZIndex="1002" Width="220"
+  <Border x:Name="DevToolsCommentsMenu" Visibility="Collapsed" Canvas.ZIndex="1002" MinWidth="220"
           RequestedTheme="$TOOLBARTHEME$"
           Background="$SURFACE$" CornerRadius="8" BorderBrush="$RIM$" BorderThickness="1" Padding="4"
           BackgroundSizing="InnerBorderEdge"
           AutomationProperties.AutomationId="DevToolsCommentsMenu"
           AutomationProperties.Name="Comment actions">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <StackPanel>
-      <Button x:Name="DevToolsShowAllComments" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="32,0,10,0" BorderThickness="0" CornerRadius="4"
+      <Button x:Name="DevToolsShowAllComments" Style="{x:Null}" AllowFocusOnInteraction="False" MinHeight="32" Padding="32,6,10,6" BorderThickness="0" CornerRadius="4"
               HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="#00000000" Foreground="$TEXT$"
               AutomationProperties.AutomationId="DevToolsShowAllComments">
-        <TextBlock x:Name="DevToolsShowAllCommentsText" Text="Open comments list" FontSize="12" Foreground="$TEXT$" VerticalAlignment="Center" />
+        <TextBlock x:Name="DevToolsShowAllCommentsText" Text="Open comments list" FontSize="12" TextWrapping="Wrap" Foreground="$TEXT$" VerticalAlignment="Center" />
       </Button>
       <Border Height="1" Margin="6,4" Background="$RIM$" />
-      <ToggleButton x:Name="DevToolsToggleMarkers" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="10,0" BorderThickness="0" CornerRadius="4"
-              HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="#00000000" Foreground="$TEXT$"
+      <ToggleButton x:Name="DevToolsToggleMarkers" Style="{x:Null}" AllowFocusOnInteraction="False" MinHeight="32" Padding="10,6" BorderThickness="0" CornerRadius="4"
+              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="#00000000" Foreground="$TEXT$"
               AutomationProperties.AutomationId="DevToolsToggleMarkers"
               AutomationProperties.Name="Show comment markers">
         <ToggleButton.Resources>
           <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="$TEXT$" />
         </ToggleButton.Resources>
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <Grid Width="14">
+        <Grid ColumnDefinitions="14,*" ColumnSpacing="8">
+          <Grid>
             <FontIcon x:Name="DevToolsMarkersCheck" FlowDirection="LeftToRight" Glyph="&#xE73E;" FontSize="12" Visibility="Collapsed"
                       Foreground="$TEXT$" VerticalAlignment="Center" />
           </Grid>
-          <TextBlock Text="Show comment markers" FontSize="12" Foreground="$TEXT$" VerticalAlignment="Center" />
-        </StackPanel>
+          <TextBlock Grid.Column="1" Text="Show comment markers" FontSize="12" TextWrapping="Wrap" Foreground="$TEXT$" VerticalAlignment="Center" />
+        </Grid>
       </ToggleButton>
     </StackPanel>
+    </ScrollViewer>
   </Border>
-  <Border x:Name="DevToolsMoreMenu" Visibility="Collapsed" Canvas.ZIndex="1002" Width="240"
+  <Border x:Name="DevToolsMoreMenu" Visibility="Collapsed" Canvas.ZIndex="1002" MinWidth="240"
           RequestedTheme="$TOOLBARTHEME$"
           Background="$SURFACE$" CornerRadius="8" BorderBrush="$RIM$" BorderThickness="1" Padding="4"
           BackgroundSizing="InnerBorderEdge"
@@ -322,8 +326,9 @@
         </Grid>
       </ControlTemplate>
     </Border.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <StackPanel>
-      <Button x:Name="DevToolsHideToolbar" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="10,0" BorderThickness="0" CornerRadius="4"
+      <Button x:Name="DevToolsHideToolbar" Style="{x:Null}" AllowFocusOnInteraction="False" MinHeight="32" Padding="10,6" BorderThickness="0" CornerRadius="4"
               HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="#00000000" Foreground="$TEXT$"
               AutomationProperties.AutomationId="DevToolsHideToolbar"
               AutomationProperties.Name="Hide toolbar" AutomationProperties.AcceleratorKey="Ctrl+Shift+F12">
@@ -333,39 +338,39 @@
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="1" Text="Hide toolbar" FontSize="12" Foreground="$TEXT$" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Text="Hide toolbar" FontSize="12" TextWrapping="Wrap" Foreground="$TEXT$" VerticalAlignment="Center" />
           <TextBlock Grid.Column="2" Text="Ctrl+Shift+F12" FontSize="11" Foreground="$TEXTDIM$" VerticalAlignment="Center" />
         </Grid>
       </Button>
-      <ToggleButton x:Name="DevToolsProtoPin" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="10,0" BorderThickness="0" CornerRadius="4"
-              HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="#00000000" Foreground="$TEXT$"
+      <ToggleButton x:Name="DevToolsProtoPin" Style="{x:Null}" AllowFocusOnInteraction="False" MinHeight="32" Padding="10,6" BorderThickness="0" CornerRadius="4"
+              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="#00000000" Foreground="$TEXT$"
               AutomationProperties.AutomationId="DevToolsProtoPin"
               AutomationProperties.Name="Keep toolbar open">
         <ToggleButton.Resources>
           <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="$TEXT$" />
         </ToggleButton.Resources>
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <Grid Width="14">
+        <Grid ColumnDefinitions="14,*" ColumnSpacing="8">
+          <Grid>
             <FontIcon x:Name="DevToolsPinOn" FlowDirection="LeftToRight" Glyph="&#xE73E;" FontSize="12" Visibility="Collapsed"
                       Foreground="$TEXT$" VerticalAlignment="Center" />
           </Grid>
-          <TextBlock Text="Keep toolbar open" FontSize="12" Foreground="$TEXT$" VerticalAlignment="Center" />
-        </StackPanel>
+          <TextBlock Grid.Column="1" Text="Keep toolbar open" FontSize="12" TextWrapping="Wrap" Foreground="$TEXT$" VerticalAlignment="Center" />
+        </Grid>
       </ToggleButton>
       <Border Height="1" Margin="6,4" Background="$RIM$" />
-      <TextBlock Text="WHEN THE APP STARTS" Height="24" Padding="32,6,10,0" FontSize="10" CharacterSpacing="60"
+      <TextBlock Text="WHEN THE APP STARTS" MinHeight="24" Padding="32,6,10,0" FontSize="10" CharacterSpacing="60"
                  Foreground="$TEXTDIM$" AutomationProperties.HeadingLevel="Level1" />
       <RadioButton x:Name="DevToolsStartShown" GroupName="DevToolsDefaultMode" Template="{StaticResource DevToolsMenuRadio}"
-              AllowFocusOnInteraction="False" UseSystemFocusVisuals="True" Height="32" Padding="10,0"
+              AllowFocusOnInteraction="False" UseSystemFocusVisuals="True" MinHeight="32" Padding="10,6"
               HorizontalAlignment="Stretch" Background="#00000000" Foreground="$TEXT$" Content="Show toolbar"
               AutomationProperties.AutomationId="DevToolsStartShown" />
       <RadioButton x:Name="DevToolsStartHidden" GroupName="DevToolsDefaultMode" Template="{StaticResource DevToolsMenuRadio}"
-              AllowFocusOnInteraction="False" UseSystemFocusVisuals="True" Height="32" Padding="10,0"
+              AllowFocusOnInteraction="False" UseSystemFocusVisuals="True" MinHeight="32" Padding="10,6"
               HorizontalAlignment="Stretch" Background="#00000000" Foreground="$TEXT$" Content="Hide toolbar"
               ToolTipService.ToolTip="DevTools starts with nothing drawn in the app. Press Ctrl+Shift+F12 to show the toolbar."
               AutomationProperties.AutomationId="DevToolsStartHidden" />
       <RadioButton x:Name="DevToolsStartOff" GroupName="DevToolsDefaultMode" Template="{StaticResource DevToolsMenuRadio}"
-              AllowFocusOnInteraction="False" UseSystemFocusVisuals="True" Height="32" Padding="10,0"
+              AllowFocusOnInteraction="False" UseSystemFocusVisuals="True" MinHeight="32" Padding="10,6"
               HorizontalAlignment="Stretch" Background="#00000000" Foreground="$TEXT$" Content="Don't start DevTools"
               ToolTipService.ToolTip="Turn DevTools back on with: winapp config set run.devtools on"
               AutomationProperties.AutomationId="DevToolsStartOff" />
@@ -376,4 +381,5 @@
                  Text="DevTools is off. To turn it back on, run `winapp config set run.devtools on`, or launch with `winapp run . --devtools on`."
                  AutomationProperties.AutomationId="DevToolsStartOffHint" />
     </StackPanel>
+    </ScrollViewer>
   </Border></Canvas>

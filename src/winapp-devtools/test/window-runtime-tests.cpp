@@ -711,6 +711,13 @@ int main()
             "properties pane: header, then the Size & spacing section, then filter and grid");
         check(pane.find(L"SIZE &amp; SPACING")!=std::wstring::npos && pane.find(L"Text=\"LAYOUT\"")==std::wstring::npos,
             "the section is named apart from the grid's Layout category");
+        const auto sourcePane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"",
+            L"",0,{text},L"available",L"<TextBlock Text=\"Hi\"/>",nullptr);
+        const auto sourceToggle=sourcePane.find(L"<HyperlinkButton x:Name=\"AxmlToggle\"");
+        const auto sourceChevron=sourcePane.find(L"<TextBlock x:Name=\"AxmlChev\"",sourceToggle);
+        check(sourceToggle!=std::wstring::npos && sourceChevron!=std::wstring::npos &&
+            sourcePane.substr(sourceToggle,sourceChevron-sourceToggle).find(L"ColumnDefinition Width=\"Auto\"")!=std::wstring::npos,
+            "the source disclosure measures its chevron column instead of clipping a scaled glyph");
         check(pane.find(L"LayoutToggle\"")==std::wstring::npos && pane.find(L"x:Name=\"LayoutMore\"")==std::wstring::npos &&
             BuildLayoutSection(stretched,{}).find(L"WinAppDevToolsBoxModelDetail")!=std::wstring::npos,
             "the section has no nested More disclosure; its details show when it is open");
