@@ -17,7 +17,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
 {
     public string ShortDescription => "Create MSIX package or bundle";
 
-    string? ICompactHelpCommand.Usage => "winapp package <.csproj | folder>... [options]";
+    string? ICompactHelpCommand.Usage => "winapp package <project | folder>... [options]";
 
     IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Examples { get; } =
     [
@@ -34,7 +34,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
     [
         ("Signing", [CertOption, CertPasswordOption, GenerateCertOption, InstallCertOption, PublisherOption, NoSignOption]),
         ("Package contents", [OutputOption, ManifestOption, NameOption, ExecutableOption, SelfContainedOption, SkipPriOption]),
-        ("Build (.csproj input only)", [ConfigurationOption, ArchOption, FrameworkOption, PropertyOption, NoBuildOption, NoRestoreOption]),
+        ("Build (.csproj or .vcxproj input only)", [ConfigurationOption, ArchOption, FrameworkOption, PropertyOption, NoBuildOption, NoRestoreOption]),
     ];
 
     public static Argument<DirectoryInfo[]> InputFolderArgument { get; }
@@ -63,7 +63,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
     {
         InputFolderArgument = new Argument<DirectoryInfo[]>("input-folder")
         {
-            Description = "A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64).",
+            Description = "A single .csproj or C++ .vcxproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64).",
             Arity = ArgumentArity.OneOrMore
         };
         OutputOption = new Option<FileInfo>("--output")
@@ -128,14 +128,14 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
         ConfigurationOption = new Option<string>("--configuration")
         {
             HelpName = "name",
-            Description = "Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release.",
+            Description = "Project mode: build configuration (e.g., Debug, Release). Requires a .csproj or .vcxproj input; rejected for folder/bundle/manifest inputs. Default: Release.",
             DefaultValueFactory = _ => "Release",
         };
         ConfigurationOption.Aliases.Add("-c");
 
         ArchOption = new Option<string[]>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture.",
+            Description = "Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle (.csproj only). Requires a .csproj or .vcxproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };
@@ -149,18 +149,18 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
 
         NoBuildOption = new Option<bool>("--no-build")
         {
-            Description = "Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj input; rejected for folder/bundle/manifest inputs."
+            Description = "Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj or .vcxproj input; rejected for folder/bundle/manifest inputs."
         };
 
         NoRestoreOption = new Option<bool>("--no-restore")
         {
-            Description = "Project mode: skip restoring the project before building. Requires a .csproj input; rejected for folder/bundle/manifest inputs."
+            Description = "Project mode: skip restoring the project before building. Requires a .csproj or .vcxproj input; rejected for folder/bundle/manifest inputs."
         };
 
         PropertyOption = new Option<string[]>("--property")
         {
             HelpName = "Name=Value",
-            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c, -f, and --arch instead of -p for configuration, framework, and architecture. Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c, -f, and --arch instead of -p for configuration, framework, and architecture. Requires a .csproj or .vcxproj input; rejected for folder/bundle/manifest inputs.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };
@@ -168,7 +168,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
     }
 
     public PackageCommand()
-        : base("package", "Create an MSIX installer from a built app folder or directly from a .csproj. Pass a package-layout folder (run after building your app; a manifest must be in the current directory, passed as --manifest, or in the input folder), or pass a .csproj to build and package it in one step (e.g. winapp package ./MyApp.csproj -c Release). Use --cert devcert.pfx to sign for testing.")
+        : base("package", "Create an MSIX installer from a built app folder or directly from a .csproj or C++ .vcxproj. Pass a package-layout folder (run after building your app; a manifest must be in the current directory, passed as --manifest, or in the input folder), or pass a project file to build and package it in one step (e.g. winapp package ./MyApp.csproj -c Release). Use --cert devcert.pfx to sign for testing.")
     {
         Aliases.Add("pack");
         Arguments.Add(InputFolderArgument);
@@ -291,15 +291,21 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
             var selfContained = parseResult.GetValue(SelfContainedOption);
             var executable = parseResult.GetValue(ExecutableOption);
 
-            // Project mode: a single explicit .csproj input (not an existing directory that merely
-            // happens to be named "*.csproj") builds the project and packages its output. Runs before
-            // the sparse/missing-directory checks below so a non-existent .csproj is reported as a
+            // Project mode: a single explicit .csproj or .vcxproj input (not an existing directory that
+            // merely happens to be named like one) builds the project and packages its output. Runs before
+            // the sparse/missing-directory checks below so a non-existent project is reported as a
             // missing project, not a missing input folder. Everything else keeps its existing routing.
-            if (inputFolders.Length == 1
-                && inputFolders[0].Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
-                && !Directory.Exists(inputFolders[0].FullName))
+            if (inputFolders.Length == 1 && !Directory.Exists(inputFolders[0].FullName))
             {
-                return await RunProjectModeAsync(parseResult, new FileInfo(inputFolders[0].FullName), cancellationToken);
+                var projectFile = new FileInfo(inputFolders[0].FullName);
+                if (projectFile.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+                {
+                    return await RunProjectModeAsync(parseResult, projectFile, cancellationToken);
+                }
+                if (ProjectRunService.IsCppProject(projectFile))
+                {
+                    return await RunCppProjectModeAsync(parseResult, projectFile, cancellationToken);
+                }
             }
 
             // --no-sign forces an unsigned artifact for the remaining folder / sparse / bundle inputs and is
@@ -334,7 +340,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
                 var optionList = string.Join(", ", inapplicableProjectOptions);
                 return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
                 {
-                    return Task.FromResult((1, $"{UiSymbols.Error} These option(s) require a .csproj input (project mode) and do not apply to a folder, bundle, or manifest input: {optionList}. Remove them, or pass a .csproj to build and package."));
+                    return Task.FromResult((1, $"{UiSymbols.Error} These option(s) require a .csproj or .vcxproj input (project mode) and do not apply to a folder, bundle, or manifest input: {optionList}. Remove them, or pass a project file to build and package."));
                 }, cancellationToken);
             }
 
@@ -438,6 +444,14 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
                     return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
                     {
                         return Task.FromResult((1, $"{UiSymbols.Error} Manifest file could not be read as valid XML: {manifestError} Fix the manifest, or regenerate it with 'winapp init --exe <exe> --sparse'."));
+                    }, cancellationToken);
+                }
+
+                if (manifestKind == ManifestInputKind.NotManifestName)
+                {
+                    return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
+                    {
+                        return Task.FromResult((1, $"{UiSymbols.Error} '{candidateManifest.Name}' is not a supported input. Pass a .csproj or .vcxproj project, a build output folder, or a sparse appxmanifest.xml."));
                     }, cancellationToken);
                 }
 
