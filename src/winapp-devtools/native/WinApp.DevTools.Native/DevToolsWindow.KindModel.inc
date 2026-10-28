@@ -98,8 +98,10 @@ static bool OriginalFor(const std::wstring& prop, const std::wstring& preVal, Ed
         }
     }
     const DevToolsCardRow* row = FindPropertyRowIn(g_propRows, prop);
+    // The XAML's resource is the original only while it is still set here; the app may have cleared it since.
     if (row && ResourceBacked(prop) && !row->authoredKey.empty() &&
-        (row->authoredKind == L"themeResource" || row->authoredKind == L"staticResource")) {
+        (row->authoredKind == L"themeResource" || row->authoredKind == L"staticResource") &&
+        SetHereIn(g_propRows, OwningRowName(g_propRows, prop))) {
         out.kind = DevToolsOriginal::Resource;
         out.key = row->authoredKey;
         out.theme = row->authoredKind == L"themeResource";
@@ -173,6 +175,8 @@ static void ClearRowValue(InstanceHandle wire, const std::wstring& prop)
 {
     FlushFocusedEditor();
     if (wire != g_selWire) return;
+    // The flush saved the editors. Retire them so the pane rebuild below doesn't save their old text over the clear.
+    RetirePaneEditors();
     if (BindingLost(prop)) {
         SetStatusText(L"Clearing " + prop + L" can't bring its binding back. " +
                       (g_ctx.bindFn ? std::wstring(L"Use Restore binding instead")
@@ -216,6 +220,8 @@ static void RestoreRowValue(InstanceHandle wire, const std::wstring& prop, const
 {
     FlushFocusedEditor();
     if (wire != g_selWire) return;
+    // The flush saved the editors. Retire them so the pane rebuild below doesn't save their old text over Restore.
+    RetirePaneEditors();
     if (BindingLost(prop)) {
         SetStatusText(L"Can't restore " + prop + L". Its binding was replaced. " +
                       (g_ctx.bindFn ? std::wstring(L"Use Restore binding instead")

@@ -1060,6 +1060,14 @@ int main()
         EditRecord clearedOriginal;
         check(OriginalFor(L"Text",L"FromStyle",clearedOriginal) && clearedOriginal.kind==DevToolsOriginal::Unset,
             "Restore clears an authored property the app had cleared, instead of pinning the style's value");
+        DevToolsCardRow clearedResource=clearedAuthored; clearedResource.authoredKind=L"staticResource"; clearedResource.authoredKey=L"Wide";
+        g_propRows={clearedResource}; g_linkedRows={L"Text"};
+        EditRecord clearedResourceOriginal;
+        check(OriginalFor(L"Text",L"FromStyle",clearedResourceOriginal) && clearedResourceOriginal.kind==DevToolsOriginal::Unset,
+            "Restore clears a XAML resource the app had cleared, instead of bringing the resource back");
+        clearedResource.source=L"Local"; g_propRows={clearedResource};
+        check(OriginalFor(L"Text",L"Wide",clearedResourceOriginal) && clearedResourceOriginal.kind==DevToolsOriginal::Resource &&
+              clearedResourceOriginal.key==L"Wide", "a XAML resource that is still set is restored as the resource");
         g_linkedRows.clear(); g_appChanged.clear(); g_propRows={text};
 
         // Attached properties keep their full name in the pre-write read; fields read their owning property.
@@ -1076,6 +1084,15 @@ int main()
         RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr);
         RetirePaneEditors();
         check(late.retired && g_paneEditors.empty(), "rebuilding the pane retires its editors");
+        // Restore and Clear save the focused editor once, then retire it, so the rebuild can't write its old text back.
+        g_propRows={text}; live[500]=L"Hello"; liveSource=L"Local"; g_editRecords.clear(); g_appChanged.clear();
+        ApplyLiteralValue(L"Text",L"String",L"Hello",L"Edited",false);
+        RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr); late.retired=false;
+        RestoreRowValue(500,L"Text",L"String");
+        check(late.retired && g_paneEditors.empty() && live[500]==L"Hello", "Restore retires the editors it saved");
+        RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr); late.retired=false;
+        ClearRowValue(500,L"Text");
+        check(late.retired && g_paneEditors.empty(), "Clear retires the editors it saved");
         g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr; g_valuesFn=nullptr;
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
