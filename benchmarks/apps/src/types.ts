@@ -146,6 +146,10 @@ export interface ScenarioConfig {
    */
   gates?: Array<"native_aot">;
   requirements?: string[];
+  /** 1-based requirement numbers that must pass for the trial to pass. Others are improvements. */
+  required_requirements?: number[];
+  /** Scenario set for the benchmark-data format. Defaults to "tuning". */
+  set?: "tuning" | "held-out";
   test_notes?: string;
   test_assets?: Array<{
     name: string;
