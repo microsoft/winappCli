@@ -393,6 +393,8 @@ static void TestUndeclaredParametersAreNotSilentlyAccepted()
         { L"VisualTree.enumerate",     L"depth",   L"maxDepth" },  // read tier, optional members
         { L"VisualTree.getPreviews",   L"handles", L"items"    },  // nested schema inside a member
         { L"Property.get",             L"handle",  L"prop"     },  // read tier: `prop` belongs to OTHER methods
+        { L"Automation.getPeer",       L"handle",  L"create"   },
+        { L"Automation.createPeer",    L"handle",  L"create"   },
         { L"HotReload.setProperty",    L"value",   L"newValue" },  // mutation tier
         { L"HotReload.clearProperty",  L"prop",    L"value"    },  // mutation tier, deliberately no `value`
         { L"Overlay.highlight",        L"handle",  L"element"  },  // ui tier, owner-bearing

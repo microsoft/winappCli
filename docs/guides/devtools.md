@@ -161,6 +161,32 @@ For a terminal you keep using, launch with `winapp run . --detach`: it prints th
 and the next command. For scripts, add `--json`; see
 [JSON output](devtools-advanced.md#json-output).
 
+### Check an automation peer
+
+```powershell
+winapp devtools get-property SaveButton --automation-peer existing --json
+winapp devtools get-property SaveButton --automation-peer create --json
+```
+
+An automation peer is the framework object behind a control's UI Automation (UIA)
+support. `existing` only looks for an existing peer. `state: "not-observed"` means
+none was found at that moment, not that the control cannot create one.
+
+Use `create` only when you want to run the control's peer-creation code. It first
+checks for an existing peer and attempts creation only if none is found. The result
+keeps `before`, `state`, `creationAttempted` and `mayHaveChangedAppState`.
+`state: "not-created"` means that attempt returned no peer. Creation can change app
+state even when it returns no peer or throws; do not retry an interrupted creation
+automatically. A read-only DevTools session refuses creation.
+
+These are observations, not accessibility pass/fail results. A peer can exist
+without exposing a separate UIA element; a template child can intentionally have
+no peer. UIA clients can also create peers, so their presence depends on prior app
+activity. Non-FrameworkElement objects report `not-supported`, and failed reads
+report `error` with `errorHResult` rather than claiming no peer exists.
+Use one unambiguous selector; peer mode cannot be combined with property or query
+options. Without `--automation-peer`, property reads are unchanged.
+
 ## When something fails
 
 | What you see | What to do |

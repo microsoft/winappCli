@@ -277,6 +277,58 @@ struct TextDiagnostics : BindingDiagnostics {
     }
 };
 
+static void CheckAutomationPeerRequests(const std::function<void(bool,const char*)>& check)
+{
+    BindingDiagnostics diagnostics;
+    g_diag = &diagnostics;
+    g_dispatcher = reinterpret_cast<IInspectable*>(1);
+    g_testEnqueueUiOperation = [](void*, IUnknown* handler, bool* enqueued) -> HRESULT {
+        *enqueued = true;
+        winrt::com_ptr<IDispatcherQueueHandler> callback;
+        const HRESULT hr = handler->QueryInterface(IID_PPV_ARGS(callback.put()));
+        return FAILED(hr) ? hr : callback->Invoke();
+    };
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
+    g_sessionNonce = 17;
+    MintSlot_nolock(901);
+    const auto wire = PackWire_nolock(901);
+    auto call = [&](const wchar_t* method, const std::wstring& handle) {
+        return HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
+            L"\",\"params\":{\"handle\":\"" + handle + L"\"}}"));
+    };
+    DevToolsTrust_InitializePosture(DevToolsAccess::Read);
+    const auto refused = call(L"Automation.createPeer", std::to_wstring(wire));
+    check(refused.find(L"refused-unsafe") != std::wstring::npos && diagnostics.calls == 0,
+        "read-only posture refuses peer creation before accessing the app object");
+    const auto observed = call(L"Automation.getPeer", std::to_wstring(wire));
+    check(observed.find(L"\"state\":\"not-supported\"") != std::wstring::npos &&
+        observed.find(L"\"creationAttempted\":false") != std::wstring::npos && diagnostics.calls == 1,
+        "non-FrameworkElement is unsupported, not a missing peer");
+    DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
+    const auto unsupported = call(L"Automation.createPeer", std::to_wstring(wire));
+    check(unsupported.find(L"\"state\":\"not-supported\"") != std::wstring::npos &&
+        unsupported.find(L"\"mayHaveChangedAppState\":false") != std::wstring::npos,
+        "explicit creation does not run peer code on an unsupported object");
+    diagnostics.failAcquire = true;
+    const auto failed = call(L"Automation.getPeer", std::to_wstring(wire));
+    check(failed.find(L"\"state\":\"error\"") != std::wstring::npos &&
+        failed.find(L"\"before\":\"unknown\"") != std::wstring::npos &&
+        failed.find(L"\"errorHResult\":\"0x80004005\"") != std::wstring::npos,
+        "failed diagnostics object lookup preserves HRESULT instead of claiming no peer exists");
+    const auto calls = diagnostics.calls;
+    check(call(L"Automation.createPeer", L"901|unsafe").find(L"bad-args") != std::wstring::npos &&
+        diagnostics.calls == calls, "malformed peer handles are refused before dispatch");
+    FreeSlot_nolock(901);
+    MintSlot_nolock(901);
+    check(call(L"Automation.createPeer", std::to_wstring(wire)).find(L"stale-handle") != std::wstring::npos &&
+        diagnostics.calls == calls, "a retired generation cannot target a replacement object");
+    check(diagnostics.object.refs == 1, "peer diagnostics releases its owned inspectable reference");
+    g_diag = nullptr;
+    g_dispatcher = nullptr;
+    g_testEnqueueUiOperation = nullptr;
+}
+
 struct TextTreeService : IVisualTreeService3 {
     InputTextBox& text;
     unsigned writes=0;
@@ -1342,6 +1394,7 @@ int wmain(int argc, wchar_t** argv)
     CheckCensusFollowsReparentsAndParentlessRemoves(check);
     CheckTreeDeltasFollowSubscription(check);
     CheckQueries(check);
+    CheckAutomationPeerRequests(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
     auto call = [&](const wchar_t* method) {
         DevToolsRpcRequest request{};

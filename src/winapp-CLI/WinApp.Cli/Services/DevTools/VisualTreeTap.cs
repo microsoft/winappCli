@@ -371,6 +371,9 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
 
     public DevToolsProtocolResponse RequestAppAuthored(CancellationToken cancellationToken = default) => Request("VisualTree.getAppAuthored", cancellationToken: cancellationToken);
     public DevToolsProtocolResponse RequestProperties(string handle, CancellationToken cancellationToken = default) => Request("Property.get", w => w.WriteString("handle", handle), cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestAutomationPeer(string handle, bool create, CancellationToken cancellationToken = default) =>
+        Request(create ? "Automation.createPeer" : "Automation.getPeer",
+            w => w.WriteString("handle", handle), cancellationToken: cancellationToken);
     public DevToolsProtocolResponse RequestLayout(string handle, CancellationToken cancellationToken = default) => Request("Layout.get", w => w.WriteString("handle", handle), cancellationToken: cancellationToken);
     public DevToolsProtocolResponse RequestSource(string handle, CancellationToken cancellationToken = default) => Request("Source.get", w => w.WriteString("handle", handle), cancellationToken: cancellationToken);
     public DevToolsProtocolResponse RequestBindingDiagnosis(string handle, string property, CancellationToken cancellationToken = default) => Request("Binding.diagnose", w =>

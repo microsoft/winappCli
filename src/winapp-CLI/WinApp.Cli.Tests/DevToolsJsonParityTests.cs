@@ -21,6 +21,113 @@ namespace WinApp.Cli.Tests;
 public class DevToolsJsonParityTests
 {
     [TestMethod]
+    [DataRow("existing", "not-observed", "not-observed", false)]
+    [DataRow("existing", "present", "present", false)]
+    [DataRow("existing", "not-supported", "not-supported", false)]
+    [DataRow("create", "not-observed", "present", true)]
+    [DataRow("create", "not-observed", "not-created", true)]
+    [DataRow("create", "present", "present", false)]
+    [DataRow("create", "not-observed", "error", true)]
+    public async Task AutomationPeer_PreservesObservationsAndUsesTheRequestedOperation(
+        string mode, string before, string state, bool attempted)
+    {
+        var method = mode == "create" ? "Automation.createPeer" : "Automation.getPeer";
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer(method, PeerFacts(mode, before, state, attempted))
+            .Answer("VisualTree.enumerate", Tree);
+        var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent,
+            ["42", "--automation-peer", mode, "--json"]);
+        Assert.AreEqual(state == "error" ? 1 : 0, exit, output);
+        using var document = JsonDocument.Parse(output);
+        var facts = document.RootElement.GetProperty("automationPeer");
+        Assert.AreEqual(before, facts.GetProperty("before").GetString());
+        Assert.AreEqual(state, facts.GetProperty("state").GetString());
+        Assert.AreEqual(attempted, facts.GetProperty("creationAttempted").GetBoolean());
+        Assert.AreEqual(attempted, facts.GetProperty("mayHaveChangedAppState").GetBoolean());
+        CollectionAssert.Contains(agent.Received, method);
+        CollectionAssert.DoesNotContain(agent.Received, "Property.get");
+        CollectionAssert.DoesNotContain(agent.Received, mode == "create" ? "Automation.getPeer" : "Automation.createPeer");
+        if (state == "error")
+        {
+            Assert.AreEqual("0x80004005", facts.GetProperty("errorHResult").GetString());
+        }
+    }
+
+    [TestMethod]
+    [DataRow("existing", "not-observed", "not-observed", false)]
+    [DataRow("create", "not-observed", "not-created", true)]
+    public async Task AutomationPeer_HumanOutputDoesNotClaimAccessibilityFailure(
+        string mode, string before, string state, bool attempted)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer(mode == "create" ? "Automation.createPeer" : "Automation.getPeer", PeerFacts(mode, before, state, attempted));
+        var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent, ["42", "--automation-peer", mode]);
+        Assert.AreEqual(0, exit);
+        StringAssert.Contains(output, state);
+        StringAssert.Contains(output, "not proof of UIA exposure");
+        Assert.AreEqual(attempted, output.Contains("may have changed app state", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [DataRow("""{"handle":"43","mode":"existing","before":"present","state":"present","creationAttempted":false,"mayHaveChangedAppState":false}""")]
+    [DataRow("""{"handle":"42","mode":"create","before":"present","state":"present","creationAttempted":false,"mayHaveChangedAppState":false}""")]
+    [DataRow("""{"handle":"42","mode":"existing","before":"not-observed","state":"present","creationAttempted":true,"mayHaveChangedAppState":true}""")]
+    [DataRow("""{"handle":"42","mode":"existing","before":"present","state":false,"creationAttempted":false,"mayHaveChangedAppState":false}""")]
+    [DataRow("""{"handle":"42","mode":"existing","before":"present","state":"present"}""")]
+    public async Task AutomationPeer_RejectsMalformedOrMismatchedFacts(string facts)
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Answer("Automation.getPeer", facts);
+        var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent,
+            ["42", "--automation-peer", "existing", "--json"]);
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(output, "invalid-response");
+    }
+
+    [TestMethod]
+    [DataRow("Text")]
+    [DataRow("--all")]
+    [DataRow("--of-type", "Button")]
+    public async Task AutomationPeer_ConflictingOptionsNeverCreateAPeer(string first, string? second = null)
+    {
+        using var agent = new FakeDevToolsProtocolAgent();
+        List<string> args = ["42", "--automation-peer", "create", "--json", first];
+        if (second is not null)
+        {
+            args.Add(second);
+        }
+        var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent, [.. args]);
+        Assert.AreEqual(1, exit, output);
+        Assert.AreEqual(0, agent.Received.Count, "Contradictory inputs must not contact the app.");
+    }
+
+    [TestMethod]
+    public async Task AutomationPeer_TruncatedNameResolutionNeverCreatesAPeer()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", Find(SaveButtonMatch, truncated: true))
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree);
+        var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent,
+            ["SaveButton", "--automation-peer", "create", "--json"]);
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(output, "ambiguous-selector");
+        CollectionAssert.DoesNotContain(agent.Received, "Automation.createPeer");
+    }
+
+    [TestMethod]
+    public async Task AutomationPeer_PreservesSessionRefusal()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Error("Automation.createPeer", -32012, "refused-unsafe", "Read-only session");
+        var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent,
+            ["42", "--automation-peer", "create", "--json"]);
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(output, "refused-unsafe");
+    }
+
+    private static string PeerFacts(string mode, string before, string state, bool attempted) =>
+        $$"""{"handle":"42","mode":"{{mode}}","before":"{{before}}","state":"{{state}}","creationAttempted":{{attempted.ToString().ToLowerInvariant()}},"mayHaveChangedAppState":{{attempted.ToString().ToLowerInvariant()}},"errorHResult":"0x80004005"}""";
+
+    [TestMethod]
     public async Task Correction_Search_PreservesRemoteError()
     {
         using var agent = new FakeDevToolsProtocolAgent().Error("VisualTree.find", -32011, "no-tree", "controlled");

@@ -45,12 +45,19 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
         Arguments.Add(PropertyArgument);
         Options.Add(SharedDevToolsOptions.PropertyOption);
         Options.Add(AllOption);
+        AutomationPeerOption.AcceptOnlyFromAmong("existing", "create");
+        Options.Add(AutomationPeerOption);
         DevToolsQueryOptions.Add(this);
     }
 
     public static Option<bool> AllOption { get; } = new("--all")
     {
         Description = "Include default-valued properties, not only explicitly set ones.",
+    };
+
+    public static Option<string?> AutomationPeerOption { get; } = new("--automation-peer")
+    {
+        Description = "Read automation-peer facts instead of properties: existing only observes; create may run app code and change state.",
     };
 
     public class Handler(
@@ -72,6 +79,18 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     return Task.FromResult(Fail(json, target.Pid, "Pass the property once: positionally or with --property.", "bad-args"));
                 }
                 property = positional;
+            }
+            if (parseResult.GetValue(AutomationPeerOption) is { } peerMode)
+            {
+                if (property is not null || parseResult.GetValue(AllOption) || DevToolsQueryOptions.HasReadQuery(parseResult))
+                {
+                    return Task.FromResult(Fail(json, target.Pid,
+                        "--automation-peer requires one positional selector and cannot be combined with property or query options.", "bad-args"));
+                }
+                var peerHandle = RequireHandle(target, selector, json, "Run `winapp devtools inspect` to list them.",
+                    out var peerExit, cancellationToken, forMutation: peerMode == "create");
+                return Task.FromResult(peerHandle is null ? peerExit
+                    : ReadAutomationPeer(target, peerHandle, peerMode, json, cancellationToken));
             }
             string? handle;
             DevToolsProtocolResponse response;
@@ -278,6 +297,76 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             }
 
             return Task.FromResult(0);
+        }
+
+        private int ReadAutomationPeer(DevToolsTarget target, string handle, string mode, bool json, CancellationToken cancellationToken)
+        {
+            var response = target.Tap!.RequestAutomationPeer(handle, mode == "create", cancellationToken);
+            if (!response.Ok)
+            {
+                return Fail(json, target.Pid, response.Error!);
+            }
+            using var document = response.TryParseResult();
+            if (document is null || document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return Fail(json, target.Pid, "The agent returned unreadable automation-peer facts.", "invalid-response");
+            }
+            var facts = document.RootElement;
+            if (!facts.TryGetProperty("handle", out var returnedHandle) || returnedHandle.ValueKind != JsonValueKind.String ||
+                returnedHandle.GetString() != handle ||
+                !facts.TryGetProperty("mode", out var returnedMode) || returnedMode.ValueKind != JsonValueKind.String ||
+                returnedMode.GetString() != mode ||
+                !facts.TryGetProperty("state", out var state) || state.ValueKind != JsonValueKind.String ||
+                state.GetString() is not ("present" or "not-observed" or "not-created" or "not-supported" or "error") ||
+                !facts.TryGetProperty("before", out var before) || before.ValueKind != JsonValueKind.String ||
+                !facts.TryGetProperty("creationAttempted", out var attempted) || attempted.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+                !facts.TryGetProperty("mayHaveChangedAppState", out var changed) || changed.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+                changed.GetBoolean() != attempted.GetBoolean() || (mode == "existing" && attempted.GetBoolean()))
+            {
+                return Fail(json, target.Pid, "The agent returned inconsistent automation-peer facts.", "invalid-response");
+            }
+            var validObservation = state.GetString() switch
+            {
+                "present" => before.GetString() == (attempted.GetBoolean() ? "not-observed" : "present"),
+                "not-observed" => mode == "existing" && before.GetString() == "not-observed" && !attempted.GetBoolean(),
+                "not-created" => mode == "create" && before.GetString() == "not-observed" && attempted.GetBoolean(),
+                "not-supported" => before.GetString() == "not-supported" && !attempted.GetBoolean(),
+                "error" => before.GetString() == (attempted.GetBoolean() ? "not-observed" : "unknown") &&
+                    facts.TryGetProperty("errorHResult", out var error) && error.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrEmpty(error.GetString()),
+                _ => false,
+            };
+            if (!validObservation)
+            {
+                return Fail(json, target.Pid, "The agent returned inconsistent automation-peer observations.", "invalid-response");
+            }
+            var failed = state.GetString() == "error";
+            if (json)
+            {
+                WriteJson(DevToolsJson.Serialize(writer =>
+                {
+                    writer.WriteBoolean("ok", !failed);
+                    writer.WriteNumber("processId", target.Pid);
+                    WriteIdentity(writer, target, handle, cancellationToken);
+                    WriteWarning(writer);
+                    writer.WritePropertyName("automationPeer");
+                    facts.WriteTo(writer);
+                }));
+            }
+            else
+            {
+                Console.MarkupLineInterpolated($"Automation peer: {state.GetString()} (before: {before.GetString()}).");
+                if (failed)
+                {
+                    Console.MarkupLineInterpolated($"Peer API error: {facts.GetProperty("errorHResult").GetString()}.");
+                }
+                if (attempted.GetBoolean())
+                {
+                    Console.WriteLine("Creation was attempted and may have changed app state, even if no peer was returned.");
+                }
+                Console.WriteLine("This is not proof of UIA exposure or accessibility conformance.");
+            }
+            return failed ? 1 : 0;
         }
     }
 }
