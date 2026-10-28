@@ -404,6 +404,10 @@ try {
         $record.skillContextTokensApprox = $ev.skillContextTokensApprox; $record.skillRepeatDeliveries = $ev.skillRepeatDeliveries
         $record.pluginFileReads = @($act.pluginFileReads); $record.pluginReadChars = $act.pluginReadChars
         $record.winappCommandsRun = @(Get-WinappCommands -Text @($act.shellCommands))
+        $record.winappCommandCounts = [ordered]@{}
+        foreach ($g in (@(Get-WinappCommands -Text @($act.shellCommands) -All) | Group-Object)) { $record.winappCommandCounts[$g.Name] = $g.Count }
+        $record.skillLoadCounts = [ordered]@{}
+        foreach ($g in (@($ev.skillsInvoked | ForEach-Object { Get-BareSkillName $_.name }) | Group-Object)) { $record.skillLoadCounts[$g.Name] = $g.Count }
         $record.winappCommandsNamed = @($ev.winappCommands)
         $record.shellCommandCount = $act.shellCommands.Count; $record.failedToolCalls = $act.failedToolCalls
         $record.finalResponse = $ev.finalResponse

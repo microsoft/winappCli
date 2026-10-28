@@ -6,6 +6,7 @@
  * requirements and the design score are improvements, unless the scenario lists a
  * requirement in `required_requirements`.
  */
+import type { Activity } from "./activity.js";
 import type { QualityCheck } from "./quality-checks.js";
 
 export const ARMS = ["none", "cli-only", "cli-plus-plugins"] as const;
@@ -38,6 +39,8 @@ export interface TrialResultInput {
   designScore: number | null;
   judgeModel?: string;
   usage: ExactUsage;
+  /** Skills loaded and winapp commands run; omitted when the event stream is unavailable. */
+  activity?: Activity | null;
   failReason?: string;
 }
 
@@ -97,6 +100,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     improvements: { met: improvements.filter((c) => c.passed).length, total: improvements.length },
     checks,
     ...(input.judgeModel ? { judge: { model: input.judgeModel, designScore: input.designScore } } : {}),
+    ...(input.activity ? { skills: input.activity.skills, winappCommands: input.activity.winappCommands } : {}),
     usage: input.usage,
   };
 }

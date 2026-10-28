@@ -216,7 +216,15 @@ function ConvertTo-TrialResult {
             $c
         })
     $improvements = @($checks | Where-Object kind -eq 'improvement')
-    $skills = @($Record.skillsLoaded | ForEach-Object { [ordered]@{ name = [string]$_ } })
+    $skillCounts = $Record.PSObject.Properties['skillLoadCounts']?.Value
+    $cmdCounts = $Record.PSObject.Properties['winappCommandCounts']?.Value
+    $skills = @($Record.skillsLoaded | ForEach-Object {
+            $s = [ordered]@{ name = [string]$_ }
+            if ($skillCounts -and $skillCounts[[string]$_]) { $s.count = [int]$skillCounts[[string]$_] }
+            $s
+        })
+    $commandCounts = @()
+    if ($cmdCounts) { $commandCounts = @($cmdCounts.Keys | ForEach-Object { [ordered]@{ command = [string]$_; count = [int]$cmdCounts[$_] } }) }
     $result = [ordered]@{
         schemaVersion = 1
         release       = $Release
@@ -241,6 +249,7 @@ function ConvertTo-TrialResult {
         }
     }
     if ($skills.Count) { $result.skills = $skills }
+    if ($cmdCounts) { $result.winappCommands = $commandCounts }
     return $result
 }
 
