@@ -143,7 +143,8 @@ namespace WinApp.Cli.Services.Controls;
 ///          instead (an "Undefined handlers:" line in find-ui output). Deleting removed
 ///          the very event a sample is about (ScrollView's ScrollAnimationStarting, ...)
 ///          and depended on a hand-kept event-name list. Rule 3: same input, different
-///          output — an unbumped cache keeps serving the stripped markup.///
+///          output — an unbumped cache keeps serving the stripped markup.
+///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
 /// existing user through a several-hundred-request re-fetch for no benefit.

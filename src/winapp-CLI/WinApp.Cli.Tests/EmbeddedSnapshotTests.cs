@@ -319,38 +319,7 @@ public class EmbeddedSnapshotTests
     [TestMethod]
     public void GalleryCorpus_DisclosesEveryUndefinedEventHandler()
     {
-        // Handlers are kept, never deleted: the event is what a sample teaches. Whatever
-        // the rendered output says about them is what the reader sees, so assert on that
-        // rather than on the detector agreeing with itself: any bare-method handler left in
-        // the served XAML that the C# does not declare must appear in the "Undefined
-        // handlers:" line SearchEngine renders.
-        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
-        ScenarioSanitizer.SanitizeAll(scenarios);
-        var engine = new SearchEngine(scenarios, corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
-
-        var undisclosed = new List<string>();
-        foreach (var s in scenarios.Where(s => !string.IsNullOrEmpty(s.Xaml)))
-        {
-            var (formatted, found, _) = engine.GetPattern($"{s.Source}-{s.Id}");
-            Assert.IsTrue(found, s.Id);
-            var disclosure = formatted.Split('\n').FirstOrDefault(l => l.StartsWith("**Undefined handlers:**", StringComparison.Ordinal)) ?? "";
-            foreach (Match m in Regex.Matches(s.Xaml!, @"\s([A-Z]\w*)=""([A-Za-z_]\w*)"""))
-            {
-                var method = m.Groups[2].Value;
-                var declared = !string.IsNullOrWhiteSpace(s.CSharp)
-                    && Regex.IsMatch(s.CSharp, $@"\b(?:void|Task)\s+{Regex.Escape(method)}\s*\(");
-                // A handler-named method (Foo_Bar or OnFoo) with no declaration must be disclosed.
-                if (!declared && Regex.IsMatch(method, @"^(?:On[A-Z]\w*|[A-Za-z]+_[A-Za-z]\w*)$")
-                    && !Regex.IsMatch(m.Groups[1].Value, @"^(?:Name|Uid|Key|Class)$")
-                    && !disclosure.Contains(method, StringComparison.Ordinal))
-                {
-                    undisclosed.Add($"{s.Id}:{method}");
-                }
-            }
-        }
-
-        Assert.AreEqual(0, undisclosed.Count,
-            $"{undisclosed.Count} Gallery handlers are served undefined without disclosure: {string.Join(", ", undisclosed.Take(10))}");
+        AssertEveryUndefinedHandlerDisclosed("gallery");
     }
 
     [TestMethod]
@@ -464,38 +433,7 @@ public class EmbeddedSnapshotTests
     [TestMethod]
     public void ToolkitCorpus_DisclosesEveryUndefinedEventHandler()
     {
-        // Handlers are kept, never deleted: the event is what a sample teaches. Whatever
-        // the rendered output says about them is what the reader sees, so assert on that
-        // rather than on the detector agreeing with itself: any bare-method handler left in
-        // the served XAML that the C# does not declare must appear in the "Undefined
-        // handlers:" line SearchEngine renders.
-        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
-        ScenarioSanitizer.SanitizeAll(scenarios);
-        var engine = new SearchEngine(scenarios, corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
-
-        var undisclosed = new List<string>();
-        foreach (var s in scenarios.Where(s => !string.IsNullOrEmpty(s.Xaml)))
-        {
-            var (formatted, found, _) = engine.GetPattern($"{s.Source}-{s.Id}");
-            Assert.IsTrue(found, s.Id);
-            var disclosure = formatted.Split('\n').FirstOrDefault(l => l.StartsWith("**Undefined handlers:**", StringComparison.Ordinal)) ?? "";
-            foreach (Match m in Regex.Matches(s.Xaml!, @"\s([A-Z]\w*)=""([A-Za-z_]\w*)"""))
-            {
-                var method = m.Groups[2].Value;
-                var declared = !string.IsNullOrWhiteSpace(s.CSharp)
-                    && Regex.IsMatch(s.CSharp, $@"\b(?:void|Task)\s+{Regex.Escape(method)}\s*\(");
-                // A handler-named method (Foo_Bar or OnFoo) with no declaration must be disclosed.
-                if (!declared && Regex.IsMatch(method, @"^(?:On[A-Z]\w*|[A-Za-z]+_[A-Za-z]\w*)$")
-                    && !Regex.IsMatch(m.Groups[1].Value, @"^(?:Name|Uid|Key|Class)$")
-                    && !disclosure.Contains(method, StringComparison.Ordinal))
-                {
-                    undisclosed.Add($"{s.Id}:{method}");
-                }
-            }
-        }
-
-        Assert.AreEqual(0, undisclosed.Count,
-            $"{undisclosed.Count} Toolkit handlers are served undefined without disclosure: {string.Join(", ", undisclosed.Take(10))}");
+        AssertEveryUndefinedHandlerDisclosed("toolkit");
     }
 
     [TestMethod]
@@ -962,6 +900,46 @@ public class EmbeddedSnapshotTests
             [new Scenario { Id = $"{controlId}-1", ControlId = controlId, ControlName = controlId, HeaderText = "s", Source = controlId }],
             new Dictionary<string, string[]> { [controlId] = [controlId] },
             new());
+
+    /// <summary>
+    /// Handlers are kept, never deleted, because the event is what a sample teaches. This
+    /// finds handler-shaped attributes with its own matcher (any capitalised attribute whose
+    /// value is <c>Foo_Bar</c> or <c>OnFoo</c>), independent of the one under test, and asserts
+    /// each undeclared one is disclosed both in <c>GetUndefinedHandlers</c> (the --json field)
+    /// and in the rendered "Undefined handlers:" line.
+    /// </summary>
+    private static void AssertEveryUndefinedHandlerDisclosed(string providerId)
+    {
+        var scenarios = ReadEmbeddedSnapshot(providerId)!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+        var engine = new SearchEngine(scenarios, corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var undisclosed = new List<string>();
+        foreach (var s in scenarios.Where(s => !string.IsNullOrEmpty(s.Xaml)))
+        {
+            var id = $"{s.Source}-{s.Id}";
+            var (formatted, found, _) = engine.GetPattern(id);
+            Assert.IsTrue(found, id);
+            var json = engine.GetUndefinedHandlers(id);
+            var line = formatted.Split('\n')
+                .FirstOrDefault(l => l.StartsWith("**Undefined handlers:**", StringComparison.Ordinal)) ?? "";
+
+            foreach (Match m in Regex.Matches(s.Xaml!, @"\s(?!Name\b|Uid\b|Key\b|Class\b)([A-Z]\w*)=""((?:On[A-Z]\w*)|(?:[A-Za-z]\w*_[A-Za-z]\w*))"""))
+            {
+                var method = m.Groups[2].Value;
+                var declared = !string.IsNullOrWhiteSpace(s.CSharp)
+                    && Regex.IsMatch(s.CSharp, $@"\b(?:void|Task)\s+{Regex.Escape(method)}\s*\(");
+                var entry = $"{m.Groups[1].Value}=\"{method}\"";
+                if (!declared && (!json.Contains(entry) || !line.Contains(method, StringComparison.Ordinal)))
+                {
+                    undisclosed.Add($"{id}:{entry}");
+                }
+            }
+        }
+
+        Assert.AreEqual(0, undisclosed.Count,
+            $"{undisclosed.Count} {providerId} handlers are served undefined without disclosure: {string.Join(", ", undisclosed.Take(10))}");
+    }
 
     private static ProviderSnapshot? ReadEmbeddedSnapshot(string providerId)
     {

@@ -737,13 +737,8 @@ internal sealed class SearchEngine
         return scenarios[bestIdx];
     }
 
-    public (string formatted, bool found, string? canonicalId) GetPattern(string id)
+    private (Scenario? scenario, string? expectedSource, string bareId) FindScenario(string id)
     {
-        // Check core patterns (ids are case-insensitive — humans and agents copy them
-        // by hand, so "File-Picker-Desktop" must resolve the same as "file-picker-desktop").
-        var core = _corePatterns.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
-        if (core != null) return (FormatCorePattern(core), true, core.Id);
-
         // Strip a known "{source}-" prefix and remember which source the caller asked
         // for, so we don't return a Gallery scenario for a "toolkit-..." id (or
         // vice-versa) when the bare ids happen to collide.
@@ -778,6 +773,26 @@ internal sealed class SearchEngine
                 .ThenBy(s => s.Id, StringComparer.OrdinalIgnoreCase)
                 .FirstOrDefault();
         }
+
+        return (scenario, expectedSource, bareId);
+    }
+
+    /// <summary>Event hookups the scenario's XAML wires to methods its code does not declare, as Event="Method" strings. Empty for core patterns and unknown ids.</summary>
+    public string[] GetUndefinedHandlers(string id)
+    {
+        if (_corePatterns.Any(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase))) return [];
+        var (scenario, _, _) = FindScenario(id);
+        return scenario is null ? [] : ControlSnippetText.FindUndefinedEventHandlers(scenario.Xaml, scenario.CSharp);
+    }
+
+    public (string formatted, bool found, string? canonicalId) GetPattern(string id)
+    {
+        // Check core patterns (ids are case-insensitive — humans and agents copy them
+        // by hand, so "File-Picker-Desktop" must resolve the same as "file-picker-desktop").
+        var core = _corePatterns.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (core != null) return (FormatCorePattern(core), true, core.Id);
+
+        var (scenario, expectedSource, bareId) = FindScenario(id);
 
         if (scenario != null) return (FormatScenario(scenario), true, $"{scenario.Source}-{scenario.Id}");
 

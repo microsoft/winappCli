@@ -25,7 +25,10 @@ internal static partial class ControlSnippetText
     /// used to annotate output, so a stray match costs a reader one sentence.
     /// </summary>
     [GeneratedRegex(
-        @"\s(?=[A-Z])((?:[A-Za-z]*?)(?:Click|Focus|Drop|DragOver|Requested|Indeterminate|ed|ing))=""([A-Za-z_]\w*)""")]
+        @"\s(?=[A-Z])((?:Preview)?(?:Key|Pointer|Manipulation|Drag|Context|Access|Got|Lost|Right|Double)?[A-Za-z]*?" +
+        @"(?:Click|Tapped|Holding|Focus|Drop|Enter|Leave|Over|Down|Up|Moved|Pressed|Released|Canceled|Requested|" +
+        @"Started|Starting|Completed|Delta|Inertia|Changed|Changing|Indeterminate|Opened|Closed|Closing|Loaded|Unloaded|" +
+        @"Invoked|Submitted|Chosen|ed|ing))=""([A-Za-z_]\w*)""")]
     private static partial Regex EventHandlerAttrRegex();
 
     /// <summary>
@@ -69,6 +72,7 @@ internal static partial class ControlSnippetText
         }
         return [.. found];
     }
+
     /// <summary>Matches a single XML start/end/self-closing tag: group 1 = leading
     /// <c>/</c> (end tag), group 2 = (possibly prefixed) element name, group 4 =
     /// trailing <c>/</c> (self-closing).</summary>

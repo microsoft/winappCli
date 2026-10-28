@@ -239,6 +239,46 @@ public class FindUiSearchTests
 
         Assert.IsFalse(formatted.Contains("**Undefined handlers:**"));
     }
+
+    [TestMethod]
+    public void GetUndefinedHandlers_ListsUndefinedOnly()
+    {
+        var scenario = Scn("gallery", "tabview", "TabView", "tabview-9", "Mixed");
+        scenario.Xaml = "<TabView AddTabButtonClick=\"TabView_Add\" TabCloseRequested=\"TabView_Close\" />";
+        scenario.CSharp = "private void TabView_Add(object s, object e) { }";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var undefinedHandlers = engine.GetUndefinedHandlers("gallery-tabview-9");
+        Assert.AreEqual(1, undefinedHandlers.Length);
+        Assert.AreEqual("TabCloseRequested=\"TabView_Close\"", undefinedHandlers[0]);
+        Assert.AreEqual(0, engine.GetUndefinedHandlers("gallery-nope-1").Length);
+    }
+
+    [TestMethod]
+    [DataRow("KeyDown", "Grid_KeyDown")]
+    [DataRow("KeyUp", "OnKeyUp")]
+    [DataRow("PreviewKeyDown", "Page_PreviewKeyDown")]
+    [DataRow("DragEnter", "Drop_DragEnter")]
+    [DataRow("DragLeave", "Drop_DragLeave")]
+    [DataRow("ManipulationDelta", "Border_ManipulationDelta")]
+    [DataRow("ManipulationStarted", "Border_ManipulationStarted")]
+    [DataRow("ManipulationCompleted", "OnManipulationCompleted")]
+    [DataRow("PointerWheelChanged", "Root_PointerWheelChanged")]
+    [DataRow("ScrollAnimationStarting", "ScrollView_ScrollAnimationStarting")]
+    public void FindUndefinedEventHandlers_CatchesEventFamilies(string evt, string method)
+    {
+        var found = ControlSnippetText.FindUndefinedEventHandlers($"<Grid {evt}=\"{method}\" />", null);
+
+        CollectionAssert.AreEqual(new[] { $"{evt}=\"{method}\"" }, found);
+    }
+
+    [TestMethod]
+    public void FindUndefinedEventHandlers_IgnoresNonEvents()
+    {
+        var xaml = "<TextBlock TextWrapping=\"Wrap\" Text=\"Hello_World\" Orientation=\"Horizontal\" x:Name=\"Animated_ScrollViewer\" Name=\"Animated_ScrollViewer\" Click=\"{x:Bind Run}\" Grid.Row=\"1\" />";
+
+        Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, null).Length);
+    }
     [TestMethod]
     public void GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine()
     {
