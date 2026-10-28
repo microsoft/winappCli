@@ -859,6 +859,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             if (IInspectable* lbl = FindInRow(fe, L"PFieldsLbl"))
                 { SetTextOn(lbl, ShortType(r.type)); lbl->Release(); }
             if (IInspectable* host = FindInRow(fe, L"PFieldBoxes")) {
+                // Boxes left under this expansion are from an earlier build of it; only the new ones are the value.
+                ReleaseFieldBoxesWhere(path, ctx.expFe);
                 const std::vector<std::wstring> vals = SplitFields(seed, r.fields.size());
                 void* pnl = nullptr; void* kids = nullptr;
                 if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
@@ -919,7 +921,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                                 reinterpret_cast<IUnknown*>(bui)->Release();
                             }
                         }
-                        g_fieldBoxes.push_back({ path, i, bx });
+                        g_fieldBoxes.push_back({ path, i, bx, ctx.expFe });
                         col->Release();
                     }
                     reinterpret_cast<IUnknown*>(kids)->Release();

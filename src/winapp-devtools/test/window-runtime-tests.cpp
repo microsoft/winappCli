@@ -1093,6 +1093,41 @@ int main()
         RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr); late.retired=false;
         ClearRowValue(500,L"Text");
         check(late.retired && g_paneEditors.empty(), "Clear retires the editors it saved");
+
+        // A multi-field editor (Margin's four boxes) reads only its own expansion's boxes. The previous
+        // element's boxes have the same property path and can still be alive after the selection moves.
+        {
+            const auto savedRead = g_ctx.readInputFn;
+            g_ctx.readInputFn=[](IInspectable* el,std::wstring& t){ t=static_cast<TestElement*>(el)->text; return true; };
+            DevToolsCardRow margin=text; margin.editKind=L"fields"; margin.fields={L"Left",L"Top"};
+            TestElement a0,a1,b0,b1,c0,c1,stale0,stale1; int ownerA=0, ownerB=0, ownerC=0;
+            a0.text=L"8"; a1.text=L"12"; b0.text=L"5"; b1.text=L"0"; c0.text=L"1"; c1.text=L"2";
+            stale0.text=L"9"; stale1.text=L"9";
+            auto commitOn=[&](InstanceHandle wire, void* owner) {
+                g_selWire=g_dirtyNode=wire; margin.value=live[wire]; g_propRows={margin};
+                KindCtx c; c.row=std::make_shared<const DevToolsCardRow>(margin); c.path=L"Text"; c.wire=wire; c.expFe=owner;
+                CommitKind(c);
+            };
+            g_editRecords.clear(); g_appChanged.clear(); liveSource=L"Local"; live[500]=L"0,0"; live[501]=L"0,0";
+            g_fieldBoxes.push_back({L"Text",0,&a0,&ownerA}); g_fieldBoxes.push_back({L"Text",1,&a1,&ownerA});
+            commitOn(500,&ownerA);
+            check(live[500]==L"8,12", "a multi-field edit writes its own boxes");
+            g_fieldBoxes.push_back({L"Text",0,&b0,&ownerB}); g_fieldBoxes.push_back({L"Text",1,&b1,&ownerB});
+            commitOn(501,&ownerB);
+            check(live[501]==L"5,0" && live[500]==L"8,12",
+                "after switching elements, a multi-field edit writes the boxes on screen, not the previous element's");
+            g_fieldBoxes.push_back({L"Text",0,&c0,&ownerC}); g_fieldBoxes.push_back({L"Text",1,&c1,&ownerC});
+            commitOn(500,&ownerC);
+            commitOn(501,&ownerB);
+            check(live[500]==L"1,2" && live[501]==L"5,0", "switching back and forth keeps each editor on its own boxes");
+            g_fieldBoxes.insert(g_fieldBoxes.begin(),{L"Text",0,&stale0,&ownerB});
+            g_fieldBoxes.insert(g_fieldBoxes.begin()+1,{L"Text",1,&stale1,&ownerB});
+            ReleaseFieldBoxesWhere(L"Text",&ownerB);
+            check(std::none_of(g_fieldBoxes.begin(),g_fieldBoxes.end(),[&](const FieldBoxRef& f){ return f.owner==&ownerB; }) &&
+                  g_fieldBoxes.size()==4, "rebuilding one expansion's boxes drops only that expansion's old boxes");
+            ReleaseFieldBoxes(L"");
+            g_ctx.readInputFn=savedRead; g_propRows={text};
+        }
         g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr; g_valuesFn=nullptr;
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;

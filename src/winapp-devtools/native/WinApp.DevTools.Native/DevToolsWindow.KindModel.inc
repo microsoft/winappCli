@@ -1097,28 +1097,32 @@ static std::wstring ReadBox(void* expFe, const wchar_t* name, bool* found = null
 }
 
 // Multi-field editors are created from wire data, so boxes are registered by property path rather than x:Name.
-struct FieldBoxRef { std::wstring path; size_t index; IInspectable* box; };
+// Each box also records the expansion that owns it: another element's Margin boxes share the path and can still
+// be alive, and reading them would write that element's value to this one.
+struct FieldBoxRef { std::wstring path; size_t index; IInspectable* box; void* owner = nullptr; };
 static std::vector<FieldBoxRef> g_fieldBoxes;
 
-static void ReleaseFieldBoxes(const std::wstring& path)
+static void ReleaseFieldBoxesWhere(const std::wstring& path, void* owner)
 {
     for (size_t i = g_fieldBoxes.size(); i-- > 0; ) {
         if (!path.empty() && g_fieldBoxes[i].path != path) continue;
+        if (owner && g_fieldBoxes[i].owner != owner) continue;
         if (g_fieldBoxes[i].box) g_fieldBoxes[i].box->Release();
         g_fieldBoxes.erase(g_fieldBoxes.begin() + i);
     }
 }
+static void ReleaseFieldBoxes(const std::wstring& path) { ReleaseFieldBoxesWhere(path, nullptr); }
 
 // The joined value of one row's field boxes, in wire order. A box that could not be read contributes an
 // EMPTY segment rather than being skipped: dropping it would silently turn a four-field Thickness into a
 // three-field one, and "0,0,12" is a value the type converter accepts and means something else entirely.
-static std::wstring ReadFieldBoxes(const std::wstring& path, size_t count)
+static std::wstring ReadFieldBoxes(void* owner, const std::wstring& path, size_t count)
 {
     std::wstring out;
     for (size_t i = 0; i < count; ++i) {
         std::wstring one;
         for (const FieldBoxRef& f : g_fieldBoxes) {
-            if (f.path != path || f.index != i || !f.box) continue;
+            if (f.owner != owner || f.path != path || f.index != i || !f.box) continue;
             if (g_ctx.readInputFn) g_ctx.readInputFn(f.box, one);
             break;
         }
@@ -1207,7 +1211,7 @@ static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
     } else if (ek == L"fields") {
         // The boxes are the value, joined in wire order. Reading them back rather than tracking each edit is
         // what keeps a four-box Thickness one commit instead of four partial ones.
-        value = ReadFieldBoxes(c.path, c.row->fields.size());
+        value = ReadFieldBoxes(c.expFe, c.path, c.row->fields.size());
     } else {
         value = DevToolsEditText::WithLineEndingsOf(ReadBox(c.expFe, L"PEdit"), seed);
     }
