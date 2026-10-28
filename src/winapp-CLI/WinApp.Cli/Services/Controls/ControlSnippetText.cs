@@ -31,6 +31,19 @@ internal static partial class ControlSnippetText
         @"Invoked|Submitted|Chosen|ed|ing))=""([A-Za-z_]\w*)""")]
     private static partial Regex EventHandlerAttrRegex();
 
+    [GeneratedRegex(@"^(?:Is|Has|Can|Show|Use|Allow|Enable|Disable)[A-Z]")]
+    private static partial Regex NonEventAttrPrefixRegex();
+
+    private static readonly HashSet<string> NonHandlerValues = new(StringComparer.Ordinal)
+    {
+        "True", "False", "Auto", "None", "Wrap", "NoWrap", "WrapWholeWords", "Horizontal", "Vertical",
+        "Left", "Right", "Top", "Bottom", "Center", "Stretch", "Visible", "Collapsed", "Hidden",
+        "Normal", "Bold", "Italic", "Disabled", "Enabled", "Hand", "Arrow", "Default",
+        "Standard", "Compact", "Expanded", "Selected", "Checked", "Unchecked", "Opened", "Closed",
+        "Starting", "Pressed", "Released", "Focused", "Inherit", "Clip", "Ellipsis", "CharacterEllipsis",
+        "WordEllipsis", "Single", "Multiple", "Extended", "Always", "Never",
+    };
+
     /// <summary>
     /// Event hookups in <paramref name="xaml"/> whose handler method the emitted
     /// <paramref name="csharp"/> does not declare, as <c>Event="Method"</c> strings. The
@@ -48,14 +61,9 @@ internal static partial class ControlSnippetText
         foreach (Match m in EventHandlerAttrRegex().Matches(xaml))
         {
             var method = m.Groups[2].Value;
-            // Event names are matched on shape, so also require the value to look like a method
-            // name (Control_Event, OnEvent, or one that repeats the event) to keep
-            // TextWrapping="Wrap" and the like out of the annotation.
-            var eventName = m.Groups[1].Value;
-            var looksLikeMethod = method.Contains('_')
-                || (method.StartsWith("On", StringComparison.Ordinal) && method.Length > 2 && char.IsUpper(method[2]))
-                || method.Contains(eventName, StringComparison.Ordinal);
-            if (!looksLikeMethod)
+            // Event names are matched on shape, so skip property-looking attributes
+            // (IsChecked, ShowGlyph) and enum/literal values (TextWrapping="Wrap").
+            if (NonEventAttrPrefixRegex().IsMatch(m.Groups[1].Value) || NonHandlerValues.Contains(method))
             {
                 continue;
             }

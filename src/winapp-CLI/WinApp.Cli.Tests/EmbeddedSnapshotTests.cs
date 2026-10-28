@@ -903,8 +903,9 @@ public class EmbeddedSnapshotTests
 
     /// <summary>
     /// Handlers are kept, never deleted, because the event is what a sample teaches. This
-    /// finds handler-shaped attributes with its own matcher (any capitalised attribute whose
-    /// value is <c>Foo_Bar</c> or <c>OnFoo</c>), independent of the one under test, and asserts
+    /// finds handler-shaped attributes with its own matcher (any attribute named like an event
+    /// whose value is a bare method name, with or without an underscore), independent of the
+    /// one under test, and asserts
     /// each undeclared one is disclosed both in <c>GetUndefinedHandlers</c> (the --json field)
     /// and in the rendered "Undefined handlers:" line.
     /// </summary>
@@ -924,9 +925,13 @@ public class EmbeddedSnapshotTests
             var line = formatted.Split('\n')
                 .FirstOrDefault(l => l.StartsWith("**Undefined handlers:**", StringComparison.Ordinal)) ?? "";
 
-            foreach (Match m in Regex.Matches(s.Xaml!, @"\s(?!Name\b|Uid\b|Key\b|Class\b)([A-Z]\w*)=""((?:On[A-Z]\w*)|(?:[A-Za-z]\w*_[A-Za-z]\w*))"""))
+            foreach (Match m in Regex.Matches(s.Xaml!, @"\s([A-Z]\w*(?:Click|Tapped|Changed|Changing|Closed|Closing|Opened|Requested|Invoked|Down|Up|Enter|Leave|Moved|Pressed|Released|Started|Completed|Delta|Loaded|Unloaded|Drop|Focus|Submitted|Chosen|Over|Holding|Canceled))=""([A-Za-z_]\w*)"""))
             {
                 var method = m.Groups[2].Value;
+                if (method is "True" or "False" or "Enabled" or "Disabled" or "Auto")
+                {
+                    continue;
+                }
                 var declared = !string.IsNullOrWhiteSpace(s.CSharp)
                     && Regex.IsMatch(s.CSharp, $@"\b(?:void|Task)\s+{Regex.Escape(method)}\s*\(");
                 var entry = $"{m.Groups[1].Value}=\"{method}\"";

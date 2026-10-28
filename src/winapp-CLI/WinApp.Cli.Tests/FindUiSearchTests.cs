@@ -279,6 +279,19 @@ public class FindUiSearchTests
 
         Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, null).Length);
     }
+
+    [TestMethod]
+    public void FindUndefinedEventHandlers_DisclosesPlainMethodNames()
+    {
+        var xaml = "<Button Click=\"AddItem\" /><TabView TabCloseRequested=\"CloseTab\" />";
+
+        var found = ControlSnippetText.FindUndefinedEventHandlers(xaml, null);
+        Assert.AreEqual(2, found.Length);
+        Assert.AreEqual("Click=\"AddItem\"", found[0]);
+        Assert.AreEqual("TabCloseRequested=\"CloseTab\"", found[1]);
+        Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, "void AddItem(object s, object e) { } void CloseTab(object s, object e) { }").Length);
+    }
+
     [TestMethod]
     public void GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine()
     {
