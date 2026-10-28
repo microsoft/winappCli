@@ -281,6 +281,33 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    [DataRow("<TabView TabDroppedOutside=\"TabView_TabDroppedOutside\" />", "TabDroppedOutside=\"TabView_TabDroppedOutside\"")]
+    [DataRow("<Grid PointerCaptureLost=\"Grid_PointerCaptureLost\" />", "PointerCaptureLost=\"Grid_PointerCaptureLost\"")]
+    [DataRow("<Grid NoFocusCandidateFound=\"Grid_NoFocusCandidateFound\" />", "NoFocusCandidateFound=\"Grid_NoFocusCandidateFound\"")]
+    [DataRow("<Button Click = \"OnClick\" />", "Click=\"OnClick\"")]
+    [DataRow("<Button Click='OnClick' />", "Click=\"OnClick\"")]
+    [DataRow("<Button IsEnabledChanged=\"OnEnabledChanged\" />", "IsEnabledChanged=\"OnEnabledChanged\"")]
+    [DataRow("<CheckBox Checked=\"Checked\" />", "Checked=\"Checked\"")]
+    public void FindUndefinedEventHandlers_DisclosesEdgeCases(string xaml, string expected)
+    {
+        var found = ControlSnippetText.FindUndefinedEventHandlers(xaml, null);
+
+        Assert.AreEqual(1, found.Length);
+        Assert.AreEqual(expected, found[0]);
+    }
+
+    [TestMethod]
+    [DataRow("<TextBlock TextWrapping=\"Wrap\" />")]
+    [DataRow("<StackPanel Orientation=\"Horizontal\" />")]
+    [DataRow("<NavigationView SelectionFollowsFocus=\"Enabled\" />")]
+    [DataRow("<Grid x:Name=\"Animated_ScrollViewer\" />")]
+    [DataRow("<Button IsEnabled=\"True\" />")]
+    public void FindUndefinedEventHandlers_StillIgnoresNonEvents(string xaml)
+    {
+        Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, null).Length);
+    }
+
+    [TestMethod]
     public void FindUndefinedEventHandlers_DisclosesPlainMethodNames()
     {
         var xaml = "<Button Click=\"AddItem\" /><TabView TabCloseRequested=\"CloseTab\" />";

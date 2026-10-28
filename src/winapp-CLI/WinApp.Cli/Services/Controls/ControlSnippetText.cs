@@ -28,11 +28,14 @@ internal static partial class ControlSnippetText
         @"\s(?=[A-Z])((?:Preview)?(?:Key|Pointer|Manipulation|Drag|Context|Access|Got|Lost|Right|Double)?[A-Za-z]*?" +
         @"(?:Click|Tapped|Holding|Focus|Drop|Enter|Leave|Over|Down|Up|Moved|Pressed|Released|Canceled|Requested|" +
         @"Started|Starting|Completed|Delta|Inertia|Changed|Changing|Indeterminate|Opened|Closed|Closing|Loaded|Unloaded|" +
-        @"Invoked|Submitted|Chosen|ed|ing))=""([A-Za-z_]\w*)""")]
+        @"Invoked|Submitted|Chosen|Outside|Lost|Found|ed|ing))\s*=\s*([""'])([A-Za-z_]\w*)\2")]
     private static partial Regex EventHandlerAttrRegex();
 
     [GeneratedRegex(@"^(?:Is|Has|Can|Show|Use|Allow|Enable|Disable)[A-Z]")]
     private static partial Regex NonEventAttrPrefixRegex();
+
+    [GeneratedRegex(@"(?:Changed|Changing)$")]
+    private static partial Regex ChangeEventSuffixRegex();
 
     private static readonly HashSet<string> NonHandlerValues = new(StringComparer.Ordinal)
     {
@@ -60,10 +63,12 @@ internal static partial class ControlSnippetText
         var found = new List<string>();
         foreach (Match m in EventHandlerAttrRegex().Matches(xaml))
         {
-            var method = m.Groups[2].Value;
+            var eventName = m.Groups[1].Value;
+            var method = m.Groups[3].Value;
             // Event names are matched on shape, so skip property-looking attributes
             // (IsChecked, ShowGlyph) and enum/literal values (TextWrapping="Wrap").
-            if (NonEventAttrPrefixRegex().IsMatch(m.Groups[1].Value) || NonHandlerValues.Contains(method))
+            var propertyLike = NonEventAttrPrefixRegex().IsMatch(eventName) && !ChangeEventSuffixRegex().IsMatch(eventName);
+            if (propertyLike || (NonHandlerValues.Contains(method) && method != eventName))
             {
                 continue;
             }
@@ -72,7 +77,7 @@ internal static partial class ControlSnippetText
             {
                 continue;
             }
-            var entry = $"{m.Groups[1].Value}=\"{method}\"";
+            var entry = $"{eventName}=\"{method}\"";
             if (!found.Contains(entry))
             {
                 found.Add(entry);
