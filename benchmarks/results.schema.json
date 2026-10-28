@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/microsoft/winappCli/benchmarks/results.schema.json",
+  "title": "winapp benchmark trial result",
+  "description": "One agent attempt: a single scenario, model and arm. See benchmarks/RESULTS-FORMAT.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "release", "commit", "benchmark", "scenario", "set", "arm", "model", "trial",
+    "startedAt", "passed", "improvements", "checks", "usage"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "release": {
+      "description": "winapp release under test, such as v0.7.1. Development trials use \"dev\" and stay local.",
+      "type": "string",
+      "pattern": "^(dev|v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?)$"
+    },
+    "commit": {
+      "description": "Full SHA of the winappCli commit the plugins and CLI came from.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "benchmark": { "enum": ["apps", "tasks"] },
+    "scenario": {
+      "description": "Scenario name (apps) or task id (tasks). Lowercase letters, digits and hyphens.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "set": { "enum": ["tuning", "held-out"] },
+    "arm": { "enum": ["none", "cli-only", "cli-plus-plugins"] },
+    "model": {
+      "description": "Model under test, as passed to Copilot CLI, such as sonnet-5.5.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]*$"
+    },
+    "trial": { "description": "1-based repeat number for the same scenario, model and arm.", "type": "integer", "minimum": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "passed": {
+      "description": "True when every check with kind \"required\" passed. Never affected by improvement checks.",
+      "type": "boolean"
+    },
+    "improvements": {
+      "description": "Improvement checks met out of total. Redundant with checks; the validator confirms they agree.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["met", "total"],
+      "properties": {
+        "met": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "checks": {
+      "description": "Every check that ran, in the order it ran. Not a score.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/check" }
+    },
+    "judge": {
+      "description": "apps only: the model that judged the trial and its design score. Detail, never used for pass/fail.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "designScore"],
+      "properties": {
+        "model": { "type": "string", "minLength": 1 },
+        "designScore": { "type": ["number", "null"], "minimum": 0, "maximum": 10 }
+      }
+    },
+    "usage": { "$ref": "#/definitions/usage" },
+    "skills": {
+      "description": "Plugin skills the agent loaded, in order. Omit when the harness cannot capture it.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "atMs": { "description": "Milliseconds after the agent started.", "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "error": {
+      "description": "Set when the harness itself failed (not the agent). Such trials have passed=false and are excluded from dashboards.",
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "passed"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "kind": { "enum": ["required", "improvement"] },
+        "passed": { "type": "boolean" },
+        "source": { "description": "Who decided: the harness (deterministic) or the judge (LLM).", "enum": ["harness", "judge"] },
+        "detail": { "type": "string" }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output", "cacheRead"],
+      "properties": {
+        "input": { "type": "integer", "minimum": 0 },
+        "output": { "type": "integer", "minimum": 0 },
+        "cacheRead": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokens", "nanoAiu", "wallClockMs"],
+      "properties": {
+        "tokens": { "$ref": "#/definitions/tokens" },
+        "subAgentTokens": {
+          "description": "Tokens used by sub-agents. Not included in usage.tokens.",
+          "anyOf": [{ "$ref": "#/definitions/tokens" }, { "type": "null" }]
+        },
+        "nanoAiu": {
+          "description": "AI credits Copilot CLI reported for the run, in nano-AIU (1 AIU = 1,000,000,000). Exact integer; null when not reported.",
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "premiumRequests": { "type": ["number", "null"], "minimum": 0 },
+        "wallClockMs": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
