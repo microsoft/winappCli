@@ -72,6 +72,9 @@ internal sealed class PerfCaptureDocument
     public List<PerfProviderState> ProviderStates { get; set; } = [];
     public PerfProvider[] Providers { get; set; } = PerfProviders.All;
     public List<PerfMarker> Markers { get; set; } = [];
+    public PerfWindowEvidence WindowEvidence { get; set; } = new();
+    [JsonIgnore]
+    public bool WindowEvidenceRecorded { get; private set; } = true;
     public string[] TraceFiles { get; set; } = [];
     [JsonIgnore]
     public bool Finalized => State is "completed" or "failed";
@@ -86,11 +89,17 @@ internal sealed class PerfCaptureDocument
         {
             throw new InvalidDataException("A capture.json file of at most 256 KiB is required.");
         }
-        var capture = JsonSerializer.Deserialize(File.ReadAllText(file.FullName), PerfJsonContext.Default.PerfCaptureDocument)
+        var json = File.ReadAllText(file.FullName);
+        var capture = JsonSerializer.Deserialize(json, PerfJsonContext.Default.PerfCaptureDocument)
             ?? throw new InvalidDataException("Empty capture manifest.");
+        using (var document = JsonDocument.Parse(json))
+        {
+            capture.WindowEvidenceRecorded = document.RootElement.TryGetProperty("windowEvidence", out _);
+        }
         if (capture.SchemaVersion != 1 || !Guid.TryParseExact(capture.Id, "N", out _) ||
             capture.DurationSec is < 1 or > 300 || capture.MaxSizeMiB is < 1 or > 1024 ||
-            capture.Frequency <= 0 || capture.Markers.Count > 256 || capture.TraceFiles.Length > 32)
+            capture.Frequency <= 0 || capture.Markers.Count > 256 || capture.TraceFiles.Length > 32 ||
+            !capture.WindowEvidence.IsValid())
         {
             throw new InvalidDataException("Unsupported or invalid capture manifest.");
         }
@@ -157,6 +166,8 @@ internal sealed record PerfCommandError(string Code, string Message, bool Partia
 [JsonSerializable(typeof(PerfCall))]
 [JsonSerializable(typeof(PerfGcInterval))]
 [JsonSerializable(typeof(PerfElement))]
+[JsonSerializable(typeof(PerfWindowEvent))]
+[JsonSerializable(typeof(PerfWindowExperience))]
 [JsonSerializable(typeof(PerfAnalysisManifest))]
 [JsonSerializable(typeof(PerfQueryResult))]
 [JsonSerializable(typeof(PerfResourceSample))]
