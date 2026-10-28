@@ -926,7 +926,8 @@ int main()
         // A {ThemeResource} that DevTools assigned still follows the theme after the selection moves away and back.
         live[500]=L"Hello"; liveSource=L"Local"; g_propRows={text};
         g_ctx.resolveFn=[](InstanceHandle wire,const std::wstring&,const std::wstring&,bool){ live[wire]=L"LightBrush"; return true; };
-        check(ApplyResourceKey(text,L"Text",L"Accent",/*asTheme*/ true,L"Hello") && DirtyFind(L"Text") &&
+        std::wstring resolveError;
+        check(ApplyResourceKey(text,L"Text",L"Accent",/*asTheme*/ true,L"Hello",resolveError) && DirtyFind(L"Text") &&
               DirtyFind(L"Text")->themeAssigned, "assigning a ThemeResource marks its record as following the theme");
         g_ctx.resolveFn=nullptr;
         if (EditRecord* r=DirtyFind(L"Text")) r->baselineTheme=1;

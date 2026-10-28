@@ -10,6 +10,33 @@ namespace WinApp.Cli.Services.DevTools;
 /// </summary>
 internal static class DevToolsErrors
 {
+    public static string DescribePropertyWriteFailure(string? requested, string message)
+    {
+        // Explain a failed conversion, not the input alone: String properties accept these as literal text.
+        if (requested is null || !message.Contains("conversion to the requested XAML type failed", StringComparison.Ordinal))
+        {
+            return message;
+        }
+
+        var value = requested.Trim();
+        if (!value.StartsWith('{') || !value.EndsWith('}'))
+        {
+            return message;
+        }
+
+        var expression = value[1..^1].Trim();
+        var separator = expression.IndexOfAny([' ', '\t', '\r', '\n']);
+        if (separator <= 0 || expression[(separator + 1)..].Trim().Length == 0 ||
+            expression[..separator] is not ("ThemeResource" or "StaticResource"))
+        {
+            return message;
+        }
+
+        return "devtools set-property does not support {ThemeResource key} or {StaticResource key} references. " +
+            "Use a literal value instead (for example, '#FF0067C0' for a brush), " +
+            "or change the resource reference in XAML and rebuild the app.";
+    }
+
     public static string Describe(DevToolsProtocolError error) => error.Token switch
     {
         "not-found" => "That element is not in the live visual tree. Re-run `winapp devtools inspect`: handles change when the tree rebuilds.",

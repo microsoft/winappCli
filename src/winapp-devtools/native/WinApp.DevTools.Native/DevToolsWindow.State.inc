@@ -115,6 +115,7 @@ static bool g_route1WindowHidden = false;
 
 static bool g_watchdogSawApp = false;
 static WindowContext g_ctx;
+static DevToolsWindowElementFn g_elementFn = nullptr;
 
 // the window's own binding-path walk. Set by DevToolsWindow_SetPathWalk, read from the worker
 // that asks. Declared here rather than beside the comment bridge below because the property expansion, which

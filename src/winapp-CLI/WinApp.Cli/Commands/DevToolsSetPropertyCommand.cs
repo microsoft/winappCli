@@ -184,7 +184,12 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             var writeResponse = tap.RequestSetProperty(handle, beforeRow.Name, writeType, value, cancellationToken);
             if (!writeResponse.Ok)
             {
-                return Task.FromResult(Fail(json, target.Pid, writeResponse.Error!));
+                var error = writeResponse.Error!;
+                if (error.Token == "invalid-value")
+                {
+                    error = error with { Message = DevToolsErrors.DescribePropertyWriteFailure(value, error.Message) };
+                }
+                return Task.FromResult(Fail(json, target.Pid, error));
             }
 
             var afterResponse = tap.RequestProperties(handle, cancellationToken);

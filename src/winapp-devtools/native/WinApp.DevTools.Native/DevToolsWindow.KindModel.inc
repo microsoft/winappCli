@@ -331,9 +331,7 @@ static std::wstring BindingExprFrom(const std::wstring& bindPath, const std::wst
     return L"{Binding " + bindPath + L", Mode=" + mode + L"}";
 }
 
-// Resource keys are free text with type-compatible suggestions, not an exhaustive runtime list.
-// Suggest keys from authored rows and curated theme brushes. Treat brush subclasses as one family
-// while excluding known incompatible resource types.
+// Resource keys remain free text; suggestions exclude known incompatible types.
 static std::wstring ResourceTypeFamily(const std::wstring& type)
 {
     std::wstring s = ShortType(type);
@@ -346,24 +344,119 @@ static std::wstring RowResourceType(const DevToolsCardRow& r)
     return r.valueType.empty() ? r.type : r.valueType;
 }
 
-static std::vector<std::wstring> ResourceKeyCandidates(const DevToolsCardRow& target)
+struct ResourceKeys
+{
+    std::vector<std::wstring> keys;
+    std::set<std::wstring> seen;
+    std::set<void*> dictionaries;
+    size_t entries = 0;
+    bool partial = false;
+};
+
+static const wchar_t* ResourceTheme(DevToolsX::ElementTheme theme, bool highContrast)
+{
+    if (highContrast) return L"HighContrast";
+    return theme == DevToolsX::ElementTheme::Dark ? L"Dark" : L"Light";
+}
+
+static void CollectResourceDictionary(const DevToolsX::ResourceDictionary& dictionary,
+                                     const std::wstring& want, const wchar_t* theme, ResourceKeys& out)
+{
+    if (!dictionary || !out.dictionaries.insert(winrt::get_abi(dictionary)).second) return;
+    if (out.dictionaries.size() > 128) { out.partial = true; return; }
+    for (const auto& entry : dictionary) {
+        if (++out.entries > 4096) { out.partial = true; return; }
+        const auto key = entry.Key().try_as<winrt::Windows::Foundation::IPropertyValue>();
+        if (!key || key.Type() != winrt::Windows::Foundation::PropertyType::String) continue;
+        const std::wstring name(key.GetString());
+        if (!out.seen.insert(name).second) continue;
+        const auto value = entry.Value();
+        if (!value) continue;
+        std::wstring type(winrt::get_class_name(value));
+        const std::wstring boxed = L"Windows.Foundation.IReference`1<";
+        if (type.starts_with(boxed) && type.back() == L'>')
+            type = type.substr(boxed.size(), type.size() - boxed.size() - 1);
+        if (ResourceTypeFamily(type) == want) out.keys.push_back(name);
+    }
+    const auto themes = dictionary.ThemeDictionaries();
+    auto key = winrt::box_value(theme);
+    if (!themes.HasKey(key)) key = winrt::box_value(L"Default");
+    if (themes.HasKey(key))
+        CollectResourceDictionary(themes.Lookup(key).try_as<DevToolsX::ResourceDictionary>(), want, theme, out);
+    const auto merged = dictionary.MergedDictionaries();
+    for (uint32_t i = merged.Size(); i > 0 && !out.partial; --i)
+        CollectResourceDictionary(merged.GetAt(i - 1), want, theme, out);
+}
+
+static ResourceKeys ResourceKeyCandidates(const DevToolsCardRow& target)
 {
     const std::wstring want = ResourceTypeFamily(RowResourceType(target));
-    std::vector<std::wstring> out;
+    ResourceKeys out;
     if (want.empty()) return out;
+    try {
+        winrt::com_ptr<IInspectable> raw;
+        if (g_elementFn) raw.attach(g_elementFn(g_selWire));
+        if (raw) {
+            winrt::Windows::Foundation::IInspectable selected;
+            winrt::copy_from_abi(selected, raw.get());
+            auto node = selected.try_as<DevToolsX::DependencyObject>();
+            const auto selectedFe = selected.try_as<DevToolsX::FrameworkElement>();
+            const wchar_t* theme = ResourceTheme(
+                selectedFe ? selectedFe.ActualTheme() : DevToolsX::ElementTheme::Default, SystemHighContrast());
+            size_t ancestors = 0;
+            while (node && !out.partial) {
+                if (++ancestors > 128) { out.partial = true; break; }
+                const auto fe = node.try_as<DevToolsX::FrameworkElement>();
+                if (fe) CollectResourceDictionary(fe.Resources(), want, theme, out);
+                node = fe && fe.Parent() ? fe.Parent() : DevToolsXM::VisualTreeHelper::GetParent(node);
+            }
+            if (!out.partial)
+                CollectResourceDictionary(DevToolsX::Application::Current().Resources(), want, theme, out);
+        } else {
+            out.partial = true;
+        }
+    } catch (const winrt::hresult_error& error) {
+        out.partial = true;
+        DevToolsOverlayLog(L"route1.resources enumeration FAILED hr=0x%08X: %s",
+                          static_cast<unsigned>(error.code()), error.message().c_str());
+    }
+    if (out.partial)
+        DevToolsOverlayLog(L"route1.resources partial list (%zu entries, %zu dictionaries)",
+                          out.entries, out.dictionaries.size());
+    // Keep source-derived and built-in suggestions when runtime enumeration is unavailable.
     for (const auto& row : g_propRows) {
         if (row.authoredKind != L"themeResource" && row.authoredKind != L"staticResource") continue;
         if (row.authoredKey.empty()) continue;
         if (ResourceTypeFamily(RowResourceType(row)) != want) continue;
-        if (std::find(out.begin(), out.end(), row.authoredKey) == out.end()) out.push_back(row.authoredKey);
+        if (out.seen.insert(row.authoredKey).second) out.keys.push_back(row.authoredKey);
     }
     if (want == L"Brush") {
         for (const auto& k : BrushResourceNames())
-            if (std::find(out.begin(), out.end(), k) == out.end()) out.push_back(k);
+            if (out.seen.insert(k).second) out.keys.push_back(k);
     }
     return out;
 }
 
+static std::vector<std::wstring> MatchingResourceKeys(const std::vector<std::wstring>& keys, const std::wstring& prefix)
+{
+    std::vector<std::wstring> out;
+    for (const auto& key : keys) {
+        if (_wcsnicmp(key.c_str(), prefix.c_str(), prefix.size()) != 0) continue;
+        out.push_back(key);
+        if (out.size() == 6) break;
+    }
+    return out;
+}
+
+static void SetResourceError(void* expansion, const std::wstring& path, const std::wstring& error)
+{
+    if (IInspectable* message = FindInRow(expansion, L"PResError")) {
+        SetTextOn(message, error);
+        SetAutomationTextOn(message, path + L": " + error, path + L" resource error", L"");
+        ShowEl(message, !error.empty());
+        message->Release();
+    }
+}
 static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit);
 static void RebuildExpansion(void* rowFe, const DevToolsCardRow& r, const std::wstring& path, int edit);
 
@@ -400,10 +493,11 @@ static bool RestoreAfterFailedResolve(const DevToolsCardRow& r, const std::wstri
 }
 
 static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path, const std::wstring& key,
-                             bool asTheme, const std::wstring& preVal)
+                             bool asTheme, const std::wstring& preVal, std::wstring& error)
 {
-    if (!g_ctx.resolveFn) { SetStatusText(L"This build cannot assign resources"); return false; }
-    if (key.empty()) { SetStatusText(L"Type a resource key first"); return false; }
+    error.clear();
+    if (!g_ctx.resolveFn) { error = L"This build cannot assign resources."; SetStatusText(error); return false; }
+    if (key.empty()) { error = L"Type a resource key first."; SetStatusText(error); return false; }
     CheckEditRecordsNow(g_selWire);
     // CHECK THE RETURNED VALUE, not just that the call was made. The runtime's own return says nothing
     // -- IVisualTreeService3::ResolveResource answers S_OK for a key the app does not have -- so what is
@@ -418,11 +512,10 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
         // SAY WHICH KEY, AND WHAT IT COST. The box takes free text against the APP's dictionary, so the
         // useful sentence separates "you typed it wrong" from "this app has no such resource" -- and then
         // says whether the value survived, which is not the same question and has a different answer.
-        SetStatusText(L"'" + key + L"' did not resolve in this app's resources. "
-                      + (restored ? std::wstring(L"Nothing was changed - check the spelling, or type a key "
-                                                 L"your app defines.")
-                                  : std::wstring(L"The failed lookup also cleared ") + path +
-                                    L", and DevTools had no earlier value to put back - set it again."));
+        error = L"Resource '" + key + L"' was not found or could not be assigned to " + path + L". "
+              + (restored ? std::wstring(L"The previous value was restored. Check the key and resource type.")
+                          : std::wstring(L"The previous value could not be restored; set the property again."));
+        SetStatusText(error);
         return false;
     }
     // Record the original before the session witness changes, so a first edit that assigns a resource still
@@ -1053,10 +1146,13 @@ static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
     case DevToolsKind::Theme:
     case DevToolsKind::Static: {
         const std::wstring key = ReadBox(c.expFe, L"PResKey");
-        if (ApplyResourceKey(*c.row, c.path, key, k == DevToolsKind::Theme, RowEditSeed(*c.row))) {
+        std::wstring error;
+        if (ApplyResourceKey(*c.row, c.path, key, k == DevToolsKind::Theme, RowEditSeed(*c.row), error)) {
             PendingKindErase(c.path);
             ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
             SetStatusText(ResourceAppliedStatus(c.path, key));
+        } else {
+            SetResourceError(c.expFe, c.path, error);
         }
         return;
     }

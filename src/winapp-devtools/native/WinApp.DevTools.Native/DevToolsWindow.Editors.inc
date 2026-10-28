@@ -164,23 +164,95 @@ struct ExpBackgroundFocusSink : DevToolsSinkBase
 
 // A suggested resource key was clicked: put it in the field. It does NOT apply, for the same reason selecting
 // a kind does not -- looking at what is available must not be the same gesture as taking it.
-struct ResSuggestSink : DevToolsSinkBase
+static DevToolsX::RoutedEventHandler ResourceSuggestionHandler(void* box, std::wstring key)
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen || !box) return S_OK;
+    return [box, key = std::move(key), gen = g_route1Gen](const auto&, const auto&) {
+        if (gen != g_route1Gen || !box) return;
         void* tx = nullptr;
         if (SUCCEEDED(reinterpret_cast<IInspectable*>(box)->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
             HSTRING h = MakeStr(key); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
             reinterpret_cast<IUnknown*>(tx)->Release();
         }
-        return S_OK;
+    };
+}
+
+static void ShowResourceSuggestions(void* expansion, const std::wstring& path,
+                                    const ResourceKeys& candidates, const std::wstring& prefix)
+{
+    const auto keys = MatchingResourceKeys(candidates.keys, prefix);
+    if (IInspectable* box = FindInRow(expansion, L"PResSug")) {
+        void* pnl = nullptr;
+        IInspectable* kids = nullptr;
+        if (SUCCEEDED(box->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl) {
+            if (SUCCEEDED(DevToolsPanelGetChildren(pnl, &kids)) && kids) {
+                DevToolsVecClear(kids);
+                IInspectable* keyBox = FindInRow(expansion, L"PResKey");
+                for (const auto& key : keys) {
+                    IInspectable* button = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Button");
+                    if (!button) continue;
+                    void* content = nullptr;
+                    if (SUCCEEDED(button->QueryInterface(DevToolsIid<DevToolsXC::IContentControl>(), &content)) && content) {
+                        IInspectable* boxed = nullptr;
+                        if (SUCCEEDED(BoxString(key, &boxed)) && boxed) {
+                            DevToolsPutContent(content, boxed);
+                            boxed->Release();
+                        }
+                        reinterpret_cast<IUnknown*>(content)->Release();
+                    }
+                    void* control = nullptr;
+                    if (SUCCEEDED(button->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), &control)) && control) {
+                        DevToolsPutControlFontSize(control, 11.0);
+                        DevToolsPutPadding(control, 6, 2, 6, 2);
+                        reinterpret_cast<IUnknown*>(control)->Release();
+                    }
+                    void* fe = nullptr;
+                    if (SUCCEEDED(button->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+                        DevToolsPutHorizontalAlignment(fe, 0 /*Left*/);
+                        reinterpret_cast<IUnknown*>(fe)->Release();
+                    }
+                    void* bb = nullptr;
+                    if (keyBox && SUCCEEDED(button->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                        const auto handler = ResourceSuggestionHandler(keyBox, key);
+                        __int64 token = 0;
+                        const HRESULT hr = DevToolsAddClick(bb, winrt::get_abi(handler), &token);
+                        if (FAILED(hr))
+                            DevToolsOverlayLog(L"route1.resources suggestion for '%s' FAILED hr=0x%08X", path.c_str(), hr);
+                        reinterpret_cast<IUnknown*>(bb)->Release();
+                    }
+                    SetAutomationTextOn(button, L"Use key " + key + L" for " + path, L"", L"");
+                    DevToolsVecAppend(kids, button);
+                    button->Release();
+                }
+                if (keyBox) keyBox->Release();
+                kids->Release();
+            }
+            reinterpret_cast<IUnknown*>(pnl)->Release();
+        }
+        ShowEl(box, !keys.empty());
+        box->Release();
     }
-    void Init(void* keyBox, const std::wstring& k)
-    { box = keyBox; key = k; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    void* box = nullptr;
-    std::wstring key;
-};
+    if (IInspectable* note = FindInRow(expansion, L"PResNote")) {
+        SetTextOn(note, !g_ctx.resolveFn
+            ? L"This build cannot assign resources."
+            : candidates.partial
+                ? L"Some resources could not be listed. You can still type a key and press Enter."
+                : keys.empty()
+                    ? L"No matching keys. Type a key from your app's resources and press Enter."
+                    : L"Choose a key or type one, then press Enter to apply it.");
+        note->Release();
+    }
+}
+
+static DevToolsXC::TextChangedEventHandler ResourceKeyChangedHandler(
+    void* expansion, std::wstring path, ResourceKeys candidates)
+{
+    return [expansion, path = std::move(path), candidates = std::move(candidates),
+            gen = g_route1Gen, wire = g_selWire](const auto&, const auto&) {
+        if (gen != g_route1Gen || wire != g_selWire) return;
+        SetResourceError(expansion, path, L"");
+        ShowResourceSuggestions(expansion, path, candidates, ReadBox(expansion, L"PResKey"));
+    };
+}
 
 // Write a test value THROUGH a TwoWay binding to its SOURCE. Deliberately an action and not a field: it
 // changes the app's DATA rather than its appearance, and looking like value editing is exactly the ambiguity
@@ -494,62 +566,17 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             }
             e->Release();
         }
-        if (IInspectable* box = FindInRow(fe, L"PResSug")) {
-            const bool canResolve = g_ctx.resolveFn != nullptr;
-            std::vector<std::wstring> keys = canResolve ? ResourceKeyCandidates(r) : std::vector<std::wstring>();
-            if (keys.size() > 6) keys.resize(6);
-            void* pnl = nullptr; void* kids = nullptr;
-            if (!keys.empty() &&
-                SUCCEEDED(box->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
-                SUCCEEDED(DevToolsPanelGetChildren(pnl, reinterpret_cast<IInspectable**>(&kids))) && kids)
-            {
-                IInspectable* keyBox = FindInRow(fe, L"PResKey");
-                for (const std::wstring& k : keys) {
-                    IInspectable* btn = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Button");
-                    if (!btn) continue;
-                    void* cc = nullptr;
-                    if (SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXC::IContentControl>(), &cc)) && cc) {
-                        IInspectable* boxed = nullptr;
-                        if (SUCCEEDED(BoxString(k, &boxed)) && boxed) { DevToolsPutContent(cc, boxed); boxed->Release(); }
-                        reinterpret_cast<IUnknown*>(cc)->Release();
-                    }
-                    void* ctl = nullptr;
-                    if (SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), &ctl)) && ctl) {
-                        DevToolsPutControlFontSize(ctl, 11.0);
-                        DevToolsPutPadding(ctl, 6, 2, 6, 2);
-                        reinterpret_cast<IUnknown*>(ctl)->Release();
-                    }
-                    void* sfe = nullptr;
-                    if (SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &sfe)) && sfe) {
-                        DevToolsPutHorizontalAlignment(sfe, 0 /*Left*/);
-                        reinterpret_cast<IUnknown*>(sfe)->Release();
-                    }
-                    void* bb = nullptr;
-                    if (keyBox && SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                        ResSuggestSink* ss = new ResSuggestSink(); ss->Init(keyBox, k);
-                        __int64 tok = 0;
-                        DevToolsAddClick(bb, ss, &tok);
-                        reinterpret_cast<IUnknown*>(bb)->Release();
-                    }
-                    SetAutomationTextOn(btn, L"Use key " + k + L" for " + path, L"", L"");
-                    DevToolsVecAppend(reinterpret_cast<IInspectable*>(kids), btn);
-                    btn->Release();
-                }
-                if (keyBox) keyBox->Release();
-                reinterpret_cast<IUnknown*>(kids)->Release();
-                ShowEl(box, true);
-            }
-            if (pnl) reinterpret_cast<IUnknown*>(pnl)->Release();
-            if (IInspectable* n = FindInRow(fe, L"PResNote")) {
-                if (!canResolve) {
-                    SetTextOn(n, L"This build cannot assign resources, so a key cannot be applied here.");
-                } else if (keys.empty()) {
-                    SetTextOn(n, L"No suggestion fits a " + ShortType(RowResourceType(r)) + L": the keys "
-                                 L"DevTools can name are this element's own resource keys and the built-in "
-                                 L"theme brushes, and none of them is assignable here. Type a key from your "
-                                 L"app's resources - the resolved value appears on the row above.");
-                }
-                n->Release();
+        ResourceKeys candidates = g_ctx.resolveFn ? ResourceKeyCandidates(r) : ResourceKeys{};
+        ShowResourceSuggestions(fe, path, candidates, seedKey);
+        if (IInspectable* box = FindInRow(fe, L"PResKey")) {
+            void* textBox = nullptr;
+            if (SUCCEEDED(box->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &textBox)) && textBox) {
+                const auto handler = ResourceKeyChangedHandler(fe, path, std::move(candidates));
+                __int64 token = 0;
+                const HRESULT hr = DevToolsAddTextChanged(textBox, winrt::get_abi(handler), &token);
+                if (FAILED(hr))
+                    DevToolsOverlayLog(L"route1.resources typeahead for '%s' FAILED hr=0x%08X", path.c_str(), hr);
+                reinterpret_cast<IUnknown*>(textBox)->Release();
             }
             box->Release();
         }

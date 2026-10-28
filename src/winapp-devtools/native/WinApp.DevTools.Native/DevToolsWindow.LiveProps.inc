@@ -6,7 +6,6 @@
 // change only for a dependency property it is given, so the commonly changed ones are registered for the selected
 // element; a change re-reads just the properties that changed and updates the rows that differ.
 
-static DevToolsWindowElementFn g_elementFn = nullptr;
 static DevToolsWindowValuesFn  g_valuesFn = nullptr;
 void DevToolsWindow_SetElementResolver(DevToolsWindowElementFn element, DevToolsWindowValuesFn values)
 {
