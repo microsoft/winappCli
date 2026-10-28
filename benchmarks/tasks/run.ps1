@@ -215,6 +215,9 @@ $info = [ordered]@{
     plugins        = $pluginInfo
     maxCredits     = $MaxCredits ? $MaxCredits : $null
 }
+# Trial files (benchmarks\RESULTS-FORMAT.md) go to <OutDir>\trials. Only a release build counts as a release.
+$trialRelease = $Winapp -eq 'release' ? $config.winapp.release : 'dev'
+$trialCommit = (& git -C $PSScriptRoot rev-parse HEAD).Trim()
 $infoPath = Join-Path $OutDir 'run-info.json'
 if (Test-Path $infoPath) { $infoPath = Join-Path $OutDir "run-info-$stamp.json" }
 $info | ConvertTo-Json -Depth 6 | Set-Content $infoPath -Encoding utf8NoBOM
@@ -331,11 +334,12 @@ try {
         $record = [ordered]@{
             runId = $runId; task = $t.Id; cluster = $t.Cluster; configuration = $run.Configuration; model = $run.Model; agent = $spec.Agent
             iteration = $run.Iteration; mode = $run.Mode; taskStatus = $null; taskReason = $null; checks = @(); durationMs = $null; agentExitCode = $null
-            timedOut = $null; setupMs = $null; aiCredits = $null; premiumRequests = $null; tokens = $null; modelTurns = $null; toolCalls = $null
+            timedOut = $null; setupMs = $null; aiCredits = $null; nanoAiu = $null; premiumRequests = $null; tokens = $null; modelTurns = $null; toolCalls = $null
             skillsLoaded = @(); skillContextTokensApprox = $null; skillRepeatDeliveries = $null; pluginFileReads = @(); pluginReadChars = $null
             winappCommandsRun = @(); winappCommandsNamed = @(); shellCommandCount = $null; failedToolCalls = $null; unsafeActions = @()
             preflight = $null; selectedAgent = $null; finalResponse = $null; sandboxMs = $null; error = $null
         }
+        $runStarted = Get-Date
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
             $maps = @(
@@ -394,7 +398,7 @@ try {
         $events = Join-Path $runOut 'events.jsonl'
         $ev = Read-SessionEvents -Path ((Test-Path $events) ? $events : '')
         $act = Read-ToolActivity -Path ((Test-Path $events) ? $events : '')
-        $record.aiCredits = $ev.aiCredits; $record.premiumRequests = $ev.premiumRequests; $record.tokens = $ev.tokens
+        $record.aiCredits = $ev.aiCredits; $record.nanoAiu = $ev.nanoAiu; $record.premiumRequests = $ev.premiumRequests; $record.tokens = $ev.tokens
         $record.modelTurns = $ev.modelTurns; $record.toolCalls = $ev.toolCalls; $record.selectedAgent = $ev.selectedAgent
         $record.skillsLoaded = @($ev.skillsInvoked | ForEach-Object { Get-BareSkillName $_.name } | Select-Object -Unique)
         $record.skillContextTokensApprox = $ev.skillContextTokensApprox; $record.skillRepeatDeliveries = $ev.skillRepeatDeliveries
@@ -424,6 +428,12 @@ try {
         }
         $records.Add([pscustomobject]$record)
         ([pscustomobject]$record | ConvertTo-Json -Depth 8 -Compress) | Add-Content -Path $runsPath -Encoding utf8NoBOM
+        $trial = ConvertTo-TrialResult -Record $record -Task $t.Id -Set $t.Set -Release $trialRelease -Commit $trialCommit -StartedAt $runStarted
+        if ($trial) {
+            $trialDir = Join-Path $OutDir 'trials'
+            New-Item -ItemType Directory -Force $trialDir | Out-Null
+            $trial | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $trialDir ('{0}__{1}__{2}__{3}.json' -f $trial.scenario, $trial.arm, $trial.model, $trial.trial)) -Encoding utf8NoBOM
+        }
         $color = switch ($record.taskStatus) { 'pass' { 'Green' } 'partial' { 'Yellow' } default { 'Red' } }
         Write-Host ("  -> {0} in {1:0.0} min, {2} credits, skills [{3}], winapp [{4}]{5}" -f $record.taskStatus, ($record.durationMs / 60000), $record.aiCredits,
             ($record.skillsLoaded -join ', '), ($record.winappCommandsRun -join ', '), $(if ($record.taskStatus -ne 'pass') { " — $($record.taskReason)" })) -ForegroundColor $color
