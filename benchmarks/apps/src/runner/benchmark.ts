@@ -49,6 +49,7 @@ import {
   type QualityCheck,
 } from "./quality-checks.js";
 import { computeScoreV2, formatBreakdown, type ScoreBreakdown } from "./scoring.js";
+import { toTrialResult } from "./trial-result.js";
 import { pinRef, readPin } from "./upstream-pins.js";
 import { findAncestorProjectFiles, hideToolsFromPath } from "./trial-env.js";
 import {
@@ -1964,7 +1965,7 @@ function formatDurationMs(ms: number): string {
  * Returns the AIU total (rounded to 2 decimals) or undefined when the stream
  * carries no usage events.
  */
-function sumSessionCredits(eventsFile: string): number | undefined {
+function sumSessionNanoAiu(eventsFile: string): number | undefined {
   if (!existsSync(eventsFile)) return undefined;
   let nanoAiu = 0;
   let found = false;
@@ -1983,7 +1984,12 @@ function sumSessionCredits(eventsFile: string): number | undefined {
   } catch {
     return undefined;
   }
-  return found ? Math.round((nanoAiu / 1e9) * 100) / 100 : undefined;
+  return found ? nanoAiu : undefined;
+}
+
+function sumSessionCredits(eventsFile: string): number | undefined {
+  const nano = sumSessionNanoAiu(eventsFile);
+  return nano === undefined ? undefined : Math.round((nano / 1e9) * 100) / 100;
 }
 
 function aggregateSessionUsage(
@@ -2135,6 +2141,15 @@ function aggregateSessionUsage(
   if (totalAdded || totalRemoved) {
     usage.code_changes = `+${totalAdded} -${totalRemoved}`;
   }
+  // Exact integers for the trial file (the formatted strings above are rounded).
+  const sumTotals = (t: Record<string, { input: number; output: number; cached: number }>) =>
+    Object.values(t).reduce((a, m) => ({ input: a.input + m.input, output: a.output + m.output, cacheRead: a.cacheRead + m.cached }), { input: 0, output: 0, cacheRead: 0 });
+  usage.exact = {
+    tokens: sumTotals(mainModelTotals),
+    subAgentTokens: Object.keys(subModelTotals).length ? sumTotals(subModelTotals) : null,
+    premiumRequests: totalPremium,
+    wallClockMs: sessionDurationMs,
+  };
   for (const [model, totals] of Object.entries(mainModelTotals)) {
     usage.models[model] = {
       input: formatTokenCount(totals.input),
@@ -4028,6 +4043,7 @@ async function runBenchmarkImpl(
     if (sessionUsage) {
       usage.sub_agent_count = sessionUsage.sub_agent_count;
       usage.sub_agent_models = sessionUsage.sub_agent_models;
+      usage.exact = sessionUsage.exact;
       if (usage.credits == null && sessionUsage.credits != null) usage.credits = sessionUsage.credits;
     }
   }
@@ -4038,6 +4054,8 @@ async function runBenchmarkImpl(
   // estimate when available.
   const buildCredits = sumSessionCredits(join(logsDir, "build-events.jsonl"));
   if (buildCredits != null) usage.credits = buildCredits;
+  const buildNanoAiu = sumSessionNanoAiu(join(logsDir, "build-events.jsonl"));
+  if (usage.exact) usage.exact = { ...usage.exact, nanoAiu: buildNanoAiu ?? null };
 
   entry.sessionTime = usage.session_time;
   entry.apiTime = usage.api_time;
@@ -4706,6 +4724,41 @@ function saveResults(
     try { results.toolchain = { winapp: resolveWinAppToolchain().version }; } catch { /* recorded elsewhere as a launch failure */ }
   }
   writeTextAtomic(join(trialDir, "results.json"), JSON.stringify(results, null, 2));
+
+  // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
+  const exact = usage?.exact;
+  if (exact && entry.startedAt) {
+    const trial = toTrialResult({
+      release: process.env.BENCH_RELEASE || "dev",
+      commit: currentCommit(),
+      scenario: entry.scenarioConfigName,
+      set: config.set,
+      condition: entry.condition,
+      model: entry.model,
+      iteration: entry.iteration,
+      startedAt: new Date(entry.startedAt),
+      builds: !!entry.builds,
+      runs: !!entry.runs,
+      checks: qualityChecks ?? [],
+      requirements: valData?.requirements ?? [],
+      requiredRequirements: config.required_requirements,
+      designScore: valData?.scoreBreakdown?.design ?? null,
+      judgeModel: (entry as any)._judgeModel,
+      usage: exact,
+    });
+    if (trial) writeTextAtomic(join(trialDir, "trial-result.json"), JSON.stringify(trial, null, 2));
+  }
+}
+
+let cachedCommit: string | undefined;
+/** Full SHA of the winappCli checkout this harness runs from; all zeros outside a git checkout. */
+function currentCommit(): string {
+  if (cachedCommit === undefined) {
+    const r = spawnSync("git", ["rev-parse", "HEAD"], { cwd: dirname(fileURLToPath(import.meta.url)), encoding: "utf-8" });
+    const sha = r.status === 0 ? r.stdout.trim() : "";
+    cachedCommit = /^[0-9a-f]{40}$/.test(sha) ? sha : "0".repeat(40);
+  }
+  return cachedCommit;
 }
 
 function saveRevalidationResults(

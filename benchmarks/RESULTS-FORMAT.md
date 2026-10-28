@@ -73,6 +73,16 @@ There is no single score. Each check is `required` or an `improvement`:
   reports, as an exact integer (1 AIU = 1,000,000,000). It is `null` if not reported.
 - `subAgentTokens` is separate from `tokens`.
 
+## Where the harnesses write them
+
+| Harness | File | Notes |
+|---|---|---|
+| `tasks` | `<run dir>\trials\<scenario>__<arm>__<model>__<trial>.json` | `release` is the pinned release when run with `-Winapp release`, otherwise `dev`. `set` comes from `"set"` in `task.json` (default `tuning`) |
+| `apps` | `<trial dir>\trial-result.json` | `release` comes from the `BENCH_RELEASE` environment variable (default `dev`). `set` and `required_requirements` (1-based numbers) come from the scenario config. Setups other than the three arms, such as `published`, write no file |
+
+Runs that did not reach a checked result (harness error, no usage data) write no file.
+`apps` does not record skill usage yet, so it omits `skills`.
+
 ## Rules the validator enforces
 
 Besides the schema: `passed` and `improvements` must match `checks`, check ids are
