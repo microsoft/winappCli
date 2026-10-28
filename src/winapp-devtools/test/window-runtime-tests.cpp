@@ -702,9 +702,30 @@ int main()
                 "with no Size & spacing section on screen, a layout change falls back to rebuilding the pane");
         }
         DevToolsCardRow text;text.name=L"Text";text.type=L"String";text.value=L"Hi";text.source=L"Local";
+        const auto detail=DetailRow(L"its padding",L"0,0,0,0",L"Black",L"Gray");
+        check(detail.find(L"<ColumnDefinition Width=\"2*\"/>")!=std::wstring::npos &&
+            detail.find(L"<ColumnDefinition Width=\"3*\"/>")!=std::wstring::npos &&
+            detail.find(L"Width=\"78\"")==std::wstring::npos,
+            "layout details share the available width instead of fixing the label column");
+        check(detail.find(L"Text=\"its padding\"")!=std::wstring::npos &&
+            detail.find(L"Text=\"0,0,0,0\"")!=std::wstring::npos &&
+            detail.find(L"TextWrapping=\"Wrap\"/>")!=std::wstring::npos &&
+            detail.find(L"NoWrap")==std::wstring::npos && detail.find(L"TextTrimming")==std::wstring::npos,
+            "layout detail labels and values wrap without hiding their names behind ellipses");
+        check(DetailGroup(L"ARRANGED BY MainPage",L"Gray").find(L"TextWrapping=\"Wrap\"")!=std::wstring::npos,
+            "layout detail headings wrap when the parent name is long");
         g_layoutSectionOpen=0;
         const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noSourceInfo",L"",&stretched);
+        const auto commentGlyph=pane.find(L"<TextBlock Text=\"&#xE90A;\"");
+        const auto commentGlyphEnd=pane.find(L"/>",commentGlyph);
+        const auto commentIcon=commentGlyph==std::wstring::npos ? std::wstring() :
+            pane.substr(commentGlyph,commentGlyphEnd-commentGlyph);
+        check(commentIcon.find(L"IsTextScaleFactorEnabled=\"True\"")!=std::wstring::npos &&
+            commentIcon.find(L"FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\"")!=std::wstring::npos &&
+            commentIcon.find(L"AccessibilityView=\"Raw\"")!=std::wstring::npos &&
+            commentIcon.find(L"Width=")==std::wstring::npos && commentIcon.find(L"Height=")==std::wstring::npos,
+            "the Comment glyph scales as text without fixed bounds or a duplicate accessible name");
         const auto crumb=pane.find(L"WinAppDevToolsBreadcrumb"), filter=pane.find(L"PropFilter"),
             section=pane.find(L"WinAppDevToolsSizeSpacing"), box=pane.find(L"WinAppDevToolsBoxModel\"");
         check(crumb<section && section<box && box<filter && filter!=std::wstring::npos,

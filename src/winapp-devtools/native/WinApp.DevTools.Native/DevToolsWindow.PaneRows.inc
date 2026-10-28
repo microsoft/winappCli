@@ -126,7 +126,9 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         m += L"<Button x:Name=\"AddCommentBtn\" Grid.Column=\"1\" Padding=\"8,3\" FontSize=\"12\" VerticalAlignment=\"Center\""
              L" ToolTipService.ToolTip=\"Comment on this element\" AutomationProperties.Name=\"Add comment\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAddComment\">"
-             L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\"><FontIcon Glyph=\"&#xE90A;\" FontSize=\"12\" IsTextScaleFactorEnabled=\"True\"/>"
+             L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\"><TextBlock Text=\"&#xE90A;\" FontSize=\"12\""
+             L" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\" IsTextScaleFactorEnabled=\"True\""
+             L" VerticalAlignment=\"Center\" AutomationProperties.AccessibilityView=\"Raw\"/>"
              L"<TextBlock Text=\"Comment\" FontSize=\"12\"/></StackPanel></Button>";
     }
     m += L"</Grid>";

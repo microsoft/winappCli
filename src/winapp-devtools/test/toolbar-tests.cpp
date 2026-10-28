@@ -75,8 +75,9 @@ static void TestToolbarContract()
               button.find(" Height=") == std::string::npos && button.find(" Width=") == std::string::npos,
             "inspector command buttons grow with their scaled glyph and filter");
     }
-    Check(window.find("Glyph=\\\"&#xE90A;\\\" FontSize=\\\"12\\\" IsTextScaleFactorEnabled=\\\"True\\\"") != std::string::npos,
-        "the generated Comment icon explicitly follows Windows text scaling");
+    Check(window.find("<TextBlock Text=\\\"&#xE90A;\\\" FontSize=\\\"12\\\"") != std::string::npos &&
+          window.find("FontFamily=\\\"Segoe Fluent Icons,Segoe MDL2 Assets\\\" IsTextScaleFactorEnabled=\\\"True\\\"") != std::string::npos,
+        "the generated Comment glyph uses the same text-scaling path as its label");
     for (const auto& surface : { std::pair{ &windowShell, "CommentsBadge" }, std::pair{ &xaml, "DevToolsCommentBadge" } }) {
         const auto badge = tag(*surface.first, surface.second);
         Check(badge.find("MinHeight=") != std::string::npos && badge.find(" Height=") == std::string::npos &&
