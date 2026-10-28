@@ -5,10 +5,15 @@
 static HRESULT FindEditorName(void*, HSTRING, IInspectable**);
 static HRESULT PutEditorText(void*, HSTRING);
 static HRESULT GetEditorSelection(void*, int*);
+static HRESULT GetEditorKey(void* args, int* key) { *key = *static_cast<int*>(args); return S_OK; }
+static bool keyHandled = false;
+static HRESULT PutEditorHandled(void*, bool handled) { keyHandled = handled; return S_OK; }
 static HANDLE RefuseWorker(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
 #define DevToolsFindName FindEditorName
 #define DevToolsPutText PutEditorText
 #define DevToolsGetSelectedIndex GetEditorSelection
+#define DevToolsGetKey GetEditorKey
+#define DevToolsPutHandled PutEditorHandled
 #define CreateThread RefuseWorker
 #include "../native/WinApp.DevTools.Native/DevToolsWindow.cpp"
 #undef CreateThread
@@ -27,13 +32,91 @@ struct EditorElement : IInspectable
     HRESULT STDMETHODCALLTYPE GetTrustLevel(TrustLevel* out) override { *out = BaseTrust; return S_OK; }
 };
 static EditorElement status, pathBox, modeBox;
+struct ResourceBox : winrt::implements<ResourceBox, DevToolsXC::IAutoSuggestBox>
+{
+    winrt::hstring text;
+    bool isOpen = false;
+    double MaxSuggestionListHeight() { return 200; }
+    void MaxSuggestionListHeight(double) {}
+    bool IsSuggestionListOpen() { return isOpen; }
+    void IsSuggestionListOpen(bool value) { isOpen = value; }
+    winrt::hstring TextMemberPath() { return {}; }
+    void TextMemberPath(winrt::hstring const&) {}
+    winrt::hstring Text() { return text; }
+    void Text(winrt::hstring const& value) { text = value; }
+    bool UpdateTextOnSelect() { return false; }
+    void UpdateTextOnSelect(bool) {}
+    winrt::hstring PlaceholderText() { return {}; }
+    void PlaceholderText(winrt::hstring const&) {}
+    winrt::Windows::Foundation::IInspectable Header() { return nullptr; }
+    void Header(winrt::Windows::Foundation::IInspectable const&) {}
+    bool AutoMaximizeSuggestionArea() { return false; }
+    void AutoMaximizeSuggestionArea(bool) {}
+    DevToolsX::Style TextBoxStyle() { return nullptr; }
+    void TextBoxStyle(DevToolsX::Style const&) {}
+    DevToolsXC::IconElement QueryIcon() { return nullptr; }
+    void QueryIcon(DevToolsXC::IconElement const&) {}
+    DevToolsXC::LightDismissOverlayMode LightDismissOverlayMode() { return DevToolsXC::LightDismissOverlayMode::Auto; }
+    void LightDismissOverlayMode(DevToolsXC::LightDismissOverlayMode) {}
+    winrt::Windows::Foundation::IInspectable Description() { return nullptr; }
+    void Description(winrt::Windows::Foundation::IInspectable const&) {}
+    using ChosenHandler = winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::AutoSuggestBox,
+        DevToolsXC::AutoSuggestBoxSuggestionChosenEventArgs>;
+    using ChangedHandler = winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::AutoSuggestBox,
+        DevToolsXC::AutoSuggestBoxTextChangedEventArgs>;
+    using QueryHandler = winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::AutoSuggestBox,
+        DevToolsXC::AutoSuggestBoxQuerySubmittedEventArgs>;
+    winrt::event_token SuggestionChosen(ChosenHandler const&) { return {}; }
+    void SuggestionChosen(winrt::event_token const&) {}
+    winrt::event_token TextChanged(ChangedHandler const&) { return {}; }
+    void TextChanged(winrt::event_token const&) {}
+    winrt::event_token QuerySubmitted(QueryHandler const&) { return {}; }
+    void QuerySubmitted(winrt::event_token const&) {}
+};
+struct ResourceChoice : winrt::implements<ResourceChoice, DevToolsXC::IAutoSuggestBoxSuggestionChosenEventArgs,
+    DevToolsXC::IAutoSuggestBoxQuerySubmittedEventArgs>
+{
+    winrt::Windows::Foundation::IInspectable item{nullptr};
+    winrt::Windows::Foundation::IInspectable SelectedItem() { return item; }
+    winrt::Windows::Foundation::IInspectable ChosenSuggestion() { return item; }
+    winrt::hstring QueryText() { return L"ChosenResource"; }
+};
+struct ResourceTextChange : winrt::implements<ResourceTextChange, DevToolsXC::IAutoSuggestBoxTextChangedEventArgs>
+{
+    DevToolsXC::AutoSuggestionBoxTextChangeReason reason = DevToolsXC::AutoSuggestionBoxTextChangeReason::ProgrammaticChange;
+    DevToolsXC::AutoSuggestionBoxTextChangeReason Reason() { return reason; }
+    void Reason(DevToolsXC::AutoSuggestionBoxTextChangeReason value) { reason = value; }
+    bool CheckCurrent() { return true; }
+};
+struct ViewItem : winrt::implements<ViewItem, DevToolsXC::ISelectorBarItem>
+{
+    winrt::hstring Text() { return {}; }
+    void Text(winrt::hstring const&) {}
+    DevToolsXC::IconElement Icon() { return nullptr; }
+    void Icon(DevToolsXC::IconElement const&) {}
+};
+struct ViewSelector : winrt::implements<ViewSelector, DevToolsXC::ISelectorBar>
+{
+    winrt::Windows::Foundation::Collections::IVector<DevToolsXC::SelectorBarItem> items =
+        winrt::single_threaded_vector<DevToolsXC::SelectorBarItem>();
+    DevToolsXC::SelectorBarItem selected{nullptr};
+    auto Items() { return items; }
+    auto SelectedItem() { return selected; }
+    void SelectedItem(DevToolsXC::SelectorBarItem const& value) { selected = value; }
+    using Handler = winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::SelectorBar,
+        DevToolsXC::SelectorBarSelectionChangedEventArgs>;
+    winrt::event_token SelectionChanged(Handler const&) { return {}; }
+    void SelectionChanged(winrt::event_token const&) {}
+};
+static DevToolsXC::IAutoSuggestBox resourceBox{nullptr};
 static unsigned submissions = 0;
 static std::wstring submittedPath, submittedMode;
 static int selectedMode = 0;
 static HRESULT FindEditorName(void*, HSTRING name, IInspectable** out)
 {
     const std::wstring key(WindowsGetStringRawBuffer(name, nullptr));
-    *out = key == L"PPath" ? &pathBox : key == L"PMode" ? &modeBox : nullptr;
+    *out = key == L"PResKey" ? reinterpret_cast<IInspectable*>(winrt::get_abi(resourceBox)) :
+        key == L"PPath" ? &pathBox : key == L"PMode" ? &modeBox : nullptr;
     if (*out) (*out)->AddRef();
     return S_OK;
 }
@@ -60,6 +143,114 @@ int main()
         ++checks; if (!ok) ++failed;
         std::printf("%s %s\n", ok ? "PASS" : "FAIL", name);
     };
+    {
+        auto selector = winrt::make_self<ViewSelector>();
+        selector->items.Append(winrt::make<ViewItem>().as<DevToolsXC::SelectorBarItem>());
+        selector->items.Append(winrt::make<ViewItem>().as<DevToolsXC::SelectorBarItem>());
+        auto abi = winrt::get_abi(selector.as<DevToolsXC::ISelectorBar>());
+        OnlySetToggleSink views;
+        views.Init();
+        selector->selected = selector->items.GetAt(1);
+        views.Invoke(abi, nullptr);
+        check(ShowingSetView(), "the property selector chooses Set");
+        views.Invoke(abi, nullptr);
+        check(ShowingSetView(), "reselecting Set does not toggle the active view off");
+        selector->selected = nullptr;
+        views.Invoke(abi, nullptr);
+        check(selector->selected == selector->items.GetAt(1), "an empty property selection restores the active view");
+        selector->selected = selector->items.GetAt(0);
+        views.Invoke(abi, nullptr);
+        check(!ShowingSetView(), "the property selector returns to Computed");
+        CommentsViewSink modes;
+        modes.Init();
+        g_inspectorViewSelector = abi;
+        selector->selected = selector->items.GetAt(1);
+        modes.Invoke(abi, nullptr);
+        check(g_commentsView, "the inspector selector opens Comments");
+        modes.Invoke(abi, nullptr);
+        check(g_commentsView, "reselecting Comments does not toggle the active view off");
+        selector->selected = nullptr;
+        modes.Invoke(abi, nullptr);
+        check(selector->selected == selector->items.GetAt(1), "an empty inspector selection restores Comments");
+        selector->selected = selector->items.GetAt(0);
+        modes.Invoke(abi, nullptr);
+        check(!g_commentsView, "the inspector selector returns to the visual tree");
+        g_inspectorViewSelector = nullptr;
+    }
+    {
+        const std::vector<std::wstring> keys{L"AccentBrush", L"ControlFillColorDefaultBrush", L"BodyText"};
+        check(FilterResourceKeys(keys, L"BRUSH") == std::vector<std::wstring>{L"AccentBrush", L"ControlFillColorDefaultBrush"},
+            "resource typeahead filters case-insensitively without changing candidate order");
+        check(FilterResourceKeys(keys, L"").size() == 3 && FilterResourceKeys(keys, L"missing").empty(),
+            "resource typeahead supports an empty query and an empty result without a fake key");
+        resourceBox = winrt::make<ResourceBox>();
+        resourceBox.Text(L"OriginalResource");
+        bool found = false;
+        check(ReadBox(&pathBox, L"PResKey", &found) == L"OriginalResource" && found,
+            "resource commit reads AutoSuggestBox.Text without the TextBox read callback");
+        DevToolsCardRow resourceRow;
+        resourceRow.name = L"Foreground";
+        resourceRow.type = L"Brush";
+        resourceRow.authoredKind = L"themeResource";
+        resourceRow.authoredKey = L"OriginalResource";
+        check(ResourceEditorSeed(resourceRow, L"Foreground", DevToolsKind::Theme) == L"OriginalResource",
+            "opening an existing resource editor preserves its authored key");
+        NoteSessionAssign(L"Foreground", DevToolsKind::Theme, L"{ThemeResource SessionResource}");
+        check(ResourceEditorSeed(resourceRow, L"Foreground", DevToolsKind::Theme) == L"SessionResource",
+            "reopening a resource editor seeds the current session assignment, not stale source XAML");
+        check(ResourceEditorSeed(resourceRow, L"Foreground", DevToolsKind::Static).empty(),
+            "staging a different resource kind starts with an empty key rather than applying a suggestion");
+        SessionAssignErase(L"Foreground");
+        KindCtx resourceCtx{std::make_shared<const DevToolsCardRow>(resourceRow), L"Foreground", 0, nullptr, &pathBox};
+        unsigned resolves = 0;
+        g_ctx.resolveFn = [&](auto, const auto&, const auto& key, bool theme) {
+            ++resolves;
+            check(key == L"ChosenResource" && theme, "resource assignment forwards the exact chosen key and kind");
+            return true;
+        };
+        KindKeySink preview;
+        preview.Init(resourceCtx, false, true);
+        int enter = 13;
+        keyHandled = false;
+        preview.Invoke(nullptr, &enter);
+        check(!keyHandled && resolves == 0, "resource PreviewKeyDown leaves Enter for AutoSuggestBox to interpret");
+        auto choice = winrt::make_self<ResourceChoice>();
+        choice->item = winrt::box_value(L"ChosenResource");
+        ResSuggestSink choose;
+        choose.Init();
+        choose.Invoke(winrt::get_abi(resourceBox),
+            winrt::get_abi(choice.as<DevToolsXC::IAutoSuggestBoxSuggestionChosenEventArgs>()));
+        check(resourceBox.Text() == L"ChosenResource" && resolves == 0,
+            "pointer or keyboard suggestion choice only fills the field");
+        ResQuerySink query;
+        query.Init(resourceCtx);
+        query.Invoke(nullptr, winrt::get_abi(choice.as<DevToolsXC::IAutoSuggestBoxQuerySubmittedEventArgs>()));
+        check(resolves == 0, "Enter choosing a suggestion does not apply the resource");
+        choice->item = nullptr;
+        query.Invoke(nullptr, winrt::get_abi(choice.as<DevToolsXC::IAutoSuggestBoxQuerySubmittedEventArgs>()));
+        check(resolves == 1, "a separate Enter on typed text applies the resource once");
+        KindApplySink apply;
+        apply.Init(resourceCtx);
+        apply.Invoke(nullptr, nullptr);
+        check(resolves == 2, "the explicit Apply action still applies the resource");
+        ResTextChangedSink changed;
+        changed.Init(keys);
+        auto change = winrt::make_self<ResourceTextChange>();
+        for (auto reason : {DevToolsXC::AutoSuggestionBoxTextChangeReason::ProgrammaticChange,
+                DevToolsXC::AutoSuggestionBoxTextChangeReason::SuggestionChosen}) {
+            change->reason = reason;
+            check(changed.Invoke(winrt::get_abi(resourceBox),
+                winrt::get_abi(change.as<DevToolsXC::IAutoSuggestBoxTextChangedEventArgs>())) == S_OK,
+                "non-user resource text changes do not refilter suggestions");
+        }
+        ++g_route1Gen;
+        query.Invoke(nullptr, winrt::get_abi(choice.as<DevToolsXC::IAutoSuggestBoxQuerySubmittedEventArgs>()));
+        check(resolves == 2, "stale resource callbacks cannot write after a pane replacement");
+        g_ctx.resolveFn = nullptr;
+        resourceBox = nullptr;
+        g_sessionAssign.clear();
+        g_dirtySeed.clear();
+    }
     g_statusTb = &status;
     g_selWire = 77;
     g_ctx.readInputFn = [](IInspectable* element, std::wstring& value) {

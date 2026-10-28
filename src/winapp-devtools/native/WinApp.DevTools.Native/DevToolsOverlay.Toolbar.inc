@@ -3,6 +3,7 @@
 // Part of DevToolsOverlay.cpp; included into that translation unit, not compiled on its own.
 
 static void DevToolsSetSelectionPanelRequestedTheme(int requestedTheme);
+static void SetToolbarMenuTheme(int requestedTheme);
 
 static void DevToolsSetToolbarRequestedTheme(int appTheme)
 {
@@ -18,6 +19,7 @@ static void DevToolsSetToolbarRequestedTheme(int appTheme)
         }
     }
     DevToolsSetSelectionPanelRequestedTheme(toolbarTheme);
+    SetToolbarMenuTheme(toolbarTheme);
     HostSetLayerTheme(appTheme);
 }
 
@@ -404,11 +406,13 @@ static void ThenReturnFocus(void* sender, void* args)
 }
 
 static void ProtoSetToggle(const wchar_t* button, const wchar_t* onPart, const wchar_t* offPart, bool on);
+static winrt::Windows::Foundation::IInspectable ToolbarPart(const wchar_t* name);
+static bool g_syncingCommentToggle = false;
 
 static void ProtoSetPinned(bool on)
 {
     g_pinned = on;
-    ProtoSetToggle(L"DevToolsProtoPin", L"DevToolsPinOn", L"", on);
+    ProtoSetToggle(L"DevToolsProtoPin", L"", L"", on);
 }
 
 // Pinning also opens the bar now; unpinning leaves it open until the next PointerExited (the pointer is on the
@@ -427,14 +431,14 @@ static void OnPinClick(void*, void*)
 // namescope.
 static void ProtoSetPartVisible(const wchar_t* name, bool visible)
 {
-    if (!g_protoRoot) return;
-    if (IInspectable* el = DevToolsSelFindName(g_protoRoot, name)) {
-        void* ui = nullptr;
-        if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-            DevToolsPutVisibility(ui, visible ? 0 : 1);
-            reinterpret_cast<IUnknown*>(ui)->Release();
+    if (!name || !*name) return;
+    try {
+        if (auto part = ToolbarPart(name).try_as<DevToolsX::IUIElement>()) {
+            const HRESULT hr = DevToolsPutVisibility(winrt::get_abi(part), visible ? 0 : 1);
+            if (FAILED(hr)) DevToolsOverlayLog(L"overlay.toolbar visibility %s failed hr=0x%08X", name, hr);
         }
-        el->Release();
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar visibility %s failed hr=0x%08X", name, e.code().value);
     }
 }
 
@@ -443,13 +447,19 @@ static void ProtoSetToggle(const wchar_t* button, const wchar_t* onPart, const w
 {
     ProtoSetPartVisible(onPart, on);
     ProtoSetPartVisible(offPart, !on);
-    if (!g_protoRoot) return;
-    winrt::com_ptr<IInspectable> element;
-    element.attach(DevToolsSelFindName(g_protoRoot, button));
-    winrt::com_ptr<IUnknown> toggle;
-    if (element && SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsXCP::IToggleButton>(), toggle.put_void()))) {
-        const auto checked = winrt::box_value(on);
-        DevToolsAbi<DevToolsXCP::IToggleButton>(toggle.get())->put_IsChecked(winrt::get_abi(checked));
+    try {
+        auto element = ToolbarPart(button);
+        if (auto split = element.try_as<DevToolsXC::ToggleSplitButton>()) {
+            const bool previous = std::exchange(g_syncingCommentToggle, true);
+            try { split.IsChecked(on); }
+            catch (...) { g_syncingCommentToggle = previous; throw; }
+            g_syncingCommentToggle = previous;
+        }
+        else if (auto radio = element.try_as<DevToolsXC::RadioMenuFlyoutItem>()) radio.IsChecked(on);
+        else if (auto item = element.try_as<DevToolsXC::ToggleMenuFlyoutItem>()) item.IsChecked(on);
+        else if (auto toggle = element.try_as<DevToolsXCP::ToggleButton>()) toggle.IsChecked(on);
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar checked state %s failed hr=0x%08X", button, e.code().value);
     }
 }
 
@@ -495,99 +505,139 @@ static void ProtoSetPartAutomationName(const wchar_t* name, const std::wstring& 
 
 static bool CommentsShown();
 static size_t CommentCount();
-// Toolbar menus are canvas parts shown beside the bar, one at a time. They live in the toolbar's layer rather than
-// in a popup, so they never mix with the app's own popups.
+// Retain the named menu objects before WinUI moves their visuals into its popup tree.
 static const wchar_t* g_toolbarMenuAnchor = nullptr;
-static bool g_menuHover = false;
-static UINT_PTR g_menuLeaveTimer = 0;
+static std::vector<std::pair<std::wstring, winrt::Windows::Foundation::IInspectable>> g_toolbarMenuParts;
+static winrt::weak_ref<DevToolsX::FrameworkElement> g_toolbarMenuPresenter;
+static bool ToolbarMenuIsOpen() { return g_toolbarMenu != nullptr; }
 
 static winrt::Windows::Foundation::IInspectable ToolbarPart(const wchar_t* name)
 {
     winrt::Windows::Foundation::IInspectable part{ nullptr };
     if (IInspectable* element = g_protoRoot && name ? DevToolsSelFindName(g_protoRoot, name) : nullptr)
         winrt::attach_abi(part, element);
+    if (!part && name) {
+        for (auto const& entry : g_toolbarMenuParts)
+            if (entry.first == name) return entry.second;
+    }
     return part;
+}
+
+static void SetToolbarMenuTheme(int requestedTheme)
+{
+    try {
+        for (const wchar_t* name : { L"DevToolsCommentsMenu", L"DevToolsMoreMenu" }) {
+            if (auto menu = ToolbarPart(name).try_as<DevToolsXC::MenuFlyout>()) {
+                DevToolsX::Style style{ winrt::xaml_typename<DevToolsXC::MenuFlyoutPresenter>() };
+                style.Setters().Append(DevToolsX::Setter{ DevToolsX::FrameworkElement::RequestedThemeProperty(),
+                    winrt::box_value(static_cast<DevToolsX::ElementTheme>(requestedTheme)) });
+                menu.MenuFlyoutPresenterStyle(style);
+            }
+        }
+        if (auto presenter = g_toolbarMenuPresenter.get())
+            presenter.RequestedTheme(static_cast<DevToolsX::ElementTheme>(requestedTheme));
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar menu theme failed hr=0x%08X", e.code().value);
+    }
 }
 
 static bool CloseToolbarMenu(bool focusAnchor)
 {
-    if (g_menuLeaveTimer) { KillTimer(nullptr, g_menuLeaveTimer); g_menuLeaveTimer = 0; }
     if (!g_toolbarMenu) return false;
-    ProtoSetPartVisible(g_toolbarMenu, false);
-    if (focusAnchor) {
-        try {
-            if (auto anchor = ToolbarPart(g_toolbarMenuAnchor).try_as<DevToolsX::UIElement>())
-                anchor.Focus(DevToolsX::FocusState::Keyboard);
-        } catch (const winrt::hresult_error&) {}
-    }
+    const wchar_t* menu = g_toolbarMenu;
+    const wchar_t* anchorName = g_toolbarMenuAnchor;
     g_toolbarMenu = g_toolbarMenuAnchor = nullptr;
-    g_menuHover = false;
+    try {
+        ToolbarPart(menu).as<DevToolsXC::MenuFlyout>().Hide();
+        if (focusAnchor) {
+            if (auto anchor = ToolbarPart(anchorName).try_as<DevToolsX::UIElement>())
+                anchor.Focus(DevToolsX::FocusState::Keyboard);
+        }
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar menu close failed hr=0x%08X", e.code().value);
+    }
+    UpdateCatcherHole();
     return true;
 }
 
-static void CALLBACK ToolbarMenuLeaveProc(HWND, UINT, UINT_PTR, DWORD)
+static void SeedToolbarMenuObject(winrt::Windows::Foundation::IInspectable const& object)
 {
-    if (g_menuLeaveTimer) { KillTimer(nullptr, g_menuLeaveTimer); g_menuLeaveTimer = 0; }
-    if (g_menuHover || g_barHover) return;
-    CloseToolbarMenu();
-    if (!g_pinned && !g_dragging && g_toolbarFocusWithin == 0) ShowARow(false);
+    if (!object || !g_pickDiag || !g_pickSeed) return;
+    InstanceHandle handle = 0;
+    const HRESULT hr = g_pickDiag->GetHandleFromIInspectable(
+        reinterpret_cast<IInspectable*>(winrt::get_abi(object)), &handle);
+    if (SUCCEEDED(hr) && handle) g_pickSeed(handle);
+    else DevToolsOverlayLog(L"overlay.toolbar menu exclusion failed hr=0x%08X", hr);
 }
 
-// Opens `menu` under its `anchor` button, above the bar when the toolbar sits at the bottom. A menu opened from the
-// keyboard puts focus on its first action.
-static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, const wchar_t* first)
+static std::string DefaultMode();
+static void SetStartModeUi(const std::string& mode);
+static DevToolsXCP::FlyoutPlacementMode ToolbarMenuPlacement()
 {
-    const bool wasOpen = g_toolbarMenu && wcscmp(g_toolbarMenu, menu) == 0;
-    CloseToolbarMenu();
-    if (wasOpen || !g_aRow) return;
-    bool keyboard = false;
-    try {
-        winrt::Windows::Foundation::IInspectable barObject{ nullptr };
-        winrt::copy_from_abi(barObject, g_aRow);
-        auto anchorElement = ToolbarPart(anchor).as<DevToolsX::UIElement>();
-        auto panel = ToolbarPart(menu).as<DevToolsX::FrameworkElement>();
-        keyboard = anchorElement.FocusState() != DevToolsX::FocusState::Unfocused;
-        panel.Visibility(DevToolsX::Visibility::Visible);
-        panel.Measure({ static_cast<float>(panel.Width()), std::numeric_limits<float>::infinity() });
-        const double width = panel.Width(), height = panel.DesiredSize().Height;
-        const double offset = anchorElement.TransformToVisual(barObject.as<DevToolsX::UIElement>()).TransformPoint({ 0, 0 }).X;
-        const double x = (std::clamp)(BarX() + offset, 4.0, (std::max)(4.0, g_protoW - width - 4.0));
-        const double y = CornerIsTop(g_corner) ? BarY() + kBarH + 4.0 : BarY() - height - 4.0;
-        MoveOverlayElement(reinterpret_cast<IInspectable*>(winrt::get_abi(panel)), x, y);
-    } catch (const winrt::hresult_error& e) {
-        ProtoSetPartVisible(menu, false);
-        DevToolsOverlayLog(L"overlay.toolbar menu placement failed hr=0x%08X", e.code().value);
-        return;
+    return CornerIsTop(g_corner) ? DevToolsXCP::FlyoutPlacementMode::Bottom : DevToolsXCP::FlyoutPlacementMode::Top;
+}
+
+static void PrepareToolbarMenu(const wchar_t* name, const wchar_t* anchor)
+{
+    if (g_toolbarMenu && wcscmp(g_toolbarMenu, name) != 0) CloseToolbarMenu();
+    auto menu = ToolbarPart(name).as<DevToolsXC::MenuFlyout>();
+    menu.Placement(ToolbarMenuPlacement());
+    const auto anchorElement = ToolbarPart(anchor).as<DevToolsX::FrameworkElement>();
+    SetToolbarMenuTheme(DevToolsBuildPalette().highContrast ? DevToolsTheme::kDefault : static_cast<int>(anchorElement.ActualTheme()));
+    if (wcscmp(name, L"DevToolsCommentsMenu") == 0) {
+        ToolbarPart(L"DevToolsShowAllComments").as<DevToolsXC::MenuFlyoutItem>()
+            .Text(L"Open comments list (" + std::to_wstring(CommentCount()) + L")");
+        ProtoSetToggle(L"DevToolsToggleMarkers", L"", L"", CommentsShown());
+    } else {
+        ProtoSetToggle(L"DevToolsProtoPin", L"", L"", g_pinned);
+        SetStartModeUi(DefaultMode());
     }
-    g_toolbarMenu = menu;
+    g_toolbarMenu = name;
     g_toolbarMenuAnchor = anchor;
-    if (keyboard) {
-        try { ToolbarPart(first).as<DevToolsX::UIElement>().Focus(DevToolsX::FocusState::Keyboard); }
-        catch (const winrt::hresult_error&) {}
-    }
-    DevToolsOverlayLog(L"overlay.toolbar menu %s open", menu);
 }
 
-// The bar and its menu track the pointer together: leaving both closes the menu and lets the bar collapse.
-static void WireToolbarMenu(const wchar_t* menu)
+static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
 {
     try {
-        auto wireHover = [](const wchar_t* name, bool* flag) {
-            auto element = ToolbarPart(name).try_as<DevToolsX::UIElement>();
-            if (!element) return;
-            element.PointerEntered([flag](auto&&, auto&&) { *flag = true; });
-            element.PointerExited([flag](auto&&, auto&&) {
-                *flag = false;
-                if (g_toolbarMenu) g_menuLeaveTimer = SetTimer(nullptr, g_menuLeaveTimer, 300, &ToolbarMenuLeaveProc);
-            });
-        };
-        wireHover(menu, &g_menuHover);
-        if (auto element = ToolbarPart(menu).try_as<DevToolsX::UIElement>())
-            element.KeyDown([](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
-                if (args.Key() == winrt::Windows::System::VirtualKey::Escape && CloseToolbarMenu(true)) args.Handled(true);
-            });
-        static bool barWired = false;
-        if (!std::exchange(barWired, true)) wireHover(L"DevToolsBar", &g_barHover);
+        auto menu = ToolbarPart(name).as<DevToolsXC::MenuFlyout>();
+        SeedToolbarMenuObject(menu);
+        for (auto const& item : menu.Items()) SeedToolbarMenuObject(item);
+        menu.Opening([name, anchor](auto&&, auto&&) {
+            try { PrepareToolbarMenu(name, anchor); }
+            catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"overlay.toolbar menu opening failed hr=0x%08X", e.code().value);
+            }
+        });
+        menu.Opened([name](auto&&, auto&&) {
+            try {
+                auto flyout = ToolbarPart(name).as<DevToolsXC::MenuFlyout>();
+                auto item = flyout.Items().GetAt(0).as<DevToolsX::DependencyObject>();
+                auto root = ToolbarPart(L"DevToolsBar").as<DevToolsX::FrameworkElement>().XamlRoot();
+                for (auto const& popup : DevToolsXM::VisualTreeHelper::GetOpenPopupsForXamlRoot(root)) {
+                    for (auto node = item; node; node = DevToolsXM::VisualTreeHelper::GetParent(node)) {
+                        if (node != popup.Child()) continue;
+                        auto presenter = popup.Child().as<DevToolsX::FrameworkElement>();
+                        g_toolbarMenuPresenter = winrt::make_weak(presenter);
+                        SeedToolbarMenuObject(popup);
+                        SeedToolbarMenuObject(presenter);
+                        DevToolsXA::AutomationProperties::SetAutomationId(presenter, name);
+                        break;
+                    }
+                }
+                UpdateCatcherHole();
+                DevToolsOverlayLog(L"overlay.toolbar menu %s open corner=%d", name, g_corner);
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"overlay.toolbar menu opened failed hr=0x%08X", e.code().value);
+            }
+        });
+        menu.Closed([name](auto&&, auto&&) {
+            if (g_toolbarMenu && wcscmp(g_toolbarMenu, name) == 0)
+                g_toolbarMenu = g_toolbarMenuAnchor = nullptr;
+            g_toolbarMenuPresenter = {};
+            UpdateCatcherHole();
+            if (!g_pinned && !g_barHover && g_toolbarFocusWithin == 0)
+                SetTimer(nullptr, 0, 50, &ToolbarFocusLeftProc);
+        });
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"overlay.toolbar menu wiring failed hr=0x%08X", e.code().value);
     }
@@ -595,12 +645,6 @@ static void WireToolbarMenu(const wchar_t* menu)
 
 static void SetCommentsShown(bool on);
 static void ShowAllComments();
-static void OnCommentsMenuClick(void*, void*)
-{
-    ProtoSetPartText(L"DevToolsShowAllCommentsText", L"Open comments list (" + std::to_wstring(CommentCount()) + L")");
-    ProtoSetToggle(L"DevToolsToggleMarkers", L"DevToolsMarkersCheck", L"", CommentsShown());
-    ToggleToolbarMenu(L"DevToolsCommentsMenu", L"DevToolsProtoCommentsMenu", L"DevToolsShowAllComments");
-}
 static void OnShowAllCommentsClick(void*, void*) { CloseToolbarMenu(); ShowAllComments(); }
 // Hidden markers stay hidden on the next launch; showing them again clears that.
 static void OnToggleMarkersClick(void*, void*)
@@ -624,15 +668,9 @@ static std::string DefaultMode()
 static void SetStartModeUi(const std::string& mode)
 {
     const wchar_t* name = mode == "headless" ? L"DevToolsStartHidden" : mode == "off" ? L"DevToolsStartOff" : L"DevToolsStartShown";
-    ProtoSetToggle(name, L"", L"", true);
+    for (const wchar_t* item : { L"DevToolsStartShown", L"DevToolsStartHidden", L"DevToolsStartOff" })
+        ProtoSetToggle(item, L"", L"", wcscmp(item, name) == 0);
     ProtoSetPartVisible(L"DevToolsStartOffHint", mode == "off");
-}
-
-static void OnMoreMenuClick(void*, void*)
-{
-    // `winapp config set run.devtools` can change the setting while the app runs.
-    SetStartModeUi(DefaultMode());
-    ToggleToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore", L"DevToolsHideToolbar");
 }
 
 // Hidden for this run: DevTools stays attached, and Ctrl+Shift+F12 or Overlay.show brings the toolbar back. A mode
@@ -655,9 +693,30 @@ static void SetDefaultMode(const char* mode)
 }
 static void OnStartShownClick(void*, void*) { SetDefaultMode("on"); }
 static void OnStartHiddenClick(void*, void*) { SetDefaultMode("headless"); }
-// The off choice leaves a re-enable hint in the More menu, so the menu must stay open to show it:
-// SetDefaultMode closes the menu first, then this reopens it (re-measured for the added hint text).
-static void OnStartOffClick(void*, void*) { SetDefaultMode("off"); ToggleToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore", L"DevToolsStartOff"); }
+// Reopen after WinUI finishes dismissing the clicked item so the recovery instruction remains visible.
+static void OnStartOffClick(void*, void*)
+{
+    SetDefaultMode("off");
+    try {
+        auto anchor = ToolbarPart(L"DevToolsProtoMore").as<DevToolsX::FrameworkElement>();
+        if (!anchor) {
+            DevToolsOverlayLog(L"overlay.toolbar recovery instruction has no toolbar anchor");
+            return;
+        }
+        auto weak = winrt::make_weak(anchor);
+        if (!anchor.DispatcherQueue().TryEnqueue([weak]() {
+            try {
+                auto target = weak.get();
+                if (target && target.IsLoaded() && g_toolbarVisible)
+                    ToolbarPart(L"DevToolsMoreMenu").as<DevToolsXC::MenuFlyout>().ShowAt(target);
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"overlay.toolbar recovery instruction failed hr=0x%08X", e.code().value);
+            }
+        })) DevToolsOverlayLog(L"overlay.toolbar recovery instruction queue refused");
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar recovery instruction scheduling failed hr=0x%08X", e.code().value);
+    }
+}
 static std::wstring ChipSurfaceLabel()
 {
     const std::vector<DevToolsSurface>& all = DevToolsOverlay_AllSurfaces();
@@ -975,6 +1034,8 @@ static void WireResizeTracking(IInspectable* panelInsp)
 static void WirePrototype(IInspectable* canvas)
 {
     if (!canvas || !g_toolbarChildren) return;
+    CloseToolbarMenu();
+    g_toolbarMenuParts.clear();
 // Cache the overlay Canvas root (AddRef'd for the agent lifetime): it owns the namescope the reveal storyboards
 // resolve through (BeginNamedStoryboard -> FindName), and is the same root PlayAttachPulse is handed at build.
     // Canvas root is AddRef'd because storyboard resolution uses its namescope for agent lifetime.
@@ -991,6 +1052,13 @@ static void WirePrototype(IInspectable* canvas)
             if (FAILED(originHr)) DevToolsOverlayLog(L"overlay.origin LayoutUpdated subscription FAILED hr=0x%08X", originHr);
             reinterpret_cast<IUnknown*>(fe)->Release();
         }
+    }
+    for (const wchar_t* name : { L"DevToolsCommentsMenu", L"DevToolsShowAllComments", L"DevToolsToggleMarkers",
+            L"DevToolsMoreMenu", L"DevToolsHideToolbar", L"DevToolsProtoPin", L"DevToolsStartShown",
+            L"DevToolsStartHidden", L"DevToolsStartOff", L"DevToolsStartOffHint" }) {
+        auto part = ToolbarPart(name);
+        if (part) g_toolbarMenuParts.emplace_back(name, part);
+        else DevToolsOverlayLog(L"overlay.toolbar missing menu part %s", name);
     }
     if (!g_canvasStatics) {
         HSTRING cn = nullptr;
@@ -1029,14 +1097,25 @@ static void WirePrototype(IInspectable* canvas)
         return *outItems != nullptr;
     };
     auto wireNamedClick = [&](const wchar_t* name, EventSink& sink, void (*cb)(void*, void*)) {
-        IInspectable* it = DevToolsSelFindName(g_protoRoot, name);
-        if (!it) return;
-        IInspectable* bb = nullptr;
-        if (SUCCEEDED(it->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), reinterpret_cast<void**>(&bb))) && bb) {
-            sink.Bind(&IID_RoutedEventHandler_Del, cb);
-            __int64 tok = 0; DevToolsAddClick(bb, &sink, &tok); bb->Release();
+        try {
+            auto part = ToolbarPart(name);
+            if (auto split = part.try_as<DevToolsXC::ToggleSplitButton>()) {
+                split.IsCheckedChanged([cb](DevToolsXC::ToggleSplitButton const& sender, auto&&) {
+                    if (g_syncingCommentToggle) return;
+                    cb(winrt::get_abi(sender), nullptr);
+                    ProtoSetToggle(L"DevToolsProtoComments", L"", L"", g_pickCatcher && CommentModeOn());
+                });
+            } else if (auto item = part.try_as<DevToolsXC::MenuFlyoutItem>()) {
+                item.Click([cb](auto const& sender, auto const& args) { cb(winrt::get_abi(sender), winrt::get_abi(args)); });
+            } else if (auto button = part.try_as<DevToolsXCP::ButtonBase>()) {
+                sink.Bind(&IID_RoutedEventHandler_Del, cb);
+                __int64 token = 0;
+                const HRESULT hr = DevToolsAddClick(winrt::get_abi(button), &sink, &token);
+                if (FAILED(hr)) DevToolsOverlayLog(L"overlay.toolbar click %s failed hr=0x%08X", name, hr);
+            } else DevToolsOverlayLog(L"overlay.toolbar click %s has no command control", name);
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"overlay.toolbar click %s wiring failed hr=0x%08X", name, e.code().value);
         }
-        it->Release();
     };
     // Use the C++/WinRT named event instead of a manually indexed vtable slot.
     auto wireUiEvent = [&](IInspectable* uiInsp, DevToolsUiEvent which, EventSink& sink, void (*cb)(void*, void*)) {
@@ -1103,16 +1182,14 @@ static void WirePrototype(IInspectable* canvas)
         }
         wireNamedClick(L"DevToolsProtoPick", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);
         wireNamedClick(L"DevToolsProtoComments", g_protoSink[3], &ThenReturnFocus<&OnCommentModeClick>);
-        wireNamedClick(L"DevToolsProtoCommentsMenu", g_protoSink[15], &OnCommentsMenuClick);
         wireNamedClick(L"DevToolsShowAllComments", g_protoSink[16], &OnShowAllCommentsClick);
         wireNamedClick(L"DevToolsToggleMarkers", g_protoSink[17], &OnToggleMarkersClick);
-        WireToolbarMenu(L"DevToolsCommentsMenu");
-        wireNamedClick(L"DevToolsProtoMore", g_protoSink[18], &OnMoreMenuClick);
+        WireToolbarMenu(L"DevToolsCommentsMenu", L"DevToolsProtoComments");
         wireNamedClick(L"DevToolsHideToolbar", g_protoSink[19], &OnHideToolbarClick);
         wireNamedClick(L"DevToolsStartShown", g_protoSink[20], &OnStartShownClick);
         wireNamedClick(L"DevToolsStartHidden", g_protoSink[21], &OnStartHiddenClick);
         wireNamedClick(L"DevToolsStartOff", g_protoSink[22], &OnStartOffClick);
-        WireToolbarMenu(L"DevToolsMoreMenu");
+        WireToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore");
         wireNamedClick(L"DevToolsProtoInspect", g_protoSink[4], &ThenReturnFocus<&OnInspectClick>);
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &ThenReturnFocus<&OnLayoutToggleClick>);
         wireNamedClick(L"DevToolsProtoTheme", g_protoSink[6], &ThenReturnFocus<&OnThemeToggleClick>);
@@ -1129,6 +1206,13 @@ static void WirePrototype(IInspectable* canvas)
         DevToolsOverlayLog(L"overlay.toolbar GettingFocus subscription failed hr=0x%08X", e.code().value);
     }
     if (barUi) {
+        try {
+            auto bar = ToolbarPart(L"DevToolsBar").as<DevToolsX::UIElement>();
+            bar.PointerEntered([](auto&&, auto&&) { g_barHover = true; });
+            bar.PointerExited([](auto&&, auto&&) { g_barHover = false; });
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"overlay.toolbar hover wiring failed hr=0x%08X", e.code().value);
+        }
         wireUiEvent(barUi, DevToolsUiEvent::PointerExited, g_protoSink[1], &OnACollapse);
         wireUiEvent(barUi, DevToolsUiEvent::GotFocus, g_protoSink[13], &OnToolbarGotFocus);
         wireUiEvent(barUi, DevToolsUiEvent::LostFocus, g_protoSink[14], &OnToolbarLostFocus);

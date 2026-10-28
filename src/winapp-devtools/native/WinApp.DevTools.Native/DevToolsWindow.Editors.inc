@@ -112,20 +112,31 @@ struct KindKeySink : DevToolsSinkBase
         int key = 0;
         if (FAILED(DevToolsGetKey(args, &key))) return S_OK;
         if (key == 13 /*Enter*/) {
+            if (resourceQuery) return S_OK; // AutoSuggestBox distinguishes choosing a suggestion from submitting text.
             if (DevToolsEditText::StartsNewLine(multiline, (GetKeyState(VK_SHIFT) & 0x8000) != 0,
                     (GetKeyState(VK_CONTROL) & 0x8000) != 0)) return S_OK;
             DevToolsPutHandled(args, true); CommitKind(ctx);
         }
         else if (key == 27 /*Escape*/ && PendingKindFind(ctx.path)) {
+            if (resourceQuery) {
+                if (IInspectable* el = FindInRow(ctx.expFe, L"PResKey")) {
+                    winrt::Windows::Foundation::IInspectable object{nullptr};
+                    winrt::attach_abi(object, el);
+                    auto suggest = object.try_as<DevToolsXC::IAutoSuggestBox>();
+                    if (suggest && suggest.IsSuggestionListOpen()) return S_OK;
+                }
+            }
             DevToolsPutHandled(args, true);
             PendingKindErase(ctx.path);
             RebuildExpansion(ctx.rowFe, *ctx.row, ctx.path, ctx.edit);
         }
         return S_OK;
     }
-    void Init(const KindCtx& c, bool lines = false) { ctx = c; multiline = lines; InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
+    void Init(const KindCtx& c, bool lines = false, bool resource = false)
+    { ctx = c; multiline = lines; resourceQuery = resource; InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
     KindCtx ctx;
     bool multiline = false;
+    bool resourceQuery = false;
 };
 
 struct ExpBackgroundFocusSink : DevToolsSinkBase
@@ -143,24 +154,93 @@ struct ExpBackgroundFocusSink : DevToolsSinkBase
     void* target = nullptr;
 };
 
-// A suggested resource key was clicked: put it in the field. It does NOT apply, for the same reason selecting
-// a kind does not -- looking at what is available must not be the same gesture as taking it.
+static std::vector<std::wstring> FilterResourceKeys(const std::vector<std::wstring>& keys, std::wstring query)
+{
+    std::transform(query.begin(), query.end(), query.begin(), towlower);
+    std::vector<std::wstring> matches;
+    for (const auto& key : keys) {
+        std::wstring folded = key;
+        std::transform(folded.begin(), folded.end(), folded.begin(), towlower);
+        if (folded.find(query) != std::wstring::npos) matches.push_back(key);
+    }
+    return matches;
+}
+
+// Pointer and keyboard suggestion choices fill the field, never the running app.
 struct ResSuggestSink : DevToolsSinkBase
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void* sender, void* args)
     {
-        if (gen != g_route1Gen || !box) return S_OK;
-        void* tx = nullptr;
-        if (SUCCEEDED(reinterpret_cast<IInspectable*>(box)->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
-            HSTRING h = MakeStr(key); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
-            reinterpret_cast<IUnknown*>(tx)->Release();
+        if (gen != g_route1Gen || !sender || !args) return S_OK;
+        try {
+            DevToolsXC::IAutoSuggestBox box{nullptr};
+            DevToolsXC::IAutoSuggestBoxSuggestionChosenEventArgs chosen{nullptr};
+            winrt::copy_from_abi(box, sender);
+            winrt::copy_from_abi(chosen, args);
+            box.Text(winrt::unbox_value<winrt::hstring>(chosen.SelectedItem()));
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.props resource suggestion failed hr=0x%08X", e.code().value);
         }
         return S_OK;
     }
-    void Init(void* keyBox, const std::wstring& k)
-    { box = keyBox; key = k; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    void* box = nullptr;
-    std::wstring key;
+    void Init()
+    {
+        InitSink(DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::AutoSuggestBox,
+            DevToolsXC::AutoSuggestBoxSuggestionChosenEventArgs>>(), g_route1Gen);
+    }
+};
+
+struct ResTextChangedSink : DevToolsSinkBase
+{
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void* sender, void* args)
+    {
+        if (gen != g_route1Gen || !sender || !args) return S_OK;
+        try {
+            DevToolsXC::IAutoSuggestBoxTextChangedEventArgs changed{nullptr};
+            winrt::copy_from_abi(changed, args);
+            if (changed.Reason() != DevToolsXC::AutoSuggestionBoxTextChangeReason::UserInput) return S_OK;
+            DevToolsXC::AutoSuggestBox box{nullptr};
+            winrt::copy_from_abi(box, sender);
+            auto items = winrt::single_threaded_vector<winrt::Windows::Foundation::IInspectable>();
+            for (const auto& key : FilterResourceKeys(keys, std::wstring(box.Text())))
+                items.Append(winrt::box_value(key));
+            box.ItemsSource(items);
+            box.IsSuggestionListOpen(items.Size() > 0);
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.props resource filtering failed hr=0x%08X", e.code().value);
+        }
+        return S_OK;
+    }
+    void Init(std::vector<std::wstring> candidates)
+    {
+        keys = std::move(candidates);
+        InitSink(DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::AutoSuggestBox,
+            DevToolsXC::AutoSuggestBoxTextChangedEventArgs>>(), g_route1Gen);
+    }
+    std::vector<std::wstring> keys;
+};
+
+struct ResQuerySink : DevToolsSinkBase
+{
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
+    {
+        if (gen != g_route1Gen || !ctx.row || !args) return S_OK;
+        try {
+            DevToolsXC::IAutoSuggestBoxQuerySubmittedEventArgs submitted{nullptr};
+            winrt::copy_from_abi(submitted, args);
+            if (!submitted.ChosenSuggestion()) CommitKind(ctx);
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.props resource submission failed hr=0x%08X", e.code().value);
+        }
+        return S_OK;
+    }
+    void Init(const KindCtx& c)
+    {
+        ctx = c;
+        InitSink(DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::AutoSuggestBox,
+            DevToolsXC::AutoSuggestBoxQuerySubmittedEventArgs>>(), g_route1Gen);
+    }
+    KindCtx ctx;
 };
 
 // Write a test value THROUGH a TwoWay binding to its SOURCE. Deliberately an action and not a field: it
@@ -346,7 +426,31 @@ static void NameTheEditor(void* fe, const std::wstring& path, const wchar_t* pri
     for (const wchar_t* nm : kAllEditorParts) {
         if (wcscmp(nm, primary) != 0) continue;
         if (IInspectable* e = FindInRow(fe, nm)) {
-            SetAutomationTextOn(e, path + L" editor", path + L" editor", L"");
+            if (wcscmp(primary, L"PResKey") == 0) {
+                SetAutomationTextOn(e, path + L" resource suggestions", path + L" resource suggestions", L"");
+                try {
+                    const auto box = TreeObject<DevToolsXC::AutoSuggestBox>(e);
+                    auto nameInput = [name = path + L" editor"](auto const& sender, auto const&) {
+                        const auto input = TreeDescendant<DevToolsXC::TextBox>(
+                            sender.template as<DevToolsX::DependencyObject>());
+                        if (input) {
+                            DevToolsTreeA::AutomationProperties::SetName(input, name);
+                            DevToolsTreeA::AutomationProperties::SetAutomationId(input, name);
+                        } else {
+                            DevToolsOverlayLog(L"route1.props resource input missing for '%s'", name.c_str());
+                        }
+                    };
+                    box.Loaded(nameInput);
+                    if (box.IsLoaded()) {
+                        box.ApplyTemplate();
+                        nameInput(box, nullptr);
+                    }
+                } catch (const winrt::hresult_error& error) {
+                    DevToolsOverlayLog(L"route1.props resource input naming failed hr=0x%08X", error.code().value);
+                }
+            } else {
+                SetAutomationTextOn(e, path + L" editor", path + L" editor", L"");
+            }
             e->Release();
             named = true;
         }
@@ -386,11 +490,11 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
         if (IInspectable* el = FindInRow(fe, b)) { ShowEl(el, wcscmp(b, show) == 0); el->Release(); }
     }
 
-    auto wireKeys = [&](const wchar_t* name, bool multiline = false) {
+    auto wireKeys = [&](const wchar_t* name, bool multiline = false, bool resourceQuery = false) {
         if (IInspectable* el = FindInRow(fe, name)) {
             void* ui = nullptr;
             if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-                KindKeySink* ks = new KindKeySink(); ks->Init(ctx, multiline);
+                KindKeySink* ks = new KindKeySink(); ks->Init(ctx, multiline, resourceQuery);
                 __int64 tok = 0;
                 DevToolsAddPreviewKeyDown(ui, ks, &tok);
                 reinterpret_cast<IUnknown*>(ui)->Release();
@@ -460,81 +564,43 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
     case DevToolsKind::Static: {
         if (IInspectable* e = FindInRow(fe, L"PResLbl"))
             { SetTextOn(e, kind == DevToolsKind::Theme ? L"THEME RESOURCE KEY" : L"STATIC RESOURCE KEY"); e->Release(); }
-        const SessionAssign* sa = SessionAssignFind(path);
-        const bool sameKind = sa && sa->kind == kind;
         // SEEDING: a resource kind the row ALREADY has keeps its key; a newly staged one starts EMPTY with a
         // typeahead, because there is no key to carry over from a literal or a binding.
-        std::wstring seedKey;
-        if (CurrentKindOf(r, path) == kind)
-            seedKey = sameKind ? MarkupInner(sa->detail) : r.authoredKey;
+        const std::wstring seedKey = ResourceEditorSeed(r, path, kind);
+        const bool canResolve = g_ctx.resolveFn != nullptr;
+        std::vector<std::wstring> keys = canResolve ? ResourceKeyCandidates(r) : std::vector<std::wstring>();
         if (IInspectable* e = FindInRow(fe, L"PResKey")) {
-            void* tx = nullptr;
-            if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
-                HSTRING h = MakeStr(seedKey); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
-                reinterpret_cast<IUnknown*>(tx)->Release();
+            void* box = nullptr;
+            if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsXC::IAutoSuggestBox>(), &box)) && box) {
+                HSTRING h = MakeStr(seedKey);
+                DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->put_Text(DevToolsAbiStr(h));
+                WindowsDeleteString(h);
+                auto* changed = new ResTextChangedSink(); changed->Init(keys);
+                auto* chosen = new ResSuggestSink(); chosen->Init();
+                auto* submitted = new ResQuerySink(); submitted->Init(ctx);
+                __int64 tok = 0;
+                const HRESULT textHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_TextChanged(changed, DevToolsAbiTok(&tok));
+                const HRESULT choiceHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_SuggestionChosen(chosen, DevToolsAbiTok(&tok));
+                const HRESULT queryHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_QuerySubmitted(submitted, DevToolsAbiTok(&tok));
+                if (FAILED(textHr) || FAILED(choiceHr) || FAILED(queryHr))
+                    DevToolsOverlayLog(L"route1.props resource wiring failed text=0x%08X choice=0x%08X query=0x%08X",
+                        textHr, choiceHr, queryHr);
+                reinterpret_cast<IUnknown*>(box)->Release();
             }
             e->Release();
         }
-        if (IInspectable* box = FindInRow(fe, L"PResSug")) {
-            const bool canResolve = g_ctx.resolveFn != nullptr;
-            std::vector<std::wstring> keys = canResolve ? ResourceKeyCandidates(r) : std::vector<std::wstring>();
-            if (keys.size() > 6) keys.resize(6);
-            void* pnl = nullptr; void* kids = nullptr;
-            if (!keys.empty() &&
-                SUCCEEDED(box->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
-                SUCCEEDED(DevToolsPanelGetChildren(pnl, reinterpret_cast<IInspectable**>(&kids))) && kids)
-            {
-                IInspectable* keyBox = FindInRow(fe, L"PResKey");
-                for (const std::wstring& k : keys) {
-                    IInspectable* btn = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Button");
-                    if (!btn) continue;
-                    void* cc = nullptr;
-                    if (SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXC::IContentControl>(), &cc)) && cc) {
-                        IInspectable* boxed = nullptr;
-                        if (SUCCEEDED(BoxString(k, &boxed)) && boxed) { DevToolsPutContent(cc, boxed); boxed->Release(); }
-                        reinterpret_cast<IUnknown*>(cc)->Release();
-                    }
-                    void* ctl = nullptr;
-                    if (SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), &ctl)) && ctl) {
-                        DevToolsPutControlFontSize(ctl, 11.0);
-                        DevToolsPutPadding(ctl, 6, 2, 6, 2);
-                        reinterpret_cast<IUnknown*>(ctl)->Release();
-                    }
-                    void* sfe = nullptr;
-                    if (SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &sfe)) && sfe) {
-                        DevToolsPutHorizontalAlignment(sfe, 0 /*Left*/);
-                        reinterpret_cast<IUnknown*>(sfe)->Release();
-                    }
-                    void* bb = nullptr;
-                    if (keyBox && SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                        ResSuggestSink* ss = new ResSuggestSink(); ss->Init(keyBox, k);
-                        __int64 tok = 0;
-                        DevToolsAddClick(bb, ss, &tok);
-                        reinterpret_cast<IUnknown*>(bb)->Release();
-                    }
-                    SetAutomationTextOn(btn, L"Use key " + k + L" for " + path, L"", L"");
-                    DevToolsVecAppend(reinterpret_cast<IInspectable*>(kids), btn);
-                    btn->Release();
-                }
-                if (keyBox) keyBox->Release();
-                reinterpret_cast<IUnknown*>(kids)->Release();
-                ShowEl(box, true);
+        if (IInspectable* n = FindInRow(fe, L"PResNote")) {
+            if (!canResolve) {
+                SetTextOn(n, L"This build cannot assign resources, so a key cannot be applied here.");
+            } else if (keys.empty()) {
+                SetTextOn(n, L"No suggestion fits a " + ShortType(RowResourceType(r)) + L": the keys "
+                    L"DevTools can name are this element's own resource keys and the built-in "
+                    L"theme brushes, and none of them is assignable here. Type a key from your "
+                    L"app's resources - the resolved value appears on the row above.");
             }
-            if (pnl) reinterpret_cast<IUnknown*>(pnl)->Release();
-            if (IInspectable* n = FindInRow(fe, L"PResNote")) {
-                if (!canResolve) {
-                    SetTextOn(n, L"This build cannot assign resources, so a key cannot be applied here.");
-                } else if (keys.empty()) {
-                    SetTextOn(n, L"No suggestion fits a " + ShortType(RowResourceType(r)) + L": the keys "
-                                 L"DevTools can name are this element's own resource keys and the built-in "
-                                 L"theme brushes, and none of them is assignable here. Type a key from your "
-                                 L"app's resources - the resolved value appears on the row above.");
-                }
-                n->Release();
-            }
-            box->Release();
+            n->Release();
         }
-        wireKeys(L"PResKey");
+        wireKeys(L"PResKey", false, true);
         break;
     }
 

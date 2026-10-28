@@ -576,6 +576,7 @@ int main()
     auto check = [&](bool ok, const char* entry, const char* name) {
         ++checks; if (!ok) ++failures;
         std::printf("%s %s: %s\n", ok ? "PASS" : "FAIL", entry, name);
+        std::fflush(stdout);
     };
     {
         // Stored comments pushed at launch draw their markers without a trip to the comments menu. Unchecking "Show
@@ -600,6 +601,14 @@ int main()
     }
     {
         SwitchObject canvas, bar, pill, snaps[kCornerCount];
+        const int savedCorner = g_corner;
+        for (int corner = 0; corner < kCornerCount; ++corner) {
+            g_corner = corner;
+            const auto expected = corner == CornerBR || corner == CornerBL || corner == BottomCenter
+                ? DevToolsXCP::FlyoutPlacementMode::Top : DevToolsXCP::FlyoutPlacementMode::Bottom;
+            check(ToolbarMenuPlacement() == expected, "toolbar menus", "menus open toward the app interior from all six docking positions");
+        }
+        g_corner = savedCorner;
         g_canvasStatics = &canvas; g_aRow = &bar; g_railL = &pill;
         for (int i = 0; i < kCornerCount; ++i) g_snapUi[i] = &snaps[i];
         g_protoW = 800; g_protoH = 700; g_toolbarVisible = true;

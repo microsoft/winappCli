@@ -39,6 +39,14 @@ static std::wstring MarkupInner(const std::wstring& authored)
     return body.substr(start);
 }
 
+static std::wstring ResourceEditorSeed(const DevToolsCardRow& row, const std::wstring& path, DevToolsKind kind)
+{
+    if (CurrentKindOf(row, path) != kind) return {};
+    if (const SessionAssign* assignment = SessionAssignFind(path))
+        if (assignment->kind == kind) return MarkupInner(assignment->detail);
+    return row.authoredKey;
+}
+
 // The PATH a {Binding}/{x:Bind} editor is seeded with. `authoredKey` is the tap's own extraction and is
 // preferred; the reconstructed expression is the fallback for a runtime {Binding} whose source we could not
 // read, which is the only case where the two can disagree.
@@ -733,7 +741,7 @@ struct KindCtx
     void* expFe = nullptr;
 };
 
-// Read one named TextBox inside the expansion. Returns empty when the control is absent -- which is a real
+// Read one named input inside the expansion. Returns empty when the control is absent -- which is a real
 // case (the binding editor is not built when the kind is Literal) and must not be mistaken for "the user
 // cleared the field".
 static std::wstring ReadBox(void* expFe, const wchar_t* name, bool* found = nullptr)
@@ -741,7 +749,18 @@ static std::wstring ReadBox(void* expFe, const wchar_t* name, bool* found = null
     if (found) *found = false;
     std::wstring out;
     if (IInspectable* el = FindInRow(expFe, name)) {
-        if (g_ctx.readInputFn && g_ctx.readInputFn(el, out)) { if (found) *found = true; }
+        if (wcscmp(name, L"PResKey") == 0) {
+            void* suggest = nullptr;
+            if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsXC::IAutoSuggestBox>(), &suggest)) && suggest) {
+                HSTRING text = nullptr;
+                if (SUCCEEDED(DevToolsAbi<DevToolsXC::IAutoSuggestBox>(suggest)->get_Text(reinterpret_cast<void**>(&text)))) {
+                    out = WindowsGetStringRawBuffer(text, nullptr);
+                    if (found) *found = true;
+                }
+                WindowsDeleteString(text);
+                reinterpret_cast<IUnknown*>(suggest)->Release();
+            }
+        } else if (g_ctx.readInputFn && g_ctx.readInputFn(el, out)) { if (found) *found = true; }
         el->Release();
     }
     return out;

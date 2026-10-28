@@ -206,22 +206,14 @@ int main()
         g_pickBtnCtrl = g_pickOnUi = g_focusBtnCtrl = g_focusOnUi = nullptr;
     }
     {
-        TestElement first, second;
-        g_selBrushTried = true;
-        SelectRowVisual(&first);
-        check(g_selCtrl == &first && first.refs == 2,
-            "tree selection is tracked even when selection brushes are unavailable");
-        SelectRowVisual(&second);
-        check(g_selCtrl == &second && first.refs == 1 && second.refs == 2,
-            "changing tree selection releases the old row and retains the new row");
         g_selectedWire = 77;
         SelectNodeByWire(0);
-        check(!g_selCtrl && !g_selectedWire && second.refs == 1,
-            "clearing the selected element clears tree selection and releases the retained row");
-        g_selBrushTried = false;
+        check(!g_selectedWire, "clearing selection works before the WinUI tree is loaded");
+        SyncTreeSelection();
+        check(!g_selectedWire, "synchronizing an unloaded tree does not invent a selection");
     }
     {
-        TestElement rows[5], expander, glyph;
+        TestElement rows[5];
         for (auto& row : rows) {
             g_treeRows.push_back(&row);
             g_treeControls.push_back(&row);
@@ -234,48 +226,45 @@ int main()
         g_treeVisible.resize(5);
         g_treeA11y.resize(5);
         g_treeA11y[0].branch = g_treeA11y[2].branch = true;
-        g_treeAutomationParents = {DevToolsTreeLayout::kNoRow, 0, 0, 2, 2};
-        g_treeChevronToggle = {&expander, nullptr, nullptr, nullptr, nullptr};
-        g_treeGlyph = {&glyph, nullptr, nullptr, nullptr, nullptr};
-        check(!HandleTreeRowKey(0, VK_RETURN) && !HandleTreeRowKey(0, VK_SPACE),
-            "tree rows leave Enter and Space to Button selection");
+        g_treeParents = {DevToolsTreeLayout::kNoRow, 0, 0, 2, 2};
         RecomputeTreeVisibility();
-        check(HandleTreeRowKey(0, VK_RIGHT) && !g_treeCollapsed[0] &&
+        check(g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
+            "a collapsed model excludes its descendants before any containers are realized");
+        check(SetTreeRowExpanded(0, true) && !g_treeCollapsed[0] &&
               g_treeVisible == std::vector<char>({1, 1, 1, 1, 1}),
-            "Right arrow expands a collapsed row and reveals its descendants");
-        const unsigned beforeFocus = focusCalls;
-        check(HandleTreeRowKey(0, VK_RIGHT) && focusCalls == beforeFocus + 1 && !g_selCtrl,
-            "Right arrow on an expanded row focuses its first child without selecting it");
-        check(HandleTreeRowKey(1, VK_LEFT) && focusCalls == beforeFocus + 2 && !g_selCtrl,
-            "Left arrow on a leaf focuses its parent without selecting it");
-        check(HandleTreeRowKey(0, VK_LEFT) && g_treeCollapsed[0] &&
+            "expanding the model reveals descendants for the WinUI tree");
+        check(!SetTreeRowExpanded(1, true) && !SetTreeRowExpanded(5, true),
+            "leaf and out-of-range expansion requests do not change the tree");
+        check(SetTreeRowExpanded(0, false) && g_treeCollapsed[0] &&
               g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
-            "Left arrow collapses an expanded row and hides its descendants");
+            "collapsing the model hides descendants");
+        g_selectedWire = 77;
         ApplyTreeFilter(L"Grid");
         const auto filteredVisibility = g_treeVisible;
         const auto filteredCollapse = g_treeCollapsed;
-        check(filteredVisibility == std::vector<char>({1, 0, 1, 0, 0}) && !expander.enabled,
-            "filtering shows all matches across collapsed branches and disables expand arrows");
+        check(filteredVisibility == std::vector<char>({1, 0, 1, 0, 0}),
+            "filtering shows all matches across collapsed branches");
         check(!SetTreeRowExpanded(0, true) && !SetTreeRowExpanded(0, false) &&
               g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse &&
               g_treeFilterQuery == L"grid",
             "provider expansion and collapse preserve the active filter and saved collapse state");
-        ChevronSink chevron; chevron.Init(0);
-        chevron.Invoke(nullptr, nullptr);
+        check(g_selectedWire == 77,
+            "filtering out the selected row retains the inspected element");
+        ApplyTreeFilter(L" Grid ");
         check(g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse,
-            "a chevron callback cannot expose nonmatching rows while filtering");
-        check(HandleTreeRowKey(0, VK_RIGHT) && HandleTreeRowKey(2, VK_LEFT) &&
-              g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse && !g_selCtrl,
-            "arrow keys navigate filtered matches without changing expansion or selection");
+            "normalized filters keep the same matches and saved expansion state");
+        ApplyTreeFilter(L"no match");
+        check(g_treeVisible == std::vector<char>(5, 0) && g_selectedWire == 77,
+            "an empty filter result does not clear the inspected element");
         ApplyTreeFilter(L"");
-        check(expander.enabled && g_treeCollapsed[0] && g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
-            "clearing the filter restores the saved collapse state and enables expand arrows");
-        check(HandleTreeRowKey(0, VK_RIGHT) && !g_treeCollapsed[0] && g_treeVisible[1],
-            "keyboard expansion works again after clearing the filter");
+        check(g_treeCollapsed[0] && g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
+            "clearing the filter restores the saved collapse state");
+        check(SetTreeRowExpanded(0, true) && !g_treeCollapsed[0] && g_treeVisible[1],
+            "expansion works again after clearing the filter");
+        g_selectedWire = 0;
         g_treeRows.clear(); g_treeControls.clear(); g_treeDepth.clear(); g_treeAppAuthored.clear();
         g_treeShortType.clear(); g_treeLabel.clear(); g_treeCollapsed.clear(); g_treeVisible.clear();
-        g_treeA11y.clear(); g_treeAutomationParents.clear(); g_treeChevronToggle.clear();
-        g_treeGlyph.clear(); g_treeViewDepth.clear();
+        g_treeA11y.clear(); g_treeParents.clear();
         focusCalls = 0;
     }
     {
@@ -714,11 +703,13 @@ int main()
         check(pane.find(L"LayoutToggle\"")==std::wstring::npos && pane.find(L"x:Name=\"LayoutMore\"")==std::wstring::npos &&
             BuildLayoutSection(stretched,{}).find(L"WinAppDevToolsBoxModelDetail")!=std::wstring::npos,
             "the section has no nested More disclosure; its details show when it is open");
-        check(pane.find(L"x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\" Visibility=\"Collapsed\"")!=std::wstring::npos,
-            "Size & spacing section is collapsed until opened");
+        check(pane.find(L"<Expander x:Name=\"LayoutSectionToggle\"")!=std::wstring::npos &&
+            pane.find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"False\"")!=std::wstring::npos &&
+            pane.find(L"LayoutSectionChev")==std::wstring::npos,
+            "Size & spacing uses a standard collapsed Expander, not a custom visibility toggle");
         g_layoutSectionOpen=1;
         check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"Visibility=\"Visible\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\"")!=std::wstring::npos,
+            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"True\"")!=std::wstring::npos,
             "an opened Size & spacing section stays open");
         check(pane.find(L"x:Bind and resource sources not shown (why?)")!=std::wstring::npos &&
             pane.find(L"TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.Name=\"x:Bind and resource sources not shown\"")==std::wstring::npos,
@@ -727,6 +718,39 @@ int main()
             L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
             "the reason says an x:Bind value reads as Local");
         g_layoutSectionOpen=-1;
+    }
+    {
+        const auto authoredPane = [] {
+            return BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock", L"Title", L"TextBlock", L"Window > Grid",
+                L"", 0, {}, L"verified", L"<TextBlock\n Text=\"Hello\"/>", nullptr);
+        };
+        g_axmlExpanded = false;
+        const auto collapsed = authoredPane();
+        check(collapsed.find(L"<Expander x:Name=\"AxmlToggle\"") != std::wstring::npos &&
+            collapsed.find(L"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"False\"") != std::wstring::npos &&
+            collapsed.find(L"x:Name=\"AxmlOne\" Visibility=\"Visible\"") != std::wstring::npos,
+            "authored XAML starts as a one-line preview inside a standard collapsed Expander");
+        check(collapsed.find(L"IsTextSelectionEnabled=\"True\"") != std::wstring::npos &&
+            collapsed.find(L"AxmlChev") == std::wstring::npos,
+            "expanded authored XAML remains selectable and has no custom disclosure chevron");
+        TestElement preview;
+        g_axmlOne = &preview;
+        AxmlToggleSink expand;
+        expand.Init(true);
+        expand.Invoke(nullptr, nullptr);
+        check(g_axmlExpanded && preview.visibility == 1 &&
+            authoredPane().find(L"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"True\"") != std::wstring::npos,
+            "authored XAML expansion hides the preview and survives a property pane rebuild");
+        AxmlToggleSink collapse;
+        collapse.Init(false);
+        collapse.Invoke(nullptr, nullptr);
+        check(!g_axmlExpanded && preview.visibility == 0,
+            "collapsing authored XAML restores the one-line preview");
+        ++g_route1Gen;
+        expand.Invoke(nullptr, nullptr);
+        check(!g_axmlExpanded && preview.visibility == 0,
+            "an old authored XAML callback cannot change the replacement pane");
+        g_axmlOne = nullptr;
     }
     check(!ColorPickerApplies(true,L"#FF102030",L"#FF000000") && ColorPickerApplies(false,L"#FF102030",L"#FF000000") &&
         !ColorPickerApplies(false,L"#ff000000",L"#FF000000"),
@@ -774,6 +798,7 @@ int main()
         // the tree to get a size rather than be dropped.
         TestElement scroll, rowElement;
         g_treeScrollUi = &scroll;
+        winrt::copy_from_abi(g_treeScroller, &scroll);
         g_treeRows.assign(117, nullptr); g_treeVisible.assign(117, 1);
         g_treeRows[116] = &rowElement;
         g_nodeIdxByWire = {{8120172924ull, 116}};
@@ -792,6 +817,7 @@ int main()
         g_selectedWire = 42; testViewport = 752.0;
         RevealPendingRow();
         check(g_pendingRevealWire == 0, "a selection that changed while waiting is not revealed");
+        g_treeScroller = nullptr;
         g_treeScrollUi = nullptr; g_treeRows.clear(); g_treeVisible.clear(); g_nodeIdxByWire.clear(); g_selectedWire = 0;
     }
     {

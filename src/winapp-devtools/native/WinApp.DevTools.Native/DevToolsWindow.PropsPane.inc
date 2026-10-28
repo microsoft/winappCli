@@ -184,17 +184,18 @@ g_propRows = rows;
             lb->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutBody);
             lb->Release();
         }
-        if (IInspectable* lc = findByName(L"LayoutSectionChev")) {
-            lc->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), (void**)&g_layoutBodyChev);
-            lc->Release();
-        }
         if (IInspectable* lt = findByName(L"LayoutSectionToggle")) {
-            void* bb = nullptr;
-            if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                LayoutSectionSink* sink = new LayoutSectionSink(); sink->Init();
-                __int64 tok = 0;
-                DevToolsAddClick(bb, sink, &tok);
-                reinterpret_cast<IUnknown*>(bb)->Release();
+            void* ex = nullptr;
+            if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
+                for (bool open : {true, false}) {
+                    auto* sink = new LayoutSectionSink(); sink->Init(open);
+                    __int64 tok = 0;
+                    const HRESULT hr = open
+                        ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
+                        : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
+                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.props layout disclosure wiring failed hr=0x%08X", hr);
+                }
+                reinterpret_cast<IUnknown*>(ex)->Release();
             }
             lt->Release();
         }
@@ -202,44 +203,20 @@ g_propRows = rows;
             a1->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_axmlOne);
             a1->Release();
         }
-        if (IInspectable* af = findByName(L"AxmlFull")) {
-            af->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_axmlFull);
-            af->Release();
-        }
-        if (IInspectable* ac = findByName(L"AxmlChev")) {
-            ac->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), (void**)&g_axmlChev);
-            ac->Release();
-        }
-        if (g_axmlOne && g_axmlFull && g_axmlExpanded) {
-            DevToolsPutVisibility(g_axmlOne, 1);
-            DevToolsPutVisibility(g_axmlFull, 0);
-            SetToggleLabel(g_axmlChev, L"\uE70D");
-        }
         if (IInspectable* at = findByName(L"AxmlToggle")) {
-            void* bb = nullptr;
-            if (SUCCEEDED(at->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                AxmlToggleSink* ats = new AxmlToggleSink(); ats->Init();
-                __int64 tok = 0;
-                DevToolsAddClick(bb, ats, &tok);
-                reinterpret_cast<IUnknown*>(bb)->Release();
+            void* ex = nullptr;
+            if (SUCCEEDED(at->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
+                for (bool open : {true, false}) {
+                    auto* sink = new AxmlToggleSink(); sink->Init(open);
+                    __int64 tok = 0;
+                    const HRESULT hr = open
+                        ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
+                        : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
+                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.props XAML disclosure wiring failed hr=0x%08X", hr);
+                }
+                reinterpret_cast<IUnknown*>(ex)->Release();
             }
             at->Release();
-        }
-        // Wire the view switch. BOTH halves get the same sink: it flips the view, so clicking the one that
-        // is already active is a no-op flip back and forth -- which is wrong. The sink therefore SETS the
-        // view rather than toggling it, keyed off which button was found.
-        for (const wchar_t* n : { L"OnlySetToggle", L"ViewComputed" }) {
-            if (IInspectable* tg = findByName(n)) {
-                void* bb = nullptr;
-                if (SUCCEEDED(tg->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    OnlySetToggleSink* os = new OnlySetToggleSink();
-                    os->Init(wcscmp(n, L"OnlySetToggle") == 0 ? DevToolsPropView::Set : DevToolsPropView::Computed);
-                    __int64 tok = 0;
-                    DevToolsAddClick(bb, os, &tok);
-                    reinterpret_cast<IUnknown*>(bb)->Release();
-                }
-                tg->Release();
-            }
         }
         {
             if (IInspectable* pc = findByName(L"PropCount")) {
@@ -433,14 +410,10 @@ static void ResetRoute1State()
     if (g_ctx.propsHostChildren) { g_ctx.propsHostChildren->Release(); g_ctx.propsHostChildren = nullptr; }
     g_selWire = 0; g_selLabel.clear(); g_selBreadcrumb.clear();
     g_selSourceFile.clear(); g_selSourceLine = 0;
-    // Release tree-selection visual state. g_selCtrl points at a Button from the window being torn down --
-    // it MUST be dropped here so the next window's first select doesn't put_Background on a freed control.
-    if (g_selCtrl)    { reinterpret_cast<IUnknown*>(g_selCtrl)->Release(); g_selCtrl = nullptr; }
     ReleaseTreeRowState();
     g_allTreeNodes.clear(); g_allTreeAppAuthored.clear();
     if (g_treeHostChildren) { g_treeHostChildren->Release(); g_treeHostChildren = nullptr; }
-    if (g_treeRowsPanelChildren) { g_treeRowsPanelChildren->Release(); g_treeRowsPanelChildren = nullptr; }
-    g_treeA11y.clear(); g_treeCollapseAtBuild.clear(); g_treeViewDepth.clear();
+    g_treeA11y.clear();
     // The row palette belongs to the window being torn down. Holding it across a close would leave
     // the next window's rows reading brushes out of a dead XamlRoot.
     for (IInspectable** slot : { &g_palTransparent, &g_palAccent, &g_palPrimary, &g_palSecondary,
@@ -477,9 +450,6 @@ static void ResetRoute1State()
     if (g_splitPaneFe) { reinterpret_cast<IUnknown*>(g_splitPaneFe)->Release(); g_splitPaneFe = nullptr; }
     if (g_splitHostFe) { reinterpret_cast<IUnknown*>(g_splitHostFe)->Release(); g_splitHostFe = nullptr; }
     g_splitTarget = 0.0;
-    if (g_selBrush)   { g_selBrush->Release();   g_selBrush   = nullptr; }
-    if (g_clearBrush) { g_clearBrush->Release(); g_clearBrush = nullptr; }
-    g_selBrushTried = false;
     g_ctx.rowsFn = nullptr;
     g_ctx.readInputFn = nullptr;
     g_ctx.writeFn = nullptr;

@@ -95,7 +95,7 @@ static void TestToolbarContract()
                      window.find("DevToolsAddPreviewKeyDown(splitUi, splitKeys, &ktok)") != std::string::npos &&
                      window.find("DevToolsAddPreviewKeyDown(thumb,") == std::string::npos,
                  "the pane splitter is a tab stop that the arrow keys move");
-    Check(windowShell.find("<TextBlock x:Name=\"TreeNoMatches\" Visibility=\"Collapsed\"") != std::string::npos &&
+    Check(windowShell.find("<TextBlock x:Name=\"TreeNoMatches\" Grid.Row=\"1\" Visibility=\"Collapsed\"") != std::string::npos &&
                      window.find("SetTreeNoMatches(queryRaw, shown == 0);") != std::string::npos,
                  "a tree filter with no matches says so instead of showing an empty pane");
     const auto readStart = windowShell.find("<ContentControl x:Name=\"TmplExpRead\">");
@@ -143,7 +143,7 @@ static void TestToolbarContract()
           highContrast.find(
               "<SolidColorBrush x:Key=\"DevToolsToggleForeground\" Color=\"{ThemeResource SystemColorHighlightTextColor}\" />") != std::string::npos,
         "High Contrast uses the user's paired system highlight and highlight text colours");
-    for (const char* name : { "DevToolsPickOn", "DevToolsCommentsOn", "DevToolsLayoutOn" }) {
+    for (const char* name : { "DevToolsPickOn", "DevToolsLayoutOn" }) {
         const auto start = xaml.find(std::string("<Grid x:Name=\"") + name + "\"");
         const auto end = xaml.find("</Grid>", start);
         const std::string selected = start != std::string::npos && end != std::string::npos
@@ -153,13 +153,13 @@ static void TestToolbarContract()
               selected.find("Foreground=\"{ThemeResource DevToolsToggleForeground}\"") != std::string::npos,
             "each selected mode preserves its system-aware background and icon pairing");
     }
-    Check(CountOf(xaml, "HighContrastAdjustment=\"None\"") == 3,
-        "only the three system-aware selected mode surfaces opt out of automatic contrast adjustment");
-    Check(xaml.find("<ToggleButton x:Name=\"DevToolsProtoPin\"") != std::string::npos &&
-                     xaml.find("x:Name=\"DevToolsPinOn\"") != std::string::npos &&
+    Check(CountOf(xaml, "HighContrastAdjustment=\"None\"") == 2,
+        "only the two custom system-aware selected mode surfaces opt out of automatic contrast adjustment");
+    Check(xaml.find("<ToggleMenuFlyoutItem x:Name=\"DevToolsProtoPin\"") != std::string::npos &&
+                     xaml.find("x:Name=\"DevToolsPinOn\"") == std::string::npos &&
                      xaml.find("DevToolsProtoPinDot") == std::string::npos &&
-                     overlay.find("ProtoSetToggle(L\"DevToolsProtoPin\", L\"DevToolsPinOn\", L\"\", on);") != std::string::npos,
-                 "Keep toolbar open is a checked UIA toggle, not a corner dot that reads as a badge");
+                     overlay.find("ProtoSetToggle(L\"DevToolsProtoPin\", L\"\", L\"\", on);") != std::string::npos,
+                 "Keep toolbar open uses the standard menu check state without a duplicated check visual");
     Check(xaml.find("ToolTipService.ToolTip=\"Switch app theme\"") != std::string::npos,
                  "Theme tooltip is short enough not to clip at the window edge");
     Check(xaml.find("AutomationProperties.Name=\"Switch app theme\"") != std::string::npos,
@@ -175,37 +175,37 @@ static void TestToolbarContract()
                      moreMenu < xaml.find("x:Name=\"DevToolsHideToolbar\"") &&
                      moreMenu < xaml.find("x:Name=\"DevToolsStartShown\""),
                  "the bar ends with Open DevTools and More, whose menu holds Hide, Keep open and the start mode");
-    // The start mode is one choice of three, so UI Automation must read it as a radio group (SelectionItem),
-    // not as three unrelated buttons; the header above it is text, never a focus stop.
+    // RadioMenuFlyoutItem groups the choices and exposes their check state through UIA TogglePattern.
     for (const char* id : { "DevToolsStartShown", "DevToolsStartHidden", "DevToolsStartOff" })
-        Check(xaml.find(std::string("<RadioButton x:Name=\"") + id + "\" GroupName=\"DevToolsDefaultMode\"") != std::string::npos,
+        Check(xaml.find(std::string("<RadioMenuFlyoutItem x:Name=\"") + id + "\" GroupName=\"DevToolsDefaultMode\"") != std::string::npos,
                      (std::string(id) + " is a radio item in the start-mode group").c_str());
-    Check(xaml.find("<TextBlock Text=\"WHEN THE APP STARTS\"") != std::string::npos &&
-                     overlay.find("ProtoSetToggle(name, L\"\", L\"\", true);") != std::string::npos,
-                 "the start-mode header is text, and opening the menu re-selects the saved mode");
+    Check(xaml.find("<MenuFlyoutItem Text=\"WHEN THE APP STARTS\" IsEnabled=\"False\"") != std::string::npos &&
+                     overlay.find("SetStartModeUi(DefaultMode());") != std::string::npos &&
+                     overlay.find("wcscmp(item, name) == 0") != std::string::npos,
+                 "the start-mode header is not a focus stop, and opening re-checks only the saved mode");
     // Choosing "Don't start DevTools" must leave a visible re-enable hint, not just a hover tooltip (#1148).
     Check(xaml.find("x:Name=\"DevToolsStartOffHint\"") != std::string::npos &&
-                     xaml.find("To turn it back on, run `winapp config set run.devtools on`, or launch with `winapp run . --devtools on`.") != std::string::npos,
+                     xaml.find("To turn it back on, run&#x0a;`winapp config set run.devtools on`,&#x0a;or launch with `winapp run . --devtools on`.") != std::string::npos,
                  "the off-mode hint names both ways to turn DevTools back on");
     Check(overlay.find("ProtoSetPartVisible(L\"DevToolsStartOffHint\", mode == \"off\")") != std::string::npos,
                  "the re-enable hint is only visible while the off start mode is selected");
     Check(overlay.find("OnStartOffClick") != std::string::npos &&
-                     overlay.find("SetDefaultMode(\"off\"); ToggleToolbarMenu(L\"DevToolsMoreMenu\", L\"DevToolsProtoMore\", L\"DevToolsStartOff\")") != std::string::npos,
-                 "choosing \"Don't start DevTools\" reopens the menu so the re-enable hint stays visible");
-    Check(xaml.find("<ToggleButton x:Name=\"DevToolsToggleMarkers\"") != std::string::npos &&
+                     overlay.find("SetDefaultMode(\"off\");") != std::string::npos &&
+                     overlay.find("TryEnqueue([weak]()") != std::string::npos &&
+                     overlay.find("as<DevToolsXC::MenuFlyout>().ShowAt(target);") != std::string::npos,
+                 "choosing \"Don't start DevTools\" reopens after framework dismissal to show the recovery hint");
+    Check(xaml.find("<ToggleMenuFlyoutItem x:Name=\"DevToolsToggleMarkers\"") != std::string::npos &&
                      xaml.find("AutomationProperties.Name=\"Show comment markers\"") != std::string::npos &&
                      overlay.find("DevToolsToggleMarkersText") == std::string::npos,
                  "Show comment markers is a checked toggle whose label never flips");
     // A deep row's label must end in an ellipsis, with the full text in a tooltip, rather than be cut mid-character:
     // a horizontally scrolling tree measures its rows at unlimited width, so their text is never trimmed.
-    const size_t treeScrollAt = windowShell.find("x:Name=\"TreeScroll\"");
-    const std::string treeScroll = treeScrollAt == std::string::npos ? std::string()
-        : windowShell.substr(treeScrollAt, windowShell.find('>', treeScrollAt) - treeScrollAt);
-    Check(treeScroll.find("HorizontalScrollMode=\"Disabled\"") != std::string::npos &&
-                     treeScroll.find("HorizontalScrollBarVisibility=\"Disabled\"") != std::string::npos,
+    Check(window.find("ScrollViewer::SetHorizontalScrollMode(g_treeView, DevToolsXC::ScrollMode::Disabled)") != std::string::npos &&
+                     window.find("ScrollViewer::SetHorizontalScrollBarVisibility(g_treeView, DevToolsXC::ScrollBarVisibility::Disabled)") != std::string::npos &&
+                     windowShell.find("<ScrollViewer x:Name=\"TreeScroll\"") == std::string::npos,
                  "the visual tree does not scroll sideways, so its row labels are width-bound");
-    Check(window.find("DevToolsPutTextTrimming(ctb, (int)DevToolsX::TextTrimming::CharacterEllipsis);") != std::string::npos &&
-                     window.find("ToolTipService::SetToolTip(row, winrt::box_value(winrt::hstring(full)));") != std::string::npos,
+    Check(window.find("caption.TextTrimming(DevToolsX::TextTrimming::CharacterEllipsis)") != std::string::npos &&
+                     window.find("ToolTipService::SetToolTip(container, winrt::box_value(full))") != std::string::npos,
                  "a tree row's label ends in an ellipsis and its tooltip holds the full label");
     Check(xaml.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
                      selectionPanel.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
@@ -213,10 +213,12 @@ static void TestToolbarContract()
                      overlay.find("FontFamily=\\\"Segoe MDL2 Assets\\\"") == std::string::npos,
                  "DevTools FontIcons inherit the platform icon font");
 
-    Check(CountOf(xaml, "RequestedTheme=\"$TOOLBARTHEME$\"") == 4,
+    Check(CountOf(xaml, "RequestedTheme=\"$TOOLBARTHEME$\"") == 2 &&
+                     CountOf(xaml, "<Setter Property=\"RequestedTheme\" Value=\"$TOOLBARTHEME$\" />") == 2,
                  "the toolbar surfaces and its menus request the inverse app theme");
-    Check(CountOf(xaml, "BackgroundSizing=\"InnerBorderEdge\"") == 4,
-                 "the toolbar surfaces and its menus clip Acrylic inside their borders");
+    Check(CountOf(xaml, "BackgroundSizing=\"InnerBorderEdge\"") == 2 &&
+                     CountOf(xaml, "<Style TargetType=\"MenuFlyoutPresenter\">") == 2,
+                 "toolbar borders clip Acrylic; menus use platform presenter chrome");
     Check(theme.find("inline const DevToolsPalette& DevToolsInverseAcrylicPalette()") != std::string::npos &&
                      theme.find("{ThemeResource AcrylicBackgroundFillColorDefaultBrush}") != std::string::npos &&
                      theme.find("{ThemeResource SurfaceStrokeColorFlyoutBrush}") != std::string::npos,
@@ -367,21 +369,21 @@ static void TestToolbarContract()
     Check(windowShell.find("x:Name=\"PName\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos &&
                      windowShell.find("x:Name=\"PValue\" Grid.Column=\"1\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos,
                  "the collapsed row's name and value are the same compact 12 DIP as the editor");
-    // The chevron is a real ToggleButton, so its Checked visual state painted the accent
-    // fill and every expanded branch rendered a blue block. The checked brushes are re-pointed in the shell's
-    // markup, on TreeRowsHost -- not at the window root, where they would also reach JmxBtn and strip the
-    // accent from a toggle whose accent IS the "mode is on" affordance. Hover and pressed keep the subtle
-    // fills, so the chevron still reads as a control.
-    Check(windowShell.find("<StackPanel x:Name=\"TreeRowsHost\">") != std::string::npos &&
-                     windowShell.find("ToggleButtonBackgroundChecked\" ResourceKey=\"DevToolsChevronTransparent\"") != std::string::npos &&
-                     windowShell.find("ToggleButtonBorderBrushChecked\" ResourceKey=\"DevToolsChevronTransparent\"") != std::string::npos &&
-                     windowShell.find("ToggleButtonBackgroundCheckedPointerOver\" ResourceKey=\"SubtleFillColorSecondaryBrush\"") != std::string::npos &&
-                     windowShell.find("ToggleButtonBackgroundCheckedPressed\" ResourceKey=\"SubtleFillColorTertiaryBrush\"") != std::string::npos &&
-                     window.find("SetTreeChevronCheckedResources") == std::string::npos &&
-                     window.find("DevToolsPutTextForeground(gtb, pal.secondary)") != std::string::npos,
-                 "tree chevrons use secondary text with a transparent checked state, scoped to the rows");
-    Check(window.find("DevToolsPutFontSize(ctb, 12);") != std::string::npos &&
-                     window.find("DevToolsPutFontSize(ctb, 13);") == std::string::npos,
+    Check(windowShell.find("<Grid x:Name=\"TreeRowsHost\" Grid.Row=\"2\"/>") != std::string::npos &&
+                     window.find("g_treeView = DevToolsXC::TreeView{}") != std::string::npos &&
+                     window.find("container.ContentTemplateRoot().try_as<DevToolsXC::TextBlock>()") != std::string::npos &&
+                     window.find("ContainerContentChanging") != std::string::npos &&
+                     windowShell.find("DevToolsChevronTransparent") == std::string::npos &&
+                     window.find("DevToolsTreeRow") == std::string::npos &&
+                     window.find("DevToolsTreeItemPeer") == std::string::npos,
+                 "the visual tree uses native WinUI items and chevrons without custom peers or toggle templates");
+    Check(window.find("Foreground=\"{ThemeResource AccentTextFillColorPrimaryBrush}\"") != std::string::npos &&
+                     window.find("source.Inlines().GetAt(segment).as<DevToolsXDoc::Run>().Text()") != std::string::npos &&
+                     window.find("caption.Inlines().GetAt(segment).as<DevToolsXDoc::Run>().Text(") != std::string::npos &&
+                     window.find("FontStyle=\"Italic\"") != std::string::npos,
+                 "native tree captions retain accent type names, normal element names and italic previews");
+    Check(window.find("caption.FontSize(12)") != std::string::npos &&
+                     window.find("caption.FontSize(13)") == std::string::npos,
                  "tree rows use the compact 12-DIP caption size");
     Check(windowShell.find("<ToggleButton x:Name=\"JmxBtn\"") != std::string::npos &&
                      windowShell.find("Glyph=\"&#xE943;\"") != std::string::npos &&
@@ -408,19 +410,24 @@ static void TestToolbarContract()
                      windowShell.find("AutomationProperties.AutomationId=\"CommentsToggle\"") == std::string::npos &&
                      windowShell.find("x:Name=\"CommentsBtn\"") == std::string::npos,
                  "the view tabs replace the Comments icon toggle rather than joining it");
-    Check(windowShell.find("<RadioButton x:Name=\"TreeTabBtn\"") != std::string::npos &&
-                     windowShell.find("<RadioButton x:Name=\"CommentsTabBtn\"") != std::string::npos,
-                 "each tab is a RadioButton, so the showing view is reported by SelectionItemPattern");
+    Check(windowShell.find("<SelectorBarItem x:Name=\"TreeTabBtn\"") != std::string::npos &&
+                     windowShell.find("<SelectorBarItem x:Name=\"CommentsTabBtn\"") != std::string::npos,
+                 "native SelectorBar items report the showing view through SelectionItemPattern");
+    Check(windowShell.find("<SelectorBar x:Name=\"PropViewSelector\"") != std::string::npos &&
+                     windowShell.find("<SelectorBar x:Name=\"PropViewSelector\"") < windowShell.find("<StackPanel x:Name=\"PropsHost\""),
+                 "the property view selector stays outside the rebuilt property fragment to retain keyboard focus");
     Check(windowShell.find("<ToggleButton x:Name=\"PickBtn\"") != std::string::npos &&
                      windowShell.find("<ToggleButton x:Name=\"FocusBtn\"") != std::string::npos,
                  "inspector pick and focus modes expose TogglePattern through standard ToggleButtons");
-    Check(window.find("expander.IsTabStop(false);") != std::string::npos &&
-                     window.find("expander, DevToolsTreeAP::AccessibilityView::Raw") != std::string::npos,
-                 "tree expand arrows remain mouse controls, not separate keyboard or screen reader targets");
-    Check(window.find("void OnKeyDown(DevToolsXI::KeyRoutedEventArgs const& args)") != std::string::npos &&
-                     window.find("HandleTreeRowKey(m_index, static_cast<int>(args.Key()))") != std::string::npos &&
-                     window.find("ButtonT::OnKeyDown(args)") != std::string::npos,
-                 "tree rows route arrow keys to expansion while preserving Button selection keys");
+    Check(window.find("g_treeView.Expanding(") != std::string::npos &&
+                     window.find("g_treeView.Collapsed(") != std::string::npos &&
+                     window.find("ChevronSink") == std::string::npos,
+                 "WinUI owns tree expansion and its keyboard affordances");
+    Check(window.find("g_treeView.SelectionMode(DevToolsXC::TreeViewSelectionMode::Single)") != std::string::npos &&
+                     window.find("g_treeView.SelectionChanged(") != std::string::npos &&
+                     window.find("g_treeView.ItemInvoked(") != std::string::npos &&
+                     window.find("HandleTreeRowKey") == std::string::npos,
+                 "native tree selection and invocation drive the inspector without a custom keyboard control");
     // Inspector and overlay share an accessibility namespace; qualify the inspector Comments tab.
     Check(windowShell.find("AutomationProperties.Name=\"Comments (inspector)\"") != std::string::npos &&
                      windowShell.find("AutomationProperties.Name=\"Comments\"") == std::string::npos,
@@ -553,8 +560,10 @@ static void TestToolbarContract()
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);") != std::string::npos,
                  "Pick is wired by namescope identity, and gives focus back to the app after a command run through UI Automation");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoComments\", g_protoSink[3], &ThenReturnFocus<&OnCommentModeClick>);") != std::string::npos &&
-                     overlay.find("wireNamedClick(L\"DevToolsProtoCommentsMenu\", g_protoSink[15], &OnCommentsMenuClick);") != std::string::npos,
-                 "Comments and its menu are wired by namescope identity");
+                     overlay.find("WireToolbarMenu(L\"DevToolsCommentsMenu\", L\"DevToolsProtoComments\");") != std::string::npos &&
+                     overlay.find("split.IsCheckedChanged(") != std::string::npos &&
+                     overlay.find("if (g_syncingCommentToggle) return;") != std::string::npos,
+                 "the split primary action changes comment mode without a loop when domain state synchronizes it");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoInspect\", g_protoSink[4], &ThenReturnFocus<&OnInspectClick>);") != std::string::npos,
                  "Inspect is wired by namescope identity");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoLayout\", g_protoSink[5], &ThenReturnFocus<&OnLayoutToggleClick>);") != std::string::npos,
@@ -563,6 +572,31 @@ static void TestToolbarContract()
                  "Theme is wired by namescope identity");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoPin\", g_protoSink[7], &OnPinClick);") != std::string::npos,
                  "Pin is wired by namescope identity");
+    Check(xaml.find("<ToggleSplitButton x:Name=\"DevToolsProtoComments\"") != std::string::npos &&
+                     xaml.find("<ToggleSplitButton.Flyout>") != std::string::npos &&
+                     CountOf(xaml, "<MenuFlyout x:Name=") == 2 &&
+                     xaml.find("DevToolsProtoCommentsMenu") == std::string::npos &&
+                     xaml.find("DevToolsMenuRadio") == std::string::npos,
+                 "comment mode and both command menus use standard WinUI controls, not adjacent buttons or custom menu templates");
+    Check(overlay.find("menu.Opening(") != std::string::npos &&
+                     overlay.find("menu.Opened(") != std::string::npos &&
+                     overlay.find("menu.Closed(") != std::string::npos &&
+                     overlay.find("ToolbarMenuLeaveProc") == std::string::npos &&
+                     overlay.find("ToggleToolbarMenu") == std::string::npos &&
+                     overlay.find("CornerIsTop(g_corner) ? DevToolsXCP::FlyoutPlacementMode::Bottom") != std::string::npos,
+                 "platform menus own focus and light dismissal, and open away from all six docking positions");
+    Check(overlay.find("SeedToolbarMenuObject(popup);") != std::string::npos &&
+                     overlay.find("SeedToolbarMenuObject(presenter);") != std::string::npos &&
+                     overlay.find("if (ToolbarMenuIsOpen()) covered.push_back(child);") != std::string::npos &&
+                     overlay.find("if (auto presenter = g_toolbarMenuPresenter.get()) chrome.push_back(presenter);") != std::string::npos,
+                 "standard menu popups remain excluded from inspection/capture and receive input above the diagnostics pick catcher");
+    const auto prepareAt = overlay.find("static void PrepareToolbarMenu(");
+    const auto prepareEnd = overlay.find("\n}", prepareAt);
+    const auto prepare = overlay.substr(prepareAt, prepareEnd - prepareAt);
+    Check(prepare.find("DevToolsSettingsSet") == std::string::npos &&
+                     prepare.find("SetCommentsShown(") == std::string::npos &&
+                     prepare.find("CommentCount()") != std::string::npos,
+                 "opening menus reads settings and comment count without changing app or persisted state");
 }
 
 int RunToolbarTests()

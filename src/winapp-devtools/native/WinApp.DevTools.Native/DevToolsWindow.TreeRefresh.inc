@@ -5,16 +5,16 @@
 static void ReleaseTreeRowState()
 {
     ++g_treeRowsGen;
-    SelectRowVisual(nullptr);
-    g_treeAutomationRoot = nullptr;
-    g_treeAutomationNote = nullptr;
-    g_treeAutomationParents.clear();
+    g_treeHoverWire = 0;
+    g_treeScroller = nullptr;
+    g_treeView = nullptr;
+    g_treeNodes.clear();
+    g_treeParents.clear();
+    g_treeIncluded.clear();
+    g_treeUpdating = false;
     for (auto* p : g_treeRows)     if (p) reinterpret_cast<IUnknown*>(p)->Release();
-    for (auto* p : g_treeRowFe)    if (p) reinterpret_cast<IUnknown*>(p)->Release();
     for (auto* p : g_treeControls) if (p) reinterpret_cast<IUnknown*>(p)->Release();
-    for (auto* p : g_treeGlyph)    if (p) reinterpret_cast<IUnknown*>(p)->Release();
-    for (auto* p : g_treeChevronToggle) if (p) reinterpret_cast<IUnknown*>(p)->Release();
-    g_treeRows.clear(); g_treeRowFe.clear(); g_treeControls.clear(); g_treeGlyph.clear(); g_treeChevronToggle.clear();
+    g_treeRows.clear(); g_treeControls.clear();
     g_treeDepth.clear(); g_treeCollapsed.clear(); g_treeVisible.clear();
     g_treeLabel.clear(); g_treeShortType.clear(); g_treeAppAuthored.clear();
     g_nodeSinks.clear(); g_nodeIdxByWire.clear(); g_renderedOriginalIndices.clear();
@@ -73,9 +73,7 @@ static bool RebuildTreeRows()
     const auto renderedRows = DevToolsTreeLayout::BuildRows(
         rendered.size(), renderedDepths, renderedAppAuthored, renderedTypes);
     const auto collapsed = DevToolsTreeLayout::ComputeCollapse(renderedRows, g_jmxActive);
-    const auto viewDepth = DevToolsTreeLayout::ComputeViewDepths(renderedRows, g_jmxActive);
     const auto a11y = DevToolsTreeLayout::ComputeA11yRows(renderedRows, g_jmxActive);
-    const auto willShow = DevToolsTreeLayout::ComputeVisibility(renderedRows, std::vector<char>(collapsed), g_jmxActive);
 
     // Retire the old generation and size arrays before building. Append replacement content before
     // removing old rows to avoid a blank frame; capture the old removal count before appending.
@@ -86,27 +84,20 @@ static bool RebuildTreeRows()
     g_renderedOriginalIndices = selected;
     const size_t count = rendered.size();
     g_treeRows.assign(count, nullptr);
-    g_treeRowFe.assign(count, nullptr);
     g_treeControls.assign(count, nullptr);
     g_treeDepth.assign(count, 0);
     g_treeCollapsed.assign(count, 0);
     g_treeVisible.assign(count, 1);
-    g_treeGlyph.assign(count, nullptr);
-    g_treeChevronToggle.assign(count, nullptr);
     g_treeLabel.assign(count, std::wstring());
     g_treeShortType.assign(count, std::wstring());
     g_treeAppAuthored.assign(count, 0);
-    g_nodeSinks.assign(count, nullptr);
+    g_nodeSinks.resize(count);
     g_nodeIdxByWire.clear();
 
     g_treeA11y = a11y;
-    g_treeCollapseAtBuild = collapsed;
-    g_treeMinDepth = 0;
-    for (size_t i = 0; i < rendered.size(); ++i)
-        if (i == 0 || rendered[i].depth < g_treeMinDepth) g_treeMinDepth = rendered[i].depth;
 
     int wired = 0;
-    IInspectable* panel = BuildTreeRowsDirect(rendered, a11y, collapsed, willShow, populationTotal, appOnly, &wired);
+    IInspectable* panel = BuildTreeRowsDirect(rendered, collapsed, populationTotal, appOnly, &wired);
     if (!panel) {
         DevToolsOverlayLog(L"route1.rows rebuild FAILED to build the rows panel");
         return false;
@@ -129,12 +120,11 @@ static bool RebuildTreeRows()
 
     for (size_t i = 0; i < collapsed.size() && i < g_treeCollapsed.size(); ++i)
         g_treeCollapsed[i] = collapsed[i];
-    ApplyIndent(viewDepth, 0);
     RecomputeTreeVisibility();
     if (g_selectedWire) {
         auto it = g_nodeIdxByWire.find(g_selectedWire);
         if (it != g_nodeIdxByWire.end() && it->second < g_treeControls.size())
-            SelectRowVisual(g_treeControls[it->second]);
+            SyncTreeSelection();
     }
     DevToolsOverlayLog(L"route1.rows rebuilt mode=%s selected=%zu population=%zu wired=%d",
                   appOnly ? L"app" : L"all", rendered.size(), populationTotal, wired);
@@ -182,51 +172,27 @@ static void SetTreeHeaderCurrent(size_t flattenedCount, size_t censusTotal)
 
 static double ReadTreeScrollOffset()
 {
-    if (!g_treeScrollUi) return 0.0;
-    void* sv = nullptr;
-    if (FAILED(reinterpret_cast<IUnknown*>(g_treeScrollUi)->QueryInterface(DevToolsIid<DevToolsXC::IScrollViewer>(), &sv)) || !sv)
-        return 0.0;
-    double off = 0.0;
-    if (FAILED(DevToolsScrollGetVerticalOffset(sv, &off))) off = 0.0;
-    reinterpret_cast<IUnknown*>(sv)->Release();
-    return off;
+    const auto scroller = TreeScrollViewer();
+    return scroller ? scroller.VerticalOffset() : 0.0;
 }
 
 // ChangeView takes IReference<double>, NOT IInspectable: handing it the IInspectable vtable returns S_OK and
 // does nothing. Hence the QI, and hence checking `changed` rather than the HRESULT.
 static void RestoreTreeScrollOffset(double offset)
 {
-    if (!g_treeScrollUi || offset <= 0.0) return;
-    void* sv = nullptr;
-    if (FAILED(reinterpret_cast<IUnknown*>(g_treeScrollUi)->QueryInterface(DevToolsIid<DevToolsXC::IScrollViewer>(), &sv)) || !sv)
-        return;
-    DevToolsUpdateLayout(g_treeScrollUi);
-    double room = 0.0;
-    if (SUCCEEDED(DevToolsScrollGetScrollableHeight(sv, &room)) && room >= 0.0 && offset > room) offset = room;
-    IInspectable* boxed = nullptr;
-    IInspectable* ref = nullptr;
-    do {
-        static IInspectable* s_pvStatics = nullptr;
-        if (!s_pvStatics) {
-            HSTRING cls = MakeStr(L"Windows.Foundation.PropertyValue");
-            HRESULT hrF = RoGetActivationFactory(cls, DevToolsIid<winrt::Windows::Foundation::IPropertyValueStatics>(),
-                                                 reinterpret_cast<void**>(&s_pvStatics));
-            WindowsDeleteString(cls);
-            if (FAILED(hrF)) { s_pvStatics = nullptr; break; }
-        }
-        if (FAILED(DevToolsPropertyValueCreateDouble(s_pvStatics, offset, &boxed)) || !boxed) break;
-        if (FAILED(boxed->QueryInterface(DevToolsIid<winrt::Windows::Foundation::IReference<double>>(),
-                                         reinterpret_cast<void**>(&ref)))) ref = nullptr;
-        if (!ref) break;
-        bool changed = false;
-        HRESULT hr = DevToolsScrollChangeView(sv, nullptr, ref, nullptr, /*disableAnimation*/ true, &changed);
-        if (FAILED(hr) || !changed)
-            DevToolsOverlayLog(L"route1.refresh scroll restore to %.1f did NOT take (hr=0x%08X changed=%d)",
-                          offset, hr, (int)changed);
-    } while (false);
-    if (ref)   ref->Release();
-    if (boxed) boxed->Release();
-    reinterpret_cast<IUnknown*>(sv)->Release();
+    if (!g_treeView || offset <= 0.0) return;
+    try {
+        g_treeView.UpdateLayout();
+        const auto scroller = TreeScrollViewer();
+        if (!scroller) return;
+        offset = (std::min)(offset, scroller.ScrollableHeight());
+        if (!scroller.ChangeView(nullptr, winrt::box_value(offset).as<winrt::Windows::Foundation::IReference<double>>(),
+                nullptr, true))
+            DevToolsOverlayLog(L"route1.refresh scroll restore to %.1f did not take", offset);
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"route1.refresh scroll restore failed hr=0x%08X", error.code().value);
+        SetStatusText(L"Could not restore the tree scroll position. Scroll to the selected element.");
+    }
 }
 
 static bool RefreshTreeFromApp(bool refreshValues)

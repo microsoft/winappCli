@@ -206,7 +206,24 @@ function Enter-CommentMode {
         $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoComments', '-a', $app)
     }
     $state = Invoke-Cli @('ui', 'get-property', 'DevToolsProtoComments', '-a', $app, '-p', 'ToggleState')
-    if ($state.properties.ToggleState -ne 'On') { $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoComments', '-a', $app) }
+    if ($state.properties.ToggleState -ne 'On') { $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoComments', '-a', $app, '--action', 'toggle') }
+}
+function Open-ToolbarMenu([ValidateSet('Comments', 'More')][string]$Menu) {
+    $anchor = if ($Menu -eq 'Comments') { 'DevToolsProtoComments' } else { 'DevToolsProtoMore' }
+    $shown = @((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements } |
+        Where-Object { $_.automationId -eq $anchor -and -not $_.isOffscreen })
+    if ($shown.Count -eq 0) {
+        $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
+        $null = Invoke-Cli @('ui', 'wait-for', $anchor, '-a', $app, '-t', '5000')
+    }
+    $null = Invoke-Cli @('ui', 'hover', $anchor, '-a', $app)
+    if ($Menu -eq 'Comments') {
+        $null = Invoke-Cli @('ui', 'invoke', $anchor, '-a', $app, '--action', 'expand')
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsShowAllComments', '-a', $app, '-t', '5000')
+    } else {
+        $null = Invoke-Cli @('ui', 'invoke', $anchor, '-a', $app)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '-t', '5000')
+    }
 }
 function Overlaps($A, $B) { $A.x -lt $B.x + $B.width -and $B.x -lt $A.x + $A.width -and $A.y -lt $B.y + $B.height -and $B.y -lt $A.y + $A.height }
 function Control([string]$Command) {
@@ -341,22 +358,42 @@ try {
         $restoredNodes = @($restored.windows | ForEach-Object { Nodes $_.elements })
         Check (@($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoPill' -and -not $_.isOffscreen }).Count -eq 1 -and
             @($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoRailL' -and -not $_.isOffscreen }).Count -eq 0) 'show restores the previously expanded toolbar state'
-        # The ⋯ menu and `winapp config` change one setting: each shows what the other set while the app runs.
+        # Standard radio menu items report their check state through TogglePattern.
         $defaultBefore = Invoke-Cli @('config', 'get', 'run.devtools')
         try {
             foreach ($mode in @(@('headless', 'DevToolsStartHidden'), @('off', 'DevToolsStartOff'), @('on', 'DevToolsStartShown'))) {
                 $null = Invoke-Cli @('config', 'set', 'run.devtools', $mode[0])
-                $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
-                $null = Invoke-Cli @('ui', 'wait-for', $mode[1], '-a', $app, '-t', '5000')
-                $selected = Invoke-Cli @('ui', 'get-property', $mode[1], '-a', $app, '-p', 'IsSelected')
-                $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
-                Check ($selected.properties.IsSelected -eq 'True') "the menu selects a default of $($mode[0]) set from the CLI"
+                Open-ToolbarMenu More
+                foreach ($id in @('DevToolsStartShown', 'DevToolsStartHidden', 'DevToolsStartOff')) {
+                    $selected = Invoke-Cli @('ui', 'get-property', $id, '-a', $app, '-p', 'ToggleState')
+                    $expected = if ($id -eq $mode[1]) { 'On' } else { 'Off' }
+                    Check ($selected.properties.ToggleState -eq $expected) "the menu reports $id as $expected for the CLI default $($mode[0])"
+                }
+                $unchanged = Invoke-Cli @('config', 'get', 'run.devtools')
+                Check ($unchanged.value -eq $mode[0]) 'opening More does not change the startup setting'
+                $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+                $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '--gone', '-t', '3000')
             }
-            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
-            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartHidden', '-a', $app, '-t', '5000')
+            Open-ToolbarMenu More
             $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartHidden', '-a', $app)
             $chosen = Invoke-Cli @('config', 'get', 'run.devtools')
             Check ($chosen.value -eq 'headless' -and $chosen.source -eq 'setting') 'winapp config reads the default chosen in the menu'
+            Open-ToolbarMenu More
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartOff', '-a', $app)
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartOffHint', '-a', $app, '-t', '5000')
+            $hint = Invoke-Cli @('ui', 'get-property', 'DevToolsStartOffHint', '-a', $app, '-p', 'Name')
+            Check ($hint.properties.Name -like '*winapp config set run.devtools on*' -and
+                $hint.properties.Name -like '*winapp run . --devtools on*') 'choosing off leaves both recovery commands visible'
+            $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartOffHint', '-a', $app, '--gone', '-t', '3000')
+            $commentState = (Invoke-Cli @('ui', 'get-property', 'DevToolsProtoComments', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+            Open-ToolbarMenu Comments
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoComments', '-a', $app, '-p', 'ExpandCollapseState', '--value', 'Expanded', '-t', '3000')
+            Check ((Invoke-Cli @('ui', 'get-property', 'DevToolsProtoComments', '-a', $app, '-p', 'ToggleState')).properties.ToggleState -eq $commentState) 'the split secondary action does not change comment mode'
+            $listAction = Invoke-Cli @('ui', 'get-property', 'DevToolsShowAllComments', '-a', $app, '-p', 'Name')
+            Check ($listAction.properties.Name -match '^Open comments list \(\d+\)$') 'the standard comments menu includes the current count'
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoComments', '-a', $app, '--action', 'collapse')
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsShowAllComments', '-a', $app, '--gone', '-t', '3000')
         }
         finally {
             if ($defaultBefore.source -eq 'setting') { $null = Invoke-Cli @('config', 'set', 'run.devtools', [string]$defaultBefore.value) }
@@ -496,16 +533,14 @@ try {
             return $path
         }
         function Toggle-Markers {
-            $shownMenu = @((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements } |
-                Where-Object { $_.automationId -eq 'DevToolsProtoCommentsMenu' -and -not $_.isOffscreen })
-            if ($shownMenu.Count -eq 0) {
-                $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
-                $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoCommentsMenu', '-a', $app, '-t', '5000')
-                $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoCommentsMenu', '-a', $app)
-            }
-            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoCommentsMenu', '-a', $app)
-            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsToggleMarkers', '-a', $app, '-t', '5000')
-            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsToggleMarkers', '-a', $app)
+            Open-ToolbarMenu Comments
+            $before = (Invoke-Cli @('ui', 'get-property', 'DevToolsToggleMarkers', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsToggleMarkers', '-a', $app, '--action', 'toggle')
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsToggleMarkers', '-a', $app, '--gone', '-t', '3000')
+            Open-ToolbarMenu Comments
+            $after = (Invoke-Cli @('ui', 'get-property', 'DevToolsToggleMarkers', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+            Check ($before -ne $after) 'the standard marker item reports the persisted marker state'
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoComments', '-a', $app, '--action', 'collapse')
             Start-Sleep -Milliseconds 300
         }
         $shown = Capture-Window 'narrow-pin.png'
@@ -561,7 +596,7 @@ try {
             Check ($selected.result.handle -eq [string]$narrow[0].handle) 'tree-scroll observation selected the exact owned narrow element'
             Start-Sleep -Milliseconds 250
             # A label wider than the pane ends in an ellipsis (its tooltip has the full text), so the tree never scrolls sideways.
-            $scroll = Invoke-Cli @('ui', 'get-property', 'TreeScroll', '-a', $app)
+            $scroll = Invoke-Cli @('ui', 'get-property', 'WinAppDevToolsTree', '-a', $app)
             Check ([double]$scroll.properties.ScrollHorizontalPercent -eq -1) 'a long tree label does not make the tree scroll horizontally'
             [ordered]@{ scroll = $scroll.properties; selectedHandle = [string]$narrow[0].handle } | ConvertTo-Json -Depth 20 |
                 Set-Content (Join-Path $evidence 'tree-scroll-observation.json')
@@ -664,6 +699,41 @@ try {
         Check ((Wait-Focused 'DevToolsProtoPick') -eq 'DevToolsProtoPick') 'the first shortcut after focus moves on from an Esc return reaches the toolbar'
         $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
         Check ((Wait-Focused 'ShortcutOther') -eq 'ShortcutOther') 'Esc returns focus to the element the shortcut left'
+        $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
+        $null = Invoke-Cli @('ui', 'focus', 'DevToolsProtoMore', '-a', $app)
+        $null = Invoke-Cli @('ui', 'send-keys', 'space', '-a', $app, '--via', 'send-input')
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '-t', '3000')
+        Check ((Wait-Focused 'DevToolsHideToolbar') -eq 'DevToolsHideToolbar') 'a keyboard-opened menu focuses its first action'
+        $null = Invoke-Cli @('ui', 'send-keys', 'down', '-a', $app, '--via', 'send-input')
+        Check ((Wait-Focused 'DevToolsProtoPin') -eq 'DevToolsProtoPin') 'arrow keys navigate standard menu items'
+        $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+        Check ((Wait-Focused 'DevToolsProtoMore') -eq 'DevToolsProtoMore') 'Escape dismisses the menu and restores its anchor focus'
+        Open-ToolbarMenu More
+        $pinBefore = (Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPin', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+        try {
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoPin', '-a', $app, '--action', 'toggle')
+            Open-ToolbarMenu More
+            $pinAfter = (Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPin', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+            Check ($pinBefore -ne $pinAfter) 'the standard Keep toolbar open item changes and remembers its checked state'
+        }
+        finally {
+            $pinCurrent = (Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPin', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+            if ($pinCurrent -ne $pinBefore) {
+                $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoPin', '-a', $app, '--action', 'toggle')
+            } else {
+                $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+            }
+        }
+        Open-ToolbarMenu More
+        $null = Invoke-Cli @('ui', 'hover', 'WindowHeading', '-a', $app)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '-t', '3000')
+        $null = Invoke-Cli @('ui', 'click', 'ShortcutOther', '-a', $app)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '--gone', '-t', '3000')
+        Check $true 'leaving the toolbar does not dismiss a standard menu; clicking outside light-dismisses it'
+        Open-ToolbarMenu More
+        $null = Invoke-Cli @('ui', 'invoke', 'DevToolsHideToolbar', '-a', $app)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoPill', '-a', $app, '--gone', '-t', '3000')
+        $null = Invoke-Cli @('devtools', 'call', 'Overlay.show', '-a', $app)
         # A command run through UI Automation leaves keyboard focus where it was, so the app's own shortcuts still work.
         # The Esc above closed the bar; hovering opens it the way a mouse user would, without moving keyboard focus.
         $null = Invoke-Cli @('ui', 'focus', 'ShortcutReturn', '-a', $app)

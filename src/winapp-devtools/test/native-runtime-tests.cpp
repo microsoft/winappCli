@@ -1168,6 +1168,21 @@ static void CheckCensusFollowsReparentsAndParentlessRemoves(const std::function<
     }
     check(known && kids(7004).empty(), "a remove without a parent detaches the element from the parent it was added under");
     for (const InstanceHandle handle : {7004ull, 7002ull, 7001ull}) event(handle, 0, 0, nullptr, Remove);
+    const int countBeforePopup = g_elemCount.load();
+    event(7010, 0, 0, L"Microsoft.UI.Xaml.Controls.MenuFlyoutPresenter", Add);
+    event(7011, 7010, 0, L"Microsoft.UI.Xaml.Controls.MenuFlyoutItem", Add);
+    const auto popupWire = PackWire_nolock(7010);
+    const auto itemWire = PackWire_nolock(7011);
+    OverlaySeed(7010);
+    check(g_elemCount.load() == countBeforePopup && !g_type.count(7010) && !g_type.count(7011) &&
+        !g_ihToSlot.count(7010) && !g_ihToSlot.count(7011) && OverlayContains(7010) && OverlayContains(7011),
+        "seeding a realized menu removes its presenter and items from the app census");
+    InstanceHandle resolved = 0;
+    const wchar_t* reason = nullptr;
+    check(!ResolveWire_nolock(popupWire, &resolved, &reason) && !ResolveWire_nolock(itemWire, &resolved, &reason),
+        "a late-seeded menu retires the app handles minted before its Opened event");
+    event(7011, 0, 0, nullptr, Remove);
+    event(7010, 0, 0, nullptr, Remove);
 }
 
 // The tree callback builds a VisualTree.changed delta only while a client subscribes, and a subscriber gets every one.

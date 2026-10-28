@@ -14,8 +14,7 @@ static void*         g_commentsScrollUi = nullptr;
 static void*         g_treeControlsUi = nullptr;
 static void*         g_commentsLbl = nullptr;
 static void*         g_commentsBadgeUi = nullptr;
-static void*         g_treeTabBtn = nullptr;
-static void*         g_commentsTabBtn = nullptr;
+static void*         g_inspectorViewSelector = nullptr;
 static std::vector<DevToolsWindowComment> g_commentRows;
 // The pane is a virtualizing list: one item per file caption or comment row, built only while it is on screen.
 enum class CommentItemKind { Caption, Row };
@@ -527,29 +526,42 @@ static void SetCommentsView(bool on)
     if (g_treeScrollUi)     DevToolsPutVisibility(g_treeScrollUi, on ? 1 : 0);
     if (g_commentsScrollUi) DevToolsPutVisibility(g_commentsScrollUi, on ? 0 : 1);
     if (g_treeControlsUi)   DevToolsPutVisibility(g_treeControlsUi, on ? 1 : 0);
-    auto checkTab = [](void* tab, bool checked) {
-        if (!tab) return;
-        IInspectable* boxed = nullptr;
-        if (SUCCEEDED(BoxBool(checked, &boxed)) && boxed) {
-            DevToolsToggleButtonPutIsChecked(tab, boxed);
-            boxed->Release();
-        }
-    };
-    checkTab(g_treeTabBtn, !on);
-    checkTab(g_commentsTabBtn, on);
+    if (g_inspectorViewSelector) {
+        DevToolsXC::ISelectorBar selector{nullptr};
+        winrt::copy_from_abi(selector, g_inspectorViewSelector);
+        const auto items = selector.Items();
+        if (items.Size() == 2) selector.SelectedItem(items.GetAt(on ? 1 : 0));
+    }
     if (on) RefreshCommentsPane();
 }
 
 struct CommentsViewSink : DevToolsSinkBase
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void* sender, void*)
     {
-        if (gen != g_route1Gen) return S_OK;
-        if (g_commentsView != comments) SetCommentsView(comments);
+        if (gen != g_route1Gen || !sender) return S_OK;
+        try {
+            DevToolsXC::ISelectorBar selector{nullptr};
+            winrt::copy_from_abi(selector, sender);
+            const auto items = selector.Items();
+            if (items.Size() != 2) return S_OK;
+            const auto selected = selector.SelectedItem();
+            if (!selected) {
+                selector.SelectedItem(items.GetAt(g_commentsView ? 1 : 0));
+                return S_OK;
+            }
+            const bool comments = selected == items.GetAt(1);
+            if (g_commentsView != comments) SetCommentsView(comments);
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.comments view selection failed hr=0x%08X", e.code().value);
+        }
         return S_OK;
     }
-    void Init(bool toComments) { comments = toComments; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    bool comments = false;
+    void Init()
+    {
+        InitSink(DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::SelectorBar,
+            DevToolsXC::SelectorBarSelectionChangedEventArgs>>(), g_route1Gen);
+    }
 };
 
 static void UpdateCommentsButtonLabel()

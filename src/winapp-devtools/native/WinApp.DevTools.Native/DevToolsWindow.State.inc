@@ -30,9 +30,8 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
 // write is unconfirmed.
 static bool CanRereadSelection(bool* filterFocused = nullptr);
 
-static void SelectRowVisual(void* rowControl);
-static void NotifyTreeSelectionChanged(void* previous, void* current);
-static void SyncTreeAutomation();
+static void SyncTreeSelection();
+static void SyncTreeStructure();
 
 static unsigned g_route1Gen = 0;
 static unsigned g_treeRowsGen = 0;
@@ -57,56 +56,33 @@ static void CALLBACK HoverRevertProc(HWND, UINT, UINT_PTR id, DWORD);
 
 static void SetFocusNotice(const std::wstring& text);
 
-struct NodeClickSink : DevToolsSinkBase
+struct NodeClickSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void* sender, void* /*args*/)
+    HRESULT Invoke(void*, void*)
     {
         // Inert once the owning window has been torn down (stale generation) -- guards against a click that
         // races window close, or a leaked sink from a prior window, touching a freed subtree.
         if (gen != g_route1Gen || rowsGen != g_treeRowsGen) return S_OK;
         if (!ctx) return S_OK;
-        if (hoverExit) {
-            g_hoverRevertEpoch = ++g_hoverEpoch;
-            g_hoverRevertGen = g_route1Gen;
-            if (!g_hoverRevertTimer) g_hoverRevertTimer = SetTimer(nullptr, 0, USER_TIMER_MINIMUM, HoverRevertProc);
-            return S_OK;
-        }
-        if (hoverOnly) {
-            // The per-row-crossing cost the `hover` scenario exists to measure. The exit branch above
-            // is deliberately outside it: an exit only posts a timer, and charging that to the crossing would
-            // bury the one thing worth seeing, which is what the enter's highlight costs.
-            WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinTreeHover);
-            ++g_hoverEpoch;
-            if (ctx->highlightFn) ctx->highlightFn(handle, false);
-            // Hover stops at the highlight -- rebuilding the property pane on every PointerEntered would
-            // jank the app UI thread. Only a click (select) reads the props and rebuilds the inspector.
-            return S_OK;
-        }
         SetFocusNotice(L"");
         if (ctx->highlightFn) ctx->highlightFn(handle, true);
-        void* rowCtrl = nullptr;
-        if (sender && SUCCEEDED(reinterpret_cast<IUnknown*>(sender)->QueryInterface(
-                DevToolsIid<DevToolsXC::IControl>(), &rowCtrl)) && rowCtrl) {
-            SelectRowVisual(rowCtrl);
-            reinterpret_cast<IUnknown*>(rowCtrl)->Release();
-        }
         g_selectedWire = handle;
+        SyncTreeSelection();
         // Clicking the selected row again re-reads it, unless that would discard an open editor or pending write.
         ShowPropsForNode(handle, label, breadcrumb, /*force*/ handle == g_selWire && CanRereadSelection());
         return S_OK;
     }
-    void Init(InstanceHandle h, const std::wstring& lbl, const std::wstring& bc, WindowContext* c, bool hover)
+    void Init(InstanceHandle h, const std::wstring& lbl, const std::wstring& bc, WindowContext* c)
     {
-        handle = h; label = lbl; breadcrumb = bc; ctx = c; hoverOnly = hover; rowsGen = g_treeRowsGen;
-        InitSink(IID_RoutedEventHandler_Del, g_route1Gen, &IID_PointerEventHandler_Del);
+        handle = h; label = lbl; breadcrumb = bc; ctx = c; rowsGen = g_treeRowsGen;
+        gen = g_route1Gen;
     }
     InstanceHandle handle = 0;
     std::wstring   label;
     std::wstring   breadcrumb;
     WindowContext* ctx = nullptr;
-    bool           hoverOnly = false;
-    bool           hoverExit = false;
     unsigned       rowsGen = 0;
+    unsigned       gen = 0;
 };
 
 static IInspectable* g_route1WindowInsp = nullptr;
@@ -208,8 +184,7 @@ static void*                g_bcFull = nullptr;
 static void*                g_bcToggleLbl = nullptr; // the expander's label TextBlock (ITextBlock, AddRef'd)
 static std::wstring         g_bcExpandText;
 static bool                 g_bcExpanded = false;
-// g_selWire (WIRE handle of the currently selected node) is declared above NodeClickSink so the hover-exit
-// sink can revert the app highlight to it.
+// The hover timer restores the app highlight to g_selWire after the pointer leaves the tree.
 static std::wstring         g_selLabel;
 static std::wstring         g_selBreadcrumb;
 static std::wstring         g_selSourceFile;
@@ -432,97 +407,43 @@ static bool LayoutSectionOpen()
     return g_layoutSectionOpen == 1;
 }
 static IInspectable* g_layoutBody = nullptr;
-static IInspectable* g_layoutBodyChev = nullptr;
 static IInspectable* g_axmlOne  = nullptr;
-static IInspectable* g_axmlFull = nullptr;
-static IInspectable* g_axmlChev = nullptr;
 static bool g_axmlExpanded = false;
 static void ReleaseLayoutSectionRefs()
 {
     if (g_layoutBody) { g_layoutBody->Release(); g_layoutBody = nullptr; }
-    if (g_layoutBodyChev) { g_layoutBodyChev->Release(); g_layoutBodyChev = nullptr; }
     if (g_axmlOne)  { g_axmlOne->Release();  g_axmlOne  = nullptr; }
-    if (g_axmlFull) { g_axmlFull->Release(); g_axmlFull = nullptr; }
-    if (g_axmlChev) { g_axmlChev->Release(); g_axmlChev = nullptr; }
 }
 
-static IInspectable* g_selBrush   = nullptr;
-static IInspectable* g_clearBrush = nullptr;
-static bool          g_selBrushTried = false;
-static void*         g_selCtrl    = nullptr; // currently-selected row's Button (QI'd IControl, AddRef'd)
-
-// Parse the two selection brushes with the app's XamlReader on first use. Best-effort: if parsing fails the
-// selection just won't tint (no crash) -- SelectRowVisual guards on g_selBrush.
-static void EnsureSelBrushes()
-{
-    if (g_selBrush || g_selBrushTried) return;
-    g_selBrushTried = true;
-    const wchar_t* kPres = L"http://schemas.microsoft.com/winfx/2006/xaml/presentation";
-    std::wstring sel = std::wstring(L"<SolidColorBrush xmlns=\"") + kPres +
-        L"\" Color=\"{ThemeResource SystemAccentColor}\" Opacity=\"0.35\"/>";
-    std::wstring clr = std::wstring(L"<SolidColorBrush xmlns=\"") + kPres + L"\" Color=\"Transparent\"/>";
-    IInspectable* s = nullptr; if (SUCCEEDED(LoadMarkupWin(sel, &s))) g_selBrush = s;
-    IInspectable* c = nullptr; if (SUCCEEDED(LoadMarkupWin(clr, &c))) g_clearBrush = c;
-}
-
-static void SelectRowVisual(void* rowControl)
-{
-    EnsureSelBrushes();
-    if (g_selCtrl == rowControl) return;
-    void* previous = g_selCtrl;
-    if (g_selCtrl) {
-        if (g_clearBrush) DevToolsPutBackground(g_selCtrl, g_clearBrush);
-        g_selCtrl = nullptr;
-    }
-    if (rowControl) {
-        if (g_selBrush) DevToolsPutBackground(rowControl, g_selBrush);
-        reinterpret_cast<IUnknown*>(rowControl)->AddRef();
-        g_selCtrl = rowControl;
-    }
-    NotifyTreeSelectionChanged(previous, g_selCtrl);
-    if (previous) reinterpret_cast<IUnknown*>(previous)->Release();
-}
-
-static std::vector<void*> g_treeRows;      // per rendered row: the Row<i> Grid QI'd to IUIElement (AddRef'd)
-static std::vector<void*> g_treeRowFe;
-static std::vector<void*> g_treeControls;  // per rendered row: node Button as IControl (AddRef'd; current subtree only)
-static winrt::Microsoft::UI::Xaml::FrameworkElement g_treeAutomationRoot{nullptr};
-static winrt::Microsoft::UI::Xaml::FrameworkElement g_treeAutomationNote{nullptr};
-static std::vector<size_t> g_treeAutomationParents;
+static std::vector<void*> g_treeRows;      // Node captions as IUIElement (AddRef'd).
+static std::vector<void*> g_treeControls;  // Currently realized TreeViewItem containers as IControl.
+static DevToolsXC::TreeView g_treeView{nullptr};
+static std::vector<DevToolsXC::TreeViewNode> g_treeNodes;
+static std::vector<size_t> g_treeParents;
+static std::vector<char> g_treeIncluded;
+static bool g_treeUpdating = false;
 static std::vector<int>   g_treeDepth;
 static std::vector<char>  g_treeCollapsed;
 static std::vector<char>  g_treeVisible;
-static std::vector<void*> g_treeGlyph;
-static std::vector<void*> g_treeChevronToggle;
 static std::vector<std::wstring> g_treeLabel;
 static std::vector<std::wstring> g_treeShortType;
 static std::vector<DevToolsWindowNode> g_allTreeNodes;
 static std::vector<char> g_allTreeAppAuthored;
 static std::vector<size_t> g_renderedOriginalIndices; // rendered row -> full snapshot index (breadcrumbs/reselection)
 static IInspectable* g_treeHostChildren = nullptr;
-// Rows are realized LAZILY: only rows the current view shows get an element, so these carry what a
-// later realization needs. The rows panel's own Children (AddRef'd) is where a newly realized row is
-// INSERTED, at the position that keeps the list in row order.
-static IInspectable* g_treeRowsPanelChildren = nullptr;
 static std::vector<DevToolsTreeLayout::A11yRow> g_treeA11y;
-static std::vector<char> g_treeCollapseAtBuild;
-static int g_treeMinDepth = 0;
-static std::vector<int> g_treeViewDepth;
-static int g_treeIndentBaseline = 0;
-static std::vector<NodeClickSink*> g_nodeSinks;
+static std::vector<std::unique_ptr<NodeClickSink>> g_nodeSinks;
 static std::map<InstanceHandle, size_t> g_nodeIdxByWire;
 static IInspectable*      g_filterBox = nullptr; // the tree filter TextBox (AddRef'd; read via readInputFn)
 static void*              g_filterTextBox = nullptr;
 static std::wstring       g_treeFilterQuery;
-// The tree list's ScrollViewer as IUIElement (AddRef'd). Declared with the tree state rather than with the
-// comments view that also hides/shows it, because the live refresh reads and restores its offset.
+// The tree host is hidden when switching to comments. The standard TreeView owns its scrolling.
 static void*              g_treeScrollUi = nullptr;
+static DevToolsXC::ScrollViewer g_treeScroller{nullptr};
+static InstanceHandle g_treeHoverWire = 0;
 
 static void ApplyTreeFilter(const std::wstring& queryRaw);
 static void SetStatusText(const std::wstring& s);
-// Defined after the row builder it calls. Rows are realized lazily, so every path that makes a row
-// visible has to run this first -- a row with no element cannot be shown.
-static int EnsureRowsRealized(const std::vector<char>& shouldShow);
 static void FocusTargetAppForPick();
 static void FocusInspectorAfterPick();
 static bool RefreshTreeFromApp(bool refreshValues = false);

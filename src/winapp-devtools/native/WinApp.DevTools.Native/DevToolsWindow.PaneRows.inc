@@ -200,28 +200,25 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(note) + L"\" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(note) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceNote\""
              DT_FG_SECONDARY L"/>";
-        m += L"<HyperlinkButton x:Name=\"AxmlToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
-             L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Toggle authored XAML\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlToggle\">";
-        m += L"<Grid ColumnSpacing=\"7\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"10\"/>"
-             L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
-        m += L"<TextBlock x:Name=\"AxmlChev\" Grid.Column=\"0\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\""
-             L" FontSize=\"8\" VerticalAlignment=\"Center\""
-             DT_FG_SECONDARY L" Text=\"\uE76C\""
-             L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-        m += L"<TextBlock x:Name=\"AxmlOne\" Grid.Column=\"1\" Text=\"" +
+        m += L"<Expander x:Name=\"AxmlToggle\" HorizontalAlignment=\"Stretch\""
+             L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.Name=\"Authored XAML\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"" +
+             std::wstring(g_axmlExpanded ? L"True" : L"False") + L"\"><Expander.Header><StackPanel>"
+             L"<TextBlock Text=\"Authored XAML\" FontSize=\"12\"/>";
+        m += L"<TextBlock x:Name=\"AxmlOne\" Visibility=\"" +
+             std::wstring(g_axmlExpanded ? L"Collapsed" : L"Visible") + L"\" Text=\"" +
              DevToolsXmlEscape(AuthoredXamlOneLine(authoredXaml)) +
              L"\" FontFamily=\"Cascadia Mono, Consolas\" FontSize=\"11\" TextWrapping=\"NoWrap\""
              L" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\""
              DT_FG_SECONDARY
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlOneLine\"/>";
-        m += L"</Grid></HyperlinkButton>";
+        m += L"</StackPanel></Expander.Header>";
         m += L"<TextBlock x:Name=\"AxmlFull\" Text=\"" + DevToolsXmlEscape(authoredXaml, true) + L"\""
-             L" FontFamily=\"Cascadia Mono, Consolas\" Visibility=\"Collapsed\" Margin=\"17,4,0,0\""
+             L" FontFamily=\"Cascadia Mono, Consolas\" Margin=\"0,4,0,0\""
              L" FontSize=\"11\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\""
              L" Foreground=\"{ThemeResource TextFillColorPrimaryBrush}\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXaml\"/>";
-        m += L"</StackPanel></Border>";
+        m += L"</Expander></StackPanel></Border>";
     }
     if (rows.empty()) {
         m += L"<TextBlock Text=\"(no curated properties)\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>";
@@ -294,21 +291,6 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
          L" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsPropCount\" Text=\"" +
          DevToolsXmlEscape(std::to_wstring(rows.size()) + L" properties") + L"\"/>";    m += L"</Grid>";
-
-    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"0\" Margin=\"0,2,0,0\" HorizontalAlignment=\"Left\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsPropView\">";
-    m += L"<ToggleButton x:Name=\"ViewComputed\" Padding=\"10,3,10,3\" MinWidth=\"0\" CornerRadius=\"4,0,0,4\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsViewComputed\" AutomationProperties.Name=\"Computed view\""
-         L" IsChecked=\""; m += (ShowingSetView() ? L"False" : L"True");
-    m += L"\" ToolTipService.ToolTip=\"Every property, with one resolved value each: what this element's state IS\">"
-         L"<TextBlock Text=\"Computed\" FontSize=\"12\"/></ToggleButton>";
-    m += L"<ToggleButton x:Name=\"OnlySetToggle\" Padding=\"10,3,10,3\" MinWidth=\"0\" CornerRadius=\"0,4,4,0\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsViewSet\" AutomationProperties.Name=\"Set view\""
-         L" IsChecked=\""; m += (ShowingSetView() ? L"True" : L"False");
-    m += L"\" ToolTipService.ToolTip=\"Only what was written on this element, grouped by where it came from"
-         L": what you actually SET\">"
-         L"<TextBlock Text=\"Set\" FontSize=\"12\"/></ToggleButton>";
-    m += L"</StackPanel>";
 
     if (ShowingSetView()) {
         size_t authored = 0, styled = 0;
@@ -564,7 +546,7 @@ static void OnAppTreeChanged()
     g_selWire = 0;
     g_selectedWire = 0;
     LiveUnwatch();
-    SelectRowVisual(nullptr);
+    SyncTreeSelection();
     ShowPropsForNode(0, L"(no selection)", L"", true);
     static const wchar_t* const kGone = L"The selected element is gone. The app navigated or removed it.";
     if (auto it = gone ? g_commentDrafts.find(gone) : g_commentDrafts.end(); it != g_commentDrafts.end()) {

@@ -34,95 +34,35 @@
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
       </Grid.RowDefinitions>
-      <!-- RadioButtons expose one exclusive SelectionItem group. SetCommentsView owns IsChecked;
-           mode is accessible state, not only a painted accent or changing label. -->
+      <!-- Standard selectors expose mode through SelectionItemPattern. -->
       <Grid Grid.Row="0" x:Name="ViewTabs" Margin="8,6,8,0"
             BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-        <Grid.Resources>
-          <Style x:Key="DevToolsViewTab" TargetType="RadioButton">
-            <Setter Property="MinWidth" Value="0"/>
-            <Setter Property="Padding" Value="11,6,11,7"/>
-            <Setter Property="VerticalAlignment" Value="Bottom"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
-            <Setter Property="Template">
-              <Setter.Value>
-                <ControlTemplate TargetType="RadioButton">
-                  <Grid x:Name="TabRoot" Background="{TemplateBinding Background}" CornerRadius="4,4,0,0">
-                    <VisualStateManager.VisualStateGroups>
-                      <VisualStateGroup x:Name="CommonStates">
-                        <VisualState x:Name="Normal"/>
-                        <VisualState x:Name="PointerOver">
-                          <VisualState.Setters>
-                            <Setter Target="TabRoot.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/>
-                          </VisualState.Setters>
-                        </VisualState>
-                        <VisualState x:Name="Pressed">
-                          <VisualState.Setters>
-                            <Setter Target="TabRoot.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}"/>
-                          </VisualState.Setters>
-                        </VisualState>
-                        <VisualState x:Name="Disabled">
-                          <VisualState.Setters>
-                            <Setter Target="TabText.Foreground" Value="{ThemeResource TextFillColorDisabledBrush}"/>
-                          </VisualState.Setters>
-                        </VisualState>
-                      </VisualStateGroup>
-                      <VisualStateGroup x:Name="CheckStates">
-                        <VisualState x:Name="Checked">
-                          <VisualState.Setters>
-                            <Setter Target="TabRule.Visibility" Value="Visible"/>
-                            <Setter Target="TabText.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
-                            <Setter Target="TabText.FontWeight" Value="SemiBold"/>
-                          </VisualState.Setters>
-                        </VisualState>
-                        <VisualState x:Name="Unchecked"/>
-                        <VisualState x:Name="Indeterminate"/>
-                      </VisualStateGroup>
-                    </VisualStateManager.VisualStateGroups>
-                    <StackPanel Orientation="Horizontal" Margin="{TemplateBinding Padding}">
-                      <!-- The tab already owns its accessible name; its label must not announce a duplicate. -->
-                      <TextBlock x:Name="TabText" FontSize="12" VerticalAlignment="Center"
-                                 AutomationProperties.AccessibilityView="Raw"
-                                 Foreground="{TemplateBinding Foreground}"
-                                 Text="{TemplateBinding Tag}"/>
-                      <ContentPresenter VerticalAlignment="Center"
-                                        Content="{TemplateBinding Content}"
-                                        ContentTemplate="{TemplateBinding ContentTemplate}"/>
-                    </StackPanel>
-                    <Border x:Name="TabRule" Height="2" CornerRadius="1" Visibility="Collapsed"
-                            VerticalAlignment="Bottom" Margin="8,0,8,0"
-                            Background="{ThemeResource AccentFillColorDefaultBrush}"/>
-                  </Grid>
-                </ControlTemplate>
-              </Setter.Value>
-            </Setter>
-          </Style>
-        </Grid.Resources>
-        <StackPanel Orientation="Horizontal" Spacing="2" HorizontalAlignment="Left">
-          <!-- Qualify the accessible Comments name because the inspector and overlay share one app UIA
-               namespace. SelectionItemPattern reports mode independently of the visible label. -->
-          <RadioButton x:Name="TreeTabBtn" Style="{StaticResource DevToolsViewTab}" Tag="Visual tree"
-                       IsChecked="True"
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <SelectorBar x:Name="InspectorViewSelector" HorizontalAlignment="Left"
+                     AutomationProperties.Name="Inspector view"
+                     AutomationProperties.AutomationId="WinAppDevToolsInspectorView">
+          <SelectorBarItem x:Name="TreeTabBtn" Text="Visual tree" IsSelected="True"
                        ToolTipService.ToolTip="Show this app's visual tree"
                        AutomationProperties.Name="Visual tree (inspector)"
                        AutomationProperties.AutomationId="ViewTabTree"/>
-          <!-- The badge is the open-comment count: the same set the overlay's marker toggle shows. It is
-               Collapsed at zero so "no comments" is a readable state and not a 0 chip. -->
-          <RadioButton x:Name="CommentsTabBtn" Style="{StaticResource DevToolsViewTab}" Tag="Comments"
+          <SelectorBarItem x:Name="CommentsTabBtn" Text="Comments"
                        ToolTipService.ToolTip="Show this app's UI comments"
                        AutomationProperties.Name="Comments (inspector)"
-                       AutomationProperties.AutomationId="ViewTabComments">
-            <Border x:Name="CommentsBadge" Visibility="Collapsed" Margin="6,0,0,0"
+                       AutomationProperties.AutomationId="ViewTabComments"/>
+        </SelectorBar>
+        <Border x:Name="CommentsBadge" Grid.Column="1" Visibility="Collapsed" Margin="6,0,0,0"
+                    VerticalAlignment="Center"
                     MinWidth="18" Height="16" CornerRadius="8" Padding="5,0"
                     Background="{ThemeResource AccentFillColorDefaultBrush}">
               <TextBlock x:Name="CommentsLbl" Text="0" FontSize="10" FontWeight="SemiBold"
                          Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
                          HorizontalAlignment="Center" VerticalAlignment="Center"
                          AutomationProperties.AccessibilityView="Raw"/>
-            </Border>
-          </RadioButton>
-        </StackPanel>
+        </Border>
       </Grid>
       <Grid x:Name="TreeControls" Grid.Row="1" Margin="8,8,8,4" ColumnSpacing="8">
         <Grid.ColumnDefinitions>
@@ -176,31 +116,19 @@
                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                    AutomationProperties.AutomationId="FocusNotice"/>
       </Border>
-      <ScrollViewer x:Name="TreeScroll" Grid.Row="3" ZoomMode="Disabled" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="8">
+      <Grid x:Name="TreeScroll" Grid.Row="3" Margin="8">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
           <TextBlock x:Name="TreeHeader" Margin="4,4,4,10" Text="$TREEHEADER$" Style="{StaticResource CaptionTextBlockStyle}"
                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" CharacterSpacing="60"/>
-          <TextBlock x:Name="TreeNoMatches" Visibility="Collapsed" Margin="4,0,4,0" TextWrapping="Wrap"
+          <TextBlock x:Name="TreeNoMatches" Grid.Row="1" Visibility="Collapsed" Margin="4,0,4,0" TextWrapping="Wrap"
                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                      AutomationProperties.AutomationId="TreeNoMatches"
                      AutomationProperties.LiveSetting="Polite"/>
-          <StackPanel x:Name="TreeRowsHost">
-            <StackPanel.Resources>
-              <SolidColorBrush x:Key="DevToolsChevronTransparent" Color="Transparent"/>
-              <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBackgroundCheckedDisabled" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="SubtleFillColorSecondaryBrush"/>
-              <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="SubtleFillColorTertiaryBrush"/>
-              <StaticResource x:Key="ToggleButtonBorderBrushChecked" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBorderBrushCheckedPointerOver" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBorderBrushCheckedPressed" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBorderBrushCheckedDisabled" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="TextFillColorPrimaryBrush"/>
-              <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="TextFillColorPrimaryBrush"/>
-              <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="TextFillColorSecondaryBrush"/>
-              <StaticResource x:Key="ToggleButtonForegroundCheckedDisabled" ResourceKey="TextFillColorDisabledBrush"/>
-            </StackPanel.Resources>
-          </StackPanel>
+          <Grid x:Name="TreeRowsHost" Grid.Row="2"/>
           <StackPanel x:Name="RowPalette" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw">
             <Border x:Name="PalTransparent" Background="Transparent"/>
             <TextBlock x:Name="PalAccent" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
@@ -211,8 +139,7 @@
             <TextBlock x:Name="PalGlyphFont" FontFamily="Segoe Fluent Icons"/>
             <TextBlock x:Name="PalCaption" Style="{StaticResource CaptionTextBlockStyle}"/>
           </StackPanel>
-        </StackPanel>
-      </ScrollViewer>
+      </Grid>
       <ScrollViewer x:Name="CommentsScroll" Grid.Row="3" Visibility="Collapsed" ZoomMode="Disabled" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="CommentsHost" Margin="8"/>
       </ScrollViewer>
@@ -378,8 +305,8 @@
 
                   <StackPanel x:Name="PEdRes" Visibility="Collapsed" Spacing="3">
                     <TextBlock x:Name="PResLbl" Text="RESOURCE KEY" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                    <TextBox x:Name="PResKey" MinHeight="30" FontSize="12" FontFamily="Consolas" PlaceholderText="type a key"/>
-                    <StackPanel x:Name="PResSug" Spacing="0" Visibility="Collapsed"/>
+                    <AutoSuggestBox x:Name="PResKey" MinHeight="30" FontSize="12" FontFamily="Consolas"
+                                    PlaceholderText="type a key" UpdateTextOnSelect="False"/>
                     <TextBlock x:Name="PResNote" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Text="the key, as text. The resolved value is on the row above."/>
                   </StackPanel>
@@ -542,7 +469,23 @@
           BorderBrush="{ThemeResource CardBackgroundFillColorDefaultBrush}"
           BorderThickness="1"
           CornerRadius="8,0,0,0">
-      <ScrollViewer x:Name="PropsScroll" AutomationProperties.AutomationId="WinAppDevToolsPropScroll"
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+      <SelectorBar x:Name="PropViewSelector" Margin="14,8,14,0" HorizontalAlignment="Left"
+                  AutomationProperties.Name="Property view"
+                  AutomationProperties.AutomationId="WinAppDevToolsPropView">
+        <SelectorBarItem x:Name="ViewComputed" Text="Computed" IsSelected="True"
+                       AutomationProperties.Name="Computed view"
+                       AutomationProperties.AutomationId="WinAppDevToolsViewComputed"
+                       ToolTipService.ToolTip="Every property, with one resolved value each: what this element's state IS"/>
+        <SelectorBarItem x:Name="OnlySetToggle" Text="Set"
+                       AutomationProperties.Name="Set view"
+                       AutomationProperties.AutomationId="WinAppDevToolsViewSet"
+                       ToolTipService.ToolTip="Only what was written on this element, grouped by where it came from: what you actually SET"/>
+      </SelectorBar>
+      <ScrollViewer x:Name="PropsScroll" Grid.Row="1" AutomationProperties.AutomationId="WinAppDevToolsPropScroll"
                     AutomationProperties.Name="Properties pane scroller">
         <StackPanel x:Name="PropsHost" Margin="14">
           <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Text="Select a node on the left to inspect and edit its properties."/>

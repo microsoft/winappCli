@@ -43,7 +43,7 @@ static void SetPickButtonOn(bool armed)
     const bool on = armed && !CommentModeOn();
     if (g_pickModeSink) g_pickModeSink(on);
     DevToolsOverlayLog(L"overlay.pickmode button state=%s comments=%d", on ? L"ON" : L"OFF", (int)(armed && CommentModeOn()));
-    ProtoSetToggle(L"DevToolsProtoComments", L"DevToolsCommentsOn", L"DevToolsCommentsOff", armed && CommentModeOn());
+    ProtoSetToggle(L"DevToolsProtoComments", L"", L"", armed && CommentModeOn());
     ProtoSetToggle(L"DevToolsProtoPick", L"DevToolsPickOn", L"DevToolsPickOff", on);
     UpdateChipLabel();
 }
@@ -53,7 +53,7 @@ static void SetCommentsShown(bool on)
 {
     g_commentsShown = on;
     if (on) DrawAllPins(); else ClearAllPinsUi();
-    ProtoSetToggle(L"DevToolsToggleMarkers", L"DevToolsMarkersCheck", L"", on);
+    ProtoSetToggle(L"DevToolsToggleMarkers", L"", L"", on);
     UpdateCommentBadge();
     DevToolsOverlayLog(L"overlay.comments %s (pins=%zu)", on ? L"show" : L"hide", g_pins.size());
 }
@@ -989,6 +989,7 @@ HRESULT DevToolsOverlay_HideChromeForCapture(bool hide)
         std::vector<DevToolsX::UIElement> chrome;
         for (auto const& layer : g_layerRoots) if (layer.root) chrome.push_back(layer.root);
         for (auto const& slot : g_hostSlots) if (!slot.layerKey && slot.content) chrome.push_back(slot.content);
+        if (auto presenter = g_toolbarMenuPresenter.get()) chrome.push_back(presenter);
         // The flyout is a windowed popup: its content is not under any host root.
         if (g_selPanel) {
             winrt::Windows::Foundation::IInspectable panel{ nullptr };

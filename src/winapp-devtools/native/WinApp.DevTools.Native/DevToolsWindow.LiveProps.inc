@@ -338,25 +338,25 @@ static void UpdateSelectedTreePreview()
 {
     const auto row = g_nodeIdxByWire.find(g_selWire);
     if (row == g_nodeIdxByWire.end() || row->second >= g_renderedOriginalIndices.size() ||
-        row->second >= g_treeControls.size() || !g_treeControls[row->second]) return;
+        row->second >= g_treeNodes.size()) return;
     const size_t original = g_renderedOriginalIndices[row->second];
     std::wstring before;
     if (!RereadTreeCaption(original, &before)) return;
     const std::wstring after = g_allTreeNodes[original].preview;
     try {
-        winrt::Windows::Foundation::IInspectable object{ nullptr };
-        winrt::copy_from_abi(object, static_cast<IInspectable*>(g_treeControls[row->second]));
-        const auto button = object.as<DevToolsXC::ContentControl>();
-        const auto inlines = button.Content().as<DevToolsXC::TextBlock>().Inlines();
+        const auto caption = g_treeNodes[row->second].Content().as<DevToolsXC::TextBlock>();
+        const auto inlines = caption.Inlines();
         // The caption ends with the preview between quotes: "\u201C", preview, "\u201D".
         const uint32_t n = inlines.Size();
         if (before.empty() || after.empty() || n < 3) { RefreshTreeFromApp(true); return; }
         inlines.GetAt(n - 2).as<DevToolsXDoc::Run>().Text(after);
-        // The row's accessible name ends with the same preview.
-        std::wstring name = DevToolsXA::AutomationProperties::GetName(button).c_str();
-        if (name.size() >= before.size() && name.compare(name.size() - before.size(), before.size(), before) == 0)
-            DevToolsXA::AutomationProperties::SetName(button, name.substr(0, name.size() - before.size()) + after);
-    } catch (...) {
+        g_treeLabel[row->second] = DevToolsTreeLayout::BuildTreeFilterLabel(
+            g_allTreeNodes[original].type, g_allTreeNodes[original].name,
+            after + L" " + g_allTreeNodes[original].searchText + L" " + g_allTreeNodes[original].sourceUri);
+        if (g_treeFilterQuery.empty()) SyncTreeStructure();
+        else ApplyTreeFilter(g_treeFilterQuery);
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"tree.preview failed hr=0x%08X; rebuilding captions", error.code().value);
         RefreshTreeFromApp(true);
     }
 }

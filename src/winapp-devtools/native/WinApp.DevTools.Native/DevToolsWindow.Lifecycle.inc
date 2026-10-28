@@ -13,8 +13,7 @@ static void ResetCommentsViewState()
     drop(&g_treeControlsUi);
     drop(&g_commentsLbl);
     drop(&g_commentsBadgeUi);
-    drop(&g_treeTabBtn);
-    drop(&g_commentsTabBtn);
+    drop(&g_inspectorViewSelector);
     ReleaseCommentRowUi();
     g_commentRows.clear();
     g_commentRowLive.clear();
@@ -290,25 +289,36 @@ if (g_route1WindowHidden) {
                 lbl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), reinterpret_cast<void**>(&g_commentsLbl));
                 lbl->Release();
             }
-            auto wireTab = [&](const wchar_t* name, void** hold, bool toComments) {
-                if (*hold) { reinterpret_cast<IUnknown*>(*hold)->Release(); *hold = nullptr; }
-                IInspectable* tab = findByName(name);
-                if (!tab) {
-                    DevToolsOverlayLog(L"route1.wire MISS: view tab '%s' not found -- the left pane's mode cannot "
-                                  L"be changed or reported", name);
-                    return;
+            if (g_inspectorViewSelector) {
+                reinterpret_cast<IUnknown*>(g_inspectorViewSelector)->Release();
+                g_inspectorViewSelector = nullptr;
+            }
+            if (IInspectable* selector = findByName(L"InspectorViewSelector")) {
+                if (SUCCEEDED(selector->QueryInterface(DevToolsIid<DevToolsXC::ISelectorBar>(), &g_inspectorViewSelector))) {
+                    auto* sink = new CommentsViewSink(); sink->Init();
+                    __int64 tok = 0;
+                    const HRESULT hr = DevToolsAbi<DevToolsXC::ISelectorBar>(g_inspectorViewSelector)->
+                        add_SelectionChanged(sink, DevToolsAbiTok(&tok));
+                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.comments view selector wiring failed hr=0x%08X", hr);
                 }
-                tab->QueryInterface(DevToolsIid<DevToolsXCP::IToggleButton>(), hold);
-                void* bb = nullptr;
-                if (SUCCEEDED(tab->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    auto* s = new CommentsViewSink(); s->Init(toComments);
-                    __int64 tok = 0; DevToolsAddClick(bb, s, &tok);
-                    reinterpret_cast<IUnknown*>(bb)->Release();
+                selector->Release();
+            }
+            if (IInspectable* element = findByName(L"PropViewSelector")) {
+                try {
+                    winrt::Windows::Foundation::IInspectable object{nullptr};
+                    winrt::copy_from_abi(object, element);
+                    const auto selector = object.as<DevToolsXC::ISelectorBar>();
+                    selector.SelectedItem(selector.Items().GetAt(ShowingSetView() ? 1 : 0));
+                    auto* sink = new OnlySetToggleSink(); sink->Init();
+                    __int64 tok = 0;
+                    const HRESULT hr = DevToolsAbi<DevToolsXC::ISelectorBar>(winrt::get_abi(selector))->
+                        add_SelectionChanged(sink, DevToolsAbiTok(&tok));
+                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.props view selector wiring failed hr=0x%08X", hr);
+                } catch (const winrt::hresult_error& error) {
+                    DevToolsOverlayLog(L"route1.props view selector initialization failed hr=0x%08X", error.code().value);
                 }
-                tab->Release();
-            };
-            wireTab(L"TreeTabBtn", &g_treeTabBtn, false);
-            wireTab(L"CommentsTabBtn", &g_commentsTabBtn, true);
+                element->Release();
+            }
             reinterpret_cast<IUnknown*>(feC)->Release();
         }
         g_commentsView = false;

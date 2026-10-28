@@ -27,7 +27,12 @@ static ComPtr<IUIAutomationElement> Find(IUIAutomation* automation, IUIAutomatio
     VariantClear(&value);
     Require(hr);
     ComPtr<IUIAutomationElement> element;
-    Require(root->FindFirst(TreeScope_Subtree, condition.Get(), &element));
+    const ULONGLONG deadline = GetTickCount64() + 3000;
+    do {
+        Require(root->FindFirst(TreeScope_Subtree, condition.Get(), &element));
+        if (element) break;
+        Sleep(20);
+    } while (GetTickCount64() < deadline);
     if (!element) throw std::runtime_error("Required inspector element was not found");
     return element;
 }
@@ -53,59 +58,86 @@ static void Check(bool condition, const char* message)
     }
 }
 
-static void CheckHiddenSelection(IUIAutomationElement* tree, IUIAutomationElement* row)
+static void CheckCaption(IUIAutomation* automation, IUIAutomationElement* row, const wchar_t* expected)
 {
-    BOOL offscreen = FALSE;
+    VARIANT value;
+    VariantInit(&value);
+    value.vt = VT_I4;
+    value.lVal = UIA_TextControlTypeId;
+    ComPtr<IUIAutomationCondition> condition;
+    Require(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, value, &condition));
+    std::wstring actual;
     const ULONGLONG deadline = GetTickCount64() + 3000;
     do {
-        Require(row->get_CurrentIsOffscreen(&offscreen));
-        if (offscreen) break;
+        ComPtr<IUIAutomationElement> caption;
+        Require(row->FindFirst(TreeScope_Descendants, condition.Get(), &caption));
+        if (caption) {
+            BSTR text = nullptr;
+            Require(caption->get_CurrentName(&text));
+            actual = text ? text : L"";
+            SysFreeString(text);
+        }
+        if (actual == expected) break;
         Sleep(20);
     } while (GetTickCount64() < deadline);
-    Check(offscreen != FALSE, "selected row is hidden");
-    ComPtr<IUIAutomationSelectionPattern> selection;
-    Require(tree->GetCurrentPatternAs(UIA_SelectionPatternId, IID_PPV_ARGS(&selection)));
+    Check(actual == expected, "rendered styled caption preserves the type, name and preview text");
+}
+
+static int IntegerProperty(IUIAutomationElement* element, PROPERTYID property)
+{
+    VARIANT value;
+    VariantInit(&value);
+    Require(element->GetCurrentPropertyValue(property, &value));
+    const int result = value.vt == VT_I4 ? value.lVal : -1;
+    VariantClear(&value);
+    return result;
+}
+
+static void CheckSelection(IUIAutomation* automation, IUIAutomationElement* tree, const wchar_t* expected)
+{
+    auto row = Find(automation, tree, expected);
+    // WinUI's tree returns no items from Selection.GetSelection. Its native items expose IsSelected.
+    VARIANT value;
+    VariantInit(&value);
+    value.vt = VT_BOOL;
+    value.boolVal = VARIANT_TRUE;
+    ComPtr<IUIAutomationCondition> condition;
+    Require(automation->CreatePropertyCondition(UIA_SelectionItemIsSelectedPropertyId, value, &condition));
     ComPtr<IUIAutomationElementArray> selected;
-    Require(selection->GetCurrentSelection(&selected));
+    Require(tree->FindAll(TreeScope_Descendants, condition.Get(), &selected));
     int count = 0;
     Require(selected->get_Length(&count));
-    Check(count == 1, "hidden selection remains in Selection.GetSelection");
+    Check(count == 1, "exactly one visible native tree item is selected");
     if (count == 1) {
         ComPtr<IUIAutomationElement> element;
         Require(selected->GetElement(0, &element));
-        Check(Id(element.Get()) == Id(row), "selection returns the retained hidden row");
+        Check(Id(element.Get()) == expected, "selection returns the inspected row after revealing it");
     }
     ComPtr<IUIAutomationSelectionItemPattern> item;
     Require(row->GetCurrentPatternAs(UIA_SelectionItemPatternId, IID_PPV_ARGS(&item)));
     BOOL isSelected = FALSE;
     Require(item->get_CurrentIsSelected(&isSelected));
-    Check(isSelected != FALSE, "hidden row reports IsSelected");
+    Check(isSelected != FALSE, "revealed row reports IsSelected");
     ComPtr<IUIAutomationElement> container;
     Require(item->get_CurrentSelectionContainer(&container));
-    Check(Id(container.Get()) == Id(tree), "hidden row reports its selection container");
-    Check(item->Select() == UIA_E_ELEMENTNOTAVAILABLE, "hidden row cannot be selected");
-    Check(item->AddToSelection() == UIA_E_ELEMENTNOTAVAILABLE, "hidden row cannot be added to selection");
-    Check(item->RemoveFromSelection() == UIA_E_ELEMENTNOTAVAILABLE, "hidden row cannot clear selection");
+    Check(Id(container.Get()) == Id(tree), "native tree item reports its selection container");
 }
 
-static void CheckParent(IUIAutomationTreeWalker* walker, IUIAutomationElement* row,
-                        const wchar_t* expected, const char* phase)
+static void CheckLevel(IUIAutomation* automation, IUIAutomationElement* tree, const wchar_t* id,
+                       int expected, const char* phase)
 {
-    ComPtr<IUIAutomationElement> parent;
-    std::wstring actual;
+    int actual = -1;
     const ULONGLONG deadline = GetTickCount64() + 3000;
     do {
-        parent.Reset();
-        Require(walker->GetParentElement(row, &parent));
-        actual = Id(parent.Get());
+        auto row = Find(automation, tree, id);
+        actual = IntegerProperty(row.Get(), UIA_LevelPropertyId);
         if (actual == expected) break;
         Sleep(20);
     } while (GetTickCount64() < deadline);
     ++checks;
     if (actual != expected) {
         ++failures;
-        std::wprintf(L"FAIL %hs: %ls parent is %ls, expected %ls\n",
-            phase, Id(row).c_str(), actual.c_str(), expected);
+        std::wprintf(L"FAIL %hs: %ls level is %d, expected %d\n", phase, id, actual, expected);
     }
 }
 
@@ -147,16 +179,17 @@ static int Run(HWND hwnd)
     auto tree = Find(automation.Get(), window.Get(), L"WinAppDevToolsTree");
     auto root = Find(automation.Get(), tree.Get(), L"TreeNode0");
     auto title = Find(automation.Get(), tree.Get(), L"TreeNode1");
-    auto branch = Find(automation.Get(), tree.Get(), L"TreeNode3");
-    auto child = Find(automation.Get(), tree.Get(), L"TreeNode6");
-    auto firstText = Find(automation.Get(), tree.Get(), L"TreeNode4");
-    auto secondText = Find(automation.Get(), tree.Get(), L"TreeNode5");
     auto filterElement = Find(automation.Get(), window.Get(), L"TreeFilter");
     ComPtr<IUIAutomationValuePattern> filter;
     Require(filterElement->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(&filter)));
 
-    CheckParent(walker.Get(), branch.Get(), L"TreeNode2", "initial branch");
-    CheckParent(walker.Get(), child.Get(), L"TreeNode3", "initial child");
+    CheckLevel(automation.Get(), tree.Get(), L"TreeNode0", 1, "initial root");
+    CheckLevel(automation.Get(), tree.Get(), L"TreeNode1", 2, "initial leaf");
+    CheckLevel(automation.Get(), tree.Get(), L"TreeNode3", 3, "initial branch");
+    CheckLevel(automation.Get(), tree.Get(), L"TreeNode6", 4, "initial child");
+    CheckCaption(automation.Get(), title.Get(), L"TitleBar  #AppTitleBar");
+    CheckCaption(automation.Get(), Find(automation.Get(), tree.Get(), L"TreeNode4").Get(),
+        L"TextBlock  \u201CWinUI Sample App\u201D");
     try {
         ComPtr<IUIAutomationSelectionItemPattern> titleSelection;
         Require(title->GetCurrentPatternAs(UIA_SelectionItemPatternId, IID_PPV_ARGS(&titleSelection)));
@@ -164,24 +197,44 @@ static int Run(HWND hwnd)
         ComPtr<IUIAutomationExpandCollapsePattern> rootExpansion;
         Require(root->GetCurrentPatternAs(UIA_ExpandCollapsePatternId, IID_PPV_ARGS(&rootExpansion)));
         Require(rootExpansion->Collapse());
-        CheckHiddenSelection(tree.Get(), title.Get());
+        CheckLevel(automation.Get(), tree.Get(), L"TreeNode0", 1, "collapsed root");
         Require(rootExpansion->Expand());
+        CheckSelection(automation.Get(), tree.Get(), L"TreeNode1");
         SetFilter(filter.Get(), L"StackPanel");
-        CheckHiddenSelection(tree.Get(), title.Get());
+        CheckLevel(automation.Get(), tree.Get(), L"TreeNode3", 1, "filter excludes selection");
         SetFilter(filter.Get(), L"");
-        // Keep the same row providers; never enumerate downward after changing the filter.
+        CheckSelection(automation.Get(), tree.Get(), L"TreeNode1");
+        // WinUI virtualizes item containers. Reacquire rows after filtering instead of retaining recycled visuals.
         for (int pass = 0; pass < 2; ++pass) {
             SetFilter(filter.Get(), L"StackPanel");
-            CheckParent(walker.Get(), branch.Get(), L"WinAppDevToolsTree", "filtered branch");
-            CheckParent(walker.Get(), child.Get(), L"TreeNode3", "filtered child");
+            CheckLevel(automation.Get(), tree.Get(), L"TreeNode3", 1, "filtered branch");
+            CheckLevel(automation.Get(), tree.Get(), L"TreeNode6", 2, "filtered child");
+            auto filteredBranch = Find(automation.Get(), tree.Get(), L"TreeNode3");
+            ComPtr<IUIAutomationExpandCollapsePattern> filteredExpansion;
+            Require(filteredBranch->GetCurrentPatternAs(UIA_ExpandCollapsePatternId, IID_PPV_ARGS(&filteredExpansion)));
+            Require(filteredExpansion->Collapse());
+            CheckLevel(automation.Get(), tree.Get(), L"TreeNode6", 2, "matching child survives collapse");
             SetFilter(filter.Get(), L"");
-            CheckParent(walker.Get(), branch.Get(), L"TreeNode2", "restored branch");
-            CheckParent(walker.Get(), child.Get(), L"TreeNode3", "restored child");
+            CheckLevel(automation.Get(), tree.Get(), L"TreeNode3", 3, "restored branch");
+            CheckLevel(automation.Get(), tree.Get(), L"TreeNode6", 4, "restored child");
+            CheckSelection(automation.Get(), tree.Get(), L"TreeNode1");
             SetFilter(filter.Get(), L"AppTitleBar");
-            CheckParent(walker.Get(), title.Get(), L"WinAppDevToolsTree", "filtered leaf");
+            CheckLevel(automation.Get(), tree.Get(), L"TreeNode1", 1, "filtered leaf");
+            CheckSelection(automation.Get(), tree.Get(), L"TreeNode1");
             SetFilter(filter.Get(), L"");
-            CheckParent(walker.Get(), title.Get(), L"TreeNode0", "restored leaf");
+            CheckLevel(automation.Get(), tree.Get(), L"TreeNode1", 2, "restored leaf");
+            CheckCaption(automation.Get(), Find(automation.Get(), tree.Get(), L"TreeNode1").Get(),
+                L"TitleBar  #AppTitleBar");
             SetFilter(filter.Get(), L"TextBlock");
+            auto firstText = Find(automation.Get(), tree.Get(), L"TreeNode4");
+            auto secondText = Find(automation.Get(), tree.Get(), L"TreeNode5");
+            CheckLevel(automation.Get(), tree.Get(), L"TreeNode4", 1, "filtered text root");
+            Check(IntegerProperty(firstText.Get(), UIA_PositionInSetPropertyId) == 1,
+                "first filtered text reports its native sibling position");
+            Check(IntegerProperty(secondText.Get(), UIA_PositionInSetPropertyId) == 2,
+                "second filtered text reports its native sibling position");
+            Check(IntegerProperty(firstText.Get(), UIA_SizeOfSetPropertyId) >= 3,
+                "filtered text reports its native sibling count");
             CheckNextSibling(walker.Get(), firstText.Get(), L"TreeNode5");
             CheckNextSibling(walker.Get(), secondText.Get(), L"TreeNode8");
             SetFilter(filter.Get(), L"");
@@ -190,7 +243,7 @@ static int Run(HWND hwnd)
         SetFilter(filter.Get(), L"");
         throw;
     }
-    std::printf("Tree parent navigation: checks=%u passed=%u failed=%u\n", checks, checks - failures, failures);
+    std::printf("Native tree hierarchy and selection: checks=%u passed=%u failed=%u\n", checks, checks - failures, failures);
     return failures ? 1 : 0;
 }
 

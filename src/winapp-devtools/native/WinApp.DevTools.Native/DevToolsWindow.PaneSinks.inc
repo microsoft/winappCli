@@ -375,24 +375,37 @@ struct SplitterKeySink : DevToolsSinkBase
     void Init() { InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
 };
 
-// Switch Set/Computed view and rebuild from Click. WinUI retains the sender; the sink's
-// generation guard makes stale callbacks inert.
-// Segment clicks set the target view rather than flip state, so re-clicking the active half is stable.
+// The platform selector owns exclusive selection; rebuilding is only needed when the view changes.
 struct OnlySetToggleSink : DevToolsSinkBase
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void* sender, void*)
     {
-        if (gen != g_route1Gen) return S_OK;
-        if (g_propView == view) {
+        if (gen != g_route1Gen || !sender) return S_OK;
+        try {
+            DevToolsXC::ISelectorBar selector{nullptr};
+            winrt::copy_from_abi(selector, sender);
+            const auto items = selector.Items();
+            if (items.Size() != 2) return S_OK;
+            const auto selected = selector.SelectedItem();
+            if (!selected) {
+                selector.SelectedItem(items.GetAt(ShowingSetView() ? 1 : 0));
+                return S_OK;
+            }
+            const auto view = selected == items.GetAt(1) ? DevToolsPropView::Set : DevToolsPropView::Computed;
+            if (g_propView == view) return S_OK;
+            g_propView = view;
             ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-            return S_OK;
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.props view selection failed hr=0x%08X", e.code().value);
+            SetStatusText(L"Could not update the property view. Refresh the inspector and retry.");
         }
-        g_propView = view;
-        ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
         return S_OK;
     }
-    void Init(DevToolsPropView v) { view = v; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    DevToolsPropView view = DevToolsPropView::Computed;
+    void Init()
+    {
+        InitSink(DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::SelectorBar,
+            DevToolsXC::SelectorBarSelectionChangedEventArgs>>(), g_route1Gen);
+    }
 };
 
 // Expand / collapse the props-pane ancestor breadcrumb. The breadcrumb is shown elided to one line
@@ -414,20 +427,25 @@ struct BreadcrumbSink : DevToolsSinkBase
     void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
 };
 
-// Disclosure sinks hold AddRef’d pane elements only for the current pane lifetime.
+// WinUI owns disclosure visibility and automation; callbacks only remember the user's choice.
 struct LayoutSectionSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen) return S_OK;
-        if (!g_layoutBody) return S_OK;
-        g_layoutSectionOpen = LayoutSectionOpen() ? 0 : 1;
-        DevToolsSettingsSetBool(L"InspectorSizeSpacingOpen", g_layoutSectionOpen == 1);
-        DevToolsPutVisibility(g_layoutBody, g_layoutSectionOpen == 1 ? 0 : 1);
-        SetToggleLabel(g_layoutBodyChev, g_layoutSectionOpen == 1 ? L"\uE70D" : L"\uE76C");
+        g_layoutSectionOpen = open ? 1 : 0;
+        DevToolsSettingsSetBool(L"InspectorSizeSpacingOpen", open);
         return S_OK;
     }
-    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
+    void Init(bool expanding)
+    {
+        open = expanding;
+        InitSink(expanding
+            ? DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderExpandingEventArgs>>()
+            : DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderCollapsedEventArgs>>(),
+            g_route1Gen);
+    }
+    bool open = false;
 };
 
 struct AxmlToggleSink : DevToolsSinkBase
@@ -435,14 +453,19 @@ struct AxmlToggleSink : DevToolsSinkBase
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen) return S_OK;
-        if (!g_axmlOne || !g_axmlFull) return S_OK;
-        g_axmlExpanded = !g_axmlExpanded;
-        DevToolsPutVisibility(g_axmlOne,  g_axmlExpanded ? 1 : 0);
-        DevToolsPutVisibility(g_axmlFull, g_axmlExpanded ? 0 : 1);
-        SetToggleLabel(g_axmlChev, g_axmlExpanded ? L"\uE70D" : L"\uE76C");
+        g_axmlExpanded = open;
+        if (g_axmlOne) DevToolsPutVisibility(g_axmlOne, open ? 1 : 0);
         return S_OK;
     }
-    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
+    void Init(bool expanding)
+    {
+        open = expanding;
+        InitSink(expanding
+            ? DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderExpandingEventArgs>>()
+            : DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderCollapsedEventArgs>>(),
+            g_route1Gen);
+    }
+    bool open = false;
 };
 
 // Short display for the source line: the leaf filename + ":<line>" from a ms-appx:///path/Foo.xaml URI (or a
