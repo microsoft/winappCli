@@ -55,7 +55,7 @@ interface TrialCheck {
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "");
 
 export function toTrialResult(input: TrialResultInput): Record<string, unknown> | null {
-  const arm = input.condition.replace(/\s*\[\d+\/\d+\]$/, "");
+  const arm = input.condition.replace(/\s*\[\d+\/\d+\]$/, "").replace(/@.+$/, "");
   if (!(ARMS as readonly string[]).includes(arm)) return null;
 
   const checks: TrialCheck[] = [

@@ -50,6 +50,11 @@ test("agent setups that are not one of the three arms are skipped", () => {
   assert.equal(toTrialResult({ ...base, condition: "published" }), null);
 });
 
+test("a ref suffix such as @main does not change the arm", () => {
+  assert.equal(toTrialResult({ ...base, condition: "cli-plus-plugins@main" })?.arm, "cli-plus-plugins");
+  assert.equal(toTrialResult({ ...base, condition: "published@main" }), null);
+});
+
 test("file name follows the benchmark-data layout", () => {
   const t = toTrialResult(base) as any;
   assert.equal(trialFileName(t), "calc__cli-plus-plugins__claude-sonnet-5.5__1.json");
