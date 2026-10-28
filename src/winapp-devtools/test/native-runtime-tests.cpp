@@ -297,7 +297,8 @@ static void CheckAutomationPeerRequests(const std::function<void(bool,const char
             L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
             L"\",\"params\":{\"handle\":\"" + handle + L"\"}}"));
     };
-    DevToolsTrust_InitializePosture(DevToolsAccess::Read);
+    check(DevToolsTrust_CurrentPosture() == DevToolsAccess::Read,
+        "uninitialized session defaults to read-only posture");
     const auto refused = call(L"Automation.createPeer", std::to_wstring(wire));
     check(refused.find(L"refused-unsafe") != std::wstring::npos && diagnostics.calls == 0,
         "read-only posture refuses peer creation before accessing the app object");
@@ -1393,8 +1394,8 @@ int wmain(int argc, wchar_t** argv)
     CheckEffectiveValues(check);
     CheckCensusFollowsReparentsAndParentlessRemoves(check);
     CheckTreeDeltasFollowSubscription(check);
-    CheckQueries(check);
     CheckAutomationPeerRequests(check);
+    CheckQueries(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
     auto call = [&](const wchar_t* method) {
         DevToolsRpcRequest request{};
