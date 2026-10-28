@@ -317,26 +317,40 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
-    public void GalleryCorpus_ServesNoUnbackedEventHandler()
+    public void GalleryCorpus_DisclosesEveryUndefinedEventHandler()
     {
-        // The index carries Gallery's XAML verbatim, including events wired to handlers
-        // that live in page code-behind it does not publish. Serving such an attribute
-        // hands the user markup that fails to compile with "handler not found", so
-        // GalleryProvider strips the ones the emitted C# doesn't declare. This asserts the
-        // corpus was baked with that step applied — the count guards above all pass without
-        // it, because nothing about them notices a sample that no longer builds.
+        // Handlers are kept, never deleted: the event is what a sample teaches. Whatever
+        // the rendered output says about them is what the reader sees, so assert on that
+        // rather than on the detector agreeing with itself: any bare-method handler left in
+        // the served XAML that the C# does not declare must appear in the "Undefined
+        // handlers:" line SearchEngine renders.
         var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
         ScenarioSanitizer.SanitizeAll(scenarios);
+        var engine = new SearchEngine(scenarios, corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
 
-        var unbacked = scenarios
-            .Where(s => !string.IsNullOrEmpty(s.Xaml)
-                        && ControlSnippetText.StripUnbackedEventHandlers(s.Xaml!, s.CSharp) != s.Xaml)
-            .Select(s => s.Id)
-            .ToList();
+        var undisclosed = new List<string>();
+        foreach (var s in scenarios.Where(s => !string.IsNullOrEmpty(s.Xaml)))
+        {
+            var (formatted, found, _) = engine.GetPattern($"{s.Source}-{s.Id}");
+            Assert.IsTrue(found, s.Id);
+            var disclosure = formatted.Split('\n').FirstOrDefault(l => l.StartsWith("**Undefined handlers:**", StringComparison.Ordinal)) ?? "";
+            foreach (Match m in Regex.Matches(s.Xaml!, @"\s([A-Z]\w*)=""([A-Za-z_]\w*)"""))
+            {
+                var method = m.Groups[2].Value;
+                var declared = !string.IsNullOrWhiteSpace(s.CSharp)
+                    && Regex.IsMatch(s.CSharp, $@"\b(?:void|Task)\s+{Regex.Escape(method)}\s*\(");
+                // A handler-named method (Foo_Bar or OnFoo) with no declaration must be disclosed.
+                if (!declared && Regex.IsMatch(method, @"^(?:On[A-Z]\w*|[A-Za-z]+_[A-Za-z]\w*)$")
+                    && !Regex.IsMatch(m.Groups[1].Value, @"^(?:Name|Uid|Key|Class)$")
+                    && !disclosure.Contains(method, StringComparison.Ordinal))
+                {
+                    undisclosed.Add($"{s.Id}:{method}");
+                }
+            }
+        }
 
-        Assert.AreEqual(0, unbacked.Count,
-            $"{unbacked.Count} Gallery samples wire a XAML event to a handler they don't define: " +
-            $"{string.Join(", ", unbacked.Take(10))}. Pasting one of these does not compile.");
+        Assert.AreEqual(0, undisclosed.Count,
+            $"{undisclosed.Count} Gallery handlers are served undefined without disclosure: {string.Join(", ", undisclosed.Take(10))}");
     }
 
     [TestMethod]
@@ -448,24 +462,40 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
-    public void ToolkitCorpus_ServesNoUnbackedEventHandler()
+    public void ToolkitCorpus_DisclosesEveryUndefinedEventHandler()
     {
-        // Toolkit samples wire XAML events to code-behind methods, and a scenario split out
-        // of a multi-instance sample carries no code-behind at all — so without the strip in
-        // ToolkitProvider.NormalizeForPaste those scenarios hand the user markup that fails
-        // to compile with "handler not found". The count guards above all pass without it.
+        // Handlers are kept, never deleted: the event is what a sample teaches. Whatever
+        // the rendered output says about them is what the reader sees, so assert on that
+        // rather than on the detector agreeing with itself: any bare-method handler left in
+        // the served XAML that the C# does not declare must appear in the "Undefined
+        // handlers:" line SearchEngine renders.
         var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
         ScenarioSanitizer.SanitizeAll(scenarios);
+        var engine = new SearchEngine(scenarios, corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
 
-        var unbacked = scenarios
-            .Where(s => !string.IsNullOrEmpty(s.Xaml)
-                        && ControlSnippetText.StripUnbackedEventHandlers(s.Xaml!, s.CSharp) != s.Xaml)
-            .Select(s => s.Id)
-            .ToList();
+        var undisclosed = new List<string>();
+        foreach (var s in scenarios.Where(s => !string.IsNullOrEmpty(s.Xaml)))
+        {
+            var (formatted, found, _) = engine.GetPattern($"{s.Source}-{s.Id}");
+            Assert.IsTrue(found, s.Id);
+            var disclosure = formatted.Split('\n').FirstOrDefault(l => l.StartsWith("**Undefined handlers:**", StringComparison.Ordinal)) ?? "";
+            foreach (Match m in Regex.Matches(s.Xaml!, @"\s([A-Z]\w*)=""([A-Za-z_]\w*)"""))
+            {
+                var method = m.Groups[2].Value;
+                var declared = !string.IsNullOrWhiteSpace(s.CSharp)
+                    && Regex.IsMatch(s.CSharp, $@"\b(?:void|Task)\s+{Regex.Escape(method)}\s*\(");
+                // A handler-named method (Foo_Bar or OnFoo) with no declaration must be disclosed.
+                if (!declared && Regex.IsMatch(method, @"^(?:On[A-Z]\w*|[A-Za-z]+_[A-Za-z]\w*)$")
+                    && !Regex.IsMatch(m.Groups[1].Value, @"^(?:Name|Uid|Key|Class)$")
+                    && !disclosure.Contains(method, StringComparison.Ordinal))
+                {
+                    undisclosed.Add($"{s.Id}:{method}");
+                }
+            }
+        }
 
-        Assert.AreEqual(0, unbacked.Count,
-            $"{unbacked.Count} Toolkit samples wire a XAML event to a handler they don't define: " +
-            $"{string.Join(", ", unbacked.Take(10))}. Pasting one of these does not compile.");
+        Assert.AreEqual(0, undisclosed.Count,
+            $"{undisclosed.Count} Toolkit handlers are served undefined without disclosure: {string.Join(", ", undisclosed.Take(10))}");
     }
 
     [TestMethod]

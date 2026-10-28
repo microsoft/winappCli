@@ -17,52 +17,58 @@ using System.Text.RegularExpressions;
 internal static partial class ControlSnippetText
 {
     /// <summary>
-    /// Event-handler attributes whose value is a bare method name (e.g.
-    /// <c>Click="OnCardClicked"</c>) — as opposed to a command binding
-    /// (<c>Click="{x:Bind Cmd}"</c>), which starts with '{' and is never matched.
-    /// Group 2 is the referenced method name. The list covers the routed/typed
-    /// events that appear across the Gallery + Toolkit corpora.
+    /// Attributes shaped like an event hookup with a bare method name
+    /// (<c>Click="OnCardClicked"</c>), as opposed to a binding (<c>{x:Bind Cmd}</c>), an
+    /// attached property (<c>Grid.Row</c>) or an <c>x:</c> directive. Group 1 is the event,
+    /// group 2 the method. Event names are an open set, so this matches on shape (WinUI
+    /// names events as verbs or past/progressive forms) rather than a list. It is only
+    /// used to annotate output, so a stray match costs a reader one sentence.
     /// </summary>
     [GeneratedRegex(
-        @"\s+(?:Click|Tapped|DoubleTapped|RightTapped|Holding|Checked|Unchecked|Indeterminate|Toggled|" +
-        @"SelectionChanged|TextChanged|ValueChanged|Loaded|Unloaded|Loading|SizeChanged|" +
-        @"GotFocus|LostFocus|PointerEntered|PointerExited|PointerPressed|PointerReleased|PointerMoved|" +
-        @"ItemClick|ItemInvoked|Invoked|Expanding|Collapsed|Opened|Closed|Closing|QuerySubmitted|" +
-        @"SuggestionChosen|TextSubmitted|DragItemsStarting|DropCompleted|ContextRequested|Completed)" +
-        @"=""([A-Za-z_]\w*)""")]
+        @"\s(?=[A-Z])((?:[A-Za-z]*?)(?:Click|Focus|Drop|DragOver|Requested|Indeterminate|ed|ing))=""([A-Za-z_]\w*)""")]
     private static partial Regex EventHandlerAttrRegex();
 
     /// <summary>
-    /// Remove event-handler attributes from <paramref name="xaml"/> whose referenced
-    /// method is NOT defined in the emitted <paramref name="csharp"/> — so a pasted
-    /// snippet never wires an event to a handler that isn't there (a XAML-compiler
-    /// "handler not found" error). Handlers whose method IS present in the C# are kept
-    /// (e.g. TabView's Add/Close handlers), as are command bindings (<c>{x:Bind}</c>).
-    /// When <paramref name="csharp"/> is null/empty, every bare-method handler is
-    /// stripped. This is the corpus-boundary mitigation for the upstream "handler lives
-    /// in shared page code-behind we don't fetch" gap (see issues #703 / #704).
+    /// Event hookups in <paramref name="xaml"/> whose handler method the emitted
+    /// <paramref name="csharp"/> does not declare, as <c>Event="Method"</c> strings. The
+    /// attribute is left in the markup — it is what the sample teaches — so callers
+    /// disclose these instead: the reader supplies the method.
     /// </summary>
-    public static string StripUnbackedEventHandlers(string xaml, string? csharp)
+    public static string[] FindUndefinedEventHandlers(string? xaml, string? csharp)
     {
         if (string.IsNullOrEmpty(xaml))
         {
-            return xaml;
+            return [];
         }
 
-        return EventHandlerAttrRegex().Replace(xaml, m =>
+        var found = new List<string>();
+        foreach (Match m in EventHandlerAttrRegex().Matches(xaml))
         {
-            var method = m.Groups[1].Value;
-            // Keep the handler only if the emitted C# actually declares the method
-            // (a `void`/`Task` declaration by that name — not merely a call to it).
+            var method = m.Groups[2].Value;
+            // Event names are matched on shape, so also require the value to look like a method
+            // name (Control_Event, OnEvent, or one that repeats the event) to keep
+            // TextWrapping="Wrap" and the like out of the annotation.
+            var eventName = m.Groups[1].Value;
+            var looksLikeMethod = method.Contains('_')
+                || (method.StartsWith("On", StringComparison.Ordinal) && method.Length > 2 && char.IsUpper(method[2]))
+                || method.Contains(eventName, StringComparison.Ordinal);
+            if (!looksLikeMethod)
+            {
+                continue;
+            }
             if (!string.IsNullOrWhiteSpace(csharp) &&
                 Regex.IsMatch(csharp, $@"\b(?:void|Task)\s+{Regex.Escape(method)}\s*\("))
             {
-                return m.Value;
+                continue;
             }
-            return "";
-        });
+            var entry = $"{m.Groups[1].Value}=\"{method}\"";
+            if (!found.Contains(entry))
+            {
+                found.Add(entry);
+            }
+        }
+        return [.. found];
     }
-
     /// <summary>Matches a single XML start/end/self-closing tag: group 1 = leading
     /// <c>/</c> (end tag), group 2 = (possibly prefixed) element name, group 4 =
     /// trailing <c>/</c> (self-closing).</summary>

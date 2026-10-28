@@ -974,6 +974,11 @@ internal sealed class SearchEngine
         if (imports.Count > 0)
             sb.AppendLine($"**Namespace:** {string.Join(" · ", imports.Select(u => $"`{u}`"))}");
 
+        var undefinedHandlers = ControlSnippetText.FindUndefinedEventHandlers(s.Xaml, s.CSharp);
+        if (undefinedHandlers.Length > 0)
+        {
+            sb.AppendLine($"**Undefined handlers:** {string.Join(" · ", undefinedHandlers.Select(h => $"`{h}`"))} — wired in the XAML but not defined here; supply each method in your code-behind");
+        }
         if (s.Xaml != null)
         {
             sb.AppendLine("**XAML:**");

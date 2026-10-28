@@ -202,6 +202,44 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    public void GetPattern_UndefinedHandler_KeptInXamlAndDisclosed()
+    {
+        var scenario = Scn("gallery", "scrollview", "ScrollView", "scrollview-3", "Custom animation");
+        scenario.Xaml = "<ScrollView ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\" Background=\"Red\" />";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("gallery-scrollview-3");
+
+        Assert.IsTrue(found);
+        StringAssert.Contains(formatted, "ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"", "the event is the point of the sample");
+        StringAssert.Contains(formatted, "**Undefined handlers:** `ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"`");
+    }
+
+    [TestMethod]
+    public void GetPattern_HandlerDeclaredInCode_NotDisclosed()
+    {
+        var scenario = Scn("gallery", "tabview", "TabView", "tabview-9", "Add tab");
+        scenario.Xaml = "<TabView AddTabButtonClick=\"TabView_AddTabButtonClick\" />";
+        scenario.CSharp = "private void TabView_AddTabButtonClick(TabView sender, object args) { }";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, _, _) = engine.GetPattern("gallery-tabview-9");
+
+        Assert.IsFalse(formatted.Contains("**Undefined handlers:**"));
+    }
+
+    [TestMethod]
+    public void GetPattern_BindingsAndPlainAttributes_NotDisclosed()
+    {
+        var scenario = Scn("gallery", "button", "Button", "button-9", "Bound");
+        scenario.Xaml = "<Button Click=\"{x:Bind Run}\" Orientation=\"Horizontal\" Grid.Row=\"1\" x:Name=\"Animated_ScrollViewer\" />";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, _, _) = engine.GetPattern("gallery-button-9");
+
+        Assert.IsFalse(formatted.Contains("**Undefined handlers:**"));
+    }
+    [TestMethod]
     public void GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine()
     {
         // Per-control reactor namespaces (Microsoft.UI.Reactor.Docking and friends) are
