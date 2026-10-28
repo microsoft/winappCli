@@ -20,7 +20,7 @@ public class DevToolsLogsCommandTests
 
     private static async Task<(int Exit, string Output)> Run(FakeDevToolsProtocolAgent agent, params string[] args)
     {
-        var console = new TestConsole();
+        using var console = new TestConsole();
         console.Profile.Width = 300;
         var command = new DevToolsLogsCommand();
         command.Action = new DevToolsLogsCommand.Handler(agent.Resolver(), console) { Interval = TimeSpan.FromMilliseconds(10) };

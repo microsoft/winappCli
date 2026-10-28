@@ -265,7 +265,7 @@ public class DevToolsCSharpCommentsTests
     public async Task LiveCapture_ReactorElement_AnchorsToItsCallSite(bool exact, bool confirm)
     {
         using var agent = ReactorAgent(exact);
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var store = new CommentStore();
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
             new CommentTestTargetResolver(agent.Pid), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
@@ -306,7 +306,7 @@ public class DevToolsCSharpCommentsTests
                 {"activeSurface":"Counter","surfaces":[
                   {"name":"Counter","rootHandle":"7","window":"5","active":true,"contentWidth":1,"contentHeight":1,"screenRect":{"x":0,"y":0,"w":1,"h":1},"isIsland":false,"hostVisible":true,"derived":false}]}
                 """);
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var store = new CommentStore();
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
             new CommentTestTargetResolver(agent.Pid), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
@@ -328,7 +328,7 @@ public class DevToolsCSharpCommentsTests
         var (exit, _) = Add("--id", "cmt_keep", "--text", "keep me", "--kind", "visual", "--file", "App.cs", "--line", "9");
         Assert.AreEqual(0, exit);
         using var agent = ReactorAgent(exact: true);
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var store = new CommentStore();
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
             new CommentTestTargetResolver(agent.Pid), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
@@ -345,7 +345,7 @@ public class DevToolsCSharpCommentsTests
     [TestMethod]
     public void Recapture_UnknownId_Refuses()
     {
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var store = new CommentStore();
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
             new CommentTestTargetResolver(), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
@@ -366,7 +366,7 @@ public class DevToolsCSharpCommentsTests
                  "files":["C:\\src\\App.cs"],"unmapped":0,"truncated":false,"complete":true}
                 """)
             .Answer("VisualTree.enumerate", """{"nodes":[]}""");
-        var console = new TestConsole();
+        using var console = new TestConsole();
         console.Profile.Width = 200;
         var store = new CommentStore();
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
@@ -455,7 +455,7 @@ public class DevToolsCSharpCommentsTests
     {
         var (app, libFile) = LibraryLayout();
         using var agent = ReactorAgent(exact: true, file: libFile, sourceRoot: app);
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var store = new CommentStore();
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
             new CommentTestTargetResolver(agent.Pid), new FixedCwd(app), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
@@ -512,7 +512,7 @@ public class DevToolsCSharpCommentsTests
     public async Task LiveCapture_AnElementWithNoSourceOnDisk_SaysItIsNotLinked(bool json)
     {
         using var agent = ReactorAgent(exact: true, file: "Generated/Wrapper.g.cs", onDisk: false);
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var store = new CommentStore();
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
             new CommentTestTargetResolver(agent.Pid), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
@@ -535,7 +535,7 @@ public class DevToolsCSharpCommentsTests
 
     private (int Exit, string Output) Add(params string[] args)
     {
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var store = new CommentStore();
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new NoPush(),
             new CommentTestTargetResolver(), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);

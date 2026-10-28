@@ -27,7 +27,7 @@ public class ReactorStateCommandTests
 
     private static async Task<(int Exit, string Output)> Run(DevToolsLiveCommand command, FakeDevToolsProtocolAgent agent, string[] args)
     {
-        var console = new TestConsole();
+        using var console = new TestConsole();
         console.Profile.Width = 300;
         command.Action = command switch
         {

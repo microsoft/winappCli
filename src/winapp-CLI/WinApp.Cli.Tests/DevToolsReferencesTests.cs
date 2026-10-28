@@ -18,8 +18,7 @@ public class DevToolsReferencesTests
              "incomingTruncated":true}
             """);
 
-        Assert.IsNotNull(parsed);
-        var (edges, truncated) = parsed.Value;
+        var (edges, truncated) = parsed ?? throw new AssertFailedException("The references reply did not parse.");
         Assert.IsTrue(truncated);
         Assert.HasCount(2, edges);
         Assert.AreEqual(new DevToolsReference("LabeledBy", false, "42", "TextBlock Text=\"Name\"", false), edges[0]);
@@ -37,8 +36,7 @@ public class DevToolsReferencesTests
               {"kind":"LabeledBy","direction":"out","element":"AutomationId \"Title\"","pending":true,"automationId":"Title","cycle":false}]}
             """);
 
-        Assert.IsNotNull(parsed);
-        var edges = parsed.Value.Edges;
+        var edges = (parsed ?? throw new AssertFailedException("The references reply did not parse.")).Edges;
         Assert.IsTrue(edges.All(edge => edge.Pending && edge.Handle is null));
         Assert.AreEqual("XYFocusRight → Button (not shown)", edges[0].Line);
         Assert.AreEqual("LabeledBy → AutomationId \"Title\" (not shown)", edges[1].Line);

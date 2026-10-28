@@ -407,7 +407,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
     {
         var anchor = comment.Anchor;
         var file = anchor.SourceFile!;
-        if (anchor.Line is not > 0 and var line)
+        if (anchor.Line is not int line || line <= 0)
         {
             return $"A comment on {file} needs --line: the line of the Reactor call site (for example --file {file} --line 35).";
         }
@@ -420,13 +420,13 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             var root = Path.GetFullPath(sourceRoot);
             var relative = Path.GetRelativePath(root, path);
             var lines = CSharpSourceText.ReadLines(path, CSharpAnchorResolver.SourceBoundary(root));
-            if (anchor.Line > lines.Length)
+            if (line > lines.Length)
             {
-                return $"{relative} has {lines.Length} lines; there is no line {anchor.Line}.";
+                return $"{relative} has {lines.Length} lines; there is no line {line}.";
             }
             var masked = CSharpSourceText.Mask(lines);
-            var sites = CSharpSourceText.CallSites(masked[anchor.Line.Value - 1]);
-            var at = $"{relative}:{anchor.Line}";
+            var sites = CSharpSourceText.CallSites(masked[line - 1]);
+            var at = $"{relative}:{line}";
             if (sites.Count == 0)
             {
                 return $"{at} has no Reactor call site (a factory call such as Button(...)). Nothing was saved.";
@@ -449,18 +449,18 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             {
                 site = sites[0];
             }
-            var text = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(path))[anchor.Line.Value - 1];
+            var text = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(path))[line - 1];
             anchor.CSharp = new CommentCSharpAnchor
             {
                 ProjectRoot = root,
                 SourceFile = relative,
-                Line = anchor.Line.Value,
+                Line = line,
                 Column = site.Column,
                 LineHash = CSharpSourceText.LineHash(text),
                 LineText = CSharpSourceText.StoredText(text),
                 Factory = site.Name,
                 Element = site.Name,
-                Component = CSharpSourceText.EnclosingType(masked, anchor.Line.Value),
+                Component = CSharpSourceText.EnclosingType(masked, line),
                 Exact = true,
             };
             anchor.SourceFile = relative;

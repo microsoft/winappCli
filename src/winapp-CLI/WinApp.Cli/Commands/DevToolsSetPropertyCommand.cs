@@ -181,10 +181,6 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     "Pass --type <XamlType> to attempt the write anyway."));
             }
 
-            // A property the element's Reactor C# sets is written like any other, but Reactor reapplies its own value.
-            var reactor = ReactorElementInfo.Read(tap, handle, cancellationToken);
-            var reactorOwned = reactor?.OwnerOf(beforeRow.Name) is not null;
-
             var writeResponse = tap.RequestSetProperty(handle, beforeRow.Name, writeType, value, cancellationToken);
             if (!writeResponse.Ok)
             {
@@ -195,6 +191,10 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                 }
                 return Task.FromResult(Fail(json, target.Pid, error));
             }
+
+            // A property the element's Reactor C# sets is written like any other, but Reactor reapplies its own value.
+            var reactor = ReactorElementInfo.Read(tap, handle, cancellationToken);
+            var reactorOwned = reactor?.OwnerOf(beforeRow.Name) is not null;
 
             var afterResponse = tap.RequestProperties(handle, cancellationToken);
             var afterRow = afterResponse.Ok
