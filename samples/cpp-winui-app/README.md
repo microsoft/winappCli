@@ -10,6 +10,10 @@ app's package identity.
   and **C++ WinUI app development tools**
 - The Windows SDK (installed with the workload)
 
+For ARM64 builds, install the **MSVC ARM64/ARM64EC build tools** and C++ WinUI tools
+for ARM64. If winapp reports missing WinUI tools for `arm64`, add or repair them in the
+Visual Studio Installer. An x64-only WinUI installation cannot build this sample for ARM64.
+
 ## Building and Running
 
 Point `winapp run` at the project (or this folder). It restores the NuGet packages, builds with

@@ -40,7 +40,7 @@ internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildSer
         foreach (var (path, _) in installs)
         {
             var msbuild = Path.Join(path, "MSBuild", "Current", "Bin", "MSBuild.exe");
-            if (File.Exists(msbuild) && (!requiresWindowsStoreAppType || SupportsWindowsStoreAppType(path)))
+            if (File.Exists(msbuild) && (!requiresWindowsStoreAppType || SupportsWindowsStoreAppType(path, architecture)))
             {
                 return msbuild;
             }
@@ -48,7 +48,7 @@ internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildSer
 
         if (installs.Count > 0)
         {
-            throw new ProjectRunException(BuildMissingWinUiToolsMessage(installs[0].DisplayName));
+            throw new ProjectRunException(BuildMissingWinUiToolsMessage(installs[0].DisplayName, architecture));
         }
 
         // Name the installed product when there is one, so the user fixes that install instead of adding another.
@@ -62,17 +62,25 @@ internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildSer
 
     /// <summary>
     /// True when the install can build a "Windows Store" application type project (WinUI 3 / UWP C++): the
-    /// C++ MSBuild targets include that application type. Without it MSBuild fails with "The BaseOutputPath/
+    /// C++ MSBuild targets include that application type for the requested architecture. Without it MSBuild fails with "The BaseOutputPath/
     /// OutputPath property is not set".
     /// </summary>
-    internal static bool SupportsWindowsStoreAppType(string installationPath)
+    internal static bool SupportsWindowsStoreAppType(string installationPath, string architecture)
     {
         var vcTargets = Path.Join(installationPath, "MSBuild", "Microsoft", "VC");
         try
         {
             return Directory.Exists(vcTargets)
                 && Directory.EnumerateDirectories(vcTargets, "v*")
-                    .Any(toolset => Directory.Exists(Path.Join(toolset, "Application Type", "Windows Store")));
+                    .Any(toolset =>
+                    {
+                        var windowsStore = Path.Join(toolset, "Application Type", "Windows Store", "10.0");
+                        var platform = Path.Join(windowsStore, "Platforms", ProjectRunService.ToCppPlatform(architecture));
+                        return File.Exists(Path.Join(windowsStore, "Default.props"))
+                            && File.Exists(Path.Join(platform, "Platform.Default.props"))
+                            && File.Exists(Path.Join(platform, "Platform.props"))
+                            && File.Exists(Path.Join(platform, "Platform.targets"));
+                    });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -150,9 +158,11 @@ internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildSer
             $"  - Or install Build Tools for Visual Studio: {winget}";
     }
 
-    internal static string BuildMissingWinUiToolsMessage(string installedProduct) =>
-        $"This is a WinUI 3 C++ project (ApplicationType 'Windows Store'), which needs the C++ WinUI app development tools, but {installedProduct} does not have them." + Environment.NewLine +
-        $"  - In the Visual Studio Installer, modify {installedProduct} to add \"C++ WinUI app development tools\" (in Build Tools: \"C++ Universal Windows Platform build tools\")." + Environment.NewLine +
+    internal static string BuildMissingWinUiToolsMessage(string installedProduct, string architecture) =>
+        $"This is a WinUI 3 C++ project (ApplicationType 'Windows Store'), which needs the C++ WinUI app development tools for {architecture}, but {installedProduct} does not have them for this architecture." + Environment.NewLine +
+        $"  - In the Visual Studio Installer, modify {installedProduct} to add or repair \"C++ WinUI app development tools\" (in Build Tools: \"C++ Universal Windows Platform build tools\") for {architecture}." + Environment.NewLine +
         "  - Or install Build Tools for Visual Studio: winget install Microsoft.VisualStudio.BuildTools --override \"--wait --passive " +
-        "--add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.ComponentGroup.UWP.VC.BuildTools --includeRecommended\"";
+        "--add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.ComponentGroup.UWP.VC.BuildTools " +
+        (string.Equals(architecture, "arm64", StringComparison.OrdinalIgnoreCase) ? "--add Microsoft.VisualStudio.Component.VC.Tools.ARM64 " : string.Empty) +
+        "--includeRecommended\"";
 }
