@@ -81,7 +81,29 @@ There is no single score. Each check is `required` or an `improvement`:
 | `apps` | `<trial dir>\trial-result.json` | `release` comes from the `BENCH_RELEASE` environment variable (default `dev`). `set` and `required_requirements` (1-based numbers) come from the scenario config. Setups other than the three arms, such as `published`, write no file |
 
 Runs that did not reach a checked result (harness error, no usage data) write no file.
-`apps` does not record skill usage yet, so it omits `skills`.
+`skills` and `winappCommands` hold how many times each skill was loaded and each `winapp`
+command was run in the trial; they are omitted when the harness could not read them.
+
+## Publishing a release
+
+Everything above stays on the machine that ran it. Only one deliberate step publishes:
+the release owner runs the benchmark on the chosen release commit, then:
+
+```powershell
+pwsh benchmarks\publish-results.ps1 -Path .\<run folder>             # preview: stages files, touches nothing else
+pwsh benchmarks\publish-results.ps1 -Path .\<run folder> -OpenPr     # opens a PR into benchmark-data
+```
+
+The script finds the trial files under `-Path`, names them as above, validates them and
+writes `<release>\index.json`: one row per trial and one summary per
+scenario, arm and model (pass count, improvements met, median credits and time, skill and
+command counts), so a reader loads one file instead of hundreds.
+
+`-OpenPr` refuses unless the release is `vX.Y.Z` (not `dev`), every file was measured on
+the same commit, the working tree is clean and checked out at that commit, and the release
+is not already on `benchmark-data`. It pushes `results/<release>` and opens a PR whose base
+is `benchmark-data`, not `main`. A second person reviews the numbers; merging is the publish.
+Protect `benchmark-data` so that a merged PR is the only way to change it.
 
 ## Rules the validator enforces
 

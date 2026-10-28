@@ -15,7 +15,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$files = @(Get-ChildItem -LiteralPath $Path -Filter *.json -File -Recurse)
+$files = @(Get-ChildItem -LiteralPath $Path -Filter *.json -File -Recurse | Where-Object Name -ne 'index.json')
 if (-not $files) { throw "No .json files under $Path" }
 
 $schemaText = Get-Content -LiteralPath $Schema -Raw
