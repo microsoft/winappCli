@@ -75,7 +75,21 @@
         "required": ["name"],
         "properties": {
           "name": { "type": "string", "minLength": 1 },
-          "atMs": { "description": "Milliseconds after the agent started.", "type": "integer", "minimum": 0 }
+          "atMs": { "description": "Milliseconds after the agent started.", "type": "integer", "minimum": 0 },
+          "count": { "description": "How many times the skill was loaded in this trial.", "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "winappCommands": {
+      "description": "winapp commands the agent ran, with how many times each (for example `package`, `cert generate`). Omit when the harness cannot capture it.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "count"],
+        "properties": {
+          "command": { "type": "string", "minLength": 1 },
+          "count": { "type": "integer", "minimum": 1 }
         }
       }
     },

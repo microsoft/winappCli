@@ -288,8 +288,8 @@ function Compare-PreflightSkills {
 }
 
 function Get-WinappCommands {
-    # Unique 'winapp <command> [<subcommand>]' invocations named in shell commands or answer text.
-    param([AllowEmptyCollection()][AllowNull()][string[]]$Text)
+    # Unique 'winapp <command> [<subcommand>]' invocations named in shell commands or answer text (-All keeps repeats).
+    param([AllowEmptyCollection()][AllowNull()][string[]]$Text, [switch]$All)
     $groups = 'cert', 'config', 'devtools', 'manifest', 'ui', 'find-api', 'target', 'store', 'node', 'perf'
     # Groups whose second token can be free text record it only when it is a real subcommand:
     # `find-api <query>` is a search. `node` comes from the npm package (`npx winapp node ...`).
@@ -308,7 +308,7 @@ function Get-WinappCommands {
             $cmd = $m.Groups[1].Value
             if ($cmd -notin $known) { continue }
             if ($cmd -in $groups -and $m.Groups[2].Success -and (-not $verbs.ContainsKey($cmd) -or $m.Groups[2].Value -in $verbs[$cmd])) { $cmd += " $($m.Groups[2].Value)" }
-            if (-not $found.Contains($cmd)) { $found.Add($cmd) }
+            if ($All -or -not $found.Contains($cmd)) { $found.Add($cmd) }
         }
     }
     return $found.ToArray()

@@ -50,6 +50,7 @@ import {
 } from "./quality-checks.js";
 import { computeScoreV2, formatBreakdown, type ScoreBreakdown } from "./scoring.js";
 import { toTrialResult } from "./trial-result.js";
+import { summarizeActivity } from "./activity.js";
 import { pinRef, readPin } from "./upstream-pins.js";
 import { findAncestorProjectFiles, hideToolsFromPath } from "./trial-env.js";
 import {
@@ -4745,6 +4746,7 @@ function saveResults(
       designScore: valData?.scoreBreakdown?.design ?? null,
       judgeModel: (entry as any)._judgeModel,
       usage: exact,
+      activity: summarizeActivity(join(trialDir, "session-logs-dir", "build-events.jsonl")),
     });
     if (trial) writeTextAtomic(join(trialDir, "trial-result.json"), JSON.stringify(trial, null, 2));
   }

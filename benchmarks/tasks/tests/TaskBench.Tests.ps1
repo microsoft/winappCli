@@ -284,6 +284,20 @@ Describe 'ConvertTo-TrialResult' {
         $t.usage.tokens.cacheRead | Should -Be 7
         $t.skills[0].name | Should -Be 'winapp-msix'
     }
+    It 'records how often each skill was loaded and each winapp command was run' {
+        $r = New-Record
+        $r | Add-Member skillLoadCounts ([ordered]@{ 'winapp-msix' = 2 })
+        $r | Add-Member winappCommandCounts ([ordered]@{ 'package' = 3; 'cert generate' = 1 })
+        $t = Convert $r
+        $t.skills[0].count | Should -Be 2
+        ($t.winappCommands | Where-Object command -eq 'package').count | Should -Be 3
+        ($t.winappCommands | Where-Object command -eq 'cert generate').count | Should -Be 1
+        $dir = Join-Path $TestDrive 'counts\v0.7.1'
+        New-Item -ItemType Directory $dir -Force | Out-Null
+        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-plugins__claude-sonnet-5.5__2.json')
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'counts') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
     It 'does not count a partial result as a pass' {
         (Convert (New-Record 'partial')).passed | Should -BeFalse
     }
