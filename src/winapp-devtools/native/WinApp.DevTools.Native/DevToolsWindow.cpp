@@ -20,6 +20,7 @@
 #include <winstring.h>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <cwctype>
 #include <climits>
 #include "DevToolsWindowXaml.g.h"

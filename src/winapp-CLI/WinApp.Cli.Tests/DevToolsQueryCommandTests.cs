@@ -126,6 +126,134 @@ public class DevToolsQueryCommandTests
     }
 
     [TestMethod]
+    [DataRow("{ThemeResource AccentBrush}", false)]
+    [DataRow("{ThemeResource AccentBrush}", true)]
+    [DataRow("{StaticResource AccentBrush}", false)]
+    [DataRow("{StaticResource AccentBrush}", true)]
+    public async Task Set_ResourceConversionFailure_ExplainsLiteralAlternativeAndPreservesStatus(string requested, bool json)
+    {
+        var failure = $"invalid-value|Cannot set property 'Background' to '{requested}' (type SolidColorBrush): conversion to the requested XAML type failed (0x8000FFFF)";
+        var field = """{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","valueState":"value","bindingState":"unknown"}""";
+        var reply = Result(ok: false, error: failure).Replace("\"status\":\"read\"",
+            "\"status\":\"indeterminate\",\"before\":" + field + ",\"after\":" + field, StringComparison.Ordinal);
+        using var agent = new FakeDevToolsProtocolAgent().Answer("Property.setQuery", reply);
+        var args = new List<string> { "--of-type", "Button", "--property", "Background", "--value", requested };
+        if (json) { args.Add("--json"); }
+
+        var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+        Assert.AreEqual(1, exit);
+        var message = output;
+        if (json)
+        {
+            using var document = JsonDocument.Parse(output);
+            var result = document.RootElement;
+            Assert.IsFalse(result.GetProperty("ok").GetBoolean());
+            Assert.AreEqual("indeterminate", result.GetProperty("status").GetString());
+            Assert.AreEqual("#FF808080", result.GetProperty("before").GetProperty("value").GetString());
+            Assert.AreEqual("#FF808080", result.GetProperty("after").GetProperty("value").GetString());
+            Assert.AreEqual(1, result.GetProperty("matchCount").GetInt32());
+            message = result.GetProperty("error").GetString()!;
+            StringAssert.StartsWith(message, "invalid-value|devtools set-property does not support");
+        }
+        else
+        {
+            StringAssert.Contains(output, "Write status: indeterminate");
+            StringAssert.Contains(output, "Error: devtools set-property does not support");
+            Assert.IsFalse(output.Contains("invalid-value|", StringComparison.Ordinal), output);
+        }
+        StringAssert.Contains(message, "does not support {ThemeResource key} or {StaticResource key}");
+        StringAssert.Contains(message, "Use a literal value instead");
+        StringAssert.Contains(message, "#FF0067C0");
+        StringAssert.Contains(message, "XAML and rebuild");
+        Assert.IsFalse(message.Contains("0x8000FFFF", StringComparison.Ordinal), message);
+        Assert.AreEqual("Property.setQuery", agent.Received.Single());
+    }
+
+    [TestMethod]
+    [DataRow("{ThemeResource AccentBrush}", false)]
+    [DataRow("{ThemeResource AccentBrush}", true)]
+    [DataRow("{StaticResource AccentBrush}", false)]
+    [DataRow("{StaticResource AccentBrush}", true)]
+    public async Task Set_ResourceConversionRpcFailure_ExplainsLiteralAlternative(string requested, bool json)
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Error("Property.setQuery", -32000, "invalid-value",
+            "conversion to the requested XAML type failed (0x8000FFFF)");
+        var args = new List<string> { "--of-type", "Button", "--property", "Background", "--value", requested };
+        if (json) { args.Add("--json"); }
+
+        var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(output, "does not support {ThemeResource key} or {StaticResource key}");
+        Assert.IsFalse(output.Contains("0x8000FFFF", StringComparison.Ordinal), output);
+        if (json)
+        {
+            using var result = JsonDocument.Parse(output);
+            Assert.IsFalse(result.RootElement.GetProperty("ok").GetBoolean());
+            Assert.AreEqual("invalid-value", result.RootElement.GetProperty("error").GetProperty("token").GetString());
+        }
+        Assert.AreEqual("Property.setQuery", agent.Received.Single());
+    }
+
+    [TestMethod]
+    [DataRow("{ThemeResource AccentBrush}", "Text", "String")]
+    [DataRow("{StaticResource AccentBrush}", "Text", "System.String")]
+    [DataRow("#FF0067C0", "Background", "SolidColorBrush")]
+    public async Task Set_LiteralValues_StillReachGuardedBackend(string requested, string property, string type)
+    {
+        foreach (var json in new[] { false, true })
+        {
+            var field = JsonSerializer.Serialize(new
+            {
+                name = property, value = requested, valueType = type, valueState = "value", bindingState = "unknown",
+            });
+            var reply = Result().Replace("\"status\":\"read\"",
+                "\"status\":\"applied\",\"before\":" + field + ",\"after\":" + field, StringComparison.Ordinal);
+            using var agent = new FakeDevToolsProtocolAgent().Answer("Property.setQuery", reply);
+            var args = new List<string> { "--of-type", "TextBlock", "--property", property, "--value", requested };
+            if (json) { args.Add("--json"); }
+
+            var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+            Assert.AreEqual(0, exit, output);
+            using var request = JsonDocument.Parse(agent.ReceivedRequests.Single());
+            Assert.AreEqual(requested, request.RootElement.GetProperty("params").GetProperty("value").GetString());
+            Assert.AreEqual("Property.setQuery", agent.Received.Single());
+            if (json)
+            {
+                using var result = JsonDocument.Parse(output);
+                Assert.IsTrue(result.RootElement.GetProperty("ok").GetBoolean());
+                Assert.AreEqual("applied", result.RootElement.GetProperty("status").GetString());
+                Assert.AreEqual(requested, result.RootElement.GetProperty("after").GetProperty("value").GetString());
+            }
+            else
+            {
+                StringAssert.Contains(output, "Write status: applied");
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow("no-match")]
+    [DataRow("ambiguous")]
+    [DataRow("invalid-value|the property setter rejected the value; check its allowed range")]
+    [DataRow("property-write-failed|conversion to the requested XAML type failed (0x8007000E)")]
+    public async Task Set_ResourceLookingValue_DoesNotReplaceOtherFailures(string failure)
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Answer("Property.setQuery",
+            Result(ok: false, error: failure).Replace("\"status\":\"read\"", "\"status\":\"not-applied\"", StringComparison.Ordinal));
+        var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent,
+            ["--of-type", "Button", "--property", "Background", "--value", "{ThemeResource AccentBrush}", "--json"]);
+
+        Assert.AreEqual(1, exit);
+        using var result = JsonDocument.Parse(output);
+        Assert.AreEqual(failure, result.RootElement.GetProperty("error").GetString());
+        Assert.AreEqual("not-applied", result.RootElement.GetProperty("status").GetString());
+        Assert.AreEqual("Property.setQuery", agent.Received.Single());
+    }
+
+    [TestMethod]
     [DataRow("search", false)]
     [DataRow("inspect", false)]
     [DataRow("set", false)]

@@ -163,6 +163,21 @@ edit your source and are gone when the app restarts. Setting a bound property re
 its binding until you restart the app; the output warns you. `diagnose-binding` shows
 what a binding resolves to; add `--json` for every observation.
 
+For a brush, pass a fixed color, such as
+`winapp devtools set-property SaveButton Background '#FF0067C0'`.
+The CLI does not create `{ThemeResource key}` or `{StaticResource key}` references.
+To change the reference permanently, edit the XAML and rebuild the app.
+
+In the inspector, choose **ThemeResource** or **StaticResource** in the property's
+kind list to try a resource on the running app. Type a key, such as `BBAccentBrush`;
+suggestions include compatible resources from the selected element, its parents,
+and the app, including merged and active-theme dictionaries. Choose a suggestion
+or finish typing, then press Enter to apply it. If the key cannot be applied, the
+error appears beneath the field and says whether the previous value was restored.
+Correct the key or resource type and try again. If a previous value could not be
+restored, set the property again. You can still type a key when suggestions are
+unavailable or incomplete.
+
 Passwords never leave the app. A property whose name ends in `Password` (in a
 [Reactor app](devtools-reactor.md), also a prop, hook or context with such a name)
 shows as `<redacted>`, and DevTools refuses to set it. Source previews and comments
