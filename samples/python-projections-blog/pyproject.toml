@@ -1,0 +1,6 @@
+[tool.winapp.python-bindings]
+package = "winapp_bindings"
+scope = "default"
+types = []
+additional-winmds = []
+additional-refs = []
