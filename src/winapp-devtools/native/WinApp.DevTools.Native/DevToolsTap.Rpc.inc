@@ -176,7 +176,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             m == L"VisualTree.enumerate" || m == L"VisualTree.find" || m == L"VisualTree.query" ||
             m == L"VisualTree.getPreviews" || m == L"VisualTree.getAppAuthored" ||
             m == L"Property.get" || m == L"Property.setQuery" || m == L"Layout.get" ||
-            m == L"Automation.getPeer" || m == L"Automation.createPeer" ||
+            m == L"Automation.createPeer" ||
             m == L"Source.get" || m == L"Resource.resolve" || m == L"Binding.walk" ||
             m == L"Binding.diagnose" || m == L"HotReload.setProperty" || m == L"HotReload.clearProperty" ||
             m == L"Surface.list" || m == L"Surface.setActive" || m == L"Overlay.highlight" ||
@@ -297,12 +297,12 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
     }
 
     if (m == L"Property.get")      return BridgeJson(id, L"property.get|" + p.GetString(L"handle"));
-    if (m == L"Automation.getPeer" || m == L"Automation.createPeer") {
+    if (m == L"Automation.createPeer") {
         unsigned long long wire = 0;
         if (!DevToolsParseWireHandle(p.GetString(L"handle"), false, &wire))
             return DevToolsRpcError(id, DevToolsErr::InvalidParams,
                 L"handle must be a canonical non-zero decimal string", L"bad-args");
-        const std::wstring reply = CmdAutomationPeer(wire, m == L"Automation.createPeer");
+        const std::wstring reply = CmdAutomationPeer(wire);
         if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);
         return DevToolsRpcResult(id, reply);
     }

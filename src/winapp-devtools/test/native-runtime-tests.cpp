@@ -302,19 +302,16 @@ static void CheckAutomationPeerRequests(const std::function<void(bool,const char
     const auto refused = call(L"Automation.createPeer", std::to_wstring(wire));
     check(refused.find(L"refused-unsafe") != std::wstring::npos && diagnostics.calls == 0,
         "read-only posture refuses peer creation before accessing the app object");
-    const auto observed = call(L"Automation.getPeer", std::to_wstring(wire));
-    check(observed.find(L"\"state\":\"not-supported\"") != std::wstring::npos &&
-        observed.find(L"\"creationAttempted\":false") != std::wstring::npos && diagnostics.calls == 1,
-        "non-FrameworkElement is unsupported, not a missing peer");
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
     const auto unsupported = call(L"Automation.createPeer", std::to_wstring(wire));
     check(unsupported.find(L"\"state\":\"not-supported\"") != std::wstring::npos &&
-        unsupported.find(L"\"mayHaveChangedAppState\":false") != std::wstring::npos,
+        unsupported.find(L"\"apiInvoked\":false") != std::wstring::npos &&
+        unsupported.find(L"\"mayHaveChangedAppState\":false") != std::wstring::npos && diagnostics.calls == 1,
         "explicit creation does not run peer code on an unsupported object");
     diagnostics.failAcquire = true;
-    const auto failed = call(L"Automation.getPeer", std::to_wstring(wire));
+    const auto failed = call(L"Automation.createPeer", std::to_wstring(wire));
     check(failed.find(L"\"state\":\"error\"") != std::wstring::npos &&
-        failed.find(L"\"before\":\"unknown\"") != std::wstring::npos &&
+        failed.find(L"\"apiInvoked\":false") != std::wstring::npos &&
         failed.find(L"\"errorHResult\":\"0x80004005\"") != std::wstring::npos,
         "failed diagnostics object lookup preserves HRESULT instead of claiming no peer exists");
     const auto calls = diagnostics.calls;
@@ -325,6 +322,8 @@ static void CheckAutomationPeerRequests(const std::function<void(bool,const char
     check(call(L"Automation.createPeer", std::to_wstring(wire)).find(L"stale-handle") != std::wstring::npos &&
         diagnostics.calls == calls, "a retired generation cannot target a replacement object");
     check(diagnostics.object.refs == 1, "peer diagnostics releases its owned inspectable reference");
+    check(call(L"Automation.getPeer", std::to_wstring(wire)).find(L"unknown") != std::wstring::npos,
+        "no read-tier peer lookup is exposed");
     g_diag = nullptr;
     g_dispatcher = nullptr;
     g_testEnqueueUiOperation = nullptr;

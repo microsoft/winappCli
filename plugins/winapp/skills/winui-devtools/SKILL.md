@@ -175,12 +175,12 @@ If the result has `replacedBinding`, say so: the local value replaced a `{Bindin
 or overrode an `x:Bind`, and restarting the app restores it. This does not edit source. `call` is for advertised protocol methods without a
 curated command; it rejects internal methods and requires `--attach` to inject.
 
-To inspect an automation peer (the framework object behind a control's UIA
-support), use `get-property <selector> --automation-peer existing`. `not-observed`
-does not prove an accessibility defect. Only with permission to run app code, use
-`--automation-peer create`; it can change app state even if it returns no peer or
-fails. Do not retry an interrupted creation automatically. Neither result proves
-UIA exposure or accessibility conformance. See
+Only with permission to run app code, use
+`get-property <selector> --automation-peer create` to call the framework's
+peer-creation API. It can change app state even if it returns no peer or fails.
+`present` or `none` describe the API result, not prior peer existence, new versus
+cached peers, UIA exposure or accessibility conformance. Do not retry an
+interrupted call automatically. See
 [peer observations and limits](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#check-an-automation-peer).
 
 Before a binding edit or restore, follow the guide's

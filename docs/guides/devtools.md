@@ -164,28 +164,26 @@ and the next command. For scripts, add `--json`; see
 ### Check an automation peer
 
 ```powershell
-winapp devtools get-property SaveButton --automation-peer existing --json
 winapp devtools get-property SaveButton --automation-peer create --json
 ```
 
 An automation peer is the framework object behind a control's UI Automation (UIA)
-support. `existing` only looks for an existing peer. `state: "not-observed"` means
-none was found at that moment, not that the control cannot create one.
-
-Use `create` only when you want to run the control's peer-creation code. It first
-checks for an existing peer and attempts creation only if none is found. The result
-keeps `before`, `state`, `creationAttempted` and `mayHaveChangedAppState`.
-`state: "not-created"` means that attempt returned no peer. Creation can change app
-state even when it returns no peer or throws; do not retry an interrupted creation
-automatically. A read-only DevTools session refuses creation.
+support. `create` calls the framework's peer-creation API. It can run application
+code and change app state even when it returns no peer or throws.
+`state: "present"` means the API returned a peer; `"none"` means it returned no
+peer. Neither says whether a peer existed before the call or was newly created.
+`apiInvoked` records whether the API was called, and `mayHaveChangedAppState`
+warns of possible side effects, not confirmed changes.
 
 These are observations, not accessibility pass/fail results. A peer can exist
 without exposing a separate UIA element; a template child can intentionally have
 no peer. UIA clients can also create peers, so their presence depends on prior app
-activity. Non-FrameworkElement objects report `not-supported`, and failed reads
+activity. Non-FrameworkElement objects report `not-supported`, and API failures
 report `error` with `errorHResult` rather than claiming no peer exists.
 Use one unambiguous selector; peer mode cannot be combined with property or query
-options. Without `--automation-peer`, property reads are unchanged.
+options. A session without mutation permission refuses the call. If the command
+times out or disconnects, app code may still have run; check the app before deciding
+whether to repeat it. Without `--automation-peer`, property reads are unchanged.
 
 ## When something fails
 

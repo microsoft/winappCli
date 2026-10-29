@@ -27,12 +27,12 @@ static std::wstring CmdElementProps(const std::vector<std::wstring>& p)
     return DevToolsRead_SerializeProps(wire, *props, *authoredState);
 }
 
-static std::wstring CmdAutomationPeer(unsigned long long wire, bool create)
+static std::wstring CmdAutomationPeer(unsigned long long wire)
 {
     auto result = std::make_shared<std::wstring>();
     auto resolutionError = std::make_shared<const wchar_t*>(nullptr);
     bool completed = false;
-    const HRESULT hr = RunOnUiThread([wire, create, result, resolutionError]() -> HRESULT {
+    const HRESULT hr = RunOnUiThread([wire, result, resolutionError]() -> HRESULT {
         InstanceHandle handle = 0;
         const wchar_t* error = nullptr;
         {
@@ -42,8 +42,8 @@ static std::wstring CmdAutomationPeer(unsigned long long wire, bool create)
                 return E_INVALIDARG;
             }
         }
-        std::wstring before = L"unknown", state = L"error", errorHResult;
-        bool attempted = false;
+        std::wstring state = L"error", errorHResult;
+        bool apiInvoked = false;
         try {
             winrt::com_ptr<IInspectable> inspected;
             winrt::check_hresult(g_diag ? g_diag->GetIInspectableFromHandle(handle, inspected.put()) : E_FAIL);
@@ -52,18 +52,14 @@ static std::wstring CmdAutomationPeer(unsigned long long wire, bool create)
             const HRESULT queried = inspected->QueryInterface(
                 DevToolsIid<DevToolsX::IFrameworkElement>(), winrt::put_abi(element));
             if (queried == E_NOINTERFACE) {
-                before = state = L"not-supported";
+                state = L"not-supported";
             } else {
                 winrt::check_hresult(queried);
                 if (!element) winrt::throw_hresult(E_UNEXPECTED);
                 using Peer = winrt::Microsoft::UI::Xaml::Automation::Peers::FrameworkElementAutomationPeer;
-                const bool present = static_cast<bool>(Peer::FromElement(element));
-                before = state = present ? L"present" : L"not-observed";
-                if (create && !present) {
-                    // This can run app code and change state even if it returns null or throws.
-                    attempted = true;
-                    state = Peer::CreatePeerForElement(element) ? L"present" : L"not-created";
-                }
+                // Both FromElement and CreatePeerForElement can run app code; there is no passive lookup here.
+                apiInvoked = true;
+                state = Peer::CreatePeerForElement(element) ? L"present" : L"none";
             }
         } catch (const winrt::hresult_error& error) {
             state = L"error";
@@ -73,10 +69,9 @@ static std::wstring CmdAutomationPeer(unsigned long long wire, bool create)
             errorHResult = HrStr(E_FAIL);
         }
         *result = L"{\"handle\":\"" + std::to_wstring(wire) +
-            L"\",\"mode\":\"" + (create ? L"create" : L"existing") +
-            L"\",\"before\":\"" + before + L"\",\"state\":\"" + state +
-            L"\",\"creationAttempted\":" + (attempted ? L"true" : L"false") +
-            L",\"mayHaveChangedAppState\":" + (attempted ? L"true" : L"false");
+            L"\",\"state\":\"" + state +
+            L"\",\"apiInvoked\":" + (apiInvoked ? L"true" : L"false") +
+            L",\"mayHaveChangedAppState\":" + (apiInvoked ? L"true" : L"false");
         if (!errorHResult.empty()) *result += L",\"errorHResult\":\"" + errorHResult + L"\"";
         *result += L"}";
         return S_OK;
