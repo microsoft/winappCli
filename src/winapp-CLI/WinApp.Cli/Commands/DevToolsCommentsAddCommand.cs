@@ -186,10 +186,12 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                         supplied = CommentSelectionCapture.ShortType(supplied);
                         expected = CommentSelectionCapture.ShortType(expected);
                     }
-                    if (supplied is not null && expected is not null && supplied != expected)
+                    // A captured declaration makes an absent x:Name known, rather than missing metadata.
+                    var known = expected is not null || option == NameOption && captured.Authored is not null;
+                    if (supplied is not null && known && supplied != expected)
                     {
                         return Task.FromResult(Fail(ansiConsole, json,
-                            $"{option.Name} '{supplied}' conflicts with the captured element's value '{expected}'. " +
+                            $"{option.Name} '{supplied}' conflicts with the captured element's value '{expected ?? "(unnamed)"}'. " +
                             "Remove the override or capture the intended element. Nothing was saved."));
                     }
                 }
