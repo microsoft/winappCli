@@ -365,6 +365,92 @@ public class DevToolsSelectorTests
         }
     }
 
+    [TestMethod]
+    [DataRow("", "42")]
+    [DataRow("""{"handle":"42","automationId":"SubmitButton"}""", "42")]
+    [DataRow("""{"handle":"43","automationId":"SubmitButton"}""", null)]
+    public void Resolve_ConsidersNameAndAutomationIdTogether(string previews, string? expected)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", Find("""
+                [{"handle":"42","name":"SubmitButton","type":"Button","id":"bbbbbbbbbb","uniqueName":true},
+                 {"handle":"43","name":"OtherButton","type":"Button","id":"cccccccccc","uniqueName":true},
+                 {"handle":"42","name":"SubmitButton","type":"Button","id":"bbbbbbbbbb","uniqueName":true}]
+                """))
+            .Answer("VisualTree.getPreviews", $$"""{"previews":[{{previews}}],"truncated":false}""");
+
+        var resolved = DevToolsSelector.Resolve(new VisualTreeTap((uint)agent.Pid), "SubmitButton");
+
+        Assert.AreEqual(expected, resolved.Handle, resolved.Error);
+        if (expected is null)
+        {
+            Assert.HasCount(2, resolved.Candidates);
+            StringAssert.Contains(resolved.Error, "x:Name or AutomationId");
+            CollectionAssert.AreEquivalent(CollisionSelectors,
+                resolved.Candidates.Select(candidate => candidate.Selector).ToArray());
+        }
+        using var request = JsonDocument.Parse(agent.ReceivedRequests.Last());
+        Assert.AreEqual(2, request.RootElement.GetProperty("params").GetProperty("handles").GetArrayLength());
+    }
+
+    [TestMethod]
+    public async Task Set_CrossIdentityCollisionStopsBeforePropertyReadOrMutation()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", Find("""
+                [{"handle":"42","name":"SubmitButton","type":"Button","id":"bbbbbbbbbb","uniqueName":true},
+                 {"handle":"43","name":"OtherButton","type":"Button","id":"cccccccccc","uniqueName":true}]
+                """))
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"43","automationId":"SubmitButton"}],"truncated":false}""");
+
+        var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, ["SubmitButton", "Content", "Updated", "--json"]);
+
+        Assert.AreEqual(1, exit);
+        using var document = JsonDocument.Parse(output);
+        Assert.AreEqual("selector", document.RootElement.GetProperty("error").GetProperty("token").GetString());
+        Assert.AreEqual(2, document.RootElement.GetProperty("candidates").GetArrayLength());
+        CollectionAssert.AreEqual(IdentityRequests, agent.Received.ToArray());
+    }
+
+    private static readonly string[] CollisionSelectors = ["button-submitbutton-bbbbbbbbbb", "button-otherbutton-cccccccccc"];
+    private static readonly string[] IdentityRequests = ["VisualTree.find", "VisualTree.getPreviews"];
+
+    [TestMethod]
+    [DataRow("SubmitButton", "SubmitButton", "")]
+    [DataRow("SubmitButton", "OtherButton", "SubmitButton")]
+    [DataRow("SubmitButton", "SubmitButton", "SubmitButton")]
+    [DataRow("42", "SubmitButton", "")]
+    [DataRow("button-submitbutton-bbbbbbbbbb", "SubmitButton", "")]
+    public async Task Set_UniqueIdentitiesHandlesAndSlugsStillMutate(string selector, string name, string automationId)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", SubmitButtonMatch.Replace("SubmitButton", name, StringComparison.Ordinal))
+            .Answer("VisualTree.getPreviews", $$"""{"previews":[{"handle":"42","automationId":"{{automationId}}"}],"truncated":false}""")
+            .Answer("Property.get", """{"handle":"42","props":[{"name":"Content","value":"Updated","valueType":"String","writeType":"String"}]}""")
+            .Answer("HotReload.setProperty", "null");
+
+        var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, [selector, "Content", "Updated", "--json"]);
+
+        Assert.AreEqual(0, exit, output);
+        Assert.AreEqual(1, agent.Received.Count(method => method == "HotReload.setProperty"));
+        using var request = JsonDocument.Parse(agent.ReceivedRequests.Single(request => request.Contains("HotReload.setProperty", StringComparison.Ordinal)));
+        Assert.AreEqual("42", request.RootElement.GetProperty("params").GetProperty("handle").GetString());
+    }
+
+    [TestMethod]
+    public async Task Set_UnreadableIdentityFactsStopsBeforeMutation()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", SubmitButtonMatch)
+            .Error("VisualTree.getPreviews", -32000, "ui-thread", "Could not read identities");
+
+        var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, ["SubmitButton", "Content", "Updated", "--json"]);
+
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(output, "Could not read identities");
+        Assert.IsFalse(agent.Received.Contains("HotReload.setProperty"));
+    }
+
     /// <summary>Inspect prints a confirmed declaration's line and the AutomationId, and JSON carries both.</summary>
     [TestMethod]
     public async Task Inspect_ShowsConfirmedLineAndAutomationId()
@@ -448,7 +534,8 @@ public class DevToolsSelectorTests
     [TestMethod]
     public void Resolve_ADuplicatedNameIsRefusedWithUsableCandidates()
     {
-        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.find", DuplicateNameMatches);
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.find", DuplicateNameMatches)
+            .Answer("VisualTree.getPreviews", """{"previews":[],"truncated":false}""");
         var tap = new VisualTreeTap((uint)agent.Pid);
 
         var resolved = DevToolsSelector.Resolve(tap, "DeleteButton");
@@ -729,6 +816,7 @@ public class DevToolsSelectorTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", DuplicateNameMatches)
+            .Answer("VisualTree.getPreviews", """{"previews":[],"truncated":false}""")
             .Answer("VisualTree.enumerate", RawTree);
 
         var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent, ["DeleteButton", "--json"]);
@@ -890,6 +978,7 @@ public class DevToolsSelectorTests
             DevToolsInspectCommand => new DevToolsInspectCommand.Handler(agent.Resolver(), console),
             DevToolsSearchCommand => new DevToolsSearchCommand.Handler(agent.Resolver(), console),
             DevToolsGetPropertyCommand => new DevToolsGetPropertyCommand.Handler(agent.Resolver(), console),
+            DevToolsSetPropertyCommand => new DevToolsSetPropertyCommand.Handler(agent.Resolver(), console),
             _ => throw new NotSupportedException(command.Name),
         };
 
