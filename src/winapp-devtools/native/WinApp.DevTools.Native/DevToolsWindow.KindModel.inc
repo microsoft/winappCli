@@ -175,8 +175,6 @@ static void ClearRowValue(InstanceHandle wire, const std::wstring& prop)
 {
     FlushFocusedEditor();
     if (wire != g_selWire) return;
-    // The flush saved the editors. Retire them so the pane rebuild below doesn't save their old text over the clear.
-    RetirePaneEditors();
     if (BindingLost(prop)) {
         SetStatusText(L"Clearing " + prop + L" can't bring its binding back. " +
                       (g_ctx.bindFn ? std::wstring(L"Use Restore binding instead")
@@ -199,6 +197,8 @@ static void ClearRowValue(InstanceHandle wire, const std::wstring& prop)
         AppChangedErase(wire, prop);
         RebaselineRecords(wire);
     }
+    // The flush saved the editors. Retire them so the rebuild doesn't save their old text over the clear.
+    RetirePaneEditors();
     ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
     SetStatusText(ok ? (L"Cleared " + prop + L". It now falls back to its default")
                      : (L"Couldn't clear " + prop));
@@ -220,8 +220,6 @@ static void RestoreRowValue(InstanceHandle wire, const std::wstring& prop, const
 {
     FlushFocusedEditor();
     if (wire != g_selWire) return;
-    // The flush saved the editors. Retire them so the pane rebuild below doesn't save their old text over Restore.
-    RetirePaneEditors();
     if (BindingLost(prop)) {
         SetStatusText(L"Can't restore " + prop + L". Its binding was replaced. " +
                       (g_ctx.bindFn ? std::wstring(L"Use Restore binding instead")
@@ -285,6 +283,8 @@ static void RestoreRowValue(InstanceHandle wire, const std::wstring& prop, const
         DevToolsBindingRow_ForgetLiveWrite(wire, prop);
         RebaselineRecords(wire);
     }
+    // The flush saved the editors. Retire them so the rebuild doesn't save their old text over Restore.
+    RetirePaneEditors();
     ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
     SetStatusText(ok ? done : failed);
 }

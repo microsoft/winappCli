@@ -1093,6 +1093,17 @@ int main()
         RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr); late.retired=false;
         ClearRowValue(500,L"Text");
         check(late.retired && g_paneEditors.empty(), "Clear retires the editors it saved");
+        // When Clear or Restore refuses and leaves the pane as it is, the visible editors must keep saving.
+        g_editRecords.clear(); g_appChanged.clear(); NoteBindingLost(L"Text");
+        RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr); late.retired=false;
+        ClearRowValue(500,L"Text");
+        check(!late.retired && g_paneEditors.size()==1, "a refused Clear leaves the visible editors saving");
+        RestoreRowValue(500,L"Text",L"String");
+        check(!late.retired && g_paneEditors.size()==1, "a refused Restore leaves the visible editors saving");
+        g_bindingLost.clear();
+        RestoreRowValue(500,L"Text",L"String");
+        check(!late.retired && g_paneEditors.size()==1, "Restore with nothing to restore leaves the visible editors saving");
+        ReleasePaneEditors(/*retire*/ false);
 
         // A multi-field editor (Margin's four boxes) reads only its own expansion's boxes. The previous
         // element's boxes have the same property path and can still be alive after the selection moves.
