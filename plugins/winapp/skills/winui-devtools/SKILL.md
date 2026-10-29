@@ -176,6 +176,11 @@ If the result has `replacedBinding`, say so: the local value replaced a `{Bindin
 or overrode an `x:Bind`, and restarting the app restores it. This does not edit source. `call` is for advertised protocol methods without a
 curated command; it rejects internal methods and requires `--attach` to inject.
 
+For resource-backed brush edits, pass a fixed color to `set-property`, not
+`{ThemeResource key}` or `{StaticResource key}`. To change the reference, edit XAML
+and rebuild, or use the inspector's resource editor for a live edit; see the
+[resource editing instructions](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#find-and-inspect-an-element).
+
 Before a binding edit or restore, follow the guide's
 [binding safety and confirmation workflow](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#capture-and-restore-a-binding).
 Do not treat a forward evaluation as proof of synchronization or an owner refresh
