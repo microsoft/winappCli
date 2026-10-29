@@ -188,6 +188,7 @@ function npm {
     Add-Trace 'npm' $arguments
     $step = if ($arguments[0] -eq 'run') { $arguments[1] } else { $arguments[0] }
     if ($step -eq 'generate-commands') {
+        if ($arguments -notcontains '--') { throw 'npm did not receive its argument separator' }
         if ($arguments -notcontains '--schema') { throw 'Codegen did not receive an explicit live schema' }
         $path = $arguments[[array]::IndexOf($arguments, '--schema') + 1]
         if ((Get-Content $path -Raw | ConvertFrom-Json).source -ne 'current-cli') {
@@ -294,7 +295,7 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Match 'dotnet build src\\winapp-CLI\\winapp.sln -c Debug -p:\s*TreatWarningsAsErrors=true'
         $result.Trace | Should -Match 'WinApp.Cli.csproj -c Debug --no-build --cli-schema'
         $result.Trace | Should -Match 'npm ci --ignore-scripts'
-        $result.Trace | Should -Match 'npm run generate-commands --schema .*artifacts\\TestResults\\cli-schema-All.json'
+        $result.Trace | Should -Match 'npm run generate-commands -- --schema .*artifacts\\TestResults\\cli-schema-All.json'
         $result.Trace | Should -Match 'npm run compile --ignore-scripts'
         $result.Trace | Should -Match 'npm test --ignore-scripts'
         $result.Trace | Should -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build'
@@ -417,7 +418,7 @@ Describe 'build-cli.ps1 control flow' {
 
         $result.ExitCode | Should -Be 0 -Because $result.Output
         $result.Trace | Should -Match 'dotnet build src\\winapp-CLI\\WinApp.Cli.Tests\\WinApp.Cli.Tests.csproj -c Debug -p:\s*TreatWarningsAsErrors=true'
-        $result.Trace | Should -Match 'npm run generate-commands --schema '
+        $result.Trace | Should -Match 'npm run generate-commands -- --schema '
         $result.Trace | Should -Match 'npm run compile'
         $result.Trace | Should -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build'
         $result.Trace | Should -Not -Match 'winapp.sln|npm test|dotnet test|stand-down|nuget-pester|scripts-pester|WinApp.UIAutomation.Tests'
@@ -431,7 +432,7 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Not -Match 'dotnet build|dotnet run|winapp.sln|WinApp.Cli.Tests|WinApp.UIAutomation.Tests'
         $result.Trace | Should -Match 'published-schema .*artifacts\\cli\\win-(x64|arm64)\\winapp.exe --cli-schema'
         $result.Trace | Should -Match 'dotnet test .*Analyzers.Tests.csproj -c Debug -p:\s*TreatWarningsAsErrors=true'
-        $result.Trace | Should -Match 'npm run generate-commands --schema '
+        $result.Trace | Should -Match 'npm run generate-commands -- --schema '
         $result.Trace | Should -Match 'npm run compile'
         $result.Trace | Should -Match 'npm test'
         foreach ($name in @('stand-down', 'nuget-pester', 'scripts-pester')) {

@@ -1,0 +1,10 @@
+[project]
+name = "winapp-python-uri-example"
+version = "0.0.0"
+requires-python = ">=3.11,<3.15"
+
+[tool.winapp.python-bindings]
+package = "myapp_winrt"
+codegen-version = "0.1.0rc23"
+scope = "types"
+types = ["Windows.Foundation.Uri"]

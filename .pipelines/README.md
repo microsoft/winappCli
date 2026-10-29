@@ -8,7 +8,7 @@
 
 Shared step templates live in [`templates/`](templates):
 
-- [`build-env.yaml`](templates/build-env.yaml) — agent setup (.NET, Node, internal NuGet/npm feeds and their auth). Shared by CI and release.
+- [`build-env.yaml`](templates/build-env.yaml) — agent setup (.NET, Node, Python, internal NuGet/npm/PyPI feeds and their auth). Shared by CI and release.
 - [`build.yaml`](templates/build.yaml) — the build, packaging, optional ESRP signing, signature verification, and artifact publishing.
 - [`release-assets.yaml`](templates/release-assets.yaml) — renames built packages to the unversioned asset names the release publishes. Used twice: as a preflight dry-run on a copy in the `Build` stage (where a checkout exists, so the result can be verified by a tested script), and for real in `Release_GitHub` (which has no checkout).
 
@@ -106,7 +106,7 @@ Do not "fix" this by switching to Unofficial.
 
 ### What the rehearsal skips
 
-Exactly seven things, each gated:
+Publishing and signing are gated as follows:
 
 | Action | Gate |
 |---|---|
@@ -115,9 +115,12 @@ Exactly seven things, each gated:
 | GitHub release | compile-time `${{ if }}` |
 | Symbol publication | whole stage omitted |
 | npm publish (ESRP Release) | whole stage omitted |
+| PyPI publish (ESRP Release) | whole stage omitted |
 | nuget.org push (`Release_NuGet`) | whole stage omitted |
 | WinGet fork sync + `--submit` | `WINGET_SUBMIT` env, `'false'` unless `rel/v*` |
 | MS Learn push + PR | `MSLEARN_PUBLISH` env, `'false'` unless `rel/v*` |
+
+Before the first PyPI release, confirm that ESRP authorizes npm's existing signing identity to publish `microsoft-winappcli`.
 
 Where a step is a shell script rather than a task, the gate is a **YAML-conditional environment
 variable** that the script branches on. The condition stays at compile time, and the variable is
@@ -130,7 +133,7 @@ Everything else, for real:
 
 - The full stable build for x64 and ARM64 with telemetry unstubbed (`Unstub.ps1`), plus every test
   suite, under the same `Permissive,CFSClean` isolation the release uses.
-- MSIX, NuGet and npm packaging.
+- MSIX, NuGet, npm and Python wheel packaging.
 - Release-notes generation. This step cannot fail: `generate-release-notes.ps1` catches its own
   API failures and falls back to a git-log changelog. **GitHub Models was retired on 2026-07-30
   and now returns 410 for every token**, so the AI-summarised path is permanently dead and every
@@ -277,9 +280,7 @@ a GitHub outage block a release.
 
 ### What gets signed, and in what order
 
-Order is the whole story here. `package-msix.ps1`, `package-npm.ps1` and `package-nuget.ps1` all
-copy `winapp.exe` out of `artifacts/cli`, so a binary signed *after* those scripts run ships
-unsigned no matter how thoroughly the container around it is signed.
+Order is the whole story here. `package-msix.ps1`, `package-npm.ps1`, `package-nuget.ps1` and `package-python.ps1` all copy `winapp.exe` out of `artifacts/cli`, so a binary signed *after* those scripts run ships unsigned no matter how thoroughly the container around it is signed.
 
 `templates/build.yaml` therefore signs bottom-up:
 
@@ -297,9 +298,7 @@ make the payload signed, and an MSIX will install happily with an unsigned `wina
 
 ### Why there is a verification step
 
-`Verify shipped binaries are signed` runs `scripts/verify-signatures.ps1` over `artifacts/cli`, the
-MSIX packages, the NuGet packages and the npm tarball, expanding every container — including nested
-ones — and asserting each `.exe`/`.dll` carries a valid Authenticode signature.
+`Verify shipped binaries are signed` runs `scripts/verify-signatures.ps1` over `artifacts/cli`, the MSIX packages, the NuGet packages, the npm tarball and the Python wheels, expanding every container — including nested ones — and asserting each `.exe`/`.dll` carries a valid Authenticode signature.
 
 It exists because Guardian's Code Sign Validation cannot catch a regression in step 3 or 4:
 
@@ -319,7 +318,7 @@ a run that signs nothing would otherwise fail it every Monday.
 The script also runs locally against any build output or downloaded artifact:
 
 ```powershell
-.\scripts\verify-signatures.ps1 -Path .\artifacts\cli,.\artifacts\msix-packages,.\artifacts\nuget,.\artifacts\*.tgz
+.\scripts\verify-signatures.ps1 -Path .\artifacts\cli,.\artifacts\msix-packages,.\artifacts\nuget,.\artifacts\python,.\artifacts\*.tgz
 ```
 
 A root that contains no binaries is a failure, not a pass — a gate that reports success after
