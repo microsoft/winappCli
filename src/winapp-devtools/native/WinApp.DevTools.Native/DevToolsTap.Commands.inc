@@ -332,7 +332,8 @@ static std::wstring HandleCommand(const std::wstring& line,
         // The token is an opaque packed WIRE handle (same scheme as property.get), NOT a raw InstanceHandle -
         // RE-RESOLVE it to a raw ih INSIDE the UI-thread closure right before the live hit-test (UAF-by-construction:
         // never carry a raw handle across the hop).
-        unsigned long long wire = wcstoull(line.c_str() + wcslen(L"highlight|"), nullptr, 10);
+        unsigned long long wire = 0;
+        if (!DevToolsParseWireHandle(line.substr(wcslen(L"highlight|")), true, &wire)) return L"ERR bad-args";
         InstanceHandle root = RootVisual();
         auto rerr = std::make_shared<const wchar_t*>(nullptr);
         bool completed = false;
@@ -361,7 +362,8 @@ static std::wstring HandleCommand(const std::wstring& line,
     if (line.rfind(L"selection.select|", 0) == 0) {
         // Highlight-only (`highlight|`) remains the HOVER primitive and is unchanged: a client that only wants to
         // light a rect while the pointer moves must not move the app's selection with it.
-        unsigned long long wire = wcstoull(line.c_str() + wcslen(L"selection.select|"), nullptr, 10);
+        unsigned long long wire = 0;
+        if (!DevToolsParseWireHandle(line.substr(wcslen(L"selection.select|")), true, &wire)) return L"ERR bad-args";
         InstanceHandle root = RootVisual();
         auto rerr = std::make_shared<const wchar_t*>(nullptr);
         auto selected = std::make_shared<bool>(false);
