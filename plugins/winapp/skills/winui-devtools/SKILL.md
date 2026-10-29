@@ -26,7 +26,8 @@ folders, .cs files and non-WinUI projects; pass `--devtools on` there). Let the 
 leave comments there:
 turn on **Comments** in the toolbar, click an element, type, press Enter (Shift+Enter for a
 new line), or click the next element to save and move on. **Select element** opens the
-DevTools window on the element the user clicks. Ctrl+Shift+F12 moves keyboard
+DevTools window on the element the user clicks, then turns picking off so the next
+click reaches the app. Ctrl+Shift+F12 moves keyboard
 focus to the toolbar (showing it if the user hid it), and Esc returns it. Use a second terminal for commands, or add `--detach`
 to return to the terminal with the app still running and its PID printed.
 Use an exact PID with `-a` when multiple apps are attached.
@@ -174,6 +175,11 @@ change. Report its observed read-back, not the requested value as if it succeede
 If the result has `replacedBinding`, say so: the local value replaced a `{Binding}`
 or overrode an `x:Bind`, and restarting the app restores it. This does not edit source. `call` is for advertised protocol methods without a
 curated command; it rejects internal methods and requires `--attach` to inject.
+
+For resource-backed brush edits, pass a fixed color to `set-property`, not
+`{ThemeResource key}` or `{StaticResource key}`. To change the reference, edit XAML
+and rebuild, or use the inspector's resource editor for a live edit; see the
+[resource editing instructions](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#find-and-inspect-an-element).
 
 Before a binding edit or restore, follow the guide's
 [binding safety and confirmation workflow](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#capture-and-restore-a-binding).

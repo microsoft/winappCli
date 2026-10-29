@@ -31,6 +31,7 @@ internal interface IMsixService
         bool runtimeAlreadyBundled = false,
         string? timestampUrl = null,
         FileInfo? appxRecipe = null,
+        DirectoryInfo? windowsAppSdkPackageDirectory = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

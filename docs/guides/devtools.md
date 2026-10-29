@@ -73,7 +73,9 @@ If the app is already running, `run` closes it first, so DevTools can start it
 
 ## Use the toolbar
 
-- **Select element** shows the element you click in the DevTools window.
+- **Select element** shows the element you click in the DevTools window, then turns
+  picking off. Your next click reaches the app. Select **Select element** again to
+  inspect another element, or press **Esc** before picking to cancel.
 - **Comments** opens the comment panel on the element you click.
 - Clicking a control's template part or generated text selects the control from your
   XAML; turn off **Just my XAML** in the DevTools window to pick the parts themselves.
@@ -152,6 +154,21 @@ winapp devtools search --of-type TextBlock --with 'FontSize>=20' --fields 'Text,
 edit your source and are gone when the app restarts. Setting a bound property replaces
 its binding until you restart the app; the output warns you. `diagnose-binding` shows
 what a binding resolves to; add `--json` for every observation.
+
+For a brush, pass a fixed color, such as
+`winapp devtools set-property SaveButton Background '#FF0067C0'`.
+The CLI does not create `{ThemeResource key}` or `{StaticResource key}` references.
+To change the reference permanently, edit the XAML and rebuild the app.
+
+In the inspector, choose **ThemeResource** or **StaticResource** in the property's
+kind list to try a resource on the running app. Type a key, such as `BBAccentBrush`;
+suggestions include compatible resources from the selected element, its parents,
+and the app, including merged and active-theme dictionaries. Choose a suggestion
+or finish typing, then press Enter to apply it. If the key cannot be applied, the
+error appears beneath the field and says whether the previous value was restored.
+Correct the key or resource type and try again. If a previous value could not be
+restored, set the property again. You can still type a key when suggestions are
+unavailable or incomplete.
 
 Passwords never leave the app: password properties show as `<redacted>`, DevTools
 refuses to set them, and passwords in your XAML show as `******` in source previews
