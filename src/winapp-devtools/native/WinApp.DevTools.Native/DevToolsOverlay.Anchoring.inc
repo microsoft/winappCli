@@ -259,14 +259,13 @@ static bool AnchorVisible(InstanceHandle target, const RECT& b, int cw, int ch)
     return (r > l) && (bo > t);
 }
 
-// Re-anchor by translating the existing canvas subtree, not parking and rebuilding it. Defer moves while the
-// panel owns focus to preserve typing; flush the deferred move when focus clears, even if the selection bounds
-// have stopped changing.
-// Move the existing canvas subtree and defer while the panel owns focus so typing and placement survive
-// re-anchor.
 static void ReanchorSelectionAnchor(const RECT& nb)
 {
     if (!g_selUi || g_selDetached) return;
+    if (g_selPopup) {
+        RepositionSelectionPanel(nb);
+        return;
+    }
     if (g_selFocusWithin > 0) {
         g_selPendingAnchor = nb;
         if (!g_selAnchorPending) {
@@ -303,13 +302,13 @@ static void ReanchorSelectionNow()
     if (g_hiddenForScroll) return;
     RECT nb{};
     if (!TryElementRootBounds(g_pickDiag, g_pickRoot, g_selectedHandle, &nb)) return;
+    ReanchorSelectionAnchor(nb);
     if (nb.left == g_selectedBounds.left && nb.top == g_selectedBounds.top &&
         nb.right == g_selectedBounds.right && nb.bottom == g_selectedBounds.bottom) return;
     g_selectedBounds = nb;
     g_lastPickBoundsDip = nb;
     if (!g_chromeHidden)
         PlaceAdorner(g_pickDiag, nb.left, nb.top, nb.right - nb.left, nb.bottom - nb.top, g_pickSeed);
-    ReanchorSelectionAnchor(nb);
     SyncLayoutAdorner();
     RefreshScrollAnchor(nb);
     DevToolsOverlayLog(L"overlay.sel re-anchored on layout change rect=%ld,%ld,%ld,%ld", nb.left, nb.top, nb.right, nb.bottom);
@@ -738,6 +737,12 @@ static void TrackingTick()
     s_inTick = true;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::OverlayTrackTick);
 
+    // Window movement changes the monitor work area in root DIPs even if the element's local bounds do not move.
+    if (g_selPopup) {
+        DevToolsSurface surface;
+        if (DevToolsSurface_Resolve(g_pickDiag, g_pickRoot, &surface) &&
+            surface.xamlRootKey == g_activeSurface.xamlRootKey) g_activeSurface = surface;
+    }
     const double tSize0 = QpcNow();
     int cw = (int)g_activeSurface.contentW, ch = (int)g_activeSurface.contentH;
     if (cw <= 0 || ch <= 0) {
@@ -826,6 +831,7 @@ static void TrackingTick()
 
     const bool rectChanged = (nb.left != g_selectedBounds.left) || (nb.top != g_selectedBounds.top) ||
                              (nb.right != g_selectedBounds.right) || (nb.bottom != g_selectedBounds.bottom);
+    if (!g_chromeHidden) RepositionSelectionPanel(nb);
     if (!rectChanged && !g_chromeHidden) return;
 
     const bool visible = AnchorVisible(g_selectedHandle, nb, cw, ch);

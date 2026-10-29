@@ -10,6 +10,10 @@ static IInspectable* g_selPopup   = nullptr;
 static IInspectable* g_selIcon    = nullptr;
 static IInspectable* g_selPanel   = nullptr;
 static IInspectable* g_selComment = nullptr;
+static int g_selPanelPreferredHeight = 300;
+static int g_selPanelWidth = 0;
+static DevToolsSelection::Placement g_selPanelPlacement{};
+static bool g_selPanelPlaced = false;
 
 static void DevToolsSetSelectionPanelRequestedTheme(int requestedTheme)
 {
