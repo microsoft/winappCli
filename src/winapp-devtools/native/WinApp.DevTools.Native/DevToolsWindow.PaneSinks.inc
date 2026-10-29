@@ -112,8 +112,9 @@ static std::wstring WriteFailureText(const std::wstring& prop)
 static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
                                const std::wstring& prop, const std::wstring& type,
                                const std::wstring& preVal, const std::wstring& val,
-                               const EditRecord* captured = nullptr)
+                               const EditRecord* captured = nullptr, bool* refreshed = nullptr)
 {
+    if (refreshed) *refreshed = false;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropCommit);
     ++g_commitSeq;
     g_lastCommitOc = oc;
@@ -143,8 +144,24 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
             SetStatusText(L"Set " + prop + L" to a fixed value. It no longer follows the resource");
             return true;
         }
-        if (RefreshCommittedValue(prop)) SetStatusText(L"Updated " + prop);
-        else SetStatusText(L"Updated " + prop + L", but couldn't refresh its displayed value");
+        if (RefreshCommittedValue(prop)) {
+            if (refreshed) *refreshed = true;
+            SetStatusText(L"Updated " + prop);
+        } else {
+            // The old preset must remain selectable even when the new value cannot be read back.
+            if (void* preset = PaneRowChild(prop, L"PPreset")) {
+                void* selector = nullptr;
+                HRESULT hr = reinterpret_cast<IUnknown*>(preset)->QueryInterface(
+                    DevToolsIid<DevToolsXCP::ISelector>(), &selector);
+                if (SUCCEEDED(hr) && selector) {
+                    hr = DevToolsPutSelectedIndex(selector, -1);
+                    reinterpret_cast<IUnknown*>(selector)->Release();
+                }
+                if (FAILED(hr)) DevToolsOverlayLog(L"route1.props preset clear failed for '%s' hr=0x%08X", prop.c_str(), hr);
+                reinterpret_cast<IUnknown*>(preset)->Release();
+            }
+            SetStatusText(L"Updated " + prop + L", but couldn't refresh its displayed value");
+        }
         return true;
 
     case DevToolsWriteOutcome::ReplacedBinding: {
@@ -208,9 +225,30 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
 // right thing even if the pane has since been rebuilt for another node. UI thread only (TextBox.LostFocus).
 struct LostFocusSink : DevToolsSinkBase
 {
+    void SyncCommittedValue(const std::wstring& value)
+    {
+        if (gen != g_route1Gen || retired || selWire != g_selWire || !box) return;
+        HSTRING text = MakeStr(value);
+        refreshing = true;
+        const HRESULT hr = DevToolsPutTextBoxText(box, text);
+        refreshing = false;
+        WindowsDeleteString(text);
+        if (FAILED(hr)) {
+            DevToolsOverlayLog(L"route1.props editor refresh failed for '%s' hr=0x%08X", prop.c_str(), hr);
+            SetStatusText(L"Updated " + prop + L", but couldn't refresh its editor");
+            return;
+        }
+        original = value;
+        hasShown = g_ctx.readInputFn && g_ctx.readInputFn(box, shown);
+        if (!hasShown) {
+            DevToolsOverlayLog(L"route1.props refreshed editor read failed for '%s'", prop.c_str());
+            SetStatusText(L"Updated " + prop + L", but couldn't read its refreshed editor");
+        }
+    }
+
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
-        if (gen != g_route1Gen || retired) return S_OK;
+        if (gen != g_route1Gen || refreshing || retired) return S_OK;
         if (!g_ctx.readInputFn || !g_ctx.writeFn || !box) return S_OK;
         std::wstring text;
         if (!g_ctx.readInputFn(box, text)) {
@@ -236,6 +274,7 @@ struct LostFocusSink : DevToolsSinkBase
     InstanceHandle selWire = 0;
     std::wstring   prop, type, original, shown;
     bool           hasShown = false;
+    bool           refreshing = false;
     // What Restore puts back if this box's save lands after the selection moved to another element.
     EditRecord     first;
     bool           recordable = false;
