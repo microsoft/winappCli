@@ -189,6 +189,27 @@ void Test_SiteState()
     Check(std::wstring(SiteState(built, 500, 0, L"Button", true)) == L"stale", "an edited file that lost the line");
 }
 
+// With the managed agent loaded, the published value still describes the menu and command-bar items the agent cannot
+// see (they carry no element tag): only those are added, and an element the agent described is never doubled.
+void Test_KeepUndescribed()
+{
+    struct Node { std::wstring id; std::wstring element; };
+    std::vector<Node> published = {
+        { L"0x10", L"Button" },          // the agent described it
+        { L"0x20", L"MenuFlyoutItem" },  // MenuItem("Alpha", ...): no tag, so the agent did not
+        { L"0x30", L"AppBarButton" },    // AppBarButton("Cut", ...)
+        { L"", L"Stack" },               // no identity: cannot be matched to an element
+    };
+    DevToolsReactorPublished::KeepUndescribed(published, std::set<std::wstring>{ L"0x10" },
+        [](const Node& node) { return node.id; });
+    Check(published.size() == 2 && published[0].element == L"MenuFlyoutItem" && published[1].element == L"AppBarButton",
+        "only the elements the agent did not describe are added");
+
+    std::vector<Node> all = { { L"0x10", L"Button" } };
+    DevToolsReactorPublished::KeepUndescribed(all, std::set<std::wstring>{ L"0x10" }, [](const Node& node) { return node.id; });
+    Check(all.empty(), "an app whose elements the agent all described adds nothing");
+}
+
 } // namespace
 
 int RunReactorPublishedTests()
@@ -203,5 +224,6 @@ int RunReactorPublishedTests()
     Test_SourceNames();
     Test_PropertyName();
     Test_SiteState();
+    Test_KeepUndescribed();
     return g_failures;
 }

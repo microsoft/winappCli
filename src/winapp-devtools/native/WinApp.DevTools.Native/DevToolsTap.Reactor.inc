@@ -716,6 +716,29 @@ static bool TapReactorDescribeOnce(TapReactorStatus& status, std::wstring* membe
             if (answerState == L"unavailable" && failure.empty()) failure = parsed.GetString(L"reason");
         }
     }
+    // The agent reports the controls Reactor tagged with their element. Menu and command-bar items a flyout, menu bar
+    // or command bar builds from item records (MenuItem(...), AppBarButton(...)) carry no tag, but Reactor still
+    // publishes their call site and owner on the control: add the published elements the agent did not describe.
+    if (!published && !answers.empty()) {
+        auto answer = std::make_shared<std::wstring>();
+        if (SUCCEEDED(RunOnUiThread([answer, scope, subtree]() -> HRESULT {
+                *answer = TapReactorPublishedAnswer_ui(subtree ? scope.get() : nullptr);
+                return S_OK;
+            }))) {
+            DevToolsJson extra;
+            if (DevToolsJsonParse(*answer, extra) && extra.IsObject() && extra.GetString(L"state") == L"ok") {
+                std::set<std::wstring> described;
+                for (const auto& agentAnswer : answers)
+                    if (const DevToolsJson* nodes = agentAnswer.Find(L"nodes"); nodes && nodes->type == DevToolsJsonType::Array)
+                        for (const auto& node : nodes->arr) described.insert(node.GetString(L"id"));
+                if (const auto nodes = extra.obj.find(L"nodes"); nodes != extra.obj.end() && nodes->second.type == DevToolsJsonType::Array) {
+                    DevToolsReactorPublished::KeepUndescribed(nodes->second.arr, described,
+                        [](const DevToolsJson& node) { return node.GetString(L"id"); });
+                    if (!nodes->second.arr.empty()) answers.push_back(std::move(extra));
+                }
+            }
+        }
+    }
     if (answers.empty() && (absent || !failure.empty())) {
         if (absent) { status.present = false; status.agent = L"ok"; status.reason.clear(); }
         else { status.agent = L"unavailable"; status.reason = failure; }

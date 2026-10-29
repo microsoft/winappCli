@@ -162,7 +162,7 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
             ?? throw new InvalidOperationException($"DevTools found '{selector}' but could not read where it is on screen.");
         var props = DevToolsPropertyRow.Parse(tap.RequestProperties(handle, ct).ResultJson);
         var automationId = NonEmpty(DevToolsPropertyRow.Find(props, "AutomationProperties.AutomationId")?.Value);
-        var name = NonEmpty(DevToolsPropertyRow.Find(props, "AutomationProperties.Name")?.Value);
+        var name = UiAutomationName(props);
 
         var windows = new List<nint>();
         if (target.WindowHandle != 0)
@@ -209,6 +209,17 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
     }
 
     private static string? NonEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>
+    /// The name UI Automation gives the element: its <c>AutomationProperties.Name</c>, or else the <c>Label</c> of a
+    /// command (<c>AppBarButton</c>) or the <c>Text</c> of a menu item or text, which those controls take their name from.
+    /// A command in a collapsed CommandBar is clipped, so UI Automation's rectangle is smaller than the element's and
+    /// only its name can match it.
+    /// </summary>
+    internal static string? UiAutomationName(IReadOnlyList<DevToolsPropertyRow>? props) =>
+        NonEmpty(DevToolsPropertyRow.Find(props, "AutomationProperties.Name")?.Value)
+        ?? NonEmpty(DevToolsPropertyRow.Find(props, "Label")?.Value)
+        ?? NonEmpty(DevToolsPropertyRow.Find(props, "Text")?.Value);
 
     /// <summary>
     /// The one rendered Reactor element whose C# variable is <paramref name="name"/>; null when none is, so the text
@@ -270,8 +281,20 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
             return null;
         }
         var hidden = candidates.Where(c => string.Equals(c.Name, name, StringComparison.Ordinal) &&
-            (c.Width <= 0 || c.Height <= 0 || Inside(c, rect, Tolerance(rect)))).Take(2).ToList();
-        return hidden.Count == 1 ? hidden[0] : null;
+            (c.Width <= 0 || c.Height <= 0 || Inside(c, rect, Tolerance(rect)))).ToList();
+        if (hidden.Count == 1)
+        {
+            return hidden[0];
+        }
+        // A control and the text inside it can share a name (a menu item and its label): when both are on screen, the
+        // control is the one whose rectangle is nearest the element's. Off screen there is nothing to tell them apart.
+        if (hidden.Count == 0 || hidden.Any(c => c.Width <= 0 || c.Height <= 0))
+        {
+            return null;
+        }
+        var ranked = hidden.Select(c => (Element: c, Distance: Math.Abs(c.X - rect.X) + Math.Abs(c.Y - rect.Y) +
+            Math.Abs(c.Width - rect.W) + Math.Abs(c.Height - rect.H))).OrderBy(c => c.Distance).ToList();
+        return ranked[0].Distance < ranked[1].Distance ? ranked[0].Element : null;
     }
 
     private static double Tolerance((double X, double Y, double W, double H) rect) => Math.Max(3, Math.Min(rect.W, rect.H) * 0.1);

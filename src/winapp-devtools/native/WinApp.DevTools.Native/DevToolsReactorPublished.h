@@ -20,7 +20,9 @@
 // The property is registered by Reactor with an owner type that has no XAML type information, so XamlDiagnostics
 // names it `.ReactorSource`; a reader also accepts `<Owner>.ReactorSource` in case the owner becomes resolvable.
 
+#include <algorithm>
 #include <cwctype>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -199,6 +201,18 @@ inline bool Parse(const std::wstring& value, Record* out)
         *target = std::move(text);
     }
     return out->version == kVersion && !out->element.empty();
+}
+
+// Of the elements Reactor published, keep those the managed agent did not describe. The agent reports controls Reactor
+// tagged with their element; the menu and command-bar items a flyout, menu bar or command bar builds from item records
+// carry no tag, so only their published value describes them. `idOf` reads a node's element identity.
+template <class Node, class IdOf>
+inline void KeepUndescribed(std::vector<Node>& nodes, const std::set<std::wstring>& described, IdOf idOf)
+{
+    nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [&](const Node& node) {
+        const std::wstring id = idOf(node);
+        return id.empty() || described.count(id) != 0;
+    }), nodes.end());
 }
 
 } // namespace DevToolsReactorPublished

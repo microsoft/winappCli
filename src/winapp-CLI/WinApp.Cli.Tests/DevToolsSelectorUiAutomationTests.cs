@@ -72,6 +72,49 @@ public class DevToolsSelectorUiAutomationTests
         Assert.IsNull(DevToolsSelectorUiAutomation.Match(candidates, null, "Sales", (700, 875, 420, 200)), "CONTROL: elsewhere on screen is not it");
     }
 
+    /// <summary>
+    /// A Reactor AppBarButton("Copy", ...) in a collapsed CommandBar: DevTools reports its full 68x64 box, UI Automation
+    /// the 68x48 part the bar shows. Its UI Automation name comes from its Label, not AutomationProperties.Name.
+    /// </summary>
+    [TestMethod]
+    public void Match_CommandClippedByItsBar_IsFoundByTheNameItsLabelGives()
+    {
+        static DevToolsPropertyRow Row(string name, string value) => new(name, value, "String", null, null, null, null, null, null);
+        var name = DevToolsSelectorUiAutomation.UiAutomationName([Row("AutomationProperties.Name", ""), Row("Label", "Copy")]);
+        Assert.AreEqual("Copy", name);
+        Assert.AreEqual("Alpha", DevToolsSelectorUiAutomation.UiAutomationName([Row("Text", "Alpha")]), "a menu item's Text");
+        Assert.AreEqual("Save", DevToolsSelectorUiAutomation.UiAutomationName([Row("AutomationProperties.Name", "Save"), Row("Label", "Copy")]),
+            "an explicit AutomationProperties.Name wins");
+
+        var candidates = new[]
+        {
+            new UiElement { Selector = "btn-cut-53c2", Name = "Cut", X = 836, Y = 270, Width = 68, Height = 48 },
+            new UiElement { Selector = "btn-copy-53c4", Name = "Copy", X = 904, Y = 270, Width = 68, Height = 48 },
+        };
+        Assert.AreEqual("btn-copy-53c4", DevToolsSelectorUiAutomation.Match(candidates, null, name, (904, 270, 68, 64))?.Selector);
+        Assert.IsNull(DevToolsSelectorUiAutomation.Match(candidates, null, null, (904, 270, 68, 64)),
+            "CONTROL: without the name, the clipped rectangle alone does not match");
+    }
+
+    /// <summary>
+    /// A Reactor MenuItem("Alpha", ...) in an open MenuFlyout: UI Automation's rectangle is a few pixels inside the
+    /// element's, and the item's own label TextBlock is also named "Alpha". The item is the nearer of the two.
+    /// </summary>
+    [TestMethod]
+    public void Match_MenuItemAndItsLabelShareTheName_TheNearerRectangleIsTheItem()
+    {
+        var candidates = new[]
+        {
+            new UiElement { Selector = "lbl-textblock-0673", Name = "Alpha", X = 254, Y = 521, Width = 66, Height = 19 },
+            new UiElement { Selector = "mnu-alpha-0674", Name = "Alpha", X = 243, Y = 517, Width = 88, Height = 28 },
+        };
+        Assert.AreEqual("mnu-alpha-0674", DevToolsSelectorUiAutomation.Match(candidates, null, "Alpha", (239, 515, 96, 32))?.Selector);
+
+        var oneOffscreen = candidates.Append(new UiElement { Selector = "mnu-alpha-9999", Name = "Alpha", IsOffscreen = true }).ToArray();
+        Assert.IsNull(DevToolsSelectorUiAutomation.Match(oneOffscreen, null, "Alpha", (239, 515, 96, 32)),
+            "CONTROL: an off-screen element with the name could be it, so the nearer rectangle does not decide");
+    }
+
     [TestMethod]
     public void Match_SeveralWithTheAutomationId_TheRectangleDecides()
     {
