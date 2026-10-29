@@ -161,6 +161,11 @@ and when confirmed `line`, `endLine` and `column`. `set-property` reports `value
 one) and `replacedBinding`. `valueSource` is `DevTools` for a value you changed live with
 DevTools, until you clear, undo or restore it, or the app sets that property itself. Password values add `"redacted": true`.
 
+Query failures use the same `error` object, for example
+`"error": {"code": 0, "token": "no-match", "message": "no-match"}`.
+Use `error.token` to branch on the failure. Query `scope.rootHandle` reports the
+effective subtree root, including `--root`; `"0"` means no single subtree root.
+
 ## Use the DevTools protocol
 
 `call` runs methods advertised by `DevTools.negotiate`. `name=value` passes a string;

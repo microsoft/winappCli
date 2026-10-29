@@ -25,8 +25,14 @@ public class DevToolsQueryCommandTests
         {"ok":{{ok.ToString().ToLowerInvariant()}},"status":"read","complete":{{complete.ToString().ToLowerInvariant()}},"truncated":false,
         "scopeNodes":2,"censusNodes":2,"evaluated":1,"unevaluated":{{(complete ? 0 : 1)}},"propertyReads":1,"propertyRows":5,
         "scope":{"rootHandle":"0","depth":-1,"ofType":"Microsoft.UI.Xaml.Controls.TextBox","authored":false},
-        "uiThreadMicroseconds":100,"reasons":{},"matches":[{{rows}}],"context":[]{{(error is null ? "" : ",\"error\":\"" + error + "\"")}}}
+        "uiThreadMicroseconds":100,"reasons":{},"matches":[{{rows}}],"context":[]{{(error is null ? "" : ",\"error\":" + QueryError(error))}}}
         """;
+
+    private static string QueryError(string failure)
+    {
+        var parts = failure.Split('|', 2);
+        return JsonSerializer.Serialize(new { code = 0, token = parts[0], message = parts[^1] });
+    }
 
     [TestMethod]
     public async Task Search_StructuredCriteriaAreOneRequestWithAndPredicates()
@@ -96,7 +102,78 @@ public class DevToolsQueryCommandTests
         Assert.AreEqual(1, exit);
         using var result = JsonDocument.Parse(output);
         Assert.AreEqual(complete, result.RootElement.GetProperty("complete").GetBoolean());
-        Assert.AreEqual(complete ? "no-match" : "incomplete", result.RootElement.GetProperty("error").GetString());
+        var error = result.RootElement.GetProperty("error");
+        Assert.AreEqual(3, error.EnumerateObject().Count());
+        Assert.AreEqual(0, error.GetProperty("code").GetInt32());
+        Assert.AreEqual(complete ? "no-match" : "incomplete", error.GetProperty("token").GetString());
+        Assert.AreEqual(complete ? "no-match" : "incomplete", error.GetProperty("message").GetString());
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ScopedQuery_PreservesEffectiveRootAndErrorObject(bool success)
+    {
+        var reply = Result(success ? Row : "", ok: success, error: success ? null : "no-match")
+            .Replace("\"rootHandle\":\"0\"", "\"rootHandle\":\"9001\"", StringComparison.Ordinal);
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.query", reply);
+
+        var (exit, output) = await Run(new DevToolsSearchCommand(), agent,
+            ["--root", "9001", "--of-type", "TextBox", "--json"]);
+
+        Assert.AreEqual(success ? 0 : 1, exit);
+        using var request = JsonDocument.Parse(agent.ReceivedRequests.Single());
+        Assert.AreEqual("9001", request.RootElement.GetProperty("params").GetProperty("root").GetString());
+        Assert.IsFalse(request.RootElement.GetProperty("params").TryGetProperty("rootHandle", out _),
+            "--root is the reserved scope, not the query's separate rootHandle input.");
+        using var result = JsonDocument.Parse(output);
+        Assert.AreEqual("9001", result.RootElement.GetProperty("scope").GetProperty("rootHandle").GetString());
+        Assert.AreEqual(success, result.RootElement.GetProperty("ok").GetBoolean());
+        if (!success)
+        {
+            using var expected = JsonDocument.Parse(QueryError("no-match"));
+            Assert.IsTrue(JsonElement.DeepEquals(expected.RootElement, result.RootElement.GetProperty("error")));
+        }
+        else
+        {
+            Assert.IsFalse(result.RootElement.TryGetProperty("error", out _));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("\"no-match\"")]
+    [DataRow("{\"code\":0,\"token\":\"no-match\"}")]
+    [DataRow("{\"code\":\"0\",\"token\":\"no-match\",\"message\":\"No element matched.\"}")]
+    [DataRow("{\"code\":0,\"token\":true,\"message\":\"No element matched.\"}")]
+    public async Task Query_InvalidErrorShapeIsRejectedWithoutRetry(string error)
+    {
+        var reply = Result("", ok: false)[..^1] + ",\"error\":" + error + "}";
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.query", reply);
+
+        var (exit, output) = await Run(new DevToolsSearchCommand(), agent, ["--of-type", "Button", "--json"]);
+
+        Assert.AreEqual(1, exit);
+        Assert.AreEqual("VisualTree.query", agent.Received.Single());
+        using var result = JsonDocument.Parse(output);
+        Assert.AreEqual("invalid-response", result.RootElement.GetProperty("error").GetProperty("token").GetString());
+    }
+
+    [TestMethod]
+    public async Task AmbiguousQuery_KeepsBothMatchesWithStructuredError()
+    {
+        var other = Row.Replace("\"42\"", "\"43\"", StringComparison.Ordinal)
+            .Replace("SearchBox", "OtherBox", StringComparison.Ordinal);
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.query",
+            Result(Row + "," + other, ok: false, error: "ambiguous"));
+
+        var (exit, output) = await Run(new DevToolsGetPropertyCommand(), agent, ["--of-type", "TextBox", "--json"]);
+
+        Assert.AreEqual(1, exit);
+        using var result = JsonDocument.Parse(output);
+        Assert.AreEqual("ambiguous", result.RootElement.GetProperty("error").GetProperty("token").GetString());
+        Assert.AreEqual(2, result.RootElement.GetProperty("matchCount").GetInt32());
+        Assert.AreEqual(2, result.RootElement.GetProperty("matches").GetArrayLength());
+        Assert.AreEqual("VisualTree.query", agent.Received.Single());
     }
 
     [TestMethod]
@@ -145,8 +222,10 @@ public class DevToolsQueryCommandTests
             Assert.AreEqual("#FF808080", result.GetProperty("before").GetProperty("value").GetString());
             Assert.AreEqual("#FF808080", result.GetProperty("after").GetProperty("value").GetString());
             Assert.AreEqual(1, result.GetProperty("matchCount").GetInt32());
-            message = result.GetProperty("error").GetString()!;
-            StringAssert.StartsWith(message, "invalid-value|devtools set-property does not support");
+            Assert.AreEqual("invalid-value", result.GetProperty("error").GetProperty("token").GetString());
+            Assert.AreEqual(0, result.GetProperty("error").GetProperty("code").GetInt32());
+            message = result.GetProperty("error").GetProperty("message").GetString()!;
+            StringAssert.StartsWith(message, "devtools set-property does not support");
         }
         else
         {
@@ -240,7 +319,8 @@ public class DevToolsQueryCommandTests
 
         Assert.AreEqual(1, exit);
         using var result = JsonDocument.Parse(output);
-        Assert.AreEqual(failure, result.RootElement.GetProperty("error").GetString());
+        using var expected = JsonDocument.Parse(QueryError(failure));
+        Assert.IsTrue(JsonElement.DeepEquals(expected.RootElement, result.RootElement.GetProperty("error")));
         Assert.AreEqual("not-applied", result.RootElement.GetProperty("status").GetString());
         Assert.AreEqual("Property.setQuery", agent.Received.Single());
     }

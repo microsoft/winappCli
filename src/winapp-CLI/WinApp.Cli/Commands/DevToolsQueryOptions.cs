@@ -147,12 +147,15 @@ internal static class DevToolsQueryOptions
             return Fail("The agent did not report every requested field exactly once.", "invalid-response");
         }
         var ok = result.GetProperty("ok");
+        var queryError = result.TryGetProperty("error", out var failure)
+            ? new DevToolsProtocolError(failure.GetProperty("code").GetInt32(),
+                failure.GetProperty("token").GetString()!, failure.GetProperty("message").GetString()!)
+            : null;
         string? writeError = null;
-        if (write && !ok.GetBoolean() && result.TryGetProperty("error", out var failure) &&
-            failure.GetString() is string message && message.StartsWith("invalid-value|", StringComparison.Ordinal))
+        if (write && !ok.GetBoolean() && queryError is { Token: "invalid-value" })
         {
-            var explanation = DevToolsErrors.DescribePropertyWriteFailure(parse.GetValue(Value), message);
-            if (explanation != message)
+            var explanation = DevToolsErrors.DescribePropertyWriteFailure(parse.GetValue(Value), queryError.Message);
+            if (explanation != queryError.Message)
             {
                 writeError = explanation;
             }
@@ -177,9 +180,9 @@ internal static class DevToolsQueryOptions
                         continue;
                     }
 
-                    if (property.Name == "error" && writeError is not null)
+                    if (property.Name == "error" && writeError is not null && queryError is not null)
                     {
-                        writer.WriteString("error", "invalid-value|" + writeError);
+                        DevToolsJson.WriteError(writer, queryError with { Message = writeError });
                     }
                     else if (property.Name == "diagnostics")
                     {
@@ -290,10 +293,10 @@ internal static class DevToolsQueryOptions
                     console.WriteLine("Write status: " + result.GetProperty("status").GetString());
                 }
 
-                if (result.TryGetProperty("error", out var error))
+                if (queryError is not null)
                 {
-                    var token = error.GetString();
-                    console.WriteLine("Error: " + (writeError ?? UnresolvedTypeMessage(token, parse, result) ?? DevToolsErrors.DescribeToken(token) ?? token));
+                    console.WriteLine("Error: " + (writeError ?? UnresolvedTypeMessage(queryError.Token, parse, result) ??
+                        DevToolsErrors.Describe(queryError)));
                 }
 
                 if (result.TryGetProperty("reasons", out var reasons))
@@ -445,12 +448,15 @@ internal static class DevToolsQueryOptions
         {
             return false;
         }
-        foreach (var key in new[] { "error", "fallback" })
+        if (result.TryGetProperty("error", out var error) &&
+            (error.ValueKind != JsonValueKind.Object || !String(error, "token") || !String(error, "message") ||
+             !error.TryGetProperty("code", out var code) || code.ValueKind != JsonValueKind.Number || !code.TryGetInt32(out _)))
         {
-            if (result.TryGetProperty(key, out _) && !String(result, key))
-            {
-                return false;
-            }
+            return false;
+        }
+        if (result.TryGetProperty("fallback", out _) && !String(result, "fallback"))
+        {
+            return false;
         }
         foreach (var key in new[] { "before", "after" })
         {

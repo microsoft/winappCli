@@ -267,8 +267,60 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
     auto query = [&](const std::wstring& parameters, bool write = false) {
         const auto request = DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" +
             std::wstring(write ? L"Property.setQuery" : L"VisualTree.query") + L"\",\"params\":" + parameters + L"}");
-        return HandleRpc(nullptr, request);
+        const auto response = HandleRpc(nullptr, request);
+        DevToolsJson parsed;
+        if (DevToolsJsonParse(response, parsed)) if (const auto* result = parsed.Find(L"result")) {
+            const auto* error = result->Find(L"error");
+            check(result->GetBool(L"ok", false) ? !error : error && error->IsObject() &&
+                error->obj.size() == 3 && error->Find(L"code") && error->Find(L"code")->type == DevToolsJsonType::Number &&
+                error->GetInt(L"code", -1) == 0 && !error->GetString(L"token").empty() &&
+                !error->GetString(L"message").empty(),
+                "native query success omits error; every semantic failure has exactly code, token and message");
+        }
+        return response;
     };
+    {
+        const auto first = PackWire_nolock(901), second = PackWire_nolock(902);
+        auto scope = std::make_shared<TapWindowScope>();
+        scope->root = 901; scope->rootWire = first;
+        scope->members.emplace(901, std::make_pair(first, 1ull));
+        TapWindowScopeGuard guard(scope);
+        for (const auto* type : {L"TextBlock", L"Button"}) {
+            TapQueryRequest request;
+            request.type = type; request.fields = {L"FontSize"};
+            DevToolsJson result;
+            check(DevToolsJsonParse(ExecuteQuery_ui(request), result) &&
+                result.Find(L"scope")->GetString(L"rootHandle") == std::to_wstring(first) &&
+                result.GetInt(L"scopeNodes", 0) == 1 &&
+                result.GetBool(L"ok", false) == (request.type == L"TextBlock"),
+                "reserved root scope is reported on both native query success and no-match");
+            if (request.type == L"Button")
+                check(result.Find(L"error") && result.Find(L"error")->IsObject() &&
+                    result.Find(L"error")->GetString(L"token") == L"no-match",
+                    "scoped no-match retains the structured error");
+        }
+        TapQueryRequest foreign;
+        foreign.root = second;
+        DevToolsJson refused;
+        check(DevToolsJsonParse(ExecuteQuery_ui(foreign), refused) &&
+            refused.Find(L"scope")->GetString(L"rootHandle") == std::to_wstring(first) &&
+            refused.Find(L"error")->GetString(L"token") == L"outside-window" &&
+            refused.Find(L"matches")->arr.empty(),
+            "a rejected query root cannot replace the effective reserved scope or return foreign matches");
+    }
+    {
+        TapQueryRequest request;
+        request.root = PackWire_nolock(902); request.fields = {L"FontSize"};
+        DevToolsJson result;
+        check(DevToolsJsonParse(ExecuteQuery_ui(request), result) && result.GetBool(L"ok", false) &&
+            result.Find(L"scope")->GetString(L"rootHandle") == std::to_wstring(request.root) &&
+            result.GetInt(L"scopeNodes", 0) == 1,
+            "an explicit query root still reports and searches that subtree");
+        request.root = 0;
+        check(DevToolsJsonParse(ExecuteQuery_ui(request), result) && result.GetBool(L"ok", false) &&
+            result.Find(L"scope")->GetString(L"rootHandle") == L"0" && result.GetInt(L"scopeNodes", 0) == 2,
+            "an unscoped query reports zero root and keeps both census roots");
+    }
     {
         const auto first = PackWire_nolock(901), second = PackWire_nolock(902);
         auto scope = std::make_shared<TapWindowScope>();
@@ -364,7 +416,7 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
     }
     const auto incompatible = query(L"{\"ofType\":\"TextBlock\",\"with\":[\"Text>20\"]}");
     check(incompatible.find(L"ordered-comparison-requires-number") != std::wstring::npos &&
-        incompatible.find(L"\"error\":\"incomplete\"") != std::wstring::npos,
+        incompatible.find(L"\"token\":\"incomplete\"") != std::wstring::npos,
         "valid operator with incompatible runtime type remains explicitly unevaluated");
     g_queryDispatches = 0;
     const auto projected = query(L"{\"ofType\":\"TextBox\",\"fields\":[\"Text\",\"PlaceholderText\",\"AutomationProperties.Name\",\"Missing\"]}");
@@ -417,9 +469,9 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
         "a preview exceeding the 500ms budget reports incompleteness before projecting fields");
     g_sourceInfo = savedSourceInfo;
     check(unknown.find(L"\"unevaluated\":2") != std::wstring::npos &&
-        unknown.find(L"\"error\":\"incomplete\"") != std::wstring::npos, "missing inequality blocks exact targeting");
+        unknown.find(L"\"token\":\"incomplete\"") != std::wstring::npos, "missing inequality blocks exact targeting");
     const auto noMatch = query(L"{\"ofType\":\"Button\"}");
-    check(noMatch.find(L"\"error\":\"no-match\"") != std::wstring::npos &&
+    check(noMatch.find(L"\"token\":\"no-match\"") != std::wstring::npos &&
         noMatch.find(L"\"complete\":true") != std::wstring::npos, "complete zero-match is explicit");
     check(query(L"{\"fields\":[\"FontSize\",\"IsEnabled\"]}").find(L"\"value\":24") != std::wstring::npos,
         "query numeric JSON values are typed");
