@@ -728,6 +728,64 @@ int main()
             "the reason says an x:Bind value reads as Local");
         g_layoutSectionOpen=-1;
     }
+    {
+        wchar_t temp[MAX_PATH]{}, directory[MAX_PATH]{};
+        GetTempPathW(MAX_PATH, temp);
+        const bool tempCreated = GetTempFileNameW(temp, L"src", 0, directory) != 0;
+        if (tempCreated) DeleteFileW(directory);
+        const bool directoryCreated = tempCreated && CreateDirectoryW(directory, nullptr);
+        check(directoryCreated, "source recovery fixture directory is created");
+        const std::wstring path = std::wstring(directory) + L"\\Main&Window.xaml";
+        HANDLE file = directoryCreated ? CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+            CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr) : INVALID_HANDLE_VALUE;
+        check(file != INVALID_HANDLE_VALUE, "source recovery fixture file is created");
+        if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+        const DWORD required = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", nullptr, 0);
+        std::vector<wchar_t> savedRoot(required);
+        if (required) GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", savedRoot.data(), required);
+        SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", directory);
+        const auto buildSourcePane = [](const std::wstring& uri) {
+            return BuildPropsFragment(L"TextBlock", L"", L"TextBlock", L"", uri, 55, {}, L"", L"", nullptr);
+        };
+        const auto pane = buildSourcePane(L"ms-appx:///Main&Window.xaml");
+        const auto location = pane.find(L"WinAppDevToolsSource\"");
+        const auto open = pane.find(L"x:Name=\"OpenSource\"");
+        const auto reveal = pane.find(L"x:Name=\"RevealSource\"");
+        const auto copy = pane.find(L"x:Name=\"CopySourcePath\"");
+        const auto status = pane.find(L"x:Name=\"SourceStatus\"");
+        check(location < open && open < reveal && reveal < copy && copy < status && status != std::wstring::npos,
+            "a read-only element has Open, Show in File Explorer, Copy path and feedback beside its source location");
+        check(pane.find(L"Main&amp;Window.xaml : 55") != std::wstring::npos &&
+              pane.find(L"AutomationProperties.Name=\"Copy source file path\"") != std::wstring::npos &&
+              pane.find(L"AutomationProperties.Name=\"Show source file in File Explorer\"") != std::wstring::npos,
+            "source locations are escaped and recovery buttons have accessible names");
+        check(pane.find(L"AutomationProperties.LiveSetting=\"Polite\""
+                         L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceStatus\"") != std::wstring::npos &&
+              pane.find(L"x:Name=\"SourceStatus\" Text=\"\"") != std::wstring::npos,
+            "source feedback is a nearby wrapping live region, initially empty for an available file");
+        if (directoryCreated) DeleteFileW(path.c_str());
+        const auto missing = buildSourcePane(L"ms-appx:///Main&Window.xaml");
+        check(missing.find(L"x:Name=\"OpenSource\"") == std::wstring::npos &&
+              missing.find(L"x:Name=\"RevealSource\"") == std::wstring::npos &&
+              missing.find(L"x:Name=\"CopySourcePath\"") == std::wstring::npos &&
+              missing.find(L"Source file unavailable.") != std::wstring::npos,
+            "a missing source file explains the problem rather than offering unusable actions");
+        check(buildSourcePane(L"").find(L"x:Name=\"SourceStatus\"") == std::wstring::npos,
+            "an element without source information has no empty source section");
+        std::wstring feedback;
+        testStatus.text = L"Unrelated property feedback";
+        g_statusTb = &testStatus;
+        HandOffSource(L"ms-appx:///Main&Window.xaml", 55, L"",
+            [&](const std::wstring& message) { feedback = message; });
+        check(feedback.find(L"source file unavailable") != std::wstring::npos &&
+              feedback.find(L"nothing on this machine opens") == std::wstring::npos &&
+              testStatus.text == L"Unrelated property feedback",
+            "a file removed after rendering reports unavailable beside the source, not a missing handler at the pane bottom");
+        g_statusTb = nullptr;
+        HandOffSource(L"ms-appx:///Main&Window.xaml", 55, L"Comment");
+        SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", required ? savedRoot.data() : nullptr);
+        if (directoryCreated) RemoveDirectoryW(directory);
+    }
     check(!ColorPickerApplies(true,L"#FF102030",L"#FF000000") && ColorPickerApplies(false,L"#FF102030",L"#FF000000") &&
         !ColorPickerApplies(false,L"#ff000000",L"#FF000000"),
         "Esc on the color picker cancels; closing it any other way applies a changed color");

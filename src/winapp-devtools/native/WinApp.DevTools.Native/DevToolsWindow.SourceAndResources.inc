@@ -31,7 +31,7 @@ static std::wstring ShellAssocFor(const std::wstring& ext)
     return std::wstring(buf.data(), wcsnlen(buf.data(), buf.size()));
 }
 
-// The two actions that cannot fail, offered whenever the shell has no handler.
+// Recovery actions do not need a file association.
 static bool RevealInExplorer(const std::wstring& path)
 {
     const std::wstring args = L"/select,\"" + path + L"\"";
@@ -61,7 +61,8 @@ static bool CopyTextToClipboard(const std::wstring& text)
     return ok;
 }
 
-static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, const std::wstring& offScreenPrefix)
+static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, const std::wstring& offScreenPrefix,
+                                  const std::function<void(const std::wstring&)>& feedback = {})
 {
     const std::wstring path = ResolveSourcePath(uri);
     const std::wstring display = SourceFileName(uri);
@@ -73,26 +74,62 @@ static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, co
             HINSTANCE rc = ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             return static_cast<int>(reinterpret_cast<INT_PTR>(rc));
         });
-    SetStatusText(DevToolsShellOpen::Describe(r, display, line, path, offScreenPrefix));
+    const std::wstring message = DevToolsShellOpen::Describe(r, display, line, path, offScreenPrefix);
+    if (feedback) feedback(message);
+    else SetStatusText(message);
     DevToolsOverlayLog(L"route1.opensource outcome=%d handler='%s' path='%s'",
                   (int)r.outcome, r.handler.c_str(), path.c_str());
     return (r.outcome == DevToolsShellOpen::Outcome::NoPath) ? std::wstring() : path;
 }
 
-// Open the selected node's XAML source file in the default editor. Resolves g_selSourceFile (the ms-appx URI
-// captured on select) to a real path under WINAPP_DEVTOOLS_SOURCE_ROOT and hands it to the shell through the
-// SHARED hand-off (DevToolsShellOpen), which asks for the association first so the shell's app-picker can never be
-// how a user discovers there is no handler. The comments row uses the same helper. UI thread only
-// (Button.Click); gen-guarded so a click racing window teardown is inert; leaked.
-struct OpenSourceSink : DevToolsSinkBase
+enum class SourceAction { Open, Reveal, Copy };
+
+// XAML's visual ownership does not keep this WinRT wrapper's weak references alive.
+// Retain it for the pane's lifetime; the sinks still hold only weak references.
+static DevToolsXC::TextBlock g_sourceStatus{ nullptr };
+
+// Keep feedback with the source header that owns these actions, not the current selection's status line.
+struct SourceActionSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen) return S_OK;
-        HandOffSource(g_selSourceFile, g_selSourceLine, L"");
+        auto status = feedback.get();
+        if (!status) return S_OK;
+        auto report = [&](const std::wstring& text) {
+            try {
+                status.Text(text);
+                using namespace winrt::Microsoft::UI::Xaml::Automation::Peers;
+                if (auto peer = FrameworkElementAutomationPeer::FromElement(status))
+                    peer.RaiseAutomationEvent(AutomationEvents::LiveRegionChanged);
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.source feedback failed hr=0x%08X", e.code().value);
+            }
+        };
+        if (action == SourceAction::Open) {
+            HandOffSource(uri, line, L"", report);
+        } else {
+            const std::wstring path = ResolveSourcePath(uri);
+            if (path.empty()) {
+                report(L"Source file unavailable. Check that it still exists under the project's source folder.");
+            } else if (action == SourceAction::Reveal) {
+                report(RevealInExplorer(path) ? L"Showed " + path + L" in File Explorer."
+                                               : L"Couldn't open File Explorer for " + path);
+            } else {
+                report(CopyTextToClipboard(path) ? L"Copied " + path : L"Couldn't copy " + path);
+            }
+        }
         return S_OK;
     }
-    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
+    void Init(SourceAction a, const DevToolsXC::TextBlock& status)
+    {
+        action = a; uri = g_selSourceFile; line = g_selSourceLine; feedback = status;
+        InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
+    }
+    SourceAction action = SourceAction::Open;
+    std::wstring uri;
+    unsigned int line = 0;
+    winrt::weak_ref<DevToolsXC::TextBlock> feedback;
 };
 
 // Commit an enum ComboBox editor on selection change: read the ComboBox's SelectedIndex and write the matching

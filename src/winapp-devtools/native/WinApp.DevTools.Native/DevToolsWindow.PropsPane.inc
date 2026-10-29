@@ -52,6 +52,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     ReleasePropFilterState();
     ReleaseBreadcrumbRefs();
     ReleaseLayoutSectionRefs();
+    g_sourceStatus = nullptr;
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
     // Selecting a DIFFERENT node resets the pane state that describes what happened to the selection's rows:
     // lost bindings and links, unconfirmed writes, staged kinds. Edit records are kept for the whole session, so
@@ -312,21 +313,30 @@ g_propRows = rows;
                 DevToolsOverlayLog(L"route1.wire PropNoMatch MISS -- an empty pane will render blank and say nothing");
             ApplyPropFilter(g_propFilterQuery);
         }
-        // Source "Open" button: wire its Click to an OpenSourceSink (present only when the node had resolvable
-        // source under WINAPP_DEVTOOLS_SOURCE_ROOT). Independent of editable rows -- a read-only node can still
-        // link to source. Leaked/gen-guarded like the other sinks.
         WireAddComment(fe);
-        if (IInspectable* ob = findByName(L"OpenSource")) {
-            void* bb = nullptr;
-            if (SUCCEEDED(ob->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                OpenSourceSink* os = new OpenSourceSink();
-                os->Init();
-                __int64 otok = 0;
-                void** bvt = *reinterpret_cast<void***>(bb);
-                DevToolsAddClick(bb, os, &otok);
-                reinterpret_cast<IUnknown*>(bb)->Release();
+        if (IInspectable* st = findByName(L"SourceStatus")) {
+            winrt::Windows::Foundation::IInspectable object{ nullptr };
+            winrt::copy_from_abi(object, st);
+            st->Release();
+            const auto status = object.as<DevToolsXC::TextBlock>();
+            g_sourceStatus = status;
+            for (const auto& [button, action] : {
+                    std::pair{ L"OpenSource", SourceAction::Open },
+                    std::pair{ L"RevealSource", SourceAction::Reveal },
+                    std::pair{ L"CopySourcePath", SourceAction::Copy } }) {
+                if (IInspectable* ob = findByName(button)) {
+                    void* bb = nullptr;
+                    if (SUCCEEDED(ob->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                        auto* sink = new SourceActionSink();
+                        sink->Init(action, status);
+                        __int64 token = 0;
+                        const HRESULT hr = DevToolsAddClick(bb, sink, &token);
+                        if (FAILED(hr)) DevToolsOverlayLog(L"route1.source %s add_Click failed hr=0x%08X", button, hr);
+                        reinterpret_cast<IUnknown*>(bb)->Release();
+                    }
+                    ob->Release();
+                }
             }
-            ob->Release();
         }
         reinterpret_cast<IUnknown*>(fe)->Release();
     }
@@ -451,6 +461,7 @@ static void ResetRoute1State()
     if (HWND h = Route1WindowHwnd()) KillTimer(h, kRefreshTimerId);
     if (g_ctx.highlightFn) g_ctx.highlightFn(0, true);
     // Release the editable inspector state (status line + props-host children).
+    g_sourceStatus = nullptr;
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
     ReleaseBreadcrumbRefs(); ReleaseLayoutSectionRefs(); ReleasePropFilterState();
     g_bcExpanded = false; g_axmlExpanded = false;

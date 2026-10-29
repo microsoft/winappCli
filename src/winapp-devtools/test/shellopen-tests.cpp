@@ -109,6 +109,11 @@ static void TestUnresolvedAndMissing()
         const auto r = Run(s, L"");
         Check(r.outcome == DevToolsShellOpen::Outcome::NoPath, "an unresolved URI reports NoPath");
         Check(!s.launched, "and nothing is launched for it");
+        const auto message = DevToolsShellOpen::Describe(r, L"Gone.xaml", 55, L"", L"");
+        Check(message.find(L"source file unavailable") != std::wstring::npos &&
+              message.find(L"source folder") != std::wstring::npos &&
+              message.find(L"nothing on this machine opens") == std::wstring::npos,
+              "an unavailable source file gives a file-location hint, not a missing-handler message");
     }
     {
         Shell s; s.handler = L"Notepad"; s.fileExists = false;
