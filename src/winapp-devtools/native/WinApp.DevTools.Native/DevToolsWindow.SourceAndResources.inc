@@ -125,7 +125,7 @@ struct EnumSelectSink : DevToolsSinkBase
         }
         bool refreshed = false;
         if (ApplyCommitOutcome(CommitWrite(selWire, prop, type, val, /*confirmBindingReplace*/ false),
-                               selWire, prop, type, before, val, &refreshed)) {
+                               selWire, prop, type, before, val, nullptr, &refreshed)) {
             original = val;
             if (textEditor && refreshed && gen == g_route1Gen && selWire == g_selWire) {
                 textEditor->SyncCommittedValue(CurrentEditSeed(prop, val));
@@ -205,7 +205,7 @@ static const std::vector<std::pair<std::wstring, std::wstring>>& ColorPresets()
 // This is an ASSIGN, not a rebind: it switches the property TO a named resource; the prior value's resource identity
 // is unrecoverable, so the picker never claims to show "where the value came from". No initial seed / placeholder-only
 // (SelectedIndex starts -1 => no spurious apply on realize). Same non-owning-selector + gen-guard lifetime contract as
-// EnumSelectSink: the ComboBox element is tracked in g_editRows so the selector stays live until the next rebuild.
+// EnumSelectSink: the ComboBox is owned by the pane, so the selector stays live until the next rebuild.
 struct ResourceSelectSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)

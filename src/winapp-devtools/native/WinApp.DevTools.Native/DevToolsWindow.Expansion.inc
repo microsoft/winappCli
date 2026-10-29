@@ -5,14 +5,34 @@
 static void PopulateExpansionWitnesses(void* fe, const DevToolsCardRow& r, const std::wstring& path);
 
 // Expansion UI owns retained refs and event sinks for the realized row lifetime; stale generation guards callbacks.
+
+// The line under "Edited" that says what Restore puts back.
+static std::wstring EditedWasText(const EditRecord& rec)
+{
+    switch (rec.kind) {
+    case DevToolsOriginal::Unset:
+        return L"was  not set" + (rec.original.empty() ? std::wstring() : L" (showed " + rec.original + L")");
+    case DevToolsOriginal::Resource:
+        return L"was  " + rec.original;
+    default:
+        return L"was  " + (rec.original.empty() ? std::wstring(L"(not set)") : rec.original);
+    }
+}
+static std::wstring AppChangedText(const std::wstring& prop)
+{
+    return L"The app changed " + prop + L" since your edit, so there's nothing to restore";
+}
+
 static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
+    ForgetPaneEditors(path);
     const DevToolsKind current = CurrentKindOf(r, path);
     const DevToolsKind shown   = StagedOrCurrentKind(r, path);
     const bool    staged  = (PendingKindFind(path) != nullptr) && (shown != current);
 
     KindCtx ctx;
     ctx.row = std::make_shared<const DevToolsCardRow>(r);
+    ctx.wire = g_selWire;
     ctx.path = path;
     ctx.edit = edit;
     ctx.rowFe = g_expansionRowFe;
@@ -220,15 +240,16 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         cf->Release();
     }
 
-    const std::wstring* seedVal = DirtyFind(path);
-    const bool edited = seedVal != nullptr;
+    const EditRecord* record = DirtyFind(path);
+    const bool edited = record != nullptr;
+    const bool appChanged = !edited && AppChanged(g_selWire, path);
     if (IInspectable* e = FindInRow(fe, L"PEditedHdr")) { ShowEl(e, edited); e->Release(); }
     if (IInspectable* e = FindInRow(fe, L"PEditedWas")) {
-        if (edited) {
-            SetTextOn(e, L"was  " + (seedVal->empty() ? std::wstring(L"(not set)") : *seedVal));
+        if (edited || appChanged) {
+            SetTextOn(e, edited ? EditedWasText(*record) : AppChangedText(path));
             SetAutomationTextOn(e, path + L" original", path + L" original", L"");
         }
-        ShowEl(e, edited);
+        ShowEl(e, edited || appChanged);
         e->Release();
     }
     if (IInspectable* rs = FindInRow(fe, L"PRestore")) {
@@ -888,6 +909,32 @@ static std::wstring CurrentEditSeed(const std::wstring& path, const std::wstring
     return row ? RowEditSeed(*row) : fallback;
 }
 
+// Bring a realized row's edited marker, "was" line and Restore button in line with its edit record.
+static void UpdateEditedUi(const std::wstring& prop)
+{
+    const EditRecord* rec = DirtyFind(prop);
+    const bool edited = rec != nullptr;
+    const bool appChanged = !edited && AppChanged(g_selWire, prop);
+    if (void* dot = PaneRowChild(prop, L"PDot")) {
+        DevToolsPutVisibility(dot, edited ? 0 : 1);
+        reinterpret_cast<IUnknown*>(dot)->Release();
+    }
+    // Restore has nothing to put back once the binding is gone, and saying otherwise is the lie removed.
+    if (void* rs = PaneRowChild(prop, L"PRestore")) {
+        DevToolsPutVisibility(rs, (edited && !BindingLost(prop)) ? 0 : 1);
+        reinterpret_cast<IUnknown*>(rs)->Release();
+    }
+    if (void* hdr = PaneRowChild(prop, L"PEditedHdr")) {
+        DevToolsPutVisibility(hdr, edited ? 0 : 1);
+        reinterpret_cast<IUnknown*>(hdr)->Release();
+    }
+    if (void* was = PaneRowChild(prop, L"PEditedWas")) {
+        if (edited || appChanged) SetTextOn(reinterpret_cast<IInspectable*>(was), edited ? EditedWasText(*rec) : AppChangedText(prop));
+        DevToolsPutVisibility(was, (edited || appChanged) ? 0 : 1);
+        reinterpret_cast<IUnknown*>(was)->Release();
+    }
+}
+
 static bool FeedsLayoutSection(const std::wstring& name);
 static void RedrawLayoutSectionFromRows(InstanceHandle wire);
 
@@ -900,6 +947,7 @@ static bool RefreshCommittedValue(const std::wstring& prop)
         return false;
     }
     g_ctx.rowsFn(g_selWire, type, name, fresh, authoredState, authoredXaml);
+    ReconcileEditRecords(g_selWire, fresh);
     auto* current = FindPropertyRow(g_propRows, prop);
     const auto* updated = FindPropertyRow(fresh, prop);
     if (!current || !updated) {
