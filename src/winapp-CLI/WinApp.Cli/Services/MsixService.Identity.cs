@@ -674,6 +674,10 @@ internal partial class MsixService
         return null;
     }
 
+    internal static bool RecipeContainsPackageFile(FileInfo recipeFile, DirectoryInfo outputDir, string packagePath) =>
+        ReadAndValidateRecipe(recipeFile, outputDir, File.ReadAllText(recipeFile.FullName))
+            .Any(entry => string.Equals(entry.PackagePath, NormalizePackagePath(packagePath), StringComparison.OrdinalIgnoreCase));
+
     /// <summary>
     /// Reads and fully validates a recipe before any file is written or deleted.
     /// </summary>

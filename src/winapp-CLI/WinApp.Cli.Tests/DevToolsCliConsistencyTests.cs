@@ -61,7 +61,9 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
     }
 
     [TestMethod]
-    public void RunningInstancesAreFoundFromTheLayoutManifest()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RunningInstancesAreFoundFromTheLayoutManifest(bool secondaryApplication)
     {
         var layout = Directory.CreateTempSubdirectory("winapp-layout-");
         try
@@ -71,7 +73,7 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
                 $"""<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Applications><Application Id="App" Executable="{self}" /></Applications></Package>""");
             Assert.IsEmpty(RunFailure.ProcessesRunningFromLayout(layout), "An executable outside the layout is not this app.");
             File.WriteAllText(Path.Combine(layout.FullName, "AppxManifest.xml"),
-                """<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Applications><Application Id="App" Executable="App.exe" /></Applications></Package>""");
+                $"""<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Applications>{(secondaryApplication ? """<Application Id="First" Executable="NotRunning.exe" />""" : "")}<Application Id="App" Executable="App.exe" /></Applications></Package>""");
             Assert.IsEmpty(RunFailure.ProcessesRunningFromLayout(layout));
             Assert.IsFalse(RunFailure.HasExited(Environment.ProcessId));
 

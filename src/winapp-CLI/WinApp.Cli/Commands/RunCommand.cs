@@ -1012,9 +1012,23 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                                 executable, inputFolder, taskContext);
                             sourceDocument = AppxManifestDocument.Parse(sourceManifest);
                             var sourceExecutable = sourceDocument.ApplicationExecutable;
-                            var managed = !nativeAot && (sourceProject is not null && !ProjectRunService.IsCppProject(sourceProject) ||
-                                (sourceExecutable is not null && File.Exists(Path.ChangeExtension(
-                                    Path.Combine(inputFolder.FullName, sourceExecutable), ".runtimeconfig.json"))));
+                            var managedProject = sourceProject is not null && !ProjectRunService.IsCppProject(sourceProject);
+                            var runtimeConfigExists = false;
+                            if (!nativeAot && !managedProject && sourceExecutable is { Length: > 0 } && !Path.IsPathRooted(sourceExecutable))
+                            {
+                                var runtimeConfig = Path.ChangeExtension(sourceExecutable, ".runtimeconfig.json");
+                                var usesRecipe = sourceDocument.Document.Root?
+                                    .Element(AppxManifestDocument.BuildNs + "Metadata")?
+                                    .Elements(AppxManifestDocument.BuildNs + "Item")
+                                    .Any(item => string.Equals(item.Attribute("Name")?.Value, "makepri.exe", StringComparison.OrdinalIgnoreCase)) == true;
+                                var recipe = appxRecipe ?? (usesRecipe
+                                    ? inputFolder.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault()
+                                    : null);
+                                runtimeConfigExists = recipe is not null
+                                    ? MsixService.RecipeContainsPackageFile(recipe, outputAppXDirectory, runtimeConfig)
+                                    : File.Exists(Path.Combine(inputFolder.FullName, runtimeConfig));
+                            }
+                            var managed = !nativeAot && (managedProject || runtimeConfigExists);
                             devToolsEnvironment = CreateDevToolsEnvironment(sourceProject?.DirectoryName, managed);
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)

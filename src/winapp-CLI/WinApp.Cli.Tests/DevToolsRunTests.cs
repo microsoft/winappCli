@@ -341,6 +341,42 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Folder_RecipeMappedRuntimeConfig_PreservesManagedDetection(bool hasRuntimeConfig)
+    {
+        var app = Prepare("folder", true);
+        var manifest = AppxManifestDocument.Load(app.Manifest);
+        manifest.ApplicationExecutable = @"bin\TestApp.exe";
+        manifest.Document.Root!.Add(new System.Xml.Linq.XElement(AppxManifestDocument.BuildNs + "Metadata",
+            new System.Xml.Linq.XElement(AppxManifestDocument.BuildNs + "Item",
+                new System.Xml.Linq.XAttribute("Name", "makepri.exe"))));
+        manifest.Save(app.Manifest);
+        var recipe = new System.Xml.Linq.XElement(System.Xml.Linq.XName.Get("Project", "http://schemas.microsoft.com/developer/msbuild/2003"));
+        var ns = recipe.Name.Namespace;
+        var files = new System.Xml.Linq.XElement(ns + "ItemGroup");
+        recipe.Add(files);
+        files.Add(new System.Xml.Linq.XElement(ns + "AppxPackagedFile",
+            new System.Xml.Linq.XAttribute("Include", Path.Join(app.Output, "TestApp.exe")),
+            new System.Xml.Linq.XElement(ns + "PackagePath", @"bin\TestApp.exe")));
+        // A stale local file must not enable managed hooks when the recipe omits it.
+        File.WriteAllText(Path.Join(app.Output, "TestApp.runtimeconfig.json"), "{}");
+        if (hasRuntimeConfig)
+        {
+            files.Add(new System.Xml.Linq.XElement(ns + "AppxPackagedFile",
+                new System.Xml.Linq.XAttribute("Include", Path.Join(app.Output, "TestApp.runtimeconfig.json")),
+                new System.Xml.Linq.XElement(ns + "PackagePath", @"bin\TestApp.runtimeconfig.json")));
+        }
+        recipe.Save(Path.Join(app.Output, "App.build.appxrecipe"));
+
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.AreEqual((null, hasRuntimeConfig), _environments.Single());
+        Assert.AreEqual(hasRuntimeConfig, _launcher.LastEnvironment!.ContainsKey("DOTNET_STARTUP_HOOKS"));
+        Assert.IsFalse(_launcher.LastEnvironment.ContainsKey("WINAPP_DEVTOOLS_SOURCE_ROOT"));
+        Assert.AreEqual("environment,launch,attach", string.Join(',', _order));
+    }
+
+    [TestMethod]
     [DataRow("--no-launch")]
     [DataRow("--without-alias")]
     public async Task IncompatibleOptions_FailBeforeBuildOrRegistration(string option)
@@ -655,6 +691,49 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         else
         {
             Assert.IsFalse(json.RootElement.TryGetProperty("Error", out _));
+        }
+    }
+
+    [TestMethod]
+    public async Task Default_EnvironmentFailure_PreservesRunningSecondaryApplication()
+    {
+        var app = WinUIProject(true);
+        var previousLayout = _tempDirectory.CreateSubdirectory("secondary-layout");
+        var manifest = AppxManifestDocument.Load(Path.Join(app.Output, "AppxManifest.xml"));
+        manifest.ApplicationExecutable = "NotRunning.exe";
+        manifest.Document.Root!.Element(AppxManifestDocument.DefaultNs + "Applications")!.Add(
+            new System.Xml.Linq.XElement(AppxManifestDocument.DefaultNs + "Application",
+                new System.Xml.Linq.XAttribute("Id", "Secondary"),
+                new System.Xml.Linq.XAttribute("Executable", "Secondary.exe")));
+        manifest.Save(Path.Join(previousLayout.FullName, "AppxManifest.xml"));
+        _registration.FakeDevPackages =
+        [
+            new("previous-package", manifest.IdentityName!, "1.0.0.0", previousLayout.FullName, true, manifest.IdentityPublisher),
+        ];
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ProcessesRunningFromLayout = RunFailure.ProcessesRunningFromLayout;
+        var closed = new List<int>();
+        handler.CloseRunningProcess = pid => { closed.Add(pid); return true; };
+        handler.CreateDevToolsEnvironment = (_, _) => throw new IOException("controlled staging failure");
+        var executable = Path.Join(previousLayout.FullName, "Secondary.exe");
+        File.Copy(Path.Join(Environment.SystemDirectory, "PING.EXE"), executable);
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+            executable, "-n 60 127.0.0.1") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true })!;
+        try
+        {
+            Assert.AreEqual(1, await Run(app.Input, "--detach", "--json", "--output-appx-directory",
+                Path.Join(_tempDirectory.FullName, "secondary-new-layout")), TestAnsiConsole.Output);
+            Assert.IsFalse(process.HasExited);
+            Assert.IsEmpty(closed);
+            Assert.IsEmpty(_msix.AddLooseLayoutCalls);
+            Assert.IsEmpty(_launcher.LaunchCalls);
+            Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+            StringAssert.Contains(TestAnsiConsole.Output, "controlled staging failure");
+        }
+        finally
+        {
+            process.Kill();
+            process.WaitForExit();
         }
     }
 
