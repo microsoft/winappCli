@@ -72,12 +72,9 @@ internal class DevToolsInvokeHandlerCommand : DevToolsLiveCommand, IHelpExamples
             var response = target.Tap!.RequestReactorInvokeHandler(handle, handlerEvent.Trim(), parseResult.GetValue(ValueOption), cancellationToken);
             return Task.FromResult(ReportAgentAnswer(target, handle, json, response, (writer, root) =>
             {
-                foreach (var member in root.EnumerateObject())
+                foreach (var member in root.EnumerateObject().Where(member => member.Name != "state"))
                 {
-                    if (member.Name != "state")
-                    {
-                        member.WriteTo(writer);
-                    }
+                    member.WriteTo(writer);
                 }
             }, root =>
             [

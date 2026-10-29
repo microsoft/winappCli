@@ -391,7 +391,7 @@ public class ReactorTreeTests
             using var agent = new FakeDevToolsProtocolAgent()
                 .Answer("VisualTree.enumerate", IslandsOnly, Authored)
                 .Answer("VisualTree.enumerate", IslandsInXaml);
-            var console = new Spectre.Console.Testing.TestConsole();
+            using var console = new Spectre.Console.Testing.TestConsole();
             console.Profile.Width = 300;
             var command = new DevToolsInspectCommand();
             command.Action = new DevToolsInspectCommand.Handler(agent.Resolver(), console);

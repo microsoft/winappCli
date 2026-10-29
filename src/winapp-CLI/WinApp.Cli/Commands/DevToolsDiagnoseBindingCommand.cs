@@ -234,10 +234,10 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
 
             DevToolsRender.WriteMarkupLine(Console, DevToolsRender.Header(handle, Describe(target, handle, cancellationToken), name));
             DevToolsRender.WriteMarkupLine(Console, "  kind: [blue]reactor[/] [grey](set in C#, not a binding)[/]");
-            if (shown is not null)
+            if (row is { Value: { } value })
             {
-                DevToolsRender.WriteMarkupLine(Console, $"  shows: [green]{Markup.Escape(shown)}[/]" +
-                    (row?.ValueSource is { } source ? $" [grey][[{Markup.Escape(source)}]][/]" : ""));
+                DevToolsRender.WriteMarkupLine(Console, $"  shows: [green]{Markup.Escape(value)}[/]" +
+                    (row.ValueSource is { } source ? $" [grey][[{Markup.Escape(source)}]][/]" : ""));
             }
             var element = reactor.Element ?? "element";
             if (owned is not null)
@@ -272,13 +272,13 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
             {
                 if (!redacted) { yield return ("prop", name, value); }
             }
-            foreach (var hook in component.ValueHooks)
+            foreach (var hook in component.ValueHooks.Where(hook => !hook.Redacted && hook.Kind != "context"))
             {
-                if (!hook.Redacted && hook.Kind != "context") { yield return ("hook", hook.Name ?? $"[{hook.Index}] {hook.Kind}", hook.Value!); }
+                yield return ("hook", hook.Name ?? $"[{hook.Index}] {hook.Kind}", hook.Value!);
             }
-            foreach (var context in component.Contexts)
+            foreach (var context in component.Contexts.Where(context => !context.Redacted))
             {
-                if (!context.Redacted) { yield return ("context", context.Name, context.Value); }
+                yield return ("context", context.Name, context.Value);
             }
         }
 

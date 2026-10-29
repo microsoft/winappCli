@@ -63,12 +63,9 @@ internal class DevToolsGetStateCommand : DevToolsLiveCommand, IHelpExamples
                     WriteIdentity(writer, target, handle, cancellationToken);
                     WriteWarning(writer);
                     using var doc = JsonDocument.Parse(raw!);
-                    foreach (var member in doc.RootElement.EnumerateObject())
+                    foreach (var member in doc.RootElement.EnumerateObject().Where(member => member.Name != "state"))
                     {
-                        if (member.Name != "state")
-                        {
-                            member.WriteTo(writer);
-                        }
+                        member.WriteTo(writer);
                     }
                 }));
                 return Task.FromResult(0);

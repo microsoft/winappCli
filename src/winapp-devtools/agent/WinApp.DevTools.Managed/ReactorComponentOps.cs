@@ -244,13 +244,13 @@ internal static class ReactorComponentOps
             w.WriteEndObject();
         }
         var render = component.RenderMethod;
-        if (ReactorPdb.Locate(render) is { } definition)
+        if (render is not null && ReactorPdb.Locate(render) is { } definition)
         {
             w.WriteStartObject("definition");
             w.WriteString("file", definition.File);
             w.WriteNumber("line", definition.Line);
             if (definition.Column > 0) { w.WriteNumber("column", definition.Column); }
-            if (render is not null) { w.WriteString("method", MethodLabel(render)); }
+            w.WriteString("method", MethodLabel(render));
             if (definition.ChecksumAlgorithm is not null && definition.Checksum is not null)
             {
                 w.WriteString("checksumAlgorithm", definition.ChecksumAlgorithm);

@@ -87,12 +87,9 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
                     {
                         writer.WriteBoolean("ok", true);
                         writer.WriteNumber("processId", target.Pid);
-                        foreach (var member in root.EnumerateObject())
+                        foreach (var member in root.EnumerateObject().Where(member => member.Name != "state"))
                         {
-                            if (member.Name != "state")
-                            {
-                                member.WriteTo(writer);
-                            }
+                            member.WriteTo(writer);
                         }
                     }));
                     return 0;
