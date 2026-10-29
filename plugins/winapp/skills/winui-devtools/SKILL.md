@@ -113,8 +113,11 @@ do not add it automatically to recover from a refused save. See
 likely-source limits, including rebuild/hot-reload uncertainty.
 
 Saved list/get/update/delete use the host store without connecting to Sandbox.
-Choose it with `--source-root`, or with `-a <pid>` on list/get to read the running
-app's project; none of them take `--on`.
+Choose it with `--source-root`, or with `-a <pid>` on list/get/update/delete to use
+the running app's project; none of them take `--on`. `--source-root` takes
+precedence. If the connection fails, follow the
+[comment store recovery instructions](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#comment-storage-and-advanced-authoring);
+do not retry against the current folder's store.
 Mutations refresh the markers of running DevTools apps (local and Sandbox) that use
 the same store; no `--app` is needed. See the guide for save-warning behavior.
 

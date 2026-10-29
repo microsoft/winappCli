@@ -112,7 +112,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             // Live capture from an element in a running --devtools app: either the one the developer picked
             // (--from-selection) or a named/handle-addressed one (--from-element, which is how a script or a
             // protocol client authors a comment with nobody at the app). Populates a bundle that explicit flags
-            // below override (explicit always wins).
+            // below can supplement without contradicting the captured identity.
             CapturedElement? captured = null;
             var fromSelection = parseResult.GetValue(FromSelectionOption);
             var fromElement = Nullify(parseResult.GetValue(FromElementOption));
@@ -168,6 +168,31 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             else if (guestComments is { ScopedInspection: true, Process: { } process })
             {
                 appPid = checked((uint)process.ProcessId);
+            }
+
+            if (captured is not null)
+            {
+                foreach (var (option, value) in new[]
+                {
+                    (NameOption, captured.Name),
+                    (TypeOption, captured.Type),
+                    (AutomationIdOption, captured.AutomationId),
+                })
+                {
+                    var supplied = Nullify(parseResult.GetValue(option));
+                    var expected = Nullify(value);
+                    if (option == TypeOption)
+                    {
+                        supplied = CommentSelectionCapture.ShortType(supplied);
+                        expected = CommentSelectionCapture.ShortType(expected);
+                    }
+                    if (supplied is not null && expected is not null && supplied != expected)
+                    {
+                        return Task.FromResult(Fail(ansiConsole, json,
+                            $"{option.Name} '{supplied}' conflicts with the captured element's value '{expected}'. " +
+                            "Remove the override or capture the intended element. Nothing was saved."));
+                    }
+                }
             }
 
             var explicitSourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption);

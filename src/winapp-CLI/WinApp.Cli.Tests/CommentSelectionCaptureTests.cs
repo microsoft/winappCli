@@ -70,7 +70,7 @@ public class CommentSelectionCaptureTests
                     "--file" => "Different.xaml",
                     "--source-uri" => "ms-appx:///Different.xaml",
                     "--source-root" => (selectedRoot = directory.CreateSubdirectory("other-project")).FullName,
-                    "--type" => "Button",
+                    "--type" => "TextBlock",
                     _ => "Other",
                 };
                 arguments.AddRange([overrideOption, value]);
