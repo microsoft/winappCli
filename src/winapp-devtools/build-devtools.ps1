@@ -151,9 +151,6 @@ $hostArch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitec
 if (-not $SkipNativeUnitTests -and $Arch -eq $hostArch) {
     & pwsh -NoProfile -File (Join-Path $repoRoot 'scripts\test-native-units.ps1') -VcVars $VcVars
     Assert-BuildSucceeded 'Native unit tests'
-    & pwsh -NoProfile -File (Join-Path $repoRoot 'scripts\test-native-binding-semantics.ps1') `
-        -VcVars $VcVars -OutDir (Join-Path $PSScriptRoot 'test\bin\binding-semantics') -EditorTests -OverlayTests
-    Assert-BuildSucceeded 'Native binding semantics and editor tests'
     $testDir = Join-Path $PSScriptRoot 'test'
     $fixture = Join-Path $testDir 'bin\binding-transfer-fixture.dll'
     $fixtureCl = "cl $flags /LD /DWINAPP_DEVTOOLS_BINDING_FIXTURE_DLL /I`"$nativeDir`" `"$testDir\binding-transfer-fixture.cpp`" DevToolsBindingRelay.obj DevToolsProtocol.obj DevToolsProtocolSchema.obj /Fe:`"$fixture`" /Fo:`"$testDir\bin\binding-transfer-fixture.obj`" /Fd:`"$testDir\bin\binding-transfer-fixture.pdb`" /link $libs"
@@ -176,6 +173,9 @@ if (-not $SkipNativeUnitTests -and $Arch -eq $hostArch) {
     & $windowTestExe
     Assert-BuildSucceeded 'Native window tests'
     if ($dispatcherTestExit -ne 0) { throw "Native dispatcher tests failed (exit code $dispatcherTestExit)." }
+    & pwsh -NoProfile -File (Join-Path $repoRoot 'scripts\test-native-binding-semantics.ps1') `
+        -VcVars $VcVars -OutDir (Join-Path $PSScriptRoot 'test\bin\binding-semantics') -EditorTests -OverlayTests
+    Assert-BuildSucceeded 'Native binding semantics and editor tests'
 } else {
     Write-Host "SKIPPED native execution: target=$Arch host=$hostArch explicitSkip=$SkipNativeUnitTests"
 }
