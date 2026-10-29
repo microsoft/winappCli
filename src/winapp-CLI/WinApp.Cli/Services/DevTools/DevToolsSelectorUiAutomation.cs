@@ -197,12 +197,11 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
             {
                 return new Resolved(byId, perWindow.First(w => w.Elements.Contains(identified)).Hwnd);
             }
-            foreach (var (hwnd, elements, expected) in perWindow)
+            var shown = perWindow.Select(window => (window.Hwnd, Match: Match(window.Elements, automationId, name, window.Expected)))
+                .FirstOrDefault(window => window.Match?.Selector is not null);
+            if (shown.Match?.Selector is { } slug)
             {
-                if (Match(elements, automationId, name, expected) is { Selector: { } slug })
-                {
-                    return new Resolved(slug, hwnd);
-                }
+                return new Resolved(slug, shown.Hwnd);
             }
         }
         throw new UiElementNotFoundException(selector);

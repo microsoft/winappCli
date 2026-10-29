@@ -117,12 +117,9 @@ internal static class ReactorProvider
             stack.Push((root, 0));
             if (root is UIElement { XamlRoot: { } xamlRoot } && VisualTreeHelper.GetParent(root) is null)
             {
-                foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(xamlRoot))
+                foreach (var child in VisualTreeHelper.GetOpenPopupsForXamlRoot(xamlRoot).Select(popup => popup.Child).OfType<UIElement>())
                 {
-                    if (popup.Child is { } child)
-                    {
-                        stack.Push((child, 0));
-                    }
+                    stack.Push((child, 0));
                 }
             }
 
@@ -345,16 +342,15 @@ internal static class ReactorProvider
                 w.WriteStartArray("themeBindings");
                 if (ReactorReflect.Member(tag, "ThemeBindings") is System.Collections.IEnumerable bindings)
                 {
-                    foreach (var binding in bindings)
+                    foreach (var (property, resourceKey) in bindings.Cast<object?>()
+                        .Select(binding => (Property: ReactorReflect.Member(binding, "Key") as string,
+                            ResourceKey: ReactorReflect.Member(ReactorReflect.Member(binding, "Value"), "ResourceKey") as string))
+                        .Where(binding => binding.Property is not null && binding.ResourceKey is not null))
                     {
-                        if (ReactorReflect.Member(binding, "Key") is string property &&
-                            ReactorReflect.Member(ReactorReflect.Member(binding, "Value"), "ResourceKey") is string resourceKey)
-                        {
-                            w.WriteStartObject();
-                            w.WriteString("property", ReactorElementProps.PropertyName(property));
-                            w.WriteString("resourceKey", resourceKey);
-                            w.WriteEndObject();
-                        }
+                        w.WriteStartObject();
+                        w.WriteString("property", ReactorElementProps.PropertyName(property!));
+                        w.WriteString("resourceKey", resourceKey);
+                        w.WriteEndObject();
                     }
                 }
                 w.WriteEndArray();

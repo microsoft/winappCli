@@ -831,12 +831,9 @@ internal sealed partial class ReactorApi
             return internals.HostFor(chain);
         }
         var hosts = PublicHostObjects();
-        foreach (var ancestor in chain)
+        foreach (var ancestor in chain.Where(hosts.ContainsKey))
         {
-            if (hosts.TryGetValue(ancestor, out var host))
-            {
-                return host;
-            }
+            return hosts[ancestor];
         }
         return null;
     }
@@ -877,12 +874,9 @@ internal sealed partial class ReactorApi
             return null;
         }
         var hosts = WindowHosts();
-        foreach (var ancestor in Ancestors(element))
+        foreach (var host in Ancestors(element).Where(hosts.ContainsKey).Select(ancestor => hosts[ancestor]))
         {
-            if (hosts.TryGetValue(ancestor, out var host))
-            {
-                return host.ErrorScreen is { } headline ? ErrorScreenReason(host.Root?.Name, headline) : null;
-            }
+            return host.ErrorScreen is { } headline ? ErrorScreenReason(host.Root?.Name, headline) : null;
         }
         return null;
     }

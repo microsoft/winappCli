@@ -310,12 +310,10 @@ internal partial class RunCommand
         private static Dictionary<string, string> TakeHotReloadEnvironment()
         {
             var taken = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (System.Collections.DictionaryEntry variable in Environment.GetEnvironmentVariables())
+            foreach (var variable in Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
+                .Where(variable => variable.Key is string name && variable.Value is string && IsHotReloadVariable(name)))
             {
-                if (variable.Key is string name && variable.Value is string value && IsHotReloadVariable(name))
-                {
-                    taken[name] = value;
-                }
+                taken[(string)variable.Key] = (string)variable.Value!;
             }
             foreach (var name in taken.Keys)
             {

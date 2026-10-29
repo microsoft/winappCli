@@ -159,12 +159,10 @@ internal sealed record ReactorComponentState(
                 props = [];
                 if (p.TryGetProperty("values", out var values) && values.ValueKind == JsonValueKind.Array)
                 {
-                    foreach (var value in values.EnumerateArray())
+                    foreach (var (value, name) in values.EnumerateArray()
+                        .Select(value => (value, Name: ReactorDescription.ReadString(value, "name"))).Where(prop => prop.Name is not null))
                     {
-                        if (ReactorDescription.ReadString(value, "name") is { } name)
-                        {
-                            props.Add((name, ReactorDescription.ReadString(value, "value") ?? "", Bool(value, "redacted")));
-                        }
+                        props.Add((name!, ReactorDescription.ReadString(value, "value") ?? "", Bool(value, "redacted")));
                     }
                 }
             }
@@ -192,14 +190,12 @@ internal sealed record ReactorComponentState(
             var contexts = new List<ReactorContextInfo>();
             if (root.TryGetProperty("contexts", out var c) && c.ValueKind == JsonValueKind.Array)
             {
-                foreach (var context in c.EnumerateArray())
+                foreach (var (context, name) in c.EnumerateArray()
+                    .Select(context => (context, Name: ReactorDescription.ReadString(context, "name"))).Where(entry => entry.Name is not null))
                 {
-                    if (ReactorDescription.ReadString(context, "name") is { } name)
-                    {
-                        contexts.Add(new ReactorContextInfo(context.TryGetProperty("hook", out var at) && at.TryGetInt32(out var hookIndex) ? hookIndex : -1,
-                            name, ReactorDescription.ReadString(context, "type"), ReactorDescription.ReadString(context, "value") ?? "",
-                            Bool(context, "redacted"), Bool(context, "isDefault")));
-                    }
+                    contexts.Add(new ReactorContextInfo(context.TryGetProperty("hook", out var at) && at.TryGetInt32(out var hookIndex) ? hookIndex : -1,
+                        name!, ReactorDescription.ReadString(context, "type"), ReactorDescription.ReadString(context, "value") ?? "",
+                        Bool(context, "redacted"), Bool(context, "isDefault")));
                 }
             }
 

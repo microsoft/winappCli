@@ -320,14 +320,8 @@ internal static class ReactorEvents
 
     internal static Type? ReactorType(string name)
     {
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            if (!assembly.IsDynamic && assembly.GetType(name) is { } type)
-            {
-                return type;
-            }
-        }
-        return null;
+        return AppDomain.CurrentDomain.GetAssemblies().Where(assembly => !assembly.IsDynamic)
+            .Select(assembly => assembly.GetType(name)).FirstOrDefault(type => type is not null);
     }
 
     /// <summary>
@@ -372,12 +366,9 @@ internal static class ReactorEvents
                 {
                     return;
                 }
-                foreach (var warning in recent.Cast<object>().ToList())
+                foreach (var record in recent.Cast<object?>().ToList().OfType<object>().Select(Translate).OfType<ReactorEventRecord>())
                 {
-                    if (warning is not null && Translate(warning) is { } record)
-                    {
-                        Sink(record);
-                    }
+                    Sink(record);
                 }
             }
             catch (Exception ex)

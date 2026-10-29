@@ -232,12 +232,10 @@ internal static class ReactorElementProps
             {
                 yield break;
             }
-            foreach (var property in current.GetProperties(PublicInstance | BindingFlags.DeclaredOnly))
+            foreach (var property in current.GetProperties(PublicInstance | BindingFlags.DeclaredOnly)
+                .Where(property => property.CanRead && property.GetIndexParameters().Length == 0 && seen.Add(property.Name)))
             {
-                if (property.CanRead && property.GetIndexParameters().Length == 0 && seen.Add(property.Name))
-                {
-                    yield return property;
-                }
+                yield return property;
             }
         }
     }

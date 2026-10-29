@@ -91,24 +91,15 @@ internal sealed class ReactorInternals
     public List<object> HostObjects(IReadOnlyList<UIElement> chain)
     {
         var hosts = new List<object>();
-        foreach (var ancestor in chain)
-        {
-            if (hostControl?.IsInstanceOfType(ancestor) == true)
-            {
-                hosts.Add(ancestor);
-            }
-        }
+        hosts.AddRange(chain.Where(ancestor => hostControl?.IsInstanceOfType(ancestor) == true));
         object? windows;
         try { windows = appWindows?.GetValue(null); }
         catch (TargetInvocationException) { return hosts; }
         if (windows is IEnumerable items)
         {
-            foreach (var window in items)
+            foreach (var host in items.Cast<object?>().Select(window => Member(window, "Host")).OfType<object>().Where(host => !hosts.Contains(host)))
             {
-                if (Member(window, "Host") is { } host && !hosts.Contains(host))
-                {
-                    hosts.Add(host);
-                }
+                hosts.Add(host);
             }
         }
         return hosts;
@@ -117,45 +108,37 @@ internal sealed class ReactorInternals
     /// <summary>The nearest island on the chain, or the window host whose root control is on it.</summary>
     public object? HostFor(IReadOnlyList<UIElement> chain)
     {
-        foreach (var ancestor in chain)
+        if (chain.FirstOrDefault(ancestor => hostControl?.IsInstanceOfType(ancestor) == true) is { } island)
         {
-            if (hostControl?.IsInstanceOfType(ancestor) == true)
-            {
-                return ancestor;
-            }
+            return island;
         }
-        foreach (var host in HostObjects(chain))
-        {
-            if (HostRootControl(host) is { } root && chain.Contains(root))
-            {
-                return host;
-            }
-        }
-        return null;
+        return HostObjects(chain).FirstOrDefault(host => HostRootControl(host) is { } root && chain.Contains(root));
     }
+
+    // The host reconciler's component node for `element`, with the node map it was found in; null when it has none.
+    private static (IDictionary Nodes, object Node)? ComponentNode(object host, UIElement element) =>
+        Member(host, "Reconciler", "_reconciler") is { } reconciler &&
+        Member(reconciler, "_componentNodes") is IDictionary nodes && nodes.Contains(element) && nodes[element] is { } node
+            ? (nodes, node)
+            : null;
 
     /// <summary>The component mounted at <paramref name="element"/>, read from a host's reconciler.</summary>
     public ReactorComponentHandle? ComponentAt(UIElement element, IReadOnlyList<object> hosts)
     {
-        foreach (var host in hosts)
+        foreach (var (nodes, node) in hosts.Select(host => ComponentNode(host, element)).OfType<(IDictionary Nodes, object Node)>())
         {
-            if (Member(host, "Reconciler", "_reconciler") is { } reconciler &&
-                Member(reconciler, "_componentNodes") is IDictionary nodes && nodes.Contains(element) &&
-                nodes[element] is { } node)
+            var component = Member(node, "Component");
+            var context = Member(component, "Context") ?? Member(node, "Context");
+            if (context is null)
             {
-                var component = Member(node, "Component");
-                var context = Member(component, "Context") ?? Member(node, "Context");
-                if (context is null)
-                {
-                    return null;
-                }
-                var declaring = Member(node, "Element");
-                var kind = component is not null ? "class" : memoElement?.IsInstanceOfType(declaring) == true ? "memo" : "function";
-                var props = Member(component, "PropsBoxed", "Props") ?? (componentElement?.IsInstanceOfType(declaring) == true ? componentProps?.GetValue(declaring) : null);
-                return new InternalReactorComponent(context, kind, false, component?.GetType(),
-                    Member(declaring, "RenderFunc") as Delegate, props, declaring,
-                    () => nodes.Contains(element) && ReferenceEquals(nodes[element], node));
+                return null;
             }
+            var declaring = Member(node, "Element");
+            var kind = component is not null ? "class" : memoElement?.IsInstanceOfType(declaring) == true ? "memo" : "function";
+            var props = Member(component, "PropsBoxed", "Props") ?? (componentElement?.IsInstanceOfType(declaring) == true ? componentProps?.GetValue(declaring) : null);
+            return new InternalReactorComponent(context, kind, false, component?.GetType(),
+                Member(declaring, "RenderFunc") as Delegate, props, declaring,
+                () => nodes.Contains(element) && ReferenceEquals(nodes[element], node));
         }
         foreach (var host in hosts)
         {

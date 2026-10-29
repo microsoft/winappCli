@@ -201,13 +201,8 @@ internal sealed record ReactorDescription(
         var byHandle = new Dictionary<string, ReactorNode>(StringComparer.Ordinal);
         if (root.TryGetProperty("nodes", out var nodes) && nodes.ValueKind == JsonValueKind.Array)
         {
-            foreach (var node in nodes.EnumerateArray())
-            {
-                if (ParseNode(node, files) is { } parsed && byHandle.TryAdd(parsed.Handle, parsed))
-                {
-                    ordered.Add(parsed);
-                }
-            }
+            ordered.AddRange(nodes.EnumerateArray().Select(node => ParseNode(node, files)).OfType<ReactorNode>()
+                .Where(parsed => byHandle.TryAdd(parsed.Handle, parsed)));
         }
 
         var roots = new List<ReactorNode>();

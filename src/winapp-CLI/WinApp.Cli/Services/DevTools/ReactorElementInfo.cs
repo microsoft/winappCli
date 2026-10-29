@@ -85,13 +85,11 @@ internal sealed record ReactorElementInfo(
                 props = [];
                 if (cp.TryGetProperty("values", out var values) && values.ValueKind == JsonValueKind.Array)
                 {
-                    foreach (var value in values.EnumerateArray())
+                    foreach (var (value, name) in values.EnumerateArray().Where(value => value.ValueKind == JsonValueKind.Object)
+                        .Select(value => (value, Name: ReactorDescription.ReadString(value, "name"))).Where(prop => prop.Name is not null))
                     {
-                        if (value.ValueKind == JsonValueKind.Object && ReactorDescription.ReadString(value, "name") is { } name)
-                        {
-                            props.Add((name, value.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "",
-                                value.TryGetProperty("redacted", out var r) && r.ValueKind == JsonValueKind.True));
-                        }
+                        props.Add((name!, value.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "",
+                            value.TryGetProperty("redacted", out var r) && r.ValueKind == JsonValueKind.True));
                     }
                 }
             }
@@ -140,12 +138,11 @@ internal sealed record ReactorElementInfo(
         var bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (root.TryGetProperty("themeBindings", out var array) && array.ValueKind == JsonValueKind.Array)
         {
-            foreach (var item in array.EnumerateArray())
+            foreach (var (property, key) in array.EnumerateArray()
+                .Select(item => (Property: ReactorDescription.ReadString(item, "property"), Key: ReactorDescription.ReadString(item, "resourceKey")))
+                .Where(binding => binding.Property is not null && binding.Key is not null))
             {
-                if (ReactorDescription.ReadString(item, "property") is { } property && ReactorDescription.ReadString(item, "resourceKey") is { } key)
-                {
-                    bindings[property] = key;
-                }
+                bindings[property!] = key!;
             }
         }
         return bindings;

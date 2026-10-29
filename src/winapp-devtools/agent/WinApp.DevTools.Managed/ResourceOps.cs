@@ -268,13 +268,14 @@ internal static class ResourceOps
         {
             return new ResourceHit(dictionary, path, "", null, direct);
         }
-        foreach (var name in new[] { theme, theme == "Dark" ? "Default" : "Light", "Default" }.Distinct())
+        if (new[] { theme, theme == "Dark" ? "Default" : "Light", "Default" }.Distinct()
+            .Select(name => TryOwn(dictionary.ThemeDictionaries, name, out var themed) && themed is ResourceDictionary themeDictionary &&
+                TryOwn(themeDictionary, key, out var value)
+                    ? new ResourceHit(themeDictionary, $"{path}.ThemeDictionaries[{name}]", "", null, value)
+                    : null)
+            .FirstOrDefault(hit => hit is not null) is { } themedHit)
         {
-            if (TryOwn(dictionary.ThemeDictionaries, name, out var themed) && themed is ResourceDictionary themeDictionary &&
-                TryOwn(themeDictionary, key, out var value))
-            {
-                return new ResourceHit(themeDictionary, $"{path}.ThemeDictionaries[{name}]", "", null, value);
-            }
+            return themedHit;
         }
         // Later merged dictionaries win, as in XAML lookup.
         for (var i = dictionary.MergedDictionaries.Count - 1; i >= 0; i--)
@@ -289,13 +290,10 @@ internal static class ResourceOps
 
     private static bool TryOwn(IEnumerable<KeyValuePair<object, object>> dictionary, string key, out object? value)
     {
-        foreach (var pair in dictionary)
+        foreach (var pair in dictionary.Where(pair => pair.Key is string name && name == key))
         {
-            if (pair.Key is string name && name == key)
-            {
-                value = pair.Value;
-                return true;
-            }
+            value = pair.Value;
+            return true;
         }
         value = null;
         return false;
@@ -314,14 +312,13 @@ internal static class ResourceOps
     {
         // Reactor with Theme.NotifyResourcesChanged re-resolves every ThemeRef and re-renders every host itself.
         var notified = false;
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        foreach (var notify in AppDomain.CurrentDomain.GetAssemblies().Where(assembly => !assembly.IsDynamic)
+            .Select(assembly => assembly.GetType("Microsoft.UI.Reactor.Core.Theme")?
+                .GetMethod("NotifyResourcesChanged", BindingFlags.Static | BindingFlags.Public, Type.EmptyTypes))
+            .OfType<MethodInfo>())
         {
-            if (!assembly.IsDynamic && assembly.GetType("Microsoft.UI.Reactor.Core.Theme")?
-                    .GetMethod("NotifyResourcesChanged", BindingFlags.Static | BindingFlags.Public, Type.EmptyTypes) is { } notify)
-            {
-                try { notify.Invoke(null, null); notified = true; }
-                catch (TargetInvocationException) { }
-            }
+            try { notify.Invoke(null, null); notified = true; }
+            catch (TargetInvocationException) { }
         }
         // Older Reactor caches what a ThemeRef resolved to; drop it so the next render resolves the edited value.
         foreach (var assembly in (notified ? Array.Empty<Assembly>() : AppDomain.CurrentDomain.GetAssemblies()).Where(assembly => !assembly.IsDynamic))
@@ -335,12 +332,10 @@ internal static class ResourceOps
         }
         if (everyWindow && ReactorApi.TryLoad(AppDomain.CurrentDomain.GetAssemblies()) is { Error: null } api)
         {
-            foreach (var host in api.WindowHosts().Keys)
+            foreach (var root in api.WindowHosts().Keys.Select(host => host.XamlRoot?.Content).OfType<FrameworkElement>()
+                .Where(root => !roots.Contains(root)))
             {
-                if (host.XamlRoot?.Content is FrameworkElement root && !roots.Contains(root))
-                {
-                    roots.Add(root);
-                }
+                roots.Add(root);
             }
         }
         foreach (var root in notified ? Enumerable.Empty<FrameworkElement>() : roots)
