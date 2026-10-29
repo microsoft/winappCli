@@ -677,6 +677,8 @@ inline HRESULT DevToolsToggleButtonPutIsChecked(void* toggleButton, void* boxedB
 { return DevToolsAbi<DevToolsXCP::IToggleButton>(toggleButton)->put_IsChecked(boxedBool); }
 inline HRESULT DevToolsGetSelectedIndex(void* selector, int* index) noexcept
 { return DevToolsAbi<DevToolsXCP::ISelector>(selector)->get_SelectedIndex(index); }
+inline HRESULT DevToolsPutSelectedIndex(void* selector, int index) noexcept
+{ return DevToolsAbi<DevToolsXCP::ISelector>(selector)->put_SelectedIndex(index); }
 inline HRESULT DevToolsAddSelectionChanged(void* selector, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXCP::ISelector>(selector)->add_SelectionChanged(handler, DevToolsAbiTok(token)); }
 
