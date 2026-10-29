@@ -68,7 +68,7 @@ internal static partial class ControlSnippetText
             // Event names are matched on shape, so skip property-looking attributes
             // (IsChecked, ShowGlyph) and enum/literal values (TextWrapping="Wrap").
             var propertyLike = NonEventAttrPrefixRegex().IsMatch(eventName) && !ChangeEventSuffixRegex().IsMatch(eventName);
-            if (propertyLike || (NonHandlerValues.Contains(method) && method != eventName))
+            if (propertyLike || eventName == "BehaviorOnInvoked" || (NonHandlerValues.Contains(method) && method != eventName))
             {
                 continue;
             }

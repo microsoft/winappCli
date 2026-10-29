@@ -286,6 +286,7 @@ public class FindUiSearchTests
     [DataRow("<Grid NoFocusCandidateFound=\"Grid_NoFocusCandidateFound\" />", "NoFocusCandidateFound=\"Grid_NoFocusCandidateFound\"")]
     [DataRow("<Button Click = \"OnClick\" />", "Click=\"OnClick\"")]
     [DataRow("<Button Click='OnClick' />", "Click=\"OnClick\"")]
+    [DataRow("<Button Click=\"Close\" />", "Click=\"Close\"")]
     [DataRow("<Button IsEnabledChanged=\"OnEnabledChanged\" />", "IsEnabledChanged=\"OnEnabledChanged\"")]
     [DataRow("<CheckBox Checked=\"Checked\" />", "Checked=\"Checked\"")]
     public void FindUndefinedEventHandlers_DisclosesEdgeCases(string xaml, string expected)
@@ -302,6 +303,7 @@ public class FindUiSearchTests
     [DataRow("<NavigationView SelectionFollowsFocus=\"Enabled\" />")]
     [DataRow("<Grid x:Name=\"Animated_ScrollViewer\" />")]
     [DataRow("<Button IsEnabled=\"True\" />")]
+    [DataRow("<SwipeItem BehaviorOnInvoked=\"Close\" />")]
     public void FindUndefinedEventHandlers_StillIgnoresNonEvents(string xaml)
     {
         Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, null).Length);
