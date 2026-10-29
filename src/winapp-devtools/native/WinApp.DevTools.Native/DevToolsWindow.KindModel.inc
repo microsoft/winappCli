@@ -141,9 +141,12 @@ static void ReconcileEditRecordsAt(InstanceHandle wire, const std::vector<DevToo
         const DevToolsCardRow* row = FindPropertyRowIn(rows, rec.prop);
         if (!row) continue;
         const std::wstring now = RowEditSeed(*row);
+        const bool setHere = SetHereIn(rows, OwningRowName(rows, rec.prop));
         const bool themeSwitched = theme >= 0 && rec.baselineTheme >= 0 && theme != rec.baselineTheme;
-        if (rec.needsBaseline || (themeSwitched && ValueFollowsTheme(rec, rows))) {
-            rec.baseline = now; rec.baselineTheme = theme; rec.needsBaseline = false;
+        // Still not set here: the value follows the parent or a style, which DevTools may have changed itself.
+        const bool followsElsewhere = !rec.baselineSetHere && !setHere;
+        if (rec.needsBaseline || followsElsewhere || (themeSwitched && ValueFollowsTheme(rec, rows))) {
+            rec.baseline = now; rec.baselineTheme = theme; rec.baselineSetHere = setHere; rec.needsBaseline = false;
             continue;
         }
         if (now == rec.baseline) {
@@ -182,17 +185,23 @@ static void ClearRowValue(InstanceHandle wire, const std::wstring& prop)
         return;
     }
     CheckEditRecordsNow(wire);
+    // Clearing a {Binding} or {x:Bind} deletes it. Its resolved value is not something Restore can honestly put back;
+    // the row offers Restore binding instead, as it does after a literal replaced the binding.
+    const DevToolsCardRow* clearedRow = FindPropertyRowIn(g_propRows, prop);
+    const DevToolsKind clearedKind = clearedRow ? CurrentKindOf(*clearedRow, prop) : DevToolsKind::Literal;
+    const bool bound = clearedKind == DevToolsKind::Binding || clearedKind == DevToolsKind::XBind;
     EditRecord first;
-    const bool recordable = !DirtyHas(prop) && OriginalFor(prop, CurrentEditSeed(prop), first);
+    const bool recordable = !bound && !DirtyHas(prop) && OriginalFor(prop, CurrentEditSeed(prop), first);
     const bool ok = g_ctx.clearFn(wire, prop);
     if (ok) {
         // Clear is an edit too: Restore still puts back what the property was before the first one.
         if (EditRecord* rec = DirtyFind(prop)) {
-            if (rec->kind == DevToolsOriginal::Unset) DirtyErase(prop);
+            if (rec->kind == DevToolsOriginal::Unset || bound) DirtyErase(prop);
             else rec->themeAssigned = false;
         } else if (recordable && first.kind != DevToolsOriginal::Unset) {
             g_editRecords.push_back(std::move(first));
         }
+        if (bound) NoteBindingLost(prop);
         SessionAssignErase(prop);
         AppChangedErase(wire, prop);
         RebaselineRecords(wire);
@@ -200,8 +209,11 @@ static void ClearRowValue(InstanceHandle wire, const std::wstring& prop)
     // The flush saved the editors. Retire them so the rebuild doesn't save their old text over the clear.
     RetirePaneEditors();
     ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-    SetStatusText(ok ? (L"Cleared " + prop + L". It now falls back to its default")
-                     : (L"Couldn't clear " + prop));
+    SetStatusText(!ok ? (L"Couldn't clear " + prop)
+                : bound ? (L"Cleared " + prop + L" and its binding. " +
+                           (g_ctx.bindFn ? std::wstring(L"Use Restore binding to put it back")
+                                         : std::wstring(L"Restart the app to get it back")))
+                        : (L"Cleared " + prop + L". It now falls back to its default"));
 }
 
 // A failed resource lookup can clear the property. Put back what it held just before: the resource DevTools

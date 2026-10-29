@@ -235,6 +235,9 @@ struct EditRecord
     // The element's ActualTheme when `baseline` was read, or -1 if unknown. A theme switch changes theme-following
     // values without the app touching them, so a different theme takes a new baseline instead of dropping Restore.
     int              baselineTheme = -1;
+    // Whether the property was set on the element when `baseline` was read. After Clear it isn't, so its value
+    // follows the parent or a style, and a change there is not the app changing this element.
+    bool             baselineSetHere = true;
     // DevTools last set the property to a {ThemeResource}. Kept here because the pane forgets its session
     // assignments when the selection moves, and the value still follows the theme.
     bool             themeAssigned = false;

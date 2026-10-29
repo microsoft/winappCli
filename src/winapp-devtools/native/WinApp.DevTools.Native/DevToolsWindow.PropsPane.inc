@@ -43,7 +43,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     std::wstring flushed;
     if (!g_flushingEditor) {
         const bool leaving = g_selWire != 0 && wire != g_selWire;
-        const std::wstring saved = FlushFocusedEditor();
+        const std::wstring saved = FlushFocusedEditor(leaving);
         if (leaving) flushed = saved;
         ReleasePaneEditors(/*retire*/ !leaving);
     }

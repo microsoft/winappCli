@@ -1105,6 +1105,76 @@ int main()
         check(!late.retired && g_paneEditors.size()==1, "Restore with nothing to restore leaves the visible editors saving");
         ReleasePaneEditors(/*retire*/ false);
 
+        // An edit over a resource that is saved because the selection moves can't be confirmed: the prompt leaves
+        // with the pane. Its box's late focus-out must not save it either, because by then the resource check looks
+        // at the newly selected element.
+        {
+            static std::wstring boxText;
+            const auto savedRead=g_ctx.readInputFn;
+            g_ctx.readInputFn=[](IInspectable*,std::wstring& t){ t=boxText; return true; };
+            g_editRecords.clear(); g_appChanged.clear(); g_pendingWrites.clear(); g_linkLost.clear();
+            g_selWire=g_dirtyNode=500; g_propRows={text}; live[500]=L"Hello"; liveSource=L"Local";
+            g_linkedRows={L"Text"};
+            boxText=L"Hello";
+            LostFocusSink linkedBox; linkedBox.Init(500,L"Text",L"String",L"Hello",&testInput);
+            boxText=L"Typed";
+            PaneEditor pe; pe.path=L"Text"; pe.retired=&linkedBox.retired; pe.text=&linkedBox;
+            pe.commit=[&linkedBox]{ linkedBox.Invoke(nullptr,nullptr); };
+            const unsigned editsConfirm=edits;
+            const std::wstring stay=FlushPaneEditor(pe,/*leaving*/ false);
+            check(edits==editsConfirm && !linkedBox.retired && stay.find(L"Didn't save Text")!=std::wstring::npos,
+                "a save that needs confirmation on the same element keeps its editor live");
+            const std::wstring left=FlushPaneEditor(pe,/*leaving*/ true);
+            check(edits==editsConfirm && linkedBox.retired && left.find(L"needs confirmation")!=std::wstring::npos,
+                "leaving an element with a save that needs confirmation says it wasn't saved");
+            g_selWire=g_dirtyNode=501; g_linkedRows.clear();
+            linkedBox.Invoke(nullptr,nullptr);
+            check(edits==editsConfirm && live[500]==L"Hello",
+                "the refused editor's late focus-out doesn't save it after the selection moved");
+            g_selWire=g_dirtyNode=500; g_pendingWrites.clear(); g_ctx.readInputFn=savedRead;
+        }
+
+        // After Clear the value follows the parent or a style, which DevTools itself may change: Restore stays.
+        {
+            g_editRecords.clear(); g_appChanged.clear();
+            DevToolsCardRow inherited=text; inherited.source=L"Inherited"; inherited.value=L"14";
+            EditRecord clearedRec; clearedRec.wire=500; clearedRec.prop=L"Text"; clearedRec.original=L"Hello";
+            g_editRecords.push_back(clearedRec);
+            std::vector<DevToolsCardRow> afterClear{inherited};
+            ReconcileEditRecordsAt(500,afterClear,-1);
+            check(DirtyFind(L"Text") && !DirtyFind(L"Text")->baselineSetHere, "a cleared property's baseline isn't set on the element");
+            afterClear[0].value=L"20";
+            ReconcileEditRecordsAt(500,afterClear,-1);
+            check(DirtyFind(L"Text") && !AppChanged(500,L"Text") && DirtyFind(L"Text")->baseline==L"20",
+                "a cleared property keeps Restore when the value it follows changes");
+            afterClear[0].source=L"Local"; afterClear[0].value=L"FromApp";
+            ReconcileEditRecordsAt(500,afterClear,-1);
+            check(!DirtyFind(L"Text") && AppChanged(500,L"Text"), "the app setting a cleared property still drops Restore");
+            g_editRecords.clear(); g_appChanged.clear();
+            clearedRec.baseline=L"Edited"; clearedRec.needsBaseline=false;
+            g_editRecords.push_back(clearedRec);
+            DevToolsCardRow styledBack=text; styledBack.source=L"Style"; styledBack.value=L"FromStyle";
+            ReconcileEditRecordsAt(500,{styledBack},-1);
+            check(!DirtyFind(L"Text") && AppChanged(500,L"Text"),
+                "the app clearing an edited value back to its style still drops Restore");
+            g_editRecords.clear(); g_appChanged.clear();
+        }
+
+        // Clearing a {Binding} removes it. Restore can't bring the binding back, so the row offers Restore binding.
+        {
+            g_editRecords.clear(); g_appChanged.clear(); g_bindingLost.clear();
+            DevToolsCardRow bound=text; bound.authoredKind=L"binding"; bound.authored=L"{Binding Name}";
+            g_selWire=g_dirtyNode=500; g_propRows={bound}; live[500]=L"Hello"; liveSource=L"Local";
+            ClearRowValue(500,L"Text");
+            check(!DirtyFind(L"Text") && BindingLost(L"Text") &&
+                  testStatus.text.find(L"and its binding")!=std::wstring::npos,
+                "clearing a binding offers Restore binding instead of restoring its resolved value");
+            const unsigned editsBound=edits, clearsBound=clears;
+            RestoreRowValue(500,L"Text",L"String");
+            check(edits==editsBound && clears==clearsBound, "Restore after clearing a binding doesn't write a literal");
+            g_bindingLost.clear(); g_propRows={text};
+        }
+
         // A multi-field editor (Margin's four boxes) reads only its own expansion's boxes. The previous
         // element's boxes have the same property path and can still be alive after the selection moves.
         {

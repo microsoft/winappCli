@@ -292,13 +292,39 @@ static void ReleasePaneEditors(bool retire)
 }
 static void RetirePaneEditors() { ReleasePaneEditors(/*retire*/ true); }
 
+// Save one pane editor, as leaving it would. Returns what happened, for the status line, or an empty string when
+// its text was unchanged. `leaving` when the selection is about to move to another element.
+static std::wstring FlushPaneEditor(PaneEditor e, bool leaving)
+{
+    if (!e.commit) return std::wstring();
+    const unsigned seq = g_commitSeq;
+    const std::wstring label = g_selLabel;
+    g_flushingEditor = true;
+    e.commit();
+    g_flushingEditor = false;
+    if (seq == g_commitSeq) return std::wstring();
+    switch (g_lastCommitOc) {
+    case DevToolsWriteOutcome::Ok:
+    case DevToolsWriteOutcome::ReplacedBinding:
+        return L"Saved " + e.path + L" on " + label;
+    case DevToolsWriteOutcome::NeedsConfirm:
+        // The confirmation prompt goes away with the pane. Stop the box's late focus-out from saving it anyway: by
+        // then the selection has moved, and the resource check would look at the other element's properties.
+        if (leaving && e.retired) *e.retired = true;
+        return L"Didn't save " + e.path + L" on " + label + L": it replaces a resource or binding, which needs " +
+               L"confirmation. Select " + label + L" and enter the value again to replace it";
+    default:
+        return L"Couldn't save " + e.path + L" on " + label + L": " + g_lastCommitWhy;
+    }
+}
+
 // Save the property editor that has keyboard focus, as leaving it would. Returns what happened, for the status
 // line, or an empty string when no editor was focused or its text was unchanged.
-static std::wstring FlushFocusedEditor()
+static std::wstring FlushFocusedEditor(bool leaving = false)
 {
     if (g_flushingEditor || g_paneEditors.empty() || !g_inspectorContent) return std::wstring();
-    std::function<void()> commit;
-    std::wstring path;
+    // A copy: saving can rebuild the pane and change the registry.
+    PaneEditor picked;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, g_inspectorContent);
@@ -307,26 +333,12 @@ static std::wstring FlushFocusedEditor()
         if (!focused) return std::wstring();
         const auto ident = focused.as<winrt::Windows::Foundation::IUnknown>();
         for (const auto& e : g_paneEditors)
-            if (e.ident == static_cast<IUnknown*>(winrt::get_abi(ident))) { commit = e.commit; path = e.path; break; }
+            if (e.ident == static_cast<IUnknown*>(winrt::get_abi(ident))) { picked = e; break; }
     } catch (const winrt::hresult_error&) {
         return std::wstring();
     }
-    if (!commit) return std::wstring();
-    const unsigned seq = g_commitSeq;
-    const std::wstring label = g_selLabel;
-    g_flushingEditor = true;
-    commit();
-    g_flushingEditor = false;
-    if (seq == g_commitSeq) return std::wstring();
-    switch (g_lastCommitOc) {
-    case DevToolsWriteOutcome::Ok:
-    case DevToolsWriteOutcome::ReplacedBinding:
-        return L"Saved " + path + L" on " + label;
-    case DevToolsWriteOutcome::NeedsConfirm:
-        return L"Didn't save " + path + L" on " + label + L". It needs confirmation";
-    default:
-        return L"Couldn't save " + path + L" on " + label + L": " + g_lastCommitWhy;
-    }
+    picked.ident = nullptr;
+    return FlushPaneEditor(picked, leaving);
 }
 
 // Defined once the row model is available (DevToolsWindow.KindModel.inc).
