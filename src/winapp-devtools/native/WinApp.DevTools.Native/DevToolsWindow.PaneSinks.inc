@@ -147,7 +147,21 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
         if (RefreshCommittedValue(prop)) {
             if (refreshed) *refreshed = true;
             SetStatusText(L"Updated " + prop);
-        } else SetStatusText(L"Updated " + prop + L", but couldn't refresh its displayed value");
+        } else {
+            // The old preset must remain selectable even when the new value cannot be read back.
+            if (void* preset = PaneRowChild(prop, L"PPreset")) {
+                void* selector = nullptr;
+                HRESULT hr = reinterpret_cast<IUnknown*>(preset)->QueryInterface(
+                    DevToolsIid<DevToolsXCP::ISelector>(), &selector);
+                if (SUCCEEDED(hr) && selector) {
+                    hr = DevToolsPutSelectedIndex(selector, -1);
+                    reinterpret_cast<IUnknown*>(selector)->Release();
+                }
+                if (FAILED(hr)) DevToolsOverlayLog(L"route1.props preset clear failed for '%s' hr=0x%08X", prop.c_str(), hr);
+                reinterpret_cast<IUnknown*>(preset)->Release();
+            }
+            SetStatusText(L"Updated " + prop + L", but couldn't refresh its displayed value");
+        }
         return true;
 
     case DevToolsWriteOutcome::ReplacedBinding: {

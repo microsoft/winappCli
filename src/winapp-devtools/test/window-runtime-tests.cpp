@@ -705,9 +705,11 @@ int main()
         hex.Invoke(nullptr,nullptr);
         check(values[88]==L"#FF0078D4" && g_propRows[0].value==L"#FFE81123",
             "a typed blue write can also leave a stale red snapshot");
+        check(testPreset.selectedIndex==-1 && testHex.text==L"#FF0078D4",
+            "failed typed-color readback clears the stale preset without overwriting hex input");
         const auto typedRecoveryWrites=writes;
         g_ctx.rowsFn=liveRows;
-        preset.Invoke(nullptr,nullptr);
+        TestPutSelectedIndex(&testPreset,3);
         check(values[88]==L"#FFE81123" && testHex.text==values[88] &&
             writes==typedRecoveryWrites+1,
             "preset recovery verifies cached equality after a typed write readback fails");
