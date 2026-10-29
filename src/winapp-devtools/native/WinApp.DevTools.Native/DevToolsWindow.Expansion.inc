@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+static void PopulateExpansionWitnesses(void* fe, const DevToolsCardRow& r, const std::wstring& path);
+
 // Expansion UI owns retained refs and event sinks for the realized row lifetime; stale generation guards callbacks.
 static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
@@ -264,126 +266,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         cl->Release();
     }
 
-    bool anyWitness = false;
-
-    if (IInspectable* w = FindInRow(fe, L"PWitAuthored")) {
-        std::wstring line;
-        if (r.authoredKind != L"literal" && !r.authored.empty()) {
-            const std::wstring inner = MarkupInner(r.authored);
-            // Prefer the FULL inner text over `authoredKey`: in the expansion there is room, and the key
-            // alone drops "Mode=TwoWay", which is exactly what a reader of a binding row came for.
-            const std::wstring body = inner.empty() ? (r.authoredKey.empty() ? r.authored : r.authoredKey) : inner;
-            line = std::wstring(OriginChip(r)) + L"  \u00B7  " + body;
-        } else if (r.authoredKind == L"literal") {
-            line = L"LITERAL  \u00B7  " + r.authored;
-        } else if (!r.binding.empty()) {
-            // Reconstructed from the LIVE element rather than read from source, which only ever happens for a
-            // runtime {Binding}. Said as such rather than presented as authorship we do not have.
-            const std::wstring inner = MarkupInner(r.binding);
-            line = L"BIND  \u00B7  " + (inner.empty() ? r.binding : inner) + L"   (read from the live element)";
-        } else if (r.source == L"Binding") {
-            line = L"Binding expression unavailable.";
-        }
-        if (IInspectable* t = FindInRow(fe, L"POrigin")) {
-            SetTextOn(t, line);
-            SetAutomationTextOn(t, path + L" origin", path + L" origin", L"");
-            t->Release();
-        }
-        ShowEl(w, !line.empty());
-        anyWitness = anyWitness || !line.empty();
-        w->Release();
-    }
-
-    // WITNESS 2 -- DevTools, this session. CATEGORICALLY WEAKER than the other two and rendered as such: a
-    // DASHED-weight rule (a 1px tertiary stroke against the others' divider stroke) plus the limitation said
-    // in words. Setting a resource is an ASSIGN, not a rebind (DevToolsTap.cpp:1024-1029) -- the runtime cannot
-    // recover the identity a value came from, so the pane can name this key only because it remembers doing
-    // it, and a fresh read cannot confirm it. It must never read as an ordinary chain entry.
-    if (IInspectable* w = FindInRow(fe, L"PWitSession")) {
-        std::wstring text, note;
-        if (const SessionAssign* sa = SessionAssignFind(path)) {
-            text = sa->detail;
-            note = KindIsResource(sa->kind)
-                ? L"assigned by ResolveResource - an ASSIGN, not a rebind. The element no longer reports this "
-                  L"key; DevTools names it only because it made the change."
-                : L"grafted with SetBinding onto the running app. Your .xaml still says what it always said.";
-        } else if (BindingLost(path)) {
-            text = L"the binding was replaced with a literal";
-            note = g_ctx.bindFn
-                ? L"Restore binding below can put it back. If it can't, restart the app."
-                : L"This build of DevTools cannot re-attach it. Restart the app to get it back.";
-        } else if (LinkLost(path)) {
-            text = L"no longer follows " + (r.authoredKey.empty() ? r.authored : r.authoredKey);
-            note = L"To follow a resource again, choose ThemeResource or StaticResource above and enter its key.";
-        }
-        if (IInspectable* t = FindInRow(fe, L"PSessionText")) {
-            SetTextOn(t, text);
-            SetAutomationTextOn(t, path + L" session note", path + L" session note", L"");
-            t->Release();
-        }
-        if (IInspectable* n = FindInRow(fe, L"PSessionNote")) { SetTextOn(n, note); n->Release(); }
-        ShowEl(w, !text.empty());
-        anyWitness = anyWitness || !text.empty();
-        w->Release();
-    }
-
-    // WITNESS 3 -- the runtime's precedence chain. Only where there is more than one link: a one-entry chain
-    // says nothing the other witnesses do not.
-    if (IInspectable* w = FindInRow(fe, L"PWitChain")) {
-        const bool have = r.chain.size() > 1;
-        const bool setByDevTools = BindingLost(path) || LinkLost(path) || SessionAssignFind(path) != nullptr ||
-                                   DirtyFind(path) != nullptr || DevToolsBindingRow_WasWrittenLive(g_selWire, path);
-        if (have) {
-            if (IInspectable* who = FindInRow(fe, L"PChainWho")) {
-                SetTextOn(who, KindIsResource(current)
-                    ? L"the runtime's precedence chain - a resolved resource keeps no key"
-                    : (current == DevToolsKind::XBind
-                        ? L"the runtime's precedence chain - a compiled binding lands as a plain local value"
-                        : L"the runtime's precedence chain"));
-                who->Release();
-            }
-            if (IInspectable* cb = FindInRow(fe, L"PChain")) {
-                void* kids = nullptr; void* pnl = nullptr;
-                if (SUCCEEDED(cb->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
-                    SUCCEEDED(DevToolsPanelGetChildren(pnl, reinterpret_cast<IInspectable**>(&kids))) && kids) {
-                    for (size_t k = 0; k < r.chain.size(); ++k) {
-                        IInspectable* tb = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.TextBlock");
-                        if (!tb) continue;
-                        void* tbi = nullptr;
-                        if (SUCCEEDED(tb->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tbi)) && tbi) {
-                            const DevToolsCardChainEntry& ce = r.chain[k];
-                            std::wstring cv = ce.value;
-                            const bool handleLike = cv.size() >= 10 &&
-                                cv.find_first_not_of(L"0123456789") == std::wstring::npos;
-                            if (handleLike) cv = ShortType(r.valueType.empty() ? r.type : r.valueType);
-                            std::wstring line = (ce.winner ? std::wstring(L"\u25B8 ") : std::wstring(L"   "))
-                                              + ce.source + L"  " + cv;
-                            // The runtime reports the element's XAML line for a local value. When DevTools set
-                            // that value, the line points at markup that no longer produces it.
-                            if (ce.winner && ce.source == L"Local" && setByDevTools)
-                                line += L"   set by DevTools";
-                            else if (!ce.file.empty() && ce.line)
-                                line += L"   " + SourceFileName(ce.file) + L":" + std::to_wstring(ce.line);
-                            HSTRING h = MakeStr(line);
-                            DevToolsPutText(tbi, h); WindowsDeleteString(h);
-                            DevToolsAbi<DevToolsXC::ITextBlock>(tbi)->put_FontSize(11.0);
-                            DevToolsPutTextTrimming(tbi, (int)DevToolsX::TextTrimming::CharacterEllipsis);
-                            reinterpret_cast<IUnknown*>(tbi)->Release();
-                        }
-                        DevToolsVecAppend(reinterpret_cast<IInspectable*>(kids), tb);
-                        tb->Release();
-                    }
-                    reinterpret_cast<IUnknown*>(kids)->Release();
-                }
-                if (pnl) reinterpret_cast<IUnknown*>(pnl)->Release();
-                cb->Release();
-            }
-        }
-        ShowEl(w, have);
-        anyWitness = anyWitness || have;
-        w->Release();
-    }
-    if (IInspectable* h = FindInRow(fe, L"PDerivedHdr")) { ShowEl(h, anyWitness); h->Release(); }
+    PopulateExpansionWitnesses(fe, r, path);
 
     if (IInspectable* blk = FindInRow(fe, L"PChildren")) {
         if (!r.children.empty()) {
@@ -889,6 +772,122 @@ static void* PaneRowChild(const std::wstring& prop, const wchar_t* childName)
     return nullptr;
 }
 
+static void PopulateExpansionWitnesses(void* fe, const DevToolsCardRow& r, const std::wstring& path)
+{
+    const DevToolsKind current = CurrentKindOf(r, path);
+    bool anyWitness = false;
+    if (IInspectable* w = FindInRow(fe, L"PWitAuthored")) {
+        std::wstring line;
+        if (r.authoredKind != L"literal" && !r.authored.empty()) {
+            const std::wstring inner = MarkupInner(r.authored);
+            const std::wstring body = inner.empty() ? (r.authoredKey.empty() ? r.authored : r.authoredKey) : inner;
+            line = std::wstring(OriginChip(r)) + L"  \u00B7  " + body;
+        } else if (r.authoredKind == L"literal") {
+            line = L"LITERAL  \u00B7  " + r.authored;
+        } else if (!r.binding.empty()) {
+            const std::wstring inner = MarkupInner(r.binding);
+            line = L"BIND  \u00B7  " + (inner.empty() ? r.binding : inner) + L"   (read from the live element)";
+        } else if (r.source == L"Binding") {
+            line = L"Binding expression unavailable.";
+        }
+        if (IInspectable* t = FindInRow(fe, L"POrigin")) {
+            SetTextOn(t, line);
+            SetAutomationTextOn(t, path + L" origin", path + L" origin", L"");
+            t->Release();
+        }
+        ShowEl(w, !line.empty());
+        anyWitness = anyWitness || !line.empty();
+        w->Release();
+    }
+    // Session assignments are not runtime evidence of a surviving resource link.
+    if (IInspectable* w = FindInRow(fe, L"PWitSession")) {
+        std::wstring text, note;
+        if (const SessionAssign* sa = SessionAssignFind(path)) {
+            text = sa->detail;
+            note = KindIsResource(sa->kind)
+                ? L"assigned by ResolveResource - an ASSIGN, not a rebind. The element no longer reports this "
+                  L"key; DevTools names it only because it made the change."
+                : L"grafted with SetBinding onto the running app. Your .xaml still says what it always said.";
+        } else if (BindingLost(path)) {
+            text = L"the binding was replaced with a literal";
+            note = g_ctx.bindFn
+                ? L"Restore binding below can put it back. If it can't, restart the app."
+                : L"This build of DevTools cannot re-attach it. Restart the app to get it back.";
+        } else if (LinkLost(path)) {
+            text = L"no longer follows " + (r.authoredKey.empty() ? r.authored : r.authoredKey);
+            note = L"To follow a resource again, choose ThemeResource or StaticResource above and enter its key.";
+        }
+        if (IInspectable* t = FindInRow(fe, L"PSessionText")) {
+            SetTextOn(t, text);
+            SetAutomationTextOn(t, path + L" session note", path + L" session note", L"");
+            t->Release();
+        }
+        if (IInspectable* n = FindInRow(fe, L"PSessionNote")) { SetTextOn(n, note); n->Release(); }
+        ShowEl(w, !text.empty());
+        anyWitness = anyWitness || !text.empty();
+        w->Release();
+    }
+    if (IInspectable* w = FindInRow(fe, L"PWitChain")) {
+        const bool have = r.chain.size() > 1;
+        const bool setByDevTools = BindingLost(path) || LinkLost(path) || SessionAssignFind(path) != nullptr ||
+                                   DirtyFind(path) != nullptr || DevToolsBindingRow_WasWrittenLive(g_selWire, path);
+        if (IInspectable* who = FindInRow(fe, L"PChainWho")) {
+            SetTextOn(who, KindIsResource(current)
+                ? L"the runtime's precedence chain - a resolved resource keeps no key"
+                : (current == DevToolsKind::XBind
+                    ? L"the runtime's precedence chain - a compiled binding lands as a plain local value"
+                    : L"the runtime's precedence chain"));
+            who->Release();
+        }
+        if (IInspectable* cb = FindInRow(fe, L"PChain")) {
+            void* kids = nullptr; void* pnl = nullptr;
+            if (SUCCEEDED(cb->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
+                SUCCEEDED(DevToolsPanelGetChildren(pnl, reinterpret_cast<IInspectable**>(&kids))) && kids) {
+                DevToolsVecClear(reinterpret_cast<IInspectable*>(kids));
+                if (have) {
+                    for (const auto& ce : r.chain) {
+                        IInspectable* tb = NewTextBlock(L"");
+                        if (!tb) continue;
+                        std::wstring cv = ce.value;
+                        const bool handleLike = cv.size() >= 10 &&
+                            cv.find_first_not_of(L"0123456789") == std::wstring::npos;
+                        if (handleLike) cv = ShortType(r.valueType.empty() ? r.type : r.valueType);
+                        std::wstring line = (ce.winner ? std::wstring(L"\u25B8 ") : std::wstring(L"   "))
+                                          + ce.source + L"  " + cv;
+                        // A DevTools write makes the original local-value source line obsolete.
+                        if (ce.winner && ce.source == L"Local" && setByDevTools)
+                            line += L"   set by DevTools";
+                        else if (!ce.file.empty() && ce.line)
+                            line += L"   " + SourceFileName(ce.file) + L":" + std::to_wstring(ce.line);
+                        SetTextOn(tb, line);
+                        void* tbi = nullptr;
+                        if (SUCCEEDED(tb->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tbi)) && tbi) {
+                            DevToolsPutFontSize(tbi, 11.0);
+                            DevToolsPutTextTrimming(tbi, (int)DevToolsX::TextTrimming::CharacterEllipsis);
+                            reinterpret_cast<IUnknown*>(tbi)->Release();
+                        }
+                        DevToolsVecAppend(reinterpret_cast<IInspectable*>(kids), tb);
+                        tb->Release();
+                    }
+                }
+                reinterpret_cast<IUnknown*>(kids)->Release();
+            }
+            if (pnl) reinterpret_cast<IUnknown*>(pnl)->Release();
+            cb->Release();
+        }
+        ShowEl(w, have);
+        anyWitness = anyWitness || have;
+        w->Release();
+    }
+    if (IInspectable* h = FindInRow(fe, L"PDerivedHdr")) { ShowEl(h, anyWitness); h->Release(); }
+}
+
+static std::wstring CurrentEditSeed(const std::wstring& path, const std::wstring& fallback)
+{
+    const auto* row = FindPropertyRow(g_propRows, path);
+    return row ? RowEditSeed(*row) : fallback;
+}
+
 static bool FeedsLayoutSection(const std::wstring& name);
 static void RedrawLayoutSectionFromRows(InstanceHandle wire);
 
@@ -921,6 +920,40 @@ static bool RefreshCommittedValue(const std::wstring& prop)
     if (void* header = PaneRowChild(prop, L"PHeader")) {
         NamePropertyHeader(static_cast<IInspectable*>(header), *current, prop);
         reinterpret_cast<IUnknown*>(header)->Release();
+    }
+    // Refresh evidence without rebuilding editors or replacing unfinished input.
+    if (void* frame = PaneRowChild(prop, L"PExpFrame")) {
+        void* fe = nullptr;
+        if (SUCCEEDED(reinterpret_cast<IUnknown*>(frame)->QueryInterface(
+                DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+            PopulateExpansionWitnesses(fe, *current, prop);
+            reinterpret_cast<IUnknown*>(fe)->Release();
+        }
+        reinterpret_cast<IUnknown*>(frame)->Release();
+    }
+    if (current->editKind == L"color") {
+        if (void* preset = PaneRowChild(prop, L"PPreset")) {
+            void* selector = nullptr;
+            HRESULT hr = reinterpret_cast<IUnknown*>(preset)->QueryInterface(
+                DevToolsIid<DevToolsXCP::ISelector>(), &selector);
+            if (SUCCEEDED(hr) && selector) {
+                int selected = -1;
+                hr = DevToolsGetSelectedIndex(selector, &selected);
+                const auto& colors = ColorPresets();
+                if (SUCCEEDED(hr) && selected >= 0 && static_cast<size_t>(selected) < colors.size() &&
+                    _wcsicmp(colors[selected].second.c_str(), RowEditSeed(*current).c_str()) != 0) {
+                    // Clearing raises SelectionChanged with -1, which cannot commit a preset.
+                    hr = DevToolsPutSelectedIndex(selector, -1);
+                }
+                reinterpret_cast<IUnknown*>(selector)->Release();
+            }
+            if (FAILED(hr)) DevToolsOverlayLog(L"route1.props preset refresh failed for '%s' hr=0x%08X", prop.c_str(), hr);
+            reinterpret_cast<IUnknown*>(preset)->Release();
+        }
+        if (void* swatch = PaneRowChild(prop, L"PSwatch")) {
+            PopulateColorSwatch(static_cast<IInspectable*>(swatch), RowEditSeed(*current));
+            reinterpret_cast<IUnknown*>(swatch)->Release();
+        }
     }
     // The live refresh will see this row already up to date, so redraw Size & spacing here.
     if (FeedsLayoutSection(prop)) RedrawLayoutSectionFromRows(g_selWire);

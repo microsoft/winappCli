@@ -80,8 +80,9 @@ static DevToolsWriteOutcome CommitWrite(InstanceHandle wire, const std::wstring&
 static bool RefreshCommittedValue(const std::wstring& prop);
 static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
                                const std::wstring& prop, const std::wstring& type,
-                               const std::wstring& preVal, const std::wstring& val)
+                               const std::wstring& preVal, const std::wstring& val, bool* refreshed = nullptr)
 {
+    if (refreshed) *refreshed = false;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropCommit);
     if (wire != g_selWire) return DevToolsWriteLanded(oc);
     if (oc != DevToolsWriteOutcome::Failed && g_writeErrorWire == wire && g_writeErrorPath == prop) ShowWriteError(prop, L"");
@@ -94,8 +95,10 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
             SetStatusText(L"Set " + prop + L" to a fixed value. It no longer follows the resource");
             return true;
         }
-        if (RefreshCommittedValue(prop)) SetStatusText(L"Updated " + prop);
-        else SetStatusText(L"Updated " + prop + L", but couldn't refresh its displayed value");
+        if (RefreshCommittedValue(prop)) {
+            if (refreshed) *refreshed = true;
+            SetStatusText(L"Updated " + prop);
+        } else SetStatusText(L"Updated " + prop + L", but couldn't refresh its displayed value");
         return true;
 
     case DevToolsWriteOutcome::ReplacedBinding: {
@@ -160,9 +163,30 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
 // right thing even if the pane has since been rebuilt for another node. UI thread only (TextBox.LostFocus).
 struct LostFocusSink : DevToolsSinkBase
 {
+    void SyncCommittedValue(const std::wstring& value)
+    {
+        if (gen != g_route1Gen || selWire != g_selWire || !box) return;
+        HSTRING text = MakeStr(value);
+        refreshing = true;
+        const HRESULT hr = DevToolsPutTextBoxText(box, text);
+        refreshing = false;
+        WindowsDeleteString(text);
+        if (FAILED(hr)) {
+            DevToolsOverlayLog(L"route1.props editor refresh failed for '%s' hr=0x%08X", prop.c_str(), hr);
+            SetStatusText(L"Updated " + prop + L", but couldn't refresh its editor");
+            return;
+        }
+        original = value;
+        hasShown = g_ctx.readInputFn && g_ctx.readInputFn(box, shown);
+        if (!hasShown) {
+            DevToolsOverlayLog(L"route1.props refreshed editor read failed for '%s'", prop.c_str());
+            SetStatusText(L"Updated " + prop + L", but couldn't read its refreshed editor");
+        }
+    }
+
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
-        if (gen != g_route1Gen) return S_OK;
+        if (gen != g_route1Gen || refreshing) return S_OK;
         if (!g_ctx.readInputFn || !g_ctx.writeFn || !box) return S_OK;
         std::wstring text;
         if (!g_ctx.readInputFn(box, text)) {
@@ -185,6 +209,7 @@ struct LostFocusSink : DevToolsSinkBase
     InstanceHandle selWire = 0;
     std::wstring   prop, type, original, shown;
     bool           hasShown = false;
+    bool           refreshing = false;
     IInspectable*  box = nullptr;
 };
 

@@ -12,6 +12,16 @@ static HRESULT GetTestToggle(void*, bool*);
 static HRESULT PutTestVisibility(void*, int);
 static HRESULT PutTestChecked(void*, IInspectable*);
 static HRESULT PutTestEnabled(void*, bool);
+static IInspectable* ActivateTestElement(const wchar_t*);
+static HRESULT TestPanelChildren(void*, IInspectable**);
+static HRESULT TestClearChildren(void*);
+static HRESULT TestAppendChild(void*, IInspectable*);
+static HRESULT TestFontSize(void*, double) { return S_OK; }
+static HRESULT TestTrimming(void*, int) { return S_OK; }
+static HRESULT TestSelectedIndex(void*, int*);
+static HRESULT TestPutSelectedIndex(void*, int);
+static HRESULT TestLoadMarkup(void*, HSTRING, IInspectable**);
+static HRESULT TestBorderBackground(void*, void*);
 static bool focusTrackingAvailable = true;
 static bool TestSetFocusTracking(bool) { return focusTrackingAvailable; }
 static int testFontStyle = -1;
@@ -37,6 +47,17 @@ static HRESULT TestViewport(void*, double* value) { *value = testViewport; retur
 #define DevToolsPutVisibility PutTestVisibility
 #define DevToolsToggleButtonPutIsChecked PutTestChecked
 #define DevToolsPutIsEnabled PutTestEnabled
+#define DevToolsActivate ActivateTestElement
+#define DevToolsPanelGetChildren TestPanelChildren
+#define DevToolsVecClear TestClearChildren
+#define DevToolsVecAppend TestAppendChild
+#define DevToolsPutFontSize TestFontSize
+#define DevToolsPutTextTrimming TestTrimming
+#define DevToolsGetSelectedIndex TestSelectedIndex
+#define DevToolsPutSelectedIndex TestPutSelectedIndex
+#define DevToolsPutTextBoxText PutTestText
+#define DevToolsXamlReaderLoad TestLoadMarkup
+#define DevToolsPutBorderBackground TestBorderBackground
 #define DevToolsOverlay_SetFocusTracking TestSetFocusTracking
 #define DevToolsPutFontStyle PutTestFontStyle
 #define DevToolsPutTextForeground PutTestForeground
@@ -57,7 +78,9 @@ struct TestElement : IInspectable {
     bool checked = false;
     bool enabled = true;
     int visibility = 1;
+    int selectedIndex = -1;
     std::wstring automationName, automationId;
+    std::vector<IInspectable*> children;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** value) override {
         *value=static_cast<IInspectable*>(this); AddRef(); return S_OK;
     }
@@ -85,6 +108,64 @@ static HRESULT PutTestEnabled(void* element, bool value)
     return S_OK;
 }
 static TestElement testRow, testValue, testStatus, testInput, testHeader;
+static TestElement testExpansion, testChain, testChainWitness, testDerived, testChainWho, testSwatch, testHex, testPreset;
+static bool exposeExpansion = false;
+static LostFocusSink* reentrantHexCommit = nullptr;
+static EnumSelectSink* presetSelectionChanged = nullptr;
+static std::vector<std::unique_ptr<TestElement>> activatedElements;
+static IInspectable* ActivateTestElement(const wchar_t*)
+{
+    activatedElements.push_back(std::make_unique<TestElement>());
+    return activatedElements.back().get();
+}
+static HRESULT TestPanelChildren(void* panel, IInspectable** children)
+{
+    *children = static_cast<TestElement*>(panel);
+    (*children)->AddRef();
+    return S_OK;
+}
+static HRESULT TestClearChildren(void* panel)
+{
+    auto& children = static_cast<TestElement*>(panel)->children;
+    for (auto* child : children) child->Release();
+    children.clear();
+    return S_OK;
+}
+static HRESULT TestAppendChild(void* panel, IInspectable* child)
+{
+    static_cast<TestElement*>(panel)->children.push_back(child);
+    child->AddRef();
+    return S_OK;
+}
+static HRESULT TestSelectedIndex(void* selector, int* value)
+{
+    *value = static_cast<TestElement*>(selector)->selectedIndex;
+    return S_OK;
+}
+static HRESULT TestPutSelectedIndex(void* selector, int value)
+{
+    auto* element = static_cast<TestElement*>(selector);
+    if (element->selectedIndex != value) {
+        element->selectedIndex = value;
+        if (element == &testPreset && presetSelectionChanged)
+            presetSelectionChanged->Invoke(nullptr,nullptr);
+    }
+    return S_OK;
+}
+static HRESULT TestLoadMarkup(void*, HSTRING markup, IInspectable** value)
+{
+    *value = ActivateTestElement(L"brush");
+    const std::wstring text = WindowsGetStringRawBuffer(markup, nullptr);
+    const size_t start = text.find(L"Color=\"");
+    if (start != std::wstring::npos)
+        static_cast<TestElement*>(*value)->text = text.substr(start + 7, 9);
+    return S_OK;
+}
+static HRESULT TestBorderBackground(void* border, void* brush)
+{
+    static_cast<TestElement*>(border)->text = static_cast<TestElement*>(brush)->text;
+    return S_OK;
+}
 static bool exposeHeader = false;
 static TestElement testAppWindow, testCaption;
 static HRESULT appWindowResult = S_OK, captionResult = S_OK, addThemeResult = S_OK, putThemeResult = S_OK;
@@ -116,6 +197,18 @@ static HRESULT FindTestName(void*, HSTRING name, IInspectable** found)
     *found=nullptr;
     if(std::wstring(chars,length)==L"PValue") { *found=&testValue; testValue.AddRef(); }
     if(exposeHeader && std::wstring(chars,length)==L"PHeader") { *found=&testHeader; testHeader.AddRef(); }
+    if (exposeExpansion) {
+        const std::wstring key(chars, length);
+        if (key == L"PExpFrame") *found = &testExpansion;
+        if (key == L"PChain") *found = &testChain;
+        if (key == L"PWitChain") *found = &testChainWitness;
+        if (key == L"PDerivedHdr") *found = &testDerived;
+        if (key == L"PChainWho") *found = &testChainWho;
+        if (key == L"PSwatch") *found = &testSwatch;
+        if (key == L"PHex") *found = &testHex;
+        if (key == L"PPreset") *found = &testPreset;
+        if (*found && *found != &testValue && *found != &testHeader) (*found)->AddRef();
+    }
     return S_OK;
 }
 static HRESULT PutTestText(void* element, HSTRING value)
@@ -123,6 +216,7 @@ static HRESULT PutTestText(void* element, HSTRING value)
     UINT32 length=0;
     const auto* chars=WindowsGetStringRawBuffer(value,&length);
     static_cast<TestElement*>(element)->text.assign(chars ? chars : L"",length);
+    if (element == &testHex && reentrantHexCommit) reentrantHexCommit->Invoke(nullptr,nullptr);
     return S_OK;
 }
 static HRESULT PutTestAutomationName(void*, void* element, HSTRING value)
@@ -481,6 +575,149 @@ int main()
         g_apStatics=nullptr;exposeHeader=false;
         g_ctx.layoutFn=nullptr;g_paneHaveLayout=false;
         row.name=L"Text";g_propRows={row};
+    }
+    {
+        const auto savedRows = g_ctx.rowsFn;
+        const auto savedWrite = g_ctx.writeFn;
+        const auto savedReadInput = g_ctx.readInputFn;
+        const unsigned generation = g_route1Gen;
+        exposeExpansion = true;
+        PropSetExpanded(L"Content", true);
+        row.name=L"Content";row.type=L"String";row.value=L"Click Me";
+        row.chain.resize(2);
+        row.chain[0].source=L"Local";row.chain[0].winner=true;
+        row.chain[1].source=L"Default";row.chain[1].value=L"(null)";
+        values[88]=row.value;g_propRows={row};
+        g_ctx.rowsFn=[&](InstanceHandle wire,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>& rows,std::wstring&,std::wstring&) {
+            auto fresh=row;fresh.value=values[wire];fresh.chain[0].value=fresh.value;rows={fresh};return true;
+        };
+        testInput.text=L"unfinished other editor";
+        for (const auto* text : {L"Hello D1", L"Hello again"}) {
+            const auto writesBefore = writes;
+            check(ApplyLiteralValue(row.name,row.type,values[88],text,false),
+                "open Content expansion accepts the edit");
+            check(testChain.children.size()==2 &&
+                static_cast<TestElement*>(testChain.children[0])->text.find(std::wstring(L"Local  ")+text)!=std::wstring::npos,
+                "open source chain uses committed readback and replaces old entries");
+            check(testChainWitness.visibility==0 && testDerived.visibility==0 && testValue.text==text &&
+                PropIsExpanded(row.name),"source details and header agree without collapsing the row");
+            check(writes==writesBefore+1 && testInput.text==L"unfinished other editor" &&
+                g_route1Gen==generation,"source refresh preserves unfinished input and never writes recursively");
+        }
+        row.chain.resize(1);
+        RefreshCommittedValue(row.name);
+        check(testChain.children.empty() && testChainWitness.visibility==1 && testDerived.visibility==1,
+            "a shorter source chain clears obsolete details and hides the empty heading");
+        row.chain.resize(2);
+        row.name=L"Background";row.type=L"Brush";row.editKind=L"color";row.value=L"#0FFFFFFF";
+        values[88]=row.value;g_propRows={row};testHex.text=row.value;
+        g_xamlReaderStatics=&testRow;
+        g_ctx.readInputFn=[](IInspectable* box,std::wstring& text) {
+            text=static_cast<TestElement*>(box)->text;return true;
+        };
+        LostFocusSink hex;
+        hex.Init(88,row.name,row.type,row.value,&testHex);
+        reentrantHexCommit=&hex;
+        EnumSelectSink preset;
+        std::vector<std::wstring> colors;
+        for (const auto& color : ColorPresets()) colors.push_back(color.second);
+        preset.Init(88,row.name,row.type,row.value,colors,&testPreset);
+        preset.textEditor=&hex;
+        presetSelectionChanged=&preset;
+        testPreset.selectedIndex=-1;
+        for (int index : {3, 8, 3}) {
+            const auto writesBefore=writes;
+            TestPutSelectedIndex(&testPreset,index);
+            const std::wstring expected=preset.members[index];
+            check(values[88]==expected && testValue.text==expected && testHex.text==expected &&
+                testSwatch.text==expected,"color preset, live value, header, hex and swatch agree");
+            hex.Invoke(nullptr,nullptr);
+            check(writes==writesBefore+1 && testInput.text==L"unfinished other editor" &&
+                g_route1Gen==generation,"preset reseeds hex blur without recursive writes or lost drafts");
+        }
+        check(testPreset.selectedIndex==3,"matching committed color retains its selected preset");
+        testHex.text=L"#FFFFB900";
+        const auto typedWrites=writes;
+        hex.Invoke(nullptr,nullptr);
+        check(values[88]==testHex.text && testSwatch.text==testHex.text,
+            "typing a color refreshes the swatch through the same committed readback");
+        check(testPreset.selectedIndex==-1 && writes==typedWrites+1,
+            "typing a different color clears the old preset without a recursive write");
+        TestPutSelectedIndex(&testPreset,3);
+        check(values[88]==L"#FFE81123" && testHex.text==values[88],
+            "a preset can be chosen again after typing a different color");
+        testHex.text=L"unfinished hex";
+        const auto unchangedWrites=writes;
+        preset.Invoke(nullptr,nullptr);
+        check(testHex.text==values[88] && writes==unchangedWrites,
+            "choosing the live preset replaces its hex draft without another write");
+        g_ctx.writeFn=[&](InstanceHandle wire,const std::wstring&,const std::wstring&,const std::wstring&,bool,std::wstring*) {
+            ++writes;values[wire]=L"#AA112233";return DevToolsWriteOutcome::Ok;
+        };
+        TestPutSelectedIndex(&testPreset,8);
+        check(testHex.text==L"#AA112233" && testSwatch.text==testHex.text && testValue.text==testHex.text,
+            "color controls use live readback rather than assuming the requested preset was returned");
+        check(testPreset.selectedIndex==-1,"a different live readback clears the requested preset");
+        g_ctx.writeFn=[](InstanceHandle,const std::wstring&,const std::wstring&,const std::wstring&,bool,std::wstring*) {
+            return DevToolsWriteOutcome::Failed;
+        };
+        testHex.text=L"unfinished hex";
+        testPreset.selectedIndex=8;
+        const std::wstring committed=values[88];
+        preset.Invoke(nullptr,nullptr);
+        check(testHex.text==L"unfinished hex" && testSwatch.text==committed && values[88]==committed,
+            "a failed preset keeps the unfinished hex and last committed swatch");
+        g_ctx.writeFn=savedWrite;
+        g_ctx.rowsFn=[](InstanceHandle,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>&,std::wstring&,std::wstring&) {
+            return false;
+        };
+        preset.Invoke(nullptr,nullptr);
+        check(testHex.text==L"unfinished hex" && testSwatch.text==committed &&
+            testStatus.text.find(L"couldn't refresh")!=std::wstring::npos,
+            "a failed readback cannot overwrite unfinished input with a stale snapshot");
+        g_ctx.rowsFn=savedRows;
+        TestPutSelectedIndex(&testPreset,3);
+        check(values[88]==L"#FFE81123" && testHex.text==values[88],
+            "recovery starts with a committed red preset");
+        const auto liveRows=g_ctx.rowsFn;
+        const auto failedReadback=[](InstanceHandle,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>&,std::wstring&,std::wstring&) {};
+        g_ctx.rowsFn=failedReadback;
+        TestPutSelectedIndex(&testPreset,8);
+        check(values[88]==L"#FF0078D4" && g_propRows[0].value==L"#FFE81123",
+            "a landed blue preset with failed readback leaves the red snapshot stale");
+        const auto recoveryWrites=writes;
+        g_ctx.rowsFn=liveRows;
+        TestPutSelectedIndex(&testPreset,3);
+        check(values[88]==L"#FFE81123" && testHex.text==values[88] &&
+            testSwatch.text==values[88] && writes==recoveryWrites+1,
+            "choosing cached red after a failed readback writes red to the app");
+        g_ctx.rowsFn=failedReadback;
+        TestPutSelectedIndex(&testPreset,8);
+        const auto unavailableWrites=writes;
+        TestPutSelectedIndex(&testPreset,3);
+        check(values[88]==L"#FFE81123" && writes==unavailableWrites+1 &&
+            testStatus.text.find(L"couldn't refresh")!=std::wstring::npos,
+            "a still-unavailable readback cannot suppress the requested recovery write");
+        g_ctx.rowsFn=liveRows;
+        RefreshCommittedValue(row.name);
+        g_ctx.rowsFn=failedReadback;
+        testHex.text=L"#FF0078D4";
+        hex.Invoke(nullptr,nullptr);
+        check(values[88]==L"#FF0078D4" && g_propRows[0].value==L"#FFE81123",
+            "a typed blue write can also leave a stale red snapshot");
+        const auto typedRecoveryWrites=writes;
+        g_ctx.rowsFn=liveRows;
+        preset.Invoke(nullptr,nullptr);
+        check(values[88]==L"#FFE81123" && testHex.text==values[88] &&
+            writes==typedRecoveryWrites+1,
+            "preset recovery verifies cached equality after a typed write readback fails");
+        exposeExpansion=false;g_xamlReaderStatics=nullptr;reentrantHexCommit=nullptr;presetSelectionChanged=nullptr;
+        TestClearChildren(&testChain);
+        activatedElements.clear();
+        g_propExpanded.clear();g_dirtySeed.clear();
+        g_writeErrorWire=0;g_writeErrorPath.clear();g_writeErrorText.clear();
+        g_ctx.rowsFn=savedRows;g_ctx.writeFn=savedWrite;g_ctx.readInputFn=savedReadInput;
+        row.name=L"Text";row.type=L"String";row.editKind.clear();row.chain.clear();g_propRows={row};
     }
     g_ctx.rowsFn=[](InstanceHandle,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>&,std::wstring&,std::wstring&) {
         return false;
