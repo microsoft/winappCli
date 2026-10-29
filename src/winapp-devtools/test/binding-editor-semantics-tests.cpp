@@ -5,10 +5,12 @@
 static HRESULT FindEditorName(void*, HSTRING, IInspectable**);
 static HRESULT PutEditorText(void*, HSTRING);
 static HRESULT GetEditorSelection(void*, int*);
+static HRESULT PutEditorVisibility(void*, int);
 static HANDLE RefuseWorker(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
 #define DevToolsFindName FindEditorName
 #define DevToolsPutText PutEditorText
 #define DevToolsGetSelectedIndex GetEditorSelection
+#define DevToolsPutVisibility PutEditorVisibility
 #define CreateThread RefuseWorker
 #include "../native/WinApp.DevTools.Native/DevToolsWindow.cpp"
 #undef CreateThread
@@ -17,6 +19,7 @@ struct EditorElement : IInspectable
 {
     ULONG refs = 1;
     std::wstring text;
+    int visibility = 1;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** out) override
     { *out = static_cast<IInspectable*>(this); AddRef(); return S_OK; }
     ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
@@ -26,14 +29,15 @@ struct EditorElement : IInspectable
     HRESULT STDMETHODCALLTYPE GetRuntimeClassName(HSTRING* out) override { *out = nullptr; return S_OK; }
     HRESULT STDMETHODCALLTYPE GetTrustLevel(TrustLevel* out) override { *out = BaseTrust; return S_OK; }
 };
-static EditorElement status, pathBox, modeBox;
+static EditorElement status, pathBox, modeBox, resourceBox, resourceError;
 static unsigned submissions = 0;
 static std::wstring submittedPath, submittedMode;
 static int selectedMode = 0;
 static HRESULT FindEditorName(void*, HSTRING name, IInspectable** out)
 {
     const std::wstring key(WindowsGetStringRawBuffer(name, nullptr));
-    *out = key == L"PPath" ? &pathBox : key == L"PMode" ? &modeBox : nullptr;
+    *out = key == L"PPath" ? &pathBox : key == L"PMode" ? &modeBox
+        : key == L"PResKey" ? &resourceBox : key == L"PResError" ? &resourceError : nullptr;
     if (*out) (*out)->AddRef();
     return S_OK;
 }
@@ -43,6 +47,46 @@ static HRESULT PutEditorText(void* element, HSTRING value)
     return S_OK;
 }
 static HRESULT GetEditorSelection(void*, int* value) { *value = selectedMode; return S_OK; }
+static HRESULT PutEditorVisibility(void* element, int value)
+{ static_cast<EditorElement*>(element)->visibility = value; return S_OK; }
+
+using Object = winrt::Windows::Foundation::IInspectable;
+using ObjectPair = winrt::Windows::Foundation::Collections::IKeyValuePair<Object, Object>;
+struct ResourceDictionaryFixture : winrt::implements<ResourceDictionaryFixture,
+    DevToolsX::IResourceDictionary,
+    winrt::Windows::Foundation::Collections::IMap<Object, Object>,
+    winrt::Windows::Foundation::Collections::IIterable<ObjectPair>>
+{
+    auto Source() { return winrt::Windows::Foundation::Uri{nullptr}; }
+    void Source(const winrt::Windows::Foundation::Uri&) {}
+    auto MergedDictionaries() { return merged; }
+    auto ThemeDictionaries() { return themes; }
+    Object Lookup(const Object& key) { return values.Lookup(winrt::unbox_value<winrt::hstring>(key)); }
+    uint32_t Size() { return values.Size(); }
+    bool HasKey(const Object& key) { return values.HasKey(winrt::unbox_value<winrt::hstring>(key)); }
+    bool Insert(const Object& key, const Object& value)
+    { return values.Insert(winrt::unbox_value<winrt::hstring>(key), value); }
+    void Remove(const Object& key) { values.Remove(winrt::unbox_value<winrt::hstring>(key)); }
+    void Clear() { values.Clear(); }
+    auto GetView()
+    {
+        auto map = winrt::single_threaded_map<Object, Object>();
+        for (const auto& entry : values) map.Insert(winrt::box_value(entry.Key()), entry.Value());
+        return map.GetView();
+    }
+    auto First()
+    {
+        auto map = winrt::single_threaded_map<Object, Object>();
+        for (const auto& entry : values) map.Insert(winrt::box_value(entry.Key()), entry.Value());
+        return map.First();
+    }
+    winrt::Windows::Foundation::Collections::IMap<winrt::hstring, Object> values =
+        winrt::single_threaded_map<winrt::hstring, Object>();
+    winrt::Windows::Foundation::Collections::IVector<DevToolsX::ResourceDictionary> merged =
+        winrt::single_threaded_vector<DevToolsX::ResourceDictionary>();
+    winrt::Windows::Foundation::Collections::IMap<Object, Object> themes =
+        winrt::single_threaded_map<Object, Object>();
+};
 static HANDLE RefuseWorker(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID param, DWORD, LPDWORD)
 {
     const auto* ask = static_cast<BindOpAsk*>(param);
@@ -154,6 +198,172 @@ int main()
                                  L"\"mode\":\"OneWay\",\"bound\":\"True\"}");
     check(SessionAssignFind(L"Text") == nullptr, "restoring the XAML's own {Binding} leaves the XAML as the source");
     g_propRows.clear();
+    {
+        const auto dictionary = winrt::make_self<ResourceDictionaryFixture>();
+        dictionary->values.Insert(L"AppSize", winrt::box_value(12.0));
+        dictionary->values.Insert(L"NotANumber", winrt::box_value(L"text"));
+        const auto merged = winrt::make_self<ResourceDictionaryFixture>();
+        merged->values.Insert(L"MergedSize", winrt::box_value(24.0));
+        merged->values.Insert(L"NotANumber", winrt::box_value(42.0));
+        dictionary->merged.Append(merged.as<DevToolsX::ResourceDictionary>());
+        // A self-reference must not recurse forever.
+        merged->merged.Append(dictionary.as<DevToolsX::ResourceDictionary>());
+        ResourceKeys candidates;
+        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
+        check(candidates.keys.size() == 2 &&
+              std::find(candidates.keys.begin(), candidates.keys.end(), L"AppSize") != candidates.keys.end() &&
+              std::find(candidates.keys.begin(), candidates.keys.end(), L"MergedSize") != candidates.keys.end(),
+              "resource enumeration includes app and merged keys, with boxed numeric types");
+        check(candidates.seen.count(L"NotANumber") == 1 &&
+              std::find(candidates.keys.begin(), candidates.keys.end(), L"NotANumber") == candidates.keys.end(),
+              "nearer incompatible value prevents suggesting a shadowed merged key");
+        merged->merged.Clear();
+        const auto light = winrt::make_self<ResourceDictionaryFixture>();
+        light->values.Insert(L"ThemeSize", winrt::box_value(18.0));
+        const auto dark = winrt::make_self<ResourceDictionaryFixture>();
+        dark->values.Insert(L"DarkSize", winrt::box_value(30.0));
+        const auto contrast = winrt::make_self<ResourceDictionaryFixture>();
+        contrast->values.Insert(L"ContrastSize", winrt::box_value(36.0));
+        dictionary->themes = dictionary.as<winrt::Windows::Foundation::Collections::IMap<Object, Object>>();
+        dictionary->values.Insert(L"Light", light.as<Object>());
+        dictionary->values.Insert(L"Dark", dark.as<Object>());
+        dictionary->values.Insert(L"HighContrast", contrast.as<Object>());
+        check(std::wstring(ResourceTheme(DevToolsX::ElementTheme::Light, false)) == L"Light" &&
+              std::wstring(ResourceTheme(DevToolsX::ElementTheme::Dark, false)) == L"Dark" &&
+              std::wstring(ResourceTheme(DevToolsX::ElementTheme::Default, false)) == L"Light",
+              "resource discovery preserves Light, Dark and default theme selection");
+        for (const auto theme : {DevToolsX::ElementTheme::Light, DevToolsX::ElementTheme::Dark}) {
+            candidates = {};
+            CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double",
+                                      ResourceTheme(theme, true), candidates);
+            check(std::find(candidates.keys.begin(), candidates.keys.end(), L"ContrastSize") != candidates.keys.end() &&
+                  std::find(candidates.keys.begin(), candidates.keys.end(), L"ThemeSize") == candidates.keys.end() &&
+                  std::find(candidates.keys.begin(), candidates.keys.end(), L"DarkSize") == candidates.keys.end(),
+                  "high contrast overrides the element's Light or Dark theme for suggestions");
+        }
+        candidates = {};
+        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
+        check(std::find(candidates.keys.begin(), candidates.keys.end(), L"ThemeSize") != candidates.keys.end() &&
+              std::find(candidates.keys.begin(), candidates.keys.end(), L"DarkSize") == candidates.keys.end(),
+              "only the active theme dictionary supplies suggestions");
+        dictionary->values.Remove(L"Light");
+        dictionary->values.Insert(L"Default", light.as<Object>());
+        candidates = {};
+        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
+        check(std::find(candidates.keys.begin(), candidates.keys.end(), L"ThemeSize") != candidates.keys.end(),
+              "missing named theme uses Default dictionary");
+        dictionary->values.Remove(L"HighContrast");
+        candidates = {};
+        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double",
+                                  ResourceTheme(DevToolsX::ElementTheme::Dark, true), candidates);
+        check(std::find(candidates.keys.begin(), candidates.keys.end(), L"ThemeSize") != candidates.keys.end() &&
+              std::find(candidates.keys.begin(), candidates.keys.end(), L"DarkSize") == candidates.keys.end(),
+              "missing high-contrast dictionary uses Default rather than Dark");
+        dictionary->themes = winrt::single_threaded_map<Object, Object>();
+        dictionary->merged.Clear();
+        candidates = {};
+        candidates.entries = 4096;
+        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
+        check(candidates.partial && candidates.keys.empty(), "resource enumeration is bounded and marks an incomplete list");
+        const std::vector<std::wstring> many = {L"A1", L"A2", L"A3", L"A4", L"A5", L"A6", L"BBAccentBrush"};
+        check(MatchingResourceKeys(many, L"bbAcc") == std::vector<std::wstring>{L"BBAccentBrush"},
+              "typeahead filters all keys before limiting suggestions and ignores case");
+        check(MatchingResourceKeys(many, L"").size() == 6 &&
+              MatchingResourceKeys(many, L"Missing").empty(), "resource suggestions remain bounded and allow no matches");
+        check(ResourceTypeFamily(L"Microsoft.UI.Xaml.Media.SolidColorBrush") == L"Brush",
+              "brush subclasses are compatible resource suggestions");
+    }
+    {
+        row = {};
+        row.name = L"Background"; row.type = L"SolidColorBrush"; row.value = L"#FF808080";
+        ctx = {std::make_shared<const DevToolsCardRow>(row), L"Background", 0, nullptr, &resourceBox};
+        resourceBox.text = L"MissingBrush";
+        PendingKindSet(L"Background", DevToolsKind::Theme);
+        unsigned resolves = 0, restores = 0;
+        g_ctx.resolveFn = [&](InstanceHandle, const std::wstring&, const std::wstring&, bool) {
+            ++resolves; return false;
+        };
+        g_ctx.writeFn = [&](InstanceHandle, const std::wstring&, const std::wstring&, const std::wstring& value,
+                            bool, std::wstring*) {
+            ++restores;
+            check(value == L"#FF808080", "failed resource lookup restores the earlier literal");
+            return DevToolsWriteOutcome::Ok;
+        };
+        CommitKind(ctx);
+        check(resolves == 1 && restores == 1 && resourceError.visibility == 0 &&
+              resourceError.text.find(L"MissingBrush") != std::wstring::npos &&
+              resourceError.text.find(L"previous value was restored") != std::wstring::npos,
+              "failed lookup displays the exact key and restoration outcome beside the editor");
+        check(resourceBox.text == L"MissingBrush" && SessionAssignFind(L"Background") == nullptr &&
+              PendingKindFind(L"Background") != nullptr,
+              "failed lookup preserves the correction text without claiming the key was assigned");
+        g_ctx.writeFn = [](InstanceHandle, const std::wstring&, const std::wstring&, const std::wstring&,
+                           bool, std::wstring*) { return DevToolsWriteOutcome::Failed; };
+        CommitKind(ctx);
+        check(resourceError.text.find(L"could not be restored") != std::wstring::npos,
+              "failed restoration is explicit rather than claiming the app was unchanged");
+        resourceBox.text.clear();
+        CommitKind(ctx);
+        check(resourceError.text == L"Type a resource key first." && resolves == 2,
+              "empty key error is inline and makes no lookup");
+        auto changed = ResourceKeyChangedHandler(ctx.expFe, ctx.path, ResourceKeys{});
+        resourceBox.text = L"ValidBrush";
+        changed(nullptr, nullptr);
+        check(resourceError.text.empty() && resourceError.visibility == 1 && resolves == 2,
+              "correcting text clears the old inline error without applying another resource");
+        resourceError.text = L"new selection";
+        ++g_selWire;
+        changed(nullptr, nullptr);
+        check(resourceError.text == L"new selection", "resource typeahead ignores a replaced selection");
+        --g_selWire;
+        ++g_route1Gen;
+        changed(nullptr, nullptr);
+        check(resourceError.text == L"new selection", "resource typeahead ignores a replaced inspector");
+        --g_route1Gen;
+        auto* changedAbi = reinterpret_cast<IUnknown*>(winrt::detach_abi(changed));
+        check(changedAbi->Release() == 0, "resource typeahead delegate is deleted when its last owner releases it");
+        bool releasedSuggestions = true, releasedSnapshots = true;
+        ResourceKeys large;
+        for (unsigned i = 0; i < 4096; ++i) {
+            const auto key = L"Resource" + std::to_wstring(i);
+            large.keys.push_back(key);
+            large.seen.insert(key);
+        }
+        for (unsigned i = 0; i < 100; ++i) {
+            auto suggestion = ResourceSuggestionHandler(nullptr, L"ValidBrush");
+            auto retainedSuggestion = suggestion;
+            suggestion = nullptr;
+            auto* suggestionAbi = reinterpret_cast<IUnknown*>(winrt::detach_abi(retainedSuggestion));
+            releasedSuggestions &= suggestionAbi->Release() == 0;
+            auto snapshot = ResourceKeyChangedHandler(ctx.expFe, ctx.path, large);
+            auto retainedSnapshot = snapshot;
+            snapshot = nullptr;
+            auto* snapshotAbi = reinterpret_cast<IUnknown*>(winrt::detach_abi(retainedSnapshot));
+            releasedSnapshots &= snapshotAbi->Release() == 0;
+        }
+        check(releasedSuggestions, "repeated suggestion replacement releases each delegate's final reference");
+        check(releasedSnapshots, "repeated editor replacement releases delegates with 4096-key snapshots");
+        std::wstring error = L"old failure";
+        g_ctx.resolveFn = [](InstanceHandle, const std::wstring&, const std::wstring&, bool) { return true; };
+        check(ApplyResourceKey(row, L"Background", L"ValidBrush", true, row.value, error) && error.empty() &&
+              SessionAssignFind(L"Background") &&
+              SessionAssignFind(L"Background")->detail == L"{ThemeResource ValidBrush}",
+              "a corrected valid key is recorded only after the actual assignment succeeds");
+        SessionAssignErase(L"Background");
+        DirtyErase(L"Background");
+        NoteSessionAssign(L"Background", DevToolsKind::Static, L"{StaticResource EarlierBrush}");
+        g_ctx.resolveFn = [](InstanceHandle, const std::wstring&, const std::wstring& key, bool theme) {
+            return key == L"EarlierBrush" && !theme;
+        };
+        check(!ApplyResourceKey(row, L"Background", L"MissingBrush", true, row.value, error) &&
+              error.find(L"previous value was restored") != std::wstring::npos &&
+              SessionAssignFind(L"Background")->detail == L"{StaticResource EarlierBrush}",
+              "failed lookup restores the earlier resource key and kind without recording the bad key");
+        SessionAssignErase(L"Background");
+        PendingKindErase(L"Background");
+        g_ctx.writeFn = nullptr;
+        g_ctx.resolveFn = nullptr;
+    }
     DevToolsWindowComment comment;
     comment.id = L"host-note";
     g_commentRows = {comment};
