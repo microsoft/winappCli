@@ -1,0 +1,37 @@
+name: Peer native diagnostics
+on:
+  push:
+    branches: ["user/qiutongshen/devtools-peer-facts"]
+    paths:
+      - ".github/workflows/peer-native-diagnostics.yml"
+      - "src/winapp-devtools/**"
+      - "scripts/test-native-binding-semantics.ps1"
+permissions:
+  contents: read
+jobs:
+  overlay:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 10.0.x
+      - name: Build native prerequisites
+        shell: pwsh
+        run: .\src\winapp-devtools\build-devtools.ps1 -Configuration Release -Arch x64 -SkipNativeUnitTests -EngineOut .\artifacts\peer-native\engine
+      - name: Reproduce overlay harness
+        shell: pwsh
+        run: |
+          .\scripts\test-native-binding-semantics.ps1 -OutDir .\artifacts\peer-native\harness -OverlayTests *> .\artifacts\peer-native\harness.log
+          $code = $LASTEXITCODE
+          Get-Content .\artifacts\peer-native\harness.log
+          exit $code
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: peer-native-diagnostics
+          path: |
+            artifacts/peer-native/harness.log
+            artifacts/peer-native/harness/*.exe
+          if-no-files-found: warn

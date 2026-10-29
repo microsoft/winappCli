@@ -570,6 +570,7 @@ static InstanceHandle FindRecoveryPanel(unsigned long long rootKey)
 
 int main()
 {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     // The local writer saves into the app's project folder; the tests below run as an app that has one.
     SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_COMMENT_ROOT", L"C:\\project");
     unsigned checks = 0, failures = 0;
