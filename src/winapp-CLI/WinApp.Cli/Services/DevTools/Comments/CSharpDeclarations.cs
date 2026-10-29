@@ -295,9 +295,8 @@ internal sealed partial class CSharpDeclarations
             return [];
         }
         var parameters = new List<CSharpParameter>();
-        foreach (var part in SplitTopLevel(list))
+        foreach (var match in SplitTopLevel(list).Select(part => ParameterPattern().Match(part)))
         {
-            var match = ParameterPattern().Match(part);
             if (!match.Success || NotTypes.Contains(match.Groups["type"].Value))
             {
                 return null;

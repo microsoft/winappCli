@@ -60,7 +60,8 @@ public class DevToolsCSharpCommentsTests
     [TestCleanup]
     public void Cleanup()
     {
-        try { Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
+        try { Directory.Delete(_root, recursive: true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort */ }
     }
 
     // ---- CSharpSourceText ----

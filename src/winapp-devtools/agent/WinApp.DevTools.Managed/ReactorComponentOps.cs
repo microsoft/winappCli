@@ -831,11 +831,7 @@ internal sealed partial class ReactorApi
             return internals.HostFor(chain);
         }
         var hosts = PublicHostObjects();
-        foreach (var ancestor in chain.Where(hosts.ContainsKey))
-        {
-            return hosts[ancestor];
-        }
-        return null;
+        return chain.Select(ancestor => hosts.GetValueOrDefault(ancestor)).FirstOrDefault(host => host is not null);
     }
 
     /// <summary>
@@ -874,11 +870,10 @@ internal sealed partial class ReactorApi
             return null;
         }
         var hosts = WindowHosts();
-        foreach (var host in Ancestors(element).Where(hosts.ContainsKey).Select(ancestor => hosts[ancestor]))
-        {
-            return host.ErrorScreen is { } headline ? ErrorScreenReason(host.Root?.Name, headline) : null;
-        }
-        return null;
+        return Ancestors(element).Select(ancestor => hosts.GetValueOrDefault(ancestor)).FirstOrDefault(host => host is not null) is { } host &&
+            host.ErrorScreen is { } headline
+            ? ErrorScreenReason(host.Root?.Name, headline)
+            : null;
     }
 
     internal static string ErrorScreenReason(string? root, string headline) =>

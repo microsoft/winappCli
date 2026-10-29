@@ -112,13 +112,12 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                         new DevToolsSelector.FindResult(listed, listed.Length, listed.Length, false), cancellationToken));
                 }
                 inside = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var instance in instances)
+                foreach (var roots in instances
+                    .Select(instance => target.Tap!.RequestEnumerate(instance.Handle, null, cancellationToken: cancellationToken))
+                    .Where(subtree => subtree.Ok).Select(subtree => VisualTreeNode.ParseForest(subtree.ResultJson))
+                    .OfType<IReadOnlyList<VisualTreeNode>>())
                 {
-                    var subtree = target.Tap!.RequestEnumerate(instance.Handle, null, cancellationToken: cancellationToken);
-                    if (subtree.Ok && VisualTreeNode.ParseForest(subtree.ResultJson) is { } roots)
-                    {
-                        Collect(roots, inside);
-                    }
+                    Collect(roots, inside);
                 }
             }
 

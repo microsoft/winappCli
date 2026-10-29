@@ -426,15 +426,9 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             var folders = new List<string> { project };
             folders.AddRange(ReactorBuildFacts.ProjectDirectories(project,
                 ReactorBuildFacts.ReadProjectReferences(Path.Combine(project, "obj", "project.assets.json"))));
-            foreach (var folder in folders)
-            {
-                var candidate = Path.GetFullPath(Path.Combine(folder, relative));
-                if (File.Exists(candidate) && (!climbs || IsUnder(bound, candidate)) &&
-                    !candidates.Contains(candidate, StringComparer.OrdinalIgnoreCase))
-                {
-                    candidates.Add(candidate);
-                }
-            }
+            candidates.AddRange(folders.Select(folder => Path.GetFullPath(Path.Combine(folder, relative)))
+                .Where(candidate => File.Exists(candidate) && (!climbs || IsUnder(bound, candidate)))
+                .Distinct(StringComparer.OrdinalIgnoreCase));
             if (candidates.Count == 1)
             {
                 return candidates[0];

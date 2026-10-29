@@ -137,9 +137,9 @@ public sealed class ReactorComponentOpsSafetyTests
         AutoProperty(component, "ComponentType", typeof(Type));
         AutoProperty(component, "Props", typeof(object));
         component.CreateType();
-        foreach (var name in new[] { "FuncElement", "MemoElement" })
+        foreach (var type in new[] { "FuncElement", "MemoElement" }
+            .Select(name => module.DefineType("Microsoft.UI.Reactor.Core." + name, TypeAttributes.Public | TypeAttributes.Class, elementType)))
         {
-            var type = module.DefineType("Microsoft.UI.Reactor.Core." + name, TypeAttributes.Public | TypeAttributes.Class, elementType);
             type.DefineDefaultConstructor(MethodAttributes.Public);
             AutoProperty(type, "RenderFunc", typeof(Delegate));
             type.CreateType();

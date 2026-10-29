@@ -44,9 +44,8 @@ internal sealed partial class ReactorSelector
         }
 
         var steps = new List<Step>();
-        foreach (var part in SplitSteps(selector))
+        foreach (var text in SplitSteps(selector).Select(part => part.Trim()))
         {
-            var text = part.Trim();
             if (text.Length > 2 && text[0] == '<' && text[^1] == '>' && text[1..^1].Trim() is { Length: > 0 } name)
             {
                 steps.Add(new Step(StepKind.Component, name));
