@@ -538,7 +538,7 @@ internal static class DevToolsQueryOptions
 
     private static string Selector(JsonElement row) => DevToolsSelector.Display(
         row.GetProperty("handle").GetString()!, row.GetProperty("type").GetString()!, row.GetProperty("name").GetString()!,
-        row.TryGetProperty("id", out var id) ? id.GetString() : null, row.GetProperty("uniqueName").GetBoolean());
+        row.TryGetProperty("id", out var id) ? id.GetString() : null);
 
     private static void WriteRow(Utf8JsonWriter writer, JsonElement row)
     {

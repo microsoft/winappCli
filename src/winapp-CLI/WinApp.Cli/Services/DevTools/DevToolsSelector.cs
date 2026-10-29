@@ -37,7 +37,7 @@ internal static class DevToolsSelector
 
         public string? ShortFile => Facts?.File ?? DevToolsFormat.ShortFileName(File);
 
-        public string Selector => Display(Handle, Type, Name, Id, UniqueName);
+        public string Selector => Display(Handle, Type, Name, Id);
     }
 
     internal sealed record FindResult(
@@ -75,19 +75,11 @@ internal static class DevToolsSelector
         && value != 0;
 
     /// <summary>
-    /// The selector to PRINT for an element. A census-unique <c>x:Name</c> wins because it is what the
-    /// developer wrote and will recognise; otherwise the semantic slug, which is readable AND checkable; and
-    /// only when the tap gave the element no identity does the bare handle survive as the printed form.
+    /// Prints a checkable slug, or the handle when no identity is available. Name uniqueness alone
+    /// cannot prove addressability: another element's AutomationId may match that name.
     /// </summary>
-    public static string Display(string handle, string type, string? name, string? id, bool uniqueName)
-    {
-        if (uniqueName && !string.IsNullOrEmpty(name))
-        {
-            return name;
-        }
-
-        return DevToolsSlug.For(type, name, id) ?? handle;
-    }
+    public static string Display(string handle, string type, string? name, string? id) =>
+        DevToolsSlug.For(type, name, id) ?? handle;
 
     public static Resolution Resolve(VisualTreeTap tap, string selector, CancellationToken cancellationToken = default)
     {
@@ -257,7 +249,7 @@ internal static class DevToolsSelector
                 $"have x:Name or AutomationId '{selector}'";
             return Resolution.Fail(
                 $"{identities.Length} elements {description}. Use one of their selectors instead:",
-                identities.Select(m => m with { UniqueName = false }).ToArray());
+                identities);
         }
 
         var caseInsensitive = found.Result.Matches

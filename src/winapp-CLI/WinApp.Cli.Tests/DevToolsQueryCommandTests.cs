@@ -46,7 +46,7 @@ public class DevToolsQueryCommandTests
         Assert.AreEqual("FontSize>=20|IsEnabled==false",
             string.Join('|', request.RootElement.GetProperty("params").GetProperty("with").EnumerateArray().Select(value => value.GetString())));
         using var result = JsonDocument.Parse(output);
-        Assert.AreEqual("SearchBox", result.RootElement.GetProperty("matches")[0].GetProperty("selector").GetString());
+        Assert.AreEqual("42", result.RootElement.GetProperty("matches")[0].GetProperty("selector").GetString());
         Assert.AreEqual("", result.RootElement.GetProperty("matches")[0].GetProperty("fields")[0].GetProperty("value").GetString());
         StringAssert.Contains(result.RootElement.GetProperty("warnings")[0].GetString(), "Missing");
     }
@@ -416,7 +416,7 @@ public class DevToolsQueryCommandTests
         Assert.AreEqual(2, result.RootElement.GetProperty("properties")[0].GetProperty("chain").GetArrayLength());
         Assert.AreEqual("{Binding Title}", result.RootElement.GetProperty("properties")[0].GetProperty("binding").GetString());
         Assert.HasCount(1, agent.Received);
-        Assert.AreEqual("SearchBox", result.RootElement.GetProperty("selector").GetString());
+        Assert.AreEqual("42", result.RootElement.GetProperty("selector").GetString());
         Assert.IsTrue(result.RootElement.GetProperty("query").GetProperty("complete").GetBoolean());
     }
 
