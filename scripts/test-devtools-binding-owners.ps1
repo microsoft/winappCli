@@ -288,6 +288,10 @@ try {
         Check ($selection.result.handle -eq [string]$heading[0].handle) 'pick settled on the exact owned authored heading'
         $openFocus = Invoke-Cli @('ui', 'get-focused', '-a', $app)
         Check ($openFocus.element.automationId -eq 'DevToolsSelComment') 'an in-app pick puts keyboard focus in the comment box'
+        $null = Invoke-Cli @('ui', 'send-keys', 'text=Picked comment', '-a', $app, '--via', 'send-input')
+        $typedAfterPick = Invoke-Cli @('ui', 'get-property', 'DevToolsSelComment', '-a', $app, '-p', 'Value')
+        Check ($typedAfterPick.properties.Value -ceq 'Picked comment') 'typing immediately after a pick enters the comment without an extra focus action'
+        $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', '', '-a', $app)
         $peek = Inspect-WithChrome
         $chip = Chip-State
         Check ($chip.label -eq 'Commenting' -and $chip.name -eq 'DevTools (open toolbar), Commenting') 'comment mode shows Commenting on the collapsed toolbar'
