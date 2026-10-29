@@ -887,6 +887,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             string? errorMessage = null;
             DirectoryInfo? resolvedOutputDir = null;
             InspectorAlias? inspectorAlias = null;
+            IReadOnlyDictionary<string, string?>? devToolsEnvironment = null;
             int[] replaced = [];
             int[] closedForDevTools = [];
             string? devToolsStepAside = null;
@@ -1000,6 +1001,33 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // files locked or receive this launch without DevTools, depending on the app. Without
                     // DevTools the running instance is still closed so its files can be replaced.
                     var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
+                    if (devTools)
+                    {
+                        try
+                        {
+                            var sourceProject = projectFile ?? devToolsProject;
+                            var sourceManifest = MsixService.ResolveManifestPlaceholders(
+                                await File.ReadAllTextAsync(resolvedManifest.FullName, cancellationToken),
+                                executable, inputFolder, taskContext);
+                            var sourceExecutable = AppxManifestDocument.Parse(sourceManifest).ApplicationExecutable;
+                            var managed = !nativeAot && (sourceProject is not null && !ProjectRunService.IsCppProject(sourceProject) ||
+                                (sourceExecutable is not null && File.Exists(Path.ChangeExtension(
+                                    Path.Combine(inputFolder.FullName, sourceExecutable), ".runtimeconfig.json"))));
+                            devToolsEnvironment = CreateDevToolsEnvironment(sourceProject?.DirectoryName, managed);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                        {
+                            if (!devToolsRun.FailOpen || runningBefore.Count > 0)
+                            {
+                                DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.Failed);
+                                errorMessage = $"Could not prepare DevTools: {RunFailure.Describe(ex)}";
+                                return (1, $"{UiSymbols.Error} {errorMessage}");
+                            }
+                            devToolsStepAside = $"it could not be prepared: {RunFailure.Describe(ex)}";
+                            devTools = false;
+                            effectiveAlias = AliasLaunchDecision.Aumid;
+                        }
+                    }
                     if (runningBefore.Count > 0)
                     {
                         var closedAll = runningBefore.All(CloseRunningProcess);
@@ -1160,8 +1188,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             if (devTools)
             {
                 if (await RunInspectorAliasAsync(inspectorAlias, inputFolder, projectFile ?? devToolsProject, aumid, appArgs,
-                    debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName, cancellationToken,
-                    nativeAot, devToolsSources, devToolsCompilerArtifacts) is int inspected)
+                    debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName,
+                    devToolsEnvironment!, cancellationToken, devToolsSources, devToolsCompilerArtifacts) is int inspected)
                 {
                     return inspected;
                 }

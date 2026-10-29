@@ -2168,6 +2168,117 @@ public class ProjectRunServiceTests
         $$"""{ "Properties": { "TargetDir": "{{_tempDir.FullName.Replace("\\", "\\\\")}}", "RunCommand": "", "WindowsPackageType": "MSIX", "OutputType": "WinExe", "WindowsAppSDKSelfContained": "" } }""";
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DevToolsFramework_UsesEvaluatedBuildMetadataRatherThanSourceFlags(bool noBuild)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj.Replace("<OutputType>", "<UseWinUI>true</UseWinUI><OutputType>", StringComparison.Ordinal));
+        var output = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            Properties = new Dictionary<string, string>
+            {
+                ["TargetDir"] = _tempDir.FullName,
+                ["WindowsPackageType"] = "MSIX",
+                ["OutputType"] = "WinExe",
+                ["UseWPF"] = "true",
+                ["UseWinUI"] = "false",
+            },
+            Items = new
+            {
+                Page = Array.Empty<object>(),
+                ApplicationDefinition = Array.Empty<object>(),
+                PackageReference = Array.Empty<object>(),
+                ProjectReference = Array.Empty<object>(),
+                Reference = new[]
+                {
+                    new { Identity = "System.Runtime.dll", FrameworkReferenceName = "Microsoft.NETCore.App" },
+                    new { Identity = "PresentationFramework.dll", FrameworkReferenceName = "Microsoft.WindowsDesktop.App.WPF" },
+                },
+            },
+        });
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, output, ""),
+            ResultOutputFileHandler = _ => output,
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Release", "x64", "net10.0-windows", noBuild, true, [], CaptureDevToolsSources: true);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual(ProjectAppFramework.Wpf, outcome.Resolution!.DevToolsUnsupportedFramework);
+        var command = noBuild ? dotnet.StringInvocations.Last() : dotnet.StreamingCalls.Single();
+        StringAssert.Contains(command, "--getProperty:UseWinUI");
+        StringAssert.Contains(command, "--getProperty:UseWPF");
+        StringAssert.Contains(command, "--getProperty:UseWindowsForms");
+        StringAssert.Contains(command, "--getItem:PackageReference,ProjectReference,Reference");
+    }
+
+    [TestMethod]
+    [DataRow("UseWPF", "", "", "", "Wpf")]
+    [DataRow("UseWindowsForms", "", "", "", "WinForms")]
+    [DataRow("UseWPF", "UseWinUI", "", "", "Unknown")]
+    [DataRow("UseWPF", "MicrosoftWindowsAppSDKPackageDir", "", "", "Unknown")]
+    [DataRow("UseWPF", "", "PackageReference", "Microsoft.WindowsAppSDK", "Unknown")]
+    [DataRow("UseWPF", "", "PackageReference", "CustomWinUIHost", "Unknown")]
+    [DataRow("UseWPF", "", "ProjectReference", "WinUIHost.csproj", "Unknown")]
+    [DataRow("UseWPF", "", "Reference", "WinUIHost", "Unknown")]
+    [DataRow("UseWinUI", "", "", "", "Unknown")]
+    [DataRow("", "", "", "", "Unknown")]
+    public void DevToolsFramework_OnlyRejectsKnownUnsupportedFrameworks(
+        string frameworkProperty, string hostingProperty, string referenceType, string reference, string expected)
+    {
+        var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [frameworkProperty] = "true" };
+        if (hostingProperty.Length > 0)
+        {
+            properties[hostingProperty] = hostingProperty == "UseWinUI" ? "true" : @"C:\packages\windowsappsdk";
+        }
+        var items = new Dictionary<string, object[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PackageReference"] = [],
+            ["ProjectReference"] = [],
+            ["Reference"] = [],
+        };
+        if (referenceType.Length > 0)
+        {
+            items[referenceType] = [new { Identity = reference }];
+        }
+        var output = System.Text.Json.JsonSerializer.Serialize(new { Items = items });
+
+        Assert.AreEqual(expected, ProjectRunService.ReadDevToolsUnsupportedFramework(properties, output).ToString());
+    }
+
+    [TestMethod]
+    public void DevToolsFramework_MissingReferenceMetadataIsUnknown()
+    {
+        var properties = new Dictionary<string, string> { ["UseWPF"] = "true" };
+        Assert.AreEqual(ProjectAppFramework.Unknown,
+            ProjectRunService.ReadDevToolsUnsupportedFramework(properties, """{"Items":{"Page":[],"ApplicationDefinition":[]}}"""));
+    }
+
+    [TestMethod]
+    [DataRow("Microsoft.NETCore.App", "Wpf")]
+    [DataRow("Microsoft.WindowsDesktop.App.WPF", "Wpf")]
+    [DataRow("Microsoft.WindowsDesktop.App.WindowsForms", "Wpf")]
+    [DataRow("Custom.WinUIHost", "Unknown")]
+    [DataRow("", "Unknown")]
+    public void DevToolsFramework_OnlyIgnoresDotnetFrameworkReferences(string frameworkReference, string expected)
+    {
+        var properties = new Dictionary<string, string> { ["UseWPF"] = "true" };
+        var output = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            Items = new
+            {
+                PackageReference = Array.Empty<object>(),
+                ProjectReference = Array.Empty<object>(),
+                Reference = new[] { new { Identity = "Reference.dll", FrameworkReferenceName = frameworkReference } },
+            },
+        });
+
+        Assert.AreEqual(expected, ProjectRunService.ReadDevToolsUnsupportedFramework(properties, output).ToString());
+    }
+
+    [TestMethod]
     public async Task PublishPreparation_UsesPublishSigningAndNativeCapability()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
