@@ -450,6 +450,25 @@ static void NameTheEditor(void* fe, const std::wstring& path, const wchar_t* pri
                       path.c_str(), primary);
 }
 
+static void PopulateColorSwatch(IInspectable* swatch, const std::wstring& value)
+{
+    if (!IsHexColor(value)) return;
+    IInspectable* brush = nullptr;
+    const HRESULT hr = LoadMarkupWin(L"<SolidColorBrush xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Color=\""
+                                    + value + L"\"/>", &brush);
+    if (SUCCEEDED(hr) && brush) {
+        void* border = nullptr;
+        if (SUCCEEDED(swatch->QueryInterface(DevToolsIid<DevToolsXC::IBorder>(), &border)) && border) {
+            const HRESULT put = DevToolsPutBorderBackground(border, brush);
+            if (FAILED(put)) DevToolsOverlayLog(L"route1.props swatch refresh failed hr=0x%08X", put);
+            reinterpret_cast<IUnknown*>(border)->Release();
+        }
+        brush->Release();
+    } else {
+        DevToolsOverlayLog(L"route1.props swatch brush load failed hr=0x%08X", hr);
+    }
+}
+
 static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit,
                                DevToolsKind kind, const KindCtx& ctx)
 {
@@ -734,19 +753,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             }
         } else if (ek == L"color") {
             if (IInspectable* sw = FindInRow(fe, L"PSwatch")) {
-                if (IsHexColor(seed)) {
-                    IInspectable* brush = nullptr;
-                    // Parsed as a literal, never as a resource reference: this is a #AARRGGBB string.
-                    if (SUCCEEDED(LoadMarkupWin(L"<SolidColorBrush xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Color=\""
-                                                + seed + L"\"/>", &brush)) && brush) {
-                        void* bd = nullptr;
-                        if (SUCCEEDED(sw->QueryInterface(DevToolsIid<DevToolsXC::IBorder>(), &bd)) && bd) {
-                            DevToolsPutBorderBackground(bd, brush);
-                            reinterpret_cast<IUnknown*>(bd)->Release();
-                        }
-                        brush->Release();
-                    }
-                }
+                PopulateColorSwatch(sw, seed);
                 sw->Release();
             }
             LostFocusSink* hexCommit = nullptr;
@@ -843,6 +850,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         // Placeholder-only: nothing is pre-selected, so building the expansion cannot commit.
                         EnumSelectSink* ps = new EnumSelectSink();
                         ps->Init(g_selWire, path, r.type, seed, presets, psel);
+                        ps->textEditor = hexCommit;
                         __int64 tok = 0;
                         DevToolsAddSelectionChanged(psel, ps, &tok);
                         reinterpret_cast<IUnknown*>(psel)->Release();
