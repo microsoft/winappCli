@@ -1013,6 +1013,12 @@ int main()
         check(RereadTreeCaption(0, &before) && before == L"Start focusing" && g_allTreeNodes[0].preview == L"Pause focus",
             "a live change rereads the selected row's tree caption");
         check(!RereadTreeCaption(0, &before), "an unchanged caption is left alone");
+        g_ctx.previewFn = [](std::vector<DevToolsWindowNode>& nodes, const std::vector<size_t>& indices) {
+            for (size_t i : indices) { nodes[i].previewRead = true; nodes[i].searchText = L"New accessible label"; }
+        };
+        check(RereadTreeCaption(0, &before) && before == L"Pause focus",
+            "changed supplemental search text is refreshed even when the visible preview stays the same");
+        check(!RereadTreeCaption(0, &before), "unchanged supplemental search text is left alone");
         g_ctx.previewFn = nullptr; g_allTreeNodes.clear();
     }
     {
