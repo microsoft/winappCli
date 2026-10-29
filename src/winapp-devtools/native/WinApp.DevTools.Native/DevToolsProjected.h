@@ -626,6 +626,15 @@ inline HRESULT DevToolsGetArgsData(void* getArgs, ::IInspectable** data) noexcep
 inline HRESULT DevToolsGetRecycleElement(void* recycleArgs, ::IInspectable** element) noexcept
 { return DevToolsAbi<DevToolsX::IElementFactoryRecycleArgs>(recycleArgs)->get_Element(reinterpret_cast<void**>(element)); }
 
+inline HRESULT DevToolsAddExpanding(void* expander, void* sink, __int64* token) noexcept
+{ return DevToolsAbi<DevToolsXC::IExpander>(expander)->add_Expanding(sink, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveExpanding(void* expander, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXC::IExpander>(expander)->remove_Expanding(*DevToolsAbiTok(&token)); }
+inline HRESULT DevToolsAddCollapsed(void* expander, void* sink, __int64* token) noexcept
+{ return DevToolsAbi<DevToolsXC::IExpander>(expander)->add_Collapsed(sink, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveCollapsed(void* expander, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXC::IExpander>(expander)->remove_Collapsed(*DevToolsAbiTok(&token)); }
+
 inline HRESULT DevToolsGetContentTemplate(void* contentControl, ::IInspectable** tmpl) noexcept
 { return DevToolsAbi<DevToolsXC::IContentControl>(contentControl)->get_ContentTemplate(reinterpret_cast<void**>(tmpl)); }
 inline HRESULT DevToolsTemplateLoadContent(void* dataTemplate, ::IInspectable** content) noexcept

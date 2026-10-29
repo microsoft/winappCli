@@ -479,6 +479,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
 static void RebuildExpansion(void* rowFe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
     if (!rowFe) return;
+    RetireRowExpandSinks(rowFe, /*descendantsOnly*/ true);
     if (IInspectable* host = FindInRow(rowFe, L"PExpand")) {
         void* pnl = nullptr; void* kids = nullptr;
         if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
@@ -616,8 +617,22 @@ HRESULT STDMETHODCALLTYPE GetElement(void* args, void** element) noexcept overri
         *element = ui;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE RecycleElement(void* /*args*/) noexcept override
+    HRESULT STDMETHODCALLTYPE RecycleElement(void* args) noexcept override
     {
+        IInspectable* element = nullptr;
+        const HRESULT hr = DevToolsGetRecycleElement(args, &element);
+        if (FAILED(hr)) {
+            DevToolsOverlayLog(L"route1.props recycle element failed hr=0x%08X", hr);
+            return hr;
+        }
+        if (element) {
+            void* fe = nullptr;
+            if (SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+                RetireRowExpandSinks(fe);
+                reinterpret_cast<IUnknown*>(fe)->Release();
+            }
+            element->Release();
+        }
         return S_OK;
     }
 };

@@ -81,6 +81,7 @@ HRESULT DevToolsWindow_Open(IXamlDiagnostics* diag,
     // and fall through to rebuild a fresh window.
     if (g_route1WindowInsp) {
         if (Route1WindowAlive()) {
+            const bool reopening = g_route1WindowHidden;
             // A hidden reused window must reread the app tree before reveal; hidden rows do not refresh themselves.
 if (g_route1WindowHidden) {
                 if (HWND h = Route1WindowHwnd()) {
@@ -106,7 +107,7 @@ if (g_route1WindowHidden) {
             DevToolsOverlayLog(L"route1.open re-activate existing (live) window");
             if (preselectWire) SelectNodeByWire(preselectWire);
             // The app may have changed this element since the window last read it.
-            if (preselectWire && preselectWire == g_selWire) {
+            if (reopening || (preselectWire && preselectWire == g_selWire)) {
                 WalkForget();
                 ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
             }
@@ -623,6 +624,7 @@ HRESULT DevToolsWindow_Close()
     ResetAppVisibleModes(hwnd);
     LiveUnwatch();
     g_route1WindowHidden = true;
+    RetireRowExpandSinks();
     DevToolsOverlayLog(L"route1.close hidden (instance reused; gen=%u)", g_route1Gen);
     return S_OK;
 }

@@ -358,16 +358,7 @@ static void PopulateRowLine(void* fe, const DevToolsCardRow& r, const std::wstri
         }
         void* expander = nullptr;
         if (expandable && SUCCEEDED(header->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &expander)) && expander) {
-            for (bool open : { true, false }) {
-                RowExpandSink* sink = new RowExpandSink();
-                sink->Init(shared, path, edit, fe, open);
-                __int64 token = 0;
-                const HRESULT hr = open
-                    ? DevToolsAbi<DevToolsXC::IExpander>(expander)->add_Expanding(sink, DevToolsAbiTok(&token))
-                    : DevToolsAbi<DevToolsXC::IExpander>(expander)->add_Collapsed(sink, DevToolsAbiTok(&token));
-                if (FAILED(hr))
-                    DevToolsOverlayLog(L"route1.props row '%s' expansion event failed hr=0x%08X", path.c_str(), hr);
-            }
+            WireRowExpansion(shared, path, edit, fe, expander);
             reinterpret_cast<IUnknown*>(expander)->Release();
         }
         header->Release();

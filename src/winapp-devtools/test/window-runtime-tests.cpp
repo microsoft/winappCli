@@ -38,6 +38,9 @@ static HRESULT TestAddTheme(void*, void*, __int64*);
 static LRESULT CALLBACK TestNativeClose(HWND, UINT, WPARAM, LPARAM);
 static double testViewport = 0.0;
 static HRESULT TestViewport(void*, double* value) { *value = testViewport; return S_OK; }
+static HRESULT TestAddRowEvent(void*, void*, __int64*);
+static HRESULT TestRemoveRowEvent(void*, __int64);
+static HRESULT TestRecycleElement(void*, IInspectable**);
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsSetAutomationName PutTestAutomationName
@@ -70,6 +73,11 @@ static HRESULT TestViewport(void*, double* value) { *value = testViewport; retur
 #define DevToolsAddActualThemeChanged TestAddTheme
 #define DefSubclassProc TestNativeClose
 #define DevToolsScrollGetViewportHeight TestViewport
+#define DevToolsAddExpanding TestAddRowEvent
+#define DevToolsAddCollapsed TestAddRowEvent
+#define DevToolsRemoveExpanding TestRemoveRowEvent
+#define DevToolsRemoveCollapsed TestRemoveRowEvent
+#define DevToolsGetRecycleElement TestRecycleElement
 #include "../native/WinApp.DevTools.Native/DevToolsWindow.cpp"
 
 struct TestElement : IInspectable {
@@ -90,6 +98,33 @@ struct TestElement : IInspectable {
     HRESULT STDMETHODCALLTYPE GetRuntimeClassName(HSTRING* value) override { *value=nullptr; return S_OK; }
     HRESULT STDMETHODCALLTYPE GetTrustLevel(TrustLevel* value) override { *value=BaseTrust; return S_OK; }
 };
+static std::map<__int64, RowExpandSink*> rowEvents;
+static __int64 nextRowEvent = 0;
+static HRESULT addRowEventResult = S_OK, removeRowEventResult = S_OK;
+static HRESULT TestAddRowEvent(void*, void* handler, __int64* token)
+{
+    if (FAILED(addRowEventResult)) return addRowEventResult;
+    auto* sink = static_cast<RowExpandSink*>(handler);
+    sink->AddRef();
+    rowEvents[*token = ++nextRowEvent] = sink;
+    return S_OK;
+}
+static HRESULT TestRemoveRowEvent(void*, __int64 token)
+{
+    if (FAILED(removeRowEventResult)) return removeRowEventResult;
+    const auto found = rowEvents.find(token);
+    if (found == rowEvents.end()) return E_INVALIDARG;
+    auto* sink = found->second;
+    rowEvents.erase(found);
+    sink->Release();
+    return S_OK;
+}
+static HRESULT TestRecycleElement(void* args, IInspectable** element)
+{
+    *element = static_cast<IInspectable*>(args);
+    (*element)->AddRef();
+    return S_OK;
+}
 static HRESULT PutTestVisibility(void* element, int value)
 {
     static_cast<TestElement*>(element)->visibility = value;
@@ -269,6 +304,82 @@ int main()
     winrt::init_apartment();
     unsigned checks=0, failed=0, writes=0;
     auto check=[&](bool ok,const char* name){++checks;if(!ok){++failed;std::printf("FAIL %s\n",name);}};
+    {
+        TestElement rowControl, publisher;
+        for (int rebuild = 0; rebuild < 500; ++rebuild) {
+            auto snapshot = std::make_shared<const DevToolsCardRow>();
+            std::weak_ptr<const DevToolsCardRow> weak = snapshot;
+            WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+            snapshot.reset();
+            auto* queued = g_rowExpandSinks.front();
+            queued->AddRef();
+            void* queried = nullptr;
+            check(queued->QueryInterface(IID_IUnknown, &queried) == S_OK && queried == queued,
+                "row delegates expose COM identity");
+            check(static_cast<IUnknown*>(queried)->Release() == 3,
+                "row delegate QueryInterface supplies an owned reference");
+            check(g_rowExpandSinks.size() == 2 && rowEvents.size() == 2 &&
+                  rowControl.refs == 3 && publisher.refs == 3 && !weak.expired(),
+                "only the current row owns its controls and shared property snapshot");
+            if (rebuild % 2) g_propRowFactory.RecycleElement(&rowControl);
+            else RetireRowExpandSinks();
+            check(g_rowExpandSinks.empty() && rowEvents.empty() && weak.expired() &&
+                  rowControl.refs == 1 && publisher.refs == 1,
+                "each pane rebuild releases obsolete controls and snapshots even with a queued event");
+            check(queued->Invoke(nullptr, nullptr) == S_OK && !queued->rowFe && !queued->row,
+                "a queued event is inert after retirement without retaining the old pane");
+            check(queued->Release() == 0, "the last queued event releases the retired delegate");
+        }
+        TestElement child, sibling;
+        auto snapshot = std::make_shared<const DevToolsCardRow>();
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        WireRowExpansion(snapshot, L"Background.Color", 1, &child, &publisher);
+        WireRowExpansion(snapshot, L"Foreground", 2, &sibling, &publisher);
+        RebuildExpansion(&rowControl, *snapshot, L"Background", 0);
+        check(g_rowExpandSinks.size() == 4 && child.refs == 1 && rowControl.refs == 3 && sibling.refs == 3,
+            "rebuilding an expansion retires child rows but preserves its header and sibling rows");
+        check(g_propRowFactory.RecycleElement(&rowControl) == S_OK && rowControl.refs == 1 &&
+              g_rowExpandSinks.size() == 2 && sibling.refs == 3,
+            "virtualizing a row retires its handlers without retiring another property");
+        RetireRowExpandSinks();
+        addRowEventResult = E_FAIL;
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        check(g_rowExpandSinks.empty() && rowEvents.empty() && rowControl.refs == 1 && publisher.refs == 1,
+            "a failed event subscription destroys its unregistered delegate and releases the row");
+        addRowEventResult = S_OK;
+        std::weak_ptr<const DevToolsCardRow> weak = snapshot;
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        snapshot.reset();
+        removeRowEventResult = E_FAIL;
+        RetireRowExpandSinks();
+        check(weak.expired() && rowControl.refs == 1 && publisher.refs == 1 && rowEvents.size() == 2,
+            "failed unsubscription still breaks ownership cycles and releases the snapshot");
+        removeRowEventResult = S_OK;
+        while (!rowEvents.empty()) {
+            auto* sink = rowEvents.begin()->second;
+            check(sink->Invoke(nullptr, nullptr) == S_OK, "unrevoked retired events remain safe");
+            TestRemoveRowEvent(&publisher, rowEvents.begin()->first);
+        }
+        snapshot = std::make_shared<const DevToolsCardRow>();
+        weak = snapshot;
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        snapshot.reset();
+        ResetRoute1State();
+        check(weak.expired() && g_rowExpandSinks.empty() && rowEvents.empty() &&
+              rowControl.refs == 1 && publisher.refs == 1,
+            "inspector state reset releases all row subscriptions and snapshots");
+        snapshot = std::make_shared<const DevToolsCardRow>();
+        KindCtx otherEditor;
+        otherEditor.row = snapshot;
+        weak = snapshot;
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        snapshot.reset();
+        RetireRowExpandSinks();
+        check(!weak.expired() && otherEditor.row.use_count() == 1 && rowControl.refs == 1,
+            "row retirement releases only its snapshot references, not another editor's ownership");
+        otherEditor.row.reset();
+        check(weak.expired(), "the snapshot is destroyed when its final independent owner releases it");
+    }
     {
         TestElement pickButton, pickIndicator, focusButton, focusIndicator;
         g_pickBtnCtrl = &pickButton; g_pickOnUi = &pickIndicator;
@@ -799,14 +910,24 @@ int main()
     g_captionThemeRoot=&testValue;testValue.AddRef();
     g_captionThemeToken=42;g_captionThemeSubscribed=true;
     g_route1WindowInsp=&testRow;
+    TestElement closeRow, closePublisher;
+    auto closeSnapshot=std::make_shared<const DevToolsCardRow>();
+    std::weak_ptr<const DevToolsCardRow> closedSnapshot=closeSnapshot;
+    WireRowExpansion(closeSnapshot,L"Background",0,&closeRow,&closePublisher);
+    closeSnapshot.reset();
     const auto selectionBeforeClose=g_selWire;
     check(Route1MinSizeProc(nullptr,WM_CLOSE,0,0,1,g_route1Gen-1)==123 &&
         g_captionThemeSubscribed && themeRemovals==1 && nativeCloses==1,
         "stale close cannot tear down the newer inspector caption");
+    check(!closedSnapshot.expired() && g_rowExpandSinks.size()==2,
+        "a stale close cannot retire the newer inspector's property rows");
     check(Route1MinSizeProc(nullptr,WM_CLOSE,0,0,1,g_route1Gen)==123,
         "native close still reaches the original window procedure");
     check(captionReleasedBeforeClose && themeRemovals==2,
         "caption subscription and interfaces are released before native window destruction");
+    check(closedSnapshot.expired() && g_rowExpandSinks.empty() && rowEvents.empty() &&
+          closeRow.refs==1 && closePublisher.refs==1,
+        "native inspector close retires row subscriptions and releases controls and snapshots");
     check(nativeCloses==2,"theme cleanup preserves native close rather than hiding the window");
     check(g_selWire==selectionBeforeClose,
         "caption teardown does not reset inspector selection or edit state");
