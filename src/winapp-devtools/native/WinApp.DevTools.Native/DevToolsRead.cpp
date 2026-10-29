@@ -77,7 +77,7 @@ void DevToolsRead_RedactXaml(std::wstring& xaml)
                     const std::wstring value = xaml.substr(open + 1, close - open - 1);
                     const bool secret = nameStart < nameEnd && (nameStart == 0 || iswspace(out[nameStart - 1])) &&
                         DevToolsRead_IsSecretProperty(out.substr(nameStart, nameEnd - nameStart)) &&
-                        (value.empty() || value.front() != L'{');
+                        (value.empty() || DevToolsRead_ClassifyAuthored(value) == L"literal");
                     out.append(xaml, i, open + 1 - i);
                     out += secret ? std::wstring(kDevToolsRedacted) : value;
                     out += xaml[close];
@@ -116,7 +116,7 @@ void DevToolsRead_Redact(DevToolsReadProp& p)
     p.writeType.clear();
     p.editKind = L"none";
     // A binding or resource reference names where the value comes from, not the value itself.
-    if (!p.authored.empty() && p.authored.front() != L'{') p.authored = kDevToolsRedacted;
+    if (DevToolsRead_ClassifyAuthored(p.authored) == L"literal") p.authored = kDevToolsRedacted;
     for (auto& entry : p.chain) entry.value = kDevToolsRedacted;
     p.children.clear();
 }
