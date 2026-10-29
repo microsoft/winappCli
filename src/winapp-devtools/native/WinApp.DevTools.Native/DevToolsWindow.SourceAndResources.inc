@@ -132,6 +132,8 @@ struct SourceActionSink : DevToolsSinkBase
     winrt::weak_ref<DevToolsXC::TextBlock> feedback;
 };
 
+static std::wstring CurrentEditSeed(const std::wstring& path, const std::wstring& fallback);
+
 // Commit an enum ComboBox editor on selection change: read the ComboBox's SelectedIndex and write the matching
 // member name to the live app element via the in-process write bridge. Self-contained (captures the node handle
 // + property + write type + the ordered member-value list + a NON-owning ISelector pointer). Non-owning is safe
@@ -147,9 +149,25 @@ struct EnumSelectSink : DevToolsSinkBase
         if (FAILED(DevToolsGetSelectedIndex(selector, &idx))) return S_OK;
         if (idx < 0 || idx >= (int)members.size()) return S_OK;
         const std::wstring& val = members[(size_t)idx];
-        if (val == original) return S_OK;
+        std::wstring before = textEditor && selWire == g_selWire ? CurrentEditSeed(prop, original) : original;
+        bool haveCurrentValue = true;
+        if (textEditor && selWire == g_selWire && val == before) {
+            // A previous write may have landed without refreshing this cached row.
+            haveCurrentValue = RefreshCommittedValue(prop);
+            if (haveCurrentValue) before = CurrentEditSeed(prop, original);
+        }
+        if (haveCurrentValue && val == before) {
+            if (textEditor) textEditor->SyncCommittedValue(before);
+            return S_OK;
+        }
+        bool refreshed = false;
         if (ApplyCommitOutcome(CommitWrite(selWire, prop, type, val, /*confirmBindingReplace*/ false),
-                               selWire, prop, type, original, val)) original = val;
+                               selWire, prop, type, before, val, nullptr, &refreshed)) {
+            original = val;
+            if (textEditor && refreshed && gen == g_route1Gen && selWire == g_selWire) {
+                textEditor->SyncCommittedValue(CurrentEditSeed(prop, val));
+            }
+        }
         return S_OK;
     }
     void Init(InstanceHandle w, const std::wstring& p, const std::wstring& t, const std::wstring& orig,
@@ -162,6 +180,7 @@ struct EnumSelectSink : DevToolsSinkBase
     std::wstring              prop, type, original;
     std::vector<std::wstring> members;
     void*                     selector = nullptr;
+    LostFocusSink*            textEditor = nullptr; // Same expansion lifetime as the preset selector.
 };
 
 // Theme brush order matches the ComboBox item order; SelectedIndex maps directly to a resource name.
