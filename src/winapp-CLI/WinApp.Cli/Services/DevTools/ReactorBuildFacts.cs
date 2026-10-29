@@ -58,16 +58,7 @@ internal sealed record ReactorBuildFacts(bool Referenced, string? SourceMapPrope
             using var doc = JsonDocument.Parse(stream);
             if (doc.RootElement.TryGetProperty("libraries", out var libraries) && libraries.ValueKind == JsonValueKind.Object)
             {
-                foreach (var library in libraries.EnumerateObject())
-                {
-                    if (library.Value.ValueKind == JsonValueKind.Object &&
-                        library.Value.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "project" &&
-                        library.Value.TryGetProperty("path", out var path) && path.ValueKind == JsonValueKind.String &&
-                        path.GetString() is { Length: > 0 } project)
-                    {
-                        projects.Add(project);
-                    }
-                }
+                projects.AddRange(libraries.EnumerateObject().Select(library => ProjectPath(library.Value)).OfType<string>());
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -76,6 +67,15 @@ internal sealed record ReactorBuildFacts(bool Referenced, string? SourceMapPrope
         }
         return projects;
     }
+
+    // A restore library entry's path when it is a project reference ("type": "project"); null for packages.
+    private static string? ProjectPath(JsonElement library) =>
+        library.ValueKind == JsonValueKind.Object &&
+        library.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "project" &&
+        library.TryGetProperty("path", out var path) && path.ValueKind == JsonValueKind.String &&
+        path.GetString() is { Length: > 0 } project
+            ? project
+            : null;
 
     /// <summary>The existing folders of the projects <paramref name="projectReferences"/> names, relative to <paramref name="projectDirectory"/>.</summary>
     internal static List<string> ProjectDirectories(string projectDirectory, IEnumerable<string> projectReferences)

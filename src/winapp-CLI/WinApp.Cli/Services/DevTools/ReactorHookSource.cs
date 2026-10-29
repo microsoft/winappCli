@@ -185,12 +185,9 @@ internal static partial class ReactorHookSource
                             continue;
                         }
                         writer.WriteStartObject();
-                        foreach (var field in element.EnumerateObject())
+                        foreach (var field in element.EnumerateObject().Where(field => field.Name is not ("value" or "redacted")))
                         {
-                            if (field.Name is not ("value" or "redacted"))
-                            {
-                                field.WriteTo(writer);
-                            }
+                            field.WriteTo(writer);
                         }
                         writer.WriteString("value", DevToolsSecrets.Redacted);
                         writer.WriteBoolean("redacted", true);

@@ -215,16 +215,13 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
                         using var raw = JsonDocument.Parse(componentJson);
                         raw.RootElement.WriteTo(writer);
                         writer.WriteStartArray("likelySources");
-                        foreach (var (kind, label, value) in Sources(component))
+                        foreach (var (kind, label, value) in Sources(component).Where(source => ReactorComponentState.Feeds(source.Value, shown)))
                         {
-                            if (ReactorComponentState.Feeds(value, shown))
-                            {
-                                writer.WriteStartObject();
-                                writer.WriteString("kind", kind);
-                                writer.WriteString("name", label);
-                                writer.WriteString("value", value);
-                                writer.WriteEndObject();
-                            }
+                            writer.WriteStartObject();
+                            writer.WriteString("kind", kind);
+                            writer.WriteString("name", label);
+                            writer.WriteString("value", value);
+                            writer.WriteEndObject();
                         }
                         writer.WriteEndArray();
                     }
@@ -268,9 +265,9 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
 
         private static IEnumerable<(string Kind, string Name, string Value)> Sources(ReactorComponentState component)
         {
-            foreach (var (name, value, redacted) in component.Props ?? [])
+            foreach (var (name, value, _) in (component.Props ?? []).Where(prop => !prop.Redacted))
             {
-                if (!redacted) { yield return ("prop", name, value); }
+                yield return ("prop", name, value);
             }
             foreach (var hook in component.ValueHooks.Where(hook => !hook.Redacted && hook.Kind != "context"))
             {

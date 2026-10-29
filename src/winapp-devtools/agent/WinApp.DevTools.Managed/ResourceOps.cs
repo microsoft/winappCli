@@ -324,12 +324,9 @@ internal static class ResourceOps
             }
         }
         // Older Reactor caches what a ThemeRef resolved to; drop it so the next render resolves the edited value.
-        foreach (var assembly in notified ? Array.Empty<Assembly>() : AppDomain.CurrentDomain.GetAssemblies())
+        foreach (var assembly in (notified ? Array.Empty<Assembly>() : AppDomain.CurrentDomain.GetAssemblies()).Where(assembly => !assembly.IsDynamic))
         {
-            if (!assembly.IsDynamic)
-            {
-                ReactorInternals.InvalidateThemeCache(assembly);
-            }
+            ReactorInternals.InvalidateThemeCache(assembly);
         }
         var roots = new List<FrameworkElement>();
         if (element.XamlRoot?.Content is FrameworkElement own)

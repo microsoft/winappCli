@@ -96,13 +96,10 @@ internal static class ParentProcessId
             {
                 continue;
             }
-            foreach (var child in list)
+            foreach (var child in list.Where(child => seen.Add(child.Id)))
             {
-                if (seen.Add(child.Id))
-                {
-                    result.Add(child);
-                    pending.Enqueue(child.Id);
-                }
+                result.Add(child);
+                pending.Enqueue(child.Id);
             }
         }
         return result;

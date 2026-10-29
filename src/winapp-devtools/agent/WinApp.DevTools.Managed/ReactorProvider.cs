@@ -675,13 +675,7 @@ internal sealed partial class ReactorApi
         {
             if (getHosts?.Invoke(null, null) is System.Collections.IEnumerable items)
             {
-                foreach (var item in items)
-                {
-                    if (item is not null)
-                    {
-                        list.Add(item);
-                    }
-                }
+                list.AddRange(items.OfType<object>());
             }
         }
         catch (TargetInvocationException)

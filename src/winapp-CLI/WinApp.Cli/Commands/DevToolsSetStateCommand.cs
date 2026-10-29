@@ -97,12 +97,9 @@ internal class DevToolsSetStateCommand : DevToolsLiveCommand, IHelpExamples
             var response = target.Tap!.RequestReactorSetState(handle, hook, value, cancellationToken);
             return Task.FromResult(ReportAgentAnswer(target, handle, json, response, (writer, root) =>
             {
-                foreach (var member in root.EnumerateObject())
+                foreach (var member in root.EnumerateObject().Where(member => member.Name != "state"))
                 {
-                    if (member.Name != "state")
-                    {
-                        member.WriteTo(writer);
-                    }
+                    member.WriteTo(writer);
                 }
                 if (hookName is not null)
                 {

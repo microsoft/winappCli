@@ -347,12 +347,10 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
                     writer.WriteBoolean("ok", false);
                     writer.WriteNumber("processId", target.Pid);
                     WriteIdentity(writer, target, handle, cancellationToken);
-                    foreach (var member in root.EnumerateObject())
+                    foreach (var member in root.EnumerateObject()
+                        .Where(member => member.Name is "indeterminate" or "event" or "method" or "exception" or "message"))
                     {
-                        if (member.Name is "indeterminate" or "event" or "method" or "exception" or "message")
-                        {
-                            member.WriteTo(writer);
-                        }
+                        member.WriteTo(writer);
                     }
                     DevToolsJson.WriteError(writer, new DevToolsProtocolError(0, token, message));
                 }));

@@ -73,12 +73,9 @@ internal class DevToolsGetResourceCommand : DevToolsLiveCommand, IHelpExamples
             }
             return Task.FromResult(ReportAgentAnswer(target, handle, json, response, (writer, root) =>
             {
-                foreach (var member in root.EnumerateObject())
+                foreach (var member in root.EnumerateObject().Where(member => member.Name != "state"))
                 {
-                    if (member.Name != "state")
-                    {
-                        member.WriteTo(writer);
-                    }
+                    member.WriteTo(writer);
                 }
             }, root => ResourceTargets.Describe(root), cancellationToken));
         }
@@ -168,12 +165,9 @@ internal class DevToolsSetResourceCommand : DevToolsLiveCommand, IHelpExamples
             }
             return Task.FromResult(ReportAgentAnswer(target, handle, json, response, (writer, root) =>
             {
-                foreach (var member in root.EnumerateObject())
+                foreach (var member in root.EnumerateObject().Where(member => member.Name != "state"))
                 {
-                    if (member.Name != "state")
-                    {
-                        member.WriteTo(writer);
-                    }
+                    member.WriteTo(writer);
                 }
             }, root =>
             {
@@ -207,12 +201,9 @@ internal class DevToolsSetResourceCommand : DevToolsLiveCommand, IHelpExamples
                 writer.WriteBoolean("ok", false);
                 writer.WriteNumber("processId", target.Pid);
                 WriteIdentity(writer, target, handle, cancellationToken);
-                foreach (var member in root.EnumerateObject())
+                foreach (var member in root.EnumerateObject().Where(member => member.Name != "state"))
                 {
-                    if (member.Name != "state")
-                    {
-                        member.WriteTo(writer);
-                    }
+                    member.WriteTo(writer);
                 }
                 DevToolsJson.WriteError(writer, new DevToolsProtocolError(0, "resource-reverted", message));
             }));

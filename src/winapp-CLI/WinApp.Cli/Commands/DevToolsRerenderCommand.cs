@@ -49,12 +49,9 @@ internal class DevToolsRerenderCommand : DevToolsLiveCommand, IHelpExamples
             var response = target.Tap!.RequestReactorRerender(handle, cancellationToken);
             return Task.FromResult(ReportAgentAnswer(target, handle, json, response, (writer, root) =>
             {
-                foreach (var member in root.EnumerateObject())
+                foreach (var member in root.EnumerateObject().Where(member => member.Name != "state"))
                 {
-                    if (member.Name != "state")
-                    {
-                        member.WriteTo(writer);
-                    }
+                    member.WriteTo(writer);
                 }
                 writer.WriteString("note", Note);
             }, root =>
