@@ -1003,13 +1003,15 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
                     if (devTools)
                     {
+                        AppxManifestDocument? sourceDocument = null;
                         try
                         {
                             var sourceProject = projectFile ?? devToolsProject;
                             var sourceManifest = MsixService.ResolveManifestPlaceholders(
                                 await File.ReadAllTextAsync(resolvedManifest.FullName, cancellationToken),
                                 executable, inputFolder, taskContext);
-                            var sourceExecutable = AppxManifestDocument.Parse(sourceManifest).ApplicationExecutable;
+                            sourceDocument = AppxManifestDocument.Parse(sourceManifest);
+                            var sourceExecutable = sourceDocument.ApplicationExecutable;
                             var managed = !nativeAot && (sourceProject is not null && !ProjectRunService.IsCppProject(sourceProject) ||
                                 (sourceExecutable is not null && File.Exists(Path.ChangeExtension(
                                     Path.Combine(inputFolder.FullName, sourceExecutable), ".runtimeconfig.json"))));
@@ -1017,7 +1019,20 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
                         {
-                            if (!devToolsRun.FailOpen || runningBefore.Count > 0)
+                            var canFallBack = false;
+                            if (devToolsRun.FailOpen && runningBefore.Count == 0 &&
+                                sourceDocument is { IdentityName: { Length: > 0 } registeredName, IdentityPublisher: { Length: > 0 } registeredPublisher })
+                            {
+                                var identityName = developmentIdentity.UniqueIdentity
+                                    ? DevelopmentIdentityHelper.Create(sourceDocument, developmentIdentity.OwnerPath).PackageName
+                                    : registeredName;
+                                // Registration can stop the same app even when this run uses a different output folder.
+                                canFallBack = !packageRegistrationService.FindDevPackages(identityName)
+                                    .Where(package => string.Equals(package.Publisher, registeredPublisher, StringComparison.OrdinalIgnoreCase))
+                                    .Any(package => package.InstallLocation is { Length: > 0 } location &&
+                                        ProcessesRunningFromLayout(new DirectoryInfo(location)).Count > 0);
+                            }
+                            if (!canFallBack)
                             {
                                 DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.Failed);
                                 errorMessage = $"Could not prepare DevTools: {RunFailure.Describe(ex)}";

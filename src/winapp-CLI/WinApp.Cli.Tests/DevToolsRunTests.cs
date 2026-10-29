@@ -604,6 +604,61 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
+    [DataRow(false, true, true)]
+    [DataRow(true, true, true)]
+    [DataRow(false, false, true)]
+    [DataRow(false, true, false)]
+    public async Task Default_EnvironmentFailure_ChecksThePreviouslyRegisteredLayout(
+        bool uniqueIdentity, bool running, bool samePublisher)
+    {
+        var app = WinUIProject(true);
+        var previousLayout = _tempDirectory.CreateSubdirectory("layout-a");
+        var nextLayout = Path.Combine(_tempDirectory.FullName, "layout-b");
+        var sourceManifest = AppxManifestDocument.Load(Path.Combine(app.Output, "AppxManifest.xml"));
+        var identityName = uniqueIdentity
+            ? DevelopmentIdentityHelper.Create(sourceManifest, app.Input).PackageName
+            : sourceManifest.IdentityName!;
+        _registration.FakeDevPackages =
+        [
+            new("previous-package", identityName, "1.0.0.0", previousLayout.FullName, true,
+                samePublisher ? sourceManifest.IdentityPublisher : "CN=AnotherPublisher"),
+        ];
+        var handler = GetRequiredService<RunCommand.Handler>();
+        var probed = new List<string>();
+        handler.ProcessesRunningFromLayout = layout =>
+        {
+            probed.Add(layout.FullName);
+            return running && layout.FullName == previousLayout.FullName ? [4242] : [];
+        };
+        var closed = new List<int>();
+        handler.CloseRunningProcess = pid => { closed.Add(pid); return true; };
+        handler.CreateDevToolsEnvironment = (_, _) => throw new IOException("controlled staging failure");
+        string[] identity = uniqueIdentity ? ["--unique-identity"] : [];
+        var mustPreserveApp = running && samePublisher;
+
+        Assert.AreEqual(mustPreserveApp ? 1 : 0,
+            await Run(app.Input, ["--detach", "--json", "--output-appx-directory", nextLayout, .. identity]),
+            TestAnsiConsole.Output);
+        CollectionAssert.Contains(_registration.FindDevPackagesCalls, identityName);
+        Assert.IsEmpty(closed);
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+        Assert.IsEmpty(_attach.Calls);
+        Assert.AreEqual(mustPreserveApp ? 0 : 1, _msix.AddLooseLayoutCalls.Count);
+        Assert.AreEqual(mustPreserveApp ? 0 : 1, _launcher.LaunchCalls.Count);
+        Assert.AreEqual(samePublisher, probed.Contains(previousLayout.FullName));
+        using var json = JsonDocument.Parse(TestAnsiConsole.Output);
+        if (mustPreserveApp)
+        {
+            StringAssert.Contains(json.RootElement.GetProperty("Error").GetString()!, "controlled staging failure");
+            Assert.IsFalse(json.RootElement.TryGetProperty("ProcessId", out _));
+        }
+        else
+        {
+            Assert.IsFalse(json.RootElement.TryGetProperty("Error", out _));
+        }
+    }
+
+    [TestMethod]
     [DataRow(true, "on", false)]
     [DataRow(true, "headless", true)]
     [DataRow(false, "on", true)]
