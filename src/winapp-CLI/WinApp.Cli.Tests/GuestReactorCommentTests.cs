@@ -22,7 +22,8 @@ public class GuestReactorCommentTests
     [TestCleanup]
     public void Cleanup()
     {
-        try { _root.Delete(recursive: true); } catch { /* best effort */ }
+        try { _root.Delete(recursive: true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort */ }
     }
 
     [TestMethod]
