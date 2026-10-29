@@ -99,6 +99,8 @@ public sealed class BindingCaptureLifetimeTests
                     await Exercise(false);
                     Stage("Reference-cycle gate");
                     await Exercise(true);
+                    Stage("Runtime binding replacement and mode-only edit");
+                    ExerciseBindingReplacement();
                 }
                 catch (Exception error) { Stage(error.ToString()); failure = error; }
                 finally { Stop(); }
@@ -130,6 +132,57 @@ public sealed class BindingCaptureLifetimeTests
             Assert.IsFalse(native.IsAlive(), "Removed native child retained.");
             Assert.IsFalse(SourceAlive(), "Captured source retained after native removal.");
             Assert.IsFalse(CaptureAlive(), "Capture state retained after native removal.");
+        }
+
+        private void ExerciseBindingReplacement()
+        {
+            var model = new ReplacementSource();
+            var target = new TextBlock { DataContext = model };
+            root.Children.Add(target);
+            target.SetBinding(TextBlock.TextProperty, new Binding
+            {
+                Path = new PropertyPath("Person.Name"), Mode = BindingMode.OneWay,
+            });
+            Assert.AreEqual("Alice", target.Text);
+            target.SetBinding(TextBlock.TextProperty, new Binding
+            {
+                Path = new PropertyPath("Title"), Mode = BindingMode.OneWay,
+            });
+            var installed = target.GetBindingExpression(TextBlock.TextProperty).ParentBinding;
+            Assert.AreEqual("Title", installed.Path.Path);
+            Assert.AreEqual("Title before", target.Text);
+            target.SetBinding(TextBlock.TextProperty, new Binding
+            {
+                Path = new PropertyPath(installed.Path.Path), Mode = BindingMode.OneTime,
+            });
+            Assert.AreEqual("Title", target.GetBindingExpression(TextBlock.TextProperty).ParentBinding.Path.Path);
+            Assert.AreEqual(BindingMode.OneTime, target.GetBindingExpression(TextBlock.TextProperty).ParentBinding.Mode);
+            Assert.AreEqual("Title before", target.Text);
+            model.Update();
+            Assert.AreEqual("Title before", target.Text, "OneTime must not reinstall or follow Person.Name.");
+            target.SetBinding(TextBlock.TextProperty, new Binding
+            {
+                Path = new PropertyPath("Title"), Mode = BindingMode.OneWay,
+            });
+            Assert.AreEqual("Title after", target.Text);
+            root.Children.Clear();
+        }
+
+        private sealed class ReplacementSource : INotifyPropertyChanged
+        {
+            public ReplacementPerson Person { get; } = new();
+            public string Title { get; private set; } = "Title before";
+            public event PropertyChangedEventHandler? PropertyChanged;
+            public void Update()
+            {
+                Title = "Title after";
+                PropertyChanged?.Invoke(this, new(nameof(Title)));
+            }
+        }
+
+        private sealed class ReplacementPerson
+        {
+            public string Name { get; } = "Alice";
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

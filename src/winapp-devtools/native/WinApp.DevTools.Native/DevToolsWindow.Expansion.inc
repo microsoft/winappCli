@@ -151,13 +151,14 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             if (bindingReplacement) {
                 head = L"Replace the entire binding, not just its path or mode.";
                 body = DevToolsBindingInstall_ReplacementWarning();
-                if (current == DevToolsKind::XBind)
-                    body += L" The authored x:Bind is compiled and read-only; this is a separate classic binding, not an edit to generated code.";
+                if (r.authoredKind == L"xBind")
+                    body += L" This replacement is temporary: generated compiled-binding updates can overwrite it. "
+                            L"The authored x:Bind is not changed.";
             } else if (current == DevToolsKind::XBind || current == DevToolsKind::Binding) {
                 head = L"This replaces the binding.";
                 body = (current == DevToolsKind::XBind)
-                     ? std::wstring(L"The compiled x:Bind stops updating this value. Restore binding can re-run the "
-                                    L"page's compiled bindings; if that doesn't bring it back, restart the app.")
+                     ? std::wstring(L"This overrides the compiled x:Bind, but generated updates can overwrite your edit. "
+                                    L"Restore binding asks before re-applying all compiled bindings on the same owner.")
                      : ((r.authored.empty() ? std::wstring(L"The binding") : r.authored)
                         + L" stops updating this value. Restore binding can put it back; if it can't, restart the app.");
             } else if (KindIsResource(current) && !KindIsResource(shown)) {
@@ -329,9 +330,8 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
 
     // A binding replaced by a literal still gets the BINDING block, so Restore binding stays reachable.
     // This includes bindings set in code or applied from the panel, which the XAML doesn't declare.
-    const bool lostBinding = shown == DevToolsKind::Literal && BindingLost(path);
-    const bool bound = (shown == DevToolsKind::XBind || shown == DevToolsKind::Binding) || lostBinding;
-    const bool xbind = shown == DevToolsKind::XBind || (lostBinding && r.authoredKind == L"xBind");
+    const bool lostBinding = current == DevToolsKind::Literal && BindingLost(path);
+    const bool bound = (current == DevToolsKind::XBind || current == DevToolsKind::Binding) || lostBinding;
     if (bound) { PostWalk(path); PostDiagnose(path); }
     const WalkAnswer* answer = bound ? WalkFind(path) : nullptr;
     DevToolsPathWalkView wv;
@@ -352,7 +352,9 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
     if (replaced || overridden) {
         DevToolsJson act;
         if (DevToolsJsonParse(diag->action, act) && act.IsObject() && !RestoreLanded(diag->action))
-            sum.reason = (act.GetString(L"ownerUpdated") == L"True" ? std::wstring(L"Restore not confirmed: ")
+            sum.reason = act.GetString(L"state") == L"confirmation-required"
+                       ? std::wstring(L"Choose whether to re-apply all compiled bindings below")
+                       : (act.GetString(L"ownerUpdated") == L"True" ? std::wstring(L"Restore not confirmed: ")
                                                                     : std::wstring(L"Restore failed: "))
                        + act.GetString(L"reason");
     }
@@ -398,18 +400,42 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         // nothing.
         const bool offer = bound && g_ctx.bindFn && (replaced || overridden);
         if (IInspectable* row = FindInRow(fe, L"PBindRestoreRow")) { ShowEl(row, offer); row->Release(); }
-        if (IInspectable* note = FindInRow(fe, L"PBindRestoreNote")) { ShowEl(note, offer && xbind); note->Release(); }
         if (IInspectable* b = FindInRow(fe, L"PBindRestore")) {
             SetAutomationTextOn(b, L"Restore the binding on " + path, L"", L"");
             void* bb = nullptr;
             if (offer && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 BindRestoreSink* rs = new BindRestoreSink();
-                rs->Init(path, xbind);
+                rs->Init(path);
                 __int64 tok = 0;
                 DevToolsAddClick(bb, rs, &tok);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
+        }
+        DevToolsJson action;
+        const bool confirm = diag && DevToolsJsonParse(diag->action, action) &&
+                             action.GetString(L"state") == L"confirmation-required";
+        if (IInspectable* panel = FindInRow(fe, L"PBindRestoreConfirm")) { ShowEl(panel, confirm); panel->Release(); }
+        if (IInspectable* text = FindInRow(fe, L"PBindRestoreScope")) {
+            SetTextOn(text, confirm ? action.GetString(L"restoreOwner") + L": " + action.GetString(L"warning") +
+                                     L" " + action.GetString(L"restoreDisclosure") : std::wstring());
+            text->Release();
+        }
+        for (const auto& entry : { std::make_pair(L"PBindRestoreYes", BindRestoreSink::Choice::Confirm),
+                                   std::make_pair(L"PBindRestoreCancel", BindRestoreSink::Choice::Cancel) }) {
+            if (IInspectable* button = FindInRow(fe, entry.first)) {
+                SetAutomationTextOn(button, entry.second == BindRestoreSink::Choice::Confirm
+                    ? L"Re-apply all compiled bindings for " + path : L"Cancel Restore binding on " + path, L"", L"");
+                void* bb = nullptr;
+                if (confirm && SUCCEEDED(button->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                    BindRestoreSink* sink = new BindRestoreSink();
+                    sink->Init(path, entry.second);
+                    __int64 token = 0;
+                    DevToolsAddClick(bb, sink, &token);
+                    reinterpret_cast<IUnknown*>(bb)->Release();
+                }
+                button->Release();
+            }
         }
     }
     if (IInspectable* q = FindInRow(fe, L"PDiagQ")) {
