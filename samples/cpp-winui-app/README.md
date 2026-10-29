@@ -10,6 +10,13 @@ app's package identity.
   and **C++ WinUI app development tools**
 - The Windows SDK (installed with the workload)
 
+For ARM64 builds, install the **MSVC ARM64/ARM64EC build tools** and the optional
+**C++ Universal Windows Platform support for v143 build tools (ARM64/ARM64EC)**
+component in Visual Studio 2022. In Visual Studio 2026, the latter is named
+**C++ Universal Windows Platform support for ARM64/ARM64EC build tools (Latest MSVC)**.
+If winapp reports missing WinUI tools for `arm64`, add or repair that component in the
+Visual Studio Installer. The ARM64 compiler alone does not include these WinUI build targets.
+
 ## Building and Running
 
 Point `winapp run` at the project (or this folder). It restores the NuGet packages, builds with
