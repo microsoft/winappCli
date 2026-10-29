@@ -142,7 +142,7 @@ internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildSer
         var arm64 = string.Equals(architecture, "arm64", StringComparison.OrdinalIgnoreCase);
         var winget = "winget install Microsoft.VisualStudio.BuildTools --override \"--wait --passive " +
             "--add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.ComponentGroup.UWP.VC.BuildTools " +
-            (arm64 ? "--add Microsoft.VisualStudio.Component.VC.Tools.ARM64 " : string.Empty) +
+            (arm64 ? "--add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --add Microsoft.VisualStudio.Component.UWP.VC.ARM64 " : string.Empty) +
             "--includeRecommended\"";
         var problem = installedProduct is null
             ? "no Visual Studio or Build Tools for Visual Studio installation was found."
@@ -158,11 +158,18 @@ internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildSer
             $"  - Or install Build Tools for Visual Studio: {winget}";
     }
 
-    internal static string BuildMissingWinUiToolsMessage(string installedProduct, string architecture) =>
-        $"This is a WinUI 3 C++ project (ApplicationType 'Windows Store'), which needs the C++ WinUI app development tools for {architecture}, but {installedProduct} does not have them for this architecture." + Environment.NewLine +
-        $"  - In the Visual Studio Installer, modify {installedProduct} to add or repair \"C++ WinUI app development tools\" (in Build Tools: \"C++ Universal Windows Platform build tools\") for {architecture}." + Environment.NewLine +
-        "  - Or install Build Tools for Visual Studio: winget install Microsoft.VisualStudio.BuildTools --override \"--wait --passive " +
-        "--add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.ComponentGroup.UWP.VC.BuildTools " +
-        (string.Equals(architecture, "arm64", StringComparison.OrdinalIgnoreCase) ? "--add Microsoft.VisualStudio.Component.VC.Tools.ARM64 " : string.Empty) +
-        "--includeRecommended\"";
+    internal static string BuildMissingWinUiToolsMessage(string installedProduct, string architecture)
+    {
+        var arm64 = string.Equals(architecture, "arm64", StringComparison.OrdinalIgnoreCase);
+        var tools = arm64
+            ? "\"C++ Universal Windows Platform support for v143 build tools (ARM64/ARM64EC)\" (Visual Studio 2022), or \"C++ Universal Windows Platform support for ARM64/ARM64EC build tools (Latest MSVC)\" (Visual Studio 2026)"
+            : $"\"C++ WinUI app development tools\" (in Build Tools: \"C++ Universal Windows Platform build tools\") for {architecture}";
+
+        return $"This is a WinUI 3 C++ project (ApplicationType 'Windows Store'), which needs the C++ WinUI app development tools for {architecture}, but {installedProduct} does not have them for this architecture." + Environment.NewLine +
+            $"  - In the Visual Studio Installer, modify {installedProduct} to add or repair {tools}." + Environment.NewLine +
+            "  - Or install Build Tools for Visual Studio: winget install Microsoft.VisualStudio.BuildTools --override \"--wait --passive " +
+            "--add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.ComponentGroup.UWP.VC.BuildTools " +
+            (arm64 ? "--add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --add Microsoft.VisualStudio.Component.UWP.VC.ARM64 " : string.Empty) +
+            "--includeRecommended\"";
+    }
 }

@@ -1047,6 +1047,9 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         StringAssert.Contains(ex.Message, "C++ WinUI app development tools for arm64");
         StringAssert.Contains(ex.Message, "modify Visual Studio Enterprise 2026 to add or repair");
         StringAssert.Contains(ex.Message, "Microsoft.VisualStudio.Component.VC.Tools.ARM64");
+        StringAssert.Contains(ex.Message, "--add Microsoft.VisualStudio.Component.UWP.VC.ARM64");
+        StringAssert.Contains(ex.Message, "C++ Universal Windows Platform support for v143 build tools (ARM64/ARM64EC)");
+        StringAssert.Contains(ex.Message, "C++ Universal Windows Platform support for ARM64/ARM64EC build tools (Latest MSVC)");
     }
 
     [TestMethod]
@@ -1078,6 +1081,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         StringAssert.Contains(ex.Message, "Visual Studio Community 2026 does not have them installed");
         StringAssert.Contains(ex.Message, "modify Visual Studio Community 2026");
         StringAssert.Contains(ex.Message, "Microsoft.VisualStudio.Component.VC.Tools.ARM64");
+        StringAssert.Contains(ex.Message, "--add Microsoft.VisualStudio.Component.UWP.VC.ARM64");
     }
 
     [TestMethod]
