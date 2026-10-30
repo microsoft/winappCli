@@ -245,6 +245,17 @@ int main()
               "a regular runtime binding replacing x:Bind stays Binding after reselection");
         row.binding = L"{Binding Mode=OneTime}";
         check(BindingPathOf(row, L"Text").empty(), "a pathless installed binding does not seed Mode as a path");
+        row.binding = L"{Binding Items[key=value], Mode=OneWay}";
+        check(BindingPathOf(row, L"Text") == L"Items[key=value]",
+              "an equals sign inside an indexer stays part of the installed path");
+        pathBox.text = BindingPathOf(row, L"Text");
+        ctx.row = std::make_shared<const DevToolsCardRow>(row);
+        const auto indexedCount = submissions;
+        KindApplySink indexedApply;
+        indexedApply.Init(ctx);
+        indexedApply.Invoke(nullptr, nullptr);
+        check(submissions == indexedCount + 1 && submittedPath == L"Items[key=value]" && submittedMode == L"OneTime",
+              "mode-only Apply preserves an installed indexer key containing an equals sign");
         row = {};
         row.name = L"Content"; row.authoredKind = L"literal"; row.authored = L"Submit";
         PendingKindSet(L"Content", DevToolsKind::Binding);
@@ -263,12 +274,23 @@ int main()
               "first Restore requests scope without granting owner-wide consent");
         const std::wstring preview = LR"({"state":"confirmation-required","restoreScope":"owner","restoreOwner":"Page","warning":"other live edits"})";
         g_diagAnswers = {{g_route1Gen, g_selWire, L"Text", L"", preview, true}};
+        InterlockedExchange(&g_diagRestoreBusy, 1);
+        confirm.Invoke(nullptr, nullptr);
+        check(restoreRequests == 1 && DiagFind(L"Text")->action == preview &&
+              status.text.find(L"Try confirming again") != std::wstring::npos,
+              "busy Restore preserves the confirmation and explains that it can be retried");
         cancel.Invoke(nullptr, nullptr);
-        check(restoreRequests == 1 && DiagFind(L"Text")->action.empty(),
-              "Cancel consumes the prompt without submitting any mutation");
+        check(restoreRequests == 1 && DiagFind(L"Text")->action.empty() && g_diagRestoreBusy == 1,
+              "Cancel consumes the prompt while busy without submitting or releasing another Restore");
+        InterlockedExchange(&g_diagRestoreBusy, 0);
         confirm.Invoke(nullptr, nullptr);
         check(restoreRequests == 1, "an old confirmation cannot run after Cancel");
         g_diagAnswers[0].action = preview;
+        InterlockedExchange(&g_diagRestoreBusy, 1);
+        confirm.Invoke(nullptr, nullptr);
+        check(restoreRequests == 1 && DiagFind(L"Text")->action == preview,
+              "busy confirmation leaves the pending preview available");
+        InterlockedExchange(&g_diagRestoreBusy, 0);
         confirm.Invoke(nullptr, nullptr);
         check(restoreRequests == 2 && restoreOperation == L"restoreconfirmed",
               "explicit confirmation alone submits owner-wide Restore");

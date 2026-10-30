@@ -306,7 +306,9 @@ static std::wstring BindingPathOf(const DevToolsCardRow& r, const std::wstring& 
         const std::wstring inner = MarkupInner(r.binding);
         const size_t comma = inner.find(L',');
         const std::wstring first = inner.substr(0, comma);
-        return first.find(L'=') == std::wstring::npos ? first : std::wstring();
+        const size_t equal = first.find(L'=');
+        const size_t indexer = first.find(L'[');
+        return equal == std::wstring::npos || equal > indexer ? first : std::wstring();
     }
     if (const SessionAssign* sa = SessionAssignFind(path))
         if (sa->kind == DevToolsKind::Binding) {
@@ -976,6 +978,10 @@ struct BindRestoreSink : DevToolsSinkBase
             DevToolsJson action;
             if (!answer || !DevToolsJsonParse(answer->action, action) ||
                 action.GetString(L"state") != L"confirmation-required") return S_OK;
+            if (choice == Choice::Confirm && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) {
+                SetStatusText(L"Another binding Restore is running. Try confirming again when it finishes");
+                return S_OK;
+            }
             answer->action.clear();
             if (void* panel = PaneRowChild(prop, L"PBindRestoreConfirm")) {
                 DevToolsPutVisibility(panel, 1);
@@ -986,7 +992,7 @@ struct BindRestoreSink : DevToolsSinkBase
                 return S_OK;
             }
         }
-        if (InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
+        if (choice == Choice::Request && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
         SetStatusText(L"Restoring the binding on " + prop + L"...");
         if (!StartDiag(prop, choice == Choice::Confirm ? L"restoreconfirmed" : L"restore")) {
             InterlockedExchange(&g_diagRestoreBusy, 0);
