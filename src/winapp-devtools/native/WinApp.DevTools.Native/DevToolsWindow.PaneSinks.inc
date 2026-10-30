@@ -225,6 +225,19 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
 // right thing even if the pane has since been rebuilt for another node. UI thread only (TextBox.LostFocus).
 struct LostFocusSink : DevToolsSinkBase
 {
+    void Detach()
+    {
+        if (!box) return;
+        // A delayed blur may still save to its original element, but must not keep or read the old control.
+        winrt::com_ptr<IInspectable> held;
+        held.copy_from(box);
+        box = nullptr;
+        detached = true;
+        if (retired) return;
+        hasDetachedText = g_ctx.readInputFn && g_ctx.readInputFn(held.get(), detachedText);
+        if (!hasDetachedText)
+            DevToolsOverlayLog(L"route1.props departing editor read failed for '%s'", prop.c_str());
+    }
     void SyncCommittedValue(const std::wstring& value)
     {
         if (gen != g_route1Gen || retired || selWire != g_selWire || !box) return;
@@ -249,9 +262,11 @@ struct LostFocusSink : DevToolsSinkBase
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen || refreshing || retired) return S_OK;
-        if (!g_ctx.readInputFn || !g_ctx.writeFn || !box) return S_OK;
+        if (!g_ctx.writeFn || (!box && !detached)) return S_OK;
         std::wstring text;
-        if (!g_ctx.readInputFn(box, text)) {
+        const bool read = detached ? (text = detachedText, hasDetachedText)
+                                  : (g_ctx.readInputFn && g_ctx.readInputFn(box, text));
+        if (!read) {
             DevToolsOverlayLog(L"route1.input read failed for '%s'", prop.c_str());
             if (selWire == g_selWire) SetStatusText(L"Couldn't read the " + prop + L" editor");
             return S_OK;
@@ -267,6 +282,7 @@ struct LostFocusSink : DevToolsSinkBase
     void Init(InstanceHandle w, const std::wstring& p, const std::wstring& t, const std::wstring& orig, IInspectable* b)
     {
         selWire = w; prop = p; type = t; original = orig; box = b;
+        detached = hasDetachedText = false; detachedText.clear();
         hasShown = box && g_ctx.readInputFn && g_ctx.readInputFn(box, shown);
         recordable = w == g_selWire && OriginalFor(p, orig, first);
         InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
@@ -282,6 +298,8 @@ struct LostFocusSink : DevToolsSinkBase
     // from the removed box would write its text over whatever the rebuild just did (for example, Restore).
     bool           retired = false;
     IInspectable*  box = nullptr;
+    std::wstring detachedText;
+    bool detached = false, hasDetachedText = false;
 };
 
 // The pane's text editors, so an edit can be saved before the selection changes or the pane is rebuilt, even
@@ -293,41 +311,48 @@ struct PaneEditor
     bool*                 retired = nullptr;
     LostFocusSink*        text = nullptr;
     std::function<void()> commit;
+    void*                 owner = nullptr;
 };
 static std::vector<PaneEditor> g_paneEditors;
 static bool g_flushingEditor = false;
 
 static void RegisterPaneEditor(const std::wstring& path, void* element, bool* retired, LostFocusSink* text,
-                               std::function<void()> commit)
+                               std::function<void()> commit, void* owner = nullptr)
 {
     if (!element) return;
     IUnknown* ident = nullptr;
     if (FAILED(reinterpret_cast<IUnknown*>(element)->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&ident))) || !ident)
         return;
-    g_paneEditors.push_back({ path, ident, retired, text, std::move(commit) });
+    g_paneEditors.push_back({ path, ident, retired, text, std::move(commit), owner });
 }
 
-// A row's expansion is being rebuilt: its old boxes are leaving the registry but stay live, so a focus-out
-// still saves them as it did before.
-static void ForgetPaneEditors(const std::wstring& path)
+// Capture the departing text before releasing the box, so a delayed blur can save without reading old UI.
+static void ForgetPaneEditors(const std::wstring& path, void* owner = nullptr)
 {
+    std::vector<PaneEditor> departing;
     for (size_t i = g_paneEditors.size(); i-- > 0; ) {
-        if (g_paneEditors[i].path != path) continue;
-        if (g_paneEditors[i].ident) g_paneEditors[i].ident->Release();
+        if (g_paneEditors[i].path != path || (owner && g_paneEditors[i].owner != owner)) continue;
+        departing.push_back(std::move(g_paneEditors[i]));
         g_paneEditors.erase(g_paneEditors.begin() + i);
+    }
+    for (auto& e : departing) {
+        if (e.text) e.text->Detach();
+        if (e.ident) e.ident->Release();
     }
 }
 
 // `retire` when the pane is rebuilt for the same element: the flush already saved the boxes, and a late focus-out
-// would write over what the rebuild shows (for example, Restore). When the selection moves to another element the
-// boxes stay live, so a focus-out that arrives after the move still saves to the element its box was built for.
+// would write over what the rebuild shows (for example, Restore). When the selection moves, a delayed blur uses
+// captured text and the original element handle rather than keeping its old control alive.
 static void ReleasePaneEditors(bool retire)
 {
-    for (auto& e : g_paneEditors) {
+    std::vector<PaneEditor> departing;
+    departing.swap(g_paneEditors);
+    for (auto& e : departing) {
         if (retire && e.retired) *e.retired = true;
+        if (e.text) e.text->Detach();
         if (e.ident) e.ident->Release();
     }
-    g_paneEditors.clear();
 }
 static void RetirePaneEditors() { ReleasePaneEditors(/*retire*/ true); }
 

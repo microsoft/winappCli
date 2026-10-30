@@ -18,6 +18,9 @@ static LRESULT CALLBACK Route1MinSizeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM
 {
     if (msg == WM_CLOSE && generation == g_route1Gen && g_route1WindowInsp) {
         ReleaseInspectorCaptionTheme();
+        if (!g_flushingEditor) FlushFocusedEditor(false);
+        RetirePaneEditors();
+        RetireKindEditors();
         RetireRowExpandSinks();
         // Closed by the user: what the window drew on the app goes with it, as when it is hidden.
         ResetAppVisibleModes(hwnd);

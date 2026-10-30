@@ -624,6 +624,9 @@ HRESULT DevToolsWindow_Close()
     ResetAppVisibleModes(hwnd);
     LiveUnwatch();
     g_route1WindowHidden = true;
+    if (!g_flushingEditor) FlushFocusedEditor(false);
+    RetirePaneEditors();
+    RetireKindEditors();
     RetireRowExpandSinks();
     DevToolsOverlayLog(L"route1.close hidden (instance reused; gen=%u)", g_route1Gen);
     return S_OK;

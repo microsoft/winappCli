@@ -284,6 +284,8 @@ inline HRESULT DevToolsAddGotFocus(void* ui, void* handler, __int64* token) noex
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_GotFocus(handler, DevToolsAbiTok(token)); }
 inline HRESULT DevToolsAddLostFocus(void* ui, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_LostFocus(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveLostFocus(void* ui, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsX::IUIElement>(ui)->remove_LostFocus(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsGetOriginalSource(void* routedEventArgs, ::IInspectable** source) noexcept
 { return DevToolsAbi<DevToolsX::IRoutedEventArgs>(routedEventArgs)->get_OriginalSource(reinterpret_cast<void**>(source)); }
 inline HRESULT DevToolsAddPointerEntered(void* ui, void* handler, __int64* token) noexcept
@@ -294,6 +296,8 @@ inline HRESULT DevToolsAddPointerMoved(void* ui, void* handler, __int64* token) 
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_PointerMoved(handler, DevToolsAbiTok(token)); }
 inline HRESULT DevToolsAddPointerPressed(void* ui, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_PointerPressed(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemovePointerPressed(void* ui, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsX::IUIElement>(ui)->remove_PointerPressed(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsAddPointerReleased(void* ui, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_PointerReleased(handler, DevToolsAbiTok(token)); }
 inline HRESULT DevToolsAddPreviewKeyDown(void* ui, void* handler, __int64* token) noexcept
@@ -396,6 +400,8 @@ inline HRESULT DevToolsPutBackground(void* control, void* brush) noexcept
 { return DevToolsAbi<DevToolsXC::IControl>(control)->put_Background(brush); }
 inline HRESULT DevToolsAddTextChanged(void* textBox, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->add_TextChanged(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveTextChanged(void* textBox, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->remove_TextChanged(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsGetTextBoxText(void* textBox, HSTRING* text) noexcept
 { return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->get_Text(reinterpret_cast<void**>(text)); }
 inline HRESULT DevToolsGetPlaceholderText(void* textBox, HSTRING* text) noexcept
@@ -682,6 +688,8 @@ inline HRESULT DevToolsAddToggled(void* toggleSwitch, void* handler, __int64* to
 
 inline HRESULT DevToolsAddClick(void* buttonBase, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXCP::IButtonBase>(buttonBase)->add_Click(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveClick(void* buttonBase, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXCP::IButtonBase>(buttonBase)->remove_Click(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsToggleButtonPutIsChecked(void* toggleButton, void* boxedBool) noexcept
 { return DevToolsAbi<DevToolsXCP::IToggleButton>(toggleButton)->put_IsChecked(boxedBool); }
 inline HRESULT DevToolsGetSelectedIndex(void* selector, int* index) noexcept
@@ -690,6 +698,8 @@ inline HRESULT DevToolsPutSelectedIndex(void* selector, int index) noexcept
 { return DevToolsAbi<DevToolsXCP::ISelector>(selector)->put_SelectedIndex(index); }
 inline HRESULT DevToolsAddSelectionChanged(void* selector, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXCP::ISelector>(selector)->add_SelectionChanged(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveSelectionChanged(void* selector, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXCP::ISelector>(selector)->remove_SelectionChanged(*DevToolsAbiTok(&token)); }
 
 inline HRESULT DevToolsGetKey(void* keyArgs, int* virtualKey) noexcept
 { return DevToolsAbi<DevToolsXI::IKeyRoutedEventArgs>(keyArgs)->get_Key(virtualKey); }

@@ -16,16 +16,144 @@ static void ResyncPaneEditor(const std::wstring& path)
     }
 }
 
+// Only expansion editors use this owning delegate. The shared/static sink base stays immortal.
+struct KindEditorSink : DevToolsSinkBase
+{
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** p) override
+    {
+        const HRESULT hr = DevToolsSinkBase::QueryInterface(r, p);
+        if (SUCCEEDED(hr) && r != __uuidof(IMarshal)) AddRef();
+        return hr;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&refs); }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG left = InterlockedDecrement(&refs);
+        if (!left) delete this;
+        return left;
+    }
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
+    {
+        if (!Active()) return S_OK;
+        // A write or a focus change can synchronously rebuild this expansion and unsubscribe us.
+        // Keep this call's snapshot, controls and delegate alive independently of registration.
+        winrt::com_ptr<IUnknown> self, heldRow = rowRoot, heldExpansion = expansionRoot, heldPublisher = publisher;
+        self.copy_from(reinterpret_cast<IUnknown*>(this));
+        KindCtx active = ctx;
+        active.retired = &retired;
+        return Run(active, args);
+    }
+    virtual ~KindEditorSink() { if (ftm) ftm->Release(); }
+    virtual HRESULT Run(const KindCtx& active, void* args) = 0;
+    bool Active() const { return !retired && gen == g_route1Gen && ctx.wire == g_selWire; }
+    void InitEditor(const KindCtx& c, const GUID& iid)
+    {
+        ctx = c;
+        if (c.rowFe) rowRoot.copy_from(reinterpret_cast<IUnknown*>(c.rowFe));
+        if (c.expFe) expansionRoot.copy_from(reinterpret_cast<IUnknown*>(c.expFe));
+        InitSink(iid, g_route1Gen);
+    }
+    void Retire()
+    {
+        retired = true;
+        ctx.row.reset();
+        if (publisher) {
+            const HRESULT hr = remove(publisher.get(), token);
+            if (FAILED(hr))
+                DevToolsOverlayLog(L"route1.props editor '%s' unsubscribe failed hr=0x%08X", ctx.path.c_str(), hr);
+            publisher = nullptr;
+        }
+        rowRoot = nullptr;
+        expansionRoot = nullptr;
+        ctx.rowFe = ctx.expFe = nullptr;
+    }
+    KindCtx ctx;
+    bool retired = false;
+    long refs = 1;
+    winrt::com_ptr<IUnknown> rowRoot, expansionRoot, publisher;
+    __int64 token = 0;
+    HRESULT (*remove)(void*, __int64) = nullptr;
+};
+static std::vector<KindEditorSink*> g_kindEditorSinks;
+
+static bool WireKindEditor(KindEditorSink* sink, void* publisher,
+                           HRESULT (*add)(void*, void*, __int64*), HRESULT (*remove)(void*, __int64))
+{
+    sink->remove = remove;
+    const HRESULT hr = add(publisher, sink, &sink->token);
+    if (FAILED(hr)) {
+        DevToolsOverlayLog(L"route1.props editor '%s' subscribe failed hr=0x%08X", sink->ctx.path.c_str(), hr);
+        sink->Release();
+        return false;
+    }
+    sink->publisher.copy_from(reinterpret_cast<IUnknown*>(publisher));
+    g_kindEditorSinks.push_back(sink);
+    return true;
+}
+
+static void RetireKindEditors(void* rowFe = nullptr)
+{
+    std::wstring path;
+    if (rowFe) {
+        for (const auto* sink : g_rowExpandSinks)
+            if (sink->rowFe == rowFe) { path = sink->path; break; }
+    }
+    std::vector<KindEditorSink*> retiring;
+    for (size_t i = g_kindEditorSinks.size(); i-- > 0; ) {
+        auto* sink = g_kindEditorSinks[i];
+        const bool child = !path.empty() && sink->ctx.path.compare(0, path.size() + 1, path + L".") == 0;
+        if (rowFe && !(child || sink->ctx.rowFe == rowFe)) continue;
+        retiring.push_back(sink);
+        g_kindEditorSinks.erase(g_kindEditorSinks.begin() + i);
+    }
+    // Removing controls or reading their final text can reenter another handler in the retiring batch.
+    for (auto* sink : retiring) sink->retired = true;
+    for (auto* sink : retiring) {
+        if (sink->ctx.expFe) ForgetPaneEditors(sink->ctx.path, sink->ctx.expFe);
+        if (sink->ctx.expFe) ReleaseFieldBoxesWhere(std::wstring(), sink->ctx.expFe);
+        if (sink->ctx.expFe && sink->ctx.expFe == g_validateExpFe) {
+            if (g_validateTimer) KillTimer(nullptr, g_validateTimer);
+            g_validateTimer = 0;
+            g_validateExpFe = nullptr;
+        }
+        sink->Retire();
+        sink->Release();
+    }
+}
+
+// Restore uses the same subscription lifetime, without retaining a property snapshot.
+struct BindRestoreSink : KindEditorSink
+{
+    HRESULT Run(const KindCtx& ctx, void*) override
+    {
+        if (InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
+        SetStatusText(L"Restoring the binding on " + ctx.path + L"...");
+        if (!StartDiag(ctx.path, xbind ? L"restoreconfirmed" : L"restore")) {
+            InterlockedExchange(&g_diagRestoreBusy, 0);
+            SetStatusText(L"Could not start restoring " + ctx.path);
+        }
+        return S_OK;
+    }
+    void Init(const std::wstring& path, bool x, void* rowFe = nullptr)
+    {
+        KindCtx c; c.path = path; c.wire = g_selWire; c.rowFe = rowFe;
+        xbind = x;
+        InitEditor(c, IID_RoutedEventHandler_Del);
+    }
+    bool xbind = false;
+};
+
 // A KIND was selected in the dropdown. It STAGES -- nothing is written. That is the whole of Q4: opening this
 // list to see what is available must not destroy a live binding, and a kind with no content yet is not a
 // valid state to apply.
-struct KindSelectSink : DevToolsSinkBase
+struct KindSelectSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
-        if (gen != g_route1Gen || !ctx.row || !sel) return S_OK;
+        if (!ctx.row || !sel) return S_OK;
         int idx = -1;
         DevToolsGetSelectedIndex(sel, &idx);
+        if (!Active()) return S_OK;
         if (idx < 0 || idx >= kDevToolsKindCount) return S_OK;
         const DevToolsKind chosen = (DevToolsKind)idx;
         const DevToolsKind current = CurrentKindOf(*ctx.row, ctx.path);
@@ -43,72 +171,66 @@ struct KindSelectSink : DevToolsSinkBase
     }
     void Init(const KindCtx& c, void* selector)
     {
-        ctx = c; sel = selector;
-        InitSink(IID_SelectionChanged_Del, g_route1Gen);
+        sel = selector;
+        InitEditor(c, IID_SelectionChanged_Del);
     }
-    KindCtx ctx;
     void* sel = nullptr;
 };
 
-struct KindApplySink : DevToolsSinkBase
+struct KindApplySink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
         // A late focus-out after the selection moved would otherwise write this element's edit to the new one.
         if (gen != g_route1Gen || !ctx.row || retired || ctx.wire != g_selWire) return S_OK;
         CommitKind(ctx, true);
         return S_OK;
     }
-    void Init(const KindCtx& c) { ctx = c; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
-    bool retired = false;
+    void Init(const KindCtx& c) { InitEditor(c, IID_RoutedEventHandler_Del); }
 };
-struct KindCancelSink : DevToolsSinkBase
+struct KindCancelSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
         if (gen != g_route1Gen || !ctx.row) return S_OK;
         PendingKindErase(ctx.path);
         RebuildExpansion(ctx.rowFe, *ctx.row, ctx.path, ctx.edit);
-        SetStatusText(L"Cancelled");
+        if (gen == g_route1Gen && ctx.wire == g_selWire) SetStatusText(L"Cancelled");
         return S_OK;
     }
-    void Init(const KindCtx& c) { ctx = c; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
+    void Init(const KindCtx& c) { InitEditor(c, IID_RoutedEventHandler_Del); }
 };
 
 // The {x:Bind} EXIT. It stages {Binding} -- it does not apply it -- so the user sees the pre-filled path and
 // the banner naming what a graft does before anything happens. That is the whole difference from the round-9
 // design, where the same graft happened as a side effect of typing and had to be warned about after the fact.
-struct XBindExitSink : DevToolsSinkBase
+struct XBindExitSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
         if (gen != g_route1Gen || !ctx.row) return S_OK;
         PendingKindSet(ctx.path, DevToolsKind::Binding);
         RebuildExpansion(ctx.rowFe, *ctx.row, ctx.path, ctx.edit);
         return S_OK;
     }
-    void Init(const KindCtx& c) { ctx = c; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
+    void Init(const KindCtx& c) { InitEditor(c, IID_RoutedEventHandler_Del); }
 };
 
 // Focus reveals the same explanation as the tooltip for keyboard/touch access.
-// This sink retains its element; generation guards make callbacks from stale subtrees inert.
-struct XBindInfoRevealSink : DevToolsSinkBase
+// The invocation holds the expansion root; retirement makes queued callbacks inert.
+struct XBindInfoRevealSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx&, void*) override
     {
         if (gen != g_route1Gen || !target) return S_OK;
         ShowEl(target, show);
         return S_OK;
     }
-    void Init(IInspectable* t, bool s)
+    void Init(const KindCtx& c, IInspectable* t, bool s)
     {
         target = t;
-        if (target) target->AddRef();
         show = s;
-        InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
+        InitEditor(c, IID_RoutedEventHandler_Del);
     }
     IInspectable* target = nullptr;
     bool show = false;
@@ -120,20 +242,21 @@ static bool ColorPickerApplies(bool escaped, const std::wstring& chosen, const s
     return !escaped && _wcsicmp(chosen.c_str(), shown.c_str()) != 0;
 }
 
-struct KindKeySink : DevToolsSinkBase
+struct KindKeySink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
+    HRESULT Run(const KindCtx& ctx, void* args) override
     {
         if (gen != g_route1Gen || !ctx.row || !args || ctx.wire != g_selWire) return S_OK;
         int key = 0;
         if (FAILED(DevToolsGetKey(args, &key))) return S_OK;
+        if (!Active()) return S_OK;
         if (key == 13 /*Enter*/) {
             if (DevToolsEditText::StartsNewLine(multiline, (GetKeyState(VK_SHIFT) & 0x8000) != 0,
                     (GetKeyState(VK_CONTROL) & 0x8000) != 0)) return S_OK;
             DevToolsPutHandled(args, true);
             const unsigned seq = g_commitSeq;
             CommitKind(ctx);
-            if (seq != g_commitSeq && DevToolsWriteLanded(g_lastCommitOc)) ResyncPaneEditor(ctx.path);
+            if (Active() && seq != g_commitSeq && DevToolsWriteLanded(g_lastCommitOc)) ResyncPaneEditor(ctx.path);
         }
         else if (key == 27 /*Escape*/ && PendingKindFind(ctx.path)) {
             DevToolsPutHandled(args, true);
@@ -142,24 +265,41 @@ struct KindKeySink : DevToolsSinkBase
         }
         return S_OK;
     }
-    void Init(const KindCtx& c, bool lines = false) { ctx = c; multiline = lines; InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
+    void Init(const KindCtx& c, bool lines = false) { InitEditor(c, IID_KeyEventHandler_Del); multiline = lines; }
     bool multiline = false;
 };
 
-struct ExpBackgroundFocusSink : DevToolsSinkBase
+struct ExpBackgroundFocusSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx&, void*) override
     {
         if (gen != g_route1Gen || !target) return S_OK;
         bool moved = false;
         DevToolsFocus(target, 1 /*Pointer*/, &moved);
         return S_OK;
     }
-    // Non-owning, for the same reason LostFocusSink's box is: the target lives in the same expansion this
-    // handler is registered on, so it cannot outlive the element that raises the event.
-    void Init(void* focusTargetUi) { target = focusTargetUi; InitSink(IID_PointerEventHandler_Del, g_route1Gen); }
+    // The executing invocation holds the expansion that owns this target.
+    void Init(const KindCtx& c, void* focusTargetUi)
+    { target = focusTargetUi; InitEditor(c, IID_PointerEventHandler_Del); }
     void* target = nullptr;
+};
+
+struct PathValidateSink : KindEditorSink
+{
+    HRESULT Run(const KindCtx& ctx, void*) override
+    {
+        std::wstring text;
+        if (box && g_ctx.readInputFn && g_ctx.readInputFn(box, text) && Active())
+            ValidateOnType(ctx.path, text);
+        return S_OK;
+    }
+    void Init(const KindCtx& c, IInspectable* b)
+    {
+        box = b;
+        g_validateExpFe = c.expFe;
+        InitEditor(c, IID_TextChanged_Del);
+    }
+    IInspectable* box = nullptr; // the expansion root keeps it alive during a callback
 };
 
 // A suggested resource key was clicked: put it in the field. It does NOT apply, for the same reason selecting
@@ -258,16 +398,16 @@ static DevToolsXC::TextChangedEventHandler ResourceKeyChangedHandler(
 // changes the app's DATA rather than its appearance, and looking like value editing is exactly the ambiguity
 // the kind-specific editor removed. The binding survives -- and that is asserted by the agent's read-back
 // rather than assumed, because the obvious route (a local write on the target) demonstrably does not.
-struct WriteToSourceSink : DevToolsSinkBase
+struct WriteToSourceSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
         if (gen != g_route1Gen || !ctx.row) return S_OK;
-        ApplyWriteToSource(ctx.path, ReadBox(ctx.expFe, L"PWriteVal"));
+        const auto value = ReadBox(ctx.expFe, L"PWriteVal");
+        if (Active()) ApplyWriteToSource(ctx.path, value);
         return S_OK;
     }
-    void Init(const KindCtx& c) { ctx = c; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
+    void Init(const KindCtx& c) { InitEditor(c, IID_RoutedEventHandler_Del); }
 };
 
 // Unset editors say which value is absent instead of showing runtime sentinel tokens as editable text.
@@ -492,8 +632,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             void* ui = nullptr;
             if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
                 KindKeySink* ks = new KindKeySink(); ks->Init(ctx, multiline);
-                __int64 tok = 0;
-                DevToolsAddPreviewKeyDown(ui, ks, &tok);
+                WireKindEditor(ks, ui, DevToolsAddPreviewKeyDown, DevToolsRemovePreviewKeyDown);
                 reinterpret_cast<IUnknown*>(ui)->Release();
             }
             el->Release();
@@ -525,15 +664,10 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                                     L"", L"");
                 void* ui = nullptr;
                 if (SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-                    XBindInfoRevealSink* on = new XBindInfoRevealSink();  on->Init(t, true);
-                    XBindInfoRevealSink* off = new XBindInfoRevealSink(); off->Init(t, false);
-                    __int64 tok = 0;
-                    const HRESULT hrG = DevToolsAddGotFocus(ui, on, &tok);
-                    const HRESULT hrL = DevToolsAddLostFocus(ui, off, &tok);
-                    if (FAILED(hrG) || FAILED(hrL))
-                        DevToolsOverlayLog(L"route1.props x:Bind info for '%s' focus wiring FAILED got=0x%08X lost=0x%08X"
-                                      L" -- the keyboard route to the explanation is gone",
-                                      path.c_str(), hrG, hrL);
+                    XBindInfoRevealSink* on = new XBindInfoRevealSink();  on->Init(ctx, t, true);
+                    XBindInfoRevealSink* off = new XBindInfoRevealSink(); off->Init(ctx, t, false);
+                    WireKindEditor(on, ui, DevToolsAddGotFocus, DevToolsRemoveGotFocus);
+                    WireKindEditor(off, ui, DevToolsAddLostFocus, DevToolsRemoveLostFocus);
                     reinterpret_cast<IUnknown*>(ui)->Release();
                 }
                 b->Release();
@@ -545,11 +679,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             void* bb = nullptr;
             if (edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 XBindExitSink* xs = new XBindExitSink(); xs->Init(ctx);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddClick(bb, xs, &tok);
-                if (FAILED(hr))
-                    DevToolsOverlayLog(L"route1.props x:Bind exit for '%s' add_Click FAILED hr=0x%08X -- the row is a dead end",
-                                  path.c_str(), hr);
+                WireKindEditor(xs, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -610,12 +740,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                 void* tbx = nullptr;
                 if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tbx)) && tbx) {
                     PathValidateSink* vs = new PathValidateSink();
-                    vs->Init(path, e, fe);
-                    __int64 tok = 0;
-                    const HRESULT hr = DevToolsAddTextChanged(tbx, vs, &tok);
-                    if (FAILED(hr))
-                        DevToolsOverlayLog(L"route1.props path validator for '%s' add_TextChanged FAILED hr=0x%08X"
-                                      L" -- a bad path will only be caught on commit", path.c_str(), hr);
+                    vs->Init(ctx, e);
+                    WireKindEditor(vs, tbx, DevToolsAddTextChanged, DevToolsRemoveTextChanged);
                     reinterpret_cast<IUnknown*>(tbx)->Release();
                 }
             }
@@ -680,8 +806,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             void* bb = nullptr;
             if (twoWay && edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 WriteToSourceSink* ws = new WriteToSourceSink(); ws->Init(ctx);
-                __int64 tok = 0;
-                DevToolsAddClick(bb, ws, &tok);
+                WireKindEditor(ws, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -766,10 +891,12 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         __int64 tok = 0;
                         DevToolsAddLostFocus(ui, commit, &tok);
                         RegisterPaneEditor(path, ui, &commit->retired, commit,
-                                           [commit] { commit->Invoke(nullptr, nullptr); });
+                                           [commit] { commit->Invoke(nullptr, nullptr); }, ctx.expFe);
                         hexCommit = commit;
                         hexBox = hx; hexBox->AddRef();
                     }
+                    if (ui) reinterpret_cast<IUnknown*>(ui)->Release();
+                    if (box) reinterpret_cast<IUnknown*>(box)->Release();
                 }
                 hx->Release();
             }
@@ -910,13 +1037,14 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                             void* bui = nullptr;
                             if (SUCCEEDED(bx->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &bui)) && bui) {
                                 KindApplySink* fs = new KindApplySink(); fs->Init(ctx);
-                                __int64 tok = 0;
-                                DevToolsAddLostFocus(bui, fs, &tok);
-                                RegisterPaneEditor(path, bui, &fs->retired, nullptr,
-                                                   [fs] { fs->Invoke(nullptr, nullptr); });
+                                if (WireKindEditor(fs, bui, DevToolsAddLostFocus, DevToolsRemoveLostFocus)) {
+                                    winrt::com_ptr<KindApplySink> owner;
+                                    owner.copy_from(fs);
+                                    RegisterPaneEditor(path, bui, &fs->retired, nullptr,
+                                                       [owner] { owner->Invoke(nullptr, nullptr); }, ctx.expFe);
+                                }
                                 KindKeySink* ks = new KindKeySink(); ks->Init(ctx);
-                                __int64 ktok = 0;
-                                DevToolsAddPreviewKeyDown(bui, ks, &ktok);
+                                WireKindEditor(ks, bui, DevToolsAddPreviewKeyDown, DevToolsRemovePreviewKeyDown);
                                 reinterpret_cast<IUnknown*>(bui)->Release();
                             }
                         }
@@ -972,11 +1100,13 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                                           path.c_str(), hrM);
                         else
                             RegisterPaneEditor(path, edUi, &commit->retired, commit,
-                                               [commit] { commit->Invoke(nullptr, nullptr); });
+                                               [commit] { commit->Invoke(nullptr, nullptr); }, ctx.expFe);
                     } else {
                         DevToolsOverlayLog(L"route1.props MISS: editable row '%s' expansion has no editor -- it will never commit",
                                       path.c_str());
                     }
+                    if (edUi) reinterpret_cast<IUnknown*>(edUi)->Release();
+                    if (box) reinterpret_cast<IUnknown*>(box)->Release();
                     ed->Release();
                 }
             }

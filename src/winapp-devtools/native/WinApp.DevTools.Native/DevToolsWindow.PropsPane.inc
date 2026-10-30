@@ -48,6 +48,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
         ReleasePaneEditors(/*retire*/ !leaving);
     }
     // After the flush: saving the editor can rebuild this pane, which moves the stashed draft into a new box.
+    RetireKindEditors();
     RetireRowExpandSinks();
     StashCommentDraft();
     ReleasePropFilterState();
@@ -448,6 +449,7 @@ static void ResetRoute1State()
 {
     LiveUnwatch();
     g_route1Gen++;
+    RetireKindEditors();
     RetireRowExpandSinks();
     ReleaseInspectorCaptionTheme();
     if (HWND h = Route1WindowHwnd()) KillTimer(h, kRefreshTimerId);
