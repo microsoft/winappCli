@@ -139,6 +139,13 @@ winapp find-ui "color picker" --json
   than inside it. Add each entry as a `using` in your C# file, and each `**Setup:**`
   `xmlns` entry to your XAML root — without them the snippet won't resolve its types.
   Treat the line as the non-obvious imports, not a complete set.
+- **An `Undefined handlers:` line means "wire this up", not "this sample is broken".**
+  A sample's XAML can hook an event
+  (`ScrollAnimationStarting="ScrollView_ScrollAnimationStarting"`) to a method that
+  lives in the gallery's page code-behind, which isn't published. The attribute is
+  kept because it's what the sample teaches; the line lists each one. Add a method
+  with that name (or rename the attribute) in your code-behind. Entries are matched
+  by shape, so a rare one may not be an event at all — ignore it.
 - **Everything works offline.** The Gallery/Toolkit/Reactor corpus ships inside the
   CLI, so search, `--list`, and `--id` all work with no network access — including
   on a first run in a sandbox or behind a proxy that blocks
@@ -177,8 +184,8 @@ Which samples exist is upstream's call. winapp adds no samples of its own to the
 Gallery or Toolkit corpus and does not rewrite an individual sample's
 implementation to its own taste.
 
-Snippets are still processed: they're cleaned and event handlers with no
-accompanying code-behind are stripped. Samples are returned in full — nothing is cut
+Snippets are still processed: they're cleaned of names that only
+resolve inside the gallery apps, but substance is never deleted. Samples are returned in full — nothing is cut
 short. So treat a result as **upstream's sample, mechanically extracted** — not as a
 byte-for-byte copy of the file in their repo. Most samples paste and compile as-is
 once you add the `Namespace:` imports; a few also reference a page or type of their
@@ -193,7 +200,7 @@ If a sample is missing or genuinely wrong **upstream**, report it against the
 source the result is tagged with: `[gallery]` →
 [WinUI-Gallery](https://github.com/microsoft/WinUI-Gallery/issues), `[toolkit]` →
 [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows/issues).
-If the defect looks like a cut-off snippet, a missing handler, or markup that won't
+If the defect looks like a cut-off snippet or markup that won't
 parse, that's winapp's extraction — report it here instead.
 
 ## Related skills
