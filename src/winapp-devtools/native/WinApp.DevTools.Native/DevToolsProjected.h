@@ -181,6 +181,8 @@ inline HRESULT DevToolsPutWidth(void* fe, double value) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_Width(value); }
 inline HRESULT DevToolsPutHeight(void* fe, double value) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_Height(value); }
+inline HRESULT DevToolsPutMaxHeight(void* fe, double value) noexcept
+{ return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_MaxHeight(value); }
 
 inline HRESULT DevToolsGetRequestedTheme(void* fe, int* theme) noexcept
 {

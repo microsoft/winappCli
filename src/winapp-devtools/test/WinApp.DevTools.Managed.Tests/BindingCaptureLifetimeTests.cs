@@ -4,11 +4,17 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Markup;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Windows.Foundation;
 
 namespace WinApp.DevTools.Managed.Tests;
 
@@ -69,8 +75,12 @@ public sealed class BindingCaptureLifetimeTests
         }
     }
 
-    private sealed class LifetimeApp : Application
+    private sealed class LifetimeApp : Application, IXamlMetadataProvider
     {
+        private readonly Microsoft.UI.Xaml.XamlTypeInfo.XamlControlsXamlMetaDataProvider metadata = new();
+        public IXamlType GetXamlType(Type type) => metadata.GetXamlType(type);
+        public IXamlType GetXamlType(string fullName) => metadata.GetXamlType(fullName);
+        public XmlnsDefinition[] GetXmlnsDefinitions() => metadata.GetXmlnsDefinitions();
         private readonly BindingCaptureStore store = new();
         private Window? window;
         private StackPanel root = null!;
@@ -94,6 +104,10 @@ public sealed class BindingCaptureLifetimeTests
                     window = new();
                     Stage("Ready callback: StackPanel");
                     root = new();
+                    window.Content = root;
+                    Stage("Constrained comment panel layout gate");
+                    Resources.MergedDictionaries.Add(new XamlControlsResources());
+                    await ExerciseCommentPanel();
                     window.Content = root;
                     Stage("Wrapper replacement gate");
                     await Exercise(false);
@@ -130,6 +144,102 @@ public sealed class BindingCaptureLifetimeTests
             Assert.IsFalse(native.IsAlive(), "Removed native child retained.");
             Assert.IsFalse(SourceAlive(), "Captured source retained after native removal.");
             Assert.IsFalse(CaptureAlive(), "Capture state retained after native removal.");
+        }
+
+        private async Task ExerciseCommentPanel()
+        {
+            using var stream = typeof(BindingCaptureLifetimeTests).Assembly.GetManifestResourceStream("selection-panel.xaml")!;
+            using var reader = new StreamReader(stream);
+            var fragment = Regex.Replace(reader.ReadToEnd(), "(?s)<!--.*?-->", "");
+            var document = XDocument.Parse("<Canvas xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"" +
+                " xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">" + fragment + "</Canvas>");
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            var markup = document.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "DevToolsSelPanel").ToString();
+            foreach (var likely in new[] { true, false })
+            {
+                var confirmation = likely ? """
+                    <TextBlock Text="Likely source: unique line and identity match; compiled identity and line preservation are unverified."
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"/>
+                    <TextBlock Text="&lt;Button x:Name=&quot;SaveButton&quot; Content=&quot;Save changes&quot; /&gt;"
+                               FontFamily="Consolas" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                    <CheckBox x:Name="DevToolsConfirmLikelySource" HorizontalAlignment="Stretch">
+                      <TextBlock Text="Use this likely source for my comment" TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}"/>
+                    </CheckBox>
+                    """ : "";
+                var values = new Dictionary<string, string>
+                {
+                    ["PANELW"] = "400", ["PANELH"] = "720", ["PANELTHEME"] = "Light",
+                    ["ORIGINX"] = "0", ["ORIGINY"] = "0", ["TITLE"] = "Button", ["TITLETIP"] = "Button",
+                    ["SOURCE"] = "MainWindow.xaml:12", ["SOURCETIP"] = "MainWindow.xaml",
+                    ["COMMENT"] = "Unfinished comment draft", ["CMTREADONLY"] = "False", ["CMTLIMIT"] = "0",
+                    ["CMTPLACEHOLDER"] = "Comment", ["CMTDELVIS"] = "Collapsed", ["CMTSAVEVIS"] = "Visible",
+                    ["SOURCECONFIRM"] = confirmation,
+                    ["OTHERS"] = "<TextBlock Text=\"Another comment\" TextWrapping=\"Wrap\"/>",
+                    ["SURFACE"] = "#FFFFFFFF", ["RIM"] = "#FF808080", ["SURFACEALT"] = "#FFF0F0F0",
+                    ["TEXT"] = "#FF000000", ["TEXTDIM"] = "#FF404040", ["SOURCEFG"] = "#FF404040",
+                    ["CAUTION"] = "#FF804000", ["BORDER"] = "#FF808080", ["ACCENT"] = "#FF0060A0"
+                };
+                var panel = (Border)XamlReader.Load(Regex.Replace(markup, @"\$([A-Z]+)\$", match => values[match.Groups[1].Value]));
+                var canvas = new Canvas();
+                window!.Content = canvas;
+                canvas.UpdateLayout();
+                await Task.Delay(50);
+                var popup = new Popup { Child = panel, ShouldConstrainToRootBounds = false };
+                canvas.Children.Add(popup);
+                popup.XamlRoot = canvas.XamlRoot;
+                var input = (TextBox)panel.FindName("DevToolsSelComment");
+                popup.IsOpen = true;
+                input.UpdateLayout();
+                Assert.IsTrue(input.Focus(FocusState.Programmatic), "The opened popup must let a pick focus the comment editor.");
+                Assert.AreSame(input, Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(panel.XamlRoot),
+                    "The comment editor must own XAML keyboard focus.");
+                input.Select(3, 5);
+                foreach (var constrained in new[] { false, true, false })
+                {
+                    panel.Width = constrained ? 304 : 400;
+                    panel.MaxHeight = constrained ? 224 : 720;
+                    panel.Measure(new Size(panel.Width, panel.MaxHeight));
+                    panel.Arrange(new Rect(0, 0, panel.Width, panel.DesiredSize.Height));
+                    panel.UpdateLayout();
+                    await Task.Delay(50);
+                    Assert.IsTrue(panel.ActualHeight <= panel.MaxHeight, "The panel must respect the available height.");
+                    foreach (var name in likely
+                        ? new[] { "DevToolsConfirmLikelySource", "DevToolsSelCommentSave", "DevToolsSelOpen", "DevToolsSelComment", "DevToolsSelClose" }
+                        : new[] { "DevToolsSelCommentSave", "DevToolsSelOpen", "DevToolsSelComment", "DevToolsSelClose" })
+                    {
+                        var control = (FrameworkElement)panel.FindName(name);
+                        var before = control.TransformToVisual(panel).TransformBounds(new Rect(0, 0, control.ActualWidth, control.ActualHeight));
+                        ScrollViewer? scroll = null;
+                        for (DependencyObject? parent = control; parent is not null && parent != panel; parent = VisualTreeHelper.GetParent(parent))
+                            if (parent is ScrollViewer viewer) { scroll = viewer; break; }
+                        Assert.IsTrue(control.ActualHeight > 0, $"{name} must be laid out.");
+                        if (scroll is null)
+                        {
+                            Assert.IsTrue(before.Top >= -1 && before.Bottom <= panel.ActualHeight + 1,
+                                $"{name} ends at {before.Bottom:F1} in a {panel.ActualHeight:F1}-DIP panel with no scroll path.");
+                            continue;
+                        }
+                        if (constrained && likely) Assert.IsTrue(scroll.ScrollableHeight > 0, "The source form must overflow into scrolling.");
+                        if (!constrained) Assert.IsTrue(scroll.ScrollableHeight <= 1, "The unconstrained form must fit without scrolling.");
+                        Assert.IsTrue(scroll.ActualHeight <= panel.ActualHeight, "The scroll viewport must fit inside the panel.");
+                        var position = control.TransformToVisual(scroll).TransformPoint(new Point());
+                        scroll.ChangeView(null, Math.Clamp(scroll.VerticalOffset + position.Y, 0, scroll.ScrollableHeight), null, true);
+                        panel.UpdateLayout();
+                        await Task.Delay(50);
+                        var visible = control.TransformToVisual(scroll).TransformBounds(new Rect(0, 0, control.ActualWidth, control.ActualHeight));
+                        Assert.IsTrue(visible.Top >= -1 && visible.Bottom <= scroll.ActualHeight + 1,
+                            $"{name} must be reachable: {visible.Top:F1}..{visible.Bottom:F1}, viewport {scroll.ActualHeight:F1}.");
+                    }
+                    Assert.AreSame(input, panel.FindName("DevToolsSelComment"));
+                    Assert.AreEqual("Unfinished comment draft", input.Text);
+                    Assert.AreEqual(3, input.SelectionStart);
+                    Assert.AreEqual(5, input.SelectionLength);
+                    Assert.AreSame(input, Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(panel.XamlRoot),
+                        "Resizing the existing popup must retain editor focus.");
+                    Stage($"Comment panel: likely={likely}, cap={panel.Width}x{panel.MaxHeight}; controls reachable, draft and selection retained.");
+                }
+                popup.IsOpen = false;
+            }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

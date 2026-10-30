@@ -16,5 +16,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\agent\WinApp.DevTools.Managed\WinApp.DevTools.Managed.csproj" />
+    <EmbeddedResource Include="..\..\native\WinApp.DevTools.Native\xaml\selection-panel.xaml" LogicalName="selection-panel.xaml" />
   </ItemGroup>
 </Project>
