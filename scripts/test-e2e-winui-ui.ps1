@@ -636,6 +636,31 @@ if (-not $devPid) {
         Assert-WinappSuccess "capture the current filtered caption" @(
             "ui", "screenshot", "-w", $inspectorHwnd, "-o", (Join-Path $ScreenshotDir "10-inspector-live-caption.png")) | Out-Null
         Assert-WinappSuccess "clear live caption filter" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+        $otherCaptionSelection = (Invoke-Winapp @("devtools", "search", "AppTitleBar", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
+        Assert-WinappSuccess "select another row before explicitly revealing the caption" @(
+            "devtools", "call", "Selection.select", "handle=$($otherCaptionSelection.matches[0].handle)", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "filter out the caption before explicitly selecting it" @(
+            "ui", "set-value", "TreeFilter", "button", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "explicit selection reveals the nonmatching caption" @(
+            "devtools", "call", "Selection.select", "handle=$captionSelector", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "explicitly revealed caption is visible before updating" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Caption-current", "-t", "3000") | Out-Null
+        foreach ($caption in @("Caption-revealed", "Caption-revealed-again")) {
+            Assert-WinappSuccess "update the explicitly revealed caption to '$caption'" @(
+                "devtools", "set-property", $captionSelector, "Text", $caption, "-a", "$devPid") | Out-Null
+            Assert-WinappSuccess "explicitly revealed caption stays visible after updating" @(
+                "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock $caption", "-t", "5000") | Out-Null
+        }
+        Assert-WinappSuccess "updated explicitly revealed row stays selected" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "caption updates leave the nonmatching filter intact" @(
+            "ui", "wait-for", "TreeFilter", "-w", $inspectorHwnd, "--value", "button", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "a new filter query can hide the explicitly revealed row" @(
+            "ui", "set-value", "TreeFilter", "Caption-current", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "explicit reveal does not override later filter edits" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "clear explicitly revealed caption filter" @(
+            "ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
         # An empty Text otherwise falls back to AutomationId rather than producing an empty preview.
         Assert-WinappSuccess "remove the empty-caption fixture's AutomationId fallback" @(
             "devtools", "set-property", $captionSelector, "AutomationProperties.AutomationId", "", "-a", "$devPid") | Out-Null

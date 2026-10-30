@@ -453,9 +453,16 @@ static void UpdateSelectedTreePreview()
         if (!node.name.empty()) full += L"  #" + node.name;
         if (!after.empty()) full += L"  \u201C" + after + L"\u201D";
         DevToolsXC::ToolTipService::SetToolTip(button, winrt::box_value(full));
+        // Selection can reveal a nonmatching row. Keep that exception, not rows whose old caption matched.
+        const bool keepRevealed = !g_treeFilterQuery.empty() && g_treeVisible[row->second] &&
+            (RowHiddenByJmx(row->second) ||
+             g_treeLabel[row->second].find(g_treeFilterQuery) == std::wstring::npos);
         g_treeLabel[row->second] = DevToolsTreeLayout::BuildTreeFilterLabel(
             node.type, node.name, after + L" " + node.searchText + L" " + node.sourceUri);
-        if (!g_treeFilterQuery.empty()) ApplyTreeFilter(g_treeFilterQuery);
+        if (!g_treeFilterQuery.empty()) {
+            ApplyTreeFilter(g_treeFilterQuery);
+            if (keepRevealed) ForceRowVisible(row->second);
+        }
     } catch (const winrt::hresult_error& error) {
         DevToolsOverlayLog(L"tree.preview failed hr=0x%08X", error.code().value);
         SetStatusText(L"Could not update the tree caption. Refresh the tree to retry.");
