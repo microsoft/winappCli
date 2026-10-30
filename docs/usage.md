@@ -1947,6 +1947,46 @@ and capture-readiness failures.
 
 ---
 
+### ask
+
+```powershell
+winapp ask "how do I add a jump list?"
+winapp ask "number input with up/down buttons" --json
+```
+
+Search WinUI samples and Microsoft Learn docs together. Results appear in two
+sections: **WinUI samples** first, then **Docs**, with each doc's title, link, and
+short excerpt. This is a search, not a generated answer. It returns up to three
+sample groups (up to three scenario IDs each) and three distinct docs, preferring
+Windows app, Windows App SDK, and WinUI documentation. Doc excerpts are limited
+to 400 characters.
+
+**Privacy:** every question is sent to the public Microsoft Learn service, even
+when samples match. Do not include secrets or private project text. Use
+[`find-ui`](#find-ui) to search samples without sending your question to Learn.
+No Learn sign-in or separately installed MCP server is required.
+
+The sample search uses the same sources and ranking as a default `find-ui`
+search; Reactor remains excluded. Fetch a sample's full code with
+`winapp find-ui --id <id>`. Samples can come from the built-in corpus, the local
+cache, or a GitHub refresh, as described under [`find-ui`](#find-ui).
+
+Learn search has a three-second timeout. If it fails, `ask` keeps any sample
+results and says **Docs unavailable**. Retry to get docs, or use `find-ui` for
+samples alone. If sample data is unavailable, docs can still be returned.
+
+**Options:** `--json` emits one object on stdout with `query`, `corpus` when
+sample data was loaded, `matches` in the same shape as a `find-ui` search, and
+`docs` containing `{ title, url, excerpt }`. `docsError` or `samplesError` appears
+when that source failed; an empty array without its error field means the search
+completed but found no matches. Invalid arguments return `{"error":"..."}`.
+
+**Exit codes:** `0` when either source returns a match, including partial results
+with an error for the other source; `1` when neither source returns a match or the
+arguments are invalid.
+
+---
+
 ### find-ui
 
 > [!NOTE]
@@ -2009,7 +2049,7 @@ winapp find-ui --list
 winapp find-ui "navigation view" --refresh
 ```
 
-**Related:** `find-ui` searches WinUI *samples*; use [`find-api`](#find-api) to search the *API surface* (types, members, enums) a project references, and `winapp ui search` to search a *running app's* UI tree.
+**Related:** use [`ask`](#ask) to combine samples with Learn docs, [`find-api`](#find-api) to search the *API surface* (types, members, enums) a project references, and `winapp ui search` to search a *running app's* UI tree.
 
 ---
 

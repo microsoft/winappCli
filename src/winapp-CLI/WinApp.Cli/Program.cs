@@ -308,7 +308,7 @@ internal static class Program
                 }
                 else if (effectiveJson && IsFlatJsonErrorCommand(parsedArgs))
                 {
-                    // find-ui/find-api emit all their JSON (results and errors) on stdout as a flat
+                    // Discovery commands emit all their JSON (results and errors) on stdout as a flat
                     // {"error":"..."} object — keep parser-level failures on that same contract.
                     if (!isCompleteMode)
                     {
@@ -795,7 +795,7 @@ internal static class Program
 
     /// <summary>
     /// Returns <see langword="true"/> when the selected command is one of the discovery commands
-    /// that document a flat <c>{"error":"..."}</c> JSON contract — <c>find-ui</c>, or <c>find-api</c>
+    /// that document a flat <c>{"error":"..."}</c> JSON contract — <c>ask</c>, <c>find-ui</c>, or <c>find-api</c>
     /// and any of its verbs. Used to route parser-level failures to that contract (#719) instead of
     /// System.CommandLine's human help text, mirroring the ui bridge above.
     /// </summary>
@@ -834,7 +834,7 @@ internal static class Program
         var cmd = parseResult.CommandResult.Command;
         while (cmd is not null)
         {
-            if (cmd.Name is "find-ui" or "find-api")
+            if (cmd.Name is "ask" or "find-ui" or "find-api")
             {
                 return true;
             }

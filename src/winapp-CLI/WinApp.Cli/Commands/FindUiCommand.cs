@@ -80,6 +80,31 @@ internal sealed class FindUiCommand : Command, IShortDescription
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
+    internal static List<FindUiMatchJson> ToJsonMatches(IEnumerable<SearchEngine.GroupedResult> groups) =>
+        groups.Select(g => new FindUiMatchJson
+        {
+            Source = g.Source,
+            Control = g.ControlName,
+            Score = Math.Round(g.Score, 4),
+            Description = g.ControlDescription,
+            Scenarios = g.Scenarios.Select(s => new FindUiScenarioJson { Id = s.Id, Header = s.Header }).ToList()
+        }).ToList();
+
+    internal static void WriteMatches(IAnsiConsole console, IEnumerable<SearchEngine.GroupedResult> groups)
+    {
+        foreach (var g in groups)
+        {
+            var desc = string.IsNullOrWhiteSpace(g.ControlDescription) ? "" : $" [grey]— {Markup.Escape(g.ControlDescription!)}[/]";
+            var control = string.IsNullOrEmpty(g.ControlName) ? "(core pattern)" : g.ControlName;
+            console.MarkupLine($"[bold cyan]{Markup.Escape(control)}[/] [grey][[{g.Source}]][/]{desc}");
+            foreach (var s in g.Scenarios)
+            {
+                console.MarkupLine($"  [green]{Markup.Escape(s.Id)}[/]  {Markup.Escape(s.Header)}");
+            }
+        }
+        console.MarkupLine("[grey]Fetch full code with:[/] winapp find-ui --id <id>");
+    }
+
     public class Handler(
         IControlsSearchService searchService,
         IAnsiConsole console,
@@ -193,7 +218,7 @@ internal sealed class FindUiCommand : Command, IShortDescription
         /// compiled into the binary and never fetched, so a core-only result reports
         /// <c>embedded</c> like any other never-fetched corpus.
         /// </summary>
-        private string? CorpusLabel() => searchService.LoadedOrigin switch
+        internal static string? CorpusLabel(CorpusOrigin origin) => origin switch
         {
             CorpusOrigin.Network => "network",
             CorpusOrigin.Cache => "cache",
@@ -266,15 +291,8 @@ internal sealed class FindUiCommand : Command, IShortDescription
                 {
                     Query = query,
                     MatchCount = groups.Count,
-                    Corpus = CorpusLabel(),
-                    Matches = groups.Select(g => new FindUiMatchJson
-                    {
-                        Source = g.Source,
-                        Control = g.ControlName,
-                        Score = Math.Round(g.Score, 4),
-                        Description = g.ControlDescription,
-                        Scenarios = g.Scenarios.Select(s => new FindUiScenarioJson { Id = s.Id, Header = s.Header }).ToList()
-                    }).ToList()
+                    Corpus = CorpusLabel(searchService.LoadedOrigin),
+                    Matches = ToJsonMatches(groups)
                 };
                 console.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(result, WinAppJsonContext.Default.FindUiSearchJsonOutput));
                 return groups.Count > 0 ? 0 : 1;
@@ -294,17 +312,7 @@ internal sealed class FindUiCommand : Command, IShortDescription
                 return 1;
             }
 
-            foreach (var g in groups)
-            {
-                var desc = string.IsNullOrWhiteSpace(g.ControlDescription) ? "" : $" [grey]— {Markup.Escape(g.ControlDescription!)}[/]";
-                var control = string.IsNullOrEmpty(g.ControlName) ? "(core pattern)" : g.ControlName;
-                console.MarkupLine($"[bold cyan]{Markup.Escape(control)}[/] [grey][[{g.Source}]][/]{desc}");
-                foreach (var s in g.Scenarios)
-                {
-                    console.MarkupLine($"  [green]{Markup.Escape(s.Id)}[/]  {Markup.Escape(s.Header)}");
-                }
-            }
-            console.MarkupLine("[grey]Fetch full code with:[/] winapp find-ui --id <id>");
+            WriteMatches(console, groups);
             return 0;
         }
 
@@ -343,7 +351,7 @@ internal sealed class FindUiCommand : Command, IShortDescription
 
             if (json)
             {
-                var result = new FindUiCodeJsonOutput { Corpus = CorpusLabel(), Results = entries };
+                var result = new FindUiCodeJsonOutput { Corpus = CorpusLabel(searchService.LoadedOrigin), Results = entries };
                 console.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(result, WinAppJsonContext.Default.FindUiCodeJsonOutput));
                 return entries.All(e => e.Found) ? 0 : 1;
             }
@@ -483,7 +491,7 @@ internal sealed class FindUiCommand : Command, IShortDescription
 
             if (json)
             {
-                var result = new FindUiListJsonOutput { Count = items.Count, Corpus = CorpusLabel(), Items = items };
+                var result = new FindUiListJsonOutput { Count = items.Count, Corpus = CorpusLabel(searchService.LoadedOrigin), Items = items };
                 console.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(result, WinAppJsonContext.Default.FindUiListJsonOutput));
                 return items.Count > 0 ? 0 : 1;
             }

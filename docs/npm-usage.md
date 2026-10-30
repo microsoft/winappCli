@@ -62,6 +62,7 @@ functions, and hyphenated options become camel-case properties:
 |-----|-----------------------|
 | `winapp init --use-defaults` | `init({ useDefaults: true })` |
 | `winapp restore` | `restore()` |
+| `winapp ask "how do I add a jump list?" --json` | `ask({ question: 'how do I add a jump list?', json: true })` |
 | `winapp cert generate --output devcert.pfx` | `certGenerate({ output: 'devcert.pfx' })` |
 | `winapp pack ./dist` | `packageApp({ inputFolder: './dist' })` |
 | `winapp run MyApp.csproj` | `run({ input: 'MyApp.csproj' })` |
@@ -71,6 +72,9 @@ functions, and hyphenated options become camel-case properties:
 See [CLI usage](usage.md) for each command's behavior, prerequisites, and examples.
 Use `npx winapp <command> --help` for exact flags or `npx winapp --cli-schema`
 for the installed CLI's complete machine-readable command tree.
+
+`ask` combines sample matches and Learn docs. See [`ask`](usage.md#ask) for its
+privacy notice and partial-result handling.
 
 Every command's options object also accepts these shared properties:
 
