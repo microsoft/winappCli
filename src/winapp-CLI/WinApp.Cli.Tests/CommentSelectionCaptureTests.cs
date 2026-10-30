@@ -70,16 +70,17 @@ public class CommentSelectionCaptureTests
                     "--file" => "Different.xaml",
                     "--source-uri" => "ms-appx:///Different.xaml",
                     "--source-root" => (selectedRoot = directory.CreateSubdirectory("other-project")).FullName,
-                    "--type" => "Button",
+                    "--type" => "TextBlock",
                     _ => "Other",
                 };
                 arguments.AddRange([overrideOption, value]);
             }
             var result = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(arguments.ToArray()));
-            Assert.AreEqual(confirm ? 0 : 1, result, console.Output);
+            var saves = confirm && overrideOption != "--name";
+            Assert.AreEqual(saves ? 0 : 1, result, console.Output);
             var storePath = store.GetStorePath(selectedRoot);
-            Assert.AreEqual(confirm, File.Exists(storePath));
-            if (confirm)
+            Assert.AreEqual(saves, File.Exists(storePath));
+            if (saves)
             {
                 var anchor = store.Load(storePath).Comments.Single().Anchor;
                 var overridesSource = overrideOption is "--file" or "--source-uri" or "--source-root" or "--line" or "--column";
@@ -93,8 +94,106 @@ public class CommentSelectionCaptureTests
             }
             else
             {
-                StringAssert.Contains(console.Output, "--confirm-likely-source");
+                StringAssert.Contains(console.Output, overrideOption == "--name" ? "conflicts with the captured element" : "--confirm-likely-source");
                 Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
+            }
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    [TestMethod]
+    [DataRow("positional", "", true)]
+    [DataRow("element", "", true)]
+    [DataRow("selection", "", true)]
+    [DataRow("positional", "RootPanel", true)]
+    [DataRow("element", "RootPanel", true)]
+    [DataRow("selection", "RootPanel", true)]
+    [DataRow("positional", "", false)]
+    [DataRow("element", "", false)]
+    [DataRow("selection", "", false)]
+    public async Task NameOverride_KnownUnnamedDeclarationRejects_UnknownMetadataAllows(
+        string mode, string runtimeName, bool declarationKnown)
+    {
+        var directory = Directory.CreateTempSubdirectory("winapp-unnamed-identity-");
+        try
+        {
+            File.WriteAllText(Path.Combine(directory.FullName, "MainPage.xaml"),
+                "<Page xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">\n" +
+                "<TextBlock Text=\"First\"/>\n<TextBlock x:Name=\"Other\" Text=\"Second\"/>\n</Page>");
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Selection.poll", """{"handle":"2"}""")
+                .Answer("VisualTree.enumerate", System.Text.Json.JsonSerializer.Serialize(new[]
+                {
+                    new { handle = "2", name = runtimeName, type = "TextBlock", children = Array.Empty<object>() },
+                    new { handle = "3", name = "Other", type = "TextBlock", children = Array.Empty<object>() },
+                }))
+                .Answer("Property.get", """{"props":[{"name":"Text","value":"First","valueType":"String"}]}""")
+                .Answer("Source.get", declarationKnown
+                    ? """
+                      {"fileName":"ms-appx:///MainPage.xaml","lineNumber":2,"columnNumber":1,
+                      "authoredState":"available","authoredFileName":"MainPage.xaml","authoredLineNumber":2,
+                      "authoredColumnNumber":1,"coordinateProvenance":"disk-matched-unique-declaration",
+                      "xaml":"<TextBlock Text=\"First\"/>"}
+                      """
+                    : """{"fileName":""}""")
+                .Answer("Internal.elementAnchor", """{"anchor":"first-element","unique":true}""")
+                .Answer("Internal.sourceRoot", System.Text.Json.JsonSerializer.Serialize(new { sourceRoot = directory.FullName }))
+                .Answer("Internal.setComments", """{"total":1,"placed":1}""");
+            var capture = CommentSelectionCapture.CaptureElement((uint)agent.Pid, "2");
+            Assert.AreEqual(CaptureStatus.Ok, capture.Status);
+            Assert.IsNull(capture.Element!.Name);
+            Assert.AreEqual(declarationKnown, capture.Element.Authored is not null);
+            var store = new CommentStore();
+            var path = store.GetStorePath(directory);
+            foreach (var replace in new[] { false, true })
+            {
+                byte[]? before = null;
+                if (replace)
+                {
+                    store.Add(path, new Comment
+                    {
+                        Id = "existing", Text = "Keep the original", ProjectRoot = directory.FullName,
+                        Anchor = new() { Weak = true },
+                    });
+                    before = File.ReadAllBytes(path);
+                }
+                using var console = new TestConsole();
+                var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(),
+                    new CommentPusher(store), new CommentTestTargetResolver(agent.Pid),
+                    new FixedDirectory(directory.FullName), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
+                string[] target = mode switch
+                {
+                    "positional" => ["2"],
+                    "element" => ["--from-element", "2"],
+                    _ => ["--from-selection"],
+                };
+                List<string> args = [.. target, "--app", agent.Pid.ToString(), "--name", "Other", "--text", "Change First", "--json"];
+                if (replace) { args.AddRange(["--id", "existing"]); }
+                var parsed = new DevToolsCommentsAddCommand().Parse(args.ToArray());
+                Assert.IsEmpty(parsed.Errors);
+                Assert.AreEqual(declarationKnown ? 1 : 0, await handler.InvokeAsync(parsed), console.Output);
+                var payload = System.Text.Json.JsonSerializer.Deserialize(console.Output, CommentsJsonContext.Default.CommentResultPayload)!;
+                if (declarationKnown)
+                {
+                    Assert.IsFalse(payload.Ok);
+                    StringAssert.Contains(payload.Error!, "--name");
+                    StringAssert.Contains(payload.Error!, "conflicts with the captured element");
+                    Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
+                    if (before is not null)
+                    {
+                        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+                    }
+                    else
+                    {
+                        Assert.IsFalse(File.Exists(path));
+                    }
+                }
+                else
+                {
+                    Assert.IsTrue(payload.Ok);
+                    Assert.AreEqual("Other", store.Get(path, payload.Comment!.Id)!.Anchor.Identity.Name);
+                    store.Delete(path, payload.Comment.Id);
+                }
             }
         }
         finally { directory.Delete(recursive: true); }

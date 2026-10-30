@@ -261,6 +261,20 @@ public class DevToolsCommentsHumanOutputTests
     }
 
     [TestMethod]
+    public void OfflineAdd_AllowsManualIdentityFields()
+    {
+        var payload = JsonSerializer.Deserialize(Success("add", "--text", "Review the label",
+            "--name", "CounterButton", "--type", "Button", "--automation-id", "Increment",
+            "--tree-path", "Window/Grid/Button", "--json"), CommentsJsonContext.Default.CommentResultPayload)!;
+
+        Assert.IsTrue(payload.Ok);
+        Assert.AreEqual("CounterButton", payload.Comment!.Anchor.Identity.Name);
+        Assert.AreEqual("Button", payload.Comment.Anchor.Identity.Type);
+        Assert.AreEqual("Increment", payload.Comment.Anchor.Identity.AutomationId);
+        Assert.AreEqual("Window/Grid/Button", payload.Comment.Anchor.Identity.TreePath);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void StatusAll_ListsEveryStatusLikeAll(bool json)
