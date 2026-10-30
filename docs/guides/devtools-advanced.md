@@ -162,15 +162,28 @@ winapp devtools comments add SaveButton -a 12345 --text "Make this label clearer
 - `--id <id>` replaces that comment; with `--from-selection` or `--from-element` and no
   `--text`, it re-anchors the comment and keeps its text. `delete <id>` removes it.
 - `--source-root <dir>` picks the project; `list --project` filters a shared store;
-  `list -a <pid>` uses that app's project. Comment reads never take `--on`.
+  `list`, `get`, `update` and `delete` with `-a <pid>` use that app's project, even
+  from another folder. An explicit `--source-root` takes precedence. Comment reads
+  never take `--on`.
+
+If the app's DevTools connection is unavailable, these commands fail rather than
+read or change the current folder's store. Launch with `--devtools on`, or choose
+the saved store without reading the app's project folder:
+
+```powershell
+winapp devtools comments list --source-root C:\src\MyApp
+```
 
 A comment captured from a live element also records its AutomationId
 (`anchor.identity.automationId`), window title (`context.windowTitle`), style
 (`context.style`) and brushes (`context.brushes`: value, where it comes from, and the
 resource key and file when your project set it).
+A name, type or AutomationId that contradicts the captured value is rejected:
+capturing `SaveButton` with `--name OtherButton` fails without saving. Matching values and
+options such as `--kind` or `--property` are allowed; manual authoring is unchanged.
 
 Changes refresh markers in running DevTools apps for the same project, Sandbox included;
-`update` and `delete` take `--app <pid>` for another app. A failed marker refresh warns
+`update` and `delete` also refresh the app selected with `--app <pid>`. A failed marker refresh warns
 but doesn't undo the save. A corrupt store is left untouched. In the app, **Saving...**
 isn't confirmation; the **Comment saved** notice is, and a failed save keeps your draft.
 
