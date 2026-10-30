@@ -163,6 +163,15 @@ function Check([bool]$Condition, [string]$Message) {
     $script:checks++
     Write-Host "PASS $Message"
 }
+function Wait-Focused([string]$Expected) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(3)
+    do {
+        $current = Invoke-Cli @('ui', 'get-focused', '-a', $app)
+        if ($current.element.automationId -eq $Expected) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return [string]$current.element.automationId
+}
 function Wait-CommentStatus([string]$App, [string]$Expected) {
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
     do {
@@ -656,15 +665,6 @@ try {
         }
 
         # Ctrl+Shift+F12 moves keyboard focus to the toolbar; Esc returns it to the app element that had it.
-        function Wait-Focused([string]$Expected) {
-            $deadline = [DateTime]::UtcNow.AddSeconds(3)
-            do {
-                $current = Invoke-Cli @('ui', 'get-focused', '-a', $app)
-                if ($current.element.automationId -eq $Expected) { break }
-                Start-Sleep -Milliseconds 100
-            } while ([DateTime]::UtcNow -lt $deadline)
-            return [string]$current.element.automationId
-        }
         $null = Invoke-Cli @('ui', 'focus', 'ShortcutReturn', '-a', $app)
         $null = Invoke-Cli @('ui', 'send-keys', 'ctrl+shift+f12', '-a', $app, '--via', 'send-input')
         Check ((Wait-Focused 'DevToolsProtoPick') -eq 'DevToolsProtoPick') 'Ctrl+Shift+F12 moves keyboard focus to the toolbar'
