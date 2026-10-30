@@ -196,7 +196,7 @@ static void OnCommentModeClick(void*, void*);
 static void SetCommentMode(bool on);
 static void InspectElement(InstanceHandle element, bool activate = true);
 static void OnThemeToggleClick(void*, void*);
-// Swaps the two states authored in toolbar.xaml (DevToolsPickOff glyph / DevToolsPickOn accent chip).
+// Swaps the two states authored in toolbar.xaml (DevToolsPickOff icon / DevToolsPickOn accent chip).
 static void SetPickButtonOn(bool on);
 static bool CommentModeOn();
 static InstanceHandle PeekTopHandleAt(IXamlDiagnostics*, InstanceHandle, int, int, DevToolsIsOverlayFn, HRESULT* = nullptr);

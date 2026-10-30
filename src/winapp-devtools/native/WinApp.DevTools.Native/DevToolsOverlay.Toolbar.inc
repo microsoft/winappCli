@@ -845,9 +845,6 @@ static void OnDragCatcherReleased(void*, void*)
     DevToolsOverlayLog(L"overlay.toolbar drag released -> corner=%d", landed);
 }
 
-static void OnDragHandleEnter(void*, void*) { ProtoSetPartVisible(L"DevToolsDragHaloOn", true); }
-static void OnDragHandleExit(void*, void*)  { ProtoSetPartVisible(L"DevToolsDragHaloOn", false); }
-
 // The collapsed pill drags like the bar's handle. A press that ends without moving opens the bar where it was.
 static void OnPillPressed(const winrt::Windows::Foundation::IInspectable& sender, const DevToolsXI::PointerRoutedEventArgs& args)
 {
@@ -1100,8 +1097,6 @@ static void WirePrototype(IInspectable* canvas)
                 reinterpret_cast<IUnknown*>(cui)->Release();
                 DevToolsOverlayLog(L"overlay.toolbar drag-handle add_PointerPressed hr=0x%08X", hr);
             }
-            wireUiEvent(handle, DevToolsUiEvent::PointerEntered, g_protoSink[10], &OnDragHandleEnter);
-            wireUiEvent(handle, DevToolsUiEvent::PointerExited,  g_protoSink[11], &OnDragHandleExit);
             handle->Release();
         }
         wireNamedClick(L"DevToolsProtoPick", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);

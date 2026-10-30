@@ -119,11 +119,9 @@
               AutomationProperties.AutomationId="DevToolsDragHandle"
               AutomationProperties.Name="Move DevTools (drag)">
         <Grid Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <Ellipse x:Name="DevToolsDragHalo" Width="16" Height="16" Fill="$LIVE$" Opacity="0.22"
-                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-          <Ellipse x:Name="DevToolsDragHaloOn" Width="16" Height="16" Fill="$LIVE$" Opacity="0.6" Visibility="Collapsed"
-                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-          <Ellipse Width="8" Height="8" Fill="$LIVE$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <PathIcon FlowDirection="LeftToRight" Width="16" Height="16" Foreground="$TEXTDIM$"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Data="F1 M6 5C6.55228 5 7 4.55228 7 4C7 3.44772 6.55228 3 6 3C5.44772 3 5 3.44772 5 4C5 4.55228 5.44772 5 6 5ZM6 9C6.55228 9 7 8.55228 7 8C7 7.44772 6.55228 7 6 7C5.44772 7 5 7.44772 5 8C5 8.55228 5.44772 9 6 9ZM7 12C7 12.5523 6.55228 13 6 13C5.44772 13 5 12.5523 5 12C5 11.4477 5.44772 11 6 11C6.55228 11 7 11.4477 7 12ZM10 5C10.5523 5 11 4.55228 11 4C11 3.44772 10.5523 3 10 3C9.44772 3 9 3.44772 9 4C9 4.55228 9.44772 5 10 5ZM11 8C11 8.55228 10.5523 9 10 9C9.44772 9 9 8.55228 9 8C9 7.44772 9.44772 7 10 7C10.5523 7 11 7.44772 11 8ZM10 13C10.5523 13 11 12.5523 11 12C11 11.4477 10.5523 11 10 11C9.44772 11 9 11.4477 9 12C9 12.5523 9.44772 13 10 13Z" />
           <!-- The pill's Reactor error count, for when the bar is open (pinned) and the pill is hidden. -->
           <Border x:Name="DevToolsBarErrors" Visibility="Collapsed" MinWidth="14" Height="14" CornerRadius="7" Padding="3,0"
                   Margin="0,-6,-8,0" Background="#FFC42B1C" HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -141,14 +139,17 @@
               AutomationProperties.AutomationId="DevToolsProtoPick"
               AutomationProperties.Name="Select element">
         <Grid Width="30" Height="26">
-          <FontIcon x:Name="DevToolsPickOff" FlowDirection="LeftToRight" Glyph="&#xE7C9;"
-                    FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <!-- Path icons keep their 16x16 design box so the padding drawn into each icon stays centered. -->
+          <PathIcon x:Name="DevToolsPickOff" FlowDirection="LeftToRight" Width="16" Height="16"
+                    Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Data="F1 M12.3867 3H13.25C13.7141 3 14.1591 3.18451 14.4873 3.5127C14.8155 3.84088 15 4.28588 15 4.75C15 4.75525 14.9982 4.76042 14.998 4.76562H15V9.5C15 9.58493 14.9787 9.6653 14.9414 9.73535L14 8.96484V4.76562H14.002C14.0018 4.76042 14 4.75525 14 4.75C14 4.5511 13.921 4.36038 13.7803 4.21973C13.6397 4.07908 13.4489 4 13.25 4H11.5C11.4967 4 11.4935 3.99909 11.4902 3.99902H9.50977C9.50651 3.99909 9.50327 4 9.5 4H6.5C6.49673 4 6.49349 3.99909 6.49023 3.99902H4.50977C4.50651 3.99909 4.50327 4 4.5 4H2.75C2.55109 4 2.36038 4.07908 2.21973 4.21973C2.07908 4.36038 2 4.55109 2 4.75V11.25C2 11.4489 2.07908 11.6397 2.21973 11.7803C2.36038 11.921 2.5511 12 2.75 12H4.5C4.51021 12 4.52022 12.0023 4.53027 12.0029H6.46973C6.47978 12.0023 6.48979 12 6.5 12H8.00098V13H6.78125V13.0029H2.95703V13H2.75C2.28588 13 1.84088 12.8155 1.5127 12.4873C1.19373 12.1683 1.012 11.739 1.00195 11.2891H1V4.73438H1.00098C1.00507 4.27589 1.18819 3.8372 1.5127 3.5127C1.84089 3.18451 2.28587 3 2.75 3H4.26562V2.99902H12.3867V3Z M15.723 11.6682C16.268 12.1142 15.953 12.9992 15.248 12.9992H12.262C12.105 12.9992 11.958 13.0722 11.863 13.1982L10.348 15.2032C9.914 15.7772 8.999 15.4702 9 14.7512L9.002 7.75125C9.002 7.11825 9.737 6.77025 10.227 7.17125L15.723 11.6682Z" />
           <!-- Keep the system highlight pair intact instead of auto-adjusting the selected icon to window text. -->
           <Grid x:Name="DevToolsPickOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsPickOn"
                 HighContrastAdjustment="None">
             <Border Width="30" Height="26" CornerRadius="6" Background="{ThemeResource DevToolsToggleBackground}" />
-            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7C9;" FontSize="15"
-                      Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <PathIcon FlowDirection="LeftToRight" Width="16" Height="16"
+                      Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Data="F1 M12.3867 3H13.25C13.7141 3 14.1591 3.18451 14.4873 3.5127C14.8155 3.84088 15 4.28588 15 4.75C15 4.75525 14.9982 4.76042 14.998 4.76562H15V9.5C15 9.58493 14.9787 9.6653 14.9414 9.73535L14 8.96484V4.76562H14.002C14.0018 4.76042 14 4.75525 14 4.75C14 4.5511 13.921 4.36038 13.7803 4.21973C13.6397 4.07908 13.4489 4 13.25 4H11.5C11.4967 4 11.4935 3.99909 11.4902 3.99902H9.50977C9.50651 3.99909 9.50327 4 9.5 4H6.5C6.49673 4 6.49349 3.99909 6.49023 3.99902H4.50977C4.50651 3.99909 4.50327 4 4.5 4H2.75C2.55109 4 2.36038 4.07908 2.21973 4.21973C2.07908 4.36038 2 4.55109 2 4.75V11.25C2 11.4489 2.07908 11.6397 2.21973 11.7803C2.36038 11.921 2.5511 12 2.75 12H4.5C4.51021 12 4.52022 12.0023 4.53027 12.0029H6.46973C6.47978 12.0023 6.48979 12 6.5 12H8.00098V13H6.78125V13.0029H2.95703V13H2.75C2.28588 13 1.84088 12.8155 1.5127 12.4873C1.19373 12.1683 1.012 11.739 1.00195 11.2891H1V4.73438H1.00098C1.00507 4.27589 1.18819 3.8372 1.5127 3.5127C1.84089 3.18451 2.28587 3 2.75 3H4.26562V2.99902H12.3867V3Z M15.723 11.6682C16.268 12.1142 15.953 12.9992 15.248 12.9992H12.262C12.105 12.9992 11.958 13.0722 11.863 13.1982L10.348 15.2032C9.914 15.7772 8.999 15.4702 9 14.7512L9.002 7.75125C9.002 7.11825 9.737 6.77025 10.227 7.17125L15.723 11.6682Z" />
           </Grid>
         </Grid>
       </ToggleButton>
@@ -190,13 +191,15 @@
               AutomationProperties.AutomationId="DevToolsProtoLayout"
               AutomationProperties.Name="Layout adorners">
         <Grid Width="30" Height="26">
-          <FontIcon x:Name="DevToolsLayoutOff" FlowDirection="LeftToRight" Glyph="&#xE80A;"
-                    FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <PathIcon x:Name="DevToolsLayoutOff" FlowDirection="LeftToRight" Width="16" Height="16"
+                    Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Data="F1 M3.9375 14Q3.3516 14 2.8203 13.7656Q2.2891 13.5312 1.8828 13.125Q1.4766 12.7188 1.2422 12.1875Q1.0078 11.6562 1 11.0625V3.9375Q1 3.3516 1.2344 2.8203Q1.4688 2.2891 1.875 1.8828Q2.2812 1.4766 2.8125 1.2422Q3.3438 1.0078 3.9375 1H11.0625Q11.6484 1 12.1797 1.2344Q12.7109 1.4688 13.1172 1.875Q13.5234 2.2812 13.7578 2.8125Q13.9922 3.3438 14 3.9375V11.0625Q14 11.6484 13.7656 12.1797Q13.5312 12.7109 13.125 13.1172Q12.7188 13.5234 12.1875 13.7578Q11.6562 13.9922 11.0625 14H3.9375ZM2 5H5V2H3.9609Q3.5703 2 3.2188 2.1562Q2.8672 2.3125 2.5938 2.5859Q2.3203 2.8594 2.1641 3.2109Q2.0078 3.5625 2 3.9609V5ZM6 2V5H9V2H6ZM10 5H13V3.9609Q13 3.5703 12.8438 3.2188Q12.6875 2.8672 12.4141 2.5938Q12.1406 2.3203 11.7891 2.1641Q11.4375 2.0078 11.0391 2H10V5ZM2 6V9H5V6H2ZM6 6V9H9V6H6ZM10 6V9H13V6H10ZM5 13V10H2V11.0391Q2 11.4297 2.1562 11.7812Q2.3125 12.1328 2.5859 12.4062Q2.8594 12.6797 3.2109 12.8359Q3.5625 12.9922 3.9609 13H5ZM6 10V13H9V10H6ZM11.0391 13Q11.4297 13 11.7812 12.8438Q12.1328 12.6875 12.4062 12.4141Q12.6797 12.1406 12.8359 11.7891Q12.9922 11.4375 13 11.0391V10H10V13H11.0391Z" />
           <Grid x:Name="DevToolsLayoutOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsLayoutOn"
                 HighContrastAdjustment="None">
             <Border Width="30" Height="26" CornerRadius="6" Background="{ThemeResource DevToolsToggleBackground}" />
-            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE80A;" FontSize="15"
-                      Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <PathIcon FlowDirection="LeftToRight" Width="16" Height="16"
+                      Foreground="{ThemeResource DevToolsToggleForeground}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Data="F1 M3.9375 14Q3.3516 14 2.8203 13.7656Q2.2891 13.5312 1.8828 13.125Q1.4766 12.7188 1.2422 12.1875Q1.0078 11.6562 1 11.0625V3.9375Q1 3.3516 1.2344 2.8203Q1.4688 2.2891 1.875 1.8828Q2.2812 1.4766 2.8125 1.2422Q3.3438 1.0078 3.9375 1H11.0625Q11.6484 1 12.1797 1.2344Q12.7109 1.4688 13.1172 1.875Q13.5234 2.2812 13.7578 2.8125Q13.9922 3.3438 14 3.9375V11.0625Q14 11.6484 13.7656 12.1797Q13.5312 12.7109 13.125 13.1172Q12.7188 13.5234 12.1875 13.7578Q11.6562 13.9922 11.0625 14H3.9375ZM2 5H5V2H3.9609Q3.5703 2 3.2188 2.1562Q2.8672 2.3125 2.5938 2.5859Q2.3203 2.8594 2.1641 3.2109Q2.0078 3.5625 2 3.9609V5ZM6 2V5H9V2H6ZM10 5H13V3.9609Q13 3.5703 12.8438 3.2188Q12.6875 2.8672 12.4141 2.5938Q12.1406 2.3203 11.7891 2.1641Q11.4375 2.0078 11.0391 2H10V5ZM2 6V9H5V6H2ZM6 6V9H9V6H6ZM10 6V9H13V6H10ZM5 13V10H2V11.0391Q2 11.4297 2.1562 11.7812Q2.3125 12.1328 2.5859 12.4062Q2.8594 12.6797 3.2109 12.8359Q3.5625 12.9922 3.9609 13H5ZM6 10V13H9V10H6ZM11.0391 13Q11.4297 13 11.7812 12.8438Q12.1328 12.6875 12.4062 12.4141Q12.6797 12.1406 12.8359 11.7891Q12.9922 11.4375 13 11.0391V10H10V13H11.0391Z" />
           </Grid>
         </Grid>
       </ToggleButton>
@@ -208,8 +211,9 @@
               ToolTipService.ToolTip="Switch app theme"
               AutomationProperties.AutomationId="DevToolsProtoTheme"
               AutomationProperties.Name="Switch app theme">
-        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE706;" FontSize="15"
-                  Foreground="$TEXT$" />
+        <PathIcon FlowDirection="LeftToRight" Width="16" Height="16" Foreground="$TEXT$"
+                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                  Data="F1 M8 2.4C11.0928 2.4 13.6 4.9072 13.6 8C13.6 11.0928 11.0928 13.6 8 13.6V2.4ZM8 1.6C4.4654 1.6 1.6 4.4654 1.6 8C1.6 11.5346 4.4654 14.4 8 14.4C11.5346 14.4 14.4 11.5346 14.4 8C14.4 4.4654 11.5346 1.6 8 1.6Z" />
       </Button>
 
       <!-- Reactor apps whose Reactor reports component renders: flash each component as it re-renders. -->
@@ -244,7 +248,9 @@
               ToolTipService.ToolTip="Open the DevTools window"
               AutomationProperties.AutomationId="DevToolsProtoInspect"
               AutomationProperties.Name="Open DevTools window">
-        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="15" Foreground="$TEXT$" />
+        <PathIcon FlowDirection="LeftToRight" Width="16" Height="16" Foreground="$TEXT$"
+                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                  Data="F1 M5 3.6C4.2268 3.6 3.6 4.2268 3.6 5V11C3.6 11.7732 4.2268 12.4 5 12.4H11C11.7732 12.4 12.4 11.7732 12.4 11V9.4C12.4 9.0686 12.6686 8.8 13 8.8C13.3314 8.8 13.6 9.0686 13.6 9.4V11C13.6 12.4359 12.4359 13.6 11 13.6H5C3.5641 13.6 2.4 12.4359 2.4 11V5C2.4 3.5641 3.5641 2.4 5 2.4H6.6C6.9314 2.4 7.2 2.6686 7.2 3C7.2 3.3314 6.9314 3.6 6.6 3.6H5ZM8.4 3C8.4 2.6686 8.6686 2.4 9 2.4H13C13.3314 2.4 13.6 2.6686 13.6 3V7C13.6 7.3314 13.3314 7.6 13 7.6C12.6686 7.6 12.4 7.3314 12.4 7V4.4485L9.4242 7.4243C9.1899 7.6586 8.8101 7.6586 8.5758 7.4243C8.3414 7.19 8.3414 6.81 8.5758 6.5757L11.5514 3.6H9C8.6686 3.6 8.4 3.3314 8.4 3Z" />
       </Button>
       <Button x:Name="DevToolsProtoMore" Style="{x:Null}" AllowFocusOnInteraction="False" Width="24" Height="24" Padding="0" BorderThickness="0" CornerRadius="5"
               Background="#00000000" Foreground="$TEXTDIM$" VerticalAlignment="Center"
