@@ -159,22 +159,37 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
             m += L"</HyperlinkButton>";
         }
     }
-    // Show a source link only with actual XBF/source instrumentation and a file resolved under
-    // the configured source root. Environment delivery is the host's responsibility.
+    // Keep source actions and their feedback together, above the property list.
     {
         std::wstring disp = SourceDisplay(sourceUri, sourceLine);
         if (!disp.empty()) {
             const bool canOpen = !ResolveSourcePath(sourceUri).empty();
-            m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\" Margin=\"0,2,0,0\">";
+            m += L"<StackPanel Spacing=\"2\" Margin=\"0,2,0,0\">"
+                 L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\">";
             m += L"<FontIcon Glyph=\"&#xE8A5;\" FontSize=\"12\" VerticalAlignment=\"Center\""
                  DT_FG_SECONDARY L"/>";
             m += L"<TextBlock Text=\"" + DevToolsXmlEscape(disp) + L"\" Style=\"{StaticResource CaptionTextBlockStyle}\""
                  DT_FG_SECONDARY L" VerticalAlignment=\"Center\""
                  L" TextTrimming=\"CharacterEllipsis\" AutomationProperties.AutomationId=\"WinAppDevToolsSource\"/>";
+            m += L"</StackPanel>";
             if (canOpen) {
+                m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\">";
                 m += L"<HyperlinkButton x:Name=\"OpenSource\" Content=\"Open\" Padding=\"4,0,4,0\" FontSize=\"12\""
-                     L" VerticalAlignment=\"Center\" ToolTipService.ToolTip=\"Open the source file in your default editor\"/>";
+                     L" AutomationProperties.AutomationId=\"WinAppDevToolsOpenSource\""
+                     L" AutomationProperties.Name=\"Open source file\""
+                     L" ToolTipService.ToolTip=\"Open the source file in your default editor\"/>";
+                m += L"<HyperlinkButton x:Name=\"RevealSource\" Content=\"Show in File Explorer\" Padding=\"4,0,4,0\" FontSize=\"12\""
+                     L" AutomationProperties.AutomationId=\"WinAppDevToolsRevealSource\""
+                     L" AutomationProperties.Name=\"Show source file in File Explorer\"/>";
+                m += L"<HyperlinkButton x:Name=\"CopySourcePath\" Content=\"Copy path\" Padding=\"4,0,4,0\" FontSize=\"12\""
+                     L" AutomationProperties.AutomationId=\"WinAppDevToolsCopySourcePath\""
+                     L" AutomationProperties.Name=\"Copy source file path\"/></StackPanel>";
             }
+            m += L"<TextBlock x:Name=\"SourceStatus\" Text=\"" + std::wstring(canOpen ? L"" :
+                     L"Source file unavailable. Check that it exists under the project's source folder.") +
+                 L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\""
+                 DT_FG_SECONDARY L" AutomationProperties.LiveSetting=\"Polite\""
+                 L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceStatus\"/>";
             m += L"</StackPanel>";
         }
     }
