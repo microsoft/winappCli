@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": [
     "schemaVersion", "release", "commit", "benchmark", "scenario", "set", "arm", "model", "trial",
-    "startedAt", "passed", "improvements", "checks", "usage"
+    "startedAt", "outcome", "passed", "improvements", "checks", "usage"
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
@@ -36,6 +36,10 @@
     },
     "trial": { "description": "1-based repeat number for the same scenario, model and arm.", "type": "integer", "minimum": 1 },
     "startedAt": { "type": "string", "format": "date-time" },
+    "outcome": {
+      "description": "Why the trial ended. Only \"valid\" trials count toward pass rates: the agent finished and the checks ran. app-failed: the app built but did not run. build-failed: no app was produced. timed-out: the agent ran out of time. harness-error: our tooling failed, not the agent. asked-before-admin: the agent safely stopped before an admin step (tasks only).",
+      "enum": ["valid", "app-failed", "build-failed", "timed-out", "harness-error", "asked-before-admin"]
+    },
     "passed": {
       "description": "True when every check with kind \"required\" passed. Never affected by improvement checks.",
       "type": "boolean"
@@ -94,7 +98,7 @@
       }
     },
     "error": {
-      "description": "Set when the harness itself failed (not the agent). Such trials have passed=false and are excluded from dashboards.",
+      "description": "Set when the harness itself failed (not the agent), together with outcome \"harness-error\".",
       "type": "string"
     }
   },

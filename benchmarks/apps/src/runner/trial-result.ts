@@ -96,6 +96,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     model: slug(input.model),
     trial: input.iteration ?? 1,
     startedAt: input.startedAt.toISOString().replace(/\.\d{3}Z$/, "Z"),
+    outcome: !input.builds ? "build-failed" : !input.runs ? "app-failed" : "valid",
     passed: checks.every((c) => c.kind !== "required" || c.passed),
     improvements: { met: improvements.filter((c) => c.passed).length, total: improvements.length },
     checks,

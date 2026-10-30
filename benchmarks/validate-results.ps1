@@ -2,7 +2,7 @@
 .SYNOPSIS
   Validates benchmark trial result files against benchmarks\results.schema.json.
 .DESCRIPTION
-  Beyond the schema, checks that each file agrees with itself and with where it is stored:
+  Beyond the schema, checks that `outcome` agrees with `passed` and `error`, and that each file agrees with itself and with where it is stored:
   `passed` matches the required checks, `improvements` matches the improvement checks,
   and the file is named <scenario>__<arm>__<model>__<trial>.json inside a folder named
   after its release.
@@ -42,6 +42,9 @@ foreach ($file in $files) {
     if ($r.improvements.met -ne $met -or $r.improvements.total -ne $improvements.Count) {
         & $fail "improvements is $($r.improvements.met)/$($r.improvements.total) but the checks say $met/$($improvements.Count)"
     }
+
+    if ($r.outcome -ne 'valid' -and $r.passed) { & $fail "outcome is $($r.outcome) but passed is true" }
+    if ([bool]$r.error -ne ($r.outcome -eq 'harness-error')) { & $fail 'error must be set when, and only when, outcome is harness-error' }
 
     $ids = @($r.checks.id)
     if ($ids.Count -ne @($ids | Select-Object -Unique).Count) { & $fail 'check ids are not unique' }

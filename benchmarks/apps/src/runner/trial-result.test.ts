@@ -41,6 +41,12 @@ test("a failed gate fails the trial; a failed improvement does not", () => {
   assert.equal((toTrialResult(base) as any).passed, true);
 });
 
+test("outcome says why a trial did not produce a working app", () => {
+  assert.equal((toTrialResult(base) as any).outcome, "valid");
+  assert.equal((toTrialResult({ ...base, runs: false }) as any).outcome, "app-failed");
+  assert.equal((toTrialResult({ ...base, builds: false, runs: false }) as any).outcome, "build-failed");
+});
+
 test("a scenario can mark a requirement as required", () => {
   const t = toTrialResult({ ...base, requiredRequirements: [2] }) as any;
   assert.equal(t.passed, false);
