@@ -310,6 +310,7 @@ try {
         Check (-not $tree.truncated -and $tree.depthLimitedElements -eq 0) 'overlay probe has a complete owned source tree'
         $heading = @(Nodes $tree.elements | Where-Object name -eq 'WindowHeading')
         Check ($heading.Count -eq 1) 'overlay probe selects one exact authored heading'
+        $null = Invoke-Cli @('ui', 'focus', 'ShortcutOther', '-a', $app)
         Enter-CommentMode
         $null = Invoke-Cli @('ui', 'focus', 'ShortcutOther', '-a', $app)
         Check ((Wait-Focused 'ShortcutOther') -eq 'ShortcutOther') 'a non-first app control has focus before picking the heading'
@@ -320,6 +321,8 @@ try {
         $openFocus = Invoke-Cli @('ui', 'get-focused', '-a', $app)
         Check ($openFocus.element.automationId -eq 'DevToolsSelComment') 'an in-app pick puts keyboard focus in the comment box'
         $null = Invoke-Cli @('ui', 'send-keys', 'text=Picked comment', '-a', $app, '--via', 'send-input')
+        # SendInput queues keys; wait for the editor to process them without refocusing or retyping.
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--value', 'Picked comment', '-t', '5000')
         $typedAfterPick = Invoke-Cli @('ui', 'get-property', 'DevToolsSelComment', '-a', $app, '-p', 'Value')
         Check ($typedAfterPick.properties.Value -ceq 'Picked comment') 'typing immediately after a pick enters the comment without an extra focus action'
         $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', '', '-a', $app)
