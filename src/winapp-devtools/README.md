@@ -27,3 +27,19 @@ direct numeric sizing calls. It does not resolve runtime string expressions,
 raw strings, inherited styles, templates at runtime, or variable-driven setters.
 C++ ancestor layout and command-icon relationships are not inferred. Keep the
 geometry and rendered UI tests for behavior the source check cannot establish.
+
+## Local overlay acceptance
+
+Reserve the desktop, then run the complete overlay checks without using the
+mouse or keyboard until they finish:
+
+```powershell
+$cli = '.\artifacts\cli\win-x64\winapp.exe'
+$evidence = '.\artifacts\TestResults\overlay-local'
+.\scripts\test-devtools-binding-owners.ps1 -Cli $cli -EvidenceDirectory $evidence -ProbeOverlay -ExclusiveDesktop -PrepareOnly
+.\scripts\test-devtools-binding-owners.ps1 -Cli $cli -EvidenceDirectory $evidence -ProbeOverlay -ExclusiveDesktop
+```
+
+Use a fresh evidence directory for each run. The opt-in temporarily uses default
+DevTools preferences and restores them afterward. Fixture identity,
+foreground-window, and cleanup guards still apply.
