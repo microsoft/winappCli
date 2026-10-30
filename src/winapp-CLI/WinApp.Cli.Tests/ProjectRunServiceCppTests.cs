@@ -944,12 +944,17 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     // Creates a fake Visual Studio install with MSBuild.exe and, optionally, the "Windows Store" C++ application type.
-    private string FakeInstall(string name, bool windowsStore)
+    private string FakeInstall(string name, bool windowsStore, string architecture = "x64")
     {
         WriteFile($@"{name}\MSBuild\Current\Bin\MSBuild.exe", string.Empty);
         if (windowsStore)
         {
-            WriteFile($@"{name}\MSBuild\Microsoft\VC\v180\Application Type\Windows Store\10.0\Platforms.props", string.Empty);
+            var windowsStorePath = $@"{name}\MSBuild\Microsoft\VC\v180\Application Type\Windows Store\10.0";
+            var platform = ProjectRunService.ToCppPlatform(architecture);
+            WriteFile($@"{windowsStorePath}\Default.props", string.Empty);
+            WriteFile($@"{windowsStorePath}\Platforms\{platform}\Platform.Default.props", string.Empty);
+            WriteFile($@"{windowsStorePath}\Platforms\{platform}\Platform.props", string.Empty);
+            WriteFile($@"{windowsStorePath}\Platforms\{platform}\Platform.targets", string.Empty);
         }
 
         return Path.Join(_tempDir.FullName, name);
@@ -995,6 +1000,59 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
+    [DataRow("arm64", "VS2022")]
+    [DataRow("x86", "VS2022")]
+    [DataRow("x64", "VS2026")]
+    public async Task LocateCppMSBuild_WinUiProject_SelectsNewestInstallWithTargetsForArchitecture(string architecture, string expectedInstall)
+    {
+        var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
+        var newer = FakeInstall("VS2026", windowsStore: true);
+        var older = FakeInstall("VS2022", windowsStore: true, architecture: architecture);
+        var runner = new ScriptedProcessRunner(_ => new ProcessRunResult(0,
+            VsWhereJson((newer, "Visual Studio Enterprise 2026"), (older, "Visual Studio Enterprise 2022")), string.Empty));
+        var service = new MSBuildService(runner) { VsWherePath = vswhere.FullName };
+
+        var winUi = await service.LocateCppMSBuildAsync(architecture, requiresWindowsStoreAppType: true, CancellationToken.None);
+        var console = await service.LocateCppMSBuildAsync(architecture, requiresWindowsStoreAppType: false, CancellationToken.None);
+
+        StringAssert.StartsWith(winUi, Path.Join(_tempDir.FullName, expectedInstall));
+        StringAssert.StartsWith(console, newer, "non-WinUI projects do not need Windows Store targets");
+    }
+
+    [TestMethod]
+    [DataRow("Default.props")]
+    [DataRow(@"Platforms\ARM64\Platform.Default.props")]
+    [DataRow(@"Platforms\ARM64\Platform.props")]
+    [DataRow(@"Platforms\ARM64\Platform.targets")]
+    public void SupportsWindowsStoreAppType_RequiresCompletePlatformTargets(string missingFile)
+    {
+        var install = FakeInstall("VS", windowsStore: true, architecture: "arm64");
+        Assert.IsTrue(MSBuildService.SupportsWindowsStoreAppType(install, "arm64"));
+        File.Delete(Path.Join(install, @"MSBuild\Microsoft\VC\v180\Application Type\Windows Store\10.0", missingFile));
+
+        Assert.IsFalse(MSBuildService.SupportsWindowsStoreAppType(install, "arm64"));
+    }
+
+    [TestMethod]
+    public async Task LocateCppMSBuild_WinUiProject_OnlyX64Targets_ExplainsMissingArm64Tools()
+    {
+        var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
+        var install = FakeInstall("VS2026", windowsStore: true);
+        var runner = new ScriptedProcessRunner(_ => new ProcessRunResult(0,
+            VsWhereJson((install, "Visual Studio Enterprise 2026")), string.Empty));
+        var service = new MSBuildService(runner) { VsWherePath = vswhere.FullName };
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("arm64", true, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "C++ WinUI app development tools for arm64");
+        StringAssert.Contains(ex.Message, "modify Visual Studio Enterprise 2026 to add or repair");
+        StringAssert.Contains(ex.Message, "Microsoft.VisualStudio.Component.VC.Tools.ARM64");
+        StringAssert.Contains(ex.Message, "--add Microsoft.VisualStudio.Component.UWP.VC.ARM64");
+        StringAssert.Contains(ex.Message, "C++ Universal Windows Platform support for v143 build tools (ARM64/ARM64EC)");
+        StringAssert.Contains(ex.Message, "C++ Universal Windows Platform support for ARM64/ARM64EC build tools (Latest MSVC)");
+    }
+
+    [TestMethod]
     public async Task LocateCppMSBuild_WinUiProject_NoInstallHasWindowsStoreAppType_NamesWhatToAdd()
     {
         var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
@@ -1023,6 +1081,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         StringAssert.Contains(ex.Message, "Visual Studio Community 2026 does not have them installed");
         StringAssert.Contains(ex.Message, "modify Visual Studio Community 2026");
         StringAssert.Contains(ex.Message, "Microsoft.VisualStudio.Component.VC.Tools.ARM64");
+        StringAssert.Contains(ex.Message, "--add Microsoft.VisualStudio.Component.UWP.VC.ARM64");
     }
 
     [TestMethod]
