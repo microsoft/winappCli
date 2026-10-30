@@ -9,6 +9,7 @@ using System.Xml.Linq;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
@@ -179,8 +180,19 @@ public sealed class BindingCaptureLifetimeTests
                     ["CAUTION"] = "#FF804000", ["BORDER"] = "#FF808080", ["ACCENT"] = "#FF0060A0"
                 };
                 var panel = (Border)XamlReader.Load(Regex.Replace(markup, @"\$([A-Z]+)\$", match => values[match.Groups[1].Value]));
-                window!.Content = panel;
+                var canvas = new Canvas();
+                window!.Content = canvas;
+                canvas.UpdateLayout();
+                await Task.Delay(50);
+                var popup = new Popup { Child = panel, ShouldConstrainToRootBounds = false };
+                canvas.Children.Add(popup);
+                popup.XamlRoot = canvas.XamlRoot;
                 var input = (TextBox)panel.FindName("DevToolsSelComment");
+                popup.IsOpen = true;
+                input.UpdateLayout();
+                Assert.IsTrue(input.Focus(FocusState.Programmatic), "The opened popup must let a pick focus the comment editor.");
+                Assert.AreSame(input, Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(panel.XamlRoot),
+                    "The comment editor must own XAML keyboard focus.");
                 input.Select(3, 5);
                 foreach (var constrained in new[] { false, true, false })
                 {
@@ -222,8 +234,11 @@ public sealed class BindingCaptureLifetimeTests
                     Assert.AreEqual("Unfinished comment draft", input.Text);
                     Assert.AreEqual(3, input.SelectionStart);
                     Assert.AreEqual(5, input.SelectionLength);
+                    Assert.AreSame(input, Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(panel.XamlRoot),
+                        "Resizing the existing popup must retain editor focus.");
                     Stage($"Comment panel: likely={likely}, cap={panel.Width}x{panel.MaxHeight}; controls reachable, draft and selection retained.");
                 }
+                popup.IsOpen = false;
             }
         }
 

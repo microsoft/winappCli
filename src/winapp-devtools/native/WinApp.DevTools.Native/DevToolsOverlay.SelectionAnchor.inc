@@ -513,13 +513,16 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
         if (focusComment && g_selComment) {
             void* box = nullptr;
             bool focused = false;
-            if (SUCCEEDED(g_selComment->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &box)) && box) {
-                DevToolsFocus(box, 3 /*FocusState.Programmatic*/, &focused);
+            HRESULT hrFocus = g_selComment->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &box);
+            if (SUCCEEDED(hrFocus) && box) {
+                // The ScrollViewer must realize its content before the new editor can take focus.
+                hrFocus = DevToolsUpdateLayout(box);
+                if (SUCCEEDED(hrFocus)) hrFocus = DevToolsFocus(box, 3 /*FocusState.Programmatic*/, &focused);
                 reinterpret_cast<IUnknown*>(box)->Release();
             }
             // Typing continues an existing comment rather than prepending to it.
             if (focused) DevToolsTextBoxCaretToEnd(g_selComment);
-            DevToolsOverlayLog(L"overlay.sel comment box focused on open=%d", (int)focused);
+            DevToolsOverlayLog(L"overlay.sel comment box focused on open=%d hr=0x%08X", (int)focused, hrFocus);
         }
     }
     if (!g_selOperationError.empty())
