@@ -68,8 +68,14 @@ winapp config unset run.devtools      # back to the default, on
 
 If DevTools can't start in a run where you didn't pass `--devtools`, the app runs
 without it and winapp says why; with `--devtools on` or `headless`, that's an error.
-If the app is already running, `run` closes it first, so DevTools can start it
-([details](../usage.md#run)).
+For a known WPF-only or Windows Forms-only project, `--devtools on` or `headless`
+fails before launch: DevTools requires WinUI 3. Use `winapp run . --devtools off`
+to run it without DevTools. Apps that host WinUI alongside another framework and
+targets whose framework isn't known are still checked when DevTools attaches.
+
+If the app is already running, `run` checks the required DevTools engine before
+closing it for the replacement launch ([details](../usage.md#run)). If that check
+fails, the running app stays open and no replacement starts, even on a default run.
 
 ## Use the toolbar
 

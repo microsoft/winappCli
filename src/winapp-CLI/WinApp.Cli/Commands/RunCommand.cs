@@ -887,6 +887,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             string? errorMessage = null;
             DirectoryInfo? resolvedOutputDir = null;
             InspectorAlias? inspectorAlias = null;
+            IReadOnlyDictionary<string, string?>? devToolsEnvironment = null;
             int[] replaced = [];
             int[] closedForDevTools = [];
             string? devToolsStepAside = null;
@@ -1000,6 +1001,62 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // files locked or receive this launch without DevTools, depending on the app. Without
                     // DevTools the running instance is still closed so its files can be replaced.
                     var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
+                    if (devTools)
+                    {
+                        AppxManifestDocument? sourceDocument = null;
+                        try
+                        {
+                            var sourceProject = projectFile ?? devToolsProject;
+                            var sourceManifest = MsixService.ResolveManifestPlaceholders(
+                                await File.ReadAllTextAsync(resolvedManifest.FullName, cancellationToken),
+                                executable, inputFolder, taskContext);
+                            sourceDocument = AppxManifestDocument.Parse(sourceManifest);
+                            var sourceExecutable = sourceDocument.ApplicationExecutable;
+                            var managedProject = sourceProject is not null && !ProjectRunService.IsCppProject(sourceProject);
+                            var runtimeConfigExists = false;
+                            if (!nativeAot && !managedProject && sourceExecutable is { Length: > 0 } && !Path.IsPathRooted(sourceExecutable))
+                            {
+                                var runtimeConfig = Path.ChangeExtension(sourceExecutable, ".runtimeconfig.json");
+                                var usesRecipe = sourceDocument.Document.Root?
+                                    .Element(AppxManifestDocument.BuildNs + "Metadata")?
+                                    .Elements(AppxManifestDocument.BuildNs + "Item")
+                                    .Any(item => string.Equals(item.Attribute("Name")?.Value, "makepri.exe", StringComparison.OrdinalIgnoreCase)) == true;
+                                var recipe = appxRecipe ?? (usesRecipe
+                                    ? inputFolder.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault()
+                                    : null);
+                                runtimeConfigExists = recipe is not null
+                                    ? MsixService.RecipeContainsPackageFile(recipe, outputAppXDirectory, runtimeConfig)
+                                    : File.Exists(Path.Combine(inputFolder.FullName, runtimeConfig));
+                            }
+                            var managed = !nativeAot && (managedProject || runtimeConfigExists);
+                            devToolsEnvironment = CreateDevToolsEnvironment(sourceProject?.DirectoryName, managed);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                        {
+                            var canFallBack = false;
+                            if (devToolsRun.FailOpen && runningBefore.Count == 0 &&
+                                sourceDocument is { IdentityName: { Length: > 0 } registeredName, IdentityPublisher: { Length: > 0 } registeredPublisher })
+                            {
+                                var identityName = developmentIdentity.UniqueIdentity
+                                    ? DevelopmentIdentityHelper.Create(sourceDocument, developmentIdentity.OwnerPath).PackageName
+                                    : registeredName;
+                                // Registration can stop the same app even when this run uses a different output folder.
+                                canFallBack = !packageRegistrationService.FindDevPackages(identityName)
+                                    .Where(package => string.Equals(package.Publisher, registeredPublisher, StringComparison.OrdinalIgnoreCase))
+                                    .Any(package => package.InstallLocation is { Length: > 0 } location &&
+                                        ProcessesRunningFromLayout(new DirectoryInfo(location)).Count > 0);
+                            }
+                            if (!canFallBack)
+                            {
+                                DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.Failed);
+                                errorMessage = $"Could not prepare DevTools: {RunFailure.Describe(ex)}";
+                                return (1, $"{UiSymbols.Error} {errorMessage}");
+                            }
+                            devToolsStepAside = $"it could not be prepared: {RunFailure.Describe(ex)}";
+                            devTools = false;
+                            effectiveAlias = AliasLaunchDecision.Aumid;
+                        }
+                    }
                     if (runningBefore.Count > 0)
                     {
                         var closedAll = runningBefore.All(CloseRunningProcess);
@@ -1160,8 +1217,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             if (devTools)
             {
                 if (await RunInspectorAliasAsync(inspectorAlias, inputFolder, projectFile ?? devToolsProject, aumid, appArgs,
-                    debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName, cancellationToken,
-                    nativeAot, devToolsSources, devToolsCompilerArtifacts) is int inspected)
+                    debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName,
+                    devToolsEnvironment!, cancellationToken, devToolsSources, devToolsCompilerArtifacts) is int inspected)
                 {
                     return inspected;
                 }

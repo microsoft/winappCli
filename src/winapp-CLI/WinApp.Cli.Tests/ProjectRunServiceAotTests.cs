@@ -220,6 +220,37 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
+    public async Task PublishAot_ReportsEvaluatedUnsupportedFrameworkBeforeLaunch()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        using var evaluated = JsonDocument.Parse(PropertyJson(project, assets, true, "None"));
+        var properties = evaluated.RootElement.GetProperty("Properties").EnumerateObject()
+            .ToDictionary(property => property.Name, property => property.Value.GetString()!);
+        properties["UseWPF"] = "true";
+        var output = JsonSerializer.Serialize(new
+        {
+            Properties = properties,
+            Items = new
+            {
+                Page = Array.Empty<object>(),
+                ApplicationDefinition = Array.Empty<object>(),
+                PackageReference = Array.Empty<object>(),
+                ProjectReference = Array.Empty<object>(),
+                Reference = Array.Empty<object>(),
+            },
+        });
+        var dotnet = SuccessfulDotnet(output);
+
+        var outcome = await NewService(dotnet).PublishAotAndResolveAsync(
+            project, Options() with { CaptureDevToolsSources = true }, CancellationToken.None);
+
+        Assert.AreEqual(ProjectAppFramework.Wpf, outcome.Resolution!.DevToolsUnsupportedFramework);
+        CollectionAssert.Contains(dotnet.ArgumentListInvocations.Single().ToList(), "--getItem:PackageReference,ProjectReference,Reference");
+    }
+
+    [TestMethod]
     [DoNotParallelize]
     [DataRow(false, 0)]
     [DataRow(true, 0)]

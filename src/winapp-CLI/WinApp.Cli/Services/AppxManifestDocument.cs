@@ -337,6 +337,11 @@ internal class AppxManifestDocument
         set => SetApplicationAttribute("Executable", value);
     }
 
+    internal IEnumerable<string> ApplicationExecutables =>
+        _document.Root?.Element(DefaultNs + "Applications")?.Elements(DefaultNs + "Application")
+            .Select(application => application.Attribute("Executable")?.Value)
+            .OfType<string>() ?? [];
+
     /// <summary>
     /// Gets or sets the first Application's EntryPoint attribute.
     /// </summary>
