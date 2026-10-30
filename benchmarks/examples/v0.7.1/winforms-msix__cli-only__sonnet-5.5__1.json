@@ -9,6 +9,7 @@
   "model": "sonnet-5.5",
   "trial": 1,
   "startedAt": "2026-10-27T18:00:00Z",
+  "outcome": "valid",
   "passed": true,
   "improvements": { "met": 1, "total": 2 },
   "checks": [

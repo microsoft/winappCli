@@ -79,7 +79,7 @@ $rows = @($trials.Trial | Sort-Object benchmark, scenario, arm, model, trial | F
         [ordered]@{
             file = '{0}__{1}__{2}__{3}.json' -f $_.scenario, $_.arm, $_.model, $_.trial
             benchmark = $_.benchmark; scenario = $_.scenario; set = $_.set; arm = $_.arm; model = $_.model; trial = $_.trial
-            passed = $_.passed; improvements = $_.improvements
+            outcome = $_.outcome; passed = $_.passed; improvements = $_.improvements
             nanoAiu = $_.usage.nanoAiu; wallClockMs = $_.usage.wallClockMs
         }
     })
@@ -88,6 +88,7 @@ $groups = @($trials.Trial | Group-Object { '{0}|{1}|{2}|{3}|{4}' -f $_.benchmark
         [ordered]@{
             benchmark = $first.benchmark; scenario = $first.scenario; set = $first.set; arm = $first.arm; model = $first.model
             trials = $g.Count
+            validTrials = @($g | Where-Object outcome -eq 'valid').Count
             passed = @($g | Where-Object passed).Count
             improvementsMet = ($g | ForEach-Object { $_.improvements.met } | Measure-Object -Sum).Sum
             improvementsTotal = ($g | ForEach-Object { $_.improvements.total } | Measure-Object -Sum).Sum

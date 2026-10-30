@@ -236,6 +236,7 @@ function ConvertTo-TrialResult {
         model         = $Record.model
         trial         = [int]$Record.iteration
         startedAt     = $StartedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        outcome       = 'valid'
         # A partly done task (some required checks passed) is not a pass.
         passed        = $Record.taskStatus -eq 'pass'
         improvements  = [ordered]@{ met = @($improvements | Where-Object passed).Count; total = $improvements.Count }
