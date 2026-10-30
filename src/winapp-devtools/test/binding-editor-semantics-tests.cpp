@@ -32,6 +32,8 @@ struct EditorElement : IInspectable
 static EditorElement status, pathBox, modeBox, resourceBox, resourceError;
 static unsigned submissions = 0;
 static std::wstring submittedPath, submittedMode;
+static unsigned restoreRequests = 0;
+static std::wstring restoreOperation;
 static int selectedMode = 0;
 static HRESULT FindEditorName(void*, HSTRING name, IInspectable** out)
 {
@@ -87,8 +89,14 @@ struct ResourceDictionaryFixture : winrt::implements<ResourceDictionaryFixture,
     winrt::Windows::Foundation::Collections::IMap<Object, Object> themes =
         winrt::single_threaded_map<Object, Object>();
 };
-static HANDLE RefuseWorker(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID param, DWORD, LPDWORD)
+static HANDLE RefuseWorker(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE entry, LPVOID param, DWORD, LPDWORD)
 {
+    if (entry == DevToolsThreadEntry<DiagWorker>) {
+        ++restoreRequests;
+        restoreOperation = static_cast<DiagAsk*>(param)->op;
+        SetLastError(ERROR_NOT_SUPPORTED);
+        return nullptr;
+    }
     const auto* ask = static_cast<BindOpAsk*>(param);
     ++submissions;
     submittedPath = ask->payload;
@@ -206,6 +214,95 @@ int main()
     NoteRestoredBinding(L"Text", L"{\"state\":\"restored\",\"restoreKind\":\"binding\",\"path\":\"Title\","
                                  L"\"mode\":\"OneWay\",\"bound\":\"True\"}");
     check(SessionAssignFind(L"Text") == nullptr, "restoring the XAML's own {Binding} leaves the XAML as the source");
+    {
+        row = {};
+        row.name = L"Text";
+        row.authoredKind = L"binding";
+        row.authoredKey = L"Person.Name";
+        row.authored = L"{Binding Person.Name}";
+        row.binding = L"{Binding Title, Mode=OneWay}";
+        row.source = L"Binding";
+        // Selection changes clear the session witnesses, but the next property read observes the installed binding.
+        g_sessionAssign.clear();
+        g_pendingKind.clear();
+        check(BindingPathOf(row, L"Text") == L"Title", "reselection seeds the installed path rather than authored Person.Name");
+        NoteSessionAssign(L"Text", DevToolsKind::Binding, L"{Binding Stale, Mode=TwoWay}");
+        check(BindingPathOf(row, L"Text") == L"Title" && BindingModeOf(row, L"Text") == L"OneWay",
+              "observed path and mode also win over a stale session witness");
+        g_sessionAssign.clear();
+        pathBox.text = BindingPathOf(row, L"Text");
+        selectedMode = 2;
+        ctx.row = std::make_shared<const DevToolsCardRow>(row);
+        const auto count = submissions;
+        KindApplySink apply;
+        apply.Init(ctx);
+        apply.Invoke(nullptr, nullptr);
+        check(submissions == count + 1 && submittedPath == L"Title" && submittedMode == L"OneTime",
+              "mode-only Apply after reselection preserves the installed Title path");
+        row.authoredKind = L"xBind";
+        row.authored = L"{x:Bind Vm.Title}";
+        check(CurrentKindOf(row, L"Text") == DevToolsKind::Binding,
+              "a regular runtime binding replacing x:Bind stays Binding after reselection");
+        row.binding = L"{Binding Mode=OneTime}";
+        check(BindingPathOf(row, L"Text").empty(), "a pathless installed binding does not seed Mode as a path");
+        row.binding = L"{Binding Items[key=value], Mode=OneWay}";
+        check(BindingPathOf(row, L"Text") == L"Items[key=value]",
+              "an equals sign inside an indexer stays part of the installed path");
+        pathBox.text = BindingPathOf(row, L"Text");
+        ctx.row = std::make_shared<const DevToolsCardRow>(row);
+        const auto indexedCount = submissions;
+        KindApplySink indexedApply;
+        indexedApply.Init(ctx);
+        indexedApply.Invoke(nullptr, nullptr);
+        check(submissions == indexedCount + 1 && submittedPath == L"Items[key=value]" && submittedMode == L"OneTime",
+              "mode-only Apply preserves an installed indexer key containing an equals sign");
+        row = {};
+        row.name = L"Content"; row.authoredKind = L"literal"; row.authored = L"Submit";
+        PendingKindSet(L"Content", DevToolsKind::Binding);
+        check(StagedOrCurrentKind(row, L"Content") == DevToolsKind::Binding &&
+              CurrentKindOf(row, L"Content") == DevToolsKind::Literal && !BindingLost(L"Content"),
+              "staging Make Content a Binding changes only the staged choice, not installed or recovery state");
+        g_pendingKind.clear();
+    }
+    {
+        BindRestoreSink request, confirm, cancel;
+        request.Init(L"Text");
+        confirm.Init(L"Text", BindRestoreSink::Choice::Confirm);
+        cancel.Init(L"Text", BindRestoreSink::Choice::Cancel);
+        request.Invoke(nullptr, nullptr);
+        check(restoreRequests == 1 && restoreOperation == L"restore",
+              "first Restore requests scope without granting owner-wide consent");
+        const std::wstring preview = LR"({"state":"confirmation-required","restoreScope":"owner","restoreOwner":"Page","warning":"other live edits"})";
+        g_diagAnswers = {{g_route1Gen, g_selWire, L"Text", L"", preview, true}};
+        InterlockedExchange(&g_diagRestoreBusy, 1);
+        confirm.Invoke(nullptr, nullptr);
+        check(restoreRequests == 1 && DiagFind(L"Text")->action == preview &&
+              status.text.find(L"Try confirming again") != std::wstring::npos,
+              "busy Restore preserves the confirmation and explains that it can be retried");
+        cancel.Invoke(nullptr, nullptr);
+        check(restoreRequests == 1 && DiagFind(L"Text")->action.empty() && g_diagRestoreBusy == 1,
+              "Cancel consumes the prompt while busy without submitting or releasing another Restore");
+        InterlockedExchange(&g_diagRestoreBusy, 0);
+        confirm.Invoke(nullptr, nullptr);
+        check(restoreRequests == 1, "an old confirmation cannot run after Cancel");
+        g_diagAnswers[0].action = preview;
+        InterlockedExchange(&g_diagRestoreBusy, 1);
+        confirm.Invoke(nullptr, nullptr);
+        check(restoreRequests == 1 && DiagFind(L"Text")->action == preview,
+              "busy confirmation leaves the pending preview available");
+        InterlockedExchange(&g_diagRestoreBusy, 0);
+        confirm.Invoke(nullptr, nullptr);
+        check(restoreRequests == 2 && restoreOperation == L"restoreconfirmed",
+              "explicit confirmation alone submits owner-wide Restore");
+        confirm.Invoke(nullptr, nullptr);
+        check(restoreRequests == 2, "one confirmation cannot submit twice");
+        g_diagAnswers[0].action = preview;
+        ++g_selWire;
+        confirm.Invoke(nullptr, nullptr);
+        check(restoreRequests == 2, "confirmation from a previous selection cannot restore another element");
+        --g_selWire;
+        g_diagAnswers.clear();
+    }
     g_propRows.clear();
     {
         const auto dictionary = winrt::make_self<ResourceDictionaryFixture>();

@@ -3,9 +3,10 @@
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
 
-// DevTools-authored state wins because runtime reads lose resource keys and binding expressions after assignment.
+// Observed runtime bindings win over authored history; resource keys still need a session witness.
 static DevToolsKind CurrentKindOf(const DevToolsCardRow& r, const std::wstring& path)
 {
+    if (!r.binding.empty() || r.source == L"Binding") return DevToolsKind::Binding;
     if (const SessionAssign* sa = SessionAssignFind(path)) return sa->kind;
     // A commit that replaced a binding, or that dropped a resource link, made this value a literal whatever
     // the.xaml still says. Reporting the authored kind here would offer to edit a link that is gone.
@@ -14,9 +15,6 @@ static DevToolsKind CurrentKindOf(const DevToolsCardRow& r, const std::wstring& 
     if (r.authoredKind == L"staticResource") return DevToolsKind::Static;
     if (r.authoredKind == L"xBind")          return DevToolsKind::XBind;
     if (r.authoredKind == L"binding")        return DevToolsKind::Binding;
-    // No readable source, but the live element reports a runtime {Binding}. Only a {Binding} can be
-    // reconstructed this way -- an {x:Bind} is compiled away and arrives as an ordinary local value.
-    if (!r.binding.empty() || r.source == L"Binding") return DevToolsKind::Binding;
     return DevToolsKind::Literal;
 }
 
@@ -301,11 +299,17 @@ static void RestoreRowValue(InstanceHandle wire, const std::wstring& prop, const
     SetStatusText(ok ? done : failed);
 }
 
-// The PATH a {Binding}/{x:Bind} editor is seeded with. `authoredKey` is the tap's own extraction and is
-// preferred; the reconstructed expression is the fallback for a runtime {Binding} whose source we could not
-// read, which is the only case where the two can disagree.
+// Seed from the installed binding, not the original XAML, after a replacement and reselection.
 static std::wstring BindingPathOf(const DevToolsCardRow& r, const std::wstring& path)
 {
+    if (!r.binding.empty()) {
+        const std::wstring inner = MarkupInner(r.binding);
+        const size_t comma = inner.find(L',');
+        const std::wstring first = inner.substr(0, comma);
+        const size_t equal = first.find(L'=');
+        const size_t indexer = first.find(L'[');
+        return equal == std::wstring::npos || equal > indexer ? first : std::wstring();
+    }
     if (const SessionAssign* sa = SessionAssignFind(path))
         if (sa->kind == DevToolsKind::Binding) {
             const std::wstring inner = MarkupInner(sa->detail);
@@ -330,8 +334,9 @@ static const std::vector<std::wstring>& BindingModes()
 static std::wstring BindingModeOf(const DevToolsCardRow& r, const std::wstring& path)
 {
     std::wstring src = r.binding.empty() ? r.authored : r.binding;
-    if (const SessionAssign* sa = SessionAssignFind(path))
-        if (sa->kind == DevToolsKind::Binding) src = sa->detail;
+    if (r.binding.empty())
+        if (const SessionAssign* sa = SessionAssignFind(path))
+            if (sa->kind == DevToolsKind::Binding) src = sa->detail;
     const size_t at = src.find(L"Mode=");
     if (at == std::wstring::npos) return L"OneWay";
     std::wstring rest = src.substr(at + 5);
@@ -892,6 +897,9 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
     for (DiagAnswer a : done) {
         if (a.gen != g_route1Gen || a.wire != g_selWire) continue;
         const bool hadAction = !a.action.empty();
+        DevToolsJson action;
+        const bool confirmation = hadAction && DevToolsJsonParse(a.action, action) &&
+                                  action.GetString(L"state") == L"confirmation-required";
         if (hadAction && RestoreLanded(a.action)) {
             // Only now is the binding back. Clearing these when the button was clicked kept a failed restore
             // looking like it worked, and kept a successful one saying the binding could not come back.
@@ -909,7 +917,7 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
         if (DiagAnswer* existing = DiagFind(a.prop)) *existing = a;
         else g_diagAnswers.push_back(a);
         any = true;
-        restored = restored || hadAction;
+        restored = restored || (hadAction && !confirmation);
     }
     if (!any) return;
     // A restore changed a value the tree's caption may show.
@@ -958,25 +966,46 @@ static void PostDiagnose(const std::wstring& prop)
     if (!StartDiag(prop, std::wstring())) g_diagAnswers.pop_back();
 }
 
-// Restore binding: re-attach what the XAML declares, then read the binding again so the lines show the result.
+// Ask the runtime first: a captured regular binding is property-scoped, but compiled Restore needs consent.
 struct BindRestoreSink : DevToolsSinkBase
 {
+    enum class Choice { Request, Confirm, Cancel };
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen || wire != g_selWire) return S_OK;
-        if (InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
+        if (choice != Choice::Request) {
+            DiagAnswer* answer = DiagFind(prop);
+            DevToolsJson action;
+            if (!answer || !DevToolsJsonParse(answer->action, action) ||
+                action.GetString(L"state") != L"confirmation-required") return S_OK;
+            if (choice == Choice::Confirm && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) {
+                SetStatusText(L"Another binding Restore is running. Try confirming again when it finishes");
+                return S_OK;
+            }
+            answer->action.clear();
+            if (void* panel = PaneRowChild(prop, L"PBindRestoreConfirm")) {
+                DevToolsPutVisibility(panel, 1);
+                reinterpret_cast<IUnknown*>(panel)->Release();
+            }
+            if (choice == Choice::Cancel) {
+                SetStatusText(L"Cancelled Restore binding on " + prop + L". No bindings were changed");
+                return S_OK;
+            }
+        }
+        if (choice == Choice::Request && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
         SetStatusText(L"Restoring the binding on " + prop + L"...");
-        if (!StartDiag(prop, xbind ? L"restoreconfirmed" : L"restore")) {
+        if (!StartDiag(prop, choice == Choice::Confirm ? L"restoreconfirmed" : L"restore")) {
             InterlockedExchange(&g_diagRestoreBusy, 0);
             SetStatusText(L"Could not start restoring " + prop);
             return S_OK;
         }
         return S_OK;
     }
-    void Init(const std::wstring& p, bool x) { prop = p; xbind = x; wire = g_selWire; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
+    void Init(const std::wstring& p, Choice c = Choice::Request)
+    { prop = p; choice = c; wire = g_selWire; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
     std::wstring prop;
     InstanceHandle wire = 0;
-    bool xbind = false;
+    Choice choice = Choice::Request;
 };
 
 static const UINT kValidateIdleMs = 400;

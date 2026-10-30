@@ -520,8 +520,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
         static const wchar_t* const kXBindDetail =
             L"An {x:Bind} is compiled into generated code when the app is built, and the runtime exposes no "
             L"way to create or change one.\n\n"
-            L"Choosing {Binding} installs a runtime binding with SetBinding - on the running app only. Your "
-            L".xaml is not changed, and the compiled binding cannot be restored without restarting.";
+            L"Choosing {Binding} installs a temporary runtime binding. Generated compiled-binding updates "
+            L"can overwrite it. Your .xaml is not changed.";
         if (IInspectable* e = FindInRow(fe, L"PXWhy")) { SetTextOn(e, kXBindHeadline); e->Release(); }
         if (IInspectable* t = FindInRow(fe, L"PXInfoText")) {
             SetTextOn(t, kXBindDetail);
@@ -696,10 +696,13 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             b->Release();
         }
         if (IInspectable* e = FindInRow(fe, L"PBindNote")) {
-            SetTextOn(e, twoWay
+            std::wstring note = twoWay
                 ? L"A literal write to a TwoWay binding is not destructive: the expression stays installed and "
                   L"the write goes through to the source. Applied to the running app only."
-                : L"Applied with SetBinding to the running app only - your .xaml is not changed.");
+                : L"Applied with SetBinding to the running app only - your .xaml is not changed.";
+            if (r.authoredKind == L"xBind")
+                note += L" This replacement is temporary: generated compiled-binding updates can overwrite it.";
+            SetTextOn(e, note);
             e->Release();
         }
         wireKeys(L"PPath");
