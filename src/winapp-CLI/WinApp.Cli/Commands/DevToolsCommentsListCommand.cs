@@ -74,14 +74,17 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
                     "--status and --all are alternatives; pass one."));
             }
 
-            if (!CommentsSharedOptions.TryReadAppRoot(targets, parseResult.GetValue(CommentsSharedOptions.ReadAppOption), ReadSourceRoot,
-                cancellationToken, out var appRoot, out var appError))
+            var explicitSourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption);
+            string? appRoot = null;
+            if (explicitSourceRoot is null && !CommentsSharedOptions.TryReadAppRoot(targets,
+                parseResult.GetValue(CommentsSharedOptions.ReadAppOption), ReadSourceRoot,
+                cancellationToken, out appRoot, out var appError))
             {
                 return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, appError!));
             }
             var scope = project is not null ? " for this project" : appRoot is not null ? " for this app" : string.Empty;
             project ??= appRoot;
-            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? appRoot ?? currentDirectory.GetCurrentDirectory();
+            var sourceRoot = explicitSourceRoot ?? appRoot ?? currentDirectory.GetCurrentDirectory();
 
             try
             {
