@@ -340,7 +340,7 @@ internal sealed class FindUiCommand : Command, IShortDescription
             foreach (var id in ids)
             {
                 var (formatted, found, canonicalId) = engine.GetPattern(id);
-                entries.Add(new FindUiCodeEntryJson { Id = id, Found = found, Content = formatted });
+                entries.Add(new FindUiCodeEntryJson { Id = id, Found = found, Content = formatted, UndefinedHandlers = engine.GetUndefinedHandlers(id) });
                 if (found && canonicalId is not null)
                 {
                     resolvedCanonicalIds.Add(canonicalId);

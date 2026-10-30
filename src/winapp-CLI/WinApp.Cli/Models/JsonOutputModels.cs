@@ -144,6 +144,9 @@ internal sealed class FindUiCodeEntryJson
     public required string Id { get; set; }
     public required bool Found { get; set; }
     public required string Content { get; set; }
+
+    /// <summary>Event hookups (Event="Method") in the sample's XAML whose method its code does not define; the caller supplies them. Empty when none.</summary>
+    public string[] UndefinedHandlers { get; set; } = [];
 }
 
 /// <summary>
