@@ -5,6 +5,7 @@
 // identical Local precedence must not erase their different authored origins.
 
 #include "DevToolsRead.h"
+#include "DevToolsProtocol.h"
 
 #include <cstdio>
 #include <string>
@@ -139,6 +140,65 @@ static DevToolsReadProp MakeProp(const wchar_t* name, const wchar_t* value, cons
     DevToolsReadProp p;
     p.name = name; p.value = value; p.type = type; p.editKind = L"text";
     return p;
+}
+
+static void Test_AuthoredPasswordRedaction()
+{
+    const struct { const wchar_t* authored; bool literal; } cases[] = {
+        { L"", true },
+        { L"example-secret", true },
+        { L"{}{example-secret}", true },
+        { L"{}example-secret", true },
+        { L"{}", true },
+        { L"{}{Binding Secret}", true },
+        { L"{}{StaticResource Secret}", true },
+        { L" \t{}{example-secret}", true },
+        { L"{Binding Secret, Mode=TwoWay}", false },
+        { L"{x:Bind Secret, Mode=TwoWay}", false },
+        { L"{TemplateBinding Secret}", false },
+        { L"{StaticResource Secret}", false },
+        { L"{ThemeResource Secret}", false },
+        { L" \t{Binding Secret}", false },
+        { L" \t{StaticResource Secret}", false },
+    };
+    for (const auto& test : cases)
+    {
+        const std::wstring authored = test.authored;
+        const std::wstring expected = test.literal ? kDevToolsRedacted : authored;
+        for (const wchar_t quote : { L'"', L'\'' })
+        {
+            std::wstring xaml = L"<PasswordBox Password=" + std::wstring(1, quote) + authored + quote +
+                L" PasswordBox.Password=" + quote + authored + quote + L" Header=" + quote + authored + quote + L"/>";
+            DevToolsRead_RedactXaml(xaml);
+            CheckEqW(xaml, L"<PasswordBox Password=" + std::wstring(1, quote) + expected + quote +
+                L" PasswordBox.Password=" + quote + expected + quote + L" Header=" + quote + authored + quote + L"/>",
+                "XAML redacts password literals, preserves references and leaves other attributes alone");
+        }
+
+        DevToolsReadProp p = MakeProp(L"Password", L"runtime-secret", L"String");
+        p.authored = authored;
+        p.authoredKind = DevToolsRead_ClassifyAuthored(authored);
+        const std::wstring expectedAuthored = authored.empty() ? L"" : expected;
+        const std::wstring json = DevToolsRead_SerializeProps(1, { p }, L"available");
+        Check(json.find(L"runtime-secret") == std::wstring::npos &&
+            Contains(json, L"\"value\":\"<redacted>\"") && Contains(json, L"\"redacted\":true"),
+            "property JSON always redacts the runtime password");
+        if (authored.empty())
+            Check(!Contains(json, L"\"authored\":"), "an absent authored password stays absent");
+        else
+            Check(json.find(L"\"authored\":\"" + DevToolsJsonEscape(expectedAuthored) + L"\"") != std::wstring::npos,
+                "property JSON redacts authored password literals and preserves references");
+
+        DevToolsRead_Redact(p);
+        CheckEqW(p.authored, expectedAuthored, "row redaction uses the same literal/reference distinction");
+        Check(p.redacted && p.value == kDevToolsRedacted && p.editKind == L"none",
+            "a password row remains redacted and read-only");
+    }
+
+    std::wstring element = L"<PasswordBox><PasswordBox.Password>{}{example-secret}</PasswordBox.Password></PasswordBox>";
+    DevToolsRead_RedactXaml(element);
+    CheckEqW(element, L"<PasswordBox><PasswordBox.Password><redacted></PasswordBox.Password></PasswordBox>",
+        "escaped literal property-element text remains redacted");
 }
 
 static void Test_SerializeEmitsAuthoredKindWithAuthored()
@@ -531,6 +591,7 @@ int RunReadTests()
     Test_DeriveWriteType();
     Test_ExpandableKind();
     Test_ChildEditingIsGatedOnOwnership();
+    Test_AuthoredPasswordRedaction();
     Test_SerializeEmitsAuthoredKindWithAuthored();
     Test_SerializeOmitsAuthoredKindWhenNothingWasAuthored();
     Test_SerializeUnsetIsAStateNotAValue();

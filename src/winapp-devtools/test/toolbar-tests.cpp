@@ -322,7 +322,7 @@ static void TestToolbarContract()
     Check(windowShell.find("x:Name=\"PEdFields\"") != std::string::npos &&
                      windowShell.find("x:Name=\"PFieldBoxes\"") != std::string::npos &&
                      window.find("for (size_t i = 0; i < r.fields.size(); ++i)") != std::string::npos &&
-                     window.find("ReadFieldBoxes(c.path, c.row->fields.size())") != std::string::npos,
+                     window.find("ReadFieldBoxes(c.expFe, c.path, c.row->fields.size())") != std::string::npos,
                  "the window pane draws one labelled box per wire-carried field label, and commits them joined");
     // part 2. EVERY editor lives in ONE template and exactly one is Visible, so the "exactly one kind's
     // editor is present" invariant is a single loop rather than a rule spread over five templates -- and a
