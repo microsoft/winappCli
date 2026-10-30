@@ -1115,7 +1115,7 @@ static void WirePrototype(IInspectable* canvas)
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &ThenReturnFocus<&OnLayoutToggleClick>);
         wireNamedClick(L"DevToolsProtoTheme", g_protoSink[6], &ThenReturnFocus<&OnThemeToggleClick>);
         wireNamedClick(L"DevToolsProtoPin", g_protoSink[7], &OnPinClick);
-        wireNamedClick(L"DevToolsProtoHighlight", g_protoSink[23], &ThenReturnFocus<&OnHighlightUpdatesClick>);
+        wireNamedClick(L"DevToolsProtoHighlight", g_protoSink[10], &ThenReturnFocus<&OnHighlightUpdatesClick>);
         items->Release();
     }
     try {
