@@ -282,6 +282,8 @@ try {
         $heading = @(Nodes $tree.elements | Where-Object name -eq 'WindowHeading')
         Check ($heading.Count -eq 1) 'overlay probe selects one exact authored heading'
         Enter-CommentMode
+        $null = Invoke-Cli @('ui', 'focus', 'ShortcutOther', '-a', $app)
+        Check ((Wait-Focused 'ShortcutOther') -eq 'ShortcutOther') 'a non-first app control has focus before picking the heading'
         $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $selection = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
@@ -292,6 +294,11 @@ try {
         $typedAfterPick = Invoke-Cli @('ui', 'get-property', 'DevToolsSelComment', '-a', $app, '-p', 'Value')
         Check ($typedAfterPick.properties.Value -ceq 'Picked comment') 'typing immediately after a pick enters the comment without an extra focus action'
         $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', '', '-a', $app)
+        $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--gone', '-t', '5000')
+        Check ((Wait-Focused 'ShortcutOther') -eq 'ShortcutOther') 'closing the comment returns focus to the original non-first app control'
+        $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $peek = Inspect-WithChrome
         $chip = Chip-State
         Check ($chip.label -eq 'Commenting' -and $chip.name -eq 'DevTools (open toolbar), Commenting') 'comment mode shows Commenting on the collapsed toolbar'

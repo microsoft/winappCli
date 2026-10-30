@@ -320,6 +320,10 @@ HRESULT DevToolsOverlay_SetToolbarVisible(bool visible)
     if (g_toolbarVisible == visible) return S_FALSE;
     if (!g_aRow && !g_railL) return S_FALSE;
     g_toolbarVisible = visible;
+    if (!visible && g_toolbarFocusLeftTimer) {
+        KillTimer(nullptr, g_toolbarFocusLeftTimer);
+        g_toolbarFocusLeftTimer = 0;
+    }
     ShowARow(g_aRowOpen);
     ShowSnapTargets(g_dragging);
     DevToolsOverlayLog(L"overlay.toolbar visible=%d", (int)visible);

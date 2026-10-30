@@ -814,12 +814,28 @@ int main()
         ShowARow(true);
         g_toolbarFocusWithin = 1; g_barHover = true;
         OnToolbarLostFocus(nullptr, nullptr);
-        ToolbarFocusLeftProc(nullptr, 0, 0, 0);
+        ToolbarFocusLeftProc(nullptr, 0, g_toolbarFocusLeftTimer, 0);
         check(g_aRowOpen && bar.visibility == 0, "toolbar visibility", "focus leaving keeps the bar open under the pointer");
         g_toolbarFocusWithin = 1; g_barHover = false;
         OnToolbarLostFocus(nullptr, nullptr);
-        ToolbarFocusLeftProc(nullptr, 0, 0, 0);
+        ToolbarFocusLeftProc(nullptr, 0, g_toolbarFocusLeftTimer, 0);
         check(!g_aRowOpen && pill.visibility == 0, "toolbar visibility", "focus leaving with the pointer away collapses the bar");
+        ShowARow(true);
+        g_toolbarFocusWithin = 1;
+        OnToolbarLostFocus(nullptr, nullptr);
+        check(g_toolbarFocusLeftTimer != 0, "toolbar visibility", "focus leaving schedules a visible toolbar collapse");
+        const auto pendingFocusTimer = g_toolbarFocusLeftTimer;
+        DevToolsOverlay_SetToolbarVisible(false);
+        check(g_toolbarFocusLeftTimer == 0, "toolbar visibility", "explicit hide cancels the pending focus collapse");
+        OnACollapse(nullptr, nullptr);
+        OnToolbarLostFocus(nullptr, nullptr);
+        ToolbarFocusLeftProc(nullptr, 0, 0, 0);
+        check(g_aRowOpen && g_toolbarFocusLeftTimer == 0,
+            "toolbar visibility", "hide-triggered pointer and focus events preserve the expanded half");
+        DevToolsOverlay_SetToolbarVisible(true);
+        ToolbarFocusLeftProc(nullptr, 0, pendingFocusTimer, 0);
+        check(g_aRowOpen && bar.visibility == 0 && pill.visibility == 1,
+            "toolbar visibility", "show restores the expanded half even if a canceled focus timer was already queued");
         g_canvasStatics = g_aRow = g_railL = nullptr;
         for (auto& snap : g_snapUi) snap = nullptr;
         g_toolbarVisible = false;
