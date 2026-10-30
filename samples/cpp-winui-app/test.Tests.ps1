@@ -4,8 +4,8 @@ Pester 5.x tests for the cpp-winui-app sample (C++/WinRT WinUI 3, Visual Studio 
 
 .DESCRIPTION
 Phase 1: Runs the sample from a clean copy with `winapp run` project mode — MSBuild restore + build,
-  packaged registration, detached launch, --no-build, and the missing-toolchain error.
-Phase 2: Quick MSBuild build of the existing sample to verify it is not stale.
+  packaged registration, detached launch, --no-build, signed packaging, and the missing-toolchain error.
+Phase 2: MSBuild Debug and Release builds of the existing sample to verify it is not stale.
 
 .PARAMETER WinappPath
 Path to the winapp npm package (.tgz or directory) to install.
@@ -24,13 +24,21 @@ BeforeDiscovery {
     # architecture: the MSVC tools for that architecture plus the "Windows Store" (WinUI) C++ application type.
     $script:findMSBuild = {
         $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
+        $platform = if ($arch -eq 'arm64') { 'ARM64' } else { 'x64' }
         $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
         if (-not (Test-Path $vswhere)) { return $null }
         $component = if ($arch -eq 'arm64') { 'Microsoft.VisualStudio.Component.VC.Tools.ARM64' } else { 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' }
         foreach ($install in & $vswhere -prerelease -products * -version '[17.8,' -requires $component -sort -property installationPath) {
             $msbuild = Join-Path $install 'MSBuild\Current\Bin\MSBuild.exe'
             $winUi = Get-ChildItem (Join-Path $install 'MSBuild\Microsoft\VC') -Directory -Filter 'v*' -ErrorAction SilentlyContinue |
-                Where-Object { Test-Path (Join-Path $_.FullName 'Application Type\Windows Store') }
+                Where-Object {
+                    $windowsStore = Join-Path $_.FullName 'Application Type\Windows Store\10.0'
+                    $platformPath = Join-Path $windowsStore "Platforms\$platform"
+                    (Test-Path "$windowsStore\Default.props" -PathType Leaf) -and
+                    (Test-Path "$platformPath\Platform.Default.props" -PathType Leaf) -and
+                    (Test-Path "$platformPath\Platform.props" -PathType Leaf) -and
+                    (Test-Path "$platformPath\Platform.targets" -PathType Leaf)
+                }
             if ((Test-Path $msbuild) -and $winUi) { return $msbuild }
         }
         return $null
@@ -46,13 +54,21 @@ Describe 'cpp-winui-app sample' {
         # architecture: the MSVC tools for that architecture plus the "Windows Store" (WinUI) C++ application type.
         $script:findMSBuild = {
             $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
+            $platform = if ($arch -eq 'arm64') { 'ARM64' } else { 'x64' }
             $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
             if (-not (Test-Path $vswhere)) { return $null }
             $component = if ($arch -eq 'arm64') { 'Microsoft.VisualStudio.Component.VC.Tools.ARM64' } else { 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' }
             foreach ($install in & $vswhere -prerelease -products * -version '[17.8,' -requires $component -sort -property installationPath) {
                 $msbuild = Join-Path $install 'MSBuild\Current\Bin\MSBuild.exe'
                 $winUi = Get-ChildItem (Join-Path $install 'MSBuild\Microsoft\VC') -Directory -Filter 'v*' -ErrorAction SilentlyContinue |
-                    Where-Object { Test-Path (Join-Path $_.FullName 'Application Type\Windows Store') }
+                    Where-Object {
+                        $windowsStore = Join-Path $_.FullName 'Application Type\Windows Store\10.0'
+                        $platformPath = Join-Path $windowsStore "Platforms\$platform"
+                        (Test-Path "$windowsStore\Default.props" -PathType Leaf) -and
+                        (Test-Path "$platformPath\Platform.Default.props" -PathType Leaf) -and
+                        (Test-Path "$platformPath\Platform.props" -PathType Leaf) -and
+                        (Test-Path "$platformPath\Platform.targets" -PathType Leaf)
+                    }
                 if ((Test-Path $msbuild) -and $winUi) { return $msbuild }
             }
             return $null
@@ -145,6 +161,21 @@ Describe 'cpp-winui-app sample' {
             Get-AppxPackage -Name $script:identityName | Should -Not -BeNullOrEmpty
         }
 
+        It 'Builds Release and creates a signed MSIX from the .vcxproj' -Skip:$script:skip {
+            $output = Invoke-WinappCommand -Arguments "package .\CppWinUIApp.vcxproj --arch $($script:arch) --generate-cert"
+            "$output" | Should -Match 'MSIX package creation completed'
+            $msix = Get-ChildItem -Path $script:tempDir -Filter '*.msix' | Select-Object -First 1
+            $msix | Should -Not -BeNullOrEmpty
+            $package = [System.IO.Compression.ZipFile]::OpenRead($msix.FullName)
+            try {
+                $package.Entries.FullName | Should -Contain 'AppxManifest.xml'
+                $package.Entries.FullName | Should -Contain 'CppWinUIApp.exe'
+                $package.Entries.FullName | Should -Contain 'AppxSignature.p7x'
+            } finally {
+                $package.Dispose()
+            }
+        }
+
         It 'Explains what to install when Visual Studio is missing' -Skip:$script:skip {
             # vswhere is located through %ProgramFiles(x86)%, so pointing it elsewhere simulates a machine
             # without Visual Studio or Build Tools.
@@ -164,13 +195,22 @@ Describe 'cpp-winui-app sample' {
 
     Context 'Phase 2: Sample Build Check' {
 
-        It 'Builds the existing sample with MSBuild' -Skip:$script:skip {
-            # Build a copy in a short temp folder: restored NuGet packages under a deep checkout exceed MAX_PATH.
-            $script:buildCheckDir = New-TempTestDirectory -Prefix 'cpp-winui-build'
-            Get-ChildItem -Path $script:sampleDir -File | Where-Object Name -ne 'test.Tests.ps1' | Copy-Item -Destination $script:buildCheckDir
-            Copy-Item -Path (Join-Path $script:sampleDir 'Assets') -Destination $script:buildCheckDir -Recurse
+        BeforeAll {
+            if (-not $script:skip) {
+                # Build a copy in a short temp folder: restored NuGet packages under a deep checkout exceed MAX_PATH.
+                $script:buildCheckDir = New-TempTestDirectory -Prefix 'cpp-winui-build'
+                Get-ChildItem -Path $script:sampleDir -File | Where-Object Name -ne 'test.Tests.ps1' | Copy-Item -Destination $script:buildCheckDir
+                Copy-Item -Path (Join-Path $script:sampleDir 'Assets') -Destination $script:buildCheckDir -Recurse
+            }
+        }
+
+        It 'Builds the existing sample with MSBuild (<Configuration>)' -Skip:$script:skip -ForEach @(
+            @{ Configuration = 'Debug' }
+            @{ Configuration = 'Release' }
+        ) {
             $platform = if ($script:arch -eq 'arm64') { 'ARM64' } else { 'x64' }
-            $output = & $script:msbuild (Join-Path $script:buildCheckDir 'CppWinUIApp.vcxproj') -nologo -restore -p:RestorePackagesConfig=true -p:Configuration=Debug "-p:Platform=$platform" -verbosity:minimal 2>&1
+            # The 32-bit compiler can run out of address space loading WinUI's large precompiled header.
+            $output = & $script:msbuild (Join-Path $script:buildCheckDir 'CppWinUIApp.vcxproj') -nologo -restore -p:RestorePackagesConfig=true "-p:Configuration=$Configuration" "-p:Platform=$platform" -p:PreferredToolArchitecture=x64 -verbosity:minimal 2>&1
             $LASTEXITCODE | Should -Be 0 -Because "MSBuild failed: $($output | Select-Object -Last 20 | Out-String)"
         }
     }
