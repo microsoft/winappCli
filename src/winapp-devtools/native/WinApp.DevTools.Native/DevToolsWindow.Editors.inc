@@ -2,6 +2,20 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+// After Enter saves a text box, its focus-out handler still holds the text it was built with. Bring it up to
+// date so leaving the box later does not count as another edit.
+static void ResyncPaneEditor(const std::wstring& path)
+{
+    for (auto& e : g_paneEditors) {
+        if (e.path != path || !e.text || !e.text->box || !g_ctx.readInputFn) continue;
+        std::wstring now;
+        if (!g_ctx.readInputFn(e.text->box, now)) continue;
+        e.text->shown = now;
+        e.text->hasShown = true;
+        e.text->original = CurrentEditSeed(path);
+    }
+}
+
 // A KIND was selected in the dropdown. It STAGES -- nothing is written. That is the whole of Q4: opening this
 // list to see what is available must not destroy a live binding, and a kind with no content yet is not a
 // valid state to apply.
@@ -40,12 +54,14 @@ struct KindApplySink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
-        if (gen != g_route1Gen || !ctx.row) return S_OK;
+        // A late focus-out after the selection moved would otherwise write this element's edit to the new one.
+        if (gen != g_route1Gen || !ctx.row || retired || ctx.wire != g_selWire) return S_OK;
         CommitKind(ctx, true);
         return S_OK;
     }
     void Init(const KindCtx& c) { ctx = c; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
     KindCtx ctx;
+    bool retired = false;
 };
 struct KindCancelSink : DevToolsSinkBase
 {
@@ -108,13 +124,16 @@ struct KindKeySink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
     {
-        if (gen != g_route1Gen || !ctx.row || !args) return S_OK;
+        if (gen != g_route1Gen || !ctx.row || !args || ctx.wire != g_selWire) return S_OK;
         int key = 0;
         if (FAILED(DevToolsGetKey(args, &key))) return S_OK;
         if (key == 13 /*Enter*/) {
             if (DevToolsEditText::StartsNewLine(multiline, (GetKeyState(VK_SHIFT) & 0x8000) != 0,
                     (GetKeyState(VK_CONTROL) & 0x8000) != 0)) return S_OK;
-            DevToolsPutHandled(args, true); CommitKind(ctx);
+            DevToolsPutHandled(args, true);
+            const unsigned seq = g_commitSeq;
+            CommitKind(ctx);
+            if (seq != g_commitSeq && DevToolsWriteLanded(g_lastCommitOc)) ResyncPaneEditor(ctx.path);
         }
         else if (key == 27 /*Escape*/ && PendingKindFind(ctx.path)) {
             DevToolsPutHandled(args, true);
@@ -431,6 +450,25 @@ static void NameTheEditor(void* fe, const std::wstring& path, const wchar_t* pri
                       path.c_str(), primary);
 }
 
+static void PopulateColorSwatch(IInspectable* swatch, const std::wstring& value)
+{
+    if (!IsHexColor(value)) return;
+    IInspectable* brush = nullptr;
+    const HRESULT hr = LoadMarkupWin(L"<SolidColorBrush xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Color=\""
+                                    + value + L"\"/>", &brush);
+    if (SUCCEEDED(hr) && brush) {
+        void* border = nullptr;
+        if (SUCCEEDED(swatch->QueryInterface(DevToolsIid<DevToolsXC::IBorder>(), &border)) && border) {
+            const HRESULT put = DevToolsPutBorderBackground(border, brush);
+            if (FAILED(put)) DevToolsOverlayLog(L"route1.props swatch refresh failed hr=0x%08X", put);
+            reinterpret_cast<IUnknown*>(border)->Release();
+        }
+        brush->Release();
+    } else {
+        DevToolsOverlayLog(L"route1.props swatch brush load failed hr=0x%08X", hr);
+    }
+}
+
 static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit,
                                DevToolsKind kind, const KindCtx& ctx)
 {
@@ -715,19 +753,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             }
         } else if (ek == L"color") {
             if (IInspectable* sw = FindInRow(fe, L"PSwatch")) {
-                if (IsHexColor(seed)) {
-                    IInspectable* brush = nullptr;
-                    // Parsed as a literal, never as a resource reference: this is a #AARRGGBB string.
-                    if (SUCCEEDED(LoadMarkupWin(L"<SolidColorBrush xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Color=\""
-                                                + seed + L"\"/>", &brush)) && brush) {
-                        void* bd = nullptr;
-                        if (SUCCEEDED(sw->QueryInterface(DevToolsIid<DevToolsXC::IBorder>(), &bd)) && bd) {
-                            DevToolsPutBorderBackground(bd, brush);
-                            reinterpret_cast<IUnknown*>(bd)->Release();
-                        }
-                        brush->Release();
-                    }
-                }
+                PopulateColorSwatch(sw, seed);
                 sw->Release();
             }
             LostFocusSink* hexCommit = nullptr;
@@ -748,6 +774,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         commit->Init(g_selWire, path, r.type, seed, reinterpret_cast<IInspectable*>(box));
                         __int64 tok = 0;
                         DevToolsAddLostFocus(ui, commit, &tok);
+                        RegisterPaneEditor(path, ui, &commit->retired, commit,
+                                           [commit] { commit->Invoke(nullptr, nullptr); });
                         hexCommit = commit;
                         hexBox = hx; hexBox->AddRef();
                     }
@@ -822,6 +850,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         // Placeholder-only: nothing is pre-selected, so building the expansion cannot commit.
                         EnumSelectSink* ps = new EnumSelectSink();
                         ps->Init(g_selWire, path, r.type, seed, presets, psel);
+                        ps->textEditor = hexCommit;
                         __int64 tok = 0;
                         DevToolsAddSelectionChanged(psel, ps, &tok);
                         reinterpret_cast<IUnknown*>(psel)->Release();
@@ -838,6 +867,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             if (IInspectable* lbl = FindInRow(fe, L"PFieldsLbl"))
                 { SetTextOn(lbl, ShortType(r.type)); lbl->Release(); }
             if (IInspectable* host = FindInRow(fe, L"PFieldBoxes")) {
+                // Boxes left under this expansion are from an earlier build of it; only the new ones are the value.
+                ReleaseFieldBoxesWhere(path, ctx.expFe);
                 const std::vector<std::wstring> vals = SplitFields(seed, r.fields.size());
                 void* pnl = nullptr; void* kids = nullptr;
                 if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
@@ -890,13 +921,15 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                                 KindApplySink* fs = new KindApplySink(); fs->Init(ctx);
                                 __int64 tok = 0;
                                 DevToolsAddLostFocus(bui, fs, &tok);
+                                RegisterPaneEditor(path, bui, &fs->retired, nullptr,
+                                                   [fs] { fs->Invoke(nullptr, nullptr); });
                                 KindKeySink* ks = new KindKeySink(); ks->Init(ctx);
                                 __int64 ktok = 0;
                                 DevToolsAddPreviewKeyDown(bui, ks, &ktok);
                                 reinterpret_cast<IUnknown*>(bui)->Release();
                             }
                         }
-                        g_fieldBoxes.push_back({ path, i, bx });
+                        g_fieldBoxes.push_back({ path, i, bx, ctx.expFe });
                         col->Release();
                     }
                     reinterpret_cast<IUnknown*>(kids)->Release();
@@ -922,6 +955,15 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     reinterpret_cast<IUnknown*>(tx)->Release();
                 }
                 SetPlaceholderOn(e, RowEditPlaceholder(r));
+                // Enter applies even here, so a multi-line editor says how to add a line instead.
+                const bool multilineHint = DevToolsEditText::IsMultiline(seed);
+                if (IInspectable* hint = FindInRow(fe, L"PEditHint")) { ShowEl(hint, multilineHint); hint->Release(); }
+                try {
+                    winrt::Windows::Foundation::IInspectable object{ nullptr };
+                    winrt::copy_from_abi(object, e);
+                    DevToolsXA::AutomationProperties::SetHelpText(object.as<DevToolsX::DependencyObject>(),
+                        multilineHint ? L"Enter applies. Shift+Enter adds a new line" : L"");
+                } catch (const winrt::hresult_error&) {}
                 e->Release();
             }
             if (edit >= 0) {
@@ -937,6 +979,9 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         if (FAILED(hrM))
                             DevToolsOverlayLog(L"route1.props row '%s' commit wiring FAILED hr=0x%08X -- it will not commit",
                                           path.c_str(), hrM);
+                        else
+                            RegisterPaneEditor(path, edUi, &commit->retired, commit,
+                                               [commit] { commit->Invoke(nullptr, nullptr); });
                     } else {
                         DevToolsOverlayLog(L"route1.props MISS: editable row '%s' expansion has no editor -- it will never commit",
                                       path.c_str());

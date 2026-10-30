@@ -172,8 +172,13 @@ static void TestToolbarContract()
                  "Theme tooltip is short enough not to clip at the window edge");
     Check(xaml.find("AutomationProperties.Name=\"Switch app theme\"") != std::string::npos,
                  "Theme's accessible name matches its tooltip");
-    Check(xaml.find("Glyph=\"&#xE706;\"") != std::string::npos,
-                 "Theme uses the Segoe MDL2 Brightness glyph");
+    const size_t themeButtonAt = xaml.find("<Button x:Name=\"DevToolsProtoTheme\"");
+    const size_t themeButtonEnd = xaml.find("</Button>", themeButtonAt);
+    const std::string themeButton = themeButtonAt != std::string::npos && themeButtonEnd != std::string::npos
+        ? xaml.substr(themeButtonAt, themeButtonEnd - themeButtonAt) : std::string();
+    Check(themeButton.find("<PathIcon") != std::string::npos &&
+                     themeButton.find("Data=\"F1 M8 2.4C11.0928 2.4 13.6 4.9072 13.6 8C13.6 11.0928 11.0928 13.6 8 13.6V2.4Z") != std::string::npos,
+                 "Theme uses the half-filled circle Dark Theme icon");
     const size_t inspectPos = xaml.find("x:Name=\"DevToolsProtoInspect\"");
     const size_t morePos = xaml.find("x:Name=\"DevToolsProtoMore\"");
     const size_t moreMenu = xaml.find("x:Name=\"DevToolsMoreMenu\"");
@@ -322,7 +327,7 @@ static void TestToolbarContract()
     Check(windowShell.find("x:Name=\"PEdFields\"") != std::string::npos &&
                      windowShell.find("x:Name=\"PFieldBoxes\"") != std::string::npos &&
                      window.find("for (size_t i = 0; i < r.fields.size(); ++i)") != std::string::npos &&
-                     window.find("ReadFieldBoxes(c.path, c.row->fields.size())") != std::string::npos,
+                     window.find("ReadFieldBoxes(c.expFe, c.path, c.row->fields.size())") != std::string::npos,
                  "the window pane draws one labelled box per wire-carried field label, and commits them joined");
     // part 2. EVERY editor lives in ONE template and exactly one is Visible, so the "exactly one kind's
     // editor is present" invariant is a single loop rather than a rule spread over five templates -- and a
