@@ -609,6 +609,116 @@ if (-not $devPid) {
     Assert-WinappSuccess "filtered inspector screenshot" @("ui", "screenshot", "-w", $inspectorHwnd, "-o", (Join-Path $ScreenshotDir "09-inspector-filter.png")) | Out-Null
     Assert-WinappSuccess "clear duplicate-name fixture filter" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
     try {
+        $pageTitle = (Invoke-Winapp @("devtools", "search", "PageTitle", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
+        $captionSelector = [string]$pageTitle.matches[0].handle
+        Assert-WinappSuccess "select live caption fixture" @(
+            "devtools", "call", "Selection.select", "handle=$captionSelector", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "change selected caption before filtering" @(
+            "devtools", "set-property", $captionSelector, "Text", "Caption-current", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "selected row announces its current caption" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Caption-current", "-t", "5000") | Out-Null
+        Assert-WinappSuccess "filter finds a caption changed before filtering" @(
+            "ui", "set-value", "TreeFilter", "CAPTION-CURRENT", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "new caption is searchable without refreshing" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-t", "5000") | Out-Null
+        Assert-WinappSuccess "change caption while its old filter is active" @(
+            "devtools", "set-property", $captionSelector, "Text", "Caption-next", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "active old-caption filter drops the changed row" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "--gone", "-t", "5000") | Out-Null
+        Assert-WinappSuccess "active old-caption filter reports no matches" @(
+            "ui", "wait-for", "TreeNoMatches", "-w", $inspectorHwnd, "-t", "5000") | Out-Null
+        Assert-WinappSuccess "restore matching caption while its row is hidden" @(
+            "devtools", "set-property", $captionSelector, "Text", "Caption-current", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "active filter reveals the changed matching caption" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Caption-current", "-t", "5000") | Out-Null
+        Assert-WinappSuccess "caption filtering keeps the selected row" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "capture the current filtered caption" @(
+            "ui", "screenshot", "-w", $inspectorHwnd, "-o", (Join-Path $ScreenshotDir "10-inspector-live-caption.png")) | Out-Null
+        Assert-WinappSuccess "clear live caption filter" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+        $otherCaptionSelection = (Invoke-Winapp @("devtools", "search", "AppTitleBar", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
+        Assert-WinappSuccess "select another row before explicitly revealing the caption" @(
+            "devtools", "call", "Selection.select", "handle=$($otherCaptionSelection.matches[0].handle)", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "filter out the caption before explicitly selecting it" @(
+            "ui", "set-value", "TreeFilter", "button", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "explicit selection reveals the nonmatching caption" @(
+            "devtools", "call", "Selection.select", "handle=$captionSelector", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "explicitly revealed caption is visible before updating" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Caption-current", "-t", "3000") | Out-Null
+        foreach ($caption in @("Caption-revealed", "Caption-revealed-again")) {
+            Assert-WinappSuccess "update the explicitly revealed caption to '$caption'" @(
+                "devtools", "set-property", $captionSelector, "Text", $caption, "-a", "$devPid") | Out-Null
+            Assert-WinappSuccess "explicitly revealed caption stays visible after updating" @(
+                "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock $caption", "-t", "5000") | Out-Null
+        }
+        Assert-WinappSuccess "updated explicitly revealed row stays selected" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "caption updates leave the nonmatching filter intact" @(
+            "ui", "wait-for", "TreeFilter", "-w", $inspectorHwnd, "--value", "button", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "a new filter query can hide the explicitly revealed row" @(
+            "ui", "set-value", "TreeFilter", "Caption-current", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "explicit reveal does not override later filter edits" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "clear explicitly revealed caption filter" @(
+            "ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+        # An empty Text otherwise falls back to AutomationId rather than producing an empty preview.
+        Assert-WinappSuccess "remove the empty-caption fixture's AutomationId fallback" @(
+            "devtools", "set-property", $captionSelector, "AutomationProperties.AutomationId", "", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "filter properties to the draft fixture" @(
+            "ui", "set-value", "WinAppDevToolsPropFilter", "Width", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "expand Width for an unfinished edit" @("ui", "invoke", "Width value", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "focus unfinished Width editor" @("ui", "focus", "Width editor", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "stage unfinished Width text" @(
+            "ui", "set-value", "Width editor", "unfinished-width", "-w", $inspectorHwnd) | Out-Null
+        foreach ($caption in @("", "Caption-after-empty")) {
+            Assert-WinappSuccess "change caption to '$caption' during a property draft" @(
+                "devtools", "set-property", $captionSelector, "Text", $caption, "-a", "$devPid") | Out-Null
+            $expectedName = if ($caption) { "TextBlock $caption" } else { "TextBlock" }
+            Assert-WinappSuccess "empty/nonempty caption updates during a property draft" @(
+                "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", $expectedName, "-t", "5000") | Out-Null
+            Assert-WinappSuccess "caption change retains unfinished Width text" @(
+                "ui", "wait-for", "Width editor", "-w", $inspectorHwnd, "--value", "unfinished-width", "-t", "3000") | Out-Null
+            Assert-WinappSuccess "caption change retains editor focus" @(
+                "ui", "wait-for", "Width editor", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+        }
+        Assert-WinappSuccess "discard draft fixture before leaving its editor" @(
+            "ui", "set-value", "Width editor", "Auto", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "filter the caption that gained text" @(
+            "ui", "set-value", "TreeFilter", "Caption-after-empty", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "newly nonempty caption is searchable" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-t", "5000") | Out-Null
+        Assert-WinappSuccess "clear caption regression filter" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "caption updates retain contextual ancestors" @(
+            "ui", "wait-for", "TreeNode3", "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", "Expanded", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "collapse the caption's ancestor" @(
+            "ui", "invoke", "TreeNode3", "-w", $inspectorHwnd, "--action", "collapse") | Out-Null
+        Assert-WinappSuccess "filter reveals a caption inside a collapsed branch" @(
+            "ui", "set-value", "TreeFilter", "Caption-after-empty", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "change filtered caption inside a collapsed branch" @(
+            "devtools", "set-property", $captionSelector, "Text", "Caption-after-empty-new", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "collapsed branch's matching row updates in place" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Caption-after-empty-new", "-t", "5000") | Out-Null
+        Assert-WinappSuccess "clear caption filter to restore saved expansion" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "caption updates preserve the collapsed ancestor" @(
+            "ui", "wait-for", "TreeNode3", "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", "Collapsed", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "re-expand caption fixture ancestor" @(
+            "ui", "invoke", "TreeNode3", "-w", $inspectorHwnd, "--action", "expand") | Out-Null
+        Assert-WinappSuccess "clear caption before rebuilding the fixture row" @(
+            "devtools", "set-property", $captionSelector, "Text", "", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "rebuild a row with an initially empty caption" @(
+            "ui", "send-keys", "f5", "--target", "TreeNode0", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        Assert-WinappSuccess "add text to the initially empty caption" @(
+            "devtools", "set-property", $captionSelector, "Text", "Caption-initially-empty", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "initially empty caption updates without another refresh" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Caption-initially-empty", "-t", "5000") | Out-Null
+        Assert-WinappSuccess "clear caption fixture property filter" @(
+            "ui", "set-value", "WinAppDevToolsPropFilter", "", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "restore the caption fixture's AutomationId" @(
+            "devtools", "set-property", $captionSelector, "AutomationProperties.AutomationId", "PageTitle", "-a", "$devPid") | Out-Null
+    } catch {
+        Write-TestFail "live tree captions stay searchable without losing drafts" $_.Exception.Message
+    }
+    try {
         $titleBar = (Invoke-Winapp @("devtools", "search", "AppTitleBar", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
         Assert-WinappSuccess "select TitleBar properties" @(
             "devtools", "call", "Selection.select", "handle=$($titleBar.matches[0].handle)", "-a", "$devPid") | Out-Null

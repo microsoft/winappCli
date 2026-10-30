@@ -349,11 +349,10 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                         addRun(L"  #", pal.tertiary, false);
                         addRun(n.name, pal.primary, false);
                     }
-                    if (!n.preview.empty()) {
-                        addRun(L"  \u201C", pal.tertiary, false);
-                        addRun(n.preview, pal.secondary, true);
-                        addRun(L"\u201D", pal.tertiary, false);
-                    }
+                    // Keep the preview runs even when empty so live captions never need a row rebuild.
+                    addRun(n.preview.empty() ? L"" : L"  \u201C", pal.tertiary, false);
+                    addRun(n.preview, pal.secondary, true);
+                    addRun(n.preview.empty() ? L"" : L"\u201D", pal.tertiary, false);
                     inlines->Release();
                 }
                 reinterpret_cast<IUnknown*>(ctb)->Release();

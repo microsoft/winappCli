@@ -237,6 +237,8 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
     g_liveTimer = 0;
     if (!g_live.wire || g_live.wire != g_selWire || g_live.gen != g_route1Gen || !g_valuesFn) return;
     if (g_ctx.wireLiveFn && !g_ctx.wireLiveFn(g_live.wire)) { LiveUnwatch(); return; }
+    // Tree captions do not replace property editors, so they can follow app changes during a draft too.
+    UpdateSelectedTreePreview();
     // An edit is in progress: its row is not replaced under the user; look again once it is committed or cancelled.
     // Edit records are still checked, so an app change during the edit still drops a stale Restore.
     if (!CanRereadSelection(nullptr)) {
@@ -283,8 +285,6 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
         }
         if (layoutInputChanged) RedrawLayoutSectionFromRows(g_live.wire);
     }
-    // The caption can change even when no shown row did (it may come from a property the pane does not list).
-    UpdateSelectedTreePreview();
     QueryPerformanceCounter(&t1);
     DevToolsOverlayLog(L"route1.live update action=%d read=%zu changed=%zu uiMs=%.2f", (int)plan.action,
         names.size(), plan.changed.size(), (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart);
@@ -417,9 +417,10 @@ static bool RereadTreeCaption(size_t original, std::wstring* before)
 {
     if (!g_ctx.previewFn || original >= g_allTreeNodes.size()) return false;
     *before = g_allTreeNodes[original].preview;
+    const std::wstring beforeSearch = g_allTreeNodes[original].searchText;
     g_allTreeNodes[original].previewRead = false;
     g_ctx.previewFn(g_allTreeNodes, { original });
-    return g_allTreeNodes[original].preview != *before;
+    return g_allTreeNodes[original].preview != *before || g_allTreeNodes[original].searchText != beforeSearch;
 }
 
 // The selected element's caption in the tree ("Count: 3"), which follows its properties too.
@@ -431,21 +432,39 @@ static void UpdateSelectedTreePreview()
     const size_t original = g_renderedOriginalIndices[row->second];
     std::wstring before;
     if (!RereadTreeCaption(original, &before)) return;
-    const std::wstring after = g_allTreeNodes[original].preview;
+    const auto& node = g_allTreeNodes[original];
+    const std::wstring& after = node.preview;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, static_cast<IInspectable*>(g_treeControls[row->second]));
         const auto button = object.as<DevToolsXC::ContentControl>();
         const auto inlines = button.Content().as<DevToolsXC::TextBlock>().Inlines();
-        // The caption ends with the preview between quotes: "\u201C", preview, "\u201D".
+        // The last three runs are reserved for the preview, including its empty state.
         const uint32_t n = inlines.Size();
-        if (before.empty() || after.empty() || n < 3) { RefreshTreeFromApp(true); return; }
+        if (n < 4) throw winrt::hresult_error(E_UNEXPECTED, L"The tree caption has no preview runs.");
+        inlines.GetAt(n - 3).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"  \u201C");
         inlines.GetAt(n - 2).as<DevToolsXDoc::Run>().Text(after);
-        // The row's accessible name ends with the same preview.
-        std::wstring name = DevToolsXA::AutomationProperties::GetName(button).c_str();
-        if (name.size() >= before.size() && name.compare(name.size() - before.size(), before.size(), before) == 0)
-            DevToolsXA::AutomationProperties::SetName(button, name.substr(0, name.size() - before.size()) + after);
-    } catch (...) {
-        RefreshTreeFromApp(true);
+        inlines.GetAt(n - 1).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"\u201D");
+        std::wstring name = ShortType(node.type);
+        if (!node.name.empty()) name += L" #" + node.name;
+        if (!after.empty()) name += L" " + after;
+        DevToolsXA::AutomationProperties::SetName(button, name);
+        std::wstring full = ShortType(node.type);
+        if (!node.name.empty()) full += L"  #" + node.name;
+        if (!after.empty()) full += L"  \u201C" + after + L"\u201D";
+        DevToolsXC::ToolTipService::SetToolTip(button, winrt::box_value(full));
+        // Selection can reveal a nonmatching row. Keep that exception, not rows whose old caption matched.
+        const bool keepRevealed = !g_treeFilterQuery.empty() && g_treeVisible[row->second] &&
+            (RowHiddenByJmx(row->second) ||
+             g_treeLabel[row->second].find(g_treeFilterQuery) == std::wstring::npos);
+        g_treeLabel[row->second] = DevToolsTreeLayout::BuildTreeFilterLabel(
+            node.type, node.name, after + L" " + node.searchText + L" " + node.sourceUri);
+        if (!g_treeFilterQuery.empty()) {
+            ApplyTreeFilter(g_treeFilterQuery);
+            if (keepRevealed) ForceRowVisible(row->second);
+        }
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"tree.preview failed hr=0x%08X", error.code().value);
+        SetStatusText(L"Could not update the tree caption. Refresh the tree to retry.");
     }
 }
