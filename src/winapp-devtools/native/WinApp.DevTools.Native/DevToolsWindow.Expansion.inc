@@ -44,18 +44,12 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             IInspectable* kindEl = FindInRow(fe, L"PKind");
             void* frameUi = nullptr; void* kindUi = nullptr;
             if (kindEl) kindEl->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &kindUi);
-            bool wired = false;
             if (kindUi && SUCCEEDED(frame->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &frameUi)) && frameUi) {
-                ExpBackgroundFocusSink* bs = new ExpBackgroundFocusSink(); bs->Init(kindUi);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddPointerPressed(frameUi, bs, &tok);
-                wired = SUCCEEDED(hr);
-                if (!wired)
-                    DevToolsOverlayLog(L"route1.props expansion background for '%s' add_PointerPressed FAILED hr=0x%08X"
-                                  L" -- clicking off the field will not commit", path.c_str(), hr);
+                ExpBackgroundFocusSink* bs = new ExpBackgroundFocusSink(); bs->Init(ctx, kindUi);
+                WireKindEditor(bs, frameUi, DevToolsAddPointerPressed, DevToolsRemovePointerPressed);
                 reinterpret_cast<IUnknown*>(frameUi)->Release();
             }
-            if (kindUi && !wired) reinterpret_cast<IUnknown*>(kindUi)->Release();
+            if (kindUi) reinterpret_cast<IUnknown*>(kindUi)->Release();
             if (kindEl) kindEl->Release();
         }
         frame->Release();
@@ -78,11 +72,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             if (edit >= 0) {
                 KindSelectSink* ks = new KindSelectSink();
                 ks->Init(ctx, sel);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddSelectionChanged(sel, ks, &tok);
-                if (FAILED(hr))
-                    DevToolsOverlayLog(L"route1.props kind picker for '%s' add_SelectionChanged FAILED hr=0x%08X -- it will not stage",
-                                  path.c_str(), hr);
+                WireKindEditor(ks, sel, DevToolsAddSelectionChanged, DevToolsRemoveSelectionChanged);
             }
             reinterpret_cast<IUnknown*>(sel)->Release();
         }
@@ -133,7 +123,14 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
                     const auto modeBox = modeObject.as<DevToolsXCP::Selector>();
                     const winrt::hstring pathAtOpen = pathBox.Text();
                     const int32_t modeAtOpen = modeBox.SelectedIndex();
-                    auto sync = [stagedBox, pathBox, modeBox, pathAtOpen, modeAtOpen]() {
+                    auto sync = [staged = winrt::make_weak(stagedBox), path = winrt::make_weak(pathBox),
+                                 mode = winrt::make_weak(modeBox), pathAtOpen, modeAtOpen,
+                                 gen = g_route1Gen, wire = g_selWire]() {
+                        if (gen != g_route1Gen || wire != g_selWire) return;
+                        const auto stagedBox = staged.get();
+                        const auto pathBox = path.get();
+                        const auto modeBox = mode.get();
+                        if (!stagedBox || !pathBox || !modeBox) return;
                         const bool editing = pathBox.Text() != pathAtOpen || modeBox.SelectedIndex() != modeAtOpen;
                         stagedBox.Visibility(editing ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
                     };
@@ -191,11 +188,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             void* bb = nullptr;
             if (edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 KindApplySink* as = new KindApplySink(); as->Init(ctx);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddClick(bb, as, &tok);
-                if (FAILED(hr))
-                    DevToolsOverlayLog(L"route1.props Apply for '%s' add_Click FAILED hr=0x%08X -- a staged change cannot commit",
-                                  path.c_str(), hr);
+                WireKindEditor(as, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -205,8 +198,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             void* bb = nullptr;
             if (edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 KindCancelSink* cs = new KindCancelSink(); cs->Init(ctx);
-                __int64 tok = 0;
-                DevToolsAddClick(bb, cs, &tok);
+                WireKindEditor(cs, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -404,9 +396,8 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             void* bb = nullptr;
             if (offer && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 BindRestoreSink* rs = new BindRestoreSink();
-                rs->Init(path, xbind);
-                __int64 tok = 0;
-                DevToolsAddClick(bb, rs, &tok);
+                rs->Init(path, xbind, g_expansionRowFe);
+                WireKindEditor(rs, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -479,6 +470,8 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
 static void RebuildExpansion(void* rowFe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
     if (!rowFe) return;
+    RetireKindEditors(rowFe);
+    RetireRowExpandSinks(rowFe, /*descendantsOnly*/ true);
     if (IInspectable* host = FindInRow(rowFe, L"PExpand")) {
         void* pnl = nullptr; void* kids = nullptr;
         if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
@@ -616,8 +609,23 @@ HRESULT STDMETHODCALLTYPE GetElement(void* args, void** element) noexcept overri
         *element = ui;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE RecycleElement(void* /*args*/) noexcept override
+    HRESULT STDMETHODCALLTYPE RecycleElement(void* args) noexcept override
     {
+        IInspectable* element = nullptr;
+        const HRESULT hr = DevToolsGetRecycleElement(args, &element);
+        if (FAILED(hr)) {
+            DevToolsOverlayLog(L"route1.props recycle element failed hr=0x%08X", hr);
+            return hr;
+        }
+        if (element) {
+            void* fe = nullptr;
+            if (SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+                RetireKindEditors(fe);
+                RetireRowExpandSinks(fe);
+                reinterpret_cast<IUnknown*>(fe)->Release();
+            }
+            element->Release();
+        }
         return S_OK;
     }
 };
