@@ -34,7 +34,7 @@ internal class DevToolsCommentsUpdateCommand : Command, IShortDescription, IHelp
 
     public static Option<string?> AppOption { get; } = new("--app", "-a")
     {
-        Description = "Optional marker refresh target: PID, process name, or window title.",
+        Description = "Use this running DevTools app's project and refresh its markers: PID, process name, or window title. --source-root overrides the project.",
     };
 
     public DevToolsCommentsUpdateCommand()
@@ -59,6 +59,8 @@ internal class DevToolsCommentsUpdateCommand : Command, IShortDescription, IHelp
         ILogger<DevToolsCommentsUpdateCommand> logger,
         ExecutionTargets.GuestAgent.GuestCommentContext? guestComments = null) : AsynchronousCommandLineAction
     {
+        internal Func<uint, CancellationToken, string?> ReadSourceRoot { get; init; } = CommentsSharedOptions.ReadTapSourceRoot;
+
         public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
@@ -67,7 +69,7 @@ internal class DevToolsCommentsUpdateCommand : Command, IShortDescription, IHelp
             var note = DevToolsCommentsAddCommand.Nullify(parseResult.GetValue(NoteOption));
             var author = DevToolsCommentsAddCommand.Nullify(parseResult.GetValue(ByOption));
             var by = author ?? Environment.UserName;
-            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? currentDirectory.GetCurrentDirectory();
+            var explicitSourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption);
 
             if (string.IsNullOrWhiteSpace(id))
             {
@@ -87,6 +89,13 @@ internal class DevToolsCommentsUpdateCommand : Command, IShortDescription, IHelp
                 {
                     return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, error!));
                 }
+                string? appRoot = null;
+                if (app is not null && explicitSourceRoot is null &&
+                    !CommentsSharedOptions.TryReadSourceRoot(pid, ReadSourceRoot, cancellationToken, out appRoot, out var rootError))
+                {
+                    return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, rootError!));
+                }
+                var sourceRoot = explicitSourceRoot ?? appRoot ?? currentDirectory.GetCurrentDirectory();
                 var location = store.Locate(sourceRoot);
                 cancellationToken.ThrowIfCancellationRequested();
                 var updated = store.Update(location.StorePath, id, c =>
