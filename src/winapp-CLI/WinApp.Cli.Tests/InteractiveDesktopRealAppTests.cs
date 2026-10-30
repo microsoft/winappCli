@@ -84,6 +84,12 @@ public class InteractiveDesktopRealAppTests : IDisposable
             NullLogger<InteractiveDesktopLock>.Instance);
 
         _fixture = new UiaTestFixture();
+        _fixture.OnUiThread(() =>
+        {
+            // Keep the handover click clear of the menu bar, including with larger system fonts.
+            _fixture.InvokeButton.Left = _fixture.Form.ClientSize.Width - _fixture.InvokeButton.Width - 16;
+            _fixture.InvokeButton.Top = _fixture.Menu.Bottom + 16;
+        });
     }
 
     [TestCleanup]

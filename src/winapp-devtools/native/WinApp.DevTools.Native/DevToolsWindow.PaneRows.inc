@@ -126,7 +126,9 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         m += L"<Button x:Name=\"AddCommentBtn\" Grid.Column=\"1\" Padding=\"8,3\" FontSize=\"12\" VerticalAlignment=\"Center\""
              L" ToolTipService.ToolTip=\"Comment on this element\" AutomationProperties.Name=\"Add comment\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAddComment\">"
-             L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\"><FontIcon Glyph=\"&#xE90A;\" FontSize=\"12\"/>"
+             L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\"><TextBlock Text=\"&#xE90A;\" FontSize=\"12\""
+             L" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\" IsTextScaleFactorEnabled=\"True\""
+             L" VerticalAlignment=\"Center\" AutomationProperties.AccessibilityView=\"Raw\"/>"
              L"<TextBlock Text=\"Comment\" FontSize=\"12\"/></StackPanel></Button>";
     }
     m += L"</Grid>";
@@ -203,7 +205,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         m += L"<HyperlinkButton x:Name=\"AxmlToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
              L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Toggle authored XAML\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlToggle\">";
-        m += L"<Grid ColumnSpacing=\"7\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"10\"/>"
+        m += L"<Grid ColumnSpacing=\"7\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
              L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
         m += L"<TextBlock x:Name=\"AxmlChev\" Grid.Column=\"0\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\""
              L" FontSize=\"8\" VerticalAlignment=\"Center\""

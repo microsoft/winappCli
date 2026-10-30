@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include "DevToolsTestCheck.h"
 
 static std::string ReadText(const std::filesystem::path& path)
@@ -64,6 +65,47 @@ static void TestToolbarContract()
     Check(!windowShell.empty(), "window-shell.xaml is readable");
     Check(!overlay.empty(), "DevToolsOverlay.cpp is readable");
     Check(!window.empty(), "DevToolsWindow.cpp is readable");
+    auto tag = [](const std::string& text, const char* name) {
+        const auto start = text.find(std::string("x:Name=\"") + name + "\"");
+        return start == std::string::npos ? std::string() : text.substr(start, text.find('>', start) - start);
+    };
+    for (const char* name : { "PickBtn", "FocusBtn", "JmxBtn" }) {
+        const auto button = tag(windowShell, name);
+        Check(button.find("MinHeight=\"32\"") != std::string::npos &&
+              button.find(" Height=") == std::string::npos && button.find(" Width=") == std::string::npos,
+            "inspector command buttons grow with their scaled glyph and filter");
+    }
+    Check(window.find("<TextBlock Text=\\\"&#xE90A;\\\" FontSize=\\\"12\\\"") != std::string::npos &&
+          window.find("FontFamily=\\\"Segoe Fluent Icons,Segoe MDL2 Assets\\\" IsTextScaleFactorEnabled=\\\"True\\\"") != std::string::npos,
+        "the generated Comment glyph uses the same text-scaling path as its label");
+    for (const auto& surface : { std::pair{ &windowShell, "CommentsBadge" }, std::pair{ &xaml, "DevToolsCommentBadge" } }) {
+        const auto badge = tag(*surface.first, surface.second);
+        Check(badge.find("MinHeight=") != std::string::npos && badge.find(" Height=") == std::string::npos &&
+              badge.find("Padding=") != std::string::npos,
+            "both comment count badges measure their text instead of clipping it to a fixed height");
+    }
+    Check(windowShell.find("ExpanderChevronButtonSize") == std::string::npos &&
+          windowShell.find("ExpanderChevronGlyphSize") == std::string::npos &&
+          windowShell.find("ColumnDefinitions=\"2*,3*\"") != std::string::npos,
+        "property expanders retain platform chevrons and share the available header width");
+    Check(tag(xaml, "DevToolsChip").find(" Height=") == std::string::npos &&
+          tag(xaml, "DevToolsBar").find(" Width=") == std::string::npos &&
+          tag(xaml, "DevToolsBar").find(" Height=") == std::string::npos &&
+          overlay.find("g_protoSink[24].Bind(&IID_SizeChanged_Del, &OnToolbarSizeChanged)") != std::string::npos,
+        "both floating toolbar surfaces resize and re-anchor after their content changes");
+    Check(window.find("msg == WM_DPICHANGED || msg == WM_SETTINGCHANGE") != std::string::npos &&
+          window.find("SetInspectorIcon(hwnd);") != std::string::npos,
+        "the native caption reloads system-sized icons when display or system settings change");
+    Check(xaml.find("HorizontalScrollMode=\"Enabled\" HorizontalScrollBarVisibility=\"Auto\"") != std::string::npos &&
+          overlay.find("ConstrainToolbarWidth();") != std::string::npos &&
+          overlay.find("content.try_as<DevToolsXC::ScrollViewer>()") != std::string::npos,
+        "the toolbar keeps its actions wired and scrollable when the app is narrower than its scaled content");
+    const auto bodyStart = selectionPanel.find("<ScrollViewer Grid.Row=\"2\"");
+    const auto bodyEnd = selectionPanel.find("</ScrollViewer>", bodyStart);
+    Check(bodyStart != std::string::npos && bodyEnd != std::string::npos &&
+          selectionPanel.find("x:Name=\"DevToolsSelComment\"", bodyStart) < bodyEnd &&
+          selectionPanel.find("x:Name=\"DevToolsSelOpen\"", bodyStart) < bodyEnd,
+        "the comment editor and footer share a scrolling body instead of clipping enlarged text");
     Check(window.find("SetAutomationTextOn(panel, L\"UI Elements\", L\"WinAppDevToolsTree\", L\"\")") != std::string::npos,
                  "the visual tree name describes its contents without repeating its role");
     const auto propsScroll = windowShell.find("<ScrollViewer x:Name=\"PropsScroll\"");
@@ -561,7 +603,7 @@ static void TestToolbarContract()
     Check(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
                      window.find("DevToolsOverlay_AddComment(element, value, saved->id") != std::string::npos,
                  "the inspector's Comment action saves through the in-app comment writer");
-    Check(overlay.find("static EventSink g_protoSink[24];") != std::string::npos,
+    Check(overlay.find("static EventSink g_protoSink[25];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);") != std::string::npos,
                  "Pick is wired by namescope identity, and gives focus back to the app after a command run through UI Automation");

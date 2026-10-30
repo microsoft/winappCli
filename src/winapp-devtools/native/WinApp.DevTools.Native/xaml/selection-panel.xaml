@@ -33,9 +33,7 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="1" />
-      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
-      <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
     <StackPanel Grid.Row="0">
       <Border x:Name="DevToolsSelDetached" Visibility="Collapsed" Background="$SURFACEALT$" Padding="13,7"
@@ -65,35 +63,37 @@
                      TextTrimming="CharacterEllipsis" Text="$SOURCE$" ToolTipService.ToolTip="$SOURCETIP$"
                      AutomationProperties.AutomationId="DevToolsSelSource" AutomationProperties.Name="Source: $SOURCE$" />
         </StackPanel>
-        <Button x:Name="DevToolsSelClose" Grid.Column="1" Style="{x:Null}" Width="32" Height="32" Padding="0"
+        <Button x:Name="DevToolsSelClose" Grid.Column="1" Style="{x:Null}" MinWidth="32" MinHeight="32" Padding="6"
                 VerticalAlignment="Center" BorderThickness="0" CornerRadius="4" Background="#00000000"
                 Foreground="$TEXTDIM$"
                 ToolTipService.ToolTip="Close (Esc)"
                 AutomationProperties.AutomationId="DevToolsSelClose"
                 AutomationProperties.Name="Close">
-          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE711;" FontSize="11"
+          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE711;" FontSize="11" IsTextScaleFactorEnabled="True"
                     Foreground="$TEXTDIM$" />
         </Button>
       </Grid>
     </StackPanel>
 
     <Border Grid.Row="1" Height="1" Background="$BORDER$" />
+    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel>
     <!-- Clearing comment text commits a delete, matching delete button semantics. -->
-    <StackPanel Grid.Row="2" Orientation="Vertical" Margin="16,12,16,12" Spacing="8">
+    <StackPanel Orientation="Vertical" Margin="16,12,16,12" Spacing="8">
       <TextBlock x:Name="DevToolsSelOperationStatus" Visibility="Collapsed" TextWrapping="Wrap"
                  Style="{StaticResource CaptionTextBlockStyle}" Foreground="$CAUTION$"
                  AutomationProperties.AutomationId="DevToolsSelOperationStatus" AutomationProperties.LiveSetting="Polite"/>
       <Grid>
         <TextBlock Text="Comment" Style="{StaticResource BodyStrongTextBlockStyle}"
                    VerticalAlignment="Center" Foreground="$TEXT$" />
-        <Button x:Name="DevToolsSelCommentDelete" Style="{x:Null}" Width="24" Height="22" Padding="0"
+        <Button x:Name="DevToolsSelCommentDelete" Style="{x:Null}" MinWidth="24" MinHeight="22" Padding="4"
                 BorderThickness="0" CornerRadius="5" Background="#00000000" Foreground="$CAUTION$"
                 HorizontalAlignment="Right"
                 Visibility="$CMTDELVIS$"
                 ToolTipService.ToolTip="Delete this comment (permanent)"
                 AutomationProperties.AutomationId="DevToolsSelCommentDelete"
                 AutomationProperties.Name="Delete comment">
-          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE74D;" FontSize="11"
+          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE74D;" FontSize="11" IsTextScaleFactorEnabled="True"
                     Foreground="$CAUTION$" />
         </Button>
       </Grid>
@@ -118,17 +118,19 @@
                  Style="{StaticResource CaptionTextBlockStyle}"
                  AutomationProperties.AutomationId="DevToolsGuestCommentStatus" AutomationProperties.LiveSetting="Polite" />
     </StackPanel>
-    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16,0,16,12">$OTHERS$</ScrollViewer>
-    <Button x:Name="DevToolsSelOpen" Grid.Row="4" Style="{x:Null}" Margin="10,0,16,12" Padding="6,4" HorizontalAlignment="Left"
+    <StackPanel Margin="16,0,16,12">$OTHERS$</StackPanel>
+    <Button x:Name="DevToolsSelOpen" Style="{x:Null}" Margin="10,0,16,12" Padding="6,4" HorizontalAlignment="Left"
             Background="#00000000" BorderThickness="0" CornerRadius="5" Foreground="$ACCENT$"
             AutomationProperties.AutomationId="DevToolsSelOpen"
             AutomationProperties.Name="Open in DevTools window">
       <StackPanel Orientation="Horizontal" Spacing="7">
-        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="12"
+        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="12" IsTextScaleFactorEnabled="True"
                   Foreground="$ACCENT$" />
         <TextBlock Text="Open in DevTools" FontSize="12" Foreground="$ACCENT$" VerticalAlignment="Center" />
       </StackPanel>
     </Button>
+    </StackPanel>
+    </ScrollViewer>
   </Grid>
 </Border>
 </Popup>

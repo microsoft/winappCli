@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 #include <cstdio>
 #include <cstdlib>
+#include <initializer_list>
 #include <stdexcept>
 #include <string>
 
@@ -51,6 +52,28 @@ static void Check(bool condition, const char* message)
         ++failures;
         std::printf("FAIL %s\n", message);
     }
+}
+
+static void CheckInspectorLayout(IUIAutomation* automation, IUIAutomationElement* window)
+{
+    const wchar_t* ids[] = { L"PickElementToggle", L"FocusTrackingToggle", L"TreeFilter", L"JustMyXamlToggle" };
+    RECT bounds[4]{};
+    for (unsigned index = 0; index < 4; ++index) {
+        auto element = Find(automation, window, ids[index]);
+        Require(element->get_CurrentBoundingRectangle(&bounds[index]));
+        Check(bounds[index].right > bounds[index].left && bounds[index].bottom > bounds[index].top,
+            "each tree toolbar control has a visible rectangle");
+        if (index)
+            Check(bounds[index - 1].right <= bounds[index].left, "tree toolbar controls do not overlap");
+    }
+    const LONG filterHeight = bounds[2].bottom - bounds[2].top;
+    for (unsigned index : { 0u, 1u, 3u }) {
+        Check(bounds[index].bottom - bounds[index].top >= filterHeight - 2,
+            "icon buttons grow to accommodate the scaled filter height");
+        Check(std::abs(bounds[index].top - bounds[2].top) <= 2,
+            "icon buttons stay aligned with the scaled filter");
+    }
+    Check(bounds[2].right - bounds[2].left >= 32, "the filter retains a usable input area");
 }
 
 static void CheckHiddenSelection(IUIAutomationElement* tree, IUIAutomationElement* row)
@@ -144,6 +167,7 @@ static int Run(HWND hwnd)
     Require(automation->get_ControlViewWalker(&walker));
     ComPtr<IUIAutomationElement> window;
     Require(automation->ElementFromHandle(hwnd, &window));
+    CheckInspectorLayout(automation.Get(), window.Get());
     auto tree = Find(automation.Get(), window.Get(), L"WinAppDevToolsTree");
     auto root = Find(automation.Get(), tree.Get(), L"TreeNode0");
     auto title = Find(automation.Get(), tree.Get(), L"TreeNode1");

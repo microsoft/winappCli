@@ -88,6 +88,8 @@ static HRESULT GeometryParent(IInspectable*, IInspectable**);
 static HRESULT GeometryRenderSize(void*, float*, float*);
 static HRESULT GeometryActualWidth(void*, double*);
 static HRESULT GeometryActualHeight(void*, double*);
+static HRESULT GeometryMinWidth(void*, double);
+static HRESULT GeometryMaxWidth(void*, double);
 static HRESULT GeometryTransform(void*, void*, void**);
 static HRESULT GeometryPoint(void*, float, float, float*, float*);
 static HRESULT GeometryMargin(void*, double*, double*, double*, double*);
@@ -132,6 +134,8 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #define DevToolsGetRenderSize GeometryRenderSize
 #define DevToolsGetActualWidth GeometryActualWidth
 #define DevToolsGetActualHeight GeometryActualHeight
+#define DevToolsPutMinWidth GeometryMinWidth
+#define DevToolsPutMaxWidth GeometryMaxWidth
 #define DevToolsTransformToVisual GeometryTransform
 #define DevToolsTransformPoint GeometryPoint
 #define DevToolsGetMargin GeometryMargin
@@ -174,6 +178,8 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #define KillTimer SwitchKillTimer
 #define GetCursorPos GeometryCursor
 #include "../native/WinApp.DevTools.Native/DevToolsOverlay.cpp"
+#undef DevToolsPutMinWidth
+#undef DevToolsPutMaxWidth
 #undef DevToolsGetKey
 #undef DevToolsPutHandled
 #undef GetKeyState
@@ -384,6 +390,7 @@ struct SwitchObject : GeometryObject
     HRESULT popupReadHr = S_OK, popupOpenHr = S_OK, popupCloseHr = S_OK, removeHr = S_OK;
     bool failInsert = false;
     double left = 0, top = 0;
+    double minWidth = 0, maxWidth = 0;
     unsigned sizeAdds = 0, sizeRemoves = 0, keyAdds = 0, keyRemoves = 0;
     unsigned focusAdds = 0, focusRemoves = 0;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override {
@@ -394,6 +401,10 @@ struct SwitchObject : GeometryObject
         return GeometryObject::QueryInterface(iid, out);
     }
 };
+static HRESULT GeometryMinWidth(void* element, double width)
+{ static_cast<SwitchObject*>(element)->minWidth = width; return S_OK; }
+static HRESULT GeometryMaxWidth(void* element, double width)
+{ static_cast<SwitchObject*>(element)->maxWidth = width; return S_OK; }
 struct SwitchDiagnostics : GeometryDiagnostics
 {
     unsigned hits = 0;
@@ -703,6 +714,50 @@ int main()
         std::printf("%s %s: %s\n", ok ? "PASS" : "FAIL", entry, name);
     };
     {
+        SwitchObject canvas, bar, pill;
+        g_canvasStatics = &canvas; g_aRow = &bar; g_railL = &pill;
+        g_protoW = 800; g_protoH = 700; g_toolbarVisible = true;
+        check(!PositionToolbarMenu(L"MissingMenu", L"MissingAnchor"),
+            "toolbar menus", "missing markup parts safely refuse menu placement");
+        for (const double viewport : { 800.0, 200.0, 800.0 }) {
+            g_protoW = viewport;
+            ConstrainToolbarWidth();
+            check(bar.maxWidth == viewport - 2 * kEdgeGap &&
+                bar.minWidth == (std::min)(double(kBarW), bar.maxWidth),
+                "toolbar scaling", "narrow windows constrain the bar and widening restores its baseline minimum");
+        }
+        for (const double scale : { 1.0, 1.5, 2.25, 1.0 }) {
+            pill.actualWidth = 104 * scale; pill.actualHeight = 28 * scale;
+            bar.actualWidth = 266 * scale; bar.actualHeight = 36 * scale;
+            for (int corner = 0; corner < kCornerCount; ++corner) {
+                g_corner = corner;
+                OnToolbarSizeChanged(nullptr, nullptr);
+                double x = 0, y = 0;
+                Anchor(corner, ClientGeom(), bar.actualWidth, bar.actualHeight, &x, &y);
+                check(bar.left == x && bar.top == y && g_barW == bar.actualWidth && g_barH == bar.actualHeight,
+                    "toolbar scaling", "the bar anchors using its measured width and height");
+                Anchor(corner, ClientGeom(), pill.actualWidth, pill.actualHeight, &x, &y);
+                check(pill.left == x && pill.top == y && g_chipW == pill.actualWidth && g_chipH == pill.actualHeight,
+                    "toolbar scaling", "the pill anchors using both measured dimensions");
+                RECT bounds{};
+                check(ToolbarRectDip(&bounds) && bounds.left <= bar.left && bounds.top <= bar.top &&
+                    bounds.right >= bar.left + bar.actualWidth && bounds.bottom >= bar.top + bar.actualHeight &&
+                    bounds.left <= pill.left && bounds.top <= pill.top &&
+                    bounds.right >= pill.left + pill.actualWidth && bounds.bottom >= pill.top + pill.actualHeight,
+                    "toolbar scaling", "popup avoidance bounds contain both resized surfaces");
+                double snapX = 0, snapY = 0;
+                SnapTargetPos(corner, &snapX, &snapY);
+                check(snapX + kSnapW / 2.0 == x + pill.actualWidth / 2.0 &&
+                    snapY + kSnapH / 2.0 == y + pill.actualHeight / 2.0 &&
+                    NearestCornerForPill(x, y) == corner,
+                    "toolbar scaling", "drag targets and nearest corner use the resized pill");
+            }
+        }
+        g_corner = CornerBR;
+        g_canvasStatics = g_aRow = g_railL = nullptr;
+        g_toolbarVisible = false;
+    }
+    {
         // Stored comments pushed at launch draw their markers without a trip to the comments menu. Unchecking "Show
         // comment markers" is remembered for the user; Comment mode shows them anyway; checking it shows them again.
         check(g_commentsShown, "comment markers", "a fresh launch shows the markers of stored comments");
@@ -759,12 +814,28 @@ int main()
         ShowARow(true);
         g_toolbarFocusWithin = 1; g_barHover = true;
         OnToolbarLostFocus(nullptr, nullptr);
-        ToolbarFocusLeftProc(nullptr, 0, 0, 0);
+        ToolbarFocusLeftProc(nullptr, 0, g_toolbarFocusLeftTimer, 0);
         check(g_aRowOpen && bar.visibility == 0, "toolbar visibility", "focus leaving keeps the bar open under the pointer");
         g_toolbarFocusWithin = 1; g_barHover = false;
         OnToolbarLostFocus(nullptr, nullptr);
-        ToolbarFocusLeftProc(nullptr, 0, 0, 0);
+        ToolbarFocusLeftProc(nullptr, 0, g_toolbarFocusLeftTimer, 0);
         check(!g_aRowOpen && pill.visibility == 0, "toolbar visibility", "focus leaving with the pointer away collapses the bar");
+        ShowARow(true);
+        g_toolbarFocusWithin = 1;
+        OnToolbarLostFocus(nullptr, nullptr);
+        check(g_toolbarFocusLeftTimer != 0, "toolbar visibility", "focus leaving schedules a visible toolbar collapse");
+        const auto pendingFocusTimer = g_toolbarFocusLeftTimer;
+        DevToolsOverlay_SetToolbarVisible(false);
+        check(g_toolbarFocusLeftTimer == 0, "toolbar visibility", "explicit hide cancels the pending focus collapse");
+        OnACollapse(nullptr, nullptr);
+        OnToolbarLostFocus(nullptr, nullptr);
+        ToolbarFocusLeftProc(nullptr, 0, 0, 0);
+        check(g_aRowOpen && g_toolbarFocusLeftTimer == 0,
+            "toolbar visibility", "hide-triggered pointer and focus events preserve the expanded half");
+        DevToolsOverlay_SetToolbarVisible(true);
+        ToolbarFocusLeftProc(nullptr, 0, pendingFocusTimer, 0);
+        check(g_aRowOpen && bar.visibility == 0 && pill.visibility == 1,
+            "toolbar visibility", "show restores the expanded half even if a canceled focus timer was already queued");
         g_canvasStatics = g_aRow = g_railL = nullptr;
         for (auto& snap : g_snapUi) snap = nullptr;
         g_toolbarVisible = false;
