@@ -119,6 +119,7 @@ public class CommentSelectionCaptureTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", """{"matches":[{"handle":"2","name":"SameName","type":"Button"}],"truncated":true,"censusNodes":20001}""")
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"2","automationId":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", Tree)
             .Answer("Property.get", """{"props":[]}""")
             .Answer("Source.get", """{"fileName":""}""")
@@ -126,7 +127,8 @@ public class CommentSelectionCaptureTests
             .Answer("Internal.sourceRoot", """{"sourceRoot":""}""");
         var result = CommentSelectionCapture.CaptureElement((uint)agent.Pid, "SameName");
         Assert.AreEqual(CaptureStatus.Failed, result.Status);
-        CollectionAssert.AreEqual(new List<string> { "VisualTree.find" }, agent.Received);
+        Assert.AreEqual("ambiguous-selector", result.Error?.Token);
+        CollectionAssert.AreEqual(new List<string> { "VisualTree.find", "VisualTree.getPreviews" }, agent.Received);
     }
 
     [TestMethod]
@@ -135,8 +137,9 @@ public class CommentSelectionCaptureTests
         var directory = Directory.CreateTempSubdirectory("winapp-correction-capture-");
         try
         {
-            using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.find",
-                """{"matches":[{"handle":"2","name":"SameName","type":"Button"}],"truncated":true,"censusNodes":20001}""");
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.find", """{"matches":[{"handle":"2","name":"SameName","type":"Button"}],"truncated":true,"censusNodes":20001}""")
+                .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"2","automationId":""}],"truncated":false}""");
             var store = new CommentStore();
             var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(),
                 new CommentPusher(store), new CommentTestTargetResolver(agent.Pid),
@@ -145,7 +148,7 @@ public class CommentSelectionCaptureTests
                 ["--app", agent.Pid.ToString(), "--from-element", "SameName", "--text", "note", "--source-root", directory.FullName, "--json"]));
             Assert.AreEqual(1, exit);
             Assert.IsFalse(File.Exists(store.GetStorePath(directory)));
-            CollectionAssert.AreEqual(new List<string> { "VisualTree.find" }, agent.Received);
+            CollectionAssert.AreEqual(new List<string> { "VisualTree.find", "VisualTree.getPreviews" }, agent.Received);
         }
         finally { directory.Delete(recursive: true); }
     }

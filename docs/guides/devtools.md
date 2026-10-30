@@ -136,9 +136,15 @@ winapp devtools diagnose-binding SaveButton Content
 winapp devtools set-property SaveButton Width 200
 ```
 
-Target an element with the selector printed in brackets, a unique `x:Name`, or a
-unique AutomationId (the same one `winapp ui` uses). Ambiguous names fail and list
-the candidates. When more than one app has DevTools, add `-a <pid, name or title>`.
+Copy the selector printed in brackets, such as `button-savebutton-a1b2c3d4e5`,
+into another command. It identifies the element even when its name matches
+another element's AutomationId. If no tree identity is available, the printed
+selector is a numeric handle.
+
+You can also type an `x:Name` or AutomationId (the same one `winapp ui` uses).
+If it matches more than one element across those two identities, the command
+fails and lists selectors to use instead. When more than one app has DevTools,
+add `-a <pid, name or title>`.
 
 `inspect` and `search` show where each element is declared, such as
 `MainWindow.xaml:37`, when DevTools can confirm it against your source. They show your
