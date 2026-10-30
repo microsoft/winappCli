@@ -252,3 +252,63 @@ Describe 'Summary' {
         $text | Should -Match '\| winapp \| m \| 1 \| -0\.50 \| 0 / 1 \| \+1\.0 \| \+10\.0 \| \+10 \|'
     }
 }
+
+Describe 'ConvertTo-TrialResult' {
+    BeforeAll {
+        $script:sha = 'a' * 40
+        function script:New-Record($status = 'pass', $checks = $null) {
+            [pscustomobject]@{
+                mode = 'agent'; taskStatus = $status; configuration = 'cli-plus-plugins'; model = 'claude-sonnet-5.5'; iteration = 2
+                durationMs = 1000; aiCredits = 5.23; nanoAiu = 5230000000; premiumRequests = 1
+                tokens = [pscustomobject]@{ input = 10; output = 5; cacheRead = 7; cacheWrite = 1 }
+                skillsLoaded = @('winapp-msix')
+                checks = $checks ?? @(
+                    [pscustomobject]@{ id = 'built'; passed = $true; required = $true; detail = 'ok' }
+                    [pscustomobject]@{ id = 'trusted'; passed = $false; required = $false; detail = '' })
+            }
+        }
+        function script:Convert($r) {
+            ConvertTo-TrialResult -Record $r -Task 'winforms-msix' -Set 'tuning' -Release 'v0.7.1' -Commit $script:sha -StartedAt ([datetime]'2026-10-27T18:00:00Z')
+        }
+    }
+    It 'maps arm, required, usage and skills' {
+        $t = Convert (New-Record)
+        $t.arm | Should -Be 'cli-plus-plugins'
+        $t.trial | Should -Be 2
+        $t.passed | Should -BeTrue
+        $t.checks[0].kind | Should -Be 'required'
+        $t.checks[1].kind | Should -Be 'improvement'
+        $t.improvements.met | Should -Be 0
+        $t.improvements.total | Should -Be 1
+        $t.usage.nanoAiu | Should -Be 5230000000
+        $t.usage.tokens.cacheRead | Should -Be 7
+        $t.skills[0].name | Should -Be 'winapp-msix'
+    }
+    It 'records how often each skill was loaded and each winapp command was run' {
+        $r = New-Record
+        $r | Add-Member skillLoadCounts ([ordered]@{ 'winapp-msix' = 2 })
+        $r | Add-Member winappCommandCounts ([ordered]@{ 'package' = 3; 'cert generate' = 1 })
+        $t = Convert $r
+        $t.skills[0].count | Should -Be 2
+        ($t.winappCommands | Where-Object command -eq 'package').count | Should -Be 3
+        ($t.winappCommands | Where-Object command -eq 'cert generate').count | Should -Be 1
+        $dir = Join-Path $TestDrive 'counts\v0.7.1'
+        New-Item -ItemType Directory $dir -Force | Out-Null
+        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-plugins__claude-sonnet-5.5__2.json')
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'counts') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
+    It 'does not count a partial result as a pass' {
+        (Convert (New-Record 'partial')).passed | Should -BeFalse
+    }
+    It 'skips runs without a checked result' {
+        Convert (New-Record 'harness_error') | Should -BeNullOrEmpty
+    }
+    It 'writes a file the validator accepts' {
+        $dir = Join-Path $TestDrive 'v0.7.1'
+        New-Item -ItemType Directory $dir | Out-Null
+        (Convert (New-Record)) | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-plugins__claude-sonnet-5.5__2.json')
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path $TestDrive 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
+}

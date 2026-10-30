@@ -288,8 +288,8 @@ function Compare-PreflightSkills {
 }
 
 function Get-WinappCommands {
-    # Unique 'winapp <command> [<subcommand>]' invocations named in shell commands or answer text.
-    param([AllowEmptyCollection()][AllowNull()][string[]]$Text)
+    # Unique 'winapp <command> [<subcommand>]' invocations named in shell commands or answer text (-All keeps repeats).
+    param([AllowEmptyCollection()][AllowNull()][string[]]$Text, [switch]$All)
     $groups = 'cert', 'config', 'devtools', 'manifest', 'ui', 'find-api', 'target', 'store', 'node', 'perf'
     # Groups whose second token can be free text record it only when it is a real subcommand:
     # `find-api <query>` is a search. `node` comes from the npm package (`npx winapp node ...`).
@@ -308,7 +308,7 @@ function Get-WinappCommands {
             $cmd = $m.Groups[1].Value
             if ($cmd -notin $known) { continue }
             if ($cmd -in $groups -and $m.Groups[2].Success -and (-not $verbs.ContainsKey($cmd) -or $m.Groups[2].Value -in $verbs[$cmd])) { $cmd += " $($m.Groups[2].Value)" }
-            if (-not $found.Contains($cmd)) { $found.Add($cmd) }
+            if ($All -or -not $found.Contains($cmd)) { $found.Add($cmd) }
         }
     }
     return $found.ToArray()
@@ -335,6 +335,8 @@ function Read-SessionEvents {
         tokens                 = $null
         tokensReason           = $null
         aiCredits              = $null
+        # Exact credits, in nano-AIU, as session.shutdown reports them (aiCredits is rounded).
+        nanoAiu                = $null
         premiumRequests        = $null
         modelTurns             = $null
         toolCalls              = $null
@@ -477,7 +479,7 @@ function Read-SessionEvents {
             }
             'session.shutdown' {
                 $r.sessionShutdown = $true
-                if ($data.ContainsKey('totalNanoAiu') -and $null -ne $data.totalNanoAiu) { $r.aiCredits = [Math]::Round([double]$data.totalNanoAiu / 1e9, 3) }
+                if ($data.ContainsKey('totalNanoAiu') -and $null -ne $data.totalNanoAiu) { $r.aiCredits = [Math]::Round([double]$data.totalNanoAiu / 1e9, 3); $r.nanoAiu = [int64]$data.totalNanoAiu }
                 if ($data.ContainsKey('totalPremiumRequests')) { $r.premiumRequests = $data.totalPremiumRequests }
                 if ($data.ContainsKey('totalApiDurationMs') -and $null -ne $data.totalApiDurationMs) { $r.apiDurationMs = [int64]$data.totalApiDurationMs }
                 if ($data.ContainsKey('modelMetrics') -and $data.modelMetrics -is [System.Collections.IDictionary] -and $data.modelMetrics.Count -gt 0) {

@@ -43,6 +43,7 @@ function Get-TaskDefinitions {
             Cluster        = [string]$j.cluster
             Workspace      = [string]$j.workspace
             TimeoutMinutes = if ($j.PSObject.Properties['timeoutMinutes']) { [int]$j.timeoutMinutes } else { 20 }
+            Set            = if ($j.PSObject.Properties['set']) { [string]$j.set } else { 'tuning' }
             Pilot          = [bool]($j.PSObject.Properties['pilot'] -and $j.pilot)
             Interactive    = [bool]($j.PSObject.Properties['interactive'] -and $j.interactive)
             Allow          = if ($j.PSObject.Properties['lintAllow']) { @($j.lintAllow) } else { @() }
@@ -196,6 +197,63 @@ function Remove-SecretFromFiles {
 
 function Get-Mean { param([AllowEmptyCollection()][object[]]$Values) $v = @($Values | Where-Object { $null -ne $_ }); if (-not $v) { return $null }; return ($v | Measure-Object -Average).Average }
 
+function ConvertTo-TrialResult {
+    # Maps one run record to the trial file in benchmarks\RESULTS-FORMAT.md.
+    # Returns $null for runs that did not reach a checked result (harness error, preflight failure, timeout without checks).
+    param(
+        [Parameter(Mandatory)][object]$Record,
+        [Parameter(Mandatory)][string]$Task,
+        [Parameter(Mandatory)][string]$Set,
+        [Parameter(Mandatory)][string]$Release,
+        [Parameter(Mandatory)][string]$Commit,
+        [Parameter(Mandatory)][datetime]$StartedAt
+    )
+    if ($Record.mode -ne 'agent' -or $Record.taskStatus -notin 'pass', 'partial', 'fail' -or -not $Record.tokens) { return $null }
+    $tokens = $Record.tokens
+    $checks = @($Record.checks | ForEach-Object {
+            $c = [ordered]@{ id = $_.id; kind = $_.required ? 'required' : 'improvement'; passed = [bool]$_.passed; source = 'harness' }
+            if ($_.detail) { $c.detail = [string]$_.detail }
+            $c
+        })
+    $improvements = @($checks | Where-Object kind -eq 'improvement')
+    $skillCounts = $Record.PSObject.Properties['skillLoadCounts']?.Value
+    $cmdCounts = $Record.PSObject.Properties['winappCommandCounts']?.Value
+    $skills = @($Record.skillsLoaded | ForEach-Object {
+            $s = [ordered]@{ name = [string]$_ }
+            if ($skillCounts -and $skillCounts[[string]$_]) { $s.count = [int]$skillCounts[[string]$_] }
+            $s
+        })
+    $commandCounts = @()
+    if ($cmdCounts) { $commandCounts = @($cmdCounts.Keys | ForEach-Object { [ordered]@{ command = [string]$_; count = [int]$cmdCounts[$_] } }) }
+    $result = [ordered]@{
+        schemaVersion = 1
+        release       = $Release
+        commit        = $Commit
+        benchmark     = 'tasks'
+        scenario      = $Task
+        set           = $Set
+        arm           = $Record.configuration
+        model         = $Record.model
+        trial         = [int]$Record.iteration
+        startedAt     = $StartedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        outcome       = 'valid'
+        # A partly done task (some required checks passed) is not a pass.
+        passed        = $Record.taskStatus -eq 'pass'
+        improvements  = [ordered]@{ met = @($improvements | Where-Object passed).Count; total = $improvements.Count }
+        checks        = $checks
+        usage         = [ordered]@{
+            tokens          = [ordered]@{ input = [int64]$tokens.input; output = [int64]$tokens.output; cacheRead = [int64]$tokens.cacheRead }
+            subAgentTokens  = $null
+            nanoAiu         = $null -ne $Record.nanoAiu ? [int64]$Record.nanoAiu : $null
+            premiumRequests = $Record.premiumRequests
+            wallClockMs     = [int64]$Record.durationMs
+        }
+    }
+    if ($skills.Count) { $result.skills = $skills }
+    if ($cmdCounts) { $result.winappCommands = $commandCounts }
+    return $result
+}
+
 function Get-StatusScore {
     # pass 1, partial 0.5, anything else (fail, timeout, harness error) 0.
     param([string]$Status)
@@ -335,4 +393,4 @@ function Get-HostArchitecture {
 }
 
 Export-ModuleMember -Function Get-HostArchitecture, Get-ConfigurationNames, Get-ConfigurationSpec, Get-TaskDefinitions, New-SandboxConfiguration, Read-ToolActivity,
-Get-UnsafeActions, Remove-SecretFromFiles, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate
+Get-UnsafeActions, Remove-SecretFromFiles, ConvertTo-TrialResult, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate
