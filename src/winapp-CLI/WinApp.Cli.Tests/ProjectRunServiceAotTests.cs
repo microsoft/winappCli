@@ -183,6 +183,27 @@ public sealed class ProjectRunServiceAotTests
         }
     }
 
+    // A Native AOT app records Reactor call sites relative to the project that compiled them; the launch needs the
+    // referenced projects to find a library's files.
+    [TestMethod]
+    public async Task PublishAot_ReadsReactorFactsForDevTools()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json",
+            """{"libraries":{"Microsoft.UI.Reactor/1.0.0":{"type":"package"},"Lib/1.0.0":{"type":"project","path":"../Lib/Lib.csproj"}}}""");
+        WriteFile("publish\\Sample.exe", "native");
+        using var properties = JsonDocument.Parse(PropertyJson(project, assets, true, "None"));
+        var output = JsonSerializer.Serialize(new
+        {
+            Properties = properties.RootElement.GetProperty("Properties"),
+            Items = new { Page = Array.Empty<object>(), ApplicationDefinition = Array.Empty<object>() },
+        });
+        var outcome = await NewService(SuccessfulDotnet(output)).PublishAotAndResolveAsync(
+            project, Options() with { CaptureDevToolsSources = true }, CancellationToken.None);
+
+        CollectionAssert.AreEqual((string[])["../Lib/Lib.csproj"], outcome.Resolution!.DevToolsReactor!.ProjectReferences!.ToArray());
+    }
+
     [TestMethod]
     public async Task DevToolsBuild_CapturesTargetAssignedCompilerPathsFromTheBuild_NotASecondEvaluation()
     {
@@ -1026,6 +1047,25 @@ public sealed class ProjectRunServiceAotTests
             console,
             logger ?? NullLogger<ProjectRunService>.Instance,
             new FakeMSBuildService());
+    }
+
+    [TestMethod]
+    public void DevToolsPublish_CompilesReactorDiagnosticsIn()
+    {
+        var project = WriteProject();
+
+        var devtools = ProjectRunService.BuildPublishArguments(project, Options() with { CaptureDevToolsSources = true }, "minimal");
+        CollectionAssert.Contains(devtools.ToList(), "-p:ReactorDiagnostics=true",
+            "a Native AOT or trimmed Reactor app keeps its diagnostics only when they are compiled in");
+        CollectionAssert.Contains(devtools.ToList(), "-p:ReactorSourceMap=true");
+
+        var plain = ProjectRunService.BuildPublishArguments(project, Options(), "minimal");
+        Assert.IsFalse(plain.Any(token => token.Contains("ReactorDiagnostics", StringComparison.Ordinal)), "only DevTools launches ask for it");
+
+        var own = ProjectRunService.BuildPublishArguments(project,
+            Options() with { CaptureDevToolsSources = true, Properties = ["ReactorSourceMap=false"] }, "minimal");
+        CollectionAssert.DoesNotContain(own.ToList(), "-p:ReactorSourceMap=true", "the developer's own -p wins");
+        CollectionAssert.Contains(own.ToList(), "-p:ReactorDiagnostics=true");
     }
 
     private static ProjectRunOptions Options(bool noRestore = false) =>

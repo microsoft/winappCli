@@ -103,11 +103,17 @@ internal static class CommentViewBuilder
                 return null;
             }
             var known = CommentAnchorResolver.ResolveKnownSourcePath(sourceRoot, c.Anchor);
-            c.Hits.RemoveAll(hit =>
-                CommentAnchorResolver.RelativeSourcePath(hit.File, sourceRoot) is not string relative ||
+            c.Hits.RemoveAll(hit => c.Anchor.CSharp is not null
+                ? CSharpAnchorResolver.ResolveFile(sourceRoot, hit.File) is null
+                : CommentAnchorResolver.RelativeSourcePath(hit.File, sourceRoot) is not string relative ||
                 Helpers.PathSafety.HasReparsePointOnPath(Path.Combine(sourceRoot, relative), sourceRoot) ||
                 !File.Exists(Path.Combine(sourceRoot, relative)));
             var strong = c.Hits.Where(hit => hit.Confidence == "strong").Take(2).ToArray();
+            if (c.Anchor.CSharp is { } cs)
+            {
+                // The C# resolver calls a hit strong only in the captured project and file.
+                return strong.Length == 1 && CommentStoreLocator.SameProject(cs.ProjectRoot, sourceRoot) ? strong[0] : null;
+            }
             if (strong.Length != 1 || c.Anchor.Authored is not { } authored || known is null ||
                 !CommentStoreLocator.SameProject(authored.ProjectRoot, sourceRoot))
             {

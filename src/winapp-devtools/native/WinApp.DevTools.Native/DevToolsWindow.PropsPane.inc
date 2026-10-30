@@ -90,6 +90,17 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
         std::wstring f; unsigned int ln = 0, col = 0;
         if (g_ctx.sourceFn(wire, f, ln, col)) { g_selSourceFile = f; g_selSourceLine = ln; }
     }
+    g_selReactorLabel.clear();
+    g_selTreeName.clear();
+    for (const auto& node : g_allTreeNodes) {
+        if (node.handle != wire) continue;
+        g_selReactorLabel = node.reactorLabel;
+        g_selTreeName = node.name;
+        break;
+    }
+
+    g_selReferencesMarkup.clear();
+    if (g_referencesFn && wire) g_selReferencesMarkup = g_referencesFn(wire);
 
     DevToolsWindowLayout layout; bool haveLayout = false;
     if (g_ctx.layoutFn && wire) haveLayout = g_ctx.layoutFn(wire, layout);
@@ -195,6 +206,45 @@ g_propRows = rows;
                 }
                 bt->Release();
             }
+        }
+        g_reactorSection.Clear();
+        // Reactor targets that aren't shown yet: only the agent knows, and it can't be asked on the UI thread, so they
+        // are appended to the References section when the answer arrives.
+        if (g_pendingReferencesFn && wire) {
+            if (IInspectable* pr = findByName(L"PendingReferences")) {
+                try {
+                    winrt::Windows::Foundation::IInspectable host{ nullptr };
+                    winrt::copy_from_abi(host, pr);
+                    winrt::weak_ref<DevToolsXC::StackPanel> weakHost = host.as<DevToolsXC::StackPanel>();
+                    auto queue = DevToolsD::DispatcherQueue::GetForCurrentThread();
+                    std::thread([fetch = g_pendingReferencesFn, selected = wire, withHeader = g_selReferencesMarkup.empty(), queue, weakHost]() {
+                        const std::wstring markup = fetch(selected, withHeader);
+                        if (markup.empty() || !queue) return;
+                        queue.TryEnqueue([markup, weakHost]() {
+                            auto panel = weakHost.get();
+                            if (!panel) return;
+                            try { panel.Children().Append(DevToolsXMk::XamlReader::Load(markup).as<DevToolsX::UIElement>()); }
+                            catch (const winrt::hresult_error&) {}
+                        });
+                    }).detach();
+                } catch (const winrt::hresult_error&) {}
+                pr->Release();
+            }
+        }
+        if (IInspectable* rb = findByName(L"ReactorSectionBody")) {
+            try {
+                winrt::Windows::Foundation::IInspectable body{ nullptr };
+                winrt::copy_from_abi(body, rb);
+                const auto ask = g_reactorAskFn;
+                g_reactorSection.Begin(body.as<DevToolsXC::Panel>(), static_cast<unsigned long long>(wire), !g_ctx.writeFn,
+                    { L"{ThemeResource TextFillColorPrimaryBrush}", L"{ThemeResource TextFillColorSecondaryBrush}",
+                      L"{ThemeResource AccentTextFillColorPrimaryBrush}", L"{ThemeResource SystemFillColorCautionBrush}" },
+                    ask ? DevToolsComponentSection::AskFn([ask](unsigned long long w, const std::wstring& op, const std::wstring& arg,
+                                                               const std::wstring& value, std::wstring* out) {
+                        return ask(static_cast<InstanceHandle>(w), op, arg, value, out);
+                    }) : DevToolsComponentSection::AskFn());
+            } catch (const winrt::hresult_error&) {}
+            rb->Release();
         }
         if (IInspectable* lb = findByName(L"LayoutSectionBody")) {
             lb->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutBody);

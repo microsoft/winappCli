@@ -53,7 +53,8 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
 
         if (DevToolsPipeDiscovery.EnumerateInjectedPids().Contains((int)targetPid))
         {
-            return CompleteConnection(target, targetPid, showOverlay, cancellationToken);
+            var present = await LoadManagedAgentAsync(target, cancellationToken).ConfigureAwait(false);
+            return CompleteConnection(target, targetPid, showOverlay, cancellationToken) with { ManagedAgent = present };
         }
 
         string agentPath;
@@ -157,7 +158,26 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
                 outcome.Attempts, InjectMaxAttempts);
         }
 
-        return CompleteConnection(target, targetPid, showOverlay, cancellationToken);
+        // The native engine attached, so this app accepts DevTools. Load the managed agent too when the app is a .NET
+        // app that was not launched with it, before the overlay asks for Reactor information.
+        var managedAgent = await LoadManagedAgentAsync(target, cancellationToken).ConfigureAwait(false);
+        return CompleteConnection(target, targetPid, showOverlay, cancellationToken) with { ManagedAgent = managedAgent };
+    }
+
+    internal ManagedAgentLateLoad ManagedAgentLoader { get; init; } = new();
+
+    private async Task<ManagedAgentResult> LoadManagedAgentAsync(Process target, CancellationToken cancellationToken)
+    {
+        var result = await ManagedAgentLoader.EnsureAsync(target, cancellationToken).ConfigureAwait(false);
+        if (result.State == ManagedAgentState.Loaded)
+        {
+            logger.LogDebug("DevTools loaded the managed agent into {Pid} in {Elapsed} ms.", target.Id, result.ElapsedMs);
+        }
+        else if (result.Note is { } note)
+        {
+            logger.LogDebug("DevTools did not load the managed agent into {Pid}: {Note}", target.Id, note);
+        }
+        return result;
     }
 
     public void PrepareHeadless(uint targetPid, CancellationToken cancellationToken)

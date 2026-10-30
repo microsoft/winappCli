@@ -460,6 +460,32 @@ static void Test_LayoutGridPlacementOnlyWhenThereIsOne()
            "CONTROL: an element with no Grid placement reports none rather than a row of zeroes");
 }
 
+// `winapp ui` finds a DevTools element by its rectangle on screen in physical pixels. A DPI-unaware window on a 150%
+// monitor reports 96 DPI and logical pixels, while UI Automation reports the stretched physical ones.
+static void Test_LayoutScreenRectIsPhysicalPixels()
+{
+    double x = 320 + 110, y = 343 + 56, w = 56, h = 32;   // the element in the unaware window's logical pixels
+    Check(DevToolsRead_LogicalToPhysical(320, 343, 320 + 800, 343 + 600, 480, 515, 480 + 1200, 515 + 900, x, y, w, h),
+          "a client area that maps maps the rectangle");
+    Check(x == 645 && y == 599 && w == 84 && h == 48, "an unaware window's logical rectangle is scaled to physical pixels");
+
+    double ax = 500, ay = 400, aw = 84, ah = 48;
+    DevToolsRead_LogicalToPhysical(480, 515, 1680, 1415, 480, 515, 1680, 1415, ax, ay, aw, ah);
+    Check(ax == 500 && ay == 400 && aw == 84 && ah == 48, "CONTROL: a per-monitor aware window's pixels are already physical");
+
+    double ex = 1, ey = 1, ew = 1, eh = 1;
+    Check(!DevToolsRead_LogicalToPhysical(0, 0, 0, 0, 0, 0, 0, 0, ex, ey, ew, eh), "an empty client area maps nothing");
+
+    DevToolsReadLayout L;
+    L.handle = 4;
+    L.haveScreen = true; L.screenX = 645; L.screenY = 599; L.screenW = 84; L.screenH = 48;
+    Check(Contains(DevToolsRead_SerializeLayout(L), L"\"screen\":{\"x\":645,\"y\":599,\"w\":84,\"h\":48}"),
+          "the screen rectangle is on the wire");
+    DevToolsReadLayout none;
+    none.handle = 5;
+    Check(!Contains(DevToolsRead_SerializeLayout(none), L"screen"), "CONTROL: an unread screen rectangle is omitted");
+}
+
 // Strip assembly qualification before taking a short type name; version dots are not namespace dots.
 static void Test_ShortTypeNameSurvivesAnAssemblyQualifiedName()
 {
@@ -580,6 +606,7 @@ int RunReadTests()
     Test_LayoutParentContext();
     Test_LayoutOmitsWhatItCouldNotRead();
     Test_LayoutGridPlacementOnlyWhenThereIsOne();
+    Test_LayoutScreenRectIsPhysicalPixels();
     Test_ShortTypeNameSurvivesAnAssemblyQualifiedName();
     return g_testFailures;
 }

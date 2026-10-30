@@ -18,6 +18,12 @@ static void ReleaseTreeRowState()
     g_treeDepth.clear(); g_treeCollapsed.clear(); g_treeVisible.clear();
     g_treeLabel.clear(); g_treeShortType.clear(); g_treeAppAuthored.clear();
     g_nodeSinks.clear(); g_nodeIdxByWire.clear(); g_renderedOriginalIndices.clear();
+    // The rows these sinks were wired to are gone or about to go; the next build re-initializes them.
+    for (int pool = 0; pool < 2; ++pool) {
+        g_treeRowSinksSpare[pool].insert(g_treeRowSinksSpare[pool].end(), g_treeRowSinksInUse[pool].begin(),
+                                         g_treeRowSinksInUse[pool].end());
+        g_treeRowSinksInUse[pool].clear();
+    }
 }
 
 // Refreshing replaces stale handles after navigation so picks resolve against the current app tree.
@@ -158,6 +164,13 @@ static int ClassifyTreeSnapshot()
         if (!n.sourceUri.empty()) ++g_jmxSrcSeen;
     }
     DevToolsAppXaml_ClassifyBatch(jmxSrcUris, g_allTreeAppAuthored);
+    // Elements a Reactor call site created are the app's own code too.
+    g_jmxCodeSeen = 0;
+    if (g_codeAuthoredFn) {
+        g_allTreeAppAuthored.resize(g_allTreeNodes.size(), 0);
+        for (size_t i = 0; i < g_allTreeNodes.size(); ++i)
+            if (!g_allTreeAppAuthored[i] && g_codeAuthoredFn(g_allTreeNodes[i].handle)) { g_allTreeAppAuthored[i] = 1; ++g_jmxCodeSeen; }
+    }
     int appCount = 0;
     for (char a : g_allTreeAppAuthored) if (a) ++appCount;
     return appCount;
@@ -234,6 +247,8 @@ static bool RefreshTreeFromApp(bool refreshValues)
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinTreeRefresh);
     if (!g_ctx.snapshotFn || !g_treeHostChildren) return false;
     if (g_treeRefreshing) return false;
+    // Ask the owner to refresh what it knows about non-XAML authored elements; it calls back with Reclassify.
+    if (g_codeAuthoredRefreshFn && !g_reclassifying) g_codeAuthoredRefreshFn();
     g_treeRefreshing = true;
     struct Guard { ~Guard() { g_treeRefreshing = false; } } guard;
 
@@ -275,8 +290,12 @@ static bool RefreshTreeFromApp(bool refreshValues)
     const bool priorJmxActive = g_jmxActive, priorJmxAvailable = g_jmxAvailable;
 
     g_allTreeNodes = std::move(fresh);
+    const bool wasAvailable = g_jmxAvailable;
     const int appCount = ClassifyTreeSnapshot();
     g_jmxAvailable = appCount > 0;
+    // Reactor elements are described after the window opens; once they make the filter available it starts on,
+    // as it would have had they been known at open.
+    if (g_reclassifying && !wasAvailable && g_jmxAvailable) g_jmxActive = true;
     // "Just my XAML" is a MODE the user chose, so it is carried across. But it cannot stay on over a page with
     // no app-authored nodes -- that renders an empty tree and looks exactly like a refresh that lost the app.
     if (!g_jmxAvailable) g_jmxActive = false;

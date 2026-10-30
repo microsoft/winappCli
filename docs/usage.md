@@ -767,6 +767,7 @@ winapp run [<input>] [options]
 - `--args <string>` - Command-line arguments to pass to the application. Alternatively, use `--` followed by arguments to avoid escaping (e.g., `winapp run . -- --flag value`).
 - `--no-launch` - Only create the debug identity and register the package without launching the application
 - `--devtools <on|off|headless>` - WinUI XAML inspection: `on` shows the in-app toolbar; `headless` draws nothing in the app. See [Turn DevTools on or off](guides/devtools.md#turn-devtools-on-or-off) for when it starts by default and how to change that.
+- `--watch` - Run the project under `dotnet watch` with DevTools: edits apply through .NET Hot Reload, and when an edit needs a restart the app is rebuilt and relaunched with DevTools attached again. Works for packaged and unpackaged .NET 8+ projects; a packaged app is registered again and relaunched through its execution alias on each restart. Needs a WinUI project with DevTools on (the default) or `--devtools headless`. Cannot be combined with `--devtools off`, `--detach`, `--json`, `--debug-output`, `--no-build`, `--aot`, `--clean`, `--unregister-on-exit` or `--on`. See [Keep DevTools attached while you edit](guides/devtools.md#keep-devtools-attached-while-you-edit).
 - `--with-alias` - Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Rarely needed: an app with `OutputType=Exe` already launches this way by default. winapp adds the required `uap5:ExecutionAlias` to the manifest it stages in the AppX layout, so no change to your checked-in manifest is needed; an alias the app declares itself is used as-is. Cannot be combined with `--no-launch`, `--detach`, `--without-alias`, or `--json`.
 - `--without-alias` - Force AUMID activation for an app that would otherwise launch through an execution alias. A console app then runs without a console and prints nothing to this terminal. Cannot be combined with `--with-alias`.
 - `--debug-output` - Capture `OutputDebugString` messages and first-chance exceptions from the launched application. Framework noise (WinUI, COM, DirectX) is filtered from console output; the full log file captures everything. If the app crashes, automatically captures a minidump and analyzes it to show the exception type, message, and stack trace with source file:line numbers (resolved from PDBs in the build output folder). Managed (.NET) crashes are analyzed instantly with no external tools. Native (C++/WinRT) crashes show module names and offsets. When the crashed app is a WinUI 3 app (`Microsoft.UI.Xaml.dll` is loaded), an extra stowed-exception triage pass runs automatically to surface the originating HRESULT, its ErrorContext chain, and the full native XAML dispatch stack; the required debugger components are downloaded on first use (see [Debugging](debugging.md#winui-stowed-exception-triage), overridable via the `WINAPP_DBGTOOLS_DIR` environment variable). Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use `--no-launch` instead if you need to attach a different debugger. Cannot be combined with `--no-launch`. Cannot be combined with `--json`. If you run without it and the app exits with a nonzero code, winapp prints a hint to rerun with `--debug-output`.
@@ -1390,8 +1391,22 @@ winapp devtools inspect
 ```
 
 Inspect a WinUI 3 app's XAML tree, read or change live properties, diagnose
-bindings, and save source-anchored review comments. See the
-[DevTools guide](guides/devtools.md) for the workflow, [Advanced DevTools](guides/devtools-advanced.md) for Sandbox, late attach and the protocol, and
+bindings, and save source-anchored review comments. For Microsoft.UI.Reactor apps,
+`winapp devtools` also shows Reactor components, which C# line created each element,
+and which properties that C# sets, shows each element's C# variable name like an
+`x:Name` (`Button #incrementButton`), and reads and changes component state by hook
+name or index (`get-state`, `set-state`, `rerender`, `invoke-handler`). Native AOT,
+trimmed and attached Reactor apps launched by `winapp run` with DevTools show their
+components, call sites and names without loading the managed agent. Comments on Reactor
+elements are anchored to their C# call site (`comments add --file App.cs --line 35`
+works without a running app), and `logs` shows the warnings and errors Reactor
+reported since launch. `get-resource` and
+`set-resource` read and live-edit XAML resources in any app. `winapp devtools attach`
+also loads the managed agent into a running .NET 8+ app, and
+`winapp run . --watch` keeps DevTools attached through Hot Reload and
+restarts. Moving from `mur devtools`? See
+[Move from Reactor DevTools](guides/devtools-reactor.md#move-from-reactor-devtools). See the
+[DevTools guide](guides/devtools.md) for the workflow, [Reactor apps](guides/devtools-reactor.md) for Reactor components and state, [Advanced DevTools](guides/devtools-advanced.md) for Sandbox, late attach and the protocol, and
 `winapp devtools --help` for available commands.
 
 `winapp run` starts DevTools for a WinUI project; see

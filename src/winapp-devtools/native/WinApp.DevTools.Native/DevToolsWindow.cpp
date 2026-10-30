@@ -44,6 +44,8 @@
 #include "DevToolsSettings.h"
 #include "DevToolsText.h"
 #include "DevToolsShellOpen.h"
+#define DEVTOOLS_COMPONENT_PANEL_WINRT
+#include "DevToolsComponentPanel.h"
 #include "DevToolsLiveRows.h"
 #include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>

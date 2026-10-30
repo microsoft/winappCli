@@ -30,7 +30,8 @@ internal static class DevToolsRender
         Line(node.Selector, node.ShortType, node.Name, node.ShortFile, node.Facts);
 
     public static string Match(DevToolsSelector.VisualTreeMatch match) =>
-        Line(match.Selector, match.ShortType, match.Name, match.ShortFile, match.Facts);
+        Line(match.Selector, match.Label ?? (match.Type.StartsWith('<') ? match.Type : match.ShortType), match.Name, match.ShortFile, match.Facts) +
+        (match.Detail is null ? string.Empty : $" [grey]{Markup.Escape(match.Detail)}[/]");
 
     public static string Handle(string selector) => $"[bold cyan][[{Markup.Escape(selector)}]][/]";
 

@@ -972,6 +972,19 @@ int main()
         check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
             "the reason says an x:Bind value reads as Local");
+        // A Reactor element: its component badge, the C# source with the statement, and no "authored values
+        // unavailable" note, because the C# is its authored source.
+        g_selReactorLabel=L"<Counter>";
+        const auto csharp=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border",L"Window > StackPanel",
+            L"C:\\src\\App.cs",36,{text},L"csharp",L"Component<Counter>(),",nullptr);
+        check(csharp.find(L"&lt;Counter&gt;  \u00B7  Border")!=std::wstring::npos,
+            "a component row's properties header names the component before its WinUI type");
+        check(csharp.find(L"Text=\"C# source\"")!=std::wstring::npos && csharp.find(L"Component&lt;Counter&gt;(),")!=std::wstring::npos &&
+            csharp.find(L"Toggle C# source")!=std::wstring::npos,
+            "the properties pane shows the C# statement at the Reactor call site");
+        check(csharp.find(L"x:Bind and resource sources not shown")==std::wstring::npos && csharp.find(L"App.cs : 36")!=std::wstring::npos,
+            "a C# element shows its call site and no missing-XAML note");
+        g_selReactorLabel.clear();
         g_layoutSectionOpen=-1;
     }
     check(!ColorPickerApplies(true,L"#FF102030",L"#FF000000") && ColorPickerApplies(false,L"#FF102030",L"#FF000000") &&
@@ -1456,6 +1469,27 @@ int main()
             g_ctx.readInputFn=savedRead; g_propRows={text};
         }
         g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr; g_valuesFn=nullptr;
+    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // Row sinks are never freed, so a rebuild must reuse the previous rows' sinks: a tree that keeps changing
+        // rebuilds the rows several times a second and would otherwise grow the app without bound.
+        ReleaseTreeRowState();
+        auto* click = TakeTreeRowSink<NodeClickSink>(1);
+        auto* chevron = TakeTreeRowSink<ChevronSink>(0);
+        ReleaseTreeRowState();
+        auto* clickAgain = TakeTreeRowSink<NodeClickSink>(1);
+        auto* chevronAgain = TakeTreeRowSink<ChevronSink>(0);
+        auto* more = TakeTreeRowSink<NodeClickSink>(1);
+        check(click == clickAgain && chevron == chevronAgain, "a rebuild reuses the previous rows' sinks");
+        check(more != click, "CONTROL: a sink still in use is not handed out twice");
+        ReleaseTreeRowState();
+    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // The live tree refresh follows a tree that never settles at a steady pace.
+        check(TreeRefreshDueAt(10000, 10000, 0) == 10250, "a single change refreshes after the debounce");
+        check(TreeRefreshDueAt(10300, 10000, 0) == 10550, "a burst keeps pushing the refresh back");
+        check(TreeRefreshDueAt(12900, 10000, 0) == 13000, "but no later than three seconds after its first change");
+        check(TreeRefreshDueAt(20300, 20300, 20000) == 22000, "and no sooner than two seconds after the last refresh");
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

@@ -318,6 +318,23 @@ internal partial class RunCommand
             }
 
             var resolution = outcome.Resolution;
+            if (devToolsRun.Enabled && resolution.DevToolsReactor is { } reactor)
+            {
+                devToolsReactor = reactor;
+                // A watch launch step runs on every restart; the watching run already reported these once.
+                foreach (var warning in watchIteration is null ? reactor.Warnings() : [])
+                {
+                    logger.LogWarning("{Message}", warning);
+                }
+            }
+
+            if (parseResult.GetValue(WatchOption))
+            {
+                return resolution.Packaging == ProjectPackaging.Packaged
+                    ? await RunWatchedPackagedProjectAsync(parseResult, csproj, solution, buildOptions, appArgs, cancellationToken)
+                    : await RunWatchedProjectAsync(resolution, csproj, buildOptions, appArgs,
+                        showOverlay: devToolsRun.ShowToolbar, cancellationToken);
+            }
 
             return resolution.Packaging == ProjectPackaging.Packaged
                 ? await RunPackagedProjectAsync(
@@ -457,55 +474,9 @@ internal partial class RunCommand
 
             // Install the framework-dependent Windows App Runtime (Framework + DDLM) the app's
             // bootstrapper needs, for the resolved arch. Self-contained apps carry their own copy.
-            if (!resolution.SelfContained)
+            if (await PrepareUnpackagedRuntimeAsync(resolution, csproj, isJson, cancellationToken) is int runtimeExit)
             {
-                string? runtimeErrorMessage = null;
-                var runtimeResult = await statusService.ExecuteWithStatusAsync(
-                    "Preparing Windows App Runtime...",
-                    async (taskContext, ct) =>
-                    {
-                        try
-                        {
-                            // Report whether the runtime was actually prepared: a plain console/desktop app
-                            // with no Windows App SDK reference is skipped inside, so claiming "ready" would
-                            // be a lie. Surface the skip honestly instead.
-                            var packageDir = resolution.WindowsAppSdkPackageDir is { } dir ? new DirectoryInfo(dir) : null;
-                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), packageDir, ct);
-                            return (0, prepared ? "Windows App Runtime ready" : "No Windows App SDK reference — runtime not needed");
-                        }
-                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                        {
-                            // Honor Ctrl+C instead of translating it into a runtime-prep failure message.
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            // Capture the actionable detail so --json can surface it too (the status
-                            // service consumes the tuple message for the console line only).
-                            runtimeErrorMessage = ex.Message;
-                            return (1, $"{UiSymbols.Error} Failed to prepare the Windows App Runtime: {ex.Message}");
-                        }
-                    },
-                    cancellationToken);
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    // Ctrl+C during runtime prep — exit as cancelled (matching the launched-process wait)
-                    // rather than reporting a genuine "Failed to prepare the Windows App Runtime" error.
-                    return -1;
-                }
-
-                if (runtimeResult != 0)
-                {
-                    if (isJson)
-                    {
-                        var jsonError = string.IsNullOrWhiteSpace(runtimeErrorMessage)
-                            ? "Failed to prepare the Windows App Runtime."
-                            : $"Failed to prepare the Windows App Runtime: {runtimeErrorMessage}";
-                        PrintJson(aumid: null, processId: null, jsonError);
-                    }
-                    return runtimeResult;
-                }
+                return runtimeExit;
             }
 
             ILaunchedProcess launched;
@@ -518,7 +489,14 @@ internal partial class RunCommand
                     coordinates = await Services.DevTools.XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(csproj, resolution.DevToolsXamlSources,
                         resolution.DevToolsCompilerArtifacts, cancellationToken,
                         (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(exePath)!, token));
-                    environment = CreateDevToolsEnvironment(csproj.DirectoryName, !resolution.IsAot && !ProjectRunService.IsCppProject(csproj));
+                    var managed = !resolution.IsAot && !ProjectRunService.IsCppProject(csproj);
+                    environment = Services.DevTools.ReactorBuildFacts.ApplyEnvironment(
+                        CreateDevToolsEnvironment(csproj.DirectoryName, managed), devToolsReactor);
+                    if (managed &&
+                        Services.DevTools.DevToolsStartupHooks.DisabledByRuntimeConfig(Path.ChangeExtension(exePath, ".runtimeconfig.json")))
+                    {
+                        logger.LogWarning("{Message}", Services.DevTools.DevToolsStartupHooks.DisabledWarning(devToolsReactor is not null));
+                    }
                 }
                 catch (Exception ex) when (devToolsRun.FailOpen && ex is IOException or UnauthorizedAccessException or InvalidOperationException)
                 {
@@ -726,5 +704,65 @@ internal partial class RunCommand
         /// </summary>
         internal static bool TryResolveArchitecture(string? archOption, string? runtimeOption, out string architecture, out string? error)
             => RunArchHelper.TryResolveArchitecture(archOption, runtimeOption, out architecture, out error);
+
+        /// <summary>
+        /// Installs the framework-dependent Windows App Runtime (Framework + DDLM) an unpackaged app's bootstrapper
+        /// needs, for the resolved arch. Null when ready (or self-contained); otherwise the exit code to return.
+        /// </summary>
+        private async Task<int?> PrepareUnpackagedRuntimeAsync(ProjectRunResolution resolution, FileInfo csproj, bool isJson, CancellationToken cancellationToken)
+        {
+            if (resolution.SelfContained)
+            {
+                return null;
+            }
+            string? runtimeErrorMessage = null;
+            var runtimeResult = await statusService.ExecuteWithStatusAsync(
+                "Preparing Windows App Runtime...",
+                async (taskContext, ct) =>
+                {
+                    try
+                    {
+                        // Report whether the runtime was actually prepared: a plain console/desktop app
+                        // with no Windows App SDK reference is skipped inside, so claiming "ready" would
+                        // be a lie. Surface the skip honestly instead.
+                        var packageDir = resolution.WindowsAppSdkPackageDir is { } dir ? new DirectoryInfo(dir) : null;
+                        var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), packageDir, ct);
+                        return (0, prepared ? "Windows App Runtime ready" : "No Windows App SDK reference, so the runtime is not needed");
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        // Honor Ctrl+C instead of translating it into a runtime-prep failure message.
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Capture the actionable detail so --json can surface it too (the status
+                        // service consumes the tuple message for the console line only).
+                        runtimeErrorMessage = ex.Message;
+                        return (1, $"{UiSymbols.Error} Failed to prepare the Windows App Runtime: {ex.Message}");
+                    }
+                },
+                cancellationToken);
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                // Ctrl+C during runtime prep: exit as cancelled (matching the launched-process wait)
+                // rather than reporting a genuine "Failed to prepare the Windows App Runtime" error.
+                return -1;
+            }
+
+            if (runtimeResult != 0)
+            {
+                if (isJson)
+                {
+                    var jsonError = string.IsNullOrWhiteSpace(runtimeErrorMessage)
+                        ? "Failed to prepare the Windows App Runtime."
+                        : $"Failed to prepare the Windows App Runtime: {runtimeErrorMessage}";
+                    PrintJson(aumid: null, processId: null, jsonError);
+                }
+                return runtimeResult;
+            }
+            return null;
+        }
     }
 }

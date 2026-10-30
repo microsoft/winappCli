@@ -139,6 +139,22 @@ static void TestOffScreenPrefix()
                    "and both report the same outcome from the same decision");
 }
 
+// A Reactor call site opens its .cs file through the same decision: the association is asked for .cs, and the
+// no-handler message names .cs rather than .xaml.
+static void TestCSharpSource()
+{
+    Shell s; s.handler = L"";
+    const auto none = DevToolsShellOpen::Decide(L"C:\\app\\App.cs", L".cs", s.Assoc(), s.Exists(), s.Launch());
+    Check(s.askedExtension == L".cs" && !s.launched, "a .cs file asks the .cs association and launches nothing without one");
+    const std::wstring msg = DevToolsShellOpen::Describe(none, L"App.cs", 35, L"C:\\app\\App.cs", L"", L".cs");
+    Check(msg.find(L".cs files") != std::wstring::npos && msg.find(L".xaml") == std::wstring::npos,
+                   "the no-handler status names .cs files");
+    Shell editor; editor.handler = L"Visual Studio";
+    const auto handed = DevToolsShellOpen::Decide(L"C:\\app\\App.cs", L".cs", editor.Assoc(), editor.Exists(), editor.Launch());
+    Check(editor.launched && handed.outcome == DevToolsShellOpen::Outcome::Handed,
+                   "with a .cs handler the file is handed off");
+}
+
 int RunShellOpenTests()
 {
     std::printf("DevTools shell hand-off tests\n");
@@ -147,5 +163,6 @@ int RunShellOpenTests()
     TestLaunchRefused();
     TestUnresolvedAndMissing();
     TestOffScreenPrefix();
+    TestCSharpSource();
     return g_testFailures;
 }

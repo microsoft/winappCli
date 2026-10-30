@@ -298,7 +298,7 @@ internal static class XamlSourceCoordinates
                     proof.GeneratedHash, inputHash, outputHash, stateHash, Path.GetRelativePath(project.DirectoryName!, intermediate)));
             }
         }
-        if (!capturedSources.SetEquals(snapshot.Files.Select(file => file.RelativePath)))
+        if (!capturedSources.SetEquals(XamlFiles(snapshot).Select(file => file.RelativePath)))
         {
             throw new InvalidDataException("The selected compiler input does not cover the launch source snapshot.");
         }
@@ -326,7 +326,7 @@ internal static class XamlSourceCoordinates
         }
         var result = new List<XamlSourceCoordinateFile>();
         var exclusions = new List<XamlSourceExclusion>();
-        foreach (var source in snapshot.Files)
+        foreach (var source in XamlFiles(snapshot))
         {
             try
             {
@@ -371,6 +371,10 @@ internal static class XamlSourceCoordinates
     private static bool IsClassless(XElement entry) =>
         (string?)entry.Attribute("GeneratedCodePathPrefix") is "" && (string?)entry.Attribute("ClassFullName") is "";
 
+    // A Reactor launch also snapshots C# files; only XAML has compiled coordinates.
+    private static IEnumerable<GuestSourceFile> XamlFiles(GuestSourceManifest snapshot) =>
+        snapshot.Files.Where(file => file.RelativePath.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase));
+
     // C# writes generated XAML beside the saved state; C++ writes it to "Generated Files". The entry's own
     // prefix names that root, which must stay inside the project.
     private static string? GeneratedRoot(XElement entry, string source, string intermediate, string projectDirectory)
@@ -393,7 +397,7 @@ internal static class XamlSourceCoordinates
         FileInfo project, GuestSourceManifest snapshot, string evidence)
     {
         var result = new List<XamlSourceCoordinateFile>();
-        foreach (var source in snapshot.Files)
+        foreach (var source in XamlFiles(snapshot))
         {
             using var file = Open(Path.GetFullPath(source.RelativePath, project.DirectoryName!), project.DirectoryName!);
             var bytes = Bytes(file);

@@ -49,7 +49,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         ("Package layout",
             [ManifestOption, ExecutableOption, OutputAppXDirectoryOption]),
         ("Debug and profile",
-            [DebugOutputOption, SymbolsOption, DevToolsOption, ProfileOption, ProfileModeOption, ProfileDurationOption, ProfileSizeOption, WinAppRootCommand.JsonOption]),
+            [DebugOutputOption, SymbolsOption, DevToolsOption, WatchOption, ProfileOption, ProfileModeOption, ProfileDurationOption, ProfileSizeOption, WinAppRootCommand.JsonOption]),
     ];
 
     public static Argument<FileSystemInfo> InputArgument { get; }
@@ -290,6 +290,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(DebugOutputOption);
         Options.Add(DevToolsOption);
         Options.Add(GuestInspectorApplicationOption);
+        Options.Add(WatchOption);
+        Options.Add(WatchLaunchOption);
         Options.Add(DevToolsSourcesOption);
         Options.Add(UnregisterOnExitOption);
         Options.Add(DetachOption);
@@ -377,6 +379,10 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             if (parseResult.CommandResult.Command is GuestLaunchCommand)
             {
                 return await InvokeGuestLaunchAsync(parseResult, cancellationToken);
+            }
+            if (parseResult.GetValue(WatchLaunchOption))
+            {
+                return await InvokeWatchLaunchAsync(parseResult, cancellationToken);
             }
 
             _uniqueIdentityRequested = parseResult.GetValue(UniqueIdentityOption);
@@ -506,6 +512,13 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             {
                 return Fail("--devtools requires a private launch environment and cannot use --without-alias. " +
                     "Launch normally and use 'winapp devtools attach --pid <pid>' for limited late inspection.", isJson);
+            }
+            if (parseResult.GetValue(WatchOption) &&
+                WatchConflict(requestedDevTools is not DevToolsMode.Off, parseResult.GetValue(DetachOption), isJson, debugOutput,
+                    parseResult.GetValue(NoBuildOption), parseResult.GetValue(AotOption), executionTarget.IsLocal,
+                    clean, unregisterOnExit, parseResult.GetValue(ProfileOption) is not null) is { } watchConflict)
+            {
+                return Fail(watchConflict, isJson);
             }
             // A performance trace measures the app, and DevTools' own UI-thread work would show up in it.
             var profiling = parseResult.GetValue(ProfileOption) is not null;
@@ -672,6 +685,12 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 winUIProject, requestedDevTools is null ? ReadDefaultMode() : null);
             devToolsReported = requestedDevTools is not null || winUIProject;
             DevToolsRunTelemetryScope.Set(devToolsRun);
+            if (parseResult.GetValue(WatchOption) && !devToolsRun.Enabled)
+            {
+                return Fail(devToolsRun.Source == DevToolsModeSource.NotWinUI
+                    ? "--watch relaunches the app with DevTools, which needs a WinUI project."
+                    : "--watch relaunches the app with DevTools, which is off for this run. Pass --devtools on or --devtools headless.", isJson);
+            }
             AnnounceDefaultDevTools(isJson);
             ProjectContextEvent.Log("run", () =>
                 string.Equals(
@@ -698,6 +717,12 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                             ExecutionMode = ProjectExecutionMode.Folder,
                         },
                     });
+
+            if (parseResult.GetValue(WatchOption) &&
+                (inputResolution.Mode != WinAppRunMode.Project || ProjectRunService.IsCppProject(inputResolution.Csproj!)))
+            {
+                return Fail("--watch needs a .NET project (.csproj): 'dotnet watch' rebuilds the project, so it can't run a C++ project, a .cs file or a build output folder.", isJson);
+            }
 
             if (inputResolution.Mode == WinAppRunMode.SingleFile)
             {
@@ -1000,6 +1025,11 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // files locked or receive this launch without DevTools, depending on the app. Without
                     // DevTools the running instance is still closed so its files can be replaced.
                     var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
+                    if (devTools && runningBefore.Count > 0 && watchIteration is not null)
+                    {
+                        // Under --watch the previous launch's app is still closing when dotnet watch restarts.
+                        runningBefore = await WaitForLayoutToCloseAsync(outputAppXDirectory, cancellationToken);
+                    }
                     if (runningBefore.Count > 0)
                     {
                         var closedAll = runningBefore.All(CloseRunningProcess);

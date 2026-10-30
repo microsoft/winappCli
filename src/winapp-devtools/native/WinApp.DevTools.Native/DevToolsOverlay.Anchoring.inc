@@ -687,6 +687,8 @@ static void OnCensusNodeRemoved(InstanceHandle h)
     DeselectAll(g_lastHighlightHandle == g_selectedHandle);
 }
 
+static void ExpireRenderFlashes();
+
 // A highlight set from the inspector or a client, not a pick, follows its element's layout as markers do.
 static void TrackHighlight()
 {
@@ -737,6 +739,7 @@ static void TrackingTick()
     } guard{ tTick0 };
     s_inTick = true;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::OverlayTrackTick);
+    ExpireRenderFlashes();
 
     const double tSize0 = QpcNow();
     int cw = (int)g_activeSurface.contentW, ch = (int)g_activeSurface.contentH;
@@ -761,9 +764,11 @@ static void TrackingTick()
 // must never disagree).
         if (!ok && g_resolveAnchor && !p.name.empty()) {
             InstanceHandle again = g_resolveAnchor(p.name.c_str());
-            if (again && again != p.handle && TryElementRootBounds(g_pickDiag, g_pickRoot, again, &nb)) {
-                DevToolsOverlayLog(L"overlay.pin re-anchored '%s' after rebuild (handle %llu -> %llu)",
-                              p.name.c_str(), (unsigned long long)p.handle, (unsigned long long)again);
+            // The same element counts too: a Reactor call site moves after hot reload while its element stays.
+            if (again && TryElementRootBounds(g_pickDiag, g_pickRoot, again, &nb)) {
+                if (again != p.handle)
+                    DevToolsOverlayLog(L"overlay.pin re-anchored '%s' after rebuild (handle %llu -> %llu)",
+                                  p.name.c_str(), (unsigned long long)p.handle, (unsigned long long)again);
                 p.handle = again;
                 if (p.sink) p.sink->handle = again;
                 ok = true;

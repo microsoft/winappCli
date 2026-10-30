@@ -186,6 +186,54 @@ internal sealed partial class ProjectRunService
         return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
     }
 
+    /// <summary>
+    /// Arguments for <c>dotnet watch</c> running a project the way the build pass built it (same
+    /// Configuration, RID, TFM and user <c>-p</c>), so the first watch build is incremental and the app it starts is
+    /// the build output winapp resolved. <c>--non-interactive</c> restarts the app on edits Hot Reload can't apply
+    /// instead of prompting; <c>--no-launch-profile</c> matches <c>winapp run</c>, which ignores launchSettings.json.
+    /// <paramref name="launchProperties"/> (already MSBuild-escaped) replace how <c>dotnet run</c> starts the app,
+    /// e.g. <c>RunCommand</c> for a packaged app.
+    /// </summary>
+    internal static string BuildWatchArguments(FileInfo csproj, ProjectRunOptions options, string? appArguments,
+        IReadOnlyList<string>? launchProperties = null)
+    {
+        var tokens = new List<string>
+        {
+            "watch",
+            "--project",
+            csproj.FullName,
+            "--non-interactive",
+            "--no-launch-profile",
+            "-c",
+            options.Configuration,
+        };
+        if (!options.OmitRuntimeIdentifier)
+        {
+            tokens.Add("-r");
+            tokens.Add(options.EffectiveRuntimeIdentifier);
+        }
+        if (!string.IsNullOrWhiteSpace(options.Framework))
+        {
+            tokens.Add("-f");
+            tokens.Add(options.Framework);
+        }
+        // dotnet watch reads a bare -p as --project, so properties use the long form.
+        foreach (var property in ForwardableProperties(options.Properties))
+        {
+            tokens.Add($"--property:{property}");
+        }
+        if (!string.IsNullOrWhiteSpace(options.Platform))
+        {
+            tokens.Add($"--property:Platform={options.Platform}");
+        }
+        foreach (var property in launchProperties ?? [])
+        {
+            tokens.Add($"--property:{property}");
+        }
+        var arguments = WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+        return string.IsNullOrWhiteSpace(appArguments) ? arguments : $"{arguments} -- {appArguments}";
+    }
+
     internal static IReadOnlyList<string> BuildPublishArguments(
         FileInfo csproj,
         ProjectRunOptions options,
@@ -210,9 +258,21 @@ internal sealed partial class ProjectRunService
         {
             tokens.Add("--getItem:Page,ApplicationDefinition");
             foreach (var property in DevTools.XamlSourceCoordinates.Properties) { tokens.Add($"--getProperty:{property}"); }
+            if (publish)
+            {
+                // A published (Native AOT or trimmed) Reactor app keeps its diagnostics only when they are compiled in:
+                // ReactorDiagnostics keeps Reactor's DevTools switch, and ReactorSourceMap records the call sites.
+                // Apps that do not use Reactor ignore both; the developer's own -p wins.
+                foreach (var property in ReactorDiagnosticsProperties.Where(p => !UserSpecifiesProperty(options.Properties, p.Split('=')[0])))
+                {
+                    tokens.Add($"-p:{property}");
+                }
+            }
         }
         return tokens;
     }
+
+    internal static readonly IReadOnlyList<string> ReactorDiagnosticsProperties = ["ReactorDiagnostics=true", "ReactorSourceMap=true"];
 
     /// <summary>
     /// Builds the arguments for the NATIVE MSIX publish pass: <c>dotnet publish</c> that lets the Windows

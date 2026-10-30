@@ -851,6 +851,25 @@ int main()
             likelyPanel.find(L"DevToolsConfirmLikelySource") != std::wstring::npos &&
             likelyPanel.find(L"IsChecked=\"False\"") != std::wstring::npos,
             "source attribution", "a likely source is shown for review with an unchecked explicit confirmation");
+        DevToolsCSharpSourceInfo csharp;
+        csharp.label = L"Button";
+        csharp.header = L"<Counter> \u00B7 App.cs:67";
+        csharp.path = L"C:\\src\\App.cs";
+        csharp.line = 67;
+        csharp.code = L"Button(\"+1\", () => setCount(count + 1)));";
+        const auto csharpPanel = BuildSelectionPanelMarkup(L"Button",L"Button",0,0,500,0,0,L"",
+            L"",0,true,L"noSourceInfo",L"",{},0,0,false,&csharp);
+        check(csharpPanel.find(L"Text=\"&lt;Counter&gt; \u00B7 App.cs:67\"") != std::wstring::npos &&
+            csharpPanel.find(L"Not linked to source") == std::wstring::npos &&
+            csharpPanel.find(L"DevToolsConfirmLikelySource") == std::wstring::npos,
+            "source attribution", "a Reactor element's flyout names its component and C# call site");
+        csharp.exact = false;
+        const auto nearestPanel = BuildSelectionPanelMarkup(L"TextBlock",L"TextBlock",0,0,500,0,0,L"",
+            L"",0,true,L"noSourceInfo",L"",{},0,0,false,&csharp);
+        check(nearestPanel.find(L"nearest Reactor element") != std::wstring::npos &&
+            nearestPanel.find(L"DevToolsSelAuthoredCSharp") != std::wstring::npos &&
+            nearestPanel.find(L"DevToolsConfirmLikelySource") != std::wstring::npos,
+            "source attribution", "a template part offers the nearest Reactor element's C# for explicit confirmation");
         check(panel.find(L"DevToolsConfirmLikelySource") == std::wstring::npos && !LikelySourceConfirmed(nullptr),
             "source attribution", "non-likely panel has no confirmation and a missing checkbox never confirms");
         check(XmlEscapeLines(L"a\r\nb")==L"a&#xD;&#xA;b","markup","markup keeps both line-break characters");

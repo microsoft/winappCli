@@ -301,6 +301,34 @@ void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read);
 typedef bool (*DevToolsDeclaredFn)(InstanceHandle raw);
 void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read);
 
+// The C# a Microsoft.UI.Reactor element was created by, for an element with no XAML declaration: the header line
+// (`<Counter> · App.cs:35`), the file on disk and the statement at the call site. UI thread only; reads a cache.
+struct DevToolsCSharpSourceInfo
+{
+    std::wstring label;    // the Reactor element: `<Counter>` for a component, its element kind (`VStack`) otherwise,
+                           // followed by its C# name when it has one (`Button #incrementButton`)
+    std::wstring name;     // the C# variable the element was assigned to, shown like an x:Name; empty when none
+    std::wstring header;   // `<Counter> · App.cs:35`
+    std::wstring path;     // the file on this machine, or the recorded path when it is not here
+    unsigned int line = 0;
+    std::wstring code;     // the statement, secrets redacted; empty when the file cannot be read here
+    bool exact = true;     // false: the nearest Reactor element's call site, not this element's own
+};
+typedef bool (*DevToolsCSharpSourceReadFn)(InstanceHandle raw, DevToolsCSharpSourceInfo* out);
+void DevToolsOverlay_SetCSharpSourceReader(DevToolsCSharpSourceReadFn read);
+
+// Microsoft.UI.Reactor trace in the overlay. UI thread only.
+// The pill's badge: Reactor render and swallowed errors and keyed-list warnings since launch.
+void DevToolsOverlay_SetReactorProblems(unsigned int count);
+// Shows the "Highlight updates" toggle when the app's Reactor reports component renders.
+void DevToolsOverlay_SetHighlightUpdatesAvailable(bool available);
+bool DevToolsOverlay_HighlightUpdatesOn();
+// Called (UI thread) when the user turns highlight updates on or off, so the tap asks for render events.
+typedef void (*DevToolsHighlightUpdatesFn)(bool on);
+void DevToolsOverlay_SetHighlightUpdatesBridge(DevToolsHighlightUpdatesFn set);
+// Outlines these just-rendered elements for a moment, when highlight updates is on.
+void DevToolsOverlay_FlashRendered(const std::vector<InstanceHandle>& handles);
+
 // `fromUserPick` is call-local state; protocol/window selections must not open the comment flyout.
 void DevToolsOverlay_ShowBadgeForHandle(IXamlDiagnostics* diag, InstanceHandle target, bool fromUserPick = false);
 

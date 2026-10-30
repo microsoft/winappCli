@@ -5,6 +5,8 @@
 // Coalesce per-element OnVisualTreeChange bursts into one dispatcher turn; inline drain can run before handles retire.
 // Consumers may parse/build XAML, so delivery waits until after the framework callback to avoid re-entrancy.
 static std::atomic<bool>      g_treeDirty{false};
+// Bumped on every visual-tree mutation; caches derived from the tree (the Reactor annotations) compare it.
+static std::atomic<unsigned long long> g_treeEpoch{0};
 static DevToolsTreeChangedFn       g_treeSinks[4] = { nullptr, nullptr, nullptr, nullptr };
 static std::atomic<unsigned>  g_treeSinkCount{0};
 static std::atomic<bool>      g_treeEnqueued{false};
@@ -405,6 +407,7 @@ bool DevToolsTreeWatch_Subscribe(DevToolsTreeChangedFn fn){
 // runs after the storm rather than inside it.
 static void DevToolsTreeWatch_NoteMutation()
 {
+    g_treeEpoch.fetch_add(1, std::memory_order_relaxed);
     g_treeDirty.store(true, std::memory_order_relaxed);
     if (!g_treeSinkCount.load(std::memory_order_acquire) || !g_dispatcher) return;
     bool expected = false;

@@ -9,6 +9,9 @@
 #include <string>
 #include "DevToolsTestCheck.h"
 
+#include <regex>
+#include <set>
+
 static std::string ReadText(const std::filesystem::path& path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -563,6 +566,21 @@ static void TestToolbarContract()
                  "the inspector's Comment action saves through the in-app comment writer");
     Check(overlay.find("static EventSink g_protoSink[24];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
+    Check(overlay.find("wireNamedClick(L\"DevToolsProtoHighlight\", g_protoSink[10], &ThenReturnFocus<&OnHighlightUpdatesClick>);") != std::string::npos &&
+                     xaml.find("x:Name=\"DevToolsProtoHighlight\" Visibility=\"Collapsed\"") != std::string::npos &&
+                     xaml.find("x:Name=\"DevToolsChipErrors\" Visibility=\"Collapsed\"") != std::string::npos &&
+                     xaml.find("x:Name=\"DevToolsBarErrors\" Visibility=\"Collapsed\"") != std::string::npos,
+                 "Highlight updates and the Reactor error badge start hidden and are wired by name");
+    // Binding a sink replaces its callback, so two controls on one sink both run the last handler bound: the pill
+    // once ran Highlight updates instead of opening the bar.
+    {
+        const std::regex wired(R"(wire(?:NamedClick|UiEvent)\([^;]*?g_protoSink\[(\d+)\])");
+        std::set<std::string> slots;
+        bool unique = true;
+        for (std::sregex_iterator it(overlay.begin(), overlay.end(), wired), end; it != end; ++it)
+            unique = slots.insert((*it)[1].str()).second && unique;
+        Check(unique && slots.size() >= 20, "each toolbar control has its own event sink");
+    }
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);") != std::string::npos,
                  "Pick is wired by namescope identity, and gives focus back to the app after a command run through UI Automation");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoComments\", g_protoSink[3], &ThenReturnFocus<&OnCommentModeClick>);") != std::string::npos &&

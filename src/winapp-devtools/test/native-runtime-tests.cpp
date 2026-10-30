@@ -421,6 +421,30 @@ static void CheckSecretRedaction(const std::function<void(bool,const char*)>& ch
     g_diag=nullptr;g_vts3=nullptr;
 }
 
+// A Reactor hook follows the XAML rule by its name: only a name ending in "Password" is a secret, shown redacted and
+// never written.
+static void CheckReactorSecretHooks(const std::function<void(bool,const char*)>& check)
+{
+    DevToolsJson component;
+    check(DevToolsJsonParse(LR"({"state":"ok","hooks":[
+        {"index":0,"kind":"state","value":"\"hunter2\"","canSet":true,"editable":true},
+        {"index":1,"kind":"state","value":"\"abc123\"","canSet":true,"editable":true}]})", component),
+        "a Reactor.component answer parses");
+    auto& hooks = component.obj[L"hooks"].arr;
+    TapReactorApplyHookName(hooks[0], L"password", 12);
+    TapReactorApplyHookName(hooks[1], L"ApiToken", 13);
+    check(hooks[0].GetString(L"value") == kDevToolsRedacted && hooks[0].GetBool(L"redacted", false) &&
+        !hooks[0].GetBool(L"editable", true) && hooks[0].GetString(L"name") == L"password",
+        "a hook named password is redacted and not editable");
+    check(hooks[1].GetString(L"value") == L"\"abc123\"" && !hooks[1].GetBool(L"redacted", false) &&
+        hooks[1].GetBool(L"editable", false), "a hook named ApiToken is shown, as a XAML property of that name would be");
+    const std::wstring refusal = TapReactorSecretRefusal(component, L"0");
+    check(refusal.find(L"\"state\":\"refused\"") != std::wstring::npos && refusal.find(L"\"code\":\"secret\"") != std::wstring::npos,
+        "Reactor.setState refuses the hook named password");
+    check(TapReactorSecretRefusal(component, L"1").empty() && TapReactorSecretRefusal(component, L"9").empty(),
+        "and lets any other hook through to the app");
+}
+
 // AccessKey="" reaches the chain as a null "0" handle with an Object value type, though the property is a String.
 struct EmptyStringTreeService : TextTreeService {
     using TextTreeService::TextTreeService;
@@ -1328,6 +1352,7 @@ int wmain(int argc, wchar_t** argv)
     check(!CardReadInputBridge(&input, &unchanged), "unsupported input is refused");
     CheckCuratedText(check);
     CheckSecretRedaction(check);
+    CheckReactorSecretHooks(check);
     {
         const std::wstring settings = DevToolsSettingsFile(L"Probe");
         wchar_t profile[MAX_PATH] = L"";
@@ -1362,6 +1387,196 @@ int wmain(int argc, wchar_t** argv)
     const auto negotiated = call(L"DevTools.negotiate");
     check(negotiated.find(L"Comment.add") != std::wstring::npos, "real host-dependent methods remain implemented");
     check(negotiated.find(L"Internal.") == std::wstring::npos, "internal methods are not advertised");
+    check(negotiated.find(L"\"reactor\":{\"present\":false,\"agent\":\"absent\"}") != std::wstring::npos,
+          "negotiate says an app without Reactor and without a managed agent has no Reactor");
+    {
+        const auto described = call(L"Reactor.describe");
+        check(described.find(L"\"state\":\"absent\"") != std::wstring::npos &&
+              described.find(L"\"nodes\":[]") != std::wstring::npos,
+              "Reactor.describe answers absent without walking the tree");
+        // A cached Reactor element counts as authored only while its census slot still has the generation it was
+        // described at; a reused slot is a different element.
+        CensusSnapshot cs;
+        cs.type[11] = L"Microsoft.UI.Xaml.Controls.Button";
+        cs.type[12] = L"Microsoft.UI.Xaml.Controls.TextBlock";
+        cs.wire[11] = 1101;
+        cs.wire[12] = 1299;
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        g_reactorAnnotations.clear();
+        g_reactorByWire.clear();
+        for (const auto& [ih, wire] : { std::pair<InstanceHandle, unsigned long long>{ 11, 1101 }, { 12, 1201 }, { 13, 1301 } }) {
+            ReactorAnnotation annotation;
+            annotation.wire = wire;
+            annotation.element = L"Button";
+            g_reactorAnnotations[ih] = annotation;
+            g_reactorByWire[wire] = ih;
+        }
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+        std::set<InstanceHandle> authored;
+        TapReactorAddAuthored(cs, authored);
+        check(authored == std::set<InstanceHandle>{ 11 }, "Reactor-authored elements join the authored set by live wire only");
+        check(TapReactorAuthoredWire(1101) && !TapReactorAuthoredWire(1299),
+              "the inspector asks the same Reactor-authored set by wire");
+
+        // What every surface shows for a Reactor element comes from the same annotation.
+        ReactorAnnotation button;
+        button.wire = 1101;
+        button.element = L"Button";
+        button.key = L"inc";
+        button.file = L"C:\\src\\TaskBoard\\App.cs";
+        button.line = 74;
+        button.owner = L"Counter";
+        check(TapReactorLabel(button) == L"Button" && TapReactorShortSource(button) == L"App.cs:74",
+              "an element reads as its kind and its call site as File.cs:line");
+        const std::wstring searchText = TapReactorSearchText(button);
+        check(searchText.find(L"key=inc") != std::wstring::npos && searchText.find(L"App.cs:74") != std::wstring::npos,
+              "search matches an element by key and by call site");
+        const std::wstring match = TapReactorMatchJson(button);
+        check(match.find(L"\"owner\":\"Counter\"") != std::wstring::npos && match.find(L"\"line\":74") != std::wstring::npos,
+              "a search match carries the rendering component and the call site");
+        ReactorAnnotation counter;
+        counter.wire = 1201;
+        counter.element = L"Component";
+        counter.component = L"Counter";
+        check(TapReactorLabel(counter) == L"<Counter>" &&
+              TapReactorSearchText(counter).find(L"<Counter>") != std::wstring::npos,
+              "a component element reads and matches as <Counter>");
+        ReactorAnnotation root;
+        root.wire = 1301;
+        root.element = L"VStack";
+        root.host = true;
+        root.hostKind = L"window";
+        root.windowKey = L"Settings";
+        root.rootName = L"SettingsPage";
+        root.mountFile = L"C:\\nowhere\\App.cs";
+        root.mountLine = 12;
+        const std::wstring surface = TapReactorSurfaceJson(root);
+        check(TapReactorLabel(root) == L"<SettingsPage>" &&
+              surface.find(L"\"root\":{\"kind\":\"class\",\"name\":\"SettingsPage\"}") != std::wstring::npos &&
+              surface.find(L"\"mountLine\":12") != std::wstring::npos && surface.find(L"\"windowKey\":\"Settings\"") != std::wstring::npos,
+              "Surface.list names a window's Reactor root and where it was mounted");
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        g_reactorAnnotations[11] = button;
+        g_reactorAnnotations[12] = counter;
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+        std::vector<DevToolsWindowNode> rows(3);
+        rows[0].handle = 1101; rows[0].type = L"Microsoft.UI.Xaml.Controls.Button";
+        rows[1].handle = 1201; rows[1].type = L"Microsoft.UI.Xaml.Controls.Border";
+        rows[2].handle = 1299; rows[2].type = L"Microsoft.UI.Xaml.Controls.TextBlock";
+        TapReactorLabelNodes(rows);
+        check(rows[0].reactorLabel.empty() && rows[0].reactorSource == L"key=inc  App.cs:74",
+              "an inspector row keeps a matching WinUI type and shows the key and call site");
+        check(rows[1].reactorLabel == L"<Counter>" && rows[2].reactorLabel.empty() && rows[2].reactorSource.empty(),
+              "a component row reads <Counter>; a control no Reactor element produced is unchanged");
+        {
+            // A ReactorHostControl selected by its XAML x:Name sits above the island root it renders, so get-state
+            // through it still names the root component's hooks.
+            ReactorAnnotation island;
+            island.wire = 1401;
+            island.host = true;
+            island.hostKind = L"island";
+            island.rootName = L"LibPanel";
+            DevToolsReactorPublished::Hook on;
+            on.name = L"on";
+            island.hooks = { on };
+            AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+            g_reactorAnnotations[14] = island;
+            ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+            g_parent[14] = 15; g_parent[15] = 16; // island root -> ContentPresenter -> ReactorHostControl
+            const auto hosted = TapReactorHostedRootHooks(16, L"LibPanel");
+            check(hosted.size() == 1 && hosted[0].name == L"on", "a host control above an island root names its root's hooks");
+            check(TapReactorHostedRootHooks(16, L"OtherPanel").empty(), "but not for another root component");
+            check(TapReactorHostedRootHooks(17, L"LibPanel").empty(), "and not from an element the island is not inside");
+            g_parent.erase(14); g_parent.erase(15);
+        }
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        g_reactorAnnotations.clear();
+        g_reactorByWire.clear();
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+        check(call(L"Reactor.element").find(L"\"error\"") != std::wstring::npos, "Reactor.element requires a handle");
+        check(DevToolsProtocolFindMethod(L"Reactor.element") != nullptr, "Reactor.element is a protocol method");
+        for (const auto* method : { L"Reactor.component", L"Reactor.setState", L"Reactor.rerender", L"Reactor.invokeHandler",
+                                    L"Resource.get", L"Resource.set" }) {
+            check(DevToolsProtocolFindMethod(method) != nullptr, "each Reactor component and resource method is a protocol method");
+            check(call(method).find(L"\"error\"") != std::wstring::npos, "and requires its parameters");
+        }
+        const auto* setState = DevToolsProtocolFindMethod(L"Reactor.setState");
+        const auto* component = DevToolsProtocolFindMethod(L"Reactor.component");
+        const auto* resourceSet = DevToolsProtocolFindMethod(L"Resource.set");
+        check(setState && setState->access == DevToolsAccess::Mutation && resourceSet && resourceSet->access == DevToolsAccess::Mutation &&
+              component && component->access == DevToolsAccess::Read, "writes need Mutation access; reading a component needs Read");
+        auto callWith = [&](const wchar_t* method, const wchar_t* params) {
+            DevToolsRpcRequest request{};
+            request.method = method;
+            request.hasId = true;
+            request.idRaw = L"1";
+            DevToolsJsonParse(params, request.params);
+            return HandleRpc(nullptr, request);
+        };
+        check(callWith(L"Reactor.setState", L"{\"handle\":\"1\",\"hook\":-1,\"value\":\"1\"}").find(L"\"error\"") != std::wstring::npos,
+              "a negative hook index is refused before the app is asked");
+        check(callWith(L"Resource.set", L"{\"handle\":\"1\",\"key\":\"K\",\"value\":\"1\",\"scope\":\"window\"}").find(L"\"error\"") != std::wstring::npos,
+              "Resource.set takes only element or app scope");
+
+        // Reactor trace events: the agent's stream fills the kept log and the error count.
+        {
+            std::lock_guard<std::mutex> lock(g_reactorPumpLock);
+            g_reactorLog.clear();
+            g_reactorErrors = 0;
+        }
+        TapReactorPumpLine("EVENT {\"seq\":1,\"kind\":\"renderError\",\"level\":\"error\",\"event\":\"RenderError\",\"log\":true,\"replay\":true,\"component\":\"Counter\"}");
+        TapReactorPumpLine("EVENT {\"seq\":2,\"kind\":\"state\",\"level\":\"verbose\",\"event\":\"StateChange\"}");
+        TapReactorPumpLine("EVENT {\"seq\":3,\"kind\":\"warning\",\"level\":\"warning\",\"event\":\"Warning\",\"log\":true,\"message\":\"m\"}");
+        TapReactorPumpLine("not an event line");
+        TapReactorPumpLine("EVENT {broken");
+        {
+            std::lock_guard<std::mutex> lock(g_reactorPumpLock);
+            check(g_reactorLog.size() == 2 && g_reactorLog[0].severity == 3 && g_reactorLog[1].seq == 3,
+                  "warnings and errors are kept in order; state changes and malformed lines are not");
+            check(g_reactorErrors == 1, "a render error counts toward the overlay's error badge, replayed or not");
+            g_reactorLog.clear();
+            g_reactorErrors = 0;
+            g_reactorWarnings = 0;
+        }
+        // Keyed-list bailouts (Reactor's old dev menu was the only place they showed) count once each on the badge.
+        TapReactorPumpLine("EVENT {\"seq\":4,\"kind\":\"keyedList\",\"level\":\"warning\",\"event\":\"KeyedListDiagnostic\",\"log\":true,\"control\":\"ListView\",\"problem\":\"duplicateKey\",\"count\":1,\"first\":true}");
+        TapReactorPumpLine("EVENT {\"seq\":5,\"kind\":\"keyedList\",\"level\":\"warning\",\"event\":\"KeyedListDiagnostic\",\"log\":true,\"control\":\"ListView\",\"problem\":\"duplicateKey\",\"count\":4}");
+        {
+            std::lock_guard<std::mutex> lock(g_reactorPumpLock);
+            check(g_reactorLog.size() == 2, "both keyed-list entries are kept in the log");
+            check(g_reactorWarnings == 1 && g_reactorErrors == 0,
+                  "a keyed-list bailout counts on the badge once; firing again is logged but not counted");
+            g_reactorLog.clear();
+            g_reactorWarnings = 0;
+        }
+        check(DevToolsProtocolFindMethod(L"Reactor.logs") != nullptr && DevToolsProtocolFindMethod(L"Reactor.enable") != nullptr,
+              "Reactor.logs and Reactor.enable are protocol methods");
+        check(call(L"Reactor.logs").find(L"\"state\":\"absent\"") != std::wstring::npos,
+              "Reactor.logs answers absent in an app without Reactor");
+        check(callWith(L"Reactor.logs", L"{\"level\":\"loud\"}").find(L"bad-args") != std::wstring::npos &&
+              callWith(L"Reactor.logs", L"{\"since\":-1}").find(L"\"error\"") != std::wstring::npos,
+              "Reactor.logs refuses an unknown level or a negative seq");
+        check(callWith(L"Reactor.enable", L"{\"renders\":1}").find(L"bad-args") != std::wstring::npos,
+              "Reactor.enable takes renders as a boolean");
+        check(callWith(L"Reactor.enable", L"{\"renders\":true}").find(L"\"enabled\":true") != std::wstring::npos &&
+              call(L"Reactor.disable").find(L"\"enabled\":false") != std::wstring::npos,
+              "the Reactor domain is enabled and disabled like the others");
+
+        // A comment marker's anchor for a Reactor element names its project-relative call site.
+        ReactorAnnotation site;
+        site.file = L"C:\\nowhere\\TaskBoard\\App.cs";
+        site.line = 74;
+        site.column = 13;
+        site.element = L"Button";
+        site.key = L"inc";
+        site.owner = L"Counter";
+        const auto encoded = DevToolsReactorAnchor::Encode(TapReactorSiteOf(site));
+        DevToolsReactorAnchor::Site decoded;
+        check(DevToolsReactorAnchor::Decode(encoded, &decoded) && decoded.file == L"App.cs" && decoded.line == 74 &&
+              decoded.column == 13 && decoded.owner == L"Counter" && decoded.key == L"inc",
+              "a Reactor element's marker anchor carries its call site, key and component");
+        check(TapResolveAnchor(encoded.c_str()) == 0, "an anchor no live element matches resolves to nothing");
+    }
     for (const auto* method : { L"Internal.pageInspectable", L"Internal.contentRoot", L"DevTools.cancel" }) {
         const auto response = call(method);
         check(response.find(std::to_wstring(DevToolsErr::MethodNotFound)) != std::wstring::npos,
@@ -1562,6 +1777,102 @@ int wmain(int argc, wchar_t** argv)
         AcquireSRWLockExclusive(&g_sourceUriLock);
         g_sourceInfo.clear();
         ReleaseSRWLockExclusive(&g_sourceUriLock);
+    }
+    {
+        // Reactor.component asks about one element. While a list churns elsewhere (the cache is never current), an
+        // element already described is answered from the cache, a new one gets a description of its own subtree,
+        // and a whole-tree refresh describes once instead of retrying while the tree keeps changing.
+        static int describes = 0;
+        static InstanceHandle described = 1;
+        g_testReactorDescribeOnce = [](InstanceHandle subtree, bool* complete) {
+            ++describes;
+            described = subtree;
+            *complete = false;
+            g_treeEpoch.fetch_add(1);
+            return true;
+        };
+        static bool exactAnswer = true;
+        g_testReactorAgent = [](unsigned long long, const wchar_t*) -> std::wstring {
+            return std::wstring(L"{\"state\":\"ok\",\"exact\":") + (exactAnswer ? L"true" : L"false") +
+                   L",\"component\":{\"kind\":\"class\",\"name\":\"VRow\"},"
+                   L"\"hooks\":[{\"index\":0,\"kind\":\"state\",\"value\":\"0\"}]}";
+        };
+        {
+            std::lock_guard<std::mutex> lock(g_reactorStatusLock);
+            g_reactorStatus = TapReactorStatus{};
+            g_reactorStatus.present = true;
+            g_reactorStatus.agent = L"ok";
+            g_reactorStatus.annotations = L"agent";
+            g_reactorStatusAt = GetTickCount64();
+        }
+        MintSlot_nolock(7001);
+        MintSlot_nolock(7002);
+        MintSlot_nolock(7003);
+        const auto row = PackWire_nolock(7001), fresh = PackWire_nolock(7002), inner = PackWire_nolock(7003);
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        ReactorAnnotation vrow;
+        vrow.wire = row;
+        vrow.element = L"Component";
+        vrow.component = L"VRow";
+        DevToolsReactorPublished::Hook clicks;
+        clicks.name = L"clicks";
+        vrow.hooks.push_back(clicks);
+        g_reactorAnnotations[7001] = vrow;
+        g_reactorCacheWhole = false;
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+
+        const std::wstring known = CmdReactorComponent(row);
+        check(describes == 0 && known.find(L"\"name\":\"clicks\"") != std::wstring::npos,
+              "Reactor.component on a described element asks the agent only, and names hooks from the cache");
+        CmdReactorComponent(fresh);
+        check(describes == 1 && described == 7002,
+              "a component the cache does not know yet gets one description of its own subtree, not the whole tree");
+        describes = 0;
+        exactAnswer = false;
+        CmdReactorComponent(inner);
+        check(describes == 2 && described == 0,
+              "an element inside a component the cache does not know yet: its subtree, then the whole tree to find the component");
+        exactAnswer = true;
+        describes = 0;
+        TapReactorRefreshAuthored();
+        check(describes == 1 && described == 0, "a whole-tree refresh describes once while the tree keeps changing");
+
+        g_testReactorDescribeOnce = nullptr;
+        g_testReactorAgent = nullptr;
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        g_reactorAnnotations.clear();
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+        {
+            std::lock_guard<std::mutex> lock(g_reactorStatusLock);
+            g_reactorStatus = TapReactorStatus{};
+            g_reactorStatusAt = 0;
+        }
+    }
+    {
+        // Classification under churn: an element a Reactor call site created needs no XAML source read, and one that
+        // left the tree since the snapshot has nothing left to read; neither leaves `search` incomplete forever.
+        MintSlot_nolock(7101);
+        const auto rowWire = PackWire_nolock(7101);
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        ReactorAnnotation row;
+        row.wire = rowWire;
+        row.element = L"Component";
+        row.component = L"ChurnRow";
+        g_reactorAnnotations[7101] = row;
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
+        CensusSnapshot cs;
+        cs.type[7101] = L"Microsoft.UI.Xaml.Controls.Border";
+        cs.type[7102] = L"Microsoft.UI.Xaml.Controls.TextBlock";
+        cs.wire[7101] = rowWire;
+        cs.wire[7102] = rowWire + 1; // re-created since: its handle no longer resolves
+        cs.parent[7102] = 7101;
+        cs.children[7101] = { 7102 };
+        const AuthoredVerdicts verdicts = ClassifyAuthored(cs, true);
+        check(!verdicts.err && !verdicts.truncated && verdicts.authored.count(7101) == 1,
+              "a Reactor element is classified without a source read, and a re-created one does not block completion");
+        AcquireSRWLockExclusive(&g_reactorAuthoredLock);
+        g_reactorAnnotations.clear();
+        ReleaseSRWLockExclusive(&g_reactorAuthoredLock);
     }
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     check(SUCCEEDED(apartment), "binding test COM initialization");

@@ -28,6 +28,14 @@ public class DevToolsQueryCommandTests
         "uiThreadMicroseconds":100,"reasons":{},"matches":[{{rows}}],"context":[]{{(error is null ? "" : ",\"error\":\"" + error + "\"")}}}
         """;
 
+    // The property read is the one query request; the only other requests are the Reactor provenance lookup and the
+    // element's references.
+    private static void AssertOneQueryRead(FakeDevToolsProtocolAgent agent)
+    {
+        Assert.AreEqual(1, agent.Received.Count(method => method == "VisualTree.query"));
+        Assert.IsTrue(agent.Received.All(method => method is "VisualTree.query" or "Reactor.element" or "Property.references"));
+    }
+
     [TestMethod]
     public async Task Search_StructuredCriteriaAreOneRequestWithAndPredicates()
     {
@@ -335,7 +343,7 @@ public class DevToolsQueryCommandTests
         Assert.AreEqual(count, result.RootElement.GetProperty("properties").GetArrayLength());
         Assert.AreEqual(2, result.RootElement.GetProperty("properties")[0].GetProperty("chain").GetArrayLength());
         Assert.AreEqual("{Binding Title}", result.RootElement.GetProperty("properties")[0].GetProperty("binding").GetString());
-        Assert.HasCount(1, agent.Received);
+        AssertOneQueryRead(agent);
         Assert.AreEqual("SearchBox", result.RootElement.GetProperty("selector").GetString());
         Assert.IsTrue(result.RootElement.GetProperty("query").GetProperty("complete").GetBoolean());
     }
@@ -540,7 +548,7 @@ public class DevToolsQueryCommandTests
         var (exit, output) = await Run(new DevToolsGetPropertyCommand(), agent,
             ["--of-type", "TextBox", "--property", property, "--json"]);
         Assert.AreEqual(expected, exit);
-        Assert.HasCount(1, agent.Received);
+        AssertOneQueryRead(agent);
         if (expected == 0)
         {
             using var result = JsonDocument.Parse(output);
@@ -614,6 +622,42 @@ public class DevToolsQueryCommandTests
         Assert.AreEqual(1, (await Run(new DevToolsSetPropertyCommand(), agent, ["Heading", "--of-type", "TextBlock", "--value", "x", "-p", "Text"])).Exit);
         Assert.AreEqual(1, (await Run(new DevToolsSetPropertyCommand(), agent, ["--of-type", "TextBlock", "-p", "Text"])).Exit);
         Assert.AreEqual(0, agent.Received.Count);
+    }
+
+    [TestMethod]
+    public void Preview_FormatKeepsAnExplicitAccessibleNameThatRepeatsTheCaption()
+    {
+        // A XAML app that sets AutomationProperties.Name wrote it on purpose, even when it equals the caption.
+        var same = DevToolsPreviews.Format([
+            new("Content", "+1", "value", "String", false),
+            new("AutomationProperties.Name", "+1", "value", "String", false),
+        ]);
+        Assert.AreEqual("Content=\"+1\" AutomationProperties.Name=\"+1\"", same);
+
+        var placeholder = DevToolsPreviews.Format([
+            new("PlaceholderText", "New task", "value", "String", false),
+            new("AutomationProperties.Name", "New task", "value", "String", false),
+        ]);
+        StringAssert.Contains(placeholder, "AutomationProperties.Name=\"New task\"");
+    }
+
+    [TestMethod]
+    public void Preview_FormatDropsReactorsDefaultAccessibleNameWhateverItCopied()
+    {
+        // Reactor reports the name as its own default (DefaultAutomationName): a copy of the caption, or of something
+        // that is not among the compact values.
+        Assert.AreEqual("PlaceholderText=\"New task\"", DevToolsPreviews.Format([
+            new("PlaceholderText", "New task", "value", "String", false),
+            new("AutomationProperties.Name", "New task", "value", "String", false),
+        ], defaultAutomationName: true));
+        var values = new DevToolsPreviewValue[]
+        {
+            new("Text", "Done today: 3", "value", "String", false),
+            new("AutomationProperties.Name", "Counter", "value", "String", false),
+        };
+        Assert.AreEqual("Text=\"Done today: 3\"", DevToolsPreviews.Format(values, defaultAutomationName: true));
+        StringAssert.Contains(DevToolsPreviews.Format(values), "AutomationProperties.Name=\"Counter\"",
+            "without Reactor's word for it, the name is the app's own");
     }
 
     [TestMethod]

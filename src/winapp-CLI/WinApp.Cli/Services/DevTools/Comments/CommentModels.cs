@@ -70,6 +70,10 @@ internal sealed class CommentAnchor
 
     public CommentAuthoredAnchor? Authored { get; set; }
 
+    /// <summary>The C# call site a Microsoft.UI.Reactor element was created at. Null for a XAML anchor.</summary>
+    [JsonPropertyName("csharp")]
+    public CommentCSharpAnchor? CSharp { get; set; }
+
     [JsonRequired]
     public CommentIdentity Identity { get; set; } = new();
 
@@ -114,6 +118,46 @@ internal sealed class CommentAuthoredAnchor
     public bool UniqueInstance { get; set; }
 
     public string? UniquenessReason { get; set; }
+}
+
+internal sealed class CommentCSharpAnchor
+{
+    [JsonRequired]
+    public string ProjectRoot { get; set; } = string.Empty;
+
+    /// <summary>Project-relative path of the <c>.cs</c> file.</summary>
+    [JsonRequired]
+    public string SourceFile { get; set; } = string.Empty;
+
+    [JsonRequired]
+    public int Line { get; set; }
+
+    /// <summary>1-based column of the factory call; 0 when the app's Reactor does not record columns.</summary>
+    public int Column { get; set; }
+
+    /// <summary>SHA-256 of the normalized, password-redacted line text.</summary>
+    [JsonRequired]
+    public string LineHash { get; set; } = string.Empty;
+
+    /// <summary>The normalized, password-redacted line text, for ranking an edited line.</summary>
+    public string? LineText { get; set; }
+
+    /// <summary>The factory the call site invokes (<c>Button</c>), read from the source at the column.</summary>
+    public string? Factory { get; set; }
+
+    /// <summary>The Reactor element kind (<c>Button</c>, <c>Stack</c>, <c>Component</c>).</summary>
+    public string? Element { get; set; }
+
+    /// <summary>The component whose render created the element.</summary>
+    public string? Component { get; set; }
+
+    public string? Key { get; set; }
+
+    /// <summary>Which of the elements this call site created under the same parent (0 for the first).</summary>
+    public int Ordinal { get; set; }
+
+    /// <summary>False when the element has no call site of its own and this is the nearest Reactor element's.</summary>
+    public bool Exact { get; set; } = true;
 }
 
 internal sealed class CommentIdentity
@@ -304,6 +348,9 @@ internal sealed class CommentResultPayload
     public string? Error { get; set; }
 
     public string? Warning { get; set; }
+
+    /// <summary>Set when the comment was saved without a source location: why, and how to anchor it.</summary>
+    public string? Unanchored { get; set; }
 
     public CommentView? Comment { get; set; }
 }

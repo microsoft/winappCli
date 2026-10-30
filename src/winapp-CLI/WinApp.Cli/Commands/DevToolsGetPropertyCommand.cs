@@ -181,6 +181,24 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                 selected = all.Where(p => p.Row.IsSet).ToList();
             }
 
+            // Which of these values the element's C# sets (Microsoft.UI.Reactor), and the props of the component it mounts.
+            var reactor = ReactorElementInfo.Read(target.Tap!, handle, cancellationToken);
+            // A component's own node also shows its state: hooks and the contexts it reads.
+            ReactorComponentState? componentState = null;
+            string? componentJson = null;
+            if (reactor?.ComponentProps is not null && !singleProperty)
+            {
+                var (state, raw, _, _) = ReactorComponentState.Read(target.Tap!, handle, cancellationToken);
+                if (state is { Exact: true })
+                {
+                    componentState = state;
+                    componentJson = raw;
+                }
+            }
+
+            // LabeledBy / DescribedBy / FlowsTo / FlowsFrom / XYFocus* edges from and to the element.
+            var references = singleProperty ? null : DevToolsReferences.Read(target.Tap!, handle, cancellationToken);
+
             if (json)
             {
                 // authoredState is a per-ELEMENT fact and is REQUIRED by the result contract: "available"
@@ -245,31 +263,110 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                         }
 
                         writer.WriteBoolean("isSet", row.IsSet);
+                        if (reactor?.ThemeResourceOf(row.Name) is { } themeResource)
+                        {
+                            writer.WriteString("themeResource", themeResource);
+                        }
+                        if (reactor?.OwnerOf(row.Name) is { } owned)
+                        {
+                            writer.WriteString("setBy", "reactor");
+                            writer.WriteStartObject("reactor");
+                            writer.WriteString("from", owned.From);
+                            writer.WriteString("name", owned.Name);
+                            writer.WriteString("value", owned.Value);
+                            if (reactor.File is not null)
+                            {
+                                writer.WriteString("file", reactor.File);
+                                writer.WriteNumber("line", reactor.Line);
+                            }
+                            writer.WriteEndObject();
+                        }
                         writer.WriteEndObject();
                     }
 
                     writer.WriteEndArray();
+                    if (reactor is not null)
+                    {
+                        WriteReactor(writer, reactor);
+                    }
+                    if (references is { } refs)
+                    {
+                        using var refsDoc = JsonDocument.Parse(refs.Raw);
+                        writer.WritePropertyName("references");
+                        refsDoc.RootElement.GetProperty("edges").WriteTo(writer);
+                    }
+                    if (componentJson is not null)
+                    {
+                        writer.WritePropertyName("component");
+                        using var component = JsonDocument.Parse(componentJson);
+                        component.RootElement.WriteTo(writer);
+                    }
                 }));
                 return Task.FromResult(0);
             }
 
             DevToolsRender.WriteMarkupLine(Console, DevToolsRender.Header(handle, queryNode ?? Describe(target, handle, cancellationToken)));
+            if (reactor is not null)
+            {
+                var what = reactor.Component is { } mounts ? $"<{mounts.Name}>" : reactor.Element ?? "element";
+                var by = reactor.Owner is { } owner && reactor.Component is null ? $" in <{owner}>" : "";
+                var site = reactor.ShortSource is { } s ? $" · {s}" : "";
+                DevToolsRender.WriteMarkupLine(Console, $"  [grey]Reactor {Markup.Escape(what + by + site)}[/]");
+            }
             foreach (var (_, row) in selected)
             {
                 var source = row.SourceLabel is string label
                     ? $" [grey][[{Markup.Escape(label)}]][/]"
                     : string.Empty;
-                DevToolsRender.WriteMarkupLine(Console, $"  {Markup.Escape(row.Name)}: {Markup.Escape(row.Value)}{source}");
+                var csharp = reactor?.OwnerOf(row.Name) is not null
+                    ? $" [blue][[set in C#{(reactor.ShortSource is { } site ? " · " + Markup.Escape(site) : "")}]][/]"
+                    : string.Empty;
+                if (reactor?.ThemeResourceOf(row.Name) is { } themeResource)
+                {
+                    csharp += $" [blue][[← ThemeRef {Markup.Escape(themeResource)}]][/]";
+                }
+                DevToolsRender.WriteMarkupLine(Console, $"  {Markup.Escape(row.Name)}: {Markup.Escape(row.Value)}{source}{csharp}");
+            }
+            if (componentState is not null)
+            {
+                Console.WriteLine();
+                foreach (var line in componentState.Lines())
+                {
+                    DevToolsRender.WriteMarkupLine(Console, line);
+                }
+            }
+            else if (reactor?.ComponentProps is { } props && !singleProperty)
+            {
+                Console.WriteLine();
+                var name = reactor.Component?.Name ?? reactor.RenderedBy ?? "component";
+                DevToolsRender.WriteMarkupLine(Console, props.Count == 0
+                    ? $"  [grey]<{Markup.Escape(name)}> has no props.[/]"
+                    : $"  Props of <{Markup.Escape(name)}>{(reactor.ComponentPropsType is { } type ? $" [grey]({Markup.Escape(type)})[/]" : "")}:");
+                foreach (var (propName, value, _) in props)
+                {
+                    DevToolsRender.WriteMarkupLine(Console, $"    {Markup.Escape(propName)}: {Markup.Escape(value)}");
+                }
+            }
+
+            if (references is { Edges.Count: > 0 } found)
+            {
+                Console.WriteLine();
+                foreach (var line in DevToolsReferences.Lines(found.Edges, found.Truncated))
+                {
+                    DevToolsRender.WriteMarkupLine(Console, line);
+                }
             }
 
             if (selected.Count == 0)
             {
+                WriteHandlers(reactor, singleProperty);
                 Console.MarkupLine(
                     "[grey]Nothing is set on this element. Every property the agent reads is at its default. " +
                     "Use --all to list them.[/]");
                 return Task.FromResult(0);
             }
 
+            WriteHandlers(reactor, singleProperty);
             if (selected.Count < total && !singleProperty)
             {
                 Console.WriteLine();
@@ -278,6 +375,85 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             }
 
             return Task.FromResult(0);
+        }
+
+        private void WriteHandlers(ReactorElementInfo? reactor, bool singleProperty)
+        {
+            if (reactor is not { Handlers.Count: > 0 } || singleProperty)
+            {
+                return;
+            }
+            Console.WriteLine();
+            DevToolsRender.WriteMarkupLine(Console, "  Handlers:");
+            foreach (var handler in reactor.Handlers)
+            {
+                var where = handler.ShortSource is { } site ? $" [grey]{Markup.Escape(site)}[/]" : "";
+                DevToolsRender.WriteMarkupLine(Console, $"    {Markup.Escape(handler.Event)} → {Markup.Escape(handler.Method)}{where}");
+            }
+        }
+
+        private static void WriteReactor(System.Text.Json.Utf8JsonWriter writer, ReactorElementInfo reactor)
+        {
+            writer.WriteStartObject("reactor");
+            if (reactor.Element is not null) { writer.WriteString("element", reactor.Element); }
+            if (reactor.Key is not null) { writer.WriteString("key", reactor.Key); }
+            if (reactor.ThemeBindings.Count > 0)
+            {
+                writer.WriteStartArray("themeBindings");
+                foreach (var (property, key) in reactor.ThemeBindings)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("property", property);
+                    writer.WriteString("resourceKey", key);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+            if (reactor.Handlers.Count > 0)
+            {
+                writer.WriteStartArray("handlers");
+                foreach (var handler in reactor.Handlers)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("event", handler.Event);
+                    writer.WriteString("method", handler.Method);
+                    writer.WriteString("signature", handler.Signature);
+                    writer.WriteBoolean("invokable", handler.Invokable);
+                    if (handler.NeedsValue) { writer.WriteBoolean("needsValue", true); }
+                    if (handler.File is not null)
+                    {
+                        writer.WriteString("file", handler.File);
+                        writer.WriteNumber("line", handler.Line);
+                    }
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+            if (reactor.File is not null)
+            {
+                writer.WriteString("file", reactor.File);
+                writer.WriteNumber("line", reactor.Line);
+                if (reactor.Column > 0) { writer.WriteNumber("column", reactor.Column); }
+            }
+            if (reactor.Owner is not null) { writer.WriteString("component", reactor.Owner); }
+            if (reactor.Component is { } mounts) { writer.WriteString("mounts", mounts.Name); }
+            if (reactor.ComponentProps is { } props)
+            {
+                writer.WriteStartObject("componentProps");
+                if (reactor.ComponentPropsType is not null) { writer.WriteString("type", reactor.ComponentPropsType); }
+                writer.WriteStartArray("values");
+                foreach (var (name, value, redacted) in props)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("name", name);
+                    writer.WriteString("value", value);
+                    if (redacted) { writer.WriteBoolean("redacted", true); }
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+            writer.WriteEndObject();
         }
     }
 }

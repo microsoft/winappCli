@@ -622,6 +622,339 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         GC.SuppressFinalize(this);
     }
 
+    [TestMethod]
+    public async Task Watch_Unpackaged_RunsDotnetWatch_AndAttachesEveryAppItStarts()
+    {
+        var app = Prepare("project", false);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        var polls = 0;
+        handler.ProcessDescendants = _ =>
+        {
+            // First poll: the first launch. Second: dotnet watch restarted the app after an edit, then exits.
+            polls++;
+            if (polls >= 2)
+            {
+                _process.HasExited = true;
+            }
+            return polls == 1 ? [(4242, "dotnet.exe"), (4243, "TestApp.exe")] : [(4243, "TestApp.exe"), (5151, "testapp.EXE")];
+        };
+        handler.ProcessHasExited = _ => false;
+
+        var exit = await Run(app.Input, "--devtools", "headless", "--watch", "--", "--preview", "Counter");
+
+        Assert.AreEqual(0, exit, TestAnsiConsole.Output);
+        var launch = _launcher.LaunchExecutableCalls.Single();
+        Assert.AreEqual("dotnet", launch.ExePath);
+        StringAssert.StartsWith(launch.Arguments!, "watch --project ");
+        StringAssert.Contains(launch.Arguments!, "--non-interactive");
+        StringAssert.Contains(launch.Arguments!, "--no-launch-profile");
+        StringAssert.EndsWith(launch.Arguments!, " -- --preview Counter");
+        Assert.AreEqual(LaunchStdioMode.Inherit, _launcher.LastLaunchStdioMode);
+        Assert.AreEqual("1", _launcher.LastEnvironment!["ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO"]);
+        Assert.AreEqual("1", _launcher.LastEnvironment["REACTOR_SOURCEMAP"]);
+        Assert.IsNull(_launcher.LastEnvironment["DOTNET_STARTUP_HOOKS"], "dotnet watch and dotnet run must not load the agent");
+        CollectionAssert.AreEqual(new uint[] { 4243, 5151 }, _attach.Calls.Select(call => call.Pid).ToArray());
+        Assert.IsTrue(_attach.Calls.All(call => !call.Overlay && call.Access == DevToolsAccess.Mutation));
+        StringAssert.Contains(TestAnsiConsole.Output, "DevTools attached again");
+    }
+
+    [TestMethod]
+    public async Task Watch_Packaged_RunsDotnetWatch_ThatRelaunchesThroughWinapp()
+    {
+        var app = Prepare("project", true);
+        GetRequiredService<RunCommand.Handler>().WinappExecutable = () => @"C:\tools\win;app,x\winapp.exe";
+        _launcher.LaunchOverride = () => { _process.HasExited = true; return _process; };
+
+        var exit = await Run(app.Input, "--devtools", "headless", "--watch", "--configuration", "Release", "-p", "Foo=Bar",
+            "--", "--preview", "Counter");
+
+        Assert.AreEqual(0, exit, TestAnsiConsole.Output + ConsoleStdErr);
+        var launch = _launcher.LaunchExecutableCalls.Single();
+        Assert.AreEqual("dotnet", launch.ExePath);
+        StringAssert.StartsWith(launch.Arguments!, "watch --project ");
+        StringAssert.Contains(launch.Arguments!, "--non-interactive");
+        StringAssert.Contains(launch.Arguments!, @"--property:WinAppDevToolsWatchRunCommand=C:\tools\win%3Bapp%2Cx\winapp.exe");
+        StringAssert.Contains(launch.Arguments!, "\"--property:WinAppDevToolsWatchRunArguments=run --devtools-watch-launch\"");
+        var targets = WindowsCommandLine.SplitArguments(launch.Arguments!)
+            .Single(token => token.StartsWith("--property:CustomAfterMicrosoftCommonTargets=", StringComparison.Ordinal))
+            ["--property:CustomAfterMicrosoftCommonTargets=".Length..];
+        StringAssert.Contains(File.ReadAllText(targets), "AfterTargets=\"ComputeRunArguments\"");
+        _ = System.Xml.Linq.XDocument.Load(targets);
+        Assert.IsFalse(launch.Arguments!.Contains(" -- ", StringComparison.Ordinal), "App arguments go to the launch step, not to dotnet watch.");
+        CollectionAssert.AreEqual(
+            new[] { app.Input, "--no-build", "--devtools", "headless", "--configuration", "Release", "--property", "Foo=Bar", "--", "--preview", "Counter" },
+            WindowsCommandLine.SplitArguments(_launcher.LastEnvironment![RunCommand.Handler.WatchLaunchVariable]!).ToArray());
+        Assert.IsFalse(_launcher.LastEnvironment.ContainsKey("DOTNET_STARTUP_HOOKS"), "The launch step composes the hooks itself.");
+        Assert.IsEmpty(_attach.Calls, "The launch step attaches DevTools.");
+        Assert.IsEmpty(_msix.AddLooseLayoutInspectorRequests, "The launch step registers the package.");
+    }
+
+    [TestMethod]
+    public async Task Watch_CppProject_FailsBeforeBuilding()
+    {
+        var source = _tempDirectory.CreateSubdirectory("cpp");
+        var vcxproj = new FileInfo(Path.Combine(source.FullName, "CppConsole.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _projects.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, source);
+
+        var exit = await Run(vcxproj.FullName, "--devtools", "on", "--watch");
+
+        Assert.AreNotEqual(0, exit);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "--watch needs a .NET project (.csproj)");
+        Assert.IsEmpty(_projects.BuildOptions, "a C++ project must be rejected before it builds");
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+    }
+
+    [TestMethod]
+    public async Task Watch_Packaged_ForwardsEveryLaunchOption_OrRejectsIt()
+    {
+        // Every run option must be forwarded to the launch step, rejected by --watch, or listed here with the reason
+        // it can't change the launch. A new option fails this test until it is classified.
+        // Options the launch step sets itself: it always names the resolved project and runs without building.
+        string[] decidedByTheLaunchStep = ["--devtools", "--no-build", "--args", "--watch", "--devtools-watch-launch", "--project",
+            "--verbose", "--quiet"]; // --verbose and --quiet travel on the launch step's own command line
+        string[] inert =
+        [
+            "--no-restore", // the launch step doesn't build
+            "--symbols", // only used with --debug-output, which --watch rejects
+            "--profile-mode", "--profile-duration-sec", "--profile-max-size-mib", // only used with --profile, which --watch rejects
+            "--devtools-sources", // only for a build output folder from 'dotnet run'; --watch needs a project
+        ];
+        var app = Prepare("project", true);
+        var rejected = new Dictionary<string, string[]>
+        {
+            ["--detach"] = [],
+            ["--json"] = [],
+            ["--debug-output"] = [],
+            ["--aot"] = [],
+            ["--clean"] = [],
+            ["--unregister-on-exit"] = [],
+            ["--no-launch"] = [],
+            ["--without-alias"] = [],
+            ["--profile"] = [Path.Combine(_tempDirectory.FullName, "trace")],
+            ["--guest-inspector-application"] = ["App"],
+        };
+        var command = GetRequiredService<RunCommand>();
+        var csproj = new FileInfo(app.Input);
+        var dropped = new List<string>();
+
+        foreach (var option in command.Options)
+        {
+            if (decidedByTheLaunchStep.Contains(option.Name) || inert.Contains(option.Name))
+            {
+                continue;
+            }
+            if (rejected.TryGetValue(option.Name, out var rejectedValue))
+            {
+                var launches = _launcher.LaunchExecutableCalls.Count;
+                Assert.AreNotEqual(0, await Run(app.Input, ["--devtools", "on", "--watch", option.Name, .. rejectedValue]), option.Name);
+                Assert.AreEqual(launches, _launcher.LaunchExecutableCalls.Count, $"--watch must reject {option.Name} before starting dotnet watch.");
+                continue;
+            }
+            string[] value = option.ValueType == typeof(bool) ? []
+                : option.ValueType == typeof(FileInfo) || option.ValueType == typeof(DirectoryInfo) ? [Path.Combine(_tempDirectory.FullName, "value")]
+                : option.ValueType == typeof(string[]) ? ["Foo=Bar"]
+                : ["Release"];
+            var parse = command.Parse([app.Input, "--devtools", "on", "--watch", option.Name, .. value]);
+            Assert.IsEmpty(parse.Errors, $"{option.Name}: {string.Join("; ", parse.Errors.Select(error => error.Message))}");
+
+            var tokens = RunCommand.Handler.WatchLaunchTokens(parse, csproj, null, null, showToolbar: true);
+
+            var at = tokens.ToList().IndexOf(option.Name);
+            if (at < 0)
+            {
+                dropped.Add(option.Name);
+            }
+            else if (value.Length > 0)
+            {
+                Assert.AreEqual(value[0], tokens[at + 1], option.Name);
+            }
+        }
+        Assert.IsEmpty(dropped, $"--watch drops {string.Join(", ", dropped)}: forward each in WatchLaunchTokens, or reject it in WatchConflict.");
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task WatchLaunch_StoppedByDotnetWatchForARestart_ExitsCleanly()
+    {
+        var app = Prepare("project", true);
+        GetRequiredService<RunCommand.Handler>().ContainProcess = _ => null;
+        using var process = new RunningProcess(_target);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        _launcher.LaunchOverride = () => process;
+        _attach.OnConnect = () => stop.CancelAfter(TimeSpan.FromMilliseconds(50));
+        using var environment = new EnvironmentScope(
+            (RunCommand.Handler.WatchLaunchVariable, WindowsCommandLine.JoinArguments([app.Input, "--no-build", "--devtools", "on"])),
+            ("DOTNET_WATCH_ITERATION", "1"));
+
+        var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(), ["--devtools-watch-launch"], stop.Token);
+
+        Assert.AreEqual(0, exit, "dotnet watch stopping the step to restart the app is not an error. " + ConsoleStdErr);
+        Assert.IsTrue(process.Killed, "the app goes with the step, so dotnet watch can start the new build");
+    }
+
+    // An app that runs until it is killed.
+    private sealed class RunningProcess(ExecutionAliasResolver.AliasTarget target) : ILaunchedProcess
+    {
+        public uint ProcessId => 12345;
+        public bool Killed { get; private set; }
+        public bool HasExited => Killed;
+        public int ExitCode => Killed ? -1 : 0;
+        public string? PackageFamilyName => target.PackageFamilyName;
+        public string? ApplicationUserModelId => target.ApplicationUserModelId;
+        public string? ExecutablePath => target.TargetExecutable;
+        public Task WaitForExitAsync(CancellationToken cancellationToken) =>
+            Killed ? Task.CompletedTask : Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        public void Kill() => Killed = true;
+        public void Dispose() { }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("1", false)]
+    [DataRow("3", true)]
+    public async Task WatchLaunch_RegistersTheBuild_LaunchesThroughTheStagedAlias_AndTiesTheAppToItself(string iteration, bool restart)
+    {
+        var app = Prepare("project", true);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        var contained = new List<uint>();
+        handler.ContainProcess = pid => { contained.Add(pid); return null; };
+        using var process = new ExitOneProcess(_target);
+        _launcher.LaunchOverride = () => { _order.Add("launch"); return process; };
+        _attach.OnConnect = () => process.AllowExit = true;
+        using var environment = new EnvironmentScope(
+            (RunCommand.Handler.WatchLaunchVariable, WindowsCommandLine.JoinArguments([app.Input, "--no-build", "--devtools", "headless", "--", "--preview", "Counter"])),
+            ("DOTNET_WATCH_ITERATION", iteration),
+            ("DOTNET_STARTUP_HOOKS", @"C:\sdk\DotNetDeltaApplier.dll"),
+            ("DOTNET_MODIFIABLE_ASSEMBLIES", "debug"),
+            ("DOTNET_WATCH_HOTRELOAD_NAMEDPIPE_NAME", "hot-reload-pipe"));
+
+        var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(), ["--devtools-watch-launch"]);
+
+        Assert.AreEqual(1, exit, "The launch step exits with the app's exit code. " + ConsoleStdErr);
+        Assert.IsNull(Environment.GetEnvironmentVariable("DOTNET_WATCH_HOTRELOAD_NAMEDPIPE_NAME"),
+            "Processes the launch step starts besides the app (MSBuild) must not take dotnet watch's pipe.");
+        Assert.IsNull(Environment.GetEnvironmentVariable("DOTNET_STARTUP_HOOKS"));
+        Assert.AreEqual("hot-reload-pipe", _launcher.LastEnvironment!["DOTNET_WATCH_HOTRELOAD_NAMEDPIPE_NAME"]);
+        Assert.AreEqual("debug", _launcher.LastEnvironment["DOTNET_MODIFIABLE_ASSEMBLIES"]);
+        StringAssert.StartsWith(_launcher.LastEnvironment["DOTNET_STARTUP_HOOKS"]!, @"C:\sdk\DotNetDeltaApplier.dll;");
+        StringAssert.EndsWith(_launcher.LastEnvironment["DOTNET_STARTUP_HOOKS"]!, @"C:\owned\WinApp.DevTools.Managed.dll");
+        Assert.IsTrue(_projects.BuildOptions.Single().NoBuild);
+        Assert.IsNotNull(_msix.AddLooseLayoutInspectorRequests.Single());
+        CollectionAssert.AreEqual(new List<string> { "environment", "launch", "attach" }, _order);
+        Assert.IsNull(_launcher.LastEnvironment![RunCommand.Handler.WatchLaunchVariable], "The app must not see the launch step's run.");
+        StringAssert.EndsWith(_launcher.LaunchExecutableCalls.Single().Arguments!, "--preview Counter");
+        Assert.AreEqual(12345u, contained.Single());
+        Assert.IsFalse(_attach.Calls.Single().Overlay);
+        StringAssert.Contains(TestAnsiConsole.Output, restart ? "DevTools attached again" : "DevTools attached to the app");
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task WatchLaunch_WaitsForThePreviousLaunchToClose(bool closes)
+    {
+        var app = Prepare("project", true);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ContainProcess = _ => null;
+        handler.WatchDelay = (_, _) => Task.CompletedTask;
+        handler.LayoutCloseTimeout = closes ? TimeSpan.FromMinutes(1) : TimeSpan.Zero;
+        var polls = 0;
+        handler.ProcessesRunningFromLayout = _ => closes && ++polls >= 3 ? [] : [777];
+        using var process = new ExitOneProcess(_target);
+        _launcher.LaunchOverride = () => process;
+        _attach.OnConnect = () => process.AllowExit = true;
+        using var environment = new EnvironmentScope(
+            (RunCommand.Handler.WatchLaunchVariable, WindowsCommandLine.JoinArguments([app.Input, "--no-build", "--devtools", "on"])),
+            ("DOTNET_WATCH_ITERATION", "2"));
+
+        var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(), ["--devtools-watch-launch"]);
+
+        // A previous launch that outlives the wait is closed, as for any explicit DevTools run, and the build relaunches.
+        Assert.AreEqual(1, exit, ConsoleStdErr.ToString());
+        Assert.HasCount(1, _attach.Calls);
+        if (!closes)
+        {
+            StringAssert.Contains(TestAnsiConsole.Output, "Closed 1 running instance(s) of this app (PID 777)");
+        }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(null)]
+    [DataRow("C:\\App\\App.csproj --devtools on")]
+    [DataRow("C:\\App\\App.csproj --no-build --devtools on --watch")]
+    public async Task WatchLaunch_RefusesToRunOutsideAPackagedWatch(string? run)
+    {
+        using var environment = new EnvironmentScope((RunCommand.Handler.WatchLaunchVariable, run), ("DOTNET_WATCH_ITERATION", null));
+
+        Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(), ["--devtools-watch-launch"]));
+
+        StringAssert.Contains(ConsoleStdErr.ToString(), "winapp run --watch");
+        Assert.IsEmpty(_projects.BuildAndResolveCalls);
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+    }
+
+    [TestMethod]
+    public void EscapeMSBuildProperty_KeepsSeparatorsInsideTheValue()
+    {
+        Assert.AreEqual(@"C:\a%253Bb%3Bc%2Cd\winapp.exe", RunCommand.Handler.EscapeMSBuildProperty(@"C:\a%3Bb;c,d\winapp.exe"));
+    }
+
+    private sealed class EnvironmentScope : IDisposable
+    {
+        private readonly List<(string Name, string? Value)> _previous = [];
+
+        public EnvironmentScope(params (string Name, string? Value)[] variables)
+        {
+            foreach (var (name, value) in variables)
+            {
+                _previous.Add((name, Environment.GetEnvironmentVariable(name)));
+                Environment.SetEnvironmentVariable(name, value);
+            }
+        }
+
+        public void Dispose()
+        {
+            foreach (var (name, value) in _previous)
+            {
+                Environment.SetEnvironmentVariable(name, value);
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow("folder", new string[] { "--devtools", "on", "--watch" }, ".csproj")]
+    [DataRow("single", new string[] { "--devtools", "on", "--watch" }, ".csproj")]
+    [DataRow("project", new string[] { "--devtools", "off", "--watch" }, "can't be combined with --devtools off")]
+    [DataRow("project", new string[] { "--watch", "--no-launch" }, "off for this run")]
+    [DataRow("project", new string[] { "--devtools", "on", "--watch", "--detach" }, "--detach")]
+    [DataRow("project", new string[] { "--devtools", "on", "--watch", "--no-build" }, "--no-build")]
+    [DataRow("project", new string[] { "--devtools", "on", "--watch", "--clean", "--unregister-on-exit" }, "--clean, --unregister-on-exit")]
+    public async Task Watch_RefusesWhatItCannotRun_BeforeBuilding(string mode, string[] options, string expected)
+    {
+        var app = Prepare(mode, false);
+
+        Assert.AreEqual(1, await Run(app.Input, options));
+
+        StringAssert.Contains(ConsoleStdErr.ToString(), expected);
+        Assert.IsEmpty(_projects.BuildAndResolveCalls);
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+    }
+
+    [TestMethod]
+    public void WatchEnvironment_KeepsTheDevelopersOwnStartupHooksOnly()
+    {
+        var launch = DevToolsArtifacts.ComposeLaunchEnvironment(@"C:\src\App", @"C:\owned\WinApp.DevTools.Managed.dll",
+            @"C:\source\WinApp.DevTools.Managed.dll", @"C:\developer\diagnostics.dll");
+
+        Assert.AreEqual(@"C:\developer\diagnostics.dll",
+            RunCommand.Handler.WatchEnvironment(launch, @"C:\developer\diagnostics.dll")["DOTNET_STARTUP_HOOKS"]);
+        Assert.IsNull(RunCommand.Handler.WatchEnvironment(launch, null)["DOTNET_STARTUP_HOOKS"]);
+        Assert.AreEqual("1", RunCommand.Handler.WatchEnvironment(launch, null)["REACTOR_SOURCEMAP"]);
+    }
+
     private sealed class RecordingAttach(List<string> order) : IDevToolsService
     {
         public List<(uint Pid, bool Overlay, DevToolsAccess Access)> Calls { get; } = [];

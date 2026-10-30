@@ -122,6 +122,9 @@ static DevToolsWindowElementFn g_elementFn = nullptr;
 // is what asks, is built long before that point in this file.
 // Path-walk callbacks are declared early because property expansions can ask before comment bridge code.
 static DevToolsWindowWalkFn g_walkFn;
+static DevToolsWindowAuthoredFn g_codeAuthoredFn;
+static std::function<void()> g_codeAuthoredRefreshFn;
+static bool g_reclassifying = false;
 static IUnknown*     g_inspectorXamlRoot = nullptr;
 static IInspectable* g_inspectorContent = nullptr;
 static IUnknown* g_captionTheme = nullptr;
@@ -213,6 +216,16 @@ static std::wstring         g_selLabel;
 static std::wstring         g_selBreadcrumb;
 static std::wstring         g_selSourceFile;
 static unsigned int         g_selSourceLine = 0;
+// The Reactor label of the selected element (`<Counter>`, `VStack`), shown ahead of its WinUI type.
+static std::wstring         g_selReactorLabel;
+static std::wstring         g_selTreeName;      // the row's name: the x:Name, or a Reactor element's C# name
+// The property pane's Reactor section: the component that renders the selected element, asked from a worker.
+static DevToolsWindowReactorAskFn g_reactorAskFn;
+static DevToolsWindowReferencesFn g_referencesFn;
+static DevToolsWindowPendingReferencesFn g_pendingReferencesFn;
+// The selected element's References section markup, read before the pane is built.
+static std::wstring g_selReferencesMarkup;
+static DevToolsComponentSection   g_reactorSection;
 
 // The element whose per-selection pane state (pending writes, lost links, staged kinds) is current.
 static InstanceHandle g_dirtyNode = 0;
@@ -577,6 +590,10 @@ static int g_treeMinDepth = 0;
 static std::vector<int> g_treeViewDepth;
 static int g_treeIndentBaseline = 0;
 static std::vector<NodeClickSink*> g_nodeSinks;
+// Row sinks outlive their rows (DevToolsSinkBase never frees), so each rebuild takes the previous generation's
+// instead of allocating new ones: a tree that keeps changing rebuilds the rows every few hundred milliseconds, and
+// grew the app by every rebuild's sinks. Pool 0 holds expander sinks, pool 1 row click and hover sinks.
+static std::vector<DevToolsSinkBase*> g_treeRowSinksInUse[2], g_treeRowSinksSpare[2];
 static std::map<InstanceHandle, size_t> g_nodeIdxByWire;
 static IInspectable*      g_filterBox = nullptr; // the tree filter TextBox (AddRef'd; read via readInputFn)
 static void*              g_filterTextBox = nullptr;
@@ -598,6 +615,10 @@ static std::vector<char>  g_treeAppAuthored;
 static bool  g_jmxActive    = false;
 static bool  g_jmxAvailable = false;
 static int   g_jmxSrcSeen = 0;
+// Rows a Reactor call site created. With none, the filter is about XAML and says so; with some, it covers code too.
+static int   g_jmxCodeSeen = 0;
+static const wchar_t* JmxName() { return g_jmxCodeSeen > 0 ? L"Just my code" : L"Just my XAML"; }
+static const wchar_t* JmxScope() { return g_jmxCodeSeen > 0 ? L"your XAML or Reactor code" : L"your XAML"; }
 static DevToolsPickRoute g_pickRoute;
 static bool  g_focusActive  = false;
 static void* g_jmxLbl       = nullptr;

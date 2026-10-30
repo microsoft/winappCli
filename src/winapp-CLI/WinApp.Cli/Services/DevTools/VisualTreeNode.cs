@@ -130,6 +130,12 @@ internal sealed record AuthoredForest(
     int CensusNodes,
     int AuthoredNodes)
 {
+    /// <summary>The window each top-level element belongs to, when the request asked for annotations.</summary>
+    public IReadOnlyList<VisualTreeWindow> Windows { get; init; } = [];
+
+    /// <summary>Microsoft.UI.Reactor state and elements, when the request asked for annotations.</summary>
+    public ReactorDescription? Reactor { get; init; }
+
     public static AuthoredForest? Parse(string? resultJson)
     {
         if (string.IsNullOrEmpty(resultJson))
@@ -141,6 +147,11 @@ internal sealed record AuthoredForest(
         {
             using var doc = JsonDocument.Parse(resultJson, TapWireJson.DocumentOptions);
             var root = doc.RootElement;
+            // A plain raw enumerate (and an agent that predates annotations) answers with the bare node array.
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                return VisualTreeNode.ParseForest(resultJson) is { } raw ? new AuthoredForest(raw, false, false, 0, 0, 0) : null;
+            }
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("nodes", out var nodes)
                 || nodes.ValueKind != JsonValueKind.Array)
@@ -157,7 +168,11 @@ internal sealed record AuthoredForest(
                     ReadBool(root, "classificationTruncated"),
                     ReadInt(root, "classifiedNodes"),
                     ReadInt(root, "censusNodes"),
-                    ReadInt(root, "authoredNodes"));
+                    ReadInt(root, "authoredNodes"))
+                {
+                    Windows = VisualTreeWindow.ParseList(root),
+                    Reactor = root.TryGetProperty("reactor", out var reactor) ? ReactorDescription.ParseAnnotations(reactor) : null,
+                };
         }
         catch (JsonException)
         {
@@ -199,6 +214,23 @@ internal sealed record AuthoredForest(
               "elements are yours. Showing the raw tree instead; run the command again in a moment."
             : "The agent classified no live element as app-authored: everything in the tree came " +
               "from framework or template XAML. Showing the raw tree instead.";
+    }
+
+    /// <summary>
+    /// Why this view hides the app's XAML, or <c>null</c> when it does not: without XAML source information only the
+    /// Reactor islands (<c>ReactorHostControl</c>s) are classified as the app's, so a XAML app hosting them would show
+    /// the islands alone, without the XAML around them. <paramref name="rootHandle"/> is the inspected subtree, if any;
+    /// an island inspected on its own has no XAML around it to lose.
+    /// </summary>
+    public string? ExplainHiddenXaml(string? rootHandle)
+    {
+        if (SourceInstrumented || Reactor is not { IsReactor: true } reactor ||
+            !Roots.Any(root => root.Handle != rootHandle && reactor.ByHandle.TryGetValue(root.Handle, out var node) && node.Host?.Kind == "island"))
+        {
+            return null;
+        }
+        return "This app reports no XAML source information, so its own XAML around the Reactor islands cannot be told " +
+               "apart from the framework's. Showing the raw tree instead. " + DevToolsAppAuthored.RelaunchForSource;
     }
 
     private static bool ReadBool(JsonElement element, string name) =>

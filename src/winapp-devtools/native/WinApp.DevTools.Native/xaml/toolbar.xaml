@@ -88,6 +88,15 @@
       <TextBlock x:Name="DevToolsChipLabel" Text="DevTools" FontSize="12" FontWeight="SemiBold"
                  VerticalAlignment="Center" Foreground="$TEXT$"
                  AutomationProperties.AutomationId="DevToolsChipLabel" />
+      <!-- Reactor render and swallowed errors and keyed-list warnings since launch; `winapp devtools logs` lists them. -->
+      <Border x:Name="DevToolsChipErrors" Visibility="Collapsed" MinWidth="16" Height="16" CornerRadius="8"
+              Padding="5,0" Background="#FFC42B1C" VerticalAlignment="Center"
+              ToolTipService.ToolTip="Reactor errors and keyed-list warnings since launch (winapp devtools logs)"
+              AutomationProperties.AutomationId="DevToolsChipErrors"
+              AutomationProperties.Name="Reactor problems">
+        <TextBlock x:Name="DevToolsChipErrorsText" Text="0" FontSize="10" FontWeight="SemiBold"
+                   Foreground="#FFFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
     </StackPanel>
   </Button>
 
@@ -109,9 +118,19 @@
               ToolTipService.ToolTip="Drag to move DevTools to another corner"
               AutomationProperties.AutomationId="DevToolsDragHandle"
               AutomationProperties.Name="Move DevTools (drag)">
-        <PathIcon FlowDirection="LeftToRight" Width="16" Height="16" Foreground="$TEXTDIM$"
-                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                  Data="F1 M6 5C6.55228 5 7 4.55228 7 4C7 3.44772 6.55228 3 6 3C5.44772 3 5 3.44772 5 4C5 4.55228 5.44772 5 6 5ZM6 9C6.55228 9 7 8.55228 7 8C7 7.44772 6.55228 7 6 7C5.44772 7 5 7.44772 5 8C5 8.55228 5.44772 9 6 9ZM7 12C7 12.5523 6.55228 13 6 13C5.44772 13 5 12.5523 5 12C5 11.4477 5.44772 11 6 11C6.55228 11 7 11.4477 7 12ZM10 5C10.5523 5 11 4.55228 11 4C11 3.44772 10.5523 3 10 3C9.44772 3 9 3.44772 9 4C9 4.55228 9.44772 5 10 5ZM11 8C11 8.55228 10.5523 9 10 9C9.44772 9 9 8.55228 9 8C9 7.44772 9.44772 7 10 7C10.5523 7 11 7.44772 11 8ZM10 13C10.5523 13 11 12.5523 11 12C11 11.4477 10.5523 11 10 11C9.44772 11 9 11.4477 9 12C9 12.5523 9.44772 13 10 13Z" />
+        <Grid Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center">
+          <PathIcon FlowDirection="LeftToRight" Width="16" Height="16" Foreground="$TEXTDIM$"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Data="F1 M6 5C6.55228 5 7 4.55228 7 4C7 3.44772 6.55228 3 6 3C5.44772 3 5 3.44772 5 4C5 4.55228 5.44772 5 6 5ZM6 9C6.55228 9 7 8.55228 7 8C7 7.44772 6.55228 7 6 7C5.44772 7 5 7.44772 5 8C5 8.55228 5.44772 9 6 9ZM7 12C7 12.5523 6.55228 13 6 13C5.44772 13 5 12.5523 5 12C5 11.4477 5.44772 11 6 11C6.55228 11 7 11.4477 7 12ZM10 5C10.5523 5 11 4.55228 11 4C11 3.44772 10.5523 3 10 3C9.44772 3 9 3.44772 9 4C9 4.55228 9.44772 5 10 5ZM11 8C11 8.55228 10.5523 9 10 9C9.44772 9 9 8.55228 9 8C9 7.44772 9.44772 7 10 7C10.5523 7 11 7.44772 11 8ZM10 13C10.5523 13 11 12.5523 11 12C11 11.4477 10.5523 11 10 11C9.44772 11 9 11.4477 9 12C9 12.5523 9.44772 13 10 13Z" />
+          <!-- The pill's Reactor error count, for when the bar is open (pinned) and the pill is hidden. -->
+          <Border x:Name="DevToolsBarErrors" Visibility="Collapsed" MinWidth="14" Height="14" CornerRadius="7" Padding="3,0"
+                  Margin="0,-6,-8,0" Background="#FFC42B1C" HorizontalAlignment="Right" VerticalAlignment="Top"
+                  ToolTipService.ToolTip="Reactor errors since launch (winapp devtools logs)"
+                  AutomationProperties.AutomationId="DevToolsBarErrors" AutomationProperties.Name="Reactor errors">
+            <TextBlock x:Name="DevToolsBarErrorsText" Text="0" FontSize="9" FontWeight="SemiBold"
+                       Foreground="#FFFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+        </Grid>
       </Border>
       <ToggleButton x:Name="DevToolsProtoPick" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
@@ -197,6 +216,30 @@
                   Data="F1 M8 2.4C11.0928 2.4 13.6 4.9072 13.6 8C13.6 11.0928 11.0928 13.6 8 13.6V2.4ZM8 1.6C4.4654 1.6 1.6 4.4654 1.6 8C1.6 11.5346 4.4654 14.4 8 14.4C11.5346 14.4 14.4 11.5346 14.4 8C14.4 4.4654 11.5346 1.6 8 1.6Z" />
       </Button>
 
+      <!-- Reactor apps whose Reactor reports component renders: flash each component as it re-renders. -->
+      <ToggleButton x:Name="DevToolsProtoHighlight" Visibility="Collapsed" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+              Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
+              ToolTipService.ToolTip="Highlight components when they render"
+              AutomationProperties.AutomationId="DevToolsProtoHighlight"
+              AutomationProperties.Name="Highlight updates">
+        <ToggleButton.Resources>
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+        </ToggleButton.Resources>
+        <Grid Width="30" Height="26">
+          <FontIcon x:Name="DevToolsHighlightOff" FlowDirection="LeftToRight" Glyph="&#xE7B3;"
+                    FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <Grid x:Name="DevToolsHighlightOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsHighlightOn">
+            <Border Width="30" Height="26" CornerRadius="6" Background="$ACCENT$" />
+            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7B3;" FontSize="15"
+                      Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Grid>
+        </Grid>
+      </ToggleButton>
       <!-- Separator uses the internal border brush, not the outer rim. -->
       <Border Width="1" Height="18" Background="$BORDER$" Margin="3,0" VerticalAlignment="Center" />
 

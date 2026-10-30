@@ -44,10 +44,12 @@ static void SetFocusNotice(const std::wstring& text)
 // Put the unavailable reason in visible text; disabled controls may not show tooltips.
 static void ApplyJmxAvailability()
 {
-    SetToggleLabel(g_jmxLbl,
-        g_jmxAvailable       ? (g_jmxActive ? L"Just my XAML: On" : L"Just my XAML: Off")
-        : (g_jmxSrcSeen > 0) ? L"Just my XAML: unavailable (no app-authored XAML in view)"
-                             : L"Just my XAML: unavailable (no XAML source info)");
+    // Unavailable means no Reactor rows either, so those reasons are main's XAML ones.
+    const std::wstring label =
+        g_jmxAvailable       ? std::wstring(JmxName()) + (g_jmxActive ? L": On" : L": Off")
+        : (g_jmxSrcSeen > 0) ? std::wstring(L"Just my XAML: unavailable (no app-authored XAML in view)")
+                             : std::wstring(L"Just my XAML: unavailable (no XAML source info)");
+    SetToggleLabel(g_jmxLbl, label.c_str());
     if (g_jmxBtnCtrl) {
         DevToolsPutIsEnabled(g_jmxBtnCtrl, g_jmxAvailable);
         void* toggle = nullptr;
@@ -300,7 +302,7 @@ static void SelectNodeByWire(InstanceHandle wire, SelectCause cause = SelectCaus
         ApplyDefaultCollapse();
         DevToolsOverlayLog(L"route1.select row %zu excluded by Just-my-XAML -> filter turned off to reveal it", si);
     } else if (cause == SelectCause::Comment && RowHiddenByJmx(si)) {
-        SetStatusText(L"Selected it. Just my XAML is hiding its row in the tree view.");
+        SetStatusText(std::wstring(L"Selected it. ") + JmxName() + L" is hiding its row in the tree view.");
         DevToolsOverlayLog(L"route1.select row %zu excluded by Just-my-XAML; comment click reported it "
                       L"instead of clearing the filter", si);
     }

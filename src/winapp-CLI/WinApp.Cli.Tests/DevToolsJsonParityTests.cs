@@ -20,6 +20,8 @@ namespace WinApp.Cli.Tests;
 [DoNotParallelize]
 public class DevToolsJsonParityTests
 {
+    private static readonly string[] FooterCandidates = [@"C:\repo\App\Panels\Footer.cs", @"C:\repo\Lib\Panels\Footer.cs"];
+
     [TestMethod]
     public async Task Correction_Search_PreservesRemoteError()
     {
@@ -423,6 +425,116 @@ public class DevToolsJsonParityTests
         Assert.IsFalse(message.Contains("Framework", StringComparison.Ordinal));
     }
 
+    // A late attach to an app that hosts Reactor: Reactor recorded no C# locations either, but this element is XAML.
+    [TestMethod]
+    [DataRow(false, "this app reports no XAML source information")]
+    [DataRow(true, "Reactor source mapping is off")]
+    public async Task GetSource_AfterALateAttach_GivesTheReasonForTheElementsKind(bool reactorElement, string expected)
+    {
+        var nodes = reactorElement
+            ? """[{"handle":"20","element":"Stack"},{"handle":"42","parent":"20","element":"Button"}]"""
+            : """[{"handle":"20","element":"Stack"}]""";
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Source.get", """{"handle":"42","fileName":"","lineNumber":0,"columnNumber":0,"authoredState":"noSourceInfo"}""")
+            .Answer("VisualTree.getAppAuthored", """{"appAuthored":[],"sourceInstrumented":false}""")
+            .Answer("Reactor.describe", $$"""{"state":"ok","sourceMap":false,"files":[],"nodes":{{nodes}}}""");
+
+        var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+        Assert.AreEqual(1, jsonExit);
+        using var doc = JsonDocument.Parse(jsonOut);
+        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(), expected);
+    }
+
+    // The app compares the call site with the file on disk; an edit since the build is said, not shown as current.
+    [TestMethod]
+    public async Task GetSource_ACallSiteEditedSinceTheBuild_SaysTheFileChanged()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"winapp-csharp-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(file, "// a new line\nvar b = Button(\"+1\");");
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Source.get", JsonSerializer.Serialize(new
+                {
+                    handle = "42", kind = "csharp", fileName = file, lineNumber = 1, columnNumber = 9, onDisk = true,
+                    authoredState = "stale", lineCount = 2, csharp = "// a new line",
+                    reactor = new { element = "Button", handle = "42", exact = true },
+                }));
+
+            var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+            var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
+
+            Assert.AreEqual(0, jsonExit, jsonOut);
+            using var doc = JsonDocument.Parse(jsonOut);
+            Assert.AreEqual("stale", doc.RootElement.GetProperty("authoredState").GetString());
+            StringAssert.Contains(doc.RootElement.GetProperty("csharpChanged").GetString(), "changed since the app was built");
+            StringAssert.Contains(doc.RootElement.GetProperty("csharpChanged").GetString(), "no longer holds the Button call");
+            Assert.AreEqual(0, exit, output);
+            StringAssert.Contains(output, "changed since the app was built");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetSource_ALineMappedPastTheEnd_SaysWhy()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"winapp-csharp-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(file, "var b = Button(\"+1\");");
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Source.get", JsonSerializer.Serialize(new
+                {
+                    handle = "42", kind = "csharp", fileName = file, lineNumber = 500, columnNumber = 9, onDisk = true,
+                    authoredState = "pastEnd", lineCount = 1,
+                    reactor = new { element = "Button", handle = "42", exact = true },
+                }));
+
+            var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+            Assert.AreEqual(0, exit, output);
+            using var doc = JsonDocument.Parse(output);
+            var reason = doc.RootElement.GetProperty("csharpUnavailable").GetString()!;
+            StringAssert.Contains(reason, "has 1 lines, so it has no line 500");
+            StringAssert.Contains(reason, "#line");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    // Source generator output is compiled from obj and kept in the PDB, not written to disk.
+    [TestMethod]
+    public async Task GetSource_GeneratedSource_SaysHowToEmitIt()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Internal.sourceRoot", """{"sourceRoot":"C:\\repo\\App"}""")
+            .Answer("Source.get", JsonSerializer.Serialize(new
+            {
+                handle = "42", kind = "csharp", lineNumber = 14, columnNumber = 13, onDisk = false, authoredState = "noFile",
+                fileName = "obj/x64/Debug/net10.0/win-x64/Gen/Gen.GreetingGenerator/Greeting.g.cs",
+                reactor = new { element = "Button", handle = "42", exact = true },
+            }));
+
+        var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+        Assert.AreEqual(0, exit, output);
+        using var doc = JsonDocument.Parse(output);
+        var reason = doc.RootElement.GetProperty("csharpUnavailable").GetString()!;
+        StringAssert.Contains(reason, "source generator");
+        StringAssert.Contains(reason, "EmitCompilerGeneratedFiles");
+        Assert.IsFalse(reason.Contains("moved", StringComparison.Ordinal));
+    }
+
     [TestMethod]
     public async Task GetSource_WithASourceRecord_IsASuccessInBothShapes()
     {
@@ -440,6 +552,159 @@ public class DevToolsJsonParityTests
         Assert.AreEqual("MainWindow.xaml", doc.RootElement.GetProperty("file").GetString());
         Assert.IsFalse(doc.RootElement.TryGetProperty("line", out _), "An unconfirmed declaration has no line.");
         Assert.AreEqual(90, doc.RootElement.GetProperty("runtime").GetProperty("line").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task GetSource_AReactorElementWithoutACallSite_SaysHotReloadDropsIt()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Source.get", """{"handle":"42","fileName":"","lineNumber":0,"columnNumber":0,"authoredState":"noSourceInfo"}""")
+            .Answer("Reactor.describe", """
+                {"state":"ok","sourceMap":true,"files":["C:\\src\\App.cs"],"nodes":[
+                  {"handle":"20","element":"Stack","file":0,"line":7},
+                  {"handle":"42","parent":"20","element":"TextBlock"}]}
+                """);
+
+        var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+        Assert.AreEqual(1, jsonExit);
+        using var doc = JsonDocument.Parse(jsonOut);
+        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(), "Hot Reload");
+    }
+
+    // A string passed to a password parameter is hidden even though the statement never says "password".
+    [TestMethod]
+    public async Task GetSource_RedactsAStringPassedToAPasswordParameter()
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"winapp-positional-{Guid.NewGuid():N}")).FullName;
+        var file = Path.Combine(folder, "Panels.cs");
+        const string statement = "Component<Login2, Login2Props>(new Login2Props(\"bob\", \"pos-secret-1\", new Creds(\"alice\", \"nested-pw-1\"))),";
+        File.WriteAllText(Path.Combine(folder, "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        File.WriteAllText(Path.Combine(folder, "Models.cs"),
+            "record Login2Props(string User, string UserPassword, Creds Account);\nrecord Creds(string Name, string Password);\n");
+        File.WriteAllText(file, "class Panel : Component\n{\n    public override Element Render() => VStack(\n        " + statement + "\n        TextBlock(\"x\"));\n}\n");
+        try
+        {
+            foreach (var json in new[] { false, true })
+            {
+                using var agent = new FakeDevToolsProtocolAgent()
+                    .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                    .Answer("Source.get", JsonSerializer.Serialize(new
+                    {
+                        handle = "42", kind = "csharp", fileName = file, lineNumber = 4, columnNumber = 9, onDisk = true,
+                        authoredState = "available", csharp = statement,
+                    }));
+
+                var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, json ? ["42", "--json"] : ["42"]);
+
+                Assert.AreEqual(0, exit, output);
+                Assert.IsFalse(output.Contains("pos-secret-1", StringComparison.Ordinal) || output.Contains("nested-pw-1", StringComparison.Ordinal), output);
+                var shown = json ? JsonDocument.Parse(output).RootElement.GetProperty("csharp").GetString()! : output;
+                StringAssert.Contains(shown, "new Login2Props(\"bob\", \"<redacted>\", new Creds(\"alice\", \"<redacted>\"))");
+            }
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetSource_ACSharpCallSite_UsesTheSameLocationNames()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"winapp-csharp-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(file, "var b = Button(\"+1\");");
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Source.get", JsonSerializer.Serialize(new
+                {
+                    handle = "42", kind = "csharp", fileName = file, lineNumber = 1, columnNumber = 9, onDisk = true,
+                    authoredState = "available", csharp = "var b = Button(\"+1\");",
+                }));
+
+            var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+            Assert.AreEqual(0, jsonExit, jsonOut);
+            using var doc = JsonDocument.Parse(jsonOut);
+            var root = doc.RootElement;
+            Assert.AreEqual("csharp", root.GetProperty("kind").GetString());
+            Assert.AreEqual(file, root.GetProperty("file").GetString());
+            Assert.AreEqual(file, root.GetProperty("path").GetString());
+            Assert.AreEqual(1, root.GetProperty("line").GetInt32());
+            Assert.AreEqual(9, root.GetProperty("column").GetInt32());
+            Assert.IsFalse(root.TryGetProperty("fileName", out _), "the agent's transport names are not the CLI's");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    // A project-relative call site that names a file in two of the app's projects is not shown as either.
+    [TestMethod]
+    public async Task GetSource_AnAmbiguousCallSite_ShowsNoFileAndSaysWhy()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Internal.sourceRoot", """{"sourceRoot":"C:\\repo\\App"}""")
+            .Answer("Source.get", JsonSerializer.Serialize(new
+            {
+                handle = "42", kind = "csharp", fileName = "Panels/Footer.cs", lineNumber = 6, columnNumber = 9, onDisk = false,
+                authoredState = "ambiguous", candidates = FooterCandidates,
+                reactor = new { element = "Button", handle = "42", exact = true, component = "LibPanel" },
+            }));
+
+        var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+        var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
+
+        Assert.AreEqual(0, jsonExit, jsonOut);
+        using var doc = JsonDocument.Parse(jsonOut);
+        var root = doc.RootElement;
+        Assert.IsFalse(root.TryGetProperty("path", out _), "neither candidate is presented as the call site");
+        Assert.IsFalse(root.TryGetProperty("csharp", out _));
+        Assert.AreEqual("ambiguous", root.GetProperty("authoredState").GetString());
+        Assert.AreEqual(2, root.GetProperty("candidates").GetArrayLength());
+        StringAssert.Contains(root.GetProperty("csharpUnavailable").GetString(), "cannot tell which one");
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "<LibPanel>");
+        StringAssert.Contains(output, "cannot tell which one");
+    }
+
+    // After a late attach the app knows only the project-relative path; it is resolved from the project this command
+    // runs in, and the line read from here is redacted too.
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task GetSource_ALateAttachReadsTheLineHere_AndRedactsAPasswordLiteral()
+    {
+        var folder = $"winapp-late-{Guid.NewGuid():N}";
+        var project = Path.Combine(Directory.GetCurrentDirectory(), $"{folder}.csproj");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(project, "<Project />");
+        File.WriteAllText(Path.Combine(folder, "Login.cs"), "var box = TextBox(password: \"hunter2\");");
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Source.get", JsonSerializer.Serialize(new
+                {
+                    handle = "42", kind = "csharp", fileName = folder + "/Login.cs", lineNumber = 1, columnNumber = 11, onDisk = false,
+                    authoredState = "available",
+                }));
+
+            var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
+
+            Assert.AreEqual(0, exit, output);
+            StringAssert.Contains(output, "TextBox(password: \"<redacted>\")");
+            Assert.IsFalse(output.Contains("hunter2", StringComparison.Ordinal), "the password literal never reaches the terminal");
+        }
+        finally
+        {
+            File.Delete(project);
+            Directory.Delete(folder, recursive: true);
+        }
     }
 
     [TestMethod]

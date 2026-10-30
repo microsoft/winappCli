@@ -84,6 +84,10 @@ static void ReadPreviewFacts(InstanceHandle wire, DevToolsBatch::PreviewFacts& o
 static std::wstring CmdFind(const std::wstring& query, bool appAuthoredOnly)
 {
     if (g_adviseFailed.load()) return L"ERR no-tree";
+    // Reactor elements are matched by component, element kind, key and C# call site too (the cache is reused while
+    // the tree is unchanged).
+    TapReactorRefreshAuthored();
+    const std::map<unsigned long long, ReactorAnnotation> reactor = TapReactorSnapshotByWire();
 
     size_t censusTotal = 0;
     CensusSnapshot cs;
@@ -126,6 +130,11 @@ static std::wstring CmdFind(const std::wstring& query, bool appAuthoredOnly)
         const auto& node = nodes[i];
         if (appAuthoredOnly && appAuthored.find(std::to_wstring(node.handle)) == appAuthored.end()) continue;
         matched[i] = DevToolsTreeLayout::TreeFilterMatches(node.type, node.name, node.sourceUri, normalized);
+        if (!matched[i]) {
+            const auto annotation = reactor.find((unsigned long long)node.handle);
+            matched[i] = annotation != reactor.end() &&
+                DevToolsTreeLayout::TreeFilterMatches(L"", L"", TapReactorSearchText(annotation->second), normalized);
+        }
         if (!matched[i]) needsText.push_back(i);
     }
     // Reuse the bounded caption read and lifetime checks, without truncating searchable text to the row caption.
@@ -173,6 +182,8 @@ static std::wstring CmdFind(const std::wstring& query, bool appAuthoredOnly)
         if (idv != idByWire.end()) out += L",\"id\":\"" + idv->second + L"\"";
         if (uniqueNameWires.find((unsigned long long)nodes[i].handle) != uniqueNameWires.end())
             out += L",\"uniqueName\":true";
+        const auto annotation = reactor.find((unsigned long long)nodes[i].handle);
+        if (annotation != reactor.end()) out += L",\"reactor\":" + TapReactorMatchJson(annotation->second);
         out += L"}";
     }
     out += L"],\"query\":\"" + DevToolsJsonEscape(normalized);
@@ -380,6 +391,7 @@ static void Route1SnapshotTree(std::vector<DevToolsWindowNode>& outNodes, size_t
     outCensusTotal = 0;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinSnapshot);
     outNodes = SnapshotFlatCensus(&outCensusTotal);
+    TapReactorLabelNodes(outNodes);
 }
 
 // Called from RebuildTreeRows -- the one place that knows which nodes become rows -- with the render selection, so a
@@ -435,6 +447,26 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     // the window asks for its OWN binding walk, natively. Registered before the open for the
     // same reason the comment bridge is -- the first expansion the user opens must be able to ask.
     DevToolsWindow_SetPathWalk(&WindowPathWalkBridge);
+    // "Just my code": Reactor call sites count as authored. The set is described off the UI thread and the
+    // window is reclassified when it changes.
+    DevToolsWindow_SetCodeAuthored(&TapReactorAuthoredWire, &TapReactorRefreshInspectorAsync);
+    // The property pane's Reactor section asks through the same commands as Reactor.* (wire handles here).
+    DevToolsWindow_SetReactorAsk([](InstanceHandle wire, const std::wstring& op, const std::wstring& arg, const std::wstring& value,
+                                    std::wstring* out) {
+        return TapReactorAskWire(static_cast<unsigned long long>(wire), op, arg, value, out);
+    });
+    // The property pane's References section (LabeledBy, XYFocus*, ...), read live on the UI thread.
+    DevToolsWindow_SetReferences([](InstanceHandle wire) -> std::wstring {
+        InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
+        AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e); ReleaseSRWLockShared(&g_censusLock);
+        if (!ok) return {};
+        bool truncated = false;
+        return DevToolsReferencesMarkup(TapReferences_ui(ih, &truncated), truncated);
+    });
+    // ...and the ones only Reactor knows (targets not created yet), asked from a worker after the pane is built.
+    DevToolsWindow_SetPendingReferences([](InstanceHandle wire, bool withHeader) -> std::wstring {
+        return DevToolsPendingReferencesMarkup(TapPendingReferences(static_cast<unsigned long long>(wire)), withHeader);
+    });
     DevToolsWindow_SetElementResolver([](InstanceHandle wire) -> IInspectable* {
         InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
         AcquireSRWLockShared(&g_censusLock);
@@ -474,6 +506,7 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
                             &Route1WireLive, &Route1CensusCount, &Route1SnapshotTree, &Route1FillPreviews,
                             OverlaySeed, preselect, errorMessage);
     Log(L"route1.inproc DevToolsWindow_Open hr=0x%08X nodes=%zu", hr, nodes.size());
+    if (SUCCEEDED(hr)) TapReactorRefreshInspectorAsync();
     return hr;
 }
 
@@ -715,12 +748,17 @@ static InstanceHandle CodeBuiltPickTarget(InstanceHandle hit)
 }
 
 // A pick selects the author's element, not a control template's part or runtime-generated text (a Button's string
-// content, a placeholder): any other hit resolves to its nearest declared ancestor. A hit with no such ancestor is
-// kept.
+// content, a placeholder): any other hit resolves to its nearest declared ancestor -- an element with a XAML
+// declaration or one a Reactor call site created. A hit with no such ancestor is kept.
+static bool IsAuthoredElement(InstanceHandle h)
+{
+    return IsDeclaredElement(h) || TapReactorAnnotationFor(h, false, nullptr);
+}
+
 static InstanceHandle PickTarget(InstanceHandle hit)
 {
     if (DevToolsWindow_ShowsFrameworkRows()) return hit;
-    if (IsDeclaredElement(hit)) return hit;
+    if (IsAuthoredElement(hit)) return hit;
     std::vector<InstanceHandle> ancestors;
     AcquireSRWLockShared(&g_censusLock);
     for (InstanceHandle current = hit; ancestors.size() < 256;) {
@@ -731,7 +769,7 @@ static InstanceHandle PickTarget(InstanceHandle hit)
     }
     ReleaseSRWLockShared(&g_censusLock);
     for (const InstanceHandle ancestor : ancestors) {
-        if (IsDeclaredElement(ancestor)) return ancestor;
+        if (IsAuthoredElement(ancestor)) return ancestor;
     }
     // Nothing declared above it (a generated list item, a menu or dialog built in code).
     return CodeBuiltPickTarget(hit);

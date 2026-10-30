@@ -31,6 +31,22 @@ void DevToolsWindow_SetCommentBridge(DevToolsWindowCommentsFn commentsFn,
 }
 
 void DevToolsWindow_SetPathWalk(DevToolsWindowWalkFn walkFn) { g_walkFn = walkFn; }
+void DevToolsWindow_SetReactorAsk(DevToolsWindowReactorAskFn askFn) { g_reactorAskFn = std::move(askFn); }
+void DevToolsWindow_SetReferences(DevToolsWindowReferencesFn referencesFn) { g_referencesFn = std::move(referencesFn); }
+void DevToolsWindow_SetPendingReferences(DevToolsWindowPendingReferencesFn pendingFn) { g_pendingReferencesFn = std::move(pendingFn); }
+
+void DevToolsWindow_SetCodeAuthored(DevToolsWindowAuthoredFn authoredFn, std::function<void()> refreshFn)
+{
+    g_codeAuthoredFn = std::move(authoredFn);
+    g_codeAuthoredRefreshFn = std::move(refreshFn);
+}
+
+void DevToolsWindow_Reclassify()
+{
+    if (!DevToolsWindow_IsOpen()) return;
+    g_treeReclassifyPending = true;
+    ArmTreeRefresh();
+}
 
 void DevToolsWindow_RefreshComments()
 {
@@ -689,6 +705,11 @@ void DevToolsWindow_RereadSelection(InstanceHandle wire)
     } catch (const winrt::hresult_error&) {}
 }
 
+void DevToolsWindow_RereadCurrentSelection()
+{
+    DevToolsWindow_RereadSelection(g_selWire);
+}
+
 // Overlay, inspector and Esc transitions share the same checked state and indicator.
 // Clear the routing bit with the mode so a later overlay pick is not claimed by the inspector.
 // UI thread only.
@@ -731,8 +752,8 @@ void DevToolsWindow_OnFocusChanged(InstanceHandle wire)
         // Selecting the focused element itself would mean revealing a row this view does not contain, and
         // the only way to do that is to turn the filter off -- the one thing this path must not do. Leave
         // the tree where it is and say why, rather than clearing the selection without explanation.
-        SetFocusNotice(L"Focus is on " + focused + L", which isn't from your XAML, and neither is "
-                       L"anything above it. The tree didn't move. Turn off Just my XAML to see it.");
+        SetFocusNotice(L"Focus is on " + focused + L", which isn't from " + JmxScope() + L", and neither is "
+                       L"anything above it. The tree didn't move. Turn off " + std::wstring(JmxName()) + L" to see it.");
         DevToolsOverlayLog(L"route1.focus wire=%llu is framework with no app-authored ancestor -> tree unchanged",
                       (unsigned long long)wire);
         return;
@@ -743,7 +764,7 @@ void DevToolsWindow_OnFocusChanged(InstanceHandle wire)
     DevToolsOverlayLog(L"route1.focus wire=%llu (%s) is framework -> selecting app-authored ancestor row %zu (%s)",
                   (unsigned long long)wire, focused.c_str(), anc, target.c_str());
     SelectNodeByWire(g_allTreeNodes[anc].handle, SelectCause::Focus);
-    SetFocusNotice(L"Focus is on " + focused + L", which isn't from your XAML. Selected the nearest element "
+    SetFocusNotice(L"Focus is on " + focused + L", which isn't from " + JmxScope() + L". Selected the nearest element "
                    L"you did write: " + target + (name.empty() ? L"" : (L" #" + name)) + L".");
 }
 

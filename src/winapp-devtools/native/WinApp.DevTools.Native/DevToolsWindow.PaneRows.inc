@@ -111,7 +111,10 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
                                        const DevToolsWindowLayout* layout)
 {
     std::wstring badge = type.empty() ? label : ShortType(type);
+    if (!g_selReactorLabel.empty()) badge = g_selReactorLabel + L"  \u00B7  " + badge;
     if (!name.empty()) badge += L"  \u00B7  #" + name;
+    else if (!g_selTreeName.empty()) badge += L"  \u00B7  #" + g_selTreeName;
+    const bool csharp = authoredState == L"csharp";
     std::wstring m;
     m += L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
          L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Spacing=\"10\""
@@ -189,19 +192,22 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAddCommentStatus\"/></StackPanel>";
     }
     if (!authoredXaml.empty()) {
-        const std::wstring note = authoredState == L"likely"
+        const std::wstring note = csharp
+            ? L"C# on disk at the Reactor call site that created this element; the running app may differ after a rebuild or hot reload."
+            : authoredState == L"likely"
             ? L"Likely source: unique line and identity match; compiled identity and line preservation are unverified."
             : L"Source on disk; the running app may differ after a rebuild or hot reload.";
         m += L"<Border Background=\"{ThemeResource ControlFillColorSecondaryBrush}\" CornerRadius=\"4\""
              L" Padding=\"8,6,8,6\" Margin=\"0,8,0,0\">";
         m += L"<StackPanel Spacing=\"0\">";
-        m += L"<TextBlock Text=\"" + std::wstring(authoredState == L"likely" ? L"Likely source (unverified)" : L"Source on disk") +
+        m += L"<TextBlock Text=\"" + std::wstring(csharp ? L"C# source" : authoredState == L"likely" ? L"Likely source (unverified)" : L"Source on disk") +
              L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\""
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(note) + L"\" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(note) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceNote\""
              DT_FG_SECONDARY L"/>";
         m += L"<HyperlinkButton x:Name=\"AxmlToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
-             L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Toggle authored XAML\""
+             L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"" +
+             std::wstring(csharp ? L"Toggle C# source" : L"Toggle authored XAML") + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlToggle\">";
         m += L"<Grid ColumnSpacing=\"7\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"10\"/>"
              L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
@@ -225,15 +231,31 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
     }
     if (rows.empty()) {
         m += L"<TextBlock Text=\"(no curated properties)\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>";
+        m += g_selReferencesMarkup;
+        m += L"<StackPanel x:Name=\"PendingReferences\"/>";
         if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
         m += L"</StackPanel>";
         return m;
     }
 
+    // LabeledBy / DescribedBy / FlowsTo / FlowsFrom / XYFocus* edges from and to this element, above the (long)
+    // Reactor component section so they stay in view.
+    m += g_selReferencesMarkup;
+    m += L"<StackPanel x:Name=\"PendingReferences\"/>";
+
+    // A Reactor element: the component that renders it (props, state, contexts, handlers), filled in after load.
+    if (csharp || !g_selReactorLabel.empty()) {
+        m += L"<StackPanel Spacing=\"4\" Margin=\"0,8,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsReactorSection\">";
+        m += L"<TextBlock Text=\"Reactor component\" Style=\"{StaticResource CaptionTextBlockStyle}\""
+             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/>";
+        m += L"<StackPanel x:Name=\"ReactorSectionBody\" Spacing=\"4\"><TextBlock Text=\"Reading the component\u2026\" FontSize=\"12\""
+             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></StackPanel></StackPanel>";
+    }
+
     const PaneEditMap emap = BuildEditMap(rows);
     const bool anyEditable = !emap.targets.empty();
 
-    if (authoredState != L"available") {
+    if (authoredState != L"available" && !csharp) {
         // Framework source with no readable app declaration is not missing app instrumentation.
             // Do not recommend changing a correct build for that case.
         const bool frameworkDeclared = !sourceUri.empty() && !DevToolsAppXaml_IsAppAuthored(sourceUri);
@@ -466,12 +488,37 @@ static void ShowCommentDraftNotice(const wchar_t* text, const std::wstring& draf
 // arriving inside the window produce exactly one rebuild, once the app has settled.
 static const UINT_PTR kRefreshTimerId  = 0xD72; // unique on the inspector HWND (see kPlaceTimerId / kWatchTimerId)
 static const UINT     kRefreshDebounceMs = 250;
+// A tree that never settles (a list re-created on a timer) is followed at a steady pace instead of after every change:
+// at most one rebuild every two seconds, and none later than three seconds after the first change it shows. Each row
+// rebuild costs the app memory it does not give back, so a list that changes several times a second must not set
+// the pace.
+static const ULONGLONG kRefreshMinGapMs = 2000;
+static const ULONGLONG kRefreshMaxWaitMs = 3000;
+static ULONGLONG g_treeRefreshFirstPending = 0, g_treeRefreshLast = 0;
 static HWND Route1WindowHwnd();
+
+// When the live tree refresh runs, for a change at `now`: the debounce, held to the pace above.
+static ULONGLONG TreeRefreshDueAt(ULONGLONG now, ULONGLONG firstPending, ULONGLONG lastRefresh)
+{
+    ULONGLONG due = now + kRefreshDebounceMs;
+    if (lastRefresh) due = (std::max)(due, lastRefresh + kRefreshMinGapMs);
+    if (firstPending) due = (std::min)(due, firstPending + kRefreshMaxWaitMs);
+    return (std::max)(due, now);
+}
+
+// A new Reactor description changes which rows are the app's own; it is applied with the next paced refresh.
+static bool g_treeReclassifyPending = false;
 
 static VOID CALLBACK RefreshTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD)
 {
     KillTimer(hwnd, id);
-    RefreshTreeFromApp();
+    g_treeRefreshFirstPending = 0;
+    g_treeRefreshLast = GetTickCount64();
+    if (!g_treeReclassifyPending) { RefreshTreeFromApp(); return; }
+    g_treeReclassifyPending = false;
+    g_reclassifying = true;
+    struct Reset { ~Reset() { g_reclassifying = false; } } reset;
+    RefreshTreeFromApp(true);
 }
 
 static void ArmTreeRefresh()
@@ -492,7 +539,10 @@ static void ArmTreeRefresh()
     }
     // SetTimer returns 0 on failure. A refresh that never got scheduled must say so rather than leave the
     // window sitting on a stale tree looking like it is about to update.
-    if (!SetTimer(h, kRefreshTimerId, kRefreshDebounceMs, RefreshTimerProc))
+    const ULONGLONG now = GetTickCount64();
+    if (!g_treeRefreshFirstPending) g_treeRefreshFirstPending = now;
+    const UINT wait = static_cast<UINT>(TreeRefreshDueAt(now, g_treeRefreshFirstPending, g_treeRefreshLast) - now);
+    if (!SetTimer(h, kRefreshTimerId, (std::max)(wait, static_cast<UINT>(USER_TIMER_MINIMUM)), RefreshTimerProc))
         DevToolsOverlayLog(L"route1.refresh SetTimer FAILED (err=%lu) -- the tree will stay out of date", GetLastError());
 }
 

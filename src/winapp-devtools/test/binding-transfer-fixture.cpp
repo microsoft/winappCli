@@ -5,6 +5,8 @@
 #include <inspectable.h>
 #include <wrl/client.h>
 #include <atomic>
+#include <thread>
+#include <vector>
 #include "DevToolsBindingRelay.h"
 
 #ifdef WINAPP_DEVTOOLS_BINDING_FIXTURE_DLL
@@ -121,4 +123,36 @@ FIXTURE HRESULT BindingFixtureRelay(BindingFixture* state, const wchar_t* op, wc
     }
     CoUninitialize();
     return hr;
+}
+
+// Concurrent in-process probes of the managed agent while its event stream is open, the way the inspector, the event
+// pump and CLI requests share it. Returns how many probes failed and the first failure's reason.
+FIXTURE HRESULT BindingFixtureStress(int threads, int probesPerThread, int* failures, wchar_t* firstError, ULONG capacity)
+{
+    *failures = 0;
+    if (capacity) firstError[0] = L'\0';
+    std::wstring eventsError;
+    HANDLE events = DevToolsBindingRelay_OpenEvents(1, &eventsError);
+    if (events == INVALID_HANDLE_VALUE) {
+        if (capacity) wcsncpy_s(firstError, capacity, eventsError.c_str(), _TRUNCATE);
+        return E_FAIL;
+    }
+    std::atomic<int> failed{0};
+    std::atomic<bool> recorded{false};
+    std::vector<std::thread> workers;
+    for (int t = 0; t < threads; ++t) {
+        workers.emplace_back([&] {
+            for (int i = 0; i < probesPerThread; ++i) {
+                std::wstring answer;
+                if (!DevToolsBindingRelay_Probe(&answer)) {
+                    ++failed;
+                    if (capacity && !recorded.exchange(true)) wcsncpy_s(firstError, capacity, answer.c_str(), _TRUNCATE);
+                }
+            }
+        });
+    }
+    for (auto& worker : workers) worker.join();
+    CloseHandle(events);
+    *failures = failed;
+    return S_OK;
 }

@@ -61,6 +61,40 @@ internal partial class RunCommand
             "Packaged apps need App execution aliases enabled. Cannot be combined with --no-launch or --without-alias.",
     };
 
+    public static Option<bool> WatchOption { get; } = new("--watch")
+    {
+        Description = "Run the project under 'dotnet watch' with DevTools: edits apply through .NET Hot Reload, and when an edit " +
+            "needs a restart the app is rebuilt and relaunched with DevTools attached again. Packaged apps are re-registered and " +
+            "relaunched through their staged execution alias. .NET 8+ projects only.",
+    };
+
+    internal static Option<bool> WatchLaunchOption { get; } = new("--devtools-watch-launch")
+    {
+        Description = "Internal: the launch step 'dotnet watch' runs for a packaged 'winapp run --watch'.",
+        Hidden = true,
+    };
+
+    internal static string? WatchConflict(bool devTools, bool detach, bool json, bool debugOutput, bool noBuild, bool aot, bool local,
+        bool clean = false, bool unregisterOnExit = false, bool profile = false)
+    {
+        if (!devTools)
+        {
+            return "--watch relaunches the app with DevTools, so it can't be combined with --devtools off.";
+        }
+        var conflicts = new List<string>();
+        if (detach) { conflicts.Add("--detach"); }
+        if (json) { conflicts.Add("--json"); }
+        if (debugOutput) { conflicts.Add("--debug-output"); }
+        if (noBuild) { conflicts.Add("--no-build"); }
+        if (aot) { conflicts.Add("--aot"); }
+        if (!local) { conflicts.Add("--on"); }
+        if (clean) { conflicts.Add("--clean"); }
+        if (unregisterOnExit) { conflicts.Add("--unregister-on-exit"); }
+        if (profile) { conflicts.Add("--profile"); }
+        return conflicts.Count == 0 ? null
+            : $"--watch runs 'dotnet watch' in this terminal until you stop it, rebuilding and relaunching the app as you edit, so it can't be combined with {string.Join(", ", conflicts)}.";
+    }
+
     /// <summary>The one-line error for a missing or unknown <c>--devtools</c> value, or null when it parsed.</summary>
     internal static string? DevToolsValueError(ParseResult parseResult)
     {
@@ -118,6 +152,9 @@ internal partial class RunCommand
                 : snapshot with { Coordinates = snapshot.Coordinates.Select(file => file.Attribution == "likely" ? file : file with
                 { PriHash = resources.PriHash, PayloadPaths = resources.Paths[file.Resource] }).ToArray() };
         }
+
+        // The Reactor build facts of the project this run built, when it uses Reactor (set once the build resolves).
+        private ReactorBuildFacts? devToolsReactor;
 
         internal Func<string?> ReadCiVariable { get; set; } = () => Environment.GetEnvironmentVariable("CI");
 
@@ -248,7 +285,13 @@ internal partial class RunCommand
             {
                 var managed = !nativeAot && (projectFile is not null && !ProjectRunService.IsCppProject(projectFile) ||
                     (alias.Target.TargetExecutable is { } executable && File.Exists(Path.ChangeExtension(executable, ".runtimeconfig.json"))));
-                var environment = CreateDevToolsEnvironment(projectFile?.DirectoryName, managed);
+                if (managed && alias.Target.TargetExecutable is { } targetImage &&
+                    DevToolsStartupHooks.DisabledByRuntimeConfig(Path.ChangeExtension(targetImage, ".runtimeconfig.json")))
+                {
+                    logger.LogWarning("{Message}", DevToolsStartupHooks.DisabledWarning(devToolsReactor is not null));
+                }
+                var environment = ReactorBuildFacts.ApplyEnvironment(CreateDevToolsEnvironment(projectFile?.DirectoryName, managed), devToolsReactor);
+                environment = WithHotReloadEnvironment(environment, watchAppEnvironment);
                 using var coordinates = await XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(projectFile, sources, compiler, cancellationToken,
                     (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(alias.Target.TargetExecutable!)!, token));
                 if (coordinates is not null)
@@ -296,7 +339,7 @@ internal partial class RunCommand
                     if (result.Status != InspectorAliasLaunchStatus.Exited)
                     {
                         error += " No existing instance was adopted. Check App execution aliases, or launch normally and use " +
-                            "'winapp devtools attach --pid <pid>' without startup-only binding/source instrumentation.";
+                            "'winapp devtools attach --pid <pid>' (XAML source locations need a winapp run launch).";
                     }
                     return InspectorFailure(aumid, result.Status == InspectorAliasLaunchStatus.Exited ? null : result.ProcessId,
                         error, isJson, coordinates);
@@ -304,6 +347,8 @@ internal partial class RunCommand
 
                 launchedAny = true;
                 using var launched = result.Process;
+                // Under --watch, dotnet watch ends this launch step to restart the app: the app must not outlive it.
+                using var containment = watchIteration is not null ? ContainProcess(launched.ProcessId) : null;
                 var code = await RunInspectedProcessAsync(launched, aumid, inputFolder.FullName, debugOutput, useSymbols,
                     detach, isJson, showOverlay, cancellationToken, coordinates);
                 if (unregisterOnExit && packageName is not null && (launched.HasExited || cancellationToken.IsCancellationRequested))
@@ -394,6 +439,10 @@ internal partial class RunCommand
                 {
                     ansiConsole.WriteLine(pid.ToString());
                     if (connection is not null) { ansiConsole.WriteLine($"Next: winapp devtools inspect -a {pid}"); }
+                }
+                else if (watchIteration is int iteration && connection is not null)
+                {
+                    ReportWatchAttach((int)pid, connection, restart: iteration > 1);
                 }
                 else if (connection is not null)
                 {

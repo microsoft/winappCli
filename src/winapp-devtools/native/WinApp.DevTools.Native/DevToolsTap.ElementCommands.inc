@@ -297,6 +297,44 @@ static HRESULT ReadElementLayout_ui(InstanceHandle ih, DevToolsReadLayout& out, 
     return S_OK;
 }
 
+// Where the element is on screen in physical pixels, which is what UI Automation reports whatever the app's DPI
+// awareness. Its XamlRoot rectangle goes through the root's coordinate converter, which knows where a XAML island
+// sits in its window; the result is in this process's logical pixels, so a window that is not per-monitor DPI aware
+// is then scaled to the physical pixels Windows stretches it to. UI thread; leaves `out` unchanged when unreadable.
+static void ReadElementScreenRect_ui(InstanceHandle ih, DevToolsReadLayout& out)
+{
+    if (!g_diag || !out.haveRender || out.renderW <= 0 || out.renderH <= 0) return;
+    DevToolsSurface surface;
+    if (!DevToolsSurface_Resolve(g_diag, ih, &surface)) return;
+    IInspectable* insp = nullptr;
+    if (FAILED(g_diag->GetIInspectableFromHandle(ih, &insp)) || !insp) return;
+    void* ui = nullptr;
+    void* gt = nullptr;
+    float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    const bool mapped = SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui &&
+        SUCCEEDED(DevToolsTransformToVisual(ui, nullptr, &gt)) && gt &&
+        SUCCEEDED(DevToolsTransformPoint(gt, 0.0f, 0.0f, &x0, &y0)) &&
+        SUCCEEDED(DevToolsTransformPoint(gt, out.renderW, out.renderH, &x1, &y1));
+    if (gt) reinterpret_cast<IUnknown*>(gt)->Release();
+    if (ui) reinterpret_cast<IUnknown*>(ui)->Release();
+    insp->Release();
+    POINT a{}, b{};
+    if (!mapped || !DevToolsSurface_LocalToScreen(surface, (std::min)(x0, x1), (std::min)(y0, y1), &a) ||
+        !DevToolsSurface_LocalToScreen(surface, (std::max)(x0, x1), (std::max)(y0, y1), &b)) return;
+    double x = a.x, y = a.y, w = (double)b.x - a.x, h = (double)b.y - a.y;
+    const HWND hwnd = surface.hostHwnd;
+    RECT client{};
+    POINT l0{ 0, 0 };
+    if (hwnd && IsWindow(hwnd) && GetClientRect(hwnd, &client) && ClientToScreen(hwnd, &l0)) {
+        POINT l1{ l0.x + (client.right - client.left), l0.y + (client.bottom - client.top) };
+        POINT p0 = l0, p1 = l1;
+        if (LogicalToPhysicalPointForPerMonitorDPI(hwnd, &p0) && LogicalToPhysicalPointForPerMonitorDPI(hwnd, &p1))
+            DevToolsRead_LogicalToPhysical(l0.x, l0.y, l1.x, l1.y, p0.x, p0.y, p1.x, p1.y, x, y, w, h);
+    }
+    out.screenX = x; out.screenY = y; out.screenW = w; out.screenH = h;
+    out.haveScreen = true;
+}
+
 static std::wstring CmdElementLayout(const std::vector<std::wstring>& p)
 {
     if (p.size() < 2 || p[1].empty()) return L"ERR bad-args";
@@ -316,6 +354,7 @@ static std::wstring CmdElementLayout(const std::vector<std::wstring>& p)
         if (!ok) { *rerr = e; return E_INVALIDARG; }
         InstanceHandle parent = 0;
         const HRESULT read = ReadElementLayout_ui(ih, *facts, &parent);
+        if (SUCCEEDED(read)) ReadElementScreenRect_ui(ih, *facts);
         // Reported as type + wire handle so a client can offer "select the parent".
         if (SUCCEEDED(read) && parent) {
             AcquireSRWLockExclusive(&g_censusLock);
@@ -364,6 +403,9 @@ static std::wstring BackfillSourceInfo(InstanceHandle ih)
     return file;
 }
 
+// Defined in DevToolsTap.Reactor.inc: the C# Source.get answer for an element with no XAML declaration, or empty.
+static std::wstring TapReactorSourceAnswer(unsigned long long wire);
+
 static std::wstring CmdElementSource(const std::vector<std::wstring>& p)
 {
     if (p.size() < 2 || p[1].empty()) return L"ERR bad-args";
@@ -394,7 +436,13 @@ static std::wstring CmdElementSource(const std::vector<std::wstring>& p)
         InstanceHandle ih = 0; const wchar_t* error = nullptr;
         if (!ResolveWire_nolock(wire, &ih, &error)) return std::wstring(L"ERR ") + (error ? error : L"stale-handle");
     }
+    // No XAML declaration: the element may come from a Reactor call site (its own, or the nearest Reactor element's).
+    if (fileName->empty()) {
+        const std::wstring csharp = TapReactorSourceAnswer(wire);
+        if (!csharp.empty()) return csharp;
+    }
     std::wstring out = L"{\"handle\":" + std::to_wstring(wire);
+    if (!fileName->empty()) out += L",\"kind\":\"xaml\"";
     out += L",\"fileName\":\"" + DevToolsJsonEscape(*fileName) + L"\"";
     out += L",\"lineNumber\":" + std::to_wstring(*lineNo);
     out += L",\"columnNumber\":" + std::to_wstring(*colNo);
@@ -436,13 +484,19 @@ static AuthoredVerdicts ClassifyAuthored(CensusSnapshot& cs, bool onUiThread)
         if (!unreached.empty()) SelectBoundedBreadthFirst(cs, unreached, -1, budget, included);
     }
 
+    // Elements a Reactor call site created have no XAML declaration to read: they are the app's own code (added to
+    // `authored` below) and need no backfill. A list that keeps re-creating its rows otherwise adds unread elements
+    // faster than the bounded backfill reads them, and the classification never completes.
+    std::set<InstanceHandle> reactorAuthored;
+    TapReactorAddAuthored(cs, reactorAuthored);
+
     // Backfill in UI-thread batches, but finish a whole navigation's new elements in one request when that is quick:
     // one batch per request left `search` and `inspect` unclassified for several calls after navigating.
     static const size_t kBackfillBatch = 100;
     static const ULONGLONG kBackfillBudgetMs = 250;
     std::vector<unsigned long long> pending;
     for (InstanceHandle h : included) {
-        if (cs.sourceUri.find(h) != cs.sourceUri.end()) continue;
+        if (cs.sourceUri.find(h) != cs.sourceUri.end() || reactorAuthored.count(h)) continue;
         auto wi = cs.wire.find(h);
         if (wi == cs.wire.end() || !wi->second) continue;
         pending.push_back(wi->second);
@@ -473,10 +527,19 @@ static AuthoredVerdicts ClassifyAuthored(CensusSnapshot& cs, bool onUiThread)
 
     std::vector<InstanceHandle> srcHandles;
     std::vector<std::wstring> srcUris;
+    size_t gone = 0;
     for (InstanceHandle h : included) {
         auto su = cs.sourceUri.find(h);
         auto wi = cs.wire.find(h);
-        if (su == cs.sourceUri.end() || wi == cs.wire.end() || !wi->second) continue;
+        if (reactorAuthored.count(h)) { ++out.classifiedNodes; continue; }
+        if (su == cs.sourceUri.end() || wi == cs.wire.end() || !wi->second) {
+            // An element that left the tree since the snapshot (a list that keeps re-creating its rows) has nothing
+            // left to classify; only elements still there and unread leave the classification incomplete.
+            CensusSharedLock lock;
+            InstanceHandle raw = 0; const wchar_t* err = nullptr;
+            if (wi == cs.wire.end() || !wi->second || !ResolveWire_nolock(wi->second, &raw, &err) || raw != h) ++gone;
+            continue;
+        }
         ++out.classifiedNodes;
         if (su->second.empty()) continue;
         srcHandles.push_back(h);
@@ -498,15 +561,18 @@ static AuthoredVerdicts ClassifyAuthored(CensusSnapshot& cs, bool onUiThread)
     }
     for (size_t i = 0; i < verdicts.size() && i < srcHandles.size(); ++i)
         if (verdicts[i]) out.authored.insert(srcHandles[i]);
+    // Elements a Reactor call site created are the app's own code too (cached by the last Reactor description).
+    out.authored.insert(reactorAuthored.begin(), reactorAuthored.end());
 
     out.sourceInstrumented = !srcUris.empty();
-    out.truncated = included.size() < cs.type.size() || out.classifiedNodes < included.size();
+    out.truncated = included.size() < cs.type.size() || out.classifiedNodes + gone < included.size();
     out.denylistFallback = !DevToolsAuthored_HasSourceRoot() && DevToolsAppXaml_ScanDiscredited();
     return out;
 }
 
 static std::wstring CmdAppAuthored()
 {
+    TapReactorRefreshAuthored();
     CensusSnapshot cs;
     {
         CensusSharedLock lock;
@@ -549,4 +615,175 @@ static std::wstring CmdAppAuthored()
     out += L"\"";
     out += L"}";
     return out;
+}
+
+// ---- Element references: LabeledBy, DescribedBy, FlowsTo, FlowsFrom and XYFocus* (see DevToolsReferences.h) ----
+
+static void Route1ReadPreview(InstanceHandle wire, std::wstring& out, std::wstring* searchText,
+                             std::vector<DevToolsBatch::PreviewValue>* values);
+
+// The targets one reference property of `element` names. UI thread only.
+static std::vector<DevToolsX::DependencyObject> TapReferenceTargets_ui(const DevToolsX::UIElement& element, const std::wstring& kind)
+{
+    std::vector<DevToolsX::DependencyObject> out;
+    try {
+        auto addList = [&out](const winrt::Windows::Foundation::Collections::IVector<DevToolsX::DependencyObject>& list) {
+            if (!list) return;
+            for (const auto& target : list) if (target) out.push_back(target);
+        };
+        if (kind == L"LabeledBy") { if (auto target = DevToolsXA::AutomationProperties::GetLabeledBy(element)) out.push_back(target); }
+        else if (kind == L"DescribedBy") addList(DevToolsXA::AutomationProperties::GetDescribedBy(element));
+        else if (kind == L"FlowsTo") addList(DevToolsXA::AutomationProperties::GetFlowsTo(element));
+        else if (kind == L"FlowsFrom") addList(DevToolsXA::AutomationProperties::GetFlowsFrom(element));
+        else if (kind == L"XYFocusUp") { if (auto target = element.XYFocusUp()) out.push_back(target); }
+        else if (kind == L"XYFocusDown") { if (auto target = element.XYFocusDown()) out.push_back(target); }
+        else if (kind == L"XYFocusLeft") { if (auto target = element.XYFocusLeft()) out.push_back(target); }
+        else if (kind == L"XYFocusRight") { if (auto target = element.XYFocusRight()) out.push_back(target); }
+    } catch (const winrt::hresult_error&) {
+        // An element that refuses a read has no references of that kind.
+    }
+    return out;
+}
+
+static std::uintptr_t TapReferenceIdentity(const winrt::Windows::Foundation::IInspectable& object)
+{
+    if (!object) return 0;
+    auto unknown = object.try_as<winrt::Windows::Foundation::IUnknown>();
+    return unknown ? reinterpret_cast<std::uintptr_t>(winrt::get_abi(unknown)) : 0;
+}
+
+// `TextBlock #NameLabel` from the census; empty when the element is not in the live tree.
+static std::wstring TapReactorNameOf(InstanceHandle h); // DevToolsTap.Reactor.inc
+static std::wstring TapReferenceLabel_ui(const winrt::Windows::Foundation::IInspectable& object, unsigned long long* wire)
+{
+    *wire = 0;
+    InstanceHandle h = 0;
+    if (g_diag && SUCCEEDED(g_diag->GetHandleFromIInspectable(reinterpret_cast<IInspectable*>(winrt::get_abi(object)), &h)) && h) {
+        AcquireSRWLockShared(&g_censusLock);
+        std::wstring type, name;
+        if (auto it = g_type.find(h); it != g_type.end()) type = it->second;
+        if (auto it = g_nameOf.find(h); it != g_nameOf.end()) name = it->second;
+        if (!type.empty()) *wire = PackWire_nolock(h);
+        ReleaseSRWLockShared(&g_censusLock);
+        if (!type.empty()) {
+            const auto dot = type.find_last_of(L'.');
+            std::wstring label = dot == std::wstring::npos ? type : type.substr(dot + 1);
+            if (!name.empty()) return label + L" #" + name;
+            // A Reactor element assigned to a C# variable reads like an x:Name.
+            if (const std::wstring reactorName = TapReactorNameOf(h); !reactorName.empty()) return label + L" #" + reactorName;
+            // No x:Name (every Reactor element): the row's caption tells the elements apart.
+            std::wstring preview;
+            Route1ReadPreview(*wire, preview, nullptr, nullptr);
+            if (preview.size() > 60) preview = preview.substr(0, 59) + L"\u2026";
+            return preview.empty() ? label : label + L" " + preview;
+        }
+    }
+    return {};
+}
+
+static const size_t kReferenceIncomingScan = 3000;
+
+// Every reference from and to the element `ih`, with cycles marked. UI thread only.
+static std::vector<DevToolsReferenceEdge> TapReferences_ui(InstanceHandle ih, bool* truncated)
+{
+    *truncated = false;
+    std::vector<DevToolsReferenceEdge> edges;
+    if (!g_diag) return edges;
+    IInspectable* raw = nullptr;
+    if (FAILED(g_diag->GetIInspectableFromHandle(ih, &raw)) || !raw) return edges;
+    winrt::Windows::Foundation::IInspectable object{ nullptr };
+    winrt::attach_abi(object, raw);
+    const auto self = object.try_as<DevToolsX::UIElement>();
+    if (!self) return edges;
+    const std::uintptr_t selfId = TapReferenceIdentity(self);
+
+    std::map<std::uintptr_t, DevToolsX::UIElement> known{ { selfId, self } };
+    auto follow = [&known](const std::wstring& kind) {
+        return [&known, kind](std::uintptr_t id) {
+            std::vector<std::uintptr_t> ids;
+            const auto it = known.find(id);
+            if (it == known.end()) return ids;
+            for (const auto& target : TapReferenceTargets_ui(it->second, kind)) {
+                const auto targetId = TapReferenceIdentity(target);
+                if (auto element = target.try_as<DevToolsX::UIElement>()) known.emplace(targetId, element);
+                ids.push_back(targetId);
+            }
+            return ids;
+        };
+    };
+
+    for (const auto& kind : DevToolsReferenceKinds()) {
+        for (const auto& target : TapReferenceTargets_ui(self, kind)) {
+            DevToolsReferenceEdge edge;
+            edge.kind = kind;
+            edge.label = TapReferenceLabel_ui(target, &edge.wire);
+            if (edge.label.empty()) DevToolsMarkReferenceNotShown(edge, std::wstring(winrt::get_class_name(target)));
+            const auto targetId = TapReferenceIdentity(target);
+            if (auto element = target.try_as<DevToolsX::UIElement>()) known.emplace(targetId, element);
+            edge.cycle = DevToolsReferenceLeadsBack(selfId, targetId, follow(kind));
+            edges.push_back(std::move(edge));
+        }
+    }
+
+    // Elements in the tree that point here. Bounded: a huge tree reports a partial answer, not a stalled UI thread.
+    std::vector<InstanceHandle> candidates;
+    AcquireSRWLockShared(&g_censusLock);
+    candidates.reserve((std::min)(g_type.size(), kReferenceIncomingScan));
+    for (const auto& [handle, type] : g_type) {
+        if (handle == ih) continue;
+        if (candidates.size() >= kReferenceIncomingScan) { *truncated = true; break; }
+        candidates.push_back(handle);
+    }
+    ReleaseSRWLockShared(&g_censusLock);
+    for (InstanceHandle candidate : candidates) {
+        IInspectable* other = nullptr;
+        if (FAILED(g_diag->GetIInspectableFromHandle(candidate, &other)) || !other) continue;
+        winrt::Windows::Foundation::IInspectable otherObject{ nullptr };
+        winrt::attach_abi(otherObject, other);
+        const auto source = otherObject.try_as<DevToolsX::UIElement>();
+        if (!source) continue;
+        for (const auto& kind : DevToolsReferenceKinds()) {
+            for (const auto& target : TapReferenceTargets_ui(source, kind)) {
+                if (TapReferenceIdentity(target) != selfId) continue;
+                DevToolsReferenceEdge edge;
+                edge.kind = kind;
+                edge.incoming = true;
+                edge.label = TapReferenceLabel_ui(source, &edge.wire);
+                if (edge.label.empty()) DevToolsMarkReferenceNotShown(edge, std::wstring(winrt::get_class_name(source)));
+                const auto sourceId = TapReferenceIdentity(source);
+                known.emplace(sourceId, source);
+                edge.cycle = DevToolsReferenceLeadsBack(sourceId, selfId, follow(kind));
+                edges.push_back(std::move(edge));
+            }
+        }
+    }
+    return edges;
+}
+
+// property.references|<handle> -> DevToolsReferencesJson for the element (UI-thread live read).
+static std::vector<DevToolsReferenceEdge> TapPendingReferences(unsigned long long wire);
+static std::wstring CmdElementReferences(const std::vector<std::wstring>& p)
+{
+    unsigned long long wire = 0;
+    if (p.size() < 2 || !DevToolsParseWireHandle(p[1], false, &wire)) return L"ERR bad-args";
+    { InstanceHandle ih0 = 0; const wchar_t* e = nullptr; bool ok;
+      AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih0, &e); ReleaseSRWLockShared(&g_censusLock);
+      if (!ok) return std::wstring(L"ERR ") + e; }
+    // Targets Reactor knows but hasn't created yet. Asked here, off the UI thread, because the agent answers on it.
+    const auto pending = TapPendingReferences(wire);
+    auto answer = std::make_shared<std::wstring>();
+    auto rerr = std::make_shared<const wchar_t*>(nullptr);
+    const HRESULT hr = RunOnUiThread([wire, answer, rerr, pending]() -> HRESULT {
+        InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
+        AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih, &e); ReleaseSRWLockShared(&g_censusLock);
+        if (!ok) { *rerr = e; return E_INVALIDARG; }
+        bool truncated = false;
+        auto edges = TapReferences_ui(ih, &truncated);
+        edges.insert(edges.end(), pending.begin(), pending.end());
+        *answer = DevToolsReferencesJson(edges, truncated);
+        return S_OK;
+    });
+    if (*rerr) return std::wstring(L"ERR ") + *rerr;
+    if (FAILED(hr) || answer->empty()) return L"ERR internal";
+    return L"{\"handle\":\"" + std::to_wstring(wire) + L"\"," + answer->substr(1);
 }

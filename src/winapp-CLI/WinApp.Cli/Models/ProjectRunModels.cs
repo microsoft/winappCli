@@ -108,6 +108,7 @@ internal sealed record ProjectRunResolution(
     string? Configuration = null,
     string? Platform = null,
     Services.DevTools.XamlCompilerArtifacts? DevToolsCompilerArtifacts = null,
+    Services.DevTools.ReactorBuildFacts? DevToolsReactor = null,
     string? WindowsAppSdkPackageDir = null);
 
 /// <summary>

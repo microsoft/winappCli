@@ -46,6 +46,15 @@ public sealed class StartupHookTests
             string input;
             while (!string.IsNullOrEmpty(input = Console.ReadLine()))
             {
+                if (input.StartsWith("stress:", StringComparison.Ordinal))
+                {
+                    var shape = input.Substring(7).Split(':');
+                    var reason = new StringBuilder(1024);
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    int hr = Native.BindingFixtureStress(int.Parse(shape[0]), int.Parse(shape[1]), out var failed, reason, 1024);
+                    Console.WriteLine($"{hr} {failed} {watch.ElapsedMilliseconds} {reason}");
+                    continue;
+                }
                 if (input.StartsWith("native:", StringComparison.Ordinal))
                 {
                     Marshal.ThrowExceptionForHR(Native.BindingFixtureCreate(out var fixture));
@@ -91,6 +100,8 @@ public sealed class StartupHookTests
                 [DllImport("binding-transfer-fixture")] internal static extern int BindingFixtureDestroy(IntPtr value);
                 [DllImport("binding-transfer-fixture", CharSet=CharSet.Unicode)]
                 internal static extern int BindingFixtureRelay(IntPtr value, string op, StringBuilder reply, uint capacity);
+                [DllImport("binding-transfer-fixture", CharSet=CharSet.Unicode)]
+                internal static extern int BindingFixtureStress(int threads, int probesPerThread, out int failures, StringBuilder firstError, uint capacity);
             }
             """);
         var start = new ProcessStartInfo("dotnet") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -109,7 +120,7 @@ public sealed class StartupHookTests
     [ClassCleanup]
     public static void Cleanup() => Directory.Delete(directory, recursive: true);
 
-    private static async Task WithHost(Func<Process, Task> test)
+    private static async Task WithHost(Func<Process, Task> test, bool startupHook = true)
     {
         var start = new ProcessStartInfo("dotnet")
         {
@@ -117,7 +128,8 @@ public sealed class StartupHookTests
             WorkingDirectory = directory
         };
         start.ArgumentList.Add(childAssembly);
-        start.Environment["DOTNET_STARTUP_HOOKS"] = typeof(BindingDiagnosis).Assembly.Location;
+        if (startupHook) start.Environment["DOTNET_STARTUP_HOOKS"] = typeof(BindingDiagnosis).Assembly.Location;
+        else start.Environment.Remove("DOTNET_STARTUP_HOOKS");
         start.Environment["WINAPP_BINDING_TEST_FIXTURE"] = BindingFixtureInterop.Path;
         start.Environment.Remove("WINAPP_WATCH_PID");
         start.Environment.Remove("DOTNET_MODIFIABLE_ASSEMBLIES");
@@ -159,6 +171,71 @@ public sealed class StartupHookTests
             Assert.IsNotNull(reply);
             Assert.IsTrue(reply.Contains("\"state\":\"unavailable\"", StringComparison.Ordinal), reply);
         });
+    }
+
+    // `winapp devtools attach` loads the agent into a running app through the runtime's diagnostics port
+    // (ApplyStartupHook, .NET 8+). The same agent must start there, and a repeated request must not start it twice.
+    [TestMethod]
+    public async Task AgentLoadsIntoARunningProcessThroughTheDiagnosticsPort()
+    {
+        await WithHost(async child =>
+        {
+            Assert.IsFalse(AgentPipeExists(child.Id), "no agent before the late load");
+            Assert.AreEqual(0u, await ApplyStartupHook(child.Id, typeof(BindingDiagnosis).Assembly.Location));
+            var until = Environment.TickCount64 + 10_000;
+            while (!AgentPipeExists(child.Id) && Environment.TickCount64 < until) await Task.Delay(50);
+            Assert.IsTrue(AgentPipeExists(child.Id), "the agent's pipe came up");
+
+            Assert.AreEqual(0u, await ApplyStartupHook(child.Id, typeof(BindingDiagnosis).Assembly.Location));
+            var reply = await SendFromHost(child, BindingFrame("diagnose"));
+            Assert.IsNotNull(reply);
+            Assert.IsTrue(reply.Contains("\"state\":\"unavailable\"", StringComparison.Ordinal), reply);
+        }, startupHook: false);
+    }
+
+    private static bool AgentPipeExists(int pid) =>
+        Directory.EnumerateFiles(@"\\.\pipe\").Any(name => name.EndsWith($"\\winapp-devtools-binding-{pid}", StringComparison.OrdinalIgnoreCase));
+
+    // The inspector, the Reactor event pump and CLI requests all reach the agent from inside the app at once. With the
+    // event stream holding a connection, 12 threads each probe the agent 25 times through the native relay; every
+    // probe must get through (before several listeners and the relay's busy retry, about 9 in 10 failed).
+    [TestMethod]
+    public async Task ConcurrentInProcessProbesAllReachTheAgentWhileTheEventStreamIsOpen()
+    {
+        await WithHost(async child =>
+        {
+            await child.StandardInput.WriteLineAsync("stress:12:25");
+            var reply = await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(60));
+            Assert.IsNotNull(reply);
+            var fields = reply.Split(' ', 4);
+            Assert.AreEqual("0", fields[0], reply);
+            Assert.AreEqual("0", fields[1], $"probes failed out of 300: {reply}");
+        });
+    }
+
+    private static async Task<uint> ApplyStartupHook(int pid, string path)
+    {
+        var text = Encoding.Unicode.GetBytes(path + "\0");
+        var message = new byte[24 + text.Length];
+        Encoding.ASCII.GetBytes("DOTNET_IPC_V1\0").CopyTo(message, 0);
+        BitConverter.GetBytes((ushort)message.Length).CopyTo(message, 14);
+        message[16] = 0x04;
+        message[17] = 0x07;
+        BitConverter.GetBytes((uint)(path.Length + 1)).CopyTo(message, 20);
+        text.CopyTo(message, 24);
+        using var pipe = new NamedPipeClientStream(".", $"dotnet-diagnostic-{pid}", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await pipe.ConnectAsync(5000);
+        await pipe.WriteAsync(message);
+        var response = new byte[24];
+        var read = 0;
+        while (read < response.Length)
+        {
+            var n = await pipe.ReadAsync(response.AsMemory(read)).AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+            if (n == 0) break;
+            read += n;
+        }
+        Assert.AreEqual(0xFF, response[16], "server response");
+        return response[17] == 0 ? 0u : BitConverter.ToUInt32(response, 20);
     }
 
     private static async Task<string?> SendFromHost(Process child, byte[] frame, byte[]? removedCommand = null)

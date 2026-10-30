@@ -392,6 +392,33 @@ static void Test_A11yRowsFollowTheVisibleHierarchy()
     CheckEq(a11y[6].level, 2, "its child nests under that root");
 }
 
+// A Reactor app renders a different component into the same Border after navigation, a tab switch or a conditional
+// unmount. Type, x:Name and position are unchanged, so without the Reactor identity the old selector would silently
+// name the new component and set-state would write into it.
+static void Test_ReactorIdentityTellsComponentsAtOnePlaceApart()
+{
+    std::printf("\n[selectors] a Reactor element's identity includes its component, key or call site\n");
+
+    const std::wstring home = ReactorIdentity(L"<HomePage>", L"", L"MainShell.cs:30");
+    const std::wstring overlays = ReactorIdentity(L"<OverlaysPage>", L"", L"MainShell.cs:31");
+    Check(IdentitySegment(L"Microsoft.UI.Xaml.Controls.Border", L"", 0, home) !=
+          IdentitySegment(L"Microsoft.UI.Xaml.Controls.Border", L"", 0, overlays),
+          "two components rendered at the same position get different segments");
+    Check(IdentityFold(kIdentitySeed, IdentitySegment(L"Border", L"", 0, home)) !=
+          IdentityFold(kIdentitySeed, IdentitySegment(L"Border", L"", 0, overlays)),
+          "...and so different identities");
+    Check(ReactorIdentity(L"<LazyTab>", L"", L"Tabs.cs:20") != ReactorIdentity(L"<TabCounter>", L"", L"Tabs.cs:20"),
+          "the component tells two components from one call site apart");
+    Check(ReactorIdentity(L"TextBlock", L"tab1Text", L"Tabs.cs:30") != ReactorIdentity(L"TextBlock", L"tab3Label", L"Tabs.cs:30"),
+          "the key tells two keyed elements apart");
+    Check(ReactorIdentity(L"TextBlock", L"t1", L"Tabs.cs:30") == ReactorIdentity(L"TextBlock", L"t1", L"Tabs.cs:31"),
+          "a keyed element keeps its identity when its line moves");
+    Check(ReactorIdentity(L"<Counter>", L"", L"App.cs:36") == ReactorIdentity(L"<Counter>", L"", L"App.cs:36"),
+          "the same element re-rendered keeps its identity");
+    Check(IdentitySegment(L"Microsoft.UI.Xaml.Controls.Button", L"Submit", 2, L"") == L"Button#Submit[2]",
+          "an element Reactor did not create keeps exactly its XAML segment");
+}
+
 // The identity a devtools selector is built on. A wire handle is exact but opaque; `id` is the readable
 // half, and the ONLY thing that lets the CLI refuse a selector that no longer names the element it named
 // when it was printed. Three properties have to hold or the selector is worse than the bare handle it
@@ -624,6 +651,13 @@ int RunBindingRelayTests();
 // Defined in bindingrow-tests.cpp: what a row SHOWS for a binding answer, including the control that
 // a healthy binding shows nothing.
 int RunBindingRowTests();
+int RunComponentPanelTests();
+// Defined in reactoranchor-tests.cpp: comment-marker anchors of Reactor elements.
+int RunReactorAnchorTests();
+// Defined in reactorpublished-tests.cpp: Reactor diagnostics published on each control.
+int RunReactorPublishedTests();
+// Defined in references-tests.cpp: LabeledBy/XYFocus* references and their cycles.
+int RunReferencesTests();
 // Defined in pathwalk-tests.cpp: what a row SHOWS for a binding PATH WALK -- including the control
 // that a fully resolving path shows nothing, and the assertion that "no such property" and "is null" never
 // render as the same thing.
@@ -810,6 +844,7 @@ int main()
     Test_VisibleParents();
     Test_TreeFilterMatcherIsSharedWithTheProtocol();
     Test_ElementIdentityIsPathDependentAndStable();
+    Test_ReactorIdentityTellsComponentsAtOnePlaceApart();
     Test_CollapseStateSurvivesARowRebuild();
     Test_FocusRedirectsToTheNearestAuthoredAncestor();
     Test_PartialPackageScanDoesNotHideTheApp();
@@ -899,13 +934,25 @@ int main()
     std::printf("\n");
     const int eventsFailures = RunEventsTests();
 
+    std::printf("\n");
+    const int componentPanelFailures = RunComponentPanelTests();
+
+    std::printf("\n");
+    const int reactorAnchorFailures = RunReactorAnchorTests();
+
+    std::printf("\n");
+    const int reactorPublishedFailures = RunReactorPublishedTests();
+
+    std::printf("\n");
+    const int referencesFailures = RunReferencesTests();
+
     const int total = g_testFailures + protocolFailures + trustFailures + crashFailures + sourcePathFailures + sinkFailures +
                       cornerFailures + toolbarFailures + authoredFailures +
                       selectionPlacementFailures + inspectorAcceptanceFailures + selectionTrackingFailures + relayFailures +
                       bindingRowFailures + pathWalkFailures + pathProbeFailures + pathSyntaxFailures + readFailures + pickRouteFailures + perfFailures + uiDispatchFailures +
                       focusSubscriptionFailures + overlayStateFailures + resourceInlineFailures +
                       shellOpenFailures + ownedStateFailures + batchFailures + queryFailures + bindingAnswerFailures +
-                      pipeAcceptFailures + framingFailures + eventsFailures;
+                      pipeAcceptFailures + framingFailures + eventsFailures + componentPanelFailures + reactorAnchorFailures + reactorPublishedFailures + referencesFailures;
     // Unregister BEFORE reading the count, not after: once the handler is gone no further fault can be
     // recorded, so the value read here is final. Reading first would leave a window in which a fault is
     // recorded but not counted, and the suite would exit 0 with a memory fault already on the record.
