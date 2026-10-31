@@ -924,6 +924,10 @@ internal partial class RunCommand
                 JsonSerializer.Serialize(result, RunCommandJsonContext.Output.RunCommandResult));
         }
 
+        /// <summary>Formats the copyable UI-command target for a guest application process.</summary>
+        internal static string FormatUiTargetArgs(string? selector, uint processId) =>
+            $"--on {selector} -a {processId.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+
         internal static RunCommandResult CreateDirectGuestResult(
             ExecutionTargetRef reference,
             string architecture,
@@ -1003,8 +1007,7 @@ internal partial class RunCommand
                 // Emitted as the two arguments together, never as a bare PID and never as a value
                 // that hides the target inside it. A number on its own would resolve against this
                 // desktop if it were pasted into a UI command without the selector.
-                result.UiTargetArgs =
-                    $"--on {selector} -a {pid.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+                result.UiTargetArgs = FormatUiTargetArgs(selector, pid);
             }
 
             return JsonSerializer.Serialize(result, RunCommandJsonContext.Output.RunCommandResult);

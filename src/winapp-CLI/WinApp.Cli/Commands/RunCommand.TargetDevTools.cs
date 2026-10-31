@@ -4,6 +4,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Spectre.Console;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Models;
 
@@ -74,8 +75,8 @@ internal partial class RunCommand
                 {
                     var frame = ready.App!;
                     var selector = GuestDevToolsSelector.ForLaunch(prepared.Id);
-                    var output = CreateDirectGuestResult(target.Reference, target.Capabilities.Architecture, target.Epoch.Value);
-                    output.ProcessId = checked((uint)frame.Process!.ProcessId);
+                    var output = CreateGuestInspectorResult(target.Reference, target.Capabilities.Architecture,
+                        target.Epoch.Value, checked((uint)frame.Process!.ProcessId));
                     if (run.Package is { } package)
                     {
                         output.AUMID = $"{appLauncherService.ComputePackageFamilyName(package.PackageName, package.Publisher)}!{package.ApplicationId}";
@@ -97,6 +98,16 @@ internal partial class RunCommand
                     }
                 });
             return result.ExitCode ?? 0;
+        }
+
+        /// <summary>Creates the result for a DevTools launch, targeting the guest application process.</summary>
+        internal static RunCommandResult CreateGuestInspectorResult(
+            ExecutionTargetRef reference, string architecture, string epoch, uint processId)
+        {
+            var output = CreateDirectGuestResult(reference, architecture, epoch);
+            output.ProcessId = processId;
+            output.UiTargetArgs = FormatUiTargetArgs(output.ProcessScope, processId);
+            return output;
         }
 
         internal static GuestExecRequest CreateGuestInspectorRequest(

@@ -1352,6 +1352,18 @@ public class SandboxRunTests
         Assert.AreEqual("epoch-1", result.ExecutionTarget.Epoch);
     }
 
+    [TestMethod]
+    public void GuestInspectorResult_IncludesTheUiTargetArgsOfTheGuestProcess()
+    {
+        var result = RunCommand.Handler.CreateGuestInspectorResult(WindowsSandboxTarget.Default,
+            architecture: "arm64",
+            epoch: "epoch-1",
+            processId: 4212);
+
+        Assert.AreEqual(4212u, result.ProcessId);
+        Assert.AreEqual("--on sandbox -a 4212", result.UiTargetArgs);
+    }
+
     private static ExecutionTargetInfo TargetInfo() => new()
     {
         Kind = WindowsSandboxTarget.Default.Kind,
