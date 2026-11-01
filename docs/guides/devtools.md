@@ -150,6 +150,22 @@ and `--with`:
 winapp devtools search --of-type TextBlock --with 'FontSize>=20' --fields 'Text,FontSize'
 ```
 
+The default `inspect` view is built from the elements declared in your XAML, not the
+whole live tree. Elements your code creates at runtime only appear with `--all`. For
+example, if `DynamicPanel` is declared in XAML and its two Buttons are added in code:
+
+```powershell
+winapp devtools inspect DynamicPanel --depth 1 -a <pid> --json
+winapp devtools inspect DynamicPanel --depth 1 --all -a <pid> --json
+```
+
+The first command can show no children and `childCount: 0`; the second includes the
+Buttons.
+
+In `--json` output, `childCount` counts children in the view you asked for, so it can
+differ between the default view and `--all`. `hiddenByFilter` counts only elements
+hidden by the text filter; it does not count elements left out of the XAML-only view.
+
 `set-property` reports the value before and after. Changes are live only: they don't
 edit your source and are gone when the app restarts. Setting a bound property replaces
 its binding until you restart the app; the output warns you. `diagnose-binding` shows
