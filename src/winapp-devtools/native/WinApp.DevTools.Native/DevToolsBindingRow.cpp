@@ -230,6 +230,6 @@ std::wstring DevToolsBindingRow_SpokenStatus(const std::wstring& status)
 
 bool DevToolsBindingRow_ShowsReplaced(const DevToolsBindingSummary& summary, bool replacedHere, bool writtenLive)
 {
-    if (replacedHere || summary.tone == DevToolsBindingTone::NotBound) return true;
-    return summary.tone == DevToolsBindingTone::Unknown && writtenLive;
+    if (replacedHere) return true;
+    return writtenLive && (summary.tone == DevToolsBindingTone::NotBound || summary.tone == DevToolsBindingTone::Unknown);
 }
