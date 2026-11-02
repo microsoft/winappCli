@@ -112,17 +112,16 @@ public class ToolkitProviderNormalizeTests
     }
 
     [TestMethod]
-    public void NormalizeForPaste_DropsEventHandlersTheServedCodeDoesNotDeclare()
+    public void NormalizeForPaste_KeepsEventHandlersTheServedCodeDoesNotDeclare()
     {
         // A scenario split out of a multi-instance sample carries no code at all, so every
-        // handler attribute in its markup is dangling.
+        // handler attribute in its markup is undefined. It is kept; find-ui discloses it.
         var scenario = Sample(csharp: "", xaml: """<Button Click="Move_Click" Content="Move" />""");
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        Assert.IsFalse(scenario.Xaml!.Contains("Move_Click"),
-            "markup wired to a handler we do not serve fails at load, not at paste");
-        StringAssert.Contains(scenario.Xaml, "Content=\"Move\"", "only the handler should be dropped");
+        StringAssert.Contains(scenario.Xaml, "Click=\"Move_Click\"",
+            "the event is what the sample teaches; deleting it is not normalization");
     }
 
     [TestMethod]

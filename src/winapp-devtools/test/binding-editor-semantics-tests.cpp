@@ -285,7 +285,7 @@ int main()
     {
         row = {};
         row.name = L"Background"; row.type = L"SolidColorBrush"; row.value = L"#FF808080";
-        ctx = {std::make_shared<const DevToolsCardRow>(row), L"Background", 0, nullptr, &resourceBox};
+        ctx = {std::make_shared<const DevToolsCardRow>(row), L"Background", 0, nullptr, &resourceBox, g_selWire};
         resourceBox.text = L"MissingBrush";
         PendingKindSet(L"Background", DevToolsKind::Theme);
         unsigned resolves = 0, restores = 0;

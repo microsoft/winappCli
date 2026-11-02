@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using System.Text.Json;
 using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 using WinApp.Cli.Services.DevTools.Comments;
 
@@ -33,12 +34,12 @@ internal static class CommentsSharedOptions
 
     public static Option<string?> SourceRootOption { get; } = new("--source-root")
     {
-        Description = "Project directory (default: current directory); comments are stored at the repository root."
+        Description = "Project directory (default: the selected app's project, otherwise the current directory); comments are stored at the repository root."
     };
 
     public static Option<string?> ReadAppOption { get; } = new("--app", "-a")
     {
-        Description = "Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project."
+        Description = "Read the comments of this running DevTools app's project: PID or process name. --source-root overrides the project. Default: the current directory's project."
     };
 
     internal static string? ReadTapSourceRoot(uint pid, CancellationToken cancellationToken) =>
@@ -59,13 +60,29 @@ internal static class CommentsSharedOptions
         {
             return false;
         }
-        root = readSourceRoot(pid, cancellationToken);
-        if (string.IsNullOrWhiteSpace(root))
+        return TryReadSourceRoot(pid, readSourceRoot, cancellationToken, out root, out error);
+    }
+
+    internal static bool TryReadSourceRoot(uint pid, Func<uint, CancellationToken, string?> readSourceRoot,
+        CancellationToken cancellationToken, out string? root, out string? error)
+    {
+        root = null;
+        error = null;
+        try
         {
-            error = $"Process {pid} did not report a project folder. Launch it with 'winapp run <project> --devtools on', or pass --source-root.";
-            return false;
+            root = readSourceRoot(pid, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(root))
+            {
+                return true;
+            }
+            error = $"Process {pid} did not report a project folder.";
         }
-        return true;
+        catch (Exception ex) when (ex is IOException or JsonException)
+        {
+            error = $"DevTools is unavailable for process {pid}: {ex.Message}";
+        }
+        error += " Launch it with 'winapp run <project> --devtools on', or pass --source-root <project folder> to use saved comments without reading the app's project folder.";
+        return false;
     }
 
     public static string NoStoreMessage(CommentStoreLocation location)

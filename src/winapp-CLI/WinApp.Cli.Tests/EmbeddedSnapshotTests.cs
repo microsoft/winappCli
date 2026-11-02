@@ -317,26 +317,9 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
-    public void GalleryCorpus_ServesNoUnbackedEventHandler()
+    public void GalleryCorpus_DisclosesEveryUndefinedEventHandler()
     {
-        // The index carries Gallery's XAML verbatim, including events wired to handlers
-        // that live in page code-behind it does not publish. Serving such an attribute
-        // hands the user markup that fails to compile with "handler not found", so
-        // GalleryProvider strips the ones the emitted C# doesn't declare. This asserts the
-        // corpus was baked with that step applied — the count guards above all pass without
-        // it, because nothing about them notices a sample that no longer builds.
-        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
-        ScenarioSanitizer.SanitizeAll(scenarios);
-
-        var unbacked = scenarios
-            .Where(s => !string.IsNullOrEmpty(s.Xaml)
-                        && ControlSnippetText.StripUnbackedEventHandlers(s.Xaml!, s.CSharp) != s.Xaml)
-            .Select(s => s.Id)
-            .ToList();
-
-        Assert.AreEqual(0, unbacked.Count,
-            $"{unbacked.Count} Gallery samples wire a XAML event to a handler they don't define: " +
-            $"{string.Join(", ", unbacked.Take(10))}. Pasting one of these does not compile.");
+        AssertEveryUndefinedHandlerDisclosed("gallery");
     }
 
     [TestMethod]
@@ -448,24 +431,9 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
-    public void ToolkitCorpus_ServesNoUnbackedEventHandler()
+    public void ToolkitCorpus_DisclosesEveryUndefinedEventHandler()
     {
-        // Toolkit samples wire XAML events to code-behind methods, and a scenario split out
-        // of a multi-instance sample carries no code-behind at all — so without the strip in
-        // ToolkitProvider.NormalizeForPaste those scenarios hand the user markup that fails
-        // to compile with "handler not found". The count guards above all pass without it.
-        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
-        ScenarioSanitizer.SanitizeAll(scenarios);
-
-        var unbacked = scenarios
-            .Where(s => !string.IsNullOrEmpty(s.Xaml)
-                        && ControlSnippetText.StripUnbackedEventHandlers(s.Xaml!, s.CSharp) != s.Xaml)
-            .Select(s => s.Id)
-            .ToList();
-
-        Assert.AreEqual(0, unbacked.Count,
-            $"{unbacked.Count} Toolkit samples wire a XAML event to a handler they don't define: " +
-            $"{string.Join(", ", unbacked.Take(10))}. Pasting one of these does not compile.");
+        AssertEveryUndefinedHandlerDisclosed("toolkit");
     }
 
     [TestMethod]
@@ -932,6 +900,51 @@ public class EmbeddedSnapshotTests
             [new Scenario { Id = $"{controlId}-1", ControlId = controlId, ControlName = controlId, HeaderText = "s", Source = controlId }],
             new Dictionary<string, string[]> { [controlId] = [controlId] },
             new());
+
+    /// <summary>
+    /// Handlers are kept, never deleted, because the event is what a sample teaches. This
+    /// finds handler-shaped attributes with its own matcher (any attribute named like an event
+    /// whose value is a bare method name, with or without an underscore), independent of the
+    /// one under test, and asserts
+    /// each undeclared one is disclosed both in <c>GetUndefinedHandlers</c> (the --json field)
+    /// and in the rendered "Undefined handlers:" line.
+    /// </summary>
+    private static void AssertEveryUndefinedHandlerDisclosed(string providerId)
+    {
+        var scenarios = ReadEmbeddedSnapshot(providerId)!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+        var engine = new SearchEngine(scenarios, corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var undisclosed = new List<string>();
+        foreach (var s in scenarios.Where(s => !string.IsNullOrEmpty(s.Xaml)))
+        {
+            var id = $"{s.Source}-{s.Id}";
+            var (formatted, found, _) = engine.GetPattern(id);
+            Assert.IsTrue(found, id);
+            var json = engine.GetUndefinedHandlers(id);
+            var line = formatted.Split('\n')
+                .FirstOrDefault(l => l.StartsWith("**Undefined handlers:**", StringComparison.Ordinal)) ?? "";
+
+            foreach (Match m in Regex.Matches(s.Xaml!, @"\s([A-Z]\w*(?:Click|Tapped|Changed|Changing|Closed|Closing|Opened|Requested|Invoked|Down|Up|Enter|Leave|Moved|Pressed|Released|Started|Completed|Delta|Loaded|Unloaded|Drop|Focus|Submitted|Chosen|Over|Holding|Canceled))=""([A-Za-z_]\w*)"""))
+            {
+                var method = m.Groups[2].Value;
+                if (method is "True" or "False" or "Enabled" or "Disabled" or "Auto" || m.Groups[1].Value == "BehaviorOnInvoked")
+                {
+                    continue;
+                }
+                var declared = !string.IsNullOrWhiteSpace(s.CSharp)
+                    && Regex.IsMatch(s.CSharp, $@"\b(?:void|Task)\s+{Regex.Escape(method)}\s*\(");
+                var entry = $"{m.Groups[1].Value}=\"{method}\"";
+                if (!declared && (!json.Contains(entry) || !line.Contains(method, StringComparison.Ordinal)))
+                {
+                    undisclosed.Add($"{id}:{entry}");
+                }
+            }
+        }
+
+        Assert.AreEqual(0, undisclosed.Count,
+            $"{undisclosed.Count} {providerId} handlers are served undefined without disclosure: {string.Join(", ", undisclosed.Take(10))}");
+    }
 
     private static ProviderSnapshot? ReadEmbeddedSnapshot(string providerId)
     {
