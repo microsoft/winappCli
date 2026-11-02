@@ -2,9 +2,13 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
-static std::wstring ResolveSourcePath(const std::wstring& uri)
+static constexpr wchar_t kSourceRootMissing[] =
+    L"No source folder is set. Attach again with --source-root <project folder>.";
+
+static std::wstring ResolveSourcePath(const std::wstring& uri, bool* sourceRootMissing = nullptr)
 {
     DWORD required = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", nullptr, 0);
+    if (sourceRootMissing) *sourceRootMissing = required == 0;
     if (required == 0) return L"";
     std::vector<wchar_t> root(required);
     DWORD written = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", root.data(), required);
@@ -64,7 +68,8 @@ static bool CopyTextToClipboard(const std::wstring& text)
 static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, const std::wstring& offScreenPrefix,
                                   const std::function<void(const std::wstring&)>& feedback = {})
 {
-    const std::wstring path = ResolveSourcePath(uri);
+    bool sourceRootMissing = false;
+    const std::wstring path = ResolveSourcePath(uri, &sourceRootMissing);
     const std::wstring display = SourceFileName(uri);
     const DevToolsShellOpen::Result r = DevToolsShellOpen::Decide(
         path, L".xaml",
@@ -74,7 +79,8 @@ static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, co
             HINSTANCE rc = ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             return static_cast<int>(reinterpret_cast<INT_PTR>(rc));
         });
-    const std::wstring message = DevToolsShellOpen::Describe(r, display, line, path, offScreenPrefix);
+    const std::wstring message = sourceRootMissing ? std::wstring(kSourceRootMissing)
+        : DevToolsShellOpen::Describe(r, display, line, path, offScreenPrefix);
     if (feedback) feedback(message);
     else SetStatusText(message);
     DevToolsOverlayLog(L"route1.opensource outcome=%d handler='%s' path='%s'",
@@ -109,9 +115,11 @@ struct SourceActionSink : DevToolsSinkBase
         if (action == SourceAction::Open) {
             HandOffSource(uri, line, L"", report);
         } else {
-            const std::wstring path = ResolveSourcePath(uri);
+            bool sourceRootMissing = false;
+            const std::wstring path = ResolveSourcePath(uri, &sourceRootMissing);
             if (path.empty()) {
-                report(L"Source file unavailable. Check that it still exists under the project's source folder.");
+                report(sourceRootMissing ? kSourceRootMissing
+                    : L"Source file unavailable. Check that it still exists under the project's source folder.");
             } else if (action == SourceAction::Reveal) {
                 report(RevealInExplorer(path) ? L"Showed " + path + L" in File Explorer."
                                                : L"Couldn't open File Explorer for " + path);

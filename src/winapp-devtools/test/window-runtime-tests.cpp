@@ -1325,6 +1325,19 @@ int main()
             "a file removed after rendering reports unavailable beside the source, not a missing handler at the pane bottom");
         g_statusTb = nullptr;
         HandOffSource(L"ms-appx:///Main&Window.xaml", 55, L"Comment");
+        SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", nullptr);
+        const auto unconfigured = buildSourcePane(L"ms-appx:///Main&Window.xaml");
+        check(unconfigured.find(L"No source folder is set.") != std::wstring::npos &&
+              unconfigured.find(L"--source-root &lt;project folder&gt;") != std::wstring::npos &&
+              unconfigured.find(L"Source file unavailable.") == std::wstring::npos &&
+              unconfigured.find(L"x:Name=\"OpenSource\"") == std::wstring::npos &&
+              unconfigured.find(L"x:Name=\"RevealSource\"") == std::wstring::npos &&
+              unconfigured.find(L"x:Name=\"CopySourcePath\"") == std::wstring::npos,
+            "an unset source root gives an escaped configuration hint instead of claiming the file is missing");
+        HandOffSource(L"ms-appx:///Main&Window.xaml", 55, L"",
+            [&](const std::wstring& message) { feedback = message; });
+        check(feedback == kSourceRootMissing,
+            "an existing source action reports the configuration hint if the source root is removed");
         SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", required ? savedRoot.data() : nullptr);
         if (directoryCreated) RemoveDirectoryW(directory);
     }

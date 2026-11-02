@@ -163,7 +163,8 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
     {
         std::wstring disp = SourceDisplay(sourceUri, sourceLine);
         if (!disp.empty()) {
-            const bool canOpen = !ResolveSourcePath(sourceUri).empty();
+            bool sourceRootMissing = false;
+            const bool canOpen = !ResolveSourcePath(sourceUri, &sourceRootMissing).empty();
             m += L"<StackPanel Spacing=\"2\" Margin=\"0,2,0,0\">"
                  L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\">";
             m += L"<FontIcon Glyph=\"&#xE8A5;\" FontSize=\"12\" VerticalAlignment=\"Center\""
@@ -185,7 +186,8 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
                      L" AutomationProperties.AutomationId=\"WinAppDevToolsCopySourcePath\""
                      L" AutomationProperties.Name=\"Copy source file path\"/></StackPanel>";
             }
-            m += L"<TextBlock x:Name=\"SourceStatus\" Text=\"" + std::wstring(canOpen ? L"" :
+            m += L"<TextBlock x:Name=\"SourceStatus\" Text=\"" + DevToolsXmlEscape(canOpen ? L"" :
+                     sourceRootMissing ? kSourceRootMissing :
                      L"Source file unavailable. Check that it exists under the project's source folder.") +
                  L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\""
                  DT_FG_SECONDARY L" AutomationProperties.LiveSetting=\"Polite\""
