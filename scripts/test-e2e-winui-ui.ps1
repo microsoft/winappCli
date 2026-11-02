@@ -492,8 +492,11 @@ if (-not $devPid) {
     }
     Assert-WinappSuccess "Tab enters the view selector and Right selects Comments" @("ui", "send-keys", "shift+tab right", "--target", "PickElementToggle", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
     Assert-WinappSuccess "keyboard-selected Comments reports selected" @("ui", "wait-for", "ViewTabComments", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
-    Assert-WinappSuccess "Left arrow returns to Visual tree" @("ui", "send-keys", "left", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    # F5 rebuilds the tree while Comments hides it. Keys run in order, so Left then shows the rebuilt tree.
+    Assert-WinappSuccess "F5 on Comments, then Left arrow returns to Visual tree" @("ui", "send-keys", "f5 left", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
     Assert-WinappSuccess "keyboard-selected Visual tree reports selected" @("ui", "wait-for", "ViewTabTree", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "tree rebuilt while hidden keeps its accessible name" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-p", "Name", "--value", "UI Elements", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "tree rebuilt while hidden names its rows" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "TreeItem", "-t", "3000") | Out-Null
     Assert-WinappSuccess "restore Visual tree before tree tests" @("ui", "invoke", "ViewTabTree", "-w", $inspectorHwnd, "--action", "select") | Out-Null
     foreach ($toggleId in @("PickElementToggle", "FocusTrackingToggle")) {
         Assert-WinappSuccess "$toggleId starts off" @("ui", "wait-for", $toggleId, "-w", $inspectorHwnd, "-p", "ToggleState", "--value", "Off", "-t", "3000") | Out-Null

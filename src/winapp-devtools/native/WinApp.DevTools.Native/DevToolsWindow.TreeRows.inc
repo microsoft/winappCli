@@ -262,40 +262,44 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
         DevToolsXC::ScrollViewer::SetHorizontalScrollMode(g_treeView, DevToolsXC::ScrollMode::Disabled);
         DevToolsXC::ScrollViewer::SetHorizontalScrollBarVisibility(g_treeView, DevToolsXC::ScrollBarVisibility::Disabled);
         panel.Children().Append(g_treeView);
-        g_treeView.Loaded([generation = g_treeRowsGen, containersWired = false](auto const&, auto const&) mutable {
-            if (generation != g_treeRowsGen) return;
-            if (const auto list = TreeDescendant<DevToolsXC::ListViewBase>(g_treeView)) {
-                DevToolsTreeA::AutomationProperties::SetAutomationId(list, L"WinAppDevToolsTree");
-                DevToolsTreeA::AutomationProperties::SetName(list, L"UI Elements");
-                if (!containersWired) {
-                    list.ContainerContentChanging([generation](auto const&, auto const& args) {
-                        if (generation != g_treeRowsGen || args.InRecycleQueue() || !g_treeView) return;
-                        try {
-                            const auto container = args.ItemContainer().template try_as<DevToolsXC::TreeViewItem>();
-                            if (!container) return;
-                            auto index = TreeNodeIndex(args.Item().template try_as<DevToolsXC::TreeViewNode>());
-                            if (index >= g_treeNodes.size())
-                                index = TreeNodeIndex(g_treeView.NodeFromContainer(container));
-                            if (index < g_treeNodes.size()) NameTreeContainer(index, container);
-                        } catch (const winrt::hresult_error& error) {
-                            DevToolsOverlayLog(L"tree.container failed hr=0x%08X", error.code().value);
-                            SetStatusText(L"Could not prepare a tree row. Refresh the inspector and retry.");
-                        }
-                    });
-                    containersWired = true;
+        // The Comments tab collapses the tree, and a live refresh can rebuild it there. A collapsed TreeView has no
+        // template when it loads, so its list is connected on the first layout pass that has one.
+        const auto listConnected = std::make_shared<bool>(false);
+        const auto connectList = [generation = g_treeRowsGen, listConnected] {
+            const auto list = TreeDescendant<DevToolsXC::ListViewBase>(g_treeView);
+            if (!list) return false;
+            *listConnected = true;
+            DevToolsTreeA::AutomationProperties::SetAutomationId(list, L"WinAppDevToolsTree");
+            DevToolsTreeA::AutomationProperties::SetName(list, L"UI Elements");
+            list.ContainerContentChanging([generation](auto const&, auto const& args) {
+                if (generation != g_treeRowsGen || args.InRecycleQueue() || !g_treeView) return;
+                try {
+                    const auto container = args.ItemContainer().template try_as<DevToolsXC::TreeViewItem>();
+                    if (!container) return;
+                    auto index = TreeNodeIndex(args.Item().template try_as<DevToolsXC::TreeViewNode>());
+                    if (index >= g_treeNodes.size())
+                        index = TreeNodeIndex(g_treeView.NodeFromContainer(container));
+                    if (index < g_treeNodes.size()) NameTreeContainer(index, container);
+                } catch (const winrt::hresult_error& error) {
+                    DevToolsOverlayLog(L"tree.container failed hr=0x%08X", error.code().value);
+                    SetStatusText(L"Could not prepare a tree row. Refresh the inspector and retry.");
                 }
-                for (size_t i = 0; i < g_treeNodes.size(); ++i)
-                    if (const auto container = g_treeView.ContainerFromNode(g_treeNodes[i]).try_as<DevToolsXC::TreeViewItem>())
-                        NameTreeContainer(i, container);
-                g_treeScroller = TreeScrollViewer();
-                RevealPendingRow();
-            } else {
-                DevToolsOverlayLog(L"tree.loaded has no list for accessibility and scrolling");
-                SetStatusText(L"The visual tree did not finish loading. Refresh the inspector and retry.");
-            }
+            });
+            for (size_t i = 0; i < g_treeNodes.size(); ++i)
+                if (const auto container = g_treeView.ContainerFromNode(g_treeNodes[i]).try_as<DevToolsXC::TreeViewItem>())
+                    NameTreeContainer(i, container);
+            g_treeScroller = TreeScrollViewer();
+            RevealPendingRow();
+            return true;
+        };
+        g_treeView.Loaded([generation = g_treeRowsGen, listConnected, connectList](auto const&, auto const&) {
+            if (generation == g_treeRowsGen && !*listConnected && !connectList())
+                DevToolsOverlayLog(L"tree.loaded while hidden; its list connects on the first layout that shows it");
         });
-        g_treeView.LayoutUpdated([generation = g_treeRowsGen](auto const&, auto const&) {
-            if (generation == g_treeRowsGen && g_pendingRevealWire) RevealPendingRow();
+        g_treeView.LayoutUpdated([generation = g_treeRowsGen, listConnected, connectList](auto const&, auto const&) {
+            if (generation != g_treeRowsGen) return;
+            if (!*listConnected) connectList();
+            else if (g_pendingRevealWire) RevealPendingRow();
         });
         g_treeNodes.reserve(nodes.size());
         for (size_t i = 0; i < nodes.size(); ++i) {
