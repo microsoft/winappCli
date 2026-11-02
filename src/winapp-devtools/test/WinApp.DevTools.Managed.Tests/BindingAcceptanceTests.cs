@@ -84,6 +84,13 @@ public sealed class BindingAcceptanceTests
         Assert.AreEqual(nameof(CompiledOwner), preview.RootElement.GetProperty("restoreOwner").GetString());
         StringAssert.Contains(preview.RootElement.GetProperty("warning").GetString()!, "other live edits");
         Assert.AreEqual(0, owner.Bindings.Calls);
+        Assert.AreEqual("first-edit", owner.Bindings.First);
+        Assert.AreEqual("other-edit", owner.Bindings.Other);
+        // Dismissing the preview sends no confirmed request. Asking again must still be read-only.
+        using var afterCancel = JsonDocument.Parse(BindingDiagnosis.RebindOwner(owner, false)!);
+        Assert.AreEqual("confirmation-required", afterCancel.RootElement.GetProperty("state").GetString());
+        Assert.AreEqual(0, owner.Bindings.Calls);
+        Assert.AreEqual("first-edit", owner.Bindings.First);
         Assert.AreEqual("other-edit", owner.Bindings.Other);
         Assert.IsNull(BindingDiagnosis.RebindOwner(owner, true));
         Assert.AreEqual(1, owner.Bindings.Calls);

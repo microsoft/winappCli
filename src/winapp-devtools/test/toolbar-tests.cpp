@@ -100,12 +100,22 @@ static void TestToolbarContract()
           overlay.find("ConstrainToolbarWidth();") != std::string::npos &&
           overlay.find("content.try_as<DevToolsXC::ScrollViewer>()") != std::string::npos,
         "the toolbar keeps its actions wired and scrollable when the app is narrower than its scaled content");
-    const auto bodyStart = selectionPanel.find("<ScrollViewer Grid.Row=\"2\"");
+    const auto bodyStart = selectionPanel.find("<ScrollViewer ");
     const auto bodyEnd = selectionPanel.find("</ScrollViewer>", bodyStart);
     Check(bodyStart != std::string::npos && bodyEnd != std::string::npos &&
+          CountOf(selectionPanel, "<ScrollViewer ") == 1 &&
+          selectionPanel.find("x:Name=\"DevToolsSelTitle\"", bodyStart) < bodyEnd &&
           selectionPanel.find("x:Name=\"DevToolsSelComment\"", bodyStart) < bodyEnd &&
           selectionPanel.find("x:Name=\"DevToolsSelOpen\"", bodyStart) < bodyEnd,
-        "the comment editor and footer share a scrolling body instead of clipping enlarged text");
+        "the comment header, editor and footer share one scroll path instead of clipping enlarged text");
+    Check(windowShell.find("x:Name=\"PBindRestoreConfirm\" Visibility=\"Collapsed\"") != std::string::npos &&
+          windowShell.find("x:Name=\"PBindRestoreYes\"") != std::string::npos &&
+          windowShell.find("x:Name=\"PBindRestoreCancel\"") != std::string::npos &&
+          window.find("action.GetString(L\"state\") == L\"confirmation-required\"") != std::string::npos,
+          "owner-wide Restore has a separate, runtime-scoped confirmation with an explicit Cancel action");
+    Check(window.find("This replacement is temporary: generated compiled-binding updates can overwrite it.") != std::string::npos &&
+          windowShell.find("Generated compiled-binding updates can overwrite it.") != std::string::npos,
+          "compiled-to-regular replacement warns before Apply and in the x:Bind explanation");
     Check(window.find("SetAutomationTextOn(panel, L\"UI Elements\", L\"WinAppDevToolsTree\", L\"\")") != std::string::npos,
                  "the visual tree name describes its contents without repeating its role");
     const auto propsScroll = windowShell.find("<ScrollViewer x:Name=\"PropsScroll\"");
@@ -599,6 +609,12 @@ static void TestToolbarContract()
     Check(CountOf(window, "ShellExecuteW(nullptr, L\"open\", path.c_str()") == 0 &&
                      window.find("AssocQueryStringW") != std::string::npos,
                  "no call site launches the shell without asking for the association first");
+    Check(window.find("static DevToolsXC::TextBlock g_sourceStatus") != std::string::npos &&
+                     window.find("g_sourceStatus = status;") != std::string::npos &&
+                     CountOf(window, "g_sourceStatus = nullptr;") == 2,
+                 "source status keeps a strong wrapper until pane rebuild or close, so its click sinks stay usable");
+    Check(window.find("peer.RaiseAutomationEvent(AutomationEvents::LiveRegionChanged)") != std::string::npos,
+                 "source feedback updates explicitly announce the nearby live region");
 
     Check(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
                      window.find("DevToolsOverlay_AddComment(element, value, saved->id") != std::string::npos,

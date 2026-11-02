@@ -636,8 +636,9 @@ try {
             $scale = [BindingOwnersGuard]::GetDpiForWindow([IntPtr][long]$inspectorWindow) / 96.0
             $initialHeader = @(Nodes (Invoke-Cli @('ui', 'inspect', '-w', $inspectorWindow, '--depth', '40')).windows[0].elements |
                 Where-Object automationId -eq 'Opacity value')
-            # The platform chevron is 32 DIPs high; the header adds a one-DIP border on each side.
-            Check ($initialHeader.Count -eq 1 -and $initialHeader[0].height -le 34 * $scale) 'single-line property headers fit the platform chevron and border'
+            # The 32-DIP chevron and each one-DIP border round separately to physical pixels.
+            $maxHeaderHeight = [Math]::Ceiling(32 * $scale) + 2 * [Math]::Ceiling($scale)
+            Check ($initialHeader.Count -eq 1 -and $initialHeader[0].height -le $maxHeaderHeight) 'single-line property headers fit the platform chevron and border'
             foreach ($part in @('name', 'value', 'empty space', 'chevron')) {
                 $pane = Invoke-Cli @('ui', 'inspect', '-w', $inspectorWindow, '--depth', '40')
                 $headers = @(Nodes $pane.windows[0].elements | Where-Object automationId -eq 'Opacity value')
