@@ -6,7 +6,7 @@ const base: TrialResultInput = {
   release: "dev",
   commit: "a".repeat(40),
   scenario: "Calc",
-  condition: "cli-plus-plugins [1/2]",
+  condition: "cli-plus-skills [1/2]",
   model: "claude-sonnet-5.5",
   iteration: 1,
   startedAt: new Date("2026-10-27T18:00:00.123Z"),
@@ -25,7 +25,7 @@ const base: TrialResultInput = {
 
 test("gates are required; quality checks and requirements are improvements", () => {
   const t = toTrialResult(base) as any;
-  assert.equal(t.arm, "cli-plus-plugins");
+  assert.equal(t.arm, "cli-plus-skills");
   assert.equal(t.scenario, "calc");
   assert.equal(t.startedAt, "2026-10-27T18:00:00Z");
   assert.equal(t.passed, true);
@@ -57,13 +57,13 @@ test("agent setups that are not one of the three arms are skipped", () => {
 });
 
 test("a ref suffix such as @main does not change the arm", () => {
-  assert.equal(toTrialResult({ ...base, condition: "cli-plus-plugins@main" })?.arm, "cli-plus-plugins");
+  assert.equal(toTrialResult({ ...base, condition: "cli-plus-skills@main" })?.arm, "cli-plus-skills");
   assert.equal(toTrialResult({ ...base, condition: "published@main" }), null);
 });
 
 test("file name follows the benchmark-data layout", () => {
   const t = toTrialResult(base) as any;
-  assert.equal(trialFileName(t), "calc__cli-plus-plugins__claude-sonnet-5.5__1.json");
+  assert.equal(trialFileName(t), "calc__cli-plus-skills__claude-sonnet-5.5__1.json");
 });
 
 test("harness errors and timeouts are not reported as app failures", () => {
