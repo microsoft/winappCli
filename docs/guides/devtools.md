@@ -73,9 +73,10 @@ fails before launch: DevTools requires WinUI 3. Use `winapp run . --devtools off
 to run it without DevTools. Apps that host WinUI alongside another framework and
 targets whose framework isn't known are still checked when DevTools attaches.
 
-If the app is already running, `run` checks the required DevTools engine before
-closing it for the replacement launch ([details](../usage.md#run)). If that check
-fails, the running app stays open and no replacement starts, even on a default run.
+With `--devtools on` or `headless`, `run` checks the required DevTools engine before
+closing a running app for the replacement launch ([details](../usage.md#run)). If
+that check fails, the running app stays open and no replacement starts. Without
+`--devtools`, the normal replacement launch continues without DevTools.
 
 ## Use the toolbar
 
