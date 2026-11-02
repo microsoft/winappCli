@@ -280,12 +280,7 @@ internal sealed partial class ToolkitProvider : CachedProviderBase
         {
             var xaml = ToolkitSampleAppXmlnsRegex().Replace(scenario.Xaml!, "using:YourApp");
             xaml = ReplaceToolkitAssets(xaml);
-
-            // Strip handlers against the C# settled above, so an attribute survives only
-            // when the code we actually serve declares its method. Scenarios split out of a
-            // multi-instance sample carry no code-behind at all, so for those this drops
-            // every bare-method handler — which is correct: none of them are backed.
-            scenario.Xaml = ControlSnippetText.StripUnbackedEventHandlers(xaml, scenario.CSharp);
+            scenario.Xaml = xaml;
         }
 
         // Rendered as the "Setup:" line, so a sample-app namespace here is worse than one
