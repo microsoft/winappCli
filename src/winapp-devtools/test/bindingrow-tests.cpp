@@ -213,8 +213,10 @@ static void Test_LiveEditOverridesAnXBind()
           "an unanswered diagnosis (no managed agent) is not evidence that a binding was replaced");
     Check(DevToolsBindingRow_ShowsReplaced(unanswered, false, true) && DevToolsBindingRow_ShowsReplaced(unanswered, true, false),
           "our own edit of a bound property is");
-    Check(DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kNotBound), false, false),
-          "so is the runtime reporting no binding where the XAML declares one");
+    Check(!DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kNotBound), false, false),
+          "staging a binding on a known literal does not imply a lost binding or a Restore route");
+    Check(DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kNotBound), true, false),
+          "a known binding replacement still offers recovery when the runtime reports no binding");
     Check(!DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kHealthyXBind), false, true),
           "a binding that still works is not replaced (an overridden x:Bind is reported separately)");
 }

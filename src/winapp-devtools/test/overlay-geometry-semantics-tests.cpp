@@ -30,6 +30,21 @@ static HRESULT SwitchInsert(void*, unsigned, IInspectable*);
 static HRESULT SwitchRemove(void*, unsigned);
 static HRESULT SwitchPopup(void*, bool);
 static HRESULT SwitchPopupOpen(void*, bool*);
+static HRESULT PlacementConstrained(void*, bool*);
+static HRESULT PlacementHorizontal(void*, double);
+static HRESULT PlacementVertical(void*, double);
+static HRESULT PlacementWidth(void*, double);
+static HRESULT PlacementHeight(void*, double);
+static bool placementMonitorEnabled = false;
+static RECT placementWorkArea{};
+static float placementSurfaceWidth = 1600, placementSurfaceHeight = 900, placementScale = 1;
+static POINT placementSurfaceOrigin{};
+static BOOL WINAPI PlacementMonitorInfo(HMONITOR monitor, LPMONITORINFO info)
+{
+    if (!placementMonitorEnabled) return GetMonitorInfoW(monitor, info);
+    info->rcWork = placementWorkArea;
+    return TRUE;
+}
 static HRESULT SwitchLeft(void*, IInspectable*, double);
 static HRESULT SwitchTop(void*, IInspectable*, double);
 static HRESULT SwitchSizeEvent(void*, void*, __int64*);
@@ -156,6 +171,12 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #define DevToolsVecRemoveAt SwitchRemove
 #define DevToolsPopupPutIsOpen SwitchPopup
 #define DevToolsPopupGetIsOpen SwitchPopupOpen
+#define DevToolsPopupGetIsConstrainedToRootBounds PlacementConstrained
+#define DevToolsPopupPutHorizontalOffset PlacementHorizontal
+#define DevToolsPopupPutVerticalOffset PlacementVertical
+#define DevToolsPutWidth PlacementWidth
+#define DevToolsPutMaxHeight PlacementHeight
+#define GetMonitorInfoW PlacementMonitorInfo
 #define DevToolsCanvasSetLeft SwitchLeft
 #define DevToolsCanvasSetTop SwitchTop
 #define DevToolsAddSizeChanged SwitchSizeEvent
@@ -184,6 +205,12 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #undef DevToolsVecRemoveAt
 #undef DevToolsPopupPutIsOpen
 #undef DevToolsPopupGetIsOpen
+#undef DevToolsPopupGetIsConstrainedToRootBounds
+#undef DevToolsPopupPutHorizontalOffset
+#undef DevToolsPopupPutVerticalOffset
+#undef DevToolsPutWidth
+#undef DevToolsPutMaxHeight
+#undef GetMonitorInfoW
 #undef DevToolsCanvasSetLeft
 #undef DevToolsCanvasSetTop
 #undef DevToolsAddSizeChanged
@@ -384,6 +411,9 @@ struct SwitchObject : GeometryObject
     HRESULT popupReadHr = S_OK, popupOpenHr = S_OK, popupCloseHr = S_OK, removeHr = S_OK;
     bool failInsert = false;
     double left = 0, top = 0;
+    double maxHeight = 0;
+    bool constrained = false;
+    unsigned placementWrites = 0;
     unsigned sizeAdds = 0, sizeRemoves = 0, keyAdds = 0, keyRemoves = 0;
     unsigned focusAdds = 0, focusRemoves = 0;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override {
@@ -482,6 +512,16 @@ static HRESULT SwitchPopup(void* popup, bool open) {
 }
 static HRESULT SwitchPopupOpen(void* popup, bool* open)
 { auto value = static_cast<SwitchObject*>(popup); *open = value->popupOpen; return value->popupReadHr; }
+static HRESULT PlacementConstrained(void* popup, bool* value)
+{ *value = static_cast<SwitchObject*>(popup)->constrained; return S_OK; }
+static HRESULT PlacementHorizontal(void* popup, double value)
+{ auto p = static_cast<SwitchObject*>(popup); p->left = value; ++p->placementWrites; return S_OK; }
+static HRESULT PlacementVertical(void* popup, double value)
+{ auto p = static_cast<SwitchObject*>(popup); p->top = value; ++p->placementWrites; return S_OK; }
+static HRESULT PlacementWidth(void* element, double value)
+{ static_cast<GeometryObject*>(element)->width = static_cast<float>(value); return S_OK; }
+static HRESULT PlacementHeight(void* element, double value)
+{ static_cast<SwitchObject*>(element)->maxHeight = value; return S_OK; }
 static HRESULT SwitchLeft(void*, IInspectable* ui, double v)
 { static_cast<SwitchObject*>(ui)->left = v; return S_OK; }
 static HRESULT SwitchTop(void*, IInspectable* ui, double v)
@@ -511,6 +551,14 @@ static bool SwitchSurface(IXamlDiagnostics* diag, InstanceHandle h, DevToolsSurf
     }
     out->xamlRootKey = reinterpret_cast<unsigned long long>(identity.get());
     out->contentW = 800; out->contentH = 700;
+    if (placementMonitorEnabled) {
+        out->contentW = placementSurfaceWidth;
+        out->contentH = placementSurfaceHeight;
+        out->hostHwnd = GetDesktopWindow();
+        out->contentRect = { placementSurfaceOrigin.x, placementSurfaceOrigin.y,
+            placementSurfaceOrigin.x + static_cast<LONG>(out->contentW * placementScale),
+            placementSurfaceOrigin.y + static_cast<LONG>(out->contentH * placementScale) };
+    }
     out->displayName = h == 20 ? L"SECOND" : L"MAIN";
     obj->Release();
     return true;
@@ -854,6 +902,85 @@ int main()
         check(panel.find(L"DevToolsConfirmLikelySource") == std::wstring::npos && !LikelySourceConfirmed(nullptr),
             "source attribution", "non-likely panel has no confirmation and a missing checkbox never confirms");
         check(XmlEscapeLines(L"a\r\nb")==L"a&#xD;&#xA;b","markup","markup keeps both line-break characters");
+    }
+    {
+        GeometryDiagnostics diag;
+        SwitchObject popup, panel, canvas, comment;
+        canvas.fe = false; // No namescope: the test has no leader or selection tag.
+        g_pickDiag = &diag; g_pickRoot = 1; g_selectedHandle = 2;
+        g_selUi = &canvas; g_selPopup = &popup; g_selPanel = &panel; g_selComment = &comment;
+        g_selHandle = 2; g_selExpanded = true; g_selDetached = false;
+        g_selPanelPreferredHeight = 300;
+        const auto readInput = g_cardReadInput;
+        g_cardReadInput = CommentReadInput;
+        placementMonitorEnabled = true;
+        const unsigned opens = switchOpens;
+        const unsigned launches = commentLaunches;
+        const unsigned generation = g_selGen;
+        const unsigned pointerFocus = pointerFocusCalls;
+        dismissFocusState = -1;
+        for (const float scale : { 1.0f, 1.25f, 1.5f, 2.0f }) {
+            placementScale = scale;
+            placementWorkArea = { 0, 0, static_cast<LONG>(2560 * scale), static_cast<LONG>(1440 * scale) };
+            for (const bool draft : { false, true }) {
+                commentInput = draft ? L"Unfinished comment\r\nKeep this selection." : L"";
+                g_selCommentSaved.clear();
+                g_selFocusWithin = draft ? 1 : 0;
+                g_selFocusedIsComment = draft;
+                g_selPanelPlaced = false;
+                placementSurfaceWidth = 1600; placementSurfaceHeight = 900;
+                placementSurfaceOrigin = { 0, 0 };
+                SwitchSurface(&diag, 1, &g_activeSurface);
+                diag.target.width = 1476; diag.target.height = 36;
+                g_selectedBounds = { 24, 24, 1500, 60 };
+                ReanchorSelectionAnchor(g_selectedBounds);
+                check(popup.left == 1514 && popup.top == 14 && panel.width == 400 && panel.maxHeight == 300,
+                    "comment placement", "initial placement stays beside a wide title at 96/120/144/192 DPI");
+
+                // Same top-left, smaller right edge: translating the old subtree used to leave x=1514.
+                diag.target.width = 552;
+                placementSurfaceWidth = 650;
+                OnSelectionResize(nullptr, nullptr);
+                check(popup.left == 590 && popup.top == 14 && GeometryRect(g_selectedBounds, 24, 24, 576, 60),
+                    "comment placement", "resize recomputes placement when only the selected width changes");
+
+                // No element or window-size change; only the monitor's available space relative to the window moves.
+                placementSurfaceOrigin = { static_cast<LONG>(2000 * scale), static_cast<LONG>(1200 * scale) };
+                TrackingTick();
+                check(popup.left >= -2000 + 8 && popup.left + panel.width <= 560 - 8 &&
+                      popup.top >= -1200 + 8 && popup.top + panel.maxHeight <= 240 - 8,
+                    "comment placement", "window move reclamps an unchanged selection at the monitor's bottom-right edge");
+                const unsigned writes = popup.placementWrites;
+                TrackingTick();
+                check(popup.placementWrites == writes, "comment placement", "unchanged geometry does not rewrite popup properties");
+
+                popup.constrained = true;
+                placementSurfaceWidth = 320; placementSurfaceHeight = 240;
+                OnSelectionResize(nullptr, nullptr);
+                check(popup.left == 8 && popup.top == 8 && panel.width == 304 && panel.maxHeight == 224,
+                    "comment placement", "root-constrained popup fits a narrow client and caps its height");
+                popup.constrained = false;
+                placementSurfaceOrigin = { 0, 0 };
+                TrackingTick();
+                check(panel.width == 400 && panel.maxHeight == 300,
+                    "comment placement", "returning to monitor space restores the preferred panel size");
+                std::wstring retained;
+                check(SelReadCommentText(&retained) && retained == (draft ? L"Unfinished comment\r\nKeep this selection." : L"") &&
+                      g_selFocusWithin == (draft ? 1 : 0) && g_selFocusedIsComment == draft &&
+                      g_selComment == &comment && g_selPanel == &panel && g_selPopup == &popup &&
+                      popup.popupOpen && g_selectedHandle == 2 && g_selHandle == 2 && g_selGen == generation &&
+                      g_selCommentSaved.empty() && commentLaunches == launches && switchOpens == opens &&
+                      !g_selAnchorPending && canvas.left == 0 && canvas.top == 0 &&
+                      dismissFocusState == -1 && pointerFocusCalls == pointerFocus,
+                    "comment placement", "empty and active draft keep the same editor, focus and target without saving or reopening");
+            }
+        }
+        placementMonitorEnabled = false;
+        g_cardReadInput = readInput;
+        g_selUi = g_selPopup = g_selPanel = g_selComment = nullptr;
+        g_selFocusWithin = 0; g_selFocusedIsComment = false; g_selExpanded = false; g_selPanelPlaced = false;
+        g_selHandle = 0; g_selectedHandle = 0; g_pickRoot = 0; g_pickDiag = nullptr; g_activeSurface = {};
+        g_selectedBounds = {}; commentInput.clear();
     }
     {
         SwitchObject popup;

@@ -678,6 +678,7 @@ public class DevToolsJsonParityTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", Find(SaveButtonMatch, truncated: true))
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"42","preview":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
             .Answer("Property.get", """{"handle":"42","authoredState":"available","props":[{"name":"Width","value":"120","valueType":"Double","valueSource":"Local","editKind":"text","writeType":"Double"}]}""")
             .Answer("HotReload.setProperty", "null");
@@ -720,6 +721,7 @@ public class DevToolsJsonParityTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", Find(SaveButtonMatch, truncated: true))
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"42","preview":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
             .Answer("Property.get", """{"handle":"42","authoredState":"available","props":[{"name":"Width","value":"120","valueType":"Double","valueSource":"Local","editKind":"text"}]}""");
 
@@ -740,6 +742,7 @@ public class DevToolsJsonParityTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", Find(SaveButtonMatch, truncated: true))
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"42","preview":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree);
 
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, ["SaveButton", "--json"]);
@@ -755,6 +758,7 @@ public class DevToolsJsonParityTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", Find(SaveButtonMatch, truncated: true))
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"42","preview":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree);
 
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, ["SaveButton", "--ancestors", "--json"]);
