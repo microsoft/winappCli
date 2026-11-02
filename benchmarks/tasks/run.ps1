@@ -448,8 +448,17 @@ try {
             $trial | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $trialDir ('{0}__{1}__{2}__{3}.json' -f $trial.scenario, $trial.arm, $trial.model, $trial.trial)) -Encoding utf8NoBOM
         }
         $color = switch ($record.taskStatus) { 'pass' { 'Green' } 'partial' { 'Yellow' } default { 'Red' } }
+        if ($Validate) {
+            # A reference solution should pass and a no-op should fail, so judge the run against that.
+            $want = if ($run.Mode -eq 'solve' -or $t.AskFirst) { 'pass' } else { 'fail' }
+            $ok = $record.taskStatus -eq $want
+            Write-Host ("  -> {0}: {1} (expected {2}, got {3}){4}" -f $(if ($ok) { 'OK' } else { 'MISMATCH' }), $run.Mode, $want, $record.taskStatus,
+                $(if (-not $ok) { " — $($record.taskReason)" })) -ForegroundColor $(if ($ok) { 'Green' } else { 'Red' })
+        }
+        else {
         Write-Host ("  -> {0} in {1:0.0} min, {2} credits, skills [{3}], winapp [{4}]{5}" -f $record.taskStatus, ($record.durationMs / 60000), $record.aiCredits,
             ($record.skillsLoaded -join ', '), ($record.winappCommandsRun -join ', '), $(if ($record.taskStatus -ne 'pass') { " — $($record.taskReason)" })) -ForegroundColor $color
+        }
         if ($KeepSandbox) {
             # Only one Sandbox can run at a time: keep this one, and its staged input, for debugging.
             Write-Host "Kept Sandbox $sandboxId and its input at $(Join-Path $stage $runId). Stop it with: wsb stop --id $sandboxId"
@@ -482,5 +491,5 @@ if ($Validate) {
         $mismatches | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
         exit 1
     }
-    Write-Host "Checker validation passed: $($runList.Count) runs." -ForegroundColor Green
+    Write-Host "Checker validation passed: every run matched what it should do ($($runList.Count) runs; solutions pass, no-ops fail)." -ForegroundColor Green
 }
