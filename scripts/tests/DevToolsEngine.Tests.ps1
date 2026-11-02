@@ -84,6 +84,10 @@ BeforeAll {
         $text = $text.Replace('& $CliExe ', 'Invoke-ForbiddenCli ')
         [IO.File]::WriteAllText("$Root\scripts\$Script", $text)
         New-EngineInputs "$Root\artifacts\cli"
+        foreach ($arch in 'x64', 'arm64') {
+            $worker = New-Item "$Root\artifacts\cli\win-$arch\accessibility" -ItemType Directory -Force
+            [IO.File]::WriteAllText((Join-Path $worker 'winapp-accessibility-worker.exe'), "$arch/worker synthetic, not a PE")
+        }
         New-Item "$Root\src\winapp-npm" -ItemType Directory -Force | Out-Null
         [IO.File]::WriteAllText("$Root\src\winapp-npm\package.json", '{"name":"test","version":"original"}')
     }

@@ -134,7 +134,7 @@ Describe 'Artifact-first workflow dependencies' {
     }
 
     It 'retains all samples and preserves the main doc drift warning behavior' {
-        $expected = 'cpp-app, cpp-winui-app, dotnet-app, dotnet-file-app, electron, flutter-app, maui-app, node-winui, packaging-cli, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app'
+        $expected = 'accessloop, cpp-app, cpp-winui-app, dotnet-app, dotnet-file-app, electron, flutter-app, maui-app, node-winui, packaging-cli, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app'
         $sampleWorkflow | Should -Match ([regex]::Escape("sample: [$expected]"))
         (Get-JobText $buildWorkflow 'validate-docs') |
             Should -Match ([regex]::Escape("-FailOnDrift:(`$env:IS_PR -eq 'true')"))
@@ -201,7 +201,7 @@ Describe 'Partial reruns replace only owned artifacts' {
                 [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
             }
         )
-        $names.Count | Should -Be 32
+        $names.Count | Should -Be 33
         $names | Should -Contain 'binding-owner-test-results'
         $names | Should -Contain 'devtools-overlay-observations'
         @($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count | Should -Be 0
