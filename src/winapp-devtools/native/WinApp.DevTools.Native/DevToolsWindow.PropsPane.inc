@@ -199,7 +199,7 @@ g_propRows = rows;
                 winrt::Windows::Foundation::IInspectable object{ nullptr };
                 winrt::copy_from_abi(object, pv);
                 if (auto selector = object.try_as<DevToolsXC::SelectorBar>()) {
-                    g_propViewSelector = winrt::make_weak(selector);
+                    g_propViewSelector = selector;
                     selector.SelectionChanged([gen = g_route1Gen](DevToolsXC::SelectorBar const& sender, auto&&) {
                         if (gen == g_route1Gen) ApplyPropViewSelection(sender);
                     });

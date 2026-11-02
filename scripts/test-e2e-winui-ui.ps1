@@ -121,6 +121,19 @@ function Assert-WinappSuccess {
     return $result
 }
 
+function Assert-PropertiesScroll {
+    param([string]$TestName, [string]$Window, [string]$Position)
+    $state = Assert-WinappSuccess "$TestName reads scroll state" @(
+        "ui", "get-property", "WinAppDevToolsPropScroll", "-w", $Window, "--json")
+    if ($state.ExitCode -ne 0) { return }
+    if (($state.Output | ConvertFrom-Json).properties.VerticallyScrollable -eq "0x0") {
+        Write-TestPass $TestName "Content already fits"
+        return
+    }
+    Assert-WinappSuccess $TestName @(
+        "ui", "scroll", "WinAppDevToolsPropScroll", "-w", $Window, "--to", $Position) | Out-Null
+}
+
 function Assert-WinappOutputContains {
     param([string]$TestName, [string[]]$WinappArgs, [string]$Expected)
     $result = Invoke-Winapp $WinappArgs
@@ -493,8 +506,10 @@ if (-not $devPid) {
     # The rail selects the item that has keyboard focus, so Down on Visual tree opens Comments.
     Assert-WinappSuccess "Down arrow on the rail selects Comments" @("ui", "send-keys", "down", "--target", "ViewTabTree", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
     Assert-WinappSuccess "keyboard-selected Comments reports selected" @("ui", "wait-for", "ViewTabComments", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
-    # F5 rebuilds the tree while Comments hides it. Keys run in order, so Up then shows the rebuilt tree.
-    Assert-WinappSuccess "F5 on Comments, then Up arrow returns to Visual tree" @("ui", "send-keys", "f5 up", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    # Finish the refresh before navigating: F5 can pump input while rebuilding the hidden tree.
+    Assert-WinappSuccess "F5 rebuilds the tree while Comments hides it" @("ui", "send-keys", "f5", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "Comments stays selected after refreshing" @("ui", "wait-for", "ViewTabComments", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "Up arrow returns to Visual tree" @("ui", "send-keys", "up", "--target", "ViewTabComments", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
     Assert-WinappSuccess "keyboard-selected Visual tree reports selected" @("ui", "wait-for", "ViewTabTree", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
     Assert-WinappSuccess "tree rebuilt while hidden keeps its accessible name" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-p", "Name", "--value", "UI Elements", "-t", "3000") | Out-Null
     Assert-WinappSuccess "tree rebuilt while hidden names its rows" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "TreeItem", "-t", "3000") | Out-Null
@@ -633,10 +648,14 @@ if (-not $devPid) {
             Assert-WinappSuccess "$otherId reports unselected" @("ui", "wait-for", $otherId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "False", "-t", "3000") | Out-Null
         }
         # Choosing a view rebuilds the property list, selector included; focus must follow to the new selector.
-        Assert-WinappSuccess "Right arrow on Computed selects Set" @("ui", "send-keys", "right", "--target", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        Assert-WinappSuccess "Tab enters the property selector" @("ui", "send-keys", "tab", "--target", "PropFilter", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        Assert-WinappSuccess "Computed view has keyboard focus" @("ui", "wait-for", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "Right arrow on Computed selects Set" @("ui", "send-keys", "right", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
         Assert-WinappSuccess "Set view follows the keyboard" @("ui", "wait-for", "WinAppDevToolsViewSet", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "Set view keeps keyboard focus after rebuilding" @("ui", "wait-for", "WinAppDevToolsViewSet", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
         Assert-WinappSuccess "Left returns to Computed without leaving the property selector" @("ui", "send-keys", "left", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
         Assert-WinappSuccess "Computed view follows the keyboard" @("ui", "wait-for", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "Computed view keeps keyboard focus after rebuilding" @("ui", "wait-for", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
         Assert-WinappSuccess "restore Computed before property tests" @("ui", "invoke", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "--action", "select") | Out-Null
         $disclosureStates = @{}
         foreach ($id in @("WinAppDevToolsSizeSpacingToggle", "WinAppDevToolsAuthoredXamlToggle")) {
@@ -655,7 +674,8 @@ if (-not $devPid) {
             Assert-WinappSuccess "restore $id disclosure state" @("ui", "invoke", $id, "-w", $inspectorHwnd, "--action", $action) | Out-Null
         }
         Assert-WinappSuccess "filter to the Height property" @("ui", "set-value", "PropFilter", "Height", "-w", $inspectorHwnd) | Out-Null
-        Assert-WinappSuccess "scroll the Height row into the properties viewport" @("ui", "scroll", "WinAppDevToolsPropScroll", "-w", $inspectorHwnd, "--to", "bottom") | Out-Null
+        Assert-PropertiesScroll "scroll the Height row into the properties viewport" $inspectorHwnd "bottom"
+        Assert-WinappSuccess "Height row is visible" @("ui", "wait-for", "Height value", "-w", $inspectorHwnd, "-p", "IsOffscreen", "--value", "False", "-t", "3000") | Out-Null
         foreach ($value in @("Auto", "120", "Auto")) {
             Assert-WinappSuccess "set TitleBar.Height to $value" @(
                 "devtools", "set-property", "AppTitleBar", "Height", $value, "-a", "$devPid") | Out-Null
@@ -669,11 +689,13 @@ if (-not $devPid) {
     try {
         $subtitle = (Invoke-Winapp @("devtools", "search", "PageSubtitle", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
         Assert-WinappSuccess "select the resource suggestion fixture" @("devtools", "call", "Selection.select", "handle=$($subtitle.matches[0].handle)", "-a", "$devPid") | Out-Null
-        Assert-WinappSuccess "scroll to the property filter" @("ui", "scroll", "WinAppDevToolsPropScroll", "-w", $inspectorHwnd, "--to", "top") | Out-Null
+        Assert-PropertiesScroll "scroll to the property filter" $inspectorHwnd "top"
         Assert-WinappSuccess "filter to the Foreground property" @("ui", "set-value", "PropFilter", "Foreground", "-w", $inspectorHwnd) | Out-Null
-        Assert-WinappSuccess "scroll the Foreground row into the properties viewport" @("ui", "scroll", "WinAppDevToolsPropScroll", "-w", $inspectorHwnd, "--to", "bottom") | Out-Null
+        Assert-PropertiesScroll "scroll the Foreground row into the properties viewport" $inspectorHwnd "bottom"
+        Assert-WinappSuccess "Foreground row is visible" @("ui", "wait-for", "Foreground value", "-w", $inspectorHwnd, "-p", "IsOffscreen", "--value", "False", "-t", "3000") | Out-Null
         Assert-WinappSuccess "expand the resource editor" @("ui", "invoke", "Foreground value", "-w", $inspectorHwnd, "--action", "expand") | Out-Null
-        Assert-WinappSuccess "scroll the resource editor into the properties viewport" @("ui", "scroll", "WinAppDevToolsPropScroll", "-w", $inspectorHwnd, "--to", "bottom") | Out-Null
+        Assert-PropertiesScroll "scroll the resource editor into the properties viewport" $inspectorHwnd "bottom"
+        Assert-WinappSuccess "resource editor is visible" @("ui", "wait-for", "Foreground editor", "-w", $inspectorHwnd, "-p", "IsOffscreen", "--value", "False", "-t", "3000") | Out-Null
         $beforeResource = Assert-WinappSuccess "read the resource before choosing a suggestion" @("devtools", "get-property", "PageSubtitle", "Foreground", "-a", "$devPid", "--json")
         $beforeValue = ($beforeResource.Output | ConvertFrom-Json).properties[0].value
         $primaryResource = Assert-WinappSuccess "read the expected primary brush value" @("devtools", "get-property", "PageTitle", "Foreground", "-a", "$devPid", "--json")
