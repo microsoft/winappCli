@@ -116,7 +116,6 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
     m += L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
          L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Spacing=\"10\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsProps\">";
-    m += L"<TextBlock Text=\"PROPERTIES\"" DT_SECTION_CAPTION L"/>";
     m += L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/>"
          L"</Grid.ColumnDefinitions>";
     m += L"<TextBlock Text=\"" + DevToolsXmlEscape(badge) + L"\" Style=\"{StaticResource BodyStrongTextBlockStyle}\""
@@ -343,7 +342,8 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
     }
 
     if (anyEditable) {
-        m += L"<TextBlock x:Name=\"Status\" Text=\"Edits apply when you leave a field\""
+        // Hidden until SetStatusText has an edit result or error to show.
+        m += L"<TextBlock x:Name=\"Status\" Visibility=\"Collapsed\""
              L" Style=\"{StaticResource CaptionTextBlockStyle}\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\""
              L" AutomationProperties.Name=\"Property pane status\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsPropStatus\""

@@ -2,12 +2,15 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+static void ShowEl(IInspectable* el, bool visible);
+
 static void SetStatusText(const std::wstring& s)
 {
     if (!g_statusTb) return;
     HSTRING hs = MakeStr(s);
     DevToolsPutText(g_statusTb, hs);
     WindowsDeleteString(hs);
+    ShowEl(g_statusTb, !s.empty());
 }
 
 // The last write's failure reason, and the row it is shown on until that row's next commit or another selection.

@@ -514,7 +514,10 @@ int main()
     const auto before=writes;
     input.Invoke(nullptr,nullptr);
     check(writes==before,"failed editor read never mutates target");
-    check(testStatus.text.find(L"read")!=std::wstring::npos,"failed editor read is visible in status");
+    check(testStatus.text.find(L"read")!=std::wstring::npos && testStatus.visibility==0,
+        "failed editor read is visible in status");
+    SetStatusText(L"");
+    check(testStatus.visibility==1,"an empty status line takes no space");
     g_ctx.readInputFn=[](IInspectable*,std::wstring& text){text.clear();return true;};
     input.Invoke(nullptr,nullptr);
     check(writes==before+1 && values[88].empty(),"successful empty editor read commits empty string");
@@ -1031,6 +1034,10 @@ int main()
             section=pane.find(L"WinAppDevToolsSizeSpacing"), box=pane.find(L"WinAppDevToolsBoxModel\"");
         check(crumb<section && section<box && box<filter && filter!=std::wstring::npos,
             "properties pane: header, then the Size & spacing section, then filter and grid");
+        check(pane.find(L"Text=\"PROPERTIES\"")==std::wstring::npos &&
+            pane.find(L"x:Name=\"Status\" Visibility=\"Collapsed\"")!=std::wstring::npos &&
+            pane.find(L"Edits apply")==std::wstring::npos,
+            "the pane has no PROPERTIES caption, and its status line stays hidden until there is a message");
         check(pane.find(L"SIZE &amp; SPACING")!=std::wstring::npos && pane.find(L"Text=\"LAYOUT\"")==std::wstring::npos,
             "the section is named apart from the grid's Layout category");
         check(pane.find(L"LayoutToggle\"")==std::wstring::npos && pane.find(L"x:Name=\"LayoutMore\"")==std::wstring::npos &&

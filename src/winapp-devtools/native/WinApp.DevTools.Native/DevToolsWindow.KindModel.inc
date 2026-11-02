@@ -543,9 +543,9 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
     for (size_t i = 0; i < g_linkLost.size(); ++i) if (g_linkLost[i] == path) { g_linkLost.erase(g_linkLost.begin() + i); break; }
     // THE SUCCESS LINE IS THE CALLER'S TO SET, AFTER ITS RE-RENDER. Setting it here is what the failure
     // path can afford and this one cannot: a successful commit re-renders the pane, and ShowPropsForNode
-    // resets the status to its default hint, so a message written here is destroyed by the rebuild it
-    // triggers and the user reads "Edits apply when you leave a field" for an assignment that worked. Same
-    // ordering rule, and the same reason, as the binding-op drain.
+    // rebuilds the status line empty and hidden, so a message written here is destroyed by the rebuild it
+    // triggers and the user sees no confirmation for an assignment that worked. Same ordering rule, and the
+    // same reason, as the binding-op drain.
     return true;
 }
 
