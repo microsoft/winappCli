@@ -32,6 +32,7 @@ export interface RescoreResult {
   breakdown: string;
   requirementsPassed: number;
   requirementsTotal: number;
+  requirementsAll: number;
   resultsPath: string;
 }
 
@@ -97,7 +98,7 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
   const reported = extractRequirementResults(validation, scenarioReqs);
   const byId = new Map(reported.map((r) => [r.id, r]));
   const requirements = scenarioReqs.length
-    ? scenarioReqs.map((text, i) => byId.get(i + 1) ?? { id: i + 1, text, status: "fail" as const, reason: "Not reported by the judge" })
+    ? scenarioReqs.map((text, i) => byId.get(i + 1) ?? { id: i + 1, text, status: "not-run" as const, reason: "The judge did not rule on this requirement" })
     : reported;
 
   let checks: QualityCheck[] = Array.isArray(prior.metrics?.quality_checks) ? prior.metrics.quality_checks : [];
@@ -127,6 +128,7 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
     score_breakdown: breakdown,
     quality_checks: checks,
   };
+  prior.scoring_version = breakdown.version;
   delete prior.validation;
 
   writeFileSync(resultsPath, JSON.stringify(prior, null, 2));
@@ -142,7 +144,8 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
     reqPoints: Math.round(breakdown.points.requirements),
     breakdown: formatBreakdown(breakdown),
     requirementsPassed: breakdown.requirements.passed,
-    requirementsTotal: breakdown.requirements.total,
+    requirementsTotal: breakdown.requirements.scored,
+    requirementsAll: breakdown.requirements.total,
     resultsPath,
   };
 }
@@ -171,7 +174,7 @@ if (isCliEntry) {
     console.log(`[rescore] ${r.runName}/${r.trialName}`);
     console.log(`  Score: ${r.score}/100  (${r.breakdown}; reqs ${r.reqPoints} + quality/design ${r.generalPoints})`);
     console.log(`  Builds: ${r.builds ? "yes" : "no"}   Runs: ${r.runs ? "yes" : "no"}`);
-    console.log(`  Requirements: ${r.requirementsPassed}/${r.requirementsTotal} passed`);
+    console.log(`  Requirements: ${r.requirementsPassed}/${r.requirementsTotal} passed${r.requirementsAll !== r.requirementsTotal ? ` (judge scored ${r.requirementsTotal} of ${r.requirementsAll})` : ""}`);
     console.log(`  results.json updated: ${r.resultsPath}`);
   } catch (e: unknown) {
     if (e instanceof RescoreError) { console.error(e.message); process.exit(e.code === "no-validation-json" ? 1 : 2); }

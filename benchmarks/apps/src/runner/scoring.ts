@@ -1,12 +1,13 @@
 /**
- * Benchmark scoring v2 (reports/plans/11, Part B).
+ * Benchmark scoring v3 (v2 formula; requirements the judge never ruled on are excluded, not failed).
  *
  *   score = 0                                  if any gate fails
  *   score = 60·requirements + 30·quality + 10·design/10   otherwise
  *
  * Components that are unavailable (e.g. no applicable quality checks, judge
- * gave no design score) are dropped and the remaining weights renormalized to
- * 100, so a trial is never penalized for a check that doesn't apply.
+ * gave no design score, no requirement was scored) are dropped and the remaining
+ * weights renormalized to 100, so a trial is never penalized for a check that
+ * doesn't apply. Launch-level checks (kind "launch") are reported, not scored.
  */
 import type { QualityCheck } from "./quality-checks.js";
 
@@ -22,16 +23,20 @@ export interface ScoreInput {
 }
 
 export interface ScoreBreakdown {
-  version: 2;
+  /** Bumped when the formula or what counts changes, so results from different versions are never silently compared. */
+  version: 3;
   score: number;
   gates: { builds: boolean; runs: boolean; failed: string[] };
-  requirements: { passed: number; total: number; pct: number | null };
+  /** `scored` = requirements the judge ruled on. Requirements it never ruled on (`notRun`) are not counted as failures. */
+  requirements: { passed: number; failed: number; notRun: number; scored: number; total: number; pct: number | null };
   quality: { passed: number; failed: number; na: number; pct: number | null };
   design: number | null;
   /** Points each component contributed to `score` (after renormalization). */
   points: { requirements: number; quality: number; design: number };
   weights: typeof SCORE_WEIGHTS;
 }
+
+export const SCORING_VERSION = 3;
 
 export function computeScoreV2(input: ScoreInput): ScoreBreakdown {
   const failedGates = [
@@ -42,7 +47,9 @@ export function computeScoreV2(input: ScoreInput): ScoreBreakdown {
 
   const reqTotal = input.requirements.length;
   const reqPassed = input.requirements.filter((r) => r.status === "pass").length;
-  const reqPct = reqTotal > 0 ? reqPassed / reqTotal : null;
+  const reqFailed = input.requirements.filter((r) => r.status === "fail").length;
+  const reqScored = reqPassed + reqFailed;
+  const reqPct = reqScored > 0 ? reqPassed / reqScored : null;
 
   const quality = input.checks.filter((c) => c.kind === "quality");
   const qPassed = quality.filter((c) => c.status === "pass").length;
@@ -69,10 +76,10 @@ export function computeScoreV2(input: ScoreInput): ScoreBreakdown {
   }
 
   return {
-    version: 2,
+    version: SCORING_VERSION,
     score,
     gates: { builds: input.builds, runs: input.runs, failed: failedGates },
-    requirements: { passed: reqPassed, total: reqTotal, pct: reqPct },
+    requirements: { passed: reqPassed, failed: reqFailed, notRun: reqTotal - reqScored, scored: reqScored, total: reqTotal, pct: reqPct },
     quality: { passed: qPassed, failed: qFailed, na: qNa, pct: qPct },
     design,
     points,
@@ -83,5 +90,7 @@ export function computeScoreV2(input: ScoreInput): ScoreBreakdown {
 /** Compact "req:quality:design" string for the dashboard's breakdown column. */
 export function formatBreakdown(b: ScoreBreakdown): string {
   const pct = (v: number | null) => (v === null ? "–" : `${Math.round(v * 100)}%`);
-  return `R${pct(b.requirements.pct)} Q${pct(b.quality.pct)} D${b.design ?? "–"}`;
+  const r = b.requirements;
+  const scored = r.scored < r.total ? ` (${r.scored}/${r.total} scored)` : "";
+  return `R${pct(r.pct)}${scored} Q${pct(b.quality.pct)} D${b.design ?? "–"}`;
 }

@@ -312,3 +312,38 @@ Describe 'ConvertTo-TrialResult' {
         $LASTEXITCODE | Should -Be 0
     }
 }
+
+
+Describe 'Admin approval' {
+    BeforeAll {
+        function script:Rec($status) {
+            [pscustomobject]@{ mode = 'agent'; taskStatus = $status; configuration = 'cli-plus-plugins'; model = 'm'; iteration = 1
+                durationMs = 1; aiCredits = 1; nanoAiu = 1; premiumRequests = 1; skillsLoaded = @()
+                tokens = [pscustomobject]@{ input = 1; output = 1; cacheRead = 0 }
+                checks = @([pscustomobject]@{ id = 'c'; passed = $false; required = $true; detail = '' }) }
+        }
+    }
+    It 'detects an agent that stopped to ask for admin approval' {
+        Test-StoppedForAdmin 'This needs administrator rights. Do you want me to continue?' | Should -BeTrue
+        Test-StoppedForAdmin 'Done. The package is installed.' | Should -BeFalse
+        Test-StoppedForAdmin $null | Should -BeFalse
+    }
+    It 'states the standing approval' {
+        Get-AdminApprovalLine | Should -Match 'approval'
+    }
+    It 'writes asked_before_admin as its own outcome, never a pass' {
+        $t = ConvertTo-TrialResult -Record (Rec 'asked_before_admin') -Task 'x' -Set 'tuning' -Release 'v1' -Commit ('a' * 40) -StartedAt ([datetime]'2026-10-27T18:00:00Z')
+        $t.outcome | Should -Be 'asked-before-admin'
+        $t.passed | Should -BeFalse
+    }
+    It 'shows full passes, partials and asked-before-admin runs separately' {
+        $runs = @((Rec 'pass'), (Rec 'partial'), (Rec 'asked_before_admin'), (Rec 'fail'))
+        Format-Rate $runs | Should -Be '1/4 (+1 partial) (1 asked before admin)'
+        Get-StatusScore 'asked_before_admin' | Should -Be 0
+    }
+    It 'loads the ask-first task flag' {
+        $defs = Get-TaskDefinitions -Root (Join-Path $PSScriptRoot '..\tasks')
+        ($defs | Where-Object Id -eq 'asks-before-elevating').AskFirst | Should -BeTrue
+        ($defs | Where-Object Id -eq 'startup-task').AskFirst | Should -BeFalse
+    }
+}

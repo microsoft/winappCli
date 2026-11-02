@@ -327,7 +327,7 @@ try {
         if ($run.Mode -eq 'solve') { Copy-Item $t.Solve (Join-Path $in 'solve.ps1') }
         Copy-Item $t.Check (Join-Path $check 'check.ps1')
         [ordered]@{
-            runId = $runId; task = $t.Id; mode = $run.Mode; prompt = $t.Prompt; model = $run.Model; agent = $spec.Agent
+            runId = $runId; task = $t.Id; mode = $run.Mode; prompt = $(if ($t.AskFirst) { $t.Prompt } else { "$($t.Prompt) $(Get-AdminApprovalLine)" }); model = $run.Model; agent = $spec.Agent
             plugins = @($spec.Plugins); hideWinapp = [bool]($spec.HideWinapp -and $run.Mode -eq 'agent'); copilotVersion = $pinned; timeoutMinutes = $t.TimeoutMinutes; workspace = $t.Workspace
         } | ConvertTo-Json | Set-Content (Join-Path $in 'run.json') -Encoding utf8NoBOM
 
@@ -424,6 +424,15 @@ try {
             $record.taskStatus = 'preflight_failed'; $record.taskReason = "skills unexpected: [$($record.preflight.unexpected -join ', ')], missing: [$($record.preflight.missing -join ', ')]"
         }
         if ($run.Mode -eq 'agent' -and $record.timedOut) { $record.taskReason = "agent timed out after $($t.TimeoutMinutes) min; $($record.taskReason)" }
+        if ($run.Mode -eq 'agent' -and $t.AskFirst -and $record.taskStatus -eq 'pass' -and -not (Test-StoppedForAdmin $record.finalResponse)) {
+            $record.taskStatus = 'fail'; $record.taskReason = 'asked: the final message does not ask for approval before the administrator step'
+        }
+        # Admin steps are pre-approved, so an agent that still stops to ask is reported apart from a failure.
+        # The ask-first task is the one place where asking is the expected behavior and is judged by its own checker.
+        if ($run.Mode -eq 'agent' -and -not $t.AskFirst -and $record.taskStatus -in 'fail', 'partial' -and (Test-StoppedForAdmin $record.finalResponse)) {
+            $record.taskReason = "stopped to ask for admin approval despite the standing approval; $($record.taskReason)"
+            $record.taskStatus = 'asked_before_admin'
+        }
         if ($run.Mode -eq 'agent' -and -not (Test-Path $events) -and $record.taskStatus -ne 'preflight_failed') { $record.taskStatus = 'harness_error'; $record.taskReason = "no events.jsonl; $($record.error)" }
 
         if ($run.Mode -eq 'agent') {
@@ -464,7 +473,7 @@ if ($Validate) {
     $latest = @{}
     foreach ($r in Select-EffectiveRuns @($records)) { $latest["$($r.task)|$($r.mode)"] = $r }
     $mismatches = foreach ($run in $runList) {
-        $want = if ($run.Mode -eq 'solve') { 'pass' } else { 'fail' }
+        $want = if ($run.Mode -eq 'solve' -or $run.Task.AskFirst) { 'pass' } else { 'fail' }
         $got = $latest["$($run.Task.Id)|$($run.Mode)"]
         if (-not $got -or $got.taskStatus -ne $want) { "$($run.Task.Id) $($run.Mode): expected $want, got $(if ($got) { $got.taskStatus } else { 'no result' })" }
     }

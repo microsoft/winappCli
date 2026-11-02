@@ -30,6 +30,8 @@ export interface AggregatedEntry {
   maxScore: number;
   iterations: number;
   completed: number;
+  /** Trials with no real result because our tooling failed; excluded from `avgScore` and the other means. */
+  harnessErrors: number;
   buildRate: number;
   runRate: number;
   avgSessionTime?: string;
@@ -145,6 +147,7 @@ export function aggregateEntries(entries: RunEntry[]): AggregatedEntry[] {
       maxScore: scores.length > 0 ? Math.max(...scores) : 0,
       iterations: group.length,
       completed: withScores.length,
+      harnessErrors: group.filter((e) => e.harnessError).length,
       buildRate: group.filter((e) => e.builds).length / group.length,
       runRate: group.filter((e) => e.runs).length / group.length,
       avgTokens: tokens.length > 0 ? Math.round(tokens.reduce((a, b) => a + b, 0) / tokens.length) : undefined,
