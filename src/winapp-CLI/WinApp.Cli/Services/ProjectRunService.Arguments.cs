@@ -222,6 +222,13 @@ internal sealed partial class ProjectRunService
         {
             tokens.Add($"--property:{property}");
         }
+        // The watch build evaluates the app again, so it needs the same Solution* properties as the first build.
+        if (options.Solution is { } solution)
+        {
+            tokens.AddRange(BuildSolutionPropertyTokens(solution)
+                .Where(token => !UserSpecifiesProperty(options.Properties, SolutionPropertyName(token)))
+                .Select(token => "--property:" + token["-p:".Length..]));
+        }
         if (!string.IsNullOrWhiteSpace(options.Platform))
         {
             tokens.Add($"--property:Platform={options.Platform}");

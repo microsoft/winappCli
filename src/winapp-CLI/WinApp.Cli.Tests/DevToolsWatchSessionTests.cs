@@ -106,6 +106,28 @@ public class DevToolsWatchSessionTests
         Assert.IsFalse(ProjectRunService.BuildWatchArguments(csproj, options with { OmitRuntimeIdentifier = true }, null).Contains(" -r ", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// <c>winapp run App.sln --watch</c>: the watch build evaluates the app again, so a project that imports
+    /// <c>$(SolutionDir)Shared.props</c> needs the solution properties there too, in the long form watch accepts.
+    /// </summary>
+    [TestMethod]
+    public void WatchArguments_ForwardTheSolutionProperties_UnlessTheUserSetThem()
+    {
+        var csproj = new FileInfo(@"C:\src\App\App.csproj");
+        var options = new ProjectRunOptions("Debug", "x64", null, false, false, [], Solution: new FileInfo(@"C:\src\All Apps.sln"));
+
+        var arguments = ProjectRunService.BuildWatchArguments(csproj, options, null);
+
+        StringAssert.Contains(arguments, @"--property:SolutionDir=C:\src\");
+        StringAssert.Contains(arguments, "\"--property:SolutionName=All Apps\"");
+        StringAssert.Contains(arguments, "--property:SolutionExt=.sln");
+        Assert.IsFalse(arguments.Contains(" -p:", StringComparison.Ordinal), "dotnet watch reads a bare -p as --project");
+
+        var userSet = ProjectRunService.BuildWatchArguments(csproj, options with { Properties = ["SolutionDir=D:\\shared\\"] }, null);
+        Assert.AreEqual(1, userSet.Split("SolutionDir=").Length - 1, userSet);
+        StringAssert.Contains(userSet, "--property:SolutionDir=D:\\shared\\");
+    }
+
     [TestMethod]
     [DataRow(false, false, false, false, false, false, true, "can't be combined with --devtools off")]
     [DataRow(true, true, true, false, false, false, true, "--detach, --json")]
