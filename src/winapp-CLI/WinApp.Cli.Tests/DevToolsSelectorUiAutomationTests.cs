@@ -212,6 +212,7 @@ public class DevToolsSelectorUiAutomationTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", """{"matches":[{"handle":"42","name":"","type":"Microsoft.UI.Xaml.Controls.Button","reactor":{"element":"Button","name":"incrementButton"}}]}""")
+            .Answer("VisualTree.getPreviews", """{"previews":[],"truncated":false}""")
             .Answer("Layout.get", """{"handle":"42","render":{"w":56,"h":32},"offset":{"x":16,"y":42},"screen":{"x":615,"y":489,"w":84,"h":48}}""")
             .Answer("Property.get", """{"handle":"42","props":[]}""");
         var inner = Proxy((method, args) => method.Name switch
