@@ -16,10 +16,9 @@ internal static class UiInjectionReporting
     /// Verifies the target window is in the foreground before an OS-wide input injection and emits the
     /// appropriate error when it isn't. Returns <see langword="true"/> to proceed,
     /// <see langword="false"/> to abort. A <paramref name="targetHwnd"/> of 0 means there is no window
-    /// to verify against (e.g. a bare coordinate target) and is allowed through. Distinguishes a
-    /// locked / secure desktop (<c>no_interactive_desktop</c>) from another window holding the
-    /// foreground (<c>foreground_not_target</c>), so callers never report the misleading "target may be
-    /// elevated" cause for a simply-locked session.
+    /// to verify against (e.g. a bare coordinate target) and is allowed through. Distinguishes an
+    /// unavailable foreground window (<c>no_interactive_desktop</c>) from another window holding the
+    /// foreground (<c>foreground_not_target</c>); neither outcome establishes the underlying cause.
     /// </summary>
     /// <param name="action">Verb used in the message, e.g. "click", "drag", "scroll --wheel".</param>
     public static bool TryEnsureForeground(
@@ -33,10 +32,10 @@ internal static class UiInjectionReporting
 
             case ForegroundCheck.NoInteractiveDesktop:
                 logger.LogError(
-                    "{Symbol} No interactive desktop is available — the session is locked or on a secure desktop. Unlock the session and retry.",
+                    "{Symbol} Windows returned no foreground window, so the target cannot be verified. No action was sent. Check for a locked session or secure desktop. For Remote Desktop, keep the client window visible and not minimized. Retry when the intended window is active.",
                     UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeNoInteractiveDesktop,
-                    "No interactive desktop is available (session locked or on a secure desktop). Unlock the session and retry.",
+                    "Windows returned no foreground window, so the target cannot be verified. No action was sent. Check for a locked session or secure desktop. For Remote Desktop, keep the client window visible and not minimized. Retry when the intended window is active.",
                     errorOut: errorOut);
                 return false;
 

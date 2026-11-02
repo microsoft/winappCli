@@ -180,9 +180,9 @@ public static class ForegroundGuard
     }
 
     /// <summary>
-    /// Returns <see langword="true"/> when there is no foreground window at all — the signature of a
-    /// locked workstation or a secure desktop (LogonUI / UAC), where a user-session process cannot
-    /// inject input. Distinguishes "session locked" from "wrong window" / "elevated target".
+    /// Returns <see langword="true"/> when Windows returns no foreground window. This does not
+    /// establish that the session is locked: activation transitions and remote-session input loss
+    /// can also produce a null handle. Input must stop because the target cannot be verified.
     /// </summary>
     public static bool NoInteractiveDesktop()
         => s_getForegroundWindow().IsNull;
@@ -217,7 +217,7 @@ public static class ForegroundGuard
     /// <summary>
     /// Pure decision behind <c>TryEnsureForeground</c>: given whether there is a target window
     /// to verify, whether that target currently holds the foreground, and whether any foreground
-    /// window exists at all, choose the outcome. Side-effect-free (no PInvoke) so the locked-desktop
+    /// window exists at all, choose the outcome. Side-effect-free (no PInvoke) so the unavailable-foreground
     /// (<c>no_interactive_desktop</c>) vs. wrong-window (<c>foreground_not_target</c>) selection is
     /// unit-testable without a live desktop.
     /// </summary>
@@ -234,10 +234,10 @@ public static class ForegroundGuard
     /// <summary>
     /// Verifies the target is foreground before an OS-wide injection. A <paramref name="targetHwnd"/>
     /// of 0 means there is no window to verify against (e.g. a bare coordinate target) and is allowed
-    /// through. Distinguishes a locked / secure desktop
+    /// through. Distinguishes an unavailable foreground window
     /// (<see cref="ForegroundCheck.NoInteractiveDesktop"/>) from another window holding the foreground
-    /// (<see cref="ForegroundCheck.ForegroundNotTarget"/>), so callers never report the misleading
-    /// "target may be elevated" cause for a simply-locked session.
+    /// (<see cref="ForegroundCheck.ForegroundNotTarget"/>). Neither outcome identifies why
+    /// the target is not foreground.
     /// </summary>
     public static ForegroundCheck CheckForeground(long targetHwnd)
     {

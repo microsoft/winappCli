@@ -163,12 +163,7 @@ internal sealed partial class NativeUiAuditSnapshotReader : UiAuditSnapshotTree<
 
         if (!withhold)
         {
-            var finalPrivacy = ReadPrivacy(element, issues);
-            if (finalPrivacy != false)
-            {
-                _state.Issue(issues, "privacy_changed", "The node's privacy could not be reconfirmed after capture; its name and text details were discarded.");
-                node = Withhold(node) with { IsPassword = finalPrivacy };
-            }
+            node = RecheckPrivacy(node, ReadPrivacy(element, issues), _state, issues);
         }
         if (!VerifyNodeScope(element, parent, owned))
         {
@@ -319,28 +314,64 @@ internal sealed partial class NativeUiAuditSnapshotReader : UiAuditSnapshotTree<
     }
 
     private bool? ReadPrivacy(IUIAutomationElement element, List<UiAuditSnapshotIssue> issues)
+        => ReadPrivacy(() => element.get_CurrentIsPassword(),
+            ignoreDefaults => element.GetCurrentPropertyValueEx(UIA_PROPERTY_ID.UIA_IsPasswordPropertyId, ignoreDefaults),
+            ClassifySentinel, _state, issues);
+
+    internal static bool? ReadPrivacy(Func<bool> readTyped, Func<bool, ComVariant> readProperty,
+        Func<ComVariant, UiAuditFieldSentinel> classifySentinel, UiAuditSnapshotState state, List<UiAuditSnapshotIssue> issues)
     {
         try
         {
-            _state.Budget.Check();
-            if (element.get_CurrentIsPassword())
+            state.Budget.Check();
+            if (readTyped())
             {
                 return true;
             }
+
+            state.Budget.Check();
+            using var value = readProperty(true);
+            var sentinel = classifySentinel(value);
+            var field = UiAuditFieldReader.Read(value, UiAuditFieldKind.Boolean, sentinel);
+            // Only UIA's recognized NotSupported sentinel permits its documented false default.
+            // Empty, malformed and failed reads must remain indeterminate.
+            if (sentinel == UiAuditFieldSentinel.Unsupported)
+            {
+                state.Budget.Check();
+                using var defaultValue = readProperty(false);
+                field = UiAuditFieldReader.Read(defaultValue, UiAuditFieldKind.Boolean, classifySentinel(defaultValue));
+                if (field.Boolean is not null)
+                {
+                    state.Issue(issues, "property_unsupported",
+                        "IsPassword was not supplied explicitly; its value was verified with UIA defaults enabled (documented default: false).",
+                        partial: false);
+                    return field.Boolean;
+                }
+            }
+            if (field.Boolean is not null)
+            {
+                return field.Boolean;
+            }
+            state.Issue(issues, "privacy_unavailable",
+                "IsPassword could not be verified (" + (field.Error ?? field.Status) + "); sensitive details were withheld.");
+            return null;
         }
         catch (Exception ex) when (IsProviderFailure(ex))
         {
-            _state.Issue(issues, "privacy_unavailable", FailureMessage("Direct IsPassword", ex));
+            state.Issue(issues, "privacy_unavailable", FailureMessage("IsPassword", ex));
             return null;
         }
-        // UIA's typed getter can supply false for an unsupported property. Require an explicit
-        // provider Boolean, with defaults disabled, before allowing any name or text-range read.
-        var privacy = ReadBoolean(element, UIA_PROPERTY_ID.UIA_IsPasswordPropertyId, "IsPassword", issues);
-        if (privacy is null)
+    }
+
+    internal static UiAuditNode RecheckPrivacy(UiAuditNode node, bool? finalPrivacy, UiAuditSnapshotState state,
+        List<UiAuditSnapshotIssue> issues)
+    {
+        if (finalPrivacy != false)
         {
-            _state.Issue(issues, "privacy_unavailable", "The provider did not supply an explicit IsPassword Boolean; sensitive details were withheld.");
+            state.Issue(issues, "privacy_changed", "The node's privacy could not be reconfirmed after capture; its name and text details were discarded.");
+            return Withhold(node) with { IsPassword = finalPrivacy };
         }
-        return privacy;
+        return node;
     }
 
     private bool? ReadBoolean(IUIAutomationElement element, UIA_PROPERTY_ID property, string label, List<UiAuditSnapshotIssue> issues)

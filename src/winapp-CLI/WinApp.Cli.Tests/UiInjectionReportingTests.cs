@@ -49,7 +49,27 @@ public class UiInjectionReportingTests
         Assert.IsFalse(new StubGuard(ForegroundCheck.NoInteractiveDesktop).TryEnsureForeground(10, logger, json: false, action: "drag"));
 
         Assert.AreEqual(LogLevel.Error, logger.Messages.Single().Level);
-        StringAssert.Contains(logger.Messages.Single().Message, "No interactive desktop");
+        var message = logger.Messages.Single().Message;
+        StringAssert.Contains(message, "Windows returned no foreground window");
+        StringAssert.Contains(message, "No action was sent");
+        StringAssert.Contains(message, "keep the client window visible and not minimized");
+        Assert.IsFalse(message.Contains("the session is locked", StringComparison.OrdinalIgnoreCase), message);
+    }
+
+    [TestMethod]
+    public void TryEnsureForeground_JsonRetainsErrorCodeWithoutClaimingSessionIsLocked()
+    {
+        var logger = new CapturingLogger();
+        using var errors = new StringWriter();
+
+        Assert.IsFalse(new StubGuard(ForegroundCheck.NoInteractiveDesktop)
+            .TryEnsureForeground(10, logger, json: true, action: "drag", errorOut: errors));
+
+        using var document = System.Text.Json.JsonDocument.Parse(errors.ToString());
+        var error = document.RootElement.GetProperty("error");
+        Assert.AreEqual("no_interactive_desktop", error.GetProperty("code").GetString());
+        Assert.AreEqual(logger.Messages.Single().Message[(UiSymbols.Error.Length + 1)..],
+            error.GetProperty("message").GetString());
     }
 
     [TestMethod]

@@ -76,7 +76,7 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
-    public async Task Focus_LockedDesktop_ReportsUnlockAndRetryWithoutInjectionAdvice()
+    public async Task Focus_UnavailableForeground_ReportsChecksWithoutClaimingLockOrFocusing()
     {
         ConfigureVerifiedFocus();
         _fakeForeground.CheckResult = _ => ForegroundCheck.NoInteractiveDesktop;
@@ -85,7 +85,9 @@ public partial class UiCommandTests
         Assert.IsNull(_fakeUia.LastFocusedElement);
         AssertJsonErrorCode("no_interactive_desktop");
         var error = ConsoleStdErr.ToString();
-        StringAssert.Contains(error, "Unlock the session and retry");
+        StringAssert.Contains(error, "Windows returned no foreground window");
+        StringAssert.Contains(error, "keep the client window visible and not minimized");
+        Assert.IsFalse(error.Contains("the session is locked", StringComparison.OrdinalIgnoreCase), error);
         Assert.IsFalse(error.Contains("inject", StringComparison.OrdinalIgnoreCase), error);
         Assert.IsFalse(error.Contains("UIA-pattern", StringComparison.OrdinalIgnoreCase), error);
     }

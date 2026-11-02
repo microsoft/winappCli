@@ -41,7 +41,7 @@ public sealed record UiAuditNode
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? ClassName { get; init; }
 
-    /// <summary>Directly verified password status; null means privacy is indeterminate, not false.</summary>
+    /// <summary>Verified UIA password status, including its documented false default for an explicitly unsupported property. Null means privacy is indeterminate, not false.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public bool? IsPassword { get; init; }
 

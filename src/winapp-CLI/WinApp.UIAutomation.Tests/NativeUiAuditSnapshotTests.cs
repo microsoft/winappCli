@@ -16,6 +16,9 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 [DoNotParallelize]
 public sealed partial class NativeUiAuditSnapshotTests
 {
+    private static readonly bool[] ExpectedPrivacyReadModes = [true, false];
+    private static readonly string[] PrivacyReadFailureSteps = ["typed", "explicit", "default", "sentinel"];
+
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
@@ -231,6 +234,225 @@ public sealed partial class NativeUiAuditSnapshotTests
         Assert.IsFalse(json.Contains("private-non-password-value", StringComparison.Ordinal));
         Assert.IsTrue(snapshot.Issues.Any(issue => issue.Code == "privacy_notice"));
         Assert.AreEqual("private-non-password-value", fixture.OnUiThread(() => fixture.ResultBox.Text), "Snapshot capture must not change the owned app.");
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void ExplicitPasswordBooleansNeverRequestDefaults(bool typed, bool explicitValue)
+    {
+        var state = PrivacyState();
+        var issues = new List<UiAuditSnapshotIssue>();
+        var reads = 0;
+        var result = NativeUiAuditSnapshotReader.ReadPrivacy(() => typed, ignoreDefaults =>
+        {
+            Assert.IsTrue(ignoreDefaults);
+            reads++;
+            return ComVariant.Create(explicitValue);
+        }, _ => UiAuditFieldSentinel.None, state, issues);
+
+        Assert.AreEqual((bool?)(typed || explicitValue), result);
+        Assert.AreEqual(typed ? 0 : 1, reads);
+        Assert.IsEmpty(issues);
+        Assert.IsFalse(state.Partial);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task UnsupportedPasswordPropertyUsesVerifiedUiaValueAndRecordsItsSource(bool defaultValue)
+    {
+        await NativeUiAuditSnapshotService.RunOnMta(() =>
+        {
+            using var owned = new NativeUiAuditSnapshotComScope();
+            var automation = owned.Add(CUIAutomation8.CreateInstance<IUIAutomation>())!;
+            var unsupported = owned.Add(automation.get_ReservedNotSupportedValue())!;
+            var state = PrivacyState();
+            var issues = new List<UiAuditSnapshotIssue>();
+            var reads = new List<bool>();
+            unsafe
+            {
+                var result = NativeUiAuditSnapshotReader.ReadPrivacy(() => false, ignoreDefaults =>
+                {
+                    reads.Add(ignoreDefaults);
+                    return ignoreDefaults
+                        ? ComVariant.CreateRaw(VarEnum.VT_UNKNOWN, (nint)ComInterfaceMarshaller<object>.ConvertToUnmanaged(unsupported))
+                        : ComVariant.Create(defaultValue);
+                }, value => automation.CheckNotSupported(value) ? UiAuditFieldSentinel.Unsupported : UiAuditFieldSentinel.None,
+                    state, issues);
+
+                Assert.AreEqual((bool?)defaultValue, result);
+                CollectionAssert.AreEqual(ExpectedPrivacyReadModes, reads);
+                Assert.HasCount(1, issues);
+                Assert.AreEqual("property_unsupported", issues[0].Code);
+                StringAssert.Contains(issues[0].Message, "defaults enabled");
+                Assert.IsFalse(state.Partial);
+                Assert.AreEqual(defaultValue, UiAuditSnapshotTraversal.ShouldWithhold(false, result));
+                Assert.IsTrue(UiAuditSnapshotTraversal.ShouldWithhold(true, result), "A resolved default must not bypass ancestor protection.");
+            }
+            return true;
+        });
+    }
+
+    [TestMethod]
+    [DataRow(VarEnum.VT_EMPTY)]
+    [DataRow(VarEnum.VT_NULL)]
+    [DataRow(VarEnum.VT_I4)]
+    [DataRow(VarEnum.VT_ERROR)]
+    [DataRow(VarEnum.VT_BOOL)]
+    [DataRow(VarEnum.VT_UNKNOWN)]
+    public void MissingOrMalformedPasswordPropertiesNeverRequestDefaults(VarEnum nativeType)
+    {
+        var state = PrivacyState();
+        var issues = new List<UiAuditSnapshotIssue>();
+        var reads = 0;
+        var result = NativeUiAuditSnapshotReader.ReadPrivacy(() => false, ignoreDefaults =>
+        {
+            Assert.IsTrue(ignoreDefaults, "Only the recognized UIA NotSupported sentinel permits a default read.");
+            reads++;
+            return InvalidPasswordValue(nativeType);
+        }, _ => UiAuditFieldSentinel.None, state, issues);
+
+        Assert.AreEqual(1, reads);
+        AssertPrivacyUnknown(result, state, issues);
+    }
+
+    [TestMethod]
+    [DataRow(VarEnum.VT_EMPTY)]
+    [DataRow(VarEnum.VT_NULL)]
+    [DataRow(VarEnum.VT_I4)]
+    [DataRow(VarEnum.VT_ERROR)]
+    [DataRow(VarEnum.VT_BOOL)]
+    [DataRow(VarEnum.VT_UNKNOWN)]
+    public async Task UnsupportedPasswordPropertyWithInvalidDefaultRemainsUnknown(VarEnum nativeType)
+    {
+        await NativeUiAuditSnapshotService.RunOnMta(() =>
+        {
+            using var owned = new NativeUiAuditSnapshotComScope();
+            var automation = owned.Add(CUIAutomation8.CreateInstance<IUIAutomation>())!;
+            var unsupported = owned.Add(automation.get_ReservedNotSupportedValue())!;
+            var state = PrivacyState();
+            var issues = new List<UiAuditSnapshotIssue>();
+            unsafe
+            {
+                var result = NativeUiAuditSnapshotReader.ReadPrivacy(() => false,
+                    ignoreDefaults => ignoreDefaults
+                        ? ComVariant.CreateRaw(VarEnum.VT_UNKNOWN, (nint)ComInterfaceMarshaller<object>.ConvertToUnmanaged(unsupported))
+                        : InvalidPasswordValue(nativeType),
+                    value => value.VarType == VarEnum.VT_UNKNOWN && value.GetRawDataRef<nint>() != 0 && automation.CheckNotSupported(value)
+                        ? UiAuditFieldSentinel.Unsupported : UiAuditFieldSentinel.None, state, issues);
+
+                AssertPrivacyUnknown(result, state, issues);
+                Assert.IsFalse(issues.Any(issue => issue.Code == "property_unsupported"), "A failed default read must not claim it was verified.");
+            }
+            return true;
+        });
+    }
+
+    [TestMethod]
+    public async Task PasswordPropertyReadFailuresNeverSubstituteDefaultsOrExposeExceptionText()
+    {
+        await NativeUiAuditSnapshotService.RunOnMta(() =>
+        {
+            using var owned = new NativeUiAuditSnapshotComScope();
+            var automation = owned.Add(CUIAutomation8.CreateInstance<IUIAutomation>())!;
+            var unsupported = owned.Add(automation.get_ReservedNotSupportedValue())!;
+            foreach (var failingStep in PrivacyReadFailureSteps)
+            {
+                var state = PrivacyState();
+                var issues = new List<UiAuditSnapshotIssue>();
+                unsafe
+                {
+                    var result = NativeUiAuditSnapshotReader.ReadPrivacy(
+                        () => failingStep == "typed" ? throw new COMException("private-provider-detail") : false,
+                        ignoreDefaults =>
+                        {
+                            if (failingStep == (ignoreDefaults ? "explicit" : "default"))
+                            {
+                                throw new COMException("private-provider-detail");
+                            }
+                            Assert.IsTrue(ignoreDefaults, "A failed step must not fall through to a default value.");
+                            return ComVariant.CreateRaw(VarEnum.VT_UNKNOWN,
+                                (nint)ComInterfaceMarshaller<object>.ConvertToUnmanaged(unsupported));
+                        },
+                        value => failingStep == "sentinel" ? throw new COMException("private-provider-detail")
+                            : automation.CheckNotSupported(value) ? UiAuditFieldSentinel.Unsupported : UiAuditFieldSentinel.None,
+                        state, issues);
+
+                    AssertPrivacyUnknown(result, state, issues);
+                    Assert.IsFalse(issues.Any(issue => issue.Message.Contains("private-provider-detail", StringComparison.Ordinal)));
+                }
+            }
+            return true;
+        });
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(null)]
+    public void PrivacyRecheckDiscardsPreviouslyCapturedNamesAndFormatting(bool? finalPrivacy)
+    {
+        var state = PrivacyState();
+        var issues = new List<UiAuditSnapshotIssue>();
+        var node = new UiAuditNode
+        {
+            Name = "private-name-after-transition",
+            IsPassword = false,
+            TextRuns = [new UiAuditNodeTextRun
+            {
+                Id = "n1.t1",
+                Bounds = [new UiAuditNodeBounds(1, 2, 3, 4)],
+                ForegroundColor = new() { Status = "value", Number = 123 },
+            }],
+        };
+        var rechecked = NativeUiAuditSnapshotReader.RecheckPrivacy(node, finalPrivacy, state, issues);
+
+        Assert.IsNull(rechecked.Name);
+        Assert.AreEqual(finalPrivacy, rechecked.IsPassword);
+        Assert.IsTrue(UiAuditSnapshotTraversal.ShouldWithhold(false, rechecked.IsPassword));
+        Assert.IsTrue(state.Partial);
+        Assert.IsTrue(issues.Any(issue => issue.Code == "privacy_changed"));
+        var run = rechecked.TextRuns.Single();
+        Assert.AreEqual("n1.t1", run.Id);
+        Assert.IsEmpty(run.Bounds);
+        Assert.IsTrue(new[] { run.ForegroundColor, run.BackgroundColor, run.FontSize, run.FontWeight, run.IsHidden }
+            .All(field => field.Status == "withheld" && field.Number is null && field.Boolean is null));
+    }
+
+    [TestMethod]
+    public void NonPasswordPrivacyRecheckPreservesCapturedMetadata()
+    {
+        var state = PrivacyState();
+        var issues = new List<UiAuditSnapshotIssue>();
+        var node = new UiAuditNode { Name = "static label", IsPassword = false };
+
+        Assert.AreSame(node, NativeUiAuditSnapshotReader.RecheckPrivacy(node, false, state, issues));
+        Assert.IsEmpty(issues);
+        Assert.IsFalse(state.Partial);
+    }
+
+    private static UiAuditSnapshotState PrivacyState()
+    {
+        var options = new UiAuditSnapshotOptions { TimeoutMs = 30000 };
+        return new(options, new(options, CancellationToken.None));
+    }
+
+    private static ComVariant InvalidPasswordValue(VarEnum nativeType) => nativeType switch
+    {
+        VarEnum.VT_EMPTY => default,
+        VarEnum.VT_BOOL => ComVariant.CreateRaw(nativeType, (short)1),
+        VarEnum.VT_UNKNOWN => ComVariant.CreateRaw(nativeType, (nint)0),
+        _ => ComVariant.CreateRaw(nativeType, 0),
+    };
+
+    private static void AssertPrivacyUnknown(bool? result, UiAuditSnapshotState state, List<UiAuditSnapshotIssue> issues)
+    {
+        Assert.IsNull(result);
+        Assert.IsTrue(state.Partial);
+        Assert.IsTrue(issues.Any(issue => issue.Code == "privacy_unavailable"));
+        Assert.IsTrue(UiAuditSnapshotTraversal.ShouldWithhold(false, result));
     }
 
     private static UiTarget Target(UiaTestFixture fixture) => new()
