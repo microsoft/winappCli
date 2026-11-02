@@ -31,6 +31,8 @@ static bool CanRereadSelection(bool* filterFocused)
 }
 
 static void WireAddComment(void* frameworkElement);
+static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& name,
+                                const std::wstring& label, const std::wstring& breadcrumb);
 
 static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, const std::wstring& breadcrumb,
                              bool force)
@@ -50,9 +52,8 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     // After the flush: saving the editor can rebuild this pane, which moves the stashed draft into a new box.
     StashCommentDraft();
     ReleasePropFilterState();
-    ReleaseBreadcrumbRefs();
     ReleaseLayoutSectionRefs();
-    if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
+    g_propViewSelector = nullptr;
     // Selecting a DIFFERENT node resets the pane state that describes what happened to the selection's rows:
     // lost bindings and links, unconfirmed writes, staged kinds. Edit records are kept for the whole session, so
     // Restore still works after the user comes back to an element; only records for elements that are gone are dropped.
@@ -66,6 +67,8 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
                 if (!g_ctx.wireLiveFn(g_appChanged[i].wire)) g_appChanged.erase(g_appChanged.begin() + i);
         }
     }
+    // The message footer outlives the fragment, so a message about the previous element ends with its selection.
+    if (wire != g_selWire) SetStatusText(L"");
     g_selWire = wire; g_selLabel = label; g_selBreadcrumb = breadcrumb;
 
     std::wstring type, name; std::vector<DevToolsCardRow> rows;
@@ -73,6 +76,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     { WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropRead);
       g_ctx.rowsFn(wire, type, name, rows, authoredState, authoredXaml); }
     ReconcileEditRecords(wire, rows);
+    UpdateDetailsHeader(type, name, label, breadcrumb);
 
     const PaneEditMap emap = BuildEditMap(rows);
 
@@ -142,8 +146,8 @@ g_propRows = rows;
         return;
     }
 
-    // Wire the fragment: FindName the Status line + each editable TextBox (E<i>), and attach a per-row
-    // LostFocus commit sink so leaving a field writes it to the live app element (no Apply button).
+    // Wire the fragment: the property rows, the disclosures, the Computed|Set selector, the filter, and the
+    // comment and source actions. Messages go to the window's footer, which outlives this fragment.
     QueryPerformanceCounter(&tParse1);
     void* fe = nullptr;
     if (SUCCEEDED(frag->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
@@ -153,49 +157,6 @@ g_propRows = rows;
         };
         const int repeaterItems = WirePropRepeater(fe);
         DevToolsOverlayLog(L"route1.props repeater items=%d rows=%zu", repeaterItems, g_propRows.size());
-        if (IInspectable* st = findByName(L"Status")) {
-            void* tb = nullptr;
-            if (SUCCEEDED(st->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tb)) && tb) g_statusTb = reinterpret_cast<IInspectable*>(tb);
-            st->Release();
-        } else {
-            bool anyEditableRow = false;
-            for (const auto& r2 : rows) if (!r2.type.empty()) { anyEditableRow = true; break; }
-            // BuildPropsFragment emits the Status line whenever ANY row is editable, so rows-editable plus
-            // no-Status means the emitter and this wiring have drifted. SetStatusText silently no-ops on a
-            // null g_statusTb, so EVERY status message would disappear -- including "Replaced the binding on
-            // X, that can't be undone", the one message whose whole job is to stop a user believing a
-            // destructive edit was harmless. Losing that quietly is worse than losing the line.
-            if (anyEditableRow)
-                DevToolsOverlayLog(L"route1.wire MISS: rows are editable but there is no Status line -- every status message will be swallowed");
-        }
-        // Breadcrumb expander: hold both TextBlocks as IUIElement and wire the "Show all N ancestors"
-        // HyperlinkButton to flip between them. Only present when the chain was actually long enough to elide.
-        if (IInspectable* bs = findByName(L"BcShort")) {
-            bs->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &g_bcShort);
-            bs->Release();
-        }
-        if (IInspectable* bf = findByName(L"BcFull")) {
-            bf->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &g_bcFull);
-            bf->Release();
-        }
-        if (g_bcShort && g_bcFull) {
-            DevToolsPutVisibility(g_bcShort, g_bcExpanded ? 1 : 0);
-            DevToolsPutVisibility(g_bcFull, g_bcExpanded ? 0 : 1);
-            if (IInspectable* bl = findByName(L"BcToggleLbl")) {
-                bl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_bcToggleLbl);
-                bl->Release();
-            }
-            if (IInspectable* bt = findByName(L"BcToggle")) {
-                void* bb = nullptr;
-                if (SUCCEEDED(bt->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    BreadcrumbSink* bcs = new BreadcrumbSink(); bcs->Init();
-                    __int64 tok = 0; void** bvt = *reinterpret_cast<void***>(bb);
-                    DevToolsAddClick(bb, bcs, &tok);
-                    reinterpret_cast<IUnknown*>(bb)->Release();
-                }
-                bt->Release();
-            }
-        }
         if (IInspectable* lb = findByName(L"LayoutSectionBody")) {
             lb->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutBody);
             lb->Release();
@@ -215,10 +176,6 @@ g_propRows = rows;
             }
             lt->Release();
         }
-        if (IInspectable* a1 = findByName(L"AxmlOne")) {
-            a1->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_axmlOne);
-            a1->Release();
-        }
         if (IInspectable* at = findByName(L"AxmlToggle")) {
             void* ex = nullptr;
             if (SUCCEEDED(at->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
@@ -234,11 +191,23 @@ g_propRows = rows;
             }
             at->Release();
         }
-        {
-            if (IInspectable* pc = findByName(L"PropCount")) {
-                pc->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_propCountTb);
-                g_propCountEl = pc;
+        if (IInspectable* pv = findByName(L"PropViewSelector")) {
+            try {
+                winrt::Windows::Foundation::IInspectable object{ nullptr };
+                winrt::copy_from_abi(object, pv);
+                if (auto selector = object.try_as<DevToolsXC::SelectorBar>()) {
+                    g_propViewSelector = winrt::make_weak(selector);
+                    selector.SelectionChanged([gen = g_route1Gen](DevToolsXC::SelectorBar const& sender, auto&&) {
+                        if (gen == g_route1Gen) ApplyPropViewSelection(sender);
+                    });
+                }
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.props view selector wiring failed hr=0x%08X -- Computed|Set will not switch",
+                              e.code().value);
             }
+            pv->Release();
+        }
+        {
             if (IInspectable* sl = findByName(L"PropShowAllLbl")) {
                 sl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_propShowAllLbl);
                 sl->Release();
@@ -427,10 +396,12 @@ static void ResetRoute1State()
     ReleaseInspectorCaptionTheme();
     if (HWND h = Route1WindowHwnd()) KillTimer(h, kRefreshTimerId);
     if (g_ctx.highlightFn) g_ctx.highlightFn(0, true);
-    // Release the editable inspector state (status line + props-host children).
+    // Release the editable inspector state (message footer + props-host children).
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
-    ReleaseBreadcrumbRefs(); ReleaseLayoutSectionRefs(); ReleasePropFilterState();
-    g_bcExpanded = false; g_axmlExpanded = false;
+    if (g_statusHostUi) { reinterpret_cast<IUnknown*>(g_statusHostUi)->Release(); g_statusHostUi = nullptr; }
+    ReleaseLayoutSectionRefs(); ReleasePropFilterState();
+    g_propViewSelector = nullptr;
+    g_axmlExpanded = false;
     g_propFilterQuery.clear(); g_propFilterRaw.clear();
     RetirePaneEditors();
     g_editRecords.clear(); g_appChanged.clear(); g_dirtyNode = 0; g_propView = DevToolsPropView::Computed; g_propShowAll = false;

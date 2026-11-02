@@ -103,7 +103,7 @@ static void TestToolbarContract()
                      window.find("DevToolsAddPreviewKeyDown(splitUi, splitKeys, &ktok)") != std::string::npos &&
                      window.find("DevToolsAddPreviewKeyDown(thumb,") == std::string::npos,
                  "the pane splitter is a tab stop that the arrow keys move");
-    Check(windowShell.find("<TextBlock x:Name=\"TreeNoMatches\" Grid.Row=\"1\" Visibility=\"Collapsed\"") != std::string::npos &&
+    Check(windowShell.find("<TextBlock x:Name=\"TreeNoMatches\" Grid.Row=\"0\" Visibility=\"Collapsed\"") != std::string::npos &&
                      window.find("SetTreeNoMatches(queryRaw, shown == 0);") != std::string::npos,
                  "a tree filter with no matches says so instead of showing an empty pane");
     const auto readStart = windowShell.find("<ContentControl x:Name=\"TmplExpRead\">");
@@ -290,12 +290,21 @@ static void TestToolbarContract()
                      window.find("<MicaBackdrop xmlns=") != std::string::npos &&
                      window.find("DesktopAcrylicBackdrop") == std::string::npos,
                  "the DevTools window uses the native Mica backdrop");
-    Check(windowShell.find("x:Name=\"DetailsPane\"") != std::string::npos &&
-                     windowShell.find("Background=\"{ThemeResource CardBackgroundFillColorSecondaryBrush}\"") != std::string::npos &&
-                     windowShell.find("BorderBrush=\"{ThemeResource CardBackgroundFillColorDefaultBrush}\"") != std::string::npos &&
-                     windowShell.find("BorderThickness=\"1\"") != std::string::npos &&
-                     windowShell.find("CornerRadius=\"8,0,0,0\"") != std::string::npos,
-                 "the details pane uses the secondary card surface with a one-pixel rounded stroke");
+    {
+        const size_t detailsAt = windowShell.find("<Grid x:Name=\"DetailsPane\"");
+        const size_t detailsEnd = detailsAt == std::string::npos ? std::string::npos : windowShell.find('>', detailsAt);
+        const std::string detailsTag = detailsEnd == std::string::npos ? std::string()
+                                                                       : windowShell.substr(detailsAt, detailsEnd - detailsAt);
+        Check(windowShell.find("<NavigationView x:Name=\"InspectorNav\" Grid.Row=\"1\" PaneDisplayMode=\"LeftCompact\"") != std::string::npos &&
+                         windowShell.find("IsPaneToggleButtonVisible=\"False\" IsBackButtonVisible=\"Collapsed\" IsSettingsVisible=\"False\"") !=
+                             std::string::npos &&
+                         windowShell.find("<Grid x:Name=\"InspectorCard\">") > windowShell.find("</NavigationView.MenuItems>") &&
+                         !detailsTag.empty() &&
+                         detailsTag.find("Background=") == std::string::npos &&
+                         detailsTag.find("BorderBrush=") == std::string::npos &&
+                         detailsTag.find("CornerRadius=") == std::string::npos,
+                     "a compact side rail switches views, and its content area is the one card: the details pane draws no surface of its own");
+    }
     // a value the runtime cannot hand back as a real one is stated by TYPE STYLE -- italic secondary --
     // rather than by colour alone, because a High Contrast theme replaces the pane's brushes wholesale and a
     // colour-only signal says nothing there. So this asserts BOTH halves: the secondary brush and the
@@ -310,7 +319,7 @@ static void TestToolbarContract()
     Check(window.find("if (unset)                              shown = L\"Auto\";") != std::string::npos &&
                      window.find("else if (r.valueState == L\"null\")       shown = L\"(null)\";") != std::string::npos &&
                      window.find("else if (r.valueState == L\"unresolved\") shown = ShortType(") != std::string::npos &&
-                     window.find("noValue ? static_cast<void*>(g_palSecondary)") != std::string::npos &&
+                     window.find("PutDonorForeground(tb, noValue ? g_palSecondary : g_palPrimary);") != std::string::npos &&
                      window.find("DevToolsPutFontStyle(tb, noValue ? 2 /*Italic*/ : 0 /*Normal*/)") != std::string::npos,
                  "a row with no real value renders the absence, in italic secondary, never the runtime's token");
     // And the EDITOR for such a row seeds EMPTY with a placeholder, so the box genuinely contains nothing and
@@ -382,7 +391,10 @@ static void TestToolbarContract()
     Check(windowShell.find("x:Name=\"PName\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos &&
                      windowShell.find("x:Name=\"PValue\" Grid.Column=\"1\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos,
                  "the collapsed row's name and value are the same compact 12 DIP as the editor");
-    Check(windowShell.find("<Grid x:Name=\"TreeRowsHost\" Grid.Row=\"2\">") != std::string::npos &&
+    // Every property name uses the secondary text brush, so the value reads first.
+    Check(window.find("PutDonorForeground(tb, g_palSecondary);") != std::string::npos,
+                 "property names use the secondary text brush");
+    Check(windowShell.find("<Grid x:Name=\"TreeRowsHost\" Grid.Row=\"1\">") != std::string::npos &&
                      window.find("g_treeView = DevToolsXC::TreeView{}") != std::string::npos &&
                      window.find("container.ContentTemplateRoot().try_as<DevToolsXC::TextBlock>()") != std::string::npos &&
                      window.find("ContainerContentChanging") != std::string::npos &&
@@ -406,9 +418,14 @@ static void TestToolbarContract()
                      windowShell.find("Glyph=\"&#xE943;\"") != std::string::npos &&
                      windowShell.find("ToolTipService.ToolTip=\"{Binding Text, ElementName=JmxLbl}\"") != std::string::npos &&
                      windowShell.find("<TextBox x:Name=\"TreeFilter\"") < windowShell.find("<ToggleButton x:Name=\"JmxBtn\"") &&
-                     windowShell.find("Grid.Row=\"1\" Margin=\"8,8,8,4\" ColumnSpacing=\"8\"") != std::string::npos &&
-                     windowShell.find("<ToggleButton x:Name=\"JmxBtn\"") < windowShell.find("<TextBlock x:Name=\"TreeHeader\""),
+                     windowShell.find("Grid.Row=\"1\" Margin=\"8,8,8,4\" ColumnSpacing=\"8\"") != std::string::npos,
                  "Just my XAML is an icon toggle eight DIPs beside the tree filter with its status in the tooltip");
+    Check(windowShell.find("<StackPanel x:Name=\"TreePanelHeader\" Grid.Row=\"0\"") != std::string::npos &&
+                     windowShell.find("<StackPanel x:Name=\"CommentsPanelHeader\" Grid.Row=\"0\"") != std::string::npos &&
+                     windowShell.find("<TextBlock x:Name=\"TreeHeader\"") > windowShell.find("<StackPanel x:Name=\"TreePanelHeader\"") &&
+                     windowShell.find("<TextBlock x:Name=\"TreeHeader\"") < windowShell.find("<Grid x:Name=\"TreeControls\"") &&
+                     CountOf(windowShell, "<RowDefinition Height=\"52\"/>") == 2,
+                 "the tree and comments panels have headers as tall as the details header, so the dividers line up");
     // JmxLbl is collapsed, so it is absent from the UIA tree by construction and the toggle's
     // AutomationProperties.Name is the ONLY thing that carries the unavailable reason to assistive tech.
     // Nothing guarded that binding, which is how the reason became a tooltip-only affordance once already.
@@ -427,12 +444,18 @@ static void TestToolbarContract()
                      windowShell.find("AutomationProperties.AutomationId=\"CommentsToggle\"") == std::string::npos &&
                      windowShell.find("x:Name=\"CommentsBtn\"") == std::string::npos,
                  "the view tabs replace the Comments icon toggle rather than joining it");
-    Check(windowShell.find("<SelectorBarItem x:Name=\"TreeTabBtn\"") != std::string::npos &&
-                     windowShell.find("<SelectorBarItem x:Name=\"CommentsTabBtn\"") != std::string::npos,
-                 "native SelectorBar items report the showing view through SelectionItemPattern");
-    Check(windowShell.find("<SelectorBar x:Name=\"PropViewSelector\"") != std::string::npos &&
-                     windowShell.find("<SelectorBar x:Name=\"PropViewSelector\"") < windowShell.find("<StackPanel x:Name=\"PropsHost\""),
-                 "the property view selector stays outside the rebuilt property fragment to retain keyboard focus");
+    Check(windowShell.find("<NavigationViewItem x:Name=\"TreeTabBtn\"") != std::string::npos &&
+                     windowShell.find("<NavigationViewItem x:Name=\"CommentsTabBtn\"") != std::string::npos &&
+                     windowShell.find("<InfoBadge x:Name=\"CommentsBadge\"") > windowShell.find("<NavigationViewItem x:Name=\"CommentsTabBtn\""),
+                 "native NavigationView items report the showing view through SelectionItemPattern, and Comments carries the open count");
+    // Computed | Set sits beside the property filter, inside the fragment a view change rebuilds. The rebuild
+    // runs after the selection event, then gives keyboard focus back to the new selector if the old one had it.
+    Check(windowShell.find("PropViewSelector") == std::string::npos &&
+                     window.find("<SelectorBar x:Name=\\\"PropViewSelector\\\"") != std::string::npos &&
+                     window.find("if (!queue || !queue.TryEnqueue(rebuild)) rebuild();") != std::string::npos &&
+                     window.find("if (const auto item = bar.SelectedItem()) item.Focus(DevToolsX::FocusState::Programmatic);") !=
+                         std::string::npos,
+                 "the property view selector keeps keyboard focus across the rebuild it causes");
     Check(windowShell.find("<ToggleButton x:Name=\"PickBtn\"") != std::string::npos &&
                      windowShell.find("<ToggleButton x:Name=\"FocusBtn\"") != std::string::npos,
                  "inspector pick and focus modes expose TogglePattern through standard ToggleButtons");
@@ -569,7 +592,7 @@ static void TestToolbarContract()
                      window.find("AssocQueryStringW") != std::string::npos,
                  "no call site launches the shell without asking for the association first");
 
-    Check(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
+    Check(windowShell.find("AutomationProperties.AutomationId=\"WinAppDevToolsAddComment\"") != std::string::npos &&
                      window.find("DevToolsOverlay_AddComment(element, value, saved->id") != std::string::npos,
                  "the inspector's Comment action saves through the in-app comment writer");
     Check(overlay.find("static EventSink g_protoSink[24];") != std::string::npos,

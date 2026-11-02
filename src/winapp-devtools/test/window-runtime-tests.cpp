@@ -26,7 +26,8 @@ static bool focusTrackingAvailable = true;
 static bool TestSetFocusTracking(bool) { return focusTrackingAvailable; }
 static int testFontStyle = -1;
 static HRESULT PutTestFontStyle(void*, int style) { testFontStyle=style; return S_OK; }
-static HRESULT PutTestForeground(void*, void*) { return S_OK; }
+static HRESULT PutTestForeground(void*, void*);
+static HRESULT GetTestForeground(void*, IInspectable**);
 static unsigned focusCalls = 0;
 static HRESULT TestFocus(void*, int, bool* success) { ++focusCalls; *success=true; return S_OK; }
 static HRESULT TestActualTheme(void*, int*);
@@ -87,6 +88,7 @@ static HRESULT TestAddLoaded(void*, void* handler, __int64* token)
 #define DevToolsOverlay_SetFocusTracking TestSetFocusTracking
 #define DevToolsPutFontStyle PutTestFontStyle
 #define DevToolsPutTextForeground PutTestForeground
+#define DevToolsGetTextForeground GetTestForeground
 #define DevToolsFocus TestFocus
 #define DevToolsGetActualTheme TestActualTheme
 #define DevToolsTitleBarPutPreferredTheme TestCaptionTheme
@@ -110,6 +112,7 @@ struct TestElement : IInspectable {
     int selectedIndex = -1;
     std::wstring automationName, automationId;
     std::vector<IInspectable*> children;
+    IInspectable* foreground = nullptr;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** value) override {
         *value=static_cast<IInspectable*>(this); AddRef(); return S_OK;
     }
@@ -134,6 +137,17 @@ static HRESULT PutTestChecked(void* element, IInspectable* value)
 static HRESULT PutTestEnabled(void* element, bool value)
 {
     static_cast<TestElement*>(element)->enabled = value;
+    return S_OK;
+}
+static HRESULT PutTestForeground(void* element, void* brush)
+{
+    static_cast<TestElement*>(element)->foreground = static_cast<IInspectable*>(brush);
+    return S_OK;
+}
+static HRESULT GetTestForeground(void* element, IInspectable** brush)
+{
+    *brush = static_cast<TestElement*>(element)->foreground;
+    if (*brush) (*brush)->AddRef();
     return S_OK;
 }
 static TestElement testRow, testValue, testStatus, testInput, testHeader, testTitleBar;
@@ -505,6 +519,22 @@ int main()
         "empty and nested properties keep an explicit accessible value and full path");
     check(testValue.text.empty() && testValue.automationName==L"Child.Text, (empty)" &&
         testValue.automationId==L"Child.Text shown","an empty value clears the previous child accessible value");
+    {
+        // The palette slots hold donor TextBlocks, so a row must take the donor's brush, not the donor.
+        TestElement primaryDonor, secondaryDonor, primaryBrush, secondaryBrush;
+        primaryDonor.foreground=&primaryBrush;secondaryDonor.foreground=&secondaryBrush;
+        g_palPrimary=&primaryDonor;g_palSecondary=&secondaryDonor;
+        auto colored=shown;colored.type=L"Double";colored.value=L"200";colored.valueState.clear();
+        PopulateRowValue(&testValue,colored,L"Width");
+        check(testValue.foreground==&primaryBrush && testFontStyle==0,"a property value uses the primary text brush");
+        colored.valueState=L"null";
+        PopulateRowValue(&testValue,colored,L"Width");
+        check(testValue.foreground==&secondaryBrush && testFontStyle==2,
+            "a missing value uses the secondary text brush in italic");
+        check(primaryDonor.refs==1 && secondaryDonor.refs==1 && primaryBrush.refs==1 && secondaryBrush.refs==1,
+            "copying a donor brush releases what it reads");
+        g_palPrimary=g_palSecondary=nullptr;testValue.foreground=nullptr;
+    }
     g_apStatics=nullptr;
     g_propExpanded.clear();values[88]=L"True";g_propRows={row};testValue.text=L"True";
 
@@ -1030,15 +1060,18 @@ int main()
         g_layoutSectionOpen=0;
         const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noSourceInfo",L"",&stretched);
-        const auto crumb=pane.find(L"WinAppDevToolsBreadcrumb"), filter=pane.find(L"PropFilter"),
+        const auto view=pane.find(L"x:Name=\"PropViewSelector\""), filter=pane.find(L"PropFilter"),
             section=pane.find(L"WinAppDevToolsSizeSpacing"), box=pane.find(L"WinAppDevToolsBoxModel\"");
-        check(crumb<section && section<box && box<filter && filter!=std::wstring::npos,
-            "properties pane: header, then the Size & spacing section, then filter and grid");
-        check(pane.find(L"Text=\"PROPERTIES\"")==std::wstring::npos &&
-            pane.find(L"x:Name=\"Status\" Visibility=\"Collapsed\"")!=std::wstring::npos &&
-            pane.find(L"Edits apply")==std::wstring::npos,
-            "the pane has no PROPERTIES caption, and its status line stays hidden until there is a message");
-        check(pane.find(L"SIZE &amp; SPACING")!=std::wstring::npos && pane.find(L"Text=\"LAYOUT\"")==std::wstring::npos,
+        check(section<box && box<filter && filter<view && view!=std::wstring::npos,
+            "properties pane: the Size & spacing section, then the filter with Computed | Set on its right, then the grid");
+        const auto filterTag=filter==std::wstring::npos ? std::wstring() : pane.substr(filter,pane.find(L"/>",filter)-filter);
+        check(!filterTag.empty() && filterTag.find(L"FontSize=")==std::wstring::npos && filterTag.find(L"Grid.Column=")==std::wstring::npos &&
+            pane.find(L"<SelectorBar x:Name=\"PropViewSelector\" Grid.Column=\"1\"")!=std::wstring::npos,
+            "the property filter fills the left column at the normal text size, like the tree filter");
+        check(pane.find(L"Text=\"PROPERTIES\"")==std::wstring::npos && pane.find(L"x:Name=\"Status\"")==std::wstring::npos &&
+            pane.find(L"WinAppDevToolsBreadcrumb")==std::wstring::npos && pane.find(L"Edits apply")==std::wstring::npos,
+            "the pane has no PROPERTIES caption; the title, breadcrumb and messages live in the window around it");
+        check(pane.find(L"Text=\"Size &amp; spacing\"")!=std::wstring::npos && pane.find(L"Text=\"LAYOUT\"")==std::wstring::npos,
             "the section is named apart from the grid's Layout category");
         check(pane.find(L"LayoutToggle\"")==std::wstring::npos && pane.find(L"x:Name=\"LayoutMore\"")==std::wstring::npos &&
             BuildLayoutSection(stretched,{}).find(L"WinAppDevToolsBoxModelDetail")!=std::wstring::npos,
@@ -1068,29 +1101,25 @@ int main()
         const auto collapsed = authoredPane();
         check(collapsed.find(L"<Expander x:Name=\"AxmlToggle\"") != std::wstring::npos &&
             collapsed.find(L"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"False\"") != std::wstring::npos &&
-            collapsed.find(L"x:Name=\"AxmlOne\" Visibility=\"Visible\"") != std::wstring::npos,
-            "authored XAML starts as a one-line preview inside a standard collapsed Expander");
+            collapsed.find(L"WinAppDevToolsSourceNote") != std::wstring::npos &&
+            collapsed.find(L"AxmlOne") == std::wstring::npos,
+            "source XAML sits in a standard collapsed Expander with an on-disk note and no one-line preview");
         check(collapsed.find(L"IsTextSelectionEnabled=\"True\"") != std::wstring::npos &&
             collapsed.find(L"AxmlChev") == std::wstring::npos,
             "expanded authored XAML remains selectable and has no custom disclosure chevron");
-        TestElement preview;
-        g_axmlOne = &preview;
         AxmlToggleSink expand;
         expand.Init(true);
         expand.Invoke(nullptr, nullptr);
-        check(g_axmlExpanded && preview.visibility == 1 &&
+        check(g_axmlExpanded &&
             authoredPane().find(L"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"True\"") != std::wstring::npos,
-            "authored XAML expansion hides the preview and survives a property pane rebuild");
+            "expanded source XAML stays expanded after a property pane rebuild");
         AxmlToggleSink collapse;
         collapse.Init(false);
         collapse.Invoke(nullptr, nullptr);
-        check(!g_axmlExpanded && preview.visibility == 0,
-            "collapsing authored XAML restores the one-line preview");
+        check(!g_axmlExpanded, "collapsing source XAML is remembered");
         ++g_route1Gen;
         expand.Invoke(nullptr, nullptr);
-        check(!g_axmlExpanded && preview.visibility == 0,
-            "an old authored XAML callback cannot change the replacement pane");
-        g_axmlOne = nullptr;
+        check(!g_axmlExpanded, "an old source XAML callback cannot change the replacement pane");
     }
     check(!ColorPickerApplies(true,L"#FF102030",L"#FF000000") && ColorPickerApplies(false,L"#FF102030",L"#FF000000") &&
         !ColorPickerApplies(false,L"#ff000000",L"#FF000000"),

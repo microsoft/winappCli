@@ -12,9 +12,20 @@ static bool          g_commentsView = false;
 static IInspectable* g_commentsHostChildren = nullptr;
 static void*         g_commentsScrollUi = nullptr;
 static void*         g_treeControlsUi = nullptr;
-static void*         g_commentsLbl = nullptr;
-static void*         g_commentsBadgeUi = nullptr;
-static void*         g_inspectorViewSelector = nullptr;
+// Shell controls outside the tree and properties fragments: the rail, the panel headers and the details header.
+// Held for the window's lifetime and dropped in ResetCommentsViewState, like the tree's own controls.
+struct InspectorShellRefs
+{
+    DevToolsXC::NavigationView nav{nullptr};
+    DevToolsXC::NavigationViewItem treeTab{nullptr}, commentsTab{nullptr};
+    DevToolsXC::InfoBadge commentsBadge{nullptr};
+    DevToolsXC::TextBlock commentsCount{nullptr}, detailTitle{nullptr}, detailCrumb{nullptr};
+    DevToolsX::UIElement treeHeader{nullptr}, commentsHeader{nullptr}, detailsHeader{nullptr};
+    DevToolsX::UIElement showInTree{nullptr}, addComment{nullptr};
+};
+static InspectorShellRefs g_shell;
+static std::function<void()> g_openCommentBox; // opens the selected element's comment box; set per fragment
+static bool g_navSyncing = false;              // the rail selection is being set from code, not by the user
 static std::vector<DevToolsWindowComment> g_commentRows;
 // The pane is a virtualizing list: one item per file caption or comment row, built only while it is on screen.
 enum class CommentItemKind { Caption, Row };
@@ -67,28 +78,33 @@ struct CommentRowSink : DevToolsSinkBase
     size_t    idx = 0;
 };
 
-// Mark resolved through the CLI so the window and comment store have one writer.
+// Mark resolved through the CLI so the window and comment store have one writer. `done` gets the host's answer.
+static void ResolveCommentById(const std::wstring& id, std::function<void(int)> done = nullptr)
+{
+    if (id.empty()) return;
+    const auto generation = g_route1Gen;
+    const auto answered = std::make_shared<bool>(false);
+    SetStatusText(L"Resolving " + id + L"\u2026");
+    if (!g_commentResolveFn || !g_commentResolveFn(id.c_str(), [generation, id, answered, done](int result) {
+        *answered = true;
+        if (generation != g_route1Gen) return;
+        SetStatusText(result == 0 ? L"Resolved on the host: " + id :
+            result == 0x57410001 ? L"Resolved on the host; comment markers could not refresh: " + id :
+            result == 0x57410002 ? L"The host comment changed after the earlier save. Refresh: " + id :
+            L"Host resolution was not confirmed. Refresh before retrying: " + id);
+        if (done) done(result);
+    })) {
+        if (!*answered) SetStatusText(L"Resolution could not start. Finish any pending comment save and check the CLI/host connection.");
+    }
+}
+
 struct CommentResolveSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen) return S_OK;
         if (idx >= g_commentRows.size()) return S_OK;
-        const std::wstring id = g_commentRows[idx].id;
-        const auto generation = g_route1Gen;
-        const auto answered = std::make_shared<bool>(false);
-        SetStatusText(L"Resolving " + id + L"\u2026");
-        if (!g_commentResolveFn || !g_commentResolveFn(id.c_str(), [generation, id, answered](int result) {
-            *answered = true;
-            if (generation != g_route1Gen) return;
-            SetStatusText(result == 0 ? L"Resolved on the host: " + id :
-                result == 0x57410001 ? L"Resolved on the host; comment markers could not refresh: " + id :
-                result == 0x57410002 ? L"The host comment changed after the earlier save. Refresh: " + id :
-                L"Host resolution was not confirmed. Refresh before retrying: " + id);
-        })) {
-            if (!*answered) SetStatusText(L"Resolution could not start. Finish any pending comment save and check the CLI/host connection.");
-            return S_OK;
-        }
+        ResolveCommentById(g_commentRows[idx].id);
         return S_OK;
     }
     void Init(size_t i) { idx = i; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
@@ -458,6 +474,31 @@ static void RecomputeCommentLiveness()
         DevToolsOverlayLog(L"route1.comments liveness recomputed: %zu row(s) changed, %zu off screen", changed, offscreen);
 }
 
+static size_t CountOpenComments()
+{
+    std::vector<DevToolsWindowComment> all;
+    if (g_commentsFn) g_commentsFn(&all);
+    size_t open = 0;
+    for (const auto& c : all) if (c.status != L"resolved") ++open;
+    return open;
+}
+
+// The rail badge and the Comments panel header both show how many comments are open.
+static void UpdateCommentsCount(size_t open)
+{
+    try {
+        if (const auto& badge = g_shell.commentsBadge) {
+            badge.Value(static_cast<int32_t>(open));
+            badge.Visibility(open > 0 ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+        }
+        if (const auto& count = g_shell.commentsCount) count.Text(std::to_wstring(open) + L" open");
+        if (const auto& tab = g_shell.commentsTab)
+            DevToolsXA::AutomationProperties::SetItemStatus(tab, std::to_wstring(open) + L" open");
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.comments count update failed hr=0x%08X", e.code().value);
+    }
+}
+
 static void RefreshCommentsPane()
 {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinComments);
@@ -515,8 +556,7 @@ static void RefreshCommentsPane()
 
     RecomputeCommentLiveness();
 
-    SetToggleLabel(g_commentsLbl, std::to_wstring(open).c_str());
-    SetIconToggleState(g_commentsBadgeUi, open > 0);
+    UpdateCommentsCount(open);
     DevToolsOverlayLog(L"route1.comments rendered rows=%zu open=%zu ms=%llu", g_commentRows.size(), open, GetTickCount64() - began);
 }
 // Tree-scoped controls collapse with the tree; comments view must not leave filters/toggles acting on nothing.
@@ -526,52 +566,59 @@ static void SetCommentsView(bool on)
     if (g_treeScrollUi)     DevToolsPutVisibility(g_treeScrollUi, on ? 1 : 0);
     if (g_commentsScrollUi) DevToolsPutVisibility(g_commentsScrollUi, on ? 0 : 1);
     if (g_treeControlsUi)   DevToolsPutVisibility(g_treeControlsUi, on ? 1 : 0);
-    if (g_inspectorViewSelector) {
-        DevToolsXC::ISelectorBar selector{nullptr};
-        winrt::copy_from_abi(selector, g_inspectorViewSelector);
-        const auto items = selector.Items();
-        if (items.Size() == 2) selector.SelectedItem(items.GetAt(on ? 1 : 0));
+    try {
+        const auto shown = [](bool v) { return v ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed; };
+        if (const auto& header = g_shell.treeHeader)     header.Visibility(shown(!on));
+        if (const auto& header = g_shell.commentsHeader) header.Visibility(shown(on));
+        if (const auto& button = g_shell.showInTree)     button.Visibility(shown(on && g_selWire != 0));
+        // Keep the rail in step when code switches the view (picking an element returns to the tree).
+        const auto& nav = g_shell.nav;
+        const auto& item = on ? g_shell.commentsTab : g_shell.treeTab;
+        if (nav && item && nav.SelectedItem() != item) {
+            g_navSyncing = true;
+            nav.SelectedItem(item);
+            g_navSyncing = false;
+        }
+    } catch (const winrt::hresult_error& e) {
+        g_navSyncing = false;
+        DevToolsOverlayLog(L"route1.comments view switch failed hr=0x%08X", e.code().value);
     }
     if (on) RefreshCommentsPane();
 }
 
-struct CommentsViewSink : DevToolsSinkBase
+// The rail picks the panel. A selection that SetCommentsView makes to keep the rail in step is not a user choice.
+static void OnInspectorRailSelection(bool comments)
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void* sender, void*)
-    {
-        if (gen != g_route1Gen || !sender) return S_OK;
-        try {
-            DevToolsXC::ISelectorBar selector{nullptr};
-            winrt::copy_from_abi(selector, sender);
-            const auto items = selector.Items();
-            if (items.Size() != 2) return S_OK;
-            const auto selected = selector.SelectedItem();
-            if (!selected) {
-                selector.SelectedItem(items.GetAt(g_commentsView ? 1 : 0));
-                return S_OK;
-            }
-            const bool comments = selected == items.GetAt(1);
-            if (g_commentsView != comments) SetCommentsView(comments);
-        } catch (const winrt::hresult_error& e) {
-            DevToolsOverlayLog(L"route1.comments view selection failed hr=0x%08X", e.code().value);
-        }
-        return S_OK;
-    }
-    void Init()
-    {
-        InitSink(DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::SelectorBar,
-            DevToolsXC::SelectorBarSelectionChangedEventArgs>>(), g_route1Gen);
-    }
-};
+    if (g_navSyncing || comments == g_commentsView) return;
+    SetCommentsView(comments);
+}
 
-static void UpdateCommentsButtonLabel()
+// The details header does not scroll: the element's title, its two nearest ancestors (the whole path is the
+// tooltip), the Comment button, and "Show in tree" while the Comments panel is open.
+static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& name,
+                                const std::wstring& label, const std::wstring& breadcrumb)
 {
-    std::vector<DevToolsWindowComment> all;
-    if (g_commentsFn) g_commentsFn(&all);
-    size_t open = 0;
-    for (const auto& c : all) if (c.status != L"resolved") ++open;
-    SetToggleLabel(g_commentsLbl, std::to_wstring(open).c_str());
-    SetIconToggleState(g_commentsBadgeUi, open > 0);
+    try {
+        const auto shown = [](bool v) { return v ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed; };
+        const bool selected = g_selWire != 0;
+        if (const auto& header = g_shell.detailsHeader) header.Visibility(shown(selected));
+        if (const auto& title = g_shell.detailTitle) {
+            std::wstring text = type.empty() ? label : ShortType(type);
+            if (!name.empty()) text += L" #" + name;
+            title.Text(text);
+        }
+        if (const auto& crumb = g_shell.detailCrumb) {
+            size_t segments = 0;
+            crumb.Text(ElideBreadcrumb(breadcrumb, segments));
+            crumb.Visibility(shown(!breadcrumb.empty()));
+            DevToolsXC::ToolTipService::SetToolTip(crumb, breadcrumb.empty() ? nullptr : winrt::box_value(breadcrumb));
+            DevToolsXA::AutomationProperties::SetName(crumb, breadcrumb.empty() ? std::wstring() : L"Ancestors: " + breadcrumb);
+        }
+        if (const auto& button = g_shell.addComment) button.Visibility(shown(selected && g_ctx.writeFn));
+        if (const auto& button = g_shell.showInTree) button.Visibility(shown(selected && g_commentsView));
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.props details header update failed hr=0x%08X", e.code().value);
+    }
 }
 
 // The element's open comment, found the way the Comments pane finds a comment's element, so the inspector edits
@@ -587,48 +634,83 @@ static bool SelectedElementComment(InstanceHandle wire, DevToolsWindowComment* o
     return false;
 }
 
-// The properties header's Comment button opens a box under it, already holding the element's comment if it has
-// one. Enter saves through the in-app comment writer, Shift+Enter starts a new line and Esc closes the box.
+// The details header's Comment button opens a box under Source, already holding the element's comment if it has
+// one. A saved comment shows as a card with Edit and Resolve instead of the box. Enter saves through the in-app
+// comment writer, Shift+Enter starts a new line and Esc closes the box.
 static unsigned g_addCommentGen = 0;
 static void WireAddComment(void* frameworkElement)
 {
+    g_openCommentBox = nullptr;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, frameworkElement);
         auto root = object.as<DevToolsX::FrameworkElement>();
-        auto button = root.FindName(L"AddCommentBtn").try_as<DevToolsXC::Button>();
         auto box = root.FindName(L"AddCommentBox").try_as<DevToolsX::UIElement>();
         auto text = root.FindName(L"AddCommentText").try_as<DevToolsXC::TextBox>();
         auto status = root.FindName(L"AddCommentStatus").try_as<DevToolsXC::TextBlock>();
-        if (!button || !box || !text || !status) return;
+        if (!box || !text || !status) return;
+        auto card = root.FindName(L"CommentCard").try_as<DevToolsX::UIElement>();
+        auto cardText = root.FindName(L"CommentCardText").try_as<DevToolsXC::TextBlock>();
+        auto cardMeta = root.FindName(L"CommentCardMeta").try_as<DevToolsXC::TextBlock>();
+        auto cardEdit = root.FindName(L"CommentCardEdit").try_as<DevToolsXCP::ButtonBase>();
+        auto cardResolve = root.FindName(L"CommentCardResolve").try_as<DevToolsXCP::ButtonBase>();
         const unsigned gen = ++g_addCommentGen;
         auto saved = std::make_shared<CommentBoxSaved>();
+        // A saved comment shows as the card; the box shows while editing (or, without a card, whenever there is one).
+        auto present = [box, card, cardText, cardMeta, saved](bool editing) {
+            const bool exists = !saved->id.empty() && !saved->text.empty();
+            const bool asCard = card && exists && !editing;
+            if (asCard) {
+                if (cardText) cardText.Text(saved->text);
+                if (cardMeta) cardMeta.Text(L"Open \u00B7 " + saved->id);
+            }
+            if (card) card.Visibility(asCard ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+            box.Visibility(editing || (exists && !card) ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+        };
         DevToolsWindowComment existing;
         if (SelectedElementComment(g_selWire, &existing)) {
             saved->id = existing.id;
             saved->text = existing.text;
             text.Text(existing.text);
-            box.Visibility(DevToolsX::Visibility::Visible);
         }
         g_commentBox = winrt::make_weak(text);
         g_commentBoxSaved = saved;
         if (auto it = g_selWire ? g_commentDrafts.find(g_selWire) : g_commentDrafts.end(); it != g_commentDrafts.end()) {
             text.Text(it->second);
             status.Text(L"Your unsaved comment is back. Press Enter to save it, or Esc to discard it.");
-            box.Visibility(DevToolsX::Visibility::Visible);
+            present(true);
             g_commentDrafts.erase(it);
+        } else {
+            present(false);
         }
-        button.Click([box, text](auto&&, auto&&) {
-            box.Visibility(DevToolsX::Visibility::Visible);
-            text.Focus(DevToolsX::FocusState::Programmatic);
-        });
-        text.PreviewKeyDown([box, text, status, gen, saved](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
+        g_openCommentBox = [present, weakText = winrt::make_weak(text)]() {
+            present(true);
+            if (auto box = weakText.get()) box.Focus(DevToolsX::FocusState::Programmatic);
+        };
+        if (cardEdit) {
+            cardEdit.Click([present, text](auto&&, auto&&) {
+                present(true);
+                text.Focus(DevToolsX::FocusState::Programmatic);
+            });
+        }
+        if (cardResolve) {
+            cardResolve.Click([present, text, gen, saved](auto&&, auto&&) {
+                ResolveCommentById(saved->id, [present, weakText = winrt::make_weak(text), gen, saved](int result) {
+                    if (gen != g_addCommentGen || (result != 0 && result != 0x57410001)) return;
+                    saved->id.clear();
+                    saved->text.clear();
+                    if (auto box = weakText.get()) box.Text(L"");
+                    present(false);
+                });
+            });
+        }
+        text.PreviewKeyDown([present, text, status, gen, saved](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
             using winrt::Windows::System::VirtualKey;
             if (args.Key() == VirtualKey::Escape) {
                 args.Handled(true);
                 text.Text(saved->text);
                 status.Text(kAddCommentHint);
-                if (saved->id.empty()) box.Visibility(DevToolsX::Visibility::Collapsed);
+                present(false);
                 return;
             }
             if (args.Key() != VirtualKey::Enter || (GetKeyState(VK_SHIFT) & 0x8000)) return;
@@ -639,13 +721,19 @@ static void WireAddComment(void* frameworkElement)
             text.IsReadOnly(true);
             status.Text(L"Saving\u2026");
             saved->id = DevToolsOverlay_AddComment(element, value, saved->id,
-                [weakText = winrt::make_weak(text), weakStatus = winrt::make_weak(status), gen, saved, value](int code) {
+                [weakText = winrt::make_weak(text), weakStatus = winrt::make_weak(status), present, gen, saved, value](int code) {
                 auto savedText = weakText.get();
                 auto savedStatus = weakStatus.get();
                 if (!savedText || !savedStatus || gen != g_addCommentGen) return;
                 savedText.IsReadOnly(false);
-                if (code == 0) saved->text = value;
-                savedStatus.Text(code == 0 ? L"Comment saved." : L"Couldn't save the comment. Try again.");
+                if (code != 0) {
+                    savedStatus.Text(L"Couldn't save the comment. Try again.");
+                    return;
+                }
+                saved->text = value;
+                savedStatus.Text(kAddCommentHint);
+                present(false);
+                SetStatusText(L"Comment saved.");
             });
             if (element) element->Release();
         });

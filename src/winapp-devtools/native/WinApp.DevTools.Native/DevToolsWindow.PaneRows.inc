@@ -110,72 +110,61 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
                                        const std::wstring& authoredXaml,
                                        const DevToolsWindowLayout* layout)
 {
-    std::wstring badge = type.empty() ? label : ShortType(type);
-    if (!name.empty()) badge += L"  \u00B7  #" + name;
+    // The title, the breadcrumb and the Comment button live in the shell's details header, which does not scroll.
+    (void)type; (void)name; (void)label; (void)breadcrumb;
     std::wstring m;
     m += L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
          L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Spacing=\"10\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsProps\">";
-    m += L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/>"
-         L"</Grid.ColumnDefinitions>";
-    m += L"<TextBlock Text=\"" + DevToolsXmlEscape(badge) + L"\" Style=\"{StaticResource BodyStrongTextBlockStyle}\""
-         L" Foreground=\"{ThemeResource TextFillColorPrimaryBrush}\" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\"/>";
-    // Comments on the selected element use the in-app writer; the box opens below the source line.
-    if (g_ctx.writeFn) {
-        m += L"<Button x:Name=\"AddCommentBtn\" Grid.Column=\"1\" Padding=\"8,3\" FontSize=\"12\" VerticalAlignment=\"Center\""
-             L" ToolTipService.ToolTip=\"Comment on this element\" AutomationProperties.Name=\"Add comment\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsAddComment\">"
-             L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\"><FontIcon Glyph=\"&#xE90A;\" FontSize=\"12\"/>"
-             L"<TextBlock Text=\"Comment\" FontSize=\"12\"/></StackPanel></Button>";
-    }
-    m += L"</Grid>";
-    // Ancestor breadcrumb (root -> parent). Collapsed to one line by default: a real WinUI chain is 20+
-    // levels, and rendering it expanded pushed the actual properties off the bottom of the pane. NOTE the
-    // explicit TextWrapping="NoWrap" -- CaptionTextBlockStyle turns wrapping ON, and with wrapping enabled
-    // TextTrimming only applies to the LAST line, which is precisely how a "trimmed" breadcrumb still managed
-    // to wrap to seven lines. The full chain stays available: tooltip, plus an expander when it was elided.
-    if (!breadcrumb.empty()) {
-        size_t segs = 0;
-        const std::wstring shortBc = ElideBreadcrumb(breadcrumb, segs);
-        m += L"<TextBlock x:Name=\"BcShort\" Text=\"" + DevToolsXmlEscape(shortBc) + L"\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-             DT_FG_SECONDARY L" TextWrapping=\"NoWrap\""
-             L" TextTrimming=\"CharacterEllipsis\" Margin=\"0,-6,0,0\""
-             L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(breadcrumb) + L"\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsBreadcrumb\"/>";
-        if (shortBc != breadcrumb) {
-            m += L"<TextBlock x:Name=\"BcFull\" Text=\"" + DevToolsXmlEscape(breadcrumb) + L"\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-                 DT_FG_SECONDARY L" TextWrapping=\"Wrap\""
-                 L" Visibility=\"Collapsed\" Margin=\"0,-6,0,0\""
-                 L" AutomationProperties.AutomationId=\"WinAppDevToolsBreadcrumbFull\"/>";
-            g_bcExpandText = L"Show all " + std::to_wstring(segs) + L" ancestors";
-            const std::wstring toggleLabel = g_bcExpanded ? std::wstring(L"Show less") : g_bcExpandText;
-            m += L"<HyperlinkButton x:Name=\"BcToggle\" Padding=\"0\" Margin=\"0,-8,0,0\" FontSize=\"12\""
-                 L" AutomationProperties.Name=\"Toggle full ancestor path\""
-                 L" AutomationProperties.AutomationId=\"WinAppDevToolsBreadcrumbToggle\">";
-            m += L"<TextBlock x:Name=\"BcToggleLbl\" FontSize=\"12\" Text=\"" + DevToolsXmlEscape(toggleLabel) +
-                 L"\" AutomationProperties.AutomationId=\"WinAppDevToolsBreadcrumbToggleLabel\""
-                 L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-            m += L"</HyperlinkButton>";
-        }
-    }
     // Show a source link only with actual XBF/source instrumentation and a file resolved under
     // the configured source root. Environment delivery is the host's responsibility.
-    {
-        std::wstring disp = SourceDisplay(sourceUri, sourceLine);
-        if (!disp.empty()) {
-            const bool canOpen = !ResolveSourcePath(sourceUri).empty();
-            m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\" Margin=\"0,2,0,0\">";
-            m += L"<FontIcon Glyph=\"&#xE8A5;\" FontSize=\"12\" VerticalAlignment=\"Center\""
-                 DT_FG_SECONDARY L"/>";
-            m += L"<TextBlock Text=\"" + DevToolsXmlEscape(disp) + L"\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-                 DT_FG_SECONDARY L" VerticalAlignment=\"Center\""
-                 L" TextTrimming=\"CharacterEllipsis\" AutomationProperties.AutomationId=\"WinAppDevToolsSource\"/>";
-            if (canOpen) {
-                m += L"<HyperlinkButton x:Name=\"OpenSource\" Content=\"Open\" Padding=\"4,0,4,0\" FontSize=\"12\""
-                     L" VerticalAlignment=\"Center\" ToolTipService.ToolTip=\"Open the source file in your default editor\"/>";
-            }
-            m += L"</StackPanel>";
+    // The file, Open and the authored XAML come from one source lookup, so they share one Source expander.
+    const std::wstring disp = SourceDisplay(sourceUri, sourceLine);
+    std::wstring sourceText;
+    if (!disp.empty()) {
+        // A left-aligned grid sizes its star column to the text, so Open follows the file name and the name
+        // trims with an ellipsis only when the row runs out of room.
+        sourceText = L"<Grid Grid.Column=\"1\" HorizontalAlignment=\"Left\" VerticalAlignment=\"Center\" ColumnSpacing=\"6\">"
+                     L"<Grid.ColumnDefinitions><ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/></Grid.ColumnDefinitions>"
+                     L"<TextBlock Text=\"" + DevToolsXmlEscape(disp) + L"\" FontSize=\"12\" VerticalAlignment=\"Center\""
+                     L" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(disp) + L"\""
+                     L" AutomationProperties.AutomationId=\"WinAppDevToolsSource\"/>";
+        if (!ResolveSourcePath(sourceUri).empty()) {
+            sourceText += L"<HyperlinkButton x:Name=\"OpenSource\" Grid.Column=\"1\" Content=\"Open\" Padding=\"4,0,4,0\" FontSize=\"12\""
+                          L" VerticalAlignment=\"Center\" ToolTipService.ToolTip=\"Open the source file in your default editor\"/>";
         }
+        sourceText += L"</Grid>";
+    }
+    const std::wstring sourceIcon = L"<FontIcon Glyph=\"&#xE8A5;\" FontSize=\"12\" VerticalAlignment=\"Center\"" DT_FG_SECONDARY L"/>";
+    if (!authoredXaml.empty()) {
+        const bool likely = authoredState == L"likely";
+        const std::wstring note = likely
+            ? L"Likely source: unique line and identity match; compiled identity and line preservation are unverified."
+            : L"Read from the file on disk. The running app may differ after a rebuild or hot reload.";
+        m += L"<Expander x:Name=\"AxmlToggle\" HorizontalAlignment=\"Stretch\""
+             L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.Name=\"Source XAML\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"" +
+             std::wstring(g_axmlExpanded ? L"True" : L"False") + L"\"><Expander.Header>";
+        m += L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
+             L"<ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/></Grid.ColumnDefinitions>";
+        m += sourceIcon;
+        m += sourceText.empty() ? std::wstring(L"<TextBlock Grid.Column=\"1\" Text=\"Source\" FontSize=\"12\" VerticalAlignment=\"Center\"/>") : sourceText;
+        m += L"<Border Grid.Column=\"2\" Padding=\"6,0,6,1\" CornerRadius=\"4\" BorderThickness=\"1\" VerticalAlignment=\"Center\""
+             L" BorderBrush=\"{ThemeResource ControlStrokeColorDefaultBrush}\""
+             L" Background=\"{ThemeResource ControlFillColorSecondaryBrush}\""
+             L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(note) + L"\">";
+        m += L"<TextBlock Text=\"" + std::wstring(likely ? L"likely match" : L"on disk") + L"\" FontSize=\"11\""
+             DT_FG_SECONDARY L" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(note) + L"\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceNote\"/></Border>";
+        m += L"</Grid></Expander.Header>";
+        m += L"<TextBlock x:Name=\"AxmlFull\" Text=\"" + DevToolsXmlEscape(authoredXaml, true) + L"\""
+             L" FontFamily=\"Cascadia Mono, Consolas\" FontSize=\"11\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\""
+             L" Foreground=\"{ThemeResource TextFillColorPrimaryBrush}\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXaml\"/>";
+        m += L"</Expander>";
+    } else if (!sourceText.empty()) {
+        m += L"<Grid ColumnSpacing=\"6\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
+             L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>" + sourceIcon + sourceText + L"</Grid>";
     }
     if (g_ctx.writeFn) {
         m += L"<StackPanel x:Name=\"AddCommentBox\" Visibility=\"Collapsed\" Spacing=\"6\">"
@@ -186,38 +175,31 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\""
              DT_FG_SECONDARY L" AutomationProperties.LiveSetting=\"Polite\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAddCommentStatus\"/></StackPanel>";
-    }
-    if (!authoredXaml.empty()) {
-        const std::wstring note = authoredState == L"likely"
-            ? L"Likely source: unique line and identity match; compiled identity and line preservation are unverified."
-            : L"Source on disk; the running app may differ after a rebuild or hot reload.";
-        m += L"<Border Background=\"{ThemeResource ControlFillColorSecondaryBrush}\" CornerRadius=\"4\""
-             L" Padding=\"8,6,8,6\" Margin=\"0,8,0,0\">";
-        m += L"<StackPanel Spacing=\"0\">";
-        m += L"<TextBlock Text=\"" + std::wstring(authoredState == L"likely" ? L"Likely source (unverified)" : L"Source on disk") +
-             L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\""
-             L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(note) + L"\" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(note) + L"\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceNote\""
-             DT_FG_SECONDARY L"/>";
-        m += L"<Expander x:Name=\"AxmlToggle\" HorizontalAlignment=\"Stretch\""
-             L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.Name=\"Authored XAML\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"" +
-             std::wstring(g_axmlExpanded ? L"True" : L"False") + L"\"><Expander.Header><StackPanel>"
-             L"<TextBlock Text=\"Authored XAML\" FontSize=\"12\"/>";
-        m += L"<TextBlock x:Name=\"AxmlOne\" Visibility=\"" +
-             std::wstring(g_axmlExpanded ? L"Collapsed" : L"Visible") + L"\" Text=\"" +
-             DevToolsXmlEscape(AuthoredXamlOneLine(authoredXaml)) +
-             L"\" FontFamily=\"Cascadia Mono, Consolas\" FontSize=\"11\" TextWrapping=\"NoWrap\""
-             L" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\""
-             DT_FG_SECONDARY
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlOneLine\"/>";
-        m += L"</StackPanel></Expander.Header>";
-        m += L"<TextBlock x:Name=\"AxmlFull\" Text=\"" + DevToolsXmlEscape(authoredXaml, true) + L"\""
-             L" FontFamily=\"Cascadia Mono, Consolas\" Margin=\"0,4,0,0\""
-             L" FontSize=\"11\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\""
-             L" Foreground=\"{ThemeResource TextFillColorPrimaryBrush}\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXaml\"/>";
-        m += L"</Expander></StackPanel></Border>";
+        // The element's open comment. WireAddComment fills the card and swaps it with the box while editing.
+        m += L"<Border x:Name=\"CommentCard\" Visibility=\"Collapsed\" Padding=\"12,10\" CornerRadius=\"6\" BorderThickness=\"1\""
+             L" BorderBrush=\"{ThemeResource CardStrokeColorDefaultBrush}\""
+             L" Background=\"{ThemeResource CardBackgroundFillColorDefaultBrush}\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsCommentCard\">"
+             L"<Grid ColumnSpacing=\"10\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/><ColumnDefinition Width=\"*\"/>"
+             L"<ColumnDefinition Width=\"Auto\"/><ColumnDefinition Width=\"Auto\"/></Grid.ColumnDefinitions>"
+             L"<Border Width=\"20\" Height=\"20\" CornerRadius=\"10\" VerticalAlignment=\"Top\""
+             L" Background=\"{ThemeResource AccentFillColorDefaultBrush}\">"
+             L"<FontIcon Glyph=\"&#xE90A;\" FontSize=\"10\" Foreground=\"{ThemeResource TextOnAccentFillColorPrimaryBrush}\""
+             L" AutomationProperties.AccessibilityView=\"Raw\"/></Border>"
+             L"<StackPanel Grid.Column=\"1\" Spacing=\"2\" VerticalAlignment=\"Center\">"
+             L"<TextBlock x:Name=\"CommentCardText\" FontSize=\"13\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsCommentCardText\"/>"
+             L"<TextBlock x:Name=\"CommentCardMeta\" FontSize=\"11.5\" TextWrapping=\"Wrap\"" DT_FG_SECONDARY
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsCommentCardMeta\"/>"
+             L"</StackPanel>"
+             L"<HyperlinkButton x:Name=\"CommentCardEdit\" Grid.Column=\"2\" Content=\"Edit\" Padding=\"4,0\" FontSize=\"12\""
+             L" VerticalAlignment=\"Top\" AutomationProperties.Name=\"Edit comment\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsCommentCardEdit\"/>"
+             L"<Button x:Name=\"CommentCardResolve\" Grid.Column=\"3\" Padding=\"8,3\" FontSize=\"12\" VerticalAlignment=\"Top\""
+             L" AutomationProperties.Name=\"Resolve comment\" AutomationProperties.AutomationId=\"WinAppDevToolsCommentCardResolve\">"
+             L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\"><FontIcon Glyph=\"&#xE73E;\" FontSize=\"12\"/>"
+             L"<TextBlock Text=\"Resolve\" FontSize=\"12\"/></StackPanel></Button>"
+             L"</Grid></Border>";
     }
     if (rows.empty()) {
         m += L"<TextBlock Text=\"(no curated properties)\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>";
@@ -225,9 +207,6 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         m += L"</StackPanel>";
         return m;
     }
-
-    const PaneEditMap emap = BuildEditMap(rows);
-    const bool anyEditable = !emap.targets.empty();
 
     if (authoredState != L"available") {
         // Framework source with no readable app declaration is not missing app instrumentation.
@@ -276,39 +255,32 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(why) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredUnavailable\"/>";
     }
-    if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
+    if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
 
+    // Property toolbar: the filter box, with the Computed | Set choice to its right. ApplyPropViewSelection
+    // rebuilds this fragment, so the selector's IsSelected state comes from the current view.
+    const bool setView = ShowingSetView();
     m += L"<Grid ColumnSpacing=\"8\" Margin=\"0,2,0,0\"><Grid.ColumnDefinitions>"
          L"<ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/>"
          L"</Grid.ColumnDefinitions>";
-    m += L"<TextBox x:Name=\"PropFilter\" Grid.Column=\"0\" MinHeight=\"32\" FontSize=\"12\""
+    m += L"<TextBox x:Name=\"PropFilter\" MinHeight=\"32\" VerticalAlignment=\"Center\""
          L" PlaceholderText=\"Filter properties\u2026\" Text=\"" + DevToolsXmlEscape(g_propFilterQuery) + L"\""
          L" ToolTipService.ToolTip=\"Show only properties whose name, value or authored text contains this text\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsPropFilter\""
          L" AutomationProperties.Name=\"Filter properties\"/>";
-    m += L"<TextBlock x:Name=\"PropCount\" Grid.Column=\"1\" VerticalAlignment=\"Center\" FontSize=\"11\""
-         L" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsPropCount\" Text=\"" +
-         DevToolsXmlEscape(std::to_wstring(rows.size()) + L" properties") + L"\"/>";    m += L"</Grid>";
-
-    if (ShowingSetView()) {
-        size_t authored = 0, styled = 0;
-        for (const auto& r : rows) {
-            if (!r.authoredKind.empty() || SourceIsSetHere(r.source)) ++authored;
-            else if (r.source == L"Style" || r.source == L"Built-in style") ++styled;
-        }
-        std::wstring line = std::to_wstring(authored) + L" of " + std::to_wstring(rows.size()) +
-                            L" values " + (authored == 1 ? L"was" : L"were") + L" written on this element.";
-        if (styled) line += L" " + std::to_wstring(styled) + L" came from a style; the rest are type defaults.";
-        else        line += L" The rest are type defaults.";
-        line += L" A defaulted value is still a value. It is the one nobody remembers choosing.";
-        m += L"<Border" DT_NOTE_BOX L">";
-        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(line) + L"\""
-             DT_NOTE_TEXT L"/></Border>";
-    }
+    m += L"<SelectorBar x:Name=\"PropViewSelector\" Grid.Column=\"1\" VerticalAlignment=\"Center\""
+         L" AutomationProperties.Name=\"Property view\" AutomationProperties.AutomationId=\"WinAppDevToolsPropView\">";
+    m += L"<SelectorBarItem x:Name=\"ViewComputed\" Text=\"Computed\" IsSelected=\"" + std::wstring(setView ? L"False" : L"True") + L"\""
+         L" AutomationProperties.Name=\"Computed view\" AutomationProperties.AutomationId=\"WinAppDevToolsViewComputed\""
+         L" ToolTipService.ToolTip=\"Every property, with one resolved value each: what this element's state IS\"/>";
+    m += L"<SelectorBarItem x:Name=\"OnlySetToggle\" Text=\"Set\" IsSelected=\"" + std::wstring(setView ? L"True" : L"False") + L"\""
+         L" AutomationProperties.Name=\"Set view\" AutomationProperties.AutomationId=\"WinAppDevToolsViewSet\""
+         L" ToolTipService.ToolTip=\"Only what was written on this element, grouped by where it came from: what you actually SET\"/>";
+    m += L"</SelectorBar>";
+    m += L"</Grid>";
 
     m += L"<ItemsRepeater x:Name=\"PropRepeater\" TabFocusNavigation=\"Local\">"
-         L"<ItemsRepeater.Layout><StackLayout/></ItemsRepeater.Layout>"
+         L"<ItemsRepeater.Layout><StackLayout Spacing=\"2\"/></ItemsRepeater.Layout>"
          L"</ItemsRepeater>";
 
     m += L"<Border x:Name=\"PropNoMatch\" Visibility=\"Collapsed\" Margin=\"0,10,0,0\" Padding=\"10,8,10,9\""
@@ -330,7 +302,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
          L"</HyperlinkButton>";
     m += L"</StackPanel></Border>";
 
-    if (!ShowingSetView()) {
+    if (!setView) {
         m += L"<HyperlinkButton x:Name=\"PropShowAll\" Padding=\"0\" Margin=\"0,4,0,0\" FontSize=\"12\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsPropShowAll\""
              L" AutomationProperties.Name=\"Toggle the full property list\">";
@@ -339,15 +311,6 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.AutomationId=\"WinAppDevToolsPropShowAllLabel\""
              L" AutomationProperties.AccessibilityView=\"Raw\"/>";
         m += L"</HyperlinkButton>";
-    }
-
-    if (anyEditable) {
-        // Hidden until SetStatusText has an edit result or error to show.
-        m += L"<TextBlock x:Name=\"Status\" Visibility=\"Collapsed\""
-             L" Style=\"{StaticResource CaptionTextBlockStyle}\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\""
-             L" AutomationProperties.Name=\"Property pane status\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsPropStatus\""
-             L" Margin=\"0,4,0,0\" TextWrapping=\"Wrap\"/>";
     }
     m += L"</StackPanel>";
     return m;
@@ -498,7 +461,7 @@ static void OnAppTreeChanged()
             g_treeStale = true;
             wchar_t hdr[200];
             _snwprintf_s(hdr, _countof(hdr), _TRUNCATE,
-                         L"VISUAL TREE \u00B7 %zu NODES (OUT OF DATE: app now has %zu, refreshing\u2026)",
+                         L"%zu nodes (out of date: app now has %zu, refreshing\u2026)",
                          g_snapshotTotal, now);
             HSTRING hs = MakeStr(hdr);
             DevToolsPutText(g_treeHeaderTb, hs);
@@ -521,6 +484,8 @@ static void OnAppTreeChanged()
                   (unsigned long long)g_selWire);
     const InstanceHandle gone = g_selWire;
     StashCommentDraft();
+    // ShowPropsForNode below sees no selection change once g_selWire is 0, so clear the footer here.
+    SetStatusText(L"");
     g_selWire = 0;
     g_selectedWire = 0;
     LiveUnwatch();

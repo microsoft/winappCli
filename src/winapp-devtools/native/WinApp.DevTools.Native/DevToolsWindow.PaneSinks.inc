@@ -11,6 +11,7 @@ static void SetStatusText(const std::wstring& s)
     DevToolsPutText(g_statusTb, hs);
     WindowsDeleteString(hs);
     ShowEl(g_statusTb, !s.empty());
+    if (g_statusHostUi) DevToolsPutVisibility(g_statusHostUi, s.empty() ? 1 : 0);
 }
 
 // The last write's failure reason, and the row it is shown on until that row's next commit or another selection.
@@ -485,7 +486,7 @@ static void ClampInspectorSplit()
     if (!g_splitPaneFe || !g_splitHostFe) return;
     double available = 0.0;
     if (FAILED(DevToolsGetActualWidth(g_splitHostFe, &available)) || available <= 0.0) return;
-    if (g_splitTarget <= 0.0) g_splitTarget = 420.0;
+    if (g_splitTarget <= 0.0) g_splitTarget = DevToolsInspector::kDefaultTreeWidth;
     g_splitTarget = DevToolsInspector::TreeWidth(g_splitTarget, available);
     DevToolsPutWidth(g_splitPaneFe, g_splitTarget);
 }
@@ -547,57 +548,51 @@ struct SplitterKeySink : DevToolsSinkBase
     void Init() { InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
 };
 
-// The platform selector owns exclusive selection; rebuilding is only needed when the view changes.
-struct OnlySetToggleSink : DevToolsSinkBase
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void* sender, void*)
-    {
-        if (gen != g_route1Gen || !sender) return S_OK;
-        try {
-            DevToolsXC::ISelectorBar selector{nullptr};
-            winrt::copy_from_abi(selector, sender);
-            const auto items = selector.Items();
-            if (items.Size() != 2) return S_OK;
-            const auto selected = selector.SelectedItem();
-            if (!selected) {
-                selector.SelectedItem(items.GetAt(ShowingSetView() ? 1 : 0));
-                return S_OK;
-            }
-            const auto view = selected == items.GetAt(1) ? DevToolsPropView::Set : DevToolsPropView::Computed;
-            if (g_propView == view) return S_OK;
-            g_propView = view;
-            ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-        } catch (const winrt::hresult_error& e) {
-            DevToolsOverlayLog(L"route1.props view selection failed hr=0x%08X", e.code().value);
-            SetStatusText(L"Could not update the property view. Refresh the inspector and retry.");
-        }
-        return S_OK;
-    }
-    void Init()
-    {
-        InitSink(DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::SelectorBar,
-            DevToolsXC::SelectorBarSelectionChangedEventArgs>>(), g_route1Gen);
-    }
-};
+// The Computed | Set selector sits in the property toolbar, which a view change rebuilds. The rebuild runs after
+// the selection event returns, and keyboard focus moves to the new selector when the old one had it.
+static winrt::weak_ref<DevToolsXC::SelectorBar> g_propViewSelector;
 
-// Expand / collapse the props-pane ancestor breadcrumb. The breadcrumb is shown elided to one line
-// (BcShort); this flips to the full wrapped chain (BcFull) and back. Both TextBlocks are AddRef'd IUIElements
-// held for the pane's lifetime, so the toggle is one put_Visibility pair -- no pane rebuild, no lost scroll
-// position.
-struct BreadcrumbSink : DevToolsSinkBase
+static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen) return S_OK;
-        if (!g_bcShort || !g_bcFull) return S_OK;
-        g_bcExpanded = !g_bcExpanded;
-        DevToolsPutVisibility(g_bcShort, g_bcExpanded ? 1 : 0);
-        DevToolsPutVisibility(g_bcFull, g_bcExpanded ? 0 : 1);
-        SetToggleLabel(g_bcToggleLbl, g_bcExpanded ? L"Show less" : g_bcExpandText.c_str());
-        return S_OK;
+    try {
+        const auto items = selector.Items();
+        if (items.Size() != 2) return;
+        const auto selected = selector.SelectedItem();
+        if (!selected) {
+            selector.SelectedItem(items.GetAt(ShowingSetView() ? 1 : 0));
+            return;
+        }
+        const auto view = selected == items.GetAt(1) ? DevToolsPropView::Set : DevToolsPropView::Computed;
+        if (g_propView == view) return;
+        g_propView = view;
+        bool hadFocus = false;
+        DevToolsD::DispatcherQueue queue{nullptr};
+        if (const auto ui = selector.try_as<DevToolsX::UIElement>()) {
+            queue = ui.DispatcherQueue();
+            const auto self = ui.as<DevToolsX::DependencyObject>();
+            if (const auto root = ui.XamlRoot()) {
+                for (auto node = DevToolsXI::FocusManager::GetFocusedElement(root).try_as<DevToolsX::DependencyObject>();
+                     node && !hadFocus; node = DevToolsXM::VisualTreeHelper::GetParent(node))
+                    hadFocus = node == self;
+            }
+        }
+        const auto rebuild = [gen = g_route1Gen, hadFocus] {
+            if (gen != g_route1Gen) return;
+            ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+            if (!hadFocus) return;
+            try {
+                if (const auto bar = g_propViewSelector.get())
+                    if (const auto item = bar.SelectedItem()) item.Focus(DevToolsX::FocusState::Programmatic);
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.props view focus failed hr=0x%08X", e.code().value);
+            }
+        };
+        if (!queue || !queue.TryEnqueue(rebuild)) rebuild();
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.props view selection failed hr=0x%08X", e.code().value);
+        SetStatusText(L"Could not update the property view. Refresh the inspector and retry.");
     }
-    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-};
+}
 
 // WinUI owns disclosure visibility and automation; callbacks only remember the user's choice.
 struct LayoutSectionSink : DevToolsSinkBase
@@ -626,7 +621,6 @@ struct AxmlToggleSink : DevToolsSinkBase
     {
         if (gen != g_route1Gen) return S_OK;
         g_axmlExpanded = open;
-        if (g_axmlOne) DevToolsPutVisibility(g_axmlOne, open ? 1 : 0);
         return S_OK;
     }
     void Init(bool expanding)

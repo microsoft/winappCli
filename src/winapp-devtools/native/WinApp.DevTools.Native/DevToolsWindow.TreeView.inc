@@ -477,7 +477,7 @@ static void ApplyPropFilter(const std::wstring& queryRaw)
     while (!g_propFilterRaw.empty() && g_propFilterRaw.back() == L' ') g_propFilterRaw.pop_back();
 
     const size_t shown = RebuildPaneItems();
-    UpdatePropCount(shown);
+    UpdatePropEmptyState(shown);
     DevToolsOverlayLog(L"route1.propfilter q='%s' rows=%zu shown=%zu", q.c_str(), g_propRowTotal, shown);
 }
 

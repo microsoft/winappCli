@@ -1,6 +1,6 @@
 <!-- In-process DevTools inspector window chrome. ONE contiguous, reviewable XAML document for
-     the static shell (toolbar, filter box, scrollable tree container, column separator, properties
-     pane), loaded at runtime through the app's own Microsoft.UI.Xaml.Markup.XamlReader.Load. Named elements
+     the static shell (title bar, side rail, and one card that holds the tree or comments panel, the column
+     splitter and the details pane), loaded at runtime through the app's own Microsoft.UI.Xaml.Markup.XamlReader.Load. Named elements
      (TreeFilter, PropsHost,...) are wired up afterwards via FindName in DevToolsWindow.cpp. This file
      is embedded verbatim by gen-xaml-resources.ps1 into DevToolsWindowXaml.g.h (DevToolsXaml::WindowShell) at build time.
 
@@ -9,7 +9,7 @@
      parse time. Do NOT put raw non-ASCII bytes here.
 
      TOKENS (substituted by BuildWindowMarkup before the document is parsed):
-       $TREEHEADER$ -> "VISUAL TREE - N NODES" (node-count header above the tree list)
+       $TREEHEADER$ -> "N nodes" (node count in the tree panel header)
        $SUBTITLE$   -> "PID <process id>" (title bar subtitle)
      The data-driven rows are parsed into their own namescope and swapped through TreeRowsHost. That lets a
      Just-my-XAML toggle rebuild the capped population without tearing down PropsHost or an in-flight edit.
@@ -27,55 +27,71 @@
   </Grid.RowDefinitions>
   <TitleBar x:Name="InspectorTitleBar" Grid.Row="0" Title="WinApp DevTools" Subtitle="$SUBTITLE$"
             AutomationProperties.AutomationId="InspectorTitleBar"/>
+  <!-- The side rail switches the left panel between the visual tree and the comments list, and leaves room
+       for more tools. NavigationView's content area is the one card: in LeftCompact mode the control draws
+       its border, corner and fill, so the panes inside have none of their own. -->
+  <NavigationView x:Name="InspectorNav" Grid.Row="1" PaneDisplayMode="LeftCompact" Margin="0,16,0,0"
+                  IsPaneToggleButtonVisible="False" IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
+                  AlwaysShowHeader="False" IsTitleBarAutoPaddingEnabled="False" SelectionFollowsFocus="Enabled"
+                  AutomationProperties.Name="Inspector view"
+                  AutomationProperties.AutomationId="WinAppDevToolsInspectorView">
+    <NavigationView.MenuItems>
+      <NavigationViewItem x:Name="TreeTabBtn" Content="Visual tree" IsSelected="True"
+                          AutomationProperties.Name="Visual tree (inspector)"
+                          AutomationProperties.AutomationId="ViewTabTree">
+        <NavigationViewItem.Icon>
+          <FontIcon Glyph="&#xE8A4;"/>
+        </NavigationViewItem.Icon>
+      </NavigationViewItem>
+      <NavigationViewItem x:Name="CommentsTabBtn" Content="Comments"
+                          AutomationProperties.Name="Comments (inspector)"
+                          AutomationProperties.AutomationId="ViewTabComments">
+        <NavigationViewItem.Icon>
+          <FontIcon Glyph="&#xE90A;"/>
+        </NavigationViewItem.Icon>
+        <NavigationViewItem.InfoBadge>
+          <InfoBadge x:Name="CommentsBadge" Value="0" Visibility="Collapsed"/>
+        </NavigationViewItem.InfoBadge>
+      </NavigationViewItem>
+    </NavigationView.MenuItems>
   <!-- Content (tree | splitter | props). The tree pane carries an explicit Width and its column is
        Auto, so a drag can resize it directly via FrameworkElement.Width; the props column takes the rest.
        (A star/star split cannot be resized without writing GridLength through the ABI, and WinUI ships no
        GridSplitter -- that control lives in the Community Toolkit, which this overlay deliberately does not
-       take a dependency on. A Thumb is the primitive underneath it and needs nothing new.) -->
-  <Grid Grid.Row="1">
+       take a dependency on. A Thumb is the primitive underneath it and needs nothing new.)
+       The props column has no MinWidth: TreeWidth already keeps it at 300 or more. A MinWidth would make the
+       card wider than the window when space is short, so the card would report that width and the tree would
+       never shrink. The tree Width matches DevToolsInspector::kDefaultTreeWidth. -->
+  <Grid x:Name="InspectorCard">
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="Auto"/>
       <ColumnDefinition Width="6"/>
-      <ColumnDefinition Width="1*" MinWidth="300"/>
+      <ColumnDefinition Width="1*"/>
     </Grid.ColumnDefinitions>
+    <!-- One rule under the 52 DIP panel and details headers, so the two halves line up. -->
+    <Border Grid.ColumnSpan="3" Height="52" VerticalAlignment="Top" BorderThickness="0,0,0,1"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" IsHitTestVisible="False"/>
 
-    <Grid Grid.Column="0" x:Name="TreePane" Width="420">
+    <Grid Grid.Column="0" x:Name="TreePane" Width="372">
       <Grid.RowDefinitions>
-        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="52"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
       </Grid.RowDefinitions>
-      <!-- Standard selectors expose mode through SelectionItemPattern. -->
-      <Grid Grid.Row="0" x:Name="ViewTabs" Margin="8,6,8,0"
-            BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="Auto"/>
-          <ColumnDefinition Width="Auto"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-        <SelectorBar x:Name="InspectorViewSelector" HorizontalAlignment="Left"
-                     AutomationProperties.Name="Inspector view"
-                     AutomationProperties.AutomationId="WinAppDevToolsInspectorView">
-          <SelectorBarItem x:Name="TreeTabBtn" Text="Visual tree" IsSelected="True"
-                       ToolTipService.ToolTip="Show this app's visual tree"
-                       AutomationProperties.Name="Visual tree (inspector)"
-                       AutomationProperties.AutomationId="ViewTabTree"/>
-          <SelectorBarItem x:Name="CommentsTabBtn" Text="Comments"
-                       ToolTipService.ToolTip="Show this app's UI comments"
-                       AutomationProperties.Name="Comments (inspector)"
-                       AutomationProperties.AutomationId="ViewTabComments"/>
-        </SelectorBar>
-        <Border x:Name="CommentsBadge" Grid.Column="1" Visibility="Collapsed" Margin="6,0,0,0"
-                    VerticalAlignment="Center"
-                    MinWidth="18" Height="16" CornerRadius="8" Padding="5,0"
-                    Background="{ThemeResource AccentFillColorDefaultBrush}">
-              <TextBlock x:Name="CommentsLbl" Text="0" FontSize="10" FontWeight="SemiBold"
-                         Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                         HorizontalAlignment="Center" VerticalAlignment="Center"
-                         AutomationProperties.AccessibilityView="Raw"/>
-        </Border>
-      </Grid>
+      <!-- The rail item that is selected decides which panel header shows. -->
+      <StackPanel x:Name="TreePanelHeader" Grid.Row="0" Orientation="Horizontal" Spacing="8" Padding="14,0"
+                  VerticalAlignment="Center">
+        <TextBlock Text="Visual tree" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+        <TextBlock x:Name="TreeHeader" Text="$TREEHEADER$" FontSize="12" VerticalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+      </StackPanel>
+      <StackPanel x:Name="CommentsPanelHeader" Grid.Row="0" Orientation="Horizontal" Spacing="8" Padding="14,0"
+                  VerticalAlignment="Center" Visibility="Collapsed">
+        <TextBlock Text="Comments" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+        <TextBlock x:Name="CommentsCountLbl" Text="0 open" FontSize="12" VerticalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+      </StackPanel>
       <Grid x:Name="TreeControls" Grid.Row="1" Margin="8,8,8,4" ColumnSpacing="8">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
@@ -132,21 +148,18 @@
                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                    AutomationProperties.AutomationId="FocusNotice"/>
       </Border>
-      <Grid x:Name="TreeScroll" Grid.Row="3" Margin="8">
+      <Grid x:Name="TreeScroll" Grid.Row="3" Margin="8,4,8,8">
         <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-          <TextBlock x:Name="TreeHeader" Margin="4,4,4,10" Text="$TREEHEADER$" Style="{StaticResource CaptionTextBlockStyle}"
-                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" CharacterSpacing="60"/>
-          <TextBlock x:Name="TreeNoMatches" Grid.Row="1" Visibility="Collapsed" Margin="4,0,4,0" TextWrapping="Wrap"
+          <TextBlock x:Name="TreeNoMatches" Grid.Row="0" Visibility="Collapsed" Margin="4,0,4,0" TextWrapping="Wrap"
                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                      AutomationProperties.AutomationId="TreeNoMatches"
                      AutomationProperties.LiveSetting="Polite"/>
           <!-- 24 px tree rows, the height of WinUI's Compact density, with a 2 px gap between row highlights.
                Like WinUI's default padding (3 top, 5 bottom), 2 px more space below makes the text look centered. -->
-          <Grid x:Name="TreeRowsHost" Grid.Row="2">
+          <Grid x:Name="TreeRowsHost" Grid.Row="1">
             <Grid.Resources>
               <x:Double x:Key="TreeViewItemMinHeight">24</x:Double>
               <Thickness x:Key="TreeViewItemPresenterMargin">4,1</Thickness>
@@ -170,6 +183,8 @@
     </Grid>
 
     <Grid Grid.Column="1">
+      <Border Width="1" HorizontalAlignment="Center" IsHitTestVisible="False"
+              Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
       <Thumb x:Name="PaneSplitter" Background="Transparent" BorderThickness="0"
              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
              IsTabStop="True" UseSystemFocusVisuals="True"
@@ -248,7 +263,7 @@
                 <StackPanel x:Name="PWitChain" Visibility="Collapsed" Margin="0,4,0,4">
                   <StackPanel x:Name="PChain" Spacing="4"/>
                 </StackPanel>
-                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,2,0,2" Spacing="0"/>
+                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,2,0,2" Spacing="2"/>
               </StackPanel>
             </Border>
           </DataTemplate>
@@ -479,7 +494,7 @@
                   </StackPanel>
                 </Border>
 
-                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,6,0,0" Spacing="0"/>
+                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,6,0,0" Spacing="2"/>
 
 
               </StackPanel>
@@ -491,33 +506,91 @@
 
     </StackPanel>
 
-    <Grid x:Name="DetailsPane" Grid.Column="2"
-          Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-          BorderBrush="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-          BorderThickness="1"
-          CornerRadius="8,0,0,0">
+    <!-- Details: a header that stays put (the element, its nearest ancestors, and Comment), the property
+         fragment that PropsHost swaps per selection, and a footer for messages such as "Comment saved." -->
+    <Grid x:Name="DetailsPane" Grid.Column="2">
       <Grid.RowDefinitions>
-        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="52"/>
         <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
-      <SelectorBar x:Name="PropViewSelector" Margin="14,8,14,0" HorizontalAlignment="Left"
-                  AutomationProperties.Name="Property view"
-                  AutomationProperties.AutomationId="WinAppDevToolsPropView">
-        <SelectorBarItem x:Name="ViewComputed" Text="Computed" IsSelected="True"
-                       AutomationProperties.Name="Computed view"
-                       AutomationProperties.AutomationId="WinAppDevToolsViewComputed"
-                       ToolTipService.ToolTip="Every property, with one resolved value each: what this element's state IS"/>
-        <SelectorBarItem x:Name="OnlySetToggle" Text="Set"
-                       AutomationProperties.Name="Set view"
-                       AutomationProperties.AutomationId="WinAppDevToolsViewSet"
-                       ToolTipService.ToolTip="Only what was written on this element, grouped by where it came from: what you actually SET"/>
-      </SelectorBar>
+      <Grid x:Name="DetailsHeader" Grid.Row="0" Padding="14,0" ColumnSpacing="8" Visibility="Collapsed">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+          <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="DetailTitle" FontSize="15" FontWeight="SemiBold" TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="WinAppDevToolsDetailTitle"/>
+            <Border x:Name="DetailPill" Grid.Column="1" Visibility="Collapsed" Padding="6,0,6,1" CornerRadius="4"
+                    BorderThickness="1" VerticalAlignment="Center"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                    Background="{ThemeResource ControlFillColorSecondaryBrush}">
+              <TextBlock x:Name="DetailPillText" FontSize="11"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </Border>
+          </Grid>
+          <!-- The two nearest ancestors; the full path is the tooltip and the accessible name. -->
+          <TextBlock x:Name="DetailCrumb" FontSize="12" LineHeight="16" TextWrapping="NoWrap"
+                     TextTrimming="CharacterEllipsis"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                     AutomationProperties.AutomationId="WinAppDevToolsBreadcrumb"/>
+        </StackPanel>
+        <Button x:Name="ShowInTreeBtn" Grid.Column="1" Visibility="Collapsed" Height="28" Padding="10,0"
+                FontSize="12" VerticalAlignment="Center"
+                ToolTipService.ToolTip="Show this element in the visual tree"
+                AutomationProperties.Name="Show in tree"
+                AutomationProperties.AutomationId="WinAppDevToolsShowInTree">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <PathIcon Data="F1 M2.5,1 H6.5 A1.5,1.5 0 0 1 8,2.5 V4 A1.5,1.5 0 0 1 6.5,5.5 H2.5 A1.5,1.5 0 0 1 1,4 V2.5 A1.5,1.5 0 0 1 2.5,1 Z M2.5,2 A0.5,0.5 0 0 0 2,2.5 V4 A0.5,0.5 0 0 0 2.5,4.5 H6.5 A0.5,0.5 0 0 0 7,4 V2.5 A0.5,0.5 0 0 0 6.5,2 Z M9.5,6 H13.5 A1.5,1.5 0 0 1 15,7.5 V9 A1.5,1.5 0 0 1 13.5,10.5 H9.5 A1.5,1.5 0 0 1 8,9 V7.5 A1.5,1.5 0 0 1 9.5,6 Z M9.5,7 A0.5,0.5 0 0 0 9,7.5 V9 A0.5,0.5 0 0 0 9.5,9.5 H13.5 A0.5,0.5 0 0 0 14,9 V7.5 A0.5,0.5 0 0 0 13.5,7 Z M9.5,10.5 H13.5 A1.5,1.5 0 0 1 15,12 V13.5 A1.5,1.5 0 0 1 13.5,15 H9.5 A1.5,1.5 0 0 1 8,13.5 V12 A1.5,1.5 0 0 1 9.5,10.5 Z M9.5,11.5 A0.5,0.5 0 0 0 9,12 V13.5 A0.5,0.5 0 0 0 9.5,14 H13.5 A0.5,0.5 0 0 0 14,13.5 V12 A0.5,0.5 0 0 0 13.5,11.5 Z M4,5 H5 V13.25 H4 Z M5,12.25 H8.5 V13.25 H5 Z M5,7.75 H8.5 V8.75 H5 Z"
+                      VerticalAlignment="Center"/>
+            <TextBlock Text="Show in tree" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+        <Button x:Name="AddCommentBtn" Grid.Column="2" Height="28" Padding="10,0" FontSize="12"
+                VerticalAlignment="Center"
+                ToolTipService.ToolTip="Comment on this element"
+                AutomationProperties.Name="Add comment"
+                AutomationProperties.AutomationId="WinAppDevToolsAddComment">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <FontIcon Glyph="&#xE90A;" FontSize="14"/>
+            <TextBlock Text="Comment" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+      </Grid>
       <ScrollViewer x:Name="PropsScroll" Grid.Row="1" AutomationProperties.AutomationId="WinAppDevToolsPropScroll"
                     AutomationProperties.Name="Properties">
-        <StackPanel x:Name="PropsHost" Margin="14">
-          <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Text="Select a node on the left to inspect and edit its properties."/>
+        <StackPanel x:Name="PropsHost" Margin="14,12,14,16">
+          <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Text="Select an element in the tree, or click a comment."/>
         </StackPanel>
       </ScrollViewer>
+      <!-- Messages stay here, under the properties, instead of at the end of a list that may be scrolled away. -->
+      <Border x:Name="StatusHost" Grid.Row="2" Visibility="Collapsed" Margin="12,0,12,12" Padding="12,8"
+              CornerRadius="4" BorderThickness="1"
+              BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}"
+              Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}">
+        <Grid ColumnSpacing="10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <FontIcon Glyph="&#xE946;" FontSize="14" VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    AutomationProperties.AccessibilityView="Raw"/>
+          <TextBlock x:Name="Status" Grid.Column="1" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
+                     AutomationProperties.Name="Property pane status"
+                     AutomationProperties.AutomationId="WinAppDevToolsPropStatus"
+                     AutomationProperties.LiveSetting="Polite"/>
+        </Grid>
+      </Border>
     </Grid>
   </Grid>
+  </NavigationView>
 </Grid>

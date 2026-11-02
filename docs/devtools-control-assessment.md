@@ -5,9 +5,11 @@ Source revision: `7abfef22dc039746be023a493fd38bcd58e76705`.
 
 ## Migration in this branch
 
-The visual tree now uses `TreeView`. Both view selectors use `SelectorBar`,
-the Size & spacing and authored-XAML sections use `Expander`, and resource-key
-suggestions use `AutoSuggestBox`. The toolbar uses `MenuFlyout` with standard
+The visual tree now uses `TreeView`. A `NavigationView` side rail switches
+between Visual tree and Comments, with the open-comment count in an `InfoBadge`.
+The Computed / Set switch uses `SelectorBar`, the Size & spacing and
+authored-XAML sections use `Expander`, and resource-key suggestions use
+`AutoSuggestBox`. The toolbar uses `MenuFlyout` with standard
 check/radio items and a `ToggleSplitButton` for Comments.
 
 The other conditional changes remain out of scope. See the

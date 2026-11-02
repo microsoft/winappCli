@@ -316,6 +316,21 @@ static void NamePropertyHeader(IInspectable* header, const DevToolsCardRow& r, c
     SetAutomationTextOn(header, RowAccessibleName(r, path), path + L" value", L"");
 }
 
+// The palette slots hold donor TextBlocks, not brushes. put_Foreground rejects a TextBlock, so copy the
+// donor's live brush instead; that also keeps the row on the current theme.
+static void PutDonorForeground(void* textBlock, IInspectable* donor)
+{
+    if (!textBlock || !donor) return;
+    void* donorText = nullptr;
+    if (FAILED(donor->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &donorText)) || !donorText) return;
+    IInspectable* brush = nullptr;
+    if (SUCCEEDED(DevToolsGetTextForeground(donorText, &brush)) && brush) {
+        DevToolsPutTextForeground(textBlock, brush);
+        brush->Release();
+    }
+    reinterpret_cast<IUnknown*>(donorText)->Release();
+}
+
 static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r, const std::wstring& path)
 {
     SetTextOn(v, RowShownValue(r));
@@ -323,8 +338,7 @@ static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r, const st
     const bool noValue = RowValueIsMissing(r);
     void* tb = nullptr;
     if (SUCCEEDED(v->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tb)) && tb) {
-        if (void* brush = noValue ? static_cast<void*>(g_palSecondary) : static_cast<void*>(g_palPrimary))
-            DevToolsPutTextForeground(tb, brush);
+        PutDonorForeground(tb, noValue ? g_palSecondary : g_palPrimary);
         DevToolsPutFontStyle(tb, noValue ? 2 /*Italic*/ : 0 /*Normal*/);
         reinterpret_cast<IUnknown*>(tb)->Release();
     }
@@ -334,9 +348,9 @@ static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r, const st
 // type styles, not fills that High Contrast can replace.
 static void PopulateRowLine(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
-    // The NAME. A value set on this element gets bold so "what I set" pops out of the defaulted majority;
-    // an UNSET one goes italic and dim. Weight and style rather than colour, because the template owns the
-    // theme and both survive High Contrast.
+    // The NAME, always in the secondary brush so the value reads first. A value set on this element gets bold
+    // so "what I set" pops out of the defaulted majority; an UNSET one goes italic. Weight and style carry
+    // that difference because both survive High Contrast.
     const bool setHere = !r.authoredKind.empty() || SourceIsSetHere(r.source);
     const bool unset   = r.valueState == L"unset";
     if (IInspectable* n = FindInRow(fe, L"PName")) {
@@ -345,8 +359,7 @@ static void PopulateRowLine(void* fe, const DevToolsCardRow& r, const std::wstri
         if (SUCCEEDED(n->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tb)) && tb) {
             DevToolsPutTextFontWeight(tb, setHere ? 700 : 400);
             DevToolsPutFontStyle(tb, unset ? 2 /*Italic*/ : 0 /*Normal*/);
-            if (void* brush = unset ? static_cast<void*>(g_palTertiary) : static_cast<void*>(g_palSecondary))
-                DevToolsPutTextForeground(tb, brush);
+            PutDonorForeground(tb, g_palSecondary);
             reinterpret_cast<IUnknown*>(tb)->Release();
         }
         n->Release();
@@ -923,7 +936,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                             void* ctb = nullptr;
                             if (SUCCEEDED(cap->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &ctb)) && ctb) {
                                 DevToolsAbi<DevToolsXC::ITextBlock>(ctb)->put_FontSize(10.0);
-                                if (g_palTertiary) DevToolsPutTextForeground(ctb, g_palTertiary);
+                                PutDonorForeground(ctb, g_palTertiary);
                                 reinterpret_cast<IUnknown*>(ctb)->Release();
                             }
                         }

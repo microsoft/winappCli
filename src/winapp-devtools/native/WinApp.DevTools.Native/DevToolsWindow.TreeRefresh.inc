@@ -161,10 +161,10 @@ static void SetTreeHeaderCurrent(size_t flattenedCount, size_t censusTotal)
     wchar_t hdr[160];
     const size_t total = censusTotal ? censusTotal : flattenedCount;
     if (total > flattenedCount)
-        _snwprintf_s(hdr, _countof(hdr), _TRUNCATE, L"VISUAL TREE \u00B7 SHOWING %zu OF %zu NODES",
+        _snwprintf_s(hdr, _countof(hdr), _TRUNCATE, L"Showing %zu of %zu nodes",
                      flattenedCount, total);
     else
-        _snwprintf_s(hdr, _countof(hdr), _TRUNCATE, L"VISUAL TREE \u00B7 %zu NODES", total);
+        _snwprintf_s(hdr, _countof(hdr), _TRUNCATE, L"%zu nodes", total);
     HSTRING hs = MakeStr(hdr);
     DevToolsPutText(g_treeHeaderTb, hs);
     WindowsDeleteString(hs);

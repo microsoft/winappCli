@@ -175,14 +175,10 @@ static void CALLBACK HoverRevertProc(HWND, UINT, UINT_PTR id, DWORD)
                   (unsigned long long)g_selWire);
 }
 
+// The details pane's message footer: the text (ITextBlock) and the bar that holds it (IUIElement). Both live in the
+// window shell, so a message stays in view however far the property list is scrolled.
 static IInspectable*        g_statusTb = nullptr;
-// Props-pane breadcrumb: the elided one-line chain and the full wrapped chain, both QI'd to IUIElement
-// and AddRef-held for the pane's lifetime so BreadcrumbSink can flip between them with put_Visibility.
-static void*                g_bcShort = nullptr;
-static void*                g_bcFull = nullptr;
-static void*                g_bcToggleLbl = nullptr; // the expander's label TextBlock (ITextBlock, AddRef'd)
-static std::wstring         g_bcExpandText;
-static bool                 g_bcExpanded = false;
+static void*                g_statusHostUi = nullptr;
 // The hover timer restores the app highlight to g_selWire after the pointer leaves the tree.
 static std::wstring         g_selLabel;
 static std::wstring         g_selBreadcrumb;
@@ -248,8 +244,6 @@ static std::wstring g_propFilterQuery;
 static bool g_propShowAll = false;
 static void* g_propShowAllLbl = nullptr;
 
-static void* g_propCountTb = nullptr;
-static IInspectable* g_propCountEl = nullptr;
 static size_t g_propRowTotal = 0;
 
 static void* g_propEmptyUi = nullptr;
@@ -277,25 +271,10 @@ static void UpdatePropEmptyState(size_t shown)
     WindowsDeleteString(hs);
 }
 
-static void UpdatePropCount(size_t shown)
-{
-    UpdatePropEmptyState(shown);
-    if (!g_propCountTb) return;
-    HSTRING hs = MakeStr(std::to_wstring(shown) + L" of " + std::to_wstring(g_propRowTotal));
-    DevToolsPutText(g_propCountTb, hs);
-    WindowsDeleteString(hs);
-    if (g_propCountEl)
-        SetAutomationTextOn(g_propCountEl,
-                            L"Showing " + std::to_wstring(shown) + L" of " +
-                            std::to_wstring(g_propRowTotal) + L" properties",
-                            L"WinAppDevToolsPropCount", L"");
-}
 static void* g_propFilterTextBox = nullptr;
 
 static void ReleasePropFilterState()
 {
-    if (g_propCountTb) { reinterpret_cast<IUnknown*>(g_propCountTb)->Release(); g_propCountTb = nullptr; }
-    if (g_propCountEl) { g_propCountEl->Release(); g_propCountEl = nullptr; }
     if (g_propShowAllLbl) { reinterpret_cast<IUnknown*>(g_propShowAllLbl)->Release(); g_propShowAllLbl = nullptr; }
     if (g_propFilterTextBox) { reinterpret_cast<IUnknown*>(g_propFilterTextBox)->Release(); g_propFilterTextBox = nullptr; }
     if (g_propEmptyUi) { reinterpret_cast<IUnknown*>(g_propEmptyUi)->Release(); g_propEmptyUi = nullptr; }
@@ -457,15 +436,6 @@ static void PendingKindErase(const std::wstring& p)
 // the Collapsed confirm Button that replaces it in the same grid cell, `label` the Button's inner TextBlock so
 // the prompt can name the value being written. All AddRef'd; released on every pane rebuild.
 
-// Drop the props-pane breadcrumb TextBlock refs. Called on every pane rebuild and on window teardown,
-// so the sink can never flip Visibility on a released element.
-static void ReleaseBreadcrumbRefs()
-{
-    if (g_bcShort) { reinterpret_cast<IUnknown*>(g_bcShort)->Release(); g_bcShort = nullptr; }
-    if (g_bcFull)  { reinterpret_cast<IUnknown*>(g_bcFull)->Release();  g_bcFull  = nullptr; }
-    if (g_bcToggleLbl) { reinterpret_cast<IUnknown*>(g_bcToggleLbl)->Release(); g_bcToggleLbl = nullptr; }
-}
-
 // The Size & spacing section's disclosure, remembered across panes and runs.
 static int g_layoutSectionOpen = -1;
 static bool LayoutSectionOpen()
@@ -474,12 +444,10 @@ static bool LayoutSectionOpen()
     return g_layoutSectionOpen == 1;
 }
 static IInspectable* g_layoutBody = nullptr;
-static IInspectable* g_axmlOne  = nullptr;
 static bool g_axmlExpanded = false;
 static void ReleaseLayoutSectionRefs()
 {
     if (g_layoutBody) { g_layoutBody->Release(); g_layoutBody = nullptr; }
-    if (g_axmlOne)  { g_axmlOne->Release();  g_axmlOne  = nullptr; }
 }
 
 static std::vector<void*> g_treeRows;      // Node captions as IUIElement (AddRef'd).

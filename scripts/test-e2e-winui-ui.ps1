@@ -490,10 +490,11 @@ if (-not $devPid) {
         Assert-WinappSuccess "$selectedId reports selected" @("ui", "wait-for", $selectedId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
         Assert-WinappSuccess "$otherId reports unselected" @("ui", "wait-for", $otherId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "False", "-t", "3000") | Out-Null
     }
-    Assert-WinappSuccess "Tab enters the view selector and Right selects Comments" @("ui", "send-keys", "shift+tab right", "--target", "PickElementToggle", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    # The rail selects the item that has keyboard focus, so Down on Visual tree opens Comments.
+    Assert-WinappSuccess "Down arrow on the rail selects Comments" @("ui", "send-keys", "down", "--target", "ViewTabTree", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
     Assert-WinappSuccess "keyboard-selected Comments reports selected" @("ui", "wait-for", "ViewTabComments", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
-    # F5 rebuilds the tree while Comments hides it. Keys run in order, so Left then shows the rebuilt tree.
-    Assert-WinappSuccess "F5 on Comments, then Left arrow returns to Visual tree" @("ui", "send-keys", "f5 left", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    # F5 rebuilds the tree while Comments hides it. Keys run in order, so Up then shows the rebuilt tree.
+    Assert-WinappSuccess "F5 on Comments, then Up arrow returns to Visual tree" @("ui", "send-keys", "f5 up", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
     Assert-WinappSuccess "keyboard-selected Visual tree reports selected" @("ui", "wait-for", "ViewTabTree", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
     Assert-WinappSuccess "tree rebuilt while hidden keeps its accessible name" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-p", "Name", "--value", "UI Elements", "-t", "3000") | Out-Null
     Assert-WinappSuccess "tree rebuilt while hidden names its rows" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "TreeItem", "-t", "3000") | Out-Null
@@ -631,7 +632,8 @@ if (-not $devPid) {
             Assert-WinappSuccess "$selectedId reports selected" @("ui", "wait-for", $selectedId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
             Assert-WinappSuccess "$otherId reports unselected" @("ui", "wait-for", $otherId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "False", "-t", "3000") | Out-Null
         }
-        Assert-WinappSuccess "Tab enters the property selector and Right selects Set" @("ui", "send-keys", "tab right", "--target", "PaneSplitter", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        # Choosing a view rebuilds the property list, selector included; focus must follow to the new selector.
+        Assert-WinappSuccess "Right arrow on Computed selects Set" @("ui", "send-keys", "right", "--target", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
         Assert-WinappSuccess "Set view follows the keyboard" @("ui", "wait-for", "WinAppDevToolsViewSet", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
         Assert-WinappSuccess "Left returns to Computed without leaving the property selector" @("ui", "send-keys", "left", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
         Assert-WinappSuccess "Computed view follows the keyboard" @("ui", "wait-for", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
