@@ -29,12 +29,13 @@
   <Border.RenderTransform>
     <ScaleTransform x:Name="DevToolsSelScale" ScaleX="1" ScaleY="1" />
   </Border.RenderTransform>
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
   <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="1" />
       <RowDefinition Height="Auto" />
-      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
     <StackPanel Grid.Row="0">
@@ -118,7 +119,7 @@
                  Style="{StaticResource CaptionTextBlockStyle}"
                  AutomationProperties.AutomationId="DevToolsGuestCommentStatus" AutomationProperties.LiveSetting="Polite" />
     </StackPanel>
-    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16,0,16,12">$OTHERS$</ScrollViewer>
+    <Border Grid.Row="3" Padding="16,0,16,12">$OTHERS$</Border>
     <Button x:Name="DevToolsSelOpen" Grid.Row="4" Style="{x:Null}" Margin="10,0,16,12" Padding="6,4" HorizontalAlignment="Left"
             Background="#00000000" BorderThickness="0" CornerRadius="5" Foreground="$ACCENT$"
             AutomationProperties.AutomationId="DevToolsSelOpen"
@@ -130,5 +131,6 @@
       </StackPanel>
     </Button>
   </Grid>
+  </ScrollViewer>
 </Border>
 </Popup>
