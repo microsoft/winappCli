@@ -1,4 +1,4 @@
 {
-  "description": "The winapp CLI on PATH, but no plugins and no custom agent. Compare with none to see what the CLI adds, and with cli-plus-plugins to see what the plugins add on top.",
+  "description": "The winapp CLI on PATH, but no plugins and no custom agent. Compare with barebones to see what the CLI adds, and with cli-plus-skills to see what the skills add on top.",
   "framework_hint": "WinUI 3"
 }

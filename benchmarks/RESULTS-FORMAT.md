@@ -29,7 +29,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `benchmark` | `apps` or `tasks` |
 | `scenario`, `model`, `trial` | What ran. `trial` counts repeats, starting at 1 |
 | `set` | `tuning` or `held-out` |
-| `arm` | `none`, `cli-only` or `cli-plus-plugins` |
+| `arm` | `barebones`, `cli-only` or `cli-plus-skills` |
 | `startedAt` | When the trial started (UTC) |
 | `outcome` | Why the trial ended (below). Only `valid` trials count toward pass rates |
 | `passed` | `true` when every `required` check passed |

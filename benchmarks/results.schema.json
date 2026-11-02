@@ -28,7 +28,7 @@
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
     },
     "set": { "enum": ["tuning", "held-out"] },
-    "arm": { "enum": ["none", "cli-only", "cli-plus-plugins"] },
+    "arm": { "enum": ["barebones", "cli-only", "cli-plus-skills"] },
     "model": {
       "description": "Model under test, as passed to Copilot CLI, such as sonnet-5.5.",
       "type": "string",

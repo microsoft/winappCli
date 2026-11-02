@@ -17,7 +17,7 @@ function launchLevel(runs: boolean, checks: QualityCheck[]): number {
   return passed("L2") ? (passed("L3") ? 3 : 2) : 1;
 }
 
-export const ARMS = ["none", "cli-only", "cli-plus-plugins"] as const;
+export const ARMS = ["barebones", "cli-only", "cli-plus-skills"] as const;
 
 export interface ExactUsage {
   tokens: { input: number; output: number; cacheRead: number };
