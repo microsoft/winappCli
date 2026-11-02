@@ -966,48 +966,6 @@ static void PostDiagnose(const std::wstring& prop)
     if (!StartDiag(prop, std::wstring())) g_diagAnswers.pop_back();
 }
 
-// Ask the runtime first: a captured regular binding is property-scoped, but compiled Restore needs consent.
-struct BindRestoreSink : DevToolsSinkBase
-{
-    enum class Choice { Request, Confirm, Cancel };
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen || wire != g_selWire) return S_OK;
-        if (choice != Choice::Request) {
-            DiagAnswer* answer = DiagFind(prop);
-            DevToolsJson action;
-            if (!answer || !DevToolsJsonParse(answer->action, action) ||
-                action.GetString(L"state") != L"confirmation-required") return S_OK;
-            if (choice == Choice::Confirm && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) {
-                SetStatusText(L"Another binding Restore is running. Try confirming again when it finishes");
-                return S_OK;
-            }
-            answer->action.clear();
-            if (void* panel = PaneRowChild(prop, L"PBindRestoreConfirm")) {
-                DevToolsPutVisibility(panel, 1);
-                reinterpret_cast<IUnknown*>(panel)->Release();
-            }
-            if (choice == Choice::Cancel) {
-                SetStatusText(L"Cancelled Restore binding on " + prop + L". No bindings were changed");
-                return S_OK;
-            }
-        }
-        if (choice == Choice::Request && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
-        SetStatusText(L"Restoring the binding on " + prop + L"...");
-        if (!StartDiag(prop, choice == Choice::Confirm ? L"restoreconfirmed" : L"restore")) {
-            InterlockedExchange(&g_diagRestoreBusy, 0);
-            SetStatusText(L"Could not start restoring " + prop);
-            return S_OK;
-        }
-        return S_OK;
-    }
-    void Init(const std::wstring& p, Choice c = Choice::Request)
-    { prop = p; choice = c; wire = g_selWire; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    std::wstring prop;
-    InstanceHandle wire = 0;
-    Choice choice = Choice::Request;
-};
-
 static const UINT kValidateIdleMs = 400;
 
 static UINT_PTR      g_validateTimer = 0;
@@ -1090,29 +1048,6 @@ static void ValidateOnType(const std::wstring& prop, const std::wstring& text)
 
 // TextChanged updates syntax immediately and restarts the idle resolve timer.
 // Retained text boxes are guarded by generation stamps so callbacks from torn-down panes become inert.
-struct PathValidateSink : DevToolsSinkBase
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen) return S_OK;
-        std::wstring text;
-        if (box && g_ctx.readInputFn) g_ctx.readInputFn(box, text);
-        ValidateOnType(prop, text);
-        return S_OK;
-    }
-    void Init(const std::wstring& p, IInspectable* b, void* expFe)
-    {
-        prop = p;
-        box = b;
-        if (box) box->AddRef();
-        g_validateExpFe = expFe;
-        InitSink(IID_TextChanged_Del, g_route1Gen);
-    }
-    std::wstring  prop;
-    IInspectable* box = nullptr;
-};
-
-
 struct KindCtx
 {
     std::shared_ptr<const DevToolsCardRow> row;
@@ -1121,6 +1056,7 @@ struct KindCtx
     void* rowFe = nullptr;
     void* expFe = nullptr;
     InstanceHandle wire = 0;
+    const bool* retired = nullptr; // set only on the executing callback's local copy
 };
 
 // Read one named TextBox inside the expansion. Returns empty when the control is absent -- which is a real
@@ -1190,20 +1126,25 @@ static std::wstring ReadCombo(void* expFe, const wchar_t* name, const std::vecto
 
 static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
 {
-    if (!c.row) return;
+    const unsigned generation = g_route1Gen;
+    const auto sameSelection = [&] { return generation == g_route1Gen && c.wire == g_selWire; };
+    const auto active = [&] { return sameSelection() && !(c.retired && *c.retired); };
+    if (!c.row || !active()) return;
     const DevToolsKind k = StagedOrCurrentKind(*c.row, c.path);
     const bool staged = PendingKindFind(c.path) != nullptr;
     switch (k) {
     case DevToolsKind::Theme:
     case DevToolsKind::Static: {
         const std::wstring key = ReadBox(c.expFe, L"PResKey");
+        if (!active()) return;
         std::wstring error;
         if (ApplyResourceKey(*c.row, c.path, key, k == DevToolsKind::Theme, RowEditSeed(*c.row), error)) {
+            if (!sameSelection()) return;
             PendingKindErase(c.path);
             ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
             SetStatusText(ResourceAppliedStatus(c.path, key));
         } else {
-            SetResourceError(c.expFe, c.path, error);
+            if (active()) SetResourceError(c.expFe, c.path, error);
         }
         return;
     }
@@ -1214,10 +1155,12 @@ static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
         }
         // Commit uses the same syntax gate as the live verdict; invalid paths cannot be applied.
         const std::wstring typed = ReadBox(c.expFe, L"PPath");
+        const std::wstring mode = ReadCombo(c.expFe, L"PMode", BindingModes());
+        if (!active()) return;
         const std::wstring why = DevToolsPathSyntax_Reason(typed);
         if (!why.empty()) { SetStatusText(L"Not applied. " + why); return; }
         PendingKindErase(c.path);
-        ApplyBindingGraft(c.path, typed, ReadCombo(c.expFe, L"PMode", BindingModes()));
+        ApplyBindingGraft(c.path, typed, mode);
         return;
     }
     case DevToolsKind::XBind:
@@ -1256,8 +1199,10 @@ static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
     } else {
         value = DevToolsEditText::WithLineEndingsOf(ReadBox(c.expFe, L"PEdit"), seed);
     }
+    if (!active()) return;
     const DevToolsKind was = CurrentKindOf(*c.row, c.path);
     const bool landed = ApplyLiteralValue(c.path, c.row->type, seed, value, /*confirmed*/ staged);
+    if (!sameSelection()) return;
     // Record a landed literal as replacing x:Bind even when the runtime reports only a local value.
 // Authored source still describes the original expression, not the session mutation.
 // Drop the resolved-value seed rather than offer a Restore that cannot restore the binding.

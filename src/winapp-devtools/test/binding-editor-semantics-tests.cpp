@@ -34,6 +34,24 @@ static unsigned submissions = 0;
 static std::wstring submittedPath, submittedMode;
 static unsigned restoreRequests = 0;
 static std::wstring restoreOperation;
+static std::map<__int64, KindEditorSink*> restoreEvents;
+static __int64 nextRestoreEvent = 0;
+static HRESULT AddRestoreEvent(void*, void* handler, __int64* token)
+{
+    auto* sink = static_cast<KindEditorSink*>(handler);
+    sink->AddRef();
+    restoreEvents[*token = ++nextRestoreEvent] = sink;
+    return S_OK;
+}
+static HRESULT RemoveRestoreEvent(void*, __int64 token)
+{
+    const auto found = restoreEvents.find(token);
+    if (found == restoreEvents.end()) return E_INVALIDARG;
+    auto* sink = found->second;
+    restoreEvents.erase(found);
+    sink->Release();
+    return S_OK;
+}
 static int selectedMode = 0;
 static HRESULT FindEditorName(void*, HSTRING name, IInspectable** out)
 {
@@ -303,6 +321,37 @@ int main()
         --g_selWire;
         g_diagAnswers.clear();
     }
+    {
+        const std::wstring preview = LR"({"state":"confirmation-required","restoreScope":"owner","restoreOwner":"Page"})";
+        const auto count = restoreRequests;
+        std::vector<winrt::com_ptr<BindRestoreSink>> oldButtons;
+        for (auto action : {BindRestoreSink::Choice::Request, BindRestoreSink::Choice::Confirm,
+                            BindRestoreSink::Choice::Cancel}) {
+            auto* sink = new BindRestoreSink();
+            sink->Init(L"Text", action, &pathBox);
+            winrt::com_ptr<BindRestoreSink> held;
+            held.copy_from(sink);
+            oldButtons.push_back(std::move(held));
+            check(WireKindEditor(sink, &status, AddRestoreEvent, RemoveRestoreEvent),
+                  "Restore buttons use the scoped editor subscription");
+        }
+        RetireKindEditors(&pathBox);
+        check(restoreEvents.empty(), "row retirement unsubscribes all three Restore buttons");
+        g_diagAnswers = {{g_route1Gen, g_selWire, L"Text", L"", preview, true}};
+        for (const auto& sink : oldButtons) sink->Invoke(nullptr, nullptr);
+        check(restoreRequests == count && DiagFind(L"Text")->action == preview,
+              "retired same-selection Restore buttons cannot consume a new expansion's consent");
+        auto* current = new BindRestoreSink();
+        current->Init(L"Text", BindRestoreSink::Choice::Confirm, &pathBox);
+        WireKindEditor(current, &status, AddRestoreEvent, RemoveRestoreEvent);
+        current->Invoke(nullptr, nullptr);
+        check(restoreRequests == count + 1 && restoreOperation == L"restoreconfirmed" &&
+              DiagFind(L"Text")->action.empty(),
+              "newly wired Confirm can consume preserved consent after row replacement");
+        RetireKindEditors();
+        check(restoreEvents.empty(), "pane retirement unsubscribes the new confirmation");
+        g_diagAnswers.clear();
+    }
     g_propRows.clear();
     {
         const auto dictionary = winrt::make_self<ResourceDictionaryFixture>();
@@ -382,7 +431,7 @@ int main()
     {
         row = {};
         row.name = L"Background"; row.type = L"SolidColorBrush"; row.value = L"#FF808080";
-        ctx = {std::make_shared<const DevToolsCardRow>(row), L"Background", 0, nullptr, &resourceBox};
+        ctx = {std::make_shared<const DevToolsCardRow>(row), L"Background", 0, nullptr, &resourceBox, g_selWire};
         resourceBox.text = L"MissingBrush";
         PendingKindSet(L"Background", DevToolsKind::Theme);
         unsigned resolves = 0, restores = 0;

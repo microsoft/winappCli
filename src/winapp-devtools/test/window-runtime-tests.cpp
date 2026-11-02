@@ -38,6 +38,9 @@ static HRESULT TestAddTheme(void*, void*, __int64*);
 static LRESULT CALLBACK TestNativeClose(HWND, UINT, WPARAM, LPARAM);
 static double testViewport = 0.0;
 static HRESULT TestViewport(void*, double* value) { *value = testViewport; return S_OK; }
+static HRESULT TestAddRowEvent(void*, void*, __int64*);
+static HRESULT TestRemoveRowEvent(void*, __int64);
+static HRESULT TestRecycleElement(void*, IInspectable**);
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsSetAutomationName PutTestAutomationName
@@ -70,6 +73,11 @@ static HRESULT TestViewport(void*, double* value) { *value = testViewport; retur
 #define DevToolsAddActualThemeChanged TestAddTheme
 #define DefSubclassProc TestNativeClose
 #define DevToolsScrollGetViewportHeight TestViewport
+#define DevToolsAddExpanding TestAddRowEvent
+#define DevToolsAddCollapsed TestAddRowEvent
+#define DevToolsRemoveExpanding TestRemoveRowEvent
+#define DevToolsRemoveCollapsed TestRemoveRowEvent
+#define DevToolsGetRecycleElement TestRecycleElement
 #include "../native/WinApp.DevTools.Native/DevToolsWindow.cpp"
 
 struct TestElement : IInspectable {
@@ -90,6 +98,57 @@ struct TestElement : IInspectable {
     HRESULT STDMETHODCALLTYPE GetRuntimeClassName(HSTRING* value) override { *value=nullptr; return S_OK; }
     HRESULT STDMETHODCALLTYPE GetTrustLevel(TrustLevel* value) override { *value=BaseTrust; return S_OK; }
 };
+static std::map<__int64, RowExpandSink*> rowEvents;
+static __int64 nextRowEvent = 0;
+static HRESULT addRowEventResult = S_OK, removeRowEventResult = S_OK;
+static HRESULT TestAddRowEvent(void*, void* handler, __int64* token)
+{
+    if (FAILED(addRowEventResult)) return addRowEventResult;
+    auto* sink = static_cast<RowExpandSink*>(handler);
+    sink->AddRef();
+    rowEvents[*token = ++nextRowEvent] = sink;
+    return S_OK;
+}
+static HRESULT TestRemoveRowEvent(void*, __int64 token)
+{
+    if (FAILED(removeRowEventResult)) return removeRowEventResult;
+    const auto found = rowEvents.find(token);
+    if (found == rowEvents.end()) return E_INVALIDARG;
+    auto* sink = found->second;
+    rowEvents.erase(found);
+    sink->Release();
+    return S_OK;
+}
+static std::map<__int64, KindEditorSink*> editorEvents;
+static __int64 nextEditorEvent = 0;
+static HRESULT addEditorResult = S_OK, removeEditorResult = S_OK;
+static std::function<void()> removingEditor;
+static HRESULT TestAddEditorEvent(void*, void* handler, __int64* token)
+{
+    if (FAILED(addEditorResult)) return addEditorResult;
+    auto* sink = static_cast<KindEditorSink*>(handler);
+    sink->AddRef();
+    editorEvents[*token = ++nextEditorEvent] = sink;
+    return S_OK;
+}
+static HRESULT TestRemoveEditorEvent(void*, __int64 token)
+{
+    if (FAILED(removeEditorResult)) return removeEditorResult;
+    const auto found = editorEvents.find(token);
+    if (found == editorEvents.end()) return E_INVALIDARG;
+    auto* sink = found->second;
+    editorEvents.erase(found);
+    if (removingEditor) removingEditor();
+    sink->Release();
+    return S_OK;
+}
+static std::function<void()> selectedIndexRead;
+static HRESULT TestRecycleElement(void* args, IInspectable** element)
+{
+    *element = static_cast<IInspectable*>(args);
+    (*element)->AddRef();
+    return S_OK;
+}
 static HRESULT PutTestVisibility(void* element, int value)
 {
     static_cast<TestElement*>(element)->visibility = value;
@@ -140,6 +199,7 @@ static HRESULT TestAppendChild(void* panel, IInspectable* child)
 static HRESULT TestSelectedIndex(void* selector, int* value)
 {
     *value = static_cast<TestElement*>(selector)->selectedIndex;
+    if (selectedIndexRead) selectedIndexRead();
     return S_OK;
 }
 static HRESULT TestPutSelectedIndex(void* selector, int value)
@@ -269,6 +329,225 @@ int main()
     winrt::init_apartment();
     unsigned checks=0, failed=0, writes=0;
     auto check=[&](bool ok,const char* name){++checks;if(!ok){++failed;std::printf("FAIL %s\n",name);}};
+    {
+        TestElement rowControl, expansion, publisher;
+        auto makeContext = [&] {
+            KindCtx ctx;
+            auto row = std::make_shared<DevToolsCardRow>();
+            row->name = L"Height"; row->type = L"Double"; row->editKind = L"number";
+            ctx.row = row; ctx.path = L"Height"; ctx.rowFe = &rowControl;
+            ctx.expFe = &expansion; ctx.wire = g_selWire; ctx.edit = 0;
+            return ctx;
+        };
+        for (int rebuild = 0; rebuild < 500; ++rebuild) {
+            g_selWire = 42;
+            auto ctx = makeContext();
+            std::weak_ptr<const DevToolsCardRow> weak = ctx.row;
+            auto* select = new KindSelectSink(); select->Init(ctx, &publisher);
+            auto* apply = new KindApplySink(); apply->Init(ctx);
+            auto* cancel = new KindCancelSink(); cancel->Init(ctx);
+            auto* key = new KindKeySink(); key->Init(ctx);
+            auto* exit = new XBindExitSink(); exit->Init(ctx);
+            auto* write = new WriteToSourceSink(); write->Init(ctx);
+            const std::vector<KindEditorSink*> sinks{ select, apply, cancel, key, exit, write };
+            for (auto* sink : sinks) {
+                check(WireKindEditor(sink, &publisher, TestAddEditorEvent, TestRemoveEditorEvent),
+                    "each snapshot-owning editor has an owned event registration");
+                sink->AddRef(); // simulate a callback already queued by the publisher
+            }
+            ctx.row.reset();
+            check(!weak.expired() && rowControl.refs == 7 && expansion.refs == 7 && publisher.refs == 7,
+                "live expansion delegates retain their snapshot and required controls");
+            void* queried = nullptr;
+            check(key->QueryInterface(IID_KeyEventHandler_Del, &queried) == S_OK && queried == key,
+                "editor delegates expose their actual delegate IID");
+            check(static_cast<IUnknown*>(queried)->Release() == 3,
+                "editor QueryInterface returns an owned reference");
+            if (rebuild % 3 == 0) g_propRowFactory.RecycleElement(&rowControl);
+            else if (rebuild % 3 == 1) RetireKindEditors();
+            else ResetRoute1State();
+            check(weak.expired() && g_kindEditorSinks.empty() && editorEvents.empty() &&
+                  rowControl.refs == 1 && expansion.refs == 1 && publisher.refs == 1,
+                "recycle, pane replacement and window reset reclaim editor snapshots and control references");
+            for (auto* sink : sinks) {
+                check(sink->Invoke(nullptr, nullptr) == S_OK && !sink->ctx.row && !sink->ctx.expFe,
+                    "retired queued editor events cannot access controls or apply an action");
+                check(sink->Release() == 0, "queued reference is the retired editor's final reference");
+            }
+        }
+        g_selWire = 42;
+        auto ctx = makeContext();
+        std::weak_ptr<const DevToolsCardRow> weak = ctx.row;
+        auto* failedSink = new KindKeySink(); failedSink->Init(ctx);
+        ctx.row.reset();
+        addEditorResult = E_FAIL;
+        check(!WireKindEditor(failedSink, &publisher, TestAddEditorEvent, TestRemoveEditorEvent) &&
+              weak.expired() && rowControl.refs == 1 && expansion.refs == 1 && publisher.refs == 1,
+            "failed editor registration destroys the unregistered sink, snapshot and owned control references");
+        addEditorResult = S_OK;
+        ctx = makeContext(); weak = ctx.row;
+        auto* retained = new KindCancelSink(); retained->Init(ctx);
+        WireKindEditor(retained, &publisher, TestAddEditorEvent, TestRemoveEditorEvent);
+        ctx.row.reset();
+        removeEditorResult = E_FAIL;
+        RetireKindEditors();
+        check(weak.expired() && rowControl.refs == 1 && expansion.refs == 1 && publisher.refs == 1 &&
+              editorEvents.size() == 1 && retained->Invoke(nullptr, nullptr) == S_OK,
+            "unsubscribe failure leaves only an inert publisher-owned delegate, not a retained editor");
+        removeEditorResult = S_OK;
+        TestRemoveEditorEvent(&publisher, editorEvents.begin()->first);
+        ctx = makeContext();
+        auto* siblingCancel = new KindCancelSink(); siblingCancel->Init(ctx);
+        auto* firstRemoved = new KindKeySink(); firstRemoved->Init(ctx);
+        WireKindEditor(siblingCancel, &publisher, TestAddEditorEvent, TestRemoveEditorEvent);
+        WireKindEditor(firstRemoved, &publisher, TestAddEditorEvent, TestRemoveEditorEvent);
+        PendingKindSet(L"Height", DevToolsKind::Theme);
+        bool batchInert = false;
+        removingEditor = [&] {
+            siblingCancel->Invoke(nullptr, nullptr);
+            batchInert = siblingCancel->retired && PendingKindFind(L"Height") != nullptr;
+        };
+        RetireKindEditors();
+        removingEditor = nullptr;
+        check(batchInert, "the whole retiring batch is inert before any unsubscribe can reenter a sibling");
+        PendingKindErase(L"Height");
+
+        struct ReentrantSink : KindEditorSink {
+            bool* observed;
+            TestElement* rowControl;
+            TestElement* expansion;
+            HRESULT Run(const KindCtx& active, void*) override {
+                std::weak_ptr<const DevToolsCardRow> weak = active.row;
+                RetireKindEditors();
+                *observed = !weak.expired() && active.row && rowControl->refs == 2 &&
+                            expansion->refs == 2 && !Active();
+                return S_OK;
+            }
+        };
+        bool observed = false;
+        ctx = makeContext(); weak = ctx.row;
+        auto* running = new ReentrantSink();
+        running->observed = &observed; running->rowControl = &rowControl; running->expansion = &expansion;
+        running->InitEditor(ctx, IID_RoutedEventHandler_Del);
+        WireKindEditor(running, &publisher, TestAddEditorEvent, TestRemoveEditorEvent);
+        ctx.row.reset();
+        check(running->Invoke(nullptr, nullptr) == S_OK && observed && weak.expired() &&
+              rowControl.refs == 1 && expansion.refs == 1 && publisher.refs == 1,
+            "an executing callback owns its inputs until return even when it unsubscribes and destroys its registration");
+
+        ctx = makeContext(); weak = ctx.row;
+        auto* staleSelect = new KindSelectSink(); staleSelect->Init(ctx, &publisher);
+        WireKindEditor(staleSelect, &publisher, TestAddEditorEvent, TestRemoveEditorEvent);
+        publisher.selectedIndex = (int)DevToolsKind::Binding;
+        selectedIndexRead = [] { RetireKindEditors(); g_selWire = 43; };
+        check(staleSelect->Invoke(nullptr, nullptr) == S_OK && g_pendingKind.empty(),
+            "selection-read reentrancy cannot stage an old editor's choice on a new element");
+        selectedIndexRead = nullptr;
+        g_selWire = 42;
+        ctx = makeContext();
+        auto* fieldCommit = new KindApplySink(); fieldCommit->Init(ctx);
+        WireKindEditor(fieldCommit, &publisher, TestAddEditorEvent, TestRemoveEditorEvent);
+        winrt::com_ptr<KindApplySink> owner; owner.copy_from(fieldCommit);
+        RegisterPaneEditor(ctx.path, &publisher, &fieldCommit->retired, nullptr,
+            [owner] { owner->Invoke(nullptr, nullptr); });
+        owner = nullptr;
+        RetireKindEditors();
+        check(g_paneEditors.front().retired && *g_paneEditors.front().retired &&
+              fieldCommit->Invoke(nullptr, nullptr) == S_OK,
+            "pane flush registry keeps its retired field delegate alive without keeping its snapshot");
+        ReleasePaneEditors(false);
+        ctx.row.reset();
+        TestElement otherExpansion, firstField, secondField;
+        firstField.AddRef(); secondField.AddRef();
+        g_fieldBoxes.push_back({L"Height", 0, &firstField, &expansion});
+        g_fieldBoxes.push_back({L"Height", 0, &secondField, &otherExpansion});
+        ctx = makeContext();
+        auto* validating = new PathValidateSink(); validating->Init(ctx, &publisher);
+        WireKindEditor(validating, &publisher, TestAddEditorEvent, TestRemoveEditorEvent);
+        check(g_validateExpFe == &expansion, "current path validator owns the live verdict target");
+        RetireKindEditors(&rowControl);
+        check(firstField.refs == 1 && secondField.refs == 2 && g_fieldBoxes.size() == 1 &&
+              !g_validateExpFe && g_kindEditorSinks.empty(),
+            "retiring an expansion clears only its field boxes and cancels its control-dependent validation");
+        ReleaseFieldBoxes(L"Height");
+        g_selWire = 0;
+    }
+    {
+        TestElement rowControl, publisher;
+        for (int rebuild = 0; rebuild < 500; ++rebuild) {
+            auto snapshot = std::make_shared<const DevToolsCardRow>();
+            std::weak_ptr<const DevToolsCardRow> weak = snapshot;
+            WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+            snapshot.reset();
+            auto* queued = g_rowExpandSinks.front();
+            queued->AddRef();
+            void* queried = nullptr;
+            check(queued->QueryInterface(IID_IUnknown, &queried) == S_OK && queried == queued,
+                "row delegates expose COM identity");
+            check(static_cast<IUnknown*>(queried)->Release() == 3,
+                "row delegate QueryInterface supplies an owned reference");
+            check(g_rowExpandSinks.size() == 2 && rowEvents.size() == 2 &&
+                  rowControl.refs == 3 && publisher.refs == 3 && !weak.expired(),
+                "only the current row owns its controls and shared property snapshot");
+            if (rebuild % 2) g_propRowFactory.RecycleElement(&rowControl);
+            else RetireRowExpandSinks();
+            check(g_rowExpandSinks.empty() && rowEvents.empty() && weak.expired() &&
+                  rowControl.refs == 1 && publisher.refs == 1,
+                "each pane rebuild releases obsolete controls and snapshots even with a queued event");
+            check(queued->Invoke(nullptr, nullptr) == S_OK && !queued->rowFe && !queued->row,
+                "a queued event is inert after retirement without retaining the old pane");
+            check(queued->Release() == 0, "the last queued event releases the retired delegate");
+        }
+        TestElement child, sibling;
+        auto snapshot = std::make_shared<const DevToolsCardRow>();
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        WireRowExpansion(snapshot, L"Background.Color", 1, &child, &publisher);
+        WireRowExpansion(snapshot, L"Foreground", 2, &sibling, &publisher);
+        RebuildExpansion(&rowControl, *snapshot, L"Background", 0);
+        check(g_rowExpandSinks.size() == 4 && child.refs == 1 && rowControl.refs == 3 && sibling.refs == 3,
+            "rebuilding an expansion retires child rows but preserves its header and sibling rows");
+        check(g_propRowFactory.RecycleElement(&rowControl) == S_OK && rowControl.refs == 1 &&
+              g_rowExpandSinks.size() == 2 && sibling.refs == 3,
+            "virtualizing a row retires its handlers without retiring another property");
+        RetireRowExpandSinks();
+        addRowEventResult = E_FAIL;
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        check(g_rowExpandSinks.empty() && rowEvents.empty() && rowControl.refs == 1 && publisher.refs == 1,
+            "a failed event subscription destroys its unregistered delegate and releases the row");
+        addRowEventResult = S_OK;
+        std::weak_ptr<const DevToolsCardRow> weak = snapshot;
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        snapshot.reset();
+        removeRowEventResult = E_FAIL;
+        RetireRowExpandSinks();
+        check(weak.expired() && rowControl.refs == 1 && publisher.refs == 1 && rowEvents.size() == 2,
+            "failed unsubscription still breaks ownership cycles and releases the snapshot");
+        removeRowEventResult = S_OK;
+        while (!rowEvents.empty()) {
+            auto* sink = rowEvents.begin()->second;
+            check(sink->Invoke(nullptr, nullptr) == S_OK, "unrevoked retired events remain safe");
+            TestRemoveRowEvent(&publisher, rowEvents.begin()->first);
+        }
+        snapshot = std::make_shared<const DevToolsCardRow>();
+        weak = snapshot;
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        snapshot.reset();
+        ResetRoute1State();
+        check(weak.expired() && g_rowExpandSinks.empty() && rowEvents.empty() &&
+              rowControl.refs == 1 && publisher.refs == 1,
+            "inspector state reset releases all row subscriptions and snapshots");
+        snapshot = std::make_shared<const DevToolsCardRow>();
+        KindCtx otherEditor;
+        otherEditor.row = snapshot;
+        weak = snapshot;
+        WireRowExpansion(snapshot, L"Background", 0, &rowControl, &publisher);
+        snapshot.reset();
+        RetireRowExpandSinks();
+        check(!weak.expired() && otherEditor.row.use_count() == 1 && rowControl.refs == 1,
+            "row retirement releases only its snapshot references, not another editor's ownership");
+        otherEditor.row.reset();
+        check(weak.expired(), "the snapshot is destroyed when its final independent owner releases it");
+    }
     {
         TestElement pickButton, pickIndicator, focusButton, focusIndicator;
         g_pickBtnCtrl = &pickButton; g_pickOnUi = &pickIndicator;
@@ -799,14 +1078,31 @@ int main()
     g_captionThemeRoot=&testValue;testValue.AddRef();
     g_captionThemeToken=42;g_captionThemeSubscribed=true;
     g_route1WindowInsp=&testRow;
+    TestElement closeRow, closePublisher;
+    auto closeSnapshot=std::make_shared<const DevToolsCardRow>();
+    std::weak_ptr<const DevToolsCardRow> closedSnapshot=closeSnapshot;
+    WireRowExpansion(closeSnapshot,L"Background",0,&closeRow,&closePublisher);
+    KindCtx closeCtx;
+    closeCtx.row=closeSnapshot; closeCtx.path=L"Background"; closeCtx.wire=g_selWire;
+    closeCtx.rowFe=&closeRow; closeCtx.expFe=&closeRow;
+    auto* closeEditor=new KindCancelSink(); closeEditor->Init(closeCtx);
+    WireKindEditor(closeEditor,&closePublisher,TestAddEditorEvent,TestRemoveEditorEvent);
+    closeCtx.row.reset();
+    closeSnapshot.reset();
     const auto selectionBeforeClose=g_selWire;
     check(Route1MinSizeProc(nullptr,WM_CLOSE,0,0,1,g_route1Gen-1)==123 &&
         g_captionThemeSubscribed && themeRemovals==1 && nativeCloses==1,
         "stale close cannot tear down the newer inspector caption");
+    check(!closedSnapshot.expired() && g_rowExpandSinks.size()==2 && g_kindEditorSinks.size()==1,
+        "a stale close cannot retire the newer inspector's property rows");
     check(Route1MinSizeProc(nullptr,WM_CLOSE,0,0,1,g_route1Gen)==123,
         "native close still reaches the original window procedure");
     check(captionReleasedBeforeClose && themeRemovals==2,
         "caption subscription and interfaces are released before native window destruction");
+    check(closedSnapshot.expired() && g_rowExpandSinks.empty() && rowEvents.empty() &&
+          g_kindEditorSinks.empty() && editorEvents.empty() &&
+          closeRow.refs==1 && closePublisher.refs==1,
+        "native inspector close retires row subscriptions and releases controls and snapshots");
     check(nativeCloses==2,"theme cleanup preserves native close rather than hiding the window");
     check(g_selWire==selectionBeforeClose,
         "caption teardown does not reset inspector selection or edit state");
@@ -1259,6 +1555,36 @@ int main()
         const std::wstring liveLate=live[500];
         late.Invoke(nullptr,nullptr);
         check(edits==editsLate && live[500]==liveLate, "a retired editor's focus-out does not write");
+        {
+            const auto priorReader=g_ctx.readInputFn;
+            static unsigned departingReads=0;
+            departingReads=0;
+            g_ctx.readInputFn=[](IInspectable* box,std::wstring& text) {
+                ++departingReads; text=static_cast<TestElement*>(box)->text; return true;
+            };
+            g_editRecords.clear(); g_appChanged.clear();
+            g_selWire=g_dirtyNode=500; live[500]=L"Before"; live[501]=L"Other";
+            testInput.text=L"Before";
+            LostFocusSink delayed;
+            delayed.Init(500,L"Text",L"String",L"Before",&testInput);
+            testInput.text=L"Captured before leaving";
+            RegisterPaneEditor(L"Text",&testInput,&delayed.retired,&delayed,nullptr,&testExpansion);
+            ReleasePaneEditors(false);
+            const unsigned readsAfterDetach=departingReads;
+            g_selWire=g_dirtyNode=501;
+            testInput.text=L"A different control now";
+            delayed.Invoke(nullptr,nullptr);
+            check(!delayed.box && live[500]==L"Captured before leaving" && live[501]==L"Other" &&
+                  departingReads==readsAfterDetach,
+                "a delayed blur saves captured text to its original target without reading a released control");
+            delayed.Invoke(nullptr,nullptr);
+            check(departingReads==readsAfterDetach && live[501]==L"Other",
+                "a repeated detached blur never reads a new control or saves to the new selection");
+            g_selWire=g_dirtyNode=500;
+            RestoreRowValue(500,L"Text",L"String");
+            check(live[500]==L"Before", "Restore retains the original value after a detached original-target save");
+            g_ctx.readInputFn=priorReader;
+        }
         // A late save to an element that is no longer selected records the original captured while it was selected,
         // and reads that element back right away so a later app change there still drops Restore.
         g_editRecords.clear(); g_appChanged.clear();
