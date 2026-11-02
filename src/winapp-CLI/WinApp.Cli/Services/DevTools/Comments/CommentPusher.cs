@@ -100,6 +100,8 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
                     doc.Comments.FindAll(c => CommentStoreLocator.SameProject(c.ProjectRoot, project)),
             };
             var comments = ToTapComments(scoped, store.GetRevision);
+            ResolveSourceAnchors(scoped, comments, pid, root,
+                message => (logger ?? NullLogger<CommentPusher>.Instance).LogWarning("{Message}", message), cancellationToken);
             using var reply = JsonDocument.Parse(tap.SetComments(comments, scoped.Generation, ResolvedCount(scoped.Comments),
                 cancellationToken: cancellationToken).RequireResult(), TapWireJson.DocumentOptions);
             if (reply.RootElement.ValueKind != JsonValueKind.Object ||
@@ -127,6 +129,95 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
     }
 
     internal static int ResolvedCount(IEnumerable<Comment> comments) => comments.Count(c => c.Status == CommentStatus.Resolved);
+
+    internal static void ResolveSourceAnchors(CommentStoreDocument doc, List<TapComment> comments, uint pid,
+        string? sourceRoot, Action<string> diagnostic, CancellationToken cancellationToken = default)
+    {
+        var tap = new VisualTreeTap(pid);
+        for (var index = 0; index < comments.Count; index++)
+        {
+            if (!string.IsNullOrEmpty(comments[index].Anchor))
+            {
+                continue;
+            }
+            var comment = doc.Comments.Single(c => c.Id == comments[index].Id);
+            try
+            {
+                var (anchor, reason) = ResolveSourceAnchor(comment, pid, tap, sourceRoot, cancellationToken);
+                if (anchor is not null)
+                {
+                    // This belongs to this refresh, not to the stored comment or its revision.
+                    comments[index] = comments[index] with { Anchor = anchor };
+                }
+                else
+                {
+                    diagnostic($"Comment '{comment.Id}' remains unplaced: {reason} Persisted comments are unchanged.");
+                }
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or
+                JsonException or System.Xml.XmlException)
+            {
+                diagnostic($"Comment '{comment.Id}' remains unplaced: {ex.Message} Persisted comments are unchanged.");
+            }
+        }
+    }
+
+    private static (string? Anchor, string? Reason) ResolveSourceAnchor(Comment comment, uint pid, VisualTreeTap tap,
+        string? sourceRoot, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var anchor = comment.Anchor;
+        if (anchor.Authored is not { } authored || anchor.Weak ||
+            string.IsNullOrEmpty(anchor.Identity.Name) || sourceRoot is null ||
+            !CommentStoreLocator.SameProject(authored.ProjectRoot, comment.ProjectRoot))
+        {
+            return (null, "No verified named source declaration is available. Re-add the comment on the running app.");
+        }
+        if (anchor.Templated || authored.Templated)
+        {
+            return (null, "A template declaration does not identify one live instance.");
+        }
+        var path = CommentAnchorResolver.ResolveKnownSourcePath(sourceRoot, anchor);
+        if (path is null || !Path.GetRelativePath(sourceRoot, path).Equals(authored.SourceFile, StringComparison.OrdinalIgnoreCase) ||
+            CommentAuthoredIdentity.Read(path, sourceRoot).Count(declaration =>
+                CommentAuthoredIdentity.Name(declaration.Element) == anchor.Identity.Name &&
+                CommentAuthoredIdentity.Signature(declaration.Element) == authored.Signature &&
+                CommentAuthoredIdentity.Scope(declaration.Element) == authored.Scope &&
+                CommentAuthoredIdentity.TypeIdentity(declaration.Element) == authored.Type) != 1)
+        {
+            return (null, "The captured source declaration is missing, changed or ambiguous. Review the source and re-add the comment.");
+        }
+        var (found, error) = DevToolsSelector.Find(tap, anchor.Identity.Name, appAuthoredOnly: false, cancellationToken);
+        if (error is not null)
+        {
+            return (null, error.Message);
+        }
+        if (found!.Truncated || found.ClassificationTruncated)
+        {
+            return (null, "The live search is incomplete. Refresh again after the app finishes loading.");
+        }
+        var matches = found.Matches.Where(match => match.Name == anchor.Identity.Name).DistinctBy(match => match.Handle).Take(2).ToArray();
+        if (matches is not [var match])
+        {
+            return (null, "The source name does not identify one live element. Keep the intended control visible and refresh again.");
+        }
+        var capture = CommentSelectionCapture.CaptureElement(pid, match.Handle, cancellationToken);
+        if (capture.Status != CaptureStatus.Ok)
+        {
+            return (null, capture.Error?.Message ?? "The live element could not be verified.");
+        }
+        var live = capture.Element!;
+        if (live.Authored is not { UniqueInstance: true, Templated: false } current ||
+            live.SourceProvenance == "likely-source-line" || string.IsNullOrEmpty(live.ElementPath) ||
+            !CommentStoreLocator.SameProject(live.SourceRoot, sourceRoot) ||
+            !current.SourceFile.Equals(authored.SourceFile, StringComparison.OrdinalIgnoreCase) ||
+            current.Signature != authored.Signature || current.Scope != authored.Scope || current.Type != authored.Type ||
+            live.Name != anchor.Identity.Name)
+        {
+            return (null, "The live element has no unique, current source match. Rebuild and relaunch, then refresh again.");
+        }
+        return (live.ElementPath, null);
+    }
 
     internal static List<TapComment> ToTapComments(CommentStoreDocument doc, Func<Comment, string?>? revision = null)
         => doc.Comments

@@ -100,8 +100,10 @@ internal sealed class GuestCommentEndpoint(GuestCommentSession session)
 
         void PushToApp(GuestCommentReply snapshot)
         {
-            var comments = CommentPusher.ToTapComments(
-                new CommentStoreDocument { Comments = snapshot.Comments?.ToList() ?? [] }, CommentStore.Revision);
+            var document = new CommentStoreDocument { Comments = snapshot.Comments?.ToList() ?? [] };
+            var comments = CommentPusher.ToTapComments(document, CommentStore.Revision);
+            CommentPusher.ResolveSourceAnchors(document, comments, checked((uint)session.Process.ProcessId),
+                snapshot.GuestSourceRoot, diagnostic, stop.Token);
             _ = new VisualTreeTap(checked((uint)session.Process.ProcessId))
                 .SetComments(comments, snapshot.Generation, CommentPusher.ResolvedCount(snapshot.Comments ?? []),
                     cancellationToken: stop.Token).RequireResult();

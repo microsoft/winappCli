@@ -810,6 +810,18 @@ try {
         $named = @($nodes | Where-Object name -eq 'WindowHeading')
         $templates = @($nodes | Where-Object name -eq 'TemplateHeading')
         Check ($named.Count -eq 1 -and $templates.Count -eq 2) 'comment targets are exact owned-window handles'
+        $offline = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'offline-named', '--text', 'Offline source marker',
+            '--file', 'MainWindow.xaml', '--name', 'WindowHeading', '--source-root', $sourceRoot)
+        Check (-not $offline.comment.anchor.elementPath) 'offline source comment has no stored runtime anchor'
+        $storePath = Join-Path $sourceRoot '.winapp\ui-comments.json'
+        $offlineStored = ((Get-Content -LiteralPath $storePath -Raw | ConvertFrom-Json).comments |
+            Where-Object id -eq 'offline-named') | ConvertTo-Json -Depth 100 -Compress
+        Check (-not ($offlineStored | ConvertFrom-Json).anchor.elementPath) 'persisted offline comment has no runtime anchor'
+        $null = Invoke-Cli @('devtools', 'attach', '--pid', [string]$owned.Id, '--source-root', $sourceRoot)
+        $markers = (Invoke-Cli @('devtools', 'call', 'Comment.list', '-a', [string]$owned.Id)).result
+        Check ($markers.total -eq 1 -and $markers.placed -eq 0 -and $markers.comments.Count -eq 1 -and
+            $markers.comments[0].id -eq 'offline-named' -and -not $markers.comments[0].placed -and
+            -not $markers.comments[0].anchor -and $markers.comments[0].handle -eq '0') 'duplicate live instances refuse the offline marker'
         $repeated = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'repeated', '--text', 'A unique x:Name is one place to edit',
             '--from-element', [string]$named[0].handle, '--app', [string]$owned.Id, '--source-root', $sourceRoot)
         Check ($repeated.comment.anchorConfirmed -and -not $repeated.comment.requiresConfirmation) 'a unique x:Name confirms even when its window is open twice'
@@ -845,8 +857,18 @@ try {
             }
             Check ($classification.truncated -eq $false -and $classification.censusNodes -ge 400) 'explicit bounded classification completes the larger census'
         }
+        $null = Invoke-Cli @('devtools', 'attach', '--pid', [string]$owned.Id, '--source-root', $sourceRoot)
+        $markers = (Invoke-Cli @('devtools', 'call', 'Comment.list', '-a', [string]$owned.Id)).result
+        $marker = @($markers.comments | Where-Object id -eq 'offline-named')
+        Check ($marker.Count -eq 1 -and $marker[0].placed -and $marker[0].anchor -and
+            $marker[0].handle -eq [string]$named[0].handle -and $markers.total -eq $markers.comments.Count -and
+            $markers.placed -eq @($markers.comments | Where-Object placed -eq $true).Count) 'refresh places the offline marker on the exact surviving native handle'
+        $offlineCurrent = ((Get-Content -LiteralPath $storePath -Raw | ConvertFrom-Json).comments |
+            Where-Object id -eq 'offline-named') | ConvertTo-Json -Depth 100 -Compress
+        Check ($offlineCurrent -ceq $offlineStored) 'runtime placement leaves the stored anchor and original comment identity unchanged'
         $captured = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'named', '--text', 'Review the heading',
             '--from-element', [string]$named[0].handle, '--app', [string]$owned.Id, '--source-root', $sourceRoot)
+        Check ($marker[0].anchor -ceq $captured.comment.anchor.elementPath) 'offline marker anchor matches a fresh live capture'
         $plain = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'unnamed', '--text', 'Review the unnamed heading',
             '--from-element', [string]$unnamed[0].handle, '--app', [string]$owned.Id, '--source-root', $sourceRoot)
         Check ($captured.comment.anchorConfirmed -and $plain.comment.anchorConfirmed) 'unique authored declarations confirm despite bound runtime text'
@@ -865,6 +887,14 @@ try {
         Check ($edited.comment.anchorConfirmed -and $edited.comment.hits[0].text.Contains('Implemented heading')) 'named declaration survives successful authored edit'
         $weak = Invoke-Cli @('devtools', 'comments', 'get', 'unnamed', '--source-root', $sourceRoot)
         Check (-not $weak.comment.anchorConfirmed -and $weak.comment.requiresConfirmation -and $weak.comment.hits.Count -gt 0) 'changed unnamed declaration remains a ranked suggestion'
+        $null = Invoke-Cli @('devtools', 'attach', '--pid', [string]$owned.Id, '--source-root', $sourceRoot)
+        $markers = (Invoke-Cli @('devtools', 'call', 'Comment.list', '-a', [string]$owned.Id)).result
+        $marker = @($markers.comments | Where-Object id -eq 'offline-named')
+        Check ($marker.Count -eq 1 -and -not $marker[0].placed -and -not $marker[0].anchor -and
+            $marker[0].handle -eq '0') 'refresh refuses an offline marker whose captured source declaration changed'
+        $offlineCurrent = ((Get-Content -LiteralPath $storePath -Raw | ConvertFrom-Json).comments |
+            Where-Object id -eq 'offline-named') | ConvertTo-Json -Depth 100 -Compress
+        Check ($offlineCurrent -ceq $offlineStored) 'stale-source refusal preserves the entire stored offline comment'
         $saved = Invoke-Cli @('devtools', 'comments', 'update', 'named', '--status', 'resolved', '--note', 'Verified staged source', '--source-root', $sourceRoot)
         Check ($saved.comment.status -eq 'resolved' -and $saved.comment.anchor.authored.declaration -ceq $declaration) 'status update preserves creation evidence'
         Guard
