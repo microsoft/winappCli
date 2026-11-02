@@ -477,13 +477,13 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     return hr;
 }
 
-static bool InprocInspect()
+static bool InprocInspect(std::wstring* error)
 {
     const DevToolsInspectRequest& request = DevToolsOverlay_InspectRequest();
     // A pick has already selected its element in an inspector on screen; it only needs to be in view.
     if (!request.activate && !request.comments && DevToolsWindow_RevealWithoutFocus()) return true;
     g_ownedState.Reconcile(DevToolsStateAxis::Window, DevToolsWindow_IsOpen() ? 1ull : 0ull);
-    HRESULT hr = OpenInprocWindow();
+    HRESULT hr = OpenInprocWindow(error);
     const bool open = SUCCEEDED(hr) && DevToolsWindow_IsOpen();
     if (open && request.comments) DevToolsWindow_ShowComments();
     g_ownedState.Reconcile(DevToolsStateAxis::Window, open ? 1ull : 0ull);

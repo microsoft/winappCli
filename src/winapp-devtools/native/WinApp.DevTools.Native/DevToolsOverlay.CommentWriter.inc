@@ -531,28 +531,37 @@ static void ShowCommentToast(const std::wstring& text, bool problem)
     const DevToolsPalette& pal = DevToolsInverseAcrylicPalette();
     int w = 0, h = 0;
     if (!GetClientSizeDips(&w, &h)) { w = 800; h = 600; }
-    const int toastW = 240;
+    // A problem is a sentence, so it gets more room, but never more than the window has.
+    const int toastW = (std::min)(problem ? 360 : 240, (std::max)(240, w - 16));
     RECT bar{};
     const bool haveBar = g_toolbarSurface.xamlRootKey == g_activeSurface.xamlRootKey && ToolbarRectDip(&bar);
     int x = haveBar ? (int)bar.right - toastW : (w - toastW) / 2;
-    int y = haveBar ? (int)bar.top - 44 : h - 64;
-    if (haveBar && y < 8) y = (int)bar.bottom + 8;
     x = (std::max)(8, (std::min)(x, w - toastW - 8));
-    y = (std::max)(8, y);
+    // Above the toolbar, or below it when there is no room above. The toast starts one line tall; a longer message
+    // moves up once it has been measured, so it never covers the toolbar.
+    const int lineToastH = 37;
+    const auto toastTop = [&](int toastH) {
+        int top = haveBar ? (int)bar.top - 7 - toastH : h - 27 - toastH;
+        if (haveBar && top < 8) top = (int)bar.bottom + 8;
+        return (std::max)(8, top);
+    };
     const std::wstring markup =
         L"<Border xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
-        L" Canvas.Left=\"" + std::to_wstring(x) + L"\" Canvas.Top=\"" + std::to_wstring(y) + L"\" Canvas.ZIndex=\"3000\""
+        L" Canvas.Left=\"" + std::to_wstring(x) + L"\" Canvas.Top=\"" + std::to_wstring(toastTop(lineToastH)) +
+        L"\" Canvas.ZIndex=\"3000\""
         L" Width=\"" + std::to_wstring(toastW) + L"\" IsHitTestVisible=\"False\" RequestedTheme=\"" +
         DevToolsInverseAppRequestedTheme() + L"\" Background=\"" + pal.surface + L"\" BorderBrush=\"" + pal.rim +
         L"\" BorderThickness=\"1\" CornerRadius=\"8\" Padding=\"12,8\" BackgroundSizing=\"InnerBorderEdge\""
         L" AutomationProperties.AutomationId=\"DevToolsCommentToast\" AutomationProperties.LiveSetting=\"Polite\""
         L" AutomationProperties.Name=\"" + DevToolsXmlEscape(text) + L"\">"
-        L"<StackPanel Orientation=\"Horizontal\" Spacing=\"8\">"
+        L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
+        L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>"
         L"<FontIcon FlowDirection=\"LeftToRight\" Glyph=\"" + std::wstring(problem ? L"&#xE7BA;" : L"&#xE73E;") +
-        L"\" FontSize=\"14\" VerticalAlignment=\"Center\" Foreground=\"" + (problem ? pal.caution : pal.accent) + L"\"/>"
+        L"\" FontSize=\"14\" VerticalAlignment=\"Top\" Margin=\"0,3,0,0\" Foreground=\"" +
+        (problem ? pal.caution : pal.accent) + L"\"/>"
         L"<TextBlock x:Name=\"DevToolsCommentToastText\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\""
-        L" Text=\"" + DevToolsXmlEscape(text) + L"\" TextWrapping=\"Wrap\" VerticalAlignment=\"Center\""
-        L" Foreground=\"" + pal.textPrimary + L"\"/></StackPanel></Border>";
+        L" Grid.Column=\"1\" Text=\"" + DevToolsXmlEscape(text) + L"\" TextWrapping=\"Wrap\" VerticalAlignment=\"Center\""
+        L" Foreground=\"" + pal.textPrimary + L"\"/></Grid></Border>";
     IInspectable* toast = nullptr;
     if (FAILED(LoadMarkup(markup, &toast)) || !toast) {
         DevToolsOverlayLog(L"overlay.comment toast markup failed");
@@ -563,6 +572,13 @@ static void ShowCommentToast(const std::wstring& text, bool problem)
         unsigned int n = 0; DevToolsVecGetSize(g_canvasChildren, &n);
         if (g_cardScope) g_cardScope(1);
         DevToolsVecInsertAt(g_canvasChildren, n, ui);
+        // Measured in the tree so inherited text settings apply, and inside the scope so anything layout creates
+        // stays DevTools' own.
+        float measuredW = 0, measuredH = 0;
+        const float unbounded = std::numeric_limits<float>::infinity();
+        if (SUCCEEDED(DevToolsMeasure(ui, unbounded, unbounded)) &&
+            SUCCEEDED(DevToolsGetDesiredSize(ui, &measuredW, &measuredH)) && measuredH > (float)lineToastH)
+            MoveOverlayElement(ui, x, toastTop((int)std::ceil(measuredH)));
         if (g_cardScope) g_cardScope(0);
         g_commentToast = ui;
     }

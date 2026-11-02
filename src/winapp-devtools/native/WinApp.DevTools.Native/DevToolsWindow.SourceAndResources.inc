@@ -260,11 +260,16 @@ static std::wstring BuildBreadcrumb(const std::vector<DevToolsWindowNode>& nodes
     return bc;
 }
 
+static std::wstring PidText()
+{
+    wchar_t buf[32];
+    swprintf_s(buf, L"PID %lu", GetCurrentProcessId());
+    return buf;
+}
+
 static std::wstring TitleWithPid()
 {
-    wchar_t buf[64];
-    swprintf_s(buf, L"WinApp DevTools \u00B7 PID %lu", GetCurrentProcessId());
-    return buf;
+    return L"WinApp DevTools \u00B7 " + PidText();
 }
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
@@ -330,6 +335,141 @@ static void ReplaceToken(std::wstring& s, const std::wstring& token, const std::
 {
     size_t pos = s.find(token);
     if (pos != std::wstring::npos) s.replace(pos, token.size(), value);
+}
+
+// The TitleBar control draws its own icon; WM_SETICON only reaches the taskbar and Alt+Tab. Hand it the frame of
+// the embedded winapp.ico that fits a 16-pixel icon at this DPI. BitmapImage decodes those frames because they are
+// stored as PNG; a classic bitmap frame is rejected so the control shows no icon rather than an empty gap.
+static HRESULT LoadInspectorTitleBarIcon(HWND hwnd, IInspectable** iconSource)
+{
+    *iconSource = nullptr;
+    const HMODULE module = reinterpret_cast<HMODULE>(&__ImageBase);
+    auto resourceBytes = [module](LPCWSTR name, LPCWSTR type, DWORD* size) -> const BYTE* {
+        *size = 0;
+        HRSRC res = FindResourceW(module, name, type);
+        HGLOBAL data = res ? LoadResource(module, res) : nullptr;
+        if (!data) return nullptr;
+        *size = SizeofResource(module, res);
+        return static_cast<const BYTE*>(LockResource(data));
+    };
+    DWORD size = 0;
+    const BYTE* directory = resourceBytes(L"WINAPP_DEVTOOLS", RT_GROUP_ICON, &size);
+    if (!directory) return HRESULT_FROM_WIN32(ERROR_RESOURCE_NAME_NOT_FOUND);
+    const UINT dpi = hwnd ? GetDpiForWindow(hwnd) : 0;
+    const int px = MulDiv(16, dpi ? static_cast<int>(dpi) : USER_DEFAULT_SCREEN_DPI, USER_DEFAULT_SCREEN_DPI);
+    const int id = LookupIconIdFromDirectoryEx(const_cast<PBYTE>(directory), TRUE, px, px, LR_DEFAULTCOLOR);
+    const BYTE* png = id ? resourceBytes(MAKEINTRESOURCEW(id), RT_ICON, &size) : nullptr;
+    static constexpr BYTE pngSignature[] = { 0x89, 0x50, 0x4E, 0x47 };
+    if (!png || size < sizeof(pngSignature) || memcmp(png, pngSignature, sizeof(pngSignature)) != 0) {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    winrt::com_ptr<IStream> stream;
+    stream.attach(SHCreateMemStream(png, size));
+    if (!stream) return E_OUTOFMEMORY;
+    winrt::com_ptr<IUnknown> randomAccess, imageIconSource, bitmapSource;
+    winrt::com_ptr<IInspectable> markup, image;
+    HRESULT hr = CreateRandomAccessStreamOverStream(stream.get(), BSOS_DEFAULT,
+        DevToolsIid<winrt::Windows::Storage::Streams::IRandomAccessStream>(), randomAccess.put_void());
+    if (SUCCEEDED(hr)) {
+        hr = LoadMarkupWin(L"<ImageIconSource xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">"
+                           L"<ImageIconSource.ImageSource><BitmapImage/></ImageIconSource.ImageSource></ImageIconSource>",
+                           markup.put());
+        if (SUCCEEDED(hr) && !markup) hr = E_UNEXPECTED;
+    }
+    if (SUCCEEDED(hr)) hr = markup->QueryInterface(DevToolsIid<DevToolsXC::IImageIconSource>(), imageIconSource.put_void());
+    if (SUCCEEDED(hr)) {
+        hr = DevToolsImageIconSourceGetImageSource(imageIconSource.get(), image.put());
+        if (SUCCEEDED(hr) && !image) hr = E_UNEXPECTED;
+    }
+    if (SUCCEEDED(hr)) hr = image->QueryInterface(DevToolsIid<DevToolsXMI::IBitmapSource>(), bitmapSource.put_void());
+    if (SUCCEEDED(hr)) hr = DevToolsBitmapSourceSetSource(bitmapSource.get(), randomAccess.get());
+    DevToolsOverlayLog(L"route1.titlebar icon px=%d frame=%d bytes=%lu hr=0x%08X", px, id, size, hr);
+    if (FAILED(hr)) return hr;
+    *iconSource = markup.detach();
+    return S_OK;
+}
+
+// Content extends under the caption only once the control can take over dragging; if the window rejects the control,
+// the system caption comes back, so the window never shows two caption bars or none.
+static HRESULT AttachInspectorTitleBar(void* window, void* titleBarUi)
+{
+    HRESULT hr = DevToolsWinPutExtendsContentIntoTitleBar(window, true);
+    if (FAILED(hr)) return hr;
+    hr = DevToolsWinSetTitleBar(window, titleBarUi);
+    if (FAILED(hr)) DevToolsWinPutExtendsContentIntoTitleBar(window, false);
+    return hr;
+}
+
+// The taskbar, Alt+Tab and `winapp ui` read the TitleWithPid() window title. The TitleBar control copies its shorter
+// Title there when its template is applied, which happens before it raises Loaded.
+struct InspectorWindowTitleSink : DevToolsSinkBase
+{
+    HWND hwnd = nullptr;
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    {
+        if (gen != g_route1Gen) return S_OK;
+        if (!SetWindowTextW(hwnd, TitleWithPid().c_str())) {
+            DevToolsOverlayLog(L"route1.titlebar title reset error=%lu", GetLastError());
+        }
+        return S_OK;
+    }
+    void Init(HWND window)
+    {
+        hwnd = window;
+        InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
+    }
+};
+
+static HRESULT KeepInspectorWindowTitle(IInspectable* titleBar, HWND hwnd)
+{
+    if (!hwnd) return E_HANDLE;
+    winrt::com_ptr<IUnknown> fe;
+    HRESULT hr = titleBar->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), fe.put_void());
+    if (FAILED(hr)) return hr;
+    auto* sink = new InspectorWindowTitleSink();
+    sink->Init(hwnd);
+    __int64 token = 0;
+    hr = DevToolsAddLoaded(fe.get(), sink, &token);
+    sink->Release();
+    return hr;
+}
+
+// Row 0 of the shell is the WinUI TitleBar control. When the window cannot hand its caption to the control, the
+// control is collapsed and Windows keeps drawing the standard caption. A collapsed control is never templated, so it
+// also leaves the window title alone.
+static HRESULT ConfigureInspectorTitleBar(void* window, IInspectable* content, HWND hwnd)
+{
+    winrt::com_ptr<IUnknown> rootFe, titleBarAbi, titleBarUi;
+    winrt::com_ptr<IInspectable> titleBar;
+    HRESULT hr = content->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), rootFe.put_void());
+    if (SUCCEEDED(hr)) {
+        HSTRING name = MakeStr(L"InspectorTitleBar");
+        hr = DevToolsFindName(rootFe.get(), name, titleBar.put());
+        WindowsDeleteString(name);
+        if (SUCCEEDED(hr) && !titleBar) hr = E_NOINTERFACE;
+    }
+    if (SUCCEEDED(hr)) hr = titleBar->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), titleBarUi.put_void());
+    if (FAILED(hr)) {
+        DevToolsOverlayLog(L"route1.titlebar not found hr=0x%08X; keeping system caption", hr);
+        return S_FALSE;
+    }
+
+    winrt::com_ptr<IInspectable> icon;
+    HRESULT iconHr = titleBar->QueryInterface(DevToolsIid<DevToolsXC::ITitleBar>(), titleBarAbi.put_void());
+    if (SUCCEEDED(iconHr)) iconHr = LoadInspectorTitleBarIcon(hwnd, icon.put());
+    if (SUCCEEDED(iconHr)) iconHr = DevToolsTitleBarControlPutIconSource(titleBarAbi.get(), icon.get());
+    if (FAILED(iconHr)) DevToolsOverlayLog(L"route1.titlebar no icon hr=0x%08X", iconHr);
+
+    hr = KeepInspectorWindowTitle(titleBar.get(), hwnd);
+    if (SUCCEEDED(hr)) hr = AttachInspectorTitleBar(window, titleBarUi.get());
+    if (FAILED(hr)) {
+        DevToolsPutVisibility(titleBarUi.get(), 1);
+        DevToolsOverlayLog(L"route1.titlebar attach failed hr=0x%08X; keeping system caption", hr);
+        return S_FALSE;
+    }
+    DevToolsOverlayLog(L"route1.titlebar TitleBar control replaces the system caption");
+    return S_OK;
 }
 
 // The row PALETTE: live donor elements declared in window-shell.xaml, held from the shell wiring.

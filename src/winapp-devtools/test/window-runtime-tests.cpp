@@ -38,6 +38,32 @@ static HRESULT TestAddTheme(void*, void*, __int64*);
 static LRESULT CALLBACK TestNativeClose(HWND, UINT, WPARAM, LPARAM);
 static double testViewport = 0.0;
 static HRESULT TestViewport(void*, double* value) { *value = testViewport; return S_OK; }
+static void* titleBarDragElement = nullptr;
+static void* loadedHandler = nullptr;
+static bool contentExtended = false;
+static unsigned setTitleBarCalls = 0, loadedAdds = 0;
+static HRESULT extendResult = S_OK, setTitleBarResult = S_OK, addLoadedResult = S_OK;
+static HRESULT TestExtendContent(void*, bool value)
+{
+    if (value && FAILED(extendResult)) return extendResult;
+    contentExtended = value;
+    return S_OK;
+}
+static HRESULT TestSetTitleBar(void*, void* element)
+{
+    ++setTitleBarCalls;
+    if (FAILED(setTitleBarResult)) return setTitleBarResult;
+    titleBarDragElement = element;
+    return S_OK;
+}
+static HRESULT TestAddLoaded(void*, void* handler, __int64* token)
+{
+    ++loadedAdds;
+    if (FAILED(addLoadedResult)) return addLoadedResult;
+    loadedHandler = handler;
+    *token = 7;
+    return S_OK;
+}
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsSetAutomationName PutTestAutomationName
@@ -70,6 +96,9 @@ static HRESULT TestViewport(void*, double* value) { *value = testViewport; retur
 #define DevToolsAddActualThemeChanged TestAddTheme
 #define DefSubclassProc TestNativeClose
 #define DevToolsScrollGetViewportHeight TestViewport
+#define DevToolsWinPutExtendsContentIntoTitleBar TestExtendContent
+#define DevToolsWinSetTitleBar TestSetTitleBar
+#define DevToolsAddLoaded TestAddLoaded
 #include "../native/WinApp.DevTools.Native/DevToolsWindow.cpp"
 
 struct TestElement : IInspectable {
@@ -107,7 +136,7 @@ static HRESULT PutTestEnabled(void* element, bool value)
     static_cast<TestElement*>(element)->enabled = value;
     return S_OK;
 }
-static TestElement testRow, testValue, testStatus, testInput, testHeader;
+static TestElement testRow, testValue, testStatus, testInput, testHeader, testTitleBar;
 static TestElement testExpansion, testChain, testChainWitness, testDerived, testChainWho, testSwatch, testHex, testPreset;
 static bool exposeExpansion = false;
 static LostFocusSink* reentrantHexCommit = nullptr;
@@ -166,7 +195,7 @@ static HRESULT TestBorderBackground(void* border, void* brush)
     static_cast<TestElement*>(border)->text = static_cast<TestElement*>(brush)->text;
     return S_OK;
 }
-static bool exposeHeader = false;
+static bool exposeHeader = false, exposeTitleBar = false;
 static TestElement testAppWindow, testCaption;
 static HRESULT appWindowResult = S_OK, captionResult = S_OK, addThemeResult = S_OK, putThemeResult = S_OK;
 static unsigned themeAdds = 0;
@@ -209,6 +238,7 @@ static HRESULT FindTestName(void*, HSTRING name, IInspectable** found)
         if (key == L"PPreset") *found = &testPreset;
         if (*found && *found != &testValue && *found != &testHeader) (*found)->AddRef();
     }
+    if(exposeTitleBar && std::wstring(chars,length)==L"InspectorTitleBar") { *found=&testTitleBar; testTitleBar.AddRef(); }
     return S_OK;
 }
 static HRESULT PutTestText(void* element, HSTRING value)
@@ -862,6 +892,63 @@ int main()
         Route1MinSizeProc(nullptr,WM_CLOSE,0,0,1,g_route1Gen-1);
         check(clears==1, "a stale close does not touch the current window's selection");
         g_route1WindowInsp=nullptr;g_ctx.highlightFn=savedHighlight;
+    }
+    {
+        // Content extends under the caption only once the TitleBar control can drag the window, and any failure
+        // puts the system caption back, so the inspector never shows two caption bars or none.
+        TestElement tbWindow;
+        loadedAdds=0;
+        check(AttachInspectorTitleBar(&tbWindow,&testTitleBar)==S_OK &&
+            contentExtended && titleBarDragElement==&testTitleBar && setTitleBarCalls==1,
+            "content extends under the caption and the TitleBar control drags the window");
+        titleBarDragElement=nullptr;contentExtended=false;setTitleBarCalls=0;
+        setTitleBarResult=E_FAIL;
+        check(AttachInspectorTitleBar(&tbWindow,&testTitleBar)==E_FAIL &&
+            !contentExtended && !titleBarDragElement && setTitleBarCalls==1,
+            "a rejected drag region restores the system caption");
+        setTitleBarResult=S_OK;setTitleBarCalls=0;extendResult=E_FAIL;
+        check(AttachInspectorTitleBar(&tbWindow,&testTitleBar)==E_FAIL &&
+            !contentExtended && setTitleBarCalls==0,
+            "a window that cannot extend its content keeps the system caption");
+        extendResult=S_OK;
+        check(ConfigureInspectorTitleBar(&tbWindow,&testValue,nullptr)==S_FALSE &&
+            !contentExtended && setTitleBarCalls==0 && loadedAdds==0,
+            "a shell without the title bar keeps the system caption");
+
+        exposeTitleBar=true;testTitleBar.visibility=0;
+        check(ConfigureInspectorTitleBar(&tbWindow,&testValue,nullptr)==S_FALSE &&
+            testTitleBar.visibility==1 && !contentExtended && setTitleBarCalls==0 && loadedAdds==0,
+            "without a native window to title, the TitleBar collapses and the system caption stays");
+        HWND titleHwnd=CreateWindowExW(0,L"STATIC",L"",0,0,0,0,0,HWND_MESSAGE,nullptr,nullptr,nullptr);
+        check(titleHwnd!=nullptr,"a message-only window stands in for the inspector window");
+        testTitleBar.visibility=0;addLoadedResult=E_FAIL;
+        check(ConfigureInspectorTitleBar(&tbWindow,&testValue,titleHwnd)==S_FALSE &&
+            testTitleBar.visibility==1 && !contentExtended && setTitleBarCalls==0 && !loadedHandler,
+            "if the window title cannot be kept, the TitleBar collapses and the system caption stays");
+        testTitleBar.visibility=0;addLoadedResult=S_OK;
+        check(ConfigureInspectorTitleBar(&tbWindow,&testValue,titleHwnd)==S_OK &&
+            testTitleBar.visibility==0 && contentExtended && titleBarDragElement==&testTitleBar && loadedHandler,
+            "the shell's TitleBar replaces the system caption");
+
+        // The TitleBar copies its short Title to the window when it is templated; Loaded puts the PID back.
+        wchar_t pid[32];
+        swprintf_s(pid,L"PID %lu",GetCurrentProcessId());
+        const std::wstring expectedTitle=std::wstring(L"WinApp DevTools \u00B7 ")+pid;
+        auto windowTitle=[&]() { wchar_t text[64]{}; GetWindowTextW(titleHwnd,text,_countof(text)); return std::wstring(text); };
+        auto* titleSink=static_cast<InspectorWindowTitleSink*>(loadedHandler);
+        if (titleSink) {
+            SetWindowTextW(titleHwnd,L"WinApp DevTools");
+            titleSink->Invoke(nullptr,nullptr);
+            check(PidText()==pid && windowTitle()==expectedTitle,
+                "the window title keeps the PID that winapp ui looks for");
+            ++g_route1Gen;
+            SetWindowTextW(titleHwnd,L"WinApp DevTools");
+            titleSink->Invoke(nullptr,nullptr);
+            check(windowTitle()==L"WinApp DevTools","a title handler from an earlier window does not rename the current one");
+        }
+        if (titleHwnd) DestroyWindow(titleHwnd);
+        exposeTitleBar=false;testTitleBar.visibility=1;loadedHandler=nullptr;loadedAdds=0;
+        titleBarDragElement=nullptr;contentExtended=false;setTitleBarCalls=0;
     }
     {
         DevToolsWindowLayout stretched{};

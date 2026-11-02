@@ -120,6 +120,9 @@ static SHORT WINAPI NoModifierKey(int key)
 static HRESULT quickNumberResult = S_OK;
 static HRESULT ReadQuickNumber(void*, double* value) { *value=quickNumber; return quickNumberResult; }
 template <typename I> static HRESULT GeometryPadding(void*, double*, double*, double*, double*);
+static float measuredToastH = 0;
+static HRESULT GeometryMeasure(void*, float, float) { return measuredToastH > 0 ? S_OK : E_NOTIMPL; }
+static HRESULT GeometryDesiredSize(void*, float* width, float* height) { *width = 0; *height = measuredToastH; return S_OK; }
 // Replace only runtime reads; both shipping geometry functions, their QIs, root Content ABI,
 // identity checks, normalization and box-model calculations execute unchanged.
 #define DevToolsGetXamlRoot GeometryXamlRoot
@@ -130,6 +133,8 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #define DevToolsGetOpacity GeometryOpacity
 #define DevToolsGetVisualParent GeometryParent
 #define DevToolsGetRenderSize GeometryRenderSize
+#define DevToolsMeasure GeometryMeasure
+#define DevToolsGetDesiredSize GeometryDesiredSize
 #define DevToolsGetActualWidth GeometryActualWidth
 #define DevToolsGetActualHeight GeometryActualHeight
 #define DevToolsTransformToVisual GeometryTransform
@@ -211,6 +216,8 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #undef DevToolsGetOpacity
 #undef DevToolsGetVisualParent
 #undef DevToolsGetRenderSize
+#undef DevToolsMeasure
+#undef DevToolsGetDesiredSize
 #undef DevToolsGetActualWidth
 #undef DevToolsGetActualHeight
 #undef DevToolsTransformToVisual
@@ -609,7 +616,7 @@ static void TestOneShotPicks(unsigned& checks, unsigned& failures)
     static unsigned inspectorOpens = 0;
     DevToolsOverlay_SetPickedSink([](InstanceHandle) { return fromWindow; });
     DevToolsOverlay_SetPickModeSink([](bool armed) { pickButtonOn = armed; });
-    DevToolsOverlay_SetInprocInspect([]() { ++inspectorOpens; return true; });
+    DevToolsOverlay_SetInprocInspect([](std::wstring*) { ++inspectorOpens; return true; });
     for (const bool windowPick : {false, true}) {
         fromWindow = windowPick;
         inspectorOpens = 0;
@@ -777,6 +784,35 @@ int main()
         g_canvasStatics = g_aRow = g_railL = nullptr;
         for (auto& snap : g_snapUi) snap = nullptr;
         g_toolbarVisible = false;
+    }
+    {
+        // A long message wraps onto more lines, and the taller toast moves so it still clears the toolbar.
+        SwitchDiagnostics diag;
+        SwitchObject bar, pill;
+        const DevToolsSurface savedToolbarSurface = g_toolbarSurface;
+        const double savedLeft = geometryAdorner.left, savedTop = geometryAdorner.top;
+        g_pickDiag = &diag; g_canvasChildren = g_canvasStatics = &diag.canvas; g_aRow = &bar; g_railL = &pill;
+        g_toolbarSurface = g_activeSurface;
+        g_protoW = 800; g_protoH = 700; g_toolbarVisible = true; geometryAdornerReader = true;
+        for (const int corner : { (int)CornerBR, (int)CornerTR }) {
+            g_corner = corner;
+            measuredToastH = 77; geometryAdorner.top = -1;
+            ShowCommentToast(L"DevTools window did not open: it needs Windows App SDK 1.7 or later", true);
+            RECT r{};
+            check(ToolbarRectDip(&r) && geometryAdorner.top >= 8 && geometryAdorner.left >= 8 &&
+                (geometryAdorner.top + measuredToastH <= r.top || geometryAdorner.top >= r.bottom),
+                "comment toast", "a message that wraps onto more lines does not cover the toolbar");
+            HideCommentToast();
+        }
+        measuredToastH = 30; geometryAdorner.top = -1;
+        ShowCommentToast(L"Comment saved", false);
+        check(geometryAdorner.top == -1, "comment toast", "a one-line toast stays where it was placed");
+        HideCommentToast();
+        measuredToastH = 0; g_commentToastText.clear();
+        geometryAdorner.left = savedLeft; geometryAdorner.top = savedTop;
+        g_toolbarSurface = savedToolbarSurface;
+        g_pickDiag = nullptr; g_canvasChildren = g_canvasStatics = g_aRow = g_railL = nullptr;
+        g_toolbarVisible = false; g_corner = CornerBR; geometryAdornerReader = false;
     }
     {
         // Hide toolbar lasts for this run; Ctrl+Shift+F12 brings a hidden toolbar back. The "When the app starts" items
@@ -965,7 +1001,7 @@ int main()
         g_canvasChildren=&canvas;
         static DevToolsInspectRequest seen;
         static int opens = 0;
-        DevToolsOverlay_SetInprocInspect([]() { seen = DevToolsOverlay_InspectRequest(); ++opens; return false; });
+        DevToolsOverlay_SetInprocInspect([](std::wstring*) { seen = DevToolsOverlay_InspectRequest(); ++opens; return false; });
         g_pickDiag=&diag;g_pickRoot=10;g_pickCatcher=&catcher;catcher.AddRef();
         g_cardRead=[](IInspectable*, std::wstring*, std::wstring*, std::vector<DevToolsCardRow>*, std::wstring*, std::wstring*) { return true; };
         SetCommentMode(false);
@@ -1191,12 +1227,22 @@ int main()
         // the window can select it.
         {
             static InstanceHandle seenElement = 0;
-            DevToolsOverlay_SetInprocInspect([]() { seenElement = DevToolsOverlay_InspectRequest().element; return false; });
+            DevToolsOverlay_SetInprocInspect([](std::wstring*) { seenElement = DevToolsOverlay_InspectRequest().element; return false; });
             const InstanceHandle savedHandle = g_selHandle;
             g_selHandle = 77;
+            g_commentToastText.clear();
             OnSelOpenClick(nullptr, nullptr);
-            check(seenElement == 77 && DevToolsOverlay_InspectRequest().element == 0,
+            check(seenElement == 77 && DevToolsOverlay_InspectRequest().element == 0 && g_commentToastText.empty(),
                 "open in DevTools", "the inspector is told which element to select, and the request is not left behind");
+            DevToolsOverlay_SetInprocInspect([](std::wstring* error) {
+                *error = L"it needs Windows App SDK 1.7 or later, and this app uses an older version";
+                return false;
+            });
+            OnSelOpenClick(nullptr, nullptr);
+            check(g_commentToastText ==
+                    L"DevTools window did not open: it needs Windows App SDK 1.7 or later, and this app uses an older version",
+                "open in DevTools", "when the window cannot open, the toolbar says why");
+            HideCommentToast();
             g_selHandle = savedHandle;
             DevToolsOverlay_SetInprocInspect(nullptr);
         }

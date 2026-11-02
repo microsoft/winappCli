@@ -275,14 +275,14 @@ static void TestToolbarContract()
                      selectionPanel.find("TabIndex=") == std::string::npos,
                  "the flyout reads source, then the comment, then Open in DevTools, with no property rows");    Check(windowShell.find("Background=\"Transparent\"") != std::string::npos,
                  "the DevTools window shell exposes its system backdrop");
-    Check(windowShell.find("InspectorTitleBarHost") == std::string::npos &&
-                     window.find("<TitleBar xmlns=") == std::string::npos &&
-                     window.find("DevToolsWinExtendTitleBar(") == std::string::npos &&
-                     window.find("DevToolsWinSetTitleBar(") == std::string::npos &&
+    Check(windowShell.find("<TitleBar x:Name=\"InspectorTitleBar\" Grid.Row=\"0\" Title=\"WinApp DevTools\" Subtitle=\"$SUBTITLE$\"") != std::string::npos &&
+                     windowShell.find("InspectorTitleBarHost") == std::string::npos &&
+                     window.find("ReplaceToken(markup, L\"$SUBTITLE$\", DevToolsXmlEscape(PidText()))") != std::string::npos &&
+                     window.find("ConfigureInspectorTitleBar(win, content, ") != std::string::npos &&
+                     window.find("DevToolsAddLoaded(") != std::string::npos &&
                      window.find("ConfigureInspectorCaptionTheme(winInsp, content)") != std::string::npos &&
-                     window.find("DevToolsAddActualThemeChanged(g_captionThemeRoot, sink, &g_captionThemeToken)") != std::string::npos &&
-                     windowShell.find("<TitleBar ") == std::string::npos,
-                 "inspector themes the native caption without custom frame or duplicate titlebar");
+                     window.find("DevToolsAddActualThemeChanged(g_captionThemeRoot, sink, &g_captionThemeToken)") != std::string::npos,
+                 "inspector shows the PID as the WinUI TitleBar subtitle, keeps the PID window title, and themes the caption buttons");
     Check(windowShell.find("Snapshot values") == std::string::npos &&
                      windowShell.find("RefreshInspectorSnapshot") == std::string::npos,
                  "the inspector has no snapshot banner or refresh button: the selected element is live");

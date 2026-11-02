@@ -13,6 +13,8 @@
 #include <shellapi.h>
 #include <shlwapi.h>
 #pragma comment(lib, "shlwapi.lib")
+#include <shcore.h>
+#pragma comment(lib, "shcore.lib")
 #include <commctrl.h>
 #pragma comment(lib, "comctl32.lib")
 #include <objidl.h>

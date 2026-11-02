@@ -10,17 +10,29 @@
 
      TOKENS (substituted by BuildWindowMarkup before the document is parsed):
        $TREEHEADER$ -> "VISUAL TREE - N NODES" (node-count header above the tree list)
+       $SUBTITLE$   -> "PID <process id>" (title bar subtitle)
      The data-driven rows are parsed into their own namescope and swapped through TreeRowsHost. That lets a
-     Just-my-XAML toggle rebuild the capped population without tearing down PropsHost or an in-flight edit. -->
+     Just-my-XAML toggle rebuild the capped population without tearing down PropsHost or an in-flight edit.
+
+     TITLE BAR: row 0 is the WinUI TitleBar control, so this window needs Windows App SDK 1.7 or later. The
+     control copies its Title into the window title; ConfigureInspectorTitleBar puts the PID window title back
+     once the control has loaded, because `winapp ui` recognizes the inspector by that title. If content cannot
+     extend into the caption, the control is collapsed and Windows draws the standard caption. -->
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Background="Transparent">
+  <Grid.RowDefinitions>
+    <RowDefinition Height="Auto"/>
+    <RowDefinition Height="*"/>
+  </Grid.RowDefinitions>
+  <TitleBar x:Name="InspectorTitleBar" Grid.Row="0" Title="WinApp DevTools" Subtitle="$SUBTITLE$"
+            AutomationProperties.AutomationId="InspectorTitleBar"/>
   <!-- Content (tree | splitter | props). The tree pane carries an explicit Width and its column is
        Auto, so a drag can resize it directly via FrameworkElement.Width; the props column takes the rest.
        (A star/star split cannot be resized without writing GridLength through the ABI, and WinUI ships no
        GridSplitter -- that control lives in the Community Toolkit, which this overlay deliberately does not
        take a dependency on. A Thumb is the primitive underneath it and needs nothing new.) -->
-  <Grid>
+  <Grid Grid.Row="1">
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="Auto"/>
       <ColumnDefinition Width="6"/>

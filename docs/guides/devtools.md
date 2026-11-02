@@ -6,7 +6,9 @@ Sandbox, attaching to a running app, query targeting, comment storage, the proto
 and troubleshooting, see [Advanced DevTools](devtools-advanced.md). Every command's
 `--help` lists its options and examples.
 
-The app must use Windows App SDK 1.5 or later for the DevTools inspector's view selectors.
+The DevTools window needs Windows App SDK 1.7 or later. In an app that uses an older
+version, the window doesn't open, and DevTools shows a message that names the required
+version.
 
 ## Get started
 

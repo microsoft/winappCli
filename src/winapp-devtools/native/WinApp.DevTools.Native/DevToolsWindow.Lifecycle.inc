@@ -140,6 +140,14 @@ if (g_route1WindowHidden) {
     IInspectable* content = nullptr;
     hr = LoadMarkupWin(BuildWindowMarkup(nodes.size(), censusTotal), &content, errorMessage);
     DevToolsOverlayLog(L"route1.step2 XamlReader.Load hr=0x%08X content=%p", hr, content);
+    if (FAILED(hr) && errorMessage) {
+        // The shell's title bar is the WinUI TitleBar control, which Windows App SDK 1.7 added. On an older runtime
+        // the parser only reports an unknown type, so name the requirement instead.
+        IInspectable* probe = nullptr;
+        if (FAILED(LoadMarkupRaw(L"<TitleBar xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"/>", &probe)))
+            *errorMessage = L"it needs Windows App SDK 1.7 or later, and this app uses an older version";
+        else if (probe) probe->Release();
+    }
     if (FAILED(hr) || !content) { reinterpret_cast<IUnknown*>(win)->Release(); winInsp->Release(); return FAILED(hr) ? hr : E_FAIL; }
 
     // 2b. Locate the "PropsHost" StackPanel (FindName on the content root) and cache its Children collection,
@@ -503,6 +511,7 @@ if (g_route1WindowHidden) {
     HRESULT hrBackdrop = ApplyMicaBackdrop(winInsp);
     DevToolsOverlayLog(L"route1.step4 MicaBackdrop hr=0x%08X", hrBackdrop);
 
+    ConfigureInspectorTitleBar(win, content, HwndFromWindowInsp(winInsp));
     ConfigureInspectorCaptionTheme(winInsp, content);
     if (HWND preHwnd = HwndFromWindowInsp(winInsp)) {
         SetInspectorIcon(preHwnd);

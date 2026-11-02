@@ -406,5 +406,6 @@ static std::wstring BuildWindowMarkup(size_t flattenedCount, size_t censusTotal)
     }
     std::wstring markup = DevToolsXaml::WindowShell;
     ReplaceToken(markup, L"$TREEHEADER$", DevToolsXmlEscape(hdr));
+    ReplaceToken(markup, L"$SUBTITLE$", DevToolsXmlEscape(PidText()));
     return markup;
 }
