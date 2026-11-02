@@ -144,7 +144,15 @@
                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                      AutomationProperties.AutomationId="TreeNoMatches"
                      AutomationProperties.LiveSetting="Polite"/>
-          <Grid x:Name="TreeRowsHost" Grid.Row="2"/>
+          <!-- 24 px tree rows, the height of WinUI's Compact density, with a 2 px gap between row highlights.
+               Like WinUI's default padding (3 top, 5 bottom), 2 px more space below makes the text look centered. -->
+          <Grid x:Name="TreeRowsHost" Grid.Row="2">
+            <Grid.Resources>
+              <x:Double x:Key="TreeViewItemMinHeight">24</x:Double>
+              <Thickness x:Key="TreeViewItemPresenterMargin">4,1</Thickness>
+              <Thickness x:Key="TreeViewItemPresenterPadding">0,0,0,2</Thickness>
+            </Grid.Resources>
+          </Grid>
           <StackPanel x:Name="RowPalette" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw">
             <Border x:Name="PalTransparent" Background="Transparent"/>
             <TextBlock x:Name="PalAccent" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>

@@ -245,7 +245,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
         winrt::com_ptr<IInspectable> itemTemplate;
         winrt::check_hresult(LoadMarkupWin(
             LR"(<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">)"
-            LR"(<TextBlock FontSize="12" TextTrimming="CharacterEllipsis">)"
+            LR"(<TextBlock FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">)"
             LR"(<Run Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>)"
             LR"(<Run Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>)"
             LR"(<Run Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>)"

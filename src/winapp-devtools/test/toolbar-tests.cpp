@@ -382,7 +382,7 @@ static void TestToolbarContract()
     Check(windowShell.find("x:Name=\"PName\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos &&
                      windowShell.find("x:Name=\"PValue\" Grid.Column=\"1\" FontFamily=\"Consolas\" FontSize=\"12\"") != std::string::npos,
                  "the collapsed row's name and value are the same compact 12 DIP as the editor");
-    Check(windowShell.find("<Grid x:Name=\"TreeRowsHost\" Grid.Row=\"2\"/>") != std::string::npos &&
+    Check(windowShell.find("<Grid x:Name=\"TreeRowsHost\" Grid.Row=\"2\">") != std::string::npos &&
                      window.find("g_treeView = DevToolsXC::TreeView{}") != std::string::npos &&
                      window.find("container.ContentTemplateRoot().try_as<DevToolsXC::TextBlock>()") != std::string::npos &&
                      window.find("ContainerContentChanging") != std::string::npos &&
@@ -398,6 +398,10 @@ static void TestToolbarContract()
     Check(window.find("caption.FontSize(12)") != std::string::npos &&
                      window.find("caption.FontSize(13)") == std::string::npos,
                  "tree rows use the compact 12-DIP caption size");
+    Check(windowShell.find("<x:Double x:Key=\"TreeViewItemMinHeight\">24</x:Double>") != std::string::npos &&
+                     window.find("<TextBlock FontSize=\"12\" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\">") !=
+                         std::string::npos,
+                 "tree rows use WinUI's compact 24-DIP height with their text centered");
     Check(windowShell.find("<ToggleButton x:Name=\"JmxBtn\"") != std::string::npos &&
                      windowShell.find("Glyph=\"&#xE943;\"") != std::string::npos &&
                      windowShell.find("ToolTipService.ToolTip=\"{Binding Text, ElementName=JmxLbl}\"") != std::string::npos &&
