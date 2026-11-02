@@ -237,6 +237,8 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
     g_liveTimer = 0;
     if (!g_live.wire || g_live.wire != g_selWire || g_live.gen != g_route1Gen || !g_valuesFn) return;
     if (g_ctx.wireLiveFn && !g_ctx.wireLiveFn(g_live.wire)) { LiveUnwatch(); return; }
+    // Tree captions do not replace property editors, so they can follow app changes during a draft too.
+    UpdateSelectedTreePreview();
     // An edit is in progress: its row is not replaced under the user; look again once it is committed or cancelled.
     // Edit records are still checked, so an app change during the edit still drops a stale Restore.
     if (!CanRereadSelection(nullptr)) {
@@ -283,8 +285,6 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
         }
         if (layoutInputChanged) RedrawLayoutSectionFromRows(g_live.wire);
     }
-    // The caption can change even when no shown row did (it may come from a property the pane does not list).
-    UpdateSelectedTreePreview();
     QueryPerformanceCounter(&t1);
     DevToolsOverlayLog(L"route1.live update action=%d read=%zu changed=%zu uiMs=%.2f", (int)plan.action,
         names.size(), plan.changed.size(), (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart);
@@ -417,9 +417,10 @@ static bool RereadTreeCaption(size_t original, std::wstring* before)
 {
     if (!g_ctx.previewFn || original >= g_allTreeNodes.size()) return false;
     *before = g_allTreeNodes[original].preview;
+    const std::wstring beforeSearch = g_allTreeNodes[original].searchText;
     g_allTreeNodes[original].previewRead = false;
     g_ctx.previewFn(g_allTreeNodes, { original });
-    return g_allTreeNodes[original].preview != *before;
+    return g_allTreeNodes[original].preview != *before || g_allTreeNodes[original].searchText != beforeSearch;
 }
 
 // The selected element's caption in the tree ("Count: 3"), which follows its properties too.
@@ -431,21 +432,31 @@ static void UpdateSelectedTreePreview()
     const size_t original = g_renderedOriginalIndices[row->second];
     std::wstring before;
     if (!RereadTreeCaption(original, &before)) return;
-    const std::wstring after = g_allTreeNodes[original].preview;
+    const auto& node = g_allTreeNodes[original];
+    const std::wstring& after = node.preview;
     try {
         const auto caption = g_treeNodes[row->second].Content().as<DevToolsXC::TextBlock>();
         const auto inlines = caption.Inlines();
-        // The caption ends with the preview between quotes: "\u201C", preview, "\u201D".
+        // The last three runs are reserved for the preview, including its empty state.
         const uint32_t n = inlines.Size();
-        if (before.empty() || after.empty() || n < 3) { RefreshTreeFromApp(true); return; }
+        if (n < 4) throw winrt::hresult_error(E_UNEXPECTED, L"The tree caption has no preview runs.");
+        inlines.GetAt(n - 3).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"  \u201C");
         inlines.GetAt(n - 2).as<DevToolsXDoc::Run>().Text(after);
+        inlines.GetAt(n - 1).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"\u201D");
+        // Selection can reveal a nonmatching row. Keep that exception, not rows whose old caption matched.
+        const bool keepRevealed = !g_treeFilterQuery.empty() && g_treeVisible[row->second] &&
+            (RowHiddenByJmx(row->second) ||
+             g_treeLabel[row->second].find(g_treeFilterQuery) == std::wstring::npos);
         g_treeLabel[row->second] = DevToolsTreeLayout::BuildTreeFilterLabel(
-            g_allTreeNodes[original].type, g_allTreeNodes[original].name,
-            after + L" " + g_allTreeNodes[original].searchText + L" " + g_allTreeNodes[original].sourceUri);
-        if (g_treeFilterQuery.empty()) SyncTreeStructure();
-        else ApplyTreeFilter(g_treeFilterQuery);
+            node.type, node.name, after + L" " + node.searchText + L" " + node.sourceUri);
+        const bool matchesFilter = !RowHiddenByJmx(row->second) &&
+            g_treeLabel[row->second].find(g_treeFilterQuery) != std::wstring::npos;
+        // Collapsing and re-showing a revealed row would move keyboard focus away.
+        if (!g_treeFilterQuery.empty() && (!keepRevealed || matchesFilter)) ApplyTreeFilter(g_treeFilterQuery);
+        // Copies the new caption, name and tooltip to the realized row without rebuilding the tree.
+        else SyncTreeStructure();
     } catch (const winrt::hresult_error& error) {
-        DevToolsOverlayLog(L"tree.preview failed hr=0x%08X; rebuilding captions", error.code().value);
-        RefreshTreeFromApp(true);
+        DevToolsOverlayLog(L"tree.preview failed hr=0x%08X", error.code().value);
+        SetStatusText(L"Could not update the tree caption. Press F5 to refresh the tree.");
     }
 }
