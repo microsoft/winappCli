@@ -9,6 +9,7 @@ using Spectre.Console;
 using Spectre.Console.Testing;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Tests;
 
@@ -19,6 +20,7 @@ public sealed class UiAuditObserveCommandTests : IDisposable
     private readonly StringWriter _error = new();
     private readonly ResolverFake _resolver = new();
     private readonly ObservationFake _observation = new();
+    private readonly FakeInteractiveDesktopLock _desktop = new();
     private ServiceProvider _services = null!;
 
     public TestContext TestContext { get; set; } = null!;
@@ -31,6 +33,7 @@ public sealed class UiAuditObserveCommandTests : IDisposable
             .AddSingleton<IAnsiConsole>(_console)
             .AddSingleton<IUiTargetResolver>(_resolver)
             .AddSingleton<IUiAuditObservationService>(_observation)
+            .AddSingleton<IInteractiveDesktopLock>(_desktop)
             .AddLogging(builder => builder.SetMinimumLevel(LogLevel.None))
             .BuildServiceProvider();
     }
@@ -43,6 +46,28 @@ public sealed class UiAuditObserveCommandTests : IDisposable
         _services?.Dispose();
         _console.Dispose();
         _error.Dispose();
+    }
+
+    [TestMethod]
+    public async Task CoordinationFailureCannotResolveOrActivateTheTarget()
+    {
+        _desktop.ThrowOnRun = new UiCoordinationException(UiCoordinationErrorCodes.Unavailable, "Desktop unavailable.");
+        var result = await Run(["-a", "123", "--tab-steps", "1", "--accept-input", "--json"]);
+        AssertFailure(result, UiCoordinationErrorCodes.Unavailable);
+        Assert.AreEqual(0, _resolver.Calls);
+        Assert.AreEqual(0, _observation.Calls);
+    }
+
+    [TestMethod]
+    public async Task CancelledProbeEscapesTheBodyAndReleasesTheDesktopSection()
+    {
+        _observation.Failure = new OperationCanceledException();
+        var result = await Run(["-a", "123", "--tab-steps", "1", "--accept-input", "--json"]);
+        Assert.AreNotEqual(0, result.ExitCode);
+        Assert.IsTrue(_desktop.LastBodyThrew);
+        Assert.IsInstanceOfType<OperationCanceledException>(_desktop.LastBodyException);
+        Assert.AreEqual(1, _desktop.DesktopSectionEnters);
+        Assert.AreEqual(0, _desktop.OpenDesktopSections);
     }
 
     [TestMethod]
@@ -78,6 +103,8 @@ public sealed class UiAuditObserveCommandTests : IDisposable
         Assert.AreEqual(500, _observation.Options.MaxEvents);
         Assert.IsFalse(_observation.Options.AcceptInput);
         Assert.AreSame(_resolver.Target, _observation.Target);
+        Assert.AreEqual(UiTurnMode.Observe, _desktop.Runs.Single().Mode);
+        Assert.AreEqual(0, _desktop.DesktopSectionEnters);
     }
 
     [TestMethod]
@@ -95,6 +122,9 @@ public sealed class UiAuditObserveCommandTests : IDisposable
         Assert.AreEqual(30, _observation.Options.TabSteps);
         Assert.AreEqual(5000, _observation.Options.MaxEvents);
         Assert.IsTrue(_observation.Options.AcceptInput);
+        Assert.AreEqual(UiTurnMode.DesktopExclusive, _desktop.Runs.Single().Mode);
+        Assert.AreEqual(1, _desktop.DesktopSectionEnters);
+        Assert.AreEqual(0, _desktop.OpenDesktopSections);
     }
 
     [TestMethod]
@@ -300,6 +330,7 @@ public sealed class UiAuditObserveCommandTests : IDisposable
     {
         Assert.AreEqual(0, _resolver.Calls);
         Assert.AreEqual(0, _observation.Calls);
+        Assert.AreEqual(0, _desktop.Runs.Count);
     }
 
     private static void AssertFailure(CommandResult result, string expectedCode)
@@ -337,6 +368,7 @@ public sealed class UiAuditObserveCommandTests : IDisposable
 
     private sealed class ObservationFake : IUiAuditObservationService
     {
+        internal Exception? Failure { get; set; }
         internal int Calls { get; private set; }
         internal UiTarget? Target { get; private set; }
         internal UiAuditObservationOptions? Options { get; private set; }
@@ -353,6 +385,7 @@ public sealed class UiAuditObserveCommandTests : IDisposable
             Calls++;
             Target = target;
             Options = options;
+            if (Failure is not null) { throw Failure; }
             return Task.FromResult(Result);
         }
     }

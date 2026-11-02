@@ -8,6 +8,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -38,9 +39,14 @@ internal sealed class UiExpandCollapseCommand : Command, IShortDescription
         IUiAutomation uiAutomation,
         IUiSelectorParser selectorParser,
         IAnsiConsole ansiConsole,
-        ILogger<UiExpandCollapseCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiExpandCollapseCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui expand-collapse";
+
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.DesktopExclusive;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var selectorArg = parseResult.GetValue(SharedUiOptions.SelectorArgument);
@@ -79,8 +85,21 @@ internal sealed class UiExpandCollapseCommand : Command, IShortDescription
                 return validationExit;
             }
 
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            var selectorArg = parseResult.GetValue(SharedUiOptions.SelectorArgument);
+            var selectorStr = UiQueryOptions.Describe(parseResult, selectorArg);
+            var app = parseResult.GetValue(SharedUiOptions.AppOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
+            var state = parseResult.GetValue(StateOption)!.Equals("expanded", StringComparison.OrdinalIgnoreCase)
+                ? UiExpandCollapseState.Expanded : UiExpandCollapseState.Collapsed;
             try
             {
+                await using var section = await turn.EnterAsync(cancellationToken).ConfigureAwait(false);
                 var target = await targetResolver.ResolveAsync(app, window, cancellationToken);
                 var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorArg);
                 var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, target, selector, cancellationToken);
@@ -90,7 +109,7 @@ internal sealed class UiExpandCollapseCommand : Command, IShortDescription
                     return 1;
                 }
 
-                var actual = await uiAutomation.SetExpandCollapseStateAsync(target, element, state.Value, cancellationToken);
+                var actual = await uiAutomation.SetExpandCollapseStateAsync(target, element, state, cancellationToken);
                 if (json)
                 {
                     var result = new UiExpandCollapseResult
@@ -120,7 +139,7 @@ internal sealed class UiExpandCollapseCommand : Command, IShortDescription
                 UiErrors.AmbiguousSelector(logger, ex.Message, json);
                 return 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json, errorOut: parseResult.InvocationConfiguration.Error);
                 return 1;

@@ -231,6 +231,11 @@ try
             Copy-Item $_.FullName $LayoutPath -Force
             Write-Host "  - Copied $($_.Name)" -ForegroundColor Gray
         }
+        $WorkerPath = Join-Path $SourceBinPath 'accessibility'
+        if (-not (Test-Path (Join-Path $WorkerPath 'winapp-accessibility-worker.exe') -PathType Leaf)) {
+            throw "Accessibility worker is missing: $WorkerPath. Run scripts\build-cli.ps1 first."
+        }
+        Copy-Item $WorkerPath (Join-Path $LayoutPath 'accessibility') -Recurse -Force
         
         # Copy Assets folder
         $TargetAssetsPath = Join-Path $LayoutPath "Assets"
@@ -448,4 +453,3 @@ finally
     # Restore original working directory
     Pop-Location
 }
-

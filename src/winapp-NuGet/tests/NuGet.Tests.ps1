@@ -1561,6 +1561,24 @@ Describe "Microsoft.Windows.SDK.BuildTools.WinApp package layout" -Skip:$script:
             Should -Not -Throw
     }
 
+    It 'Includes each architecture self-contained accessibility worker and its notices' -Tag 'AccessibilityArchive' {
+        $z = [IO.Compression.ZipFile]::OpenRead($script:nupkg)
+        try {
+            foreach ($arch in 'win-x64', 'win-arm64') {
+                $prefix = "tools/$arch/accessibility/"
+                foreach ($name in 'winapp-accessibility-worker.exe', 'winapp-accessibility-worker.dll',
+                    'coreclr.dll', 'System.Private.CoreLib.dll', 'LICENSE.TXT', 'THIRD-PARTY-NOTICES.TXT',
+                    'licenses/WinAppCLI/LICENSE.txt', 'licenses/Axe.Windows/axe.windows.nuspec.txt') {
+                    $z.GetEntry("$prefix$name") | Should -Not -BeNullOrEmpty -Because "$arch must include $name without an installed .NET runtime and retain attribution"
+                }
+                $reader = [IO.StreamReader]::new($z.GetEntry("${prefix}winapp-accessibility-worker.runtimeconfig.json").Open())
+                try { $config = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+                $config.runtimeOptions.framework | Should -BeNullOrEmpty
+                $config.runtimeOptions.frameworks | Should -BeNullOrEmpty
+            }
+        } finally { $z.Dispose() }
+    }
+
     It "Mirrors build\ to buildTransitive\ exactly (parity required for transitive flow)" {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $z = [IO.Compression.ZipFile]::OpenRead($script:nupkg)
@@ -1613,12 +1631,13 @@ Describe "UI Automation library packages" -Skip:$script:skip {
     }
 
     Context "Package contents" {
-        It 'Keeps DevTools engines out of UIAutomation, Recording and analyzer packages' -Tag 'EngineArchive' {
+        It 'Keeps CLI engines and accessibility workers out of library-only packages' -Tag 'EngineArchive' {
             foreach ($id in @($script:baseId, $script:recordingId, 'Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer')) {
                 $pkg = Get-LibraryPackage $id
                 $pkg | Should -Not -BeNullOrEmpty -Because "$id must have been packaged"
                 $entries = @(Get-NupkgEntries $pkg.FullName | Where-Object {
-                    ($_ -split '/')[-1] -in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.DevTools.Native.pdb', 'winapp-devtools-schema.json'
+                    ($_ -split '/')[-1] -in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.DevTools.Native.pdb', 'winapp-devtools-schema.json',
+                        'winapp-accessibility-worker.exe', 'winapp-accessibility-worker.dll', 'coreclr.dll', 'System.Private.CoreLib.dll'
                 })
                 $entries | Should -BeNullOrEmpty -Because 'library-only packages must not acquire the CLI engines'
             }

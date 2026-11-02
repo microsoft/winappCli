@@ -209,6 +209,13 @@ try
         Get-ChildItem -Path $Arm64Path -File | Where-Object { $_.Extension -ne '.pdb' } | ForEach-Object {
             Copy-Item $_.FullName $ToolsArm64Path -Force
         }
+        foreach ($architecture in @('win-x64', 'win-arm64')) {
+            $worker = Join-Path $CliBinariesPath "$architecture\accessibility"
+            if (-not (Test-Path (Join-Path $worker 'winapp-accessibility-worker.exe') -PathType Leaf)) {
+                throw "Accessibility worker is missing: $worker. Run scripts\build-cli.ps1 first."
+            }
+            Copy-Item $worker (Join-Path $ExtrasToolsPath "$architecture\accessibility") -Recurse -Force
+        }
     
         Write-Host "[COPY] CLI binaries copied successfully" -ForegroundColor Green
     

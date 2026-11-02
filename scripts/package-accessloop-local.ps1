@@ -5,8 +5,8 @@
 .SYNOPSIS
 Build a local WinAppCLI accessibility bundle with its managed runtime and skills.
 .DESCRIPTION
-Uses an already-published native CLI. The accessibility worker is published
-self-contained unless WorkerDirectory points to an existing worker publish.
+Uses an already-published native CLI and its accessibility worker. If the CLI
+has no worker, publishes one self-contained. WorkerDirectory overrides that worker.
 The output directory and ZIP must not already exist.
 #>
 [CmdletBinding()]
@@ -48,10 +48,11 @@ Get-ChildItem -LiteralPath $cli -Force | Where-Object { $_.Extension -ne '.pdb' 
     Copy-Item -Destination $output -Recurse
 $worker = Join-Path $output 'accessibility'
 if ($WorkerDirectory) {
+    if (Test-Path -LiteralPath $worker) { Remove-Item -LiteralPath $worker -Recurse -Force }
     New-Item -ItemType Directory -Path $worker | Out-Null
     Get-ChildItem -LiteralPath $WorkerDirectory -Force | Copy-Item -Destination $worker -Recurse
 }
-else {
+elseif (-not (Test-Path -LiteralPath (Join-Path $worker 'winapp-accessibility-worker.exe') -PathType Leaf)) {
     $projects = @(Get-ChildItem -LiteralPath (Join-Path $repo 'src\winapp-CLI\WinApp.Accessibility.Worker') -Filter '*.csproj' -File)
     if ($projects.Count -ne 1) { throw 'Expected one accessibility worker project.' }
     & dotnet publish $projects[0].FullName -c Release -r $Runtime --self-contained true `

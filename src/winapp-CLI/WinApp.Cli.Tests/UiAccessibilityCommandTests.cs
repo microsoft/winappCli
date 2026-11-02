@@ -10,6 +10,7 @@ using Spectre.Console.Testing;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Tests;
 
@@ -23,6 +24,7 @@ public sealed class UiAccessibilityCommandTests : IDisposable
     private StringWriter _stdout = null!;
     private StringWriter _stderr = null!;
     private WorkerFake _worker = null!;
+    private FakeInteractiveDesktopLock _desktop = null!;
 
     public TestContext TestContext { get; set; } = null!;
 
@@ -30,6 +32,7 @@ public sealed class UiAccessibilityCommandTests : IDisposable
     public void Initialize()
     {
         _worker = new WorkerFake();
+        _desktop = new FakeInteractiveDesktopLock();
         _console = new TestConsole();
         _stdout = new StringWriter();
         _stderr = new StringWriter();
@@ -39,6 +42,7 @@ public sealed class UiAccessibilityCommandTests : IDisposable
             .ConfigureCommands()
             .AddSingleton<IAnsiConsole>(_console)
             .AddSingleton<IUiAccessibilityWorkerService>(_worker)
+            .AddSingleton<IInteractiveDesktopLock>(_desktop)
             .BuildServiceProvider();
     }
 
@@ -51,6 +55,18 @@ public sealed class UiAccessibilityCommandTests : IDisposable
         _console?.Dispose();
         _stdout?.Dispose();
         _stderr?.Dispose();
+    }
+
+    [TestMethod]
+    [DataRow("audit --app 123")]
+    [DataRow("audit --app 123 --current-page")]
+    [DataRow("audit --app 123 --current-page --tab-steps 1 --accept-input")]
+    [DataRow("loop reviewed.json --output evidence --accept-actions")]
+    public async Task WorkerOrchestrationNeverHoldsATurnThatWouldBlockItsNativeChildren(string command)
+    {
+        Assert.AreEqual(0, await InvokeAsync(command.Split(' ')));
+        Assert.AreEqual(1, _worker.Calls);
+        Assert.AreEqual(0, _desktop.Runs.Count);
     }
 
     [TestMethod]

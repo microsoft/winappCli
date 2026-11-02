@@ -48,6 +48,12 @@ $global:LASTEXITCODE = 0
         foreach ($arch in @('win-x64', 'win-arm64')) {
             $cliPath = Join-Path $root "artifacts\cli\$arch\winapp.exe"
             Set-Content $cliPath "downloaded $arch"
+            $worker = Join-Path (Split-Path $cliPath -Parent) 'accessibility'
+            New-Item -ItemType Directory -Path $worker -Force | Out-Null
+            foreach ($name in 'winapp-accessibility-worker.exe', 'winapp-accessibility-worker.dll',
+                'coreclr.dll', 'System.Private.CoreLib.dll', 'LICENSE.TXT', 'THIRD-PARTY-NOTICES.TXT') {
+                Set-Content (Join-Path $worker $name) "downloaded $arch worker $name"
+            }
             Set-Content (Join-Path $root "artifacts\cli\$arch\winapp.pdb") 'normal PDB output'
             foreach ($name in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll') {
                 Set-Content (Join-Path $root "artifacts\cli\$arch\$name") "downloaded $arch $name"
@@ -281,6 +287,16 @@ Describe 'build-cli.ps1 control flow' {
         $root = New-BuildFixture
     }
 
+    It 'rejects incomplete accessibility artifacts before deleting or rebuilding anything' {
+        Remove-Item (Join-Path $root 'artifacts\cli\win-arm64\accessibility\coreclr.dll')
+        $before = Get-ArtifactSnapshot $root
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true }
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'Required accessibility worker artifact missing or empty:.*coreclr.dll'
+        $result.Trace | Should -Not -Match 'dotnet publish|engine-build|package-npm|package-nuget|package-msix'
+        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
+    }
+
     It 'reuses immutable artifacts and runs every test suite with fresh schema and results' {
         $before = Get-ArtifactSnapshot $root
         $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true }
@@ -333,7 +349,10 @@ Describe 'build-cli.ps1 control flow' {
         $result = Invoke-BuildFixture $root -Flags @{ SkipTests = $true; SkipDocs = $true }
 
         $result.ExitCode | Should -Be 0 -Because $result.Output
-        @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' }).Count | Should -Be 2
+        @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' }).Count | Should -Be 4
+        foreach ($arch in 'win-x64', 'win-arm64') {
+            $result.Trace | Should -Match "WinApp.Accessibility.Worker.csproj.*-r $arch --self-contained true.*$arch\\accessibility"
+        }
         @($result.Calls | Where-Object Name -EQ 'engine-build').Count | Should -Be 2
         $result.Trace | Should -Not -Match 'dotnet build|dotnet run|dotnet test|(?m)^npm |stand-down|nuget-pester|scripts-pester|generate-llm-docs'
         foreach ($name in @('package-npm', 'package-nuget', 'package-msix')) {
@@ -528,7 +547,7 @@ Describe 'build-cli.ps1 control flow' {
         $result = Invoke-BuildFixture $root
 
         $result.ExitCode | Should -Be 0 -Because $result.Output
-        @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' }).Count | Should -Be 2
+        @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' }).Count | Should -Be 4
         foreach ($name in @('build-number', 'prerelease-label', 'stand-down', 'generate-llm-docs', 'package-npm', 'package-nuget', 'nuget-pester', 'scripts-pester', 'package-msix')) {
             $result.Calls.Name | Should -Contain $name
         }
@@ -567,7 +586,7 @@ Describe 'build-cli.ps1 control flow' {
         $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true }
 
         $result.ExitCode | Should -Be 0 -Because $result.Output
-        @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' }).Count | Should -Be 2
+        @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' }).Count | Should -Be 4
         $result.Trace | Should -Match 'dotnet build'
         $result.Calls.Name | Should -Contain 'scripts-pester'
         $result.Trace | Should -Not -Match 'package-npm|package-nuget|package-msix|nuget-pester|generate-llm-docs'

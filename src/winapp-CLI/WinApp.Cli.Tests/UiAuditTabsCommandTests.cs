@@ -9,6 +9,7 @@ using Spectre.Console;
 using Spectre.Console.Testing;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Tests;
 
@@ -20,6 +21,7 @@ public sealed class UiAuditTabsCommandTests : IDisposable
     private StringWriter _output = null!;
     private StringWriter _error = null!;
     private TabsFake _tabs = null!;
+    private FakeInteractiveDesktopLock _desktop = null!;
     public TestContext TestContext { get; set; } = null!;
 
     [TestInitialize]
@@ -29,7 +31,9 @@ public sealed class UiAuditTabsCommandTests : IDisposable
         _output = new StringWriter();
         _error = new StringWriter();
         _tabs = new TabsFake();
+        _desktop = new FakeInteractiveDesktopLock();
         _services = new ServiceCollection().ConfigureCommands()
+            .AddLogging().AddSingleton<IInteractiveDesktopLock>(_desktop)
             .AddSingleton<IAnsiConsole>(_console).AddSingleton<IUiAuditTabsService>(_tabs).BuildServiceProvider();
     }
     [TestCleanup]
@@ -49,6 +53,8 @@ public sealed class UiAuditTabsCommandTests : IDisposable
         Assert.IsNull(_tabs.Options.Container);
         Assert.IsNull(_tabs.Options.RootRuntimeId);
         Assert.IsFalse(_tabs.Options.AcceptNavigation);
+        Assert.AreEqual(UiTurnMode.Observe, _desktop.Runs.Single().Mode);
+        Assert.AreEqual(0, _desktop.DesktopSectionEnters);
     }
 
     [TestMethod]
@@ -65,6 +71,9 @@ public sealed class UiAuditTabsCommandTests : IDisposable
         Assert.AreEqual(50, _tabs.Options.MaxDepth);
         Assert.AreEqual(10000, _tabs.Options.MaxElements);
         Assert.AreEqual(120000, _tabs.Options.TimeoutMs);
+        Assert.AreEqual(UiTurnMode.DesktopExclusive, _desktop.Runs.Single().Mode);
+        Assert.AreEqual(1, _desktop.DesktopSectionEnters);
+        Assert.AreEqual(0, _desktop.OpenDesktopSections);
     }
 
     [TestMethod]
@@ -88,6 +97,7 @@ public sealed class UiAuditTabsCommandTests : IDisposable
         var parsed = _services.GetRequiredService<UiAuditTabsCommand>().Parse(arguments + " --json", WinAppParserConfiguration.Default);
         Assert.AreNotEqual(0, await Invoke(parsed));
         Assert.AreEqual(0, _tabs.Calls);
+        Assert.AreEqual(0, _desktop.Runs.Count);
         Assert.IsEmpty(_output.ToString());
         using var error = JsonDocument.Parse(_error.ToString());
         Assert.AreEqual("invalid_arguments", error.RootElement.GetProperty("error").GetProperty("code").GetString());
@@ -198,9 +208,9 @@ public sealed class UiAuditTabsCommandTests : IDisposable
     }
 
     [TestMethod]
-    public async Task OperationalFailureAndCancellationStillReturnBlockedTypedEvidence()
+    public async Task OperationalFailureStillReturnsBlockedTypedEvidence()
     {
-        foreach (var failure in new Exception[] { new InvalidOperationException("provider details withheld"), new OperationCanceledException() })
+        foreach (var failure in new Exception[] { new InvalidOperationException("provider details withheld") })
         {
             _output.GetStringBuilder().Clear();
             _tabs.Failure = failure;
@@ -217,6 +227,32 @@ public sealed class UiAuditTabsCommandTests : IDisposable
             Assert.AreEqual("blocked", selection.GetProperty("status").GetString());
             Assert.DoesNotContain("provider details", _output.ToString());
         }
+    }
+
+    [TestMethod]
+    public async Task CoordinationFailureDoesNotReachSelection()
+    {
+        _desktop.ThrowOnRun = new UiCoordinationException(UiCoordinationErrorCodes.Unavailable, "Desktop unavailable.");
+        Assert.AreEqual(1, await Invoke(["--window", "42", "--json", "--select", "item",
+            "--container", "tab", "--root-runtime-id", "root", "--accept-navigation"]));
+        Assert.AreEqual(0, _tabs.Calls);
+        Assert.AreEqual(0, _desktop.DesktopSectionEnters);
+        using var document = JsonDocument.Parse(_error.ToString());
+        Assert.AreEqual(UiCoordinationErrorCodes.Unavailable,
+            document.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [TestMethod]
+    public async Task CancellationEscapesTheBodyAndReleasesTheDesktopSection()
+    {
+        _tabs.Failure = new OperationCanceledException();
+        Assert.AreNotEqual(0, await Invoke(["--window", "42", "--json", "--select", "item",
+            "--container", "tab", "--root-runtime-id", "root", "--accept-navigation"]));
+        Assert.IsTrue(_desktop.LastBodyThrew);
+        Assert.IsInstanceOfType<OperationCanceledException>(_desktop.LastBodyException);
+        Assert.AreEqual(1, _desktop.DesktopSectionEnters);
+        Assert.AreEqual(0, _desktop.OpenDesktopSections);
+        Assert.IsEmpty(_output.ToString());
     }
 
     [TestMethod]

@@ -8,6 +8,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -79,12 +80,17 @@ internal sealed class UiAuditObserveCommand : Command, IShortDescription
         IUiTargetResolver targetResolver,
         IUiAuditObservationService observation,
         IAnsiConsole ansiConsole,
-        ILogger<UiAuditObserveCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiAuditObserveCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui audit-observe";
+
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) =>
+            parseResult.GetValue(TabStepsOption) > 0 ? UiTurnMode.DesktopExclusive : UiTurnMode.Observe;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            var quiet = parseResult.GetValue(WinAppRootCommand.QuietOption);
             var steps = parseResult.GetValue(TabStepsOption);
             var accepted = parseResult.GetValue(AcceptInputOption);
             var duration = parseResult.GetValue(DurationSecOption);
@@ -127,6 +133,27 @@ internal sealed class UiAuditObserveCommand : Command, IShortDescription
                     "Use exactly one positive numeric --app <PID> or --window <HWND>.");
             }
 
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            var quiet = parseResult.GetValue(WinAppRootCommand.QuietOption);
+            var steps = parseResult.GetValue(TabStepsOption);
+            var accepted = parseResult.GetValue(AcceptInputOption);
+            var duration = parseResult.GetValue(DurationSecOption);
+            var maxEvents = parseResult.GetValue(MaxEventsOption);
+            var app = parseResult.GetValue(AppOption);
+            var window = parseResult.GetValue(WindowOption);
+
+            int Fail(string code, string message)
+            {
+                UiJsonError.Emit(json, code, message, errorOut: parseResult.InvocationConfiguration.Error);
+                if (!json) { logger.LogError("{Symbol} {Message}", UiSymbols.Error, message); }
+                return 1;
+            }
+
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -146,13 +173,23 @@ internal sealed class UiAuditObserveCommand : Command, IShortDescription
                     parseResult.InvocationConfiguration.Error.WriteLine(
                         "Consent: activating the selected window and sending Tab/Shift+Tab can change business state. No state will be restored.");
                 }
-                var result = await observation.ObserveAsync(target, new UiAuditObservationOptions
+                var options = new UiAuditObservationOptions
                 {
                     DurationSec = duration,
                     TabSteps = steps,
                     AcceptInput = accepted,
                     MaxEvents = maxEvents,
-                }, cancellationToken);
+                };
+                UiAuditObservationResult result;
+                if (steps > 0)
+                {
+                    await using var section = await turn.EnterAsync(cancellationToken).ConfigureAwait(false);
+                    result = await observation.ObserveAsync(target, options, cancellationToken);
+                }
+                else
+                {
+                    result = await observation.ObserveAsync(target, options, cancellationToken);
+                }
 
                 if (json)
                 {
@@ -185,11 +222,7 @@ internal sealed class UiAuditObserveCommand : Command, IShortDescription
             {
                 return Fail(exception.Code, exception.Message);
             }
-            catch (OperationCanceledException)
-            {
-                return Fail("cancelled", "Observation was cancelled before collection started.");
-            }
-            catch (Exception exception)
+            catch (Exception exception) when (!IsCoordinationFault(exception))
             {
                 logger.LogDebug("UI audit observation failed ({ExceptionType}).", exception.GetType().Name);
                 return Fail(UiJsonError.CodeInternalError, "Observation could not start. Check the selected window and interactive desktop.");

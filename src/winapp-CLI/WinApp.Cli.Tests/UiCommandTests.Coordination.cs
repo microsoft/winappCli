@@ -138,6 +138,26 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    public async Task ExpandCollapse_InvalidStateNeverCoordinates()
+    {
+        var command = GetRequiredService<UiExpandCollapseCommand>();
+        Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(command,
+            ["#combo", "-a", "TestApp", "--state", "invalid", "--json"]));
+        Assert.AreEqual(0, _fakeDesktopLock.Runs.Count);
+    }
+
+    [TestMethod]
+    public async Task ExpandCollapse_IsDesktopExclusiveAndReleasesItsSection()
+    {
+        var command = GetRequiredService<UiExpandCollapseCommand>();
+        await ParseAndInvokeWithCaptureAsync(command,
+            ["#combo", "-a", "TestApp", "--state", "expanded", "--json"]);
+        Assert.AreEqual(UiTurnMode.DesktopExclusive, _fakeDesktopLock.Runs.Single().Mode);
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+        Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections);
+    }
+
+    [TestMethod]
     public async Task Invoke_IsDesktopExclusive()
     {
         _fakeUia.FindSingleResult = new UiElement { Id = "btn", Selector = "btn", Name = "Button" };

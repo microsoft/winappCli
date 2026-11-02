@@ -26,6 +26,8 @@ namespace WinApp.Cli.ExecutionTargets.GuestAgent;
 internal sealed class GuestJobObject : IDisposable
 {
     private static GuestJobObject? _agentJob;
+    private static GuestJobObject? _callerLifetimeJob;
+    private static readonly object CallerLifetimeGate = new();
 
     private readonly SafeHandle _handle;
     private bool _disposed;
@@ -34,6 +36,30 @@ internal sealed class GuestJobObject : IDisposable
 
     /// <summary>Borrowed for atomic process creation; the caller must hold a safe-handle reference.</summary>
     internal SafeHandle Handle => _handle;
+
+    /// <summary>Keeps descendants inside the caller's lifetime, including forced caller termination.</summary>
+    internal static void EnsureCallerLifetimeContainment()
+    {
+        lock (CallerLifetimeGate)
+        {
+            if (_callerLifetimeJob is not null)
+            {
+                return;
+            }
+
+            var job = Create();
+            using var current = Process.GetCurrentProcess();
+            if (!PInvoke.AssignProcessToJobObject(job.Handle, current.SafeHandle))
+            {
+                job.Dispose();
+                throw Failure("Could not contain the accessibility worker within the winapp process lifetime.");
+            }
+
+            // Do not dispose this job in a command scope: it contains the caller itself. Windows
+            // closes the last handle when the caller exits, killing every inherited descendant.
+            _callerLifetimeJob = job;
+        }
+    }
 
     /// <summary>
     /// Places the agent process itself in a job, so every descendant it ever creates is contained

@@ -4,7 +4,9 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -52,19 +54,27 @@ internal sealed class UiAuditTabsCommand : Command, IShortDescription
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
-    public sealed class Handler(IUiAuditTabsService service) : AsynchronousCommandLineAction
+    public sealed class Handler(IUiAuditTabsService service, IInteractiveDesktopLock desktopLock,
+        ILogger<UiAuditTabsCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui audit-tabs";
+
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) =>
+            parseResult.GetValue(AcceptNavigationOption) ? UiTurnMode.DesktopExclusive : UiTurnMode.Observe;
+
+        private static UiAuditTabsOptions ReadOptions(ParseResult parseResult) => new()
+        {
+            MaxDepth = parseResult.GetValue(DepthOption), MaxElements = parseResult.GetValue(MaxElementsOption),
+            TimeoutMs = parseResult.GetValue(TimeoutOption), Select = parseResult.GetValue(SelectOption),
+            Container = parseResult.GetValue(ContainerOption), RootRuntimeId = parseResult.GetValue(RootRuntimeIdOption),
+            AcceptNavigation = parseResult.GetValue(AcceptNavigationOption),
+        };
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
-            var options = new UiAuditTabsOptions
-            {
-                MaxDepth = parseResult.GetValue(DepthOption), MaxElements = parseResult.GetValue(MaxElementsOption),
-                TimeoutMs = parseResult.GetValue(TimeoutOption), Select = parseResult.GetValue(SelectOption),
-                Container = parseResult.GetValue(ContainerOption), RootRuntimeId = parseResult.GetValue(RootRuntimeIdOption),
-                AcceptNavigation = parseResult.GetValue(AcceptNavigationOption),
-            };
+            var options = ReadOptions(parseResult);
             var identities = new[] { options.Select, options.Container, options.RootRuntimeId };
             string? error = window is null or <= 0 ? "An exact positive --window HWND from 'winapp ui list-windows' is required."
                 : options.MaxDepth is < 1 or > 50 || options.MaxElements is < 1 or > 10000 || options.TimeoutMs is < 1000 or > 120000
@@ -78,14 +88,26 @@ internal sealed class UiAuditTabsCommand : Command, IShortDescription
                 else { parseResult.InvocationConfiguration.Error.WriteLine(error); }
                 return 1;
             }
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
+            var options = ReadOptions(parseResult);
             UiAuditTabsResult result;
             try
             {
-                result = await service.CaptureAsync(window!.Value, options, cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                result = Failure("cancelled");
+                if (options.AcceptNavigation)
+                {
+                    await using var section = await turn.EnterAsync(cancellationToken).ConfigureAwait(false);
+                    result = await service.CaptureAsync(window!.Value, options, cancellationToken);
+                }
+                else
+                {
+                    result = await service.CaptureAsync(window!.Value, options, cancellationToken);
+                }
             }
             catch (Exception ex) when (ex is UiAuditSnapshotException or InvalidOperationException or System.Runtime.InteropServices.COMException)
             {

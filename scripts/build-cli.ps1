@@ -205,6 +205,13 @@ try
             if (-not (Test-Path $CliArtifact -PathType Leaf) -or (Get-Item $CliArtifact).Length -eq 0) {
                 throw "Required CLI artifact missing or empty: $CliArtifact. Download cli-binaries to artifacts\cli first."
             }
+            foreach ($name in @('winapp-accessibility-worker.exe', 'winapp-accessibility-worker.dll',
+                'coreclr.dll', 'System.Private.CoreLib.dll', 'LICENSE.TXT', 'THIRD-PARTY-NOTICES.TXT')) {
+                $WorkerArtifact = Join-Path (Split-Path $CliArtifact -Parent) "accessibility\$name"
+                if (-not (Test-Path $WorkerArtifact -PathType Leaf) -or (Get-Item $WorkerArtifact).Length -eq 0) {
+                    throw "Required accessibility worker artifact missing or empty: $WorkerArtifact. Download complete cli-binaries to artifacts\cli first."
+                }
+            }
         }
         $FullVersion = Assert-NuGetPackages -Path $NuGetOutput
         if ($RunAuxiliaryTests) {
@@ -508,6 +515,13 @@ try
             if ($LASTEXITCODE -ne 0) {
                 Write-Error "Failed to publish CLI for $PublishArchitecture"
                 exit 1
+            }
+            Write-Host "[PUBLISH] Publishing accessibility worker for $PublishArchitecture..." -ForegroundColor Blue
+            dotnet publish "$ProjectRoot\src\winapp-CLI\WinApp.Accessibility.Worker\WinApp.Accessibility.Worker.csproj" `
+                -c Release -r $RuntimeId --self-contained true -o "$ArtifactsPath\cli\$RuntimeId\accessibility" `
+                /p:Version=$AssemblyVersion /p:PublishAot=false /p:PublishTrimmed=false /p:PublishSingleFile=false
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to publish accessibility worker for $PublishArchitecture"
             }
         }
     }

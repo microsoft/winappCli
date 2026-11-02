@@ -12,6 +12,7 @@
     <PublishAot>false</PublishAot>
     <PublishTrimmed>false</PublishTrimmed>
     <PublishSingleFile>false</PublishSingleFile>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
     <IsPackable>false</IsPackable>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <!-- Match the linked sample's package and analyzer settings without changing the CLI defaults. -->
@@ -56,6 +57,8 @@
       </_WorkerNotice>
       <_WorkerNotice Update="@(_WorkerNotice)">
         <RelativePath Condition="'%(_WorkerNotice.RelativePath)' == ''">%(_WorkerNotice.NoticeDirectory)%(_WorkerNotice.Filename)%(_WorkerNotice.Extension)</RelativePath>
+        <!-- NuGet pack excludes .nuspec files; retain package attribution as ordinary text. -->
+        <RelativePath Condition="'%(_WorkerNotice.Extension)' == '.nuspec'">%(_WorkerNotice.NoticeDirectory)%(_WorkerNotice.Filename).nuspec.txt</RelativePath>
       </_WorkerNotice>
     </ItemGroup>
     <Error Condition="!Exists('%(_WorkerNotice.Identity)')"

@@ -39,6 +39,8 @@ public sealed class UiAccessibilityWorkerServiceTests
             using System.Diagnostics;
             using System.IO;
             using System.Linq;
+            using System.Linq.Expressions;
+            using System.Reflection;
             using System.Text;
             using System.Text.Json;
             using System.Threading.Tasks;
@@ -48,6 +50,25 @@ public sealed class UiAccessibilityWorkerServiceTests
                 private static async Task<int> Main(string[] args)
                 {
                     Console.OutputEncoding = new UTF8Encoding(false);
+                    if (args.Length > 0 && args[0] == "fixture-workflow-child")
+                    {
+                        Console.WriteLine(Environment.GetEnvironmentVariable("WINAPP_UI_WORKFLOW_ID"));
+                        return 0;
+                    }
+                    if (args.Length > 0 && args[0] == "fixture-contained-launcher")
+                    {
+                        var assembly = Assembly.LoadFrom(args[1]);
+                        var pathsType = assembly.GetType("WinApp.Cli.Services.UiAccessibilityWorkerPaths");
+                        var paths = Activator.CreateInstance(pathsType, new object[] { args[2], Environment.ProcessPath });
+                        var resolve = Expression.Lambda(typeof(Func<>).MakeGenericType(pathsType), Expression.Constant(paths)).Compile();
+                        var runner = Activator.CreateInstance(assembly.GetType("WinApp.Cli.Services.ProcessRunner"));
+                        var serviceType = assembly.GetType("WinApp.Cli.Services.UiAccessibilityWorkerService");
+                        var service = Activator.CreateInstance(serviceType, BindingFlags.Instance | BindingFlags.NonPublic,
+                            null, new object[] { runner, resolve }, null);
+                        return await (Task<int>)serviceType.GetMethod("RunAsync").Invoke(service,
+                            new object[] { new[] { "scan", "--pid", "424242" }, Console.Out, TextWriter.Null,
+                                System.Threading.CancellationToken.None });
+                    }
                     if (args.Length > 0 && args[0] == "fixture-child")
                     {
                         await Task.Delay(TimeSpan.FromMinutes(2));
@@ -64,9 +85,21 @@ public sealed class UiAccessibilityWorkerServiceTests
                         start.ArgumentList.Add("fixture-child");
                         child = Process.Start(start);
                     }
+                    var identityStart = new ProcessStartInfo(Environment.ProcessPath)
+                    {
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        CreateNoWindow = true
+                    };
+                    identityStart.ArgumentList.Add("fixture-workflow-child");
+                    using var identityChild = Process.Start(identityStart);
+                    var childWorkflow = (await identityChild.StandardOutput.ReadToEndAsync()).TrimEnd('\r', '\n');
+                    await identityChild.WaitForExitAsync();
                     Console.WriteLine(JsonSerializer.Serialize(new
                     {
                         arguments = args,
+                        workflow = Environment.GetEnvironmentVariable("WINAPP_UI_WORKFLOW_ID"),
+                        childWorkflow,
                         processId = Environment.ProcessId,
                         childProcessId = child == null ? 0 : child.Id
                     }));
@@ -144,7 +177,7 @@ public sealed class UiAccessibilityWorkerServiceTests
         var exception = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() =>
             launcher.RunAsync(["scan", "--pid", "1"], output, error, TestContext.CancellationToken));
         StringAssert.Contains(exception.Message, paths.Worker);
-        StringAssert.Contains(exception.Message, "complete local accessibility demo bundle");
+        StringAssert.Contains(exception.Message, "complete winapp package");
         StringAssert.Contains(exception.Message, "accessibility folder next to winapp.exe");
         Assert.AreEqual(0, runner.Calls);
         Assert.IsEmpty(output.ToString());
@@ -206,6 +239,55 @@ public sealed class UiAccessibilityWorkerServiceTests
         Assert.AreEqual("fixture progress \u03bb 0", lines[0]);
         Assert.AreEqual("fixture progress \u03bb 2047", lines[^2]);
         Assert.AreEqual("fixture diagnostic", lines[^1]);
+    }
+
+    [TestMethod]
+    public async Task ForcedLauncherTerminationAlsoTerminatesItsWorkerTree()
+    {
+        var start = new ProcessStartInfo(_paths.Worker) { UseShellExecute = false, RedirectStandardOutput = true };
+        start.ArgumentList.Add("fixture-contained-launcher");
+        start.ArgumentList.Add(typeof(UiAccessibilityWorkerService).Assembly.Location);
+        start.ArgumentList.Add(_paths.Winapp);
+        using var launcher = Process.Start(start)!;
+        Process? worker = null;
+        Process? child = null;
+        try
+        {
+            var ready = await launcher.StandardOutput.ReadLineAsync(TestContext.CancellationToken)
+                .AsTask().WaitAsync(TimeSpan.FromSeconds(15), TestContext.CancellationToken);
+            Assert.IsNotNull(ready);
+            using var json = JsonDocument.Parse(ready);
+            worker = Process.GetProcessById(json.RootElement.GetProperty("processId").GetInt32());
+            child = Process.GetProcessById(json.RootElement.GetProperty("childProcessId").GetInt32());
+            Assert.IsFalse(worker.HasExited);
+            Assert.IsFalse(child.HasExited);
+            launcher.Kill(entireProcessTree: false);
+            await Task.WhenAll(launcher.WaitForExitAsync(TestContext.CancellationToken), worker.WaitForExitAsync(TestContext.CancellationToken),
+                child.WaitForExitAsync(TestContext.CancellationToken))
+                .WaitAsync(TimeSpan.FromSeconds(10), TestContext.CancellationToken);
+            Assert.IsTrue(worker.HasExited);
+            Assert.IsTrue(child.HasExited);
+        }
+        finally
+        {
+            if (!launcher.HasExited) { launcher.Kill(entireProcessTree: true); }
+            if (worker is { HasExited: false }) { worker.Kill(entireProcessTree: true); }
+            if (child is { HasExited: false }) { child.Kill(entireProcessTree: true); }
+            worker?.Dispose();
+            child?.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task WorkerAndItsNativeChildrenInheritThePublicWorkflowIdentity()
+    {
+        var identity = "accessloop-" + Guid.NewGuid().ToString("N");
+        var launcher = new UiAccessibilityWorkerService(new WorkflowRunner(identity), () => _paths);
+        using var output = new StringWriter();
+        await launcher.RunAsync(["scan"], output, TextWriter.Null, TestContext.CancellationToken);
+        using var json = JsonDocument.Parse(output.ToString());
+        Assert.AreEqual(identity, json.RootElement.GetProperty("workflow").GetString());
+        Assert.AreEqual(identity, json.RootElement.GetProperty("childWorkflow").GetString());
     }
 
     [TestMethod]
@@ -294,5 +376,16 @@ public sealed class UiAccessibilityWorkerServiceTests
             Request = request;
             return Task.FromResult(new ProcessRunResult(3, "", ""));
         }
+
+    }
+
+    private sealed class WorkflowRunner(string identity) : IProcessRunner
+    {
+        public Task<ProcessRunResult> RunAsync(ProcessRunRequest request, Action<string>? onOutputLine = null,
+            Action<string>? onErrorLine = null, CancellationToken cancellationToken = default) =>
+            new ProcessRunner().RunAsync(request with
+            {
+                Environment = new Dictionary<string, string> { ["WINAPP_UI_WORKFLOW_ID"] = identity },
+            }, onOutputLine, onErrorLine, cancellationToken);
     }
 }
