@@ -467,6 +467,6 @@ static void UpdateSelectedTreePreview()
         }
     } catch (const winrt::hresult_error& error) {
         DevToolsOverlayLog(L"tree.preview failed hr=0x%08X", error.code().value);
-        SetStatusText(L"Could not update the tree caption. Refresh the tree to retry.");
+        SetStatusText(L"Could not update the tree caption. Press F5 to refresh the tree.");
     }
 }
