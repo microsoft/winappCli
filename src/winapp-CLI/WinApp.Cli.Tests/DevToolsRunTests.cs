@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using WinApp.Cli.Commands;
 using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
@@ -1451,5 +1452,30 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     {
         Assert.AreEqual("DevTools on (default) · turn off: -p:WinAppRunDevTools=off or winapp config set run.devtools off",
             RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Default), dotnetRun: true));
+    }
+
+    /// <summary>
+    /// A Reactor project with C# but no XAML launches in Sandbox with comments on, because its C# files anchor them,
+    /// so it must not be told comments are off. Only a project with neither gets that warning.
+    /// </summary>
+    [TestMethod]
+    public void SandboxCommentsOff_OnlyWhenAReactorProjectHasNoCSharpEither()
+    {
+        var reactor = new ReactorBuildFacts(true, null, false, false, null);
+        var empty = _tempDirectory.CreateSubdirectory("empty");
+        var emptyProject = new FileInfo(Path.Combine(empty.FullName, "App.csproj"));
+        File.WriteAllText(emptyProject.FullName, "<Project />");
+        var withCode = _tempDirectory.CreateSubdirectory("with-code");
+        var codeProject = new FileInfo(Path.Combine(withCode.FullName, "App.csproj"));
+        File.WriteAllText(codeProject.FullName, "<Project />");
+        File.WriteAllText(Path.Combine(withCode.FullName, "App.cs"), "class App { }");
+
+        Assert.IsTrue(RunCommand.Handler.SandboxCommentsOff(emptyProject, [], reactor), "no XAML and no C#: comments are off");
+        Assert.IsFalse(RunCommand.Handler.SandboxCommentsOff(codeProject, [], reactor), "the project's C# anchors comments");
+        Assert.IsFalse(RunCommand.Handler.SandboxCommentsOff(emptyProject, ["MainPage.xaml"], reactor), "XAML anchors comments");
+
+        var handler = GetRequiredService<RunCommand.Handler>();
+        Assert.IsNull(handler.SandboxDevToolsSourceGate(codeProject, [], reactor), "a Reactor project starts without XAML");
+        Assert.IsNotNull(handler.SandboxDevToolsSourceGate(codeProject, [], reactor: null), "a XAML app still needs XAML sources");
     }
 }
