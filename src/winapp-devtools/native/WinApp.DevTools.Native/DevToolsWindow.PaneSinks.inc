@@ -575,7 +575,7 @@ struct SplitterKeySink : DevToolsSinkBase
 
 // The Computed | Set selector sits in the property toolbar, which a view change rebuilds. The rebuild runs after
 // the selection event returns, and keyboard focus moves to the new selector when the old one had it.
-static winrt::weak_ref<DevToolsXC::SelectorBar> g_propViewSelector;
+static DevToolsXC::SelectorBar g_propViewSelector{nullptr};
 
 static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
 {
@@ -606,8 +606,21 @@ static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
             ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
             if (!hadFocus) return;
             try {
-                if (const auto bar = g_propViewSelector.get())
-                    if (const auto item = bar.SelectedItem()) item.Focus(DevToolsX::FocusState::Programmatic);
+                if (const auto bar = g_propViewSelector) {
+                    const auto token = std::make_shared<winrt::event_token>();
+                    *token = bar.Loaded([gen, token](auto const& sender, auto const&) {
+                        try {
+                            const auto loaded = sender.template as<DevToolsXC::SelectorBar>();
+                            loaded.Loaded(*token);
+                            if (gen != g_route1Gen || loaded != g_propViewSelector) return;
+                            if (const auto item = loaded.SelectedItem())
+                                if (!item.Focus(DevToolsX::FocusState::Keyboard))
+                                    DevToolsOverlayLog(L"route1.props view focus refused");
+                        } catch (const winrt::hresult_error& e) {
+                            DevToolsOverlayLog(L"route1.props view focus failed hr=0x%08X", e.code().value);
+                        }
+                    });
+                }
             } catch (const winrt::hresult_error& e) {
                 DevToolsOverlayLog(L"route1.props view focus failed hr=0x%08X", e.code().value);
             }
