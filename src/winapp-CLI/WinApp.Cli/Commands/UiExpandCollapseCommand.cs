@@ -12,9 +12,14 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal sealed class UiExpandCollapseCommand : Command, IShortDescription
+internal sealed class UiExpandCollapseCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Set an element's expanded or collapsed state";
+    public string ShortDescription => "Expand or collapse";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui expand-collapse <selector> -a <app> --state expanded",
+    ];
 
     public static Option<string?> StateOption { get; } = new("--state")
     {

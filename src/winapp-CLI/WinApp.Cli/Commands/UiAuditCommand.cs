@@ -6,8 +6,15 @@ using System.Globalization;
 
 namespace WinApp.Cli.Commands;
 
-internal sealed class UiAuditCommand : UiAccessibilityOperationCommand
+internal sealed class UiAuditCommand : UiAccessibilityOperationCommand, IHelpExamples
 {
+    public override string ShortDescription => "Audit a running app";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui audit -a <app> --current-page",
+    ];
+
     private readonly Option<bool> _currentPage;
 
     public UiAuditCommand()

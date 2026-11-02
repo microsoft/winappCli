@@ -10,8 +10,13 @@ using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Commands;
 
-internal sealed class UiAuditSnapshotCommand : Command, IShortDescription
+internal sealed class UiAuditSnapshotCommand : Command, IShortDescription, IHelpExamples
 {
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui audit-snapshot -a <app> --json",
+    ];
+
     public static Option<int> DepthOption { get; } = new("--depth", "-d")
     {
         Description = "Maximum raw-tree descendant depth, inclusive (1-50). The selected root has depth 0.",
@@ -30,7 +35,7 @@ internal sealed class UiAuditSnapshotCommand : Command, IShortDescription
         DefaultValueFactory = _ => 5000,
     };
 
-    public string ShortDescription => "Read a bounded, typed accessibility-evidence snapshot of one window";
+    public string ShortDescription => "Read audit evidence";
 
     public UiAuditSnapshotCommand()
         : base("audit-snapshot",

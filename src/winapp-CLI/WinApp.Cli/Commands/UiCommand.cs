@@ -16,18 +16,16 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
     /// it stays out of the command's description (and the CLI schema).</summary>
     internal const string GoldenPath =
         "\n" +
-        "  winapp ui inspect -a <app> --interactive           see what you can act on\n" +
-        "  winapp ui invoke <selector> -a <app>               press buttons, menu items, tabs, toggles\n" +
-        "  winapp ui set-value <selector> \"<text>\" -a <app>   fill text boxes and documents\n" +
+        "  winapp ui inspect -a <app> --interactive           see available actions\n" +
+        "  winapp ui invoke <selector> -a <app>               press a control\n" +
+        "  winapp ui set-value <selector> \"<text>\" -a <app>   enter text\n" +
         "  winapp ui get-value <selector> -a <app>            check the result\n" +
         "\n" +
-        "  -a <app>     Process name, window title, or PID. Targets the app's active window,\n" +
-        "               including an open dialog. It prints the window's -w <hwnd>; use that\n" +
-        "               if it picked the wrong window.\n" +
-        "  <selector>   A visible label (\"Save as\"), an AutomationId (stable), or a slug from\n" +
-        "               inspect (changes when the element is recreated). If a label matches\n" +
-        "               several elements, narrow it: \"Save\" --type Button, or --root <selector>.\n" +
-        "  After an action changes the UI (a dialog opens, a page loads), inspect again.\n" +
+        "  -a <app>     Process name, window title, or PID; targets its active window.\n" +
+        "               Includes open dialogs. Use -w <hwnd> for one exact window.\n" +
+        "  <selector>   A label, stable AutomationId, or inspect slug. Slugs change when\n" +
+        "               elements are recreated. Narrow duplicate labels with --type Button\n" +
+        "               or --root <selector>. Inspect again after the UI changes.\n" +
         "\n" +
         "Changing a WinUI app's properties or text live? See 'winapp devtools --help'.";
 
@@ -35,9 +33,10 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
     internal static readonly (string Category, Type[] CommandTypes)[] HelpCategories =
     [
         ("Discover", [typeof(UiInspectCommand), typeof(UiSearchCommand), typeof(UiListWindowsCommand), typeof(UiGetFocusedCommand), typeof(UiStatusCommand)]),
-        ("Act", [typeof(UiInvokeCommand), typeof(UiSetValueCommand), typeof(UiSendKeysCommand), typeof(UiClickCommand), typeof(UiFocusCommand), typeof(UiScrollCommand), typeof(UiScrollIntoViewCommand)]),
+        ("Act", [typeof(UiInvokeCommand), typeof(UiSetValueCommand), typeof(UiSendKeysCommand), typeof(UiClickCommand), typeof(UiFocusCommand), typeof(UiScrollCommand), typeof(UiScrollIntoViewCommand), typeof(UiExpandCollapseCommand)]),
         ("Read and wait", [typeof(UiGetValueCommand), typeof(UiGetPropertyCommand), typeof(UiWaitForCommand)]),
         ("Capture", [typeof(UiScreenshotCommand), typeof(UiRecordCommand)]),
+        ("Accessibility", [typeof(UiAuditCommand), typeof(UiAuditSnapshotCommand), typeof(UiAuditTabsCommand), typeof(UiAuditObserveCommand), typeof(UiAuditScreenshotCommand), typeof(UiAccessibilityCommand)]),
         ("Gestures", [typeof(UiHoverCommand), typeof(UiDragCommand), typeof(UiTouchCommand), typeof(UiPenCommand)]),
         ("Workflow coordination", [typeof(UiYieldCommand)]),
     ];

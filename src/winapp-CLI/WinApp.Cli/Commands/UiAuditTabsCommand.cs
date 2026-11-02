@@ -10,8 +10,13 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal sealed class UiAuditTabsCommand : Command, IShortDescription
+internal sealed class UiAuditTabsCommand : Command, IShortDescription, IHelpExamples
 {
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui audit-tabs -w <hwnd> --json",
+    ];
+
     internal static readonly Option<int> DepthOption = new("--depth", "-d")
     {
         Description = "Inclusive raw-tree depth (1-50); root depth is zero.",
@@ -32,7 +37,7 @@ internal sealed class UiAuditTabsCommand : Command, IShortDescription
     internal static readonly Option<string?> RootRuntimeIdOption = new("--root-runtime-id") { Description = "Exact expected root runtime ID from the same window's discovery." };
     internal static readonly Option<bool> AcceptNavigationOption = new("--accept-navigation") { Description = "Explicitly approve SelectionItem.Select on the exact requested item; requires all three runtime IDs." };
 
-    public string ShortDescription => "Discover standard tabs or explicitly select one exact realized TabItem";
+    public string ShortDescription => "List or select tabs";
 
     public UiAuditTabsCommand() : base("audit-tabs",
         "Read standard Tab/TabItem structure in one exact top-level --window without reading names, values or text. " +

@@ -12,9 +12,14 @@ using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
-internal sealed class UiAccessibilityCommand : Command, IShortDescription
+internal sealed class UiAccessibilityCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Run configured accessibility workflows and attach assessments";
+    public string ShortDescription => "Run audit workflows";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui accessibility --help",
+    ];
 
     public UiAccessibilityCommand(
         UiAccessibilitySurveyCommand survey,
@@ -31,7 +36,7 @@ internal sealed class UiAccessibilityCommand : Command, IShortDescription
             "These active workflows require reviewed " +
             "profiles, journeys or presets and separate action approval; none provides autonomous AI route planning. " +
             "Results are not a whole-app compliance verdict. Worker results, stderr diagnostics and exit codes are preserved, " +
-            "including with --quiet; --verbose adds native launcher diagnostics only.")
+            "including with -q; -v adds native launcher diagnostics only.")
     {
         Subcommands.Add(survey);
         Subcommands.Add(explore);
@@ -105,7 +110,7 @@ internal abstract class UiAccessibilityOperationCommand(string name, string desc
     private readonly List<Action<ParseResult, List<string>>> _forwarders = [];
     private Argument<string?>? _input;
 
-    public string ShortDescription => Description!;
+    public virtual string ShortDescription => Description!;
     internal bool SupportsJson { get; private set; }
 
     protected Argument<string?> Input(string name, string description, bool required = true)

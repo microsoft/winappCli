@@ -12,8 +12,13 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal sealed class UiAuditObserveCommand : Command, IShortDescription
+internal sealed class UiAuditObserveCommand : Command, IShortDescription, IHelpExamples
 {
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui audit-observe -w <hwnd> --duration-sec 5 --json",
+    ];
+
     public static Option<string?> AppOption { get; } = new("--app", "-a")
     {
         Description = "Target running process by numeric PID. Use --window instead to choose a particular top-level window.",
@@ -43,7 +48,7 @@ internal sealed class UiAuditObserveCommand : Command, IShortDescription
     public static Option<int> MaxEventsOption { get; } = NumericOption("--max-events",
         "Maximum retained native events (1-5000). Reaching this limit returns a partial result.", 500);
 
-    public string ShortDescription => "Observe native events and an optional bounded Tab focus path";
+    public string ShortDescription => "Observe events and focus";
 
     public UiAuditObserveCommand()
         : base("audit-observe",

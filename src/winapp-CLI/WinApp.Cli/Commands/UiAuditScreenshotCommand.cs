@@ -10,9 +10,14 @@ using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Commands;
 
-internal sealed class UiAuditScreenshotCommand : Command, IShortDescription
+internal sealed class UiAuditScreenshotCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Capture one audit window without activation or window expansion";
+    public string ShortDescription => "Capture an audit window";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui audit-screenshot -w <hwnd> --output audit.png",
+    ];
 
     public UiAuditScreenshotCommand()
         : base("audit-screenshot", "Capture exactly the selected window through Windows Graphics Capture. " +
