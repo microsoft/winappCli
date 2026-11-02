@@ -163,6 +163,8 @@ installs, signs, builds, or drives something, so it can't be completed by explai
 
 Admin steps are pre-approved in every prompt except `ask-first` tasks, so don't design a task around an approval prompt.
 
+Results from before the approval line was added used different prompts, so they are not comparable with newer ones. Compare only runs made with the same approval wording.
+
 ### Statuses
 
 | Status | Meaning |

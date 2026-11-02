@@ -88,7 +88,9 @@ export function SummaryView({ entries, runDir }: Props) {
         {aggregated.map((agg, i) => {
           const grade = getGrade(agg.avgScore);
           const scoreRange =
-            agg.iterations > 1
+            agg.scoredTrials === 0
+              ? "\u2014"
+              : agg.iterations > 1
               ? `${agg.avgScore}/100 (${agg.minScore}-${agg.maxScore})`
               : `${agg.avgScore}/100`;
           return (

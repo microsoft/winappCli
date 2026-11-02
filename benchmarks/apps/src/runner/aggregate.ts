@@ -32,6 +32,8 @@ export interface AggregatedEntry {
   completed: number;
   /** Trials with no real result because our tooling failed; excluded from `avgScore` and the other means. */
   harnessErrors: number;
+  /** Trials that produced a score. When 0, vgScore, minScore and maxScore are placeholders; show a dash. */
+  scoredTrials: number;
   buildRate: number;
   runRate: number;
   avgSessionTime?: string;
@@ -148,6 +150,7 @@ export function aggregateEntries(entries: RunEntry[]): AggregatedEntry[] {
       iterations: group.length,
       completed: withScores.length,
       harnessErrors: group.filter((e) => e.harnessError).length,
+      scoredTrials: scores.length,
       buildRate: group.filter((e) => e.builds).length / group.length,
       runRate: group.filter((e) => e.runs).length / group.length,
       avgTokens: tokens.length > 0 ? Math.round(tokens.reduce((a, b) => a + b, 0) / tokens.length) : undefined,

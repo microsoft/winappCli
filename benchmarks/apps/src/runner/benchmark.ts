@@ -4390,7 +4390,7 @@ async function runBenchmarkImpl(
       log("  ERROR: Validation completed without scoring JSON");
       entry.failReason = "Validation produced no score";
     }
-    entry.harnessError = entry.failReason;
+    entry.harnessError = entry.failReason ?? "Validation failed";
     entry.score = undefined;
   }
   } // end if (entry.runs) for validation
@@ -5176,7 +5176,7 @@ async function revalidateBenchmarkImpl(
         log("  ERROR: Validation completed without scoring JSON");
         entry.failReason = "Validation produced no score";
       }
-      entry.harnessError = entry.failReason;
+      entry.harnessError = entry.failReason ?? "Validation failed";
       entry.score = undefined;
     }
   }

@@ -324,7 +324,9 @@ Describe 'Admin approval' {
         }
     }
     It 'detects an agent that stopped to ask for admin approval' {
-        Test-StoppedForAdmin 'This needs administrator rights. Do you want me to continue?' | Should -BeTrue
+        Test-StoppedForAdmin 'This step needs administrator rights, so I need your approval before I continue.' | Should -BeTrue
+        Test-StoppedForAdmin 'The build failed on a missing file. Let me know if you want me to re-run it as administrator.' | Should -BeFalse
+        Test-StoppedForAdmin 'Run as administrator worked. The build failed on a missing file. I need your approval to retry.' | Should -BeFalse
         Test-StoppedForAdmin 'Done. The package is installed.' | Should -BeFalse
         Test-StoppedForAdmin $null | Should -BeFalse
     }
