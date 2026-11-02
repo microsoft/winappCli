@@ -57,7 +57,8 @@ inline std::wstring Describe(const Result& r,
     case Outcome::NoPath:
         return display.empty()
             ? lead + L"there is no source file to open."
-            : lead + L"source path unavailable for " + display + L" (build from a project?)";
+            : lead + L"source file unavailable for " + display +
+                L". Check that it exists under the project's source folder.";
     case Outcome::NotFound:
         return lead + L"source file not found: " + resolvedPath;
     case Outcome::NoHandler:

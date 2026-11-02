@@ -28,7 +28,7 @@ internal sealed record VisualTreeNode(
 
     public string? ShortFile => Facts?.File ?? DevToolsFormat.ShortFileName(File);
 
-    public string Selector => DevToolsSelector.Display(Handle, Type, Name, Id, UniqueName);
+    public string Selector => DevToolsSelector.Display(Handle, Type, Name, Id);
 
     public static IReadOnlyList<VisualTreeNode>? ParseForest(string? resultJson)
     {

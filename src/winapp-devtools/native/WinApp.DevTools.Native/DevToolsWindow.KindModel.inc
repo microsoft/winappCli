@@ -3,9 +3,10 @@
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
 
-// DevTools-authored state wins because runtime reads lose resource keys and binding expressions after assignment.
+// Observed runtime bindings win over authored history; resource keys still need a session witness.
 static DevToolsKind CurrentKindOf(const DevToolsCardRow& r, const std::wstring& path)
 {
+    if (!r.binding.empty() || r.source == L"Binding") return DevToolsKind::Binding;
     if (const SessionAssign* sa = SessionAssignFind(path)) return sa->kind;
     // A commit that replaced a binding, or that dropped a resource link, made this value a literal whatever
     // the.xaml still says. Reporting the authored kind here would offer to edit a link that is gone.
@@ -14,9 +15,6 @@ static DevToolsKind CurrentKindOf(const DevToolsCardRow& r, const std::wstring& 
     if (r.authoredKind == L"staticResource") return DevToolsKind::Static;
     if (r.authoredKind == L"xBind")          return DevToolsKind::XBind;
     if (r.authoredKind == L"binding")        return DevToolsKind::Binding;
-    // No readable source, but the live element reports a runtime {Binding}. Only a {Binding} can be
-    // reconstructed this way -- an {x:Bind} is compiled away and arrives as an ordinary local value.
-    if (!r.binding.empty() || r.source == L"Binding") return DevToolsKind::Binding;
     return DevToolsKind::Literal;
 }
 
@@ -309,11 +307,17 @@ static void RestoreRowValue(InstanceHandle wire, const std::wstring& prop, const
     SetStatusText(ok ? done : failed);
 }
 
-// The PATH a {Binding}/{x:Bind} editor is seeded with. `authoredKey` is the tap's own extraction and is
-// preferred; the reconstructed expression is the fallback for a runtime {Binding} whose source we could not
-// read, which is the only case where the two can disagree.
+// Seed from the installed binding, not the original XAML, after a replacement and reselection.
 static std::wstring BindingPathOf(const DevToolsCardRow& r, const std::wstring& path)
 {
+    if (!r.binding.empty()) {
+        const std::wstring inner = MarkupInner(r.binding);
+        const size_t comma = inner.find(L',');
+        const std::wstring first = inner.substr(0, comma);
+        const size_t equal = first.find(L'=');
+        const size_t indexer = first.find(L'[');
+        return equal == std::wstring::npos || equal > indexer ? first : std::wstring();
+    }
     if (const SessionAssign* sa = SessionAssignFind(path))
         if (sa->kind == DevToolsKind::Binding) {
             const std::wstring inner = MarkupInner(sa->detail);
@@ -338,8 +342,9 @@ static const std::vector<std::wstring>& BindingModes()
 static std::wstring BindingModeOf(const DevToolsCardRow& r, const std::wstring& path)
 {
     std::wstring src = r.binding.empty() ? r.authored : r.binding;
-    if (const SessionAssign* sa = SessionAssignFind(path))
-        if (sa->kind == DevToolsKind::Binding) src = sa->detail;
+    if (r.binding.empty())
+        if (const SessionAssign* sa = SessionAssignFind(path))
+            if (sa->kind == DevToolsKind::Binding) src = sa->detail;
     const size_t at = src.find(L"Mode=");
     if (at == std::wstring::npos) return L"OneWay";
     std::wstring rest = src.substr(at + 5);
@@ -889,6 +894,9 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
     for (DiagAnswer a : done) {
         if (a.gen != g_route1Gen || a.wire != g_selWire) continue;
         const bool hadAction = !a.action.empty();
+        DevToolsJson action;
+        const bool confirmation = hadAction && DevToolsJsonParse(a.action, action) &&
+                                  action.GetString(L"state") == L"confirmation-required";
         if (hadAction && RestoreLanded(a.action)) {
             // Only now is the binding back. Clearing these when the button was clicked kept a failed restore
             // looking like it worked, and kept a successful one saying the binding could not come back.
@@ -906,7 +914,7 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
         if (DiagAnswer* existing = DiagFind(a.prop)) *existing = a;
         else g_diagAnswers.push_back(a);
         any = true;
-        restored = restored || hadAction;
+        restored = restored || (hadAction && !confirmation);
     }
     if (!any) return;
     // A restore changed a value the tree's caption may show.
@@ -954,27 +962,6 @@ static void PostDiagnose(const std::wstring& prop)
     g_diagAnswers.push_back({ g_route1Gen, g_selWire, prop, std::wstring(), std::wstring(), false });
     if (!StartDiag(prop, std::wstring())) g_diagAnswers.pop_back();
 }
-
-// Restore binding: re-attach what the XAML declares, then read the binding again so the lines show the result.
-struct BindRestoreSink : DevToolsSinkBase
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen || wire != g_selWire) return S_OK;
-        if (InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
-        SetStatusText(L"Restoring the binding on " + prop + L"...");
-        if (!StartDiag(prop, xbind ? L"restoreconfirmed" : L"restore")) {
-            InterlockedExchange(&g_diagRestoreBusy, 0);
-            SetStatusText(L"Could not start restoring " + prop);
-            return S_OK;
-        }
-        return S_OK;
-    }
-    void Init(const std::wstring& p, bool x) { prop = p; xbind = x; wire = g_selWire; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    std::wstring prop;
-    InstanceHandle wire = 0;
-    bool xbind = false;
-};
 
 static const UINT kValidateIdleMs = 400;
 
@@ -1058,29 +1045,6 @@ static void ValidateOnType(const std::wstring& prop, const std::wstring& text)
 
 // TextChanged updates syntax immediately and restarts the idle resolve timer.
 // Retained text boxes are guarded by generation stamps so callbacks from torn-down panes become inert.
-struct PathValidateSink : DevToolsSinkBase
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen) return S_OK;
-        std::wstring text;
-        if (box && g_ctx.readInputFn) g_ctx.readInputFn(box, text);
-        ValidateOnType(prop, text);
-        return S_OK;
-    }
-    void Init(const std::wstring& p, IInspectable* b, void* expFe)
-    {
-        prop = p;
-        box = b;
-        if (box) box->AddRef();
-        g_validateExpFe = expFe;
-        InitSink(IID_TextChanged_Del, g_route1Gen);
-    }
-    std::wstring  prop;
-    IInspectable* box = nullptr;
-};
-
-
 struct KindCtx
 {
     std::shared_ptr<const DevToolsCardRow> row;
@@ -1089,6 +1053,7 @@ struct KindCtx
     void* rowFe = nullptr;
     void* expFe = nullptr;
     InstanceHandle wire = 0;
+    const bool* retired = nullptr; // set only on the executing callback's local copy
 };
 
 // Read one named input inside the expansion. Returns empty when the control is absent -- which is a real
@@ -1169,20 +1134,25 @@ static std::wstring ReadCombo(void* expFe, const wchar_t* name, const std::vecto
 
 static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
 {
-    if (!c.row) return;
+    const unsigned generation = g_route1Gen;
+    const auto sameSelection = [&] { return generation == g_route1Gen && c.wire == g_selWire; };
+    const auto active = [&] { return sameSelection() && !(c.retired && *c.retired); };
+    if (!c.row || !active()) return;
     const DevToolsKind k = StagedOrCurrentKind(*c.row, c.path);
     const bool staged = PendingKindFind(c.path) != nullptr;
     switch (k) {
     case DevToolsKind::Theme:
     case DevToolsKind::Static: {
         const std::wstring key = ReadBox(c.expFe, L"PResKey");
+        if (!active()) return;
         std::wstring error;
         if (ApplyResourceKey(*c.row, c.path, key, k == DevToolsKind::Theme, RowEditSeed(*c.row), error)) {
+            if (!sameSelection()) return;
             PendingKindErase(c.path);
             ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
             SetStatusText(ResourceAppliedStatus(c.path, key));
         } else {
-            SetResourceError(c.expFe, c.path, error);
+            if (active()) SetResourceError(c.expFe, c.path, error);
         }
         return;
     }
@@ -1193,10 +1163,12 @@ static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
         }
         // Commit uses the same syntax gate as the live verdict; invalid paths cannot be applied.
         const std::wstring typed = ReadBox(c.expFe, L"PPath");
+        const std::wstring mode = ReadCombo(c.expFe, L"PMode", BindingModes());
+        if (!active()) return;
         const std::wstring why = DevToolsPathSyntax_Reason(typed);
         if (!why.empty()) { SetStatusText(L"Not applied. " + why); return; }
         PendingKindErase(c.path);
-        ApplyBindingGraft(c.path, typed, ReadCombo(c.expFe, L"PMode", BindingModes()));
+        ApplyBindingGraft(c.path, typed, mode);
         return;
     }
     case DevToolsKind::XBind:
@@ -1235,8 +1207,10 @@ static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
     } else {
         value = DevToolsEditText::WithLineEndingsOf(ReadBox(c.expFe, L"PEdit"), seed);
     }
+    if (!active()) return;
     const DevToolsKind was = CurrentKindOf(*c.row, c.path);
     const bool landed = ApplyLiteralValue(c.path, c.row->type, seed, value, /*confirmed*/ staged);
+    if (!sameSelection()) return;
     // Record a landed literal as replacing x:Bind even when the runtime reports only a local value.
 // Authored source still describes the original expression, not the session mutation.
 // Drop the resolved-value seed rather than offer a Restore that cannot restore the binding.

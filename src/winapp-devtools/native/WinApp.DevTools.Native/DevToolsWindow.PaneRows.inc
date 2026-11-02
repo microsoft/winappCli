@@ -118,23 +118,45 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
          L" AutomationProperties.AutomationId=\"WinAppDevToolsProps\">";
     // Show a source link only with actual XBF/source instrumentation and a file resolved under
     // the configured source root. Environment delivery is the host's responsibility.
-    // The file, Open and the authored XAML come from one source lookup, so they share one Source expander.
+    // The file, its actions and the authored XAML come from one source lookup, so they share one Source expander.
     const std::wstring disp = SourceDisplay(sourceUri, sourceLine);
-    std::wstring sourceText;
+    std::wstring sourceText, sourceStatus;
     if (!disp.empty()) {
-        // A left-aligned grid sizes its star column to the text, so Open follows the file name and the name
+        bool sourceRootMissing = false;
+        const bool canOpen = !ResolveSourcePath(sourceUri, &sourceRootMissing).empty();
+        // A left-aligned grid sizes its star column to the text, so the actions follow the file name and the name
         // trims with an ellipsis only when the row runs out of room.
         sourceText = L"<Grid Grid.Column=\"1\" HorizontalAlignment=\"Left\" VerticalAlignment=\"Center\" ColumnSpacing=\"6\">"
                      L"<Grid.ColumnDefinitions><ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/></Grid.ColumnDefinitions>"
                      L"<TextBlock Text=\"" + DevToolsXmlEscape(disp) + L"\" FontSize=\"12\" VerticalAlignment=\"Center\""
                      L" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(disp) + L"\""
                      L" AutomationProperties.AutomationId=\"WinAppDevToolsSource\"/>";
-        if (!ResolveSourcePath(sourceUri).empty()) {
-            sourceText += L"<HyperlinkButton x:Name=\"OpenSource\" Grid.Column=\"1\" Content=\"Open\" Padding=\"4,0,4,0\" FontSize=\"12\""
-                          L" VerticalAlignment=\"Center\" ToolTipService.ToolTip=\"Open the source file in your default editor\"/>";
+        if (canOpen) {
+            sourceText += L"<StackPanel Grid.Column=\"1\" Orientation=\"Horizontal\" Spacing=\"2\" VerticalAlignment=\"Center\">"
+                          L"<HyperlinkButton x:Name=\"OpenSource\" Content=\"Open\" Padding=\"4,0,4,0\" FontSize=\"12\" VerticalAlignment=\"Center\""
+                          L" ToolTipService.ToolTip=\"Open the source file in your default editor\""
+                          L" AutomationProperties.Name=\"Open source file\" AutomationProperties.AutomationId=\"WinAppDevToolsOpenSource\"/>"
+                          L"<HyperlinkButton x:Name=\"RevealSource\" Padding=\"4,2,4,2\" VerticalAlignment=\"Center\""
+                          L" ToolTipService.ToolTip=\"Show in File Explorer\" AutomationProperties.Name=\"Show source file in File Explorer\""
+                          L" AutomationProperties.AutomationId=\"WinAppDevToolsRevealSource\"><FontIcon Glyph=\"&#xE838;\" FontSize=\"12\"/></HyperlinkButton>"
+                          L"<HyperlinkButton x:Name=\"CopySourcePath\" Padding=\"4,2,4,2\" VerticalAlignment=\"Center\""
+                          L" ToolTipService.ToolTip=\"Copy path\" AutomationProperties.Name=\"Copy source file path\""
+                          L" AutomationProperties.AutomationId=\"WinAppDevToolsCopySourcePath\"><FontIcon Glyph=\"&#xE8C8;\" FontSize=\"12\"/></HyperlinkButton>"
+                          L"</StackPanel>";
         }
         sourceText += L"</Grid>";
+        // Feedback from the source actions shows under the source and takes no space until there is something to say.
+        const std::wstring status = canOpen ? std::wstring()
+            : sourceRootMissing ? std::wstring(kSourceRootMissing)
+            : std::wstring(L"Source file unavailable. Check that it exists under the project's source folder.");
+        sourceStatus = L"<TextBlock x:Name=\"SourceStatus\" Text=\"" + DevToolsXmlEscape(status) + L"\""
+                       L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\""
+                       DT_FG_SECONDARY L" AutomationProperties.LiveSetting=\"Polite\""
+                       L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceStatus\"" +
+                       std::wstring(status.empty() ? L" Visibility=\"Collapsed\"" : L"") + L"/>";
     }
+    // StackPanel spacing skips collapsed children, so the hidden feedback line adds no gap.
+    if (!sourceStatus.empty()) m += L"<StackPanel Spacing=\"4\">";
     const std::wstring sourceIcon = L"<FontIcon Glyph=\"&#xE8A5;\" FontSize=\"12\" VerticalAlignment=\"Center\"" DT_FG_SECONDARY L"/>";
     if (!authoredXaml.empty()) {
         const bool likely = authoredState == L"likely";
@@ -166,6 +188,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         m += L"<Grid ColumnSpacing=\"6\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
              L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>" + sourceIcon + sourceText + L"</Grid>";
     }
+    if (!sourceStatus.empty()) m += sourceStatus + L"</StackPanel>";
     if (g_ctx.writeFn) {
         m += L"<StackPanel x:Name=\"AddCommentBox\" Visibility=\"Collapsed\" Spacing=\"6\">"
              L"<TextBox x:Name=\"AddCommentText\" AcceptsReturn=\"True\" TextWrapping=\"Wrap\" MinHeight=\"56\" MaxHeight=\"120\""
@@ -662,16 +685,56 @@ static void ApplyRowExpansionState(void* rowFe, const std::wstring& path, bool o
 
 struct RowExpandSink : DevToolsSinkBase
 {
-    ~RowExpandSink() { if (rowFe) reinterpret_cast<IUnknown*>(rowFe)->Release(); }
+    // Unlike the shared/static sinks, these delegates have one owner per realized property row.
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** p) override
+    {
+        const HRESULT hr = DevToolsSinkBase::QueryInterface(r, p);
+        if (SUCCEEDED(hr) && r != __uuidof(IMarshal)) AddRef();
+        return hr;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&refs); }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG remaining = InterlockedDecrement(&refs);
+        if (!remaining) delete this;
+        return remaining;
+    }
+    ~RowExpandSink()
+    {
+        if (rowFe) reinterpret_cast<IUnknown*>(rowFe)->Release();
+        if (ftm) ftm->Release();
+    }
+
+    void Retire()
+    {
+        auto* heldRow = reinterpret_cast<IUnknown*>(rowFe);
+        rowFe = nullptr;
+        row.reset();
+        if (publisher) {
+            const HRESULT hr = open ? DevToolsRemoveExpanding(publisher.get(), token)
+                                    : DevToolsRemoveCollapsed(publisher.get(), token);
+            if (FAILED(hr))
+                DevToolsOverlayLog(L"route1.props row '%s' unsubscribe failed hr=0x%08X", path.c_str(), hr);
+            publisher = nullptr;
+        }
+        if (heldRow) heldRow->Release();
+    }
 
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen || wire != g_selWire || !rowFe || !row) return S_OK;
+        // A live read can reenter pane replacement. Keep this invocation's inputs alive, but do not
+        // continue acting on the old pane if that read retired the subscription.
+        const auto snapshot = row;
+        winrt::com_ptr<IUnknown> heldRow;
+        heldRow.copy_from(reinterpret_cast<IUnknown*>(rowFe));
         const bool wantOpen = open;
         if (wantOpen) {
             // The row is a snapshot; opening it reads the property live, unless a write is still unconfirmed.
             const bool opening = !PropIsExpanded(row->name);
-            if (opening && g_pendingWrites.empty() && g_pendingKind.empty() && RefreshCommittedValue(path)) {
+            const bool refreshed = opening && g_pendingWrites.empty() && g_pendingKind.empty() && RefreshCommittedValue(path);
+            if (!rowFe) return S_OK;
+            if (refreshed) {
                 RebuildExpansion(rowFe, ExpansionRow(), path, edit);
             } else if (!EnsureExpansion(rowFe, ExpansionRow(), path, edit)) {
                 ApplyRowExpansionState(rowFe, path, false);
@@ -679,7 +742,8 @@ struct RowExpandSink : DevToolsSinkBase
                 return S_OK;
             }
         }
-        PropSetExpanded(row->name, wantOpen);
+        if (!rowFe) return S_OK;
+        PropSetExpanded(snapshot->name, wantOpen);
         ApplyRowExpansionState(rowFe, path, wantOpen);
         return S_OK;
     }
@@ -698,12 +762,58 @@ struct RowExpandSink : DevToolsSinkBase
         InitSink(iid, g_route1Gen);
     }
     std::shared_ptr<const DevToolsCardRow> row;
+    winrt::com_ptr<IUnknown> publisher;
+    __int64 token = 0;
+    long refs = 1;
     std::wstring path;
     InstanceHandle wire = 0;
     int edit = -1;
     void* rowFe = nullptr;
     bool open = false;
 };
+
+static std::vector<RowExpandSink*> g_rowExpandSinks;
+
+static void WireRowExpansion(const std::shared_ptr<const DevToolsCardRow>& row, const std::wstring& path,
+                             int edit, void* rowFe, void* expander)
+{
+    for (bool open : { true, false }) {
+        auto* sink = new RowExpandSink();
+        sink->Init(row, path, edit, rowFe, open);
+        const HRESULT hr = open ? DevToolsAddExpanding(expander, sink, &sink->token)
+                                : DevToolsAddCollapsed(expander, sink, &sink->token);
+        if (FAILED(hr)) {
+            DevToolsOverlayLog(L"route1.props row '%s' expansion event failed hr=0x%08X", path.c_str(), hr);
+            sink->Release();
+        } else {
+            sink->publisher.copy_from(reinterpret_cast<IUnknown*>(expander));
+            g_rowExpandSinks.push_back(sink);
+        }
+    }
+}
+
+// Descendant rows are replaced with their parent's expansion; the parent header remains subscribed.
+static void RetireRowExpandSinks(void* rowFe = nullptr, bool descendantsOnly = false)
+{
+    std::wstring path;
+    if (rowFe) {
+        for (const auto* sink : g_rowExpandSinks)
+            if (sink->rowFe == rowFe) { path = sink->path; break; }
+        if (path.empty()) return;
+    }
+    std::vector<RowExpandSink*> retiring;
+    for (size_t i = g_rowExpandSinks.size(); i-- > 0; ) {
+        auto* sink = g_rowExpandSinks[i];
+        const bool child = sink->path.compare(0, path.size() + 1, path + L".") == 0;
+        if (rowFe && !(child || (!descendantsOnly && sink->rowFe == rowFe))) continue;
+        retiring.push_back(sink);
+        g_rowExpandSinks.erase(g_rowExpandSinks.begin() + i);
+    }
+    for (auto* sink : retiring) {
+        sink->Retire();
+        sink->Release();
+    }
+}
 
 // Keep restored rows and editor rebuilds in sync with the platform's expansion state.
 static void ApplyRowExpansionState(void* rowFe, const std::wstring& path, bool open)

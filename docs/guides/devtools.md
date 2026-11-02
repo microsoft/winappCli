@@ -145,9 +145,13 @@ winapp devtools diagnose-binding SaveButton Content
 winapp devtools set-property SaveButton Width 200
 ```
 
-Target an element with the selector printed in brackets, a unique `x:Name`, or a
-unique AutomationId (the same one `winapp ui` uses). Ambiguous names fail and list
-the candidates. When more than one app has DevTools, add `-a <pid, name or title>`.
+Copy the selector printed in brackets, such as `button-savebutton-a1b2c3d4e5`,
+or a number like `42`, into another command.
+
+You can also type an `x:Name` or AutomationId (the same one `winapp ui` uses).
+If it matches more than one element across those two identities, the command
+fails and lists selectors to use instead. When more than one app has DevTools,
+add `-a <pid, name or title>`.
 
 `inspect` and `search` show where each element is declared, such as
 `MainWindow.xaml:37`, when DevTools can confirm it against your source. They show your
@@ -178,6 +182,19 @@ error appears beneath the field and says whether the previous value was restored
 Correct the key or resource type and try again. If a previous value could not be
 restored, set the property again. You can still type a key when suggestions are
 unavailable or incomplete.
+
+To try a regular binding in the inspector, choose **Binding**, enter a path such as
+`Title`, choose its mode, then select **Replace entire binding**. The editor uses
+the installed binding's path when you return to the element. Replacing an `x:Bind`
+(a binding compiled into app code) is temporary: generated updates can overwrite
+the replacement.
+
+After a live edit overrides a binding, use **Restore binding** to reattach the
+captured regular binding. For compiled bindings, Restore asks before reapplying
+**all compiled bindings on the same owner**, such as the page. This can overwrite
+other live edits. Select **Re-apply all compiled bindings** to continue, or
+**Cancel** to leave the bindings unchanged. Neither action undoes source-model
+changes or edits your XAML.
 
 Passwords never leave the app: password properties show as `<redacted>`, DevTools
 refuses to set them, and passwords in your XAML show as `******` in source previews
