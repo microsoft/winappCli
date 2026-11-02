@@ -1,6 +1,6 @@
 ---
 name: winapp-package
-description: Build an MSIX installer for a desktop, console, or CLI app (Electron, .NET, C++, Rust, Flutter, Tauri) from build output or a .csproj with winapp package, optionally signed. Use for an installer testers can sideload, app distribution, or MSIX in scripts or CI. Not for signing an existing MSIX.
+description: Build an MSIX installer for a desktop, console, or CLI app (Electron, .NET, C++, Rust, Flutter, Tauri) from build output or a project file with winapp package, optionally signed. Use for an installer testers can sideload, app distribution, or MSIX in scripts or CI. Not for signing an existing MSIX.
 ---
 
 **If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
@@ -17,6 +17,7 @@ Use this skill when:
 
 What you need depends on the input:
 - **Project mode** (`winapp package MyApp.csproj`): an explicit `.csproj` for a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`). winapp publishes it and packages the output.
+- **C++ project mode** (`winapp package MyApp.vcxproj`): winapp builds the project with Visual Studio's MSBuild and packages the build output. A packaged WinUI project uses the manifest its build generates; other projects need an `appxmanifest.xml` from `winapp init` or `--manifest`.
 - **Folder mode** (`winapp package ./bin/Release`): **built app output** in a folder (e.g., `bin/Release/`, `dist/`, `build/`) plus a **`Package.appxmanifest`** in the current directory, passed via `--manifest`, or in the folder.
 - **Certificate** (optional, both modes) — `devcert.pfx` from `winapp cert generate` for signing.
 
@@ -44,6 +45,19 @@ self-contained apps package what actually ships — with the build options
 repeatable `-p`), defaults to the **Release** configuration, resolves the published output, and
 packages it. If the project publishes as an unpackaged app (`WindowsPackageType=None`) there is no
 manifest to package and the command errors. Folder, bundle, and sparse-manifest inputs are unchanged.
+
+### Package a C++ project (.vcxproj)
+
+```powershell
+# Build with Visual Studio's MSBuild (Release, current architecture) and create an MSIX
+winapp package ./MyApp.vcxproj --cert ./devcert.pfx
+
+# Pick the configuration and architecture the Visual Studio way
+winapp package ./MyApp.vcxproj -p Configuration=Debug -p Platform=ARM64 --generate-cert
+```
+
+One architecture per run: `--framework` and multiple `--arch` values are rejected. For a bundle, build
+each architecture and pass the output folders (see Multi-architecture bundles below).
 
 ### Basic packaging (unsigned)
 

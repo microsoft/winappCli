@@ -127,6 +127,10 @@ internal static class DevToolsQueryOptions
             {
                 return Fail("The write outcome is indeterminate. Read the target property to reconcile; do not retry automatically.", "indeterminate");
             }
+            if (write && error.Token == "invalid-value")
+            {
+                error = error with { Message = DevToolsErrors.DescribePropertyWriteFailure(parse.GetValue(Value), error.Message) };
+            }
             return Fail(json ? error.Message : DevToolsErrors.Describe(error), error.Token);
         }
         using var document = response.TryParseResult();
@@ -143,6 +147,16 @@ internal static class DevToolsQueryOptions
             return Fail("The agent did not report every requested field exactly once.", "invalid-response");
         }
         var ok = result.GetProperty("ok");
+        string? writeError = null;
+        if (write && !ok.GetBoolean() && result.TryGetProperty("error", out var failure) &&
+            failure.GetString() is string message && message.StartsWith("invalid-value|", StringComparison.Ordinal))
+        {
+            var explanation = DevToolsErrors.DescribePropertyWriteFailure(parse.GetValue(Value), message);
+            if (explanation != message)
+            {
+                writeError = explanation;
+            }
+        }
         var shown = rows.EnumerateArray().Take(max).ToArray();
         var warnings = fields.Where(field => rows.GetArrayLength() > 0 && rows.EnumerateArray().All(row =>
             row.GetProperty("fields").EnumerateArray().Any(value =>
@@ -163,7 +177,11 @@ internal static class DevToolsQueryOptions
                         continue;
                     }
 
-                    if (property.Name == "diagnostics")
+                    if (property.Name == "error" && writeError is not null)
+                    {
+                        writer.WriteString("error", "invalid-value|" + writeError);
+                    }
+                    else if (property.Name == "diagnostics")
                     {
                         // Preserve the agent's bounded UTF-8 representation without expanding Unicode escapes.
                         writer.WritePropertyName(property.Name);
@@ -275,7 +293,7 @@ internal static class DevToolsQueryOptions
                 if (result.TryGetProperty("error", out var error))
                 {
                     var token = error.GetString();
-                    console.WriteLine("Error: " + (UnresolvedTypeMessage(token, parse, result) ?? DevToolsErrors.DescribeToken(token) ?? token));
+                    console.WriteLine("Error: " + (writeError ?? UnresolvedTypeMessage(token, parse, result) ?? DevToolsErrors.DescribeToken(token) ?? token));
                 }
 
                 if (result.TryGetProperty("reasons", out var reasons))

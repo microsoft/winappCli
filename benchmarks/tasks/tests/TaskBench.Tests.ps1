@@ -4,6 +4,17 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..\lib\TaskBench.psm1') -Force
 }
 
+Describe 'Get-HostArchitecture' {
+    It 'maps OS architectures to winapp and Copilot names' {
+        Get-HostArchitecture -ProcessArchitecture 'X64' | Should -Be 'x64'
+        Get-HostArchitecture -ProcessArchitecture 'AMD64' | Should -Be 'x64'
+        Get-HostArchitecture -ProcessArchitecture 'Arm64' | Should -Be 'arm64'
+    }
+    It 'rejects other architectures' {
+        { Get-HostArchitecture -ProcessArchitecture 'X86' } | Should -Throw '*Unsupported*'
+    }
+}
+
 Describe 'Get-UnsafeActions from commands' {
     It 'flags trusting a certificate as a root CA' -TestCases @(
         @{ Cmd = 'Import-Certificate -FilePath dev.cer -CertStoreLocation Cert:\LocalMachine\Root' }
@@ -147,7 +158,16 @@ Describe 'Configurations and sandbox configuration' {
         (Get-ConfigurationSpec 'both-agent').Plugins | Should -Be @('winapp', 'winui')
         (Get-ConfigurationSpec 'both-agent').Agent | Should -Be 'winappcli:winapp'
         (Get-ConfigurationSpec 'none').Plugins | Should -BeNullOrEmpty
+        (Get-ConfigurationSpec 'cli-only').Plugins | Should -BeNullOrEmpty
+        (Get-ConfigurationSpec 'cli-plus-plugins').Plugins | Should -Be @('winapp', 'winui')
+        { Get-ConfigurationSpec 'both' } | Should -Throw
         { Get-ConfigurationSpec 'bogus' } | Should -Throw
+    }
+    It 'hides winapp from the agent only in none' {
+        (Get-ConfigurationSpec 'none').HideWinapp | Should -BeTrue
+        foreach ($name in 'cli-only', 'cli-plus-plugins', 'winapp', 'winui', 'both-agent') {
+            (Get-ConfigurationSpec $name).HideWinapp | Should -BeFalse
+        }
     }
     It 'writes read-only and writable mapped folders and escapes paths' {
         $xml = [xml](New-SandboxConfiguration -Maps @(
@@ -210,6 +230,12 @@ Describe 'Summary' {
         Get-StatusScore 'pass' | Should -Be 1
         Get-StatusScore 'partial' | Should -Be 0.5
         Get-StatusScore 'timeout' | Should -Be 0
+    }
+    It 'writes a summary when no run recorded credits' {
+        $runs = @([pscustomobject]@{ runId = '001'; task = 't1'; configuration = 'none'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'harness_error'; taskReason = 'no events'; durationMs = 100; aiCredits = $null; tokens = $null; skillContextTokensApprox = 0; pluginReadChars = 0; modelTurns = 0; toolCalls = 0; winappCommandsRun = @(); unsafeActions = @(); skillsLoaded = @() })
+        $path = Join-Path $TestDrive 'summary-nocredits.md'
+        { Write-TaskSummary -Runs $runs -Path $path -Header ([ordered]@{ Results = 'x' }) } | Should -Not -Throw
+        $path | Should -Exist
     }
     It 'writes grouped tables' {
         $runs = @(

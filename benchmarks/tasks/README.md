@@ -12,12 +12,24 @@ pwsh benchmarks\tasks\run.ps1 -Plan
 [`benchmarks\agents`](../agents/README.md) answers a different question: with the shell denied,
 which skills load and what does the agent *say*. This benchmark reuses its event parsing and lint.
 
+| Configuration | `winapp` CLI | Plugins installed | Agent |
+|---|---|---|---|
+| `none` | hidden from the agent's `PATH` | no plugins | default |
+| `cli-only` | on `PATH` | no plugins | default |
+| `cli-plus-plugins` | on `PATH` | `plugins\winapp` + `plugins\winui\agent-plugin` | default |
+
+These are the three arms, and the default for `-Configuration`; they match the arms in
+[`benchmarks\apps`](../apps/README.md#setups). `none` removes only the agent's access: setup and the
+checker still run `winapp`, and the Sandbox's `C:\Program Files\WinAppCli` folder still exists, as
+in `apps`.
+
+Debugging configurations, not part of the three arms (all keep `winapp` on `PATH`; request them
+with `-Configuration`):
+
 | Configuration | Plugins installed | Agent |
 |---|---|---|
-| `none` | no plugins | default |
 | `winapp` | `plugins\winapp` | default |
 | `winui` | `plugins\winui\agent-plugin` | default |
-| `both` | both | default |
 | `both-agent` | both | `--agent winappcli:winapp` |
 
 ## Prerequisites
@@ -27,12 +39,14 @@ which skills load and what does the agent *say*. This benchmark reuses its event
   Sandbox it did not start.
 - PowerShell 7.4+, the .NET SDK (10.x), Node.js, Git for Windows, and PowerShell 7 installed in their
   default folders. They are mapped read-only into each Sandbox at the same paths.
+- On ARM64, also the x64 .NET 10 Desktop Runtime: the Order Calculator fixture targets `win-x64`,
+  and the native ARM64 SDK does not include it.
 - Copilot CLI on `PATH`, authenticated through `COPILOT_GITHUB_TOKEN` or `GH_TOKEN`.
-- A winapp build: by default `artifacts\cli\win-x64` from this checkout:
+- A winapp build: by default `artifacts\cli\win-<arch>` from this checkout (`<arch>` is `x64` or `arm64`, matching this machine):
 
   ```powershell
   $env:PATH = "C:\Program Files (x86)\Microsoft Visual Studio\Installer;$env:PATH"   # vswhere, for the native link step
-  dotnet publish src\winapp-CLI\WinApp.Cli -c Release -r win-x64 --self-contained -o artifacts\cli\win-x64
+  dotnet publish src\winapp-CLI\WinApp.Cli -c Release -r win-x64 --self-contained -o artifacts\cli\win-x64   # use win-arm64 on ARM64
   ```
 
   Or pass `-Winapp release` to use the pinned release from `config.json`, or `-Winapp <folder>`.
@@ -54,7 +68,7 @@ pwsh benchmarks\tasks\run.ps1 -Lint
 pwsh benchmarks\tasks\run.ps1 -Validate
 
 # Pilot: the three pilot tasks, one iteration
-pwsh benchmarks\tasks\run.ps1 -Pilot -Iterations 1 -Configuration none,both -MaxCredits 3000
+pwsh benchmarks\tasks\run.ps1 -Pilot -Iterations 1 -Configuration none,cli-plus-plugins -MaxCredits 3000
 
 # One task, one configuration, one model
 pwsh benchmarks\tasks\run.ps1 -Task winforms-msix -Configuration winapp -Model claude-sonnet-5.5 -Iterations 1
@@ -67,11 +81,11 @@ pwsh benchmarks\tasks\run.ps1 -Summarize benchmarks\tasks\results\<stamp>
 |---|---|---|
 | `-Task <id[]>` | all | Task folder names under `tasks\` |
 | `-Pilot` | off | Only tasks with `"pilot": true` |
-| `-Configuration <name[]>` | all five | `none`, `winapp`, `winui`, `both`, `both-agent`. Runs go task by task (every model and configuration of a task before the next), one iteration at a time, so partial results stay comparable |
+| `-Configuration <name[]>` | the three arms | `none`, `cli-only`, `cli-plus-plugins`, plus the debugging configurations `winapp`, `winui`, `both-agent`. Runs go task by task (every model and configuration of a task before the next), one iteration at a time, so partial results stay comparable |
 | `-Model <id[]>` | `claude-sonnet-5.5`, `claude-opus-5.5`, `gpt-6.1-sol` | |
 | `-Iterations <n>` | 2 | |
 | `-MaxCredits <n>` | none | Stops launching runs once this invocation has spent `n` AI credits. A run without a credit count counts at the running average (or `creditsPerRunEstimate` before any is measured) |
-| `-Winapp <folder\|release>` | `artifacts\cli\win-x64` | winapp mapped to `C:\Program Files\WinAppCli` in the Sandbox |
+| `-Winapp <folder\|release>` | `artifacts\cli\win-<arch>` | winapp mapped to `C:\Program Files\WinAppCli` in the Sandbox |
 | `-WinAppPlugin`, `-WinUIPlugin <folder>` | this repo's plugins | Plugins are copied once per invocation |
 | `-CopilotVersion <v>` | the version `copilot --version` reports | Every Copilot call uses `--prefer-version <v>`; the build is copied from `%LOCALAPPDATA%\copilot\pkg` |
 | `-Validate` | | Runs `solve.ps1` and a no-op instead of an agent. Exits 1 unless every reference solution passes and every no-op fails |
@@ -85,15 +99,17 @@ pwsh benchmarks\tasks\run.ps1 -Summarize benchmarks\tasks\results\<stamp>
    output folder. A minimized Sandbox client window opens on your desktop: the interactive session
    is what MSIX installs and UI tasks need.
 2. As SYSTEM: turns on Developer Mode, sets Windows PowerShell's machine policy to `RemoteSigned`,
-   and puts the tools on the machine `PATH`, like a typical developer machine.
+   and puts the tools on the machine `PATH`, like a typical developer machine (without `winapp`
+   for `none`).
 3. As the signed-in Sandbox user (`sandbox\run-agent.ps1`): copies the fixture to the task's
    workspace (`C:\src\<name>`), runs the task's `setup.ps1`, records a baseline (installed packages,
    certificate stores, security settings, workspace files), installs the configuration's plugins
-   into an isolated Copilot home, lists skills for the preflight, and runs:
+   into an isolated Copilot home, lists skills for the preflight, and runs (for `none`, with
+   `winapp` removed from the `PATH` first):
 
    ```text
    copilot --prefer-version <v> -p "<prompt>" --model <id> --allow-all --no-ask-user
-           --disable-builtin-mcps --no-custom-instructions --no-remote [--agent <name>]
+           --disable-builtin-mcps --no-custom-instructions [--agent <name>]
    ```
 
    The token reaches the Sandbox only on the guest command line and in the agent's environment.

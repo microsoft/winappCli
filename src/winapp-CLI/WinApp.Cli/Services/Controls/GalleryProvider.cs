@@ -116,14 +116,15 @@ internal sealed partial class GalleryProvider : CachedProviderBase
     /// <para>The index publishes Gallery's sample source verbatim, so a scenario still
     /// refers to things that exist only inside the Gallery app — its page classes, its
     /// <c>SamplePageN</c> navigation targets, its <c>UIHelper</c> accessibility helper, its
-    /// CLR namespaces, the photos and icons in its package — and still wires XAML events to
-    /// handlers whose implementations live in page code-behind the index does not carry.
-    /// Pasted into a user's app as-is, those snippets do not compile, or compile and render
-    /// nothing, which defeats the point of serving them.</para>
+    /// CLR namespaces, the photos and icons in its package. Pasted into a user's app as-is,
+    /// those snippets do not compile, or compile and render nothing, which defeats the point
+    /// of serving them.</para>
     ///
     /// <para>What is rewritten here is environment, never substance: identifiers and paths
     /// that resolve only against Gallery's own assembly and package. The sample still teaches
-    /// exactly what upstream wrote it to teach.</para>
+    /// exactly what upstream wrote it to teach. That is why XAML event hookups whose handler
+    /// lives in page code-behind the index does not carry are kept, and disclosed at render
+    /// time by <see cref="ControlSnippetText.FindUndefinedEventHandlers"/> rather than deleted.</para>
     ///
     /// <para><see cref="ToolkitProvider.NormalizeForPaste"/> runs the same normalization over
     /// its own source; this is Gallery's half of it.</para>
@@ -152,12 +153,7 @@ internal sealed partial class GalleryProvider : CachedProviderBase
             xaml = SamplePageNameRegex().Replace(xaml, "YourPage");
             xaml = GalleryXmlnsRegex().Replace(xaml, "using:YourApp");
             xaml = ReplaceGalleryAssets(xaml);
-
-            // Strip handlers against the C# settled above, so an attribute survives only
-            // when the code we actually serve declares its method. This is deliberately
-            // narrower than a blanket rule: TabView really does supply TabView_Loaded, and
-            // that handler is kept.
-            scenario.Xaml = ControlSnippetText.StripUnbackedEventHandlers(xaml, scenario.CSharp);
+            scenario.Xaml = xaml;
         }
 
         // Rendered as the "Setup:" line, so a Gallery namespace here is worse than one buried

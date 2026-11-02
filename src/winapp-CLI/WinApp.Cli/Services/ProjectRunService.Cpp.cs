@@ -115,6 +115,14 @@ internal sealed partial class ProjectRunService
     internal static string? CppConfigurationFromProperties(IReadOnlyList<string> properties) =>
         TryGetUserProperty(properties, "Configuration", out var configuration) ? configuration : null;
 
+    /// <summary>
+    /// The value of a user <c>-p WindowsAppSDKSelfContained</c>, or null when none is set.
+    /// </summary>
+    internal static bool? CppSelfContainedFromProperties(IReadOnlyList<string> properties) =>
+        TryGetUserProperty(properties, "WindowsAppSDKSelfContained", out var value)
+            ? string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+            : null;
+
     private async Task<ProjectBuildOutcome> BuildAndResolveCppAsync(
         FileInfo project,
         ProjectRunOptions options,

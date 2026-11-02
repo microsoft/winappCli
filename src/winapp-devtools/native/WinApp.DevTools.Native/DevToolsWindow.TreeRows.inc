@@ -266,7 +266,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
             if (generation != g_treeRowsGen) return;
             if (const auto list = TreeDescendant<DevToolsXC::ListViewBase>(g_treeView)) {
                 DevToolsTreeA::AutomationProperties::SetAutomationId(list, L"WinAppDevToolsTree");
-                DevToolsTreeA::AutomationProperties::SetName(list, L"Visual tree");
+                DevToolsTreeA::AutomationProperties::SetName(list, L"UI Elements");
                 if (!containersWired) {
                     list.ContainerContentChanging([generation](auto const&, auto const& args) {
                         if (generation != g_treeRowsGen || args.InRecycleQueue() || !g_treeView) return;

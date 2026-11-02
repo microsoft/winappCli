@@ -20,6 +20,7 @@
 #include <winstring.h>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <cwctype>
 #include <climits>
 #include "DevToolsWindowXaml.g.h"
@@ -44,6 +45,7 @@
 #include "DevToolsText.h"
 #include "DevToolsShellOpen.h"
 #include "DevToolsLiveRows.h"
+#include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
 static const size_t kMaxRenderNodes = 1000;
 

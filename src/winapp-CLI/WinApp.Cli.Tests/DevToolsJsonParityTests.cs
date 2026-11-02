@@ -143,6 +143,95 @@ public class DevToolsJsonParityTests
     }
 
     [TestMethod]
+    [DataRow("{ThemeResource AccentBrush}", false)]
+    [DataRow("{ThemeResource AccentBrush}", true)]
+    [DataRow("{StaticResource AccentBrush}", false)]
+    [DataRow("{StaticResource AccentBrush}", true)]
+    public async Task SetProperty_ResourceConversionFailure_ExplainsLiteralAlternative(string requested, bool json)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Property.get", """{"props":[{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","writeType":"SolidColorBrush"}]}""")
+            .Error("HotReload.setProperty", -32000, "invalid-value",
+                $"Cannot set property 'Background' to '{requested}' (type SolidColorBrush): conversion to the requested XAML type failed (0x8000FFFF)");
+        var args = new List<string> { "42", "Background", requested };
+        if (json) { args.Add("--json"); }
+
+        var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+        Assert.AreEqual(1, exit);
+        var message = output;
+        if (json)
+        {
+            using var document = JsonDocument.Parse(output);
+            Assert.IsFalse(document.RootElement.GetProperty("ok").GetBoolean());
+            var error = document.RootElement.GetProperty("error");
+            Assert.AreEqual(-32000, error.GetProperty("code").GetInt32());
+            Assert.AreEqual("invalid-value", error.GetProperty("token").GetString());
+            message = error.GetProperty("message").GetString()!;
+        }
+        StringAssert.Contains(message, "does not support {ThemeResource key} or {StaticResource key}");
+        StringAssert.Contains(message, "Use a literal value instead");
+        StringAssert.Contains(message, "#FF0067C0");
+        StringAssert.Contains(message, "XAML and rebuild");
+        Assert.IsFalse(message.Contains("0x8000FFFF", StringComparison.Ordinal), message);
+        CollectionAssert.AreEqual(new List<string> { "Property.get", "HotReload.setProperty" }, agent.Received);
+    }
+
+    [TestMethod]
+    [DataRow("{ThemeResource AccentBrush}", "String")]
+    [DataRow("{StaticResource AccentBrush}", "System.String")]
+    public async Task SetProperty_ResourceLookingString_IsWrittenLiterally(string requested, string type)
+    {
+        foreach (var json in new[] { false, true })
+        {
+            var before = JsonSerializer.Serialize(new { name = "Text", value = "Before", valueType = type, writeType = type });
+            var after = JsonSerializer.Serialize(new { name = "Text", value = requested, valueType = type, writeType = type });
+            var reads = 0;
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Property.get", $$"""{"props":[{{before}}]}""", _ => Interlocked.Increment(ref reads) == 1)
+                .Answer("Property.get", $$"""{"props":[{{after}}]}""")
+                .Answer("HotReload.setProperty", "null")
+                .Answer("VisualTree.enumerate", Tree);
+            var args = new List<string> { "42", "Text", requested };
+            if (json) { args.Add("--json"); }
+
+            var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+            Assert.AreEqual(0, exit, output);
+            using var request = JsonDocument.Parse(agent.ReceivedRequests.Single(line => line.Contains("HotReload.setProperty", StringComparison.Ordinal)));
+            Assert.AreEqual(requested, request.RootElement.GetProperty("params").GetProperty("value").GetString());
+            if (json)
+            {
+                using var result = JsonDocument.Parse(output);
+                Assert.IsTrue(result.RootElement.GetProperty("ok").GetBoolean());
+                Assert.AreEqual(requested, result.RootElement.GetProperty("after").GetString());
+            }
+            else
+            {
+                StringAssert.Contains(output, requested);
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow("{ThemeResource K}", true)]
+    [DataRow(" \t{StaticResource\tK}\r\n", true)]
+    [DataRow("{ThemeResource}", false)]
+    [DataRow("{ThemeResource }", false)]
+    [DataRow("{ThemeResource K", false)]
+    [DataRow("Text {ThemeResource K}", false)]
+    [DataRow("{Binding K}", false)]
+    [DataRow("#FF0067C0", false)]
+    public void ResourceConversionExplanation_RequiresAWholeResourceReference(string requested, bool explained)
+    {
+        const string message = "conversion to the requested XAML type failed (0x8000FFFF)";
+        var actual = DevToolsErrors.DescribePropertyWriteFailure(requested, message);
+        Assert.AreEqual(explained, actual != message);
+        Assert.AreEqual("the property setter rejected the value",
+            DevToolsErrors.DescribePropertyWriteFailure(requested, "the property setter rejected the value"));
+    }
+
+    [TestMethod]
     [DataRow("Red", "#FFFF0000", false)]
     [DataRow("Blue", "#FF0000FF", false)]
     [DataRow("Transparent", "#00FFFFFF", false)]
