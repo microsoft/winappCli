@@ -473,7 +473,9 @@ Describe 'build-cli.ps1 control flow' {
         $result.ExitCode | Should -Be 0 -Because $result.Output
         $result.Trace | Should -Match "cli-shard $Shard .*WinApp.Cli.Tests.csproj .*src\\winapp-CLI\\TestResults .*coverage.runsettings"
         @($result.Calls | Where-Object Name -EQ 'cli-shard').Count | Should -Be 1
-        $result.Trace | Should -Not -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build|npm test|dotnet test|stand-down|pester|winapp.sln'
+        $result.Trace | Should -Not -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build|npm test|dotnet test|stand-down|winapp.sln'
+        $result.Calls.Name | Should -Not -Contain 'nuget-pester'
+        $result.Calls.Name | Should -Not -Contain 'scripts-pester'
         foreach ($name in @("WinApp.Cli.Tests.shard-$Shard.trx", "WinApp.Cli.Tests.shard-$Shard.cobertura.xml", "cli-shard-$Shard.json")) {
             Join-Path $root "artifacts\TestResults\$name" | Should -Exist
         }

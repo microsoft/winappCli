@@ -28,7 +28,7 @@ Describe 'AccessLoop sample' {
 
         function Copy-SampleSource {
             param([string]$Source, [string]$Destination)
-            $null = New-Item -ItemType Directory -Path $Destination
+            $null = New-Item -ItemType Directory -Path $Destination -Force
             foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
                 if ($item.Name -in @('bin', 'obj', '.accessloop', 'TestResults')) { continue }
                 $target = Join-Path $Destination $item.Name
@@ -50,7 +50,8 @@ Describe 'AccessLoop sample' {
     Context 'Phase 1: Fresh copy and deterministic runner tests' -Skip:$script:skip {
         BeforeAll {
             if ($script:skip) { return }
-            $script:copyDir = Join-Path $script:sampleDir ".accessloop\sample-test-$([Guid]::NewGuid().ToString('N'))"
+            # Native file and process tests need room below Windows' legacy path limit.
+            $script:copyDir = New-TempTestDirectory -Prefix 'accessloop'
             Copy-SampleSource -Source $script:sampleDir -Destination $script:copyDir
         }
 

@@ -18,16 +18,16 @@ $noticeFiles = @(
     'LICENSE.TXT',
     'THIRD-PARTY-NOTICES.TXT',
     'licenses\WinAppCLI\LICENSE.txt',
-    'licenses\Axe.Windows\axe.windows.nuspec',
-    'licenses\Microsoft.Win32.SystemEvents\microsoft.win32.systemevents.nuspec',
+    'licenses\Axe.Windows\axe.windows.nuspec.txt',
+    'licenses\Microsoft.Win32.SystemEvents\microsoft.win32.systemevents.nuspec.txt',
     'licenses\Microsoft.Win32.SystemEvents\LICENSE.TXT',
     'licenses\Microsoft.Win32.SystemEvents\THIRD-PARTY-NOTICES.TXT',
-    'licenses\Newtonsoft.Json\newtonsoft.json.nuspec',
+    'licenses\Newtonsoft.Json\newtonsoft.json.nuspec.txt',
     'licenses\Newtonsoft.Json\LICENSE.md',
-    'licenses\System.Drawing.Common\system.drawing.common.nuspec',
+    'licenses\System.Drawing.Common\system.drawing.common.nuspec.txt',
     'licenses\System.Drawing.Common\LICENSE.TXT',
     'licenses\System.Drawing.Common\THIRD-PARTY-NOTICES.TXT',
-    'licenses\System.IO.Packaging\system.io.packaging.nuspec',
+    'licenses\System.IO.Packaging\system.io.packaging.nuspec.txt',
     'licenses\System.IO.Packaging\LICENSE.TXT',
     'licenses\System.IO.Packaging\THIRD-PARTY-NOTICES.TXT'
 )
@@ -70,7 +70,7 @@ if (-not $deps.libraries.ContainsKey('Axe.Windows/2.4.2')) {
 }
 foreach ($package in $deps.libraries.GetEnumerator() | Where-Object { $_.Value.type -eq 'package' }) {
     $id, $version = $package.Key -split '/'
-    $nuspecPath = Join-Path $publishPath "licenses\$id\$($id.ToLowerInvariant()).nuspec"
+    $nuspecPath = Join-Path $publishPath "licenses\$id\$($id.ToLowerInvariant()).nuspec.txt"
     $nuspec = [System.Xml.Linq.XDocument]::Load($nuspecPath)
     $namespace = $nuspec.Root.GetDefaultNamespace()
     $metadata = $nuspec.Root.Element($namespace + 'metadata')
