@@ -68,7 +68,7 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode, "a project-only option must be rejected for a folder input");
         Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count, "no packaging must run when a project-only option is used with a folder");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "require a .csproj input");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "require a .csproj or .vcxproj input");
     }
 
     [TestMethod]

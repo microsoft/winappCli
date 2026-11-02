@@ -247,7 +247,7 @@ static void Route1Highlight(InstanceHandle wire, bool select)
         ReleaseSRWLockShared(&g_censusLock);
     }
     if (select) DevToolsOverlay_SelectHandle(g_diag, RootVisual(), ih, OverlaySeed, OverlayContains);
-    else        DevToolsOverlay_HighlightHandle(g_diag, RootVisual(), ih, OverlaySeed, OverlayContains);
+    else        DevToolsOverlay_HighlightHandle(g_diag, RootVisual(), ih, OverlaySeed, OverlayContains, /*preview*/ true);
 }
 
 // Written on the UI thread (PublishOverlayPick); plain atomics suffice (no cross-field invariant). Declared here so

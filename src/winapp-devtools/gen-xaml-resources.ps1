@@ -76,7 +76,37 @@ function ConvertTo-Identifier([string]$baseName) {
     }) -join ''
 }
 
+function ConvertTo-CppWideLiteral([string]$content) {
+    if ($content.Contains(")$delim`"")) {
+        throw "XAML contains the raw-string delimiter sentinel ')$delim`"'; choose a different delimiter."
+    }
+    # Keep individual wide literals below MSVC's size limit; adjacent literals concatenate unchanged.
+    $chunks = for ($offset = 0; $offset -lt $content.Length;) {
+        $length = [Math]::Min(4000, $content.Length - $offset)
+        if ([char]::IsHighSurrogate($content[$offset + $length - 1])) { --$length }
+        "LR`"$delim($($content.Substring($offset, $length)))$delim`""
+        $offset += $length
+    }
+    if ($content.Length -eq 0) { return "LR`"$delim()$delim`"" }
+    return $chunks -join "`n"
+}
+
 if ($SelfTest) {
+    $prefix = '<TextBlock Text="'
+    $longContent = $prefix + ('a' * (3999 - $prefix.Length)) + [char]::ConvertFromUtf32(0x1F600) +
+        ('b' * 20000) + '" />'
+    $literal = ConvertTo-CppWideLiteral $longContent
+    $chunks = [regex]::Matches($literal, '(?s)LR"' + $delim + '\((.*?)\)' + $delim + '"')
+    if (($chunks | ForEach-Object { $_.Groups[1].Value }) -join '' -cne $longContent) {
+        throw 'Chunked C++ literals did not preserve the original XAML.'
+    }
+    if ($chunks.Count -lt 2 -or @($chunks | Where-Object {
+        $_.Groups[1].Length -gt 4000 -or [char]::IsHighSurrogate($_.Groups[1].Value[-1])
+    }).Count) {
+        throw 'Chunked C++ literals exceeded the size limit or split a surrogate pair.'
+    }
+    Write-Host '    C++ literal self-test passed (large fragment, exact round-trip, surrogate boundary).'
+
     # Cover supported fragment shapes and a mismatched closing-tag negative control.
     $accept = @{
         'two roots, no xmlns of its own (the selection-panel.xaml shape)' =
@@ -99,7 +129,22 @@ if ($SelfTest) {
     if ($caught -notmatch 'not well-formed') {
         throw "Well-formedness gate rejected mismatched closing tags with an unexpected message: $caught"
     }
+    $surrogatePair = [char]::ConvertFromUtf32(0x1F600)
+    $literalCases = @('', ('a' * 4000), (('a' * 3999) + $surrogatePair + "`n" + ('$TOKEN$' * 1500)))
+    foreach ($content in $literalCases) {
+        $literal = ConvertTo-CppWideLiteral $content
+        $parts = [regex]::Matches($literal, '(?s)LR"DEVTOOLS_XAML\((.*?)\)DEVTOOLS_XAML"')
+        $reconstructed = ($parts | ForEach-Object { $_.Groups[1].Value }) -join ''
+        if ($reconstructed -cne $content) { throw 'C++ literal splitting changed the XAML content.' }
+        foreach ($part in $parts) {
+            $body = $part.Groups[1].Value
+            if ($body.Length -gt 4000) { throw 'C++ literal exceeded the compiler-safe chunk size.' }
+            if ($body.Length -gt 0 -and ([char]::IsHighSurrogate($body[$body.Length - 1]) -or
+                    [char]::IsLowSurrogate($body[0]))) { throw 'C++ literal split a surrogate pair.' }
+        }
+    }
     Write-Host "    XAML gate self-test passed ($($accept.Count) accepted, 1 rejected; C++ delimiter $($delim.Length)/16 characters)." -ForegroundColor Green
+    Write-Host "    C++ literal self-test passed ($($literalCases.Count) exact-content and size checks)." -ForegroundColor Green
     exit 0
 }
 
@@ -124,11 +169,9 @@ foreach ($f in $files) {
     # .xaml are author documentation only and must not reach the reader. This also keeps the substituter from
     # rewriting $TOKEN$-looking text inside comments and shrinks the embedded literal.
     $content = ([regex]::Replace($content, '(?s)<!--.*?-->', '')).Trim()
-    if ($content.Contains(")$delim`"")) {
-        throw "Fragment $($f.Name) contains the raw-string delimiter sentinel ')$delim`"'; choose a different delimiter."
-    }
     [void]$sb.AppendLine("// ---- $($f.Name) ----")
-    [void]$sb.AppendLine("inline constexpr const wchar_t* $id = LR`"$delim($content)$delim`";")
+    [void]$sb.AppendLine("inline constexpr const wchar_t* $id =")
+    [void]$sb.AppendLine((ConvertTo-CppWideLiteral $content) + ';')
 }
 [void]$sb.AppendLine('} // namespace DevToolsXaml')
 

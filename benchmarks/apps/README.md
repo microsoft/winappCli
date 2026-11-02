@@ -17,17 +17,23 @@ It complements [`benchmarks/agents`](../agents/README.md):
 
 ## Setups
 
-| Setup | Plugins | Use |
-|---|---|---|
-| `none` | none, and `winapp` hidden from PATH | No-skills baseline |
-| `winappcli` | `plugins/winapp` + `plugins/winui/agent-plugin` from `microsoft/winappCli` at a **ref you pick**: `main` (default), a branch, tag, SHA, or `pull/N/head` | `winappcli@main` for the current state; `winappcli@my-branch` for your change. Each ref is its own setup in the results |
-| `published` | both plugins exactly as the published catalog (`microsoft/win-dev-skills`) pins them | What users get today |
+| Setup | `winapp` CLI | Plugins | Use |
+|---|---|---|---|
+| `none` | hidden from PATH (`env.hide_tools`) | none | Baseline: no CLI, no skills |
+| `cli-only` | on PATH | none | What the CLI alone gives the agent |
+| `cli-plus-plugins` | on PATH | `plugins/winapp` + `plugins/winui/agent-plugin` from `microsoft/winappCli` at a **ref you pick**: `main` (default), a branch, tag, SHA, or `pull/N/head` | `cli-plus-plugins@main` for the current state; `cli-plus-plugins@my-branch` for your change. Each ref is its own setup in the results |
+| `published` | on PATH | both plugins exactly as the published catalog (`microsoft/win-dev-skills`) pins them | What users get today |
 
-A typical comparison is `none`, `published`, `winappcli@main` and `winappcli@<your branch>`. Push
-the branch first; the harness clones it, and pins every ref to one commit for the whole run. In the
-dashboard, the setup list is `none`, `published`, `winappcli main`, and the repo's open pull
-requests; select any to compare. For another branch, a tag or a SHA, use headless runs
-(`--agent winappcli@my-branch`).
+Compare `none` with `cli-only` to see what the CLI adds, and `cli-only` with `cli-plus-plugins` to
+see what the plugins add on top. A typical branch comparison is `none`, `cli-only`, `published`,
+`cli-plus-plugins@main` and `cli-plus-plugins@<your branch>`. Push the branch first; the harness
+clones it, and pins every ref to one commit for the whole run. In the dashboard, the setup list is
+`none`, `cli-only`, `published`, `cli-plus-plugins main`, and the repo's open pull requests; select
+any to compare. For another branch, a tag or a SHA, use headless runs
+(`--agent cli-plus-plugins@my-branch`).
+
+Only `none` hides `winapp`. The harness itself always uses `winapp` to launch and check the app,
+for every setup.
 
 All setups load plugins the way a marketplace install does (SDK `pluginDirectories`, default
 agent). Before the prompt is sent, each trial checks that every plugin skill is loaded from the
@@ -59,13 +65,13 @@ In the dashboard's scenario, setup and model lists: Space/Enter toggles, `A` sel
 
 ```powershell
 # One trial
-npm run bench -- --scenario calc --agent winappcli
+npm run bench -- --scenario calc --agent cli-plus-plugins
 
 # Compare your branch with main, the published plugins and no plugins (3 iterations)
-npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent "none,published,winappcli@main,winappcli@my-branch" --iterations 3 --concurrency 3
+npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent "none,cli-only,published,cli-plus-plugins@main,cli-plus-plugins@my-branch" --iterations 3 --concurrency 3
 
 # A pull request (also works for forks)
-npm run bench -- --scenario calc --agent "winappcli@main,winappcli@pull/1234/head"
+npm run bench -- --scenario calc --agent "cli-plus-plugins@main,cli-plus-plugins@pull/1234/head"
 
 # Preview without running
 npm run bench -- --scenario all --agent all --dry-run
@@ -82,7 +88,7 @@ npm run scorecard -- run3 --markdown scorecard.md
 | `--iterations n` | 1 | |
 | `--concurrency n` | 1 | 3–4 is fine on a 16-core machine |
 | `--max-build-minutes n` | 60 | Per build session |
-| `--upstream-ref r1,r2` | `default_ref` | Same as `winappcli@r1,winappcli@r2` for every `from_repo` setup without an explicit ref (catalog setups keep their default) |
+| `--upstream-ref r1,r2` | `default_ref` | Same as `cli-plus-plugins@r1,cli-plus-plugins@r2` for every `from_repo` setup without an explicit ref (catalog setups keep their default) |
 | `--judge-model m` | `judge.model` in `common/config.json` | Fixed grader for every trial |
 | `--skip-validation` | off | Build + launch only, no judge |
 | `--run-meta file.json` | | Explicit task list (mix models, setups, refs) |
@@ -212,7 +218,7 @@ folder. `Q` quits.
 
 ```
 benchmarks/apps/
-  agents/        setup configs (none, winappcli, published)
+  agents/        setup configs (none, cli-only, cli-plus-plugins, published)
   common/        judge prompt, UI test harness, judge model
   scenarios/     one folder per scenario
   scripts/       Test-Prerequisites.ps1 (npm run doctor)

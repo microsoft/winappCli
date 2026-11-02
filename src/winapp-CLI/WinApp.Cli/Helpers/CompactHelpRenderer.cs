@@ -19,7 +19,7 @@ namespace WinApp.Cli.Helpers;
 internal static partial class CompactHelpRenderer
 {
     internal const int Width = 88;
-    internal const string GlobalOptionsLine = "Global options: -v, -q, --on <target>, --cli-schema   (see winapp --help)";
+    internal const string GlobalOptionsLine = "Global options: -v, -q, --on <target>, --expect-sandbox <guid>, --cli-schema";
     internal const string LocalGlobalOptionsLine = "Global options: -v, -q, --cli-schema   (see winapp --help)";
 
     private const int MinNameColumn = 18;

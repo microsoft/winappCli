@@ -321,7 +321,7 @@ winapp update --setup-sdks experimental
 
 Create MSIX packages from a project or prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
 
-Pass a single `.csproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
+Pass a single `.csproj` or C++ `.vcxproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
 
 ```bash
 winapp pack <input-folder> [input-folder...] [options]
@@ -329,7 +329,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Arguments:**
 
-- `input-folder` - A single `.csproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
+- `input-folder` - A single `.csproj` or C++ `.vcxproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
 
 **Options:**
 
@@ -346,11 +346,11 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--skip-pri` - Skip PRI file generation
 - `--executable <path>` - Path to the executable relative to the input folder (also `--exe`). Used to resolve `$targetnametoken$` placeholders in the manifest.
 
-**Project-mode options** (require a `.csproj` input; rejected for folder/bundle/manifest inputs):
+**Project-mode options** (require a `.csproj` or `.vcxproj` input; rejected for folder/bundle/manifest inputs):
 
 - `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
-- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture)
-- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted projects
+- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture). Repeat it to build a multi-architecture bundle from a `.csproj`.
+- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted .NET projects
 - `--no-build` - Package the existing build output without rebuilding
 - `--no-restore` - Skip restoring the project before building
 - `--property <name=value>` (`-p`) - MSBuild property, forwarded to build and evaluation (repeatable)
@@ -388,7 +388,19 @@ The target architecture comes from `--arch`, or from a lone `-p RuntimeIdentifie
 
 The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
 
-Project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
+.NET project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
+
+**C++ projects (`.vcxproj`).** winapp builds the project with Visual Studio's MSBuild, the same build `winapp run` uses (see [C++ projects](#c-projects-vcxproj) for prerequisites), then packages the build output folder:
+
+```powershell
+winapp pack .\MyApp.vcxproj --cert .\devcert.pfx
+winapp pack .\MyApp.vcxproj -p Platform=ARM64 --generate-cert
+```
+
+- Builds `Release` for the current architecture by default. `-c` or `-p Configuration=<name>` selects the configuration, and `--arch` or `-p Platform=x64|ARM64|Win32` selects the architecture.
+- A packaged project, such as the **WinUI Blank App (Packaged)** template, is packaged with the `AppxManifest.xml` its build generates. Any other application project needs an `appxmanifest.xml`: run `winapp init` in the project folder once, or pass `--manifest`. The built `.exe` fills a `$targetnametoken$` placeholder in that manifest.
+- `--self-contained` builds the project with `WindowsAppSDKSelfContained=true`, so the package carries the Windows App SDK runtime. With `--no-build`, the existing build must already be self-contained.
+- `--framework` and multiple `--arch` values aren't supported. To build a multi-architecture bundle, build each architecture and pass the output folders: `winapp pack <x64-folder> <arm64-folder>`.
 
 #### Sparse identity packages
 
@@ -766,6 +778,7 @@ winapp run [<input>] [options]
 - `--clean` - Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments.
 - `--json` - Format output as JSON for programmatic consumption (e.g. CI/automation). Useful with `--detach` to capture the PID. Cannot be combined with `--with-alias` or `--debug-output`.
 - `--on <target>` - Build on the host, then register and run in the target. Currently supports `sandbox`, with no fallback to local execution. Use `--detach` before follow-up UI commands. Sandbox `--debug-output` requires a packaged app. See [Windows Sandbox execution](sandbox-execution.md#running-and-rebuilding) for setup, runtime support, and detached-app lifetime.
+- `--expect-sandbox <id>` - Use only the Sandbox with this provider GUID, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 
 **Application data persistence:**
 
@@ -776,6 +789,7 @@ Use `--clean` when you need a fresh start (e.g., to reset corrupted state or tes
 **What it does:**
 
 - Locates or generates the Package.appxmanifest
+- Closes the app if it is already running from this layout, so its files can be replaced. winapp asks it to close and ends it after 2 seconds, or right away if it has no window or is showing a dialog, so save your work first. This also happens with `--no-launch`.
 - Creates and registers a debug identity using a loose layout package
 - Computes the Application User Model ID (AUMID)
 - Launches the application using the registered identity (unless `--no-launch` is specified)
@@ -982,6 +996,7 @@ winapp run . --no-build --detach --json
 - Build output shows MSBuild's warnings and errors only, with a spinner while it builds; `--verbose` shows MSBuild's full output and exact command.
 - In a folder or solution that also has a runnable C# app, the C# app is selected; use `--project <name>` to run the C++ app. C# libraries and test projects next to a C++ app don't get in the way.
 - A C# app that references a C++ project (for example a native DLL) can't be built with `dotnet`. Build it with Visual Studio or `MSBuild.exe`, then run `winapp run <app>.csproj --no-build`, or package its output folder with `winapp package <folder>`.
+- To create an MSIX from a C++ project, run `winapp package .\MyApp.vcxproj`. See [Packaging a project directly](#packaging-a-project-directly).
 
 **Prerequisites:** Visual Studio or Build Tools for Visual Studio 2022 version 17.8 or later, with the MSVC C++ build tools for the target architecture (the **Desktop development with C++** workload) and the Windows SDK the project targets. WinUI 3 apps also need **C++ WinUI app development tools**; with several installs, winapp uses the newest one that can build the project. The .NET SDK is not required. When the build tools, platform toolset (`MSB8020`), or Windows SDK (`MSB8036`) are missing, `winapp run` says what to install, including a `winget` command. A project with a `vcpkg.json` needs vcpkg integrated with MSBuild: run `vcpkg integrate install` once.
 
@@ -1410,6 +1425,7 @@ winapp unregister [input] [options]
 - `--manifest <path>` - Path to Package.appxmanifest (default: auto-detect from current directory)
 - `--force` - For local unregister only, skip the install-location directory check and unregister even if the package was registered from a different project tree. It is rejected with `--on`; target ownership checks cannot be bypassed.
 - `--on <target>` - Remove the matching winapp-owned development registration from `sandbox`, not this machine. Takes a manifest, project, or folder (not a `.cs` file) and does not support `--force`. See [Sandbox app cleanup](sandbox-execution.md#removing-an-app-and-ending-the-sandbox).
+- `--expect-sandbox <id>` - Use only the Sandbox with this provider GUID, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 - `--prune` - Remove every development-mode registration whose files are gone. Cannot be combined with an input, `--manifest`, `--property`, `--configuration`, `--arch`, `--runtime`, or `--output-appx-directory`.
 - `-p, --property <Name=Value>` - MSBuild property used when resolving a `.cs` file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. `-p WinAppPackageName=...`), since a command-line property overrides the file's own `#:property` directives. Only applies to a `.cs` input.
 - `-c, --configuration <name>` - Build configuration used when resolving a `.cs` file-based app's identity. Default: `Debug`. Pass the same configuration the run used: a `Directory.Build.props` beside the `.cs` can set `WinAppPackageName` or `WinAppManifestPath` conditionally on `$(Configuration)`. Only applies to a `.cs` input.
@@ -1849,6 +1865,11 @@ Every verb takes `sandbox` as its first argument. Except for `snapshot`, these c
 can prepare or start the Sandbox. See [Windows Sandbox execution](sandbox-execution.md)
 for prerequisites, permissions, lifecycle, and recovery.
 
+Every `target` verb accepts `--expect-sandbox <GUID>` or `WINAPP_EXPECT_SANDBOX`
+to require an already-running Sandbox with that ID. The option overrides the
+environment variable; a missing or different instance fails without starting one.
+See [expected-instance binding](sandbox-execution.md#using-only-a-sandbox-you-started).
+
 #### target exec
 
 Run a command as the guest user.
@@ -1931,7 +1952,7 @@ and capture-readiness failures.
 ### find-ui
 
 > [!NOTE]
-> **Agent-first.** `find-ui` is built primarily for AI coding agents — it lets an agent pull real, compiling WinUI markup from the shipping galleries instead of inventing it, and `--json` makes every result (and every failure) machine-readable. It works just as well typed by hand.
+> **Agent-first.** `find-ui` is built primarily for AI coding agents — it lets an agent pull real WinUI markup from the shipping galleries instead of inventing it (anything you must supply, such as an event handler method the sample doesn't define, is called out on an `Undefined handlers:` line), and `--json` makes every result (and every failure) machine-readable. It works just as well typed by hand.
 
 Search **WinUI** controls and samples for a working code example. WinUI-only: the corpus is the [WinUI 3 Gallery](https://github.com/microsoft/WinUI-Gallery) and the [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows) (plus a few curated core patterns) — it does **not** cover WPF, WinForms, or other UI frameworks. A third source, the [microsoft-ui-reactor ReactorGallery](https://github.com/microsoft/microsoft-ui-reactor), is **opt-in**: it is excluded from a normal search and only searched when you pass `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app, so reach for it only when building a Reactor/MVU project).
 
@@ -2400,9 +2421,10 @@ winapp ui [command] [options]
 
 **Options:**
 - `-a, --app <app>` - Target app (name, title, or PID)
-- `-w, --window <hwnd>` - Target window by HWND (stable)
+- `-w, --window <hwnd>` - Target window by HWND (stable), in decimal or `0x` hex
 - `--on <target>` - Run any `ui` verb in `sandbox`; names, PIDs, and window handles refer to the guest. Outputs are delivered to the host. See [Sandbox UI automation](sandbox-execution.md#automating-the-ui) for setup, workflow coordination, and client requirements.
 - `--type`, `--root`, `--class-name` - Narrow a selector, or use `--type`/`--class-name` without one, on the commands listed in [Scoped and typed queries](ui-automation.md#scoped-and-typed-queries)
+- `--expect-sandbox <id>` - Use only the Sandbox with this provider GUID, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 
 #### ui record
 

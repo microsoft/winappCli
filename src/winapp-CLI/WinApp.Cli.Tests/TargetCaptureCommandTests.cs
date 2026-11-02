@@ -356,6 +356,23 @@ public partial class TargetCaptureCommandTests
     /// agent the caller was asking about.
     /// </summary>
     [TestMethod]
+    public async Task Snapshot_RunningWithoutAManagedEpoch_JsonReportsUnpreparedState()
+    {
+        await using var harness = new Harness(GuestWindows());
+        harness.Backend.InspectionEpoch = ExecutionTargetEpoch.None;
+        using var console = new TestConsole();
+
+        Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox", "--json"));
+
+        var output = Deserialize(console.Output);
+        Assert.IsTrue(output.Running);
+        Assert.IsFalse(output.Attached);
+        Assert.IsNull(output.ExecutionTarget.Epoch);
+        Assert.IsNull(output.Capabilities);
+        Assert.AreEqual(0, harness.Backend.EnsureCalls);
+    }
+
+    [TestMethod]
     public async Task Snapshot_RunningButAgentSilent_ReportsWhatTheHostKnowsAndDoesNotRepair()
     {
         await using var harness = new Harness(GuestWindows());
@@ -1371,6 +1388,8 @@ public partial class TargetCaptureCommandTests
 
         public bool ReportsManagedRoot { get; set; } = true;
 
+        public ExecutionTargetEpoch InspectionEpoch { get; set; } = Epoch;
+
         /// <summary>The host end of the last channel handed out, so a test can watch it close.</summary>
         public IGuestTransport? LastHostTransport { get; private set; }
 
@@ -1399,9 +1418,9 @@ public partial class TargetCaptureCommandTests
                 return Task.FromResult(TargetAttachment.NotRunning);
             }
 
-            return Task.FromResult(AgentAnswers
-                ? new TargetAttachment(true, Epoch, Connect())
-                : new TargetAttachment(true, Epoch, null));
+            return Task.FromResult(AgentAnswers && !InspectionEpoch.IsNone
+                ? new TargetAttachment(true, InspectionEpoch, Connect())
+                : new TargetAttachment(true, InspectionEpoch, null));
         }
 
         public IReadOnlyDictionary<string, string> DescribeForDiagnostics() =>

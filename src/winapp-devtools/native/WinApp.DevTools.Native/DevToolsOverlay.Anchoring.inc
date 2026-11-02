@@ -694,7 +694,8 @@ static void TrackHighlight()
     if (!h || h == g_selectedHandle || !g_pickDiag || g_surfaceMoving) return;
     RECT nb{};
     if (!TryElementRootBounds(g_pickDiag, h, h, &nb) || EqualRect(&nb, &g_lastPickBoundsDip)) return;
-    if (SUCCEEDED(DrawAdorner(g_pickDiag, nb.left, nb.top, nb.right - nb.left, nb.bottom - nb.top, g_pickSeed)))
+    if (SUCCEEDED(DrawAdorner(g_pickDiag, nb.left, nb.top, nb.right - nb.left, nb.bottom - nb.top, g_pickSeed,
+                              g_adornerPreview)))
         g_lastPickBoundsDip = nb;
 }
 

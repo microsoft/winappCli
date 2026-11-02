@@ -53,9 +53,10 @@ try {
     $env:NO_COLOR = '1'
 
     # --- Copilot CLI: the launcher plus the pinned build, so --prefer-version resolves offline.
-    $pkg = "$env:LOCALAPPDATA\copilot\pkg\win32-x64"
+    $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
+    $pkg = "$env:LOCALAPPDATA\copilot\pkg\win32-$arch"
     New-Item -ItemType Directory -Force $pkg | Out-Null
-    robocopy "$harness\copilot\pkg\win32-x64" $pkg /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    robocopy "$harness\copilot\pkg\win32-$arch" $pkg /E /NFL /NDL /NJH /NJS /NP | Out-Null
     $copilotHome = 'C:\bench-home\copilot'
     New-Item -ItemType Directory -Force $copilotHome | Out-Null
     Set-Content "$copilotHome\config.json" '{"autoUpdate": false}'
@@ -101,10 +102,19 @@ try {
     # --- The agent (or, for checker validation, the reference solution or nothing).
     $result.phase = 'agent'
     Save-Result
+    if ($run.hideWinapp) {
+        # Setup and the baseline already ran winapp. From here the agent's processes inherit a PATH without it.
+        $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and $_.TrimEnd('\') -ne 'C:\Program Files\WinAppCli' }) -join ';'
+        Write-Log 'winapp hidden from the agent PATH'
+    }
+    else {
+        $winappVersion = (& cmd /c 'winapp --version 2>&1' | Select-Object -Last 1)
+        Write-Log "winapp on PATH: $((Get-Command winapp -ErrorAction SilentlyContinue).Source) version $winappVersion"
+    }
     switch ($run.mode) {
         'agent' {
             $agentArgs = @('-p', $run.prompt, '--model', $run.model, '--output-format', 'json', '--stream', 'off',
-                '--allow-all', '--no-ask-user', '--disable-builtin-mcps', '--no-custom-instructions', '--no-remote')
+                '--allow-all', '--no-ask-user', '--disable-builtin-mcps', '--no-custom-instructions')
             if ($run.agent) { $agentArgs += @('--agent', $run.agent) }
             if ($run.reasoningEffort) { $agentArgs += @('--reasoning-effort', $run.reasoningEffort) }
             $r = Invoke-Timed -File $copilot -Arguments ($prefix + $agentArgs) -WorkingDirectory $ws -Name 'agent' -TimeoutSeconds ($run.timeoutMinutes * 60)

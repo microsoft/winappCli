@@ -82,10 +82,18 @@ std::wstring DevToolsRead_SerializeTree(const std::vector<DevToolsReadNode>& roo
 std::wstring DevToolsRead_SerializeProps(unsigned long long handle, const std::vector<DevToolsReadProp>& props,
                                     const std::wstring& authoredState);
 
-// Where a row's value came from, in one label: what the developer authored on this element first (a resource, a
-// binding), and the runtime precedence slot only when nothing was authored here. The runtime applies a
-// {ThemeResource} as a plain local value, so the slot alone would say "Local" for it. The full label names the
-// resource key or the authored markup (`get-property`, through the wire's `origin`); `compact` is the DevTools
+// The value source of a local value DevTools itself wrote during this session. The runtime reports it as Local, but
+// it came from no XAML line, and whatever the XAML authored for it no longer applies.
+inline constexpr wchar_t kDevToolsReadLiveEditSource[] = L"DevTools";
+
+// WinUI reports some UIElement properties (Translation, Scale, RasterizationScale...) as Local on every element even
+// when nothing set them. True when this row is one of those at the value it has when nothing set it.
+bool DevToolsRead_IsUnsetRuntimeLocal(const std::wstring& name, const std::wstring& value);
+
+// Where a row's value came from, in one label: a DevTools live edit first, then what the developer authored on this
+// element (a resource, a binding), and the runtime precedence slot only when nothing was authored here. The runtime
+// applies a {ThemeResource} as a plain local value, so the slot alone would say "Local" for it. The full label names
+// the resource key or the authored markup (`get-property`, through the wire's `origin`); `compact` is the DevTools
 // window's pill.
 std::wstring DevToolsRead_OriginLabel(const std::wstring& authoredKind, const std::wstring& authored,
                                       const std::wstring& authoredKey, const std::wstring& binding,

@@ -8,6 +8,7 @@ function Get-VersionedPluginManifests {
         'plugin.json',
         'plugins\winapp\plugin.json',
         'plugins\winapp\.claude-plugin\plugin.json',
+        'plugins\winapp\.codex-plugin\plugin.json',
         'plugins\winui\agent-plugin\plugin.json',
         'plugins\winui\.claude-plugin\plugin.json',
         'plugins\winui\.codex-plugin\plugin.json',

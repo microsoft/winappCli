@@ -102,6 +102,7 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
     IReadOnlyList<(string Name, string Description)> ICompactHelpGroup.GroupOptions { get; } =
     [
         ("--on <target>", "Run on 'sandbox' (Windows Sandbox) or 'local' (default)"),
+        ("--expect-sandbox <guid>", "Use only this Sandbox ID with --on sandbox"),
         ("-h, --help", "Show help"),
     ];
 

@@ -71,6 +71,14 @@ static std::wstring CmdBindingOp(unsigned long long wire, const std::wstring& op
 
     std::wstring json;
     DevToolsBindingRelay_Binding(op, st->element.get(), prop, st->authored, &json);
+    // A successful restore or clear replaces the live edit. A refusal, a confirmation request or a missing agent
+    // leaves the edited value in place, so the edit is still what the app shows.
+    if (op == L"restore" || op == L"restoreconfirmed" || op == L"clear") {
+        DevToolsJson reply;
+        const std::wstring state = DevToolsJsonParse(json, reply) && reply.IsObject() ? reply.GetString(L"state") : std::wstring();
+        if (state == L"restored" || state == L"cleared")
+            RunOnUiThread([wire, prop]() -> HRESULT { DevToolsBindingRow_ForgetLiveWrite(wire, prop); return S_OK; });
+    }
     return json;
 }
 

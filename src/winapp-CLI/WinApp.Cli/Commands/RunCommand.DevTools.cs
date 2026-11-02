@@ -165,21 +165,23 @@ internal partial class RunCommand
         }
 
         // DevTools the user didn't ask for on this command line steps aside rather than failing the run.
-        private void DevToolsStepsAside(string reason, bool isJson)
+        private void DevToolsStepsAside(string reason, bool isJson, bool runsWithoutDevTools = true)
         {
             devToolsUnavailable = reason;
             DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.FellBack);
             if (!isJson)
             {
-                logger.LogWarning("{UISymbol} {Line}", UiSymbols.Warning, StepAsideLine(reason));
+                logger.LogWarning("{UISymbol} {Line}", UiSymbols.Warning, StepAsideLine(reason, runsWithoutDevTools));
             }
         }
 
         // A reason's first line is the summary; any lines below it (commands to run instead) follow the line as they are.
-        internal static string StepAsideLine(string reason)
+        // The "runs without DevTools" suffix is left off when the app exited or headless inspection still works.
+        internal static string StepAsideLine(string reason, bool runsWithoutDevTools = true)
         {
-            var lines = reason.Trim().Split('\n', 2);
-            return $"DevTools unavailable: {lines[0].TrimEnd().TrimEnd('.', ':')} · the app runs without DevTools" +
+            var lines = DevToolsErrors.DescribeHresults(reason).Trim().Split('\n', 2);
+            return $"DevTools unavailable: {lines[0].TrimEnd().TrimEnd('.', ':')}" +
+                (runsWithoutDevTools ? " · the app runs without DevTools" : "") +
                 (lines.Length > 1 ? "\n" + lines[1] : "");
         }
 
@@ -283,7 +285,7 @@ internal partial class RunCommand
                     }
                     if (devToolsRun.FailOpen)
                     {
-                        DevToolsStepsAside($"the app exited right after launch{(result.ExitCode is int exited ? $" (exit code {exited})" : "")}.", isJson);
+                        DevToolsStepsAside($"the app exited right after launch{(result.ExitCode is int exited ? $" (exit code {exited})" : "")}.", isJson, runsWithoutDevTools: false);
                         if (isJson) { PrintJson(aumid, null, null, coordinates?.Exclusions, coordinates?.Error); }
                         return result.ExitCode ?? 0;
                     }
@@ -367,7 +369,7 @@ internal partial class RunCommand
                     {
                         return InspectorFailure(aumid, pid, unavailable + attachHint, isJson, coordinates);
                     }
-                    DevToolsStepsAside(unavailable, isJson);
+                    DevToolsStepsAside(unavailable, isJson, runsWithoutDevTools: !launched.HasExited && connection is null);
                 }
                 else
                 {

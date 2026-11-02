@@ -5,6 +5,7 @@
 // identical Local precedence must not erase their different authored origins.
 
 #include "DevToolsRead.h"
+#include "DevToolsProtocol.h"
 
 #include <cstdio>
 #include <string>
@@ -139,6 +140,65 @@ static DevToolsReadProp MakeProp(const wchar_t* name, const wchar_t* value, cons
     DevToolsReadProp p;
     p.name = name; p.value = value; p.type = type; p.editKind = L"text";
     return p;
+}
+
+static void Test_AuthoredPasswordRedaction()
+{
+    const struct { const wchar_t* authored; bool literal; } cases[] = {
+        { L"", true },
+        { L"example-secret", true },
+        { L"{}{example-secret}", true },
+        { L"{}example-secret", true },
+        { L"{}", true },
+        { L"{}{Binding Secret}", true },
+        { L"{}{StaticResource Secret}", true },
+        { L" \t{}{example-secret}", true },
+        { L"{Binding Secret, Mode=TwoWay}", false },
+        { L"{x:Bind Secret, Mode=TwoWay}", false },
+        { L"{TemplateBinding Secret}", false },
+        { L"{StaticResource Secret}", false },
+        { L"{ThemeResource Secret}", false },
+        { L" \t{Binding Secret}", false },
+        { L" \t{StaticResource Secret}", false },
+    };
+    for (const auto& test : cases)
+    {
+        const std::wstring authored = test.authored;
+        const std::wstring expected = test.literal ? kDevToolsRedacted : authored;
+        for (const wchar_t quote : { L'"', L'\'' })
+        {
+            std::wstring xaml = L"<PasswordBox Password=" + std::wstring(1, quote) + authored + quote +
+                L" PasswordBox.Password=" + quote + authored + quote + L" Header=" + quote + authored + quote + L"/>";
+            DevToolsRead_RedactXaml(xaml);
+            CheckEqW(xaml, L"<PasswordBox Password=" + std::wstring(1, quote) + expected + quote +
+                L" PasswordBox.Password=" + quote + expected + quote + L" Header=" + quote + authored + quote + L"/>",
+                "XAML redacts password literals, preserves references and leaves other attributes alone");
+        }
+
+        DevToolsReadProp p = MakeProp(L"Password", L"runtime-secret", L"String");
+        p.authored = authored;
+        p.authoredKind = DevToolsRead_ClassifyAuthored(authored);
+        const std::wstring expectedAuthored = authored.empty() ? L"" : expected;
+        const std::wstring json = DevToolsRead_SerializeProps(1, { p }, L"available");
+        Check(json.find(L"runtime-secret") == std::wstring::npos &&
+            Contains(json, L"\"value\":\"<redacted>\"") && Contains(json, L"\"redacted\":true"),
+            "property JSON always redacts the runtime password");
+        if (authored.empty())
+            Check(!Contains(json, L"\"authored\":"), "an absent authored password stays absent");
+        else
+            Check(json.find(L"\"authored\":\"" + DevToolsJsonEscape(expectedAuthored) + L"\"") != std::wstring::npos,
+                "property JSON redacts authored password literals and preserves references");
+
+        DevToolsRead_Redact(p);
+        CheckEqW(p.authored, expectedAuthored, "row redaction uses the same literal/reference distinction");
+        Check(p.redacted && p.value == kDevToolsRedacted && p.editKind == L"none",
+            "a password row remains redacted and read-only");
+    }
+
+    std::wstring element = L"<PasswordBox><PasswordBox.Password>{}{example-secret}</PasswordBox.Password></PasswordBox>";
+    DevToolsRead_RedactXaml(element);
+    CheckEqW(element, L"<PasswordBox><PasswordBox.Password><redacted></PasswordBox.Password></PasswordBox>",
+        "escaped literal property-element text remains redacted");
 }
 
 static void Test_SerializeEmitsAuthoredKindWithAuthored()
@@ -463,6 +523,30 @@ static void Test_OriginLabel()
     CheckEqW(pill(L"templateBinding", L"Local"), L"TemplateBinding", "the pill says TemplateBinding");
     CheckEqW(pill(L"customMarkup", L"Local"), L"Markup", "the pill says Markup");
     CheckEqW(pill(L"literal", L"Style"), L"Style", "otherwise the pill is the precedence slot");
+    CheckEqW(full(L"binding", L"{Binding Title}", L"", L"", kDevToolsReadLiveEditSource), kDevToolsReadLiveEditSource,
+              "a DevTools edit that replaced an authored binding names the edit, not the XAML binding");
+    CheckEqW(pill(L"themeResource", kDevToolsReadLiveEditSource), kDevToolsReadLiveEditSource,
+              "the pill names a DevTools edit over the authored resource");
+    Check(DevToolsRead_ChildEditingIsSafe(kDevToolsReadLiveEditSource, L""), "a DevTools-written value is local");
+
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"Translation", L"0,0,0"), "Translation at zero is unset");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"Scale", L"1.000000,1.000000,1.000000"), "Scale at one is unset");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"RotationAxis", L"0,0,1"), "RotationAxis at Z is unset");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"Rotation", L"0"), "Rotation at zero is unset");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"CenterPoint", L"0, 0, 0"), "CenterPoint at zero is unset");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"RasterizationScale", L"1.5"), "RasterizationScale is computed by the runtime");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"TransformMatrix", L"1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1"), "an identity TransformMatrix is unset");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"TransformMatrix",
+              L"{{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}}"), "including in the nested-brace form a Matrix4x4 arrives in");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"TransformMatrix",
+              L"{ {M11:1 M12:0 M13:0 M14:0} {M21:0 M22:1 M23:0 M24:0} {M31:0 M32:0 M33:1 M34:0} {M41:0 M42:0 M43:0 M44:1} }"),
+          "and with member labels");
+    Check(!DevToolsRead_IsUnsetRuntimeLocal(L"TransformMatrix",
+              L"{{2,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}}"), "a scaled TransformMatrix was set");
+    Check(!DevToolsRead_IsUnsetRuntimeLocal(L"Translation", L"0,10,0"), "a moved element's Translation was set");
+    Check(!DevToolsRead_IsUnsetRuntimeLocal(L"Scale", L"2,2,1"), "a scaled element's Scale was set");
+    Check(!DevToolsRead_IsUnsetRuntimeLocal(L"Rotation", L""), "an unreadable value is not assumed unset");
+    Check(!DevToolsRead_IsUnsetRuntimeLocal(L"Width", L"0"), "an ordinary property is never assumed unset");
 
     DevToolsReadProp themed;
     themed.name = L"Foreground"; themed.value = L"#C5FFFFFF"; themed.type = L"SolidColorBrush"; themed.source = L"Local";
@@ -481,6 +565,7 @@ int RunReadTests()
     Test_DeriveWriteType();
     Test_ExpandableKind();
     Test_ChildEditingIsGatedOnOwnership();
+    Test_AuthoredPasswordRedaction();
     Test_SerializeEmitsAuthoredKindWithAuthored();
     Test_SerializeOmitsAuthoredKindWhenNothingWasAuthored();
     Test_SerializeUnsetIsAStateNotAValue();

@@ -31,7 +31,7 @@ jobs:
       - name: Validate plugin packages and skills
         shell: pwsh
         run: |
-          $relevant = '^(plugins/|scripts/validate-plugin-package\.ps1$|\.github/workflows/plugin-check\.yml$)'
+          $relevant = '^(plugins/|\.github/plugin/marketplace\.json$|\.claude-plugin/marketplace\.json$|\.agents/plugins/marketplace\.json$|version\.json$|scripts/validate-plugin-package\.ps1$|\.github/workflows/plugin-check\.yml$)'
           $changed = @(git diff --name-only HEAD^1 HEAD)
           if ($LASTEXITCODE -ne 0) { throw "Could not list the files this PR changes." }
           $matched = @($changed | Where-Object { $_ -match $relevant })

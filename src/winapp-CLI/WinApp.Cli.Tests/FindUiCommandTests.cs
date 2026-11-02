@@ -85,6 +85,21 @@ public class FindUiCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Id_Json_ExposesUndefinedHandlers()
+    {
+        var scenario = Scn("gallery", "scrollview", "ScrollView", "scrollview-3", "Custom animation");
+        scenario.Xaml = "<ScrollView ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\" />";
+        _fakeService = FakeControlsSearchService.WithEngine(
+            new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new()));
+
+        var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["--id", "gallery-scrollview-3", "--json"]);
+
+        Assert.AreEqual(0, exit);
+        using var doc = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        var handlers = doc.RootElement.GetProperty("results")[0].GetProperty("undefinedHandlers");
+        Assert.AreEqual("ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"", handlers[0].GetString());
+    }
+    [TestMethod]
     public async Task Id_LabelWithBackticks_RendersVerbatim_Exit0()
     {
         // A reactor scenario emits "**Setup:** NuGet `Microsoft.UI.Reactor`". The label is

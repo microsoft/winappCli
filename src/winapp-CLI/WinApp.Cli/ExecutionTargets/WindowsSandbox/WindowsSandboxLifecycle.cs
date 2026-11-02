@@ -43,9 +43,9 @@ internal enum SandboxInstanceOrigin
 }
 
 /// <summary>Outcome of reconciling persisted state against what is actually running.</summary>
-/// <param name="State">How the managed instance is currently classified.</param>
-/// <param name="InstanceId">The managed instance, when one exists.</param>
-/// <param name="Epoch">Generation identity of that instance.</param>
+/// <param name="State">How the observed instance is currently classified.</param>
+/// <param name="InstanceId">The observed instance, when one has been identified.</param>
+/// <param name="Epoch">Generation identity, or <see cref="ExecutionTargetEpoch.None"/> when not yet managed.</param>
 /// <param name="Revision">State revision the caller must pass when committing.</param>
 internal sealed record SandboxReconciliation(
     TargetLifecycleState State,
@@ -137,6 +137,14 @@ internal sealed class WindowsSandboxLifecycle(
     /// <summary>Clock seam, so reconciliation bounds are exercised without real time passing.</summary>
     internal Func<DateTimeOffset> UtcNow { get; set; } = () => DateTimeOffset.UtcNow;
 
+    /// <summary>The invocation's resolved expectation; standalone callers use the environment.</summary>
+    internal Func<SandboxExpectation?> GetExpectation { get; set; } =
+        () => SandboxExpectation.FromEnvironment(Environment.GetEnvironmentVariable);
+
+    /// <summary>The Sandbox the caller requires, or null when any Sandbox may be used.</summary>
+    /// <exception cref="ExecutionTargetException">The expectation is set but malformed.</exception>
+    public SandboxExpectation? CurrentExpectation() => GetExpectation();
+
     /// <summary>
     /// Classifies the managed instance by comparing persisted state against <c>wsb list</c>.
     /// </summary>
@@ -149,6 +157,11 @@ internal sealed class WindowsSandboxLifecycle(
     {
         var state = stateStore.Read(_target);
         var revision = state?.Revision ?? 0;
+
+        if (CurrentExpectation() is { } expectation)
+        {
+            return await ReconcileExpectedAsync(expectation, state, revision, cancellationToken).ConfigureAwait(false);
+        }
 
         if (state?.InstanceId is not { } managedId || string.IsNullOrWhiteSpace(state.BootNonce))
         {
@@ -193,8 +206,15 @@ internal sealed class WindowsSandboxLifecycle(
     {
         ArgumentNullException.ThrowIfNull(openSandbox);
 
+        var expectation = CurrentExpectation();
         var state = stateStore.Read(_target);
         var running = await cli.ListAsync(cancellationToken).ConfigureAwait(false);
+
+        if (expectation is not null)
+        {
+            return await EnsureExpectedInstanceAsync(expectation, state, running, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         // Pattern-matching both members at once removes the redundant re-test of `state` that a
         // separate null-conditional access would need, while keeping the compiler's null analysis
@@ -238,6 +258,65 @@ internal sealed class WindowsSandboxLifecycle(
         }
 
         return await OpenOwnedInstanceAsync(state, openSandbox, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Uses exactly the Sandbox the caller named, or fails without changing anything.
+    /// </summary>
+    /// <remarks>
+    /// Never starts a Sandbox and never recovers a pending start: either would produce an instance
+    /// other than the one the caller is holding. The expected instance is taken over the same way an
+    /// unexpected one would be, so a caller that created it with <c>wsb start --id</c> can hand it
+    /// to winapp in one step.
+    /// </remarks>
+    private async Task<SandboxInstanceLease> EnsureExpectedInstanceAsync(
+        SandboxExpectation expectation,
+        TargetState? state,
+        IReadOnlyList<string> running,
+        CancellationToken cancellationToken)
+    {
+        expectation.RequireOnlyRunning(running);
+
+        if (state is { InstanceId: { } managedId, BootNonce: { Length: > 0 } bootNonce }
+            && expectation.IsInstance(managedId))
+        {
+            var epoch = ExecutionTargetEpoch.Create(managedId, bootNonce);
+
+            return new SandboxInstanceLease(
+                managedId,
+                epoch,
+                SandboxInstanceOrigin.Reused,
+                IsWarm: string.Equals(state.BootstrappedEpoch, epoch.Value, StringComparison.Ordinal));
+        }
+
+        return await AdoptRunningInstanceAsync(state, running[0], cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Reconciles state when the caller requires a specific Sandbox.</summary>
+    /// <remarks>
+    /// Unlike the unconstrained path this lists even with no saved state: the caller asked for a
+    /// specific instance to be checked, so "not running" and "a different one is running" are
+    /// failures to report rather than an empty target.
+    /// </remarks>
+    private async Task<SandboxReconciliation> ReconcileExpectedAsync(
+        SandboxExpectation expectation,
+        TargetState? state,
+        long revision,
+        CancellationToken cancellationToken)
+    {
+        var running = await cli.ListAsync(cancellationToken).ConfigureAwait(false);
+        expectation.RequireOnlyRunning(running);
+
+        if (state is { InstanceId: { } managedId, BootNonce: { Length: > 0 } bootNonce }
+            && expectation.IsInstance(managedId))
+        {
+            var epoch = ExecutionTargetEpoch.Create(managedId, bootNonce);
+
+            return new SandboxReconciliation(TargetLifecycleState.Running, managedId, epoch, revision);
+        }
+
+        return new SandboxReconciliation(
+            TargetLifecycleState.Running, expectation.InstanceId, ExecutionTargetEpoch.None, revision);
     }
 
     /// <summary>
@@ -423,6 +502,11 @@ internal sealed class WindowsSandboxLifecycle(
                     Advisory = true,
                 },
                 example: "winapp run . --on sandbox");
+        }
+
+        if (CurrentExpectation() is { } expectation)
+        {
+            expectation.RequireOnlyRunning(await cli.ListAsync(cancellationToken).ConfigureAwait(false));
         }
 
         _progress.Report(AdoptingMessage);

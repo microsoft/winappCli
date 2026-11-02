@@ -202,6 +202,126 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    public void GetPattern_UndefinedHandler_KeptInXamlAndDisclosed()
+    {
+        var scenario = Scn("gallery", "scrollview", "ScrollView", "scrollview-3", "Custom animation");
+        scenario.Xaml = "<ScrollView ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\" Background=\"Red\" />";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("gallery-scrollview-3");
+
+        Assert.IsTrue(found);
+        StringAssert.Contains(formatted, "ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"", "the event is the point of the sample");
+        StringAssert.Contains(formatted, "**Undefined handlers:** `ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"`");
+    }
+
+    [TestMethod]
+    public void GetPattern_HandlerDeclaredInCode_NotDisclosed()
+    {
+        var scenario = Scn("gallery", "tabview", "TabView", "tabview-9", "Add tab");
+        scenario.Xaml = "<TabView AddTabButtonClick=\"TabView_AddTabButtonClick\" />";
+        scenario.CSharp = "private void TabView_AddTabButtonClick(TabView sender, object args) { }";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, _, _) = engine.GetPattern("gallery-tabview-9");
+
+        Assert.IsFalse(formatted.Contains("**Undefined handlers:**"));
+    }
+
+    [TestMethod]
+    public void GetPattern_BindingsAndPlainAttributes_NotDisclosed()
+    {
+        var scenario = Scn("gallery", "button", "Button", "button-9", "Bound");
+        scenario.Xaml = "<Button Click=\"{x:Bind Run}\" Orientation=\"Horizontal\" Grid.Row=\"1\" x:Name=\"Animated_ScrollViewer\" />";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, _, _) = engine.GetPattern("gallery-button-9");
+
+        Assert.IsFalse(formatted.Contains("**Undefined handlers:**"));
+    }
+
+    [TestMethod]
+    public void GetUndefinedHandlers_ListsUndefinedOnly()
+    {
+        var scenario = Scn("gallery", "tabview", "TabView", "tabview-9", "Mixed");
+        scenario.Xaml = "<TabView AddTabButtonClick=\"TabView_Add\" TabCloseRequested=\"TabView_Close\" />";
+        scenario.CSharp = "private void TabView_Add(object s, object e) { }";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var undefinedHandlers = engine.GetUndefinedHandlers("gallery-tabview-9");
+        Assert.AreEqual(1, undefinedHandlers.Length);
+        Assert.AreEqual("TabCloseRequested=\"TabView_Close\"", undefinedHandlers[0]);
+        Assert.AreEqual(0, engine.GetUndefinedHandlers("gallery-nope-1").Length);
+    }
+
+    [TestMethod]
+    [DataRow("KeyDown", "Grid_KeyDown")]
+    [DataRow("KeyUp", "OnKeyUp")]
+    [DataRow("PreviewKeyDown", "Page_PreviewKeyDown")]
+    [DataRow("DragEnter", "Drop_DragEnter")]
+    [DataRow("DragLeave", "Drop_DragLeave")]
+    [DataRow("ManipulationDelta", "Border_ManipulationDelta")]
+    [DataRow("ManipulationStarted", "Border_ManipulationStarted")]
+    [DataRow("ManipulationCompleted", "OnManipulationCompleted")]
+    [DataRow("PointerWheelChanged", "Root_PointerWheelChanged")]
+    [DataRow("ScrollAnimationStarting", "ScrollView_ScrollAnimationStarting")]
+    public void FindUndefinedEventHandlers_CatchesEventFamilies(string evt, string method)
+    {
+        var found = ControlSnippetText.FindUndefinedEventHandlers($"<Grid {evt}=\"{method}\" />", null);
+
+        CollectionAssert.AreEqual(new[] { $"{evt}=\"{method}\"" }, found);
+    }
+
+    [TestMethod]
+    public void FindUndefinedEventHandlers_IgnoresNonEvents()
+    {
+        var xaml = "<TextBlock TextWrapping=\"Wrap\" Text=\"Hello_World\" Orientation=\"Horizontal\" x:Name=\"Animated_ScrollViewer\" Name=\"Animated_ScrollViewer\" Click=\"{x:Bind Run}\" Grid.Row=\"1\" />";
+
+        Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, null).Length);
+    }
+
+    [TestMethod]
+    [DataRow("<TabView TabDroppedOutside=\"TabView_TabDroppedOutside\" />", "TabDroppedOutside=\"TabView_TabDroppedOutside\"")]
+    [DataRow("<Grid PointerCaptureLost=\"Grid_PointerCaptureLost\" />", "PointerCaptureLost=\"Grid_PointerCaptureLost\"")]
+    [DataRow("<Grid NoFocusCandidateFound=\"Grid_NoFocusCandidateFound\" />", "NoFocusCandidateFound=\"Grid_NoFocusCandidateFound\"")]
+    [DataRow("<Button Click = \"OnClick\" />", "Click=\"OnClick\"")]
+    [DataRow("<Button Click='OnClick' />", "Click=\"OnClick\"")]
+    [DataRow("<Button Click=\"Close\" />", "Click=\"Close\"")]
+    [DataRow("<Button IsEnabledChanged=\"OnEnabledChanged\" />", "IsEnabledChanged=\"OnEnabledChanged\"")]
+    [DataRow("<CheckBox Checked=\"Checked\" />", "Checked=\"Checked\"")]
+    public void FindUndefinedEventHandlers_DisclosesEdgeCases(string xaml, string expected)
+    {
+        var found = ControlSnippetText.FindUndefinedEventHandlers(xaml, null);
+
+        Assert.AreEqual(1, found.Length);
+        Assert.AreEqual(expected, found[0]);
+    }
+
+    [TestMethod]
+    [DataRow("<TextBlock TextWrapping=\"Wrap\" />")]
+    [DataRow("<StackPanel Orientation=\"Horizontal\" />")]
+    [DataRow("<NavigationView SelectionFollowsFocus=\"Enabled\" />")]
+    [DataRow("<Grid x:Name=\"Animated_ScrollViewer\" />")]
+    [DataRow("<Button IsEnabled=\"True\" />")]
+    [DataRow("<SwipeItem BehaviorOnInvoked=\"Close\" />")]
+    public void FindUndefinedEventHandlers_StillIgnoresNonEvents(string xaml)
+    {
+        Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, null).Length);
+    }
+
+    [TestMethod]
+    public void FindUndefinedEventHandlers_DisclosesPlainMethodNames()
+    {
+        var xaml = "<Button Click=\"AddItem\" /><TabView TabCloseRequested=\"CloseTab\" />";
+
+        var found = ControlSnippetText.FindUndefinedEventHandlers(xaml, null);
+        Assert.AreEqual(2, found.Length);
+        Assert.AreEqual("Click=\"AddItem\"", found[0]);
+        Assert.AreEqual("TabCloseRequested=\"CloseTab\"", found[1]);
+        Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, "void AddItem(object s, object e) { } void CloseTab(object s, object e) { }").Length);
+    }
+
+    [TestMethod]
     public void GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine()
     {
         // Per-control reactor namespaces (Microsoft.UI.Reactor.Docking and friends) are

@@ -544,8 +544,9 @@ static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, const 
     try {
         winrt::Windows::Foundation::IInspectable barObject{ nullptr };
         winrt::copy_from_abi(barObject, g_aRow);
-        auto anchorElement = ToolbarPart(anchor).as<DevToolsX::UIElement>();
-        auto panel = ToolbarPart(menu).as<DevToolsX::FrameworkElement>();
+        auto anchorElement = ToolbarPart(anchor).try_as<DevToolsX::UIElement>();
+        auto panel = ToolbarPart(menu).try_as<DevToolsX::FrameworkElement>();
+        if (!anchorElement || !panel) return;
         keyboard = anchorElement.FocusState() != DevToolsX::FocusState::Unfocused;
         panel.Visibility(DevToolsX::Visibility::Visible);
         panel.Measure({ static_cast<float>(panel.Width()), std::numeric_limits<float>::infinity() });
@@ -620,10 +621,12 @@ static std::string DefaultMode()
 }
 
 // "When the app starts" is a view of that setting: Show toolbar is on, Hide toolbar is headless, Don't start is off.
+// The re-enable hint under the radios is only visible while "off" is the selected mode (issue #1148).
 static void SetStartModeUi(const std::string& mode)
 {
     const wchar_t* name = mode == "headless" ? L"DevToolsStartHidden" : mode == "off" ? L"DevToolsStartOff" : L"DevToolsStartShown";
     ProtoSetToggle(name, L"", L"", true);
+    ProtoSetPartVisible(L"DevToolsStartOffHint", mode == "off");
 }
 
 static void OnMoreMenuClick(void*, void*)
@@ -653,7 +656,9 @@ static void SetDefaultMode(const char* mode)
 }
 static void OnStartShownClick(void*, void*) { SetDefaultMode("on"); }
 static void OnStartHiddenClick(void*, void*) { SetDefaultMode("headless"); }
-static void OnStartOffClick(void*, void*) { SetDefaultMode("off"); }
+// The off choice leaves a re-enable hint in the More menu, so the menu must stay open to show it:
+// SetDefaultMode closes the menu first, then this reopens it (re-measured for the added hint text).
+static void OnStartOffClick(void*, void*) { SetDefaultMode("off"); ToggleToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore", L"DevToolsStartOff"); }
 static std::wstring ChipSurfaceLabel()
 {
     const std::vector<DevToolsSurface>& all = DevToolsOverlay_AllSurfaces();
@@ -837,9 +842,6 @@ static void OnDragCatcherReleased(void*, void*)
     if (!g_aRowOpen) ShowARow(true);
     DevToolsOverlayLog(L"overlay.toolbar drag released -> corner=%d", landed);
 }
-
-static void OnDragHandleEnter(void*, void*) { ProtoSetPartVisible(L"DevToolsDragHaloOn", true); }
-static void OnDragHandleExit(void*, void*)  { ProtoSetPartVisible(L"DevToolsDragHaloOn", false); }
 
 // The collapsed pill drags like the bar's handle. A press that ends without moving opens the bar where it was.
 static void OnPillPressed(const winrt::Windows::Foundation::IInspectable& sender, const DevToolsXI::PointerRoutedEventArgs& args)
@@ -1093,8 +1095,6 @@ static void WirePrototype(IInspectable* canvas)
                 reinterpret_cast<IUnknown*>(cui)->Release();
                 DevToolsOverlayLog(L"overlay.toolbar drag-handle add_PointerPressed hr=0x%08X", hr);
             }
-            wireUiEvent(handle, DevToolsUiEvent::PointerEntered, g_protoSink[10], &OnDragHandleEnter);
-            wireUiEvent(handle, DevToolsUiEvent::PointerExited,  g_protoSink[11], &OnDragHandleExit);
             handle->Release();
         }
         wireNamedClick(L"DevToolsProtoPick", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);

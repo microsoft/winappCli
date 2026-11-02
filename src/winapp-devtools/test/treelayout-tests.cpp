@@ -335,6 +335,25 @@ static void Test_RenderCapSelectsTheRequestedViewFairly()
     Check(app[0] == appRow, "filtering before the cap reaches app content beyond the old prefix");
 }
 
+static void Test_VisibleParents()
+{
+    std::vector<Row> rows(8);
+    const int depths[] = {0, 1, 2, 1, 2, 0, 1, 2};
+    for (size_t i = 0; i < rows.size(); ++i) rows[i].depth = depths[i];
+    const auto all = ComputeVisibleParents(rows, std::vector<char>(8, 1));
+    Check(all == std::vector<size_t>{kNoRow, 0, 1, 0, 3, kNoRow, 5, 6},
+          "visible parents retain nested rows, siblings and separate roots");
+    const auto filtered = ComputeVisibleParents(rows, {1, 0, 1, 0, 1, 0, 1, 1});
+    Check(filtered == std::vector<size_t>{kNoRow, kNoRow, 0, kNoRow, 0, kNoRow, kNoRow, 6},
+          "filtered ancestors promote descendants without attaching across a hidden root");
+    const auto collapsed = ComputeVisibleParents(rows, {1, 1, 0, 1, 0, 1, 0, 0});
+    Check(collapsed == std::vector<size_t>{kNoRow, 0, kNoRow, 0, kNoRow, kNoRow, kNoRow, kNoRow},
+          "collapsed descendants are absent from the accessible hierarchy");
+    Check(ComputeVisibleParents({}, {}).empty(), "an empty tree has no accessible parents");
+    Check(ComputeVisibleParents(rows, {}) == std::vector<size_t>(8, kNoRow),
+          "rows without visibility entries are excluded");
+}
+
 static void Test_A11yRowsFollowTheVisibleHierarchy()
 {
     std::printf("\nAccessibility rows follow the hierarchy the filtered tree actually shows\n");
@@ -788,6 +807,7 @@ int main()
     Test_BuildRowsIsTheUntestedSeam();
     Test_RenderCapSelectsTheRequestedViewFairly();
     Test_A11yRowsFollowTheVisibleHierarchy();
+    Test_VisibleParents();
     Test_TreeFilterMatcherIsSharedWithTheProtocol();
     Test_ElementIdentityIsPathDependentAndStable();
     Test_CollapseStateSurvivesARowRebuild();

@@ -578,9 +578,9 @@ internal partial class MsixService
     /// </summary>
     /// <param name="manifestContent">The manifest content to modify</param>
     /// <returns>The modified manifest content</returns>
-    private async Task<string> UpdateWindowsAppSdkDependencyAsync(string manifestContent, DotNetPackageListJson? dotNetPackageList, TaskContext taskContext, CancellationToken cancellationToken)
+    private async Task<string> UpdateWindowsAppSdkDependencyAsync(string manifestContent, DotNetPackageListJson? dotNetPackageList, TaskContext taskContext, CancellationToken cancellationToken, DirectoryInfo? windowsAppSdkPackageDirectory = null)
     {
-        var winAppSdkInfo = await GetWindowsAppSdkDependencyInfoAsync(dotNetPackageList, taskContext, cancellationToken);
+        var winAppSdkInfo = await GetWindowsAppSdkDependencyInfoAsync(dotNetPackageList, taskContext, cancellationToken, windowsAppSdkPackageDirectory);
 
         if (winAppSdkInfo == null)
         {
@@ -645,11 +645,18 @@ internal partial class MsixService
     /// Gets the Windows App SDK dependency information from the locked winapp.yaml config and package source
     /// </summary>
     /// <returns>The dependency information, or null if not found</returns>
-    private async Task<WindowsAppRuntimePackageInfo?> GetWindowsAppSdkDependencyInfoAsync(DotNetPackageListJson? dotNetPackageList, TaskContext taskContext, CancellationToken cancellationToken)
+    private async Task<WindowsAppRuntimePackageInfo?> GetWindowsAppSdkDependencyInfoAsync(DotNetPackageListJson? dotNetPackageList, TaskContext taskContext, CancellationToken cancellationToken, DirectoryInfo? windowsAppSdkPackageDirectory = null)
     {
         try
         {
-            var msixDir = await GetRuntimeMsixDirAsync(dotNetPackageList, taskContext, cancellationToken);
+            // A C++ build names the Windows App SDK package folder it imported; its runtime is the one the
+            // app needs, so prefer it over the folder-based (winapp.yaml / cache) lookup.
+            var importedMsixDir = windowsAppSdkPackageDirectory is null
+                ? null
+                : new DirectoryInfo(Path.Join(windowsAppSdkPackageDirectory.FullName, "tools", "MSIX"));
+            var msixDir = importedMsixDir is { Exists: true }
+                ? importedMsixDir
+                : await GetRuntimeMsixDirAsync(dotNetPackageList, taskContext, cancellationToken);
             if (msixDir == null)
             {
                 return null;

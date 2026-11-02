@@ -114,9 +114,10 @@ HRESULT DevToolsOverlay_RecoverHost(IXamlDiagnostics* diag, DevToolsFindHostPane
                                   InstanceHandle* currentPanel);
 bool DevToolsOverlay_IsToolbarRequested();
 
-// Highlight a live app handle by probing the same hit-test path used by picking.
+// Highlight a live app handle by probing the same hit-test path used by picking. `preview` draws the lighter
+// hover outline (inspector tree hover) unless the target is already the selection.
 HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle rootHandle, InstanceHandle target,
-                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay);
+                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay, bool preview = false);
 
 // Commit selection chrome on the UI thread; hover callers use highlight-only state.
 HRESULT DevToolsOverlay_SelectHandle(IXamlDiagnostics* diag, InstanceHandle rootHandle, InstanceHandle target,
@@ -143,7 +144,7 @@ bool DevToolsOverlay_SetExternalFocusTracking(bool enabled);
 typedef void (*DevToolsOverlayStateChangedFn)(void);
 void DevToolsOverlay_SetStateChangedSink(DevToolsOverlayStateChangedFn sink);
 
-// Query the shared sticky picker without arming it.
+// Query the shared picker without arming it.
 bool DevToolsOverlay_IsPickArmed();
 
 // Toolbar visibility also requires a live root still hosting overlay content.
@@ -309,7 +310,7 @@ bool DevToolsOverlay_ArmPick();
 // Explicit cancel tears down the catcher and clears selection; idempotent on the UI thread.
 void DevToolsOverlay_DisarmPick();
 
-// Window-owned one-shot completion removes the catcher after PointerReleased without deselecting.
+// One-shot completion removes the catcher without deselecting; call outside PointerReleased.
 void DevToolsOverlay_CompleteOneShotPick();
 
 // Pick-mode notifications come from the same UI-thread point that updates the overlay button.

@@ -22,6 +22,7 @@ static std::wstring GenCommentId()
 // removed under the pointer), OnCatcherPointerMoved and OnCatcherPointerPressed both null-guard g_pickCatcher.
 static void RemovePickCatcher()
 {
+    CancelPickCompletion();
     ResetPickPointer();
     if (g_pickCatcher && g_canvasChildren) {
         IInspectable* cui = nullptr;

@@ -6,6 +6,9 @@ static void ReleaseTreeRowState()
 {
     ++g_treeRowsGen;
     SelectRowVisual(nullptr);
+    g_treeAutomationRoot = nullptr;
+    g_treeAutomationNote = nullptr;
+    g_treeAutomationParents.clear();
     for (auto* p : g_treeRows)     if (p) reinterpret_cast<IUnknown*>(p)->Release();
     for (auto* p : g_treeRowFe)    if (p) reinterpret_cast<IUnknown*>(p)->Release();
     for (auto* p : g_treeControls) if (p) reinterpret_cast<IUnknown*>(p)->Release();

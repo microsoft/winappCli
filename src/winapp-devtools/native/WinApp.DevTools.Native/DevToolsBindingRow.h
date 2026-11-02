@@ -44,6 +44,9 @@ DevToolsBindingSummary DevToolsBindingRow_Summary(const std::wstring& json);
 void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstring& prop);
 void DevToolsBindingRow_ForgetLiveWrite(unsigned long long wire, const std::wstring& prop);
 bool DevToolsBindingRow_WasWrittenLive(unsigned long long wire, const std::wstring& prop);
+// Whether the live edit still owns the value. The first read after an edit records the value it observes; a later
+// read that observes anything else means the app wrote its own value, so the edit is forgotten for good.
+bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& observed);
 
 // Turns a working summary into "Overridden by a live edit" when a live edit put a different value on screen than
 // the binding resolves to. Returns whether it did.

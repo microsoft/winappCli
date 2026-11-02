@@ -127,7 +127,11 @@ internal static class DevToolsQueryOptions
             {
                 return Fail("The write outcome is indeterminate. Read the target property to reconcile; do not retry automatically.", "indeterminate");
             }
-            return Fail(error.Message, error.Token);
+            if (write && error.Token == "invalid-value")
+            {
+                error = error with { Message = DevToolsErrors.DescribePropertyWriteFailure(parse.GetValue(Value), error.Message) };
+            }
+            return Fail(json ? error.Message : DevToolsErrors.Describe(error), error.Token);
         }
         using var document = response.TryParseResult();
         if (document is null || !ValidResult(document.RootElement, write))
@@ -143,6 +147,16 @@ internal static class DevToolsQueryOptions
             return Fail("The agent did not report every requested field exactly once.", "invalid-response");
         }
         var ok = result.GetProperty("ok");
+        string? writeError = null;
+        if (write && !ok.GetBoolean() && result.TryGetProperty("error", out var failure) &&
+            failure.GetString() is string message && message.StartsWith("invalid-value|", StringComparison.Ordinal))
+        {
+            var explanation = DevToolsErrors.DescribePropertyWriteFailure(parse.GetValue(Value), message);
+            if (explanation != message)
+            {
+                writeError = explanation;
+            }
+        }
         var shown = rows.EnumerateArray().Take(max).ToArray();
         var warnings = fields.Where(field => rows.GetArrayLength() > 0 && rows.EnumerateArray().All(row =>
             row.GetProperty("fields").EnumerateArray().Any(value =>
@@ -163,7 +177,11 @@ internal static class DevToolsQueryOptions
                         continue;
                     }
 
-                    if (property.Name == "diagnostics")
+                    if (property.Name == "error" && writeError is not null)
+                    {
+                        writer.WriteString("error", "invalid-value|" + writeError);
+                    }
+                    else if (property.Name == "diagnostics")
                     {
                         // Preserve the agent's bounded UTF-8 representation without expanding Unicode escapes.
                         writer.WritePropertyName(property.Name);
@@ -251,7 +269,7 @@ internal static class DevToolsQueryOptions
                 console.WriteLine($"{rows.GetArrayLength()} matches; {result.GetProperty("unevaluated").GetInt32()} unevaluated; " +
                     (result.GetProperty("complete").GetBoolean() ? "complete within requested scope." :
                         result.TryGetProperty("truncatedBy", out var truncatedBy) && truncatedBy.ValueKind == JsonValueKind.String
-                            ? $"incomplete ({truncatedBy.GetString()})." : "incomplete."));
+                            ? $"incomplete: {DevToolsErrors.DescribeTruncation(truncatedBy.GetString()!)}." : "incomplete."));
                 if (shown.Length < rows.GetArrayLength())
                 {
                     console.WriteLine($"Showing {shown.Length}; --max limits output, not matching.");
@@ -274,7 +292,8 @@ internal static class DevToolsQueryOptions
 
                 if (result.TryGetProperty("error", out var error))
                 {
-                    console.WriteLine("Error: " + error.GetString());
+                    var token = error.GetString();
+                    console.WriteLine("Error: " + (writeError ?? UnresolvedTypeMessage(token, parse, result) ?? DevToolsErrors.DescribeToken(token) ?? token));
                 }
 
                 if (result.TryGetProperty("reasons", out var reasons))
@@ -323,6 +342,14 @@ internal static class DevToolsQueryOptions
             return 1;
         }
     }
+
+    // A short --of-type name stays unresolved (no dot) when no element in the window has that type.
+    internal static string? UnresolvedTypeMessage(string? token, ParseResult parse, JsonElement result) =>
+        token == "no-match" && parse.GetValue(OfType) is string requested &&
+        result.TryGetProperty("scope", out var scope) && scope.TryGetProperty("ofType", out var ofType) &&
+        ofType.GetString() is string resolved && !resolved.Contains('.')
+            ? $"No element in this window has type '{requested}'. Check the spelling, or run `winapp devtools inspect` to see the types in use."
+            : null;
 
     internal static DevToolsProtocolResponse Request(DevToolsTarget target, ParseResult parse, bool exact, CancellationToken cancellationToken,
         bool write = false, string? rootHandle = null, int depth = -1, bool authored = false, string? text = null, bool tree = false)

@@ -20,6 +20,7 @@
 #include <winstring.h>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <cwctype>
 #include <climits>
 #include "DevToolsWindowXaml.g.h"
@@ -44,6 +45,7 @@
 #include "DevToolsText.h"
 #include "DevToolsShellOpen.h"
 #include "DevToolsLiveRows.h"
+#include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
 static const size_t kMaxRenderNodes = 1000;
 
@@ -311,6 +313,7 @@ static std::wstring ShortType(const std::wstring& t)
 #include "DevToolsWindow.TreeView.inc"
 #include "DevToolsWindow.PaneSinks.inc"
 #include "DevToolsWindow.SourceAndResources.inc"
+#include "DevToolsWindow.TreeAutomation.inc"
 #include "DevToolsWindow.TreeRows.inc"
 #include "DevToolsWindow.TreeRefresh.inc"
 #include "DevToolsWindow.PropsLayout.inc"

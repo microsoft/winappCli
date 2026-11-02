@@ -454,6 +454,152 @@ static void CheckEmptyString(const std::function<void(bool,const char*)>& check)
     g_diag=nullptr;g_vts3=nullptr;
 }
 
+// A Local value's source position is the element's opening tag. It is shown only when that tag sets the property,
+// a DevTools write is named as one, and a runtime-only Local (Translation at 0,0,0) reads as Default.
+struct ElementLineTreeService : TextTreeService {
+    using TextTreeService::TextTreeService;
+    const wchar_t* chainText=nullptr; // when set, the chain keeps reporting this while the live value changes
+    HRESULT STDMETHODCALLTYPE GetPropertyValuesChain(InstanceHandle handle,unsigned int* sc,PropertyChainSource** sources,
+        unsigned int* pc,PropertyChainValue** values) override {
+        const HRESULT hr=TextTreeService::GetPropertyValuesChain(handle,sc,sources,pc,values);
+        if(SUCCEEDED(hr) && *sc==2 && *pc==4){
+            if(chainText){SysFreeString((*values)[0].Value);(*values)[0].Value=SysAllocString(chainText);}
+            (*sources)[0].Handle=901;
+            (*sources)[0].SrcInfo.FileName=SysAllocString(L"ms-appx:///MainWindow.xaml");
+            (*sources)[0].SrcInfo.LineNumber=46;
+            auto& v=(*values)[3];
+            SysFreeString(v.PropertyName);v.PropertyName=SysAllocString(L"Translation");
+            SysFreeString(v.Type);v.Type=SysAllocString(L"Windows.Foundation.Numerics.Vector3");
+            SysFreeString(v.ValueType);v.ValueType=SysAllocString(L"Windows.Foundation.Numerics.Vector3");
+            SysFreeString(v.Value);v.Value=SysAllocString(L"0.000000,0.000000,0.000000");
+        }
+        return hr;
+    }
+};
+
+static std::wstring WriteElementLineXaml(const std::wstring& tag)
+{
+    wchar_t temp[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, temp);
+    static int seq = 0;
+    const std::wstring root = std::wstring(temp) + L"winapp-provenance-" + std::to_wstring(GetCurrentProcessId()) +
+                              L"-" + std::to_wstring(++seq);
+    CreateDirectoryW(root.c_str(), nullptr);
+    std::string text;
+    for (int i = 1; i < 46; ++i) text += "<!-- -->\r\n";
+    for (const wchar_t c : tag) text += static_cast<char>(c);
+    text += "\r\n";
+    const HANDLE file = CreateFileW((root + L"\\MainWindow.xaml").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(file, text.data(), (DWORD)text.size(), &written, nullptr);
+        CloseHandle(file);
+    }
+    return root;
+}
+
+static void RemoveElementLineXaml(const std::wstring& root)
+{
+    DeleteFileW((root + L"\\MainWindow.xaml").c_str());
+    RemoveDirectoryW(root.c_str());
+}
+
+static void CheckLocalProvenance(const std::function<void(bool,const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    ElementLineTreeService tree(diagnostics.text);
+    g_diag=&diagnostics;g_vts3=&tree;
+    diagnostics.text.text=L"live";
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
+    MintSlot_nolock(901);
+    const unsigned long long wire=PackWire_nolock(901);
+    auto text=[](const std::vector<DevToolsReadProp>& props){
+        return std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"Text";});
+    };
+    auto read=[](std::vector<DevToolsReadProp>& props){ props.clear(); ReadCuratedProps(901,&props,nullptr); };
+
+    std::vector<DevToolsReadProp> props;
+    read(props);
+    auto row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 && row->chain[0].line==46,
+        "a Local value keeps the element's line when its XAML cannot be read to check");
+    const auto translation=std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"Translation";});
+    check(translation!=props.end() && translation->source==L"Default",
+        "a runtime-only Local at its unset value reads as Default");
+
+    const std::wstring unset=WriteElementLineXaml(L"<TextBlock />");
+    DevToolsAuthored_Init(unset,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        row->chain[0].file.empty() && row->chain[0].line==0,
+        "a Local value the element's XAML does not set names no XAML line");
+
+    const std::wstring authored=WriteElementLineXaml(L"<TextBlock Text=\"live\" />");
+    DevToolsAuthored_Init(authored,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        !row->chain[0].file.empty() && row->chain[0].line==46,
+        "a Local value the element's XAML sets keeps its XAML line");
+
+    const std::wstring propertyElement=WriteElementLineXaml(
+        L"<TextBlock>\r\n  <!-- <TextBlock.Foreground> -->\r\n  <TextBlock.Text>live</TextBlock.Text>\r\n</TextBlock>");
+    DevToolsAuthored_Init(propertyElement,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        !row->chain[0].file.empty() && row->chain[0].line==46,
+        "a Local value set by a <Type.Property> child keeps its XAML line");
+
+    const std::wstring content=WriteElementLineXaml(L"<TextBlock>live</TextBlock>");
+    DevToolsAuthored_Init(content,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 && row->chain[0].line==46,
+        "a Local value set as the element's content keeps its XAML line");
+
+    const std::wstring otherChild=WriteElementLineXaml(
+        L"<TextBlock\r\n    Margin=\"1\">\r\n  <TextBlock.Foreground>\r\n    <SolidColorBrush Color=\"Red\" />\r\n"
+        L"  </TextBlock.Foreground>\r\n</TextBlock>");
+    DevToolsAuthored_Init(otherChild,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        row->chain[0].file.empty() && row->chain[0].line==0,
+        "a body that sets only other properties names no XAML line");
+    DevToolsAuthored_Init(authored,0);
+    DevToolsBindingRow_NoteLiveWrite(wire,L"Text");
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==kDevToolsReadLiveEditSource && row->chain.size()==2 &&
+        row->chain[0].source==kDevToolsReadLiveEditSource && row->chain[0].file.empty(),
+        "a DevTools write reads as DevTools, not as XAML");
+    tree.chainText=L"live";
+    diagnostics.text.text=L"Count: 1";
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->value==L"Count: 1",
+        "once the app writes a different value, it is no longer credited to DevTools, even with unchanged chain text");
+    diagnostics.text.text=L"live";
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && !DevToolsBindingRow_WasWrittenLive(wire,L"Text"),
+        "and the app writing the edited value back later does not credit DevTools again");
+    tree.chainText=nullptr;
+    DevToolsBindingRow_ForgetLiveWrite(wire,L"Text");
+
+    DevToolsAuthored_Init(L"",0);
+    RemoveElementLineXaml(unset);
+    RemoveElementLineXaml(authored);
+    RemoveElementLineXaml(propertyElement);
+    RemoveElementLineXaml(content);
+    RemoveElementLineXaml(otherChild);
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
+    g_diag=nullptr;g_vts3=nullptr;
+}
+
 static void CheckSearchText(const std::function<void(bool,const char*)>& check)
 {
     TextDiagnostics diagnostics;
@@ -851,6 +997,7 @@ static bool CompleteBindingRelay()
     g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
     MintSlot_nolock(404);
     const auto wire = PackWire_nolock(404);
+    DevToolsBindingRow_NoteLiveWrite(wire, L"Text");
     bool passed = true;
     for (const wchar_t* op : {L"capture", L"restore"}) {
         const auto name = L"\\\\.\\pipe\\winapp-devtools-binding-" + std::to_wstring(GetCurrentProcessId());
@@ -923,7 +1070,10 @@ static bool CompleteBindingRelay()
             op,identity,referenceCount);
     }
     g_diag=nullptr;
-    return passed && diagnostics.calls==2;
+    // The peer answered "none", not "restored": the edited value is still what the app shows.
+    const bool keptEdit = DevToolsBindingRow_WasWrittenLive(wire, L"Text");
+    DevToolsBindingRow_ForgetLiveWrite(wire, L"Text");
+    return passed && keptEdit && diagnostics.calls==2;
 }
 
 struct GuestNegotiationDiagnostics : BindingDiagnostics {
@@ -1187,6 +1337,7 @@ int wmain(int argc, wchar_t** argv)
             "DevTools UI preferences are per user, in the CLI's user state folder");
     }
     CheckEmptyString(check);
+    CheckLocalProvenance(check);
     CheckEffectiveValues(check);
     CheckCensusFollowsReparentsAndParentlessRemoves(check);
     CheckTreeDeltasFollowSubscription(check);
@@ -1438,7 +1589,7 @@ int wmain(int argc, wchar_t** argv)
               "bounded XAML diagnostic preserves valid UTF-16");
         check(InitialBindingTimeout(false), "Pending binding timeout cancels diagnostics acquisition");
         check(InitialBindingTimeout(true), "Running binding timeout releases late diagnostics acquisition");
-        check(CompleteBindingRelay(), "actual CmdBindingOp and relay preserve fake diagnostics identity across capture/restore transports");
+        check(CompleteBindingRelay(), "actual CmdBindingOp and relay preserve fake diagnostics identity across capture/restore transports, and a restore that did not happen keeps the live edit");
         CoUninitialize();
     }
     g_testPropertyMutation = nullptr;
