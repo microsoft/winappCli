@@ -137,9 +137,7 @@ winapp devtools set-property SaveButton Width 200
 ```
 
 Copy the selector printed in brackets, such as `button-savebutton-a1b2c3d4e5`,
-into another command. It identifies the element even when its name matches
-another element's AutomationId. If no tree identity is available, the printed
-selector is a numeric handle.
+or a number like `42`, into another command.
 
 You can also type an `x:Name` or AutomationId (the same one `winapp ui` uses).
 If it matches more than one element across those two identities, the command
