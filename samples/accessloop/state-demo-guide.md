@@ -1,4 +1,51 @@
-# Demonstrate accessibility across three tabs and their UI states
+# Inspect accessibility in StateDemo
+
+## Compare names manually
+
+```powershell
+winapp run .\samples\accessloop\StateDemo\AccessLoop.StateDemo.csproj -c Release
+```
+
+Open the **Name checks** tab. Its six ordinary WinUI buttons all refresh an
+in-memory preview; none deletes data. Keep **Use corrected names** unchecked
+for the first capture. The letters identify controls for this guide, not
+scanning rules.
+
+| Pair | Original state | What to check |
+|---|---|---|
+| A / B | Identical icon buttons; only A has an accessible name. Both have an external visible caption. | B is a missing-name test case. A is its named comparison. An adjacent caption alone is not an explicit accessible label. |
+| C / D | Identical, correctly named icon buttons; only C has an AutomationId. | Missing AutomationId is a locating limitation, not by itself an accessibility violation. Several buttons intentionally share the same correct name. |
+| E / F | Both visibly say "Refresh preview". E gets its accessible name from its text; F overrides it with "Delete layout". | E does not need an explicit Name attribute. F has a real meaning/label mismatch, but the current scanner does not promise to detect it. Check it manually even if no rule reports it. |
+
+With the tab selected, use the locally built AccessLoop CLI in another
+terminal. Replace `<HWND>` with the window handle from
+`& $winapp ui list-windows`. The CLI must include its accessibility Worker;
+see the [local bundle guide](local-bundle.md) if it is missing.
+
+```powershell
+$winapp = (Resolve-Path .\artifacts\cli\win-x64\winapp.exe).Path
+& $winapp ui audit -w <HWND> --current-page --output .\names-original
+```
+
+Check **Use corrected names** and scan again into `.\names-corrected`. This
+changes only B's missing name and F's misleading name to "Refresh preview";
+the buttons, identifiers and actions stay in place. Uncheck it to restore
+the original names. Leaving and returning to the tab also resets the names
+and action count. No source files or user settings are changed.
+
+Keep the scanner binary/version and scan options the same for both captures.
+Keep both reports before deciding whether to change the scanner. Confirm
+that B's corresponding name finding disappears, rather than expecting a
+particular total finding count or a clean whole-window report. Axe can also
+report `SiblingUniqueAndFocusable` because these same-action buttons share a
+name and a UIA parent. Keep those engine findings, but assess whether their
+purposes are actually ambiguous; the count alone does not establish a WCAG
+violation. F remains a manual check; no finding does not prove its meaning
+was evaluated.
+These cases are documented controls, not blind tests.
+
+The existing three-page preset below does not visit **Name checks**. A default
+`ui audit` that traverses all standard tabs can include it.
 
 ## Run the complete preset loop
 
@@ -29,9 +76,10 @@ after checking the actual focused control. The loop records that command and
 its observed result. `loop --replay` re-executes this frozen route using the
 same individual UI commands.
 
-The fixture has two intentional missing accessible names: the refresh-preview
-icon and the save-layout icon at the bottom of the long page. It changes no
-files or user settings. Read the actual findings rather than assuming those
+The preset's three pages have two intentional missing accessible names: the
+refresh-preview icon and the save-layout icon at the bottom of the long page.
+The additional manual cases above are outside this route. The fixture changes
+no files or user settings. Read the actual findings rather than assuming those
 are the only findings on every machine.
 
 To additionally authorize the constrained Copilot proposals and actual source

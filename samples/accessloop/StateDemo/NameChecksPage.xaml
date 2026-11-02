@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="AccessLoop.StateDemo.NameChecksPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="NameCheckIconStyle" TargetType="Button">
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="Padding" Value="10" />
+        </Style>
+    </UserControl.Resources>
+    <ScrollViewer
+        HorizontalScrollMode="Disabled"
+        HorizontalScrollBarVisibility="Disabled"
+        VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,18,0,12" Spacing="12">
+            <TextBlock
+                AutomationProperties.AutomationId="NameChecksReady"
+                Style="{StaticResource PageHeadingStyle}"
+                Text="Compare accessible names" />
+            <TextBlock
+                Style="{StaticResource SecondaryTextStyle}"
+                Text="Every button refreshes the same in-memory preview. Compare each pair before and after correcting the names." />
+            <CheckBox
+                x:Name="CorrectNames"
+                AutomationProperties.AutomationId="NameMode"
+                Content="Use corrected names"
+                IsChecked="False" />
+            <Border Style="{StaticResource DemoCardStyle}">
+                <Grid ColumnSpacing="24">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="A" VerticalAlignment="Center" />
+                        <Button
+                            AutomationProperties.AutomationId="CaseA"
+                            AutomationProperties.Name="Refresh preview"
+                            Click="Refresh_Click"
+                            Style="{StaticResource NameCheckIconStyle}"
+                            Tag="A">
+                            <Path
+                                AutomationProperties.AccessibilityView="Raw"
+                                Data="M 20,8 A 9,9 0 1 0 21,15 M 20,8 L 20,1 M 20,8 L 13,8"
+                                IsHitTestVisible="False"
+                                Stretch="Uniform"
+                                Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                                StrokeThickness="1.7" />
+                        </Button>
+                        <TextBlock Text="Refresh preview" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="B" VerticalAlignment="Center" />
+                        <Button
+                            x:Name="CaseB"
+                            AutomationProperties.AutomationId="CaseB"
+                            Click="Refresh_Click"
+                            Style="{StaticResource NameCheckIconStyle}"
+                            Tag="B">
+                            <Path
+                                AutomationProperties.AccessibilityView="Raw"
+                                Data="M 20,8 A 9,9 0 1 0 21,15 M 20,8 L 20,1 M 20,8 L 13,8"
+                                IsHitTestVisible="False"
+                                Stretch="Uniform"
+                                Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                                StrokeThickness="1.7" />
+                        </Button>
+                        <TextBlock Text="Refresh preview" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource DemoCardStyle}">
+                <Grid ColumnSpacing="24">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="C" VerticalAlignment="Center" />
+                        <Button
+                            AutomationProperties.AutomationId="CaseC"
+                            AutomationProperties.Name="Refresh preview"
+                            Click="Refresh_Click"
+                            Style="{StaticResource NameCheckIconStyle}"
+                            Tag="C">
+                            <Path
+                                AutomationProperties.AccessibilityView="Raw"
+                                Data="M 20,8 A 9,9 0 1 0 21,15 M 20,8 L 20,1 M 20,8 L 13,8"
+                                IsHitTestVisible="False"
+                                Stretch="Uniform"
+                                Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                                StrokeThickness="1.7" />
+                        </Button>
+                        <TextBlock Text="Refresh preview" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="D" VerticalAlignment="Center" />
+                        <Button
+                            AutomationProperties.Name="Refresh preview"
+                            Click="Refresh_Click"
+                            Style="{StaticResource NameCheckIconStyle}"
+                            Tag="D">
+                            <Path
+                                AutomationProperties.AccessibilityView="Raw"
+                                Data="M 20,8 A 9,9 0 1 0 21,15 M 20,8 L 20,1 M 20,8 L 13,8"
+                                IsHitTestVisible="False"
+                                Stretch="Uniform"
+                                Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                                StrokeThickness="1.7" />
+                        </Button>
+                        <TextBlock Text="Refresh preview" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource DemoCardStyle}">
+                <Grid ColumnSpacing="24">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="E" VerticalAlignment="Center" />
+                        <Button
+                            AutomationProperties.AutomationId="CaseE"
+                            Click="Refresh_Click"
+                            Content="Refresh preview"
+                            MinHeight="44"
+                            Tag="E" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="F" VerticalAlignment="Center" />
+                        <Button
+                            x:Name="CaseF"
+                            AutomationProperties.AutomationId="CaseF"
+                            AutomationProperties.Name="Delete layout"
+                            Click="Refresh_Click"
+                            Content="Refresh preview"
+                            MinHeight="44"
+                            Tag="F" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <TextBlock
+                x:Name="NameState"
+                AutomationProperties.AutomationId="NameCheckState"
+                AutomationProperties.LiveSetting="Polite"
+                Style="{StaticResource StatusTextStyle}"
+                Text="Original names" />
+            <TextBlock
+                x:Name="ActionStatus"
+                AutomationProperties.AutomationId="NameCheckAction"
+                AutomationProperties.LiveSetting="Polite"
+                Style="{StaticResource SecondaryTextStyle}"
+                Text="Preview idle" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

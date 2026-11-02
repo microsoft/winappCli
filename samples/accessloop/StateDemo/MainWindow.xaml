@@ -683,6 +683,13 @@
                         </Grid>
                     </Grid>
                 </TabViewItem>
+                <TabViewItem
+                    AutomationProperties.AutomationId="NavNameChecks"
+                    AutomationProperties.Name="Name checks"
+                    Header="Name checks"
+                    IsClosable="False">
+                    <local:NameChecksPage x:Name="NameChecks" />
+                </TabViewItem>
             </TabView.TabItems>
         </TabView>
 

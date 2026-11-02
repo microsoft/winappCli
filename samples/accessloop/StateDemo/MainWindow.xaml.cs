@@ -6,7 +6,7 @@ namespace AccessLoop.StateDemo;
 
 public sealed partial class MainWindow : Window
 {
-    private enum DemoPage { Basics, Scrolling, Dialogs }
+    private enum DemoPage { Basics, Scrolling, Dialogs, NameChecks }
 
     private DemoPage currentPage;
     private InfoDialog? infoDialog;
@@ -37,7 +37,7 @@ public sealed partial class MainWindow : Window
 
     private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (MainTabs.SelectedIndex is >= 0 and <= 2)
+        if (MainTabs.SelectedIndex is >= 0 and <= 3)
         {
             ResetPage((DemoPage)MainTabs.SelectedIndex);
         }
@@ -59,6 +59,10 @@ public sealed partial class MainWindow : Window
         else if (page == DemoPage.Scrolling)
         {
             ScrollActionStatus.Text = "Layout not saved";
+        }
+        else if (page == DemoPage.NameChecks)
+        {
+            NameChecks.Reset();
         }
     }
 
