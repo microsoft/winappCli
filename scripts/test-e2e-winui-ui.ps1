@@ -636,6 +636,10 @@ if (-not $devPid) {
         Assert-WinappSuccess "capture the current filtered caption" @(
             "ui", "screenshot", "-w", $inspectorHwnd, "-o", (Join-Path $ScreenshotDir "10-inspector-live-caption.png")) | Out-Null
         Assert-WinappSuccess "clear live caption filter" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "prepare the explicitly revealed counter caption" @(
+            "devtools", "set-property", $captionSelector, "Text", "Count: 3", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "counter caption is current before changing selection" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Count: 3", "-t", "5000") | Out-Null
         $otherCaptionSelection = (Invoke-Winapp @("devtools", "search", "AppTitleBar", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
         Assert-WinappSuccess "select another row before explicitly revealing the caption" @(
             "devtools", "call", "Selection.select", "handle=$($otherCaptionSelection.matches[0].handle)", "-a", "$devPid") | Out-Null
@@ -644,12 +648,34 @@ if (-not $devPid) {
         Assert-WinappSuccess "explicit selection reveals the nonmatching caption" @(
             "devtools", "call", "Selection.select", "handle=$captionSelector", "-a", "$devPid") | Out-Null
         Assert-WinappSuccess "explicitly revealed caption is visible before updating" @(
-            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Caption-current", "-t", "3000") | Out-Null
-        foreach ($caption in @("Caption-revealed", "Caption-revealed-again")) {
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock Count: 3", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "focus the explicitly revealed caption" @(
+            "ui", "focus", "TreeNode4", "-w", $inspectorHwnd) | Out-Null
+        Assert-WinappSuccess "explicitly revealed caption has keyboard focus before updating" @(
+            "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+        $revealedRow = Assert-WinappSuccess "read focused caption bounds before updating" @(
+            "ui", "get-property", "TreeNode4", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--json")
+        $revealedRowWidth = ($revealedRow.Output | ConvertFrom-Json).element.width
+        if ($revealedRowWidth -le 0) { throw "The focused caption must have a positive width." }
+        foreach ($caption in @("Count: 4", "Count: 5")) {
             Assert-WinappSuccess "update the explicitly revealed caption to '$caption'" @(
                 "devtools", "set-property", $captionSelector, "Text", $caption, "-a", "$devPid") | Out-Null
             Assert-WinappSuccess "explicitly revealed caption stays visible after updating" @(
                 "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "Name", "--value", "TextBlock $caption", "-t", "5000") | Out-Null
+            Assert-WinappSuccess "caption update retains the revealed row's keyboard focus" @(
+                "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+            # Do not target the row: that would refocus it and mask focus moving to the splitter.
+            Assert-WinappSuccess "Right stays with the revealed leaf after its caption changes" @(
+                "ui", "send-keys", "right", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+            $afterRight = Assert-WinappSuccess "read revealed caption focus and bounds after Right" @(
+                "ui", "get-property", "TreeNode4", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--json")
+            $afterRightState = $afterRight.Output | ConvertFrom-Json
+            if ($afterRightState.properties.HasKeyboardFocus -eq "True" -and
+                $afterRightState.element.width -eq $revealedRowWidth) {
+                Write-TestPass "Right retains row focus without resizing the tree pane"
+            } else {
+                Write-TestFail "Right retains row focus without resizing the tree pane" $afterRight.Output
+            }
         }
         Assert-WinappSuccess "updated explicitly revealed row stays selected" @(
             "ui", "wait-for", "TreeNode4", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null

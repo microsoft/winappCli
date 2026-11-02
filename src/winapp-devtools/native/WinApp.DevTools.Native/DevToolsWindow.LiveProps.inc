@@ -460,8 +460,10 @@ static void UpdateSelectedTreePreview()
         g_treeLabel[row->second] = DevToolsTreeLayout::BuildTreeFilterLabel(
             node.type, node.name, after + L" " + node.searchText + L" " + node.sourceUri);
         if (!g_treeFilterQuery.empty()) {
-            ApplyTreeFilter(g_treeFilterQuery);
-            if (keepRevealed) ForceRowVisible(row->second);
+            const bool matchesFilter = !RowHiddenByJmx(row->second) &&
+                g_treeLabel[row->second].find(g_treeFilterQuery) != std::wstring::npos;
+            // Collapsing and re-showing a revealed row would move keyboard focus away.
+            if (!keepRevealed || matchesFilter) ApplyTreeFilter(g_treeFilterQuery);
         }
     } catch (const winrt::hresult_error& error) {
         DevToolsOverlayLog(L"tree.preview failed hr=0x%08X", error.code().value);
