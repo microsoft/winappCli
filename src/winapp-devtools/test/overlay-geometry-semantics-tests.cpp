@@ -672,6 +672,7 @@ int main()
         OnStartOffClick(nullptr, nullptr);
         check(DevToolsSettingsGetText(L"DefaultMode") == L"off" && DefaultMode() == "off",
             "default mode", "Don't start DevTools makes the default off");
+        check(g_toolbarMenu == nullptr, "toolbar menu", "missing menu parts leave the menu closed");
         OnStartShownClick(nullptr, nullptr);
         check(DevToolsSettingsGetText(L"DefaultMode") == L"on" && DefaultMode() == "on",
             "default mode", "Show toolbar makes the default on");

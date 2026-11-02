@@ -546,6 +546,7 @@ static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, const 
         winrt::copy_from_abi(barObject, g_aRow);
         auto anchorElement = ToolbarPart(anchor).as<DevToolsX::UIElement>();
         auto panel = ToolbarPart(menu).as<DevToolsX::FrameworkElement>();
+        if (!anchorElement || !panel) return;
         keyboard = anchorElement.FocusState() != DevToolsX::FocusState::Unfocused;
         panel.Visibility(DevToolsX::Visibility::Visible);
         panel.Measure({ static_cast<float>(panel.Width()), std::numeric_limits<float>::infinity() });
@@ -562,7 +563,10 @@ static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, const 
     g_toolbarMenu = menu;
     g_toolbarMenuAnchor = anchor;
     if (keyboard) {
-        try { ToolbarPart(first).as<DevToolsX::UIElement>().Focus(DevToolsX::FocusState::Keyboard); }
+        try {
+            if (auto action = ToolbarPart(first).as<DevToolsX::UIElement>())
+                action.Focus(DevToolsX::FocusState::Keyboard);
+        }
         catch (const winrt::hresult_error&) {}
     }
     DevToolsOverlayLog(L"overlay.toolbar menu %s open", menu);
