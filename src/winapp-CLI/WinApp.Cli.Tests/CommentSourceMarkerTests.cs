@@ -64,6 +64,8 @@ public class CommentSourceMarkerTests
     [DataRow("weak", "No verified named source declaration")]
     [DataRow("no evidence", "No verified named source declaration")]
     [DataRow("wrong project", "No verified named source declaration")]
+    [DataRow("absolute authored path", "captured source declaration")]
+    [DataRow("escaping authored path", "captured source declaration")]
     [DataRow("wrong file", "unique, current source match")]
     [DataRow("duplicate live name", "does not identify one live element")]
     [DataRow("no live name", "does not identify one live element")]
@@ -89,6 +91,8 @@ public class CommentSourceMarkerTests
             case "weak": comment.Anchor.Weak = true; break;
             case "no evidence": comment.Anchor.Authored = null; break;
             case "wrong project": comment.Anchor.Authored!.ProjectRoot = root.CreateSubdirectory("other").FullName; break;
+            case "absolute authored path": comment.Anchor.Authored!.SourceFile = Path.Combine(root.FullName, "MainWindow.xaml"); break;
+            case "escaping authored path": comment.Anchor.Authored!.SourceFile = @"..\MainWindow.xaml"; break;
             case "wrong file": File.Copy(Path.Combine(root.FullName, "MainWindow.xaml"), Path.Combine(root.FullName, "Other.xaml")); break;
             case "wrong live project":
                 var other = root.CreateSubdirectory("other");
@@ -126,10 +130,13 @@ public class CommentSourceMarkerTests
     }
 
     [TestMethod]
-    [DataRow(null)]
-    [DataRow("stale build")]
-    [DataRow("duplicate live name")]
-    public async Task GuestHostSnapshot_ResolvesAgainstGuestSources_WithoutChangingHostIdentity(string? failure)
+    [DataRow(null, false)]
+    [DataRow(null, true)]
+    [DataRow("stale build", false)]
+    [DataRow("stale build", true)]
+    [DataRow("duplicate live name", false)]
+    [DataRow("duplicate live name", true)]
+    public async Task GuestHostSnapshot_ResolvesAgainstGuestSources_WithoutChangingHostIdentity(string? failure, bool absoluteHostPath)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var pair = DuplexStreamPair.Create();
@@ -138,6 +145,10 @@ public class CommentSourceMarkerTests
         var comment = OfflineComment();
         comment.ProjectRoot = @"C:\host\project";
         comment.Anchor.Authored!.ProjectRoot = comment.ProjectRoot;
+        if (absoluteHostPath)
+        {
+            comment.Anchor.SourceFile = Path.Combine(comment.ProjectRoot, "MainWindow.xaml");
+        }
         var before = JsonSerializer.Serialize(comment, CommentsJsonContext.Default.Comment);
         var pushed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var agent = Agent(failure, onPush: request => pushed.TrySetResult(request));

@@ -177,7 +177,9 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
         {
             return (null, "A template declaration does not identify one live instance.");
         }
-        var path = CommentAnchorResolver.ResolveKnownSourcePath(sourceRoot, anchor);
+        var relativeSource = CommentAnchorResolver.RelativeSourcePath(authored.SourceFile, root: null);
+        var path = relativeSource is null ? null : CommentAnchorResolver.ResolveKnownSourcePath(sourceRoot,
+            new CommentAnchor { SourceFile = relativeSource });
         if (path is null || !Path.GetRelativePath(sourceRoot, path).Equals(authored.SourceFile, StringComparison.OrdinalIgnoreCase) ||
             CommentAuthoredIdentity.Read(path, sourceRoot).Count(declaration =>
                 CommentAuthoredIdentity.Name(declaration.Element) == anchor.Identity.Name &&
