@@ -1594,7 +1594,10 @@ int wmain(int argc, wchar_t** argv)
         check(callWith(L"Resource.set", L"{\"handle\":\"1\",\"key\":\"K\",\"value\":\"1\",\"scope\":\"window\"}").find(L"\"error\"") != std::wstring::npos,
               "Resource.set takes only element or app scope");
 
-        // Reactor trace events: the agent's stream fills the kept log and the error count.
+        // Reactor trace events: the agent's stream fills the kept log and the error count. With no app
+        // dispatcher the overlay refresh is skipped; an earlier test's fake dispatcher token must not be posted to.
+        auto* const dispatcherBeforeReactor = g_dispatcher;
+        g_dispatcher = nullptr;
         {
             std::lock_guard<std::mutex> lock(g_reactorPumpLock);
             g_reactorLog.clear();
@@ -1652,6 +1655,7 @@ int wmain(int argc, wchar_t** argv)
               decoded.column == 13 && decoded.owner == L"Counter" && decoded.key == L"inc",
               "a Reactor element's marker anchor carries its call site, key and component");
         check(TapResolveAnchor(encoded.c_str()) == 0, "an anchor no live element matches resolves to nothing");
+        g_dispatcher = dispatcherBeforeReactor;
     }
     for (const auto* method : { L"Internal.pageInspectable", L"Internal.contentRoot", L"DevTools.cancel" }) {
         const auto response = call(method);
