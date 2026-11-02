@@ -124,23 +124,43 @@ static void RetireKindEditors(void* rowFe = nullptr)
 // Restore uses the same subscription lifetime, without retaining a property snapshot.
 struct BindRestoreSink : KindEditorSink
 {
+    enum class Choice { Request, Confirm, Cancel };
     HRESULT Run(const KindCtx& ctx, void*) override
     {
-        if (InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
+        if (choice != Choice::Request) {
+            DiagAnswer* answer = DiagFind(ctx.path);
+            DevToolsJson action;
+            if (!answer || !DevToolsJsonParse(answer->action, action) ||
+                action.GetString(L"state") != L"confirmation-required") return S_OK;
+            if (choice == Choice::Confirm && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) {
+                SetStatusText(L"Another binding Restore is running. Try confirming again when it finishes");
+                return S_OK;
+            }
+            answer->action.clear();
+            if (void* panel = PaneRowChild(ctx.path, L"PBindRestoreConfirm")) {
+                DevToolsPutVisibility(panel, 1);
+                reinterpret_cast<IUnknown*>(panel)->Release();
+            }
+            if (choice == Choice::Cancel) {
+                SetStatusText(L"Cancelled Restore binding on " + ctx.path + L". No bindings were changed");
+                return S_OK;
+            }
+        }
+        if (choice == Choice::Request && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
         SetStatusText(L"Restoring the binding on " + ctx.path + L"...");
-        if (!StartDiag(ctx.path, xbind ? L"restoreconfirmed" : L"restore")) {
+        if (!StartDiag(ctx.path, choice == Choice::Confirm ? L"restoreconfirmed" : L"restore")) {
             InterlockedExchange(&g_diagRestoreBusy, 0);
             SetStatusText(L"Could not start restoring " + ctx.path);
         }
         return S_OK;
     }
-    void Init(const std::wstring& path, bool x, void* rowFe = nullptr)
+    void Init(const std::wstring& path, Choice action = Choice::Request, void* rowFe = nullptr)
     {
         KindCtx c; c.path = path; c.wire = g_selWire; c.rowFe = rowFe;
-        xbind = x;
+        choice = action;
         InitEditor(c, IID_RoutedEventHandler_Del);
     }
-    bool xbind = false;
+    Choice choice = Choice::Request;
 };
 
 // A KIND was selected in the dropdown. It STAGES -- nothing is written. That is the whole of Q4: opening this
@@ -650,8 +670,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
         static const wchar_t* const kXBindDetail =
             L"An {x:Bind} is compiled into generated code when the app is built, and the runtime exposes no "
             L"way to create or change one.\n\n"
-            L"Choosing {Binding} installs a runtime binding with SetBinding - on the running app only. Your "
-            L".xaml is not changed, and the compiled binding cannot be restored without restarting.";
+            L"Choosing {Binding} installs a temporary runtime binding. Generated compiled-binding updates "
+            L"can overwrite it. Your .xaml is not changed.";
         if (IInspectable* e = FindInRow(fe, L"PXWhy")) { SetTextOn(e, kXBindHeadline); e->Release(); }
         if (IInspectable* t = FindInRow(fe, L"PXInfoText")) {
             SetTextOn(t, kXBindDetail);
@@ -812,10 +832,13 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             b->Release();
         }
         if (IInspectable* e = FindInRow(fe, L"PBindNote")) {
-            SetTextOn(e, twoWay
+            std::wstring note = twoWay
                 ? L"A literal write to a TwoWay binding is not destructive: the expression stays installed and "
                   L"the write goes through to the source. Applied to the running app only."
-                : L"Applied with SetBinding to the running app only - your .xaml is not changed.");
+                : L"Applied with SetBinding to the running app only - your .xaml is not changed.";
+            if (r.authoredKind == L"xBind")
+                note += L" This replacement is temporary: generated compiled-binding updates can overwrite it.";
+            SetTextOn(e, note);
             e->Release();
         }
         wireKeys(L"PPath");

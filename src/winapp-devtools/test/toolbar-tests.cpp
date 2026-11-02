@@ -64,6 +64,14 @@ static void TestToolbarContract()
     Check(!windowShell.empty(), "window-shell.xaml is readable");
     Check(!overlay.empty(), "DevToolsOverlay.cpp is readable");
     Check(!window.empty(), "DevToolsWindow.cpp is readable");
+    Check(windowShell.find("x:Name=\"PBindRestoreConfirm\" Visibility=\"Collapsed\"") != std::string::npos &&
+          windowShell.find("x:Name=\"PBindRestoreYes\"") != std::string::npos &&
+          windowShell.find("x:Name=\"PBindRestoreCancel\"") != std::string::npos &&
+          window.find("action.GetString(L\"state\") == L\"confirmation-required\"") != std::string::npos,
+          "owner-wide Restore has a separate, runtime-scoped confirmation with an explicit Cancel action");
+    Check(window.find("This replacement is temporary: generated compiled-binding updates can overwrite it.") != std::string::npos &&
+          windowShell.find("Generated compiled-binding updates can overwrite it.") != std::string::npos,
+          "compiled-to-regular replacement warns before Apply and in the x:Bind explanation");
     Check(window.find("SetAutomationTextOn(panel, L\"UI Elements\", L\"WinAppDevToolsTree\", L\"\")") != std::string::npos,
                  "the visual tree name describes its contents without repeating its role");
     const auto propsScroll = windowShell.find("<ScrollViewer x:Name=\"PropsScroll\"");
