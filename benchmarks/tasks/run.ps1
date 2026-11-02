@@ -327,7 +327,7 @@ try {
         if ($run.Mode -eq 'solve') { Copy-Item $t.Solve (Join-Path $in 'solve.ps1') }
         Copy-Item $t.Check (Join-Path $check 'check.ps1')
         [ordered]@{
-            runId = $runId; task = $t.Id; mode = $run.Mode; prompt = $t.Prompt; model = $run.Model; agent = $spec.Agent
+            runId = $runId; task = $t.Id; mode = $run.Mode; prompt = $(if ($t.AskFirst) { $t.Prompt } else { "$($t.Prompt) $(Get-AdminApprovalLine)" }); model = $run.Model; agent = $spec.Agent
             plugins = @($spec.Plugins); hideWinapp = [bool]($spec.HideWinapp -and $run.Mode -eq 'agent'); copilotVersion = $pinned; timeoutMinutes = $t.TimeoutMinutes; workspace = $t.Workspace
         } | ConvertTo-Json | Set-Content (Join-Path $in 'run.json') -Encoding utf8NoBOM
 
@@ -424,6 +424,15 @@ try {
             $record.taskStatus = 'preflight_failed'; $record.taskReason = "skills unexpected: [$($record.preflight.unexpected -join ', ')], missing: [$($record.preflight.missing -join ', ')]"
         }
         if ($run.Mode -eq 'agent' -and $record.timedOut) { $record.taskReason = "agent timed out after $($t.TimeoutMinutes) min; $($record.taskReason)" }
+        if ($run.Mode -eq 'agent' -and $t.AskFirst -and $record.taskStatus -eq 'pass' -and -not (Test-StoppedForAdmin $record.finalResponse)) {
+            $record.taskStatus = 'fail'; $record.taskReason = 'asked: the final message does not ask for approval before the administrator step'
+        }
+        # Admin steps are pre-approved, so an agent that still stops to ask is reported apart from a failure.
+        # The ask-first task is the one place where asking is the expected behavior and is judged by its own checker.
+        if ($run.Mode -eq 'agent' -and -not $t.AskFirst -and $record.taskStatus -in 'fail', 'partial' -and (Test-StoppedForAdmin $record.finalResponse)) {
+            $record.taskReason = "stopped to ask for admin approval despite the standing approval; $($record.taskReason)"
+            $record.taskStatus = 'asked_before_admin'
+        }
         if ($run.Mode -eq 'agent' -and -not (Test-Path $events) -and $record.taskStatus -ne 'preflight_failed') { $record.taskStatus = 'harness_error'; $record.taskReason = "no events.jsonl; $($record.error)" }
 
         if ($run.Mode -eq 'agent') {
@@ -439,8 +448,17 @@ try {
             $trial | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $trialDir ('{0}__{1}__{2}__{3}.json' -f $trial.scenario, $trial.arm, $trial.model, $trial.trial)) -Encoding utf8NoBOM
         }
         $color = switch ($record.taskStatus) { 'pass' { 'Green' } 'partial' { 'Yellow' } default { 'Red' } }
+        if ($Validate) {
+            # A reference solution should pass and a no-op should fail, so judge the run against that.
+            $want = if ($run.Mode -eq 'solve' -or $t.AskFirst) { 'pass' } else { 'fail' }
+            $ok = $record.taskStatus -eq $want
+            Write-Host ("  -> {0}: {1} (expected {2}, got {3}){4}" -f $(if ($ok) { 'OK' } else { 'MISMATCH' }), $run.Mode, $want, $record.taskStatus,
+                $(if (-not $ok) { " — $($record.taskReason)" })) -ForegroundColor $(if ($ok) { 'Green' } else { 'Red' })
+        }
+        else {
         Write-Host ("  -> {0} in {1:0.0} min, {2} credits, skills [{3}], winapp [{4}]{5}" -f $record.taskStatus, ($record.durationMs / 60000), $record.aiCredits,
             ($record.skillsLoaded -join ', '), ($record.winappCommandsRun -join ', '), $(if ($record.taskStatus -ne 'pass') { " — $($record.taskReason)" })) -ForegroundColor $color
+        }
         if ($KeepSandbox) {
             # Only one Sandbox can run at a time: keep this one, and its staged input, for debugging.
             Write-Host "Kept Sandbox $sandboxId and its input at $(Join-Path $stage $runId). Stop it with: wsb stop --id $sandboxId"
@@ -464,7 +482,7 @@ if ($Validate) {
     $latest = @{}
     foreach ($r in Select-EffectiveRuns @($records)) { $latest["$($r.task)|$($r.mode)"] = $r }
     $mismatches = foreach ($run in $runList) {
-        $want = if ($run.Mode -eq 'solve') { 'pass' } else { 'fail' }
+        $want = if ($run.Mode -eq 'solve' -or $run.Task.AskFirst) { 'pass' } else { 'fail' }
         $got = $latest["$($run.Task.Id)|$($run.Mode)"]
         if (-not $got -or $got.taskStatus -ne $want) { "$($run.Task.Id) $($run.Mode): expected $want, got $(if ($got) { $got.taskStatus } else { 'no result' })" }
     }
@@ -473,5 +491,5 @@ if ($Validate) {
         $mismatches | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
         exit 1
     }
-    Write-Host "Checker validation passed: $($runList.Count) runs." -ForegroundColor Green
+    Write-Host "Checker validation passed: every run matched what it should do ($($runList.Count) runs; solutions pass, no-ops fail)." -ForegroundColor Green
 }

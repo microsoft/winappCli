@@ -65,3 +65,29 @@ test("file name follows the benchmark-data layout", () => {
   const t = toTrialResult(base) as any;
   assert.equal(trialFileName(t), "calc__cli-plus-plugins__claude-sonnet-5.5__1.json");
 });
+
+test("harness errors and timeouts are not reported as app failures", () => {
+  const h = toTrialResult({ ...base, harnessError: "judge timed out" }) as any;
+  assert.equal(h.outcome, "harness-error");
+  assert.equal(h.passed, false);
+  assert.equal(h.error, "judge timed out");
+  assert.equal((toTrialResult({ ...base, timedOut: true }) as any).outcome, "timed-out");
+});
+
+test("requirements the judge did not rule on are listed, not failed", () => {
+  const t = toTrialResult({ ...base, requirements: [{ id: 1, status: "pass" }, { id: 2, status: "not-run" as any }] }) as any;
+  assert.deepEqual(t.requirementsNotRun, [2]);
+  assert.equal(t.checks.some((c: any) => c.id === "requirement-2"), false);
+  assert.equal(t.scoringVersion, 3);
+});
+
+test("launch level counts how far the app got", () => {
+  const mk = (ids: Record<string, string>) => (toTrialResult({
+    ...base,
+    checks: [...base.checks, ...Object.entries(ids).map(([id, status]) => ({ id, label: id, kind: "launch", source: "harness", status }))] as any,
+  }) as any).launchLevel;
+  assert.equal(mk({}), 1);
+  assert.equal(mk({ L2: "pass" }), 2);
+  assert.equal(mk({ L2: "pass", L3: "pass" }), 3);
+  assert.equal((toTrialResult({ ...base, runs: false }) as any).launchLevel, 0);
+});

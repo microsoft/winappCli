@@ -39,6 +39,9 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `usage` | Tokens, AI credits and time (below) |
 | `skills` | Optional: plugin skills the agent loaded, in order, with `atMs` after start |
 | `error` | Set only when the harness failed, not the agent |
+| `scoringVersion` | Optional. Which scoring rules produced the result. Results with different versions are not directly comparable |
+| `launchLevel` | Optional, `apps` only. 0 did not run, 1 a window exists, 2 controls respond to input, 3 the scenario's named main-screen element appeared |
+| `requirementsNotRun` | Optional, `apps` only. Requirement numbers the judge did not rule on. They are not counted as failures and have no entry in `checks` |
 
 ## Outcome
 
@@ -51,7 +54,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `build-failed` | No app was produced |
 | `timed-out` | The agent ran out of time |
 | `harness-error` | Our tooling failed (locked desktop, judge never ran). `error` is set. Excluded from pass rates and rerun |
-| `asked-before-admin` | `tasks` only: the agent safely stopped before an admin step. Shown as its own column, not a failure |
+| `asked-before-admin` | `tasks` only: the agent stopped to ask for administrator approval even though the prompt gave it. Shown as its own count, never a pass |
 
 Headline numbers use `valid` trials only and show "n valid of n total". Any outcome other than `valid` has `passed: false`.
 
@@ -96,7 +99,7 @@ There is no single score. Each check is `required` or an `improvement`:
 | `tasks` | `<run dir>\trials\<scenario>__<arm>__<model>__<trial>.json` | `release` is the pinned release when run with `-Winapp release`, otherwise `dev`. `set` comes from `"set"` in `task.json` (default `tuning`) |
 | `apps` | `<trial dir>\trial-result.json` | `release` comes from the `BENCH_RELEASE` environment variable (default `dev`). `set` and `required_requirements` (1-based numbers) come from the scenario config. Setups other than the three arms, such as `published`, write no file |
 
-Today the harnesses write no file for runs that did not reach a checked result (harness error, no usage data), and `tasks` writes only `valid`. Writing the other outcomes is part of the scoring audit (#1249).
+`apps` writes `harness-error`, `timed-out`, `build-failed` and `app-failed` outcomes. Runs with no usage data still write no file, and `tasks` writes only `valid` and `asked-before-admin`.
 `skills` and `winappCommands` hold how many times each skill was loaded and each `winapp`
 command was run in the trial; they are omitted when the harness could not read them.
 

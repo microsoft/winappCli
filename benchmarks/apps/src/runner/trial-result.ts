@@ -8,6 +8,14 @@
  */
 import type { Activity } from "./activity.js";
 import type { QualityCheck } from "./quality-checks.js";
+import { SCORING_VERSION } from "./scoring.js";
+
+/** 0 = no window, 1 = window, 2 = loaded, 3 = ready. Level 3 is only reachable when the scenario names a ready element. */
+function launchLevel(runs: boolean, checks: QualityCheck[]): number {
+  if (!runs) return 0;
+  const passed = (id: string) => checks.some((c) => c.id === id && c.status === "pass");
+  return passed("L2") ? (passed("L3") ? 3 : 2) : 1;
+}
 
 export const ARMS = ["none", "cli-only", "cli-plus-plugins"] as const;
 
@@ -42,6 +50,10 @@ export interface TrialResultInput {
   /** Skills loaded and winapp commands run; omitted when the event stream is unavailable. */
   activity?: Activity | null;
   failReason?: string;
+  /** Our tooling failed (judge never produced a result, locked desktop). Written as outcome `harness-error`. */
+  harnessError?: string;
+  /** The agent hit its time limit. Written as outcome `timed-out`. */
+  timedOut?: boolean;
 }
 
 interface TrialCheck {
@@ -74,7 +86,9 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     });
   }
   const required = new Set(input.requiredRequirements ?? []);
+  const notRun: number[] = [];
   for (const r of input.requirements) {
+    if (r.status !== "pass" && r.status !== "fail") { notRun.push(r.id); continue; }
     checks.push({
       id: `requirement-${r.id}`,
       kind: required.has(r.id) ? "required" : "improvement",
@@ -85,6 +99,11 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
   }
 
   const improvements = checks.filter((c) => c.kind === "improvement");
+  const outcome = input.harnessError ? "harness-error"
+    : input.timedOut ? "timed-out"
+    : !input.builds ? "build-failed"
+    : !input.runs ? "app-failed"
+    : "valid";
   return {
     schemaVersion: 1,
     release: input.release,
@@ -96,10 +115,14 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     model: slug(input.model),
     trial: input.iteration ?? 1,
     startedAt: input.startedAt.toISOString().replace(/\.\d{3}Z$/, "Z"),
-    outcome: !input.builds ? "build-failed" : !input.runs ? "app-failed" : "valid",
-    passed: checks.every((c) => c.kind !== "required" || c.passed),
+    outcome,
+    passed: outcome === "valid" && checks.every((c) => c.kind !== "required" || c.passed),
+    ...(input.harnessError ? { error: input.harnessError } : {}),
     improvements: { met: improvements.filter((c) => c.passed).length, total: improvements.length },
     checks,
+    scoringVersion: SCORING_VERSION,
+    launchLevel: launchLevel(input.runs, input.checks),
+    ...(notRun.length ? { requirementsNotRun: notRun } : {}),
     ...(input.judgeModel ? { judge: { model: input.judgeModel, designScore: input.designScore } } : {}),
     ...(input.activity ? { skills: input.activity.skills, winappCommands: input.activity.winappCommands } : {}),
     usage: input.usage,
