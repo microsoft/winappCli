@@ -63,7 +63,7 @@ public sealed partial class NativeExploreSession : IExploreSession
             AuditFiles.EnsureDirectory(output);
             InitializePages();
             token.ThrowIfCancellationRequested();
-            monitor.Start(target);
+            await monitor.StartAsync(target, running.Token);
             var initial = await InspectAsync(target, running.Token);
             RequirePage(initial, this.profile.InitialPageId);
             currentPage = this.profile.InitialPageId;

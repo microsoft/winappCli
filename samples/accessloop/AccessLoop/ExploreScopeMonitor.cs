@@ -2,12 +2,11 @@ namespace AccessLoop;
 
 internal sealed record ExploreScopeWindow(long Handle, int ProcessId, long Owner, string? Title = null);
 internal sealed record ExploreWindowBoundary(long ForegroundWindow, IReadOnlyList<ExploreScopeWindow> Windows);
-internal sealed record ExploreWindowSignal(string Kind, long WindowHandle = 0);
+internal sealed record ExploreWindowSignal(string Kind, long WindowHandle = 0, string? Error = null);
 
 internal interface IExploreWindowSource : IDisposable
 {
     ExploreWindowBoundary Read(AuditTarget target);
-    bool TryForeground(AuditTarget target);
     void Start(AuditTarget target, Action<ExploreWindowSignal> changed);
 }
 
@@ -45,7 +44,7 @@ internal sealed class ExploreScopeMonitor(
         }
     }
 
-    public void Start(AuditTarget target)
+    public async Task StartAsync(AuditTarget target, CancellationToken token)
     {
         lock (gate)
         {
@@ -59,9 +58,6 @@ internal sealed class ExploreScopeMonitor(
                 SurveyNativeContext.ValidateWindow(initial);
                 boundary = windows.Read(target);
                 RequireSingleInitialWindow(boundary);
-                // This is the sole permitted foreground request, before the monitored interaction run.
-                if (boundary.ForegroundWindow != target.WindowHandle && !windows.TryForeground(target))
-                    throw new ExploreStoppedException("The approved window could not be foregrounded once. Activate it manually and start a new run.");
             }
             catch (Exception ex) when (AuditRunner.IsExecutionFailure(ex))
             {
@@ -71,6 +67,13 @@ internal sealed class ExploreScopeMonitor(
         }
         try
         {
+            token.ThrowIfCancellationRequested();
+            if (boundary!.ForegroundWindow != target.WindowHandle)
+            {
+                // The native child owns the desktop section; holding one here would deadlock it.
+                var response = await platform.UiAsync(target, ["focus"], TimeSpan.FromSeconds(30), token);
+                _ = WinappLauncher.ParseResult(response, "focus");
+            }
             windows.Start(target, OnSignal);
             Check(target);
         }
@@ -185,12 +188,17 @@ internal sealed class ExploreScopeMonitor(
                 return;
             try
             {
+                if (signal.Kind == "monitor-failed")
+                {
+                    Latch("monitor-failed", signal.Error ?? "The native window monitor failed. No further input is allowed.", signal.WindowHandle);
+                    return;
+                }
                 Refresh();
                 // Retain a foreground excursion even if focus returned before the snapshot was read.
                 if (signal.Kind == "foreground" && signal.WindowHandle != original.WindowHandle
                     && signal.WindowHandle != approvedPopup
                     && !(provisional && signal.WindowHandle == PopupWindow))
-                    Latch("foreground-changed", "Foreground moved outside the approved window boundary. No automatic focus restoration is allowed.", signal.WindowHandle);
+                    LatchForeground(signal.WindowHandle);
                 if (signal.Kind == "destroyed" && signal.WindowHandle == original.WindowHandle)
                     Latch("scope-changed", "The original top-level window was destroyed.", signal.WindowHandle);
             }
@@ -241,8 +249,14 @@ internal sealed class ExploreScopeMonitor(
         if (boundary.ForegroundWindow != original.WindowHandle
             && boundary.ForegroundWindow != approvedPopup
             && !(provisional && extra.Length == 1 && boundary.ForegroundWindow == extra[0].Handle))
-            Latch("foreground-changed", "Foreground moved outside the approved window boundary. No automatic focus restoration is allowed.", boundary.ForegroundWindow);
+            LatchForeground(boundary.ForegroundWindow);
     }
+
+    private void LatchForeground(long hwnd) =>
+        Latch(hwnd == 0 ? "foreground-unavailable" : "foreground-changed",
+            hwnd == 0
+                ? "The foreground window could not be determined. No further input or automatic focus restoration is allowed."
+                : "Foreground moved outside the approved window boundary. No automatic focus restoration is allowed.", hwnd);
 
     private void RequireSingleInitialWindow(ExploreWindowBoundary value)
     {
@@ -259,6 +273,8 @@ internal sealed class ExploreScopeMonitor(
         violation = new(DateTimeOffset.UtcNow, kind, reason, hwnd,
             violationWindow?.ProcessId ?? (hwnd == original?.WindowHandle ? original?.ProcessId : null));
         events.Add(violation);
+        if (windows is ExploreNativeWindowSource source)
+            source.RecordDiagnosticStop(violation);
         stopped.Cancel();
     }
 

@@ -76,6 +76,8 @@ public sealed partial class NativeLoopRoundRunner : ILoopRoundRunner
             using var monitorLifetime = monitor;
             ValidateRequest();
             AuditFiles.CreateNewDirectory(round.Directory);
+            if (windowSource is ExploreNativeWindowSource diagnosticSource)
+                diagnosticSource.EnableDiagnostics(Path.Combine(round.Directory, "scope-diagnostics.json"));
             IAppSession? app = null;
             CancellationTokenSource? duration = null;
             CancellationTokenSource? running = null;
@@ -106,7 +108,7 @@ public sealed partial class NativeLoopRoundRunner : ILoopRoundRunner
                         await Task.Delay(100, token);
                     }
                 }
-                monitor.Start(target);
+                await monitor.StartAsync(target, token);
                 using (var startup = CancellationTokenSource.CreateLinkedTokenSource(token, monitor.StopToken))
                 {
                     startup.CancelAfter(TimeSpan.FromSeconds(profile.TimeoutSeconds));
@@ -147,37 +149,59 @@ public sealed partial class NativeLoopRoundRunner : ILoopRoundRunner
                 running?.Dispose();
                 duration?.Dispose();
                 // Owned-process disposal is lifecycle cleanup, not route completion or UI restoration.
-                monitor.Dispose();
-                round.ScopeEvents.AddRange(monitor.Events);
-                if (monitor.Violation is { } stopped)
-                {
-                    round.Status = "blocked";
-                    round.Error ??= stopped.Message;
-                }
                 try
                 {
-                    if (app is not null)
-                        await app.DisposeAsync();
-                }
-                catch (Exception ex) when (AuditRunner.IsExecutionFailure(ex))
-                {
-                    round.Status = "blocked";
-                    round.Error = JoinError(round.Error, "Owned-process cleanup failed: " + Error(ex));
+                    monitor.Dispose();
+                    round.ScopeEvents.AddRange(monitor.Events);
+                    if (monitor.Violation is { } stopped)
+                    {
+                        round.Status = "blocked";
+                        round.Error ??= stopped.Message;
+                    }
                 }
                 catch (Exception ex)
                 {
                     round.Status = "blocked";
-                    round.Error = JoinError(round.Error, $"Unexpected owned-process cleanup failure ({ex.GetType().Name}): {ex.Message}");
+                    round.Error = JoinError(round.Error, $"Scope-monitor cleanup failed ({ex.GetType().Name}): {ex.Message}");
                     throw;
                 }
                 finally
                 {
-                    round.FinishedAtUtc = DateTimeOffset.UtcNow;
-                    SaveProgress();
-                    var log = Path.Combine(round.Directory, "actions.json");
-                    AuditFiles.WriteNew(log, round.Actions);
-                    round.ActionLogSha256 = AuditFiles.Hash(log);
-                    AuditFiles.WriteNew(Path.Combine(round.Directory, "round.json"), round);
+                    try
+                    {
+                        if (app is not null)
+                            await app.DisposeAsync();
+                    }
+                    catch (Exception ex) when (AuditRunner.IsExecutionFailure(ex))
+                    {
+                        round.Status = "blocked";
+                        round.Error = JoinError(round.Error, "Owned-process cleanup failed: " + Error(ex));
+                    }
+                    catch (Exception ex)
+                    {
+                        round.Status = "blocked";
+                        round.Error = JoinError(round.Error, $"Unexpected owned-process cleanup failure ({ex.GetType().Name}): {ex.Message}");
+                        throw;
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            if (windowSource is ExploreNativeWindowSource source)
+                                source.WriteDiagnostics();
+                        }
+                        catch (Exception ex) when (AuditRunner.IsExecutionFailure(ex))
+                        {
+                            round.Status = "blocked";
+                            round.Error = JoinError(round.Error, "Scope diagnostics could not be saved: " + Error(ex));
+                        }
+                        round.FinishedAtUtc = DateTimeOffset.UtcNow;
+                        SaveProgress();
+                        var log = Path.Combine(round.Directory, "actions.json");
+                        AuditFiles.WriteNew(log, round.Actions);
+                        round.ActionLogSha256 = AuditFiles.Hash(log);
+                        AuditFiles.WriteNew(Path.Combine(round.Directory, "round.json"), round);
+                    }
                 }
             }
             Emit("round-finished", message: round.Error ?? "Every prescribed action and checkpoint completed; this is not a whole-app accessibility verdict.");
@@ -187,6 +211,8 @@ public sealed partial class NativeLoopRoundRunner : ILoopRoundRunner
         private async Task RunStepAsync(LoopStep step, CancellationToken token)
         {
             action = new() { Step = step };
+            if (windowSource is ExploreNativeWindowSource source)
+                source.SetDiagnosticStep(step.Id);
             round.Actions.Add(action);
             commandDirectory = NewDirectory(Path.Combine("actions", step.Id));
             SaveProgress();

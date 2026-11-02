@@ -4,7 +4,7 @@ using System.Text;
 
 namespace AccessLoop;
 
-internal sealed class ExploreNativeWindowSource : IExploreWindowSource
+internal sealed partial class ExploreNativeWindowSource : IExploreWindowSource
 {
     private readonly ManualResetEventSlim ready = new(false);
     private Thread? thread;
@@ -39,10 +39,9 @@ internal sealed class ExploreNativeWindowSource : IExploreWindowSource
                 result.Add(new((long)hwnd, checked((int)pid), (long)GetWindow(hwnd, 4), title));
             }
         }
-        return new((long)GetForegroundWindow(), result);
+        var foreground = ReadDiagnosticForeground("boundary-read");
+        return new(foreground, result);
     }
-
-    public bool TryForeground(AuditTarget target) => SetForegroundWindow(checked((nint)target.WindowHandle));
 
     public void Start(AuditTarget target, Action<ExploreWindowSignal> changed)
     {
@@ -64,36 +63,53 @@ internal sealed class ExploreNativeWindowSource : IExploreWindowSource
         try
         {
             threadId = GetCurrentThreadId();
-            callback = (_, eventId, hwnd, objectId, childId, _, _) =>
+            callback = (_, eventId, hwnd, objectId, childId, eventThread, eventTime) =>
             {
+                RecordDiagnostic(new(DateTimeOffset.UtcNow, System.Diagnostics.Stopwatch.GetTimestamp(),
+                    "win-event", EventWindow: (long)hwnd, EventId: eventId,
+                    EventThread: eventThread, EventTime: eventTime));
                 if (eventId == 3)
                     changed!(new("foreground", (long)hwnd));
                 else if (objectId == 0 && childId == 0 && hwnd != 0)
                     changed!(new(eventId == 0x8001 ? "destroyed" : "window", (long)hwnd));
             };
             foregroundHook = SetWinEventHook(3, 3, 0, callback, 0, 0, 0);
+            if (foregroundHook == 0)
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not install the foreground event hook.");
             windowHook = SetWinEventHook(0x8000, 0x800B, 0, callback, checked((uint)target.ProcessId), 0, 0);
+            if (windowHook == 0)
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not install the target-window event hook.");
             timer = SetTimer(0, 0, 100, 0);
-            if (foregroundHook == 0 || windowHook == 0 || timer == 0)
-                throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (timer == 0)
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not install the scope-monitor timer.");
             ready.Set();
             if (stopping) return;
             int result;
             while ((result = GetMessage(out var message, 0, 0, 0)) > 0)
             {
                 if (message.Id == 0x0113)
+                {
+                    _ = ReadDiagnosticForeground("timer-poll");
                     changed!(new("tick"));
+                }
                 _ = TranslateMessage(ref message);
                 _ = DispatchMessage(ref message);
             }
             if (result < 0)
-                changed!(new("foreground", 0)); // An unavailable monitor must fail closed.
+            {
+                var error = Marshal.GetLastPInvokeError();
+                var exception = new Win32Exception(error);
+                RecordDiagnosticFailure("GetMessage", exception, error);
+                changed!(new("monitor-failed", 0, $"GetMessage failed with Win32 error {error}. No further input is allowed."));
+            }
         }
         catch (Exception ex)
         {
             startupError = ex;
+            RecordDiagnosticFailure("message-loop", ex);
             if (ready.IsSet)
-                changed?.Invoke(new("foreground", 0));
+                changed?.Invoke(new("monitor-failed", 0,
+                    $"The native window monitor failed ({ex.GetType().Name}, HRESULT 0x{ex.HResult:X8}). No further input is allowed."));
         }
         finally
         {
@@ -106,6 +122,7 @@ internal sealed class ExploreNativeWindowSource : IExploreWindowSource
 
     public void Dispose()
     {
+        ObserveAfterDiagnosticStop();
         stopping = true;
         if (thread is not null)
         {
@@ -132,14 +149,13 @@ internal sealed class ExploreNativeWindowSource : IExploreWindowSource
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     [DllImport("user32.dll", EntryPoint = "GetWindowTextW", ExactSpelling = true, CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint hwnd, StringBuilder text, int capacity);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsWindowVisible(nint hwnd);
-    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetForegroundWindow(nint hwnd);
-    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint hwnd, out uint pid);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint GetWindowThreadProcessId(nint hwnd, out uint pid);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll", SetLastError = true)] private static extern nint SetWinEventHook(uint first, uint last, nint module, WinEventProc callback, uint pid, uint thread, uint flags);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool UnhookWinEvent(nint hook);
     [DllImport("user32.dll", SetLastError = true)] private static extern nuint SetTimer(nint hwnd, nuint id, uint milliseconds, nint callback);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool KillTimer(nint hwnd, nuint id);
-    [DllImport("user32.dll", EntryPoint = "GetMessageW", ExactSpelling = true)] private static extern int GetMessage(out Message message, nint hwnd, uint first, uint last);
+    [DllImport("user32.dll", EntryPoint = "GetMessageW", ExactSpelling = true, SetLastError = true)] private static extern int GetMessage(out Message message, nint hwnd, uint first, uint last);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool TranslateMessage(ref Message message);
     [DllImport("user32.dll", EntryPoint = "DispatchMessageW", ExactSpelling = true)] private static extern nint DispatchMessage(ref Message message);
     [DllImport("user32.dll", EntryPoint = "PostThreadMessageW", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool PostThreadMessage(uint thread, uint message, nuint wParam, nint lParam);

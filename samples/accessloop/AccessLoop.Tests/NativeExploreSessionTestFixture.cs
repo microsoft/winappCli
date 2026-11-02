@@ -94,6 +94,10 @@ internal sealed class NativeExploreSessionTestFixture : IAuditPlatform
         JsonObject response;
         switch (args[0])
         {
+            case "focus":
+                _ = Windows.TryForeground(scope);
+                response = new() { ["hwnd"] = scope.WindowHandle };
+                break;
             case "inspect":
                 response = Tree(scope);
                 break;
@@ -300,7 +304,7 @@ internal sealed class NativeExploreSessionTestFixture : IAuditPlatform
         public ExploreWindowBoundary Read(AuditTarget target) => new(Foreground, Visible.ToArray());
         public bool TryForeground(AuditTarget target) { ForegroundRequests++; Foreground = target.WindowHandle; return true; }
         public void Start(AuditTarget target, Action<ExploreWindowSignal> changed) => this.changed = changed;
-        public void Signal(string kind = "tick", long hwnd = 0) => changed?.Invoke(new(kind, hwnd));
+        public void Signal(string kind = "tick", long hwnd = 0, string? error = null) => changed?.Invoke(new(kind, hwnd, error));
         public void AddOwned(long handle, long? owner = null, int? pid = null, string? title = null)
         {
             Visible.Add(new(handle, pid ?? target.ProcessId, owner ?? target.WindowHandle, title ?? (handle == 200 ? "AccessLoop scope probe" : "DensityPopup")));

@@ -7,11 +7,52 @@ namespace AccessLoop.Tests;
 public sealed class ExploreScopeMonitorTests
 {
     [TestMethod]
-    public void ForegroundExcursionIsLatchedEvenWhenTheCurrentSnapshotHasReturned()
+    public async Task UnknownForegroundStopsWithoutClaimingAnotherWindowAndCannotResume()
     {
         var fake = new Fake();
         using var monitor = new ExploreScopeMonitor(fake, fake.Native, fake.Windows);
-        monitor.Start(fake.Target);
+        await monitor.StartAsync(fake.Target, CancellationToken.None);
+        fake.Windows.Foreground = 0;
+        Assert.ThrowsExactly<ExploreStoppedException>(() => monitor.Check(fake.Target, input: true));
+        Assert.AreEqual("foreground-unavailable", monitor.Violation?.Kind);
+        Assert.AreEqual(0L, monitor.Violation?.WindowHandle);
+        fake.Windows.Foreground = fake.Target.WindowHandle;
+        Assert.ThrowsExactly<ExploreStoppedException>(() => monitor.Check(fake.Target, input: true));
+        Assert.AreEqual(0, fake.Windows.ForegroundRequests);
+        Assert.IsTrue(monitor.StopToken.IsCancellationRequested);
+    }
+
+    [TestMethod]
+    public async Task ZeroForegroundEventIsRetainedWhenTheCurrentReadHasRecovered()
+    {
+        var fake = new Fake();
+        using var monitor = new ExploreScopeMonitor(fake, fake.Native, fake.Windows);
+        await monitor.StartAsync(fake.Target, CancellationToken.None);
+        fake.Windows.Signal("foreground", 0);
+        Assert.AreEqual("foreground-unavailable", monitor.Violation?.Kind);
+        Assert.ThrowsExactly<ExploreStoppedException>(() => monitor.Check(fake.Target, input: true));
+    }
+
+    [TestMethod]
+    public async Task NativeMonitorFailurePreservesItsReasonInsteadOfPretendingFocusChanged()
+    {
+        var fake = new Fake();
+        using var monitor = new ExploreScopeMonitor(fake, fake.Native, fake.Windows);
+        await monitor.StartAsync(fake.Target, CancellationToken.None);
+        fake.Windows.Foreground = 0;
+        fake.Windows.Signal("monitor-failed", 0, "GetMessage failed with Win32 error 5.");
+        Assert.AreEqual("monitor-failed", monitor.Violation?.Kind);
+        Assert.AreEqual("GetMessage failed with Win32 error 5.", monitor.Violation?.Message);
+        Assert.ThrowsExactly<ExploreStoppedException>(() => monitor.Check(fake.Target, input: true));
+        Assert.AreEqual(0, fake.Windows.ForegroundRequests);
+    }
+
+    [TestMethod]
+    public async Task ForegroundExcursionIsLatchedEvenWhenTheCurrentSnapshotHasReturned()
+    {
+        var fake = new Fake();
+        using var monitor = new ExploreScopeMonitor(fake, fake.Native, fake.Windows);
+        await monitor.StartAsync(fake.Target, CancellationToken.None);
         fake.Windows.Signal("foreground", 999);
         Assert.IsNotNull(monitor.Violation);
         Assert.IsTrue(monitor.StopToken.IsCancellationRequested);
@@ -20,11 +61,11 @@ public sealed class ExploreScopeMonitorTests
     }
 
     [TestMethod]
-    public void ProvisionalPopupAllowsOnlyScopedObservationUntilExplicitApproval()
+    public async Task ProvisionalPopupAllowsOnlyScopedObservationUntilExplicitApproval()
     {
         var fake = new Fake();
         using var monitor = new ExploreScopeMonitor(fake, fake.Native, fake.Windows);
-        monitor.Start(fake.Target);
+        await monitor.StartAsync(fake.Target, CancellationToken.None);
         monitor.BeginPopupTransition(TimeSpan.FromSeconds(5));
         fake.Windows.AddOwned(100);
         fake.Windows.Foreground = 100;
@@ -44,11 +85,11 @@ public sealed class ExploreScopeMonitorTests
     }
 
     [TestMethod]
-    public void SameProcessAloneDoesNotAuthorizeAnAdditionalWindow()
+    public async Task SameProcessAloneDoesNotAuthorizeAnAdditionalWindow()
     {
         var fake = new Fake();
         using var monitor = new ExploreScopeMonitor(fake, fake.Native, fake.Windows);
-        monitor.Start(fake.Target);
+        await monitor.StartAsync(fake.Target, CancellationToken.None);
         fake.Windows.AddOwned(100, owner: 0);
         Assert.AreEqual("window-boundary-changed", monitor.Violation?.Kind);
         fake.Windows.Remove(100);
@@ -56,12 +97,12 @@ public sealed class ExploreScopeMonitorTests
     }
 
     [TestMethod]
-    public void InitialForegroundRequestIsOneTimeAndNotRepeatedAfterUserSwitch()
+    public async Task InitialForegroundRequestIsOneTimeAndNotRepeatedAfterUserSwitch()
     {
         var fake = new Fake();
         fake.Windows.Foreground = 999;
         using var monitor = new ExploreScopeMonitor(fake, fake.Native, fake.Windows);
-        monitor.Start(fake.Target);
+        await monitor.StartAsync(fake.Target, CancellationToken.None);
         Assert.AreEqual(1, fake.Windows.ForegroundRequests);
         fake.Windows.Foreground = 999;
         fake.Windows.Signal("foreground", 999);
@@ -70,11 +111,11 @@ public sealed class ExploreScopeMonitorTests
     }
 
     [TestMethod]
-    public void IdentityFailureDuringProvisionalInputStillLatchesTheStop()
+    public async Task IdentityFailureDuringProvisionalInputStillLatchesTheStop()
     {
         var fake = new Fake();
         using var monitor = new ExploreScopeMonitor(fake, fake.Native, fake.Windows);
-        monitor.Start(fake.Target);
+        await monitor.StartAsync(fake.Target, CancellationToken.None);
         monitor.BeginPopupTransition(TimeSpan.FromSeconds(5));
         fake.IdentityValid = false;
         Assert.ThrowsExactly<ExploreStoppedException>(() => monitor.Check(fake.Target, input: true));
@@ -82,11 +123,11 @@ public sealed class ExploreScopeMonitorTests
     }
 
     [TestMethod]
-    public void PopupDisappearanceWithoutAuthorizedCloseLatchesTheBoundary()
+    public async Task PopupDisappearanceWithoutAuthorizedCloseLatchesTheBoundary()
     {
         var fake = new Fake();
         using var monitor = new ExploreScopeMonitor(fake, fake.Native, fake.Windows);
-        monitor.Start(fake.Target);
+        await monitor.StartAsync(fake.Target, CancellationToken.None);
         monitor.BeginPopupTransition(TimeSpan.FromSeconds(5));
         fake.Windows.AddOwned(100);
         monitor.ApprovePopup(100);
