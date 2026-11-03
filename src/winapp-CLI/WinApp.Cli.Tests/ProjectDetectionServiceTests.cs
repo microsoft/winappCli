@@ -389,6 +389,44 @@ public class ProjectDetectionServiceTests
     }
 
     [TestMethod]
+    [DataRow(".venv")]
+    [DataRow("venv")]
+    [DataRow("custom-env")]
+    public async Task DetectProjects_BFS_SkipsPythonVirtualEnvironments(string environmentName)
+    {
+        CreateFile(Path.Combine(environmentName, "pyvenv.cfg"), "home = C:\\Python");
+        CreateFile(Path.Combine(environmentName, "Lib", "site-packages", "dependency", "CMakeLists.txt"), "cmake");
+        CreateFile(Path.Combine("app", "CMakeLists.txt"), "cmake");
+
+        var results = await _sut.DetectProjectsAsync(Root, 5, null, CancellationToken.None);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual("app", results[0].DisplayPath);
+    }
+
+    [TestMethod]
+    public async Task DetectProjects_BFS_VirtualEnvironmentRoot_DoesNotSearchChildren()
+    {
+        CreateFile("pyvenv.cfg", "home = C:\\Python");
+        CreateFile(Path.Combine("dependency", "CMakeLists.txt"), "cmake");
+
+        var results = await _sut.DetectProjectsAsync(Root, 5, null, CancellationToken.None);
+
+        Assert.AreEqual(0, results.Count);
+    }
+
+    [TestMethod]
+    public async Task DetectProjects_BFS_EnvironmentNameWithoutMarker_IsStillAProject()
+    {
+        CreateFile(Path.Combine("custom-env", "CMakeLists.txt"), "cmake");
+
+        var results = await _sut.DetectProjectsAsync(Root, 5, null, CancellationToken.None);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual("custom-env", results[0].DisplayPath);
+    }
+
+    [TestMethod]
     public async Task DetectProjects_BFS_ReportsProgress()
     {
         CreateDir("app1");
@@ -575,6 +613,33 @@ public class ProjectDetectionServiceTests
     {
         var result = _sut.DetectProjectAt(Root);
         Assert.IsNull(result);
+    }
+
+    [TestMethod]
+    [DataRow(".venv")]
+    [DataRow("venv")]
+    [DataRow("custom-env")]
+    public void DetectProjectAt_PythonVirtualEnvironment_ReturnsNull(string environmentName)
+    {
+        CreateFile(Path.Combine(environmentName, "pyvenv.cfg"), "home = C:\\Python");
+        CreateFile(Path.Combine(environmentName, "CMakeLists.txt"), "cmake");
+
+        var result = _sut.DetectProjectAt(new DirectoryInfo(Path.Combine(_tempDir, environmentName)));
+
+        Assert.IsNull(result);
+    }
+
+    [TestMethod]
+    public void DetectProject_Tauri_IgnoresPythonVirtualEnvironmentSubdir()
+    {
+        CreateFile(Path.Combine("custom-env", "pyvenv.cfg"), "home = C:\\Python");
+        CreateFile(Path.Combine("custom-env", "tauri.conf.json"), "{}");
+        CreateFile("CMakeLists.txt", "cmake");
+
+        var result = _sut.DetectProjectAt(Root);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual(DetectedProjectType.CPP, result.Type);
     }
 
     // --- Error / defensive paths ---
