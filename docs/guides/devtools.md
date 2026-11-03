@@ -6,6 +6,10 @@ Sandbox, attaching to a running app, query targeting, comment storage, the proto
 and troubleshooting, see [Advanced DevTools](devtools-advanced.md). Every command's
 `--help` lists its options and examples.
 
+The DevTools window needs Windows App SDK 1.7 or later. In an app that uses an older
+version, the window doesn't open, and DevTools shows a message that names the required
+version.
+
 ## Get started
 
 1. From your WinUI project directory, build and launch the app:
@@ -94,13 +98,18 @@ that check fails, the running app stays open and no replacement starts. Without
   because then your clicks go to DevTools instead of the app.
 - `winapp ui screenshot` leaves the toolbar, markers and comment panel out of the image.
 
-In the **Visual tree**, press **Tab** to focus a row and **Enter** or **Space** to
-select it. **Right arrow** expands a collapsed row or moves focus to its first
-child. **Left arrow** collapses an expanded row or moves focus to its parent.
-The expand arrows remain clickable but are not separate tab stops.
+In the **Visual tree**, press **Tab** to enter the tree, then **Up arrow** or
+**Down arrow** to move between rows. **Enter** or **Space** selects a row.
+**Right arrow** expands a collapsed row or moves to its first child.
+**Left arrow** collapses an expanded row or moves to its parent.
+Press **Tab** again to leave the tree.
 
 While the tree filter contains text, all matching rows stay visible and expansion
 is disabled. Clear the filter to expand or collapse rows again.
+
+In a property's resource-key editor, type part of a key, then click a suggestion
+or choose it with **Down arrow** and **Enter**. Choosing fills the field without
+changing the app. Press **Enter** again or select **Apply** to assign the resource.
 
 ## Review comments with an agent
 
