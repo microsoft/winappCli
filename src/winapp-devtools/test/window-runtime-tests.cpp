@@ -1557,6 +1557,45 @@ int main()
         g_treeScrollUi = nullptr; g_treeRows.clear(); g_treeVisible.clear(); g_nodeIdxByWire.clear(); g_selectedWire = 0;
     }
     {
+        // A resolve writer finishes after the user can reopen Edit or the header's Comment box.
+        // Exercise the same editor state transition the completion callback uses.
+        for (const int result : {0, 0x57410001, 1, 0x57410002}) {
+            for (const bool editing : {false, true}) {
+                CommentBoxSaved saved;
+                saved.id = L"resolve-card"; saved.text = L"saved comment";
+                saved.resolving = true; saved.editing = editing;
+                std::wstring draft = editing ? L"new draft while resolving" : saved.text;
+                const bool closeEditor = saved.FinishResolve(result);
+                if (closeEditor) draft.clear(); // WireAddComment clears text only when this returns true.
+                const bool success = result == 0 || result == 0x57410001;
+                check(!saved.resolving, "resolve completion permits the next save or retry");
+                check(saved.id == (success ? L"" : L"resolve-card"),
+                    "only confirmed resolution removes the ID used by the next save");
+                check(editing ? draft == L"new draft while resolving" : closeEditor == success,
+                    "resolve completion retains an opened editor and its newer draft");
+            }
+        }
+        std::function<void(int)> acknowledge;
+        g_commentResolveFn = [&](const wchar_t*, std::function<void(int)> completed) {
+            acknowledge = std::move(completed); return true;
+        };
+        int calls = 0, outcome = -1;
+        ResolveCommentById(L"resolve-card", [&](int result) { ++calls; outcome = result; });
+        check(calls == 0, "resolution never claims success before the writer answers");
+        acknowledge(0);
+        acknowledge(1);
+        check(calls == 1 && outcome == 0, "a resolve completion is delivered only once");
+        g_commentResolveFn = [](const wchar_t*, std::function<void(int)>) { return false; };
+        ResolveCommentById(L"resolve-card", [&](int result) { ++calls; outcome = result; });
+        check(calls == 2 && outcome == 1, "failed start releases the card's pending resolution");
+        g_commentResolveFn = [](const wchar_t*, std::function<void(int)> completed) {
+            completed(1); return false;
+        };
+        ResolveCommentById(L"resolve-card", [&](int result) { ++calls; outcome = result; });
+        check(calls == 3 && outcome == 1, "synchronous launch failure is not delivered twice");
+        g_commentResolveFn = nullptr;
+    }
+    {
         // The inspector's comment box starts from the element's existing comment, found as the Comments pane finds it.
         DevToolsWindowComment todays; todays.id = L"cmt_a0dbf8f331a8"; todays.text = L"hello\rThis is a new comment";
         todays.status = L"open"; todays.anchor = L"source:today";

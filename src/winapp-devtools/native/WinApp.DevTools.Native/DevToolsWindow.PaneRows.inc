@@ -96,7 +96,18 @@ static const wchar_t* const kAddCommentHint = L"Enter to save \u00B7 Shift+Enter
 // Rebuilding the properties pane (selecting another element, or the element disappearing) recreates the comment
 // box. Text typed there but not saved is kept here so the rebuild never discards it: it comes back when the same
 // element is selected again, and is offered for copying when the element is gone.
-struct CommentBoxSaved { std::wstring id, text; };
+struct CommentBoxSaved {
+    std::wstring id, text;
+    bool editing = false, resolving = false;
+    // Resolution removes the saved identity, not a draft opened while the writer was running.
+    bool FinishResolve(int result) {
+        resolving = false;
+        if (result != 0 && result != 0x57410001) return false;
+        id.clear();
+        text.clear();
+        return !editing;
+    }
+};
 static std::map<InstanceHandle, std::wstring> g_commentDrafts; // unsaved text, per element
 static winrt::weak_ref<DevToolsXC::TextBox> g_commentBox;
 static std::shared_ptr<CommentBoxSaved> g_commentBoxSaved; // what the live box last loaded or saved

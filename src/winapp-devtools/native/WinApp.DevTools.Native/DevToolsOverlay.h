@@ -213,7 +213,7 @@ std::wstring DevToolsOverlay_GuestCommentToken(const std::wstring& operation, co
 void DevToolsOverlay_NoticeCommentsStale();
 // Shows the toolbar and moves keyboard focus to it, as Ctrl+Shift+F12 does. UI thread only.
 bool DevToolsOverlay_FocusToolbar();
-bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstring& revision,
+bool DevToolsOverlay_ResolveComment(const std::wstring& id, const std::wstring& revision,
     std::function<void(int)> completed);
 // Saves a comment on element through the in-app comment writer, for the inspector: id updates that comment, an
 // empty id adds a new one. Returns the id written. completed gets 0 once it is saved, nonzero otherwise; it may

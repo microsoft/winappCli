@@ -461,8 +461,9 @@ static void TestToolbarContract()
     Check(windowShell.find("PropViewSelector") == std::string::npos &&
                      window.find("<SelectorBar x:Name=\\\"PropViewSelector\\\"") != std::string::npos &&
                      window.find("if (!queue || !queue.TryEnqueue(rebuild)) rebuild();") != std::string::npos &&
-                     window.find("if (const auto item = bar.SelectedItem()) item.Focus(DevToolsX::FocusState::Programmatic);") !=
-                         std::string::npos,
+                     window.find("*token = bar.Loaded(") != std::string::npos &&
+                     window.find("if (const auto item = loaded.SelectedItem())") != std::string::npos &&
+                     window.find("if (!item.Focus(DevToolsX::FocusState::Keyboard))") != std::string::npos,
                  "the property view selector keeps keyboard focus across the rebuild it causes");
     Check(windowShell.find("<ToggleButton x:Name=\"PickBtn\"") != std::string::npos &&
                      windowShell.find("<ToggleButton x:Name=\"FocusBtn\"") != std::string::npos,

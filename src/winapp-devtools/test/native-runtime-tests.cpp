@@ -32,6 +32,7 @@ static HRESULT ObserveBindingAgile(AgileReferenceOptions, REFIID, IUnknown*, IAg
 #include <sstream>
 
 void CommentFixtureOpen(unsigned long long raw);
+void CommentFixtureResolveWriter(const wchar_t* exe, int exitCode);
 std::wstring CommentFixtureLaunch(DWORD pid, const wchar_t* exe, const wchar_t* source,
     const std::wstring& token, const std::wstring& text, bool local, unsigned* spawns);
 
@@ -1309,6 +1310,14 @@ static void CheckTreeDeltasFollowSubscription(const std::function<void(bool,cons
 
 int wmain(int argc, wchar_t** argv)
 {
+    if (argc == 3 && std::wstring(argv[1]) == L"--resolve-writer") {
+        Sleep(150);
+        return _wtoi(argv[2]);
+    }
+    if (argc > 3 && std::wstring(argv[1]) == L"devtools" && std::wstring(argv[2]) == L"comments") {
+        Sleep(150);
+        return 0;
+    }
     if (argc == 8 && std::wstring(argv[1]) == L"--overlay-comment-command") {
         DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
         const InstanceHandle raw = 0x12345678;
@@ -1433,6 +1442,43 @@ int wmain(int argc, wchar_t** argv)
     CheckTreeDeltasFollowSubscription(check);
     CheckQueries(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
+    {
+        wchar_t self[MAX_PATH]{};
+        check(GetModuleFileNameW(nullptr, self, MAX_PATH) != 0, "resolve regression locates its own child executable");
+        wchar_t oldRoot[32768]{};
+        const auto oldRootLength = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", oldRoot, _countof(oldRoot));
+        SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", L".");
+        const auto oldCli = g_cliExe;
+        g_cliExe = self;
+        DevToolsWindowComment comment;
+        comment.id = L"local-resolve-child"; comment.text = L"local saved comment"; comment.status = L"open";
+        for (const int exitCode : {0, 7}) {
+            CommentFixtureResolveWriter(self, exitCode);
+            unsigned calls = 0;
+            int outcome = -1;
+            const auto began = GetTickCount64();
+            check(TapResolveComment(comment.id.c_str(), [&](int result) { ++calls; outcome = result; }),
+                "local resolve starts the owned child writer");
+            check(calls == 0, "local resolve does not acknowledge CreateProcess as a saved comment");
+            while (!calls && GetTickCount64() - began < 5000) {
+                MSG message;
+                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                Sleep(10);
+            }
+            check(calls == 1 && outcome == exitCode, "local resolve reports the real asynchronous child exit exactly once");
+            if (!calls) return 1; // Do not leave a timer holding references to a timed-out test's stack.
+        }
+        CommentFixtureResolveWriter(L"Z:\\missing-winapp-comment-writer.exe", 0);
+        unsigned failedCalls = 0;
+        check(!TapResolveComment(comment.id.c_str(), [&](int result) { if (result != 0) ++failedCalls; }) &&
+            failedCalls == 1, "local resolve reports CreateProcess failure once without a pending writer");
+        CommentFixtureResolveWriter(nullptr, 0);
+        g_cliExe = oldCli;
+        SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", oldRootLength ? oldRoot : nullptr);
+    }
     CheckMalformedMutationHandles(check);
     auto call = [&](const wchar_t* method) {
         DevToolsRpcRequest request{};

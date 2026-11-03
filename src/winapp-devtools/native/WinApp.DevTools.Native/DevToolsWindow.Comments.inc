@@ -86,6 +86,7 @@ static void ResolveCommentById(const std::wstring& id, std::function<void(int)> 
     const auto answered = std::make_shared<bool>(false);
     SetStatusText(L"Resolving " + id + L"\u2026");
     if (!g_commentResolveFn || !g_commentResolveFn(id.c_str(), [generation, id, answered, done](int result) {
+        if (*answered) return;
         *answered = true;
         if (generation != g_route1Gen) return;
         SetStatusText(result == 0 ? L"Resolved on the host: " + id :
@@ -94,7 +95,11 @@ static void ResolveCommentById(const std::wstring& id, std::function<void(int)> 
             L"Host resolution was not confirmed. Refresh before retrying: " + id);
         if (done) done(result);
     })) {
-        if (!*answered) SetStatusText(L"Resolution could not start. Finish any pending comment save and check the CLI/host connection.");
+        if (!*answered) {
+            *answered = true;
+            SetStatusText(L"Resolution could not start. Finish any pending comment save and check the CLI/host connection.");
+            if (done) done(1);
+        }
     }
 }
 
@@ -658,6 +663,7 @@ static void WireAddComment(void* frameworkElement)
         auto saved = std::make_shared<CommentBoxSaved>();
         // A saved comment shows as the card; the box shows while editing (or, without a card, whenever there is one).
         auto present = [box, card, cardText, cardMeta, saved](bool editing) {
+            saved->editing = editing;
             const bool exists = !saved->id.empty() && !saved->text.empty();
             const bool asCard = card && exists && !editing;
             if (asCard) {
@@ -695,10 +701,10 @@ static void WireAddComment(void* frameworkElement)
         }
         if (cardResolve) {
             cardResolve.Click([present, text, gen, saved](auto&&, auto&&) {
+                if (saved->id.empty() || saved->resolving || text.IsReadOnly()) return;
+                saved->resolving = true;
                 ResolveCommentById(saved->id, [present, weakText = winrt::make_weak(text), gen, saved](int result) {
-                    if (gen != g_addCommentGen || (result != 0 && result != 0x57410001)) return;
-                    saved->id.clear();
-                    saved->text.clear();
+                    if (gen != g_addCommentGen || !saved->FinishResolve(result)) return;
                     if (auto box = weakText.get()) box.Text(L"");
                     present(false);
                 });
@@ -716,7 +722,7 @@ static void WireAddComment(void* frameworkElement)
             if (args.Key() != VirtualKey::Enter || (GetKeyState(VK_SHIFT) & 0x8000)) return;
             args.Handled(true);
             const std::wstring value(text.Text());
-            if (text.IsReadOnly() || value.find_first_not_of(L" \t\r\n") == std::wstring::npos) return;
+            if (saved->resolving || text.IsReadOnly() || value.find_first_not_of(L" \t\r\n") == std::wstring::npos) return;
             IInspectable* element = g_elementFn ? g_elementFn(g_selWire) : nullptr;
             text.IsReadOnly(true);
             status.Text(L"Saving\u2026");

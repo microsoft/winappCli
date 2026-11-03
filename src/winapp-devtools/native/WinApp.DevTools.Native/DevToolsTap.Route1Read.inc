@@ -367,12 +367,10 @@ static bool TapResolveComment(const wchar_t* id, std::function<void(int)> comple
         std::vector<DevToolsWindowComment> items;
         TapComments(&items);
         for (const auto& item : items) if (item.id == id)
-            return DevToolsOverlay_ResolveGuestComment(item.id, item.revision, std::move(completed));
+            return DevToolsOverlay_ResolveComment(item.id, item.revision, std::move(completed));
         return false;
     }
-    std::wstring args = L"devtools comments update --status resolved " + TapQuoteArg(id)
-                      + L" --app " + std::to_wstring(GetCurrentProcessId());
-    return TapRunCli(args, 0) == 0;   // UI-thread caller: spawn only, never wait
+    return DevToolsOverlay_ResolveComment(id, L"", std::move(completed));
 }
 
 static void Route1SnapshotTree(std::vector<DevToolsWindowNode>& outNodes, size_t& outCensusTotal)
