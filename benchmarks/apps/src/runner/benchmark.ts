@@ -2977,6 +2977,8 @@ async function runBenchmarkImpl(
   const logsDir = join(trialDir, "session-logs-dir");
   mkdirSync(workDir, { recursive: true });
   mkdirSync(logsDir, { recursive: true });
+  // A new attempt must not leave an earlier export behind if it ends early.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
 
   // Keep SDK SQLite/session state on a short physical path. Deep benchmark
   // trial names can push SQLite paths beyond Windows' practical path limit.
@@ -4726,17 +4728,19 @@ function saveResults(
   if (isWindows) {
     try { results.toolchain = { winapp: resolveWinAppToolchain().version }; } catch { /* recorded elsewhere as a launch failure */ }
   }
+  const release = original?.release ?? (process.env.BENCH_RELEASE || "dev");
+  const commit = original?.commit ?? currentCommit();
+  const startedAt = original?.startedAt ?? entry.startedAt;
+  // Kept here, not only in trial-result.json, so a failed judge can be retried without rerunning the agent.
+  if (startedAt) results.attempt = { release, commit, started_at: new Date(startedAt).toISOString() };
   writeTextAtomic(join(trialDir, "results.json"), JSON.stringify(results, null, 2));
 
   // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
   const exact = usage?.exact;
-  const release = original?.release ?? (process.env.BENCH_RELEASE || "dev");
-  const commit = original?.commit ?? currentCommit();
-  const startedAt = original?.startedAt ?? entry.startedAt;
   // Never leave an earlier result behind when this evaluation can't be exported.
   rmSync(join(trialDir, "trial-result.json"), { force: true });
   // A tooling failure while judging is not an app result, and must not count as a pass.
-  const judgingFailed = /^Validation /.test(entry.failReason ?? "");
+  const judgingFailed = /^(Re)?[Vv]alidation /.test(entry.failReason ?? "");
   // A release result names one commit, so plugins from another commit would mislabel it.
   const pluginSha = entry.agentSource?.sha;
   const pluginMismatch = release !== "dev" && !!entry.agentSource &&
@@ -4808,8 +4812,8 @@ function saveRevalidationResults(
   // Keep the original attempt's release, commit and start time; without them it can't be exported.
   let original: { release: string; commit: string; startedAt: string } | null = null;
   try {
-    const t = JSON.parse(readFileSync(join(trialDir, "trial-result.json"), "utf-8"));
-    if (t.release && t.commit && t.startedAt) original = { release: t.release, commit: t.commit, startedAt: t.startedAt };
+    const a = JSON.parse(readFileSync(existingResults, "utf-8")).attempt;
+    if (a?.release && a.commit && a.started_at) original = { release: a.release, commit: a.commit, startedAt: a.started_at };
   } catch {}
   saveResults(trialDir, entry, scenarioConfig, usage, original);
 }
