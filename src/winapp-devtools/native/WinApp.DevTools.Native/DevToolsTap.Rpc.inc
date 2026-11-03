@@ -339,7 +339,13 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
     if (m == L"Overlay.hide")
         return BridgeOk(id, L"overlay.hide", L"null", eventOrigin, ownerConn);
     if (m == L"Overlay.highlight") {
-        return BridgeOk(id, L"highlight|" + p.GetString(L"handle", L"0"),
+        unsigned long long wire = 0;
+        if (!DevToolsParseWireHandle(p.GetString(L"handle", L"0"), true, &wire) ||
+            (p.HasKey(L"handle") && p.Find(L"handle")->type != DevToolsJsonType::String &&
+                p.Find(L"handle")->type != DevToolsJsonType::Number))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"handle must be a canonical decimal wire handle (\"0\" clears highlight)", L"bad-args");
+        return BridgeOk(id, L"highlight|" + std::to_wstring(wire),
                         L"null", eventOrigin, ownerConn);
     }
     if (m == L"Overlay.layout") {
@@ -465,6 +471,10 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         std::wstring handle = p.GetString(L"handle");
         std::wstring prop   = p.GetString(L"prop");
         std::wstring value  = p.GetString(L"value");
+        unsigned long long targetWire = 0;
+        if (p.HasKey(L"handle") && !DevToolsParseWireHandle(handle, false, &targetWire))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"handle must be a canonical non-zero decimal string", L"bad-args");
         if (handle.empty() && name.empty())
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"either handle or name is required", L"bad-args");
         std::wstring target = handle.empty() ? name : (L"#" + handle);
@@ -483,8 +493,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                 // Echo the caller's handle back only if it still resolves, so the event never carries a
                 // handle that has already gone stale.
                 InstanceHandle ih = 0; const wchar_t* e = nullptr;
-                unsigned long long w = wcstoull(handle.c_str(), nullptr, 10);
-                if (ResolveWire_nolock(w, &ih, &e)) { wire = w; if (name.empty()) name = NameOf_nolock(ih); }
+                if (ResolveWire_nolock(targetWire, &ih, &e)) { wire = targetWire; if (name.empty()) name = NameOf_nolock(ih); }
             } else {
                 auto it = g_byName.find(name);
                 if (it != g_byName.end()) wire = PackWire_nolock(it->second);
@@ -506,6 +515,10 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         std::wstring name   = p.GetString(L"name");
         std::wstring handle = p.GetString(L"handle");
         std::wstring prop   = p.GetString(L"prop");
+        unsigned long long targetWire = 0;
+        if (p.HasKey(L"handle") && !DevToolsParseWireHandle(handle, false, &targetWire))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"handle must be a canonical non-zero decimal string", L"bad-args");
         if (handle.empty() && name.empty())
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"either handle or name is required", L"bad-args");
         if (prop.empty())
@@ -522,8 +535,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             AcquireSRWLockShared(&g_censusLock);
             if (!handle.empty()) {
                 InstanceHandle ih = 0; const wchar_t* e = nullptr;
-                unsigned long long w = wcstoull(handle.c_str(), nullptr, 10);
-                if (ResolveWire_nolock(w, &ih, &e)) { wire = w; if (name.empty()) name = NameOf_nolock(ih); }
+                if (ResolveWire_nolock(targetWire, &ih, &e)) { wire = targetWire; if (name.empty()) name = NameOf_nolock(ih); }
             } else {
                 auto it = g_byName.find(name);
                 if (it != g_byName.end()) wire = PackWire_nolock(it->second);

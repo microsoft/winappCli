@@ -137,15 +137,28 @@ winapp devtools comments add SaveButton -a 12345 --text "Make this label clearer
   one element in the file anchors to it.
 - `--id <id>` replaces that comment; `delete <id>` removes it.
 - `--source-root <dir>` picks the project; `list --project` filters a shared store;
-  `list -a <pid>` uses that app's project. Comment reads never take `--on`.
+  `list`, `get`, `update` and `delete` with `-a <pid>` use that app's project, even
+  from another folder. An explicit `--source-root` takes precedence. Comment reads
+  never take `--on`.
+
+If the app's DevTools connection is unavailable, these commands fail rather than
+read or change the current folder's store. Launch with `--devtools on`, or choose
+the saved store without reading the app's project folder:
+
+```powershell
+winapp devtools comments list --source-root C:\src\MyApp
+```
 
 A comment captured from a live element also records its AutomationId
 (`anchor.identity.automationId`), window title (`context.windowTitle`), style
 (`context.style`) and brushes (`context.brushes`: value, where it comes from, and the
 resource key and file when your project set it).
+A name, type or AutomationId that contradicts the captured value is rejected:
+capturing `SaveButton` with `--name OtherButton` fails without saving. Matching values and
+options such as `--kind` or `--property` are allowed; manual authoring is unchanged.
 
 Changes refresh markers in running DevTools apps for the same project, Sandbox included;
-`update` and `delete` take `--app <pid>` for another app. A failed marker refresh warns
+`update` and `delete` also refresh the app selected with `--app <pid>`. A failed marker refresh warns
 but doesn't undo the save. A corrupt store is left untouched. In the app, **Saving...**
 isn't confirmation; the **Comment saved** notice is, and a failed save keeps your draft.
 
@@ -160,6 +173,11 @@ and when confirmed `line`, `endLine` and `column`. `set-property` reports `value
 `binding`, `authored`, `chain` (every competing value, `winner` marking the effective
 one) and `replacedBinding`. `valueSource` is `DevTools` for a value you changed live with
 DevTools, until you clear, undo or restore it, or the app sets that property itself. Password values add `"redacted": true`.
+
+Query failures use the same `error` object, for example
+`"error": {"code": 0, "token": "no-match", "message": "no-match"}`.
+Use `error.token` to branch on the failure. Query `scope.rootHandle` reports the
+effective subtree root, including `--root`; `"0"` means no single subtree root.
 
 ## Use the DevTools protocol
 

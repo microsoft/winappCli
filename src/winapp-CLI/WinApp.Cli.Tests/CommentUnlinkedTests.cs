@@ -100,6 +100,94 @@ public class CommentUnlinkedTests
     }
 
     [TestMethod]
+    [DataRow("positional", "--name", "AnotherElement", false)]
+    [DataRow("element", "--name", "AnotherElement", false)]
+    [DataRow("selection", "--name", "AnotherElement", false)]
+    [DataRow("positional", "--type", "TextBlock", false)]
+    [DataRow("element", "--type", "TextBlock", false)]
+    [DataRow("selection", "--type", "TextBlock", false)]
+    [DataRow("positional", "--automation-id", "AnotherId", false)]
+    [DataRow("element", "--automation-id", "AnotherId", false)]
+    [DataRow("selection", "--automation-id", "AnotherId", false)]
+    [DataRow("positional", "--name", " ShippedPill ", true)]
+    [DataRow("element", "--name", "ShippedPill", true)]
+    [DataRow("selection", "--name", "ShippedPill", true)]
+    [DataRow("positional", "--type", "Border", true)]
+    [DataRow("element", "--type", "Microsoft.UI.Xaml.Controls.Border", true)]
+    [DataRow("selection", "--type", "Border", true)]
+    [DataRow("positional", "--automation-id", "ShippedStatus", true)]
+    [DataRow("element", "--automation-id", "ShippedStatus", true)]
+    [DataRow("selection", "--automation-id", "ShippedStatus", true)]
+    public async Task LiveIdentityOverrides_MustAgreeWithTheCapturedElement(string mode, string option, string value, bool valid)
+    {
+        using var agent = Agent(JsonSerializer.Serialize(new { sourceRoot = "", commentRoot = _root.FullName }))
+            .Answer("Selection.poll", """{"handle":"2"}""");
+        var store = new CommentStore();
+        var path = store.GetStorePath(_root);
+        foreach (var replace in new[] { false, true })
+        {
+            byte[]? before = null;
+            if (replace)
+            {
+                store.Add(path, new Comment
+                {
+                    Id = "existing", Text = "Keep the original", ProjectRoot = _root.FullName, Anchor = new() { Weak = true },
+                });
+                before = File.ReadAllBytes(path);
+            }
+            using var console = new TestConsole();
+            console.Profile.Width = 4096;
+            var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+                new CommentTestTargetResolver(agent.Pid), new FixedDirectory(_root.FullName), console,
+                NullLogger<DevToolsCommentsAddCommand>.Instance);
+            string[] target = mode switch
+            {
+                "positional" => ["2"],
+                "element" => ["--from-element", "2"],
+                _ => ["--from-selection"],
+            };
+            List<string> arguments =
+            [
+                .. target, "--app", agent.Pid.ToString(), "--text", "Review spacing", "--kind", "visual",
+                "--property", "Margin", "--content", "Context supplied by reviewer", option, value, "--json",
+            ];
+            if (replace) { arguments.AddRange(["--id", "existing"]); }
+            var parsed = new DevToolsCommentsAddCommand().Parse(arguments.ToArray());
+            Assert.IsEmpty(parsed.Errors);
+            var exit = await handler.InvokeAsync(parsed);
+
+            Assert.AreEqual(valid ? 0 : 1, exit, console.Output);
+            var payload = JsonSerializer.Deserialize(console.Output, CommentsJsonContext.Default.CommentResultPayload)!;
+            Assert.AreEqual(valid, payload.Ok);
+            if (!valid)
+            {
+                StringAssert.Contains(payload.Error!, option);
+                StringAssert.Contains(payload.Error!, "conflicts with the captured element");
+                Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
+                if (before is not null)
+                {
+                    CollectionAssert.AreEqual(before, File.ReadAllBytes(path), "A conflicting capture must not replace an existing comment.");
+                }
+                else
+                {
+                    Assert.IsFalse(File.Exists(path), "A conflicting capture must not create a store.");
+                }
+            }
+            else
+            {
+                var saved = store.Get(path, payload.Comment!.Id)!;
+                Assert.AreEqual("ShippedPill", saved.Anchor.Identity.Name);
+                Assert.AreEqual("ShippedStatus", saved.Anchor.Identity.AutomationId);
+                Assert.AreEqual("Border", CommentSelectionCapture.ShortType(saved.Anchor.Identity.Type));
+                Assert.AreEqual("visual", saved.Kind);
+                Assert.AreEqual("Margin", saved.Context?.Property);
+                Assert.AreEqual("Context supplied by reviewer", saved.Anchor.Identity.Content);
+                store.Delete(path, saved.Id);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task AnAppWithoutAProject_KeepsItsCommentsInTheFolderItWasLaunchedFrom()
     {
         var launch = _root.CreateSubdirectory("launch");
