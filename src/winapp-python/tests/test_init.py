@@ -137,7 +137,7 @@ class NativeInitTests(ProjectTest):
                 self.assertFalse(setup.call_args.kwargs["reset"])
 
     def test_config_only_defaults_keep_the_existing_bindings_table(self):
-        self.write_config(package="custom_winrt", types=["Windows.Foundation.Uri"], scope="types")
+        self.write_config(package="custom_winrt")
         source = self.project / "pyproject.toml"
         before = source.read_bytes()
         expected = self.config()
@@ -481,7 +481,9 @@ class NativeInitTests(ProjectTest):
                 ):
                     self.assertEqual(self.invoke("--add-python-bindings", flag), 0)
                 self.assertEqual(native.call_args.args[1], ["init", flag])
-                self.assertIn("--add-python-bindings", self.stdout.getvalue())
+                self.assertIn("Python Options:", self.stdout.getvalue())
+                self.assertIn("winapp init . --use-defaults --add-python-bindings", self.stdout.getvalue())
+                self.assertIn("Install application dependencies separately.", self.stdout.getvalue())
                 setup.assert_not_called()
 
     def test_native_non_sdk_modes_skip_and_explicit_requests_fail_loudly(self):

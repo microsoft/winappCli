@@ -69,13 +69,6 @@ Describe 'Python identity guide and console sample' {
             Copy-Item -LiteralPath (Join-Path $sampleDir 'app.py') -Destination $directory
             Copy-Item -LiteralPath (Join-Path $sampleDir 'requirements.txt') -Destination $directory
         }
-        [IO.File]::WriteAllText((Join-Path $guideDir 'pyproject.toml'), @'
-[project]
-name = "python-identity"
-version = "0.0.0"
-requires-python = ">=3.11,<3.15"
-dependencies = []
-'@)
         Copy-Item -LiteralPath (Join-Path $sampleDir 'pyproject.toml') -Destination $existingDir
         Copy-Item -LiteralPath (Join-Path $sampleDir 'requirements-dev.txt') -Destination $existingDir
         $tool = Join-Path $tempDir 'tool'
@@ -105,6 +98,7 @@ dependencies = []
 
     Context 'Phase 1: From-scratch Python guide' {
         It 'Lets init create the bindings table before selecting the Package API' -Skip:$script:skip {
+            Join-Path $guideDir 'pyproject.toml' | Should -Not -Exist
             Invoke-SampleCommand $cli @('init', '.', '--use-defaults', '--add-python-bindings') $guideDir |
                 Should -Match 'Python bindings generated'
             Join-Path $guideDir '.venv' | Should -Not -Exist
@@ -117,8 +111,8 @@ p = Path(sys.argv[1])
 d = tomlkit.parse(p.read_text(encoding="utf-8"))
 t = d["tool"]["winapp"]["python-bindings"]
 assert t["codegen-version"]
-t["scope"] = "types"
-t["types"] = ["Windows.ApplicationModel.Package"]
+assert "scope" not in t and "types" not in t
+t["additional-winmds"] = [{"namespace": "Windows.ApplicationModel", "classes": ["Package"]}]
 p.write_text(tomlkit.dumps(d), encoding="utf-8")
 '@
             Invoke-SampleCommand $toolPython @('-I', '-c', $edit, (Join-Path $guideDir 'pyproject.toml')) | Out-Null

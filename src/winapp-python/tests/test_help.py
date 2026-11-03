@@ -40,19 +40,33 @@ class HelpTests(ProjectTest):
         return self.stdout.getvalue()
 
     def test_root_help_forwards_native_then_lists_python_workflows(self):
-        for flag in ("--help", "-h", "help"):
-            with self.subTest(flag=flag):
+        for arguments in (
+            ["--help"], ["-h"], ["help"], ["--quiet", "--help"], ["--verbose", "false", "help"],
+        ):
+            with self.subTest(arguments=arguments):
                 with (
                     patch("winappcli.cli.forward_native", side_effect=self.forward_help) as forward,
                     patch("winappcli.cli._prepare_codegen") as codegen,
                     patch("winappcli.cli.clear_identity") as clear,
                 ):
-                    text = self.invoke_help([flag])
+                    text = self.invoke_help(arguments)
                 forward.assert_called_once_with(self.native, ["--help"], self.project)
-                self.assertLess(text.index("native help:"), text.index("Python extensions:"))
-                self.assertIn("winapp", text)
-                for name in ("generate", "identity", "restore", "update", "run"):
-                    self.assertIn(name, text)
+                self.assertLess(text.index("native help:"), text.index("Python Extensions:"))
+                extension_help = text.split("Python Extensions:\n", 1)[1]
+                rows = extension_help.split("\n\n", 1)[0].splitlines()
+                self.assertEqual([row.strip().split("  ", 1)[0] for row in rows], [
+                    "init --add-python-bindings", "restore", "generate", "update",
+                    "run --identity <script>", "identity clear",
+                ])
+                self.assertIn(
+                    "Python quick start:\n"
+                    "  winapp init . --use-defaults --add-python-bindings\n"
+                    r"  winapp run --identity .\app.py" "\n",
+                    extension_help,
+                )
+                self.assertIn('Use "winapp <command> --help" for command options.', extension_help)
+                for parser_detail in ("usage:", "positional arguments:", "options:", "[VERBOSE]", "--requirements"):
+                    self.assertNotIn(parser_detail, extension_help)
                 codegen.assert_not_called()
                 clear.assert_not_called()
                 self.assertFalse((self.project / ".venv").exists())
@@ -64,7 +78,7 @@ class HelpTests(ProjectTest):
         ):
             self.assertEqual(main([]), 2)
         self.assertIn("native help:", self.stdout.getvalue())
-        self.assertIn("Python extensions:", self.stdout.getvalue())
+        self.assertIn("Python Extensions:", self.stdout.getvalue())
 
     def test_workflow_help_uses_only_the_effective_python_syntax(self):
         for command, option in (("restore", "--project"), ("update", "--channel"), ("run", "--identity")):
@@ -123,13 +137,23 @@ class HelpTests(ProjectTest):
         self.assertIn("no dependency files are auto-detected", normalized)
         self.assertNotIn("dependency discovery", normalized)
         self.assertNotIn("default: project .venv", normalized)
+        self.assertNotIn("PBS", text)
+
+    def test_clear_help_describes_the_private_environment_and_preserved_app_data(self):
+        with patch("winappcli.cli.clear_identity") as clear:
+            text = self.invoke_help(["identity", "clear", "--help"])
+        normalized = " ".join(text.split())
+        self.assertIn("Remove this project's development identity and private environment.", normalized)
+        self.assertIn("Application data is kept.", normalized)
+        self.assertIn("Project directory (default: current directory).", normalized)
+        clear.assert_not_called()
 
     def test_native_help_failure_is_not_hidden_by_python_help(self):
         for command in ([], ["run"]):
             with self.subTest(command=command):
                 with patch("winappcli.cli.forward_native", return_value=37):
                     text = self.invoke_help([*command, "--help"], expected_code=37)
-                self.assertNotIn("Python extensions:", text)
+                self.assertNotIn("Python Extensions:", text)
                 self.assertNotIn("Python restore workflow:", text)
                 self.assertNotIn("Python run workflow:", text)
 
@@ -140,7 +164,7 @@ class HelpTests(ProjectTest):
         ):
             self.assertEqual(main(["--help"]), 1)
         self.assertIn("Native CLI is missing", self.stderr.getvalue())
-        self.assertNotIn("Python extensions:", self.stdout.getvalue())
+        self.assertNotIn("Python Extensions:", self.stdout.getvalue())
 
     def test_python_only_help_does_not_need_native_cli_or_project_configuration(self):
         for arguments in (
@@ -159,7 +183,7 @@ class HelpTests(ProjectTest):
             with redirect_stdout(self.stdout), redirect_stderr(self.stderr):
                 self.assertEqual(main(["manifest", "--help"]), 0)
         forward.assert_called_once_with(self.native, ["manifest", "--help"], self.project)
-        self.assertNotIn("Python extensions:", self.stdout.getvalue())
+        self.assertNotIn("Python Extensions:", self.stdout.getvalue())
 
     def test_help_after_identity_script_remains_an_application_argument(self):
         for suffix in (["--help"], ["--", "--help"]):

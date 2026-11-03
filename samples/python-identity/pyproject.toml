@@ -7,7 +7,7 @@ dependencies = []
 [tool.winapp.python-bindings]
 package = "winapp_bindings"
 codegen-version = "0.1.0rc24"
-scope = "types"
-types = ["Windows.ApplicationModel.Package"]
-additional-winmds = []
+additional-winmds = [
+    { namespace = "Windows.ApplicationModel", classes = ["Package"] },
+]
 additional-refs = []

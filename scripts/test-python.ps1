@@ -300,7 +300,7 @@ assert not (root / "__init__.py").exists()
         throw "Python run without identity did not stop with manual-run guidance and unchanged application files: $actual"
     }
 
-    # Exercise default metadata plus an additional Windows type.
+    # Keep default bindings when adding Windows SDK and WinUI classes.
     $nonUiProject = Join-Path $temporary 'non-ui-project'
     New-Item -ItemType Directory -Path $nonUiProject | Out-Null
     foreach ($name in @('app.py', 'pyproject.toml', 'winapp.yaml')) {
@@ -317,18 +317,21 @@ assert not (root / "__init__.py").exists()
     if (-not (Test-Path -LiteralPath (Join-Path $nonUiPackage 'pyproject.toml'))) {
         throw "Default init did not create an installable Python bindings package."
     }
-    $marker = Get-Content -LiteralPath (Join-Path $nonUiPackage '.winapp-python.json') -Raw | ConvertFrom-Json
-    if ($marker.scope -ne 'default') {
-        throw "Default Python init did not select the default metadata policy."
-    }
     $configuration = Join-Path $nonUiProject 'pyproject.toml'
+    Invoke-Checked $interpreter @('-I', '-c', @'
+from pathlib import Path
+import sys, tomllib
+settings = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["tool"]["winapp"]["python-bindings"]
+assert set(settings) == {"package", "codegen-version", "additional-winmds", "additional-refs"}, settings
+assert settings["additional-winmds"] == [] and settings["additional-refs"] == []
+'@, $configuration)
     $configured = [IO.File]::ReadAllText($configuration).Replace('additional-winmds = []',
-        'additional-winmds = [{namespace = "Windows.Storage", classes = ["ApplicationData"]}]')
+        'additional-winmds = [{namespace = "Windows.Storage", classes = ["ApplicationData"]}, {namespace = "Windows.ApplicationModel", classes = ["Package"]}, {namespace = "Microsoft.UI.Xaml", classes = ["Window"]}]')
     [IO.File]::WriteAllText($configuration, $configured)
     Invoke-Checked $interpreter @('-m', 'winappcli', 'generate', '--project', $nonUiProject)
     Invoke-Checked $interpreter @('-I', '-m', 'pip', '--python', $nonUiPython, 'install', '--editable', $nonUiPackage)
     Invoke-Checked $nonUiPython @('-c',
-        'from winapp_bindings.windows.storage import ApplicationData; from winapp_bindings.microsoft.windows.app_notifications import AppNotification')
+        'from winapp_bindings.windows.storage import ApplicationData; from winapp_bindings.windows.application_model import Package; from winapp_bindings.microsoft.ui.xaml import Window; from winapp_bindings.microsoft.windows.app_notifications import AppNotification')
     Invoke-Checked $nonUiPython @('-I', '-c', @'
 import ctypes
 import importlib.metadata as metadata
@@ -419,8 +422,7 @@ dependencies = ["packaging==26.3"]
 
 [tool.winapp.python-bindings]
 package = "myapp_winrt"
-scope = "types"
-types = ["Windows.Foundation.Uri"]
+additional-winmds = [{namespace = "Windows.Foundation", classes = ["Uri"]}]
 '@)
     foreach ($name in @('app.py', 'winapp.yaml')) {
         Copy-Item -LiteralPath (Join-Path $project $name) -Destination $standardProject
@@ -464,8 +466,7 @@ myapp-winrt = { path = ".winapp/python/myapp_winrt", editable = true }
 
 [tool.winapp.python-bindings]
 package = "myapp_winrt"
-scope = "types"
-types = ["Windows.Foundation.Uri"]
+additional-winmds = [{namespace = "Windows.Foundation", classes = ["Uri"]}]
 '@)
         foreach ($name in @('app.py', 'winapp.yaml')) {
             Copy-Item -LiteralPath (Join-Path $project $name) -Destination $uvProject

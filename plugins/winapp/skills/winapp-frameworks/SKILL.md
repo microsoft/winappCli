@@ -1,6 +1,6 @@
 ---
 name: winapp-frameworks
-description: "Framework-specific Windows steps for Electron, WPF, WinForms, C++, Rust, Flutter, Tauri, and Python: build output, npm scripts, Cargo, CMake, WinRT bindings, and how winapp fits each. Use for Windows feature integration, setup, packaging, or identity work on these apps."
+description: "Framework-specific Windows steps for Electron, WPF, WinForms, C++, Rust, Flutter, Tauri, and Python: build output, npm scripts, Cargo, CMake, and how winapp fits each. Use when adding Windows features such as toast notifications to one of these apps, or for setup, packaging, or identity work on one."
 ---
 
 **If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
@@ -115,34 +115,6 @@ C++ projects use winapp primarily for SDK projections (CppWinRT headers) and pac
 - Use winapp specifically for **MSIX distribution** and package identity features
 - winapp adds capabilities beyond what Tauri's built-in bundler provides (identity, sparse packages, Windows API access)
 
-### Python
-Use the **Python package** (`microsoft-winappcli`) and the `winapp` command. The package includes:
-- The native winapp CLI binary
-- Python WinRT binding generation with DynWinRT
-- A development identity runner for Python scripts
-
-Quick start (existing Python project):
-```powershell
-python -m pip install microsoft-winappcli
-winapp init . --use-defaults --add-python-bindings
-winapp run --identity .\app.py
-```
-
-Windows integration guidance:
-
-- Use generated bindings to call Windows SDK and Windows App SDK APIs from Python.
-- winapp manages SDKs, a temporary generator environment, and generated bindings, not application dependencies or lockfiles. After generation, install the local bindings package with the application's manager; see the guide's dependency examples.
-- Use `winapp restore` before installing a cloned application's dependencies, and `winapp generate` after changing API selections.
-- Install the outer generated project, such as `.winapp\python\winapp_bindings`, not its `src` directory. For Windows App SDK startup and PyInstaller resource collection, follow the [Python guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#windows-app-sdk-startup).
-- Use `winapp update` to upgrade SDK and generator versions, then synchronize application dependencies with their manager; `restore` and `generate` keep recorded versions.
-- Run ordinary Python scripts with the application's interpreter, package manager or IDE, for example `poetry run python .\app.py`. `winapp run` accepts Python scripts only with `--identity`. Follow [identity dependencies](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#identity-dependencies) for optional `--requirements`, manual installation and recovery; application dependency files are not auto-detected. For interpreter selection, follow [Choosing Python](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#choosing-python); do not infer it from `.venv` or the tool's installer.
-- Prepare an application directory before creating an MSIX with `winapp package`.
-
-Python guide:
-- [Setup, Windows API bindings, identity and packaging](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md)
-- [Identity runtime catalog selection and updates](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#runtime-catalog-pinning)
-- [WinUI counter](https://github.com/microsoft/WinAppCli/blob/main/samples/python-winui/README.md): direct Python execution with Bootstrap, or `winapp run --identity` without Bootstrap.
-
 ## Debugging by framework
 
 | Framework | Recommended command | Notes |
@@ -159,7 +131,8 @@ Python guide:
 - **GUI apps** (Flutter, Tauri, WPF): use `winapp run <build-output>` — launches via AUMID activation
 - **Console apps** (C++, Rust, .NET console): plain `winapp run <build-output>` — winapp detects a console app from the built binary's PE subsystem and launches it via an execution alias, so stdin/stdout reach your terminal. It stages the required `uap5:ExecutionAlias` into the AppX layout itself, so no manifest edit is needed. Pass `--without-alias` to force AUMID activation instead (the app then prints nothing); `--with-alias` only forces an alias for a *windowed* app
 - **Electron**: different mechanism — uses `npx winapp node add-electron-debug-identity` because `electron.exe` is in `node_modules/`, not your build output
-- **Startup debugging (built EXEs)**: use `winapp create-debug-identity <exe>` so your IDE can F5-launch the exe with identity from the first instruction. For Python, use the private runner described above rather than modifying a shared Python executable.
+- **Startup debugging (any framework)**: use `winapp create-debug-identity <exe>` so your IDE can F5-launch the exe with identity from the first instruction
+- **Python scripts**: use `winapp run --identity .\app.py` to run with identity in a private Python environment.
 
 For full debugging scenarios and IDE setup, see the [Debugging Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/debugging.md).
 

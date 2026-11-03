@@ -6,7 +6,6 @@ import keyword
 from pathlib import Path
 import re
 import sys
-from typing import Literal
 
 import tomlkit
 from packaging.version import InvalidVersion, Version
@@ -17,7 +16,6 @@ from .paths import local_path, unique_paths, winmd_path
 
 CONFIG_TABLE = "tool.winapp.python-bindings"
 DEFAULT_PACKAGE = "winapp_bindings"
-BindingScope = Literal["default", "types"]
 
 
 @dataclass(frozen=True)
@@ -31,10 +29,8 @@ class AdditionalWinmd:
 class BindingsConfig:
     project: Path
     package: str
-    types: tuple[str, ...] = ()
     additional_winmds: tuple[AdditionalWinmd, ...] = ()
     additional_refs: tuple[Path, ...] = ()
-    scope: BindingScope = "default"
     codegen_version: Version | None = None
 
     @property
@@ -65,19 +61,6 @@ def _validate_package(package: object) -> str:
             "dynwinrt or winappcli."
         )
     return package
-
-
-def _validate_types(types: list[str]) -> tuple[str, ...]:
-    if any(
-        not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", name, flags=re.ASCII)
-        or name.startswith("Windows.Win32.")
-        for name in types
-    ):
-        raise WinappError(
-            "types must be fully qualified WinRT classes or interfaces, "
-            "for example Windows.Foundation.Uri. Python Win32/COM generation is not supported."
-        )
-    return tuple(sorted(set(types)))
 
 
 def _metadata_path(project: Path, value: object, key: str) -> Path:
@@ -133,7 +116,7 @@ def try_load_config(project: Path) -> BindingsConfig | None:
         return None
     if not isinstance(config, dict):
         raise WinappError(f"[{CONFIG_TABLE}] must be a TOML table.")
-    unknown = config.keys() - {"package", "types", "additional-winmds", "additional-refs", "scope", "codegen-version"}
+    unknown = config.keys() - {"package", "additional-winmds", "additional-refs", "codegen-version"}
     if unknown:
         raise WinappError(
             f"Unknown [{CONFIG_TABLE}] setting(s): {', '.join(sorted(unknown))}."
@@ -148,18 +131,12 @@ def try_load_config(project: Path) -> BindingsConfig | None:
         except InvalidVersion as error:
             raise WinappError(f"[{CONFIG_TABLE}].codegen-version must be an exact Python package version: {value}") from error
     package = _validate_package(config.get("package"))
-    scope = config.get("scope", "default")
-    if scope not in ("types", "default"):
-        raise WinappError(f"[{CONFIG_TABLE}].scope must be 'default' or 'types'.")
-    types = _validate_types(_strings(config.get("types", []), "types"))
     additional = _additional_winmds(project, config.get("additional-winmds", []))
-    if scope == "types" and not types and not additional:
-        raise WinappError(f"[{CONFIG_TABLE}].types or additional-winmds must select something to generate.")
     refs = tuple(
         _metadata_path(project, name, "additional-refs")
         for name in _strings(config.get("additional-refs", []), "additional-refs")
     )
-    return BindingsConfig(project, package, types, additional, unique_paths(refs), scope, codegen_version)
+    return BindingsConfig(project, package, additional, unique_paths(refs), codegen_version)
 
 
 def load_config(project: Path) -> BindingsConfig:
@@ -190,8 +167,6 @@ def add_config(project: Path, package: str, *, reset: bool = False) -> BindingsC
         settings = document.setdefault("tool", tomlkit.table()).setdefault("winapp", tomlkit.table())
         table = tomlkit.table()
         table["package"] = package
-        table["scope"] = "default"
-        table["types"] = []
         table["additional-winmds"] = []
         table["additional-refs"] = []
         if existing is not None and existing.codegen_version is not None:

@@ -6,5 +6,6 @@ requires-python = ">=3.11,<3.15"
 [tool.winapp.python-bindings]
 package = "myapp_winrt"
 codegen-version = "0.1.0rc24"
-scope = "types"
-types = ["Windows.Foundation.Uri"]
+additional-winmds = [
+    { namespace = "Windows.Foundation", classes = ["Uri"] },
+]

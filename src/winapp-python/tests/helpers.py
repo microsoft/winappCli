@@ -42,12 +42,11 @@ class ProjectTest(unittest.TestCase):
         }
         self.save_inventory()
 
-    def write_config(self, *, package="myapp_winrt", types=None, extra="", scope=None):
-        types = ([] if scope == "default" else ["Windows.Foundation.Uri"]) if types is None else types
-        scope_line = f'scope = "{scope or "types"}"\n'
+    def write_config(self, *, package="myapp_winrt",
+                     selection='[{namespace = "Windows.Foundation", classes = ["Uri"]}]', extra=""):
         (self.project / "pyproject.toml").write_text(
             f'[tool.winapp.python-bindings]\npackage = "{package}"\n'
-            f'{scope_line}codegen-version = "{self.codegen_version}"\ntypes = {json.dumps(types)}\n{extra}',
+            f'codegen-version = "{self.codegen_version}"\nadditional-winmds = {selection}\n{extra}',
             encoding="utf-8",
         )
         (self.project / "requirements.txt").write_text("", encoding="utf-8")

@@ -69,8 +69,6 @@ def _inputs_digest(
     digest = hashlib.sha256(json.dumps({
         "package": config.package,
         "codegen": str(codegen_version),
-        "scope": config.scope,
-        "types": config.types,
         "additional_winmds": [
             {"path": str(entry.path) if entry.path else None,
              "namespace": entry.namespace, "classes": entry.classes}
@@ -256,8 +254,6 @@ def generate(
         passes: list[tuple[tuple[Path, ...], tuple[Path, ...], str | None, tuple[str, ...]]] = []
         if emit_winmds:
             passes.append((emit_winmds, refs, None, ()))
-        if config.types:
-            passes.append(((), all_metadata, None, config.types))
         for entry in config.additional_winmds:
             if entry.classes:
                 roots = (entry.path,) if entry.path is not None else ()
@@ -285,7 +281,6 @@ def generate(
         validate_generated_package(generated, config, codegen_version)
         (generated / MARKER).write_text(json.dumps({
             "schema": 1, "package": config.package, "codegen_version": str(codegen_version),
-            "scope": config.scope, "types": list(config.types),
             "inputs_digest": inputs_digest, "files_stamp": _output_stamp(generated),
         }, indent=2) + "\n", encoding="utf-8")
         validate_output(output, config.package)

@@ -4,6 +4,7 @@
 import hashlib
 from pathlib import Path
 import stat
+import tomllib
 from types import SimpleNamespace
 import unittest
 from packaging.version import Version
@@ -21,28 +22,22 @@ class ConfigTests(ProjectTest):
     def test_loads_project_relative_configuration(self):
         config = self.config()
         self.assertEqual(config.package, "myapp_winrt")
-        self.assertEqual(config.types, ("Windows.Foundation.Uri",))
-        self.assertEqual(config.scope, "types")
+        self.assertEqual(config.additional_winmds[0].namespace, "Windows.Foundation")
+        self.assertEqual(config.additional_winmds[0].classes, ("Uri",))
         self.assertEqual(config.codegen_version, self.codegen_version)
         self.assertEqual(config.output, self.project / ".winapp" / "python" / "myapp_winrt")
 
-    def test_deduplicates_types(self):
-        self.write_config(types=["Windows.Foundation.Uri", "Windows.Foundation.Uri"])
-        self.assertEqual(len(self.config().types), 1)
+    def test_deduplicates_additional_classes_and_entries(self):
+        self.write_config(selection=(
+            '[{namespace = "Windows.Foundation", classes = ["Uri", "Uri"]}, '
+            '{namespace = "Windows.Foundation", classes = ["Uri"]}]'
+        ))
+        self.assertEqual(len(self.config().additional_winmds), 1)
+        self.assertEqual(self.config().additional_winmds[0].classes, ("Uri",))
 
-    def test_default_scope_does_not_require_types(self):
-        self.write_config(scope="default")
-        self.assertEqual(self.config().types, ())
-        self.assertEqual(self.config().scope, "default")
-
-    def test_default_scope_supports_additive_type_selection(self):
-        self.write_config(scope="default", types=["Windows.Foundation.Uri"])
-        self.assertEqual(self.config().types, ("Windows.Foundation.Uri",))
-
-    def test_unknown_scope_fails_closed(self):
-        self.write_config(scope="all-winui")
-        with self.assertRaisesRegex(WinappError, "scope"):
-            self.config()
+    def test_default_configuration_does_not_require_additions(self):
+        self.write_config(selection="[]")
+        self.assertEqual(self.config().additional_winmds, ())
 
     def test_unconfigured_project_skips_without_masking_bad_toml(self):
         (self.project / "pyproject.toml").write_text('[project]\nname = "sample"\n', encoding="utf-8")
@@ -56,25 +51,38 @@ class ConfigTests(ProjectTest):
         with self.assertRaisesRegex(WinappError, "tool.winapp"):
             try_load_config(self.project)
 
-    def test_init_adds_default_scope_without_reformatting_project(self):
+    def test_init_adds_default_configuration_without_reformatting_project(self):
         source = self.project / "pyproject.toml"
         before = b'[project]\r\nname = "Example-App"\r\n# keep this comment\r\n'
         source.write_bytes(before)
         config = add_config(self.project, "example_app_winrt")
-        self.assertEqual(config.scope, "default")
-        self.assertEqual(config.types, ())
+        self.assertEqual(config.additional_winmds, ())
+        self.assertEqual(config.additional_refs, ())
+        table = tomllib.loads(source.read_text())["tool"]["winapp"]["python-bindings"]
+        self.assertEqual(table, {
+            "package": "example_app_winrt", "additional-winmds": [], "additional-refs": [],
+        })
         self.assertTrue(source.read_bytes().startswith(before))
         self.assertIn(b"\r\n[tool.winapp.python-bindings]\r\n", source.read_bytes())
         with self.assertRaisesRegex(WinappError, "already exists"):
             add_config(self.project, "other_winrt")
         self.assertEqual(config.package, "example_app_winrt")
 
+    def test_init_creates_configuration_without_project_metadata(self):
+        source = self.project / "pyproject.toml"
+        source.unlink()
+        add_config(self.project, DEFAULT_PACKAGE)
+        document = tomllib.loads(source.read_text())
+        self.assertEqual(set(document), {"tool"})
+        self.assertEqual(document["tool"]["winapp"]["python-bindings"], {
+            "package": DEFAULT_PACKAGE, "additional-winmds": [], "additional-refs": [],
+        })
+
     def test_init_reset_preserves_unrelated_project_settings(self):
         source = self.project / "pyproject.toml"
         source.write_text(source.read_text() + '\n[tool.other]\nkeep = "yes"\n', encoding="utf-8")
         config = add_config(self.project, "myapp_winrt", reset=True)
-        self.assertEqual(config.scope, "default")
-        self.assertEqual(config.types, ())
+        self.assertEqual(config.additional_winmds, ())
         self.assertIn('keep = "yes"', source.read_text())
         self.assertEqual(config.codegen_version, self.codegen_version)
 
@@ -93,16 +101,10 @@ class ConfigTests(ProjectTest):
                     self.config()
 
     def test_rejects_unknown_setting(self):
-        self.write_config(extra="type = []")
-        with self.assertRaisesRegex(WinappError, "Unknown"):
-            self.config()
-
-    def test_requires_explicit_type_selection(self):
-        for types in ([], ["Uri"], ["Windows.Foundation.*"], [" Windows.Foundation.Uri"],
-                      ["Windows.Win32.Foundation.Apis"], [False]):
-            with self.subTest(types=types):
-                self.write_config(types=types)
-                with self.assertRaises(WinappError):
+        for setting in ('type = []', 'types = ["Windows.Foundation.Uri"]', 'scope = "default"', 'scope = "types"'):
+            with self.subTest(setting=setting):
+                self.write_config(extra=setting)
+                with self.assertRaisesRegex(WinappError, "Unknown"):
                     self.config()
 
     def test_configuration_does_not_require_dynwinrt_dependency_declarations(self):
@@ -123,17 +125,17 @@ class ConfigTests(ProjectTest):
 
     def test_additional_metadata_is_project_relative(self):
         (self.project / "custom.winmd").write_bytes(b"custom metadata")
-        self.write_config(extra='additional-winmds = [{winmd-path = "custom.winmd"}]')
+        self.write_config(selection='[{winmd-path = "custom.winmd"}]')
         self.assertEqual(self.config().additional_winmds[0].path, self.project / "custom.winmd")
 
     def test_rejects_additional_metadata_outside_project(self):
         (self.root / "custom.winmd").write_bytes(b"custom metadata")
-        self.write_config(extra='additional-winmds = [{winmd-path = "..\\\\custom.winmd"}]')
+        self.write_config(selection='[{winmd-path = "..\\\\custom.winmd"}]')
         with self.assertRaises(WinappError):
             self.config()
 
     def test_rejects_missing_metadata(self):
-        self.write_config(extra='additional-winmds = [{winmd-path = "missing.winmd"}]')
+        self.write_config(selection='[{winmd-path = "missing.winmd"}]')
         with self.assertRaisesRegex(WinappError, "missing"):
             self.config()
 
@@ -144,10 +146,14 @@ class ConfigTests(ProjectTest):
             '{classes = ["ApplicationData"]}',
             '{namespace = "Windows.Win32.Foundation", classes = ["Apis"]}',
             '{namespace = "Windows.Storage", classes = ["Windows.Storage.ApplicationData"]}',
+            '{namespace = "Windows.Storage", classes = ["*"]}',
+            '{namespace = "Windows.Storage", classes = [" ApplicationData"]}',
+            '{namespace = "Windows.Storage", classes = [false]}',
+            '{namespace = " Windows.Storage", classes = ["ApplicationData"]}',
             '{unexpected = "value"}',
         ):
             with self.subTest(entry=entry):
-                self.write_config(extra=f"additional-winmds = [{entry}]\n")
+                self.write_config(selection=f"[{entry}]")
                 with self.assertRaises(WinappError):
                     self.config()
 
@@ -162,7 +168,7 @@ class ConfigTests(ProjectTest):
         before = self.config()
         config = set_codegen_version(self.project, selected)
         self.assertEqual(config.codegen_version, selected)
-        self.assertEqual(config.types, before.types)
+        self.assertEqual(config.additional_winmds, before.additional_winmds)
         self.assertEqual(config.package, before.package)
         self.assertNotIn("dynwinrt", source.read_text())
         self.assertEqual(self.config().codegen_version, selected)
@@ -279,7 +285,7 @@ class InventoryTests(ProjectTest):
 
     def test_default_selection_matches_js_packages_and_keeps_windows_sdk_as_refs(self):
         self.add_appsdk_inventory()
-        self.write_config(scope="default")
+        self.write_config(selection="[]")
         roots, refs = select_metadata(self.config())
         self.assertEqual([path.name for path in roots],
                          ["Microsoft.Windows.AppNotifications.winmd", "Microsoft.Windows.Widgets.winmd"])
@@ -290,20 +296,38 @@ class InventoryTests(ProjectTest):
         self.assertNotIn(self.cache / "Microsoft.Web.WebView2.winmd", [*roots, *refs])
 
     def test_default_selection_without_emit_inputs_is_actionable(self):
-        self.write_config(scope="default")
+        self.write_config(selection="[]")
         with self.assertRaisesRegex(WinappError, "No metadata matched"):
             select_metadata(self.config())
+
+    def test_extra_winmd_and_classes_do_not_replace_default_metadata(self):
+        self.add_appsdk_inventory()
+        custom = self.project / "custom.winmd"
+        custom.write_bytes(b"custom metadata")
+        self.write_config(selection=(
+            '[{winmd-path = "custom.winmd"}, '
+            '{namespace = "Windows.Foundation", classes = ["Uri"]}, '
+            '{namespace = "Microsoft.UI.Xaml", classes = ["Window"]}]'
+        ))
+        roots, refs = select_metadata(self.config())
+        self.assertEqual(set(roots), {
+            custom,
+            self.cache / "Microsoft.Windows.AppNotifications.winmd",
+            self.cache / "Microsoft.Windows.Widgets.winmd",
+        })
+        self.assertIn(self.winmd, refs)
+        self.assertIn(self.cache / "Microsoft.UI.Xaml.winmd", refs)
+        self.assertNotIn(custom, refs)
 
     def test_additional_selectors_and_reference_only_metadata_are_distinct(self):
         custom = self.project / "custom.winmd"
         custom.write_bytes(b"custom")
         refs = self.project / "dependency.winmd"
         refs.write_bytes(b"dependency")
-        self.write_config(scope="default", extra=(
-            'additional-winmds = [{namespace = "Windows.Storage", classes = ["ApplicationData"]}, '
-            '{winmd-path = "custom.winmd", namespace = "Vendor.Custom", classes = ["Thing"]}]\n'
-            'additional-refs = ["dependency.winmd"]\n'
-        ))
+        self.write_config(selection=(
+            '[{namespace = "Windows.Storage", classes = ["ApplicationData"]}, '
+            '{winmd-path = "custom.winmd", namespace = "Vendor.Custom", classes = ["Thing"]}]'
+        ), extra='additional-refs = ["dependency.winmd"]\n')
         config = self.config()
         self.assertEqual(config.additional_winmds[0].classes, ("ApplicationData",))
         roots, references = select_metadata(config)

@@ -145,14 +145,14 @@ def select_metadata(config: BindingsConfig) -> tuple[tuple[Path, ...], tuple[Pat
         name = package.name.lower()
         if name == "microsoft.web.webview2":
             continue
-        if config.scope == "types" or name in REFERENCE_ONLY:
+        if name in REFERENCE_ONLY:
             refs.extend(package.winmds)
         else:
             emit.extend(package.winmds)
-    if not emit and not config.types and not any(entry.classes for entry in config.additional_winmds):
+    if not emit and not any(entry.classes for entry in config.additional_winmds):
         raise WinappError(
             "No metadata matched the default generation policy. Add SDK packages to winapp.yaml "
-            "and restore, or select types/additional-winmds in pyproject.toml."
+            "and restore, or add additional-winmds in pyproject.toml."
         )
     roots = unique_paths(emit)
     emitted = {str(path).lower() for path in roots}

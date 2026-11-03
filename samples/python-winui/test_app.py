@@ -46,7 +46,11 @@ class CounterTests(unittest.TestCase):
         sample = Path(__file__).resolve().parent
         self.assertEqual(list(sample.glob("*.xaml")), [])
         configuration = tomllib.loads((sample / "pyproject.toml").read_text(encoding="utf-8"))
-        selected = configuration["tool"]["winapp"]["python-bindings"]["types"]
+        selected = [
+            f"{entry['namespace']}.{name}"
+            for entry in configuration["tool"]["winapp"]["python-bindings"]["additional-winmds"]
+            for name in entry["classes"]
+        ]
         self.assertIn("Microsoft.UI.Xaml.Controls.StackPanel", selected)
         self.assertNotIn("Microsoft.Windows.Storage.Pickers.FileOpenPicker", selected)
         self.assertNotIn("Microsoft.UI.Windowing.OverlappedPresenter", selected)

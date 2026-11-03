@@ -388,8 +388,7 @@ class CliTests(ProjectTest):
                 pass
         install.assert_called_once_with(self.project, self.project_python, None, verbose=False)
         self.assertEqual(self.config().codegen_version, selected)
-        self.assertEqual(self.config().types, expected.types)
-        self.assertEqual(self.config().scope, expected.scope)
+        self.assertEqual(self.config().additional_winmds, expected.additional_winmds)
 
     def test_installer_version_mismatch_does_not_change_project_or_generate(self):
         source = self.project / "pyproject.toml"

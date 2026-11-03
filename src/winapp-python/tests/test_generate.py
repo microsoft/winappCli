@@ -26,7 +26,7 @@ class GenerationTests(ProjectTest):
         self.inventory["yaml_packages_hash"] = packages_hash(self.project)
         self.save_inventory()
 
-    def test_one_pass_uses_all_references_and_explicit_types(self):
+    def test_class_selection_uses_all_references_and_namespace(self):
         def verify(arguments, project, **kwargs):
             self.assertEqual(arguments[:4], ["codegen.exe", "generate", "--lang", "py"])
             self.assertEqual(project, self.project)
@@ -34,7 +34,8 @@ class GenerationTests(ProjectTest):
             refs = Path(arguments[arguments.index("--ref-list") + 1])
             self.assertEqual(roots.read_text(), "")
             self.assertEqual(refs.read_text().splitlines(), [str(self.winmd)])
-            self.assertEqual(arguments[arguments.index("--class-name") + 1], "Windows.Foundation.Uri")
+            self.assertEqual(arguments[arguments.index("--namespace") + 1], "Windows.Foundation")
+            self.assertEqual(arguments[arguments.index("--class-name") + 1], "Uri")
             # A random staging leaf would change generated Python imports.
             self.assertEqual(Path(arguments[arguments.index("--output") + 1]).name, "myapp_winrt")
             return self.fake_codegen(arguments, project, **kwargs)
@@ -74,13 +75,15 @@ class GenerationTests(ProjectTest):
         self.assertEqual((output / "src" / "myapp_winrt" / "Uri.py").read_bytes(), before)
         self.assertEqual(list(output.parent.iterdir()), [output])
 
-    def test_regeneration_removes_deselected_types(self):
+    def test_removing_additional_classes_keeps_default_bindings(self):
+        self.add_appsdk_inventory()
         with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
-            self.write_config(types=["Windows.Storage.StorageFile"])
+            self.assertTrue((output / "src" / "myapp_winrt" / "Uri.py").exists())
+            self.write_config(selection="[]")
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
         self.assertFalse((output / "src" / "myapp_winrt" / "Uri.py").exists())
-        self.assertTrue((output / "src" / "myapp_winrt" / "StorageFile.py").exists())
+        self.assertTrue((output / "src" / "myapp_winrt" / "AppNotification.py").exists())
 
     def test_bad_generated_runtime_pin_preserves_previous_output(self):
         with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
@@ -142,7 +145,7 @@ class GenerationTests(ProjectTest):
 
     def test_default_sdk_generation_passes_policy_inputs_without_type_filter(self):
         self.add_appsdk_inventory()
-        self.write_config(scope="default")
+        self.write_config(selection="[]")
 
         def check(arguments, project, **kwargs):
             self.assertNotIn("--class-name", arguments)
@@ -163,8 +166,9 @@ class GenerationTests(ProjectTest):
 
     def test_all_passes_receive_restored_bootstrap_inputs_for_supported_architectures(self):
         self.add_appsdk_inventory()
-        self.write_config(scope="default", types=["Microsoft.UI.Xaml.Window"], extra=(
-            'additional-winmds = [{namespace = "Windows.Foundation", classes = ["Uri"]}]\n'
+        self.write_config(selection=(
+            '[{namespace = "Microsoft.UI.Xaml", classes = ["Window"]}, '
+            '{namespace = "Windows.Foundation", classes = ["Uri"]}]'
         ))
         with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
@@ -185,6 +189,7 @@ class GenerationTests(ProjectTest):
 
     def test_bootstrap_version_tracks_the_restored_sdk_product_version(self):
         self.add_appsdk_inventory()
+        self.write_config(selection="[]")
         with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             self.change_appsdk_version("2.5.1")
@@ -197,6 +202,7 @@ class GenerationTests(ProjectTest):
 
     def test_changed_bootstrap_bytes_invalidate_generation_and_identity_reuse(self):
         self.add_appsdk_inventory()
+        self.write_config(selection="[]")
         dll = self.project / ".winapp" / "bin" / "x64" / BOOTSTRAP_DLL
         with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
@@ -211,6 +217,7 @@ class GenerationTests(ProjectTest):
 
     def test_removing_and_restoring_an_architecture_invalidates_the_cache(self):
         self.add_appsdk_inventory()
+        self.write_config(selection="[]")
         dll = self.project / ".winapp" / "bin" / "arm64" / BOOTSTRAP_DLL
         with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
@@ -225,6 +232,7 @@ class GenerationTests(ProjectTest):
 
     def test_deleted_generated_bootstrap_config_is_regenerated(self):
         self.add_appsdk_inventory()
+        self.write_config(selection="[]")
         with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             config = output / "src" / "myapp_winrt" / "_winappsdk.json"
@@ -308,10 +316,11 @@ class GenerationTests(ProjectTest):
         with self.assertRaisesRegex(WinappError, "Unrecognized"):
             validate_output(output, "myapp_winrt")
 
-    def test_default_output_and_extra_type_passes_are_combined_before_publication(self):
+    def test_default_output_and_extra_class_passes_are_combined_before_publication(self):
         self.add_appsdk_inventory()
-        self.write_config(scope="default", types=["Windows.Foundation.Uri"], extra=(
-            'additional-winmds = [{namespace = "Windows.Storage", classes = ["ApplicationData"]}]\n'
+        self.write_config(selection=(
+            '[{namespace = "Windows.Foundation", classes = ["Uri"]}, '
+            '{namespace = "Windows.Storage", classes = ["ApplicationData"]}]'
         ))
         with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
@@ -327,10 +336,10 @@ class GenerationTests(ProjectTest):
         custom.write_bytes(b"custom")
         reference = self.project / "reference.winmd"
         reference.write_bytes(b"reference")
-        self.write_config(scope="types", types=[], extra=(
-            'additional-winmds = [{winmd-path = "custom.winmd", namespace = "Vendor.Custom", classes = ["Thing"]}]\n'
-            'additional-refs = ["reference.winmd"]\n'
-        ))
+        self.write_config(
+            selection='[{winmd-path = "custom.winmd", namespace = "Vendor.Custom", classes = ["Thing"]}]',
+            extra='additional-refs = ["reference.winmd"]\n',
+        )
 
         def verify(arguments, project, **kwargs):
             roots = Path(arguments[arguments.index("--winmd-list") + 1]).read_text().splitlines()
@@ -346,19 +355,15 @@ class GenerationTests(ProjectTest):
 
     def test_extra_selector_change_invalidates_generation_without_metadata_change(self):
         self.add_appsdk_inventory()
-        self.write_config(scope="default", extra=(
-            'additional-winmds = [{namespace = "Windows.Foundation", classes = ["Uri"]}]\n'
-        ))
         with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             before = tool.call_count
-            self.write_config(scope="default", extra=(
-                'additional-winmds = [{namespace = "Windows.Storage", classes = ["ApplicationData"]}]\n'
-            ))
+            self.write_config(selection='[{namespace = "Windows.Storage", classes = ["ApplicationData"]}]')
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
         self.assertEqual(tool.call_count, before + 2)
         self.assertFalse((output / "src" / "myapp_winrt" / "Uri.py").exists())
         self.assertTrue((output / "src" / "myapp_winrt" / "ApplicationData.py").exists())
+        self.assertTrue((output / "src" / "myapp_winrt" / "AppNotification.py").exists())
 
     def test_project_codegen_version_update_regenerates_matching_runtime(self):
         source = self.project / "pyproject.toml"

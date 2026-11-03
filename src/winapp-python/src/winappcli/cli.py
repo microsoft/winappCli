@@ -55,7 +55,26 @@ def _show_forwarded_help(
     result = forward_native(native, [command, "--help"] if command else ["--help"], directory)
     if result:
         return result
-    print(f"\nPython {command} workflow:" if command else "\nPython extensions:", flush=True)
+    if command is None:
+        print("\nPython Extensions:")
+        for syntax, description in (
+            ("init --add-python-bindings", "Set up SDKs and Python bindings"),
+            ("restore", "Restore pinned SDKs and bindings"),
+            ("generate", "Regenerate Python bindings"),
+            ("update", "Update SDKs and Python bindings"),
+            ("run --identity <script>", "Run a Python script with package identity"),
+            ("identity clear", "Remove development identity and its environment"),
+        ):
+            print(f"  {syntax:26}  {description}")
+        print(
+            "\nPython quick start:\n"
+            "  winapp init . --use-defaults --add-python-bindings\n"
+            r"  winapp run --identity .\app.py" "\n"
+            '\nUse "winapp <command> --help" for command options.',
+            flush=True,
+        )
+        return 0
+    print(f"\nPython {command} workflow:", flush=True)
     if command == "run":
         print(
             "Python .py scripts require --identity and use a private development environment. "
@@ -104,10 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="winapp",
         add_help=False,
-        description=(
-            "Manage Python WinRT bindings and opt-in development identity. "
-            "Other commands are forwarded to the native winapp CLI."
-        ),
+        description="Set up Python bindings and run scripts with package identity.",
     )
     parser.add_argument("-h", "--help", action=_NativeHelpAction,
                         help="Show native CLI help followed by Python extensions.")
@@ -118,18 +134,18 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser(
         "init", add_help=False,
-        help="Forward native init, then optionally configure and generate Python bindings.",
+        help="Set up SDKs and Python bindings.",
     )
     for command, help_text in (
-        ("restore", "Restore pinned SDKs and the project's codegen version, then generate Python bindings."),
-        ("generate", "Regenerate bindings with the project's codegen version and existing SDK metadata."),
-        ("update", "Update SDK and codegen versions, restore metadata, and regenerate bindings."),
+        ("restore", "Restore pinned SDKs and the Python generator, then regenerate bindings."),
+        ("generate", "Regenerate Python bindings from the project's SDK metadata."),
+        ("update", "Update SDKs and the Python generator, then regenerate bindings."),
     ):
         child = commands.add_parser(command, add_help=command == "generate",
                                     help=help_text, description=help_text)
         if command != "generate":
             child.add_argument("-h", "--help", action=_NativeHelpAction, command=command,
-                               help="Show native help followed by the Python workflow.")
+                               help="Show Python command options.")
         child.add_argument("--project", type=Path, default=Path.cwd(),
                            help="Project directory (default: current directory).")
         _add_output_options(child)
@@ -142,17 +158,23 @@ def build_parser() -> argparse.ArgumentParser:
     identity = commands.add_parser("identity", help="Manage this project's development identity.")
     _add_output_options(identity)
     identity_commands = identity.add_subparsers(dest="identity_command", required=True)
-    clear = identity_commands.add_parser("clear", help="Unregister only the project-owned identity, preserving app data.")
-    clear.add_argument("--project", type=Path, default=Path.cwd())
+    clear = identity_commands.add_parser(
+        "clear",
+        help="Remove this project's development identity and private environment.",
+        description="Remove this project's development identity and private environment. Application data is kept.",
+    )
+    clear.add_argument("--project", type=Path, default=Path.cwd(),
+                       help="Project directory (default: current directory).")
     _add_output_options(clear)
 
     run = commands.add_parser("run", add_help=False,
-                              help="Run a Python script with development identity; requires --identity.")
+                              help="Run a Python script with package identity.")
     run.add_argument("-h", "--help", action=_NativeHelpAction, command="run",
                      help="Show native run help followed by Python run options.")
     run.add_argument("--identity", action="store_true",
-                     help="Use a reusable private PBS identity environment with generated bindings.")
-    run.add_argument("--project", type=Path, default=Path.cwd())
+                     help="Use a private Python environment with package identity and generated bindings.")
+    run.add_argument("--project", type=Path, default=Path.cwd(),
+                     help="Project directory (default: current directory).")
     run.add_argument("--manifest", type=Path,
                      help="Identity only: project manifest (default: auto-detect in project).")
     _add_output_options(run)
@@ -370,9 +392,12 @@ def _initialize(native_args: list[str]) -> int:
     if any(argument in HELP_FLAGS | {"--cli-schema", "--version"} for argument in native_args):
         if any(argument in HELP_FLAGS for argument in native_args):
             print(
-                "\nPython wrapper option:\n"
-                "  --add-python-bindings  Configure and generate bindings during non-interactive init; does not install application dependencies.\n"
-                "  Without a directory, interactive init asks you to confirm the bindings target after SDK setup.",
+                "\nPython Options:\n"
+                "  --add-python-bindings  Generate Python bindings during non-interactive setup.\n"
+                "\nExample:\n"
+                "  winapp init . --use-defaults --add-python-bindings\n"
+                "\nInstall application dependencies separately.\n"
+                "Without a directory, interactive init asks you to confirm the bindings target.",
                 flush=True,
             )
         return 0

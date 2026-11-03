@@ -34,7 +34,7 @@ From your Python project directory, initialize SDKs and enable bindings:
 winapp init --use-defaults --add-python-bindings
 ```
 
-The command prepares a temporary generator environment, records its version and generates an installable bindings package. It does not create or change your application `.venv`, dependencies or lockfiles. Install the generated package with your existing manager; see [dependency declarations](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#dependency-declarations) for pip, uv and portable Poetry examples. `--use-defaults` preserves existing binding selections and recorded versions.
+The command prepares a temporary generator environment, records its version and generates an installable bindings package. It does not create or change your application `.venv`, dependencies or lockfiles. Install the generated package with your existing manager; see the [pip example](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#4-run-without-identity). `--use-defaults` preserves existing binding selections and recorded versions.
 
 Pass a project directory to target it explicitly. Interactive init without a directory asks you to confirm the bindings target from usable SDK configurations after native setup; see [initialize the project](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#2-initialize-the-project).
 
@@ -45,9 +45,9 @@ Pass a project directory to target it explicitly. Interactive init without a dir
 | Command | What it does |
 | --- | --- |
 | [`init`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#2-initialize-the-project) | Initialize SDKs and Windows project files; enable Python bindings with `--add-python-bindings`. |
-| [`restore`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#restore-and-update) | Restore pinned SDKs and the generator, then generate bindings before your manager installs application dependencies. |
-| [`update`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#restore-and-update) | Update SDK and generator pins, restore SDKs and regenerate bindings; synchronize application dependencies afterward. |
-| [`generate`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#configure-bindings) | Regenerate bindings from existing SDK metadata after changing type selections. |
+| `restore` | Restore pinned SDKs and the generator, then generate bindings before your manager installs application dependencies. |
+| `update` | Update SDK and generator pins, restore SDKs and regenerate bindings; synchronize application dependencies afterward. |
+| [`generate`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#2-initialize-the-project) | Regenerate bindings after editing `additional-winmds` or `additional-refs`. |
 
 **Run Python:**
 
@@ -58,9 +58,9 @@ For ordinary execution, use your application interpreter, package manager or IDE
 | [`run --identity`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#5-run-with-identity) | Prepare generated bindings in a private environment, optionally install `--requirements`, then run with package identity. |
 | [`identity clear`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#6-clean-up-development-identity) | Remove the development registration and private environment while preserving application data. |
 
-For identity runs, preparation status goes to stderr. The script's stdout, stderr and exit code pass through unchanged, so `winapp run --identity .\app.py > output.txt` keeps wrapper status out of the output file. See [identity dependencies](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#identity-dependencies) for optional requirements, manual installation and recovery.
+For identity runs, preparation status goes to stderr. The script's stdout, stderr and exit code pass through unchanged, so `winapp run --identity .\app.py > output.txt` keeps wrapper status out of the output file.
 
-See [Choosing Python](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#choosing-python) for the default interpreter and `--python`, and [runtime catalog pinning](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#runtime-catalog-pinning) for runtime availability and tool upgrades.
+Use `winapp run --help` for interpreter selection, optional `--requirements` and output options. The runner prints a pip command targeting its private environment for manual package installation.
 
 **Shared Windows tools:**
 
@@ -81,8 +81,6 @@ winapp tool --help
 ```
 
 `restore --help` and `update --help` show Python workflow options; `run --help` separates Python scripts from native inputs such as executables and .NET projects.
-
-See the guide's [output options](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#output-options) for quiet and verbose modes and passing arguments to scripts.
 
 See the [CLI reference](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md) for the complete native command list. The Python preview does not automatically bundle a Python application for production MSIX distribution.
 

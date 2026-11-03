@@ -7,6 +7,7 @@ import importlib.util
 import io
 from pathlib import Path
 import re
+import tomllib
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -62,6 +63,19 @@ class IdentitySampleTests(unittest.TestCase):
             ast.dump(ast.parse(blocks[0])),
             ast.dump(ast.parse((sample / "app.py").read_text(encoding="utf-8"))),
         )
+
+    def test_guide_additions_match_the_sample_configuration(self):
+        sample = Path(__file__).resolve().parent
+        guide = (sample.parent.parent / "docs" / "guides" / "python.md").read_text(encoding="utf-8")
+        section = guide.split("## 2. Initialize the project\n", 1)[1].split("\n## ", 1)[0]
+        blocks = re.findall(r"```toml\s*\n(.*?)```", section, flags=re.DOTALL)
+        self.assertEqual(len(blocks), 1)
+        additions = tomllib.loads(blocks[0])
+        self.assertEqual(set(additions), {"additional-winmds"})
+        settings = tomllib.loads((sample / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["winapp"]["python-bindings"]
+        self.assertEqual(additions["additional-winmds"], settings["additional-winmds"])
+        self.assertNotIn("scope", settings)
+        self.assertNotIn("types", settings)
 
 
 if __name__ == "__main__":
