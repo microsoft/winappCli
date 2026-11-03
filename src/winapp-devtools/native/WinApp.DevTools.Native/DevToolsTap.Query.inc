@@ -471,10 +471,17 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         L",\"censusNodes\":" + std::to_wstring(total) + L",\"evaluated\":" + std::to_wstring(evaluated) +
         L",\"unevaluated\":" + std::to_wstring(unevaluated) + L",\"propertyReads\":" + std::to_wstring(propertyReads) +
         L",\"propertyRows\":" + std::to_wstring(propertyRows) + L",\"uiThreadMicroseconds\":" + std::to_wstring(elapsed);
-    out += L",\"scope\":{\"rootHandle\":\"" + std::to_wstring(request.root) + L"\",\"depth\":" + std::to_wstring(request.depth) +
+    const auto effectiveRoot = root ? request.root : g_windowScope ? g_windowScope->rootWire : 0ull;
+    out += L",\"scope\":{\"rootHandle\":\"" + std::to_wstring(effectiveRoot) + L"\",\"depth\":" + std::to_wstring(request.depth) +
         L",\"authored\":" + (authoredFilter ? L"true" : L"false") + L",\"ofType\":\"" + DevToolsJsonEscape(exactType) + L"\"}";
     if (failure.empty() && matches.empty()) failure = complete ? L"no-match" : L"incomplete";
-    if (!failure.empty()) out += L",\"error\":\"" + DevToolsJsonEscape(failure) + L"\"";
+    if (!failure.empty()) {
+        const auto separator = failure.find(L'|');
+        const auto token = failure.substr(0, separator);
+        const auto message = separator == std::wstring::npos ? failure : failure.substr(separator + 1);
+        out += L",\"error\":{\"code\":0,\"token\":\"" + DevToolsJsonEscape(token) +
+            L"\",\"message\":\"" + DevToolsJsonEscape(message) + L"\"}";
+    }
     if (request.authored && !authoredFilter) out += L",\"fallback\":\"No app-authored elements classified; queried the raw tree.\"";
     if (!before.empty()) out += L",\"before\":" + before;
     if (!after.empty()) out += L",\"after\":" + after;

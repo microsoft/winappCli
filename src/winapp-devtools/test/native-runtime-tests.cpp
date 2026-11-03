@@ -171,7 +171,7 @@ static std::wstring PushCommentSnapshot(long long generation, const std::wstring
     return reply;
 }
 
-static bool QueuedMutation(bool byName, bool clear, bool replace)
+static bool QueuedMutation(bool byName, bool clear, bool replace, bool numeric = false)
 {
     g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_byName.clear(); g_nameOf.clear();
     g_sessionNonce = 17;
@@ -181,7 +181,8 @@ static bool QueuedMutation(bool byName, bool clear, bool replace)
     const auto wire = PackWire_nolock(101);
     g_mutatedHandle = 0;
     g_mutatedProperty.clear(); g_mutatedType.clear(); g_mutatedValue.clear();
-    const std::wstring target = byName ? L"\"name\":\"Target\"" : L"\"handle\":\"" + std::to_wstring(wire) + L"\"";
+    const std::wstring target = byName ? L"\"name\":\"Target\"" :
+        numeric ? L"\"handle\":" + std::to_wstring(wire) : L"\"handle\":\"" + std::to_wstring(wire) + L"\"";
     const auto request = DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\""
         + std::wstring(clear ? L"HotReload.clearProperty" : L"HotReload.setProperty")
         + L"\",\"params\":{" + target + L",\"prop\":\"Text\""
@@ -1129,6 +1130,80 @@ static int GuestNegotiation(int argc, wchar_t** argv)
 
 #include "query-runtime-tests.inc"
 
+static void CheckMalformedMutationHandles(const std::function<void(bool, const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    auto* previousDiagnostics = g_diag;
+    g_diag = &diagnostics;
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_nameOf.clear(); g_byName.clear();
+    MintSlot_nolock(101);
+    g_nameOf[101] = L"Target"; g_byName[L"Target"] = 101;
+    const auto handle = std::to_wstring(PackWire_nolock(101));
+    g_dispatcher = reinterpret_cast<IInspectable*>(1);
+    g_testEnqueueUiOperation = QueryEnqueue;
+    g_testPropertyMutation = ObserveMutation;
+    for (const auto& malformed : {handle + L"abc", handle + L",456", L"0" + handle, L" " + handle,
+        handle + L" ", L"+" + handle, L"-" + handle, std::wstring(L"0x123"),
+        std::wstring(L"18446744073709551616"), std::wstring(L"")}) {
+        g_mutatedHandle = 0;
+        const auto dispatches = g_queryDispatches;
+        for (const auto* method : {L"HotReload.setProperty", L"HotReload.clearProperty", L"Overlay.highlight", L"Selection.select"}) {
+            const std::wstring verb(method);
+            const auto arguments = verb == L"HotReload.setProperty" ? L",\"prop\":\"Text\",\"type\":\"String\",\"value\":\"Changed\"" :
+                verb == L"HotReload.clearProperty" ? L",\"prop\":\"Text\"" : L"";
+            const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+                L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
+                L"\",\"params\":{\"handle\":\"" + malformed + L"\"" + arguments + L"}}"));
+            DevToolsJson parsed;
+            check(DevToolsJsonParse(response, parsed) && parsed.Find(L"error") &&
+                parsed.Find(L"error")->GetInt(L"code", 0) == DevToolsErr::InvalidParams &&
+                !parsed.Find(L"result"), "malformed mutation handle returns invalid parameters, not a result");
+        }
+        for (const auto& command : {L"hotreload.setprop|#" + malformed + L"|Text|String|Changed",
+            L"hotreload.clearprop|#" + malformed + L"|Text", L"highlight|" + malformed,
+            L"selection.select|" + malformed})
+            check(HandleCommand(command) == L"ERR bad-args", "private mutation bridge rejects the full malformed handle");
+        check(g_mutatedHandle == 0 && g_queryDispatches == dispatches,
+            "malformed targeting never dispatches UI work or invokes a mutation callback");
+    }
+    for (const auto* invalid : {L"0", L"null", L"true", L"[]"}) {
+        for (const auto* method : {L"HotReload.setProperty", L"HotReload.clearProperty"}) {
+            g_mutatedHandle = 0;
+            const auto arguments = std::wstring(method) == L"HotReload.setProperty"
+                ? L",\"type\":\"String\",\"value\":\"Changed\"" : L"";
+            const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+                L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
+                L"\",\"params\":{\"handle\":" + invalid + L",\"name\":\"Target\",\"prop\":\"Text\"" + arguments + L"}}"));
+            check(response.find(std::to_wstring(DevToolsErr::InvalidParams)) != std::wstring::npos && !g_mutatedHandle,
+                "invalid handle value cannot fall back to a named mutation target");
+        }
+    }
+    for (const auto* method : {L"HotReload.setProperty", L"HotReload.clearProperty"}) {
+        const auto arguments = std::wstring(method) == L"HotReload.setProperty"
+            ? L",\"type\":\"String\",\"value\":\"Changed\"" : L"";
+        const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
+            L"\",\"params\":{\"handle\":\"0\",\"prop\":\"Text\"" + arguments + L"}}"));
+        check(response.find(std::to_wstring(DevToolsErr::InvalidParams)) != std::wstring::npos,
+            "property mutations do not accept the zero handle");
+    }
+    OverlayFixtureSeedHighlight(101);
+    check(HandleCommand(L"highlight|0") == L"OK" && DevToolsOverlay_GetHighlightHandle() == 0,
+        "canonical zero still clears the highlight");
+    OverlayFixtureSeedHighlight(101);
+    check(HandleCommand(L"selection.select|0").rfind(L"selection|", 0) == 0 && DevToolsOverlay_GetHighlightHandle() == 0,
+        "canonical zero still deselects");
+    for (const auto* zero : {L"\"0\"", L"0"}) for (const auto* method : {L"Overlay.highlight", L"Selection.select"}) {
+        OverlayFixtureSeedHighlight(101);
+        const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
+            L"\",\"params\":{\"handle\":" + zero + L"}}"));
+        check(response.find(L"\"result\":") != std::wstring::npos && DevToolsOverlay_GetHighlightHandle() == 0,
+            "string and numeric zero retain RPC clear and deselect semantics");
+    }
+    g_diag = previousDiagnostics;
+}
+
 // An opening ComboBox or Flyout moves its content with an Add under the new parent and no Remove from the old one,
 // and a closing one removes it with no parent at all. The census must never keep a child it no longer knows: a
 // whole-app query write treats such a child as an element it could not evaluate and refuses as incomplete.
@@ -1343,6 +1418,7 @@ int wmain(int argc, wchar_t** argv)
     CheckTreeDeltasFollowSubscription(check);
     CheckQueries(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
+    CheckMalformedMutationHandles(check);
     auto call = [&](const wchar_t* method) {
         DevToolsRpcRequest request{};
         request.method = method;
@@ -1378,6 +1454,10 @@ int wmain(int argc, wchar_t** argv)
     for (bool byName : { false, true }) for (bool clear : { false, true }) {
         check(QueuedMutation(byName, clear, false), "unchanged selected element is mutated successfully");
         check(QueuedMutation(byName, clear, true), "retired selection cannot mutate a replacement element");
+    }
+    for (bool clear : {false, true}) {
+        check(QueuedMutation(false, clear, false, true), "canonical numeric JSON handles still mutate the selected element");
+        check(QueuedMutation(false, clear, true, true), "numeric JSON handles cannot mutate a retired replacement");
     }
     {
         const auto newer = PushCommentSnapshot(5, L"newer");
