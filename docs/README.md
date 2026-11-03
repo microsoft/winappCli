@@ -119,6 +119,11 @@ copilot plugin install winui@winappcli
 claude plugin marketplace add microsoft/WinAppCli
 claude plugin install winappcli@winappcli
 claude plugin install winui@winappcli
+
+# OpenAI Codex
+codex plugin marketplace add microsoft/WinAppCli
+codex plugin add winappcli@winappcli
+codex plugin add winui@winappcli
 ```
 
 If you work in Visual Studio Code, the [WinApp VS Code extension](https://learn.microsoft.com/windows/apps/develop/ai-assisted/vs-code-tools#winapp-vs-code-extension) runs WinApp CLI commands from the editor and launches your app with package identity when you press **F5**. Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Microsoft-WinAppCLI.winapp).
