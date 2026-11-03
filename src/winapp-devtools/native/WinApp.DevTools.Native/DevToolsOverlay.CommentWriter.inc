@@ -306,10 +306,10 @@ static bool LaunchCommentDelete(const std::wstring& id, const std::wstring& requ
                         L" --app " + std::to_wstring(GetCurrentProcessId()), L"delete", &guest);
 }
 
-bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstring& revision,
+bool DevToolsOverlay_ResolveComment(const std::wstring& id, const std::wstring& revision,
     std::function<void(int)> completed)
 {
-    if (!g_guestCommentAuthority.load() || g_guestCommentWrite.process) return false;
+    if (id.empty() || g_guestCommentWrite.process) return false;
     GuestCommentWrite guest;
     guest.editor = GuestCommentEditor::WindowResolve;
     guest.root = g_pickRoot;
@@ -603,10 +603,11 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
         (write.authority && (exitCode == 0x57410001 || exitCode == 0x57410002)));
     write.persisted = saved;
     std::wstring revision;
-    bool snapshotMatches = write.editor == GuestCommentEditor::Delete;
+    const bool removesPin = write.editor == GuestCommentEditor::Delete || write.editor == GuestCommentEditor::WindowResolve;
+    bool snapshotMatches = removesPin;
     for (const auto& pin : g_pins) if (pin.id == write.id) {
         revision = pin.revision;
-        snapshotMatches = write.editor != GuestCommentEditor::Delete && pin.text == write.submitted;
+        snapshotMatches = !removesPin && pin.text == write.submitted;
         if (write.authority && saved && exitCode == 0 && (write.editor == GuestCommentEditor::Delete || pin.text != write.submitted))
             exitCode = 0x57410002;
         break;
@@ -652,9 +653,12 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
     }
     if (write.editor == GuestCommentEditor::WindowResolve) {
         auto completed = std::move(write.completed);
-        if (write.authority == g_guestCommentAuthority.load() && write.root == g_pickRoot &&
-            write.generation == g_selGen && completed)
-            completed(acknowledged ? static_cast<int>(exitCode) : 1);
+        const bool current = write.authority == g_guestCommentAuthority.load() && write.root == g_pickRoot &&
+            write.generation == g_selGen;
+        if (!write.authority && saved && !write.superseded && !g_commentSnapshotAuthoritative)
+            RemovePinById(write.id);
+        if (!write.authority) write = {};
+        if (current && completed) completed(acknowledged ? static_cast<int>(exitCode) : 1);
         return;
     }
     if (!GuestCommentMatchesEditor()) {

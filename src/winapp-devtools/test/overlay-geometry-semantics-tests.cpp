@@ -1947,7 +1947,7 @@ int main()
             g_pickRoot = 10;
             int completed = -1;
             const auto revision = std::wstring(64, L'A');
-            check(DevToolsOverlay_ResolveGuestComment(L"resolve-note", revision,
+            check(DevToolsOverlay_ResolveComment(L"resolve-note", revision,
                 [&](int result) { completed = result; }), "guest resolve", "actual asynchronous resolve starts owned writer");
             check(completed == -1 && commentCommand.find(L"comments update --status resolved") != std::wstring::npos &&
                 commentCommand.find(revision) != std::wstring::npos, "guest resolve", "spawn retains original revision without reporting persistence");
@@ -1959,7 +1959,7 @@ int main()
         {
             g_guestCommentWrite = {};
             int completed = -1;
-            DevToolsOverlay_ResolveGuestComment(L"old-window-note", std::wstring(64, L'A'),
+            DevToolsOverlay_ResolveComment(L"old-window-note", std::wstring(64, L'A'),
                 [&](int result) { completed = result; });
             ++g_selGen;
             commentExitCode = 0; SetEvent(commentProcess);
@@ -1968,6 +1968,46 @@ int main()
         }
         g_guestCommentWrite = {};
         g_guestCommentAuthority.store(nullptr);
+        for (const bool authoritative : {false, true}) {
+            for (const DWORD outcome : {DWORD(0), DWORD(7)}) {
+                g_guestCommentWrite = {};
+                g_pins.clear();
+                g_commentSnapshotAuthoritative = authoritative;
+                // An authoritative refresh drops resolved pins before the child exits. Without a refresh,
+                // the completion itself removes the old marker.
+                if (!authoritative) UpsertPin(11, L"local-resolve", L"saved text", RECT{0, 0, 10, 10});
+                unsigned calls = 0;
+                int completed = -1;
+                check(DevToolsOverlay_ResolveComment(L"local-resolve", L"",
+                    [&](int result) { ++calls; completed = result; }),
+                    "local resolve", "local comments use the asynchronous writer without host authority");
+                check(calls == 0 && g_guestCommentWrite.process,
+                    "local resolve", "starting the child does not acknowledge resolution");
+                GuestCommentTimerProc(nullptr, 0, 0, 0);
+                check(calls == 0, "local resolve", "pending child is polled without an early callback");
+                commentExitCode = outcome; SetEvent(commentProcess);
+                GuestCommentTimerProc(nullptr, 0, 0, 0);
+                GuestCommentTimerProc(nullptr, 0, 0, 0);
+                check(calls == 1 && completed == static_cast<int>(outcome),
+                    "local resolve", "actual child outcome is delivered once, including nonzero exits");
+                check(!g_guestCommentWrite.process && !g_guestCommentWrite.completed,
+                    "local resolve", "completion releases the callback and writer state");
+                check(authoritative || (g_pins.empty() == (outcome == 0)),
+                    "local resolve", "successful resolution removes the local pin; failed resolution retains it");
+            }
+        }
+        g_pins.clear();
+        g_commentSnapshotAuthoritative = false;
+        {
+            unsigned calls = 0;
+            check(DevToolsOverlay_ResolveComment(L"old-local-card", L"", [&](int) { ++calls; }),
+                "local resolve", "local lifetime regression starts the writer");
+            ++g_selGen;
+            commentExitCode = 0; SetEvent(commentProcess);
+            GuestCommentTimerProc(nullptr, 0, 0, 0);
+            check(calls == 0 && !g_guestCommentWrite.completed,
+                "local resolve", "changed selection suppresses and releases the old card's callback");
+        }
         guestWriterTest = false;
         g_cliExe.store(nullptr); g_cardReadInput = nullptr; g_anchorOf = nullptr; g_wireOf = nullptr;
         g_selCommentSaved.clear(); g_selCommentId.clear();
