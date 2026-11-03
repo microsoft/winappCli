@@ -104,15 +104,26 @@ npx winapp --help
 
 WinApp CLI is designed to work well with AI coding agents. Commands such as `find-ui` and `find-api` return machine-readable output with `--json`, so an agent can look up real WinUI samples and Windows Runtime APIs before it writes code.
 
-Install the WinApp CLI plugin to give your agent skills for the WinApp CLI workflow:
+Install the agent plugins to give your agent skills for WinApp CLI and WinUI:
+
+- `winappcli`: an agent and skills for WinApp CLI commands, workflows, and troubleshooting.
+- `winui`: skills for building, packaging, and testing WinUI 3 apps.
 
 ```powershell
 # GitHub Copilot CLI
-copilot plugin install microsoft/WinAppCli
+copilot plugin marketplace add microsoft/WinAppCli
+copilot plugin install winappcli@winappcli
+copilot plugin install winui@winappcli
 
 # Claude Code
 claude plugin marketplace add microsoft/WinAppCli
 claude plugin install winappcli@winappcli
+claude plugin install winui@winappcli
+
+# OpenAI Codex
+codex plugin marketplace add microsoft/WinAppCli
+codex plugin add winappcli@winappcli
+codex plugin add winui@winappcli
 ```
 
 If you work in Visual Studio Code, the [WinApp VS Code extension](https://learn.microsoft.com/windows/apps/develop/ai-assisted/vs-code-tools#winapp-vs-code-extension) runs WinApp CLI commands from the editor and launches your app with package identity when you press **F5**. Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Microsoft-WinAppCLI.winapp).

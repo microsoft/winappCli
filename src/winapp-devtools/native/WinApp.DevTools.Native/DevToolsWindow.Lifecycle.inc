@@ -11,10 +11,9 @@ static void ResetCommentsViewState()
     drop(&g_treeScrollUi);
     drop(&g_commentsScrollUi);
     drop(&g_treeControlsUi);
-    drop(&g_commentsLbl);
-    drop(&g_commentsBadgeUi);
-    drop(&g_treeTabBtn);
-    drop(&g_commentsTabBtn);
+    g_shell = InspectorShellRefs{};
+    g_openCommentBox = nullptr;
+    g_navSyncing = false;
     ReleaseCommentRowUi();
     g_commentRows.clear();
     g_commentRowLive.clear();
@@ -52,7 +51,7 @@ void DevToolsWindow_RefreshComments()
 {
     if (!DevToolsWindow_IsOpen()) return;
     if (g_commentsView) RefreshCommentsPane();
-    else                UpdateCommentsButtonLabel();
+    else                UpdateCommentsCount(CountOpenComments());
 }
 
 void DevToolsWindow_ShowComments()
@@ -158,6 +157,14 @@ if (g_route1WindowHidden) {
     IInspectable* content = nullptr;
     hr = LoadMarkupWin(BuildWindowMarkup(nodes.size(), censusTotal), &content, errorMessage);
     DevToolsOverlayLog(L"route1.step2 XamlReader.Load hr=0x%08X content=%p", hr, content);
+    if (FAILED(hr) && errorMessage) {
+        // The shell's title bar is the WinUI TitleBar control, which Windows App SDK 1.7 added. On an older runtime
+        // the parser only reports an unknown type, so name the requirement instead.
+        IInspectable* probe = nullptr;
+        if (FAILED(LoadMarkupRaw(L"<TitleBar xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"/>", &probe)))
+            *errorMessage = L"it needs Windows App SDK 1.7 or later, and this app uses an older version";
+        else if (probe) probe->Release();
+    }
     if (FAILED(hr) || !content) { reinterpret_cast<IUnknown*>(win)->Release(); winInsp->Release(); return FAILED(hr) ? hr : E_FAIL; }
 
     // 2b. Locate the "PropsHost" StackPanel (FindName on the content root) and cache its Children collection,
@@ -301,36 +308,68 @@ if (g_route1WindowHidden) {
                 nm->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_treeNoMatchTb);
                 nm->Release();
             }
-            grabUi(L"CommentsBadge", &g_commentsBadgeUi);
-            if (g_commentsLbl) { reinterpret_cast<IUnknown*>(g_commentsLbl)->Release(); g_commentsLbl = nullptr; }
-            if (IInspectable* lbl = findByName(L"CommentsLbl")) {
-                lbl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), reinterpret_cast<void**>(&g_commentsLbl));
-                lbl->Release();
+            // The details pane's message footer lives in the shell, so messages stay in view while the list scrolls.
+            if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
+            if (IInspectable* st = findByName(L"Status")) {
+                void* tb = nullptr;
+                if (SUCCEEDED(st->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tb)) && tb)
+                    g_statusTb = reinterpret_cast<IInspectable*>(tb);
+                st->Release();
             }
-            auto wireTab = [&](const wchar_t* name, void** hold, bool toComments) {
-                if (*hold) { reinterpret_cast<IUnknown*>(*hold)->Release(); *hold = nullptr; }
-                IInspectable* tab = findByName(name);
-                if (!tab) {
-                    DevToolsOverlayLog(L"route1.wire MISS: view tab '%s' not found -- the left pane's mode cannot "
-                                  L"be changed or reported", name);
-                    return;
+            grabUi(L"StatusHost", &g_statusHostUi);
+            if (!g_statusTb || !g_statusHostUi)
+                DevToolsOverlayLog(L"route1.wire MISS: Status=%p StatusHost=%p -- edit and comment messages will not show",
+                              (void*)g_statusTb, g_statusHostUi);
+            // The rail, the panel headers and the details header.
+            g_shell = InspectorShellRefs{};
+            try {
+                winrt::Windows::Foundation::IInspectable object{ nullptr };
+                winrt::copy_from_abi(object, feC);
+                const auto root = object.as<DevToolsX::FrameworkElement>();
+                const auto find = [&root](const wchar_t* name) { return root.FindName(name); };
+                g_shell.nav = find(L"InspectorNav").try_as<DevToolsXC::NavigationView>();
+                g_shell.treeTab = find(L"TreeTabBtn").try_as<DevToolsXC::NavigationViewItem>();
+                g_shell.commentsTab = find(L"CommentsTabBtn").try_as<DevToolsXC::NavigationViewItem>();
+                g_shell.commentsBadge = find(L"CommentsBadge").try_as<DevToolsXC::InfoBadge>();
+                g_shell.commentsCount = find(L"CommentsCountLbl").try_as<DevToolsXC::TextBlock>();
+                g_shell.detailTitle = find(L"DetailTitle").try_as<DevToolsXC::TextBlock>();
+                g_shell.detailCrumb = find(L"DetailCrumb").try_as<DevToolsXC::TextBlock>();
+                g_shell.treeHeader = find(L"TreePanelHeader").try_as<DevToolsX::UIElement>();
+                g_shell.commentsHeader = find(L"CommentsPanelHeader").try_as<DevToolsX::UIElement>();
+                g_shell.detailsHeader = find(L"DetailsHeader").try_as<DevToolsX::UIElement>();
+                g_shell.showInTree = find(L"ShowInTreeBtn").try_as<DevToolsX::UIElement>();
+                g_shell.addComment = find(L"AddCommentBtn").try_as<DevToolsX::UIElement>();
+                if (const auto& nav = g_shell.nav) {
+                    nav.SelectionChanged([gen = g_route1Gen](auto&&, DevToolsXC::NavigationViewSelectionChangedEventArgs const& args) {
+                        if (gen != g_route1Gen) return;
+                        OnInspectorRailSelection(g_shell.commentsTab && args.SelectedItem() == g_shell.commentsTab);
+                    });
+                } else {
+                    DevToolsOverlayLog(L"route1.wire MISS: InspectorNav -- the Comments panel cannot be opened");
                 }
-                tab->QueryInterface(DevToolsIid<DevToolsXCP::IToggleButton>(), hold);
-                void* bb = nullptr;
-                if (SUCCEEDED(tab->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    auto* s = new CommentsViewSink(); s->Init(toComments);
-                    __int64 tok = 0; DevToolsAddClick(bb, s, &tok);
-                    reinterpret_cast<IUnknown*>(bb)->Release();
+                if (auto button = g_shell.showInTree.try_as<DevToolsXCP::ButtonBase>()) {
+                    button.Click([gen = g_route1Gen](auto&&, auto&&) {
+                        if (gen != g_route1Gen) return;
+                        SetCommentsView(false);
+                        if (!g_selWire) return;
+                        if (g_selectedWire == g_selWire) RevealSelectedRowAfterViewChange();
+                        else SelectNodeByWire(g_selWire, SelectCause::Comment);
+                    });
                 }
-                tab->Release();
-            };
-            wireTab(L"TreeTabBtn", &g_treeTabBtn, false);
-            wireTab(L"CommentsTabBtn", &g_commentsTabBtn, true);
+                if (auto button = g_shell.addComment.try_as<DevToolsXCP::ButtonBase>()) {
+                    button.Click([gen = g_route1Gen](auto&&, auto&&) {
+                        if (gen == g_route1Gen && g_openCommentBox) g_openCommentBox();
+                    });
+                }
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.wire shell controls failed hr=0x%08X -- the rail or details header may not respond",
+                              e.code().value);
+            }
             reinterpret_cast<IUnknown*>(feC)->Release();
         }
         g_commentsView = false;
         g_commentRows.clear();
-        UpdateCommentsButtonLabel();
+        UpdateCommentsCount(CountOpenComments());
     }
 
     // 2c. Wire the static shell. Tree rows live in a separate namescope and are rebuilt through TreeRowsHost.
@@ -424,15 +463,30 @@ if (g_route1WindowHidden) {
             WindowsDeleteString(pn2);
             if (splitInsp && paneInsp) {
                 void* thumb = nullptr;
-                // Window-generation ownership: ResetRoute1State releases both references, including the shell root.
+                // Window-generation ownership: ResetRoute1State releases both references.
                 paneInsp->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &g_splitPaneFe);
-                if (feRoot) {
-                    g_splitHostFe = feRoot;
-                    reinterpret_cast<IUnknown*>(g_splitHostFe)->AddRef();
+                // Clamp against the card that holds the tree, the divider and the details, not the whole window:
+                // the rail is outside that width, so counting it would squeeze the details below their minimum.
+                {
+                    IInspectable* cardInsp = nullptr;
+                    HSTRING cn = MakeStr(L"InspectorCard");
+                    DevToolsFindName(feRoot, cn, &cardInsp);
+                    WindowsDeleteString(cn);
+                    if (cardInsp) {
+                        cardInsp->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &g_splitHostFe);
+                        cardInsp->Release();
+                    }
+                    if (!g_splitHostFe) {
+                        DevToolsOverlayLog(L"route1.split MISS: InspectorCard -- clamping against the whole window");
+                        g_splitHostFe = feRoot;
+                        reinterpret_cast<IUnknown*>(g_splitHostFe)->AddRef();
+                    }
+                }
+                {
                     auto* sizeSink = new SplitSizeSink();
                     sizeSink->Init();
                     __int64 sizeToken = 0;
-                    const HRESULT sizeHr = DevToolsAddSizeChanged(feRoot, sizeSink, &sizeToken);
+                    const HRESULT sizeHr = DevToolsAddSizeChanged(g_splitHostFe, sizeSink, &sizeToken);
                     if (FAILED(sizeHr)) DevToolsOverlayLog(L"route1.split resize subscription FAILED hr=0x%08X", sizeHr);
                     ClampInspectorSplit();
                 }
@@ -510,6 +564,7 @@ if (g_route1WindowHidden) {
     HRESULT hrBackdrop = ApplyMicaBackdrop(winInsp);
     DevToolsOverlayLog(L"route1.step4 MicaBackdrop hr=0x%08X", hrBackdrop);
 
+    ConfigureInspectorTitleBar(win, content, HwndFromWindowInsp(winInsp));
     ConfigureInspectorCaptionTheme(winInsp, content);
     if (HWND preHwnd = HwndFromWindowInsp(winInsp)) {
         SetInspectorIcon(preHwnd);

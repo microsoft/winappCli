@@ -213,7 +213,7 @@ std::wstring DevToolsOverlay_GuestCommentToken(const std::wstring& operation, co
 void DevToolsOverlay_NoticeCommentsStale();
 // Shows the toolbar and moves keyboard focus to it, as Ctrl+Shift+F12 does. UI thread only.
 bool DevToolsOverlay_FocusToolbar();
-bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstring& revision,
+bool DevToolsOverlay_ResolveComment(const std::wstring& id, const std::wstring& revision,
     std::function<void(int)> completed);
 // Saves a comment on element through the in-app comment writer, for the inspector: id updates that comment, an
 // empty id adds a new one. Returns the id written. completed gets 0 once it is saved, nonzero otherwise; it may
@@ -236,8 +236,9 @@ HRESULT DevToolsOverlay_SetComments(IXamlDiagnostics* diag, InstanceHandle root,
                                const DevToolsOverlayComment* items, size_t count, size_t* outPlaced, bool authoritative);
 
 
-// False is logged locally; this callback never redirects to another host.
-typedef bool (*DevToolsInprocInspectFn)();
+// False is logged locally, and *error, when the callback sets it, is shown to the user; this callback never
+// redirects to another host.
+typedef bool (*DevToolsInprocInspectFn)(std::wstring* error);
 void DevToolsOverlay_SetInprocInspect(DevToolsInprocInspectFn fn);
 // What an inspector open request asks for. UI thread only.
 struct DevToolsInspectRequest

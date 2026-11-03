@@ -95,8 +95,9 @@ element in the app selects the Reactor element you wrote rather than a template
 part (turn off **Just my code** to pick raw elements). The selection reads
 `Button #incrementButton · <Counter> · App.cs:67`, and the comment panel shows the
 same call site where a XAML element shows its file and line. The inspector's tree
-shows `<Counter>` rows and Reactor element kinds, and its properties pane shows the
-C# statement with an **Open** link that hands the `.cs` file to your default editor.
+shows `<Counter>` rows and Reactor element kinds with their call sites, its details
+header reads `<Counter>  ·  Border`, and its **Source** expander shows the C# statement
+with an **Open** link that hands the `.cs` file to your default editor.
 
 C# paths that DevTools shows are relative to your project. A Native AOT or attached app
 records each call site relative to the project that compiled it, so DevTools looks for
@@ -209,7 +210,7 @@ has recycled the row, the commands fail with `unmounted`: run `winapp devtools s
 again and use the row's new handle.
 
 In the app, select a Reactor element with **Select element**: the inspector's
-properties pane has a **Component** section with the same props, hooks and handlers.
+details have a **Reactor component** section with the same props, hooks and handlers.
 Type a new value into a state hook and press Enter, or select **Run** next to a
 handler.
 

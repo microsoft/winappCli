@@ -11,6 +11,9 @@
 
 namespace DevToolsInspector
 {
+    // With the 48 DIP rail beside it, this keeps the rail and tree at the 420 DIP the tree alone had before.
+    inline constexpr double kDefaultTreeWidth = 372.0;
+
     inline double TreeWidth(double requested, double available)
     {
         const double maximum = (std::max)(0.0, available - 6.0 - 300.0);

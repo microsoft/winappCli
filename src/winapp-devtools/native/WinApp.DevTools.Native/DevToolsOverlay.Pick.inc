@@ -53,6 +53,7 @@ static bool SelFinishBeforeMoving();
 static bool SelHasCommentDraft();
 static bool PickerEditorIsOpen();
 static void UpdateCatcherHole();
+static void ShowCommentToast(const std::wstring& text, bool problem);
 static void ResetPickPointer()
 {
     g_pressValid = false;
@@ -820,13 +821,15 @@ void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read) { g_isDeclared =
 static void OnInspectClick(void*, void*)
 {
     DevToolsInprocInspectFn inproc = g_inprocInspect.load();
-    if (inproc && inproc()) {
+    std::wstring error;
+    if (inproc && inproc(&error)) {
         DevToolsOverlayLog(L"overlay.inspect opened in-proc (Route 1) window");
 // Auto-save and the do-not-auto-confirm-a-binding rule are the shared dismiss path's, not repeated here.
         DismissSelectionPanel();
         return;
     }
     DevToolsOverlayLog(L"overlay.inspect in-proc route unavailable");
+    if (!error.empty()) ShowCommentToast(L"DevTools window did not open: " + error, true);
 }
 
 static_assert(static_cast<int>(DevToolsX::ElementTheme::Default) == DevToolsTheme::kDefault);

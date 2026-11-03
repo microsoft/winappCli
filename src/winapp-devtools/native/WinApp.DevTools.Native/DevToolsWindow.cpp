@@ -13,6 +13,8 @@
 #include <shellapi.h>
 #include <shlwapi.h>
 #pragma comment(lib, "shlwapi.lib")
+#include <shcore.h>
+#pragma comment(lib, "shcore.lib")
 #include <commctrl.h>
 #pragma comment(lib, "comctl32.lib")
 #include <objidl.h>
@@ -50,22 +52,6 @@
 #include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
 static const size_t kMaxRenderNodes = 1000;
-
-// Collapse framework chrome subtrees so template internals do not bury app-authored content.
-static bool IsChromeCollapseType(const std::wstring& shortType)
-{
-    return DevToolsTreeLayout::IsChromeCollapseType(shortType);
-}
-
-// DevToolsTreeLayout supplies view-relative expansion and indentation. Hidden framework ancestry
-// must not consume the app-content expansion budget; a committed pick expands its ancestors.
-static constexpr int kDefaultExpandDepth = DevToolsTreeLayout::kDefaultExpandDepth;
-static constexpr int kMaxAutoExpandDepth = DevToolsTreeLayout::kMaxAutoExpandDepth;
-
-static int IndentPxForLevel(int level)
-{
-    return DevToolsTreeLayout::IndentPxForLevel(level);
-}
 
 // Hand-rolled COM event sinks must answer delegate IIDs in QI; interface IIDs come from DevToolsIid<T>().
 static const GUID IID_RoutedEventHandler_Del =
@@ -315,7 +301,6 @@ static std::wstring ShortType(const std::wstring& t)
 #include "DevToolsWindow.TreeView.inc"
 #include "DevToolsWindow.PaneSinks.inc"
 #include "DevToolsWindow.SourceAndResources.inc"
-#include "DevToolsWindow.TreeAutomation.inc"
 #include "DevToolsWindow.TreeRows.inc"
 #include "DevToolsWindow.TreeRefresh.inc"
 #include "DevToolsWindow.PropsLayout.inc"

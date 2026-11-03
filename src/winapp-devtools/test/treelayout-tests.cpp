@@ -246,7 +246,7 @@ static void Test_IndentIsMonotonicAndBounded()
 
 static void Test_BreadcrumbElision()
 {
-    std::printf("\nBreadcrumb: bounded, but the full chain is never lost\n");
+    std::printf("\nBreadcrumb: the two nearest ancestors, with the count of the full chain\n");
     const std::wstring sep = L" \u203A ";
     std::wstring longChain;
     for (int i = 0; i < 24; ++i) { if (i) longChain += sep; longChain += L"Node" + std::to_wstring(i); }
@@ -254,18 +254,20 @@ static void Test_BreadcrumbElision()
     size_t segs = 0;
     const std::wstring elided = ElideBreadcrumb(longChain, segs);
     CheckEq((int)segs, 24, "reports the true ancestor count");
-    Check(elided.size() < longChain.size(), "a 24-level chain is elided");
-    Check(elided.find(L"Node0") == 0, "keeps the root");
-    Check(elided.find(L"Node23") != std::wstring::npos, "keeps the immediate parent");
-    Check(elided.find(L"\u2026") != std::wstring::npos, "marks the elision honestly");
+    Check(elided == L"\u2026" + sep + L"Node22" + sep + L"Node23", "a 24-level chain keeps its two nearest ancestors");
+    Check(elided.find(L"Node0") == std::wstring::npos, "drops the root");
 
-    const std::wstring shortChain = L"A" + sep + L"B" + sep + L"C";
+    const std::wstring threeChain = L"A" + sep + L"B" + sep + L"C";
     size_t segs2 = 0;
-    Check(ElideBreadcrumb(shortChain, segs2) == shortChain, "a short chain is left whole, not mangled");
-    CheckEq((int)segs2, 3, "short chain segment count");
+    Check(ElideBreadcrumb(threeChain, segs2) == L"\u2026" + sep + L"B" + sep + L"C", "a 3-level chain is elided");
+    CheckEq((int)segs2, 3, "3-level chain segment count");
 
+    const std::wstring shortChain = L"A" + sep + L"B";
     size_t segs3 = 0;
-    Check(ElideBreadcrumb(L"", segs3).empty(), "an empty chain stays empty");
+    Check(ElideBreadcrumb(shortChain, segs3) == shortChain, "a 2-level chain is left whole, not mangled");
+
+    size_t segs4 = 0;
+    Check(ElideBreadcrumb(L"", segs4).empty(), "an empty chain stays empty");
 }
 
 static void Test_BuildRowsIsTheUntestedSeam()

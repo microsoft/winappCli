@@ -102,6 +102,7 @@ size_t RestoreCollapseByKey(const std::vector<unsigned long long>& oldKeys,
                             const std::vector<unsigned long long>& newKeys,
                             std::vector<char>& newCollapsed);
 
+// Keep the two nearest ancestors ("… › Grid › Parent"); callers show the full chain in a tooltip.
 std::wstring ElideBreadcrumb(const std::wstring& full, size_t& outSegments);
 
 } // namespace DevToolsTreeLayout
