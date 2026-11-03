@@ -51,9 +51,6 @@ namespace DevToolsInspector
             (type.empty() ? L"unspecified" : type) + L"): " + reason;
     }
 
-#pragma warning(push)
-    // VS 2022 reports FAILED(...) as constant when a caller's lambda always returns S_OK.
-#pragma warning(disable : 4127)
     template<typename Convert, typename Set>
     HRESULT WriteLiteral(const std::wstring& property, const std::wstring& type, const std::wstring& value,
                          Convert convert, Set set, std::wstring* error)
@@ -77,5 +74,4 @@ namespace DevToolsInspector
             return fail(written, L"the property setter rejected the value; check its allowed range", written == E_INVALIDARG);
         return written;
     }
-#pragma warning(pop)
 }
