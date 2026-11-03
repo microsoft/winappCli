@@ -735,9 +735,9 @@ try {
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoPill', '-a', $app, '--gone', '-t', '3000')
         $null = Invoke-Cli @('devtools', 'call', 'Overlay.show', '-a', $app)
         # A command run through UI Automation leaves keyboard focus where it was, so the app's own shortcuts still work.
-        # The Esc above closed the bar; hovering opens it the way a mouse user would, without moving keyboard focus.
+        # Show brings the bar back open; hovering it the way a mouse user would keeps it open without moving keyboard focus.
         $null = Invoke-Cli @('ui', 'focus', 'ShortcutReturn', '-a', $app)
-        $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
+        $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoPill', '-a', $app)
         $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoLayout', '-a', $app)
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoLayout', '-a', $app)
         Check ((Wait-Focused 'ShortcutReturn') -eq 'ShortcutReturn') 'a toolbar command invoked through UI Automation returns focus to the app'
