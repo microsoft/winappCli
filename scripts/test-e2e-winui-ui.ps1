@@ -493,7 +493,7 @@ if (-not $devPid) {
 
     # Opening the DevTools window and switching between it and the app changes window activation.
     $null = Invoke-Winapp @("devtools", "call", "Window.open", "-a", "$devPid")
-    $null = Invoke-Winapp @("ui", "wait-for", "TreeScroll", "-a", "$devPid", "-t", "10000")
+    $null = Invoke-Winapp @("ui", "wait-for", "WinAppDevToolsTree", "-a", "$devPid", "-t", "10000")
     $windows = (Invoke-Winapp @("ui", "list-windows", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
     $inspectorHwnd = [string](@($windows | Where-Object title -like "WinApp DevTools*")[0].hwnd)
     $mainHwnd = [string](@($windows | Where-Object { $_.title -notlike "WinApp DevTools*" })[0].hwnd)
