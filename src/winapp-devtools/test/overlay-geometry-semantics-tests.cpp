@@ -124,6 +124,8 @@ static HRESULT TestFocusedWithin(void* element, IInspectable** focused, bool* in
     *inside = element && element == toolbarRootForFocus ? focusInToolbar : focusInPanel; return S_OK;
 }
 static HRESULT TestFocusWithPointer(void*, void*, bool* moved) { ++pointerFocusCalls; *moved = true; return S_OK; }
+static HWND foregroundForFocus = nullptr;
+static HWND WINAPI TestForeground() { return foregroundForFocus; }
 static bool escapeHandled = false;
 static int commentKey = 27;
 static bool commentControl = false;
@@ -160,6 +162,7 @@ static HRESULT GeometryDesiredSize(void*, float* width, float* height) { *width 
 #define DevToolsFocus DismissFocus
 #define DevToolsFocusedWithin TestFocusedWithin
 #define DevToolsFocusWithPointer TestFocusWithPointer
+#define GetForegroundWindow TestForeground
 #define DevToolsGetKey EscapeKey
 #define DevToolsPutHandled EscapeHandled
 #define GetKeyState NoModifierKey
@@ -203,6 +206,7 @@ static HRESULT GeometryDesiredSize(void*, float* width, float* height) { *width 
 #undef DevToolsGetKey
 #undef DevToolsPutHandled
 #undef GetKeyState
+#undef GetForegroundWindow
 #undef DevToolsPanelGetChildren
 #undef DevToolsVecGetSize
 #undef DevToolsVecIndexOf
@@ -1055,6 +1059,12 @@ int main()
             g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
         };
         auto teardown = [&] { if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0); ClearSelectionAnchor(); };
+        auto window = [] {
+            return CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"", WS_POPUP,
+                0, 0, 10, 10, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        };
+        const HWND appWindow = window(), inspectorWindow = window();
+        g_activeSurface.hostHwnd=appWindow;foregroundForFocus=appWindow;
         open();
         focusInPanel=true;focusedOutsidePanel=&appElement;pointerFocusCalls=0;dismissFocusState=-1;
         check(DismissSelectionPanel() && pointerFocusCalls==1,
@@ -1069,6 +1079,12 @@ int main()
         focusInPanel=true;pointerFocusCalls=0;
         ClearSelectionAnchor();
         check(pointerFocusCalls==1,"panel focus","replacing the peek (a new selection) also returns focus with pointer state");
+        // Focus() activates the app's window, which would take keyboard focus from the inspector's tree.
+        open();
+        focusInPanel=true;pointerFocusCalls=0;foregroundForFocus=inspectorWindow;
+        ClearSelectionAnchor();
+        check(pointerFocusCalls==0,"panel focus","a new selection made in the inspector leaves keyboard focus there");
+        foregroundForFocus=appWindow;
         {
             // Focus left on the toolbar is DevTools chrome: the peek must not hand it back there.
             GeometryObject toolbar, toolbarButton;
@@ -1097,6 +1113,8 @@ int main()
         teardown();
         if (g_pickCatcher) { g_pickCatcher->Release(); g_pickCatcher=nullptr; }
         g_canvasChildren=nullptr;g_selectedHandle=0;
+        foregroundForFocus=nullptr;g_activeSurface={};
+        DestroyWindow(appWindow);DestroyWindow(inspectorWindow);
     }
     {
         // A click on the element that is already selected keeps it; a click on another element picks that one.
