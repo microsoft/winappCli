@@ -4732,7 +4732,7 @@ function saveResults(
   const commit = original?.commit ?? currentCommit();
   const startedAt = original?.startedAt ?? entry.startedAt;
   // Kept here, not only in trial-result.json, so a failed judge can be retried without rerunning the agent.
-  if (startedAt) results.attempt = { release, commit, started_at: new Date(startedAt).toISOString() };
+  if (original !== null && startedAt) results.attempt = { release, commit, started_at: new Date(startedAt).toISOString() };
   writeTextAtomic(join(trialDir, "results.json"), JSON.stringify(results, null, 2));
 
   // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
