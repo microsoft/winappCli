@@ -210,11 +210,19 @@ static void TestToolbarContract()
                  "the off-mode hint names both ways to turn DevTools back on");
     Check(overlay.find("ProtoSetPartVisible(L\"DevToolsStartOffHint\", mode == \"off\")") != std::string::npos,
                  "the re-enable hint is only visible while the off start mode is selected");
-    Check(overlay.find("OnStartOffClick") != std::string::npos &&
-                     overlay.find("SetDefaultMode(\"off\");") != std::string::npos &&
+    // WinUI ignores ShowAt until the closing menu's popup is gone, so the reopen is queued from Closed, not Click.
+    const size_t offClick = overlay.find("static void OnStartOffClick");
+    const size_t offFlag = overlay.find("g_reopenMoreMenu = ", offClick);
+    const size_t offSet = overlay.find("SetDefaultMode(\"off\");", offClick);
+    const size_t menuClosed = overlay.find("menu.Closed(");
+    const size_t closedReopen = overlay.find("QueueMoreMenuReopen();", menuClosed);
+    const size_t wiringEnd = overlay.find("menu wiring failed", menuClosed);
+    Check(offClick != std::string::npos && offFlag != std::string::npos && offSet != std::string::npos && offFlag < offSet &&
+                     menuClosed != std::string::npos && closedReopen != std::string::npos && wiringEnd != std::string::npos &&
+                     closedReopen < wiringEnd &&
                      overlay.find("TryEnqueue([weak]()") != std::string::npos &&
                      overlay.find("as<DevToolsXC::MenuFlyout>().ShowAt(target);") != std::string::npos,
-                 "choosing \"Don't start DevTools\" reopens after framework dismissal to show the recovery hint");
+                 "choosing \"Don't start DevTools\" reopens the More menu once WinUI has closed it, so the recovery hint shows");
     Check(xaml.find("<ToggleMenuFlyoutItem x:Name=\"DevToolsToggleMarkers\"") != std::string::npos &&
                      xaml.find("AutomationProperties.Name=\"Show comment markers\"") != std::string::npos &&
                      overlay.find("DevToolsToggleMarkersText") == std::string::npos,

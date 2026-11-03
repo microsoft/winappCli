@@ -577,8 +577,14 @@ static DevToolsXCP::FlyoutPlacementMode ToolbarMenuPlacement()
     return CornerIsTop(g_corner) ? DevToolsXCP::FlyoutPlacementMode::Bottom : DevToolsXCP::FlyoutPlacementMode::Top;
 }
 
+// Choosing "Don't start DevTools" closes the More menu and reopens it, so the hint for turning DevTools back on stays
+// in view. WinUI ignores ShowAt for a menu until its popup finishes closing, and raises Closed just before that, so the
+// reopen is queued from Closed.
+static bool g_reopenMoreMenu = false;
+
 static void PrepareToolbarMenu(const wchar_t* name, const wchar_t* anchor)
 {
+    g_reopenMoreMenu = false; // a menu opening first makes a pending reopen stale
     if (g_toolbarMenu && wcscmp(g_toolbarMenu, name) != 0) CloseToolbarMenu();
     auto menu = ToolbarPart(name).as<DevToolsXC::MenuFlyout>();
     menu.Placement(ToolbarMenuPlacement());
@@ -594,6 +600,31 @@ static void PrepareToolbarMenu(const wchar_t* name, const wchar_t* anchor)
     }
     g_toolbarMenu = name;
     g_toolbarMenuAnchor = anchor;
+}
+
+static void QueueMoreMenuReopen()
+{
+    try {
+        auto anchor = ToolbarPart(L"DevToolsProtoMore").as<DevToolsX::FrameworkElement>();
+        if (!anchor) {
+            DevToolsOverlayLog(L"overlay.toolbar recovery instruction has no toolbar anchor");
+            return;
+        }
+        auto weak = winrt::make_weak(anchor);
+        if (!anchor.DispatcherQueue().TryEnqueue([weak]() {
+            try {
+                auto target = weak.get();
+                if (target && target.IsLoaded() && g_toolbarVisible && g_aRowOpen)
+                    ToolbarPart(L"DevToolsMoreMenu").as<DevToolsXC::MenuFlyout>().ShowAt(target);
+                else
+                    DevToolsOverlayLog(L"overlay.toolbar recovery instruction skipped: the toolbar is not open");
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"overlay.toolbar recovery instruction failed hr=0x%08X", e.code().value);
+            }
+        })) DevToolsOverlayLog(L"overlay.toolbar recovery instruction queue refused");
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar recovery instruction scheduling failed hr=0x%08X", e.code().value);
+    }
 }
 
 static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
@@ -635,7 +666,10 @@ static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
                 g_toolbarMenu = g_toolbarMenuAnchor = nullptr;
             g_toolbarMenuPresenter = {};
             UpdateCatcherHole();
-            if (!g_pinned && !g_barHover && g_toolbarFocusWithin == 0)
+            if (g_reopenMoreMenu && wcscmp(name, L"DevToolsMoreMenu") == 0) {
+                g_reopenMoreMenu = false;
+                QueueMoreMenuReopen();
+            } else if (!g_pinned && !g_barHover && g_toolbarFocusWithin == 0)
                 SetTimer(nullptr, 0, 50, &ToolbarFocusLeftProc);
         });
     } catch (const winrt::hresult_error& e) {
@@ -693,29 +727,10 @@ static void SetDefaultMode(const char* mode)
 }
 static void OnStartShownClick(void*, void*) { SetDefaultMode("on"); }
 static void OnStartHiddenClick(void*, void*) { SetDefaultMode("headless"); }
-// Reopen after WinUI finishes dismissing the clicked item so the recovery instruction remains visible.
 static void OnStartOffClick(void*, void*)
 {
+    g_reopenMoreMenu = g_toolbarMenu && wcscmp(g_toolbarMenu, L"DevToolsMoreMenu") == 0;
     SetDefaultMode("off");
-    try {
-        auto anchor = ToolbarPart(L"DevToolsProtoMore").as<DevToolsX::FrameworkElement>();
-        if (!anchor) {
-            DevToolsOverlayLog(L"overlay.toolbar recovery instruction has no toolbar anchor");
-            return;
-        }
-        auto weak = winrt::make_weak(anchor);
-        if (!anchor.DispatcherQueue().TryEnqueue([weak]() {
-            try {
-                auto target = weak.get();
-                if (target && target.IsLoaded() && g_toolbarVisible)
-                    ToolbarPart(L"DevToolsMoreMenu").as<DevToolsXC::MenuFlyout>().ShowAt(target);
-            } catch (const winrt::hresult_error& e) {
-                DevToolsOverlayLog(L"overlay.toolbar recovery instruction failed hr=0x%08X", e.code().value);
-            }
-        })) DevToolsOverlayLog(L"overlay.toolbar recovery instruction queue refused");
-    } catch (const winrt::hresult_error& e) {
-        DevToolsOverlayLog(L"overlay.toolbar recovery instruction scheduling failed hr=0x%08X", e.code().value);
-    }
 }
 static std::wstring ChipSurfaceLabel()
 {
