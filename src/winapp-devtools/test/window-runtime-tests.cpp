@@ -1393,7 +1393,33 @@ int main()
         check(RereadTreeCaption(0, &before) && before == L"Start focusing" && g_allTreeNodes[0].preview == L"Pause focus",
             "a live change rereads the selected row's tree caption");
         check(!RereadTreeCaption(0, &before), "an unchanged caption is left alone");
+        g_ctx.previewFn = [](std::vector<DevToolsWindowNode>& nodes, const std::vector<size_t>& indices) {
+            for (size_t i : indices) { nodes[i].previewRead = true; nodes[i].searchText = L"New accessible label"; }
+        };
+        check(RereadTreeCaption(0, &before) && before == L"Pause focus",
+            "changed supplemental search text is refreshed even when the visible preview stays the same");
+        check(!RereadTreeCaption(0, &before), "unchanged supplemental search text is left alone");
         g_ctx.previewFn = nullptr; g_allTreeNodes.clear();
+    }
+    {
+        // A live caption change rewrites a Reactor row's preview runs and keeps its Reactor identity: the call-site
+        // run after the preview is not overwritten, and the accessible name and filter still read as Reactor.
+        DevToolsWindowNode reactor{};
+        reactor.type = L"Microsoft.UI.Xaml.Controls.Button";
+        reactor.name = L"incrementButton";
+        reactor.reactorLabel = L"<Counter>";
+        reactor.reactorSource = L"key=inc  App.cs:74";
+        check(TreePreviewRunsEnd(reactor, 7) == 6, "a Reactor row's preview runs end before its call-site run");
+        DevToolsWindowNode xaml = reactor;
+        xaml.reactorLabel.clear();
+        xaml.reactorSource.clear();
+        check(TreePreviewRunsEnd(xaml, 6) == 6, "a XAML row's preview runs are the last three");
+        check(TreeRowIdentity(reactor) == L"<Counter> #incrementButton key=inc  App.cs:74",
+              "a Reactor row is named by its component and call site");
+        check(TreeRowIdentity(xaml) == L"Button #incrementButton", "a XAML row is named by its type");
+        const auto search = TreeRowSearchText(reactor, L"Count: 3");
+        check(search.find(L"Count: 3") != std::wstring::npos && search.find(L"<Counter>") != std::wstring::npos &&
+              search.find(L"App.cs:74") != std::wstring::npos, "the filter still finds a Reactor row by component and call site");
     }
     {
         // A pick that opens the inspector selects its row before the tree's first layout. That reveal must wait for

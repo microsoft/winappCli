@@ -2,6 +2,27 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+// A row's identity as its caption reads it: a Reactor element by its component or element kind and call site.
+static std::wstring TreeRowIdentity(const DevToolsWindowNode& n)
+{
+    std::wstring identity = n.reactorLabel.empty() ? ShortType(n.type) : n.reactorLabel;
+    if (!n.name.empty()) { identity += L" #"; identity += n.name; }
+    if (!n.reactorSource.empty()) { identity += L" "; identity += n.reactorSource; }
+    return identity;
+}
+
+// What the tree filter matches besides the type and name, with the caption's current preview.
+static std::wstring TreeRowSearchText(const DevToolsWindowNode& n, const std::wstring& preview)
+{
+    return preview + L" " + n.searchText + L" " + n.sourceUri + L" " + n.reactorLabel + L" " + n.reactorSource;
+}
+
+// One past a caption's three preview runs: the end, or before a Reactor row's trailing call-site run.
+static uint32_t TreePreviewRunsEnd(const DevToolsWindowNode& n, uint32_t runs)
+{
+    return n.reactorSource.empty() ? runs : runs - 1;
+}
+
 // A sink for one row of this build: a spare from an earlier build when there is one (see g_treeRowSinksSpare).
 template <typename Sink>
 static Sink* TakeTreeRowSink(int pool)
@@ -177,9 +198,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
         // render cap show no chevron (can't collapse what isn't rendered) -- honest.
         const bool hasKids = a.branch;
         const int leftPad = IndentPxForLevel(n.depth - minDepth);
-        std::wstring identity = n.reactorLabel.empty() ? g_treeShortType[i] : n.reactorLabel;
-        if (!n.name.empty()) { identity += L" #"; identity += n.name; }
-        if (!n.reactorSource.empty()) { identity += L" "; identity += n.reactorSource; }
+        const std::wstring identity = TreeRowIdentity(n);
 
         IInspectable* rowGrid = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Grid");
         if (!rowGrid) { DevToolsOverlayLog(L"route1.rows row %zu: Grid did not activate", i); return nullptr; }
@@ -363,11 +382,11 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                         addRun(L"  #", pal.tertiary, false);
                         addRun(n.name, pal.primary, false);
                     }
-                    if (!n.preview.empty()) {
-                        addRun(L"  \u201C", pal.tertiary, false);
-                        addRun(n.preview, pal.secondary, true);
-                        addRun(L"\u201D", pal.tertiary, false);
-                    }
+                    // Keep the preview runs even when empty so live captions never need a row rebuild.
+                    addRun(n.preview.empty() ? L"" : L"  \u201C", pal.tertiary, false);
+                    addRun(n.preview, pal.secondary, true);
+                    addRun(n.preview.empty() ? L"" : L"\u201D", pal.tertiary, false);
+                    // A Reactor call site follows the preview; TreePreviewRunsEnd skips it.
                     if (!n.reactorSource.empty()) addRun(L"  " + n.reactorSource, pal.tertiary, false);
                     inlines->Release();
                 }
@@ -507,8 +526,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
         g_treeDepth[i] = n.depth;
         g_treeShortType[i] = ShortType(n.type);
         g_treeAppAuthored[i] = original < g_allTreeAppAuthored.size() ? g_allTreeAppAuthored[original] : 0;
-        g_treeLabel[i] = DevToolsTreeLayout::BuildTreeFilterLabel(n.type, n.name,
-            n.preview + L" " + n.searchText + L" " + n.sourceUri + L" " + n.reactorLabel + L" " + n.reactorSource);
+        g_treeLabel[i] = DevToolsTreeLayout::BuildTreeFilterLabel(n.type, n.name, TreeRowSearchText(n, n.preview));
         // Addressable whether or not it gets an element: this map answers "is this element in the tree", and
         // a deferred row is in the tree. Populated here rather than in BuildOneTreeRow so it covers
         // rows that builder never runs for.
