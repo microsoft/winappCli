@@ -28,6 +28,7 @@
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
+#include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 
 namespace DevToolsX   = winrt::Microsoft::UI::Xaml;
 namespace DevToolsCnt = winrt::Microsoft::UI::Content;
@@ -43,6 +44,7 @@ namespace DevToolsXI  = winrt::Microsoft::UI::Xaml::Input;
 namespace DevToolsXMk = winrt::Microsoft::UI::Xaml::Markup;
 namespace DevToolsXM  = winrt::Microsoft::UI::Xaml::Media;
 namespace DevToolsXMA = winrt::Microsoft::UI::Xaml::Media::Animation;
+namespace DevToolsXMI = winrt::Microsoft::UI::Xaml::Media::Imaging;
 
 using DevToolsUIElementVector = winrt::Windows::Foundation::Collections::IVector<DevToolsX::UIElement>;
 using DevToolsColumnDefinitionVector = winrt::Windows::Foundation::Collections::IVector<DevToolsXC::ColumnDefinition>;
@@ -85,6 +87,10 @@ inline HRESULT DevToolsWinGetAppWindow(void* win2, ::IInspectable** appWindow) n
 { return DevToolsAbi<DevToolsX::IWindow2>(win2)->get_AppWindow(reinterpret_cast<void**>(appWindow)); }
 inline HRESULT DevToolsWinPutSystemBackdrop(void* win2, void* backdrop) noexcept
 { return DevToolsAbi<DevToolsX::IWindow2>(win2)->put_SystemBackdrop(backdrop); }
+inline HRESULT DevToolsWinPutExtendsContentIntoTitleBar(void* win, bool value) noexcept
+{ return DevToolsAbi<DevToolsX::IWindow>(win)->put_ExtendsContentIntoTitleBar(value); }
+inline HRESULT DevToolsWinSetTitleBar(void* win, void* uiElement) noexcept
+{ return DevToolsAbi<DevToolsX::IWindow>(win)->SetTitleBar(uiElement); }
 
 inline HRESULT DevToolsAppWindowGetFromWindowId(void* statics, unsigned __int64 windowId, ::IInspectable** appWindow) noexcept
 {
@@ -110,6 +116,14 @@ inline HRESULT DevToolsTitleBarGetRightInset(void* titleBar, int* physicalPx) no
 { return DevToolsAbi<DevToolsW::IAppWindowTitleBar>(titleBar)->get_RightInset(reinterpret_cast<int32_t*>(physicalPx)); }
 inline HRESULT DevToolsTitleBarPutPreferredTheme(void* titleBar3, DevToolsW::TitleBarTheme theme) noexcept
 { return DevToolsAbi<DevToolsW::IAppWindowTitleBar3>(titleBar3)->put_PreferredTheme(static_cast<int32_t>(theme)); }
+
+// The WinUI TitleBar control drawn inside the window content, not the system caption above.
+inline HRESULT DevToolsTitleBarControlPutIconSource(void* titleBar, void* iconSource) noexcept
+{ return DevToolsAbi<DevToolsXC::ITitleBar>(titleBar)->put_IconSource(iconSource); }
+inline HRESULT DevToolsImageIconSourceGetImageSource(void* imageIconSource, ::IInspectable** imageSource) noexcept
+{ return DevToolsAbi<DevToolsXC::IImageIconSource>(imageIconSource)->get_ImageSource(reinterpret_cast<void**>(imageSource)); }
+inline HRESULT DevToolsBitmapSourceSetSource(void* bitmapSource, void* randomAccessStream) noexcept
+{ return DevToolsAbi<DevToolsXMI::IBitmapSource>(bitmapSource)->SetSource(randomAccessStream); }
 
 inline HRESULT DevToolsFindName(void* fe, HSTRING name, ::IInspectable** found) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->FindName(DevToolsAbiStr(name), reinterpret_cast<void**>(found)); }
@@ -152,6 +166,8 @@ inline HRESULT DevToolsGetDataContext(void* fe, ::IInspectable** value) noexcept
 
 inline HRESULT DevToolsAddSizeChanged(void* fe, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->add_SizeChanged(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsAddLoaded(void* fe, void* handler, __int64* token) noexcept
+{ return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->add_Loaded(handler, DevToolsAbiTok(token)); }
 inline HRESULT DevToolsRemoveSizeChanged(void* fe, __int64 token) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->remove_SizeChanged(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsGetActualWidth(void* fe, double* value) noexcept
@@ -262,6 +278,8 @@ inline HRESULT DevToolsConverterLocalToScreen(void* converter, float x, float y,
 }
 inline HRESULT DevToolsUpdateLayout(void* ui) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->UpdateLayout(); }
+inline HRESULT DevToolsMeasure(void* ui, float availableW, float availableH) noexcept
+{ return DevToolsAbi<DevToolsX::IUIElement>(ui)->Measure(winrt::Windows::Foundation::Size{ availableW, availableH }); }
 inline HRESULT DevToolsStartBringIntoView(void* ui) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->StartBringIntoView(); }
 inline HRESULT DevToolsFocus(void* ui, int focusState, bool* succeeded) noexcept
