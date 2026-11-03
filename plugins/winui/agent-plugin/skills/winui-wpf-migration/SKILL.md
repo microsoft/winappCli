@@ -128,5 +128,5 @@ Use these references on demand:
 - [ ] Settings, serialized data, command-line behavior, activation, and other external contracts remain compatible.
 - [ ] Imaging output, metadata, orientation, alpha, color handling, and error cases are validated when imaging changed.
 - [ ] Tests cover behavior rather than only proving that namespaces were replaced.
-- [ ] Intended AOT/trimming behavior is checked through the publish/run path in `winui-dev-workflow` and `winui-packaging`'s `references/sourcegen-patterns.md`; an ordinary Release build/run still uses JIT and does not prove AOT compatibility.
+- [ ] Validate the intended AOT/trimmed publish output. Use `winui-dev-workflow` for Native AOT publish/run steps and `winui-packaging`'s `references/sourcegen-patterns.md` for trimming, binding, and serialization guidance. An ordinary Release build/run does not prove AOT or trimmed-publish compatibility.
 - [ ] Repository-approved build/run/package checks pass, or skipped checks are reported with the governing restriction.

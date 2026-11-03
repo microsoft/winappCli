@@ -262,7 +262,7 @@ If `Opacity="0"` replaces `Visibility.Hidden`, decide whether the element should
 
 ## Geometry and Clip Differences
 
-WPF `CombinedGeometry` and complex `UIElement.Clip` expressions do not map mechanically. For rendered shapes, a `Path` can often use a `GeometryGroup` with `FillRule="EvenOdd"` to create union/hole effects. WinUI `UIElement.Clip` is more restricted (commonly `RectangleGeometry`), so complex clipping may require a `Path` overlay, mask/composition clip, or redesigned visual. Verify the exact target property/API instead of applying one workaround to every geometry.
+WPF `CombinedGeometry` and complex `UIElement.Clip` expressions do not map mechanically. For rendered shapes, a `Path` with a `GeometryGroup` and `FillRule="EvenOdd"` can create hole effects: regions covered an even number of times are left unfilled. For example, the overlap of two rectangles is unfilled under `EvenOdd`, while a `Union` must keep it filled. Preserve the intended `Union`, `Intersect`, `Exclude`, or `Xor` operation with a geometry API that supports that boolean operation when needed. WinUI `UIElement.Clip` is more restricted (commonly `RectangleGeometry`), so complex clipping may require a `Path` overlay, mask/composition clip, or redesigned visual. Verify the exact target property/API instead of applying one workaround to every geometry.
 
 ## WPF-UI and Other WPF Control Libraries
 
