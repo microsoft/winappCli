@@ -157,7 +157,7 @@ internal sealed class ProjectDetectionService(
     }
 
     private static bool IsPythonVirtualEnvironment(DirectoryInfo directory) =>
-        File.Exists(Path.Combine(directory.FullName, "pyvenv.cfg"));
+        File.Exists(Path.Join(directory.FullName, "pyvenv.cfg"));
 
     private static string? FindTauriConfFile(DirectoryInfo directory)
     {
