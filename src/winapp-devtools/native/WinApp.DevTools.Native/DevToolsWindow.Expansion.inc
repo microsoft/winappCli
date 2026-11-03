@@ -44,18 +44,12 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             IInspectable* kindEl = FindInRow(fe, L"PKind");
             void* frameUi = nullptr; void* kindUi = nullptr;
             if (kindEl) kindEl->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &kindUi);
-            bool wired = false;
             if (kindUi && SUCCEEDED(frame->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &frameUi)) && frameUi) {
-                ExpBackgroundFocusSink* bs = new ExpBackgroundFocusSink(); bs->Init(kindUi);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddPointerPressed(frameUi, bs, &tok);
-                wired = SUCCEEDED(hr);
-                if (!wired)
-                    DevToolsOverlayLog(L"route1.props expansion background for '%s' add_PointerPressed FAILED hr=0x%08X"
-                                  L" -- clicking off the field will not commit", path.c_str(), hr);
+                ExpBackgroundFocusSink* bs = new ExpBackgroundFocusSink(); bs->Init(ctx, kindUi);
+                WireKindEditor(bs, frameUi, DevToolsAddPointerPressed, DevToolsRemovePointerPressed);
                 reinterpret_cast<IUnknown*>(frameUi)->Release();
             }
-            if (kindUi && !wired) reinterpret_cast<IUnknown*>(kindUi)->Release();
+            if (kindUi) reinterpret_cast<IUnknown*>(kindUi)->Release();
             if (kindEl) kindEl->Release();
         }
         frame->Release();
@@ -78,11 +72,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             if (edit >= 0) {
                 KindSelectSink* ks = new KindSelectSink();
                 ks->Init(ctx, sel);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddSelectionChanged(sel, ks, &tok);
-                if (FAILED(hr))
-                    DevToolsOverlayLog(L"route1.props kind picker for '%s' add_SelectionChanged FAILED hr=0x%08X -- it will not stage",
-                                  path.c_str(), hr);
+                WireKindEditor(ks, sel, DevToolsAddSelectionChanged, DevToolsRemoveSelectionChanged);
             }
             reinterpret_cast<IUnknown*>(sel)->Release();
         }
@@ -133,7 +123,14 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
                     const auto modeBox = modeObject.as<DevToolsXCP::Selector>();
                     const winrt::hstring pathAtOpen = pathBox.Text();
                     const int32_t modeAtOpen = modeBox.SelectedIndex();
-                    auto sync = [stagedBox, pathBox, modeBox, pathAtOpen, modeAtOpen]() {
+                    auto sync = [staged = winrt::make_weak(stagedBox), path = winrt::make_weak(pathBox),
+                                 mode = winrt::make_weak(modeBox), pathAtOpen, modeAtOpen,
+                                 gen = g_route1Gen, wire = g_selWire]() {
+                        if (gen != g_route1Gen || wire != g_selWire) return;
+                        const auto stagedBox = staged.get();
+                        const auto pathBox = path.get();
+                        const auto modeBox = mode.get();
+                        if (!stagedBox || !pathBox || !modeBox) return;
                         const bool editing = pathBox.Text() != pathAtOpen || modeBox.SelectedIndex() != modeAtOpen;
                         stagedBox.Visibility(editing ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
                     };
@@ -151,13 +148,14 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             if (bindingReplacement) {
                 head = L"Replace the entire binding, not just its path or mode.";
                 body = DevToolsBindingInstall_ReplacementWarning();
-                if (current == DevToolsKind::XBind)
-                    body += L" The authored x:Bind is compiled and read-only; this is a separate classic binding, not an edit to generated code.";
+                if (r.authoredKind == L"xBind")
+                    body += L" This replacement is temporary: generated compiled-binding updates can overwrite it. "
+                            L"The authored x:Bind is not changed.";
             } else if (current == DevToolsKind::XBind || current == DevToolsKind::Binding) {
                 head = L"This replaces the binding.";
                 body = (current == DevToolsKind::XBind)
-                     ? std::wstring(L"The compiled x:Bind stops updating this value. Restore binding can re-run the "
-                                    L"page's compiled bindings; if that doesn't bring it back, restart the app.")
+                     ? std::wstring(L"This overrides the compiled x:Bind, but generated updates can overwrite your edit. "
+                                    L"Restore binding asks before re-applying all compiled bindings on the same owner.")
                      : ((r.authored.empty() ? std::wstring(L"The binding") : r.authored)
                         + L" stops updating this value. Restore binding can put it back; if it can't, restart the app.");
             } else if (KindIsResource(current) && !KindIsResource(shown)) {
@@ -191,11 +189,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             void* bb = nullptr;
             if (edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 KindApplySink* as = new KindApplySink(); as->Init(ctx);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddClick(bb, as, &tok);
-                if (FAILED(hr))
-                    DevToolsOverlayLog(L"route1.props Apply for '%s' add_Click FAILED hr=0x%08X -- a staged change cannot commit",
-                                  path.c_str(), hr);
+                WireKindEditor(as, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -205,8 +199,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             void* bb = nullptr;
             if (edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 KindCancelSink* cs = new KindCancelSink(); cs->Init(ctx);
-                __int64 tok = 0;
-                DevToolsAddClick(bb, cs, &tok);
+                WireKindEditor(cs, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -329,9 +322,8 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
 
     // A binding replaced by a literal still gets the BINDING block, so Restore binding stays reachable.
     // This includes bindings set in code or applied from the panel, which the XAML doesn't declare.
-    const bool lostBinding = shown == DevToolsKind::Literal && BindingLost(path);
-    const bool bound = (shown == DevToolsKind::XBind || shown == DevToolsKind::Binding) || lostBinding;
-    const bool xbind = shown == DevToolsKind::XBind || (lostBinding && r.authoredKind == L"xBind");
+    const bool lostBinding = current == DevToolsKind::Literal && BindingLost(path);
+    const bool bound = (current == DevToolsKind::XBind || current == DevToolsKind::Binding) || lostBinding;
     if (bound) { PostWalk(path); PostDiagnose(path); }
     const WalkAnswer* answer = bound ? WalkFind(path) : nullptr;
     DevToolsPathWalkView wv;
@@ -352,7 +344,9 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
     if (replaced || overridden) {
         DevToolsJson act;
         if (DevToolsJsonParse(diag->action, act) && act.IsObject() && !RestoreLanded(diag->action))
-            sum.reason = (act.GetString(L"ownerUpdated") == L"True" ? std::wstring(L"Restore not confirmed: ")
+            sum.reason = act.GetString(L"state") == L"confirmation-required"
+                       ? std::wstring(L"Choose whether to re-apply all compiled bindings below")
+                       : (act.GetString(L"ownerUpdated") == L"True" ? std::wstring(L"Restore not confirmed: ")
                                                                     : std::wstring(L"Restore failed: "))
                        + act.GetString(L"reason");
     }
@@ -398,18 +392,40 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         // nothing.
         const bool offer = bound && g_ctx.bindFn && (replaced || overridden);
         if (IInspectable* row = FindInRow(fe, L"PBindRestoreRow")) { ShowEl(row, offer); row->Release(); }
-        if (IInspectable* note = FindInRow(fe, L"PBindRestoreNote")) { ShowEl(note, offer && xbind); note->Release(); }
         if (IInspectable* b = FindInRow(fe, L"PBindRestore")) {
             SetAutomationTextOn(b, L"Restore the binding on " + path, L"", L"");
             void* bb = nullptr;
             if (offer && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 BindRestoreSink* rs = new BindRestoreSink();
-                rs->Init(path, xbind);
-                __int64 tok = 0;
-                DevToolsAddClick(bb, rs, &tok);
+                rs->Init(path, BindRestoreSink::Choice::Request, g_expansionRowFe);
+                WireKindEditor(rs, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
+        }
+        DevToolsJson action;
+        const bool confirm = diag && DevToolsJsonParse(diag->action, action) &&
+                             action.GetString(L"state") == L"confirmation-required";
+        if (IInspectable* panel = FindInRow(fe, L"PBindRestoreConfirm")) { ShowEl(panel, confirm); panel->Release(); }
+        if (IInspectable* text = FindInRow(fe, L"PBindRestoreScope")) {
+            SetTextOn(text, confirm ? action.GetString(L"restoreOwner") + L": " + action.GetString(L"warning") +
+                                     L" " + action.GetString(L"restoreDisclosure") : std::wstring());
+            text->Release();
+        }
+        for (const auto& entry : { std::make_pair(L"PBindRestoreYes", BindRestoreSink::Choice::Confirm),
+                                   std::make_pair(L"PBindRestoreCancel", BindRestoreSink::Choice::Cancel) }) {
+            if (IInspectable* button = FindInRow(fe, entry.first)) {
+                SetAutomationTextOn(button, entry.second == BindRestoreSink::Choice::Confirm
+                    ? L"Re-apply all compiled bindings for " + path : L"Cancel Restore binding on " + path, L"", L"");
+                void* bb = nullptr;
+                if (confirm && SUCCEEDED(button->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                    BindRestoreSink* sink = new BindRestoreSink();
+                    sink->Init(path, entry.second, g_expansionRowFe);
+                    WireKindEditor(sink, bb, DevToolsAddClick, DevToolsRemoveClick);
+                    reinterpret_cast<IUnknown*>(bb)->Release();
+                }
+                button->Release();
+            }
         }
     }
     if (IInspectable* q = FindInRow(fe, L"PDiagQ")) {
@@ -479,6 +495,8 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
 static void RebuildExpansion(void* rowFe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
     if (!rowFe) return;
+    RetireKindEditors(rowFe);
+    RetireRowExpandSinks(rowFe, /*descendantsOnly*/ true);
     if (IInspectable* host = FindInRow(rowFe, L"PExpand")) {
         void* pnl = nullptr; void* kids = nullptr;
         if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
@@ -616,8 +634,23 @@ HRESULT STDMETHODCALLTYPE GetElement(void* args, void** element) noexcept overri
         *element = ui;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE RecycleElement(void* /*args*/) noexcept override
+    HRESULT STDMETHODCALLTYPE RecycleElement(void* args) noexcept override
     {
+        IInspectable* element = nullptr;
+        const HRESULT hr = DevToolsGetRecycleElement(args, &element);
+        if (FAILED(hr)) {
+            DevToolsOverlayLog(L"route1.props recycle element failed hr=0x%08X", hr);
+            return hr;
+        }
+        if (element) {
+            void* fe = nullptr;
+            if (SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+                RetireKindEditors(fe);
+                RetireRowExpandSinks(fe);
+                reinterpret_cast<IUnknown*>(fe)->Release();
+            }
+            element->Release();
+        }
         return S_OK;
     }
 };
