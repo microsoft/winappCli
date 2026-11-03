@@ -724,7 +724,7 @@ struct PropShowAllSink : DevToolsSinkBase
         if (gen != g_route1Gen) return S_OK;
         g_propShowAll = !g_propShowAll;
         const size_t shown = RebuildPaneItems();
-        UpdatePropCount(shown);
+        UpdatePropEmptyState(shown);
         if (g_propShowAllLbl) {
             HSTRING hs = MakeStr(PropShowAllLabel(g_propRows));
             DevToolsPutText(g_propShowAllLbl, hs);

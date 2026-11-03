@@ -87,7 +87,8 @@ static int RunInspectorAcceptanceSuite(bool legacyOracle)
     }
     check(24.0 * 1.25 == 30.0, "M2 sealed oracle: old origin yields 30 physical pixel error");
     check(TreeWidth(420, 640) == 334, "M12 800px at 125% reserves right pane and divider");
-    check(TreeWidth(420, 780) == 420, "M12 default window preserves original split");
+    check(TreeWidth(kDefaultTreeWidth, 715) == kDefaultTreeWidth,
+          "M12 default window (715 DIP card beside the rail) keeps the default split");
     check(TreeWidth(900, 640) == 334, "M12 oversized drag clamps like resize");
     check(TreeWidth(10, 640) == 220, "M12 tree minimum retained when feasible");
     check(TreeWidth(420, 400) == 94, "M12 tiny surface prioritizes right pane");

@@ -26,7 +26,8 @@ static bool focusTrackingAvailable = true;
 static bool TestSetFocusTracking(bool) { return focusTrackingAvailable; }
 static int testFontStyle = -1;
 static HRESULT PutTestFontStyle(void*, int style) { testFontStyle=style; return S_OK; }
-static HRESULT PutTestForeground(void*, void*) { return S_OK; }
+static HRESULT PutTestForeground(void*, void*);
+static HRESULT GetTestForeground(void*, IInspectable**);
 static unsigned focusCalls = 0;
 static HRESULT TestFocus(void*, int, bool* success) { ++focusCalls; *success=true; return S_OK; }
 static HRESULT TestActualTheme(void*, int*);
@@ -38,6 +39,32 @@ static HRESULT TestAddTheme(void*, void*, __int64*);
 static LRESULT CALLBACK TestNativeClose(HWND, UINT, WPARAM, LPARAM);
 static double testViewport = 0.0;
 static HRESULT TestViewport(void*, double* value) { *value = testViewport; return S_OK; }
+static void* titleBarDragElement = nullptr;
+static void* loadedHandler = nullptr;
+static bool contentExtended = false;
+static unsigned setTitleBarCalls = 0, loadedAdds = 0;
+static HRESULT extendResult = S_OK, setTitleBarResult = S_OK, addLoadedResult = S_OK;
+static HRESULT TestExtendContent(void*, bool value)
+{
+    if (value && FAILED(extendResult)) return extendResult;
+    contentExtended = value;
+    return S_OK;
+}
+static HRESULT TestSetTitleBar(void*, void* element)
+{
+    ++setTitleBarCalls;
+    if (FAILED(setTitleBarResult)) return setTitleBarResult;
+    titleBarDragElement = element;
+    return S_OK;
+}
+static HRESULT TestAddLoaded(void*, void* handler, __int64* token)
+{
+    ++loadedAdds;
+    if (FAILED(addLoadedResult)) return addLoadedResult;
+    loadedHandler = handler;
+    *token = 7;
+    return S_OK;
+}
 static HRESULT TestAddRowEvent(void*, void*, __int64*);
 static HRESULT TestRemoveRowEvent(void*, __int64);
 static HRESULT TestRecycleElement(void*, IInspectable**);
@@ -64,6 +91,7 @@ static HRESULT TestRecycleElement(void*, IInspectable**);
 #define DevToolsOverlay_SetFocusTracking TestSetFocusTracking
 #define DevToolsPutFontStyle PutTestFontStyle
 #define DevToolsPutTextForeground PutTestForeground
+#define DevToolsGetTextForeground GetTestForeground
 #define DevToolsFocus TestFocus
 #define DevToolsGetActualTheme TestActualTheme
 #define DevToolsTitleBarPutPreferredTheme TestCaptionTheme
@@ -73,6 +101,9 @@ static HRESULT TestRecycleElement(void*, IInspectable**);
 #define DevToolsAddActualThemeChanged TestAddTheme
 #define DefSubclassProc TestNativeClose
 #define DevToolsScrollGetViewportHeight TestViewport
+#define DevToolsWinPutExtendsContentIntoTitleBar TestExtendContent
+#define DevToolsWinSetTitleBar TestSetTitleBar
+#define DevToolsAddLoaded TestAddLoaded
 #define DevToolsAddExpanding TestAddRowEvent
 #define DevToolsAddCollapsed TestAddRowEvent
 #define DevToolsRemoveExpanding TestRemoveRowEvent
@@ -89,6 +120,7 @@ struct TestElement : IInspectable {
     int selectedIndex = -1;
     std::wstring automationName, automationId;
     std::vector<IInspectable*> children;
+    IInspectable* foreground = nullptr;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** value) override {
         *value=static_cast<IInspectable*>(this); AddRef(); return S_OK;
     }
@@ -166,7 +198,18 @@ static HRESULT PutTestEnabled(void* element, bool value)
     static_cast<TestElement*>(element)->enabled = value;
     return S_OK;
 }
-static TestElement testRow, testValue, testStatus, testInput, testHeader;
+static HRESULT PutTestForeground(void* element, void* brush)
+{
+    static_cast<TestElement*>(element)->foreground = static_cast<IInspectable*>(brush);
+    return S_OK;
+}
+static HRESULT GetTestForeground(void* element, IInspectable** brush)
+{
+    *brush = static_cast<TestElement*>(element)->foreground;
+    if (*brush) (*brush)->AddRef();
+    return S_OK;
+}
+static TestElement testRow, testValue, testStatus, testInput, testHeader, testTitleBar;
 static TestElement testExpansion, testChain, testChainWitness, testDerived, testChainWho, testSwatch, testHex, testPreset;
 static bool exposeExpansion = false;
 static LostFocusSink* reentrantHexCommit = nullptr;
@@ -226,7 +269,7 @@ static HRESULT TestBorderBackground(void* border, void* brush)
     static_cast<TestElement*>(border)->text = static_cast<TestElement*>(brush)->text;
     return S_OK;
 }
-static bool exposeHeader = false;
+static bool exposeHeader = false, exposeTitleBar = false;
 static TestElement testAppWindow, testCaption;
 static HRESULT appWindowResult = S_OK, captionResult = S_OK, addThemeResult = S_OK, putThemeResult = S_OK;
 static unsigned themeAdds = 0;
@@ -269,6 +312,7 @@ static HRESULT FindTestName(void*, HSTRING name, IInspectable** found)
         if (key == L"PPreset") *found = &testPreset;
         if (*found && *found != &testValue && *found != &testHeader) (*found)->AddRef();
     }
+    if(exposeTitleBar && std::wstring(chars,length)==L"InspectorTitleBar") { *found=&testTitleBar; testTitleBar.AddRef(); }
     return S_OK;
 }
 static HRESULT PutTestText(void* element, HSTRING value)
@@ -579,22 +623,14 @@ int main()
         g_pickBtnCtrl = g_pickOnUi = g_focusBtnCtrl = g_focusOnUi = nullptr;
     }
     {
-        TestElement first, second;
-        g_selBrushTried = true;
-        SelectRowVisual(&first);
-        check(g_selCtrl == &first && first.refs == 2,
-            "tree selection is tracked even when selection brushes are unavailable");
-        SelectRowVisual(&second);
-        check(g_selCtrl == &second && first.refs == 1 && second.refs == 2,
-            "changing tree selection releases the old row and retains the new row");
         g_selectedWire = 77;
         SelectNodeByWire(0);
-        check(!g_selCtrl && !g_selectedWire && second.refs == 1,
-            "clearing the selected element clears tree selection and releases the retained row");
-        g_selBrushTried = false;
+        check(!g_selectedWire, "clearing selection works before the WinUI tree is loaded");
+        SyncTreeSelection();
+        check(!g_selectedWire, "synchronizing an unloaded tree does not invent a selection");
     }
     {
-        TestElement rows[5], expander, glyph;
+        TestElement rows[5];
         for (auto& row : rows) {
             g_treeRows.push_back(&row);
             g_treeControls.push_back(&row);
@@ -607,48 +643,45 @@ int main()
         g_treeVisible.resize(5);
         g_treeA11y.resize(5);
         g_treeA11y[0].branch = g_treeA11y[2].branch = true;
-        g_treeAutomationParents = {DevToolsTreeLayout::kNoRow, 0, 0, 2, 2};
-        g_treeChevronToggle = {&expander, nullptr, nullptr, nullptr, nullptr};
-        g_treeGlyph = {&glyph, nullptr, nullptr, nullptr, nullptr};
-        check(!HandleTreeRowKey(0, VK_RETURN) && !HandleTreeRowKey(0, VK_SPACE),
-            "tree rows leave Enter and Space to Button selection");
+        g_treeParents = {DevToolsTreeLayout::kNoRow, 0, 0, 2, 2};
         RecomputeTreeVisibility();
-        check(HandleTreeRowKey(0, VK_RIGHT) && !g_treeCollapsed[0] &&
+        check(g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
+            "a collapsed model excludes its descendants before any containers are realized");
+        check(SetTreeRowExpanded(0, true) && !g_treeCollapsed[0] &&
               g_treeVisible == std::vector<char>({1, 1, 1, 1, 1}),
-            "Right arrow expands a collapsed row and reveals its descendants");
-        const unsigned beforeFocus = focusCalls;
-        check(HandleTreeRowKey(0, VK_RIGHT) && focusCalls == beforeFocus + 1 && !g_selCtrl,
-            "Right arrow on an expanded row focuses its first child without selecting it");
-        check(HandleTreeRowKey(1, VK_LEFT) && focusCalls == beforeFocus + 2 && !g_selCtrl,
-            "Left arrow on a leaf focuses its parent without selecting it");
-        check(HandleTreeRowKey(0, VK_LEFT) && g_treeCollapsed[0] &&
+            "expanding the model reveals descendants for the WinUI tree");
+        check(!SetTreeRowExpanded(1, true) && !SetTreeRowExpanded(5, true),
+            "leaf and out-of-range expansion requests do not change the tree");
+        check(SetTreeRowExpanded(0, false) && g_treeCollapsed[0] &&
               g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
-            "Left arrow collapses an expanded row and hides its descendants");
+            "collapsing the model hides descendants");
+        g_selectedWire = 77;
         ApplyTreeFilter(L"Grid");
         const auto filteredVisibility = g_treeVisible;
         const auto filteredCollapse = g_treeCollapsed;
-        check(filteredVisibility == std::vector<char>({1, 0, 1, 0, 0}) && !expander.enabled,
-            "filtering shows all matches across collapsed branches and disables expand arrows");
+        check(filteredVisibility == std::vector<char>({1, 0, 1, 0, 0}),
+            "filtering shows all matches across collapsed branches");
         check(!SetTreeRowExpanded(0, true) && !SetTreeRowExpanded(0, false) &&
               g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse &&
               g_treeFilterQuery == L"grid",
             "provider expansion and collapse preserve the active filter and saved collapse state");
-        ChevronSink chevron; chevron.Init(0);
-        chevron.Invoke(nullptr, nullptr);
+        check(g_selectedWire == 77,
+            "filtering out the selected row retains the inspected element");
+        ApplyTreeFilter(L" Grid ");
         check(g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse,
-            "a chevron callback cannot expose nonmatching rows while filtering");
-        check(HandleTreeRowKey(0, VK_RIGHT) && HandleTreeRowKey(2, VK_LEFT) &&
-              g_treeVisible == filteredVisibility && g_treeCollapsed == filteredCollapse && !g_selCtrl,
-            "arrow keys navigate filtered matches without changing expansion or selection");
+            "normalized filters keep the same matches and saved expansion state");
+        ApplyTreeFilter(L"no match");
+        check(g_treeVisible == std::vector<char>(5, 0) && g_selectedWire == 77,
+            "an empty filter result does not clear the inspected element");
         ApplyTreeFilter(L"");
-        check(expander.enabled && g_treeCollapsed[0] && g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
-            "clearing the filter restores the saved collapse state and enables expand arrows");
-        check(HandleTreeRowKey(0, VK_RIGHT) && !g_treeCollapsed[0] && g_treeVisible[1],
-            "keyboard expansion works again after clearing the filter");
+        check(g_treeCollapsed[0] && g_treeVisible == std::vector<char>({1, 0, 0, 0, 0}),
+            "clearing the filter restores the saved collapse state");
+        check(SetTreeRowExpanded(0, true) && !g_treeCollapsed[0] && g_treeVisible[1],
+            "expansion works again after clearing the filter");
+        g_selectedWire = 0;
         g_treeRows.clear(); g_treeControls.clear(); g_treeDepth.clear(); g_treeAppAuthored.clear();
         g_treeShortType.clear(); g_treeLabel.clear(); g_treeCollapsed.clear(); g_treeVisible.clear();
-        g_treeA11y.clear(); g_treeAutomationParents.clear(); g_treeChevronToggle.clear();
-        g_treeGlyph.clear(); g_treeViewDepth.clear();
+        g_treeA11y.clear(); g_treeParents.clear();
         focusCalls = 0;
     }
     {
@@ -765,6 +798,22 @@ int main()
         "empty and nested properties keep an explicit accessible value and full path");
     check(testValue.text.empty() && testValue.automationName==L"Child.Text, (empty)" &&
         testValue.automationId==L"Child.Text shown","an empty value clears the previous child accessible value");
+    {
+        // The palette slots hold donor TextBlocks, so a row must take the donor's brush, not the donor.
+        TestElement primaryDonor, secondaryDonor, primaryBrush, secondaryBrush;
+        primaryDonor.foreground=&primaryBrush;secondaryDonor.foreground=&secondaryBrush;
+        g_palPrimary=&primaryDonor;g_palSecondary=&secondaryDonor;
+        auto colored=shown;colored.type=L"Double";colored.value=L"200";colored.valueState.clear();
+        PopulateRowValue(&testValue,colored,L"Width");
+        check(testValue.foreground==&primaryBrush && testFontStyle==0,"a property value uses the primary text brush");
+        colored.valueState=L"null";
+        PopulateRowValue(&testValue,colored,L"Width");
+        check(testValue.foreground==&secondaryBrush && testFontStyle==2,
+            "a missing value uses the secondary text brush in italic");
+        check(primaryDonor.refs==1 && secondaryDonor.refs==1 && primaryBrush.refs==1 && secondaryBrush.refs==1,
+            "copying a donor brush releases what it reads");
+        g_palPrimary=g_palSecondary=nullptr;testValue.foreground=nullptr;
+    }
     g_apStatics=nullptr;
     g_propExpanded.clear();values[88]=L"True";g_propRows={row};testValue.text=L"True";
 
@@ -774,7 +823,10 @@ int main()
     const auto before=writes;
     input.Invoke(nullptr,nullptr);
     check(writes==before,"failed editor read never mutates target");
-    check(testStatus.text.find(L"read")!=std::wstring::npos,"failed editor read is visible in status");
+    check(testStatus.text.find(L"read")!=std::wstring::npos && testStatus.visibility==0,
+        "failed editor read is visible in status");
+    SetStatusText(L"");
+    check(testStatus.visibility==1,"an empty status line takes no space");
     g_ctx.readInputFn=[](IInspectable*,std::wstring& text){text.clear();return true;};
     input.Invoke(nullptr,nullptr);
     check(writes==before+1 && values[88].empty(),"successful empty editor read commits empty string");
@@ -1171,6 +1223,63 @@ int main()
         g_route1WindowInsp=nullptr;g_ctx.highlightFn=savedHighlight;
     }
     {
+        // Content extends under the caption only once the TitleBar control can drag the window, and any failure
+        // puts the system caption back, so the inspector never shows two caption bars or none.
+        TestElement tbWindow;
+        loadedAdds=0;
+        check(AttachInspectorTitleBar(&tbWindow,&testTitleBar)==S_OK &&
+            contentExtended && titleBarDragElement==&testTitleBar && setTitleBarCalls==1,
+            "content extends under the caption and the TitleBar control drags the window");
+        titleBarDragElement=nullptr;contentExtended=false;setTitleBarCalls=0;
+        setTitleBarResult=E_FAIL;
+        check(AttachInspectorTitleBar(&tbWindow,&testTitleBar)==E_FAIL &&
+            !contentExtended && !titleBarDragElement && setTitleBarCalls==1,
+            "a rejected drag region restores the system caption");
+        setTitleBarResult=S_OK;setTitleBarCalls=0;extendResult=E_FAIL;
+        check(AttachInspectorTitleBar(&tbWindow,&testTitleBar)==E_FAIL &&
+            !contentExtended && setTitleBarCalls==0,
+            "a window that cannot extend its content keeps the system caption");
+        extendResult=S_OK;
+        check(ConfigureInspectorTitleBar(&tbWindow,&testValue,nullptr)==S_FALSE &&
+            !contentExtended && setTitleBarCalls==0 && loadedAdds==0,
+            "a shell without the title bar keeps the system caption");
+
+        exposeTitleBar=true;testTitleBar.visibility=0;
+        check(ConfigureInspectorTitleBar(&tbWindow,&testValue,nullptr)==S_FALSE &&
+            testTitleBar.visibility==1 && !contentExtended && setTitleBarCalls==0 && loadedAdds==0,
+            "without a native window to title, the TitleBar collapses and the system caption stays");
+        HWND titleHwnd=CreateWindowExW(0,L"STATIC",L"",0,0,0,0,0,HWND_MESSAGE,nullptr,nullptr,nullptr);
+        check(titleHwnd!=nullptr,"a message-only window stands in for the inspector window");
+        testTitleBar.visibility=0;addLoadedResult=E_FAIL;
+        check(ConfigureInspectorTitleBar(&tbWindow,&testValue,titleHwnd)==S_FALSE &&
+            testTitleBar.visibility==1 && !contentExtended && setTitleBarCalls==0 && !loadedHandler,
+            "if the window title cannot be kept, the TitleBar collapses and the system caption stays");
+        testTitleBar.visibility=0;addLoadedResult=S_OK;
+        check(ConfigureInspectorTitleBar(&tbWindow,&testValue,titleHwnd)==S_OK &&
+            testTitleBar.visibility==0 && contentExtended && titleBarDragElement==&testTitleBar && loadedHandler,
+            "the shell's TitleBar replaces the system caption");
+
+        // The TitleBar copies its short Title to the window when it is templated; Loaded puts the PID back.
+        wchar_t pid[32];
+        swprintf_s(pid,L"PID %lu",GetCurrentProcessId());
+        const std::wstring expectedTitle=std::wstring(L"WinApp DevTools \u00B7 ")+pid;
+        auto windowTitle=[&]() { wchar_t text[64]{}; GetWindowTextW(titleHwnd,text,_countof(text)); return std::wstring(text); };
+        auto* titleSink=static_cast<InspectorWindowTitleSink*>(loadedHandler);
+        if (titleSink) {
+            SetWindowTextW(titleHwnd,L"WinApp DevTools");
+            titleSink->Invoke(nullptr,nullptr);
+            check(PidText()==pid && windowTitle()==expectedTitle,
+                "the window title keeps the PID that winapp ui looks for");
+            ++g_route1Gen;
+            SetWindowTextW(titleHwnd,L"WinApp DevTools");
+            titleSink->Invoke(nullptr,nullptr);
+            check(windowTitle()==L"WinApp DevTools","a title handler from an earlier window does not rename the current one");
+        }
+        if (titleHwnd) DestroyWindow(titleHwnd);
+        exposeTitleBar=false;testTitleBar.visibility=1;loadedHandler=nullptr;loadedAdds=0;
+        titleBarDragElement=nullptr;contentExtended=false;setTitleBarCalls=0;
+    }
+    {
         DevToolsWindowLayout stretched{};
         stretched.haveDesired=stretched.haveRender=true;
         stretched.desiredW=80;stretched.renderW=400;stretched.renderH=32;
@@ -1247,20 +1356,29 @@ int main()
         g_layoutSectionOpen=0;
         const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noSourceInfo",L"",&stretched);
-        const auto crumb=pane.find(L"WinAppDevToolsBreadcrumb"), filter=pane.find(L"PropFilter"),
+        const auto view=pane.find(L"x:Name=\"PropViewSelector\""), filter=pane.find(L"PropFilter"),
             section=pane.find(L"WinAppDevToolsSizeSpacing"), box=pane.find(L"WinAppDevToolsBoxModel\"");
-        check(crumb<section && section<box && box<filter && filter!=std::wstring::npos,
-            "properties pane: header, then the Size & spacing section, then filter and grid");
-        check(pane.find(L"SIZE &amp; SPACING")!=std::wstring::npos && pane.find(L"Text=\"LAYOUT\"")==std::wstring::npos,
+        check(section<box && box<filter && filter<view && view!=std::wstring::npos,
+            "properties pane: the Size & spacing section, then the filter with Computed | Set on its right, then the grid");
+        const auto filterTag=filter==std::wstring::npos ? std::wstring() : pane.substr(filter,pane.find(L"/>",filter)-filter);
+        check(!filterTag.empty() && filterTag.find(L"FontSize=")==std::wstring::npos && filterTag.find(L"Grid.Column=")==std::wstring::npos &&
+            pane.find(L"<SelectorBar x:Name=\"PropViewSelector\" Grid.Column=\"1\"")!=std::wstring::npos,
+            "the property filter fills the left column at the normal text size, like the tree filter");
+        check(pane.find(L"Text=\"PROPERTIES\"")==std::wstring::npos && pane.find(L"x:Name=\"Status\"")==std::wstring::npos &&
+            pane.find(L"WinAppDevToolsBreadcrumb")==std::wstring::npos && pane.find(L"Edits apply")==std::wstring::npos,
+            "the pane has no PROPERTIES caption; the title, breadcrumb and messages live in the window around it");
+        check(pane.find(L"Text=\"Size &amp; spacing\"")!=std::wstring::npos && pane.find(L"Text=\"LAYOUT\"")==std::wstring::npos,
             "the section is named apart from the grid's Layout category");
         check(pane.find(L"LayoutToggle\"")==std::wstring::npos && pane.find(L"x:Name=\"LayoutMore\"")==std::wstring::npos &&
             BuildLayoutSection(stretched,{}).find(L"WinAppDevToolsBoxModelDetail")!=std::wstring::npos,
             "the section has no nested More disclosure; its details show when it is open");
-        check(pane.find(L"x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\" Visibility=\"Collapsed\"")!=std::wstring::npos,
-            "Size & spacing section is collapsed until opened");
+        check(pane.find(L"<Expander x:Name=\"LayoutSectionToggle\"")!=std::wstring::npos &&
+            pane.find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"False\"")!=std::wstring::npos &&
+            pane.find(L"LayoutSectionChev")==std::wstring::npos,
+            "Size & spacing uses a standard collapsed Expander, not a custom visibility toggle");
         g_layoutSectionOpen=1;
         check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"Visibility=\"Visible\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\"")!=std::wstring::npos,
+            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"True\"")!=std::wstring::npos,
             "an opened Size & spacing section stays open");
         check(pane.find(L"x:Bind and resource sources not shown (why?)")!=std::wstring::npos &&
             pane.find(L"TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.Name=\"x:Bind and resource sources not shown\"")==std::wstring::npos,
@@ -1269,6 +1387,35 @@ int main()
             L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
             "the reason says an x:Bind value reads as Local");
         g_layoutSectionOpen=-1;
+    }
+    {
+        const auto authoredPane = [] {
+            return BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock", L"Title", L"TextBlock", L"Window > Grid",
+                L"", 0, {}, L"verified", L"<TextBlock\n Text=\"Hello\"/>", nullptr);
+        };
+        g_axmlExpanded = false;
+        const auto collapsed = authoredPane();
+        check(collapsed.find(L"<Expander x:Name=\"AxmlToggle\"") != std::wstring::npos &&
+            collapsed.find(L"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"False\"") != std::wstring::npos &&
+            collapsed.find(L"WinAppDevToolsSourceNote") != std::wstring::npos &&
+            collapsed.find(L"AxmlOne") == std::wstring::npos,
+            "source XAML sits in a standard collapsed Expander with an on-disk note and no one-line preview");
+        check(collapsed.find(L"IsTextSelectionEnabled=\"True\"") != std::wstring::npos &&
+            collapsed.find(L"AxmlChev") == std::wstring::npos,
+            "expanded authored XAML remains selectable and has no custom disclosure chevron");
+        AxmlToggleSink expand;
+        expand.Init(true);
+        expand.Invoke(nullptr, nullptr);
+        check(g_axmlExpanded &&
+            authoredPane().find(L"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"True\"") != std::wstring::npos,
+            "expanded source XAML stays expanded after a property pane rebuild");
+        AxmlToggleSink collapse;
+        collapse.Init(false);
+        collapse.Invoke(nullptr, nullptr);
+        check(!g_axmlExpanded, "collapsing source XAML is remembered");
+        ++g_route1Gen;
+        expand.Invoke(nullptr, nullptr);
+        check(!g_axmlExpanded, "an old source XAML callback cannot change the replacement pane");
     }
     {
         wchar_t temp[MAX_PATH]{}, directory[MAX_PATH]{};
@@ -1380,6 +1527,12 @@ int main()
         check(RereadTreeCaption(0, &before) && before == L"Start focusing" && g_allTreeNodes[0].preview == L"Pause focus",
             "a live change rereads the selected row's tree caption");
         check(!RereadTreeCaption(0, &before), "an unchanged caption is left alone");
+        g_ctx.previewFn = [](std::vector<DevToolsWindowNode>& nodes, const std::vector<size_t>& indices) {
+            for (size_t i : indices) { nodes[i].previewRead = true; nodes[i].searchText = L"New accessible label"; }
+        };
+        check(RereadTreeCaption(0, &before) && before == L"Pause focus",
+            "changed supplemental search text is refreshed even when the visible preview stays the same");
+        check(!RereadTreeCaption(0, &before), "unchanged supplemental search text is left alone");
         g_ctx.previewFn = nullptr; g_allTreeNodes.clear();
     }
     {
@@ -1387,6 +1540,7 @@ int main()
         // the tree to get a size rather than be dropped.
         TestElement scroll, rowElement;
         g_treeScrollUi = &scroll;
+        winrt::copy_from_abi(g_treeScroller, &scroll);
         g_treeRows.assign(117, nullptr); g_treeVisible.assign(117, 1);
         g_treeRows[116] = &rowElement;
         g_nodeIdxByWire = {{8120172924ull, 116}};
@@ -1405,7 +1559,47 @@ int main()
         g_selectedWire = 42; testViewport = 752.0;
         RevealPendingRow();
         check(g_pendingRevealWire == 0, "a selection that changed while waiting is not revealed");
+        g_treeScroller = nullptr;
         g_treeScrollUi = nullptr; g_treeRows.clear(); g_treeVisible.clear(); g_nodeIdxByWire.clear(); g_selectedWire = 0;
+    }
+    {
+        // A resolve writer finishes after the user can reopen Edit or the header's Comment box.
+        // Exercise the same editor state transition the completion callback uses.
+        for (const int result : {0, 0x57410001, 1, 0x57410002}) {
+            for (const bool editing : {false, true}) {
+                CommentBoxSaved saved;
+                saved.id = L"resolve-card"; saved.text = L"saved comment";
+                saved.resolving = true; saved.editing = editing;
+                std::wstring draft = editing ? L"new draft while resolving" : saved.text;
+                const bool closeEditor = saved.FinishResolve(result);
+                if (closeEditor) draft.clear(); // WireAddComment clears text only when this returns true.
+                const bool success = result == 0 || result == 0x57410001;
+                check(!saved.resolving, "resolve completion permits the next save or retry");
+                check(saved.id == (success ? L"" : L"resolve-card"),
+                    "only confirmed resolution removes the ID used by the next save");
+                check(editing ? draft == L"new draft while resolving" : closeEditor == success,
+                    "resolve completion retains an opened editor and its newer draft");
+            }
+        }
+        std::function<void(int)> acknowledge;
+        g_commentResolveFn = [&](const wchar_t*, std::function<void(int)> completed) {
+            acknowledge = std::move(completed); return true;
+        };
+        int calls = 0, outcome = -1;
+        ResolveCommentById(L"resolve-card", [&](int result) { ++calls; outcome = result; });
+        check(calls == 0, "resolution never claims success before the writer answers");
+        acknowledge(0);
+        acknowledge(1);
+        check(calls == 1 && outcome == 0, "a resolve completion is delivered only once");
+        g_commentResolveFn = [](const wchar_t*, std::function<void(int)>) { return false; };
+        ResolveCommentById(L"resolve-card", [&](int result) { ++calls; outcome = result; });
+        check(calls == 2 && outcome == 1, "failed start releases the card's pending resolution");
+        g_commentResolveFn = [](const wchar_t*, std::function<void(int)> completed) {
+            completed(1); return false;
+        };
+        ResolveCommentById(L"resolve-card", [&](int result) { ++calls; outcome = result; });
+        check(calls == 3 && outcome == 1, "synchronous launch failure is not delivered twice");
+        g_commentResolveFn = nullptr;
     }
     {
         // The inspector's comment box starts from the element's existing comment, found as the Comments pane finds it.
