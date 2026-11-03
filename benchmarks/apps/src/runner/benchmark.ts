@@ -4728,10 +4728,20 @@ function saveResults(
 
   // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
   const exact = usage?.exact;
-  if (exact && entry.startedAt) {
+  const release = process.env.BENCH_RELEASE || "dev";
+  const commit = currentCommit();
+  // A tooling failure while judging is not an app result, and must not count as a pass.
+  const judgingFailed = /^Validation /.test(entry.failReason ?? "");
+  // A release result names one commit, so plugins from another commit would mislabel it.
+  const pluginSha = entry.agentSource?.sha;
+  const pluginMismatch = release !== "dev" && !!entry.agentSource &&
+    (pluginSha !== commit || !!entry.agentSource.dirty);
+  if (judgingFailed) console.warn(`  No trial-result.json written: ${entry.failReason}.`);
+  if (pluginMismatch) console.warn(`  No trial-result.json written: plugins came from ${pluginSha?.slice(0, 8)}${entry.agentSource?.dirty ? " (uncommitted changes)" : ""} but the release commit is ${commit.slice(0, 8)}.`);
+  if (exact && entry.startedAt && !judgingFailed && !pluginMismatch) {
     const trial = toTrialResult({
-      release: process.env.BENCH_RELEASE || "dev",
-      commit: currentCommit(),
+      release,
+      commit,
       scenario: entry.scenarioConfigName,
       set: config.set,
       condition: entry.condition,

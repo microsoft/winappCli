@@ -208,6 +208,8 @@ function ConvertTo-TrialResult {
         [Parameter(Mandatory)][string]$Commit,
         [Parameter(Mandatory)][datetime]$StartedAt
     )
+    # run.ps1 passes an ordered dictionary; its optional counts are properties, so read it as an object.
+    if ($Record -is [System.Collections.IDictionary]) { $Record = [pscustomobject]$Record }
     if ($Record.mode -ne 'agent' -or $Record.taskStatus -notin 'pass', 'partial', 'fail' -or -not $Record.tokens) { return $null }
     $tokens = $Record.tokens
     $checks = @($Record.checks | ForEach-Object {
