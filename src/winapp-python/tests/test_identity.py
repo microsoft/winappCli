@@ -41,8 +41,11 @@ class PythonIdentityTests(ProjectTest):
             "a" * 64,
         )
         for patcher in (
-            patch.object(identity, "select_project_python", return_value=self.project / ".venv" / "Scripts" / "python.exe"),
+            patch.object(identity, "select_identity_python", return_value=Path(sys.executable)),
             patch.object(identity, "probe_interpreter", return_value=self.info),
+            patch.object(identity, "capture_dependencies", return_value={
+                "schema": 1, "managed": [], "packages": [], "requirements": "", "environment": "",
+            }),
             patch.object(identity, "_require_developer_mode"),
             patch.object(identity.Path, "home", return_value=self.root),
         ):
@@ -50,7 +53,7 @@ class PythonIdentityTests(ProjectTest):
             self.addCleanup(patcher.stop)
 
     def prepare_files(self, project, root, distribution, **kwargs):
-        venv = root / "venv"
+        venv = root / kwargs.get("environment_name", "venv")
         runtime = venv / "runtime"
         runtime.mkdir(parents=True)
         (runtime / "python.exe").write_bytes(b"private PBS exe")
@@ -60,7 +63,7 @@ class PythonIdentityTests(ProjectTest):
         (venv / "pyvenv.cfg").write_text(f"home = {runtime}\n", encoding="utf-8")
         return venv, runtime, venv / "Scripts" / "python.exe"
 
-    def record(self):
+    def record(self, requirements=Path("requirements.txt")):
         root = self.project / ".winapp" / identity.ROOT_NAME
         root.mkdir()
         owner = "a" * 32
@@ -74,11 +77,14 @@ class PythonIdentityTests(ProjectTest):
             "package": "LocalPythonProbe.debug", "publisher": "CN=LocalPythonProbe",
             "full_name": "LocalPythonProbe.debug_1.0.0.0_x64__abc", "registration_attempted": True,
             "interpreter": self.info.document(), "distribution": self.distribution.document(),
-            "manifest_hash": identity._digest(self.project / "Package.appxmanifest"),
-            "dependency_hash": dependency_inputs(self.project, None, self.info)[2],
+            "manifest_hash": identity._registration_digest(self.project, self.project / "Package.appxmanifest"),
+            "dependency_hash": dependency_inputs(self.project, requirements, self.info).fingerprint,
             "runtime_hashes": {},
         }
         record["runtime_hashes"] = identity._runtime_hashes(record)
+        location = self.project / ".winapp" / "debug"
+        location.mkdir(exist_ok=True)
+        shutil.copyfile(self.project / "Package.appxmanifest", location / "AppxManifest.xml")
         identity._write_record(self.project, record)
         return record
 
@@ -87,15 +93,36 @@ class PythonIdentityTests(ProjectTest):
             "Name": record["package"] if record else "LocalPythonProbe.debug",
             "Publisher": record["publisher"] if record else "CN=LocalPythonProbe",
             "PackageFullName": record["full_name"] if record else "LocalPythonProbe.debug_1.0.0.0_x64__abc",
-            "InstallLocation": str(self.project / ".winapp" / identity.ROOT_NAME),
+            "InstallLocation": str(self.project / ".winapp" / "debug"),
             "IsDevelopmentMode": True,
         }
 
-    def run_app(self, *args):
+    def run_app(self, *args, requirements=Path("requirements.txt")):
         return identity.run_with_identity(self.project, Path("app.py"), list(args),
-                                         Path("winapp.exe"), None)
+                                         Path("winapp.exe"), None, requirements_option=requirements)
 
-    def assert_rebuild(self, record, *, info=None, distribution=None):
+    def test_missing_or_hash_enforcing_requirements_fail_before_runtime_or_registration(self):
+        for selected in (Path("missing.txt"), Path("requirements.txt")):
+            (self.project / "requirements.txt").write_text("--require-hashes\n", encoding="utf-8")
+            with (
+                self.subTest(selected=selected),
+                patch.object(identity, "resolve_distribution") as resolve,
+                patch.object(identity, "prepare_runtime") as prepare,
+                patch.object(identity, "_packages") as packages,
+                patch.object(identity, "run_tool") as register,
+                self.assertRaisesRegex(WinappError, "does not exist|without hashes"),
+            ):
+                identity.run_with_identity(
+                    self.project, Path("app.py"), [], Path("winapp.exe"), None, requirements_option=selected,
+                )
+            resolve.assert_not_called()
+            prepare.assert_not_called()
+            packages.assert_not_called()
+            register.assert_not_called()
+            self.assertFalse((self.project / ".winapp" / identity.ROOT_NAME).exists())
+            self.assertFalse((self.project / ".winapp" / identity.RECORD_NAME).exists())
+
+    def assert_update(self, record, *, info=None, distribution=None):
         info = self.info if info is None else info
         distribution = distribution or Distribution(
             info, "20250529",
@@ -108,19 +135,38 @@ class PythonIdentityTests(ProjectTest):
             **self.package(), "Name": name, "Publisher": publisher,
             "PackageFullName": f"{name}_1.0.0.0_x64__abc",
         }
-        registrations = [[self.package(record)]]
-        if name != record["package"]:
-            registrations.append([])
-        registrations.extend([[self.package(record)], [], [], [], [package]])
+        registrations = {record["package"]: [self.package(record)]}
+        changed_python = record["interpreter"] != info.document()
+        changed_manifest = record["manifest_hash"] != identity._registration_digest(
+            self.project, self.project / "Package.appxmanifest",
+        )
+        changed_dependencies = record["dependency_hash"] != dependency_inputs(
+            self.project, Path("requirements.txt"), info,
+        ).fingerprint
+
+        def remove(script, **kwargs):
+            self.assertIn("-PreserveApplicationData", script)
+            registrations[record["package"]] = []
+            return ""
+
+        def register(arguments, *args, **kwargs):
+            registrations[name] = [package]
+            location = Path(package["InstallLocation"])
+            location.mkdir(exist_ok=True)
+            shutil.copyfile(self.project / "Package.appxmanifest", location / "AppxManifest.xml")
+            with Path(arguments[2]).open("ab") as stream:
+                stream.write(b"identity manifest")
+            return ""
+
         output = io.StringIO()
         with (
             patch.object(identity, "probe_interpreter", return_value=info),
-            patch.object(identity, "_packages", side_effect=registrations),
+            patch.object(identity, "_packages", side_effect=lambda key: registrations.get(key, [])),
             patch.object(identity, "resolve_distribution", return_value=distribution) as resolve,
             patch.object(identity, "prepare_runtime", side_effect=self.prepare_files) as prepare,
             patch.object(identity, "synchronize_dependencies") as install,
-            patch.object(identity, "_powershell", return_value="") as remove,
-            patch.object(identity, "run_tool") as native,
+            patch.object(identity, "_powershell", side_effect=remove) as remove_call,
+            patch.object(identity, "run_tool", side_effect=register) as native,
             patch.object(identity, "_verify_interpreter") as verify,
             patch.object(identity.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)),
             redirect_stderr(output),
@@ -130,16 +176,19 @@ class PythonIdentityTests(ProjectTest):
             resolve.assert_not_called()
         else:
             resolve.assert_called_once_with(info)
-        prepare.assert_called_once()
-        install.assert_called_once()
-        native.assert_called_once()
-        verify.assert_called_once()
-        remove.assert_called_once()
-        self.assertEqual(remove.call_args.kwargs["full_name"], record["full_name"])
-        self.assertIn("-PreserveApplicationData", remove.call_args.args[0])
-        self.assertIn("Rebuilding development identity", output.getvalue())
+        self.assertEqual(prepare.call_count, int(changed_python))
+        self.assertEqual(install.call_count, int(changed_python or changed_dependencies))
+        self.assertEqual(native.call_count, int(changed_python or changed_manifest))
+        self.assertEqual(remove_call.call_count, int(changed_python or changed_manifest))
+        self.assertGreaterEqual(verify.call_count, 1)
+        self.assertIn("Rebuilding" if changed_python else "Updating", output.getvalue())
         current = identity._load_record(self.project)
-        self.assertNotEqual(current["owner"], record["owner"])
+        self.assertEqual(current["owner"], record["owner"])
+        if changed_python:
+            self.assertNotEqual(current["entry"], record["entry"])
+            self.assertFalse(Path(record["entry"]).exists())
+        else:
+            self.assertEqual(current["entry"], record["entry"])
         self.assertEqual(current["interpreter"], info.document())
         self.assertEqual(current["state"], "ready")
         self.assertEqual(current["package"], name)
@@ -164,6 +213,7 @@ class PythonIdentityTests(ProjectTest):
         self.assertFalse((self.project / "pyproject.toml").exists())
         self.assertEqual(record["interpreter"]["version"], "3.12.10")
         self.assertIn("runtime", native.call_args.args[0][2])
+        self.assertNotIn("-v", native.call_args.args[0])
         install.assert_called_once()
         verify.assert_called_once()
         self.assertEqual(app.call_args.args[0], [record["entry"], str(self.project / "app.py"),
@@ -188,6 +238,45 @@ class PythonIdentityTests(ProjectTest):
             self.assertEqual(self.run_app(), 0)
         resolve.assert_not_called()
         fetch.assert_not_called()
+        prepare.assert_not_called()
+        install.assert_not_called()
+        self.assertEqual(identity._load_record(self.project), record)
+
+    def test_default_run_ignores_requirements_and_shows_targeted_manual_install_hint(self):
+        (self.project / "requirements.txt").write_text("--require-hashes\n-r missing.txt\n", encoding="utf-8")
+        diagnostics = io.StringIO()
+        with (
+            patch.object(identity, "_packages", side_effect=[[], [], [self.package()]]),
+            patch.object(identity, "resolve_distribution", return_value=self.distribution),
+            patch.object(identity, "prepare_runtime", side_effect=self.prepare_files),
+            patch.object(identity, "synchronize_dependencies") as install,
+            patch.object(identity, "run_tool"),
+            patch.object(identity, "_verify_interpreter"),
+            patch.object(identity.subprocess, "run", return_value=subprocess.CompletedProcess([], 37)) as launch,
+            redirect_stderr(diagnostics),
+        ):
+            self.assertEqual(self.run_app(requirements=None), 37)
+        self.assertIsNone(install.call_args.args[2].requirements)
+        launch.assert_called_once()
+        record = identity._load_record(self.project)
+        self.assertIn(identity.installation_hint(Path(record["entry"])), diagnostics.getvalue())
+        self.assertEqual(diagnostics.getvalue().count("Identity Python:"), 1)
+
+    def test_unselected_application_dependency_changes_do_not_update_identity(self):
+        record = self.record(requirements=None)
+        (self.project / "requirements.txt").write_text("not a pip requirement!\n", encoding="utf-8")
+        (self.project / "uv.lock").write_text("not parsed", encoding="utf-8")
+        (self.project / "pyproject.toml").write_text('[project]\ndependencies=["requests"]\n', encoding="utf-8")
+        with (
+            patch.object(identity, "_packages", return_value=[self.package()]),
+            patch.object(identity, "resolve_distribution") as resolve,
+            patch.object(identity, "prepare_runtime") as prepare,
+            patch.object(identity, "synchronize_dependencies") as install,
+            patch.object(identity, "_verify_interpreter"),
+            patch.object(identity.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)),
+        ):
+            self.assertEqual(self.run_app(requirements=None), 0)
+        resolve.assert_not_called()
         prepare.assert_not_called()
         install.assert_not_called()
         self.assertEqual(identity._load_record(self.project), record)
@@ -258,7 +347,7 @@ class PythonIdentityTests(ProjectTest):
         prepare.assert_not_called()
         self.assertFalse((self.project / "pyproject.toml").exists())
 
-    def test_pyproject_changed_during_dependency_setup_aborts_before_registration(self):
+    def test_explicit_project_metadata_changed_during_setup_aborts_before_registration(self):
         source = self.project / "pyproject.toml"
         source.write_text('[project]\nname="example"\nversion="1.0"\n', encoding="utf-8")
 
@@ -292,17 +381,19 @@ class PythonIdentityTests(ProjectTest):
             patch.object(identity, "resolve_distribution", return_value=self.distribution),
             patch.object(identity, "prepare_runtime", side_effect=self.prepare_files),
             patch.object(identity, "synchronize_dependencies", side_effect=lambda *a, **kw: print("installer status")),
-            patch.object(identity, "run_tool", side_effect=lambda *a, **kw: print("native verbose output")),
+            patch.object(identity, "run_tool", side_effect=lambda *a, **kw: print("native verbose output")) as native,
             patch.object(identity, "_verify_interpreter"),
             patch.object(identity.subprocess, "run", side_effect=run_script) as launch,
             redirect_stdout(output), redirect_stderr(diagnostics),
         ):
             self.assertEqual(identity.run_with_identity(
-                self.project, Path("app.py"), [], Path("winapp.exe"), None, verbose=True,
+                self.project, Path("app.py"), [], Path("winapp.exe"), None,
+                requirements_option=Path("requirements.txt"), verbose=True,
             ), 37)
         self.assertEqual(output.getvalue(), payload)
         for message in ("Preparing development identity", "installer status", "native verbose output", "Running app.py"):
             self.assertIn(message, diagnostics.getvalue())
+        self.assertEqual(native.call_args.args[0][-1], "-v")
         self.assertNotIn("stdout", launch.call_args.kwargs)
         self.assertNotIn("stderr", launch.call_args.kwargs)
 
@@ -347,7 +438,8 @@ class PythonIdentityTests(ProjectTest):
             redirect_stdout(output), redirect_stderr(diagnostics),
         ):
             self.assertEqual(identity.run_with_identity(
-                self.project, Path("app.py"), [], Path("winapp.exe"), None, quiet=True,
+                self.project, Path("app.py"), [], Path("winapp.exe"), None,
+                requirements_option=Path("requirements.txt"), quiet=True,
             ), 37)
         self.assertEqual(output.getvalue(), '{"identity": "ready"}\n')
         self.assertEqual(diagnostics.getvalue(), "application error\n")
@@ -364,9 +456,9 @@ class PythonIdentityTests(ProjectTest):
             Interpreter("3.13.2", "x86_64", False, True),
         ):
             with self.subTest(interpreter=info):
-                record = self.assert_rebuild(record, info=info)
+                record = self.assert_update(record, info=info)
 
-    def test_changed_requirements_rebuilds_without_touching_ordinary_env_or_bindings(self):
+    def test_changed_requirements_update_in_place_without_touching_manual_packages(self):
         record = self.record()
         development = self.project / ".venv" / "keep.txt"
         development.parent.mkdir()
@@ -374,35 +466,39 @@ class PythonIdentityTests(ProjectTest):
         bindings = self.project / ".winapp" / "python" / "keep.py"
         bindings.parent.mkdir()
         bindings.write_text("keep bindings", encoding="utf-8")
+        manual = Path(record["entry"]).parent.parent / "Lib" / "site-packages" / "manual.py"
+        manual.parent.mkdir(parents=True)
+        manual.write_text("# user package\n", encoding="utf-8")
         (self.project / "requirements.txt").write_text("requests\n", encoding="utf-8")
-        self.assert_rebuild(record)
+        self.assert_update(record)
         self.assertEqual(development.read_text(), "keep")
         self.assertEqual(bindings.read_text(), "keep bindings")
+        self.assertEqual(manual.read_text(), "# user package\n")
 
-    def test_changed_included_requirements_rebuilds_owned_identity(self):
+    def test_changed_included_requirements_update_in_place(self):
         included = self.project / "dependencies.txt"
         included.write_text("packaging\n", encoding="utf-8")
         (self.project / "requirements.txt").write_text("-r dependencies.txt\n", encoding="utf-8")
         record = self.record()
         included.write_text("requests\n", encoding="utf-8")
-        self.assert_rebuild(record)
+        self.assert_update(record)
 
-    def test_changed_project_metadata_rebuilds_owned_identity(self):
+    def test_changed_explicit_project_metadata_updates_dependencies_in_place(self):
         record = self.record()
         source = self.project / "pyproject.toml"
         source.write_text(
             '[project]\nname = "identity-test"\nversion = "1.0"\nrequires-python = ">=3.11"\n',
             encoding="utf-8",
         )
-        self.assert_rebuild(record)
+        self.assert_update(record)
 
-    def test_changed_sdk_pins_rebuilds_owned_identity(self):
+    def test_changed_sdk_pins_update_registration_without_rebuilding_python(self):
         record = self.record()
         configuration = self.project / "winapp.yaml"
         configuration.write_text(
             "packages:\n  - name: Microsoft.WindowsAppSDK\n    version: 2.5.1\n", encoding="utf-8",
         )
-        self.assert_rebuild(record)
+        self.assert_update(record)
 
     def test_identity_placeholders_are_rejected_before_registration_or_preparation(self):
         manifest = self.project / "Package.appxmanifest"
@@ -444,11 +540,11 @@ class PythonIdentityTests(ProjectTest):
         with patch("winappcli.generate.run_tool", side_effect=changed_codegen):
             generate(self.config(), Path("codegen.exe"), self.codegen_version, force=True)
         updated = metadata.read_text(encoding="utf-8")
-        self.assert_rebuild(record)
+        self.assert_update(record)
         self.assertEqual(metadata.read_text(encoding="utf-8"), updated)
-        self.assertTrue((bindings / "Uri.py").is_file())
+        self.assertTrue((bindings / "src" / "myapp_winrt" / "Uri.py").is_file())
 
-    def test_changed_manifest_version_name_or_publisher_rebuilds_owned_identity(self):
+    def test_changed_manifest_updates_registration_without_rebuilding_python(self):
         manifest = self.project / "Package.appxmanifest"
         record = self.record()
         for before, after in (
@@ -457,23 +553,30 @@ class PythonIdentityTests(ProjectTest):
             ('Publisher="CN=LocalPythonProbe"', 'Publisher="CN=NewPythonProbe"'),
         ):
             manifest.write_text(manifest.read_text(encoding="utf-8").replace(before, after), encoding="utf-8")
-            record = self.assert_rebuild(record)
+            record = self.assert_update(record)
 
     def test_unavailable_new_python_keeps_old_owned_identity(self):
         record = self.record()
-        with (
-            patch.object(identity, "probe_interpreter", return_value=Interpreter("3.13.2", "x86_64")),
-            patch.object(identity, "_packages", return_value=[self.package()]),
-            patch.object(identity, "resolve_distribution", side_effect=WinappError("No exact PBS distribution")),
-            patch.object(identity, "_powershell") as remove,
-            patch.object(identity, "prepare_runtime") as prepare,
-            self.assertRaisesRegex(WinappError, "No exact PBS"),
-        ):
-            self.run_app()
-        remove.assert_not_called()
-        prepare.assert_not_called()
-        self.assertEqual(identity._load_record(self.project), record)
-        self.assertTrue(Path(record["entry"]).is_file())
+        for selected in (Interpreter("3.13.2", "x86_64"), Interpreter("3.12.10", "x86_64", debug=True)):
+            with (
+                self.subTest(interpreter=selected),
+                patch.object(identity, "probe_interpreter", return_value=selected),
+                patch.object(identity, "_packages", return_value=[self.package()]),
+                patch.object(identity, "resolve_distribution", side_effect=WinappError("No exact PBS distribution")) as resolve,
+                patch.object(identity, "_powershell") as remove,
+                patch.object(identity, "prepare_runtime") as prepare,
+                patch.object(identity, "_verify_interpreter") as verify,
+                patch.object(identity.subprocess, "run") as launch,
+                self.assertRaisesRegex(WinappError, "No exact PBS"),
+            ):
+                self.run_app()
+            resolve.assert_called_once_with(selected)
+            remove.assert_not_called()
+            prepare.assert_not_called()
+            verify.assert_not_called()
+            launch.assert_not_called()
+            self.assertEqual(identity._load_record(self.project), record)
+            self.assertTrue(Path(record["entry"]).is_file())
 
     def test_incompatible_project_python_keeps_old_owned_identity(self):
         record = self.record()
@@ -519,12 +622,13 @@ class PythonIdentityTests(ProjectTest):
 
     def test_rebuild_refuses_registration_replaced_during_cleanup(self):
         record = self.record()
-        (self.project / "requirements.txt").write_text("requests\n", encoding="utf-8")
+        manifest = self.project / "Package.appxmanifest"
+        manifest.write_text(manifest.read_text().replace('Version="1.0.0.0"', 'Version="2.0.0.0"'))
         foreign = {**self.package(), "PackageFullName": "LocalPythonProbe.debug_2.0.0.0_x64__other"}
         with (
             patch.object(identity, "_packages", side_effect=[[self.package()], [foreign]]),
             patch.object(identity, "_powershell") as remove,
-            self.assertRaisesRegex(WinappError, "different registration"),
+            self.assertRaisesRegex(WinappError, "registration disappeared"),
         ):
             self.run_app()
         remove.assert_not_called()
@@ -533,21 +637,23 @@ class PythonIdentityTests(ProjectTest):
 
     def test_rebuild_unregister_failure_keeps_owned_files_and_record(self):
         record = self.record()
-        (self.project / "requirements.txt").write_text("requests\n", encoding="utf-8")
+        manifest = self.project / "Package.appxmanifest"
+        manifest.write_text(manifest.read_text().replace('Version="1.0.0.0"', 'Version="2.0.0.0"'))
         with (
             patch.object(identity, "_packages", return_value=[self.package()]),
             patch.object(identity, "_powershell", return_value=""),
+            patch.object(identity, "_verify_interpreter"),
             self.assertRaisesRegex(WinappError, "no files were removed"),
         ):
             self.run_app()
         self.assertEqual(identity._load_record(self.project), record)
         self.assertTrue(Path(record["entry"]).is_file())
 
-    def test_failed_rebuild_does_not_launch_old_environment(self):
+    def test_failed_dependency_update_preserves_environment_without_launching_it(self):
         record = self.record()
         (self.project / "requirements.txt").write_text("requests\n", encoding="utf-8")
         with (
-            patch.object(identity, "_packages", side_effect=[[self.package()], [self.package()], [], [], []]),
+            patch.object(identity, "_packages", return_value=[self.package()]),
             patch.object(identity, "_powershell", return_value=""),
             patch.object(identity, "prepare_runtime", side_effect=self.prepare_files),
             patch.object(identity, "synchronize_dependencies", side_effect=WinappError("dependency conflict")),
@@ -558,9 +664,122 @@ class PythonIdentityTests(ProjectTest):
             self.run_app()
         native.assert_not_called()
         app.assert_not_called()
-        self.assertFalse(identity._record_path(self.project).exists())
-        self.assertFalse(Path(record["root"]).exists())
+        self.assertEqual(identity._load_record(self.project), record)
+        self.assertTrue(Path(record["entry"]).is_file())
         self.assertFalse((self.project / "pyproject.toml").exists())
+
+    def test_failed_runtime_restore_keeps_old_registration_and_manual_packages(self):
+        record = self.record()
+        manual = Path(record["entry"]).parent.parent / "manual-package.txt"
+        manual.write_text("keep", encoding="utf-8")
+        selected = Interpreter("3.12.11", "x86_64")
+        distribution = Distribution(selected, self.distribution.build, self.distribution.url, self.distribution.sha256)
+        with (
+            patch.object(identity, "probe_interpreter", return_value=selected),
+            patch.object(identity, "_packages", return_value=[self.package(record)]),
+            patch.object(identity, "resolve_distribution", return_value=distribution),
+            patch.object(identity, "prepare_runtime", side_effect=self.prepare_files),
+            patch.object(identity, "synchronize_dependencies", side_effect=WinappError("cannot restore user package")),
+            patch.object(identity, "_powershell") as registrations,
+            patch.object(identity, "run_tool") as native,
+            self.assertRaisesRegex(WinappError, "cannot restore user package"),
+        ):
+            self.run_app()
+        registrations.assert_not_called()
+        native.assert_not_called()
+        self.assertEqual(identity._load_record(self.project), record)
+        self.assertEqual(manual.read_text(), "keep")
+        self.assertEqual(list(Path(record["root"]).glob("venv-*")), [])
+
+    def test_registration_failure_restores_old_binary_manifest_and_registration(self):
+        record = self.record()
+        original_binary = Path(record["base"]).read_bytes()
+        location = Path(self.package(record)["InstallLocation"])
+        original_manifest = (location / "AppxManifest.xml").read_bytes()
+        manifest = self.project / "Package.appxmanifest"
+        manifest.write_text(manifest.read_text().replace('Version="1.0.0.0"', 'Version="2.0.0.0"'))
+        registry = [self.package(record)]
+        actions = []
+
+        def powershell(script, **kwargs):
+            nonlocal registry
+            actions.append(script)
+            if script == identity.REMOVE_PACKAGE:
+                registry = []
+            elif script == identity.REGISTER_PACKAGE:
+                self.assertEqual(kwargs["manifest"], location / "AppxManifest.xml")
+                self.assertEqual(kwargs["external"], Path(record["base"]).parent)
+                self.assertEqual(Path(record["base"]).read_bytes(), original_binary)
+                self.assertEqual((location / "AppxManifest.xml").read_bytes(), original_manifest)
+                registry = [self.package(record)]
+            return ""
+
+        def fail_native(*args, **kwargs):
+            nonlocal registry
+            Path(record["base"]).write_bytes(b"modified executable")
+            (location / "AppxManifest.xml").write_text("new registration files")
+            registry = [self.package(record)]
+            raise WinappError("registration failed after changing files")
+
+        with (
+            patch.object(identity, "_packages", side_effect=lambda _: list(registry)),
+            patch.object(identity, "_powershell", side_effect=powershell),
+            patch.object(identity, "run_tool", side_effect=fail_native),
+            patch.object(identity, "_verify_interpreter"),
+            self.assertRaisesRegex(WinappError, "registration failed"),
+        ):
+            self.run_app()
+        self.assertEqual(identity._load_record(self.project), record)
+        self.assertEqual(Path(record["base"]).read_bytes(), original_binary)
+        self.assertIn(identity.REGISTER_PACKAGE, actions)
+        self.assertEqual(list(Path(record["root"]).glob(".registration-*")), [])
+
+    def test_interrupted_update_keeps_backup_and_recovers_before_next_run(self):
+        record = self.record()
+        manifest = self.project / "Package.appxmanifest"
+        original = manifest.read_bytes()
+        manifest.write_bytes(original.replace(b'Version="1.0.0.0"', b'Version="2.0.0.0"'))
+        registry = [self.package(record)]
+
+        def powershell(script, **kwargs):
+            nonlocal registry
+            registry = [] if script == identity.REMOVE_PACKAGE else [self.package(record)]
+            return ""
+
+        with (
+            patch.object(identity, "_packages", side_effect=lambda _: list(registry)),
+            patch.object(identity, "_powershell", side_effect=powershell),
+            patch.object(identity, "run_tool", side_effect=WinappError("native failed")),
+            patch.object(identity, "_rollback_update", side_effect=WinappError("recovery interrupted")),
+            self.assertRaisesRegex(WinappError, "Rollback could not finish"),
+        ):
+            self.run_app()
+        pending = identity._load_record(self.project)
+        self.assertEqual(pending["state"], "updating")
+        self.assertEqual(pending["previous"], record)
+        self.assertTrue(Path(pending["backup"]).is_dir())
+        self.assertTrue(Path(record["entry"]).exists())
+        manifest.write_bytes(original)
+        with (
+            patch.object(identity, "_packages", side_effect=lambda _: list(registry)),
+            patch.object(identity, "_powershell", side_effect=powershell),
+            patch.object(identity, "_verify_interpreter"),
+            patch.object(identity.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)),
+            patch.object(identity, "run_tool") as native,
+        ):
+            self.assertEqual(self.run_app(), 0)
+        native.assert_not_called()
+        self.assertEqual(identity._load_record(self.project), record)
+        self.assertFalse(Path(pending["backup"]).exists())
+
+    def test_update_journal_cannot_restore_or_delete_an_outside_backup(self):
+        record = self.record()
+        identity._write_record(self.project, {
+            **record, "state": "updating", "previous": record,
+            "backup": str(self.root / "outside"), "old_location": self.package(record)["InstallLocation"],
+        })
+        with self.assertRaises(WinappError):
+            identity._load_record(self.project)
 
     def test_private_dll_or_venv_cfg_tampering_is_detected(self):
         record = self.record()
@@ -661,12 +880,64 @@ class PythonIdentityTests(ProjectTest):
         with (
             patch.object(identity, "_packages", side_effect=[[self.package()], []]),
             patch.object(identity, "_powershell", return_value="") as remove,
+            patch.object(identity, "_verify_interpreter") as verify,
+            patch.object(identity.subprocess, "run") as process,
         ):
             self.assertEqual(identity.clear_identity(self.project), 0)
+        verify.assert_not_called()
+        process.assert_not_called()
         self.assertIn("-PreserveApplicationData", remove.call_args.args[0])
         self.assertEqual(development.read_text(), "keep")
         self.assertFalse(Path(record["root"]).exists())
         self.assertFalse((self.project / "pyproject.toml").exists())
+
+    def test_clear_incomplete_preparation_does_not_start_python(self):
+        record = self.record()
+        record.update(state="preparing", full_name=None, registration_attempted=False)
+        identity._write_record(self.project, record)
+        with (
+            patch.object(identity, "_packages") as packages,
+            patch.object(identity, "_verify_interpreter") as verify,
+            patch.object(identity.subprocess, "run") as process,
+        ):
+            self.assertEqual(identity.clear_identity(self.project), 0)
+        packages.assert_not_called()
+        verify.assert_not_called()
+        process.assert_not_called()
+        self.assertFalse(Path(record["root"]).exists())
+        self.assertFalse(identity._record_path(self.project).exists())
+
+    def test_clear_interrupted_update_preserves_state_without_recovery_or_execution(self):
+        record = self.record()
+        backup = Path(record["root"]) / (".registration-" + "b" * 32)
+        backup.mkdir()
+        saved = backup / "keep.txt"
+        saved.write_text("recovery files", encoding="utf-8")
+        for attempted in (False, True):
+            pending = {
+                **record, "state": "updating", "full_name": None,
+                "registration_attempted": attempted, "previous": record,
+                "backup": str(backup), "old_location": self.package(record)["InstallLocation"],
+            }
+            identity._write_record(self.project, pending)
+            before = identity._record_path(self.project).read_bytes()
+            with (
+                self.subTest(registration_attempted=attempted),
+                patch.object(identity, "_rollback_update") as rollback,
+                patch.object(identity, "_clear_owned_files") as clear,
+                patch.object(identity, "_packages") as packages,
+                patch.object(identity, "_verify_interpreter") as verify,
+                patch.object(identity.subprocess, "run") as process,
+                self.assertRaisesRegex(WinappError, "Identity update is incomplete") as failure,
+            ):
+                identity.clear_identity(self.project)
+            for operation in (rollback, clear, packages, verify, process):
+                operation.assert_not_called()
+            self.assertIn("project you trust", str(failure.exception))
+            self.assertIn("winapp run --identity", str(failure.exception))
+            self.assertEqual(identity._record_path(self.project).read_bytes(), before)
+            self.assertEqual(saved.read_text(encoding="utf-8"), "recovery files")
+            self.assertTrue(Path(record["entry"]).is_file())
 
     def test_clear_can_unregister_after_private_environment_was_deleted(self):
         record = self.record()
@@ -770,7 +1041,7 @@ def register(*args, **kwargs):
 
 with (
     patch.object(identity.Path, "home", return_value=shared),
-    patch.object(identity, "select_project_python", return_value=Path(sys.executable)),
+    patch.object(identity, "select_identity_python", return_value=Path(sys.executable)),
     patch.object(identity, "probe_interpreter", return_value=info),
     patch.object(identity, "_require_developer_mode"),
     patch.object(identity, "resolve_distribution", return_value=distribution),
@@ -782,7 +1053,8 @@ with (
     patch.object(identity.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)),
 ):
     try:
-        result = identity.run_with_identity(project, Path("app.py"), [], Path("winapp.exe"), None)
+        result = identity.run_with_identity(project, Path("app.py"), [], Path("winapp.exe"), None,
+                                            requirements_option=Path("requirements.txt"))
     except WinappError as error:
         print(f"BLOCKED: {error}", flush=True)
         sys.exit(23)
@@ -839,10 +1111,13 @@ with (
                           return_value=subprocess.CompletedProcess([], 0, json.dumps(output), "")) as probe:
             identity._verify_interpreter(self.project, record)
         self.assertEqual(probe.call_args.args[0][:3], [record["entry"], "-I", "-c"])
-        output["base_prefix"] = str(self.root / "unrelated-python")
-        with patch.object(identity.subprocess, "run",
-                          return_value=subprocess.CompletedProcess([], 0, json.dumps(output), "")):
-            with self.assertRaisesRegex(WinappError, "wrong identity or environment"):
+        for field, value in (("base_prefix", str(self.root / "unrelated-python")), ("debug", True)):
+            with (
+                self.subTest(field=field),
+                patch.object(identity.subprocess, "run",
+                             return_value=subprocess.CompletedProcess([], 0, json.dumps({**output, field: value}), "")),
+                self.assertRaisesRegex(WinappError, "wrong identity or environment"),
+            ):
                 identity._verify_interpreter(self.project, record)
 
     def test_malformed_identity_probe_does_not_escape_as_a_type_error(self):

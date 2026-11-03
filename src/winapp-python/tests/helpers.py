@@ -3,6 +3,7 @@
 
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -85,12 +86,18 @@ class ProjectTest(unittest.TestCase):
             })
         self.inventory["yaml_packages_hash"] = packages_hash(self.project)
         self.save_inventory()
+        for architecture in ("x64", "arm64", "x86", "arm64ec"):
+            dll = self.project / ".winapp" / "bin" / architecture / "Microsoft.WindowsAppRuntime.Bootstrap.dll"
+            dll.parent.mkdir(parents=True)
+            dll.write_bytes(f"fake {architecture} Bootstrap payload".encode("utf-8"))
 
     def fake_codegen(self, arguments, project, **kwargs):
         output = Path(arguments[arguments.index("--output") + 1])
         output.mkdir(parents=True, exist_ok=True)
         name = output.name
-        (output / "__init__.py").write_text("", encoding="utf-8")
+        source = output / "src" / name
+        source.mkdir(parents=True, exist_ok=True)
+        (source / "__init__.py").write_text("", encoding="utf-8")
         (output / "pyproject.toml").write_text(
             f'[project]\nname = "{name.replace("_", "-")}"\nversion = "0.1.0"\n'
             f'dependencies = ["dynwinrt=={str(self.codegen_version).replace("rc", "-preview.")}"]\n',
@@ -101,7 +108,18 @@ class ProjectTest(unittest.TestCase):
             if "--class-name" in arguments else ["Microsoft.Windows.AppNotifications.AppNotification"]
         )
         for type_name in selected:
-            (output / f"{type_name.rsplit('.', 1)[-1]}.py").write_text(
+            (source / f"{type_name.rsplit('.', 1)[-1]}.py").write_text(
                 "# generated\n", encoding="utf-8",
             )
+        if "--winappsdk-version" in arguments:
+            (source / "_winappsdk.json").write_text(
+                json.dumps({"version": arguments[arguments.index("--winappsdk-version") + 1]}),
+                encoding="utf-8",
+            )
+            for index, argument in enumerate(arguments):
+                if argument == "--winappsdk-bootstrap-path":
+                    dll = Path(arguments[index + 1])
+                    destination = source / "_native" / "winappsdk" / dll.parent.name
+                    destination.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(dll, destination / dll.name)
         return ""

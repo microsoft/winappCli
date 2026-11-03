@@ -35,11 +35,13 @@ MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
 PROBE = """
 import json, sys, sysconfig
+debug_flag = sysconfig.get_config_var("Py_DEBUG")
+is_debug = bool(debug_flag) if debug_flag is not None else hasattr(sys, "gettotalrefcount")
 print(json.dumps({
     "version": sys.version.split()[0], "implementation": sys.implementation.name,
     "platform": sysconfig.get_platform(), "os": sys.platform,
     "free_threaded": bool(sysconfig.get_config_var("Py_GIL_DISABLED")),
-    "debug": bool(sysconfig.get_config_var("Py_DEBUG")),
+    "debug": is_debug,
     "prefix": sys.prefix, "base_prefix": sys.base_prefix
 }))
 """
@@ -80,23 +82,15 @@ def clean_python_environment() -> dict[str, str]:
     return environment
 
 
-def select_project_python(
-    project: Path, selected: Path | None = None, *, require_exists: bool = True,
-) -> Path:
+def select_identity_python(project: Path, selected: Path | None = None) -> Path:
     if selected is not None:
         executable = local_path(project / selected)
     else:
-        executable = local_path(project / ".venv" / "Scripts" / "python.exe", boundary=project)
-        if not executable.is_file() and sys.prefix != sys.base_prefix:
-            current = local_path(Path(sys.executable))
-            if current.is_relative_to(project):
-                executable = current
-    if executable.suffix.lower() != ".exe" or (require_exists and not executable.is_file()):
+        executable = local_path(Path(sys.executable))
+    if executable.suffix.lower() != ".exe" or not executable.is_file():
         raise WinappError(
-            f"Project Python interpreter not found: {executable}. "
-            "Create the project's .venv with 'uv venv .venv' or 'python -m venv .venv', "
-            "or pass --python <path-to-python.exe>; "
-            "the tool's own Python is not used as a fallback."
+            f"Selected Python interpreter not found: {executable}. "
+            "Pass --python <path-to-python.exe> to select an existing Windows CPython interpreter."
         )
     return executable
 
@@ -111,16 +105,16 @@ def probe_interpreter(
             env=clean_python_environment(), timeout=30, check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise WinappError(f"Could not probe project Python at {executable}: {error}") from error
+        raise WinappError(f"Could not probe selected Python at {executable}: {error}") from error
     if result.returncode:
         raise WinappError(
-            f"Project Python could not start (exit {result.returncode}): "
+            f"Selected Python could not start (exit {result.returncode}): "
             f"{(result.stderr or result.stdout).strip()}. Recreate that environment and retry."
         )
     try:
         data = json.loads(result.stdout)
     except json.JSONDecodeError as error:
-        raise WinappError(f"Project Python returned invalid interpreter information: {result.stdout}") from error
+        raise WinappError(f"Selected Python returned invalid interpreter information: {result.stdout}") from error
     architectures = {"win-amd64": "x86_64", "win-arm64": "aarch64", "win32": "i686"}
     if (
         not isinstance(data, dict) or data.get("implementation") != "cpython"
@@ -128,20 +122,19 @@ def probe_interpreter(
         or not isinstance(data.get("version"), str)
         or any(type(data.get(key)) is not bool for key in ("free_threaded", "debug"))
     ):
-        raise WinappError("Project Python must be Windows CPython with a known architecture.")
+        raise WinappError("Selected Python must be Windows CPython with a known architecture.")
     if require_venv:
         if any(not isinstance(data.get(key), str) or not data[key] for key in ("prefix", "base_prefix")):
-            raise WinappError("Project Python returned invalid virtual environment information.")
+            raise WinappError("Selected Python returned invalid virtual environment information.")
         if Path(data["prefix"]) == Path(data["base_prefix"]):
             raise WinappError(
-                f"Bindings installation requires a virtual environment, but {executable} is not one. "
-                "Create a project .venv with 'uv venv .venv' or 'python -m venv .venv', "
-                "or pass --python <venv-python.exe>; no global packages were changed."
+                f"This operation requires a virtual environment, but {executable} is not one. "
+                "Recreate that environment before retrying; no global packages were changed."
             )
     try:
         parsed = Version(data["version"])
     except InvalidVersion as error:
-        raise WinappError(f"Invalid project Python version: {data['version']}") from error
+        raise WinappError(f"Invalid selected Python version: {data['version']}") from error
     if len(parsed.release) != 3 or parsed.local is not None or parsed.dev is not None:
         raise WinappError(f"No exact PBS release can be selected for Python {parsed}.")
     return Interpreter(str(parsed), architectures[data["platform"]], data["free_threaded"], data["debug"])
@@ -212,7 +205,7 @@ def resolve_distribution(interpreter: Interpreter, catalog: dict | None = None) 
             f"No unique PBS distribution matches CPython {interpreter.version} "
             f"{interpreter.architecture} {interpreter.variant or 'standard ABI'}. "
             "No other Python version or ABI will be substituted. "
-            "Upgrade microsoft-winappcli for a newer catalog, or use a project interpreter "
+            "Upgrade microsoft-winappcli for a newer catalog, or pass --python with an interpreter "
             "covered by this release."
         )
     return matches[0]
@@ -220,7 +213,7 @@ def resolve_distribution(interpreter: Interpreter, catalog: dict | None = None) 
 
 def distribution_from_document(document: object, interpreter: Interpreter) -> Distribution:
     if not isinstance(document, dict) or document.get("interpreter") != interpreter.document():
-        raise WinappError("The recorded PBS runtime does not match the selected project interpreter.")
+        raise WinappError("The recorded PBS runtime does not match the selected Python interpreter.")
     if any(not isinstance(document.get(key), str) for key in ("build", "url", "sha256")):
         raise WinappError("The recorded PBS download metadata is incomplete.")
     distribution = Distribution(interpreter, document["build"], document["url"], document["sha256"])
@@ -281,8 +274,11 @@ def extract_runtime(archive: Path, destination: Path) -> None:
 
 def prepare_runtime(
     project: Path, root: Path, distribution: Distribution, *, verbose: bool = False,
+    environment_name: str = "venv",
 ) -> tuple[Path, Path, Path]:
-    environment = root / "venv"
+    if not re.fullmatch(r"venv(?:-[a-f0-9]{32})?", environment_name):
+        raise WinappError("Invalid private runtime generation name.")
+    environment = local_path(root / environment_name, boundary=root)
     runtime = environment / "runtime"
     if verbose:
         print(

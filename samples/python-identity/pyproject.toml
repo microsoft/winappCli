@@ -4,12 +4,9 @@ version = "0.0.0"
 requires-python = ">=3.11,<3.15"
 dependencies = []
 
-[dependency-groups]
-dev = ["pyinstaller>=6,<7"]
-
 [tool.winapp.python-bindings]
 package = "winapp_bindings"
-codegen-version = "0.1.0rc23"
+codegen-version = "0.1.0rc24"
 scope = "types"
 types = ["Windows.ApplicationModel.Package"]
 additional-winmds = []

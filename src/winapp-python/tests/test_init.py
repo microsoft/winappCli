@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 # Licensed under the MIT License.
 
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 import io
 import json
 import os
@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from winappcli.cli import main
-from winappcli.dependencies import detect_dependencies, register_dependencies
 from winappcli.errors import WinappError
 
 from helpers import ProjectTest
@@ -530,20 +529,20 @@ class NativeInitTests(ProjectTest):
                     self.assertEqual(self.invoke(), 1)
                 setup.assert_not_called()
 
-    def test_native_runs_before_registration_generation_and_installation(self):
+    def test_native_runs_before_generation_without_application_installation(self):
         order = []
         def native(*args, **kwargs):
             order.append("native")
             return self.native(*args, **kwargs)
         with (
             patch("winappcli.cli.forward_native", side_effect=native),
-            patch("winappcli.cli._prepare_codegen", return_value=(Path("codegen.exe"), Path("python.exe"), self.codegen_version)),
+            patch("winappcli.cli._prepare_codegen", return_value=nullcontext((Path("codegen.exe"), Path("python.exe"), self.codegen_version))),
             patch("winappcli.cli.generate", side_effect=lambda *a, **kw: order.append("generate") or self.config().output),
-            patch("winappcli.cli.register_dependencies", side_effect=lambda *a, **kw: order.append("dependencies")),
-            patch("winappcli.cli.synchronize_project", side_effect=lambda *a, **kw: order.append("install")),
+            patch("winappcli.dependencies.run_tool") as install,
         ):
             self.assertEqual(self.invoke("--add-python-bindings"), 0)
-        self.assertEqual(order, ["native", "generate", "dependencies", "install"])
+        self.assertEqual(order, ["native", "generate"])
+        install.assert_not_called()
 
     def test_failed_codegen_does_not_publish_requirements_or_uv_dependencies(self):
         for manager in ("requirements", "uv"):
@@ -565,59 +564,56 @@ class NativeInitTests(ProjectTest):
                     patch("winappcli.cli.forward_native", side_effect=self.native),
                     patch("winappcli.cli._prepare_codegen",
                           side_effect=WinappError("codegen unavailable") if phase == "prepare" else None,
-                          return_value=(Path("codegen.exe"), Path("python.exe"), self.codegen_version)),
+                          return_value=nullcontext((Path("codegen.exe"), Path("python.exe"), self.codegen_version))),
                     patch("winappcli.cli.generate", side_effect=WinappError("generation failed")) as generate,
-                    patch("winappcli.cli.register_dependencies", wraps=register_dependencies) as register,
-                    patch("winappcli.cli.synchronize_project") as install,
+                    patch("winappcli.dependencies.run_tool") as install,
                 ):
                     self.assertEqual(self.invoke("--add-python-bindings"), 1)
                     self.assertEqual({path: path.read_bytes() for path in paths}, before)
                     self.assertFalse(self.config().output.exists())
-                    register.assert_not_called()
                     install.assert_not_called()
                     if phase == "prepare":
                         generate.assert_not_called()
 
-    def test_generated_package_exists_before_dependencies_are_registered_and_synchronized(self):
-        for manager in ("requirements", "uv"):
+    def test_generation_preserves_all_application_managers_and_their_environments(self):
+        for manager in ("requirements", "uv", "poetry", "pdm", "pipenv"):
             self.write_config()
             source = self.project / "pyproject.toml"
-            if manager == "uv":
+            if manager != "requirements":
                 source.write_text(
-                    '[project]\nname = "Example-App"\ndependencies = []\n[tool.uv]\n' + source.read_text(),
+                    '[project]\nname = "Example-App"\nrequires-python = ">=3.14"\n'
+                    'dynamic = ["dependencies"]\n' + f'[tool.{manager}]\n' + source.read_text(),
                     encoding="utf-8",
                 )
+            for name in ("poetry.lock", "pdm.lock", "Pipfile", "Pipfile.lock", "uv.lock"):
+                (self.project / name).write_bytes(b"manager-owned content")
+            venv = self.project / ".venv"
+            venv.mkdir(exist_ok=True)
+            (venv / "application-data").write_bytes(b"do not modify")
             output = self.config().output
-            requirements_before = (self.project / "requirements.txt").read_bytes()
-            metadata_before = source.read_bytes()
+            before = {path: path.read_bytes() for path in self.project.rglob("*")
+                      if path.is_file() and ".winapp" not in path.parts}
 
             def generate(config, *args, **kwargs):
-                self.assertEqual((self.project / "requirements.txt").read_bytes(), requirements_before)
-                self.assertEqual(source.read_bytes(), metadata_before)
                 output.mkdir(parents=True, exist_ok=True)
                 (output / "pyproject.toml").write_text('[project]\nname = "myapp-winrt"\nversion = "0.1.0"\n', encoding="utf-8")
                 return output
-
-            def synchronize(project, python, bindings, **kwargs):
-                self.assertEqual(bindings, output)
-                self.assertTrue((bindings / "pyproject.toml").is_file())
-                self.assertEqual(detect_dependencies(project).kind, manager)
-                if manager == "uv":
-                    self.assertIn("myapp-winrt", source.read_text())
-                    self.assertIn("editable = true", source.read_text())
-                else:
-                    self.assertIn("-e '.\\.winapp\\python\\myapp_winrt'", (project / "requirements.txt").read_text())
 
             with (
                 self.subTest(manager=manager),
                 patch("winappcli.cli.forward_native", side_effect=self.native),
                 patch("winappcli.cli._prepare_codegen",
-                      return_value=(Path("codegen.exe"), Path("python.exe"), self.codegen_version)),
+                      return_value=nullcontext((Path("codegen.exe"), Path("python.exe"), self.codegen_version))),
                 patch("winappcli.cli.generate", side_effect=generate),
-                patch("winappcli.cli.synchronize_project", side_effect=synchronize) as install,
+                patch("winappcli.dependencies.run_tool") as install,
             ):
                 self.assertEqual(self.invoke("--add-python-bindings"), 0)
-                install.assert_called_once()
+                install.assert_not_called()
+                self.assertTrue((output / "pyproject.toml").is_file())
+                self.assertEqual(
+                    {path: path.read_bytes() for path in self.project.rglob("*")
+                     if path.is_file() and ".winapp" not in path.parts}, before,
+                )
 
     def test_failed_config_only_codegen_preserves_dependency_declarations(self):
         source = self.project / "pyproject.toml"
@@ -631,15 +627,13 @@ class NativeInitTests(ProjectTest):
         with (
             patch("winappcli.cli.forward_native", side_effect=native),
             patch("winappcli.cli._prepare_codegen", side_effect=WinappError("codegen unavailable")),
-            patch("winappcli.cli.register_dependencies", wraps=register_dependencies) as register,
             patch("winappcli.cli.generate") as generate,
         ):
             self.assertEqual(self.invoke("--config-only", "--add-python-bindings"), 1)
         self.assertEqual({path: path.read_bytes() for path in before}, before)
-        register.assert_not_called()
         generate.assert_not_called()
 
-    def test_config_only_registers_dependencies_after_codegen_without_generation(self):
+    def test_config_only_prepares_codegen_without_application_installation_or_generation(self):
         order = []
 
         def native(executable, arguments, working_directory):
@@ -647,13 +641,12 @@ class NativeInitTests(ProjectTest):
 
         with (
             patch("winappcli.cli.forward_native", side_effect=native),
-            patch("winappcli.cli._prepare_codegen", side_effect=lambda *a, **kw: order.append("prepare")),
-            patch("winappcli.cli.register_dependencies", side_effect=lambda *a, **kw: order.append("dependencies")),
+            patch("winappcli.cli._prepare_codegen", side_effect=lambda *a, **kw: order.append("prepare") or nullcontext()),
             patch("winappcli.cli.generate") as generate,
-            patch("winappcli.cli.synchronize_project") as install,
+            patch("winappcli.dependencies.run_tool") as install,
         ):
             self.assertEqual(self.invoke("--config-only", "--add-python-bindings"), 0)
-        self.assertEqual(order, ["prepare", "dependencies"])
+        self.assertEqual(order, ["prepare"])
         generate.assert_not_called()
         install.assert_not_called()
 

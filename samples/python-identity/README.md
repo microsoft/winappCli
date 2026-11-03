@@ -3,7 +3,9 @@
 ```powershell
 cd .\samples\python-identity
 winapp init --use-defaults --add-python-bindings
-winapp run .\app.py
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r .\requirements.txt
+.\.venv\Scripts\python.exe .\app.py
 winapp run --identity .\app.py
 ```
 
@@ -19,10 +21,12 @@ Use the guide's [Windows, Python and tool prerequisites](../../docs/guides/pytho
 
 ```powershell
 winapp init --use-defaults --add-python-bindings
-winapp run .\app.py
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r .\requirements.txt
+.\.venv\Scripts\python.exe .\app.py
 ```
 
-Initialization creates the project `.venv`, restores SDKs, generates the type selected in `pyproject.toml` and installs its matching DynWinRT runtime. It also creates the manifest and assets. The sample has a recorded generator version; initialization preserves it.
+Initialization restores SDKs, generates the type selected in `pyproject.toml`, and creates the manifest and assets. It preserves the sample's recorded generator version. The separate pip step installs the generated package and its matching DynWinRT runtime into your application `.venv`; skip environment creation if it already exists.
 
 Expected application stdout:
 
@@ -42,7 +46,7 @@ Expected application stdout has this shape:
 Package Family Name: your-project.debug_publisherhash
 ```
 
-The exact name comes from the project manifest and publisher. The runner prepares a private Python runtime matching the project's interpreter, restores declared application dependencies and registers a development package. First preparation downloads the runtime if it is not cached; later runs reuse it unless project inputs change. Ordinary `.venv` execution is unchanged.
+The exact name comes from the project manifest and publisher. The runner prepares a private Python runtime, installs this sample's generated bindings and their DynWinRT runtime, and registers a development package. See [Choosing Python](../../docs/guides/python.md#choosing-python) for the default interpreter and [identity dependencies](../../docs/guides/python.md#identity-dependencies) for optional requirements, updates and manual installs. First preparation downloads the runtime if it is not cached; later runs reuse it. Ordinary `.venv` execution is unchanged.
 
 Unexpected API failures are reported as errors, not converted to **Not packaged**.
 
@@ -62,22 +66,24 @@ Build a console executable with PyInstaller, then package its complete output di
 
 ```powershell
 winapp restore
+.\.venv\Scripts\python.exe -m pip install -r .\requirements-dev.txt
 ```
 
-PyInstaller is declared in this sample's `dev` dependency group and restored into `.venv`.
+`requirements-dev.txt` includes the application requirements and PyInstaller. winapp restores bindings first; pip installs build dependencies afterward.
 
 ### Build the application directory
 
 ```powershell
 .\.venv\Scripts\python.exe -I -B -m PyInstaller `
   --clean --noconfirm --onedir --console --name PythonIdentity `
-  --paths .\.winapp\python `
   --collect-all dynwinrt `
-  --collect-submodules winapp_bindings `
+  --collect-all winapp_bindings `
   .\app.py
 ```
 
 The output is `dist\PythonIdentity\PythonIdentity.exe` plus its Python runtime and dependencies. Running that EXE directly still prints **Not packaged**. Package the whole directory, not only the EXE. Its architecture matches the build interpreter.
+
+Collect both complete packages so dynamically loaded Python modules, Windows App SDK configuration metadata and Bootstrap DLLs are included. `--collect-submodules` alone does not collect those resources. The same collection options apply to `--onefile`; the MSIX example uses `--onedir`.
 
 ### Add a console alias and sign the package
 
@@ -118,7 +124,7 @@ Uninstall through Windows Settings when finished. `identity clear` only removes 
 
 ## Restore and troubleshoot
 
-Use `winapp restore` after cloning. It restores recorded SDK and generator versions. For API selections, version updates and errors, see the [Python guide](../../docs/guides/python.md#troubleshooting).
+After cloning, run `winapp restore`, create `.venv`, and install `requirements.txt` as above. For API selections, version updates and errors, see the [Python guide](../../docs/guides/python.md#troubleshooting).
 
 If MSIX installation reports `0x800B0109`, trust the matching certificate as described above. A missing framework dependency requires installing the manifest's requested Windows App Runtime version and architecture on the target machine.
 

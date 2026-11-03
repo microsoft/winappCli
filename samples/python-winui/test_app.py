@@ -1,11 +1,16 @@
 # Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 # Licensed under the MIT License.
 
+import builtins
+from contextlib import contextmanager
 from pathlib import Path
+from types import ModuleType
 import tomllib
 import unittest
+from unittest.mock import Mock, patch
 
 from counter import Counter
+from runtime import windows_runtime
 
 
 class CounterTests(unittest.TestCase):
@@ -37,7 +42,7 @@ class CounterTests(unittest.TestCase):
         counter.decrement()
         self.assertEqual(counter.value, 9999999999)
 
-    def test_sample_is_bootstrap_only_without_identity_storage_or_packaging_dependencies(self):
+    def test_sample_uses_auto_init_without_storage_or_packaging_dependencies(self):
         sample = Path(__file__).resolve().parent
         self.assertEqual(list(sample.glob("*.xaml")), [])
         configuration = tomllib.loads((sample / "pyproject.toml").read_text(encoding="utf-8"))
@@ -48,14 +53,59 @@ class CounterTests(unittest.TestCase):
         self.assertNotIn("Windows.Storage.ApplicationData", selected)
         self.assertNotIn("dependency-groups", configuration)
         runtime = (sample / "runtime.py").read_text(encoding="utf-8")
-        self.assertIn("from winapp_bindings._winapp_runtime import WINDOWS_APP_SDK_VERSION, bootstrap_dll_path", runtime)
-        self.assertIn("dll = bootstrap_dll_path(project)", runtime)
+        self.assertIn("import dynwinrt.auto_init", runtime)
+        self.assertNotIn("_winapp_runtime", runtime)
+        self.assertNotIn("WINAPPSDK_BOOTSTRAP_DLL_PATH", runtime)
         self.assertNotIn("def bootstrap_dll_path", runtime)
         for name in ("app.py", "runtime.py", "window.py", "counter.py"):
             text = (sample / name).read_text(encoding="utf-8")
-            self.assertNotIn("has_package_identity", text)
             self.assertNotIn("from_package_data", text)
             self.assertNotIn("XamlReader", text)
+
+    def test_sta_precedes_auto_init_and_projections_close_before_the_apartment(self):
+        for identity, failure in ((False, False), (True, False), (False, True)):
+            with self.subTest(identity=identity, failure=failure):
+                events = []
+
+                @contextmanager
+                def scope(name):
+                    events.append(f"enter {name}")
+                    try:
+                        yield
+                    finally:
+                        events.append(f"exit {name}")
+
+                runtime = ModuleType("dynwinrt")
+                runtime.RoApartment = Mock(side_effect=lambda mode: scope(f"apartment {mode}"))
+                runtime.projected_lifetime_scope = lambda: scope("projections")
+                runtime.has_package_identity = lambda: identity
+                original_import = builtins.__import__
+
+                def import_module(name, *args, **kwargs):
+                    if name == "dynwinrt.auto_init":
+                        events.append("auto init")
+                        if failure:
+                            raise RuntimeError("Bootstrap failed")
+                        return runtime
+                    return original_import(name, *args, **kwargs)
+
+                with patch.dict("sys.modules", {"dynwinrt": runtime}), patch(
+                    "builtins.__import__", side_effect=import_module,
+                ):
+                    if failure:
+                        with self.assertRaisesRegex(RuntimeError, "Bootstrap failed"):
+                            with windows_runtime():
+                                self.fail("Initialization failure was suppressed")
+                    else:
+                        with windows_runtime() as mode:
+                            expected = "Package identity" if identity else "Bootstrap"
+                            self.assertEqual(mode, f"{expected} - memory only")
+                            events.append("application")
+                self.assertEqual(events, [
+                    "enter apartment 0", "enter projections", "auto init",
+                    *([] if failure else ["application"]),
+                    "exit projections", "exit apartment 0",
+                ])
 
 
 if __name__ == "__main__":

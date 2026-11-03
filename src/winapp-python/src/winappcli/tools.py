@@ -51,11 +51,11 @@ def installed_codegen_version(project: Path, python: Path) -> Version | None:
     try:
         value = json.loads(output)
     except json.JSONDecodeError as error:
-        raise WinappError("Project Python returned invalid codegen package metadata.") from error
+        raise WinappError("Generator Python returned invalid codegen package metadata.") from error
     if value is None:
         return None
     if not isinstance(value, str):
-        raise WinappError("Project Python returned invalid codegen package metadata.")
+        raise WinappError("Generator Python returned invalid codegen package metadata.")
     try:
         return Version(value)
     except InvalidVersion as error:
@@ -65,23 +65,26 @@ def installed_codegen_version(project: Path, python: Path) -> Version | None:
 def find_codegen(project: Path, expected_version: Version, python: Path) -> Path:
     executable = python.parent / "dynwinrt-codegen.exe"
     install = subprocess.list2cmdline([
-        "winapp", "restore", "--project", str(project), "--python", str(python),
+        "winapp", "restore", "--project", str(project),
     ])
     required = f"dynwinrt-codegen=={expected_version}"
     if not executable.is_file():
         raise WinappError(
-            f"{required} is not installed in the project environment. Run: {install}"
+            f"{required} is not installed in the generator environment. Run: {install}"
         )
     actual = installed_codegen_version(project, python)
     if actual is None:
         raise WinappError(f"Missing {required} package metadata. Run: {install}")
     if actual != expected_version:
         raise WinappError(
-            f"Codegen resolved {required}, but the project environment has {actual}. "
+            f"Codegen resolved {required}, but the generator environment has {actual}. "
             f"Run: {install}"
         )
     capabilities = set(run_tool([str(executable), "capabilities"], project).splitlines())
-    missing = {"lang.py", "selector.namespace-class", "input.winmd-list", "input.ref-list"} - capabilities
+    missing = {
+        "lang.py", "selector.namespace-class", "input.winmd-list", "input.ref-list",
+        "python.winappsdk-bootstrap-config",
+    } - capabilities
     if missing:
         raise WinappError(f"dynwinrt-codegen is missing required capabilities: {', '.join(sorted(missing))}")
     return executable

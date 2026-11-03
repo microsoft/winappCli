@@ -63,8 +63,9 @@ def step_button(symbol: str, name: str, automation_id: str) -> Button:
 
 
 class CounterWindow:
-    def __init__(self, counter: Counter) -> None:
+    def __init__(self, counter: Counter, mode: str) -> None:
         self.counter = counter
+        self.mode = mode
         self._subscriptions: list[Callable[[], None]] = []
 
         self.count_text = text_block(str(counter.value), 48, weight=600, automation_id="Count")
@@ -94,7 +95,7 @@ class CounterWindow:
     def _build_content(self) -> Grid:
         title = text_block("Python + WinUI 3", 26, weight=600)
         mode = text_block(
-            "Bootstrap - memory only",
+            self.mode,
             automation_id="Mode",
         )
 
@@ -105,8 +106,8 @@ class CounterWindow:
         control_children = controls.children
         if control_children is None:
             raise RuntimeError("WinUI returned no counter controls.")
-        for child in (self.increment_button, self.count_text, self.decrement_button):
-            control_children.append(child)
+        for control in (self.increment_button, self.count_text, self.decrement_button):
+            control_children.append(control)
 
         panel = StackPanel()
         panel.max_width = 500
@@ -165,7 +166,7 @@ class CounterWindow:
         self._subscriptions.clear()
 
 
-def run_window(counter: Counter) -> int:
+def run_window(counter: Counter, mode: str) -> int:
     application: Application | None = None
     window: CounterWindow | None = None
     failed = False
@@ -173,7 +174,7 @@ def run_window(counter: Counter) -> int:
 
     def launched() -> None:
         nonlocal window
-        window = CounterWindow(counter)
+        window = CounterWindow(counter, mode)
         window.show()
 
     def initialize(_params: object) -> None:

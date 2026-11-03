@@ -6,9 +6,13 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 from unittest.mock import patch
 
+from packaging.version import Version
+
+from winappcli.identity import PROBE_IDENTITY
 from winappcli import python_runtime as runtime
 from winappcli.errors import WinappError
 
@@ -44,6 +48,49 @@ class RuntimeTests(ProjectTest):
         values.update(overrides)
         return subprocess.CompletedProcess([], 0, json.dumps(values), "")
 
+    def run_probe_script(self, script, debug_flag, has_refcount):
+        setup = (
+            "import sys, sysconfig\n"
+            "original_get_config_var = sysconfig.get_config_var\n"
+            f"sysconfig.get_config_var = lambda name: {debug_flag!r} if name == 'Py_DEBUG' else original_get_config_var(name)\n"
+            "if hasattr(sys, 'gettotalrefcount'): del sys.gettotalrefcount\n"
+            + ("sys.gettotalrefcount = lambda: 0\n" if has_refcount else "")
+        )
+        result = subprocess.run(
+            [sys.executable, "-I", "-c", setup + script], cwd=self.project,
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result
+
+    def test_both_probe_scripts_detect_missing_and_explicit_debug_flags(self):
+        for name, script in (("interpreter", runtime.PROBE), ("identity", PROBE_IDENTITY)):
+            for flag, has_refcount, expected in (
+                (None, False, False), (None, True, True),
+                (0, False, False), (0, True, False),
+                (1, False, True), (1, True, True),
+            ):
+                with self.subTest(probe=name, flag=flag, has_refcount=has_refcount):
+                    result = self.run_probe_script(script, flag, has_refcount)
+                    self.assertIs(json.loads(result.stdout)["debug"], expected)
+
+    def test_detected_debug_interpreter_requires_a_matching_catalog_variant(self):
+        result = self.run_probe_script(runtime.PROBE, None, True)
+        with patch.object(runtime.subprocess, "run", return_value=result):
+            info = runtime.probe_interpreter(self.python, self.project)
+        self.assertTrue(info.debug)
+        version = Version(info.version).release
+        catalog = {
+            "standard": self.entry(
+                version=version, architecture=info.architecture,
+                variant="freethreaded" if info.free_threaded else None,
+            ),
+        }
+        with self.assertRaisesRegex(WinappError, "No other Python version or ABI will be substituted"):
+            runtime.resolve_distribution(info, catalog)
+        catalog["debug"] = self.entry(version=version, architecture=info.architecture, variant=info.variant)
+        self.assertEqual(runtime.resolve_distribution(info, catalog).interpreter, info)
+
     def archive(self, members):
         path = self.root / "runtime.tar.gz"
         with tarfile.open(path, "w:gz") as bundle:
@@ -56,19 +103,77 @@ class RuntimeTests(ProjectTest):
                 bundle.addfile(entry, io.BytesIO(payload) if entry.size else None)
         return path
 
-    def test_selects_project_venv_not_tool_interpreter(self):
-        self.assertEqual(runtime.select_project_python(self.project), self.python)
-        self.assertEqual(runtime.select_project_python(self.project, self.python), self.python)
+    def test_default_uses_running_python_whether_global_or_in_a_tool_environment(self):
+        for current in (
+            self.root / "global python" / "python.exe",
+            self.root / "tool environment" / "Scripts" / "python.exe",
+        ):
+            current.parent.mkdir(parents=True)
+            current.touch()
+            with self.subTest(current=current), patch("sys.executable", str(current)):
+                self.assertEqual(runtime.select_identity_python(self.project), current)
 
-    def test_missing_project_python_fails_without_global_fallback(self):
+    def test_default_does_not_require_a_project_venv(self):
         self.python.unlink()
-        with patch.object(runtime.sys, "prefix", str(self.root / "unrelated")):
-            with self.assertRaisesRegex(WinappError, "not used as a fallback"):
-                runtime.select_project_python(self.project)
+        tool = self.project / ".tools" / "Scripts" / "python.exe"
+        tool.parent.mkdir(parents=True)
+        tool.touch()
+        with patch("sys.executable", str(tool)):
+            self.assertEqual(runtime.select_identity_python(self.project), tool)
 
-    def test_missing_project_python_can_be_named_in_a_creation_hint(self):
-        self.python.unlink()
-        self.assertEqual(runtime.select_project_python(self.project, require_exists=False), self.python)
+    def test_runtime_generation_name_cannot_select_an_unowned_directory(self):
+        distribution = runtime.resolve_distribution(self.info, {"standard": self.entry()})
+        for name in ("..", r"..\outside", "other", "venv-old", "venv-" + "f" * 31):
+            with (
+                self.subTest(name=name),
+                patch.object(runtime, "_download") as download,
+                self.assertRaisesRegex(WinappError, "generation name"),
+            ):
+                runtime.prepare_runtime(self.project, self.project, distribution, environment_name=name)
+            download.assert_not_called()
+
+    def test_default_ignores_active_environment_and_path(self):
+        current = self.root / "python.exe"
+        current.touch()
+        with (
+            patch("sys.executable", str(current)),
+            patch.dict(runtime.os.environ, {
+                "VIRTUAL_ENV": str(self.project / ".venv"),
+                "PATH": str(self.python.parent),
+            }),
+            patch("shutil.which") as search,
+        ):
+            self.assertEqual(runtime.select_identity_python(self.project), current)
+        search.assert_not_called()
+
+    def test_explicit_relative_python_overrides_running_python(self):
+        with patch("sys.executable", str(self.root / "missing.exe")):
+            self.assertEqual(
+                runtime.select_identity_python(self.project, Path(".venv") / "Scripts" / "python.exe"),
+                self.python,
+            )
+
+    def test_explicit_absolute_python_overrides_running_python(self):
+        selected = self.root / "another python.exe"
+        selected.touch()
+        self.assertEqual(runtime.select_identity_python(self.project, selected), selected)
+
+    def test_missing_override_does_not_fall_back_to_running_or_project_python(self):
+        with self.assertRaisesRegex(WinappError, "Selected Python interpreter not found"):
+            runtime.select_identity_python(self.project, Path("missing.exe"))
+
+    def test_missing_running_python_does_not_fall_back_to_project_venv(self):
+        with (
+            patch("sys.executable", str(self.root / "missing.exe")),
+            self.assertRaisesRegex(WinappError, "Selected Python interpreter not found"),
+        ):
+            runtime.select_identity_python(self.project)
+
+    def test_reference_interpreter_does_not_need_to_be_a_virtual_environment(self):
+        with patch.object(runtime.subprocess, "run", return_value=self.probe(
+            prefix=str(self.root / "global"), base_prefix=str(self.root / "global"),
+        )):
+            self.assertEqual(runtime.probe_interpreter(self.python, self.project), self.info)
 
     def test_virtual_environment_is_checked_using_the_selected_interpreter(self):
         with patch.object(runtime.subprocess, "run", return_value=self.probe()):

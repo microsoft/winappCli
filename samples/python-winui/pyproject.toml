@@ -6,7 +6,7 @@ dependencies = []
 
 [tool.winapp.python-bindings]
 package = "winapp_bindings"
-codegen-version = "0.1.0rc23"
+codegen-version = "0.1.0rc24"
 scope = "types"
 types = [
     "Microsoft.UI.Xaml.Application",

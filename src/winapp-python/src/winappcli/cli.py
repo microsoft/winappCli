@@ -2,13 +2,13 @@
 # Licensed under the MIT License.
 
 import argparse
-from contextlib import nullcontext, redirect_stdout
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager, nullcontext, redirect_stdout
 import io
 from importlib.metadata import version
 import os
 from pathlib import Path
 import platform
-import subprocess
 import sys
 
 from packaging.version import Version
@@ -20,9 +20,7 @@ from .config import (
     set_codegen_version,
     try_load_config,
 )
-from .dependencies import (
-    ensure_project_python, install_codegen, register_dependencies, synchronize_project,
-)
+from .dependencies import install_codegen, temporary_codegen_python
 from .errors import WinappError
 from .generate import generate
 from .identity import clear_identity, run_with_identity
@@ -60,7 +58,8 @@ def _show_forwarded_help(
     print(f"\nPython {command} workflow:" if command else "\nPython extensions:", flush=True)
     if command == "run":
         print(
-            "Python .py scripts use the project .venv; --identity uses a private development environment. "
+            "Python .py scripts require --identity and use a private development environment. "
+            "Run ordinary scripts with your own Python interpreter or project manager. "
             "Other inputs use the native syntax above.",
             flush=True,
         )
@@ -119,7 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser(
         "init", add_help=False,
-        help="Forward native init, then optionally configure, generate and install Python bindings.",
+        help="Forward native init, then optionally configure and generate Python bindings.",
     )
     for command, help_text in (
         ("restore", "Restore pinned SDKs and the project's codegen version, then generate Python bindings."),
@@ -133,8 +132,6 @@ def build_parser() -> argparse.ArgumentParser:
                                help="Show native help followed by the Python workflow.")
         child.add_argument("--project", type=Path, default=Path.cwd(),
                            help="Project directory (default: current directory).")
-        child.add_argument("--python", type=Path,
-                           help="Project venv Python for generation and dependency installation (default: project .venv).")
         _add_output_options(child)
         if command == "update":
             child.add_argument("--channel", choices=("stable", "preview", "experimental"),
@@ -150,19 +147,21 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_options(clear)
 
     run = commands.add_parser("run", add_help=False,
-                              help="Run a Python script in the project .venv, optionally with development identity.")
+                              help="Run a Python script with development identity; requires --identity.")
     run.add_argument("-h", "--help", action=_NativeHelpAction, command="run",
                      help="Show native run help followed by Python run options.")
     run.add_argument("--identity", action="store_true",
-                     help="Use an exact-match private PBS identity environment; rebuild it when project inputs change.")
+                     help="Use a reusable private PBS identity environment with generated bindings.")
     run.add_argument("--project", type=Path, default=Path.cwd())
     run.add_argument("--manifest", type=Path,
                      help="Identity only: project manifest (default: auto-detect in project).")
     _add_output_options(run)
     run.add_argument("--python", type=Path,
-                     help="Identity only: project Python to match exactly (default: project .venv).")
+                     help="Identity only: Python interpreter to match when preparing the private runtime "
+                          "(default: the Python running winapp).")
     run.add_argument("--requirements", type=Path,
-                     help="Identity only: requirements file (default: existing application declarations).")
+                     help="Identity only: optional pip requirements file to install, without hashes. "
+                          "Otherwise, install application dependencies manually; no dependency files are auto-detected.")
     run.add_argument("script", type=Path, nargs="?", help="Project-local .py script to execute.")
     run.add_argument("script_args", nargs=argparse.REMAINDER, help="Arguments after '--' go to the script.")
     return parser
@@ -205,58 +204,36 @@ def _normalize_output_options(argv: list[str], command_index: int) -> list[str]:
     return normalized
 
 
-def _run_in_project_venv(
-    project: Path, script: Path, script_args: list[str], *, quiet: bool = False,
-) -> int:
-    if not project.is_dir():
-        raise WinappError(f"Project directory does not exist: {project}")
-    script = local_path(project / script, boundary=project)
-    if not script.is_file():
-        raise WinappError(f"An existing project-local .py script is required: {script}")
-    python = local_path(project / ".venv" / "Scripts" / "python.exe", boundary=project)
-    if not python.is_file():
-        raise WinappError(
-            f"Project .venv Python was not found: {python}. "
-            "Run the script with your own Python interpreter, or use 'uv run <script>' for a uv project."
-        )
-    if not quiet:
-        print(f"Using project .venv: {python}", file=sys.stderr, flush=True)
-    try:
-        return subprocess.run([str(python), str(script), *script_args], cwd=project, check=False).returncode
-    except OSError as error:
-        raise WinappError(f"Could not launch the script with project .venv Python: {error}") from error
-
-
+@contextmanager
 def _prepare_codegen(
-    project: Path, codegen_version: Version | None, *, python_option: Path | None = None, verbose: bool = False,
+    project: Path, codegen_version: Version | None, *, verbose: bool = False,
     progress: Workflow | None = None,
-) -> tuple[Path, Path, Version]:
-    with progress.step("Prepare environment", "Project environment ready") if progress else nullcontext() as step:
-        python = ensure_project_python(project, python_option, verbose=verbose)
-        if step is not None:
-            environment = python.parent.parent
-            location = str(environment.relative_to(project)) if environment.is_relative_to(project) else environment.name
-            step.complete(f"Environment: {location}")
-        if verbose:
-            print(f"Project Python: {python}", flush=True)
-    with progress.step("Prepare codegen") if progress else nullcontext() as step:
-        install_codegen(project, python, codegen_version, verbose=verbose)
-        selected = installed_codegen_version(project, python)
-        if selected is None:
-            raise WinappError("The installer did not provide dynwinrt-codegen package metadata.")
-        if codegen_version is not None and selected != codegen_version:
-            raise WinappError(f"The project requires dynwinrt-codegen=={codegen_version}, but the environment has {selected}.")
-        codegen = find_codegen(project, selected, python)
-        if codegen_version is None:
-            set_codegen_version(project, selected)
-        if step is not None:
-            step.complete(f"Codegen: {selected}")
-    return codegen, python, selected
+) -> Iterator[tuple[Path, Path, Version]]:
+    with ExitStack() as lifetime:
+        with progress.step("Prepare generator environment", "Generator environment ready") if progress else nullcontext() as step:
+            python = lifetime.enter_context(temporary_codegen_python(project, verbose=verbose))
+            if step is not None:
+                step.complete(f"Temporary generator environment: {python.parent.parent.relative_to(project)}")
+            if verbose:
+                print(f"Generator Python: {python}", flush=True)
+        with progress.step("Prepare codegen") if progress else nullcontext() as step:
+            install_codegen(project, python, codegen_version, verbose=verbose)
+            selected = installed_codegen_version(project, python)
+            if selected is None:
+                raise WinappError("The installer did not provide dynwinrt-codegen package metadata.")
+            if codegen_version is not None and selected != codegen_version:
+                raise WinappError(f"The project requires dynwinrt-codegen=={codegen_version}, but the environment has {selected}.")
+            codegen = find_codegen(project, selected, python)
+            if codegen_version is None:
+                set_codegen_version(project, selected)
+            if step is not None:
+                step.complete(f"Codegen: {selected}")
+        yield codegen, python, selected
 
 
 def _bindings_after_sdk(
-    project: Path, *, verbose: bool, force: bool = False, python_option: Path | None = None,
-    progress: Workflow | None = None, upgrade_codegen: bool = False, configure_dependencies: bool = False,
+    project: Path, *, verbose: bool, force: bool = False,
+    progress: Workflow | None = None, upgrade_codegen: bool = False,
 ) -> None:
     config = try_load_config(project)
     if config is None:
@@ -268,20 +245,18 @@ def _bindings_after_sdk(
             "Run 'winapp init . --use-defaults --add-python-bindings' or 'winapp update' to record it."
         )
     with nullcontext(progress) if progress is not None else Workflow("Preparing Python bindings", verbose=verbose) as workflow:
-        codegen, python, selected = _prepare_codegen(
+        with _prepare_codegen(
             project, None if upgrade_codegen else config.codegen_version,
-            python_option=python_option, verbose=verbose, progress=workflow,
-        )
-        if upgrade_codegen:
-            config = load_config(project)
-        with workflow.step("Generate bindings") as step:
-            output = generate(config, codegen, selected, verbose=verbose, force=force, report=step.complete)
-        with workflow.step("Install dependencies", "Project dependencies installed"):
-            if configure_dependencies:
-                register_dependencies(project, config.package)
-            synchronize_project(project, python, output, verbose=verbose)
+            verbose=verbose, progress=workflow,
+        ) as (codegen, _, selected):
+            if upgrade_codegen:
+                config = load_config(project)
+            with workflow.step("Generate bindings") as step:
+                output = generate(config, codegen, selected, verbose=verbose, force=force, report=step.complete)
+        print(f"Python bindings generated: {output.relative_to(project)}", flush=True)
+        print("Install this package into your application environment with your package manager.", flush=True)
         if progress is None:
-            workflow.succeed("Python bindings ready.")
+            workflow.succeed("Python bindings generated.")
 
 
 def _require_supported_python() -> None:
@@ -300,18 +275,16 @@ def _configure_after_init(project: Path, *, reset: bool, config_only: bool, verb
             if existing is None or reset:
                 add_config(project, package, reset=reset)
         if config_only:
-            _prepare_codegen(project, load_config(project).codegen_version, verbose=verbose, progress=workflow)
-            with workflow.step("Register bindings dependency", "Bindings dependency registered"):
-                register_dependencies(project, package)
-            workflow.succeed("Bindings configured; run 'winapp restore' to generate and install them.")
+            with _prepare_codegen(project, load_config(project).codegen_version, verbose=verbose, progress=workflow):
+                pass
+            workflow.succeed("Bindings configured; run 'winapp restore' to generate them.")
             return
         load_inventory(project)
         _bindings_after_sdk(
             project, verbose=verbose, progress=workflow,
             upgrade_codegen=load_config(project).codegen_version is None,
-            configure_dependencies=True,
         )
-        workflow.succeed("Python bindings ready.")
+        workflow.succeed("Python bindings generated.")
 
 
 def _confirmation(title: str) -> bool:
@@ -398,7 +371,7 @@ def _initialize(native_args: list[str]) -> int:
         if any(argument in HELP_FLAGS for argument in native_args):
             print(
                 "\nPython wrapper option:\n"
-                "  --add-python-bindings  Enable bindings and project dependency setup during non-interactive init.\n"
+                "  --add-python-bindings  Configure and generate bindings during non-interactive init; does not install application dependencies.\n"
                 "  Without a directory, interactive init asks you to confirm the bindings target after SDK setup.",
                 flush=True,
             )
@@ -524,12 +497,11 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error("the following arguments are required: script")
             script_args = args.script_args[1:] if args.script_args[:1] == ["--"] else args.script_args
             if not args.identity:
-                if args.python is not None or args.requirements is not None or args.manifest is not None:
-                    raise WinappError(
-                        "--python, --requirements and --manifest require --identity for Python scripts. "
-                        "Ordinary Python runs use the project .venv."
-                    )
-                return _run_in_project_venv(local_path(args.project), args.script, script_args, quiet=args.quiet)
+                raise WinappError(
+                    "Python scripts require --identity when using 'winapp run'. "
+                    "For ordinary execution, use your own Python interpreter or project manager, "
+                    "for example 'python app.py' or 'poetry run python app.py'."
+                )
             native = bundled_cli()
             return run_with_identity(local_path(args.project), args.script, script_args, native, args.manifest,
                                      python_option=args.python, requirements_option=args.requirements,
@@ -540,17 +512,16 @@ def main(argv: list[str] | None = None) -> int:
                 if args.command == "identity":
                     return clear_identity(local_path(args.project))
                 project = local_path(args.project)
-                if args.python is not None:
-                    ensure_project_python(project, args.python, verbose=args.verbose)
                 if args.command == "generate":
                     config = load_config(project)
                     packages_hash(project)
-                    _bindings_after_sdk(config.project, verbose=args.verbose, force=args.force, python_option=args.python)
+                    _bindings_after_sdk(config.project, verbose=args.verbose, force=args.force)
                 else:
                     config = try_load_config(project)
                     if config is not None:
                         packages_hash(project)
                     native = bundled_cli()
+                    native_flags = ["-v"] if args.verbose else []
                     if args.command == "restore":
                         native_args = [str(native), "restore", str(project)]
                     else:
@@ -560,15 +531,16 @@ def main(argv: list[str] | None = None) -> int:
                                   verbose=args.verbose) as workflow:
                         with workflow.step("Restore SDKs and projections" if args.command == "restore" else "Update SDK packages",
                                            "SDK packages ready"):
-                            run_tool(native_args, project, verbose=args.verbose)
+                            run_tool([*native_args, *native_flags], project, verbose=args.verbose)
                         if args.command == "update" and config is not None:
                             with workflow.step("Restore updated SDKs and projections", "SDKs and projections ready"):
-                                run_tool([str(native), "restore", str(project)], project, verbose=args.verbose)
+                                run_tool([str(native), "restore", str(project), *native_flags],
+                                         project, verbose=args.verbose)
                         _bindings_after_sdk(
-                            project, verbose=args.verbose, python_option=args.python, progress=workflow,
+                            project, verbose=args.verbose, progress=workflow,
                             upgrade_codegen=args.command == "update",
                         )
-                        workflow.succeed("Python bindings ready." if config is not None else "SDK packages ready.")
+                        workflow.succeed("Python bindings generated." if config is not None else "SDK packages ready.")
         return 0
     except (WinappError, OSError, UnicodeError) as error:
         print(f"error: {error}", file=sys.stderr)

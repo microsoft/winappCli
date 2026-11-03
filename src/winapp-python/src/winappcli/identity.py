@@ -3,7 +3,7 @@
 
 """Opt-in development identity backed by a project-owned PBS runtime."""
 
-from contextlib import contextmanager, nullcontext, redirect_stdout
+from contextlib import ExitStack, contextmanager, nullcontext, redirect_stdout
 import hashlib
 import json
 import os
@@ -17,12 +17,15 @@ import uuid
 import xml.etree.ElementTree as ET
 
 from .errors import WinappError
-from .identity_environment import application_environment, dependency_inputs, synchronize_dependencies
+from .identity_environment import (
+    application_environment, capture_dependencies, dependency_inputs,
+    installation_hint, synchronize_dependencies,
+)
 from .paths import check_output_tree, local_path
 from .progress import Workflow
 from .python_runtime import (
     distribution_from_document, prepare_runtime, probe_interpreter,
-    resolve_distribution, select_project_python,
+    resolve_distribution, select_identity_python,
 )
 from .tools import run_tool
 
@@ -42,12 +45,18 @@ REMOVE_PACKAGE = """
 $ErrorActionPreference = 'Stop'
 Remove-AppxPackage -Package $env:WINAPP_PY_PACKAGE_FULL_NAME -PreserveApplicationData -Confirm:$false
 """
+REGISTER_PACKAGE = """
+$ErrorActionPreference = 'Stop'
+Add-AppxPackage -Register $env:WINAPP_PY_MANIFEST -ExternalLocation $env:WINAPP_PY_EXTERNAL
+"""
 PROBE_IDENTITY = """
 import ctypes
 import json
 import sys, sysconfig
 from ctypes import wintypes
 
+debug_flag = sysconfig.get_config_var("Py_DEBUG")
+is_debug = bool(debug_flag) if debug_flag is not None else hasattr(sys, "gettotalrefcount")
 get_name = ctypes.WinDLL("kernel32", use_last_error=True).GetCurrentPackageFullName
 get_name.argtypes = [ctypes.POINTER(wintypes.UINT), wintypes.LPWSTR]
 get_name.restype = wintypes.LONG
@@ -68,7 +77,7 @@ print(json.dumps({"code": code, "name": name, "prefix": sys.prefix,
     "base_prefix": sys.base_prefix, "image": image.value,
     "version": sys.version.split()[0], "platform": sysconfig.get_platform(),
     "free_threaded": bool(sysconfig.get_config_var("Py_GIL_DISABLED")),
-    "debug": bool(sysconfig.get_config_var("Py_DEBUG"))}))
+    "debug": is_debug}))
 """
 
 
@@ -92,6 +101,12 @@ def _load_record(project: Path) -> dict | None:
         record = json.loads(source.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeError) as error:
         raise WinappError(f"Invalid Python identity ownership record at {source}: {error}") from error
+    _validate_record(project, record)
+    return record
+
+
+def _validate_record(project: Path, record: dict, *, allow_update: bool = True) -> None:
+    source = _record_path(project)
     required = {"schema", "project", "root", "owner", "state", "entry", "base",
                 "package", "publisher", "full_name", "interpreter", "distribution",
                 "manifest_hash", "dependency_hash", "runtime_hashes", "registration_attempted"}
@@ -104,7 +119,7 @@ def _load_record(project: Path) -> dict | None:
             "manifest_hash", "dependency_hash")):
         raise WinappError(f"The Python identity record has invalid paths or package identifiers: {source}")
     if (
-        record["state"] not in ("preparing", "ready")
+        record["state"] not in ("preparing", "ready", "updating")
         or not re.fullmatch(r"[a-f0-9]{32}", record["owner"])
         or not isinstance(record["interpreter"], dict) or not isinstance(record["distribution"], dict)
         or not isinstance(record["runtime_hashes"], dict)
@@ -118,7 +133,23 @@ def _load_record(project: Path) -> dict | None:
     if record["project"].lower() != str(project).lower():
         raise WinappError(f"{source} belongs to a different project; refusing to modify it.")
     _owned_directory(project, record)
-    return record
+    if record["state"] == "updating":
+        if not allow_update or not isinstance(record.get("previous"), dict):
+            raise WinappError("Invalid interrupted identity update record.")
+        previous = record["previous"]
+        _validate_record(project, previous, allow_update=False)
+        if previous["state"] != "ready" or previous["owner"] != record["owner"]:
+            raise WinappError("Identity update does not own its previous environment.")
+        if not isinstance(record.get("backup"), str) or not record["backup"]:
+            raise WinappError("Identity update has no registration backup.")
+        backup = local_path(Path(record["backup"]), boundary=Path(record["root"]))
+        if backup.parent != Path(record["root"]) or not re.fullmatch(r"\.registration-[a-f0-9]{32}", backup.name):
+            raise WinappError("Identity update has an invalid registration backup.")
+        if not isinstance(record.get("old_location"), str):
+            raise WinappError("Identity update has no previous package location.")
+        location = local_path(Path(record["old_location"]), boundary=project)
+        if Path(record["root"]).is_relative_to(location) or location.is_relative_to(record["root"]):
+            raise WinappError("Identity registration backup overlaps the private environment.")
 
 
 def _write_record(project: Path, record: dict) -> None:
@@ -134,7 +165,10 @@ def _write_record(project: Path, record: dict) -> None:
         staged.unlink(missing_ok=True)
 
 
-def _powershell(script: str, *, name: str | None = None, full_name: str | None = None) -> str:
+def _powershell(
+    script: str, *, name: str | None = None, full_name: str | None = None,
+    manifest: Path | None = None, external: Path | None = None,
+) -> str:
     system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
     executable = system_root / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
     if not executable.is_file():
@@ -144,6 +178,10 @@ def _powershell(script: str, *, name: str | None = None, full_name: str | None =
         environment["WINAPP_PY_PACKAGE_NAME"] = name
     if full_name is not None:
         environment["WINAPP_PY_PACKAGE_FULL_NAME"] = full_name
+    if manifest is not None:
+        environment["WINAPP_PY_MANIFEST"] = str(manifest)
+    if external is not None:
+        environment["WINAPP_PY_EXTERNAL"] = str(external)
     try:
         completed = subprocess.run(
             [str(executable), "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -197,10 +235,10 @@ def _owned_directory(project: Path, record: dict) -> Path:
     private = local_path(project / ".winapp" / ROOT_NAME, boundary=project)
     if Path(record["root"]) != private:
         raise WinappError("The Python identity record points outside its project-owned PBS environment.")
-    if (
-        Path(record["base"]) not in {private / "venv" / "runtime" / name for name in ("python.exe", "python_d.exe")}
-        or Path(record["entry"]) not in {private / "venv" / "Scripts" / name for name in ("python.exe", "python_d.exe")}
-    ):
+    venv = Path(record["entry"]).parent.parent
+    if (venv.parent != private or not re.fullmatch(r"venv(?:-[a-f0-9]{32})?", venv.name)
+        or Path(record["base"]) not in {venv / "runtime" / name for name in ("python.exe", "python_d.exe")}
+        or Path(record["entry"]) not in {venv / "Scripts" / name for name in ("python.exe", "python_d.exe")}):
         raise WinappError("The Python identity record points outside the owned runtime or launcher.")
     if private.exists():
         marker = local_path(private / PRIVATE_MARKER, boundary=project)
@@ -217,22 +255,26 @@ def _remove_owned(record: dict) -> None:
     if record["full_name"] is None and not record["registration_attempted"]:
         return
     with _registration_lock(record["package"]):
-        packages = _packages(record["package"])
-        if record["full_name"] is None:
-            if not packages:
-                return
-            if len(packages) != 1:
-                raise WinappError("Cannot verify a unique registration for the partially prepared identity.")
-            full_name = packages[0].get("PackageFullName")
-            if not isinstance(full_name, str) or not full_name:
-                raise WinappError("Windows returned no full identity for the partially prepared package.")
-            record = {**record, "full_name": full_name}
-        if _owned_package(record, packages):
-            _powershell(REMOVE_PACKAGE, full_name=record["full_name"])
-            if _packages(record["package"]):
-                raise WinappError(f"A registration remains for {record['package']}; no files were removed.")
-        elif packages:
-            raise WinappError("A different registration now uses this identity; refusing to clear its private environment.")
+        _remove_registration(record)
+
+
+def _remove_registration(record: dict) -> None:
+    packages = _packages(record["package"])
+    if record["full_name"] is None:
+        if not packages:
+            return
+        if len(packages) != 1:
+            raise WinappError("Cannot verify a unique registration for the partially prepared identity.")
+        full_name = packages[0].get("PackageFullName")
+        if not isinstance(full_name, str) or not full_name:
+            raise WinappError("Windows returned no full identity for the partially prepared package.")
+        record = {**record, "full_name": full_name}
+    if _owned_package(record, packages):
+        _powershell(REMOVE_PACKAGE, full_name=record["full_name"])
+        if _packages(record["package"]):
+            raise WinappError(f"A registration remains for {record['package']}; no files were removed.")
+    elif packages:
+        raise WinappError("A different registration now uses this identity; refusing to clear its private environment.")
 
 
 def _manifest_identity(manifest: Path) -> tuple[str, str]:
@@ -305,8 +347,9 @@ def _registration_lock(package_name: str):
 
 def _runtime_hashes(record: dict) -> dict[str, str]:
     root = Path(record["root"])
-    runtime = root / "venv" / "runtime"
-    files = [Path(record["base"]), Path(record["entry"]), root / "venv" / "pyvenv.cfg",
+    venv = Path(record["entry"]).parent.parent
+    runtime = venv / "runtime"
+    files = [Path(record["base"]), Path(record["entry"]), venv / "pyvenv.cfg",
              *sorted(runtime.glob("*.dll"))]
     if any(not file.is_file() for file in files):
         raise WinappError("The private runtime or identity venv is missing. Run 'winapp identity clear' and prepare it again.")
@@ -314,8 +357,7 @@ def _runtime_hashes(record: dict) -> dict[str, str]:
 
 
 def _verify_interpreter(project: Path, record: dict) -> None:
-    root = Path(record["root"])
-    venv = root / "venv"
+    venv = Path(record["entry"]).parent.parent
     try:
         result = subprocess.run(
             [record["entry"], "-I", "-c", PROBE_IDENTITY], cwd=project,
@@ -379,6 +421,143 @@ def _clear_owned_files(project: Path, record: dict) -> None:
     _record_path(project).unlink(missing_ok=True)
 
 
+def _registration_digest(project: Path, manifest: Path) -> str:
+    digest = hashlib.sha256(manifest.read_bytes())
+    configuration = local_path(project / "winapp.yaml", boundary=project)
+    if configuration.is_file():
+        digest.update(b"\0winapp.yaml\0")
+        digest.update(configuration.read_bytes())
+    return digest.hexdigest()
+
+
+@contextmanager
+def _registration_locks(*names: str):
+    with ExitStack() as stack:
+        for name in sorted({name.casefold() for name in names}):
+            stack.enter_context(_registration_lock(name))
+        yield
+
+
+def _delete_environment(project: Path, record: dict) -> None:
+    root = _owned_directory(project, record)
+    environment = local_path(Path(record["entry"]).parent.parent, boundary=root)
+    if environment.exists():
+        check_output_tree(environment)
+        shutil.rmtree(environment)
+
+
+def _register_record(project: Path, record: dict, native: Path, manifest: Path, *, verbose: bool) -> dict:
+    if _packages(record["package"]):
+        raise WinappError("The package identity was registered by another operation during preparation; refusing to replace it.")
+    record["registration_attempted"] = True
+    _write_record(project, record)
+    native_args = [str(native), "create-debug-identity", record["base"], "--manifest", str(manifest)]
+    if verbose:
+        native_args.append("-v")
+    run_tool(native_args, project, verbose=verbose)
+    registrations = _packages(record["package"])
+    if len(registrations) != 1:
+        raise WinappError(f"Expected one development registration for {record['package']}.")
+    full_name = registrations[0].get("PackageFullName")
+    if not isinstance(full_name, str) or not full_name:
+        raise WinappError("Windows returned no complete package identity.")
+    record["full_name"] = full_name
+    _owned_package(record, registrations)
+    record["runtime_hashes"] = _runtime_hashes(record)
+    _verify_interpreter(project, record)
+    ready = {key: value for key, value in record.items()
+             if key not in {"previous", "backup", "old_location"}}
+    ready["state"] = "ready"
+    _write_record(project, ready)
+    return ready
+
+
+def _rollback_update(project: Path, pending: dict, *, locks_held: bool = False) -> dict:
+    previous = pending["previous"]
+    backup = local_path(Path(pending["backup"]), boundary=Path(pending["root"]))
+    location = local_path(Path(pending["old_location"]), boundary=project)
+    locks = nullcontext() if locks_held else _registration_locks(previous["package"], pending["package"])
+    with locks:
+        old_packages = _packages(previous["package"])
+        if not pending["registration_attempted"] and _owned_package(previous, old_packages):
+            if _runtime_hashes(previous) != previous["runtime_hashes"]:
+                raise WinappError("The previous private runtime changed during the interrupted update.")
+            _verify_interpreter(project, previous)
+        else:
+            if pending["registration_attempted"]:
+                _remove_registration(pending)
+            remaining = _packages(previous["package"])
+            if remaining:
+                raise WinappError("Cannot restore the previous identity while another registration uses its name.")
+            if not (backup / "package" / "AppxManifest.xml").is_file():
+                raise WinappError(f"The previous registration backup is missing: {backup}")
+            for saved, destination in (
+                (backup / "package", location),
+                (backup / "runtime", Path(previous["base"]).parent),
+            ):
+                if saved.is_dir():
+                    check_output_tree(saved)
+                    if destination.exists():
+                        check_output_tree(destination)
+                        shutil.rmtree(destination)
+                    shutil.copytree(saved, destination)
+            _powershell(REGISTER_PACKAGE, manifest=location / "AppxManifest.xml",
+                        external=Path(previous["base"]).parent)
+            if _owned_package(previous, _packages(previous["package"])) is None:
+                raise WinappError("Windows did not restore the previous development registration.")
+            if _runtime_hashes(previous) != previous["runtime_hashes"]:
+                raise WinappError("The restored private runtime does not match its saved files.")
+            _verify_interpreter(project, previous)
+        _write_record(project, previous)
+    shutil.rmtree(backup)
+    if previous["entry"] != pending["entry"]:
+        _delete_environment(project, pending)
+    return previous
+
+
+def _replace_registration(
+    project: Path, previous: dict, candidate: dict, native: Path, manifest: Path, *, verbose: bool,
+) -> dict:
+    with _registration_locks(previous["package"], candidate["package"]):
+        package = _owned_package(previous, _packages(previous["package"]))
+        if package is None:
+            raise WinappError("The previous development registration disappeared during preparation.")
+        if candidate["package"] != previous["package"] and _packages(candidate["package"]):
+            raise WinappError("Another registration uses the new package name; refusing to replace it.")
+        location = local_path(Path(package["InstallLocation"]), boundary=project)
+        root = Path(previous["root"])
+        if root.is_relative_to(location) or location.is_relative_to(root):
+            raise WinappError("The sparse package location overlaps the private environment.")
+        check_output_tree(location)
+        if not (location / "AppxManifest.xml").is_file():
+            raise WinappError("The registered package manifest is missing; the old environment was preserved.")
+        backup = local_path(root / f".registration-{uuid.uuid4().hex}", boundary=root)
+        backup.mkdir()
+        shutil.copytree(location, backup / "package")
+        if previous["base"] == candidate["base"]:
+            check_output_tree(Path(previous["base"]).parent)
+            shutil.copytree(Path(previous["base"]).parent, backup / "runtime")
+        pending = {
+            **candidate, "state": "updating", "previous": previous, "backup": str(backup),
+            "old_location": str(location), "full_name": None, "registration_attempted": False,
+        }
+        _write_record(project, pending)
+        try:
+            _remove_registration(previous)
+            ready = _register_record(project, pending, native, manifest, verbose=verbose)
+        except (WinappError, OSError, KeyboardInterrupt) as error:
+            try:
+                _rollback_update(project, pending, locks_held=True)
+            except (WinappError, OSError) as rollback_error:
+                raise WinappError(
+                    f"Identity update failed: {error}. Rollback could not finish: {rollback_error}. "
+                    f"The old environment and registration backup remain at {root}. Retry to recover them."
+                ) from error
+            raise
+    shutil.rmtree(backup)
+    return ready
+
+
 def run_with_identity(
     project: Path, script: Path, script_args: list[str], native: Path,
     manifest_option: Path | None, *, python_option: Path | None = None,
@@ -391,14 +570,18 @@ def run_with_identity(
         raise WinappError(f"An existing project-local .py script is required: {script}")
     manifest = _manifest_path(project, manifest_option)
     package_name, publisher = _manifest_identity(manifest)
-    project_python = select_project_python(project, python_option)
-    interpreter = probe_interpreter(project_python, project)
-    requirements, bindings, dependency_hash = dependency_inputs(project, requirements_option, interpreter)
-    manifest_hash = _digest(manifest)
+    selected_python = select_identity_python(project, python_option)
+    interpreter = probe_interpreter(selected_python, project)
+    plan = dependency_inputs(project, requirements_option, interpreter)
+    manifest_hash = _registration_digest(project, manifest)
     with _operation_lock(project):
         record = _load_record(project)
+        if record is not None and record["state"] == "updating":
+            print("Recovering the previous identity after an interrupted update...", file=sys.stderr, flush=True)
+            record = _rollback_update(project, record)
         changes: list[str] = []
         interpreter_changed = False
+        registration_changed = False
         if record is not None:
             if record["state"] != "ready":
                 raise WinappError("Identity preparation is incomplete. Run 'winapp identity clear' and retry.")
@@ -408,11 +591,12 @@ def run_with_identity(
                 raise WinappError("The recorded development package is missing. Run 'winapp identity clear' and prepare it again.")
             interpreter_changed = record["interpreter"] != interpreter.document()
             if interpreter_changed:
-                changes.append("project Python")
+                changes.append("Python")
             if (
                 record["manifest_hash"] != manifest_hash
                 or record["package"] != package_name or record["publisher"] != publisher
             ):
+                registration_changed = True
                 changes.append("package manifest")
             if changes and package_name != record["package"] and _packages(package_name):
                 raise WinappError(f"{package_name} is already registered without this project's ownership record; refusing to replace it.")
@@ -428,9 +612,10 @@ def run_with_identity(
             distribution = resolve_distribution(interpreter)
         else:
             distribution = distribution_from_document(record["distribution"], interpreter)
-        if record is not None and record["dependency_hash"] != dependency_hash:
-            changes.append("dependencies or project metadata")
-        action = "Rebuilding" if changes else "Reusing" if record is not None else "Preparing"
+        dependencies_changed = record is not None and record["dependency_hash"] != plan.fingerprint
+        if dependencies_changed:
+            changes.append("dependency inputs")
+        action = "Rebuilding" if interpreter_changed else "Updating" if changes else "Reusing" if record is not None else "Preparing"
         architecture = {"x86_64": "x64", "aarch64": "ARM64", "i686": "x86"}[interpreter.architecture]
         python_label = f"Python: {interpreter.version} ({architecture})"
         with (
@@ -438,10 +623,6 @@ def run_with_identity(
         ) as diagnostics, redirect_stdout(diagnostics), Workflow(f"{action} development identity", verbose=verbose) as workflow:
             if changes:
                 print(f"  Changed: {', '.join(changes)}", flush=True)
-                _require_developer_mode()
-                with workflow.step("Reset owned identity", "Owned identity reset; app data preserved"):
-                    _clear_owned_files(project, record)
-                record = None
             if record is None:
                 root = local_path(project / ".winapp" / ROOT_NAME, boundary=project)
                 if root.exists():
@@ -454,7 +635,7 @@ def run_with_identity(
                     "base": str(root / "venv" / "runtime" / "python.exe"),
                     "package": package_name, "publisher": publisher, "full_name": None,
                     "interpreter": interpreter.document(), "distribution": distribution.document(),
-                    "manifest_hash": manifest_hash, "dependency_hash": dependency_hash, "runtime_hashes": {},
+                    "manifest_hash": manifest_hash, "dependency_hash": plan.fingerprint, "runtime_hashes": {},
                     "registration_attempted": False,
                 }
                 root.mkdir()
@@ -473,34 +654,16 @@ def run_with_identity(
                         record["entry"] = str(entry)
                         record["base"] = str(runtime / ("python_d.exe" if not (runtime / "python.exe").is_file() else "python.exe"))
                         _write_record(project, record)
-                    with workflow.step("Install dependencies", "Application dependencies installed"):
-                        synchronize_dependencies(project, entry, venv, requirements, bindings, verbose=verbose)
+                    with workflow.step("Install dependencies", "Identity dependencies prepared"):
+                        synchronize_dependencies(project, entry, plan, verbose=verbose)
                         if (
-                            _digest(manifest) != manifest_hash
-                            or dependency_inputs(project, requirements_option, interpreter)[2] != dependency_hash
+                            _registration_digest(project, manifest) != manifest_hash
+                            or dependency_inputs(project, requirements_option, interpreter).fingerprint != plan.fingerprint
                         ):
                             raise WinappError("Project inputs changed during identity preparation; retry with unchanged inputs.")
                     with _registration_lock(package_name):
                         with workflow.step("Register identity", "Package identity registered"):
-                            if _packages(package_name):
-                                raise WinappError("The package identity was registered by another operation during preparation; refusing to replace it.")
-                            record["registration_attempted"] = True
-                            _write_record(project, record)
-                            run_tool([str(native), "create-debug-identity", record["base"], "--manifest", str(manifest)],
-                                     project, verbose=verbose)
-                            registrations = _packages(package_name)
-                            if len(registrations) != 1:
-                                raise WinappError(f"Expected one development registration for {package_name}.")
-                            full_name = registrations[0].get("PackageFullName")
-                            if not isinstance(full_name, str) or not full_name:
-                                raise WinappError("Windows returned no complete package identity.")
-                            record["full_name"] = full_name
-                            _owned_package(record, registrations)
-                        with workflow.step("Verify runtime", "Runtime verified"):
-                            record["runtime_hashes"] = _runtime_hashes(record)
-                            _verify_interpreter(project, record)
-                            record["state"] = "ready"
-                            _write_record(project, record)
+                            record = _register_record(project, record, native, manifest, verbose=verbose)
                 except (WinappError, OSError, KeyboardInterrupt) as error:
                     try:
                         _clear_owned_files(project, record)
@@ -510,19 +673,79 @@ def run_with_identity(
                             "The ownership record was preserved; run 'winapp identity clear' before retrying."
                         ) from error
                     raise
+            elif interpreter_changed:
+                _require_developer_mode()
+                old = record
+                with workflow.step("Save dependencies", "Installed dependencies recorded"):
+                    snapshot = capture_dependencies(project, Path(old["entry"]), plan)
+                environment_name = f"venv-{uuid.uuid4().hex}"
+                candidate = {**old, "package": package_name, "publisher": publisher,
+                             "interpreter": interpreter.document(), "distribution": distribution.document(),
+                             "manifest_hash": manifest_hash, "dependency_hash": plan.fingerprint}
+                try:
+                    with workflow.step("Prepare private Python", f"Replacement environment ready; {python_label}"):
+                        venv, runtime, entry = prepare_runtime(
+                            project, Path(old["root"]), distribution, verbose=verbose,
+                            environment_name=environment_name,
+                        )
+                        candidate["entry"] = str(entry)
+                        candidate["base"] = str(runtime / ("python.exe" if (runtime / "python.exe").is_file() else "python_d.exe"))
+                    with workflow.step("Restore dependencies", "Installed dependencies restored"):
+                        synchronize_dependencies(project, entry, plan, snapshot=snapshot, verbose=verbose)
+                    if (_registration_digest(project, manifest) != manifest_hash
+                        or dependency_inputs(project, requirements_option, interpreter).fingerprint != plan.fingerprint):
+                        raise WinappError("Project inputs changed during identity preparation; previous environment was preserved.")
+                    with workflow.step("Update identity", "Package identity updated"):
+                        record = _replace_registration(project, old, candidate, native, manifest, verbose=verbose)
+                except (WinappError, OSError, KeyboardInterrupt):
+                    if _load_record(project) == old:
+                        environment = local_path(Path(old["root"]) / environment_name, boundary=Path(old["root"]))
+                        if environment.exists():
+                            check_output_tree(environment)
+                            shutil.rmtree(environment)
+                    raise
+                try:
+                    _delete_environment(project, old)
+                except OSError as error:
+                    print(f"Warning: the new runtime is ready, but the old environment could not be removed: {error}",
+                          file=sys.stderr, flush=True)
             else:
+                if dependencies_changed:
+                    with workflow.step("Update dependencies", "Managed dependencies updated"):
+                        capture_dependencies(project, Path(record["entry"]), plan)
+                        synchronize_dependencies(project, Path(record["entry"]), plan, verbose=verbose)
+                        if dependency_inputs(project, requirements_option, interpreter).fingerprint != plan.fingerprint:
+                            raise WinappError("Project inputs changed during dependency installation; retry before running.")
+                        if _runtime_hashes(record) != record["runtime_hashes"]:
+                            raise WinappError("Dependency installation changed the private runtime; the application was not run.")
+                        record = {**record, "dependency_hash": plan.fingerprint}
+                        _write_record(project, record)
+                if registration_changed:
+                    _require_developer_mode()
+                    candidate = {**record, "package": package_name, "publisher": publisher,
+                                 "manifest_hash": manifest_hash}
+                    with workflow.step("Update identity", "Package identity updated"):
+                        record = _replace_registration(project, record, candidate, native, manifest, verbose=verbose)
                 with workflow.step("Verify identity", "Existing runtime verified"):
                     _verify_interpreter(project, record)
             workflow.succeed("Identity ready.")
         if not quiet:
+            if plan.requirements is None:
+                print(installation_hint(Path(record["entry"])), file=sys.stderr, flush=True)
+            else:
+                print(f"Identity Python: {record['entry']}", file=sys.stderr, flush=True)
             print(f"Running {script.name}...", file=sys.stderr, flush=True)
         try:
-            return subprocess.run(
+            result = subprocess.run(
                 [record["entry"], str(script), *script_args], cwd=project, check=False,
-                env=application_environment(Path(record["root"]) / "venv"),
-            ).returncode
+                env=application_environment(Path(record["entry"]).parent.parent),
+            )
         except OSError as error:
             raise WinappError(f"Could not launch the script in the PBS identity environment: {error}") from error
+        if result.returncode and not quiet and plan.requirements is not None:
+            print(f"If the application reported a missing dependency:\n{installation_hint(Path(record['entry']))}",
+                  file=sys.stderr, flush=True)
+        return result.returncode
 
 
 def clear_identity(project: Path) -> int:
@@ -530,6 +753,12 @@ def clear_identity(project: Path) -> int:
         record = _load_record(project)
         if record is None:
             raise WinappError(f"No Python identity ownership record found in {project / '.winapp'}.")
+        if record["state"] == "updating":
+            raise WinappError(
+                "Identity update is incomplete; nothing was cleared. "
+                "For a project you trust, rerun its original 'winapp run --identity ...' command "
+                "to recover the update, then retry 'winapp identity clear'."
+            )
         _clear_owned_files(project, record)
     print("Project Python identity unregistered; application data was preserved.", flush=True)
     return 0

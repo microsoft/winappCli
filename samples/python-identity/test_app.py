@@ -55,7 +55,8 @@ class IdentitySampleTests(unittest.TestCase):
     def test_guide_code_is_the_same_application_as_the_sample(self):
         sample = Path(__file__).resolve().parent
         guide = (sample.parent.parent / "docs" / "guides" / "python.md").read_text(encoding="utf-8")
-        blocks = re.findall(r"```python\s*\n(.*?)```", guide, flags=re.DOTALL)
+        section = guide.split("## 3. Add the identity check\n", 1)[1].split("\n## ", 1)[0]
+        blocks = re.findall(r"```python\s*\n(.*?)```", section, flags=re.DOTALL)
         self.assertEqual(len(blocks), 1)
         self.assertEqual(
             ast.dump(ast.parse(blocks[0])),

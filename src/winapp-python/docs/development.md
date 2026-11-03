@@ -95,7 +95,7 @@ python -m unittest discover -s .\src\winapp-python\tests -v
 .\scripts\test-python.ps1 -WinappPath .\artifacts\cli\win-x64\winapp.exe
 ```
 
-The script builds and installs a wrapper wheel, then validates SDK workflows, generated packages and fresh-clone dependency restoration in temporary projects copied from `tests\fixtures`. To consume an existing wheel without rebuilding it:
+The script builds and installs a wrapper wheel, then validates SDK workflows, generator isolation, generated `src` projects and explicit application installs in temporary projects copied from `tests\fixtures`. It checks editable and wheel installs, including the Windows App SDK configuration entry point, stubs and bundled Bootstrap DLLs. To consume an existing wheel without rebuilding it:
 
 ```powershell
 $wheel = Get-ChildItem .\artifacts\python\microsoft_winappcli-*-py3-none-win_amd64.whl |
@@ -105,7 +105,7 @@ $wheel = Get-ChildItem .\artifacts\python\microsoft_winappcli-*-py3-none-win_amd
   -IncludeIdentity -IncludeUv
 ```
 
-`-IncludeIdentity` exercises the PBS runner and cleans its test registrations; Windows Developer Mode is required. `-IncludeUv` requires uv and covers declarations, lockfiles and fresh clones. Both source and installed-wheel tests use the same bundled-CLI lookup.
+`-IncludeIdentity` exercises bindings-only preparation, optional explicit requirements, manual installs and in-place updates in the PBS runner, then cleans its test registrations; Windows Developer Mode is required. `-IncludeUv` requires uv and checks that generation leaves uv-owned files and application environments unchanged. With both switches, it also verifies that identity ignores the lockfile unless the user exports and explicitly supplies requirements. Both source and installed-wheel tests use the same bundled-CLI lookup.
 
 To validate the user-facing WinUI workflow with Pester 5:
 

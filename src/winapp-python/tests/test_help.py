@@ -67,7 +67,7 @@ class HelpTests(ProjectTest):
         self.assertIn("Python extensions:", self.stdout.getvalue())
 
     def test_workflow_help_uses_only_the_effective_python_syntax(self):
-        for command, option in (("restore", "--python"), ("update", "--channel"), ("run", "--identity")):
+        for command, option in (("restore", "--project"), ("update", "--channel"), ("run", "--identity")):
             with self.subTest(command=command):
                 with patch("winappcli.cli.forward_native", side_effect=self.forward_help) as forward:
                     text = self.invoke_help([command, "--help"])
@@ -108,13 +108,21 @@ class HelpTests(ProjectTest):
                 self.assertNotIn("--winapp", text)
                 self.assertNotIn("WINAPP_CLI_PATH", text)
 
-    def test_run_help_distinguishes_existing_venv_identity_and_native_inputs(self):
+    def test_run_help_distinguishes_identity_only_scripts_and_native_inputs(self):
         with patch("winappcli.cli.forward_native", side_effect=self.forward_help):
             text = self.invoke_help(["run", "--help"])
-        self.assertIn("project .venv", text)
+        self.assertIn("Python .py scripts require --identity", text)
+        self.assertIn("Run ordinary scripts with your own Python interpreter or project manager.", text)
         self.assertIn("private development environment", text)
         self.assertIn("Other inputs use the native syntax", text)
         self.assertNotIn("[--help] --identity", text)
+        self.assertNotIn("scripts use the project .venv", text)
+        normalized = " ".join(text.split())
+        self.assertIn("the Python running winapp", normalized)
+        self.assertIn("optional pip requirements file to install", normalized)
+        self.assertIn("no dependency files are auto-detected", normalized)
+        self.assertNotIn("dependency discovery", normalized)
+        self.assertNotIn("default: project .venv", normalized)
 
     def test_native_help_failure_is_not_hidden_by_python_help(self):
         for command in ([], ["run"]):

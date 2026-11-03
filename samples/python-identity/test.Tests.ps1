@@ -17,7 +17,7 @@ Describe 'Python identity guide and console sample' {
         $script:tempDir = $null
         $script:sampleDir = $PSScriptRoot
         $script:identityName = $null
-        if ($script:skip) { return }
+        if (-not $IsWindows -or $null -eq (Get-Command $Python -ErrorAction SilentlyContinue)) { return }
 
         function Invoke-SampleCommand {
             param([string]$Executable, [string[]]$Arguments, [string]$Directory = $script:tempDir)
@@ -55,11 +55,11 @@ Describe 'Python identity guide and console sample' {
         if (Test-Path -LiteralPath (Join-Path $packagePath 'python') -PathType Container) {
             $packagePath = Join-Path $packagePath 'python'
         }
-        $wheels = if (Test-Path -LiteralPath $packagePath -PathType Container) {
-            @(Get-ChildItem -LiteralPath $packagePath -Filter "microsoft_winappcli-*-py3-none-$platform.whl" -File)
+        $wheels = @(if (Test-Path -LiteralPath $packagePath -PathType Container) {
+            Get-ChildItem -LiteralPath $packagePath -Filter "microsoft_winappcli-*-py3-none-$platform.whl" -File
         } else {
-            @(Get-Item -LiteralPath $packagePath | Where-Object Name -Like "microsoft_winappcli-*-py3-none-$platform.whl")
-        }
+            Get-Item -LiteralPath $packagePath | Where-Object Name -Like "microsoft_winappcli-*-py3-none-$platform.whl"
+        })
         if ($wheels.Count -ne 1) { throw "Expected one microsoft-winappcli $platform wheel." }
         $script:tempDir = New-TempTestDirectory -Prefix 'python-identity'
         $script:guideDir = Join-Path $tempDir 'guide-project'
@@ -67,6 +67,7 @@ Describe 'Python identity guide and console sample' {
         foreach ($directory in @($guideDir, $existingDir)) {
             New-Item -ItemType Directory -Path $directory | Out-Null
             Copy-Item -LiteralPath (Join-Path $sampleDir 'app.py') -Destination $directory
+            Copy-Item -LiteralPath (Join-Path $sampleDir 'requirements.txt') -Destination $directory
         }
         [IO.File]::WriteAllText((Join-Path $guideDir 'pyproject.toml'), @'
 [project]
@@ -76,6 +77,7 @@ requires-python = ">=3.11,<3.15"
 dependencies = []
 '@)
         Copy-Item -LiteralPath (Join-Path $sampleDir 'pyproject.toml') -Destination $existingDir
+        Copy-Item -LiteralPath (Join-Path $sampleDir 'requirements-dev.txt') -Destination $existingDir
         $tool = Join-Path $tempDir 'tool'
         Invoke-SampleCommand $Python @('-I', '-m', 'venv', $tool) | Out-Null
         $script:toolPython = Join-Path $tool 'Scripts\python.exe'
@@ -104,7 +106,10 @@ dependencies = []
     Context 'Phase 1: From-scratch Python guide' {
         It 'Lets init create the bindings table before selecting the Package API' -Skip:$script:skip {
             Invoke-SampleCommand $cli @('init', '.', '--use-defaults', '--add-python-bindings') $guideDir |
-                Should -Match 'Python bindings ready'
+                Should -Match 'Python bindings generated'
+            Join-Path $guideDir '.venv' | Should -Not -Exist
+            @(Get-ChildItem -LiteralPath (Join-Path $guideDir '.winapp') -Filter '.codegen-*' -Directory -Force).Count |
+                Should -Be 0
             $edit = @'
 from pathlib import Path
 import sys, tomlkit
@@ -117,18 +122,25 @@ t["types"] = ["Windows.ApplicationModel.Package"]
 p.write_text(tomlkit.dumps(d), encoding="utf-8")
 '@
             Invoke-SampleCommand $toolPython @('-I', '-c', $edit, (Join-Path $guideDir 'pyproject.toml')) | Out-Null
-            Invoke-SampleCommand $cli @('generate') $guideDir | Should -Match 'Python bindings ready'
+            Invoke-SampleCommand $cli @('generate') $guideDir | Should -Match 'Python bindings generated'
+            @(Get-ChildItem -LiteralPath (Join-Path $guideDir '.winapp') -Filter '.codegen-*' -Directory -Force).Count |
+                Should -Be 0
+            Invoke-SampleCommand $Python @('-I', '-m', 'venv', '.venv') $guideDir | Out-Null
+            Invoke-SampleCommand (Join-Path $guideDir '.venv\Scripts\python.exe') @(
+                '-I', '-m', 'pip', 'install', '-r', '.\requirements.txt') $guideDir | Out-Null
             [xml]$manifest = Get-Content -LiteralPath (Join-Path $guideDir 'Package.appxmanifest') -Raw
             $manifest.Package.Identity.Name = $identityName.Substring(0, $identityName.Length - '.debug'.Length)
             $manifest.Save((Join-Path $guideDir 'Package.appxmanifest'))
         }
 
         It 'Prints Not packaged through the ordinary project environment' -Skip:$script:skip {
-            (Invoke-SampleCommand $cli @('run', '.\app.py') $guideDir).Trim() | Should -Be 'Not packaged'
+            (Invoke-SampleCommand (Join-Path $guideDir '.venv\Scripts\python.exe') @('.\app.py') $guideDir).Trim() |
+                Should -Be 'Not packaged'
         }
 
         It 'Prints the family name from the real projected API with development identity' -Skip:$script:skip {
-            $output = (Invoke-SampleCommand $cli @('run', '--identity', '.\app.py') $guideDir).Trim()
+            $output = (Invoke-SampleCommand $cli @(
+                'run', '--identity', '.\app.py') $guideDir).Trim()
             $package = @(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName)
             $package.Count | Should -Be 1
             $output | Should -Be "Package Family Name: $($package[0].PackageFamilyName)"
@@ -142,7 +154,8 @@ p.write_text(tomlkit.dumps(d), encoding="utf-8")
             @(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count | Should -Be 0
             Join-Path $guideDir '.winapp\python-identity' | Should -Not -Exist
             Join-Path $guideDir '.venv\Scripts\python.exe' | Should -Exist
-            (Invoke-SampleCommand $cli @('run', '.\app.py') $guideDir).Trim() | Should -Be 'Not packaged'
+            (Invoke-SampleCommand (Join-Path $guideDir '.venv\Scripts\python.exe') @('.\app.py') $guideDir).Trim() |
+                Should -Be 'Not packaged'
         }
     }
 
@@ -159,17 +172,27 @@ p.write_text(tomlkit.dumps(d), encoding="utf-8")
             $configuration = Get-Content -LiteralPath (Join-Path $existingDir 'pyproject.toml') -Raw
             Invoke-SampleCommand $cli @('restore') $existingDir | Out-Null
             Get-Content -LiteralPath (Join-Path $existingDir 'pyproject.toml') -Raw | Should -Be $configuration
-            (Invoke-SampleCommand $cli @('run', '.\app.py') $existingDir).Trim() | Should -Be 'Not packaged'
+            Join-Path $existingDir '.venv' | Should -Not -Exist
+            Invoke-SampleCommand $Python @('-I', '-m', 'venv', '.venv') $existingDir | Out-Null
+            Invoke-SampleCommand (Join-Path $existingDir '.venv\Scripts\python.exe') @(
+                '-I', '-m', 'pip', 'install', '-r', '.\requirements.txt') $existingDir | Out-Null
+            (Invoke-SampleCommand (Join-Path $existingDir '.venv\Scripts\python.exe') @('.\app.py') $existingDir).Trim() |
+                Should -Be 'Not packaged'
         }
 
         It 'Builds a console application directory with Python and dynamic bindings' -Skip:$script:skip {
             $script:appPython = Join-Path $existingDir '.venv\Scripts\python.exe'
+            Invoke-SampleCommand $appPython @(
+                '-I', '-m', 'pip', 'install', '-r', '.\requirements-dev.txt') $existingDir | Out-Null
             Invoke-SampleCommand $appPython @('-I', '-B', '-m', 'PyInstaller', '--clean', '--noconfirm',
-                '--onedir', '--console', '--name', 'PythonIdentity', '--paths', '.\.winapp\python',
-                '--collect-all', 'dynwinrt', '--collect-submodules', 'winapp_bindings', '.\app.py') $existingDir |
+                '--onedir', '--console', '--name', 'PythonIdentity',
+                '--collect-all', 'dynwinrt', '--collect-all', 'winapp_bindings', '.\app.py') $existingDir |
                 Out-Null
             $script:dist = Join-Path $existingDir 'dist\PythonIdentity'
             Join-Path $dist 'PythonIdentity.exe' | Should -Exist
+            @(Get-ChildItem -LiteralPath $dist -Recurse -Filter '_winappsdk.json' -File).Count | Should -Be 1
+            @(Get-ChildItem -LiteralPath $dist -Recurse -Filter 'Microsoft.WindowsAppRuntime.Bootstrap.dll' -File).Count |
+                Should -BeGreaterThan 0
             (Invoke-SampleCommand (Join-Path $dist 'PythonIdentity.exe') @() $existingDir).Trim() |
                 Should -Be 'Not packaged'
         }

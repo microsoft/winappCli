@@ -43,6 +43,19 @@ function Invoke-Checked {
     }
 }
 
+function Get-ApplicationSnapshot {
+    param([string]$Project, [switch]$SkipPyproject)
+    $files = @(Get-ChildItem -LiteralPath $Project -File | Where-Object {
+        ($_.Name -eq 'pyproject.toml' -and -not $SkipPyproject) -or
+        $_.Name -like 'requirements*.txt' -or $_.Name -in @('uv.lock', 'poetry.lock', 'pdm.lock', 'Pipfile', 'Pipfile.lock')
+    })
+    $venv = Join-Path $Project '.venv'
+    if (Test-Path -LiteralPath $venv) { $files += @(Get-ChildItem -LiteralPath $venv -File -Recurse) }
+    return (($files | Sort-Object FullName | ForEach-Object {
+        "$([IO.Path]::GetRelativePath($Project, $_.FullName)):$((Get-FileHash -LiteralPath $_.FullName).Hash)"
+    }) -join "`n")
+}
+
 try {
     $environment = Join-Path $temporary 'venv'
     Invoke-Checked $Python @('-m', 'venv', $environment)
@@ -154,9 +167,23 @@ with zipfile.ZipFile(wheel) as archive:
     $appEnvironment = Join-Path $project '.venv'
     Invoke-Checked $Python @('-m', 'venv', '--without-pip', $appEnvironment)
     $appPython = Join-Path $appEnvironment 'Scripts\python.exe'
+    $applicationBefore = Get-ApplicationSnapshot $project
     Invoke-Checked $interpreter @('-m', 'winappcli', 'init', $project, '--config-only', '--use-defaults', '--add-python-bindings')
     Invoke-Checked $interpreter @('-m', 'winappcli', 'restore', '--project', $project)
     Invoke-Checked $interpreter @('-m', 'winappcli', 'generate', '--project', $project)
+    if ((Get-ApplicationSnapshot $project) -ne $applicationBefore) {
+        throw 'Initialization or generation changed application dependencies or the application environment.'
+    }
+    if ((Test-Path -LiteralPath (Join-Path $project '.winapp\codegen')) -or
+        @(Get-ChildItem -LiteralPath (Join-Path $project '.winapp') -Filter '.codegen-*' -Directory -Force).Count) {
+        throw 'A generator environment remained after the bindings workflow completed.'
+    }
+    Invoke-Checked $appPython @('-I', '-c',
+        'import importlib.util as u; import importlib.metadata as m; assert not any(d.metadata["Name"] == "dynwinrt-codegen" for d in m.distributions()); assert u.find_spec("dynwinrt") is None')
+    Push-Location $project
+    try {
+        Invoke-Checked $interpreter @('-I', '-m', 'pip', '--python', $appPython, 'install', '-r', '.\requirements.txt')
+    } finally { Pop-Location }
     Invoke-Checked $interpreter @('-c',
         'import importlib.util as u; assert u.find_spec("dynwinrt") is None; assert u.find_spec("myapp_winrt") is None')
     Invoke-Checked $appPython @('-c',
@@ -175,6 +202,15 @@ with zipfile.ZipFile(wheel) as archive:
     }
 
     $bindings = Join-Path $project '.winapp\python\myapp_winrt'
+    Invoke-Checked $appPython @('-I', '-c', @'
+from pathlib import Path
+import myapp_winrt, sys
+root = Path(sys.argv[1])
+assert Path(myapp_winrt.__file__) == root / "src" / "myapp_winrt" / "__init__.py"
+assert (root / "pyproject.toml").is_file()
+assert (root / "src" / "myapp_winrt" / "py.typed").is_file()
+assert not (root / "__init__.py").exists()
+'@, $bindings)
     Invoke-Checked $interpreter @('-m', 'pip', 'wheel', '--disable-pip-version-check', '--no-input', '--no-deps', $bindings, '-w', $output)
     $bindingWheels = @(Get-ChildItem -LiteralPath $output -Filter 'myapp_winrt-*.whl' -File)
     if ($bindingWheels.Count -ne 1) {
@@ -193,7 +229,15 @@ with zipfile.ZipFile(wheel) as archive:
 
     $previousPins = Get-Content -LiteralPath (Join-Path $project 'winapp.yaml') -Raw
     $previousMarker = Get-Content -LiteralPath (Join-Path $bindings '.winapp-python.json') -Raw | ConvertFrom-Json
+    $applicationBefore = Get-ApplicationSnapshot $project -SkipPyproject
     Invoke-Checked $interpreter @('-m', 'winappcli', 'update', '--project', $project)
+    if ((Get-ApplicationSnapshot $project -SkipPyproject) -ne $applicationBefore) {
+        throw 'Update changed application requirements or the application environment.'
+    }
+    Push-Location $project
+    try {
+        Invoke-Checked $interpreter @('-I', '-m', 'pip', '--python', $appPython, 'install', '-r', '.\requirements.txt')
+    } finally { Pop-Location }
     Invoke-Checked $interpreter @('-c',
         'from pathlib import Path; from winappcli.metadata import load_inventory; import sys; load_inventory(Path(sys.argv[1]))',
         $project)
@@ -226,22 +270,34 @@ with zipfile.ZipFile(wheel) as archive:
         (Test-Path -LiteralPath (Join-Path $clone '.winapp'))) {
         throw "Python JSON mode did not fail before restoring the project: $rejectedJson"
     }
+    $cloneBefore = Get-ApplicationSnapshot $clone
     $quietOutput = & $interpreter -m winappcli --quiet restore --project $clone
     if ($LASTEXITCODE -ne 0 -or @($quietOutput).Count -ne 0) {
         throw "Leading quiet mode did not restore Python bindings without status output: $quietOutput"
     }
+    if ((Test-Path -LiteralPath (Join-Path $clone '.venv')) -or
+        (Get-ApplicationSnapshot $clone) -ne $cloneBefore) {
+        throw 'Restore created a clone application environment or changed its declarations.'
+    }
+    Invoke-Checked $Python @('-I', '-m', 'venv', '--without-pip', (Join-Path $clone '.venv'))
     $clonePython = Join-Path $clone '.venv\Scripts\python.exe'
+    Push-Location $clone
+    try {
+        Invoke-Checked $interpreter @('-I', '-m', 'pip', '--python', $clonePython, 'install', '-r', '.\requirements.txt')
+    } finally { Pop-Location }
     Invoke-Checked $clonePython @('-c',
         'import importlib.metadata as m; assert m.version("packaging") == "26.3"')
     $actual = & $clonePython (Join-Path $clone 'app.py')
     if ($LASTEXITCODE -ne 0 -or ($actual -join "`n").Trim() -ne 'Host: example.com') {
-        throw "Fresh requirements clone was not usable after restore: $actual"
+        throw "Fresh requirements clone was not usable after restore and application install: $actual"
     }
-    $runStderr = Join-Path $temporary 'quiet-run.stderr.log'
+    $runStderr = Join-Path $temporary 'unsupported-run.stderr.log'
+    $beforeRun = Get-ApplicationSnapshot $clone
     $actual = & $interpreter -m winappcli run -q --project $clone app.py 2> $runStderr
-    if ($LASTEXITCODE -ne 0 -or ($actual -join "`n").Trim() -ne 'Host: example.com' -or
-        -not [string]::IsNullOrEmpty((Get-Content -LiteralPath $runStderr -Raw))) {
-        throw "Quiet Python run changed application output or printed wrapper status: $actual"
+    if ($LASTEXITCODE -ne 1 -or @($actual).Count -ne 0 -or
+        (Get-Content -LiteralPath $runStderr -Raw) -notlike '*Python scripts require --identity*' -or
+        (Get-ApplicationSnapshot $clone) -ne $beforeRun) {
+        throw "Python run without identity did not stop with manual-run guidance and unchanged application files: $actual"
     }
 
     # Exercise default metadata plus an additional Windows type.
@@ -270,8 +326,79 @@ with zipfile.ZipFile(wheel) as archive:
         'additional-winmds = [{namespace = "Windows.Storage", classes = ["ApplicationData"]}]')
     [IO.File]::WriteAllText($configuration, $configured)
     Invoke-Checked $interpreter @('-m', 'winappcli', 'generate', '--project', $nonUiProject)
+    Invoke-Checked $interpreter @('-I', '-m', 'pip', '--python', $nonUiPython, 'install', '--editable', $nonUiPackage)
     Invoke-Checked $nonUiPython @('-c',
         'from winapp_bindings.windows.storage import ApplicationData; from winapp_bindings.microsoft.windows.app_notifications import AppNotification')
+    Invoke-Checked $nonUiPython @('-I', '-c', @'
+import ctypes
+import importlib.metadata as metadata
+import json
+from pathlib import Path
+import sys
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+kernel32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
+kernel32.GetModuleHandleW.restype = ctypes.c_void_p
+assert not kernel32.GetModuleHandleW("Microsoft.WindowsAppRuntime.Bootstrap.dll")
+import dynwinrt
+import winapp_bindings
+assert not kernel32.GetModuleHandleW("Microsoft.WindowsAppRuntime.Bootstrap.dll")
+providers = list(metadata.entry_points(group="dynwinrt.winappsdk"))
+assert len(providers) == 1, providers
+assert providers[0].value == "winapp_bindings._winappsdk:get_config"
+source = Path(sys.argv[1]) / "src" / "winapp_bindings"
+assert Path(winapp_bindings.__file__) == source / "__init__.py"
+config = json.loads((source / "_winappsdk.json").read_text())
+assert config["schema_version"] == 1
+assert sys.argv[2] in config["dlls"]
+for architecture in config["dlls"]:
+    assert (source / "_native" / "winappsdk" / architecture / "Microsoft.WindowsAppRuntime.Bootstrap.dll").is_file()
+assert not list(Path(sys.argv[1]).rglob("_winapp_runtime.py"))
+'@, $nonUiPackage, $architectures[$platform])
+    $sdkWheelOutput = Join-Path $output 'appsdk-bindings'
+    Invoke-Checked $interpreter @('-m', 'pip', 'wheel', '--disable-pip-version-check', '--no-input',
+        '--no-deps', $nonUiPackage, '-w', $sdkWheelOutput)
+    $sdkWheels = @(Get-ChildItem -LiteralPath $sdkWheelOutput -Filter 'winapp_bindings-*.whl' -File)
+    if ($sdkWheels.Count -ne 1) { throw "Expected one generated Windows App SDK bindings wheel." }
+    Invoke-Checked $interpreter @('-I', '-c', @'
+from pathlib import Path
+from packaging.utils import parse_wheel_filename
+import sys, zipfile
+_, _, _, tags = parse_wheel_filename(Path(sys.argv[1]).name)
+assert any(tag.platform == sys.argv[3] for tag in tags), tags
+with zipfile.ZipFile(sys.argv[1]) as wheel:
+    names = wheel.namelist()
+    data = next(name for name in names if name.endswith(".dist-info/WHEEL")).removesuffix(".dist-info/WHEEL") + ".data/"
+    roots = [prefix for prefix in ("", data + "purelib/", data + "platlib/")
+             if prefix + "winapp_bindings/__init__.py" in names]
+    assert len(roots) == 1, roots
+    package = roots[0] + "winapp_bindings/"
+    for name in ("__init__.py", "py.typed", "_winappsdk.py", "_winappsdk.json"):
+        assert package + name in names, name
+    assert any(name.startswith(package) and name.endswith(".pyi") for name in names)
+    assert wheel.getinfo(f"{package}_native/winappsdk/{sys.argv[2]}/Microsoft.WindowsAppRuntime.Bootstrap.dll").file_size > 0
+    assert not any(name.startswith(roots[0] + "src/") for name in names)
+    entry_points = wheel.read(next(name for name in names if name.endswith(".dist-info/entry_points.txt"))).decode()
+    assert "[dynwinrt.winappsdk]" in entry_points
+'@, $sdkWheels[0].FullName, $architectures[$platform], $platform)
+    $sdkConsumer = Join-Path $temporary 'sdk-wheel-consumer'
+    Invoke-Checked $Python @('-m', 'venv', $sdkConsumer)
+    $sdkConsumerPython = Join-Path $sdkConsumer 'Scripts\python.exe'
+    Invoke-Checked $sdkConsumerPython @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-input',
+        '--only-binary=dynwinrt', $sdkWheels[0].FullName)
+    Invoke-Checked $sdkConsumerPython @('-I', '-c', @'
+import importlib.metadata as metadata
+from pathlib import Path
+import sys
+import winapp_bindings
+source = Path(winapp_bindings.__file__).parent
+assert source.is_relative_to(Path(sys.prefix))
+assert (source / "_winappsdk.json").is_file()
+assert len(list(metadata.entry_points(group="dynwinrt.winappsdk"))) == 1
+from winapp_bindings.windows.foundation import Uri
+from dynwinrt import RoApartment, projected_lifetime_scope
+with RoApartment(1), projected_lifetime_scope():
+    assert Uri("https://example.com").host == "example.com"
+'@)
     $again = & $interpreter -m winappcli restore --project $nonUiProject
     if ($LASTEXITCODE -ne 0 -or @($again | Where-Object { $_ -like '*Bindings current:*' }).Count -ne 1) {
         throw "Unchanged non-UI AppSDK metadata should skip code generation on restore: $again"
@@ -307,7 +434,14 @@ types = ["Windows.Foundation.Uri"]
         throw "Config-only initialization generated bindings before restore."
     }
     Invoke-Checked $interpreter @('-m', 'winappcli', 'restore', '--project', $standardProject)
-    Invoke-Checked (Join-Path $standardProject '.venv\Scripts\python.exe') @('-c',
+    if (Test-Path -LiteralPath (Join-Path $standardProject '.venv')) {
+        throw 'Restore created an application environment for a standard pyproject.'
+    }
+    Invoke-Checked $Python @('-I', '-m', 'venv', '--without-pip', (Join-Path $standardProject '.venv'))
+    $standardPython = Join-Path $standardProject '.venv\Scripts\python.exe'
+    Invoke-Checked $interpreter @('-I', '-m', 'pip', '--python', $standardPython, 'install',
+        '--editable', (Join-Path $standardProject '.winapp\python\myapp_winrt'), 'packaging==26.3')
+    Invoke-Checked $standardPython @('-c',
         'from myapp_winrt.windows.foundation import Uri; import dynwinrt, packaging')
     if (Test-Path -LiteralPath (Join-Path $standardProject 'requirements.txt')) {
         throw "Standard pyproject setup created a redundant requirements inventory."
@@ -323,9 +457,10 @@ types = ["Windows.Foundation.Uri"]
 name = "winapp-uv-example"
 version = "0.0.0"
 requires-python = ">=3.11,<3.15"
-dependencies = ["packaging==26.3"]
+dependencies = ["packaging==26.3", "myapp-winrt"]
 
-[tool.uv]
+[tool.uv.sources]
+myapp-winrt = { path = ".winapp/python/myapp_winrt", editable = true }
 
 [tool.winapp.python-bindings]
 package = "myapp_winrt"
@@ -344,7 +479,13 @@ types = ["Windows.Foundation.Uri"]
         Invoke-Checked $interpreter @('-m', 'winappcli', 'restore', '--project', $uvProject)
         Push-Location $uvProject
         try {
+            Invoke-Checked $uv @('lock')
             Invoke-Checked $uv @('sync', '--locked')
+            $before = Get-ApplicationSnapshot $uvProject
+            Invoke-Checked $interpreter @('-m', 'winappcli', 'generate')
+            if ((Get-ApplicationSnapshot $uvProject) -ne $before) {
+                throw 'Generation changed uv-owned files or installed packages.'
+            }
         } finally {
             Pop-Location
         }
@@ -357,10 +498,17 @@ types = ["Windows.Foundation.Uri"]
         if ($NuGetConfigPath) {
             Copy-Item -LiteralPath $NuGetConfigPath -Destination (Join-Path $uvClone 'nuget.config')
         }
+        $cloneBefore = Get-ApplicationSnapshot $uvClone
         $quietOutput = & $interpreter -m winappcli restore --quiet --project $uvClone
         if ($LASTEXITCODE -ne 0 -or @($quietOutput).Count -ne 0) {
             throw "Trailing quiet mode did not restore uv Python bindings without status output: $quietOutput"
         }
+        if ((Test-Path -LiteralPath (Join-Path $uvClone '.venv')) -or
+            (Get-ApplicationSnapshot $uvClone) -ne $cloneBefore) {
+            throw 'Restore changed a uv clone before uv installed its application environment.'
+        }
+        Push-Location $uvClone
+        try { Invoke-Checked $uv @('sync', '--locked') } finally { Pop-Location }
         Invoke-Checked (Join-Path $uvClone '.venv\Scripts\python.exe') @('-c', 'from myapp_winrt.windows.foundation import Uri; import dynwinrt')
     }
 
@@ -376,8 +524,8 @@ types = ["Windows.Foundation.Uri"]
         if (@(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count -ne 0) {
             throw "The identity '$identityName' already exists; refusing to replace it."
         }
-        Invoke-Checked $Python @('-m', 'venv', (Join-Path $identityProject '.venv'))
-        $identityPython = Join-Path $identityProject '.venv\Scripts\python.exe'
+        Invoke-Checked $Python @('-m', 'venv', (Join-Path $identityProject '.app-env'))
+        $identityPython = Join-Path $identityProject '.app-env\Scripts\python.exe'
         Invoke-Checked $identityPython @('-m', 'pip', 'install', '--disable-pip-version-check',
             '--no-input', $wheels[0].FullName, $bindingWheels[0].FullName)
         foreach ($name in @('pyproject.toml', 'winapp.yaml', 'requirements.txt', 'requirements-dev.txt')) {
@@ -396,7 +544,7 @@ types = ["Windows.Foundation.Uri"]
         $placeholderDocument.Package.Identity.Name = $originalName + '.$targetnametoken$'
         $placeholderDocument.Save($placeholderManifest)
         $rejectedIdentity = & $interpreter -m winappcli run --identity --project $identityProject `
-            --manifest $placeholderManifest identity_probe.py 2>&1
+            --manifest $placeholderManifest --requirements requirements.txt identity_probe.py 2>&1
         if ($LASTEXITCODE -eq 0 -or ($rejectedIdentity -join "`n") -notlike '*literal Identity Name*' -or
             (Test-Path -LiteralPath (Join-Path $identityProject '.winapp\python-identity.json'))) {
             throw "Identity metadata placeholders were not rejected before preparation: $rejectedIdentity"
@@ -432,7 +580,10 @@ types = ["Windows.Foundation.Uri"]
         }
         $expectedVersion = (& $identityPython -c 'import sys; print(sys.version.split()[0])').Trim()
         if ($identified[0].python_version -ne $expectedVersion) {
-            throw "PBS identity did not match the project's exact Python version."
+            throw "PBS identity did not match the Python running winapp."
+        }
+        if (Test-Path -LiteralPath (Join-Path $identityProject '.venv')) {
+            throw 'Identity execution unexpectedly created or required a project .venv.'
         }
         foreach ($child in $identified[0].children.PSObject.Properties.Value) {
             if ($child.code -ne 0 -or $child.package -ne $identified[0].package -or
@@ -448,8 +599,12 @@ types = ["Windows.Foundation.Uri"]
         if ((Get-FileHash -LiteralPath $identityPyproject -Algorithm SHA256).Hash -ne $identityPyprojectHash) {
             throw "Identity preparation changed pyproject.toml."
         }
-        $again = & $identityPython -m winappcli run --identity --project $identityProject `
-            identity_probe.py -- from-ci 2> $identityStderr
+        Invoke-Checked $record.entry @('-I', '-c', 'import importlib.util; assert importlib.util.find_spec("packaging") is None')
+        if ((Get-Content -LiteralPath $identityStderr -Raw) -notlike '*install <package>*') {
+            throw 'Identity preparation without --requirements did not explain how to install application dependencies.'
+        }
+        $again = & $interpreter -m winappcli run --identity --project $identityProject `
+            --python $identityPython identity_probe.py -- from-ci 2> $identityStderr
         $reuseDiagnostics = @(Get-Content -LiteralPath $identityStderr)
         if ($LASTEXITCODE -ne 0 -or
             @($reuseDiagnostics | Where-Object { $_ -eq 'Reusing development identity' }).Count -ne 1) {
@@ -468,29 +623,42 @@ types = ["Windows.Foundation.Uri"]
             throw "Reused PBS identity changed ownership or did not preserve script output: $again"
         }
         $quietIdentity = & $identityPython -m winappcli -q run --identity --project $identityProject `
-            identity_probe.py -- from-ci 2> $identityStderr
+            --requirements requirements.txt identity_probe.py -- from-ci 2> $identityStderr
         $quietRecord = Get-Content -LiteralPath (Join-Path $identityProject '.winapp\python-identity.json') -Raw | ConvertFrom-Json
         if ($LASTEXITCODE -ne 0 -or ($quietIdentity -join "`n") -ne ($again -join "`n") -or
             -not [string]::IsNullOrEmpty((Get-Content -LiteralPath $identityStderr -Raw)) -or
             $quietRecord.owner -ne $record.owner) {
             throw "Quiet identity execution changed application output or printed wrapper status: $quietIdentity"
         }
+        if ($quietRecord.entry -ne $record.entry) {
+            throw 'Adding explicit requirements replaced the existing identity environment.'
+        }
+        Invoke-Checked $quietRecord.entry @('-I', '-c', 'import packaging; assert packaging.__version__ == "26.3"')
+        Invoke-Checked $interpreter @('-I', '-m', 'pip', '--python', $record.entry,
+            'install', '--disable-pip-version-check', '--no-input', 'colorama==0.4.6')
         [IO.File]::AppendAllText((Join-Path $identityProject 'requirements.txt'), "# changed input`n")
         $rebuiltOutput = & $identityPython -m winappcli run --identity --project $identityProject `
-            identity_probe.py -- --children 2> $identityStderr
-        $rebuildDiagnostics = @(Get-Content -LiteralPath $identityStderr)
+            --requirements requirements.txt identity_probe.py -- --children 2> $identityStderr
+        $updateDiagnostics = @(Get-Content -LiteralPath $identityStderr)
         if ($LASTEXITCODE -ne 0 -or
-            @($rebuildDiagnostics | Where-Object { $_ -eq 'Rebuilding development identity' }).Count -ne 1) {
-            throw "Changed PBS dependency inputs did not automatically rebuild the identity: $rebuiltOutput`n$($rebuildDiagnostics -join "`n")"
+            @($updateDiagnostics | Where-Object { $_ -eq 'Updating development identity' }).Count -ne 1) {
+            throw "Changed dependency inputs did not update the existing environment: $rebuiltOutput`n$($updateDiagnostics -join "`n")"
         }
         $rebuilt = @($rebuiltOutput | Where-Object { $_ -like 'IDENTITY_JSON:*' } |
             ForEach-Object { $_.Substring('IDENTITY_JSON:'.Length) } | ConvertFrom-Json)
         $newRecord = Get-Content -LiteralPath (Join-Path $identityProject '.winapp\python-identity.json') -Raw | ConvertFrom-Json
-        if (@($rebuiltOutput).Count -ne 1 -or $newRecord.owner -eq $record.owner -or $newRecord.state -ne 'ready' -or
+        if (@($rebuiltOutput).Count -ne 1 -or $newRecord.owner -ne $record.owner -or $newRecord.state -ne 'ready' -or
+            $newRecord.entry -ne $record.entry -or
             $rebuilt.Count -ne 1 -or $rebuilt[0].code -ne 0 -or
             $rebuilt[0].package -ne $identified[0].package -or
             $rebuilt[0].python_version -ne $expectedVersion -or $rebuilt[0].host -ne 'example.com') {
-            throw "Automatically rebuilt PBS identity has the wrong ownership, version or package: $rebuiltOutput"
+            throw "Updated identity did not preserve its environment, ownership or package: $rebuiltOutput"
+        }
+        Invoke-Checked $newRecord.entry @('-I', '-c', 'import colorama; assert colorama.__version__ == "0.4.6"')
+        $snapshotPath = Join-Path (Split-Path (Split-Path $newRecord.entry -Parent) -Parent) '.winapp-dependencies.json'
+        $snapshot = Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
+        if (@($snapshot.packages | Where-Object { $_.name -eq 'colorama' -and $_.version -eq '0.4.6' }).Count -ne 1) {
+            throw 'The identity snapshot omitted the manually installed package.'
         }
         foreach ($child in $rebuilt[0].children.PSObject.Properties.Value) {
             if ($child.code -ne 0 -or $child.package -ne $rebuilt[0].package -or
@@ -499,6 +667,17 @@ types = ["Windows.Foundation.Uri"]
                 throw "Automatically rebuilt PBS child lost identity or dependencies: $($child | ConvertTo-Json -Compress)"
             }
         }
+        $withoutRequirements = & $identityPython -m winappcli run --identity --project $identityProject `
+            identity_probe.py -- --children 2> $identityStderr
+        if ($LASTEXITCODE -ne 0 -or ($withoutRequirements -join "`n") -ne ($rebuiltOutput -join "`n")) {
+            throw "Omitting requirements changed application output or lost dependencies: $withoutRequirements"
+        }
+        $retainedRecord = Get-Content -LiteralPath (Join-Path $identityProject '.winapp\python-identity.json') -Raw | ConvertFrom-Json
+        if ($retainedRecord.entry -ne $newRecord.entry -or $retainedRecord.owner -ne $newRecord.owner) {
+            throw 'Omitting requirements replaced the existing identity environment.'
+        }
+        Invoke-Checked $retainedRecord.entry @('-I', '-c',
+            'import colorama, packaging; assert colorama.__version__ == "0.4.6"; assert packaging.__version__ == "26.3"')
         Invoke-Checked $identityPython @('-m', 'winappcli', 'identity', 'clear',
             '--project', $identityProject)
         if (@(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count -ne 0) {
@@ -522,27 +701,51 @@ types = ["Windows.Foundation.Uri"]
                 '--package-name', $originalName, '--publisher-name', 'CN=WinappPythonPreview')
             $uvPyproject = Join-Path $uvProject 'pyproject.toml'
             $uvPyprojectHash = (Get-FileHash -LiteralPath $uvPyproject -Algorithm SHA256).Hash
-            $uvIdentity = & $interpreter -m winappcli run --identity --project $uvProject identity_probe.py -- --children
+            $uvLockHash = (Get-FileHash -LiteralPath (Join-Path $uvProject 'uv.lock') -Algorithm SHA256).Hash
+            $uvIdentity = & $interpreter -m winappcli run --identity --project $uvProject `
+                identity_probe.py -- --children
             if ($LASTEXITCODE -ne 0) {
-                throw "uv identity dependency synchronization failed: $uvIdentity"
+                throw "Bindings-only identity preparation in the uv project failed: $uvIdentity"
             }
             $identified = @($uvIdentity | Where-Object { $_ -like 'IDENTITY_JSON:*' } |
                 ForEach-Object { $_.Substring('IDENTITY_JSON:'.Length) } | ConvertFrom-Json)
             if ($identified.Count -ne 1 -or $identified[0].code -ne 0 -or $identified[0].host -ne 'example.com') {
                 throw "uv identity did not have package identity and generated bindings: $uvIdentity"
             }
+            $uvRecord = Get-Content -LiteralPath (Join-Path $uvProject '.winapp\python-identity.json') -Raw | ConvertFrom-Json
+            Invoke-Checked $uvRecord.entry @('-I', '-c', 'import importlib.util; assert importlib.util.find_spec("packaging") is None')
+            $exportedRequirements = Join-Path $uvProject 'requirements-identity.txt'
+            if (Test-Path -LiteralPath $exportedRequirements) {
+                throw 'Identity preparation unexpectedly exported application requirements.'
+            }
+            Invoke-Checked $uv @('export', '--project', $uvProject, '--locked', '--no-hashes',
+                '--format', 'requirements.txt', '--python', $uvRecord.entry, '--no-python-downloads',
+                '--output-file', $exportedRequirements)
+            $exportedHash = (Get-FileHash -LiteralPath $exportedRequirements -Algorithm SHA256).Hash
+            $uvExplicit = & $interpreter -m winappcli run --identity --project $uvProject `
+                --requirements $exportedRequirements identity_probe.py -- --children
+            if ($LASTEXITCODE -ne 0 -or ($uvExplicit -join "`n") -ne ($uvIdentity -join "`n")) {
+                throw "Identity installation from explicit uv requirements failed: $uvExplicit"
+            }
+            $uvUpdated = Get-Content -LiteralPath (Join-Path $uvProject '.winapp\python-identity.json') -Raw | ConvertFrom-Json
+            if ($uvUpdated.entry -ne $uvRecord.entry -or $uvUpdated.owner -ne $uvRecord.owner) {
+                throw 'Installing exported requirements replaced the uv project identity environment.'
+            }
+            Invoke-Checked $uvRecord.entry @('-I', '-c', 'import packaging; assert packaging.__version__ == "26.3"')
             Invoke-Checked $interpreter @('-m', 'winappcli', 'identity', 'clear', '--project', $uvProject)
             if (@(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count -ne 0) {
                 throw "uv identity remained registered after cleanup."
             }
-            if ((Get-FileHash -LiteralPath $uvPyproject -Algorithm SHA256).Hash -ne $uvPyprojectHash) {
-                throw "uv identity preparation or cleanup changed pyproject.toml."
+            if ((Get-FileHash -LiteralPath $uvPyproject -Algorithm SHA256).Hash -ne $uvPyprojectHash -or
+                (Get-FileHash -LiteralPath (Join-Path $uvProject 'uv.lock') -Algorithm SHA256).Hash -ne $uvLockHash -or
+                (Get-FileHash -LiteralPath $exportedRequirements -Algorithm SHA256).Hash -ne $exportedHash) {
+                throw "uv identity preparation changed project metadata or the user-provided export."
             }
             $identityName = $null
         }
     }
 
-    Write-Host "Python wrapper, project dependency restore, additive bindings, wheels, and optional uv/identity succeeded."
+    Write-Host "Python wrapper, isolated generation, explicit application installs, bindings wheels, and optional uv/identity succeeded."
 } finally {
     $env:WINAPP_CLI_CACHE_DIRECTORY = $savedCacheDirectory
     $env:WINAPP_CLI_UPDATE_CHECK = $savedUpdateCheck

@@ -9,15 +9,18 @@ param(
 
 BeforeDiscovery {
     $script:skip = -not $IsWindows -or $null -eq (Get-Command $Python -ErrorAction SilentlyContinue)
+    $script:skipIdentity = $script:skip -or (
+        (Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' `
+            -Name AllowDevelopmentWithoutDevLicense -ErrorAction SilentlyContinue) -ne 1)
 }
 
-Describe 'Unpackaged Python WinUI sample' {
+Describe 'Python WinUI sample' {
     BeforeAll {
         Import-Module "$PSScriptRoot\..\SampleTestHelpers.psm1" -Force
         $script:tempDir = $null
         $script:runs = @()
         $script:sampleDir = $PSScriptRoot
-        if ($script:skip) { return }
+        if (-not $IsWindows -or $null -eq (Get-Command $Python -ErrorAction SilentlyContinue)) { return }
         Add-Type -AssemblyName UIAutomationClient
         Add-Type -AssemblyName UIAutomationTypes
 
@@ -78,12 +81,16 @@ Describe 'Unpackaged Python WinUI sample' {
         }
 
         function Start-SampleWindow {
-            param([string]$Directory)
-            $run = New-SampleProcess $script:cli @('run', '--project', $Directory, 'app.py') $Directory
+            param([string]$Directory, [switch]$Identity)
+            $run = if ($Identity) {
+                New-SampleProcess $script:cli @('run', '--identity', 'app.py') $Directory
+            } else {
+                New-SampleProcess (Join-Path $Directory '.venv\Scripts\python.exe') @('app.py') $Directory
+            }
             $script:runs += $run
             $condition = [Windows.Automation.PropertyCondition]::new(
                 [Windows.Automation.AutomationElement]::NameProperty, 'Python WinUI counter')
-            $deadline = [DateTime]::UtcNow.AddMinutes(3)
+            $deadline = [DateTime]::UtcNow.AddMinutes($(if ($Identity) { 10 } else { 3 }))
             do {
                 if ($run.Process.HasExited) {
                     throw "Sample exited before opening WinUI.`n$($run.Output.GetAwaiter().GetResult())`n$($run.Errors.GetAwaiter().GetResult())"
@@ -141,18 +148,18 @@ Describe 'Unpackaged Python WinUI sample' {
         if (Test-Path -LiteralPath (Join-Path $packagePath 'python') -PathType Container) {
             $packagePath = Join-Path $packagePath 'python'
         }
-        $wheels = if (Test-Path -LiteralPath $packagePath -PathType Container) {
-            @(Get-ChildItem -LiteralPath $packagePath -Filter "microsoft_winappcli-*-py3-none-$platform.whl" -File)
+        $wheels = @(if (Test-Path -LiteralPath $packagePath -PathType Container) {
+            Get-ChildItem -LiteralPath $packagePath -Filter "microsoft_winappcli-*-py3-none-$platform.whl" -File
         } else {
-            @(Get-Item -LiteralPath $packagePath | Where-Object Name -Like "microsoft_winappcli-*-py3-none-$platform.whl")
-        }
+            Get-Item -LiteralPath $packagePath | Where-Object Name -Like "microsoft_winappcli-*-py3-none-$platform.whl"
+        })
         if ($wheels.Count -ne 1) { throw "Expected one microsoft-winappcli $platform wheel." }
         $script:tempDir = New-TempTestDirectory -Prefix 'python-winui'
         $script:appDir = Join-Path $tempDir 'project'
         $script:cloneDir = Join-Path $tempDir 'restored-copy'
         foreach ($directory in @($appDir, $cloneDir)) {
             New-Item -ItemType Directory -Path $directory | Out-Null
-            foreach ($name in @('app.py', 'runtime.py', 'counter.py', 'window.py', 'pyproject.toml')) {
+            foreach ($name in @('app.py', 'runtime.py', 'counter.py', 'window.py', 'pyproject.toml', 'requirements.txt')) {
                 Copy-Item -LiteralPath (Join-Path $sampleDir $name) -Destination $directory
             }
         }
@@ -162,6 +169,10 @@ Describe 'Unpackaged Python WinUI sample' {
         Invoke-SampleCommand $toolPython @('-I', '-m', 'pip', 'install', '--disable-pip-version-check',
             '--no-input', $wheels[0].FullName) | Out-Null
         $script:cli = Join-Path $tool 'Scripts\winapp.exe'
+        $script:identityName = "Winapp.PythonWinUISample.$([guid]::NewGuid().ToString('N').Substring(0, 16)).debug"
+        if (@(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count) {
+            throw 'The unique test identity already exists; refusing to replace it.'
+        }
     }
 
     AfterAll {
@@ -178,6 +189,12 @@ Describe 'Unpackaged Python WinUI sample' {
             }
             $run.Process.Dispose()
         }
+        if (Test-Path -LiteralPath (Join-Path $script:appDir '.winapp\python-identity.json')) {
+            Invoke-SampleCommand $script:cli @('identity', 'clear', '--project', $script:appDir) | Out-Null
+        }
+        if (@(Get-AppxPackage -Name $script:identityName | Where-Object Name -EQ $script:identityName).Count) {
+            throw "Test identity is still registered. Files preserved at $script:tempDir."
+        }
         if ($SkipCleanup) { Write-Host "Test files preserved: $script:tempDir" }
         else { Remove-TempTestDirectory -Path $script:tempDir }
     }
@@ -185,12 +202,19 @@ Describe 'Unpackaged Python WinUI sample' {
     Context 'Phase 1: WinUI walkthrough' {
         It 'Initializes SDKs and GUI-only bindings' -Skip:$script:skip {
             Invoke-SampleCommand $script:cli @('init', '--use-defaults', '--add-python-bindings') $appDir |
-                Should -Match 'Python bindings ready'
-            foreach ($name in @('winapp.yaml', '.venv\Scripts\python.exe',
+                Should -Match 'Python bindings generated'
+            Join-Path $appDir '.venv' | Should -Not -Exist
+            @(Get-ChildItem -LiteralPath (Join-Path $appDir '.winapp') -Filter '.codegen-*' -Directory -Force).Count |
+                Should -Be 0
+            foreach ($name in @('winapp.yaml',
                 '.winapp\python\winapp_bindings\pyproject.toml',
-                '.winapp\python\winapp_bindings\_winapp_runtime.py')) {
+                '.winapp\python\winapp_bindings\src\winapp_bindings\__init__.py',
+                '.winapp\python\winapp_bindings\src\winapp_bindings\_winappsdk.json')) {
                 Join-Path $appDir $name | Should -Exist
             }
+            Invoke-SampleCommand $Python @('-I', '-m', 'venv', '.venv') $appDir | Out-Null
+            Invoke-SampleCommand (Join-Path $appDir '.venv\Scripts\python.exe') @(
+                '-I', '-m', 'pip', 'install', '-r', '.\requirements.txt') $appDir | Out-Null
         }
 
         It 'Bootstraps ordinary Python and resets the in-memory counter on each run' -Skip:$script:skip {
@@ -215,13 +239,30 @@ Describe 'Unpackaged Python WinUI sample' {
                 Where-Object ModuleName -EQ 'Microsoft.WindowsAppRuntime.Bootstrap.dll')
             $bootstrap.Count | Should -Be 1
             $bootstrap[0].FileName | Should -Be (
-                Join-Path $appDir ".winapp\bin\$architecture\Microsoft.WindowsAppRuntime.Bootstrap.dll")
+                Join-Path $appDir ".winapp\python\winapp_bindings\src\winapp_bindings\_native\winappsdk\$architecture\Microsoft.WindowsAppRuntime.Bootstrap.dll")
             Close-SampleWindow $run
             $again = Start-SampleWindow $appDir
             Assert-ControlText $again 'Count' '0'
             Close-SampleWindow $again
             Join-Path $appDir '.winapp\python-identity.json' | Should -Not -Exist
             Join-Path $appDir '.winapp\python-identity' | Should -Not -Exist
+        }
+
+        It 'Runs the same WinUI window with identity and without loading Bootstrap' -Skip:$script:skipIdentity {
+            [xml]$manifest = Get-Content -LiteralPath (Join-Path $appDir 'Package.appxmanifest') -Raw
+            $manifest.Package.Identity.Name = $identityName.Substring(0, $identityName.Length - '.debug'.Length)
+            $manifest.Save((Join-Path $appDir 'Package.appxmanifest'))
+            $run = Start-SampleWindow $appDir -Identity
+            Assert-ControlText $run 'Mode' 'Package identity - memory only'
+            Assert-ControlText $run 'Count' '0'
+            Invoke-Control $run 'Increment'
+            Assert-ControlText $run 'Count' '1'
+            @(Get-Process -Id $run.Window.Current.ProcessId | Select-Object -ExpandProperty Modules |
+                Where-Object ModuleName -EQ 'Microsoft.WindowsAppRuntime.Bootstrap.dll').Count | Should -Be 0
+            @(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count | Should -Be 1
+            Close-SampleWindow $run
+            Invoke-SampleCommand $script:cli @('identity', 'clear') $appDir | Out-Null
+            @(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count | Should -Be 0
         }
     }
 
@@ -233,12 +274,16 @@ Describe 'Unpackaged Python WinUI sample' {
             $pins = Get-Content -LiteralPath (Join-Path $cloneDir 'winapp.yaml') -Raw
             Invoke-SampleCommand $script:cli @('restore', '--project', $cloneDir) | Out-Null
             Get-Content -LiteralPath (Join-Path $cloneDir 'winapp.yaml') -Raw | Should -Be $pins
+            Join-Path $cloneDir '.venv' | Should -Not -Exist
+            Invoke-SampleCommand $Python @('-I', '-m', 'venv', '.venv') $cloneDir | Out-Null
+            Invoke-SampleCommand (Join-Path $cloneDir '.venv\Scripts\python.exe') @(
+                '-I', '-m', 'pip', 'install', '-r', '.\requirements.txt') $cloneDir | Out-Null
             $run = Start-SampleWindow $cloneDir
             Assert-ControlText $run 'Count' '0'
             Close-SampleWindow $run
         }
 
-        It 'Checks counter state and Bootstrap helpers' -Skip:$script:skip {
+        It 'Checks counter state and auto-init lifetime ordering' -Skip:$script:skip {
             Invoke-SampleCommand $Python @('-I', '-B', '-m', 'unittest', 'discover',
                 '-s', $sampleDir, '-p', 'test_app.py') | Out-Null
         }

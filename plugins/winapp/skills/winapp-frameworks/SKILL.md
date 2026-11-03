@@ -131,15 +131,17 @@ winapp run --identity .\app.py
 Windows integration guidance:
 
 - Use generated bindings to call Windows SDK and Windows App SDK APIs from Python.
-- Use `winapp restore` after cloning or changing SDK configuration, and `winapp generate` after changing API selections.
-- Use `winapp update` to upgrade SDK and DynWinRT versions; `restore` and `generate` use the generator version recorded in the project's `pyproject.toml`.
-- Use `winapp run .\app.py` for the existing project `.venv`, or add `--identity` for development package identity.
+- winapp manages SDKs, a temporary generator environment, and generated bindings, not application dependencies or lockfiles. After generation, install the local bindings package with the application's manager; see the guide's dependency examples.
+- Use `winapp restore` before installing a cloned application's dependencies, and `winapp generate` after changing API selections.
+- Install the outer generated project, such as `.winapp\python\winapp_bindings`, not its `src` directory. For Windows App SDK startup and PyInstaller resource collection, follow the [Python guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#windows-app-sdk-startup).
+- Use `winapp update` to upgrade SDK and generator versions, then synchronize application dependencies with their manager; `restore` and `generate` keep recorded versions.
+- Run ordinary Python scripts with the application's interpreter, package manager or IDE, for example `poetry run python .\app.py`. `winapp run` accepts Python scripts only with `--identity`. Follow [identity dependencies](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#identity-dependencies) for optional `--requirements`, manual installation and recovery; application dependency files are not auto-detected. For interpreter selection, follow [Choosing Python](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#choosing-python); do not infer it from `.venv` or the tool's installer.
 - Prepare an application directory before creating an MSIX with `winapp package`.
 
 Python guide:
 - [Setup, Windows API bindings, identity and packaging](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md)
 - [Identity runtime catalog selection and updates](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#runtime-catalog-pinning)
-- [Unpackaged WinUI counter and picker](https://github.com/microsoft/WinAppCli/blob/main/samples/python-winui/README.md): Bootstrap plus ordinary `run`; do not add `--identity` for this sample.
+- [WinUI counter](https://github.com/microsoft/WinAppCli/blob/main/samples/python-winui/README.md): direct Python execution with Bootstrap, or `winapp run --identity` without Bootstrap.
 
 ## Debugging by framework
 
@@ -151,7 +153,7 @@ Python guide:
 | **Flutter** | `winapp run .\build\windows\x64\runner\Debug` | GUI app — plain `winapp run` works |
 | **Tauri** | `winapp run .\dist` | Stage exe to `dist/` first (avoids copying entire `target/` tree); GUI app |
 | **Electron** | `npx winapp node add-electron-debug-identity` | Uses Electron-specific identity registration; `winapp run` is **not** recommended for Electron |
-| **Python** | `winapp run --identity .\app.py` | Uses project-private PBS and declared dependencies; see the Python guide. IDE breakpoint integration is not provided. |
+| **Python** | `winapp run --identity .\app.py` | Uses private PBS and generated bindings; see the Python guide for optional requirements and manual installs. IDE breakpoint integration is not provided. |
 
 **Key rules:**
 - **GUI apps** (Flutter, Tauri, WPF): use `winapp run <build-output>` — launches via AUMID activation
