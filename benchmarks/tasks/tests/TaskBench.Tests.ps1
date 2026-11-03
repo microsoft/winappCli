@@ -309,6 +309,10 @@ Describe 'ConvertTo-TrialResult' {
         $t.skills[0].count | Should -Be 3
         $t.winappCommands[0].count | Should -Be 4
     }
+    It 'skips debugging configurations the schema has no arm for' {
+        $r = New-Record; $r.configuration = 'winapp'
+        Convert $r | Should -BeNullOrEmpty
+    }
     It 'does not count a partial result as a pass' {
         (Convert (New-Record 'partial')).passed | Should -BeFalse
     }

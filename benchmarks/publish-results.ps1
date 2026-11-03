@@ -111,8 +111,8 @@ $groups = @($trials.Trial | Group-Object { '{0}|{1}|{2}|{3}|{4}' -f $_.benchmark
             improvementsTotal = ($g | ForEach-Object { $_.improvements.total } | Measure-Object -Sum).Sum
             medianNanoAiu = Get-Median ($g | ForEach-Object { $_.usage.nanoAiu })
             medianWallClockMs = Get-Median ($g | ForEach-Object { $_.usage.wallClockMs })
-            skills = Sum-Counts @($g | ForEach-Object { $_.skills } | Where-Object { $_ }) 'name' 'count'
-            winappCommands = Sum-Counts @($g | ForEach-Object { $_.winappCommands } | Where-Object { $_ }) 'command' 'count'
+            skills = @(Sum-Counts @($g | ForEach-Object { $_.skills } | Where-Object { $_ }) 'name' 'count')
+            winappCommands = @(Sum-Counts @($g | ForEach-Object { $_.winappCommands } | Where-Object { $_ }) 'command' 'count')
         }
     } | Sort-Object { $_.benchmark }, { $_.scenario }, { $_.arm }, { $_.model })
 

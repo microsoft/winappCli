@@ -432,7 +432,10 @@ try {
         }
         $records.Add([pscustomobject]$record)
         ([pscustomobject]$record | ConvertTo-Json -Depth 8 -Compress) | Add-Content -Path $runsPath -Encoding utf8NoBOM
-        $trial = ConvertTo-TrialResult -Record $record -Task $t.Id -Set $t.Set -Release $trialRelease -Commit $trialCommit -StartedAt $runStarted
+        # A release result names one commit, so plugins from another checkout or with edits would mislabel it.
+        $badPlugin = if ($trialRelease -ne 'dev') { @($spec.Plugins | Where-Object { $pluginInfo[$_].dirty -or $pluginInfo[$_].sha -ne $trialCommit }) } else { @() }
+        if ($badPlugin) { Write-Warning "No trial file written: plugin '$($badPlugin -join ', ')' is not the clean checkout at $trialCommit." }
+        $trial = $badPlugin ? $null : (ConvertTo-TrialResult -Record $record -Task $t.Id -Set $t.Set -Release $trialRelease -Commit $trialCommit -StartedAt $runStarted)
         if ($trial) {
             $trialDir = Join-Path $OutDir 'trials'
             New-Item -ItemType Directory -Force $trialDir | Out-Null

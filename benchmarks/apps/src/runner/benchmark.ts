@@ -4645,7 +4645,9 @@ function saveResults(
   trialDir: string,
   entry: RunEntry,
   config: ScenarioConfig,
-  usage: Record<string, any>
+  usage: Record<string, any>,
+  /** Revalidation passes the original attempt's identity, or null when it is unknown. */
+  original?: { release: string; commit: string; startedAt: string } | null
 ) {
   // Extract structured validation data if available
   const valData = (entry as any)._validationData as {
@@ -4728,8 +4730,11 @@ function saveResults(
 
   // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
   const exact = usage?.exact;
-  const release = process.env.BENCH_RELEASE || "dev";
-  const commit = currentCommit();
+  const release = original?.release ?? (process.env.BENCH_RELEASE || "dev");
+  const commit = original?.commit ?? currentCommit();
+  const startedAt = original?.startedAt ?? entry.startedAt;
+  // Never leave an earlier result behind when this evaluation can't be exported.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
   // A tooling failure while judging is not an app result, and must not count as a pass.
   const judgingFailed = /^Validation /.test(entry.failReason ?? "");
   // A release result names one commit, so plugins from another commit would mislabel it.
@@ -4738,7 +4743,7 @@ function saveResults(
     (pluginSha !== commit || !!entry.agentSource.dirty);
   if (judgingFailed) console.warn(`  No trial-result.json written: ${entry.failReason}.`);
   if (pluginMismatch) console.warn(`  No trial-result.json written: plugins came from ${pluginSha?.slice(0, 8)}${entry.agentSource?.dirty ? " (uncommitted changes)" : ""} but the release commit is ${commit.slice(0, 8)}.`);
-  if (exact && entry.startedAt && !judgingFailed && !pluginMismatch) {
+  if (exact && startedAt && original !== null && !judgingFailed && !pluginMismatch) {
     const trial = toTrialResult({
       release,
       commit,
@@ -4747,7 +4752,7 @@ function saveResults(
       condition: entry.condition,
       model: entry.model,
       iteration: entry.iteration,
-      startedAt: new Date(entry.startedAt),
+      startedAt: new Date(startedAt),
       builds: !!entry.builds,
       runs: !!entry.runs,
       checks: qualityChecks ?? [],
@@ -4800,7 +4805,13 @@ function saveRevalidationResults(
       if (!entry.agentSource && old.agent_source) entry.agentSource = old.agent_source;
     } catch {}
   }
-  saveResults(trialDir, entry, scenarioConfig, usage);
+  // Keep the original attempt's release, commit and start time; without them it can't be exported.
+  let original: { release: string; commit: string; startedAt: string } | null = null;
+  try {
+    const t = JSON.parse(readFileSync(join(trialDir, "trial-result.json"), "utf-8"));
+    if (t.release && t.commit && t.startedAt) original = { release: t.release, commit: t.commit, startedAt: t.startedAt };
+  } catch {}
+  saveResults(trialDir, entry, scenarioConfig, usage, original);
 }
 
 

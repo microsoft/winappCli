@@ -52,6 +52,14 @@ test("a scenario can mark a requirement as required", () => {
   assert.equal(t.passed, false);
 });
 
+test("a required requirement that was never judged fails the trial", () => {
+  const t = toTrialResult({ ...base, requirements: [], requiredRequirements: [2] }) as any;
+  assert.equal(t.passed, false);
+  const c = t.checks.find((x: any) => x.id === "requirement-2");
+  assert.equal(c.kind, "required");
+  assert.equal(c.detail, "not checked");
+});
+
 test("agent setups that are not one of the three arms are skipped", () => {
   assert.equal(toTrialResult({ ...base, condition: "published" }), null);
 });
