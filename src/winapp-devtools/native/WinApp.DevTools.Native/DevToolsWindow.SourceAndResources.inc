@@ -93,6 +93,8 @@ enum class SourceAction { Open, Reveal, Copy };
 // XAML's visual ownership does not keep this WinRT wrapper's weak references alive.
 // Retain it for the pane's lifetime; the sinks still hold only weak references.
 static DevToolsXC::TextBlock g_sourceStatus{ nullptr };
+// The same for the comment box's elements: its handlers hold them weakly, so the pane holds them here.
+static std::vector<winrt::Windows::Foundation::IInspectable> g_commentBoxParts;
 
 // Keep feedback with the source header that owns these actions, not the current selection's status line.
 struct SourceActionSink : DevToolsSinkBase
