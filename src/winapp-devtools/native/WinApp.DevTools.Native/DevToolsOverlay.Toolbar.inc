@@ -147,6 +147,7 @@ static void SnapTargetPos(int c, double* x, double* y)
 
 static bool g_dragging = false;
 static const wchar_t* g_toolbarMenu = nullptr;
+static bool g_keepToolbarMenuOpen = false;
 static bool CloseToolbarMenu(bool focusAnchor = false);
 
 static void ShowARow(bool open)
@@ -655,6 +656,11 @@ static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
                 DevToolsOverlayLog(L"overlay.toolbar menu opened failed hr=0x%08X", e.code().value);
             }
         });
+        menu.Closing([](auto&&, DevToolsXCP::FlyoutBaseClosingEventArgs const& e) {
+            if (!g_keepToolbarMenuOpen) return;
+            g_keepToolbarMenuOpen = false;
+            e.Cancel(true);
+        });
         menu.Closed([name](auto&&, auto&&) {
             if (g_toolbarMenu && wcscmp(g_toolbarMenu, name) == 0)
                 g_toolbarMenu = g_toolbarMenuAnchor = nullptr;
@@ -716,9 +722,12 @@ static void OnHideToolbarClick(void*, void*)
     DevToolsOverlayLog(L"overlay.toolbar hidden from its menu");
 }
 
+// The launch preference toggles update in place: WinUI closes a menu after any item's Click, so the menu's
+// Closing handler cancels that one close.
 static void SetDefaultMode(const char* mode)
 {
-    CloseToolbarMenu();
+    g_keepToolbarMenuOpen = true;
+    SetTimer(nullptr, 0, 0, [](HWND, UINT, UINT_PTR id, DWORD) { KillTimer(nullptr, id); g_keepToolbarMenuOpen = false; });
     DevToolsSettingsSetText(L"DefaultMode", mode);
     SetStartModeUi(mode);
     DevToolsOverlayLog(L"overlay.toolbar default mode -> %S (persisted)", mode);

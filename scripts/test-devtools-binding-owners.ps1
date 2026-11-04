@@ -383,10 +383,16 @@ try {
             $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartShown', '-a', $app)
             $chosen = Invoke-Cli @('config', 'get', 'run.devtools')
             Check ($chosen.value -eq 'headless' -and $chosen.source -eq 'setting') 'winapp config reads the default chosen in the menu'
-            Open-ToolbarMenu More
+            $shownAfter = (Invoke-Cli @('ui', 'get-property', 'DevToolsStartShown', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+            Check ($shownAfter -eq 'Off') 'the menu stays open and shows the new Show toolbar state'
             $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartEnabled', '-a', $app)
             $off = Invoke-Cli @('config', 'get', 'run.devtools')
             Check ($off.value -eq 'off') 'unchecking Start DevTools turns DevTools off for the next run'
+            # Invoke-Cli fails the run if Show toolbar is still in the open menu.
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartShown', '-a', $app, '--gone', '-t', '3000')
+            Check ($null -ne (Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '-t', '3000'))) 'turning DevTools off keeps the menu open and hides Show toolbar'
+            $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '--gone', '-t', '3000')
             $commentState = (Invoke-Cli @('ui', 'get-property', 'DevToolsProtoComments', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
             Open-ToolbarMenu Comments
             $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoComments', '-a', $app, '-p', 'ExpandCollapseState', '--value', 'Expanded', '-t', '3000')

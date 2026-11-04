@@ -208,6 +208,15 @@ static void TestToolbarContract()
                  "the start-mode header is not a focus stop; opening re-checks the saved mode and hides Show toolbar while off");
     Check(xaml.find("DevToolsStartOffHint") == std::string::npos && overlay.find("g_reopenMoreMenu") == std::string::npos,
                  "turning DevTools off shows no extra hint row and does not reopen the menu");
+    {
+        const size_t setMode = overlay.find("static void SetDefaultMode(const char* mode)");
+        const size_t setModeEnd = overlay.find("\n}\n", setMode);
+        Check(setMode != std::string::npos &&
+                         overlay.substr(setMode, setModeEnd - setMode).find("CloseToolbarMenu") == std::string::npos &&
+                         overlay.find("g_keepToolbarMenuOpen = true;") != std::string::npos &&
+                         overlay.find("e.Cancel(true);") != std::string::npos,
+                     "flipping a launch preference keeps the menu open and updates it in place");
+    }
     Check(xaml.find("<ToggleMenuFlyoutItem x:Name=\"DevToolsToggleMarkers\"") != std::string::npos &&
                      xaml.find("AutomationProperties.Name=\"Show comment markers\"") != std::string::npos &&
                      overlay.find("DevToolsToggleMarkersText") == std::string::npos,
