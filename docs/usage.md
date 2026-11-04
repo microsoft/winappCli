@@ -1951,39 +1951,22 @@ and capture-readiness failures.
 
 ```powershell
 winapp ask "how do I add a jump list?"
-winapp ask "number input with up/down buttons" --json
+winapp ask "WinUI 3 custom title bar drag regions" --json
 ```
 
-Search WinUI samples and Microsoft Learn docs together. Results appear in two
-sections: **WinUI samples** first, then **Docs**, with each doc's title, link, and
-short excerpt. This is a search, not a generated answer. It returns up to three
-sample groups (up to three scenario IDs each) and three distinct docs, preferring
-Windows app, Windows App SDK, and WinUI documentation. Doc excerpts are limited
-to 400 characters.
+Search WinUI samples and Microsoft Learn docs together. Results appear in two sections: **WinUI samples** first, then **Docs**, with each doc's title, link, and a short plain-text excerpt. This is a search, not a generated answer. It returns up to three sample groups (up to three scenario IDs each) and three distinct docs, preferring Windows app, Windows App SDK, and WinUI documentation. Excerpts are limited to 400 characters, so open the link to read the full page.
 
-**Privacy:** every question is sent to the public Microsoft Learn service, even
-when samples match. Do not include secrets or private project text. Use
-[`find-ui`](#find-ui) to search samples without sending your question to Learn.
-No Learn sign-in or separately installed MCP server is required.
+**Ask about one feature at a time, in a few words.** Name the framework and the feature or API, for example `WinUI 3 app notifications unpackaged`. Learn takes longer to search long questions, so a pasted task description usually times out and returns no docs. Run a separate `ask` for each feature instead.
 
-The sample search uses the same sources and ranking as a default `find-ui`
-search; Reactor remains excluded. Fetch a sample's full code with
-`winapp find-ui --id <id>`. Samples can come from the built-in corpus, the local
-cache, or a GitHub refresh, as described under [`find-ui`](#find-ui).
+**Privacy:** every question is sent to the public Microsoft Learn service, even when samples match. Do not include secrets or private project text. Use [`find-ui`](#find-ui) to search samples without sending your question to Learn. No Learn sign-in or separately installed MCP server is required.
 
-Learn search has a three-second timeout. If it fails, `ask` keeps any sample
-results and says **Docs unavailable**. Retry to get docs, or use `find-ui` for
-samples alone. If sample data is unavailable, docs can still be returned.
+The sample search uses the same sources and ranking as a default `find-ui` search; Reactor remains excluded. Fetch a sample's full code with `winapp find-ui --id <id>`. Samples can come from the built-in corpus, the local cache, or a GitHub refresh, as described under [`find-ui`](#find-ui).
 
-**Options:** `--json` emits one object on stdout with `query`, `corpus` when
-sample data was loaded, `matches` in the same shape as a `find-ui` search, and
-`docs` containing `{ title, url, excerpt }`. `docsError` or `samplesError` appears
-when that source failed; an empty array without its error field means the search
-completed but found no matches. Invalid arguments return `{"error":"..."}`.
+Learn search has a five-second timeout. If it fails or the machine is offline, `ask` keeps any sample results and says **Docs unavailable**. Shorten the question, or use `find-ui` for samples alone. If sample data is unavailable, docs can still be returned.
 
-**Exit codes:** `0` when either source returns a match, including partial results
-with an error for the other source; `1` when neither source returns a match or the
-arguments are invalid.
+**Options:** `--json` emits one object on stdout with `query`, `corpus` when sample data was loaded, `matches` in the same shape as a `find-ui` search, and `docs` containing `{ title, url, excerpt }`. `docsError` or `samplesError` appears when that source failed; an empty array without its error field means the search completed but found no matches. Invalid arguments return `{"error":"..."}`.
+
+**Exit codes:** `0` when either source returns a match, including partial results with an error for the other source; `1` when neither source returns a match or the arguments are invalid.
 
 ---
 

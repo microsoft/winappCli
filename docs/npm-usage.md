@@ -73,8 +73,7 @@ See [CLI usage](usage.md) for each command's behavior, prerequisites, and exampl
 Use `npx winapp <command> --help` for exact flags or `npx winapp --cli-schema`
 for the installed CLI's complete machine-readable command tree.
 
-`ask` combines sample matches and Learn docs. See [`ask`](usage.md#ask) for its
-privacy notice and partial-result handling.
+`ask` combines sample matches and Learn docs. See [`ask`](usage.md#ask) for its privacy notice and partial-result handling.
 
 Every command's options object also accepts these shared properties:
 

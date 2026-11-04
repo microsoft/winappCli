@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol;
@@ -27,11 +28,11 @@ internal interface ILearnSearchClient
 /// <summary>
 /// Searches public Learn documentation. An injected HTTP client remains owned by the caller.
 /// </summary>
-internal sealed class LearnSearchClient(HttpClient httpClient, ILogger<LearnSearchClient>? logger = null) : ILearnSearchClient, IDisposable
+internal sealed partial class LearnSearchClient(HttpClient httpClient, ILogger<LearnSearchClient>? logger = null) : ILearnSearchClient, IDisposable
 {
     private readonly bool _ownsHttpClient;
     private readonly ILogger<LearnSearchClient> _logger = logger ?? NullLogger<LearnSearchClient>.Instance;
-    internal static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(3);
+    internal static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(5);
     internal const int MaxResults = 3;
     internal const int MaxExcerptLength = 400;
     internal const int MaxTitleLength = 200;
@@ -179,7 +180,7 @@ internal sealed class LearnSearchClient(HttpClient httpClient, ILogger<LearnSear
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
         {
-            throw new TimeoutException("Microsoft Learn documentation search exceeded its 3-second timeout.", ex);
+            throw new TimeoutException($"Microsoft Learn documentation search exceeded its {SearchTimeout.TotalSeconds:0}-second timeout.", ex);
         }
     }
 
@@ -351,7 +352,7 @@ internal sealed class LearnSearchClient(HttpClient httpClient, ILogger<LearnSear
                 }
                 content = excerpt.GetString()!;
             }
-            matches.Add(new LearnSearchResult(Trim(title, MaxTitleLength), uri, Trim(content, MaxExcerptLength)));
+            matches.Add(new LearnSearchResult(Trim(title, MaxTitleLength), uri, Trim(ToPlainText(content, title), MaxExcerptLength)));
         }
 
         // Prefer Windows app guides without hiding relevant Win32 or other Windows docs.
@@ -377,6 +378,60 @@ internal sealed class LearnSearchClient(HttpClient httpClient, ILogger<LearnSear
         url.AbsolutePath.Contains("/windows/apps/", StringComparison.OrdinalIgnoreCase)
         || url.AbsolutePath.Contains("/windows-app-sdk/", StringComparison.OrdinalIgnoreCase)
         || url.AbsolutePath.Contains("/winui/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Converts a Learn Markdown excerpt to plain text before it is shortened, so headings,
+    /// link URLs and code fences don't use the excerpt's length. The page-title heading is
+    /// dropped because the title is shown separately; other headings become "Heading:".
+    /// </summary>
+    internal static string ToPlainText(string markdown, string title)
+    {
+        var text = CodeFenceRegex().Replace(markdown.ReplaceLineEndings("\n"), "");
+        text = HeadingRegex().Replace(text, m =>
+        {
+            var heading = m.Groups[1].Value.Trim();
+            if (string.Equals(heading, title.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return "";
+            }
+            return heading.Length > 0 && char.IsLetterOrDigit(heading[^1]) ? heading + ":" : heading;
+        });
+        text = CalloutRegex().Replace(text, m => char.ToUpperInvariant(m.Groups[1].Value[0]) + m.Groups[1].Value[1..].ToLowerInvariant() + ":");
+        text = QuoteRegex().Replace(text, "");
+        text = TableRuleRegex().Replace(text, "");
+        text = LinkRegex().Replace(text, "$1");
+        text = BoldRegex().Replace(text, "$2");
+        text = ItalicRegex().Replace(text, "$1");
+        text = text.Replace("`", "", StringComparison.Ordinal);
+        return WhitespaceRegex().Replace(text, " ").Trim();
+    }
+
+    [GeneratedRegex(@"^[ \t]*```[^\n]*$", RegexOptions.Multiline)]
+    private static partial Regex CodeFenceRegex();
+
+    [GeneratedRegex(@"^[ \t]*#{1,6}[ \t]+([^\n]*?)[ \t#]*$", RegexOptions.Multiline)]
+    private static partial Regex HeadingRegex();
+
+    [GeneratedRegex(@"^[ \t]*>[ \t]*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
+    private static partial Regex CalloutRegex();
+
+    [GeneratedRegex(@"^[ \t]*>[ \t]?", RegexOptions.Multiline)]
+    private static partial Regex QuoteRegex();
+
+    [GeneratedRegex(@"^[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)*\|?[ \t]*$", RegexOptions.Multiline)]
+    private static partial Regex TableRuleRegex();
+
+    [GeneratedRegex(@"!?\[([^\]\n]*)\]\([^)\s]*(?:[ \t]+""[^""\n]*"")?\)")]
+    private static partial Regex LinkRegex();
+
+    [GeneratedRegex(@"(\*\*|__)(?=\S)([^\n]+?)(?<=\S)\1")]
+    private static partial Regex BoldRegex();
+
+    [GeneratedRegex(@"(?<![\w*\\])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])")]
+    private static partial Regex ItalicRegex();
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRegex();
 
     private static string Trim(string text, int maxLength)
     {

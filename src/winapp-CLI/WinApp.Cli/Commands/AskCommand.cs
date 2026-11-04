@@ -25,7 +25,7 @@ internal sealed class AskCommand : Command, IShortDescription
     };
 
     public AskCommand() : base("ask",
-        "Search WinUI samples and Microsoft Learn documentation together. Shows up to three sample matches, then up to three docs with links and short excerpts; it does not generate an answer. Every question is sent to the public Microsoft Learn service. Docs search has a three-second timeout; if it fails, sample results are kept and the failure is reported. Use find-ui to search samples without sending your question to Learn.")
+        "Search WinUI samples and Microsoft Learn documentation together. Shows up to three sample matches, then up to three docs with links and short excerpts; it does not generate an answer. Every question is sent to the public Microsoft Learn service. Docs search has a five-second timeout and long questions take longer, so ask about one feature at a time; if docs search fails, sample results are kept and the failure is reported. Use find-ui to search samples without sending your question to Learn.")
     {
         Arguments.Add(QuestionArgument);
         Options.Add(WinAppRootCommand.JsonOption);
@@ -142,6 +142,6 @@ internal sealed class AskCommand : Command, IShortDescription
         }
 
         private const string DocsTimeoutMessage =
-            "Docs unavailable: Microsoft Learn timed out. Retry, or use winapp find-ui to search samples without Learn.";
+            "Docs unavailable: Microsoft Learn timed out. Long questions take longer to search, so ask about one feature in a few words, or use winapp find-ui to search samples without Learn.";
     }
 }

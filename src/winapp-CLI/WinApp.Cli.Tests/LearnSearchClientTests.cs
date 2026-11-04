@@ -254,8 +254,8 @@ public class LearnSearchClientTests
         using var http = new HttpClient(handler);
         var elapsed = Stopwatch.StartNew();
         await Assert.ThrowsAsync<TimeoutException>(() => new LearnSearchClient(http).SearchAsync("query"));
-        Assert.IsTrue(elapsed.Elapsed < TimeSpan.FromSeconds(4.5), $"Search took {elapsed.Elapsed}.");
-        Assert.IsTrue(elapsed.Elapsed >= TimeSpan.FromSeconds(2.5), "Search should use the 3-second budget.");
+        Assert.IsTrue(elapsed.Elapsed < LearnSearchClient.SearchTimeout + TimeSpan.FromSeconds(1.5), $"Search took {elapsed.Elapsed}.");
+        Assert.IsTrue(elapsed.Elapsed >= LearnSearchClient.SearchTimeout - TimeSpan.FromSeconds(0.5), "Search should use its whole time budget.");
     }
 
     [TestMethod]
@@ -266,7 +266,59 @@ public class LearnSearchClientTests
         var elapsed = Stopwatch.StartNew();
         var results = await new LearnSearchClient(http).SearchAsync("query");
         Assert.HasCount(3, results);
-        Assert.IsTrue(elapsed.Elapsed < TimeSpan.FromSeconds(4.5), $"Cleanup took {elapsed.Elapsed}.");
+        Assert.IsTrue(elapsed.Elapsed < LearnSearchClient.SearchTimeout + TimeSpan.FromSeconds(1.5), $"Cleanup took {elapsed.Elapsed}.");
+    }
+
+    [TestMethod]
+    public void ToPlainText_RemovesMarkdownAndRepeatedPageTitle()
+    {
+        const string markdown = """
+            # Title bar
+            ## Customize drag regions
+            > [!NOTE]
+            > Call [RecomputeDragRegions](https://learn.microsoft.com/api/recompute "Recompute") after **changes** to *content*.
+            ```csharp
+            AppTitleBar.RecomputeDragRegions();
+            ```
+            | Property | Default |
+            | --- | :---: |
+            | `IsDraggable` | True |
+            ![Diagram](https://learn.microsoft.com/image.png)
+            """;
+
+        Assert.AreEqual(
+            "Customize drag regions: Note: Call RecomputeDragRegions after changes to content. AppTitleBar.RecomputeDragRegions(); | Property | Default | | IsDraggable | True | Diagram",
+            LearnSearchClient.ToPlainText(markdown, "Title bar"));
+    }
+
+    [TestMethod]
+    [DataRow("int* p = a * b;", "int* p = a * b;")]
+    [DataRow("2 * 3 * 4", "2 * 3 * 4")]
+    [DataRow("C# and F# docs", "C# and F# docs")]
+    [DataRow("snake_case_name", "snake_case_name")]
+    public void ToPlainText_KeepsTextThatOnlyLooksLikeMarkdown(string input, string expected)
+    {
+        Assert.AreEqual(expected, LearnSearchClient.ToPlainText(input, "Title"));
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_ShortensPlainTextNotMarkdown()
+    {
+        var link = "[Link](https://learn.microsoft.com/" + new string('u', 300) + ")";
+        var payload = new JsonObject
+        {
+            ["results"] = new JsonArray(new JsonObject
+            {
+                ["title"] = "Page",
+                ["contentUrl"] = "https://learn.microsoft.com/windows/apps/example",
+                ["content"] = "# Page\n" + link + " " + new string('x', 300)
+            })
+        };
+        using var handler = new LearnHandler { Structured = true, Payload = payload.ToJsonString() };
+        using var http = new HttpClient(handler);
+        var results = await new LearnSearchClient(http).SearchAsync("query");
+
+        Assert.AreEqual("Link " + new string('x', 300), results[0].Excerpt);
     }
 
     [TestMethod]

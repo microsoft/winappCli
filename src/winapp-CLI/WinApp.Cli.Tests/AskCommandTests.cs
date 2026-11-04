@@ -145,6 +145,7 @@ public class AskCommandTests : BaseCommandTests
         Assert.AreEqual(0, exit);
         StringAssert.Contains(TestAnsiConsole.Output, "gallery-tabview-1");
         StringAssert.Contains(TestAnsiConsole.Output, "Docs unavailable: Microsoft Learn timed out");
+        StringAssert.Contains(TestAnsiConsole.Output, "ask about one feature");
     }
 
     [TestMethod]
