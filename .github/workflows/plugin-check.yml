@@ -74,3 +74,37 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "$test failed." }
             Write-Host "::endgroup::"
           }
+
+  # Awesome Copilot rejects a plugin listing update when vally lint fails, so lint every shipped
+  # skill with the vally version it pins (scripts/vally/package.json).
+  lint-skills:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Detect changes
+        id: changes
+        shell: pwsh
+        run: |
+          $changed = @(git diff --name-only HEAD^1 HEAD)
+          if ($LASTEXITCODE -ne 0) { throw "Could not list the files this PR changes." }
+          $relevant = @($changed | Where-Object { $_ -match '^(plugins/|scripts/vally/|\.github/workflows/plugin-check\.yml$)' })
+          "relevant=$($relevant.Count -gt 0)" >> $env:GITHUB_OUTPUT
+          if (-not $relevant) { "No skill-related changes; skipping." | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append }
+
+      - name: Setup Node
+        if: steps.changes.outputs.relevant == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Lint skills with vally
+        if: steps.changes.outputs.relevant == 'true'
+        run: |
+          npm ci --prefix scripts/vally --ignore-scripts --no-audit --no-fund
+          node scripts/vally/lint-skills.mjs

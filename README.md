@@ -344,8 +344,9 @@ claude plugin install winui@winappcli
 **Codex**
 ```bash
 codex plugin marketplace add microsoft/WinAppCli
+codex plugin add winappcli@winappcli
+codex plugin add winui@winappcli
 ```
-Then install `winappcli` and `winui` from the Plugins directory.
 
 
 ## 🔧 Feedback and Support

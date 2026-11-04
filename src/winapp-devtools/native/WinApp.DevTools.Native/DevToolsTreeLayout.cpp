@@ -358,8 +358,8 @@ std::wstring ElideBreadcrumb(const std::wstring& full, size_t& outSegments)
         p = q + kSep.size();
     }
     outSegments = seg.size();
-    if (seg.size() <= 4) return full; // short enough to show whole -- eliding would only lose information
-    return seg.front() + kSep + L"\u2026" + kSep + seg[seg.size() - 2] + kSep + seg.back();
+    if (seg.size() <= 2) return full;
+    return L"\u2026" + kSep + seg[seg.size() - 2] + kSep + seg.back();
 }
 
 } // namespace DevToolsTreeLayout

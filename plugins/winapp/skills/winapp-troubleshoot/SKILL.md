@@ -14,7 +14,7 @@ Use this skill when:
 
 ## Common errors & solutions
 
-For slow WinUI layout or scrolling, use the [performance skill](../winapp-performance/SKILL.md).
+For slow WinUI layout or scrolling, use the `winapp-performance` skill.
 ETW performance capture is separate from debugger output and crash analysis.
 
 | Error | Cause | Solution |

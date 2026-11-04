@@ -37,6 +37,14 @@ static std::wstring MarkupInner(const std::wstring& authored)
     return body.substr(start);
 }
 
+static std::wstring ResourceEditorSeed(const DevToolsCardRow& row, const std::wstring& path, DevToolsKind kind)
+{
+    if (CurrentKindOf(row, path) != kind) return {};
+    if (const SessionAssign* assignment = SessionAssignFind(path))
+        if (assignment->kind == kind) return MarkupInner(assignment->detail);
+    return row.authoredKey;
+}
+
 static const DevToolsCardRow* FindPropertyRowIn(const std::vector<DevToolsCardRow>& rows, const std::wstring& path)
 {
     return FindPropertyRow(const_cast<std::vector<DevToolsCardRow>&>(rows), path);
@@ -460,17 +468,6 @@ static ResourceKeys ResourceKeyCandidates(const DevToolsCardRow& target)
     return out;
 }
 
-static std::vector<std::wstring> MatchingResourceKeys(const std::vector<std::wstring>& keys, const std::wstring& prefix)
-{
-    std::vector<std::wstring> out;
-    for (const auto& key : keys) {
-        if (_wcsnicmp(key.c_str(), prefix.c_str(), prefix.size()) != 0) continue;
-        out.push_back(key);
-        if (out.size() == 6) break;
-    }
-    return out;
-}
-
 static void SetResourceError(void* expansion, const std::wstring& path, const std::wstring& error)
 {
     if (IInspectable* message = FindInRow(expansion, L"PResError")) {
@@ -551,9 +548,9 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
     for (size_t i = 0; i < g_linkLost.size(); ++i) if (g_linkLost[i] == path) { g_linkLost.erase(g_linkLost.begin() + i); break; }
     // THE SUCCESS LINE IS THE CALLER'S TO SET, AFTER ITS RE-RENDER. Setting it here is what the failure
     // path can afford and this one cannot: a successful commit re-renders the pane, and ShowPropsForNode
-    // resets the status to its default hint, so a message written here is destroyed by the rebuild it
-    // triggers and the user reads "Edits apply when you leave a field" for an assignment that worked. Same
-    // ordering rule, and the same reason, as the binding-op drain.
+    // rebuilds the status line empty and hidden, so a message written here is destroyed by the rebuild it
+    // triggers and the user sees no confirmation for an assignment that worked. Same ordering rule, and the
+    // same reason, as the binding-op drain.
     return true;
 }
 
@@ -1059,7 +1056,7 @@ struct KindCtx
     const bool* retired = nullptr; // set only on the executing callback's local copy
 };
 
-// Read one named TextBox inside the expansion. Returns empty when the control is absent -- which is a real
+// Read one named input inside the expansion. Returns empty when the control is absent -- which is a real
 // case (the binding editor is not built when the kind is Literal) and must not be mistaken for "the user
 // cleared the field".
 static std::wstring ReadBox(void* expFe, const wchar_t* name, bool* found = nullptr)
@@ -1067,7 +1064,18 @@ static std::wstring ReadBox(void* expFe, const wchar_t* name, bool* found = null
     if (found) *found = false;
     std::wstring out;
     if (IInspectable* el = FindInRow(expFe, name)) {
-        if (g_ctx.readInputFn && g_ctx.readInputFn(el, out)) { if (found) *found = true; }
+        if (wcscmp(name, L"PResKey") == 0) {
+            void* suggest = nullptr;
+            if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsXC::IAutoSuggestBox>(), &suggest)) && suggest) {
+                HSTRING text = nullptr;
+                if (SUCCEEDED(DevToolsAbi<DevToolsXC::IAutoSuggestBox>(suggest)->get_Text(reinterpret_cast<void**>(&text)))) {
+                    out = WindowsGetStringRawBuffer(text, nullptr);
+                    if (found) *found = true;
+                }
+                WindowsDeleteString(text);
+                reinterpret_cast<IUnknown*>(suggest)->Release();
+            }
+        } else if (g_ctx.readInputFn && g_ctx.readInputFn(el, out)) { if (found) *found = true; }
         el->Release();
     }
     return out;
