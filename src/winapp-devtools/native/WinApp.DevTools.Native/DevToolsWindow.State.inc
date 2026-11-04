@@ -132,8 +132,7 @@ static HRESULT ReleaseInspectorCaptionTheme()
     return hr;
 }
 
-static size_t RebuildPaneItems();
-static void UpdatePropEmptyState(size_t shown);
+static void RecolorPaneRows();
 static void RecolorTreeCaptions();
 
 struct InspectorCaptionThemeSink : DevToolsSinkBase
@@ -144,10 +143,9 @@ struct InspectorCaptionThemeSink : DevToolsSinkBase
         const HRESULT hr = SyncInspectorCaptionTheme();
         if (FAILED(hr)) DevToolsOverlayLog(L"route1.titlebar theme update hr=0x%08X", hr);
         // Tree captions and property rows copy palette brushes, so they keep the old theme's colors until
-        // repainted. Re-preparing the property rows would discard an open editor, so that waits for the next read.
+        // repainted. Both repaint in place, so tree expansion, open editors and unsaved drafts are kept.
         RecolorTreeCaptions();
-        if (CanRereadSelection()) UpdatePropEmptyState(RebuildPaneItems());
-        else DevToolsOverlayLog(L"route1.props theme change keeps rows while an editor is open");
+        RecolorPaneRows();
         return S_OK;
     }
     void Init()

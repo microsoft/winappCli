@@ -476,9 +476,20 @@ static void NamePropertyHeader(IInspectable* header, const DevToolsCardRow& r, c
     SetAutomationTextOn(header, RowAccessibleName(r, path), path + L" value", L"");
 }
 
+// The brush each text palette donor had when a row first copied it. Row copies keep that brush after a theme
+// change, so RecolorPaneRows looks for it and swaps in the donor's new brush.
+struct RowBrushSlot { IInspectable** donor; DevToolsXM::Brush copied; };
+static RowBrushSlot g_rowBrushes[] = {
+    { &g_palPrimary, nullptr }, { &g_palSecondary, nullptr }, { &g_palTertiary, nullptr },
+};
+
+static void ForgetRowBrushes()
+{
+    for (RowBrushSlot& slot : g_rowBrushes) slot.copied = nullptr;
+}
+
 // The palette slots hold donor TextBlocks, not brushes. put_Foreground rejects a TextBlock, so copy the
-// donor's current brush instead. The copy does not follow a later theme change; the inspector's theme
-// handler rebuilds the rows for that.
+// donor's current brush instead. The copy does not follow a later theme change; RecolorPaneRows fixes that.
 static void PutDonorForeground(void* textBlock, IInspectable* donor)
 {
     if (!textBlock || !donor) return;
@@ -487,9 +498,46 @@ static void PutDonorForeground(void* textBlock, IInspectable* donor)
     IInspectable* brush = nullptr;
     if (SUCCEEDED(DevToolsGetTextForeground(donorText, &brush)) && brush) {
         DevToolsPutTextForeground(textBlock, brush);
+        for (RowBrushSlot& slot : g_rowBrushes) {
+            if (*slot.donor != donor || slot.copied) continue;
+            try { slot.copied = TreeObject<DevToolsXM::Brush>(brush); } catch (const winrt::hresult_error&) {}
+        }
         brush->Release();
     }
     reinterpret_cast<IUnknown*>(donorText)->Release();
+}
+
+static void RecolorPaneText(DevToolsX::DependencyObject const& node,
+                            std::vector<std::pair<DevToolsXM::Brush, DevToolsXM::Brush>> const& swaps)
+{
+    if (const auto text = node.try_as<DevToolsXC::TextBlock>()) {
+        const auto foreground = text.Foreground();
+        for (const auto& [from, to] : swaps) {
+            if (foreground == from) { text.Foreground(to); break; }
+        }
+    }
+    const int count = DevToolsXM::VisualTreeHelper::GetChildrenCount(node);
+    for (int i = 0; i < count; ++i) RecolorPaneText(DevToolsXM::VisualTreeHelper::GetChild(node, i), swaps);
+}
+
+// Repaint property rows after a theme change without rebuilding them, so an open editor and its draft stay.
+// Only text that still holds a brush copied from the old theme's palette changes.
+static void RecolorPaneRows()
+{
+    std::vector<std::pair<DevToolsXM::Brush, DevToolsXM::Brush>> swaps;
+    try {
+        for (RowBrushSlot& slot : g_rowBrushes) {
+            if (!slot.copied || !*slot.donor) continue;
+            const auto current = TreeObject<DevToolsXC::TextBlock>(*slot.donor).Foreground();
+            if (!current || current == slot.copied) continue;
+            swaps.emplace_back(slot.copied, current);
+            slot.copied = current;
+        }
+        if (!swaps.empty() && g_propRepeater)
+            RecolorPaneText(TreeObject<DevToolsX::DependencyObject>(g_propRepeater), swaps);
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"route1.props recolor failed hr=0x%08X", error.code().value);
+    }
 }
 
 static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r, const std::wstring& path)

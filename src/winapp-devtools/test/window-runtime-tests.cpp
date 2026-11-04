@@ -810,6 +810,8 @@ int main()
         PopulateRowValue(&testValue,colored,L"Width");
         check(testValue.foreground==&secondaryBrush && testFontStyle==2,
             "a missing value uses the secondary text brush in italic");
+        // The window keeps the copied brushes to find them after a theme change, and releases them on close.
+        ForgetRowBrushes();
         check(primaryDonor.refs==1 && secondaryDonor.refs==1 && primaryBrush.refs==1 && secondaryBrush.refs==1,
             "copying a donor brush releases what it reads");
         g_palPrimary=g_palSecondary=nullptr;testValue.foreground=nullptr;
