@@ -302,6 +302,27 @@ public class LearnSearchClientTests
     }
 
     [TestMethod]
+    public async Task SearchAsync_LargeUnclosedMarkdownStaysFast()
+    {
+        var payload = new JsonObject
+        {
+            ["results"] = new JsonArray(new JsonObject
+            {
+                ["title"] = "Page",
+                ["contentUrl"] = "https://learn.microsoft.com/windows/apps/example",
+                ["content"] = string.Concat(Enumerable.Repeat("**a ", 100_000))
+            })
+        };
+        using var handler = new LearnHandler { Structured = true, Payload = payload.ToJsonString() };
+        using var http = new HttpClient(handler);
+        var elapsed = Stopwatch.StartNew();
+        var results = await new LearnSearchClient(http).SearchAsync("query");
+
+        Assert.IsTrue(elapsed.Elapsed < TimeSpan.FromSeconds(2), $"Converting the excerpt took {elapsed.Elapsed}.");
+        Assert.AreEqual(LearnSearchClient.MaxExcerptLength, results[0].Excerpt.Length);
+    }
+
+    [TestMethod]
     public async Task SearchAsync_ShortensPlainTextNotMarkdown()
     {
         var link = "[Link](https://learn.microsoft.com/" + new string('u', 300) + ")";

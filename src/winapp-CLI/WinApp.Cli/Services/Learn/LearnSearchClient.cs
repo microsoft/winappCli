@@ -35,6 +35,8 @@ internal sealed partial class LearnSearchClient(HttpClient httpClient, ILogger<L
     internal static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(5);
     internal const int MaxResults = 3;
     internal const int MaxExcerptLength = 400;
+    // Markdown is converted before shortening; bounding its input keeps that conversion fast on any response.
+    internal const int MaxMarkdownLength = MaxExcerptLength * 10;
     internal const int MaxTitleLength = 200;
     private const long MaxResponseBytes = 1024 * 1024;
     private const string ProtocolVersion = "2025-03-26";
@@ -351,6 +353,11 @@ internal sealed partial class LearnSearchClient(HttpClient httpClient, ILogger<L
                     throw new InvalidDataException("Microsoft Learn returned a non-text documentation excerpt.");
                 }
                 content = excerpt.GetString()!;
+                if (content.Length > MaxMarkdownLength)
+                {
+                    var length = char.IsHighSurrogate(content[MaxMarkdownLength - 1]) ? MaxMarkdownLength - 1 : MaxMarkdownLength;
+                    content = content[..length];
+                }
             }
             matches.Add(new LearnSearchResult(Trim(title, MaxTitleLength), uri, Trim(ToPlainText(content, title), MaxExcerptLength)));
         }
