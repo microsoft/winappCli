@@ -688,17 +688,13 @@ static std::string DefaultMode()
     return mode == L"headless" ? "headless" : mode == L"off" ? "off" : "on";
 }
 
-// "When the app starts" is a view of that setting: Start DevTools off is off; with it on, Show toolbar picks on or
-// headless. Show toolbar is disabled while DevTools is off and keeps its last state for when it's turned back on.
+// "Launch preferences" is a view of that setting: Start DevTools off is off; with it on, Show toolbar picks on or
+// headless. Show toolbar is hidden while DevTools is off and keeps its last state for when it's turned back on.
 static void SetStartModeUi(const std::string& mode)
 {
     ProtoSetToggle(L"DevToolsStartEnabled", L"", L"", mode != "off");
     if (mode != "off") ProtoSetToggle(L"DevToolsStartShown", L"", L"", mode == "on");
-    try {
-        if (auto shown = ToolbarPart(L"DevToolsStartShown").try_as<DevToolsXC::Control>()) shown.IsEnabled(mode != "off");
-    } catch (const winrt::hresult_error& e) {
-        DevToolsOverlayLog(L"overlay.toolbar start-mode enable failed hr=0x%08X", e.code().value);
-    }
+    ProtoSetPartVisible(L"DevToolsStartShown", mode != "off");
 }
 
 static bool StartShownChecked()

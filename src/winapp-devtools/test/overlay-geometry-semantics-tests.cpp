@@ -867,7 +867,7 @@ int main()
         g_toolbarVisible = false; g_corner = CornerBR; geometryAdornerReader = false;
     }
     {
-        // Hide toolbar lasts for this run; Ctrl+Shift+F12 brings a hidden toolbar back. The "When the app starts" items
+        // Hide toolbar lasts for this run; Ctrl+Shift+F12 brings a hidden toolbar back. The "Launch preferences" items
         // write the default mode `winapp run` and `winapp config` (run.devtools) read.
         const std::wstring modeFile = DevToolsSettingsFile(L"DefaultMode");
         const bool hadMode = GetFileAttributesW(modeFile.c_str()) != INVALID_FILE_ATTRIBUTES;

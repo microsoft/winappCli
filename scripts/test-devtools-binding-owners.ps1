@@ -366,12 +366,13 @@ try {
                 Open-ToolbarMenu More
                 $enabled = Invoke-Cli @('ui', 'get-property', 'DevToolsStartEnabled', '-a', $app, '-p', 'ToggleState')
                 Check ($enabled.properties.ToggleState -eq $mode[1]) "the menu reports Start DevTools as $($mode[1]) for the CLI default $($mode[0])"
-                $shownState = (Invoke-Cli @('ui', 'get-property', 'DevToolsStartShown', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
-                $shownEnabled = (Invoke-Cli @('ui', 'get-property', 'DevToolsStartShown', '-a', $app, '-p', 'IsEnabled')).properties.IsEnabled
                 if ($mode[2]) {
-                    Check ($shownState -eq $mode[2] -and "$shownEnabled" -eq 'True') "the menu reports Show toolbar as $($mode[2]) for the CLI default $($mode[0])"
+                    $shownState = (Invoke-Cli @('ui', 'get-property', 'DevToolsStartShown', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+                    Check ($shownState -eq $mode[2]) "the menu reports Show toolbar as $($mode[2]) for the CLI default $($mode[0])"
                 } else {
-                    Check ("$shownEnabled" -eq 'False') 'Show toolbar is disabled while DevTools is off'
+                    # Invoke-Cli fails the run if Show toolbar is still in the menu.
+                    $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartShown', '-a', $app, '--gone', '-t', '3000')
+                    Check $true 'Show toolbar is hidden while DevTools is off'
                 }
                 $unchanged = Invoke-Cli @('config', 'get', 'run.devtools')
                 Check ($unchanged.value -eq $mode[0]) 'opening More does not change the startup setting'

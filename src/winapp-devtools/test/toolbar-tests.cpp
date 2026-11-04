@@ -200,11 +200,12 @@ static void TestToolbarContract()
     for (const char* id : { "DevToolsStartEnabled", "DevToolsStartShown" })
         Check(xaml.find(std::string("<ToggleMenuFlyoutItem x:Name=\"") + id + "\"") != std::string::npos,
                      (std::string(id) + " is a toggle item").c_str());
-    Check(xaml.find("<MenuFlyoutItem Text=\"WHEN THE APP STARTS\" IsEnabled=\"False\"") != std::string::npos &&
+    Check(xaml.find("<MenuFlyoutItem Text=\"LAUNCH PREFERENCES\" IsEnabled=\"False\" FontSize=\"12\"") != std::string::npos &&
+                     xaml.find("Text=\"Start DevTools by default\"") != std::string::npos &&
                      overlay.find("SetStartModeUi(DefaultMode());") != std::string::npos &&
                      overlay.find("ProtoSetToggle(L\"DevToolsStartEnabled\", L\"\", L\"\", mode != \"off\");") != std::string::npos &&
-                     overlay.find("shown.IsEnabled(mode != \"off\");") != std::string::npos,
-                 "the start-mode header is not a focus stop; opening re-checks the saved mode and disables Show toolbar while off");
+                     overlay.find("ProtoSetPartVisible(L\"DevToolsStartShown\", mode != \"off\");") != std::string::npos,
+                 "the start-mode header is not a focus stop; opening re-checks the saved mode and hides Show toolbar while off");
     Check(xaml.find("DevToolsStartOffHint") == std::string::npos && overlay.find("g_reopenMoreMenu") == std::string::npos,
                  "turning DevTools off shows no extra hint row and does not reopen the menu");
     Check(xaml.find("<ToggleMenuFlyoutItem x:Name=\"DevToolsToggleMarkers\"") != std::string::npos &&
