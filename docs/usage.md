@@ -346,7 +346,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Project-mode options** (require a `.csproj` or `.vcxproj` input; rejected for folder/bundle/manifest inputs):
 
-- `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
+- `--configuration <name>` (`-c`) - Build configuration (default: `Release`). `-p Configuration=<name>` also selects it; passing both with different values is an error.
 - `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture). Repeat it to build a multi-architecture bundle from a `.csproj`.
 - `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted .NET projects
 - `--no-build` - Package the existing build output without rebuilding
@@ -920,7 +920,7 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 
 **Project-mode options** (ignored in folder mode unless noted):
 
-- `-c, --configuration <name>` - Build configuration. Default: `Debug`. *(Also honored in single-file mode.)*
+- `-c, --configuration <name>` - Build configuration. Default: `Debug`. `-p Configuration=<name>` also selects it; passing both with different values is an error. *(Also honored in single-file mode.)*
 - `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines the build RID and Windows App Runtime architecture, and selects a matching platform-dependent publish profile when required by the effective build. *(Also honored in single-file mode.)* For a project, an architecture this machine can't run (such as arm64 on an x64 PC) is rejected before building unless `--no-launch` is set.
 - `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch` and can select the required publish profile. *(Also honored in single-file mode, where it overrides a `#:property RuntimeIdentifier` declared by the file.)*
 - `-f, --framework <tfm>` - Target framework moniker for multi-targeted projects (e.g. `net10.0-windows10.0.26100.0`). *(Rejected in single-file mode — use `#:property TargetFramework=...`.)*
@@ -988,7 +988,7 @@ winapp run . --no-build --detach --json
 
 - A WinUI 3 C++/WinRT app from the Visual Studio **WinUI Blank App (Packaged)** template runs packaged. Other application projects, such as a console app or a WinUI app built with `-p WindowsPackageType=None`, run unpackaged from their built `.exe`.
 - A WinUI app starts with [DevTools](guides/devtools.md#turn-devtools-on-or-off) on, like a .NET WinUI project; pass `--devtools off` to skip it.
-- Builds `Debug` for the current architecture by default. `-c Release` or `-p Configuration=Release` selects the configuration, and `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture. Passing both forms with different values is an error. A custom `-p Platform` name is passed through.
+- Builds `Debug` for the current architecture by default. `-c Release` or `-p Configuration=Release` selects the configuration, and `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture. Passing `--arch` and `-p Platform` with different values is an error. A custom `-p Platform` name is passed through.
 - Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version the build uses, including when the Windows App SDK props are imported from a shared `.props` file rather than listed in the project's own `packages.config`. Packaged apps also get the framework packages the build references, such as the Debug VC++ runtime, installed when missing.
 - `--framework` and `--aot` apply only to .NET projects.
 - Build output shows MSBuild's warnings and errors only, with a spinner while it builds; `--verbose` shows MSBuild's full output and exact command.

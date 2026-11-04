@@ -911,6 +911,36 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow(new[] { "-p", "Configuration=Release" }, DisplayName = "-p Configuration alone")]
+    [DataRow(new[] { "-c", "Release", "-p", "Configuration=Release" }, DisplayName = "-c with matching -p Configuration")]
+    public async Task ProjectMode_DotNet_ConfigurationProperty_SelectsConfiguration(string[] configArgs)
+    {
+        var csproj = CreateCsproj();
+        SetUnpackagedOutcome(csproj, CreateTargetDir(withManifest: false), selfContained: true);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, .. configArgs, "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("Release", _fakeProjectRunService.BuildOptions[0].Configuration,
+            "-p Configuration=Release must select Release instead of the Debug default");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_DotNet_ConfigurationPropertyConflictingWithConfigurationOption_FailsBeforeBuilding()
+    {
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-c", "Debug", "-p", "Configuration=Release", "--detach"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "a conflicting configuration must fail before building");
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}",
+            "-p Configuration=Release conflicts with -c Debug. Pass only one of them.");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Unpackaged_ExeRequiringAdministrator_ExplainsElevation()
     {
         var csproj = CreateCsproj();
