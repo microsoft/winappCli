@@ -994,6 +994,99 @@ public class NewCommandHandlerTests : BaseCommandTests
     }
 
     /// <summary>
+    /// Scripts two copies of the WinUI pack, as <c>dotnet new uninstall</c> shows them when one copy came
+    /// from NuGet and another from a local .nupkg (#1280). Each template is listed only under the copy
+    /// that supplies it, so the templates are split between the two blocks.
+    /// </summary>
+    private void ScriptTwoPackCopies(string firstVersion, string secondVersion)
+    {
+        var uninstall = BuildUninstallOutput(firstVersion, SampleTemplates[..2])
+            + BuildUninstallOutput(secondVersion, SampleTemplates[2..])
+                .Replace("Currently installed items:\n", string.Empty, StringComparison.Ordinal);
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count >= 1 && args[0] == "--version")
+            {
+                return (0, "9.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, uninstall, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
+            {
+                return (0, SampleListOutput, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
+            {
+                return (0, "All template packages are up-to-date.", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
+            {
+                return (0, "ok", string.Empty);
+            }
+            return (0, "The template was created successfully.", string.Empty);
+        };
+    }
+
+    private static readonly string[] AllSampleShortNames =
+        ["winui", "winui-lib", "winui-mvvm", "winui-navview", "winui-tabview", "winui-unittest"];
+
+    [TestMethod]
+    [DataRow("0.0.5-alpha", "0.0.7-alpha")]
+    [DataRow("0.0.7-alpha", "0.0.5-alpha")]
+    public async Task Handler_TwoPackCopies_ListsTemplatesFromBothCopies(string firstVersion, string secondVersion)
+    {
+        ScriptTwoPackCopies(firstVersion, secondVersion);
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--list", "--json"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        var json = ParseJson(TestAnsiConsole.Output);
+        var shortNames = json.GetProperty("Templates").EnumerateArray()
+            .Select(t => t.GetProperty("ShortName").GetString())
+            .ToArray();
+        CollectionAssert.AreEquivalent(
+            AllSampleShortNames,
+            shortNames,
+            "Templates listed under either copy of the pack must all be offered.");
+        Assert.AreEqual(0, _dotnet.ArgumentListInvocations.Count(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
+            "The highest installed copy is already current, so nothing should be reinstalled.");
+    }
+
+    [TestMethod]
+    public async Task Handler_TwoPackCopies_ScaffoldsAndReportsTheCopyThatSuppliesTheTemplate()
+    {
+        // winui comes from the first (older) copy, so that is the version the result must report.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--template", "winui", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.AreEqual("winui", ScaffoldInvocation()?[1]);
+        var json = ParseJson(TestAnsiConsole.Output);
+        Assert.AreEqual("0.0.5-alpha", json.GetProperty("TemplateVersion").GetString());
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // InvokeWithAmbientConsoleCaptureAsync swaps the process-wide AnsiConsole.
+    public async Task Handler_TwoPackCopies_WarnsWithCleanupCommand()
+    {
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, ["--list"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        var output = string.Join(' ', ambientOutput
+            .Split((char[])[' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
+        StringAssert.Contains(output, "0.0.5-alpha, 0.0.7-alpha");
+        StringAssert.Contains(output, $"dotnet new uninstall {NewCommand.TemplatePackageId}");
+    }
+
+    /// <summary>
     /// Scripts the WinUI pack plus the standalone Reactor pack, whose template registers
     /// <paramref name="foreignAliases"/>. Only the WinUI pack's templates match <c>dotnet new list winui</c>.
     /// </summary>
