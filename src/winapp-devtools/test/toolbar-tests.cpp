@@ -210,7 +210,7 @@ static void TestToolbarContract()
                  "turning DevTools off shows no extra hint row and does not reopen the menu");
     {
         const size_t setMode = overlay.find("static void SetDefaultMode(const char* mode)");
-        const size_t setModeEnd = overlay.find("\n}\n", setMode);
+        const size_t setModeEnd = overlay.find("\n}", setMode);
         Check(setMode != std::string::npos &&
                          overlay.substr(setMode, setModeEnd - setMode).find("CloseToolbarMenu") == std::string::npos &&
                          overlay.find("g_keepToolbarMenuOpen = true;") != std::string::npos &&

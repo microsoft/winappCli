@@ -10,7 +10,7 @@ between Visual tree and Comments, with the open-comment count in an `InfoBadge`.
 The Computed / Set switch uses `SelectorBar`, the Size & spacing and
 authored-XAML sections use `Expander`, and resource-key suggestions use
 `AutoSuggestBox`. The toolbar uses `MenuFlyout` with standard
-check/radio items and a `ToggleSplitButton` for Comments.
+toggle items and a `ToggleSplitButton` for Comments.
 
 The other conditional changes remain out of scope. See the
 [DevTools guide](guides/devtools.md) for the controls' current interaction.
