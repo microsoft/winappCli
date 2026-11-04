@@ -570,6 +570,20 @@ the plugin validator, so the post-build CI job also checks command examples. Run
 `Plugin Check` (`.github/workflows/plugin-check.yml`) runs structural checks on PRs
 without waiting for a CLI build, skipping quickly when no plugin-related file changed.
 
+`Plugin Check` also lints every plugin root with vally, the check Awesome Copilot runs
+before it accepts a plugin listing update. It is stricter than the validator: each
+`SKILL.md` must be at most 500 lines, and its relative links must stay inside its own
+skill folder, so name another skill in plain text (`` `winapp-performance` ``) instead of
+linking to its `SKILL.md`. Move long sections into the skill's `references/` folder. Run it
+locally with:
+
+```powershell
+npm ci --prefix scripts/vally --ignore-scripts
+node scripts/vally/lint-skills.mjs
+```
+
+Keep `@microsoft/vally` in `scripts/vally/package.json` at the version Awesome Copilot pins.
+
 ## C# service architecture guidelines
 
 ### File size limits

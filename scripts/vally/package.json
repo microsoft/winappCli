@@ -1,0 +1,12 @@
+{
+  "name": "winapp-skill-lint",
+  "private": true,
+  "type": "module",
+  "description": "Lints the shipped plugin skills with vally, pinned to the version github/awesome-copilot uses to review plugin listings.",
+  "dependencies": {
+    "@microsoft/vally": "0.20.0"
+  },
+  "engines": {
+    "node": ">=22.14.0"
+  }
+}

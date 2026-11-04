@@ -42,20 +42,6 @@
     "reason": "The viewport canvas contains independently measured toolbar and menu surfaces."
   },
   {
-    "file": "xaml/toolbar.xaml",
-    "rule": "command-icon-scaling",
-    "target": "DevToolsMarkersCheck",
-    "count": 1,
-    "reason": "Decorative checked-state indicator beside a text label, not a command icon."
-  },
-  {
-    "file": "xaml/toolbar.xaml",
-    "rule": "command-icon-scaling",
-    "target": "DevToolsPinOn",
-    "count": 1,
-    "reason": "Decorative checked-state indicator beside a text label, not a command icon."
-  },
-  {
     "file": "xaml-window/window-shell.xaml",
     "rule": "fixed-icon-width",
     "target": "TreePane",

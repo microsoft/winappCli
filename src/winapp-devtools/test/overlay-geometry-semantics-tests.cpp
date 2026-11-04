@@ -126,6 +126,8 @@ static HRESULT TestFocusedWithin(void* element, IInspectable** focused, bool* in
     *inside = element && element == toolbarRootForFocus ? focusInToolbar : focusInPanel; return S_OK;
 }
 static HRESULT TestFocusWithPointer(void*, void*, bool* moved) { ++pointerFocusCalls; *moved = true; return S_OK; }
+static HWND foregroundForFocus = nullptr;
+static HWND WINAPI TestForeground() { return foregroundForFocus; }
 static bool escapeHandled = false;
 static int commentKey = 27;
 static bool commentControl = false;
@@ -137,6 +139,9 @@ static SHORT WINAPI NoModifierKey(int key)
 static HRESULT quickNumberResult = S_OK;
 static HRESULT ReadQuickNumber(void*, double* value) { *value=quickNumber; return quickNumberResult; }
 template <typename I> static HRESULT GeometryPadding(void*, double*, double*, double*, double*);
+static float measuredToastH = 0;
+static HRESULT GeometryMeasure(void*, float, float) { return measuredToastH > 0 ? S_OK : E_NOTIMPL; }
+static HRESULT GeometryDesiredSize(void*, float* width, float* height) { *width = 0; *height = measuredToastH; return S_OK; }
 // Replace only runtime reads; both shipping geometry functions, their QIs, root Content ABI,
 // identity checks, normalization and box-model calculations execute unchanged.
 #define DevToolsGetXamlRoot GeometryXamlRoot
@@ -147,6 +152,8 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #define DevToolsGetOpacity GeometryOpacity
 #define DevToolsGetVisualParent GeometryParent
 #define DevToolsGetRenderSize GeometryRenderSize
+#define DevToolsMeasure GeometryMeasure
+#define DevToolsGetDesiredSize GeometryDesiredSize
 #define DevToolsGetActualWidth GeometryActualWidth
 #define DevToolsGetActualHeight GeometryActualHeight
 #define DevToolsPutMinWidth GeometryMinWidth
@@ -159,6 +166,7 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #define DevToolsFocus DismissFocus
 #define DevToolsFocusedWithin TestFocusedWithin
 #define DevToolsFocusWithPointer TestFocusWithPointer
+#define GetForegroundWindow TestForeground
 #define DevToolsGetKey EscapeKey
 #define DevToolsPutHandled EscapeHandled
 #define GetKeyState NoModifierKey
@@ -204,6 +212,7 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #undef DevToolsGetKey
 #undef DevToolsPutHandled
 #undef GetKeyState
+#undef GetForegroundWindow
 #undef DevToolsPanelGetChildren
 #undef DevToolsVecGetSize
 #undef DevToolsVecIndexOf
@@ -244,6 +253,8 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #undef DevToolsGetOpacity
 #undef DevToolsGetVisualParent
 #undef DevToolsGetRenderSize
+#undef DevToolsMeasure
+#undef DevToolsGetDesiredSize
 #undef DevToolsGetActualWidth
 #undef DevToolsGetActualHeight
 #undef DevToolsTransformToVisual
@@ -668,7 +679,7 @@ static void TestOneShotPicks(unsigned& checks, unsigned& failures)
     static unsigned inspectorOpens = 0;
     DevToolsOverlay_SetPickedSink([](InstanceHandle) { return fromWindow; });
     DevToolsOverlay_SetPickModeSink([](bool armed) { pickButtonOn = armed; });
-    DevToolsOverlay_SetInprocInspect([]() { ++inspectorOpens; return true; });
+    DevToolsOverlay_SetInprocInspect([](std::wstring*) { ++inspectorOpens; return true; });
     for (const bool windowPick : {false, true}) {
         fromWindow = windowPick;
         inspectorOpens = 0;
@@ -760,13 +771,12 @@ int main()
     auto check = [&](bool ok, const char* entry, const char* name) {
         ++checks; if (!ok) ++failures;
         std::printf("%s %s: %s\n", ok ? "PASS" : "FAIL", entry, name);
+        std::fflush(stdout);
     };
     {
         SwitchObject canvas, bar, pill;
         g_canvasStatics = &canvas; g_aRow = &bar; g_railL = &pill;
         g_protoW = 800; g_protoH = 700; g_toolbarVisible = true;
-        check(!PositionToolbarMenu(L"MissingMenu", L"MissingAnchor"),
-            "toolbar menus", "missing markup parts safely refuse menu placement");
         for (const double viewport : { 800.0, 200.0, 800.0 }) {
             g_protoW = viewport;
             ConstrainToolbarWidth();
@@ -827,6 +837,14 @@ int main()
     }
     {
         SwitchObject canvas, bar, pill, snaps[kCornerCount];
+        const int savedCorner = g_corner;
+        for (int corner = 0; corner < kCornerCount; ++corner) {
+            g_corner = corner;
+            const auto expected = corner == CornerBR || corner == CornerBL || corner == BottomCenter
+                ? DevToolsXCP::FlyoutPlacementMode::Top : DevToolsXCP::FlyoutPlacementMode::Bottom;
+            check(ToolbarMenuPlacement() == expected, "toolbar menus", "menus open toward the app interior from all six docking positions");
+        }
+        g_corner = savedCorner;
         g_canvasStatics = &canvas; g_aRow = &bar; g_railL = &pill;
         for (int i = 0; i < kCornerCount; ++i) g_snapUi[i] = &snaps[i];
         g_protoW = 800; g_protoH = 700; g_toolbarVisible = true;
@@ -889,6 +907,35 @@ int main()
         g_toolbarVisible = false;
     }
     {
+        // A long message wraps onto more lines, and the taller toast moves so it still clears the toolbar.
+        SwitchDiagnostics diag;
+        SwitchObject bar, pill;
+        const DevToolsSurface savedToolbarSurface = g_toolbarSurface;
+        const double savedLeft = geometryAdorner.left, savedTop = geometryAdorner.top;
+        g_pickDiag = &diag; g_canvasChildren = g_canvasStatics = &diag.canvas; g_aRow = &bar; g_railL = &pill;
+        g_toolbarSurface = g_activeSurface;
+        g_protoW = 800; g_protoH = 700; g_toolbarVisible = true; geometryAdornerReader = true;
+        for (const int corner : { (int)CornerBR, (int)CornerTR }) {
+            g_corner = corner;
+            measuredToastH = 77; geometryAdorner.top = -1;
+            ShowCommentToast(L"DevTools window did not open: it needs Windows App SDK 1.7 or later", true);
+            RECT r{};
+            check(ToolbarRectDip(&r) && geometryAdorner.top >= 8 && geometryAdorner.left >= 8 &&
+                (geometryAdorner.top + measuredToastH <= r.top || geometryAdorner.top >= r.bottom),
+                "comment toast", "a message that wraps onto more lines does not cover the toolbar");
+            HideCommentToast();
+        }
+        measuredToastH = 30; geometryAdorner.top = -1;
+        ShowCommentToast(L"Comment saved", false);
+        check(geometryAdorner.top == -1, "comment toast", "a one-line toast stays where it was placed");
+        HideCommentToast();
+        measuredToastH = 0; g_commentToastText.clear();
+        geometryAdorner.left = savedLeft; geometryAdorner.top = savedTop;
+        g_toolbarSurface = savedToolbarSurface;
+        g_pickDiag = nullptr; g_canvasChildren = g_canvasStatics = g_aRow = g_railL = nullptr;
+        g_toolbarVisible = false; g_corner = CornerBR; geometryAdornerReader = false;
+    }
+    {
         // Hide toolbar lasts for this run; Ctrl+Shift+F12 brings a hidden toolbar back. The "When the app starts" items
         // write the default mode `winapp run` and `winapp config` (run.devtools) read.
         const std::wstring modeFile = DevToolsSettingsFile(L"DefaultMode");
@@ -913,7 +960,7 @@ int main()
         OnStartHiddenClick(nullptr, nullptr);
         check(DevToolsSettingsGetText(L"DefaultMode") == L"headless" && DefaultMode() == "headless",
             "default mode", "When the app starts > Hide toolbar makes the default headless");
-        // The click also reopens the More menu; with no real toolbar row (the fake bar) the menu stays closed.
+        // From the More menu the click also reopens it; with no menu open here, nothing is queued to reopen.
         g_aRow = nullptr;
         OnStartOffClick(nullptr, nullptr);
         g_aRow = &bar;
@@ -1081,6 +1128,12 @@ int main()
             g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
         };
         auto teardown = [&] { if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0); ClearSelectionAnchor(); };
+        auto window = [] {
+            return CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"", WS_POPUP,
+                0, 0, 10, 10, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        };
+        const HWND appWindow = window(), inspectorWindow = window();
+        g_activeSurface.hostHwnd=appWindow;foregroundForFocus=appWindow;
         open();
         focusInPanel=true;focusedOutsidePanel=&appElement;pointerFocusCalls=0;dismissFocusState=-1;
         check(DismissSelectionPanel() && pointerFocusCalls==1,
@@ -1095,6 +1148,12 @@ int main()
         focusInPanel=true;pointerFocusCalls=0;
         ClearSelectionAnchor();
         check(pointerFocusCalls==1,"panel focus","replacing the peek (a new selection) also returns focus with pointer state");
+        // Focus() activates the app's window, which would take keyboard focus from the inspector's tree.
+        open();
+        focusInPanel=true;pointerFocusCalls=0;foregroundForFocus=inspectorWindow;
+        ClearSelectionAnchor();
+        check(pointerFocusCalls==0,"panel focus","a new selection made in the inspector leaves keyboard focus there");
+        foregroundForFocus=appWindow;
         {
             // Focus left on the toolbar is DevTools chrome: the peek must not hand it back there.
             GeometryObject toolbar, toolbarButton;
@@ -1123,6 +1182,8 @@ int main()
         teardown();
         if (g_pickCatcher) { g_pickCatcher->Release(); g_pickCatcher=nullptr; }
         g_canvasChildren=nullptr;g_selectedHandle=0;
+        foregroundForFocus=nullptr;g_activeSurface={};
+        DestroyWindow(appWindow);DestroyWindow(inspectorWindow);
     }
     {
         // A click on the element that is already selected keeps it; a click on another element picks that one.
@@ -1154,7 +1215,7 @@ int main()
         g_canvasChildren=&canvas;
         static DevToolsInspectRequest seen;
         static int opens = 0;
-        DevToolsOverlay_SetInprocInspect([]() { seen = DevToolsOverlay_InspectRequest(); ++opens; return false; });
+        DevToolsOverlay_SetInprocInspect([](std::wstring*) { seen = DevToolsOverlay_InspectRequest(); ++opens; return false; });
         g_pickDiag=&diag;g_pickRoot=10;g_pickCatcher=&catcher;catcher.AddRef();
         g_cardRead=[](IInspectable*, std::wstring*, std::wstring*, std::vector<DevToolsCardRow>*, std::wstring*, std::wstring*) { return true; };
         SetCommentMode(false);
@@ -1380,12 +1441,22 @@ int main()
         // the window can select it.
         {
             static InstanceHandle seenElement = 0;
-            DevToolsOverlay_SetInprocInspect([]() { seenElement = DevToolsOverlay_InspectRequest().element; return false; });
+            DevToolsOverlay_SetInprocInspect([](std::wstring*) { seenElement = DevToolsOverlay_InspectRequest().element; return false; });
             const InstanceHandle savedHandle = g_selHandle;
             g_selHandle = 77;
+            g_commentToastText.clear();
             OnSelOpenClick(nullptr, nullptr);
-            check(seenElement == 77 && DevToolsOverlay_InspectRequest().element == 0,
+            check(seenElement == 77 && DevToolsOverlay_InspectRequest().element == 0 && g_commentToastText.empty(),
                 "open in DevTools", "the inspector is told which element to select, and the request is not left behind");
+            DevToolsOverlay_SetInprocInspect([](std::wstring* error) {
+                *error = L"it needs Windows App SDK 1.7 or later, and this app uses an older version";
+                return false;
+            });
+            OnSelOpenClick(nullptr, nullptr);
+            check(g_commentToastText ==
+                    L"DevTools window did not open: it needs Windows App SDK 1.7 or later, and this app uses an older version",
+                "open in DevTools", "when the window cannot open, the toolbar says why");
+            HideCommentToast();
             g_selHandle = savedHandle;
             DevToolsOverlay_SetInprocInspect(nullptr);
         }
@@ -1963,7 +2034,7 @@ int main()
             g_pickRoot = 10;
             int completed = -1;
             const auto revision = std::wstring(64, L'A');
-            check(DevToolsOverlay_ResolveGuestComment(L"resolve-note", revision,
+            check(DevToolsOverlay_ResolveComment(L"resolve-note", revision,
                 [&](int result) { completed = result; }), "guest resolve", "actual asynchronous resolve starts owned writer");
             check(completed == -1 && commentCommand.find(L"comments update --status resolved") != std::wstring::npos &&
                 commentCommand.find(revision) != std::wstring::npos, "guest resolve", "spawn retains original revision without reporting persistence");
@@ -1975,7 +2046,7 @@ int main()
         {
             g_guestCommentWrite = {};
             int completed = -1;
-            DevToolsOverlay_ResolveGuestComment(L"old-window-note", std::wstring(64, L'A'),
+            DevToolsOverlay_ResolveComment(L"old-window-note", std::wstring(64, L'A'),
                 [&](int result) { completed = result; });
             ++g_selGen;
             commentExitCode = 0; SetEvent(commentProcess);
@@ -1984,6 +2055,46 @@ int main()
         }
         g_guestCommentWrite = {};
         g_guestCommentAuthority.store(nullptr);
+        for (const bool authoritative : {false, true}) {
+            for (const DWORD outcome : {DWORD(0), DWORD(7)}) {
+                g_guestCommentWrite = {};
+                g_pins.clear();
+                g_commentSnapshotAuthoritative = authoritative;
+                // An authoritative refresh drops resolved pins before the child exits. Without a refresh,
+                // the completion itself removes the old marker.
+                if (!authoritative) UpsertPin(11, L"local-resolve", L"saved text", RECT{0, 0, 10, 10});
+                unsigned calls = 0;
+                int completed = -1;
+                check(DevToolsOverlay_ResolveComment(L"local-resolve", L"",
+                    [&](int result) { ++calls; completed = result; }),
+                    "local resolve", "local comments use the asynchronous writer without host authority");
+                check(calls == 0 && g_guestCommentWrite.process,
+                    "local resolve", "starting the child does not acknowledge resolution");
+                GuestCommentTimerProc(nullptr, 0, 0, 0);
+                check(calls == 0, "local resolve", "pending child is polled without an early callback");
+                commentExitCode = outcome; SetEvent(commentProcess);
+                GuestCommentTimerProc(nullptr, 0, 0, 0);
+                GuestCommentTimerProc(nullptr, 0, 0, 0);
+                check(calls == 1 && completed == static_cast<int>(outcome),
+                    "local resolve", "actual child outcome is delivered once, including nonzero exits");
+                check(!g_guestCommentWrite.process && !g_guestCommentWrite.completed,
+                    "local resolve", "completion releases the callback and writer state");
+                check(authoritative || (g_pins.empty() == (outcome == 0)),
+                    "local resolve", "successful resolution removes the local pin; failed resolution retains it");
+            }
+        }
+        g_pins.clear();
+        g_commentSnapshotAuthoritative = false;
+        {
+            unsigned calls = 0;
+            check(DevToolsOverlay_ResolveComment(L"old-local-card", L"", [&](int) { ++calls; }),
+                "local resolve", "local lifetime regression starts the writer");
+            ++g_selGen;
+            commentExitCode = 0; SetEvent(commentProcess);
+            GuestCommentTimerProc(nullptr, 0, 0, 0);
+            check(calls == 0 && !g_guestCommentWrite.completed,
+                "local resolve", "changed selection suppresses and releases the old card's callback");
+        }
         guestWriterTest = false;
         g_cliExe.store(nullptr); g_cardReadInput = nullptr; g_anchorOf = nullptr; g_wireOf = nullptr;
         g_selCommentSaved.clear(); g_selCommentId.clear();

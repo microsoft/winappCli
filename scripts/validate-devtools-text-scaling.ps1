@@ -30,7 +30,8 @@ function Get-DevToolsScalingFindings {
                 Add-Finding $File $Line 'scaling-style-setter' "$target/$property" 'Review the style constraint for text scaling or document its non-text purpose.'
             }
         }
-        $textKinds = @('TextBlock', 'TextBox', 'RichEditBox', 'Button', 'ToggleButton', 'CheckBox', 'RadioButton', 'ComboBox', 'FontIcon')
+        $commandKinds = @('Button', 'ToggleButton', 'SplitButton', 'ToggleSplitButton')
+        $textKinds = @('TextBlock', 'TextBox', 'RichEditBox', 'CheckBox', 'RadioButton', 'ComboBox', 'FontIcon') + $commandKinds
         $descendants = if ($HasTree) { @($Element.Descendants()) } else { @() }
         $hasText = $kind -in $textKinds -or @($descendants | Where-Object { $_.Name.LocalName -in $textKinds }).Count -gt 0
         $height = $Element.Attribute('Height')
@@ -45,7 +46,7 @@ function Get-DevToolsScalingFindings {
             Add-Finding $File $Line 'disabled-text-scaling' $target 'Text scaling is disabled. Remove the override or document why this is decorative.'
         }
         if ($HasTree -and $kind -eq 'FontIcon' -and
-            @($Element.Ancestors() | Where-Object { $_.Name.LocalName -in @('Button', 'ToggleButton') }).Count -gt 0 -and
+            @($Element.Ancestors() | Where-Object { $_.Name.LocalName -in $commandKinds }).Count -gt 0 -and
             $Element.Attribute('IsTextScaleFactorEnabled')?.Value -ne 'True') {
             Add-Finding $File $Line 'command-icon-scaling' $target 'Set IsTextScaleFactorEnabled="True" on command icons.'
         }
@@ -98,7 +99,7 @@ function Get-DevToolsScalingFindings {
             foreach ($literal in $literals) {
                 $decoded = ([regex]::Matches($literal.Value, 'L?"((?:\\.|[^"\\])*)"') |
                     ForEach-Object { $_.Groups[1].Value.Replace('\"', '"').Replace('\\', '\') }) -join ''
-                foreach ($tag in [regex]::Matches($decoded, '<(?:Grid|Border|TextBlock|TextBox|RichEditBox|FontIcon|Button|ToggleButton|CheckBox|RadioButton|ComboBox|Setter|x:Double)\b(?:\s+[\w.:]+\s*=\s*"[^"]*")*\s*/?>')) {
+                foreach ($tag in [regex]::Matches($decoded, '<(?:Grid|Border|TextBlock|TextBox|RichEditBox|FontIcon|Button|ToggleButton|SplitButton|ToggleSplitButton|CheckBox|RadioButton|ComboBox|Setter|x:Double)\b(?:\s+[\w.:]+\s*=\s*"[^"]*")*\s*/?>')) {
                     $xml = $tag.Value.TrimEnd('>', '/', ' ') + ' />'
                     try {
                         $document = [Xml.Linq.XDocument]::Parse('<ScalingCheck xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">' + $xml + '</ScalingCheck>')

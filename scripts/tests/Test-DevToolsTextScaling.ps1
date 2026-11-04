@@ -10,6 +10,10 @@ $cases = @(
     @{ Source = '<Button Width="28"><FontIcon IsTextScaleFactorEnabled="True"/></Button>'; Rule = 'fixed-icon-width' }
     @{ Source = '<TextBlock IsTextScaleFactorEnabled="False"/>'; Rule = 'disabled-text-scaling' }
     @{ Source = '<Button><FontIcon/></Button>'; Rule = 'command-icon-scaling' }
+    @{ Source = '<ToggleSplitButton Height="26" Content="Comments"/>'; Rule = 'fixed-content-height' }
+    @{ Source = '<SplitButton><FontIcon/></SplitButton>'; Rule = 'command-icon-scaling' }
+    @{ Source = '<ToggleSplitButton><FontIcon/></ToggleSplitButton>'; Rule = 'command-icon-scaling' }
+    @{ Source = '<ToggleSplitButton MinHeight="26"><FontIcon IsTextScaleFactorEnabled="True"/></ToggleSplitButton>'; Rule = '' }
     @{ Source = '<Grid x:Name="Host"><Grid.RowDefinitions><RowDefinition Height="14"/></Grid.RowDefinitions><TextBlock Text="Height"/></Grid>'; Rule = 'fixed-text-row' }
     @{ Source = '<Grid RowDefinitions="14,*"><TextBlock Text="Height"/></Grid>'; Rule = 'fixed-text-row' }
     @{ Source = '<x:Double x:Key="ExpanderChevronGlyphSize">8</x:Double>'; Rule = 'chevron-size-override' }
@@ -24,6 +28,7 @@ $cases = @(
     @{ Source = '<Grid><Grid.RowDefinitions><RowDefinition Height="1"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Border Height="1"/><TextBlock Grid.Row="1"/></Grid>'; Rule = '' }
     @{ Source = '<!-- <Button Height="32"/> --><TextBlock/>'; Rule = '' }
     @{ Source = 'auto x = L"<Button Height=\"32\"" L" Content=\"Comment\"/>";'; Rule = 'fixed-content-height'; Cpp = $true }
+    @{ Source = 'auto x = L"<ToggleSplitButton Height=\"26\" Content=\"Comments\"/>";'; Rule = 'fixed-content-height'; Cpp = $true }
     @{ Source = 'auto x = L"<TextBlock IsTextScaleFactorEnabled=\"False\"/>";'; Rule = 'disabled-text-scaling'; Cpp = $true }
     @{ Source = 'auto x = L"<x:Double x:Key=\"ExpanderChevronButtonSize\">18</x:Double>";'; Rule = 'chevron-size-override'; Cpp = $true }
     @{ Source = 'DevToolsPutWidth(editor, 64.0);'; Rule = 'constant-size-setter'; Cpp = $true }

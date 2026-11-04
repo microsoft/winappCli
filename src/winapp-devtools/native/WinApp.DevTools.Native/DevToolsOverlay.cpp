@@ -7,6 +7,7 @@
 #include "DevToolsFocusOwners.h"
 #include "DevToolsThreadGuard.h"
 #include "DevToolsProjected.h"
+#include <winrt/Windows.UI.Xaml.Interop.h>
 #include "DevToolsSelectionTracking.h"
 #include "DevToolsSelectionPlacement.h"
 #include "DevToolsToolbarCorner.h"
