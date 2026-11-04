@@ -924,6 +924,8 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual("Release", _fakeProjectRunService.BuildOptions[0].Configuration,
             "-p Configuration=Release must select Release instead of the Debug default");
+        Assert.AreEqual("Release", _fakeProjectRunService.ResolveInputClassificationInputs[0]?.Configuration,
+            "project selection must use the same configuration as the build");
     }
 
     [TestMethod]

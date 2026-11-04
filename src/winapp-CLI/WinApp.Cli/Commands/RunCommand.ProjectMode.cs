@@ -707,8 +707,12 @@ internal partial class RunCommand
                 return null;
             }
 
-            var configuration = parseResult.GetValue(ConfigurationOption) ?? "Debug";
             var properties = parseResult.GetValue(PropertyOption) ?? [];
+            // A -c / -p Configuration conflict is reported by RunProjectModeAsync; classify with -c meanwhile.
+            _ = ProjectRunService.TryResolveConfiguration(
+                parseResult.GetValue(ConfigurationOption) ?? "Debug",
+                parseResult.GetResult(ConfigurationOption) is { Implicit: false },
+                properties, out var configuration, out _);
             // Share the SAME explicit effective framework the build uses (--framework > bare
             // -p:TargetFramework) so classification and build never evaluate a different TFM.
             var framework = ProjectRunService.ResolveExplicitFramework(parseResult.GetValue(FrameworkOption), properties);
