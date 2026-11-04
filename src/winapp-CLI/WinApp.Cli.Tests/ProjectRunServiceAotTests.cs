@@ -155,7 +155,9 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
-    public async Task PublishAot_TrimmingDisabledFailsBeforePublishing()
+    [DataRow("Debug", "--aot -p PublishAot=true")]
+    [DataRow("Release", "--aot -c Release -p PublishAot=true")]
+    public async Task PublishAot_TrimmingDisabledFailsBeforePublishing(string configuration, string expectedRetry)
     {
         var project = WriteProject();
         var assets = WriteFile("obj\\project.assets.json", "{}");
@@ -168,10 +170,10 @@ public sealed class ProjectRunServiceAotTests
         var service = NewService(dotnet);
 
         var error = await Assert.ThrowsAsync<ProjectRunException>(() =>
-            service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
+            service.PublishAotAndResolveAsync(project, Options(configuration: configuration), CancellationToken.None));
 
-        StringAssert.Contains(error.Message, "Native AOT requires trimming, but 'Sample.csproj' sets <PublishTrimmed>false</PublishTrimmed> for the Debug configuration");
-        StringAssert.Contains(error.Message, "-p PublishAot=true -p PublishTrimmed=true");
+        StringAssert.Contains(error.Message, $"Native AOT requires trimming, but 'Sample.csproj' sets <PublishTrimmed>false</PublishTrimmed> for the {configuration} configuration");
+        StringAssert.Contains(error.Message, $"{expectedRetry} -p PublishTrimmed=true");
         Assert.AreEqual(0, dotnet.ArgumentListInvocations.Count);
     }
 
@@ -1093,9 +1095,9 @@ public sealed class ProjectRunServiceAotTests
             new FakeMSBuildService());
     }
 
-    private static ProjectRunOptions Options(bool noRestore = false) =>
+    private static ProjectRunOptions Options(bool noRestore = false, string configuration = "Debug") =>
         new(
-            "Debug",
+            configuration,
             "x64",
             Framework: null,
             NoBuild: false,

@@ -536,8 +536,13 @@ internal sealed partial class ProjectRunService
             return;
         }
 
-        var retry = WindowsCommandLine.JoinArguments(
-            ["winapp", "run", csproj.FullName, "--aot", "-p", "PublishAot=true", "-p", "PublishTrimmed=true"]);
+        List<string> retryArguments = ["winapp", "run", csproj.FullName, "--aot"];
+        if (!options.Configuration.Equals("Debug", StringComparison.OrdinalIgnoreCase))
+        {
+            retryArguments.AddRange(["-c", options.Configuration]);
+        }
+        retryArguments.AddRange(["-p", "PublishAot=true", "-p", "PublishTrimmed=true"]);
+        var retry = WindowsCommandLine.JoinArguments(retryArguments);
         var trimming = $"sets <PublishTrimmed>false</PublishTrimmed> for the {options.Configuration} configuration";
         var message = (aotEnabled, trimmingDisabled) switch
         {
