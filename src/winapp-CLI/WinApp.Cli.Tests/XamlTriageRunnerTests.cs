@@ -7,7 +7,7 @@ namespace WinApp.Cli.Tests;
 
 /// <summary>
 /// Tests for <see cref="XamlTriageRunner"/>. The argument parser in <see cref="XamlTriageRunner.Run"/>
-/// is exercised directly and deterministically. <see cref="XamlTriageRunner.RunDbgEngExtension"/> hosts
+/// is exercised directly and deterministically. <see cref="XamlTriageRunner.RunDbgEngExtension(string, string, string, string, bool)"/> hosts
 /// the in-process DbgEng engine (the same engine the crash-analysis passes use); following the existing
 /// crash-analysis test precedent, it is driven with an <em>invalid</em> dump so the engine's
 /// open-dump failure path runs without a real debugging session, and is gated with
@@ -262,9 +262,12 @@ public sealed class XamlTriageRunnerTests
             var bogusJsProvider = Path.Combine(_tempDir, "NoSuchJsProvider.dll");
 
             string result;
+            using var progress = new StringWriter();
             try
             {
-                result = XamlTriageRunner.RunDbgEngExtension(dump, system32, bogusJsProvider, ext, useSymbols: false);
+                using var output = new StringWriter();
+                XamlTriageRunner.RunDbgEngExtension(dump, system32, bogusJsProvider, ext, useSymbols: false, output, progress);
+                result = output.ToString();
             }
             catch (Exception ex)
             {
@@ -286,6 +289,9 @@ public sealed class XamlTriageRunnerTests
             // Proves the extension commands ran against an opened dump (the extension exports are absent
             // because the real JsProvider.dll is not present, which is expected in a hermetic test).
             StringAssert.Contains(result, "xamlstowed");
+            // Each command is announced on the progress stream before it runs, so a parent can name the
+            // command that was running if the process dies.
+            StringAssert.Contains(progress.ToString(), XamlTriageRunner.StepMarker + "!xamltriage");
         }
         finally
         {
@@ -395,12 +401,13 @@ public sealed class XamlTriageRunnerTests
     public void RunTriageSequence_NoSymbols_EmitsCoreCommandSequenceInOrder()
     {
         var commands = new List<string>();
-        var result = XamlTriageRunner.RunTriageSequence(
+        using var output = new StringWriter();
+        XamlTriageRunner.RunTriageSequence(
             jsProviderPath: @"C:\bin\JsProvider.dll",
             extPath: @"C:\bin\ext.js",
             useSymbols: false,
             execute: cmd => { commands.Add(cmd); return 0; },
-            getOutput: () => "ENGINE-OUTPUT");
+            output);
 
         // useSymbols:false emits no symbol-server configuration (stays offline).
         Assert.IsFalse(commands.Any(c => c.StartsWith(".sympath", StringComparison.Ordinal)));
@@ -416,19 +423,20 @@ public sealed class XamlTriageRunnerTests
             "!xamltriage",
         };
         CollectionAssert.AreEqual(expected, commands);
-        Assert.AreEqual("ENGINE-OUTPUT", result);
+        Assert.AreEqual("", output.ToString(), "Engine output arrives through the engine callback; the sequence itself writes nothing on success.");
     }
 
     [TestMethod]
     public void RunTriageSequence_WithSymbols_EmitsSymbolConfigurationBeforeContextSwitch()
     {
         var commands = new List<string>();
-        var result = XamlTriageRunner.RunTriageSequence(
+        using var output = new StringWriter();
+        XamlTriageRunner.RunTriageSequence(
             @"C:\bin\JsProvider.dll",
             @"C:\bin\ext.js",
             useSymbols: true,
             execute: cmd => { commands.Add(cmd); return 0; },
-            getOutput: () => "OUT");
+            output);
 
         Assert.IsTrue(commands[0].StartsWith(".sympath srv*", StringComparison.Ordinal));
         StringAssert.Contains(commands[0], "https://msdl.microsoft.com/download/symbols");
@@ -438,14 +446,15 @@ public sealed class XamlTriageRunnerTests
         Assert.IsTrue(
             commands.IndexOf(".ecxr") > commands.FindIndex(c => c.StartsWith(".sympath", StringComparison.Ordinal)),
             "Symbol path/reload must be configured before .ecxr.");
-        Assert.AreEqual("OUT", result);
     }
 
     [TestMethod]
     public void RunTriageSequence_LoadProviderFails_ReturnsFailureMessageAndStops()
     {
         var commands = new List<string>();
-        var result = XamlTriageRunner.RunTriageSequence(
+        using var output = new StringWriter();
+        output.Write("PARTIAL-OUTPUT");
+        XamlTriageRunner.RunTriageSequence(
             @"C:\bin\JsProvider.dll",
             @"C:\bin\ext.js",
             useSymbols: false,
@@ -455,12 +464,13 @@ public sealed class XamlTriageRunnerTests
                 // Fail specifically on the provider .load, as a live engine would for an unloadable DLL.
                 return cmd.StartsWith(".load ", StringComparison.Ordinal) ? unchecked((int)0x80004005) : 0;
             },
-            getOutput: () => "PARTIAL-OUTPUT");
+            output);
 
+        var result = output.ToString();
         StringAssert.Contains(result, "could not load the JavaScript provider");
         StringAssert.Contains(result, @"C:\bin\JsProvider.dll"); // original (un-slashed) path in the message
         StringAssert.Contains(result, "0x80004005");
-        StringAssert.Contains(result, "PARTIAL-OUTPUT"); // captured engine output is prepended
+        StringAssert.StartsWith(result, "PARTIAL-OUTPUT"); // earlier engine output is kept ahead of the message
         // The triage commands after the failed .load must NOT run.
         Assert.IsFalse(commands.Any(c => c.StartsWith(".scriptload", StringComparison.Ordinal)));
         Assert.IsFalse(commands.Contains("!xamlstowed"));

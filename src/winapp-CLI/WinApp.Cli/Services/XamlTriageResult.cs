@@ -17,6 +17,12 @@ internal enum XamlTriageOutcome
 
     /// <summary>Triage produced a stowed-exception / dispatch-chain breakdown that was written to the log.</summary>
     Succeeded,
+
+    /// <summary>
+    /// The triage pass stopped early (for example, the debugger extension crashed), but the output it
+    /// produced before stopping was written to the log.
+    /// </summary>
+    Partial,
 }
 
 /// <summary>
@@ -34,15 +40,23 @@ internal enum XamlTriageOutcome
 /// Optional one-line headline (e.g. error code + message) surfaced in the console on success. <c>null</c>
 /// when no concise verdict could be extracted.
 /// </param>
-internal sealed record XamlTriageResult(XamlTriageOutcome Outcome, string? LogText, string? Verdict)
+/// <param name="Reason">
+/// Optional short reason the pass was skipped or stopped early, shown in the console. <c>null</c> when
+/// the log text alone explains it.
+/// </param>
+internal sealed record XamlTriageResult(XamlTriageOutcome Outcome, string? LogText, string? Verdict, string? Reason = null)
 {
     /// <summary>A successful triage breakdown with optional one-line verdict for the console.</summary>
     public static XamlTriageResult Succeeded(string logText, string? verdict) =>
         new(XamlTriageOutcome.Succeeded, logText, verdict);
 
+    /// <summary>Output from a triage pass that stopped early, with the reason it stopped.</summary>
+    public static XamlTriageResult Partial(string logText, string? verdict, string reason) =>
+        new(XamlTriageOutcome.Partial, logText, verdict, reason);
+
     /// <summary>A graceful skip whose explanatory note is still recorded in the log.</summary>
-    public static XamlTriageResult Skipped(string logText) =>
-        new(XamlTriageOutcome.Skipped, logText, null);
+    public static XamlTriageResult Skipped(string logText, string? reason = null) =>
+        new(XamlTriageOutcome.Skipped, logText, null, reason);
 
     /// <summary>Nothing to record (triage not applicable or failed open).</summary>
     public static XamlTriageResult None { get; } = new(XamlTriageOutcome.None, null, null);
