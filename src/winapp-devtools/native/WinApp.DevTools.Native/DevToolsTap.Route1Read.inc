@@ -367,12 +367,10 @@ static bool TapResolveComment(const wchar_t* id, std::function<void(int)> comple
         std::vector<DevToolsWindowComment> items;
         TapComments(&items);
         for (const auto& item : items) if (item.id == id)
-            return DevToolsOverlay_ResolveGuestComment(item.id, item.revision, std::move(completed));
+            return DevToolsOverlay_ResolveComment(item.id, item.revision, std::move(completed));
         return false;
     }
-    std::wstring args = L"devtools comments update --status resolved " + TapQuoteArg(id)
-                      + L" --app " + std::to_wstring(GetCurrentProcessId());
-    return TapRunCli(args, 0) == 0;   // UI-thread caller: spawn only, never wait
+    return DevToolsOverlay_ResolveComment(id, L"", std::move(completed));
 }
 
 static void Route1SnapshotTree(std::vector<DevToolsWindowNode>& outNodes, size_t& outCensusTotal)
@@ -477,13 +475,13 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     return hr;
 }
 
-static bool InprocInspect()
+static bool InprocInspect(std::wstring* error)
 {
     const DevToolsInspectRequest& request = DevToolsOverlay_InspectRequest();
     // A pick has already selected its element in an inspector on screen; it only needs to be in view.
     if (!request.activate && !request.comments && DevToolsWindow_RevealWithoutFocus()) return true;
     g_ownedState.Reconcile(DevToolsStateAxis::Window, DevToolsWindow_IsOpen() ? 1ull : 0ull);
-    HRESULT hr = OpenInprocWindow();
+    HRESULT hr = OpenInprocWindow(error);
     const bool open = SUCCEEDED(hr) && DevToolsWindow_IsOpen();
     if (open && request.comments) DevToolsWindow_ShowComments();
     g_ownedState.Reconcile(DevToolsStateAxis::Window, open ? 1ull : 0ull);
