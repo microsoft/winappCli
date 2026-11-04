@@ -197,7 +197,7 @@ winapp run . --aot
 winapp run . --aot -c Release
 ```
 
-Use x64 or ARM64. For a one-time override, append `-p PublishAot=true`.
+Use x64 or ARM64. For a one-time override, append `-p PublishAot=true -p PublishTrimmed=true`.
 
 You can still point `winapp run` at a pre-built output folder if you prefer (folder mode):
 
