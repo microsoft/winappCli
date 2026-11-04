@@ -194,35 +194,19 @@ static void TestToolbarContract()
                      CountOf(xaml.substr(inspectPos, morePos - inspectPos), "x:Name=\"DevToolsProto") == 1 &&
                      moreMenu < xaml.find("x:Name=\"DevToolsProtoPin\"") &&
                      moreMenu < xaml.find("x:Name=\"DevToolsHideToolbar\"") &&
-                     moreMenu < xaml.find("x:Name=\"DevToolsStartShown\""),
+                     moreMenu < xaml.find("x:Name=\"DevToolsStartEnabled\""),
                  "the bar ends with Open DevTools and More, whose menu holds Hide, Keep open and the start mode");
-    // RadioMenuFlyoutItem groups the choices and exposes their check state through UIA TogglePattern.
-    for (const char* id : { "DevToolsStartShown", "DevToolsStartHidden", "DevToolsStartOff" })
-        Check(xaml.find(std::string("<RadioMenuFlyoutItem x:Name=\"") + id + "\" GroupName=\"DevToolsDefaultMode\"") != std::string::npos,
-                     (std::string(id) + " is a radio item in the start-mode group").c_str());
+    // ToggleMenuFlyoutItem exposes the check state through UIA TogglePattern.
+    for (const char* id : { "DevToolsStartEnabled", "DevToolsStartShown" })
+        Check(xaml.find(std::string("<ToggleMenuFlyoutItem x:Name=\"") + id + "\"") != std::string::npos,
+                     (std::string(id) + " is a toggle item").c_str());
     Check(xaml.find("<MenuFlyoutItem Text=\"WHEN THE APP STARTS\" IsEnabled=\"False\"") != std::string::npos &&
                      overlay.find("SetStartModeUi(DefaultMode());") != std::string::npos &&
-                     overlay.find("wcscmp(item, name) == 0") != std::string::npos,
-                 "the start-mode header is not a focus stop, and opening re-checks only the saved mode");
-    // Choosing "Don't start DevTools" must leave a visible re-enable hint, not just a hover tooltip (#1148).
-    Check(xaml.find("x:Name=\"DevToolsStartOffHint\"") != std::string::npos &&
-                     xaml.find("To turn it back on, run&#x0a;`winapp config set run.devtools on`,&#x0a;or launch with `winapp run . --devtools on`.") != std::string::npos,
-                 "the off-mode hint names both ways to turn DevTools back on");
-    Check(overlay.find("ProtoSetPartVisible(L\"DevToolsStartOffHint\", mode == \"off\")") != std::string::npos,
-                 "the re-enable hint is only visible while the off start mode is selected");
-    // WinUI ignores ShowAt until the closing menu's popup is gone, so the reopen is queued from Closed, not Click.
-    const size_t offClick = overlay.find("static void OnStartOffClick");
-    const size_t offFlag = overlay.find("g_reopenMoreMenu = ", offClick);
-    const size_t offSet = overlay.find("SetDefaultMode(\"off\");", offClick);
-    const size_t menuClosed = overlay.find("menu.Closed(");
-    const size_t closedReopen = overlay.find("QueueMoreMenuReopen();", menuClosed);
-    const size_t wiringEnd = overlay.find("menu wiring failed", menuClosed);
-    Check(offClick != std::string::npos && offFlag != std::string::npos && offSet != std::string::npos && offFlag < offSet &&
-                     menuClosed != std::string::npos && closedReopen != std::string::npos && wiringEnd != std::string::npos &&
-                     closedReopen < wiringEnd &&
-                     overlay.find("TryEnqueue([weak]()") != std::string::npos &&
-                     overlay.find("as<DevToolsXC::MenuFlyout>().ShowAt(target);") != std::string::npos,
-                 "choosing \"Don't start DevTools\" reopens the More menu once WinUI has closed it, so the recovery hint shows");
+                     overlay.find("ProtoSetToggle(L\"DevToolsStartEnabled\", L\"\", L\"\", mode != \"off\");") != std::string::npos &&
+                     overlay.find("shown.IsEnabled(mode != \"off\");") != std::string::npos,
+                 "the start-mode header is not a focus stop; opening re-checks the saved mode and disables Show toolbar while off");
+    Check(xaml.find("DevToolsStartOffHint") == std::string::npos && overlay.find("g_reopenMoreMenu") == std::string::npos,
+                 "turning DevTools off shows no extra hint row and does not reopen the menu");
     Check(xaml.find("<ToggleMenuFlyoutItem x:Name=\"DevToolsToggleMarkers\"") != std::string::npos &&
                      xaml.find("AutomationProperties.Name=\"Show comment markers\"") != std::string::npos &&
                      overlay.find("DevToolsToggleMarkersText") == std::string::npos,

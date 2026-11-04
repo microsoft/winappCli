@@ -236,17 +236,12 @@
             <MenuFlyoutSeparator />
             <MenuFlyoutItem Text="WHEN THE APP STARTS" IsEnabled="False"
                             AutomationProperties.AutomationId="DevToolsStartModeHeading" />
-            <RadioMenuFlyoutItem x:Name="DevToolsStartShown" GroupName="DevToolsDefaultMode" Text="Show toolbar"
-                                AutomationProperties.AutomationId="DevToolsStartShown" />
-            <RadioMenuFlyoutItem x:Name="DevToolsStartHidden" GroupName="DevToolsDefaultMode" Text="Hide toolbar"
-                                ToolTipService.ToolTip="DevTools starts with nothing drawn in the app. Press Ctrl+Shift+F12 to show the toolbar."
-                                AutomationProperties.AutomationId="DevToolsStartHidden" />
-            <RadioMenuFlyoutItem x:Name="DevToolsStartOff" GroupName="DevToolsDefaultMode" Text="Don't start DevTools"
-                                ToolTipService.ToolTip="Turn DevTools back on with: winapp config set run.devtools on"
-                                AutomationProperties.AutomationId="DevToolsStartOff" />
-            <MenuFlyoutItem x:Name="DevToolsStartOffHint" Visibility="Collapsed" IsEnabled="False"
-                            Text="DevTools is off. To turn it back on, run&#x0a;`winapp config set run.devtools on`,&#x0a;or launch with `winapp run . --devtools on`."
-                            AutomationProperties.AutomationId="DevToolsStartOffHint" />
+            <ToggleMenuFlyoutItem x:Name="DevToolsStartEnabled" Text="Start DevTools"
+                                 ToolTipService.ToolTip="When off, winapp run starts the app without DevTools. Same as: winapp config set run.devtools off"
+                                 AutomationProperties.AutomationId="DevToolsStartEnabled" />
+            <ToggleMenuFlyoutItem x:Name="DevToolsStartShown" Text="Show toolbar"
+                                 ToolTipService.ToolTip="When off, DevTools starts with nothing drawn in the app. Press Ctrl+Shift+F12 to show the toolbar."
+                                 AutomationProperties.AutomationId="DevToolsStartShown" />
           </MenuFlyout>
         </Button.Flyout>
         <FontIcon FlowDirection="LeftToRight" Glyph="&#xE712;" FontSize="14" Foreground="$TEXTDIM$" />
