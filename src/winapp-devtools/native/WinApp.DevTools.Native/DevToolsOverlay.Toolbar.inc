@@ -525,17 +525,42 @@ static winrt::Windows::Foundation::IInspectable ToolbarPart(const wchar_t* name)
 
 static void SetToolbarMenuTheme(int requestedTheme)
 {
+    // The default menu background is an acrylic brush that resolves against the app's theme, so a dark
+    // toolbar over a light app showed light-theme text on a light menu. Give the menu an opaque surface for
+    // the toolbar's theme. Under High Contrast (kDefault) the system brushes stay in charge.
+    const bool ownSurface = requestedTheme != DevToolsTheme::kDefault;
+    const bool dark = requestedTheme == DevToolsTheme::kDark;
+    const winrt::Windows::UI::Color background = dark
+        ? winrt::Windows::UI::Color{ 0xFF, 0x2C, 0x2C, 0x2C } : winrt::Windows::UI::Color{ 0xFF, 0xF9, 0xF9, 0xF9 };
+    const winrt::Windows::UI::Color border = dark
+        ? winrt::Windows::UI::Color{ 0x33, 0x00, 0x00, 0x00 } : winrt::Windows::UI::Color{ 0x0F, 0x00, 0x00, 0x00 };
     try {
         for (const wchar_t* name : { L"DevToolsCommentsMenu", L"DevToolsMoreMenu" }) {
             if (auto menu = ToolbarPart(name).try_as<DevToolsXC::MenuFlyout>()) {
                 DevToolsX::Style style{ winrt::xaml_typename<DevToolsXC::MenuFlyoutPresenter>() };
                 style.Setters().Append(DevToolsX::Setter{ DevToolsX::FrameworkElement::RequestedThemeProperty(),
                     winrt::box_value(static_cast<DevToolsX::ElementTheme>(requestedTheme)) });
+                if (ownSurface) {
+                    style.Setters().Append(DevToolsX::Setter{ DevToolsXC::Control::BackgroundProperty(),
+                        DevToolsXM::SolidColorBrush{ background } });
+                    style.Setters().Append(DevToolsX::Setter{ DevToolsXC::Control::BorderBrushProperty(),
+                        DevToolsXM::SolidColorBrush{ border } });
+                }
                 menu.MenuFlyoutPresenterStyle(style);
             }
         }
-        if (auto presenter = g_toolbarMenuPresenter.get())
+        if (auto presenter = g_toolbarMenuPresenter.get()) {
             presenter.RequestedTheme(static_cast<DevToolsX::ElementTheme>(requestedTheme));
+            if (auto control = presenter.try_as<DevToolsXC::Control>()) {
+                if (ownSurface) {
+                    control.Background(DevToolsXM::SolidColorBrush{ background });
+                    control.BorderBrush(DevToolsXM::SolidColorBrush{ border });
+                } else {
+                    control.ClearValue(DevToolsXC::Control::BackgroundProperty());
+                    control.ClearValue(DevToolsXC::Control::BorderBrushProperty());
+                }
+            }
+        }
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"overlay.toolbar menu theme failed hr=0x%08X", e.code().value);
     }

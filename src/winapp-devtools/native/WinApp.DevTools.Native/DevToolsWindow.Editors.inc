@@ -477,7 +477,8 @@ static void NamePropertyHeader(IInspectable* header, const DevToolsCardRow& r, c
 }
 
 // The palette slots hold donor TextBlocks, not brushes. put_Foreground rejects a TextBlock, so copy the
-// donor's live brush instead; that also keeps the row on the current theme.
+// donor's current brush instead. The copy does not follow a later theme change; the inspector's theme
+// handler rebuilds the rows for that.
 static void PutDonorForeground(void* textBlock, IInspectable* donor)
 {
     if (!textBlock || !donor) return;
