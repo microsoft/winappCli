@@ -428,43 +428,33 @@ static void UpdateSelectedTreePreview()
 {
     const auto row = g_nodeIdxByWire.find(g_selWire);
     if (row == g_nodeIdxByWire.end() || row->second >= g_renderedOriginalIndices.size() ||
-        row->second >= g_treeControls.size() || !g_treeControls[row->second]) return;
+        row->second >= g_treeNodes.size()) return;
     const size_t original = g_renderedOriginalIndices[row->second];
     std::wstring before;
     if (!RereadTreeCaption(original, &before)) return;
     const auto& node = g_allTreeNodes[original];
     const std::wstring& after = node.preview;
     try {
-        winrt::Windows::Foundation::IInspectable object{ nullptr };
-        winrt::copy_from_abi(object, static_cast<IInspectable*>(g_treeControls[row->second]));
-        const auto button = object.as<DevToolsXC::ContentControl>();
-        const auto inlines = button.Content().as<DevToolsXC::TextBlock>().Inlines();
+        const auto caption = g_treeNodes[row->second].Content().as<DevToolsXC::TextBlock>();
+        const auto inlines = caption.Inlines();
         // The last three runs are reserved for the preview, including its empty state.
         const uint32_t n = inlines.Size();
         if (n < 4) throw winrt::hresult_error(E_UNEXPECTED, L"The tree caption has no preview runs.");
         inlines.GetAt(n - 3).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"  \u201C");
         inlines.GetAt(n - 2).as<DevToolsXDoc::Run>().Text(after);
         inlines.GetAt(n - 1).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"\u201D");
-        std::wstring name = ShortType(node.type);
-        if (!node.name.empty()) name += L" #" + node.name;
-        if (!after.empty()) name += L" " + after;
-        DevToolsXA::AutomationProperties::SetName(button, name);
-        std::wstring full = ShortType(node.type);
-        if (!node.name.empty()) full += L"  #" + node.name;
-        if (!after.empty()) full += L"  \u201C" + after + L"\u201D";
-        DevToolsXC::ToolTipService::SetToolTip(button, winrt::box_value(full));
         // Selection can reveal a nonmatching row. Keep that exception, not rows whose old caption matched.
         const bool keepRevealed = !g_treeFilterQuery.empty() && g_treeVisible[row->second] &&
             (RowHiddenByJmx(row->second) ||
              g_treeLabel[row->second].find(g_treeFilterQuery) == std::wstring::npos);
         g_treeLabel[row->second] = DevToolsTreeLayout::BuildTreeFilterLabel(
             node.type, node.name, after + L" " + node.searchText + L" " + node.sourceUri);
-        if (!g_treeFilterQuery.empty()) {
-            const bool matchesFilter = !RowHiddenByJmx(row->second) &&
-                g_treeLabel[row->second].find(g_treeFilterQuery) != std::wstring::npos;
-            // Collapsing and re-showing a revealed row would move keyboard focus away.
-            if (!keepRevealed || matchesFilter) ApplyTreeFilter(g_treeFilterQuery);
-        }
+        const bool matchesFilter = !RowHiddenByJmx(row->second) &&
+            g_treeLabel[row->second].find(g_treeFilterQuery) != std::wstring::npos;
+        // Collapsing and re-showing a revealed row would move keyboard focus away.
+        if (!g_treeFilterQuery.empty() && (!keepRevealed || matchesFilter)) ApplyTreeFilter(g_treeFilterQuery);
+        // Copies the new caption, name and tooltip to the realized row without rebuilding the tree.
+        else SyncTreeStructure();
     } catch (const winrt::hresult_error& error) {
         DevToolsOverlayLog(L"tree.preview failed hr=0x%08X", error.code().value);
         SetStatusText(L"Could not update the tree caption. Press F5 to refresh the tree.");

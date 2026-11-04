@@ -232,8 +232,10 @@ struct OverlayBuildScope {
     OverlayBuildScope() : previous(g_overlayBuilding.exchange(true, std::memory_order_acq_rel)) {}
     ~OverlayBuildScope() { g_overlayBuilding.store(previous, std::memory_order_release); }
 };
+static void EvictLeakedOverlaySubtree(InstanceHandle root);
 static void OverlaySeed(InstanceHandle h) {
     AcquireSRWLockExclusive(&g_overlayLock); g_overlaySet.insert(h); ReleaseSRWLockExclusive(&g_overlayLock);
+    EvictLeakedOverlaySubtree(h);
 }
 size_t DevToolsTap_ExcludedElementCount() {
     AcquireSRWLockShared(&g_overlayLock);
@@ -263,8 +265,7 @@ static void EvictLeakedOverlaySubtree(InstanceHandle root)
     std::vector<InstanceHandle> evicted;
     std::vector<unsigned long long> removedWires;
     AcquireSRWLockExclusive(&g_censusLock);
-    std::vector<InstanceHandle> stack;
-    { auto it = g_children.find(root); if (it != g_children.end()) stack = it->second; }
+    std::vector<InstanceHandle> stack{root};
     while (!stack.empty()) {
         InstanceHandle h = stack.back(); stack.pop_back();
         auto ci = g_children.find(h);

@@ -105,7 +105,7 @@ function Write-TestFail {
 function Invoke-Winapp {
     param([string[]]$WinappArgs)
     $env:WINAPP_CLI_TELEMETRY_OPTOUT = "1"
-    $output = & $WinAppPath @WinappArgs 2>$null
+    $output = & $WinAppPath @WinappArgs 2>&1
     $exitCode = $LASTEXITCODE
     return @{ Output = ($output -join "`n"); ExitCode = $exitCode }
 }
@@ -119,6 +119,19 @@ function Assert-WinappSuccess {
         Write-TestFail $TestName "Exit code $($result.ExitCode): $($result.Output)"
     }
     return $result
+}
+
+function Assert-PropertiesScroll {
+    param([string]$TestName, [string]$Window, [string]$Position)
+    $state = Assert-WinappSuccess "$TestName reads scroll state" @(
+        "ui", "get-property", "WinAppDevToolsPropScroll", "-w", $Window, "--json")
+    if ($state.ExitCode -ne 0) { return }
+    if (($state.Output | ConvertFrom-Json).properties.VerticallyScrollable -eq "0x0") {
+        Write-TestPass $TestName "Content already fits"
+        return
+    }
+    Assert-WinappSuccess $TestName @(
+        "ui", "scroll", "WinAppDevToolsPropScroll", "-w", $Window, "--to", $Position) | Out-Null
 }
 
 function Assert-WinappOutputContains {
@@ -480,10 +493,27 @@ if (-not $devPid) {
 
     # Opening the DevTools window and switching between it and the app changes window activation.
     $null = Invoke-Winapp @("devtools", "call", "Window.open", "-a", "$devPid")
-    $null = Invoke-Winapp @("ui", "wait-for", "TreeScroll", "-a", "$devPid", "-t", "10000")
+    $null = Invoke-Winapp @("ui", "wait-for", "WinAppDevToolsTree", "-a", "$devPid", "-t", "10000")
     $windows = (Invoke-Winapp @("ui", "list-windows", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
     $inspectorHwnd = [string](@($windows | Where-Object title -like "WinApp DevTools*")[0].hwnd)
     $mainHwnd = [string](@($windows | Where-Object { $_.title -notlike "WinApp DevTools*" })[0].hwnd)
+    foreach ($selectedId in @("ViewTabComments", "ViewTabTree", "ViewTabTree")) {
+        $otherId = if ($selectedId -eq "ViewTabTree") { "ViewTabComments" } else { "ViewTabTree" }
+        Assert-WinappSuccess "$selectedId supports native selection" @("ui", "invoke", $selectedId, "-w", $inspectorHwnd, "--action", "select") | Out-Null
+        Assert-WinappSuccess "$selectedId reports selected" @("ui", "wait-for", $selectedId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "$otherId reports unselected" @("ui", "wait-for", $otherId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "False", "-t", "3000") | Out-Null
+    }
+    # The rail selects the item that has keyboard focus, so Down on Visual tree opens Comments.
+    Assert-WinappSuccess "Down arrow on the rail selects Comments" @("ui", "send-keys", "down", "--target", "ViewTabTree", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "keyboard-selected Comments reports selected" @("ui", "wait-for", "ViewTabComments", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+    # Finish the refresh before navigating: F5 can pump input while rebuilding the hidden tree.
+    Assert-WinappSuccess "F5 rebuilds the tree while Comments hides it" @("ui", "send-keys", "f5", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "Comments stays selected after refreshing" @("ui", "wait-for", "ViewTabComments", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "Up arrow returns to Visual tree" @("ui", "send-keys", "up", "--target", "ViewTabComments", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "keyboard-selected Visual tree reports selected" @("ui", "wait-for", "ViewTabTree", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "tree rebuilt while hidden keeps its accessible name" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-p", "Name", "--value", "UI Elements", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "tree rebuilt while hidden names its rows" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ControlType", "--value", "TreeItem", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "restore Visual tree before tree tests" @("ui", "invoke", "ViewTabTree", "-w", $inspectorHwnd, "--action", "select") | Out-Null
     foreach ($toggleId in @("PickElementToggle", "FocusTrackingToggle")) {
         Assert-WinappSuccess "$toggleId starts off" @("ui", "wait-for", $toggleId, "-w", $inspectorHwnd, "-p", "ToggleState", "--value", "Off", "-t", "3000") | Out-Null
         foreach ($state in @("On", "Off")) {
@@ -511,29 +541,30 @@ if (-not $devPid) {
         $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
         $component = if ($Platform -eq "ARM64") { "Microsoft.VisualStudio.Component.VC.Tools.ARM64" } else { "Microsoft.VisualStudio.Component.VC.Tools.x86.x64" }
         $vsPath = & $vswhere -latest -products * -requires $component -property installationPath
-        if (-not $vsPath) { throw "MSVC with $component is required for the tree parent-navigation test." }
+        if (-not $vsPath) { throw "MSVC with $component is required for the native tree accessibility test." }
         $vcvarsName = if ($Platform -eq "ARM64") { "vcvarsamd64_arm64.bat" } else { "vcvars64.bat" }
         $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\$vcvarsName"
         $parentTest = Join-Path $parentTestDir "tree-automation-ui-tests.exe"
         $parentSource = Join-Path $repoRoot "src\winapp-devtools\test\tree-automation-ui-tests.cpp"
         $compile = & $env:ComSpec /c "call `"$vcvars`" >nul && cl /nologo /std:c++20 /W3 /WX /EHsc /MT `"$parentSource`" /Fo:`"$parentTestDir\test.obj`" /Fe:`"$parentTest`" /link ole32.lib oleaut32.lib uiautomationcore.lib" 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "Tree parent-navigation test did not compile: $compile" }
+        if ($LASTEXITCODE -ne 0) { throw "Native tree accessibility test did not compile: $compile" }
         $parentResult = & $parentTest $inspectorHwnd 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "Tree parent-navigation regression: $parentResult" }
-        Write-TestPass "tree parents update after filtering without downward enumeration" "$parentResult"
+        if ($LASTEXITCODE -ne 0) { throw "Native tree accessibility regression: $parentResult" }
+        Write-TestPass "native tree levels, sibling positions, filtering and retained selection" "$parentResult"
     } catch {
-        Write-TestFail "tree parents update after filtering without downward enumeration" "$_"
+        Write-TestFail "native tree levels, sibling positions, filtering and retained selection" "$_"
     } finally {
         Remove-Item -LiteralPath $parentTestDir -Recurse -Force
     }
     $treeResult = Invoke-Winapp @("ui", "inspect", "WinAppDevToolsTree", "-w", $inspectorHwnd, "-d", "2", "--json")
     try {
         $tree = ($treeResult.Output | ConvertFrom-Json).windows[0].elements[0]
-        if ($treeResult.ExitCode -eq 0 -and $tree.children[0].automationId -eq "TreeNode0" -and
-            $tree.children[0].children[0].automationId -eq "TreeNode1") {
-            Write-TestPass "visual tree exposes nested TreeItem children"
-        } else { Write-TestFail "visual tree exposes nested TreeItem children" $treeResult.Output }
-    } catch { Write-TestFail "visual tree exposes nested TreeItem children" "$_" }
+        $treeRows = @($tree.children | Where-Object type -eq "TreeItem")
+        if ($treeResult.ExitCode -eq 0 -and $treeRows[0].automationId -eq "TreeNode0" -and
+            $treeRows[1].automationId -eq "TreeNode1") {
+            Write-TestPass "visual tree exposes ordered native TreeItem children"
+        } else { Write-TestFail "visual tree exposes ordered native TreeItem children" $treeResult.Output }
+    } catch { Write-TestFail "visual tree exposes ordered native TreeItem children" "$_" }
     foreach ($selectedId in @("TreeNode0", "TreeNode1")) {
         $otherId = if ($selectedId -eq "TreeNode0") { "TreeNode1" } else { "TreeNode0" }
         Assert-WinappSuccess "$selectedId supports SelectionItem.Select" @("ui", "invoke", $selectedId, "-w", $inspectorHwnd, "--action", "select") | Out-Null
@@ -549,7 +580,6 @@ if (-not $devPid) {
     Assert-WinappSuccess "focused tree row has keyboard focus" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
     Assert-WinappSuccess "keyboard focus does not select the tree row" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "False", "-t", "3000") | Out-Null
     Assert-WinappSuccess "selection stays on the other tree row" @("ui", "wait-for", "TreeNode1", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
-    Assert-WinappSuccess "tree Selection.GetSelection returns the selected row" @("ui", "wait-for", "WinAppDevToolsTree", "-w", $inspectorHwnd, "--value", "TitleBar #AppTitleBar", "-t", "3000") | Out-Null
     foreach ($action in @("collapse", "expand")) {
         $state = if ($action -eq "collapse") { "Collapsed" } else { "Expanded" }
         Assert-WinappSuccess "tree row supports ExpandCollapse.$action" @("ui", "invoke", "TreeNode0", "-w", $inspectorHwnd, "--action", $action) | Out-Null
@@ -569,20 +599,18 @@ if (-not $devPid) {
     } catch { Write-TestFail "filter promotes the remaining row to an accessible root" "$_" }
     Assert-WinappSuccess "clear the accessible tree filter" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
     Assert-WinappSuccess "clearing filter restores the tree root" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-t", "3000") | Out-Null
-    Assert-WinappSuccess "filter tree before requesting expansion" @("ui", "set-value", "TreeFilter", "Grid", "-w", $inspectorHwnd) | Out-Null
-    $filteredExpand = Invoke-Winapp @("ui", "invoke", "TreeNode0", "-w", $inspectorHwnd, "--action", "expand")
-    if ($filteredExpand.ExitCode -ne 0) { Write-TestPass "filtered tree refuses expansion" }
-    else { Write-TestFail "filtered tree refuses expansion" $filteredExpand.Output }
-    Assert-WinappSuccess "expansion leaves filter text intact" @("ui", "wait-for", "TreeFilter", "-w", $inspectorHwnd, "--value", "Grid", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "filter tree before requesting expansion" @("ui", "set-value", "TreeFilter", "StackPanel", "-w", $inspectorHwnd) | Out-Null
+    Assert-WinappSuccess "filtered root accepts native expand" @("ui", "invoke", "TreeNode3", "-w", $inspectorHwnd, "--action", "expand") | Out-Null
+    Assert-WinappSuccess "filtered root keeps its matching descendants expanded" @("ui", "wait-for", "TreeNode3", "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", "Expanded", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "expansion leaves filter text intact" @("ui", "wait-for", "TreeFilter", "-w", $inspectorHwnd, "--value", "StackPanel", "-t", "3000") | Out-Null
     Assert-WinappSuccess "expansion does not reveal a nonmatching title bar" @("ui", "wait-for", "TreeNode1", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
     Assert-WinappSuccess "expansion does not reveal a nonmatching scroller" @("ui", "wait-for", "TreeNode2", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
-    Assert-WinappSuccess "clear filter after refused expansion" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
+    Assert-WinappSuccess "clear filter after expansion" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
     Assert-WinappSuccess "clearing filter restores descendants before expansion" @("ui", "wait-for", "TreeNode1", "-w", $inspectorHwnd, "-t", "3000") | Out-Null
     Assert-WinappSuccess "expansion works after clearing filter" @("ui", "invoke", "TreeNode0", "-w", $inspectorHwnd, "--action", "expand") | Out-Null
     Assert-WinappSuccess "filter tree before requesting collapse" @("ui", "set-value", "TreeFilter", "StackPanel", "-w", $inspectorHwnd) | Out-Null
-    $filteredCollapse = Invoke-Winapp @("ui", "invoke", "TreeNode3", "-w", $inspectorHwnd, "--action", "collapse")
-    if ($filteredCollapse.ExitCode -ne 0) { Write-TestPass "filtered tree refuses collapse" }
-    else { Write-TestFail "filtered tree refuses collapse" $filteredCollapse.Output }
+    Assert-WinappSuccess "filtered branch accepts native collapse" @("ui", "invoke", "TreeNode3", "-w", $inspectorHwnd, "--action", "collapse") | Out-Null
+    Assert-WinappSuccess "filtered branch stays expanded after a collapse request" @("ui", "wait-for", "TreeNode3", "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", "Expanded", "-t", "3000") | Out-Null
     Assert-WinappSuccess "collapse leaves matching descendants visible" @("ui", "wait-for", "TreeNode6", "-w", $inspectorHwnd, "-t", "3000") | Out-Null
     Assert-WinappSuccess "collapse does not reveal a nonmatching button" @("ui", "wait-for", "TreeNode7", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
     Assert-WinappSuccess "clear filter before keyboard navigation" @("ui", "set-value", "TreeFilter", "", "-w", $inspectorHwnd) | Out-Null
@@ -590,9 +618,10 @@ if (-not $devPid) {
     Assert-WinappSuccess "keyboard collapse updates the accessible state" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", "Collapsed", "-t", "3000") | Out-Null
     Assert-WinappSuccess "Right arrow expands the focused tree row" @("ui", "send-keys", "right", "--target", "TreeNode0", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
     Assert-WinappSuccess "keyboard expansion updates the accessible state" @("ui", "wait-for", "TreeNode0", "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", "Expanded", "-t", "3000") | Out-Null
-    Assert-WinappSuccess "Tab from a leaf skips the next row's expand arrow" @("ui", "send-keys", "tab", "--target", "TreeNode1", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
-    Assert-WinappSuccess "Tab lands on the next tree row" @("ui", "wait-for", "TreeNode2", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
-    Assert-WinappSuccess "Tab does not change tree selection" @("ui", "wait-for", "TreeNode1", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "Down arrow navigates to the next native tree item" @("ui", "send-keys", "down", "--target", "TreeNode1", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "Down arrow focuses the next row rather than its expand arrow" @("ui", "wait-for", "TreeNode2", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+    Assert-WinappSuccess "Enter selects the focused native tree item" @("ui", "send-keys", "enter", "--target", "TreeNode2", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+    Assert-WinappSuccess "keyboard activation updates native selection" @("ui", "wait-for", "TreeNode2", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
     Assert-WinappSuccess "inspector keyboard focus and selection screenshot" @("ui", "screenshot", "-w", $inspectorHwnd, "-o", (Join-Path $ScreenshotDir "08-inspector-tree.png")) | Out-Null
     foreach ($textId in @("PageTitle", "PageSubtitle")) {
         Assert-WinappSuccess "$textId gets the duplicate-name fixture text" @("devtools", "set-property", $textId, "Text", "Shared label", "-a", "$devPid") | Out-Null
@@ -748,6 +777,41 @@ if (-not $devPid) {
         $titleBar = (Invoke-Winapp @("devtools", "search", "AppTitleBar", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
         Assert-WinappSuccess "select TitleBar properties" @(
             "devtools", "call", "Selection.select", "handle=$($titleBar.matches[0].handle)", "-a", "$devPid") | Out-Null
+        foreach ($selectedId in @("WinAppDevToolsViewSet", "WinAppDevToolsViewComputed", "WinAppDevToolsViewComputed")) {
+            $otherId = if ($selectedId -eq "WinAppDevToolsViewSet") { "WinAppDevToolsViewComputed" } else { "WinAppDevToolsViewSet" }
+            Assert-WinappSuccess "$selectedId supports native selection" @("ui", "invoke", $selectedId, "-w", $inspectorHwnd, "--action", "select") | Out-Null
+            Assert-WinappSuccess "$selectedId reports selected" @("ui", "wait-for", $selectedId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+            Assert-WinappSuccess "$otherId reports unselected" @("ui", "wait-for", $otherId, "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "False", "-t", "3000") | Out-Null
+        }
+        # Choosing a view rebuilds the property list, selector included; focus must follow to the new selector.
+        Assert-WinappSuccess "Tab enters the property selector" @("ui", "send-keys", "tab", "--target", "PropFilter", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        Assert-WinappSuccess "Computed view has keyboard focus" @("ui", "wait-for", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "Right arrow on Computed selects Set" @("ui", "send-keys", "right", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        Assert-WinappSuccess "Set view follows the keyboard" @("ui", "wait-for", "WinAppDevToolsViewSet", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "Set view keeps keyboard focus after rebuilding" @("ui", "wait-for", "WinAppDevToolsViewSet", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "Left returns to Computed without leaving the property selector" @("ui", "send-keys", "left", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        Assert-WinappSuccess "Computed view follows the keyboard" @("ui", "wait-for", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "Computed view keeps keyboard focus after rebuilding" @("ui", "wait-for", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "restore Computed before property tests" @("ui", "invoke", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "--action", "select") | Out-Null
+        $disclosureStates = @{}
+        foreach ($id in @("WinAppDevToolsSizeSpacingToggle", "WinAppDevToolsAuthoredXamlToggle")) {
+            $initial = Invoke-Winapp @("ui", "get-property", $id, "-w", $inspectorHwnd, "--json")
+            $disclosureStates[$id] = ($initial.Output | ConvertFrom-Json).properties.ExpandCollapseState
+            foreach ($action in @("collapse", "expand")) {
+                $state = if ($action -eq "expand") { "Expanded" } else { "Collapsed" }
+                Assert-WinappSuccess "$id supports native $action" @("ui", "invoke", $id, "-w", $inspectorHwnd, "--action", $action) | Out-Null
+                Assert-WinappSuccess "$id reports $state" @("ui", "wait-for", $id, "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", $state, "-t", "3000") | Out-Null
+            }
+        }
+        Assert-WinappSuccess "refresh inspector with disclosures expanded" @("ui", "send-keys", "f5", "--target", "TreeNode1", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        foreach ($id in $disclosureStates.Keys) {
+            Assert-WinappSuccess "$id stays expanded after rebuilding the pane" @("ui", "wait-for", $id, "-w", $inspectorHwnd, "-p", "ExpandCollapseState", "--value", "Expanded", "-t", "3000") | Out-Null
+            $action = if ($disclosureStates[$id] -eq "Expanded") { "expand" } else { "collapse" }
+            Assert-WinappSuccess "restore $id disclosure state" @("ui", "invoke", $id, "-w", $inspectorHwnd, "--action", $action) | Out-Null
+        }
+        Assert-WinappSuccess "filter to the Height property" @("ui", "set-value", "PropFilter", "Height", "-w", $inspectorHwnd) | Out-Null
+        Assert-PropertiesScroll "scroll the Height row into the properties viewport" $inspectorHwnd "bottom"
+        Assert-WinappSuccess "Height row is visible" @("ui", "wait-for", "Height value", "-w", $inspectorHwnd, "-p", "IsOffscreen", "--value", "False", "-t", "3000") | Out-Null
         foreach ($value in @("Auto", "120", "Auto")) {
             Assert-WinappSuccess "set TitleBar.Height to $value" @(
                 "devtools", "set-property", "AppTitleBar", "Height", $value, "-a", "$devPid") | Out-Null
@@ -757,6 +821,61 @@ if (-not $devPid) {
         }
     } catch {
         Write-TestFail "property accessible names include the current value" $_.Exception.Message
+    }
+    try {
+        $subtitle = (Invoke-Winapp @("devtools", "search", "PageSubtitle", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
+        Assert-WinappSuccess "select the resource suggestion fixture" @("devtools", "call", "Selection.select", "handle=$($subtitle.matches[0].handle)", "-a", "$devPid") | Out-Null
+        Assert-PropertiesScroll "scroll to the property filter" $inspectorHwnd "top"
+        Assert-WinappSuccess "filter to the Foreground property" @("ui", "set-value", "PropFilter", "Foreground", "-w", $inspectorHwnd) | Out-Null
+        Assert-PropertiesScroll "scroll the Foreground row into the properties viewport" $inspectorHwnd "bottom"
+        Assert-WinappSuccess "Foreground row is visible" @("ui", "wait-for", "Foreground value", "-w", $inspectorHwnd, "-p", "IsOffscreen", "--value", "False", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "expand the resource editor" @("ui", "invoke", "Foreground value", "-w", $inspectorHwnd, "--action", "expand") | Out-Null
+        Assert-PropertiesScroll "scroll the resource editor into the properties viewport" $inspectorHwnd "bottom"
+        Assert-WinappSuccess "resource editor is visible" @("ui", "wait-for", "Foreground editor", "-w", $inspectorHwnd, "-p", "IsOffscreen", "--value", "False", "-t", "3000") | Out-Null
+        $beforeResource = Assert-WinappSuccess "read the resource before choosing a suggestion" @("devtools", "get-property", "PageSubtitle", "Foreground", "-a", "$devPid", "--json")
+        $beforeValue = ($beforeResource.Output | ConvertFrom-Json).properties[0].value
+        $primaryResource = Assert-WinappSuccess "read the expected primary brush value" @("devtools", "get-property", "PageTitle", "Foreground", "-a", "$devPid", "--json")
+        $primaryValue = ($primaryResource.Output | ConvertFrom-Json).properties[0].value
+        foreach ($method in @("pointer", "keyboard")) {
+            Assert-WinappSuccess "$method clears the resource query" @("ui", "set-value", "Foreground editor", "", "-w", $inspectorHwnd) | Out-Null
+            Assert-WinappSuccess "$method types a resource query" @("ui", "send-keys", "TextFillColorPrimary", "--target", "Foreground editor", "-w", $inspectorHwnd, "--verbatim", "--via", "send-input") | Out-Null
+            $suggestion = $null
+            $suggestionSteps = 0
+            $deadline = [DateTime]::UtcNow.AddSeconds(3)
+            do {
+                $result = Invoke-Winapp @("ui", "search", "TextFillColorPrimaryBrush", "-w", $inspectorHwnd, "--json")
+                if ($result.ExitCode -ne 0) { throw $result.Output }
+                $items = @(($result.Output | ConvertFrom-Json).matches | Where-Object type -eq "ListItem")
+                for ($i = 0; $i -lt $items.Count; $i++) {
+                    if ($items[$i].name -ceq "TextFillColorPrimaryBrush") {
+                        $suggestion = $items[$i].selector
+                        $suggestionSteps = $i + 1
+                        break
+                    }
+                }
+                if (-not $suggestion) { Start-Sleep -Milliseconds 100 }
+            } while (-not $suggestion -and [DateTime]::UtcNow -lt $deadline)
+            if (-not $suggestion) { throw "$method did not show the exact primary-brush suggestion" }
+            Write-TestPass "$method opens a matching native suggestion"
+            if ($method -eq "pointer") {
+                Assert-WinappSuccess "click a resource suggestion" @("ui", "click", $suggestion, "-w", $inspectorHwnd) | Out-Null
+            } else {
+                $keys = ("down " * $suggestionSteps) + "enter"
+                Assert-WinappSuccess "Down and Enter choose without applying the resource" @("ui", "send-keys", $keys, "--target", "Foreground editor", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+            }
+            Assert-WinappSuccess "$method fills the resource key" @("ui", "wait-for", "Foreground editor", "-w", $inspectorHwnd, "--value", "TextFillColorPrimaryBrush", "-t", "3000") | Out-Null
+            $unchanged = Assert-WinappSuccess "$method reads the app property after choosing" @("devtools", "get-property", "PageSubtitle", "Foreground", "-a", "$devPid", "--json")
+            if (($unchanged.Output | ConvertFrom-Json).properties[0].value -ceq $beforeValue) { Write-TestPass "$method suggestion does not write the app property" }
+            else { Write-TestFail "$method suggestion does not write the app property" $unchanged.Output }
+        }
+        Assert-WinappSuccess "a separate Enter applies the resource" @("ui", "send-keys", "enter", "--target", "Foreground editor", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        $committed = Assert-WinappSuccess "read the applied resource" @("devtools", "get-property", "PageSubtitle", "Foreground", "-a", "$devPid", "--json")
+        if (($committed.Output | ConvertFrom-Json).properties[0].value -ceq $primaryValue -and $primaryValue -cne $beforeValue) { Write-TestPass "explicit resource submission applies the expected primary brush" }
+        else { Write-TestFail "explicit resource submission changes the app property" $committed.Output }
+        Assert-WinappSuccess "the applied resource remains the editor seed" @("ui", "wait-for", "Foreground editor", "-w", $inspectorHwnd, "--value", "TextFillColorPrimaryBrush", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "clear the property filter after resource editing" @("ui", "set-value", "PropFilter", "", "-w", $inspectorHwnd) | Out-Null
+    } catch {
+        Write-TestFail "native resource suggestions stage and explicitly apply a resource" $_.Exception.Message
     }
     for ($i = 0; $i -lt 10; $i++) {
         $null = Invoke-Winapp @("ui", "focus", "-w", $inspectorHwnd)
