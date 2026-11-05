@@ -760,6 +760,36 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow(new[] { "-p", "Configuration=Debug" }, DisplayName = "-p Configuration alone")]
+    [DataRow(new[] { "-c", "Debug", "-p", "Configuration=Debug" }, DisplayName = "-c with matching -p Configuration")]
+    public async Task ProjectMode_ConfigurationProperty_SelectsConfiguration(string[] configArgs)
+    {
+        var csproj = CreateCsproj();
+        SetPackagedOutcome(csproj, CreateTargetDir(withManifest: true));
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, .. configArgs]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("Debug", _fakeProjectRunService.BuildOptions[0].Configuration,
+            "-p Configuration=Debug must select Debug instead of the Release default");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_ConflictingConfiguration_RejectedBeforeBuilding()
+    {
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-c", "Release", "-p", "Configuration=Debug"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}",
+            "-p Configuration=Debug conflicts with -c Release. Pass only one of them.");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_UsesEvaluatedManifest_WhenNotInPackagingOutput()
     {
         // A packaged (EnableMsixTooling) WinUI app publishes its payload to PublishDir but the

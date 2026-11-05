@@ -72,7 +72,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
         ConfigurationOption = new Option<string>("--configuration", "-c")
         {
-            Description = "Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input."
+            Description = "Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used, with -c or -p Configuration=<name>: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input."
         };
 
         ArchOption = new Option<string>("--arch")
@@ -281,8 +281,15 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                     return FailWith(archError!, isJson);
                 }
 
+                if (!ProjectRunService.TryResolveConfiguration(
+                        configuration ?? "Debug", configuration != null, properties,
+                        out var resolvedConfiguration, out var configurationError))
+                {
+                    return FailWith(configurationError!, isJson);
+                }
+
                 var identityInputs = new SingleFileIdentityInputs(
-                    configuration ?? "Debug",
+                    resolvedConfiguration,
                     architecture,
                     ArchitectureIsExplicit: !string.IsNullOrWhiteSpace(archOption) || !string.IsNullOrWhiteSpace(runtimeOption),
                     properties);
