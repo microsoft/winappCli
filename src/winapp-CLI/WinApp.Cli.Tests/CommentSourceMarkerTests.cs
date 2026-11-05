@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using WinApp.Cli.Commands;
 using WinApp.Cli.ExecutionTargets.GuestAgent;
@@ -61,9 +62,9 @@ public class CommentSourceMarkerTests
     [DataRow("invalid source", "remains unplaced")]
     [DataRow("duplicate declaration", "captured source declaration")]
     [DataRow("template", "template declaration")]
-    [DataRow("weak", "No verified named source declaration")]
-    [DataRow("no evidence", "No verified named source declaration")]
-    [DataRow("wrong project", "No verified named source declaration")]
+    [DataRow("weak", null)]
+    [DataRow("no evidence", null)]
+    [DataRow("wrong project", null)]
     [DataRow("absolute authored path", "captured source declaration")]
     [DataRow("escaping authored path", "captured source declaration")]
     [DataRow("wrong file", "unique, current source match")]
@@ -77,7 +78,8 @@ public class CommentSourceMarkerTests
     [DataRow("nonunique anchor", "unique, current source match")]
     [DataRow("no anchor", "unique, current source match")]
     [DataRow("wrong live project", "unique, current source match")]
-    public void Push_UnsafeSourceMappingLeavesMarkerAbsentAndExplainsWhy(string failure, string reason)
+    [DataRow("still loading", "live search is incomplete")]
+    public void Push_UnsafeSourceMappingLeavesMarkerAbsentAndExplainsWhy(string failure, string? reason)
     {
         var comment = OfflineComment();
         switch (failure)
@@ -106,10 +108,91 @@ public class CommentSourceMarkerTests
         var warnings = new RecordingLogger();
         using var agent = Agent(failure);
         Assert.AreEqual((1, 0), new CommentPusher(store, warnings).Push((uint)agent.Pid, root.FullName, root.FullName));
-        Assert.HasCount(1, warnings.Messages);
-        StringAssert.Contains(warnings.Messages[0], reason);
+        Assert.HasCount(reason is null ? 0 : 1, warnings.Messages);
+        if (reason is not null)
+        {
+            StringAssert.Contains(warnings.Messages[0], reason);
+        }
         using var request = JsonDocument.Parse(agent.ReceivedRequests.Last());
         Assert.AreEqual("", request.RootElement.GetProperty("params").GetProperty("comments")[0].GetProperty("anchor").GetString());
+        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+    }
+
+    [TestMethod]
+    public void Push_PlainNotesStayUnplacedWithoutWarningsOrLiveSearch()
+    {
+        var store = new CommentStore();
+        var path = store.GetStorePath(root);
+        store.Add(path, new Comment { Id = "general", Text = "General note", ProjectRoot = root.FullName });
+        store.Add(path, new Comment
+        {
+            Id = "line", Text = "Line note", ProjectRoot = root.FullName,
+            Anchor = new() { SourceFile = "MainWindow.xaml", Line = 2 },
+        });
+        var before = File.ReadAllBytes(path);
+        var warnings = new RecordingLogger();
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Internal.setComments", """{"total":2,"placed":0}""");
+        for (var refresh = 0; refresh < 2; refresh++)
+        {
+            Assert.AreEqual((2, 0), new CommentPusher(store, warnings).Push((uint)agent.Pid, root.FullName, root.FullName));
+        }
+        Assert.IsEmpty(warnings.Messages);
+        CollectionAssert.AreEqual(new List<string> { "Internal.setComments", "Internal.setComments" }, agent.Received);
+        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+    }
+
+    [TestMethod]
+    public void Push_WaitsForSourceCensusBeforePlacingWithoutSaving()
+    {
+        var store = new CommentStore();
+        var path = store.GetStorePath(root);
+        store.Add(path, OfflineComment());
+        var before = File.ReadAllBytes(path);
+        var warnings = new RecordingLogger();
+        using var agent = Agent(loadingCaptures: 2);
+        Assert.AreEqual((1, 1), new CommentPusher(store, warnings).Push((uint)agent.Pid, root.FullName, root.FullName));
+        Assert.AreEqual(3, agent.Received.Count(method => method == "Internal.elementAnchor"));
+        Assert.IsEmpty(warnings.Messages);
+        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+    }
+
+    [TestMethod]
+    public void ResolveSourceAnchors_SharesLoadingDeadlineAcrossComments()
+    {
+        var first = OfflineComment();
+        var second = OfflineComment();
+        second.Id = "second";
+        var document = new CommentStoreDocument { Comments = [first, second] };
+        var comments = CommentPusher.ToTapComments(document);
+        var warnings = new List<string>();
+        using var agent = Agent("still loading");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        CommentPusher.ResolveSourceAnchors(document, comments, (uint)agent.Pid, root.FullName, warnings.Add);
+        Assert.IsLessThan(TimeSpan.FromSeconds(8), clock.Elapsed, "The five-second wait must not restart per comment.");
+        Assert.HasCount(2, warnings);
+        Assert.IsTrue(warnings.All(message => message.Contains("live search is incomplete", StringComparison.Ordinal)));
+        Assert.IsTrue(comments.All(comment => string.IsNullOrEmpty(comment.Anchor)));
+    }
+
+    [TestMethod]
+    public async Task Push_CancelsDuringLoadingWithoutSaving()
+    {
+        var store = new CommentStore();
+        var path = store.GetStorePath(root);
+        store.Add(path, OfflineComment());
+        var before = File.ReadAllBytes(path);
+        using var agent = Agent("still loading");
+        using var stop = new CancellationTokenSource();
+        var pushing = Task.Run(() => new CommentPusher(store).Push((uint)agent.Pid, root.FullName, root.FullName, stop.Token));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!agent.Received.Contains("Internal.elementAnchor"))
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+        await stop.CancelAsync();
+        Assert.IsNull(await pushing.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
         CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
     }
 
@@ -150,25 +233,28 @@ public class CommentSourceMarkerTests
             comment.Anchor.SourceFile = Path.Combine(comment.ProjectRoot, "MainWindow.xaml");
         }
         var before = JsonSerializer.Serialize(comment, CommentsJsonContext.Default.Comment);
-        var pushed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var agent = Agent(failure, onPush: request => pushed.TrySetResult(request));
+        var pushed = Channel.CreateUnbounded<string>();
+        using var agent = Agent(failure, onPush: pushed.Writer.TryWrite);
         var session = new GuestCommentSession("binding", "sandbox", "epoch",
             new(agent.Pid, DateTime.UtcNow.Ticks));
         var endpoint = new GuestCommentEndpoint(session);
         var warnings = new List<string>();
         var serving = endpoint.RunAsync(guest, guest, warnings.Add, timeout.Token, isAppAlive: () => true);
         _ = await GuestCommentFrames.ReadAsync(host, timeout.Token);
-        await GuestCommentFrames.WriteAsync(host,
-            new GuestCommentReply(GuestCommentReply.RefreshOperationId, Comments: [comment],
-                GuestSourceRoot: root.FullName, Generation: 7),
-            GuestCommentsJsonContext.Default.GuestCommentReply, timeout.Token);
-        var wire = await pushed.Task.WaitAsync(timeout.Token);
-        using var request = JsonDocument.Parse(wire);
-        var parameters = request.RootElement.GetProperty("params");
-        Assert.AreEqual(failure is null ? "source-qualified-live-anchor" : "",
-            parameters.GetProperty("comments")[0].GetProperty("anchor").GetString());
-        Assert.AreEqual(CommentStore.Revision(comment), parameters.GetProperty("comments")[0].GetProperty("revision").GetString());
-        Assert.AreEqual(7, parameters.GetProperty("generation").GetInt64());
+        for (var generation = 7; generation < 10; generation++)
+        {
+            await GuestCommentFrames.WriteAsync(host,
+                new GuestCommentReply(GuestCommentReply.RefreshOperationId, Comments: [comment],
+                    GuestSourceRoot: root.FullName, Generation: generation),
+                GuestCommentsJsonContext.Default.GuestCommentReply, timeout.Token);
+            var wire = await pushed.Reader.ReadAsync(timeout.Token);
+            using var request = JsonDocument.Parse(wire);
+            var parameters = request.RootElement.GetProperty("params");
+            Assert.AreEqual(failure is null ? "source-qualified-live-anchor" : "",
+                parameters.GetProperty("comments")[0].GetProperty("anchor").GetString());
+            Assert.AreEqual(CommentStore.Revision(comment), parameters.GetProperty("comments")[0].GetProperty("revision").GetString());
+            Assert.AreEqual(generation, parameters.GetProperty("generation").GetInt64());
+        }
         Assert.AreEqual(before, JsonSerializer.Serialize(comment, CommentsJsonContext.Default.Comment));
         await timeout.CancelAsync();
         await Assert.ThrowsAsync<OperationCanceledException>(() => serving);
@@ -192,8 +278,9 @@ public class CommentSourceMarkerTests
         "xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">\n" + markup + "\n</Page>");
 
     private FakeDevToolsProtocolAgent Agent(string? failure = null, Func<string, bool>? onPush = null,
-        string markerAnchor = "source-qualified-live-anchor")
+        string markerAnchor = "source-qualified-live-anchor", int loadingCaptures = 0)
     {
+        var loading = failure == "still loading" ? int.MaxValue : loadingCaptures;
         var matches = failure == "no live name" ? "[]" : failure == "duplicate live name"
             ? """[{"handle":"2","name":"SaveButton","type":"Button"},{"handle":"3","name":"SaveButton","type":"Button"}]"""
             : """[{"handle":"2","name":"SaveButton","type":"Button"}]""";
@@ -216,6 +303,10 @@ public class CommentSourceMarkerTests
                 coordinateProvenance = failure == "likely source" ? "likely-source-line" : "disk-matched-unique-declaration",
                 sourceEvidence = "Compiler proof", xaml = Markup,
             }))
+            .Answer("Internal.elementAnchor", JsonSerializer.Serialize(new
+            {
+                anchor = markerAnchor, unique = false, uniquenessReason = "incomplete-source-census",
+            }), _ => loading-- > 0)
             .Answer("Internal.elementAnchor", JsonSerializer.Serialize(new
             {
                 anchor = failure == "no anchor" ? "" : markerAnchor,

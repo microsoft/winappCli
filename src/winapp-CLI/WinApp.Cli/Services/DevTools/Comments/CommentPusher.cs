@@ -134,6 +134,8 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
         string? sourceRoot, Action<string> diagnostic, CancellationToken cancellationToken = default)
     {
         var tap = new VisualTreeTap(pid);
+        // Share the startup wait across all comments in this refresh.
+        var loadingDeadline = Environment.TickCount64 + 5000;
         for (var index = 0; index < comments.Count; index++)
         {
             if (!string.IsNullOrEmpty(comments[index].Anchor))
@@ -143,13 +145,13 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
             var comment = doc.Comments.Single(c => c.Id == comments[index].Id);
             try
             {
-                var (anchor, reason) = ResolveSourceAnchor(comment, pid, tap, sourceRoot, cancellationToken);
+                var (anchor, reason) = ResolveSourceAnchor(comment, pid, tap, sourceRoot, loadingDeadline, cancellationToken);
                 if (anchor is not null)
                 {
                     // This belongs to this refresh, not to the stored comment or its revision.
                     comments[index] = comments[index] with { Anchor = anchor };
                 }
-                else
+                else if (reason is not null)
                 {
                     diagnostic($"Comment '{comment.Id}' remains unplaced: {reason} Persisted comments are unchanged.");
                 }
@@ -163,7 +165,7 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
     }
 
     private static (string? Anchor, string? Reason) ResolveSourceAnchor(Comment comment, uint pid, VisualTreeTap tap,
-        string? sourceRoot, CancellationToken cancellationToken)
+        string? sourceRoot, long loadingDeadline, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var anchor = comment.Anchor;
@@ -171,7 +173,7 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
             string.IsNullOrEmpty(anchor.Identity.Name) || sourceRoot is null ||
             !CommentStoreLocator.SameProject(authored.ProjectRoot, comment.ProjectRoot))
         {
-            return (null, "No verified named source declaration is available. Re-add the comment on the running app.");
+            return (null, null);
         }
         if (anchor.Templated || authored.Templated)
         {
@@ -204,6 +206,16 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
             return (null, "The source name does not identify one live element. Keep the intended control visible and refresh again.");
         }
         var capture = CommentSelectionCapture.CaptureElement(pid, match.Handle, cancellationToken);
+        while (capture.Element?.Authored?.UniquenessReason == "incomplete-source-census")
+        {
+            var remaining = loadingDeadline - Environment.TickCount64;
+            if (remaining <= 0)
+            {
+                return (null, "The live search is incomplete. Refresh again after the app finishes loading.");
+            }
+            Task.Delay((int)Math.Min(250, remaining), cancellationToken).GetAwaiter().GetResult();
+            capture = CommentSelectionCapture.CaptureElement(pid, match.Handle, cancellationToken);
+        }
         if (capture.Status != CaptureStatus.Ok)
         {
             return (null, capture.Error?.Message ?? "The live element could not be verified.");

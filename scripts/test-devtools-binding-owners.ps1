@@ -984,6 +984,36 @@ try {
     Check ($closed.ok -eq $false) 'closed target is not rebound to the surviving Window'
     $overlay = (Invoke-Cli @('devtools', 'call', 'Overlay.getState', '-a', [string]$owned.Id)).result
     Check ($overlay.toolbarVisible -eq $false) 'overlay remains hidden'
+    if ($VerifyComments) {
+        Control 'exit'
+        Check ($owned.WaitForExit(30000) -and $owned.ExitCode -eq 0) 'original fixture exits before the launch-only marker check'
+        $owned = $null
+        $report += '.launch'
+        $launchStarted = [DateTime]::UtcNow
+        $launchArguments = '"' + $report + '" single-large'
+        $launch = Invoke-Cli @('run', $project, '--devtools', 'headless', '--detach', '--args', $launchArguments)
+        $candidate = Get-Process -Id $launch.processId -ErrorAction Stop
+        $executable = $candidate.Path
+        $started = $candidate.StartTime.ToUniversalTime()
+        if ($candidate.ProcessName -ne $name -or $started -lt $launchStarted -or
+            -not $executable.StartsWith($stage + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Relaunch did not identify the owned fixture.'
+        }
+        $owned = $candidate
+        $null = $owned.Handle
+        # Read placement before attach or any command that could warm source classification.
+        $markers = (Invoke-Cli @('devtools', 'call', 'Comment.list', '-a', [string]$owned.Id)).result
+        $marker = @($markers.comments | Where-Object id -eq 'offline-named')
+        Check ($marker.Count -eq 1 -and $marker[0].placed -and $marker[0].anchor) 'launch alone places the offline marker in the larger window'
+        $tree = Invoke-Cli @('devtools', 'inspect', '-a', [string]$owned.Id, '--all', '--depth', '30')
+        $nodes = @(Nodes $tree.elements)
+        $named = @($nodes | Where-Object name -eq 'WindowHeading')
+        Check ($nodes.Count -ge 400 -and $named.Count -eq 1 -and
+            $marker[0].handle -eq [string]$named[0].handle) 'launch marker targets the exact named handle in the larger tree'
+        $offlineCurrent = ((Get-Content -LiteralPath $storePath -Raw | ConvertFrom-Json).comments |
+            Where-Object id -eq 'offline-named') | ConvertTo-Json -Depth 100 -Compress
+        Check ($offlineCurrent -ceq $offlineStored) 'launch placement preserves the stored offline comment'
+    }
     [ordered]@{ checks = $checks; result = 'passed' } | ConvertTo-Json | Set-Content (Join-Path $evidence 'result.json')
 }
 finally {
