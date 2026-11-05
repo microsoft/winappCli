@@ -219,16 +219,22 @@ internal class NewCommand : Command, IShortDescription
     /// </summary>
     internal static bool TryGetInstalledPackVersion(string uninstallListOutput, out string? installedVersion)
     {
-        installedVersion = null;
-        foreach (var version in GetInstalledPackVersions(uninstallListOutput))
+        installedVersion = HighestVersion(GetInstalledPackVersions(uninstallListOutput));
+        return installedVersion is not null;
+    }
+
+    private static string? HighestVersion(IEnumerable<string> versions)
+    {
+        string? highest = null;
+        foreach (var version in versions)
         {
-            if (installedVersion is null || NuGetVersionHelper.Compare(version, installedVersion) is > 0)
+            if (highest is null || NuGetVersionHelper.Compare(version, highest) is > 0)
             {
-                installedVersion = version;
+                highest = version;
             }
         }
 
-        return installedVersion is not null;
+        return highest;
     }
 
     /// <summary>
@@ -871,7 +877,8 @@ internal class NewCommand : Command, IShortDescription
             DirectoryInfo cwd, VersionMode mode, string? explicitVersion, bool useDefaults, bool forListing,
             Version sdkVersion, bool isJson, bool quiet, CancellationToken cancellationToken)
         {
-            var installed = await QueryInstalledPackVersionAsync(cwd, cancellationToken);
+            var installedVersions = await QueryInstalledPackVersionsAsync(cwd, cancellationToken);
+            var installed = HighestVersion(installedVersions);
 
             switch (mode)
             {
@@ -890,10 +897,11 @@ internal class NewCommand : Command, IShortDescription
                     // not satisfy the request, so install exactly what was asked for. This keeps
                     // scaffolding reproducible across machines even when a newer pack is already present
                     // (which means downgrading the shared global pack when the caller pinned an older one).
-                    if (installed is not null
-                        && NuGetVersionHelper.Compare(installed, explicitVersion!) is 0)
+                    // Any installed copy counts: a local .nupkg copy can sit alongside a newer NuGet one.
+                    var pinned = installedVersions.FirstOrDefault(v => NuGetVersionHelper.Compare(v, explicitVersion!) is 0);
+                    if (pinned is not null)
                     {
-                        return (true, installed, null);
+                        return (true, pinned, null);
                     }
 
                     var (ok, err) = await InstallPackWithSpinnerAsync(cwd, explicitVersion, sdkVersion, isJson, quiet, cancellationToken);
@@ -1099,10 +1107,13 @@ internal class NewCommand : Command, IShortDescription
 
         /// <summary>Returns the installed WinUI pack version, or <c>null</c> when the pack isn't installed.</summary>
         private async Task<string?> QueryInstalledPackVersionAsync(DirectoryInfo cwd, CancellationToken cancellationToken)
+            => HighestVersion(await QueryInstalledPackVersionsAsync(cwd, cancellationToken));
+
+        private async Task<IReadOnlyList<string>> QueryInstalledPackVersionsAsync(DirectoryInfo cwd, CancellationToken cancellationToken)
         {
             var (exit, output, stderr) = await dotNetService.RunDotnetCommandAsync(cwd, ListTemplatePacksArgs, EnglishUiEnvironment, cancellationToken: cancellationToken);
             LogDotnetOutput(ListTemplatePacksArgs, exit, output, stderr);
-            return exit == 0 && TryGetInstalledPackVersion(output, out var version) ? version : null;
+            return exit == 0 ? GetInstalledPackVersions(output) : [];
         }
 
         /// <summary>

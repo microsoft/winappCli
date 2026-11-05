@@ -1119,6 +1119,23 @@ public class NewCommandHandlerTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Handler_TwoPackCopies_PinToOlderInstalledCopyUsesItWithoutReinstalling()
+    {
+        // The older copy may exist only as a local .nupkg, so reinstalling it from the feed can fail.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["--template", "winui", "--template-version", "0.0.5-alpha", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.AreEqual(0, _dotnet.ArgumentListInvocations.Count(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
+            "The pinned version is already installed, so nothing should be reinstalled.");
+        Assert.AreEqual("winui", ScaffoldInvocation()?[1]);
+        Assert.AreEqual("0.0.5-alpha", ParseJson(TestAnsiConsole.Output).GetProperty("TemplateVersion").GetString());
+    }
+
+    [TestMethod]
     public async Task Handler_TwoPackCopies_ListHeaderOmitsSinglePackVersion()
     {
         ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
