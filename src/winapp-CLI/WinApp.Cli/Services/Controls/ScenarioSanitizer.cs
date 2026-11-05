@@ -232,7 +232,7 @@ internal static partial class ScenarioSanitizer
     /// header would otherwise forge what reads as an extra result row (id + description)
     /// even with every escape byte already removed.
     /// </summary>
-    private static string? StripLineControlChars(string? value)
+    internal static string? StripLineControlChars(string? value)
     {
         if (string.IsNullOrEmpty(value)) return value;
 

@@ -92,6 +92,23 @@ internal sealed class FindUiMatchJson
     public required List<FindUiScenarioJson> Scenarios { get; set; }
 }
 
+internal sealed class AskJsonOutput
+{
+    public required string Query { get; set; }
+    public string? Corpus { get; set; }
+    public required List<FindUiMatchJson> Matches { get; set; }
+    public required List<AskDocJson> Docs { get; set; }
+    public string? SamplesError { get; set; }
+    public string? DocsError { get; set; }
+}
+
+internal sealed class AskDocJson
+{
+    public required string Title { get; set; }
+    public required string Url { get; set; }
+    public required string Excerpt { get; set; }
+}
+
 internal sealed class FindUiScenarioJson
 {
     public required string Id { get; set; }
@@ -157,6 +174,7 @@ internal sealed class FindUiCodeEntryJson
 [JsonSerializable(typeof(FindUiSearchJsonOutput))]
 [JsonSerializable(typeof(FindUiListJsonOutput))]
 [JsonSerializable(typeof(FindUiCodeJsonOutput))]
+[JsonSerializable(typeof(AskJsonOutput))]
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     NewLine = "\n",

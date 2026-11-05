@@ -25,6 +25,25 @@ namespace WinApp.Cli.Tests;
 public class ProgramJsonBridgeTests : BaseCommandTests
 {
     [TestMethod]
+    [DataRow("missing")]
+    [DataRow("unknown-option")]
+    [DataRow("invalid-json")]
+    public async Task Ask_ParseErrors_AreFlatJsonOnStdout(string error)
+    {
+        var args = error switch
+        {
+            "missing" => new[] { "ask", "--json" },
+            "unknown-option" => new[] { "ask", "tabview", "--unknown", "--json" },
+            _ => new[] { "ask", "tabview", "--json=bogus" }
+        };
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);
+        Assert.AreEqual(1, exitCode);
+        using var doc = JsonDocument.Parse(stdout);
+        Assert.IsTrue(doc.RootElement.TryGetProperty("error", out _));
+        Assert.AreEqual("", stderr.Trim());
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task MalformedSandboxEnvironment_IsRejectedBeforeHostChecks(bool run)
