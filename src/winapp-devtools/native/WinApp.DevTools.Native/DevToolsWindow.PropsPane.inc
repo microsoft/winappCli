@@ -57,6 +57,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     ReleaseLayoutSectionRefs();
     g_propViewSelector = nullptr;
     g_sourceStatus = nullptr;
+    g_commentBoxParts.clear();
     // Selecting a DIFFERENT node resets the pane state that describes what happened to the selection's rows:
     // lost bindings and links, unconfirmed writes, staged kinds. Edit records are kept for the whole session, so
     // Restore still works after the user comes back to an element; only records for elements that are gone are dropped.
@@ -463,6 +464,7 @@ static void ResetRoute1State()
     if (g_ctx.highlightFn) g_ctx.highlightFn(0, true);
     // Release the editable inspector state (message footer + props-host children).
     g_sourceStatus = nullptr;
+    g_commentBoxParts.clear();
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
     if (g_statusHostUi) { reinterpret_cast<IUnknown*>(g_statusHostUi)->Release(); g_statusHostUi = nullptr; }
     ReleaseLayoutSectionRefs(); ReleasePropFilterState();
