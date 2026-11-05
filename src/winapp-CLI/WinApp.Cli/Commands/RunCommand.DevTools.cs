@@ -147,11 +147,19 @@ internal partial class RunCommand
                 Unavailable = devToolsUnavailable,
             };
 
-        // The one line a run prints when DevTools came from the default rather than the command line.
-        internal static string? DefaultDevToolsLine(DevToolsResolution run, bool dotnetRun = false) => run is { Enabled: true, FailOpen: true }
-            ? $"DevTools {run.Mode.ToString().ToLowerInvariant()} ({(run.Source == DevToolsModeSource.Setting ? "your default" : "default")}) · " +
-              $"turn off: {(dotnetRun ? "-p:WinAppRunDevTools=off" : "--devtools off")} or winapp config set run.devtools off"
-            : null;
+        // The one line a run prints when DevTools came from the default rather than the command line:
+        // how to flip it for one run and by default.
+        internal static string? DefaultDevToolsLine(DevToolsResolution run, bool dotnetRun = false)
+        {
+            if (run is not { Enabled: true, FailOpen: true } && run is not { Mode: DevToolsMode.Off, Source: DevToolsModeSource.Setting })
+            {
+                return null;
+            }
+            var flip = run.Enabled ? "off" : "on";
+            return $"DevTools {run.Mode.ToString().ToLowerInvariant()} ({(run.Source == DevToolsModeSource.Setting ? "your default" : "default")}) · " +
+                $"turn {flip} for one run: {(dotnetRun ? $"-p:WinAppRunDevTools={flip}" : $"--devtools {flip}")} · " +
+                $"by default: winapp config set run.devtools {flip}";
+        }
 
         // 'dotnet run' through the NuGet package: options reach winapp as MSBuild properties.
         private bool dotnetRun;
