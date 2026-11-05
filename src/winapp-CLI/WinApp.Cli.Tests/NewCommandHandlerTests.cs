@@ -1122,6 +1122,32 @@ public class NewCommandHandlerTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("winui", NewCommand.ExitTemplatePackFailed)]
+    [DataRow("winui-navview", NewCommand.ExitSuccess)]
+    public async Task Handler_TwoPackCopies_LatestRejectsTemplateFromOlderCopy(string template, int expectedExit)
+    {
+        // The feed reports 0.0.7-alpha as current. winui comes from the 0.0.5-alpha copy, so 'latest'
+        // must not scaffold it; winui-navview comes from the 0.0.7-alpha copy.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["--template", template, "--template-version", "latest", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(expectedExit, exitCode, TestAnsiConsole.Output);
+        var json = ParseJson(TestAnsiConsole.Output);
+        if (expectedExit == NewCommand.ExitSuccess)
+        {
+            Assert.AreEqual("0.0.7-alpha", json.GetProperty("TemplateVersion").GetString());
+        }
+        else
+        {
+            Assert.IsNull(ScaffoldInvocation(), "'latest' must not scaffold from an older copy of the pack.");
+            StringAssert.Contains(json.GetProperty("Error").GetString(), $"dotnet new uninstall {NewCommand.TemplatePackageId}");
+        }
+    }
+
+    [TestMethod]
     public async Task Handler_TwoPackCopies_PinToOlderInstalledCopyUsesItWithoutReinstalling()
     {
         // The older copy may exist only as a local .nupkg, so reinstalling it from the feed can fail.

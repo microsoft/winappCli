@@ -602,12 +602,19 @@ internal class NewCommand : Command, IShortDescription
             tel.TemplateIsItem = entry.IsItem;
 
             // With more than one copy of the pack installed, the selected template may come from a
-            // different copy than the highest installed version.
+            // different copy than the highest installed version. An explicit or latest request must
+            // not silently scaffold from another copy.
             if (installedCopies.Count > 1 && entry.PackVersion is not null)
             {
-                if (mode == VersionMode.Explicit && NuGetVersionHelper.Compare(entry.PackVersion, explicitVersion!) is not 0)
+                var requestedVersion = mode switch
                 {
-                    var pinError = $"Template '{entry.ShortName}' comes from WinUI template pack {entry.PackVersion}, not the requested {explicitVersion}, because "
+                    VersionMode.Explicit => explicitVersion,
+                    VersionMode.Latest => packVersion,
+                    _ => null,
+                };
+                if (requestedVersion is not null && NuGetVersionHelper.Compare(entry.PackVersion, requestedVersion) is not 0)
+                {
+                    var pinError = $"Template '{entry.ShortName}' comes from WinUI template pack {entry.PackVersion}, not the requested {requestedVersion}, because "
                         + $"{installedCopies.Count} copies of the pack are installed ({string.Join(", ", installedCopies)}). "
                         + $"Run 'dotnet new uninstall {TemplatePackageId}' (it removes every copy), then re-run 'winapp new'.";
                     if (isJson)
