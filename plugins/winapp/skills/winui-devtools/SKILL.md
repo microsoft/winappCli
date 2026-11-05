@@ -123,6 +123,10 @@ precedence. If the connection fails, follow the
 do not retry against the current folder's store.
 Mutations refresh the markers of running DevTools apps (local and Sandbox) that use
 the same store; no `--app` is needed. See the guide for save-warning behavior.
+Offline `--file`/`--name` comments can acquire markers at launch or refresh only
+when the saved declaration still matches one verified live instance. A refusal
+leaves the comment saved and explains why; never resolve it by name alone. See
+[offline markers](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#comment-storage-and-advanced-authoring).
 
 Use current `hits`, not historical `anchor.line`. Runtime text need not appear in
 XAML. When `requiresConfirmation` is true, show the ranked candidates and obtain
