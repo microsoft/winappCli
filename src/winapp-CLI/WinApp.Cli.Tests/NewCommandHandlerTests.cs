@@ -1053,6 +1053,9 @@ public class NewCommandHandlerTests : BaseCommandTests
             "Templates listed under either copy of the pack must all be offered.");
         Assert.AreEqual(0, _dotnet.ArgumentListInvocations.Count(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
             "The highest installed copy is already current, so nothing should be reinstalled.");
+        Assert.IsTrue(
+            !json.TryGetProperty("TemplateVersion", out var listVersion) || listVersion.ValueKind == JsonValueKind.Null,
+            "The templates come from two pack versions, so the list must not name just one.");
     }
 
     [TestMethod]

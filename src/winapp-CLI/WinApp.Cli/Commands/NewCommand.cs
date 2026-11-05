@@ -550,14 +550,15 @@ internal class NewCommand : Command, IShortDescription
             // --list: print the catalog and exit without scaffolding.
             if (list)
             {
+                // With several copies installed, the templates come from more than one pack version.
+                var listVersion = installedCopies.Count > 1 ? null : packVersion;
                 if (isJson)
                 {
-                    PrintListJson(packVersion, templates, null);
+                    PrintListJson(listVersion, templates, null);
                 }
                 else if (!quiet)
                 {
-                    // With several copies installed, the templates come from more than one pack version.
-                    WriteTemplateList(templates, installedCopies.Count > 1 ? null : packVersion);
+                    WriteTemplateList(templates, listVersion);
                 }
                 return ExitSuccess;
             }
