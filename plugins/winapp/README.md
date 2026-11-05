@@ -33,7 +33,8 @@ WinApp CLI downloads what each command needs:
 The plugin has no MCP server and sends no data itself. WinApp CLI sends data in these cases:
 
 - Signing with Azure Trusted Signing uses your Azure sign-in to find your signing account, then sends each file's digest to it.
-- Signing with a timestamp sends the signature's hash to the timestamp server; these skills use DigiCert's.
+- Signing with a timestamp sends the signature's hash to a timestamp server: DigiCert's in these skills' `winapp sign` examples, and Microsoft's for Azure Trusted Signing.
+- Submitting to the Microsoft Store with `winapp store` uploads your app package to Microsoft Partner Center.
 - WinApp CLI sends anonymous usage data to Microsoft; see [telemetry](https://github.com/microsoft/WinAppCli/blob/main/docs/telemetry.md) to turn it off.
 
 ## Install
