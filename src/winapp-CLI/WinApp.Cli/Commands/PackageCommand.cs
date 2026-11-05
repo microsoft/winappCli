@@ -160,7 +160,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
         PropertyOption = new Option<string[]>("--property")
         {
             HelpName = "Name=Value",
-            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c, -f, and --arch instead of -p for configuration, framework, and architecture. Requires a .csproj or .vcxproj input; rejected for folder/bundle/manifest inputs.",
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -f and --arch instead of -p for framework and architecture. -p Configuration=<name> selects the configuration like -c. Requires a .csproj or .vcxproj input; rejected for folder/bundle/manifest inputs.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };

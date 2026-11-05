@@ -121,6 +121,7 @@ internal sealed class FakeGuestProcessHost : IGuestProcessHost
     private readonly TaskCompletionSource<int> _exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Func<GuestStreamId, ReadOnlyMemory<byte>, Task> _onOutput;
     private readonly Action<GuestExecRequest, int>? _onExit;
+    private int _exitClaimed;
 
     /// <summary>Creates a host that reports <paramref name="processId"/>.</summary>
     public FakeGuestProcessHost(
@@ -169,11 +170,27 @@ internal sealed class FakeGuestProcessHost : IGuestProcessHost
     public Task InitialOutput { get; set; } = Task.CompletedTask;
 
     /// <summary>Completes the child with <paramref name="exitCode"/>.</summary>
-    public void Exit(int exitCode)
+    public void Exit(int exitCode) => CompleteExit(exitCode, invokeCallback: true);
+
+    private void CompleteExit(int exitCode, bool invokeCallback = false)
     {
-        if (_exit.TrySetResult(exitCode))
+        if (Interlocked.CompareExchange(ref _exitClaimed, 1, 0) != 0)
         {
-            _onExit?.Invoke(Request, exitCode);
+            return;
+        }
+
+        try
+        {
+            if (invokeCallback)
+            {
+                _onExit?.Invoke(Request, exitCode);
+            }
+            _exit.TrySetResult(exitCode);
+        }
+        catch (Exception ex)
+        {
+            _exit.TrySetException(ex);
+            throw;
         }
     }
 
@@ -205,7 +222,7 @@ internal sealed class FakeGuestProcessHost : IGuestProcessHost
         }
 
         // A real host force-terminates after the timeout; the exit code below stands in for that.
-        _exit.TrySetResult(-1);
+        CompleteExit(-1);
         return -1;
     }
 
@@ -213,7 +230,7 @@ internal sealed class FakeGuestProcessHost : IGuestProcessHost
     public ValueTask DisposeAsync()
     {
         Disposed = true;
-        _exit.TrySetResult(-1);
+        CompleteExit(-1);
         return ValueTask.CompletedTask;
     }
 }
