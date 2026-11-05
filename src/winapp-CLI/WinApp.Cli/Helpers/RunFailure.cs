@@ -43,25 +43,15 @@ internal static class RunFailure
         try
         {
             var manifest = Path.Combine(layout.FullName, "AppxManifest.xml");
-            if (!File.Exists(manifest))
+            if (!File.Exists(manifest) ||
+                Services.AppxManifestDocument.Load(manifest).ApplicationExecutable is not { Length: > 0 } executable ||
+                executable.Contains('$') || Path.IsPathRooted(executable))
             {
                 return [];
             }
             var root = Path.GetFullPath(layout.FullName).TrimEnd('\\') + '\\';
-            var pids = new HashSet<int>();
-            foreach (var executable in Services.AppxManifestDocument.Load(manifest).ApplicationExecutables)
-            {
-                if (string.IsNullOrWhiteSpace(executable) || executable.Contains('$') || Path.IsPathRooted(executable))
-                {
-                    continue;
-                }
-                var image = Path.GetFullPath(Path.Join(root, executable));
-                if (image.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                {
-                    pids.UnionWith(ProcessesRunningFrom(image));
-                }
-            }
-            return [.. pids.Order()];
+            var image = Path.GetFullPath(Path.Join(root, executable));
+            return image.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? ProcessesRunningFrom(image) : [];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or
             NotSupportedException or System.Xml.XmlException)

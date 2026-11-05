@@ -63,7 +63,7 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void RunningInstancesAreFoundFromTheLayoutManifest(bool secondaryApplication)
+    public void RunningInstancesAreFoundOnlyForTheFirstLayoutApplication(bool secondaryApplication)
     {
         var layout = Directory.CreateTempSubdirectory("winapp-layout-");
         try
@@ -82,7 +82,8 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
                 Path.Combine(layout.FullName, "App.exe"), "-n 30 127.0.0.1") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true })!;
             try
             {
-                CollectionAssert.AreEqual(new[] { app.Id }, RunFailure.ProcessesRunningFromLayout(layout).ToArray());
+                CollectionAssert.AreEqual(secondaryApplication ? Array.Empty<int>() : new[] { app.Id },
+                    RunFailure.ProcessesRunningFromLayout(layout).ToArray());
             }
             finally
             {

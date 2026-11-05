@@ -705,9 +705,13 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
-    [DataRow("on")]
-    [DataRow("headless")]
-    public async Task Explicit_EnvironmentFailure_PreservesRunningSecondaryApplication(string mode)
+    [DataRow("on", true)]
+    [DataRow("headless", true)]
+    [DataRow("on", false)]
+    [DataRow("headless", false)]
+    [DataRow("off", false)]
+    [DataRow("default", false)]
+    public async Task Run_DoesNotCloseSecondaryApplication(string mode, bool preparationFails)
     {
         var app = WinUIProject(true);
         var previousLayout = _tempDirectory.CreateSubdirectory("secondary-layout");
@@ -718,29 +722,31 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
                 new System.Xml.Linq.XAttribute("Id", "Secondary"),
                 new System.Xml.Linq.XAttribute("Executable", "Secondary.exe")));
         manifest.Save(Path.Join(previousLayout.FullName, "AppxManifest.xml"));
-        _registration.FakeDevPackages =
-        [
-            new("previous-package", manifest.IdentityName!, "1.0.0.0", previousLayout.FullName, true, manifest.IdentityPublisher),
-        ];
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ProcessesRunningFromLayout = RunFailure.ProcessesRunningFromLayout;
         var closed = new List<int>();
         handler.CloseRunningProcess = pid => { closed.Add(pid); return true; };
-        handler.CreateDevToolsEnvironment = (_, _) => throw new IOException("controlled staging failure");
+        if (preparationFails)
+        {
+            handler.CreateDevToolsEnvironment = (_, _) => throw new IOException("controlled staging failure");
+        }
         var executable = Path.Join(previousLayout.FullName, "Secondary.exe");
         File.Copy(Path.Join(Environment.SystemDirectory, "PING.EXE"), executable);
         using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
             executable, "-n 60 127.0.0.1") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true })!;
         try
         {
-            Assert.AreEqual(1, await Run(app.Input, "--devtools", mode, "--detach", "--json",
-                "--output-appx-directory", previousLayout.FullName), TestAnsiConsole.Output);
+            string[] devTools = mode == "default" ? [] : ["--devtools", mode];
+            Assert.AreEqual(preparationFails ? 1 : 0, await Run(app.Input, [.. devTools, "--detach", "--json",
+                "--output-appx-directory", previousLayout.FullName]), TestAnsiConsole.Output);
             Assert.IsFalse(process.HasExited);
-            Assert.IsEmpty(closed);
-            Assert.IsEmpty(_msix.AddLooseLayoutCalls);
-            Assert.IsEmpty(_launcher.LaunchCalls);
-            Assert.IsEmpty(_launcher.LaunchExecutableCalls);
-            StringAssert.Contains(TestAnsiConsole.Output, "controlled staging failure");
+            Assert.IsEmpty(closed, "The helper must not be closed even when registration keeps the package unchanged.");
+            Assert.AreEqual(preparationFails ? 0 : 1, _msix.AddLooseLayoutCalls.Count);
+            Assert.AreEqual(preparationFails ? 0 : 1, _launcher.LaunchCalls.Count + _launcher.LaunchExecutableCalls.Count);
+            if (preparationFails)
+            {
+                StringAssert.Contains(TestAnsiConsole.Output, "controlled staging failure");
+            }
         }
         finally
         {
