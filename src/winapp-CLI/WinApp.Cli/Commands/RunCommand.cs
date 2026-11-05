@@ -912,6 +912,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             string? errorMessage = null;
             DirectoryInfo? resolvedOutputDir = null;
             InspectorAlias? inspectorAlias = null;
+            IReadOnlyDictionary<string, string?>? devToolsEnvironment = null;
             int[] replaced = [];
             int[] closedForDevTools = [];
             string? devToolsStepAside = null;
@@ -1029,6 +1030,48 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     {
                         // Under --watch the previous launch's app is still closing when dotnet watch restarts.
                         runningBefore = await WaitForLayoutToCloseAsync(outputAppXDirectory, cancellationToken);
+                    }
+                    if (devTools)
+                    {
+                        try
+                        {
+                            var sourceProject = projectFile ?? devToolsProject;
+                            var sourceManifest = MsixService.ResolveManifestPlaceholders(
+                                await File.ReadAllTextAsync(resolvedManifest.FullName, cancellationToken),
+                                executable, inputFolder, taskContext);
+                            var sourceDocument = AppxManifestDocument.Parse(sourceManifest);
+                            var sourceExecutable = sourceDocument.ApplicationExecutable;
+                            var managedProject = sourceProject is not null && !ProjectRunService.IsCppProject(sourceProject);
+                            var runtimeConfigExists = false;
+                            if (!nativeAot && !managedProject && sourceExecutable is { Length: > 0 } && !Path.IsPathRooted(sourceExecutable))
+                            {
+                                var runtimeConfig = Path.ChangeExtension(sourceExecutable, ".runtimeconfig.json");
+                                var usesRecipe = sourceDocument.Document.Root?
+                                    .Element(AppxManifestDocument.BuildNs + "Metadata")?
+                                    .Elements(AppxManifestDocument.BuildNs + "Item")
+                                    .Any(item => string.Equals(item.Attribute("Name")?.Value, "makepri.exe", StringComparison.OrdinalIgnoreCase)) == true;
+                                var recipe = appxRecipe ?? (usesRecipe
+                                    ? inputFolder.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault()
+                                    : null);
+                                runtimeConfigExists = recipe is not null
+                                    ? MsixService.RecipeContainsPackageFile(recipe, outputAppXDirectory, runtimeConfig)
+                                    : File.Exists(Path.Combine(inputFolder.FullName, runtimeConfig));
+                            }
+                            var managed = !nativeAot && (managedProject || runtimeConfigExists);
+                            devToolsEnvironment = CreateDevToolsEnvironment(sourceProject?.DirectoryName, managed);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                        {
+                            if (!devToolsRun.FailOpen)
+                            {
+                                DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.Failed);
+                                errorMessage = $"Could not prepare DevTools: {RunFailure.Describe(ex)}";
+                                return (1, $"{UiSymbols.Error} {errorMessage}");
+                            }
+                            devToolsStepAside = $"it could not be prepared: {RunFailure.Describe(ex)}";
+                            devTools = false;
+                            effectiveAlias = AliasLaunchDecision.Aumid;
+                        }
                     }
                     if (runningBefore.Count > 0)
                     {
@@ -1190,8 +1233,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             if (devTools)
             {
                 if (await RunInspectorAliasAsync(inspectorAlias, inputFolder, projectFile ?? devToolsProject, aumid, appArgs,
-                    debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName, cancellationToken,
-                    nativeAot, devToolsSources, devToolsCompilerArtifacts) is int inspected)
+                    debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName,
+                    devToolsEnvironment!, cancellationToken, devToolsSources, devToolsCompilerArtifacts) is int inspected)
                 {
                     return inspected;
                 }

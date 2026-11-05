@@ -187,6 +187,20 @@ Changes refresh markers in running DevTools apps for the same project, Sandbox i
 but doesn't undo the save. A corrupt store is left untouched. In the app, **Saving...**
 isn't confirmation; the **Comment saved** notice is, and a failed save keeps your draft.
 
+Comments created offline can acquire markers when you launch or refresh the app:
+
+```powershell
+winapp devtools comments add --file MainWindow.xaml --name SaveButton --text "Make this label clearer"
+winapp run . --devtools on
+```
+
+The saved declaration must still match the source, and DevTools must verify one live
+instance of that declaration. Template instances, repeated names, changed source and
+unverified compiler output leave the comment unplaced and report why. Rebuild and
+relaunch for stale build output; re-add the comment if its source declaration changed.
+This also applies to the host comments shown in Sandbox. Refreshing never changes a
+saved comment's identity.
+
 ## Element references
 
 `get-property` (without a property name) and the DevTools window's **References**

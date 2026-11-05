@@ -265,7 +265,8 @@ internal partial class RunCommand
         private async Task<int?> RunInspectorAliasAsync(
             InspectorAlias? alias, DirectoryInfo inputFolder, FileInfo? projectFile, string? aumid, string? arguments,
             bool debugOutput, bool useSymbols, bool detach, bool isJson, bool showOverlay, bool unregisterOnExit,
-            string? packageName, string? packageFullName, CancellationToken cancellationToken, bool nativeAot = false,
+            string? packageName, string? packageFullName, IReadOnlyDictionary<string, string?> preparedEnvironment,
+            CancellationToken cancellationToken,
             IReadOnlyList<string>? sources = null, XamlCompilerArtifacts? compiler = null)
         {
             if (alias?.Target is null || alias.Error is not null)
@@ -283,15 +284,14 @@ internal partial class RunCommand
             var launchedAny = false;
             try
             {
-                var managed = !nativeAot && (projectFile is not null && !ProjectRunService.IsCppProject(projectFile) ||
-                    (alias.Target.TargetExecutable is { } executable && File.Exists(Path.ChangeExtension(executable, ".runtimeconfig.json"))));
-                if (managed && alias.Target.TargetExecutable is { } targetImage &&
+                // Startup hooks the app's runtimeconfig turns off keep the managed agent out; only a managed app has one.
+                if (alias.Target.TargetExecutable is { } targetImage &&
                     DevToolsStartupHooks.DisabledByRuntimeConfig(Path.ChangeExtension(targetImage, ".runtimeconfig.json")))
                 {
                     logger.LogWarning("{Message}", DevToolsStartupHooks.DisabledWarning(devToolsReactor is not null));
                 }
-                var environment = ReactorBuildFacts.ApplyEnvironment(CreateDevToolsEnvironment(projectFile?.DirectoryName, managed), devToolsReactor);
-                environment = WithHotReloadEnvironment(environment, watchAppEnvironment);
+                var environment = WithHotReloadEnvironment(ReactorBuildFacts.ApplyEnvironment(preparedEnvironment, devToolsReactor),
+                    watchAppEnvironment);
                 using var coordinates = await XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(projectFile, sources, compiler, cancellationToken,
                     (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(alias.Target.TargetExecutable!)!, token));
                 if (coordinates is not null)

@@ -318,6 +318,14 @@ internal partial class RunCommand
             }
 
             var resolution = outcome.Resolution;
+            if (devToolsRun is { Enabled: true, FailOpen: false } &&
+                resolution.DevToolsUnsupportedFramework is ProjectAppFramework.Wpf or ProjectAppFramework.WinForms)
+            {
+                var unsupported = resolution.DevToolsUnsupportedFramework == ProjectAppFramework.Wpf ? "WPF" : "Windows Forms";
+                return Fail($"DevTools requires WinUI 3; '{csproj.Name}' is a {unsupported}-only project. " +
+                    "Run with --devtools off to start the app without DevTools.", isJson);
+            }
+
             if (devToolsRun.Enabled && resolution.DevToolsReactor is { } reactor)
             {
                 devToolsReactor = reactor;
@@ -498,10 +506,14 @@ internal partial class RunCommand
                         logger.LogWarning("{Message}", Services.DevTools.DevToolsStartupHooks.DisabledWarning(devToolsReactor is not null));
                     }
                 }
-                catch (Exception ex) when (devToolsRun.FailOpen && ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
                     coordinates?.Dispose();
                     coordinates = null;
+                    if (!devToolsRun.FailOpen)
+                    {
+                        return InspectorFailure(null, null, $"Could not prepare DevTools: {RunFailure.Describe(ex)}", isJson);
+                    }
                     DevToolsStepsAside($"it could not be prepared: {RunFailure.Describe(ex)}", isJson);
                     devTools = false;
                 }

@@ -264,6 +264,7 @@ internal sealed partial class ProjectRunService
         if (options.CaptureDevToolsSources)
         {
             tokens.Add("--getItem:Page,ApplicationDefinition");
+            tokens.Add("--getItem:PackageReference,ProjectReference,Reference");
             foreach (var property in DevTools.XamlSourceCoordinates.Properties) { tokens.Add($"--getProperty:{property}"); }
             if (publish)
             {
@@ -440,6 +441,7 @@ internal sealed partial class ProjectRunService
         if (options.CaptureDevToolsSources)
         {
             tokens.Add("--getItem:Page,ApplicationDefinition");
+            tokens.Add("--getItem:PackageReference,ProjectReference,Reference");
             foreach (var property in DevTools.XamlSourceCoordinates.Properties) { tokens.Add($"--getProperty:{property}"); }
         }
 

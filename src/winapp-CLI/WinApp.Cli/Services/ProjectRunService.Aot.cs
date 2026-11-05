@@ -85,6 +85,8 @@ internal sealed partial class ProjectRunService
                 ? DevTools.XamlSourceCoordinates.FromProperties(csproj, properties) : null,
             DevToolsReactor = options.CaptureDevToolsSources
                 ? DevTools.ReactorBuildFacts.From(properties, GetProp(properties, "ProjectAssetsFile")) : null,
+            DevToolsUnsupportedFramework = options.CaptureDevToolsSources
+                ? ReadDevToolsUnsupportedFramework(properties, publish.Properties) : ProjectAppFramework.Unknown,
         };
         logger.LogDebug(
             "{UISymbol} Native AOT output: PublishDir={PublishDir}; executable={Executable}; manifest={Manifest}; recipe={Recipe}",
