@@ -1167,19 +1167,18 @@ internal sealed partial class ProjectRunService(
 
     private void WarnOnOverriddenFlags(ProjectRunOptions options)
     {
-        // Match dotnet's behavior (dedicated flag wins over a same-named -p) but leave a debug trail.
+        // Match dotnet's behavior (dedicated flag wins over a same-named -p) but leave a debug trail. A user
+        // -p Configuration is resolved into options.Configuration by the command, so it is never overridden.
         foreach (var property in options.Properties)
         {
             foreach (var segment in PropertySegments(property))
             {
                 var name = PropertyName(segment);
-                if (name.Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
-                    name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
+                if (name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
                 {
                     // A lone -p RuntimeIdentifier with no --arch is HONORED as an exact-RID override
                     // (ExactRuntimeIdentifier), not overridden — don't claim otherwise.
-                    if (name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase) &&
-                        options.ExactRuntimeIdentifier is { Length: > 0 })
+                    if (options.ExactRuntimeIdentifier is { Length: > 0 })
                     {
                         continue;
                     }

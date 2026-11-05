@@ -59,15 +59,12 @@ internal partial class PackageCommand
 
             // -p Configuration=Release is how Visual Studio users pick the configuration, so treat it like -c.
             // Both are allowed only when they name the same configuration.
-            var configuration = parseResult.GetValue(ConfigurationOption) ?? "Release";
-            if (ProjectRunService.CppConfigurationFromProperties(properties) is { } propertyConfiguration)
+            if (!ProjectRunService.TryResolveConfiguration(
+                    parseResult.GetValue(ConfigurationOption) ?? "Release",
+                    parseResult.GetResult(ConfigurationOption) is { Implicit: false }, properties,
+                    out var configuration, out var configurationError))
             {
-                if (parseResult.GetResult(ConfigurationOption) is { Implicit: false }
-                    && !string.Equals(propertyConfiguration, configuration, StringComparison.OrdinalIgnoreCase))
-                {
-                    return Fail($"-p Configuration={propertyConfiguration} conflicts with -c {configuration}. Pass only one of them.");
-                }
-                configuration = propertyConfiguration;
+                return Fail(configurationError!);
             }
 
             // --arch wins; otherwise -p Platform=ARM64 selects the architecture, as in Visual Studio. A

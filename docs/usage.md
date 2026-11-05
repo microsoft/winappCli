@@ -189,6 +189,7 @@ Each template's canonical short name is the first alias `dotnet new` lists for i
 
 `winapp new` no longer pins a specific template pack version. If no pack is installed it installs the **latest**. If an older pack is already installed it checks the feed and, when a newer one exists, **prompts** whether to update — except in non-interactive/`--use-defaults` runs, which keep the installed pack. Use `--template-version latest` to always take the newest without prompting (it never replaces an installed pack with an older one, and fails if the feed can't be checked), or `--template-version installed` to always use the downloaded pack without a network check. Passing an **explicit** version (e.g. `--template-version 1.2.3`) always installs exactly that version — reinstalling even when a newer pack is already present — so scaffolding is reproducible across machines.
 
+`dotnet new` can hold two copies of the pack at once, for example one from NuGet and one installed from a local `.nupkg`. `winapp new` still creates the project and warns that several copies are installed. If you pass `--template-version` and `dotnet new` would take the template from a different copy, `winapp new` stops instead. In either case, run `dotnet new uninstall Microsoft.WindowsAppSDK.WinUI.CSharp.Templates` (it removes every copy) and re-run `winapp new`.
 > [!NOTE]
 > **A first run may take longer:** Installing or updating the template pack, or restoring missing Windows App SDK NuGet packages used by the selected template, can require additional downloads. This can also happen after a new Windows App SDK version is published. If scaffolding is still running after 10 seconds, `winapp new` updates its status message to indicate that packages may be downloading or restoring.
 
@@ -346,7 +347,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Project-mode options** (require a `.csproj` or `.vcxproj` input; rejected for folder/bundle/manifest inputs):
 
-- `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
+- `--configuration <name>` (`-c`) - Build configuration (default: `Release`). `-p Configuration=<name>` also selects it; passing both with different values is an error.
 - `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture). Repeat it to build a multi-architecture bundle from a `.csproj`.
 - `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted .NET projects
 - `--no-build` - Package the existing build output without rebuilding
@@ -928,7 +929,7 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 
 **Project-mode options** (ignored in folder mode unless noted):
 
-- `-c, --configuration <name>` - Build configuration. Default: `Debug`. *(Also honored in single-file mode.)*
+- `-c, --configuration <name>` - Build configuration. Default: `Debug`. `-p Configuration=<name>` also selects it; passing both with different values is an error. *(Also honored in single-file mode.)*
 - `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines the build RID and Windows App Runtime architecture, and selects a matching platform-dependent publish profile when required by the effective build. *(Also honored in single-file mode.)* For a project, an architecture this machine can't run (such as arm64 on an x64 PC) is rejected before building unless `--no-launch` is set.
 - `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch` and can select the required publish profile. *(Also honored in single-file mode, where it overrides a `#:property RuntimeIdentifier` declared by the file.)*
 - `-f, --framework <tfm>` - Target framework moniker for multi-targeted projects (e.g. `net10.0-windows10.0.26100.0`). *(Rejected in single-file mode — use `#:property TargetFramework=...`.)*
@@ -996,7 +997,7 @@ winapp run . --no-build --detach --json
 
 - A WinUI 3 C++/WinRT app from the Visual Studio **WinUI Blank App (Packaged)** template runs packaged. Other application projects, such as a console app or a WinUI app built with `-p WindowsPackageType=None`, run unpackaged from their built `.exe`.
 - A WinUI app starts with [DevTools](guides/devtools.md#turn-devtools-on-or-off) on, like a .NET WinUI project; pass `--devtools off` to skip it.
-- Builds `Debug` for the current architecture by default. `-c Release` or `-p Configuration=Release` selects the configuration, and `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture. Passing both forms with different values is an error. A custom `-p Platform` name is passed through.
+- Builds `Debug` for the current architecture by default. `-c Release` or `-p Configuration=Release` selects the configuration, and `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture. Passing `--arch` and `-p Platform` with different values is an error. A custom `-p Platform` name is passed through.
 - Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version the build uses, including when the Windows App SDK props are imported from a shared `.props` file rather than listed in the project's own `packages.config`. Packaged apps also get the framework packages the build references, such as the Debug VC++ runtime, installed when missing.
 - `--framework` and `--aot` apply only to .NET projects.
 - Build output shows MSBuild's warnings and errors only, with a spinner while it builds; `--verbose` shows MSBuild's full output and exact command.
@@ -1434,7 +1435,7 @@ winapp unregister [input] [options]
 - `--expect-sandbox <id>` - Use only the Sandbox with this provider GUID, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 - `--prune` - Remove every development-mode registration whose files are gone. Cannot be combined with an input, `--manifest`, `--property`, `--configuration`, `--arch`, `--runtime`, or `--output-appx-directory`.
 - `-p, --property <Name=Value>` - MSBuild property used when resolving a `.cs` file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. `-p WinAppPackageName=...`), since a command-line property overrides the file's own `#:property` directives. Only applies to a `.cs` input.
-- `-c, --configuration <name>` - Build configuration used when resolving a `.cs` file-based app's identity. Default: `Debug`. Pass the same configuration the run used: a `Directory.Build.props` beside the `.cs` can set `WinAppPackageName` or `WinAppManifestPath` conditionally on `$(Configuration)`. Only applies to a `.cs` input.
+- `-c, --configuration <name>` - Build configuration used when resolving a `.cs` file-based app's identity. Default: `Debug`. Pass the same configuration the run used, with `-c` or `-p Configuration=<name>`: a `Directory.Build.props` beside the `.cs` can set `WinAppPackageName` or `WinAppManifestPath` conditionally on `$(Configuration)`. Only applies to a `.cs` input.
 - `--arch <x64|arm64|x86>` - Target architecture used when resolving a `.cs` file-based app's identity. Default: the current process architecture. Pass the same architecture the run used, since identity can also be keyed off `$(RuntimeIdentifier)`. Only applies to a `.cs` input.
 - `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`) used when resolving a `.cs` file-based app's identity. Only its architecture is used, and it overrides `--arch`. Only applies to a `.cs` input.
 - `--output-appx-directory <path>` - The AppX layout directory the package was registered from. Only needed when the run used `--output-appx-directory`, since nothing on the package records which run option produced its layout.
