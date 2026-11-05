@@ -7,7 +7,7 @@ static void SetToolbarMenuTheme(int requestedTheme);
 
 static void DevToolsSetToolbarRequestedTheme(int appTheme)
 {
-    const int toolbarTheme = DevToolsBuildPalette().highContrast
+    const int toolbarTheme = DevToolsHighContrastOn()
         ? DevToolsTheme::kDefault
         : DevToolsTheme::ToggleTarget(appTheme);
     for (IInspectable* element : { g_railL, g_aRow }) {
@@ -147,6 +147,7 @@ static void SnapTargetPos(int c, double* x, double* y)
 
 static bool g_dragging = false;
 static const wchar_t* g_toolbarMenu = nullptr;
+static bool g_keepToolbarMenuOpen = false;
 static bool CloseToolbarMenu(bool focusAnchor = false);
 
 static void ShowARow(bool open)
@@ -525,17 +526,42 @@ static winrt::Windows::Foundation::IInspectable ToolbarPart(const wchar_t* name)
 
 static void SetToolbarMenuTheme(int requestedTheme)
 {
+    // The default menu background is an acrylic brush that resolves against the app's theme, so a dark
+    // toolbar over a light app showed light-theme text on a light menu. Give the menu an opaque surface for
+    // the toolbar's theme. Under High Contrast (kDefault) the system brushes stay in charge.
+    const bool ownSurface = requestedTheme != DevToolsTheme::kDefault;
+    const bool dark = requestedTheme == DevToolsTheme::kDark;
+    const winrt::Windows::UI::Color background = dark
+        ? winrt::Windows::UI::Color{ 0xFF, 0x2C, 0x2C, 0x2C } : winrt::Windows::UI::Color{ 0xFF, 0xF9, 0xF9, 0xF9 };
+    const winrt::Windows::UI::Color border = dark
+        ? winrt::Windows::UI::Color{ 0x33, 0x00, 0x00, 0x00 } : winrt::Windows::UI::Color{ 0x0F, 0x00, 0x00, 0x00 };
     try {
         for (const wchar_t* name : { L"DevToolsCommentsMenu", L"DevToolsMoreMenu" }) {
             if (auto menu = ToolbarPart(name).try_as<DevToolsXC::MenuFlyout>()) {
                 DevToolsX::Style style{ winrt::xaml_typename<DevToolsXC::MenuFlyoutPresenter>() };
                 style.Setters().Append(DevToolsX::Setter{ DevToolsX::FrameworkElement::RequestedThemeProperty(),
                     winrt::box_value(static_cast<DevToolsX::ElementTheme>(requestedTheme)) });
+                if (ownSurface) {
+                    style.Setters().Append(DevToolsX::Setter{ DevToolsXC::Control::BackgroundProperty(),
+                        DevToolsXM::SolidColorBrush{ background } });
+                    style.Setters().Append(DevToolsX::Setter{ DevToolsXC::Control::BorderBrushProperty(),
+                        DevToolsXM::SolidColorBrush{ border } });
+                }
                 menu.MenuFlyoutPresenterStyle(style);
             }
         }
-        if (auto presenter = g_toolbarMenuPresenter.get())
+        if (auto presenter = g_toolbarMenuPresenter.get()) {
             presenter.RequestedTheme(static_cast<DevToolsX::ElementTheme>(requestedTheme));
+            if (auto control = presenter.try_as<DevToolsXC::Control>()) {
+                if (ownSurface) {
+                    control.Background(DevToolsXM::SolidColorBrush{ background });
+                    control.BorderBrush(DevToolsXM::SolidColorBrush{ border });
+                } else {
+                    control.ClearValue(DevToolsXC::Control::BackgroundProperty());
+                    control.ClearValue(DevToolsXC::Control::BorderBrushProperty());
+                }
+            }
+        }
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"overlay.toolbar menu theme failed hr=0x%08X", e.code().value);
     }
@@ -577,19 +603,14 @@ static DevToolsXCP::FlyoutPlacementMode ToolbarMenuPlacement()
     return CornerIsTop(g_corner) ? DevToolsXCP::FlyoutPlacementMode::Bottom : DevToolsXCP::FlyoutPlacementMode::Top;
 }
 
-// Choosing "Don't start DevTools" closes the More menu and reopens it, so the hint for turning DevTools back on stays
-// in view. WinUI ignores ShowAt for a menu until its popup finishes closing, and raises Closed just before that, so the
-// reopen is queued from Closed.
-static bool g_reopenMoreMenu = false;
-
 static void PrepareToolbarMenu(const wchar_t* name, const wchar_t* anchor)
 {
-    g_reopenMoreMenu = false; // a menu opening first makes a pending reopen stale
     if (g_toolbarMenu && wcscmp(g_toolbarMenu, name) != 0) CloseToolbarMenu();
     auto menu = ToolbarPart(name).as<DevToolsXC::MenuFlyout>();
     menu.Placement(ToolbarMenuPlacement());
     const auto anchorElement = ToolbarPart(anchor).as<DevToolsX::FrameworkElement>();
-    SetToolbarMenuTheme(DevToolsBuildPalette().highContrast ? DevToolsTheme::kDefault : static_cast<int>(anchorElement.ActualTheme()));
+    // Read High Contrast live: the palette caches it at startup, and a contrast theme can be turned on mid-run.
+    SetToolbarMenuTheme(DevToolsHighContrastOn() ? DevToolsTheme::kDefault : static_cast<int>(anchorElement.ActualTheme()));
     if (wcscmp(name, L"DevToolsCommentsMenu") == 0) {
         ToolbarPart(L"DevToolsShowAllComments").as<DevToolsXC::MenuFlyoutItem>()
             .Text(L"Open comments list (" + std::to_wstring(CommentCount()) + L")");
@@ -600,31 +621,6 @@ static void PrepareToolbarMenu(const wchar_t* name, const wchar_t* anchor)
     }
     g_toolbarMenu = name;
     g_toolbarMenuAnchor = anchor;
-}
-
-static void QueueMoreMenuReopen()
-{
-    try {
-        auto anchor = ToolbarPart(L"DevToolsProtoMore").as<DevToolsX::FrameworkElement>();
-        if (!anchor) {
-            DevToolsOverlayLog(L"overlay.toolbar recovery instruction has no toolbar anchor");
-            return;
-        }
-        auto weak = winrt::make_weak(anchor);
-        if (!anchor.DispatcherQueue().TryEnqueue([weak]() {
-            try {
-                auto target = weak.get();
-                if (target && target.IsLoaded() && g_toolbarVisible && g_aRowOpen)
-                    ToolbarPart(L"DevToolsMoreMenu").as<DevToolsXC::MenuFlyout>().ShowAt(target);
-                else
-                    DevToolsOverlayLog(L"overlay.toolbar recovery instruction skipped: the toolbar is not open");
-            } catch (const winrt::hresult_error& e) {
-                DevToolsOverlayLog(L"overlay.toolbar recovery instruction failed hr=0x%08X", e.code().value);
-            }
-        })) DevToolsOverlayLog(L"overlay.toolbar recovery instruction queue refused");
-    } catch (const winrt::hresult_error& e) {
-        DevToolsOverlayLog(L"overlay.toolbar recovery instruction scheduling failed hr=0x%08X", e.code().value);
-    }
 }
 
 static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
@@ -661,15 +657,17 @@ static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
                 DevToolsOverlayLog(L"overlay.toolbar menu opened failed hr=0x%08X", e.code().value);
             }
         });
+        menu.Closing([](auto&&, DevToolsXCP::FlyoutBaseClosingEventArgs const& e) {
+            if (!g_keepToolbarMenuOpen) return;
+            g_keepToolbarMenuOpen = false;
+            e.Cancel(true);
+        });
         menu.Closed([name](auto&&, auto&&) {
             if (g_toolbarMenu && wcscmp(g_toolbarMenu, name) == 0)
                 g_toolbarMenu = g_toolbarMenuAnchor = nullptr;
             g_toolbarMenuPresenter = {};
             UpdateCatcherHole();
-            if (g_reopenMoreMenu && wcscmp(name, L"DevToolsMoreMenu") == 0) {
-                g_reopenMoreMenu = false;
-                QueueMoreMenuReopen();
-            } else if (!g_pinned && !g_barHover && g_toolbarFocusWithin == 0)
+            if (!g_pinned && !g_barHover && g_toolbarFocusWithin == 0)
                 SetTimer(nullptr, 0, 50, &ToolbarFocusLeftProc);
         });
     } catch (const winrt::hresult_error& e) {
@@ -697,14 +695,21 @@ static std::string DefaultMode()
     return mode == L"headless" ? "headless" : mode == L"off" ? "off" : "on";
 }
 
-// "When the app starts" is a view of that setting: Show toolbar is on, Hide toolbar is headless, Don't start is off.
-// The re-enable hint under the radios is only visible while "off" is the selected mode (issue #1148).
+// "Launch preferences" is a view of that setting: Start DevTools off is off; with it on, Show toolbar picks on or
+// headless. Show toolbar is hidden while DevTools is off and keeps its last state for when it's turned back on.
 static void SetStartModeUi(const std::string& mode)
 {
-    const wchar_t* name = mode == "headless" ? L"DevToolsStartHidden" : mode == "off" ? L"DevToolsStartOff" : L"DevToolsStartShown";
-    for (const wchar_t* item : { L"DevToolsStartShown", L"DevToolsStartHidden", L"DevToolsStartOff" })
-        ProtoSetToggle(item, L"", L"", wcscmp(item, name) == 0);
-    ProtoSetPartVisible(L"DevToolsStartOffHint", mode == "off");
+    ProtoSetToggle(L"DevToolsStartEnabled", L"", L"", mode != "off");
+    if (mode != "off") ProtoSetToggle(L"DevToolsStartShown", L"", L"", mode == "on");
+    ProtoSetPartVisible(L"DevToolsStartShown", mode != "off");
+}
+
+static bool StartShownChecked()
+{
+    try {
+        if (auto item = ToolbarPart(L"DevToolsStartShown").try_as<DevToolsXC::ToggleMenuFlyoutItem>()) return item.IsChecked();
+    } catch (const winrt::hresult_error&) {}
+    return true;
 }
 
 // Hidden for this run: DevTools stays attached, and Ctrl+Shift+F12 or Overlay.show brings the toolbar back. A mode
@@ -718,19 +723,25 @@ static void OnHideToolbarClick(void*, void*)
     DevToolsOverlayLog(L"overlay.toolbar hidden from its menu");
 }
 
+// The launch preference toggles update in place: WinUI closes a menu after any item's Click, so the menu's
+// Closing handler cancels that one close.
 static void SetDefaultMode(const char* mode)
 {
-    CloseToolbarMenu();
+    g_keepToolbarMenuOpen = true;
+    SetTimer(nullptr, 0, 0, [](HWND, UINT, UINT_PTR id, DWORD) { KillTimer(nullptr, id); g_keepToolbarMenuOpen = false; });
     DevToolsSettingsSetText(L"DefaultMode", mode);
     SetStartModeUi(mode);
     DevToolsOverlayLog(L"overlay.toolbar default mode -> %S (persisted)", mode);
 }
-static void OnStartShownClick(void*, void*) { SetDefaultMode("on"); }
-static void OnStartHiddenClick(void*, void*) { SetDefaultMode("headless"); }
-static void OnStartOffClick(void*, void*)
+// Each toggle flips the saved mode; the menu's own check state is only used to remember Show toolbar while off.
+static void OnStartEnabledClick(void*, void*)
 {
-    g_reopenMoreMenu = g_toolbarMenu && wcscmp(g_toolbarMenu, L"DevToolsMoreMenu") == 0;
-    SetDefaultMode("off");
+    SetDefaultMode(DefaultMode() != "off" ? "off" : StartShownChecked() ? "on" : "headless");
+}
+static void OnStartShownClick(void*, void*)
+{
+    const std::string mode = DefaultMode();
+    if (mode != "off") SetDefaultMode(mode == "on" ? "headless" : "on");
 }
 static std::wstring ChipSurfaceLabel()
 {
@@ -1066,8 +1077,8 @@ static void WirePrototype(IInspectable* canvas)
         }
     }
     for (const wchar_t* name : { L"DevToolsCommentsMenu", L"DevToolsShowAllComments", L"DevToolsToggleMarkers",
-            L"DevToolsMoreMenu", L"DevToolsHideToolbar", L"DevToolsProtoPin", L"DevToolsStartShown",
-            L"DevToolsStartHidden", L"DevToolsStartOff", L"DevToolsStartOffHint" }) {
+            L"DevToolsMoreMenu", L"DevToolsHideToolbar", L"DevToolsProtoPin", L"DevToolsStartEnabled",
+            L"DevToolsStartShown" }) {
         auto part = ToolbarPart(name);
         if (part) g_toolbarMenuParts.emplace_back(name, part);
         else DevToolsOverlayLog(L"overlay.toolbar missing menu part %s", name);
@@ -1196,9 +1207,8 @@ static void WirePrototype(IInspectable* canvas)
         wireNamedClick(L"DevToolsToggleMarkers", g_protoSink[17], &OnToggleMarkersClick);
         WireToolbarMenu(L"DevToolsCommentsMenu", L"DevToolsProtoComments");
         wireNamedClick(L"DevToolsHideToolbar", g_protoSink[19], &OnHideToolbarClick);
-        wireNamedClick(L"DevToolsStartShown", g_protoSink[20], &OnStartShownClick);
-        wireNamedClick(L"DevToolsStartHidden", g_protoSink[21], &OnStartHiddenClick);
-        wireNamedClick(L"DevToolsStartOff", g_protoSink[22], &OnStartOffClick);
+        wireNamedClick(L"DevToolsStartEnabled", g_protoSink[20], &OnStartEnabledClick);
+        wireNamedClick(L"DevToolsStartShown", g_protoSink[21], &OnStartShownClick);
         WireToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore");
         wireNamedClick(L"DevToolsProtoInspect", g_protoSink[4], &ThenReturnFocus<&OnInspectClick>);
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &ThenReturnFocus<&OnLayoutToggleClick>);

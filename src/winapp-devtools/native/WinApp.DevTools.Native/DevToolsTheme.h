@@ -48,13 +48,17 @@ inline std::wstring DevToolsSysColorHex(int idx)
     return std::wstring(buf);
 }
 
+inline bool DevToolsHighContrastOn()
+{
+    HIGHCONTRAST hc; hc.cbSize = sizeof(hc); hc.dwFlags = 0; hc.lpszDefaultScheme = nullptr;
+    return SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) && (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+}
+
 inline const DevToolsPalette& DevToolsBuildPalette()
 {
     static const DevToolsPalette pal = []() -> DevToolsPalette {
         DevToolsPalette p;
-        HIGHCONTRAST hc; hc.cbSize = sizeof(hc); hc.dwFlags = 0; hc.lpszDefaultScheme = nullptr;
-        p.highContrast = SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0)
-                         && (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+        p.highContrast = DevToolsHighContrastOn();
         if (p.highContrast) {
             const std::wstring win  = DevToolsSysColorHex(COLOR_WINDOW);
             const std::wstring text = DevToolsSysColorHex(COLOR_WINDOWTEXT);

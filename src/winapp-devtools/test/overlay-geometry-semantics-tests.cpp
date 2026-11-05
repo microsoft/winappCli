@@ -867,7 +867,7 @@ int main()
         g_toolbarVisible = false; g_corner = CornerBR; geometryAdornerReader = false;
     }
     {
-        // Hide toolbar lasts for this run; Ctrl+Shift+F12 brings a hidden toolbar back. The "When the app starts" items
+        // Hide toolbar lasts for this run; Ctrl+Shift+F12 brings a hidden toolbar back. The "Launch preferences" items
         // write the default mode `winapp run` and `winapp config` (run.devtools) read.
         const std::wstring modeFile = DevToolsSettingsFile(L"DefaultMode");
         const bool hadMode = GetFileAttributesW(modeFile.c_str()) != INVALID_FILE_ATTRIBUTES;
@@ -886,20 +886,19 @@ int main()
         FocusToolbarFromShortcut();
         check(g_toolbarVisible && bar.visibility == 0, "toolbar hide", "Ctrl+Shift+F12 shows a hidden toolbar");
         g_protoRoot = savedRoot;
-        // These settings checks have no XAML menu; the fake bar cannot reopen it for the off-mode hint.
-        g_aRow = nullptr;
-        OnStartHiddenClick(nullptr, nullptr);
-        check(DevToolsSettingsGetText(L"DefaultMode") == L"headless" && DefaultMode() == "headless",
-            "default mode", "When the app starts > Hide toolbar makes the default headless");
-        // From the More menu the click also reopens it; with no menu open here, nothing is queued to reopen.
-        g_aRow = nullptr;
-        OnStartOffClick(nullptr, nullptr);
-        g_aRow = &bar;
-        check(DevToolsSettingsGetText(L"DefaultMode") == L"off" && DefaultMode() == "off",
-            "default mode", "Don't start DevTools makes the default off");
+        // These settings checks have no XAML menu, so Show toolbar's remembered state reads as checked.
+        DevToolsSettingsSetText(L"DefaultMode", "on");
         OnStartShownClick(nullptr, nullptr);
+        check(DevToolsSettingsGetText(L"DefaultMode") == L"headless" && DefaultMode() == "headless",
+            "default mode", "unchecking Show toolbar makes the default headless");
+        OnStartEnabledClick(nullptr, nullptr);
+        check(DevToolsSettingsGetText(L"DefaultMode") == L"off" && DefaultMode() == "off",
+            "default mode", "unchecking Start DevTools makes the default off");
+        OnStartShownClick(nullptr, nullptr);
+        check(DefaultMode() == "off", "default mode", "Show toolbar does nothing while Start DevTools is off");
+        OnStartEnabledClick(nullptr, nullptr);
         check(DevToolsSettingsGetText(L"DefaultMode") == L"on" && DefaultMode() == "on",
-            "default mode", "Show toolbar makes the default on");
+            "default mode", "checking Start DevTools again makes the default on");
         DevToolsSettingsSetText(L"DefaultMode", "HEADLESS\r\n");
         check(DevToolsSettingsGetText(L"DefaultMode") == L"headless", "default mode", "the setting is read as a lowercase word");
         DeleteFileW(modeFile.c_str());
