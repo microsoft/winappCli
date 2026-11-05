@@ -643,6 +643,29 @@ public sealed class XamlTriageServiceWorkflowTests
     }
 
     [TestMethod]
+    public async Task RunTriageProcessAsync_TimeoutAfterOutput_KeepsPartialOutputAndNamesStep()
+    {
+        XamlTriageService.TriageTimeoutOverride = TimeSpan.FromSeconds(2);
+        var service = CreateService();
+        service.TriageStartInfoFactory = (_, _, _, _) => BatchStartInfo(
+            "@echo off\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamlstowed 1>&2\r\n" +
+            "echo stowed breakdown before hang\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamltriage 1>&2\r\n" +
+            "ping -n 30 127.0.0.1 >nul\r\n" +
+            "exit /b 0\r\n");
+
+        var (output, skipNote) = await service.RunTriageProcessAsync(
+            @"C:\crash.dmp", FakeBinaries(hasSymSrv: true), @"C:\ext.js", useSymbols: false, CancellationToken.None);
+
+        Assert.IsNotNull(output);
+        StringAssert.Contains(output, "stowed breakdown before hang");
+        Assert.IsNotNull(skipNote);
+        StringAssert.Contains(skipNote, "timed out");
+        StringAssert.Contains(skipNote, "while running '!xamltriage'");
+    }
+
+    [TestMethod]
     public async Task RunTriageProcessAsync_StatusBreakpointExit_ReturnsBreakpointNote()
     {
         var service = CreateService();

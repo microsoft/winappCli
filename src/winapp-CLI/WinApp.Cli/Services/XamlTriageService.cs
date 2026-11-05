@@ -297,8 +297,8 @@ internal sealed partial class XamlTriageService(
     /// isolation is essential: see <see cref="XamlTriageRunner"/> for the dbghelp.dll loader-collision
     /// rationale. Works both as a published single-file executable and under <c>dotnet winapp.dll</c>.
     /// Returns the captured output, or a short human-readable skip note describing why no output is
-    /// available (failed to start, timed out, or non-zero exit). When the child exits non-zero after
-    /// producing some output, both are returned: the partial output and the note explaining why it stopped.
+    /// available (failed to start, timed out, or non-zero exit). When the child times out or exits non-zero
+    /// after producing some output, both are returned: the partial output and the note explaining why it stopped.
     /// </summary>
     internal async Task<(string? Output, string? SkipNote)> RunTriageProcessAsync(
         string dumpPath, ResolvedTriageBinaries binaries, string extPath, bool useSymbols, CancellationToken cancellationToken)
@@ -335,7 +335,21 @@ internal sealed partial class XamlTriageService(
         {
             TryKill(process);
             logger.LogDebug("WinUI triage child process timed out after {Timeout}.", timeout);
-            return (null, $"the triage child process timed out after {timeout.TotalMinutes:0} minutes.");
+
+            // Give the stdout/stderr readers a moment to drain so output written before the hang is kept.
+            try
+            {
+                using var drainCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await process.WaitForExitAsync(drainCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Draining is best effort; keep whatever arrived before the deadline.
+            }
+
+            var partialOnTimeout = stdout.ToString();
+            return (string.IsNullOrWhiteSpace(partialOnTimeout) ? null : partialOnTimeout,
+                $"the triage child process timed out after {timeout.TotalMinutes:0} minutes{DescribeRunningStep(stderr.ToString())}.");
         }
         catch (OperationCanceledException)
         {
@@ -371,12 +385,7 @@ internal sealed partial class XamlTriageService(
     /// </summary>
     internal static string DescribeChildExit(int exitCode, string stderr)
     {
-        var step = stderr
-            .Split('\n')
-            .Select(line => line.Trim())
-            .LastOrDefault(line => line.StartsWith(XamlTriageRunner.StepMarker, StringComparison.Ordinal))
-            ?.Substring(XamlTriageRunner.StepMarker.Length);
-        var during = step != null ? $" while running '{step}'" : "";
+        var during = DescribeRunningStep(stderr);
 
         // STATUS_STACK_BUFFER_OVERRUN is how a fail-fast surfaces; here it comes from the JavaScript
         // engine inside JsProvider.dll aborting while it runs the WinUI debugger script.
@@ -386,6 +395,20 @@ internal sealed partial class XamlTriageService(
         }
 
         return $"the triage child process exited with code {exitCode}{during}.";
+    }
+
+    /// <summary>
+    /// Returns <c> while running '&lt;command&gt;'</c> for the last <see cref="XamlTriageRunner.StepMarker"/>
+    /// line on stderr, or an empty string when the child never reported a step.
+    /// </summary>
+    private static string DescribeRunningStep(string stderr)
+    {
+        var step = stderr
+            .Split('\n')
+            .Select(line => line.Trim())
+            .LastOrDefault(line => line.StartsWith(XamlTriageRunner.StepMarker, StringComparison.Ordinal))
+            ?.Substring(XamlTriageRunner.StepMarker.Length);
+        return step != null ? $" while running '{step}'" : "";
     }
 
     /// <summary>
