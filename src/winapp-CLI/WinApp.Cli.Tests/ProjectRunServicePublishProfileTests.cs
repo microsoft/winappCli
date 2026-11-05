@@ -488,7 +488,7 @@ public sealed class ProjectRunServicePublishProfileTests
         WriteProfile("win-arm64.pubxml", "ARM64", "win-arm64");
         var dotnet = new FakeDotNetService
         {
-            RunDotnetCommandHandler = ProfileEvaluationHandler(app, publishTrimmed: true),
+            RunDotnetCommandHandler = ProfileEvaluationHandler(app, publishTrimmed: true, publishAotWhenPublishing: true),
             RunDotnetArgumentListHandler = _ => (17, string.Empty, string.Empty),
         };
         var options = explicitProfile
@@ -865,18 +865,20 @@ public sealed class ProjectRunServicePublishProfileTests
         bool publishAot = false,
         bool enableMsixTooling = true,
         string currentProfile = "win-anycpu.pubxml",
-        string candidateProfile = "win-arm64.pubxml") =>
+        string candidateProfile = "win-arm64.pubxml",
+        bool publishAotWhenPublishing = false) =>
         arguments =>
         {
             var useCandidate = arguments.Contains("-p:Platform=ARM64", StringComparison.Ordinal)
                 || arguments.Contains($"-p:PublishProfile={candidateProfile}", StringComparison.Ordinal);
+            var publishing = arguments.Contains("-p:_IsPublishing=true", StringComparison.Ordinal);
             var properties = ProfileProperties(
                 app,
                 useCandidate ? candidateProfile : currentProfile,
                 imported: useCandidate,
                 selfContained: useCandidate,
                 publishTrimmed,
-                publishAot,
+                publishAot || (publishAotWhenPublishing && publishing),
                 enableMsixTooling);
             return (0, PropertiesJson(properties), string.Empty);
         };

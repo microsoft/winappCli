@@ -661,8 +661,24 @@ static void WireAddComment(void* frameworkElement)
         auto cardResolve = root.FindName(L"CommentCardResolve").try_as<DevToolsXCP::ButtonBase>();
         const unsigned gen = ++g_addCommentGen;
         auto saved = std::make_shared<CommentBoxSaved>();
+        // The handlers below live on elements of this fragment, so they hold its elements weakly. A strong
+        // capture would form a cycle XAML cannot collect and keep every replaced pane alive.
+        const winrt::weak_ref<DevToolsX::UIElement> weakBox{ box }, weakCard{ card };
+        const winrt::weak_ref<DevToolsXC::TextBlock> weakCardText{ cardText }, weakCardMeta{ cardMeta };
+        const winrt::weak_ref<DevToolsXC::TextBox> weakText{ text };
+        const winrt::weak_ref<DevToolsXC::TextBlock> weakStatus{ status };
+        const bool hasCard = static_cast<bool>(card);
+        g_commentBoxParts = { box, text, status };
+        if (card) g_commentBoxParts.push_back(card);
+        if (cardText) g_commentBoxParts.push_back(cardText);
+        if (cardMeta) g_commentBoxParts.push_back(cardMeta);
         // A saved comment shows as the card; the box shows while editing (or, without a card, whenever there is one).
-        auto present = [box, card, cardText, cardMeta, saved](bool editing) {
+        auto present = [weakBox, weakCard, weakCardText, weakCardMeta, hasCard, saved](bool editing) {
+            auto box = weakBox.get();
+            if (!box) return;
+            auto card = weakCard.get();
+            auto cardText = weakCardText.get();
+            auto cardMeta = weakCardMeta.get();
             saved->editing = editing;
             const bool exists = !saved->id.empty() && !saved->text.empty();
             const bool asCard = card && exists && !editing;
@@ -671,7 +687,7 @@ static void WireAddComment(void* frameworkElement)
                 if (cardMeta) cardMeta.Text(L"Open \u00B7 " + saved->id);
             }
             if (card) card.Visibility(asCard ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
-            box.Visibility(editing || (exists && !card) ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+            box.Visibility(editing || (exists && !hasCard) ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
         };
         DevToolsWindowComment existing;
         if (SelectedElementComment(g_selWire, &existing)) {
@@ -679,7 +695,7 @@ static void WireAddComment(void* frameworkElement)
             saved->text = existing.text;
             text.Text(existing.text);
         }
-        g_commentBox = winrt::make_weak(text);
+        g_commentBox = weakText;
         g_commentBoxSaved = saved;
         if (auto it = g_selWire ? g_commentDrafts.find(g_selWire) : g_commentDrafts.end(); it != g_commentDrafts.end()) {
             text.Text(it->second);
@@ -689,29 +705,33 @@ static void WireAddComment(void* frameworkElement)
         } else {
             present(false);
         }
-        g_openCommentBox = [present, weakText = winrt::make_weak(text)]() {
+        g_openCommentBox = [present, weakText]() {
             present(true);
             if (auto box = weakText.get()) box.Focus(DevToolsX::FocusState::Programmatic);
         };
         if (cardEdit) {
-            cardEdit.Click([present, text](auto&&, auto&&) {
+            cardEdit.Click([present, weakText](auto&&, auto&&) {
                 present(true);
-                text.Focus(DevToolsX::FocusState::Programmatic);
+                if (auto text = weakText.get()) text.Focus(DevToolsX::FocusState::Programmatic);
             });
         }
         if (cardResolve) {
-            cardResolve.Click([present, text, gen, saved](auto&&, auto&&) {
-                if (saved->id.empty() || saved->resolving || text.IsReadOnly()) return;
+            cardResolve.Click([present, weakText, gen, saved](auto&&, auto&&) {
+                auto text = weakText.get();
+                if (!text || saved->id.empty() || saved->resolving || text.IsReadOnly()) return;
                 saved->resolving = true;
-                ResolveCommentById(saved->id, [present, weakText = winrt::make_weak(text), gen, saved](int result) {
+                ResolveCommentById(saved->id, [present, weakText, gen, saved](int result) {
                     if (gen != g_addCommentGen || !saved->FinishResolve(result)) return;
                     if (auto box = weakText.get()) box.Text(L"");
                     present(false);
                 });
             });
         }
-        text.PreviewKeyDown([present, text, status, gen, saved](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
+        text.PreviewKeyDown([present, weakText, weakStatus, gen, saved](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
             using winrt::Windows::System::VirtualKey;
+            auto text = weakText.get();
+            auto status = weakStatus.get();
+            if (!text || !status) return;
             if (args.Key() == VirtualKey::Escape) {
                 args.Handled(true);
                 text.Text(saved->text);
@@ -727,7 +747,7 @@ static void WireAddComment(void* frameworkElement)
             text.IsReadOnly(true);
             status.Text(L"Saving\u2026");
             saved->id = DevToolsOverlay_AddComment(element, value, saved->id,
-                [weakText = winrt::make_weak(text), weakStatus = winrt::make_weak(status), present, gen, saved, value](int code) {
+                [weakText, weakStatus, present, gen, saved, value](int code) {
                 auto savedText = weakText.get();
                 auto savedStatus = weakStatus.get();
                 if (!savedText || !savedStatus || gen != g_addCommentGen) return;
