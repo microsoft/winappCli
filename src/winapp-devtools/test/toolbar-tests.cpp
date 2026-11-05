@@ -206,6 +206,9 @@ static void TestToolbarContract()
                      overlay.find("ProtoSetToggle(L\"DevToolsStartEnabled\", L\"\", L\"\", mode != \"off\");") != std::string::npos &&
                      overlay.find("ProtoSetPartVisible(L\"DevToolsStartShown\", mode != \"off\");") != std::string::npos,
                  "the start-mode header is not a focus stop; opening re-checks the saved mode and hides Show toolbar while off");
+    // A run that starts with DevTools off never syncs Show toolbar, so turning DevTools back on must read it as on.
+    Check(xaml.find("<ToggleMenuFlyoutItem x:Name=\"DevToolsStartShown\" Text=\"Show toolbar\" IsChecked=\"True\"") != std::string::npos,
+                 "Show toolbar starts checked, so turning DevTools back on saves on rather than headless");
     Check(xaml.find("DevToolsStartOffHint") == std::string::npos && overlay.find("g_reopenMoreMenu") == std::string::npos,
                  "turning DevTools off shows no extra hint row and does not reopen the menu");
     {

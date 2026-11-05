@@ -540,6 +540,82 @@ static void RecolorPaneRows()
     }
 }
 
+static bool ParseArgbHex(const std::wstring& hex, uint32_t& argb)
+{
+    if (hex.size() != 9 || hex[0] != L'#') return false;
+    wchar_t* end = nullptr;
+    argb = static_cast<uint32_t>(wcstoul(hex.c_str() + 1, &end, 16));
+    return end == hex.c_str() + 9;
+}
+
+// Swap a brush the pane's markup set locally if its color is one the old theme inlined. Values that come from a
+// control template or a live resource are not local, so they keep following the theme on their own.
+static void RecolorLocalBrush(DevToolsX::DependencyObject const& node, DevToolsX::DependencyProperty const& property,
+                              std::vector<std::pair<uint32_t, uint32_t>> const& swaps)
+{
+    const auto brush = node.ReadLocalValue(property).try_as<DevToolsXM::SolidColorBrush>();
+    if (!brush) return;
+    const auto c = brush.Color();
+    const uint32_t argb = (uint32_t(c.A) << 24) | (uint32_t(c.R) << 16) | (uint32_t(c.G) << 8) | c.B;
+    for (const auto& [from, to] : swaps) {
+        if (argb != from) continue;
+        node.SetValue(property, DevToolsXM::SolidColorBrush{ winrt::Windows::UI::Color{
+            uint8_t(to >> 24), uint8_t(to >> 16), uint8_t(to >> 8), uint8_t(to) } });
+        return;
+    }
+}
+
+static void RecolorInlines(DevToolsXDoc::InlineCollection const& inlines, std::vector<std::pair<uint32_t, uint32_t>> const& swaps)
+{
+    for (auto const& item : inlines) {
+        RecolorLocalBrush(item, DevToolsXDoc::TextElement::ForegroundProperty(), swaps);
+        if (const auto span = item.try_as<DevToolsXDoc::Span>()) RecolorInlines(span.Inlines(), swaps);
+    }
+}
+
+static void RecolorLiteralTree(DevToolsX::DependencyObject const& node, std::vector<std::pair<uint32_t, uint32_t>> const& swaps)
+{
+    namespace Shapes = winrt::Microsoft::UI::Xaml::Shapes;
+    if (const auto text = node.try_as<DevToolsXC::TextBlock>()) {
+        RecolorLocalBrush(node, DevToolsXC::TextBlock::ForegroundProperty(), swaps);
+        RecolorInlines(text.Inlines(), swaps);
+    } else if (node.try_as<DevToolsXC::Control>()) {
+        RecolorLocalBrush(node, DevToolsXC::Control::ForegroundProperty(), swaps);
+        RecolorLocalBrush(node, DevToolsXC::Control::BackgroundProperty(), swaps);
+        RecolorLocalBrush(node, DevToolsXC::Control::BorderBrushProperty(), swaps);
+    } else if (node.try_as<DevToolsXC::Border>()) {
+        RecolorLocalBrush(node, DevToolsXC::Border::BackgroundProperty(), swaps);
+        RecolorLocalBrush(node, DevToolsXC::Border::BorderBrushProperty(), swaps);
+    } else if (node.try_as<DevToolsXC::Panel>()) {
+        RecolorLocalBrush(node, DevToolsXC::Panel::BackgroundProperty(), swaps);
+    } else if (node.try_as<DevToolsXC::IconElement>()) {
+        RecolorLocalBrush(node, DevToolsXC::IconElement::ForegroundProperty(), swaps);
+    } else if (node.try_as<Shapes::Shape>()) {
+        RecolorLocalBrush(node, Shapes::Shape::FillProperty(), swaps);
+        RecolorLocalBrush(node, Shapes::Shape::StrokeProperty(), swaps);
+    }
+    const int count = DevToolsXM::VisualTreeHelper::GetChildrenCount(node);
+    for (int i = 0; i < count; ++i) RecolorLiteralTree(DevToolsXM::VisualTreeHelper::GetChild(node, i), swaps);
+}
+
+// The pane's markup has theme resources baked in as fixed colors (InlineResourceLiterals). After a theme change,
+// repaint those colors in place, so the layout box, notes and notices follow the theme and open editors stay.
+static void RecolorPaneLiterals()
+{
+    std::vector<std::pair<uint32_t, uint32_t>> swaps;
+    for (const auto& [before, after] : RefreshResourceLiterals()) {
+        uint32_t from = 0, to = 0;
+        if (ParseArgbHex(before, from) && ParseArgbHex(after, to)) swaps.emplace_back(from, to);
+    }
+    if (swaps.empty() || !g_ctx.propsHostChildren) return;
+    try {
+        for (auto const& child : TreeObject<DevToolsUIElementVector>(g_ctx.propsHostChildren))
+            RecolorLiteralTree(child, swaps);
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"route1.props literal recolor failed hr=0x%08X", error.code().value);
+    }
+}
+
 static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r, const std::wstring& path)
 {
     SetTextOn(v, RowShownValue(r));

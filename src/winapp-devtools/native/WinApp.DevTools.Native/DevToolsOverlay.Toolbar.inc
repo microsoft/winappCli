@@ -7,7 +7,7 @@ static void SetToolbarMenuTheme(int requestedTheme);
 
 static void DevToolsSetToolbarRequestedTheme(int appTheme)
 {
-    const int toolbarTheme = DevToolsBuildPalette().highContrast
+    const int toolbarTheme = DevToolsHighContrastOn()
         ? DevToolsTheme::kDefault
         : DevToolsTheme::ToggleTarget(appTheme);
     for (IInspectable* element : { g_railL, g_aRow }) {
@@ -609,7 +609,8 @@ static void PrepareToolbarMenu(const wchar_t* name, const wchar_t* anchor)
     auto menu = ToolbarPart(name).as<DevToolsXC::MenuFlyout>();
     menu.Placement(ToolbarMenuPlacement());
     const auto anchorElement = ToolbarPart(anchor).as<DevToolsX::FrameworkElement>();
-    SetToolbarMenuTheme(DevToolsBuildPalette().highContrast ? DevToolsTheme::kDefault : static_cast<int>(anchorElement.ActualTheme()));
+    // Read High Contrast live: the palette caches it at startup, and a contrast theme can be turned on mid-run.
+    SetToolbarMenuTheme(DevToolsHighContrastOn() ? DevToolsTheme::kDefault : static_cast<int>(anchorElement.ActualTheme()));
     if (wcscmp(name, L"DevToolsCommentsMenu") == 0) {
         ToolbarPart(L"DevToolsShowAllComments").as<DevToolsXC::MenuFlyoutItem>()
             .Text(L"Open comments list (" + std::to_wstring(CommentCount()) + L")");

@@ -237,9 +237,9 @@
             <MenuFlyoutItem Text="LAUNCH PREFERENCES" IsEnabled="False" FontSize="12" Padding="11,4,11,0" Height="24"
                             AutomationProperties.AutomationId="DevToolsStartModeHeading" />
             <ToggleMenuFlyoutItem x:Name="DevToolsStartEnabled" Text="Start DevTools by default"
-                                 ToolTipService.ToolTip="When off, winapp run starts the app without DevTools. Same as: winapp config set run.devtools off"
+                                 ToolTipService.ToolTip="When off, winapp run starts the app without DevTools. Same as: winapp config set run.devtools off. To turn it back on: winapp config set run.devtools on, or winapp run --devtools on"
                                  AutomationProperties.AutomationId="DevToolsStartEnabled" />
-            <ToggleMenuFlyoutItem x:Name="DevToolsStartShown" Text="Show toolbar"
+            <ToggleMenuFlyoutItem x:Name="DevToolsStartShown" Text="Show toolbar" IsChecked="True"
                                  ToolTipService.ToolTip="When off, DevTools starts with nothing drawn in the app. Press Ctrl+Shift+F12 to show the toolbar."
                                  AutomationProperties.AutomationId="DevToolsStartShown" />
           </MenuFlyout>
