@@ -562,11 +562,11 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
-    public void CppConfigurationFromProperties_ReadsLastNonEmptyValue()
+    public void ConfigurationFromProperties_ReadsLastNonEmptyValue()
     {
-        Assert.AreEqual("Release", ProjectRunService.CppConfigurationFromProperties(["Configuration=Release"]));
-        Assert.AreEqual("Release", ProjectRunService.CppConfigurationFromProperties(["Configuration=Debug", "configuration=Release", "Configuration="]));
-        Assert.IsNull(ProjectRunService.CppConfigurationFromProperties(["Platform=ARM64"]));
+        Assert.AreEqual("Release", ProjectRunService.ConfigurationFromProperties(["Configuration=Release"]));
+        Assert.AreEqual("Release", ProjectRunService.ConfigurationFromProperties(["Configuration=Debug", "configuration=Release", "Configuration="]));
+        Assert.IsNull(ProjectRunService.ConfigurationFromProperties(["Platform=ARM64"]));
     }
 
     [TestMethod]

@@ -109,13 +109,6 @@ internal sealed partial class ProjectRunService
         TryGetUserProperty(properties, "Platform", out var platform) ? ArchitectureOfCppPlatform(platform) : null;
 
     /// <summary>
-    /// The configuration a user <c>-p Configuration</c> names (last non-empty value wins), or null when none
-    /// is set. Lets <c>-p Configuration=Release</c> select the configuration like <c>-c Release</c>.
-    /// </summary>
-    internal static string? CppConfigurationFromProperties(IReadOnlyList<string> properties) =>
-        TryGetUserProperty(properties, "Configuration", out var configuration) ? configuration : null;
-
-    /// <summary>
     /// The value of a user <c>-p WindowsAppSDKSelfContained</c>, or null when none is set.
     /// </summary>
     internal static bool? CppSelfContainedFromProperties(IReadOnlyList<string> properties) =>
