@@ -1,0 +1,17 @@
+[project]
+name = "winapp-python-counter"
+version = "0.0.0"
+requires-python = ">=3.11,<3.15"
+dependencies = []
+
+[tool.winapp.python-bindings]
+package = "winapp_bindings"
+codegen-version = "0.1.0rc24"
+additional-winmds = [
+    { namespace = "Microsoft.UI.Xaml", classes = ["Application", "Window"] },
+    { namespace = "Microsoft.UI.Xaml.Controls", classes = ["Grid", "StackPanel", "ScrollViewer", "Button", "TextBlock"] },
+    { namespace = "Microsoft.UI.Xaml.Automation", classes = ["AutomationProperties"] },
+    { namespace = "Microsoft.UI.Xaml.Media", classes = ["SolidColorBrush"] },
+    { namespace = "Windows.UI", classes = ["ColorHelper"] },
+]
+additional-refs = []

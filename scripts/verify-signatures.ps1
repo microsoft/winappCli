@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Asserts every shipped binary carries a valid Authenticode signature, including the binaries
-    nested inside the MSIX, NuGet and npm containers the release publishes.
+    nested inside the MSIX, NuGet, npm and Python wheel containers the release publishes.
 
 .DESCRIPTION
     Guardian's Code Sign Validation is the pipeline's normal signing gate, but it leaves two gaps
@@ -66,7 +66,7 @@ $ErrorActionPreference = 'Stop'
 $BinaryExtensions = @('.exe', '.dll', '.sys', '.node')
 
 # Archive formats the release ships binaries inside of. Expanded recursively.
-$ContainerExtensions = @('.msix', '.msixbundle', '.appx', '.appxbundle', '.nupkg', '.zip', '.tgz')
+$ContainerExtensions = @('.msix', '.msixbundle', '.appx', '.appxbundle', '.nupkg', '.zip', '.tgz', '.whl')
 
 # Windows PowerShell 5.1 does not load this by default; PowerShell 7 already has it.
 if (-not ('System.IO.Compression.ZipFile' -as [type])) {
