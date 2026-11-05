@@ -22,7 +22,10 @@ winapp run .
 
 For a WinUI project this starts DevTools with its in-app toolbar and waits for the app
 (it is off in CI, with `--no-launch`, `--without-alias` or `--on sandbox`, and for
-folders, .cs files and non-WinUI projects; pass `--devtools on` there). Let the user
+folders, .cs files and non-WinUI projects; pass `--devtools on` for a WinUI target
+that isn't detected automatically). Known WPF-only and Windows Forms-only projects
+are rejected before launch; use `--devtools off` to run them and `winapp ui` to
+inspect their accessible controls. Let the user
 leave comments there:
 turn on **Comments** in the toolbar, click an element, type, press Enter (Shift+Enter for a
 new line), or click the next element to save and move on. **Select element** opens the
