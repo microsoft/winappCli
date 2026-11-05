@@ -22,7 +22,10 @@ winapp run .
 
 For a WinUI project this starts DevTools with its in-app toolbar and waits for the app
 (it is off in CI, with `--no-launch`, `--without-alias` or `--on sandbox`, and for
-folders, .cs files and non-WinUI projects; pass `--devtools on` there). Let the user
+folders, .cs files and non-WinUI projects; pass `--devtools on` for a WinUI target
+that isn't detected automatically). Known WPF-only and Windows Forms-only projects
+are rejected before launch; use `--devtools off` to run them and `winapp ui` to
+inspect their accessible controls. Let the user
 leave comments there:
 turn on **Comments** in the toolbar, click an element, type, press Enter (Shift+Enter for a
 new line), or click the next element to save and move on. **Select element** opens the
@@ -120,6 +123,10 @@ precedence. If the connection fails, follow the
 do not retry against the current folder's store.
 Mutations refresh the markers of running DevTools apps (local and Sandbox) that use
 the same store; no `--app` is needed. See the guide for save-warning behavior.
+Offline `--file`/`--name` comments can acquire markers at launch or refresh only
+when the saved declaration still matches one verified live instance. A refusal
+leaves the comment saved and explains why; never resolve it by name alone. See
+[offline markers](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#comment-storage-and-advanced-authoring).
 
 Use current `hits`, not historical `anchor.line`. Runtime text need not appear in
 XAML. When `requiresConfirmation` is true, show the ranked candidates and obtain
