@@ -1086,6 +1086,52 @@ public class NewCommandHandlerTests : BaseCommandTests
         StringAssert.Contains(output, $"dotnet new uninstall {NewCommand.TemplatePackageId}");
     }
 
+    [TestMethod]
+    public async Task Handler_TwoPackCopies_RejectsPinThatTheTemplatesCopyDoesNotMatch()
+    {
+        // winui comes from the 0.0.5-alpha copy, so a 0.0.7-alpha pin must not silently use it.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["--template", "winui", "--template-version", "0.0.7-alpha", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitTemplatePackFailed, exitCode, TestAnsiConsole.Output);
+        Assert.IsNull(ScaffoldInvocation(), "Nothing may be scaffolded from the wrong pack version.");
+        var error = ParseJson(TestAnsiConsole.Output).GetProperty("Error").GetString();
+        StringAssert.Contains(error, "0.0.5-alpha");
+        StringAssert.Contains(error, $"dotnet new uninstall {NewCommand.TemplatePackageId}");
+    }
+
+    [TestMethod]
+    public async Task Handler_TwoPackCopies_AcceptsPinThatTheTemplatesCopyMatches()
+    {
+        // winui-navview comes from the 0.0.7-alpha copy, which is what the pin asks for.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["--template", "winui-navview", "--template-version", "0.0.7-alpha", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.AreEqual("winui-navview", ScaffoldInvocation()?[1]);
+        Assert.AreEqual("0.0.7-alpha", ParseJson(TestAnsiConsole.Output).GetProperty("TemplateVersion").GetString());
+    }
+
+    [TestMethod]
+    public async Task Handler_TwoPackCopies_ListHeaderOmitsSinglePackVersion()
+    {
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--list"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        StringAssert.Contains(TestAnsiConsole.Output, "Available WinUI templates:");
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("(pack ", StringComparison.Ordinal),
+            "The templates come from two pack versions, so the header must not name just one.");
+    }
+
     /// <summary>
     /// Scripts the WinUI pack plus the standalone Reactor pack, whose template registers
     /// <paramref name="foreignAliases"/>. Only the WinUI pack's templates match <c>dotnet new list winui</c>.

@@ -550,7 +550,8 @@ internal class NewCommand : Command, IShortDescription
                 }
                 else if (!quiet)
                 {
-                    WriteTemplateList(templates, packVersion);
+                    // With several copies installed, the templates come from more than one pack version.
+                    WriteTemplateList(templates, installedCopies.Count > 1 ? null : packVersion);
                 }
                 return ExitSuccess;
             }
@@ -597,6 +598,21 @@ internal class NewCommand : Command, IShortDescription
             // different copy than the highest installed version.
             if (installedCopies.Count > 1 && entry.PackVersion is not null)
             {
+                if (mode == VersionMode.Explicit && NuGetVersionHelper.Compare(entry.PackVersion, explicitVersion!) is not 0)
+                {
+                    var pinError = $"Template '{entry.ShortName}' comes from WinUI template pack {entry.PackVersion}, not the requested {explicitVersion}, because "
+                        + $"{installedCopies.Count} copies of the pack are installed ({string.Join(", ", installedCopies)}). "
+                        + $"Run 'dotnet new uninstall {TemplatePackageId}' (it removes every copy), then re-run 'winapp new'.";
+                    if (isJson)
+                    {
+                        PrintJson(false, entry.ShortName, name ?? string.Empty, (output ?? currentDir).FullName, pinError, entry.IsExperimental);
+                    }
+                    else
+                    {
+                        logger.LogError("{Error} {Detail}", UiSymbols.Error, pinError);
+                    }
+                    return ExitTemplatePackFailed;
+                }
                 packVersion = entry.PackVersion;
             }
 
