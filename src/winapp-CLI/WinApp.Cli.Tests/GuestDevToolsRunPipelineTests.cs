@@ -270,7 +270,9 @@ public sealed class GuestDevToolsRunPipelineTests() : BaseCommandTests(logLevel:
         Assert.IsFalse(helperProcess.Killed);
         using var result = JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.AreEqual(54321, result.RootElement.GetProperty("ProcessId").GetInt32());
-        var selector = result.RootElement.GetProperty("appSelector").GetString()!;
+        Assert.AreEqual("--on sandbox -a 54321", result.RootElement.GetProperty("UiTargetArgs").GetString(),
+            "DevTools launches publish the same UI targeting arguments as ordinary Sandbox launches.");
+        var selector =  result.RootElement.GetProperty("appSelector").GetString()!;
         var id = selector["guest:".Length..];
         Assert.IsFalse(Directory.Exists(Path.Combine(host.Resolve(_backend.Target, id).FullName, "sources")),
             "The transferred source copy is not retained on the host.");
