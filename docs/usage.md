@@ -914,7 +914,15 @@ winapp run . --aot
 winapp run . --aot -c Release
 ```
 
-`--aot` supports x64 and ARM64 projects and requires the **.NET SDK 8.0.300 or newer**. It runs `dotnet publish` with the project's AOT configuration, then launches that output; use `-p PublishAot=true` for a one-time override. It does not perform separate runtime certification and cannot be combined with `--no-build` or `--manifest`.
+Native AOT also requires trimming. The WinUI templates set `<PublishTrimmed>False</PublishTrimmed>` for the Debug configuration, so remove that setting as well. If either property is off, winapp stops before publishing and says which one to change.
+
+For a one-time override without editing the project, set both:
+
+```powershell
+winapp run . --aot -p PublishAot=true -p PublishTrimmed=true
+```
+
+`--aot` supports x64 and ARM64 projects and requires the **.NET SDK 8.0.300 or newer**. It runs `dotnet publish` with the project's AOT configuration, then launches that output. It does not perform separate runtime certification and cannot be combined with `--no-build` or `--manifest`.
 
 For apps that use package identity without a generated MSIX layout, include `Package.appxmanifest` or `appxmanifest.xml` in the project's publish output. Winapp stages the published files with that manifest. If both names are present, winapp stops instead of choosing one; remove the stale manifest and configure the project to publish only the intended manifest.
 
