@@ -224,8 +224,8 @@ has `pending: true` and no handle.
 
 In a Reactor app, a reference can also name an element that hasn't been created yet, such
 as a button on a tab that isn't open. The line names the element Reactor expects and
-says it isn't shown (`XYFocusRight → Button (not shown)`), the same way. This needs a
-Reactor version that reports its references to DevTools.
+says it isn't shown (`XYFocusRight → Button (not shown)`), the same way. This needs
+Reactor 0.1.0-preview.17 or later.
 
 ## Look up and change resources
 

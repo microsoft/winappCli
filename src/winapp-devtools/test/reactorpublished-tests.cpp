@@ -47,7 +47,7 @@ void Test_LocationForms()
     Check(!Parse(L"v=1|at=C:\\src\\App.cs|element=Stack", &r), "a location without a line is refused");
     Check(!Parse(L"v=1|at=C:\\src\\App.cs:0|element=Stack", &r), "line 0 is refused");
     Check(!Parse(L"v=1|at=:12|element=Stack", &r), "a location without a path is refused");
-    // Reactor main writes a project-relative path, with rel=root when it is relative to the repository root instead.
+    // Reactor 0.1.0-preview.17 writes a project-relative path, with rel=root when it is relative to the repository root instead.
     Check(Parse(L"v=1|at=Views/Counter.cs:12:9|rel=root|owner=Counter|element=Button|name=increment", &r) &&
           r.file == L"Views/Counter.cs" && r.line == 12 && r.column == 9 && r.name == L"increment",
           "a relative path with rel=root reads as the path, line and column");

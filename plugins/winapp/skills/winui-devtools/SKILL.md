@@ -228,7 +228,7 @@ happened: read back with `get-state`, never retry blindly. `get-resource` and
 `LabeledBy`, `DescribedBy`, `FlowsTo`, `FlowsFrom` and `XYFocus*` targets from and to the
 element (`references` in `--json`), with `cycle: true` when following one comes back.
 In a Reactor app, a target that isn't created yet shows as `→ Button (not shown)`
-(`pending: true`, no handle); older Reactor versions list only shown targets.
+(`pending: true`, no handle); Reactor 0.1.0-preview.16 and earlier list only shown targets.
 Users moving from Reactor's own DevTools (`mur devtools`, Microsoft.UI.Reactor.Devtools)
 should use these commands instead; see the guide's
 [migration table](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-reactor.md#move-from-reactor-devtools).

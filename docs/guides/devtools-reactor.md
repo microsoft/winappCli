@@ -35,7 +35,7 @@ Element Header => TextBlock("Tasks");                             // TextBlock #
 An element built inline in a tree has no name, like a XAML element without `x:Name`.
 With `--json`, a named element has `"name"` and `"nameSource"`: `csharp-variable` when
 Reactor recorded the name, or `csharp-source-text` when DevTools read it from the
-call site's line because your Reactor version records none. A name read from the
+call site's line because Reactor recorded none (0.1.0-preview.16 and earlier). A name read from the
 line can be out of date if you edited the file after the build. Each window's root
 component is the `root` line above the control it rendered; a `ReactorHostControl`
 inside a XAML page shows its root as a `Reactor island root` under the XAML that
@@ -318,7 +318,7 @@ keys themselves:
 14:02:11.483 warning Keyed list in ListView of <TaskList> at TaskList.cs:42 has duplicate keys (3 keys affected); it re-creates its rows instead of moving them
 ```
 
-The component and the C# location appear when your Reactor version reports them. Each
+The component and the C# location appear with Reactor 0.1.0-preview.17 or later. Each
 list counts once toward the toolbar's red badge. These warnings replace the keyed-list
 dialog in Reactor's in-app developer menu.
 
@@ -344,13 +344,17 @@ project references it: winapp DevTools replaces it.
 ### Native AOT, trimmed and attached apps
 
 ```powershell
-winapp run . --aot --detach
+winapp run . --aot -c Release --detach
 winapp devtools inspect
 ```
 
+Use `-c Release`. On .NET 10, a WinUI app published as Native AOT in the Debug
+configuration can stop responding after a few clicks, with or without DevTools
+([dotnet/runtime#121538](https://github.com/dotnet/runtime/issues/121538)).
+
 `winapp run` with DevTools also sets `REACTOR_DIAGNOSTICS=1`, and with `--aot` (or any
 publish) it builds with `-p:ReactorDiagnostics=true -p:ReactorSourceMap=true` unless you
-pass those properties yourself. A Reactor version with a diagnostics mode then records
+pass those properties yourself. Reactor 0.1.0-preview.17 or later then records
 each control's component, call site, key and C# name on the control itself, and
 DevTools reads them without loading any .NET code into the app. So the tree,
 `get-source`, Reactor selectors, `search`, C# names and comments work in Native AOT
@@ -363,7 +367,7 @@ Native AOT app or a trimmed build. `inspect` says so in one line, and those comm
 fail with `reactor-unavailable`. With `--json`, the tree's `reactor` object then has
 `"agent": "absent"` and `"annotations": "published"`.
 
-If the Reactor version you use has no diagnostics mode, `inspect` shows the WinUI tree
+With Reactor 0.1.0-preview.16 or earlier, a Native AOT or trimmed app's `inspect` shows the WinUI tree
 with one note saying the components cannot be read. `winapp devtools attach` loads the
 agent into a running .NET 8 or later app; C# call sites still need the
 `winapp run` launch with DevTools.
