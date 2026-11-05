@@ -23,11 +23,11 @@ public partial class App : Application
     {
         var arguments = Environment.GetCommandLineArgs();
         if (arguments.Length is < 2 or > 3 || !Path.IsPathFullyQualified(arguments[1]) ||
-            arguments.Length == 3 && arguments[2] is not ("large" or "single"))
+            arguments.Length == 3 && arguments[2] is not ("large" or "single" or "single-large"))
             throw new InvalidOperationException("Pass an absolute owned report path.");
         var report = arguments[1];
-        var large = arguments.Length == 3 && arguments[2] == "large";
-        var single = arguments.Length == 3 && arguments[2] == "single";
+        var large = arguments.Length == 3 && arguments[2] is "large" or "single-large";
+        var single = arguments.Length == 3 && arguments[2] is "single" or "single-large";
         first = new MainWindow("Alpha", large);
         if (single)
         {
