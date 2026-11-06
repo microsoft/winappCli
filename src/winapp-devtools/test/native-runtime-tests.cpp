@@ -172,6 +172,8 @@ static std::wstring PushCommentSnapshot(long long generation, const std::wstring
     return reply;
 }
 
+#include "external-inspector-tests.inc"
+
 static bool QueuedMutation(bool byName, bool clear, bool replace, bool numeric = false)
 {
     g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_byName.clear(); g_nameOf.clear();
@@ -1510,6 +1512,11 @@ int wmain(int argc, wchar_t** argv)
     g_dispatcher = reinterpret_cast<IInspectable*>(1); // The enqueue adapter never dereferences this token.
     g_testEnqueueUiOperation = HoldEnqueue;
     g_testPropertyMutation = ObserveMutation;
+    const int inspectorChecks = checks, inspectorFailures = failed;
+    CheckExternalInspector(check);
+    std::printf("External inspector: checks=%d passed=%d failed=%d\n",
+        checks - inspectorChecks, checks - inspectorChecks - (failed - inspectorFailures),
+        failed - inspectorFailures);
     check(BindingCallerScope(), "actual binding state release owns MTA with initially uninitialized caller");
     check(BindingCallerRejectsSta(), "binding initialization failure preserves caller STA and reports HRESULT");
     for (bool byName : { false, true }) for (bool clear : { false, true }) {
