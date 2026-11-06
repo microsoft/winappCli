@@ -47,7 +47,7 @@ public partial class App : Application
             beta = second is null ? 0 : WinRT.Interop.WindowNative.GetWindowHandle(second).ToInt64(),
             unsupported = unsupported is null ? 0 : WinRT.Interop.WindowNative.GetWindowHandle(unsupported).ToInt64(),
         }));
-        var expires = DateTime.UtcNow.AddMinutes(3);
+        var expires = DateTime.UtcNow.AddMinutes(10);
         timer.Tick += (_, _) =>
         {
             var path = report + ".command";

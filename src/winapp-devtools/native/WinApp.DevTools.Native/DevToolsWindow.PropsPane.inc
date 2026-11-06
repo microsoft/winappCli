@@ -488,6 +488,7 @@ static void ResetRoute1State()
                                  &g_palTertiary, &g_palMonoFont, &g_palGlyphFont, &g_palCaption }) {
         if (*slot) { (*slot)->Release(); *slot = nullptr; }
     }
+    ForgetRowBrushes();
     for (IInspectable** slot : { &g_tmplHeader, &g_tmplRow, &g_tmplExpRead, &g_tmplExpEdit }) {
         if (*slot) { (*slot)->Release(); *slot = nullptr; }
     }

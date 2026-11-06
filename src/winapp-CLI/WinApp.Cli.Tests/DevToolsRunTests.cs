@@ -1311,15 +1311,18 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
-    public void Default_AnnouncesHowToTurnItOff_OnlyWhenItWasNotAskedFor()
+    public void Default_AnnouncesHowToFlipIt_OnlyWhenItWasNotAskedFor()
     {
-        Assert.AreEqual("DevTools on (default) · turn off: --devtools off or winapp config set run.devtools off",
+        Assert.AreEqual("DevTools on (default) · turn off for one run: --devtools off · by default: winapp config set run.devtools off",
             RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Default)));
-        Assert.AreEqual("DevTools headless (your default) · turn off: --devtools off or winapp config set run.devtools off",
+        Assert.AreEqual("DevTools headless (your default) · turn off for one run: --devtools off · by default: winapp config set run.devtools off",
             RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Headless, DevToolsModeSource.Setting)));
+        Assert.AreEqual("DevTools off (your default) · turn on for one run: --devtools on · by default: winapp config set run.devtools on",
+            RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Off, DevToolsModeSource.Setting)));
         Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Explicit)));
-        Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Off, DevToolsModeSource.Setting)));
+        Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Off, DevToolsModeSource.Explicit)));
         Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Off, DevToolsModeSource.NotWinUI)));
+        Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Off, DevToolsModeSource.Ci)));
     }
 
     [TestMethod]
@@ -1750,8 +1753,10 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     [TestMethod]
     public void NuGetDefaultLine_NamesTheMSBuildProperty()
     {
-        Assert.AreEqual("DevTools on (default) · turn off: -p:WinAppRunDevTools=off or winapp config set run.devtools off",
+        Assert.AreEqual("DevTools on (default) · turn off for one run: -p:WinAppRunDevTools=off · by default: winapp config set run.devtools off",
             RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Default), dotnetRun: true));
+        Assert.AreEqual("DevTools off (your default) · turn on for one run: -p:WinAppRunDevTools=on · by default: winapp config set run.devtools on",
+            RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Off, DevToolsModeSource.Setting), dotnetRun: true));
     }
 
     /// <summary>

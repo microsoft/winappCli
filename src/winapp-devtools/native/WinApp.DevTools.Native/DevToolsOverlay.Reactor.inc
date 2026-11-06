@@ -81,15 +81,6 @@ void DevToolsOverlay_SetHighlightUpdatesAvailable(bool available)
     if (available == g_highlightUpdatesAvailable) return;
     g_highlightUpdatesAvailable = available;
     ProtoSetPartVisible(L"DevToolsProtoHighlight", available);
-    g_barExtraW = available ? kHighlightButtonW : 0;
-    if (IInspectable* bar = g_protoRoot ? DevToolsSelFindName(g_protoRoot, L"DevToolsBar") : nullptr) {
-        void* fe = nullptr;
-        if (SUCCEEDED(bar->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
-            DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_Width((double)(kBarW + g_barExtraW));
-            reinterpret_cast<IUnknown*>(fe)->Release();
-        }
-        bar->Release();
-    }
     if (!available && g_highlightUpdates) OnHighlightUpdatesClick(nullptr, nullptr);
     RepositionToolbar();
 }

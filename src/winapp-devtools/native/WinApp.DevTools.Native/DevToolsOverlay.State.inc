@@ -385,8 +385,6 @@ static const int kChipH         = 28;
 // Pin(24) + 7*Spacing(3) = 232 DIP; chrome = 2*Border(1) + 2*Padding(6) = 14 DIP.
 static const int kBarW          = 286;
 // The "Highlight updates" toggle widens the bar when the app's Reactor reports component renders.
-static const int kHighlightButtonW = 33;
-static int g_barExtraW = 0;
 static const int kBarH          = 36;
 static const int kSnapW         = 112;
 static const int kSnapH         = 32;
