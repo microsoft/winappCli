@@ -208,6 +208,45 @@ as `handle=123`. The protocol is experimental (`protocolVersion` `"0"`); methods
 change. `Overlay.getState` reports where the toolbar is hosted: `uiLayer` (above the app)
 or `popup`, a fallback that sits under the app's open dialogs.
 
+### Present the inspector in an external client
+
+On a persistent protocol connection, call `DevTools.negotiate`, then use its
+`ownerToken` on that same connection. `winapp devtools call` can't register,
+because each call opens a new connection.
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"Inspector.registerExternal","params":{"owner":"<ownerToken>","displayName":"My editor"}}
+```
+
+Registration returns `null`. Toolbar **Inspect**, **Open comments list**, and
+**Open in DevTools** on an element now send only that connection a notification,
+instead of opening the native inspector:
+
+```json
+{"jsonrpc":"2.0","method":"Inspector.openRequested","params":{"view":"inspect","handle":"123","origin":null}}
+```
+
+`view` is `inspect` or `comments`. `handle` is the current element's opaque handle,
+omitted when no element is selected. Committed picks in inspect mode use this route;
+comment mode keeps the in-app comment flyout. The app still owns the toolbar,
+picking, highlights, layout adorners and comment authoring. Registration does not
+change other clients' queries, edits or event subscriptions. No `Inspector.enable`
+call is needed.
+
+Only one client can register per app process. A second client gets `inspector-owned`.
+Close the native inspector before registering; `native-inspector-active` also means
+a protocol client must release native window state it owns with
+`DevTools.releaseOwnedState`. Registration never closes a window containing drafts.
+While registered, explicit `Window.open` fails with `inspector-external` rather
+than opening a second inspector or sending a reveal request.
+
+Call `Inspector.unregisterExternal` with `{"owner":"<ownerToken>"}` on the
+registered connection to return to native routing. `DevTools.releaseOwnedState`
+and disconnect also release registration. They do not open native UI; the next
+in-app inspector action uses the native window. Without registration, behavior is
+unchanged. An external client must implement notification handling itself; no
+editor integration is installed or configured by these methods.
+
 ### Read a binding path natively
 
 ```powershell

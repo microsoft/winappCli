@@ -43,6 +43,22 @@ void OverlayFixtureSeedHighlight(InstanceHandle handle)
     g_lastHighlightHandle = handle;
 }
 
+void OverlayFixtureInspect(InstanceHandle element, bool comments)
+{
+    DevToolsInspectRequest request;
+    request.element = element;
+    request.comments = comments;
+    Inspect(request);
+}
+
+void OverlayFixturePick(InstanceHandle element, bool comments)
+{
+    const bool prior = CommentModeOn();
+    SetCommentMode(comments);
+    OpenPicked(element, g_pickedSink && g_pickedSink(element));
+    SetCommentMode(prior);
+}
+
 // The overlay host falls back to Popups whenever any step of the UI-layer lookup does not answer, or when forced.
 bool OverlayFixtureHostFallsBack()
 {
