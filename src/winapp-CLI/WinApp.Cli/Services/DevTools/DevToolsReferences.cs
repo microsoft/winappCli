@@ -64,10 +64,10 @@ internal static class DevToolsReferences
         }
     }
 
-    /// <summary>The References block of <c>get-property</c>; nothing when the element has none.</summary>
+    /// <summary>The References block of <c>get-property</c>; nothing when the element has none and the search was complete.</summary>
     public static IEnumerable<string> Lines(IReadOnlyList<DevToolsReference> edges, bool truncated)
     {
-        if (edges.Count == 0)
+        if (edges.Count == 0 && !truncated)
         {
             yield break;
         }

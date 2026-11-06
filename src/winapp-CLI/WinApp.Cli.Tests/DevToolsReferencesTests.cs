@@ -59,4 +59,13 @@ public class DevToolsReferencesTests
         StringAssert.StartsWith(lines[2], "    [yellow]");
         StringAssert.Contains(lines[3], "Only part of the tree");
     }
+
+    [TestMethod]
+    public void Lines_KeepTheIncompleteSearchWarning_WhenNothingWasFound()
+    {
+        var lines = DevToolsReferences.Lines([], true).ToList();
+        Assert.AreEqual(2, lines.Count);
+        Assert.AreEqual("  References:", lines[0]);
+        StringAssert.Contains(lines[1], "Only part of the tree");
+    }
 }

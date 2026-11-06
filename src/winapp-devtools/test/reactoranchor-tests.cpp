@@ -47,6 +47,11 @@ void Test_RoundTrip()
           back.owner == L"App" && back.ordinal == 2, "every field survives, including a key with the separator in it");
     Check(back.sub.size() == 2 && back.sub[1].first == 1 && back.sub[1].second == L"TextBlock", "the path below the call site survives");
     Check(!DevToolsReactorAnchor::IsReactorAnchor(L"source:3:App"), "a XAML anchor is not a Reactor anchor");
+    // The anchor `winapp devtools comments add --file App.cs --line 78` saves (CommentPusher.ReactorMarkerAnchor).
+    DevToolsReactorAnchor::Site offline;
+    Check(DevToolsReactorAnchor::Decode(L"reactor:6:App.cs2:781:06:Button0:7:Counter1:01:00:", &offline) &&
+          offline.file == L"App.cs" && offline.line == 78 && offline.element == L"Button" && offline.owner == L"Counter" &&
+          offline.sub.empty() && offline.name.empty(), "the CLI's offline anchor decodes");
 }
 
 void Test_DecodeRefusesMalformed()

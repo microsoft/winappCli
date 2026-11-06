@@ -385,8 +385,8 @@ public class DevToolsCSharpCommentsTests
     public void ReactorMarkerAnchor_MatchesTheAppsFormat_AndIsOnlyForOwnCallSites()
     {
         var cs = new CommentCSharpAnchor { SourceFile = "App.cs", Line = 78, Column = 0, Element = "Button", Component = "Counter", LineHash = "" };
-        Assert.AreEqual("reactor:6:App.cs2:781:06:Button0:7:Counter1:01:0", CommentPusher.ReactorMarkerAnchor(cs),
-            "the same string the app captured live for <Counter>/Button at App.cs:78");
+        Assert.AreEqual("reactor:6:App.cs2:781:06:Button0:7:Counter1:01:00:", CommentPusher.ReactorMarkerAnchor(cs),
+            "the same string the app captured live for <Counter>/Button at App.cs:78 (reactoranchor-tests.cpp decodes it)");
         cs.Exact = false;
         Assert.IsNull(CommentPusher.ReactorMarkerAnchor(cs), "an ancestor's call site does not name the element itself");
         Assert.IsNull(CommentPusher.ReactorMarkerAnchor(null));

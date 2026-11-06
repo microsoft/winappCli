@@ -275,6 +275,8 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
         Field(cs.Component ?? string.Empty);
         Field(cs.Ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Field("0");
+        // The C# name the app records; the match does not compare it, but the app's decoder requires the field.
+        Field(string.Empty);
         return anchor.ToString();
     }
 }

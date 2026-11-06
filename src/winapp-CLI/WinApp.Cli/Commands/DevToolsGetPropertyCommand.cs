@@ -348,7 +348,7 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                 }
             }
 
-            if (references is { Edges.Count: > 0 } found)
+            if (references is { } found && (found.Edges.Count > 0 || found.Truncated))
             {
                 Console.WriteLine();
                 foreach (var line in DevToolsReferences.Lines(found.Edges, found.Truncated))
