@@ -1,6 +1,6 @@
 {
   "name": "winappcli",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "Windows app development, packaging, and distribution. Helps with creating Windows installers (MSIX), code signing, certificates, Windows SDK and Windows App SDK setup, package identity for Windows APIs (push notifications, background tasks, share target), appxmanifest authoring, and Microsoft Store distribution. Supports Electron, .NET, C++, Rust, Flutter, and Tauri apps.",
   "author": {
     "name": "Microsoft",
