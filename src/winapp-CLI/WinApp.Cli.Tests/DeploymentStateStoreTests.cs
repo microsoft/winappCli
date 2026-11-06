@@ -62,12 +62,32 @@ public class DeploymentStateStoreTests
     }
 
     [TestMethod]
+    public void CommitAndClear_KeepLockFileWithoutKeepingDeploymentState()
+    {
+        var original = Seed();
+        var stateFile = Path.Join(_root, Target.StateKey, DeploymentStateStore.DeploymentsFolder, "same-app.json");
+        Assert.IsTrue(File.Exists(stateFile + ".lock"));
+
+        var store = CreateStore();
+        store.Clear(Target, original.DeploymentId);
+
+        Assert.IsTrue(File.Exists(stateFile + ".lock"));
+        Assert.IsFalse(File.Exists(stateFile));
+        Assert.IsNull(store.Read(Target, original.DeploymentId));
+        Assert.HasCount(0, store.List(Target));
+
+        var committed = store.Commit(Target, original, expectedRevision: 0);
+        Assert.AreEqual(1L, committed.Revision);
+        Assert.HasCount(1, store.List(Target));
+    }
+
+    [TestMethod]
     public async Task Commit_DoesNotCheckOrReplaceStateWhileAnotherWriterHoldsItsLease()
     {
         var original = Seed();
         var stateFile = Path.Join(_root, Target.StateKey, DeploymentStateStore.DeploymentsFolder, "same-app.json");
         using var lease = new FileStream(stateFile + ".lock", FileMode.OpenOrCreate,
-            FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+            FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.None);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var commit = Task.Run(() =>
         {

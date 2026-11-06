@@ -279,8 +279,9 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
         {
             try
             {
+                // Keep the file: deleting it on close can make competing opens fail with access denied.
                 return new FileStream(stateFile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite,
-                    FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+                    FileShare.None, bufferSize: 1, FileOptions.None);
             }
             catch (IOException ex) when ((ex.HResult & 0xffff) is 32 or 33)
             {

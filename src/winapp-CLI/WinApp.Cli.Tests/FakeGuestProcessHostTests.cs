@@ -32,7 +32,8 @@ public sealed class FakeGuestProcessHostTests
                 }
                 registered = true;
             });
-        var exit = Task.Run(() => host.Exit(0));
+        var exit = Task.Factory.StartNew(() => host.Exit(0),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
