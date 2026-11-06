@@ -445,6 +445,32 @@ static void CheckReactorSecretHooks(const std::function<void(bool,const char*)>&
         "Reactor.setState refuses the hook named password");
     check(TapReactorSecretRefusal(component, L"1").empty() && TapReactorSecretRefusal(component, L"9").empty(),
         "and lets any other hook through to the app");
+
+    // `var dark = UseIsDarkTheme(); var (password, setPassword) = UseState("hunter2");`: Reactor names slot 0 `dark`
+    // and cannot place `password`, so DevTools cannot tell which hook holds it.
+    std::vector<DevToolsReactorPublished::Hook> published(2);
+    published[0].name = L"dark"; published[0].indexed = true;
+    published[1].name = L"password"; published[1].indexed = false;
+    check(TapReactorSecretUnplaced(published), "a password hook Reactor could not place makes the hooks uncertain");
+    published[1].name = L"ApiToken";
+    check(!TapReactorSecretUnplaced(published), "an unplaced hook with any other name does not");
+    DevToolsJson uncertain;
+    check(DevToolsJsonParse(LR"({"state":"ok","hooks":[
+        {"index":0,"kind":"state","type":"string","value":"\"hunter2\"","canSet":true,"editable":true,"name":"dark"},
+        {"index":1,"kind":"state","type":"int","value":"3","canSet":true,"editable":true},
+        {"index":2,"kind":"ref","value":"\"x\""},
+        {"index":3,"kind":"effect"}]})", uncertain), "an uncertain Reactor.component answer parses");
+    auto& slots = uncertain.obj[L"hooks"].arr;
+    TapReactorRedactTextHooks(uncertain.obj[L"hooks"]);
+    check(slots[0].GetString(L"value") == kDevToolsRedacted && slots[0].GetBool(L"redacted", false) &&
+        !slots[0].GetBool(L"editable", true), "a text hook is hidden and not editable, whatever its name");
+    check(slots[2].GetString(L"value") == kDevToolsRedacted && slots[2].GetBool(L"redacted", false),
+        "so is a value of unknown type");
+    check(slots[1].GetString(L"value") == L"3" && !slots[1].GetBool(L"redacted", false) && slots[1].GetBool(L"editable", false),
+        "a number is still shown and editable");
+    check(!slots[3].Find(L"value") && !slots[3].GetBool(L"redacted", false), "a hook with no value is left alone");
+    check(!TapReactorSecretRefusal(uncertain, L"0").empty() && TapReactorSecretRefusal(uncertain, L"1").empty(),
+        "Reactor.setState refuses the hidden hook and lets the number through");
 }
 
 // AccessKey="" reaches the chain as a null "0" handle with an Object value type, though the property is a String.

@@ -456,6 +456,31 @@ inline bool HookTarget(const std::wstring& prefix, std::wstring* name)
     return false;
 }
 
+// The masked text of the render body whose `{` is at or around `line`/`column` (1-based; column 0 when unknown), and
+// that body's braces in it; false when there is none.
+inline bool Body(const std::vector<std::wstring>& lines, unsigned int line, unsigned int column, std::wstring* text,
+                 size_t* open, size_t* close)
+{
+    if (line == 0 || line > lines.size()) return false;
+    const auto masked = Mask(lines);
+    text->clear();
+    size_t offset = 0;
+    for (size_t k = 0; k < masked.size(); ++k) {
+        if (k) *text += L'\n';
+        if (k == line - 1) offset = text->size();
+        *text += masked[k];
+    }
+    const std::wstring& row = masked[line - 1];
+    const size_t at = column > 0 ? (std::min)((size_t)column - 1, row.size())
+                                 : (std::min)(row.find_first_not_of(L" \t"), row.size());
+    const long long start = BodyOpen(*text, offset + at);
+    const long long end = start < 0 ? -1 : Matching(*text, (size_t)start);
+    if (end < 0) return false;
+    *open = (size_t)start;
+    *close = (size_t)end;
+    return true;
+}
+
 } // namespace detail
 
 // The C# names of a Reactor component's hooks, read from its render body when Reactor recorded none (DevTools attached
@@ -468,21 +493,10 @@ inline bool HookNames(const std::vector<std::wstring>& lines, unsigned int line,
 {
     using namespace detail;
     names->clear();
-    if (line == 0 || line > lines.size() || kinds.empty()) return false;
-    const auto masked = Mask(lines);
+    if (kinds.empty()) return false;
     std::wstring text;
-    size_t offset = 0;
-    for (size_t k = 0; k < masked.size(); ++k) {
-        if (k) text += L'\n';
-        if (k == line - 1) offset = text.size();
-        text += masked[k];
-    }
-    const std::wstring& row = masked[line - 1];
-    const size_t at = column > 0 ? (std::min)((size_t)column - 1, row.size())
-                                 : (std::min)(row.find_first_not_of(L" \t"), row.size());
-    const long long open = BodyOpen(text, offset + at);
-    const long long close = open < 0 ? -1 : Matching(text, (size_t)open);
-    if (close < 0) return false;
+    size_t open = 0, close = 0;
+    if (!Body(lines, line, column, &text, &open, &close)) return false;
 
     std::vector<std::pair<std::wstring, std::wstring>> calls;  // kind, name
     std::vector<bool> braces;  // true for a lambda's block
@@ -527,6 +541,25 @@ inline bool HookNames(const std::vector<std::wstring>& lines, unsigned int line,
     for (auto& call : calls) { any = any || !call.second.empty(); names->push_back(call.second); }
     if (!any) names->clear();
     return any;
+}
+
+// Whether the render body (as for HookNames) uses an identifier `isSecret` says names a password. When HookNames cannot
+// place the hooks, any of them may hold that password.
+template <class IsSecret>
+inline bool BodyNamesSecret(const std::vector<std::wstring>& lines, unsigned int line, unsigned int column, IsSecret isSecret)
+{
+    using namespace detail;
+    std::wstring text;
+    size_t open = 0, close = 0;
+    if (!Body(lines, line, column, &text, &open, &close)) return false;
+    for (size_t i = open + 1; i < close; ++i) {
+        if (!IsIdentifierStart(text[i]) || IsIdentifierChar(text[i - 1])) continue;
+        size_t end = i;
+        while (end < close && IsIdentifierChar(text[end])) ++end;
+        if (isSecret(text.substr(i, end - i))) return true;
+        i = end - 1;
+    }
+    return false;
 }
 
 } // namespace DevToolsCSharpSource

@@ -353,7 +353,8 @@ public class ReactorStateCommandTests
             using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", LateAttachLogin(path));
             var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "[0] state string = \"hook-pass-1\" settable", "an unproven mapping names nothing");
+            StringAssert.Contains(output, "[0] state string = <redacted>", "an unproven mapping names nothing, so any hook may be the password");
+            Assert.DoesNotContain("hook-pass-1", output);
             Assert.IsFalse(output.Contains("read from", StringComparison.Ordinal), output);
         }
         finally

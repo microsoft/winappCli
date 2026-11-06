@@ -831,6 +831,14 @@ bool DevToolsAuthored_CSharpHookNames(const std::wstring& path, unsigned int lin
     if (!names || path.empty() || !ReadLines(path, &lines, &hash)) return false;
     return DevToolsCSharpSource::HookNames(lines, line, column, kinds, names);
 }
+bool DevToolsAuthored_CSharpBodyNamesSecret(const std::wstring& path, unsigned int line, unsigned int column,
+    bool (*isSecret)(const std::wstring&))
+{
+    std::vector<std::wstring> lines;
+    std::wstring hash;
+    if (!isSecret || path.empty() || !ReadLines(path, &lines, &hash)) return false;
+    return DevToolsCSharpSource::BodyNamesSecret(lines, line, column, isSecret);
+}
 std::wstring DevToolsAuthored_FileHash(const std::wstring& path, const std::wstring& algorithm)
 {
     const BCRYPT_ALG_HANDLE alg = algorithm == L"SHA256" ? BCRYPT_SHA256_ALG_HANDLE

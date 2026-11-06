@@ -1571,6 +1571,32 @@ static void TapReactorApplyHookName(DevToolsJson& hook, const std::wstring& name
     }
 }
 
+// When DevTools cannot tell which hook holds a password, hides every hook holding text (or a value of unknown type),
+// as a hook named as a secret is hidden; they are then not editable, and Reactor.setState refuses them.
+static void TapReactorRedactTextHooks(DevToolsJson& hooks)
+{
+    for (auto& hook : hooks.arr) {
+        if (!hook.IsObject() || !hook.Find(L"value") || hook.GetBool(L"redacted", false)) continue;
+        std::wstring type = hook.GetString(L"type");
+        for (auto& c : type) c = static_cast<wchar_t>(towlower(c));
+        if (!type.empty() && type.find(L"string") == std::wstring::npos) continue;
+        DevToolsJson redacted; redacted.type = DevToolsJsonType::String; redacted.str = kDevToolsRedacted;
+        hook.obj[L"value"] = redacted;
+        DevToolsJson yes; yes.type = DevToolsJsonType::Bool; yes.b = true;
+        hook.obj[L"redacted"] = yes;
+        if (hook.Find(L"editable")) { DevToolsJson no; no.type = DevToolsJsonType::Bool; no.b = false; hook.obj[L"editable"] = no; }
+    }
+}
+
+// Whether Reactor named a password hook it could not place (one after a composite hook such as UseIsDarkTheme). Then
+// it may be any of the hooks, and the names of those before it may be off too, so every text value is hidden.
+static bool TapReactorSecretUnplaced(const std::vector<DevToolsReactorPublished::Hook>& named)
+{
+    for (const auto& hook : named)
+        if (!hook.indexed && DevToolsRead_IsSecretProperty(hook.name)) return true;
+    return false;
+}
+
 // Reactor.setState's refusal for the hook at `index` when a Reactor.component answer shows it redacted; empty when
 // the write may go ahead.
 static std::wstring TapReactorSecretRefusal(const DevToolsJson& component, const std::wstring& index)
@@ -1606,8 +1632,14 @@ static void TapReactorNameHooksFromSource(const DevToolsJson& answer, DevToolsJs
         kinds.push_back(hook.GetString(L"kind"));
     }
     std::vector<std::wstring> names;
-    if (!DevToolsAuthored_CSharpHookNames(path, static_cast<unsigned int>(definition->GetInt(L"line", 0)),
-            static_cast<unsigned int>(definition->GetInt(L"column", 0)), kinds, &names)) return;
+    const auto line = static_cast<unsigned int>(definition->GetInt(L"line", 0));
+    const auto column = static_cast<unsigned int>(definition->GetInt(L"column", 0));
+    if (!DevToolsAuthored_CSharpHookNames(path, line, column, kinds, &names)) {
+        // The hooks can't be placed (a hook DevTools doesn't know, a branch): if the body uses a password, any may hold it.
+        if (DevToolsAuthored_CSharpBodyNamesSecret(path, line, column, &DevToolsRead_IsSecretProperty))
+            TapReactorRedactTextHooks(hooks);
+        return;
+    }
     for (size_t i = 0; i < names.size() && i < hooks.arr.size(); ++i) {
         if (names[i].empty()) continue;
         TapReactorApplyHookName(hooks.arr[i], names[i], 0);
@@ -1726,6 +1758,7 @@ static bool TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         unindexed.arr.push_back(std::move(entry));
     }
     if (!unindexed.arr.empty()) answer.obj[L"unindexedHooks"] = std::move(unindexed);
+    const bool secretUnplaced = TapReactorSecretUnplaced(named);
     for (auto& hook : hooks->second.arr) {
         if (!hook.IsObject()) continue;
         const DevToolsJson* index = hook.Find(L"index");
@@ -1735,6 +1768,7 @@ static bool TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         if (hookName.empty()) continue;
         TapReactorApplyHookName(hook, hookName, line);
     }
+    if (secretUnplaced) TapReactorRedactTextHooks(hooks->second);
     TapReactorRedactNamedContexts(answer, hooks->second);
     return true;
 }

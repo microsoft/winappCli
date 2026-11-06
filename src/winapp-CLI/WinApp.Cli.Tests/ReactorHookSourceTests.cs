@@ -148,4 +148,53 @@ public class ReactorHookSourceTests
         Assert.IsNull(Names("class C : Component\n{\n    int x;\n}\n", 2, 1, "state"), "a type body is not a render method");
         Assert.IsNull(Names(Login, 99, 1, "state"), "a line outside the file");
     }
+
+    // `UseIsDarkTheme()` is a hook DevTools can't place, so it can't tell which hook holds the password.
+    private const string DarkLogin = """
+        class Login2 : Component
+        {
+            public override Element Render()
+            {
+                var dark = UseIsDarkTheme();
+                var (VARIABLE, setValue) = UseState("hunter2");
+                var (count, setCount) = UseState(3);
+                return TextBlock("Login2");
+            }
+        }
+        """;
+
+    private static (ReactorComponentState State, string Json)? ApplyTo(string variable)
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"winapp-hooks-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(file, DarkLogin.Replace("VARIABLE", variable, StringComparison.Ordinal));
+        try
+        {
+            var json = $$"""
+                {"state":"ok","component":{"name":"Login2","kind":"class"},
+                 "definition":{"file":{{System.Text.Json.JsonSerializer.Serialize(file)}},"line":4,"column":5},
+                 "hooks":[{"index":0,"kind":"state","type":"string","value":"\"hunter2\"","canSet":true,"editable":true},
+                          {"index":1,"kind":"state","type":"int","value":"3","canSet":true,"editable":true}]}
+                """;
+            var state = ReactorComponentState.Parse(json).State!;
+            return ReactorHookSource.Apply(state, json);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [TestMethod]
+    public void Apply_HidesEveryTextHook_WhenAPasswordHookCannotBePlaced()
+    {
+        var (state, json) = ApplyTo("password") ?? throw new AssertFailedException("the hooks were left as they were");
+        Assert.IsTrue(state.Hooks[0].Redacted && state.Hooks[0].Value == "<redacted>" && !state.Hooks[0].Editable,
+            "the string hook may be the password: hidden and not editable");
+        Assert.IsTrue(!state.Hooks[1].Redacted && state.Hooks[1].Value == "3" && state.Hooks[1].Editable, "a number is still shown");
+        Assert.DoesNotContain("hunter2", json);
+        Assert.IsNull(state.Hooks[0].Name, "no name is guessed for a hook that couldn't be placed");
+    }
+
+    [TestMethod]
+    public void Apply_LeavesHooksAlone_WhenTheBodyUsesNoPassword() => Assert.IsNull(ApplyTo("token"));
 }

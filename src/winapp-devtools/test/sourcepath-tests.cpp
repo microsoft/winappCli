@@ -255,6 +255,16 @@ int RunSourcePathTests()
         Check(!HookNames(body(L"        var form = UseForm();"), 4, 5, {L"state"}, &names), "a custom hook names nothing");
         Check(!HookNames(body(L"        var a = Props.On ? UseState(1).Value : 0;"), 4, 5, {L"state"}, &names),
               "a hook in a conditional expression names nothing");
+
+        auto secret = [](const std::wstring& name) {
+            return name.size() >= 8 && _wcsicmp(name.c_str() + name.size() - 8, L"password") == 0;
+        };
+        const auto dark = body(L"        var dark = UseIsDarkTheme();\n        var (password, setPassword) = UseState(\"hunter2\");");
+        Check(!HookNames(dark, 4, 5, {L"state", L"state"}, &names) && BodyNamesSecret(dark, 4, 5, secret),
+              "a body the hooks can't be placed in still says it uses a password");
+        Check(!BodyNamesSecret(body(L"        var dark = UseIsDarkTheme();\n        var (token, setToken) = UseState(\"Password\");"), 4, 5, secret),
+              "a password only in a string or another name is not one");
+        Check(!BodyNamesSecret(login, 99, 1, secret), "no body, no password");
     }
 
     std::printf("== C# password parameters ==\n");

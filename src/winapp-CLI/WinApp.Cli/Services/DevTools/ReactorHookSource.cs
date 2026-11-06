@@ -54,25 +54,11 @@ internal static partial class ReactorHookSource
     /// </summary>
     internal static IReadOnlyList<string?>? Names(IReadOnlyList<string> lines, int line, int column, IReadOnlyList<string> kinds)
     {
-        if (line < 1 || line > lines.Count || kinds.Count == 0)
+        if (kinds.Count == 0 || Body(lines, line, column) is not { } body)
         {
             return null;
         }
-        var masked = CSharpSourceText.Mask(lines);
-        var text = string.Join('\n', masked);
-        var offset = 0;
-        for (var i = 0; i < line - 1; i++)
-        {
-            offset += masked[i].Length + 1;
-        }
-        var row = masked[line - 1];
-        var at = column > 0 ? Math.Min(column - 1, row.Length) : row.Length - row.TrimStart().Length;
-        var open = BodyOpen(text, offset + at);
-        var close = open < 0 ? -1 : Matching(text, open);
-        if (close < 0)
-        {
-            return null;
-        }
+        var (text, open, close) = body;
         var calls = Calls(text, open + 1, close);
         if (calls is null || calls.Count != kinds.Count)
         {
@@ -89,6 +75,58 @@ internal static partial class ReactorHookSource
     }
 
     /// <summary>
+    /// Whether the render body (as for <see cref="Names"/>) uses an identifier named as a password
+    /// (<see cref="DevToolsSecrets"/>). When the hooks can't be placed, any of them may hold that password.
+    /// </summary>
+    internal static bool NamesSecret(IReadOnlyList<string> lines, int line, int column)
+    {
+        if (Body(lines, line, column) is not { } body)
+        {
+            return false;
+        }
+        var (text, open, close) = body;
+        for (var i = open + 1; i < close; i++)
+        {
+            if (!(char.IsLetter(text[i]) || text[i] == '_') || char.IsLetterOrDigit(text[i - 1]) || text[i - 1] == '_')
+            {
+                continue;
+            }
+            var end = i;
+            while (end < close && (char.IsLetterOrDigit(text[end]) || text[end] == '_'))
+            {
+                end++;
+            }
+            if (DevToolsSecrets.IsSecretName(text[i..end]))
+            {
+                return true;
+            }
+            i = end - 1;
+        }
+        return false;
+    }
+
+    // The masked text of the render body whose `{` is at or around line/column, and that body's braces in it.
+    private static (string Text, int Open, int Close)? Body(IReadOnlyList<string> lines, int line, int column)
+    {
+        if (line < 1 || line > lines.Count)
+        {
+            return null;
+        }
+        var masked = CSharpSourceText.Mask(lines);
+        var text = string.Join('\n', masked);
+        var offset = 0;
+        for (var i = 0; i < line - 1; i++)
+        {
+            offset += masked[i].Length + 1;
+        }
+        var row = masked[line - 1];
+        var at = column > 0 ? Math.Min(column - 1, row.Length) : row.Length - row.TrimStart().Length;
+        var open = BodyOpen(text, offset + at);
+        var close = open < 0 ? -1 : Matching(text, open);
+        return close < 0 ? null : (text, open, close);
+    }
+
+    /// <summary>
     /// The component with the hook names its definition's C# gives, when Reactor recorded none, and the answer JSON with
     /// them: a hook named as a password is redacted and not settable. Null when nothing could be named.
     /// </summary>
@@ -100,14 +138,27 @@ internal static partial class ReactorHookSource
             return null;
         }
         IReadOnlyList<string?>? names;
+        bool namesSecret;
         try
         {
             var lines = CSharpSourceText.ReadLines(path, Path.GetDirectoryName(path)!);
             names = Names(lines, definition.Line, definition.Column, [.. state.Hooks.Select(h => h.Kind)]);
+            namesSecret = names is null && NamesSecret(lines, definition.Line, definition.Column);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             return null;
+        }
+        if (namesSecret)
+        {
+            // The hooks can't be placed (a hook DevTools doesn't know, a branch), and the body uses a password: hide every
+            // text value, since any of them may be it.
+            var hidden = state.Hooks.Select(hook => hook.Value is null || hook.Redacted || !HoldsText(hook) ? hook
+                : hook with { Value = DevToolsSecrets.Redacted, Redacted = true, Editable = false }).ToList();
+            var hiddenContexts = hidden.Where(h => h.Redacted && h.Kind == "context").Select(h => h.Index).ToHashSet();
+            var shownContexts = state.Contexts.Select(c => hiddenContexts.Contains(c.Hook) ? c with { Value = DevToolsSecrets.Redacted, Redacted = true } : c).ToList();
+            var changed = hidden.Where((hook, i) => hook != state.Hooks[i]).Select(h => h.Index).ToHashSet();
+            return (state with { Hooks = hidden, Contexts = shownContexts }, Rewrite(json, hidden, hiddenContexts, changed));
         }
         if (names is null || names.All(name => name is null))
         {
@@ -120,8 +171,12 @@ internal static partial class ReactorHookSource
         var secretContexts = hooks.Where(h => h.Redacted && h.Kind == "context").Select(h => h.Index).ToHashSet();
         var contexts = state.Contexts.Select(c => secretContexts.Contains(c.Hook) ? c with { Value = DevToolsSecrets.Redacted, Redacted = true } : c).ToList();
         var named = state with { Hooks = hooks, Contexts = contexts };
-        return (named, Rewrite(json, hooks, secretContexts));
+        return (named, Rewrite(json, hooks, secretContexts, hooks.Where(h => h.NameSource is not null).Select(h => h.Index).ToHashSet()));
     }
+
+    // A hook holding text, or a value of unknown type.
+    private static bool HoldsText(ReactorHookInfo hook) =>
+        string.IsNullOrEmpty(hook.Type) || hook.Type.Contains("string", StringComparison.OrdinalIgnoreCase);
 
     // The definition's file on this machine: as recorded, or a project-relative path under the current folder.
     private static string? FindFile(string file, string? start)
@@ -133,7 +188,7 @@ internal static partial class ReactorHookSource
         return DevToolsGetSourceCommand.Handler.FindRelativeSource(file, start);
     }
 
-    private static string Rewrite(string json, IReadOnlyList<ReactorHookInfo> hooks, HashSet<int> secretContexts)
+    private static string Rewrite(string json, IReadOnlyList<ReactorHookInfo> hooks, HashSet<int> secretContexts, HashSet<int> changed)
     {
         using var doc = JsonDocument.Parse(json, TapWireJson.DocumentOptions);
         return DevToolsJson.Serialize(writer =>
@@ -147,7 +202,7 @@ internal static partial class ReactorHookSource
                     {
                         var index = element.ValueKind == JsonValueKind.Object && element.TryGetProperty("index", out var i) && i.TryGetInt32(out var n) ? n : -1;
                         var hook = hooks.FirstOrDefault(h => h.Index == index);
-                        if (hook?.NameSource is null)
+                        if (hook is null || !changed.Contains(index))
                         {
                             element.WriteTo(writer);
                             continue;
@@ -155,14 +210,18 @@ internal static partial class ReactorHookSource
                         writer.WriteStartObject();
                         foreach (var field in element.EnumerateObject())
                         {
-                            if (field.Name is "name" or "nameSource" || (hook.Redacted && field.Name is "value" or "redacted" or "editable"))
+                            if ((hook.NameSource is not null && field.Name is "name" or "nameSource") ||
+                                (hook.Redacted && field.Name is "value" or "redacted" or "editable"))
                             {
                                 continue;
                             }
                             field.WriteTo(writer);
                         }
-                        writer.WriteString("name", hook.Name);
-                        writer.WriteString("nameSource", NameSource);
+                        if (hook.NameSource is not null)
+                        {
+                            writer.WriteString("name", hook.Name);
+                            writer.WriteString("nameSource", NameSource);
+                        }
                         if (hook.Redacted)
                         {
                             if (hook.Value is not null) { writer.WriteString("value", DevToolsSecrets.Redacted); }

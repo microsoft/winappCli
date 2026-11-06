@@ -180,6 +180,32 @@ public class DevToolsSelectorUiAutomationTests
     }
 
     [TestMethod]
+    public async Task ReactorSelector_ThatMatchesNothing_FindsNothing_SoWaitForKeepsPolling()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", """{"state":"ok","nodes":[{"handle":"42","element":"Button","key":"save","file":0,"line":9}],"files":["C:\\src\\App.cs"],"unmapped":0,"truncated":false}""");
+        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        Assert.IsNull(await bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=loading", ControlType = "Button" }, CancellationToken.None));
+        Assert.IsNull(await bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=loading" }, requireUnique: true, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ReactorSelector_ThatMatchesSeveral_IsStillAmbiguous()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", """{"state":"ok","nodes":[{"handle":"42","element":"Button","key":"save","file":0,"line":9},{"handle":"43","element":"Button","key":"save","file":0,"line":12}],"files":["C:\\src\\App.cs"],"unmapped":0,"truncated":false}""");
+        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(() =>
+            bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=save", ControlType = "Button" }, CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task CSharpName_SelectsTheReactorElementAssignedToIt_ByItsAutomationId()
     {
         using var agent = new FakeDevToolsProtocolAgent()

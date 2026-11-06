@@ -172,7 +172,9 @@ hooks show their index only. Pass a component
 (`"<Counter>"`) or any element inside it. `defined` is where the component's render
 method is, read from the app's PDB; when that file changed after the build, the
 output says lines may have moved. Passwords show as `<redacted>` and cannot be set;
-see [DevTools](devtools.md#find-and-inspect-an-element).
+see [DevTools](devtools.md#find-and-inspect-an-element). When a component has a
+password hook but DevTools can't tell which hook it is (for example after a hook such as
+`UseIsDarkTheme()`), every text hook of that component shows as `<redacted>`.
 
 ```powershell
 winapp devtools set-state "<Counter>" count 42
@@ -390,16 +392,17 @@ winapp run . -- --preview Counter
 ```
 
 The app receives `--preview Counter` and DevTools attaches as usual. Which component
-the app mounts is up to Reactor's preview host; if the app exits right away with
-*built without Reactor.DevtoolsSupport*, the Reactor version you use still needs
-`Microsoft.UI.Reactor.Devtools` for previews. To capture a preview, use
+the app mounts is up to Reactor's preview host. If the app exits right away with
+*built without Reactor.DevtoolsSupport*, add the `Microsoft.UI.Reactor.Devtools`
+package: Reactor 0.1.0-preview.17 still needs it for previews. To capture a preview, use
 `winapp ui screenshot -a <pid> --output preview.png`.
 
 ## Move from Reactor DevTools
 
 `winapp run` with DevTools replaces `mur devtools` and the
 `Microsoft.UI.Reactor.Devtools` package. You don't need the package or the
-`Reactor.DevtoolsSupport` switch: remove them when you no longer use their MCP tools.
+`Reactor.DevtoolsSupport` switch, unless you use [component previews](#preview-one-component):
+remove them when you no longer use their MCP tools.
 Agents use these commands with `--json` and the `winui-devtools` skill instead of the
 MCP server.
 

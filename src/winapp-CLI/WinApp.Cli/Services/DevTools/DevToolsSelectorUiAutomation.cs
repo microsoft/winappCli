@@ -53,11 +53,27 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
     public async Task<UiElement[]> SearchAsync(UiTarget uiTarget, UiSelector selector, int maxResults, CancellationToken ct) =>
         await inner.SearchAsync(uiTarget, await TranslateAsync(uiTarget, selector, ct), maxResults, ct);
 
+    // Null when a DevTools selector matches nothing, as IUiAutomation.FindSingleElementAsync promises, so `ui wait-for`
+    // keeps polling for an element that isn't there yet; an ambiguous selector still throws.
     public async Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct) =>
-        await inner.FindSingleElementAsync(uiTarget, await TranslateAsync(uiTarget, selector, ct), ct);
+        await TranslateOrNoneAsync(uiTarget, selector, ct) is { } translated ? await inner.FindSingleElementAsync(uiTarget, translated, ct) : null;
 
     public async Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct) =>
-        await inner.FindSingleElementAsync(uiTarget, await TranslateAsync(uiTarget, selector, ct), requireUnique, ct);
+        await TranslateOrNoneAsync(uiTarget, selector, ct) is { } translated
+            ? await inner.FindSingleElementAsync(uiTarget, translated, requireUnique, ct)
+            : null;
+
+    private async Task<UiSelector?> TranslateOrNoneAsync(UiTarget target, UiSelector selector, CancellationToken ct)
+    {
+        try
+        {
+            return await TranslateAsync(target, selector, ct);
+        }
+        catch (UiElementNotFoundException)
+        {
+            return null;
+        }
+    }
 
     public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct) => inner.IsSameElement(selected, current, ct);
 
