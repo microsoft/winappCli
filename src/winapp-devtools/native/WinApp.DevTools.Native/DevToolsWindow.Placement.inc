@@ -12,6 +12,7 @@ static const int kMinWindowHeightDip = 400;
 
 static void ResetAppVisibleModes(HWND hwnd);
 static void LiveUnwatch();
+static void SetInspectorIcon(HWND hwnd);
 
 static LRESULT CALLBACK Route1MinSizeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                                           UINT_PTR /*id*/, DWORD_PTR generation)
@@ -35,6 +36,11 @@ static LRESULT CALLBACK Route1MinSizeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM
         return 0;
     }
     if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, Route1MinSizeProc, 1);
+    if (msg == WM_DPICHANGED || msg == WM_SETTINGCHANGE) {
+        const LRESULT result = DefSubclassProc(hwnd, msg, wp, lp);
+        SetInspectorIcon(hwnd);
+        return result;
+    }
     return DefSubclassProc(hwnd, msg, wp, lp);
 }
 

@@ -58,6 +58,26 @@ static void Check(bool condition, const char* message)
     }
 }
 
+static void CheckInspectorLayout(IUIAutomation* automation, IUIAutomationElement* window)
+{
+    const wchar_t* ids[] = { L"PickElementToggle", L"FocusTrackingToggle", L"TreeFilter", L"JustMyXamlToggle" };
+    RECT bounds[4]{};
+    for (unsigned index = 0; index < 4; ++index) {
+        auto element = Find(automation, window, ids[index]);
+        Require(element->get_CurrentBoundingRectangle(&bounds[index]));
+        Check(bounds[index].right > bounds[index].left && bounds[index].bottom > bounds[index].top,
+            "each inspector toolbar control has visible bounds");
+    }
+    for (unsigned index : { 0u, 1u, 3u }) {
+        Check(bounds[index].top <= bounds[2].top && bounds[index].bottom >= bounds[2].bottom,
+            "inspector command buttons grow with the text-scaled filter");
+    }
+    for (unsigned index = 1; index < 4; ++index) {
+        Check(bounds[index - 1].right <= bounds[index].left, "inspector toolbar controls do not overlap");
+    }
+    Check(bounds[2].right - bounds[2].left >= 32, "the filter retains a usable input area");
+}
+
 static void CheckCaption(IUIAutomation* automation, IUIAutomationElement* row, const wchar_t* expected)
 {
     VARIANT value;
@@ -176,6 +196,7 @@ static int Run(HWND hwnd)
     Require(automation->get_ControlViewWalker(&walker));
     ComPtr<IUIAutomationElement> window;
     Require(automation->ElementFromHandle(hwnd, &window));
+    CheckInspectorLayout(automation.Get(), window.Get());
     auto tree = Find(automation.Get(), window.Get(), L"WinAppDevToolsTree");
     auto root = Find(automation.Get(), tree.Get(), L"TreeNode0");
     auto title = Find(automation.Get(), tree.Get(), L"TreeNode1");

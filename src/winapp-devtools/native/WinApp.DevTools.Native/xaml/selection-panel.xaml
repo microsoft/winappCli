@@ -66,13 +66,13 @@
                      TextTrimming="CharacterEllipsis" Text="$SOURCE$" ToolTipService.ToolTip="$SOURCETIP$"
                      AutomationProperties.AutomationId="DevToolsSelSource" AutomationProperties.Name="Source: $SOURCE$" />
         </StackPanel>
-        <Button x:Name="DevToolsSelClose" Grid.Column="1" Style="{x:Null}" Width="32" Height="32" Padding="0"
+        <Button x:Name="DevToolsSelClose" Grid.Column="1" Style="{x:Null}" MinWidth="32" MinHeight="32" Padding="6"
                 VerticalAlignment="Center" BorderThickness="0" CornerRadius="4" Background="#00000000"
                 Foreground="$TEXTDIM$"
                 ToolTipService.ToolTip="Close (Esc)"
                 AutomationProperties.AutomationId="DevToolsSelClose"
                 AutomationProperties.Name="Close">
-          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE711;" FontSize="11"
+          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE711;" FontSize="11" IsTextScaleFactorEnabled="True"
                     Foreground="$TEXTDIM$" />
         </Button>
       </Grid>
@@ -87,14 +87,14 @@
       <Grid>
         <TextBlock Text="Comment" Style="{StaticResource BodyStrongTextBlockStyle}"
                    VerticalAlignment="Center" Foreground="$TEXT$" />
-        <Button x:Name="DevToolsSelCommentDelete" Style="{x:Null}" Width="24" Height="22" Padding="0"
+        <Button x:Name="DevToolsSelCommentDelete" Style="{x:Null}" MinWidth="24" MinHeight="22" Padding="4"
                 BorderThickness="0" CornerRadius="5" Background="#00000000" Foreground="$CAUTION$"
                 HorizontalAlignment="Right"
                 Visibility="$CMTDELVIS$"
                 ToolTipService.ToolTip="Delete this comment (permanent)"
                 AutomationProperties.AutomationId="DevToolsSelCommentDelete"
                 AutomationProperties.Name="Delete comment">
-          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE74D;" FontSize="11"
+          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE74D;" FontSize="11" IsTextScaleFactorEnabled="True"
                     Foreground="$CAUTION$" />
         </Button>
       </Grid>
@@ -125,7 +125,7 @@
             AutomationProperties.AutomationId="DevToolsSelOpen"
             AutomationProperties.Name="Open in DevTools window">
       <StackPanel Orientation="Horizontal" Spacing="7">
-        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="12"
+        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="12" IsTextScaleFactorEnabled="True"
                   Foreground="$ACCENT$" />
         <TextBlock Text="Open in DevTools" FontSize="12" Foreground="$ACCENT$" VerticalAlignment="Center" />
       </StackPanel>
