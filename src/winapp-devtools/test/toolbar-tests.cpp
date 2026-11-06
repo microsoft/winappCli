@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include "DevToolsTestCheck.h"
 
 static std::string ReadText(const std::filesystem::path& path)
@@ -64,6 +65,59 @@ static void TestToolbarContract()
     Check(!windowShell.empty(), "window-shell.xaml is readable");
     Check(!overlay.empty(), "DevToolsOverlay.cpp is readable");
     Check(!window.empty(), "DevToolsWindow.cpp is readable");
+    auto tag = [](const std::string& text, const char* name) {
+        const auto start = text.find(std::string("x:Name=\"") + name + "\"");
+        return start == std::string::npos ? std::string() : text.substr(start, text.find('>', start) - start);
+    };
+    for (const char* name : { "PickBtn", "FocusBtn", "JmxBtn" }) {
+        const auto button = tag(windowShell, name);
+        Check(button.find("MinHeight=\"32\"") != std::string::npos &&
+              button.find(" Height=") == std::string::npos && button.find(" Width=") == std::string::npos,
+            "inspector command buttons grow with their scaled glyph and filter");
+    }
+    Check(windowShell.find("<TextBlock Text=\"&#xE90A;\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\"") != std::string::npos &&
+          tag(windowShell, "AddCommentBtn").find(" Height=") == std::string::npos &&
+          windowShell.find("FontSize=\"14\" IsTextScaleFactorEnabled=\"True\"") != std::string::npos,
+        "the details header Comment glyph and button grow with their label");
+    const auto badge = tag(xaml, "DevToolsCommentBadge");
+    Check(badge.find("MinHeight=") != std::string::npos && badge.find(" Height=") == std::string::npos &&
+          badge.find("Padding=") != std::string::npos &&
+          windowShell.find("<InfoBadge x:Name=\"CommentsBadge\"") != std::string::npos,
+        "the toolbar badge measures its text while the inspector retains the native InfoBadge");
+    Check(windowShell.find("<NavigationView x:Name=\"InspectorNav\"") != std::string::npos &&
+          window.find("DevToolsXC::TreeView") != std::string::npos &&
+          xaml.find("<ToggleSplitButton x:Name=\"DevToolsProtoComments\"") != std::string::npos &&
+          xaml.find("<MenuFlyout x:Name=\"DevToolsMoreMenu\"") != std::string::npos,
+        "scaling keeps native navigation, tree, split button and toolbar menus");
+    Check(tag(windowShell, "DetailsHeader").find("MinHeight=\"52\"") != std::string::npos &&
+          tag(windowShell, "DetailsHeader").find("Grid.Row=\"0\"") != std::string::npos &&
+          tag(windowShell, "TreePanelHeader").find("Grid.Row=\"0\"") != std::string::npos &&
+          windowShell.find("<RowDefinition Height=\"52\"/>") == std::string::npos,
+        "the inspector headers share a content-sized row instead of clipping to 52 DIPs");
+    Check(windowShell.find("ExpanderChevronButtonSize") == std::string::npos &&
+          windowShell.find("ExpanderChevronGlyphSize") == std::string::npos &&
+          windowShell.find("ColumnDefinitions=\"2*,3*\"") != std::string::npos,
+        "property expanders retain platform chevrons and share the available header width");
+    Check(tag(xaml, "DevToolsChip").find(" Height=") == std::string::npos &&
+          tag(xaml, "DevToolsBar").find(" Width=") == std::string::npos &&
+          tag(xaml, "DevToolsBar").find(" Height=") == std::string::npos &&
+          overlay.find("g_protoSink[24].Bind(&IID_SizeChanged_Del, &OnToolbarSizeChanged)") != std::string::npos,
+        "both floating toolbar surfaces resize and re-anchor after their content changes");
+    Check(window.find("msg == WM_DPICHANGED || msg == WM_SETTINGCHANGE") != std::string::npos &&
+          window.find("SetInspectorIcon(hwnd);") != std::string::npos,
+        "the native caption reloads system-sized icons when display or system settings change");
+    Check(xaml.find("HorizontalScrollMode=\"Enabled\" HorizontalScrollBarVisibility=\"Auto\"") != std::string::npos &&
+          overlay.find("ConstrainToolbarWidth();") != std::string::npos &&
+          overlay.find("content.try_as<DevToolsXC::ScrollViewer>()") != std::string::npos,
+        "the toolbar keeps its actions wired and scrollable when the app is narrower than its scaled content");
+    const auto bodyStart = selectionPanel.find("<ScrollViewer ");
+    const auto bodyEnd = selectionPanel.find("</ScrollViewer>", bodyStart);
+    Check(bodyStart != std::string::npos && bodyEnd != std::string::npos &&
+          CountOf(selectionPanel, "<ScrollViewer ") == 1 &&
+          selectionPanel.find("x:Name=\"DevToolsSelTitle\"", bodyStart) < bodyEnd &&
+          selectionPanel.find("x:Name=\"DevToolsSelComment\"", bodyStart) < bodyEnd &&
+          selectionPanel.find("x:Name=\"DevToolsSelOpen\"", bodyStart) < bodyEnd,
+        "the comment header, editor and footer share one scroll path instead of clipping enlarged text");
     Check(windowShell.find("x:Name=\"PBindRestoreConfirm\" Visibility=\"Collapsed\"") != std::string::npos &&
           windowShell.find("x:Name=\"PBindRestoreYes\"") != std::string::npos &&
           windowShell.find("x:Name=\"PBindRestoreCancel\"") != std::string::npos &&
@@ -431,14 +485,23 @@ static void TestToolbarContract()
                      windowShell.find("Glyph=\"&#xE943;\"") != std::string::npos &&
                      windowShell.find("ToolTipService.ToolTip=\"{Binding Text, ElementName=JmxLbl}\"") != std::string::npos &&
                      windowShell.find("<TextBox x:Name=\"TreeFilter\"") < windowShell.find("<ToggleButton x:Name=\"JmxBtn\"") &&
-                     windowShell.find("Grid.Row=\"1\" Margin=\"8,8,8,4\" ColumnSpacing=\"8\"") != std::string::npos,
+                     tag(windowShell, "TreeControls").find("Grid.Row=\"0\"") != std::string::npos &&
+                     tag(windowShell, "TreeControls").find("ColumnSpacing=\"8\"") != std::string::npos,
                  "Just my XAML is an icon toggle eight DIPs beside the tree filter with its status in the tooltip");
-    Check(windowShell.find("<StackPanel x:Name=\"TreePanelHeader\" Grid.Row=\"0\"") != std::string::npos &&
-                     windowShell.find("<StackPanel x:Name=\"CommentsPanelHeader\" Grid.Row=\"0\"") != std::string::npos &&
-                     windowShell.find("<TextBlock x:Name=\"TreeHeader\"") > windowShell.find("<StackPanel x:Name=\"TreePanelHeader\"") &&
+    Check(windowShell.find("<Grid x:Name=\"TreePanelHeader\" Grid.Row=\"0\"") != std::string::npos &&
+                     windowShell.find("<Grid x:Name=\"CommentsPanelHeader\" Grid.Row=\"0\"") != std::string::npos &&
+                     windowShell.find("<TextBlock x:Name=\"TreeHeader\"") > windowShell.find("<Grid x:Name=\"TreePanelHeader\"") &&
                      windowShell.find("<TextBlock x:Name=\"TreeHeader\"") < windowShell.find("<Grid x:Name=\"TreeControls\"") &&
-                     CountOf(windowShell, "<RowDefinition Height=\"52\"/>") == 2,
+                     tag(windowShell, "TreePanelHeader").find("MinHeight=\"52\"") != std::string::npos &&
+                     tag(windowShell, "CommentsPanelHeader").find("MinHeight=\"52\"") != std::string::npos &&
+                     tag(windowShell, "DetailsHeader").find("MinHeight=\"52\"") != std::string::npos &&
+                     windowShell.find("Grid.Column=\"1\" Grid.RowSpan=\"2\"") != std::string::npos,
                  "the tree and comments panels have headers as tall as the details header, so the dividers line up");
+    Check(tag(windowShell, "TreePanelHeader").find("Width=\"{Binding Width, ElementName=TreePane}\"") != std::string::npos &&
+          tag(windowShell, "CommentsPanelHeader").find("Width=\"{Binding Width, ElementName=TreePane}\"") != std::string::npos &&
+          tag(windowShell, "TreeHeader").find("TextWrapping=\"Wrap\"") != std::string::npos &&
+          tag(windowShell, "CommentsCountLbl").find("TextWrapping=\"Wrap\"") != std::string::npos,
+        "scaled panel headers wrap within the splitter width instead of growing the tree column");
     // JmxLbl is collapsed, so it is absent from the UIA tree by construction and the toggle's
     // AutomationProperties.Name is the ONLY thing that carries the unavailable reason to assistive tech.
     // Nothing guarded that binding, which is how the reason became a tooltip-only affordance once already.
@@ -615,7 +678,7 @@ static void TestToolbarContract()
     Check(windowShell.find("AutomationProperties.AutomationId=\"WinAppDevToolsAddComment\"") != std::string::npos &&
                      window.find("DevToolsOverlay_AddComment(element, value, saved->id") != std::string::npos,
                  "the inspector's Comment action saves through the in-app comment writer");
-    Check(overlay.find("static EventSink g_protoSink[24];") != std::string::npos,
+    Check(overlay.find("static EventSink g_protoSink[25];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);") != std::string::npos,
                  "Pick is wired by namescope identity, and gives focus back to the app after a command run through UI Automation");
