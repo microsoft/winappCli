@@ -123,8 +123,8 @@ extends:
     - stage: Build
       jobs:
       - job: Build
-        # NativeAOT for two architectures plus tests now runs past the 60-minute default.
-        timeoutInMinutes: 120
+        # Leave time for signing, security scans, and release preparation after the build and tests.
+        timeoutInMinutes: 180
         pool:
           name: Azure-Pipelines-1ESPT-ExDShared
           # Match the VS 18 compiler that GitHub Actions uses; windows-latest still has VS 2022.
