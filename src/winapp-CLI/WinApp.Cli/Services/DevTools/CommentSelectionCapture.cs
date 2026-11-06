@@ -37,6 +37,9 @@ internal sealed class CapturedElement
 
     public string? SourceFile { get; init; }
 
+    /// <summary>Why a Reactor element's C# call site could not be anchored, when it could not.</summary>
+    public string? UnanchoredReason { get; init; }
+
     public int? Line { get; init; }
 
     public int? Column { get; init; }
@@ -45,6 +48,9 @@ internal sealed class CapturedElement
     public int? RawLine { get; init; }
     public int? RawColumn { get; init; }
     public CommentAuthoredAnchor? Authored { get; init; }
+
+    /// <summary>The Reactor call site the element was created at, when it is a Microsoft.UI.Reactor element.</summary>
+    public CommentCSharpAnchor? CSharp { get; init; }
 
     /// <summary>
     /// The tap's opaque source-qualified anchor for placing a marker on a later run.
@@ -66,6 +72,9 @@ internal sealed class CaptureResult
 
     public CapturedElement? Element { get; init; }
     public DevToolsProtocolError? Error { get; init; }
+
+    /// <summary>The elements an ambiguous selector matched.</summary>
+    public IReadOnlyList<DevToolsSelector.VisualTreeMatch> Candidates { get; init; } = [];
 }
 
 internal static class CommentSelectionCapture
@@ -100,7 +109,9 @@ internal static class CommentSelectionCapture
         var resolved = DevToolsSelector.Resolve(tap, handleOrName, cancellationToken);
         if (!resolved.Ok)
         {
-            return Failed(resolved.RemoteError ?? new(-32602, "selector", resolved.Error ?? "The element selector could not be resolved."));
+            var failed = Failed(resolved.RemoteError ?? new(-32602, "selector", resolved.Error ?? "The element selector could not be resolved."));
+            // An ambiguous selector's message ends in "use one of their selectors:", so the candidates travel with it.
+            return new CaptureResult { Status = failed.Status, Error = failed.Error, Candidates = resolved.Candidates };
         }
         if (resolved.Warning is not null)
         {
@@ -122,6 +133,10 @@ internal static class CommentSelectionCapture
             var propsJson = tap.RequestProperties(handle, cancellationToken).RequireResult();
             var content = ExtractContent(propsJson);
             var sourceJson = tap.RequestSource(handle, cancellationToken).RequireResult();
+            if (ReactorSourceReply.Parse(sourceJson) is { } reactorSource)
+            {
+                return CaptureCSharp(tap, tree, handle, node, propsJson, content, reactorSource, cancellationToken);
+            }
             var (uri, file, line, column) = ParseSource(sourceJson);
             var source = JsonSerializer.Deserialize(sourceJson, TapWireJson.Context.TapElementSource);
             var anchorResponse = tap.GetElementAnchor(handle, cancellationToken);
@@ -218,6 +233,101 @@ internal static class CommentSelectionCapture
     }
 
     private static CaptureResult Failed(DevToolsProtocolError error) => new() { Status = CaptureStatus.Failed, Error = error };
+
+    /// <summary>
+    /// A Reactor element's comment anchor: the C# call site that created it (or, for an element with no call site of
+    /// its own, the nearest Reactor element's, which the author must confirm like a likely XAML source).
+    /// </summary>
+    private static CaptureResult CaptureCSharp(VisualTreeTap tap, string tree, string handle,
+        VisualTreeNode node, string propsJson, string? content, ReactorSourceReply source, CancellationToken cancellationToken)
+    {
+        var anchorResponse = tap.GetElementAnchor(handle, cancellationToken);
+        var elementPath = anchorResponse.Ok ? ReadStringResult(anchorResponse, "anchor") : null;
+        var rootResponse = tap.GetSourceRoot(cancellationToken);
+        var sourceRoot = Nullify(ReadStringResult(rootResponse, "sourceRoot"));
+        var anchor = sourceRoot is null || !source.OnDisk ? null : BuildCSharpAnchor(sourceRoot, source);
+        var (style, brushes) = CommentElementContext.Read(propsJson, sourceRoot);
+        var site = anchor is null ? null : $"{anchor.SourceFile}:{anchor.Line}";
+        return new CaptureResult
+        {
+            Status = CaptureStatus.Ok,
+            Element = new CapturedElement
+            {
+                Handle = handle,
+                Type = ShortType(node.Type),
+                Name = Nullify(node.Name),
+                Content = content,
+                SourceFile = anchor?.SourceFile,
+                UnanchoredReason = anchor is not null ? null
+                    : sourceRoot is null ? "the app was launched without its project folder, so DevTools cannot read its C#"
+                    : !source.OnDisk ? $"DevTools did not find its C# file ({source.FileName}) on this machine"
+                    : $"its C# file ({source.FileName}) is outside this project's repository",
+                Line = anchor?.Line,
+                Column = anchor is { Column: > 0 } ? anchor.Column : null,
+                SourceProvenance = anchor is null ? null : anchor.Exact ? "reactor-call-site" : "likely-source-line",
+                SourceEvidence = anchor is null || anchor.Exact ? null :
+                    $"This element has no Reactor call site of its own; the nearest Reactor element ({anchor.Element}) was created at {site}.",
+                RawLine = source.Line,
+                RawColumn = source.Column,
+                CSharp = anchor,
+                ElementPath = Nullify(elementPath),
+                SourceRoot = sourceRoot,
+                CommentRoot = Nullify(ReadCommentRoot(rootResponse)),
+                AutomationId = ReadLiveAutomationId(tap, handle, cancellationToken),
+                Style = style,
+                Brushes = brushes,
+                WindowTitle = ReadWindowTitle(tap, tree, handle, cancellationToken),
+            },
+        };
+    }
+
+    /// <summary>
+    /// The C# anchor for a Reactor call site in a file under <paramref name="sourceRoot"/>, or elsewhere in its
+    /// repository (a referenced project or a linked file, stored as <c>..\Lib\Panel.cs</c>); null when it is outside.
+    /// </summary>
+    internal static CommentCSharpAnchor? BuildCSharpAnchor(string sourceRoot, ReactorSourceReply source)
+    {
+        var root = Path.GetFullPath(sourceRoot);
+        if (CSharpAnchorResolver.ResolveFile(root, source.FileName) is not { } path ||
+            !path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+        var relative = Path.GetRelativePath(root, path);
+        var lines = CSharpSourceText.ReadLines(path, CSharpAnchorResolver.SourceBoundary(root));
+        if (source.Line < 1 || source.Line > lines.Length)
+        {
+            throw new InvalidDataException($"The captured C# location {relative}:{source.Line} is not in the file on disk. Rebuild the app or capture it again.");
+        }
+        var text = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(path))[source.Line - 1];
+        var masked = CSharpSourceText.Mask(lines)[source.Line - 1];
+        var sites = CSharpSourceText.CallSites(masked);
+        string? factory;
+        if (source.Column > 0)
+        {
+            factory = CSharpSourceText.TokenAt(masked, source.Column);
+        }
+        else
+        {
+            var named = sites.Where(site => site.Name == source.Element).ToList();
+            factory = named.Count == 1 ? named[0].Name : sites.Count == 1 ? sites[0].Name : null;
+        }
+        return new CommentCSharpAnchor
+        {
+            ProjectRoot = root,
+            SourceFile = relative,
+            Line = source.Line,
+            Column = source.Column > 0 ? source.Column : 0,
+            LineHash = CSharpSourceText.LineHash(text),
+            LineText = CSharpSourceText.StoredText(text),
+            Factory = factory,
+            Element = source.Element,
+            Component = source.Component,
+            Key = source.Key,
+            Ordinal = source.Ordinal,
+            Exact = source.Exact,
+        };
+    }
 
     internal static string ReadStringResult(DevToolsProtocolResponse response, string field)
     {
@@ -424,7 +534,9 @@ internal static class CommentSelectionCapture
             throw new JsonException("The likely source response has inconsistent attribution evidence.");
         }
         var uri = Nullify(src?.FileName);
-        if (uri is null)
+        // A Reactor C# call site is not a XAML anchor; C# comment anchors are not captured yet.
+        if (uri is null || (doc.RootElement.TryGetProperty("kind", out var kind) && kind.ValueKind == JsonValueKind.String &&
+            kind.GetString() == "csharp"))
         {
             return (null, null, null, null);
         }
@@ -463,5 +575,44 @@ internal static class CommentSelectionCapture
 
         var dot = t.LastIndexOf('.');
         return dot >= 0 && dot < t.Length - 1 ? t[(dot + 1)..] : t;
+    }
+}
+
+/// <summary>The C# part of a <c>Source.get</c> answer for an element a Reactor element produced.</summary>
+internal sealed record ReactorSourceReply(string FileName, int Line, int Column, bool OnDisk, string? Element, string? Key,
+    string? Component, int Ordinal, bool Exact)
+{
+    /// <summary>The reply when <paramref name="sourceJson"/> is a C# answer (<c>kind: csharp</c>); null for XAML.</summary>
+    public static ReactorSourceReply? Parse(string? sourceJson)
+    {
+        if (string.IsNullOrWhiteSpace(sourceJson))
+        {
+            return null;
+        }
+        using var doc = JsonDocument.Parse(sourceJson, TapWireJson.DocumentOptions);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || ReactorDescription.ReadString(root, "kind") != "csharp")
+        {
+            return null;
+        }
+        if (ReactorDescription.ReadString(root, "fileName") is not { Length: > 0 } file ||
+            !root.TryGetProperty("lineNumber", out var line) || !line.TryGetInt32(out var lineNumber))
+        {
+            throw new JsonException("The C# source response has no file or line.");
+        }
+        var column = root.TryGetProperty("columnNumber", out var c) && c.TryGetInt32(out var col) ? col : 0;
+        var onDisk = root.TryGetProperty("onDisk", out var disk) && disk.ValueKind == JsonValueKind.True;
+        string? element = null, key = null, component = null;
+        var ordinal = 0;
+        var exact = true;
+        if (root.TryGetProperty("reactor", out var reactor) && reactor.ValueKind == JsonValueKind.Object)
+        {
+            element = ReactorDescription.ReadString(reactor, "element");
+            key = ReactorDescription.ReadString(reactor, "key");
+            component = ReactorDescription.ReadString(reactor, "component");
+            ordinal = reactor.TryGetProperty("ordinal", out var o) && o.TryGetInt32(out var value) && value >= 0 ? value : 0;
+            exact = !(reactor.TryGetProperty("exact", out var e) && e.ValueKind == JsonValueKind.False);
+        }
+        return new(file, lineNumber, column, onDisk, element, key, component, ordinal, exact);
     }
 }

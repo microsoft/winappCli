@@ -22,6 +22,8 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp devtools comments add <selector> -a <app> --text \"<text>\"",
+        "winapp devtools comments add --file App.cs --line 35 --text \"<text>\"",
+        "winapp devtools comments add --id <id> --from-selection -a <app>",
     ];
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
@@ -30,15 +32,15 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             "the selector printed in brackets, an x:Name, an AutomationId, or a handle.",
         Arity = ArgumentArity.ZeroOrOne,
     };
-    public static Option<string> TextOption { get; } = new("--text", "-t") { Description = "The comment text (required).", Required = true };
-    public static Option<string?> IdOption { get; } = new("--id") { Description = "Create or replace the comment with this ID." };
+    public static Option<string?> TextOption { get; } = new("--text", "-t") { Description = "The comment text. Required, except when --id re-anchors an existing comment." };
+    public static Option<string?> IdOption { get; } = new("--id") { Description = "Create or replace the comment with this ID. With --from-selection or an element selector and no --text, re-anchors it and keeps its text." };
     public static Option<string?> KindOption { get; } = new("--kind") { Description = "Triage: visual | binding | behavior | a11y | other." };
     public static Option<bool> FromSelectionOption { get; } = new("--from-selection") { Description = "Use the picked element in a running DevTools app (requires --app)." };
-    public static Option<string?> FromElementOption { get; } = new("--from-element") { Description = "Use an element's x:Name or handle in a running DevTools app (requires --app)." };
+    public static Option<string?> FromElementOption { get; } = new("--from-element") { Description = "Use an element's x:Name, handle or DevTools selector in a running DevTools app (requires --app)." };
     public static Option<string?> AppOption { get; } = new("--app", "-a") { Description = "Live capture and marker target: PID, process name, or window title." };
-    public static Option<string?> FileOption { get; } = new("--file") { Description = "Source file leaf the element lives in (e.g. MainWindow.xaml)." };
-    public static Option<int?> LineOption { get; } = new("--line") { Description = "Source line (advisory)." };
-    public static Option<int?> ColumnOption { get; } = new("--column") { Description = "Source column (advisory)." };
+    public static Option<string?> FileOption { get; } = new("--file") { Description = "Source file the element lives in (MainWindow.xaml, or App.cs for a Reactor call site)." };
+    public static Option<int?> LineOption { get; } = new("--line") { Description = "Source line. For a .cs file, the line of the Reactor call site." };
+    public static Option<int?> ColumnOption { get; } = new("--column") { Description = "Source column. For a .cs file, picks one call site on a line with several." };
     public static Option<string?> SourceUriOption { get; } = new("--source-uri") { Description = "Raw ms-appx:/// URI, if known.", Hidden = true };
     public static Option<string?> TypeOption { get; } = new("--type") { Description = "Element control type (e.g. Button).", Hidden = true };
     public static Option<string?> NameOption { get; } = new("--name") { Description = "Element x:Name." };
@@ -98,8 +100,11 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var text = parseResult.GetValue(TextOption);
             var kind = parseResult.GetValue(KindOption);
+            var recapture = text is null && Nullify(parseResult.GetValue(IdOption)) is not null &&
+                (parseResult.GetValue(FromSelectionOption) || Nullify(parseResult.GetValue(FromElementOption)) is not null ||
+                    Nullify(parseResult.GetValue(SelectorArgument)) is not null);
 
-            if (string.IsNullOrWhiteSpace(text))
+            if (string.IsNullOrWhiteSpace(text) && !recapture)
             {
                 return Task.FromResult(Fail(ansiConsole, json, "Comment text is required (--text)."));
             }
@@ -148,6 +153,16 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                     : CommentSelectionCapture.CaptureElement(pid, fromElement, cancellationToken);
                 switch (result.Status)
                 {
+                    case CaptureStatus.Failed when result.Candidates.Count > 0 && json:
+                        return Task.FromResult(Fail(ansiConsole, json,
+                            $"{result.Error?.Message} {string.Join(", ", result.Candidates.Select(candidate => candidate.Selector))}"));
+                    case CaptureStatus.Failed when result.Candidates.Count > 0:
+                        Fail(ansiConsole, json, result.Error?.Message ?? "Element capture failed.");
+                        foreach (var candidate in result.Candidates)
+                        {
+                            DevToolsRender.WriteMarkupLine(ansiConsole, "  " + DevToolsRender.Match(candidate));
+                        }
+                        return Task.FromResult(1);
                     case CaptureStatus.Failed:
                         return Task.FromResult(Fail(ansiConsole, json, result.Error?.Message ?? "Element capture failed."));
                     case CaptureStatus.NoAgent:
@@ -214,6 +229,25 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                     "Run this from your project folder, or pass --source-root <project folder>. " +
                     "If a git repository encloses your project, run 'git init' in the project folder. Nothing was saved."));
             }
+            Comment? previous = null;
+            if (recapture)
+            {
+                try
+                {
+                    previous = store.Get(store.GetStorePath(new DirectoryInfo(sourceRoot)), Nullify(parseResult.GetValue(IdOption))!);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CommentStoreCorruptException or JsonException)
+                {
+                    return Task.FromResult(Fail(ansiConsole, json, ex.Message));
+                }
+                if (previous is null)
+                {
+                    return Task.FromResult(Fail(ansiConsole, json,
+                        $"No comment '{parseResult.GetValue(IdOption)}' to re-anchor. Pass --text to create it."));
+                }
+                text = previous.Text;
+                kind ??= previous.Kind;
+            }
             if (captured?.SourceProvenance == "likely-source-line" && !parseResult.GetValue(ConfirmLikelySourceOption))
             {
                 return Task.FromResult(Fail(ansiConsole, json,
@@ -237,11 +271,13 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                 Nullify(parseResult.GetValue(TreePathOption)) is not null;
             var authored = !overridesSource && !overridesIdentity && captured?.Authored is { } evidence &&
                 CommentStoreLocator.SameProject(evidence.ProjectRoot, sourceRoot) ? evidence : null;
+            var csharp = !overridesSource && !overridesIdentity && captured?.CSharp is { } callSite &&
+                CommentStoreLocator.SameProject(callSite.ProjectRoot, sourceRoot) ? callSite : null;
             var comment = new Comment
             {
                 Id = providedId ?? "cmt_" + Guid.NewGuid().ToString("N")[..12],
-                Text = text,
-                Status = CommentStatus.Open,
+                Text = text!,
+                Status = previous?.Status ?? CommentStatus.Open,
                 Kind = kind,
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -259,6 +295,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                     RawLine = captured?.RawLine,
                     RawColumn = captured?.RawColumn,
                     Authored = authored,
+                    CSharp = csharp,
                     Weak = parseResult.GetValue(WeakOption),
                     Templated = parseResult.GetValue(TemplatedOption) || authored?.Templated == true,
                     ElementPath = captured?.ElementPath,
@@ -282,11 +319,31 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                     Property = property, WindowTitle = captured?.WindowTitle, Bounds = bounds, Style = captured?.Style, Brushes = captured?.Brushes,
                 };
             }
+            if (previous is not null)
+            {
+                comment.Resolution = previous.Resolution;
+                comment.Context ??= previous.Context;
+            }
 
             // Without a source file the anchor is weak: an agent has to search the project and must not guess.
+            string? unanchored = null;
             if (string.IsNullOrEmpty(comment.Anchor.SourceFile))
             {
                 comment.Anchor.Weak = true;
+                if (captured is not null)
+                {
+                    unanchored = "Saved without a source location: " +
+                        (captured.UnanchoredReason ?? "DevTools found no XAML declaration or C# call site for this element") +
+                        ". An agent has to search for it by its type and text. To link it, add it again with " +
+                        "--file <path> --line <line> (--source-root <project folder> for a file in another project).";
+                }
+            }
+            else if (captured is null && comment.Anchor.SourceFile.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            {
+                if (CaptureCallSite(comment, sourceRoot) is { } refused)
+                {
+                    return Task.FromResult(Fail(ansiConsole, json, refused));
+                }
             }
             else if (captured is null && comment.Anchor.Line is null && !comment.Anchor.Weak &&
                 !string.IsNullOrEmpty(comment.Anchor.Identity.Name))
@@ -319,13 +376,18 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                 var view = CommentViewBuilder.ToView(comment, resolver, sourceRoot);
                 if (json)
                 {
-                    var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning };
+                    var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning, Unanchored = unanchored };
                     ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
                 }
                 else
                 {
                     DevToolsRender.WriteMarkupLine(ansiConsole, $"[green]{verb}[/] comment [cyan]{Markup.Escape(comment.Id)}[/] → {Markup.Escape(storePath)}");
-                    if (CommentViewBuilder.AnchorHealthWarning(view) is string anchorWarning)
+                    // The capture's own reason says why and how to link it, so it replaces the generic anchor warning.
+                    if (unanchored is not null)
+                    {
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"[yellow]⚠ {Markup.Escape(unanchored)}[/]");
+                    }
+                    else if (CommentViewBuilder.AnchorHealthWarning(view) is string anchorWarning)
                     {
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"[yellow]⚠ {Markup.Escape(anchorWarning)}[/]");
                     }
@@ -362,6 +424,113 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// An offline <c>--file App.cs --line 35</c> comment names the one Reactor call site on that line (or the one at
+    /// <c>--column</c>), so it gets the same C# anchor a live capture of that element would. Returns why it cannot.
+    /// </summary>
+    internal static string? CaptureCallSite(Comment comment, string sourceRoot)
+    {
+        var anchor = comment.Anchor;
+        var file = anchor.SourceFile!;
+        if (anchor.Line is not int line || line <= 0)
+        {
+            return $"A comment on {file} needs --line: the line of the Reactor call site (for example --file {file} --line 35).";
+        }
+        try
+        {
+            if (ResolveCSharpFile(sourceRoot, file) is not { } path)
+            {
+                return $"No single file '{file}' under {sourceRoot} or elsewhere in its repository. Pass its path relative to the project (for example ..\\Lib\\Panel.cs), or --source-root for its project.";
+            }
+            var root = Path.GetFullPath(sourceRoot);
+            var relative = Path.GetRelativePath(root, path);
+            var lines = CSharpSourceText.ReadLines(path, CSharpAnchorResolver.SourceBoundary(root));
+            if (line > lines.Length)
+            {
+                return $"{relative} has {lines.Length} lines; there is no line {line}.";
+            }
+            var masked = CSharpSourceText.Mask(lines);
+            var sites = CSharpSourceText.CallSites(masked[line - 1]);
+            var at = $"{relative}:{line}";
+            if (sites.Count == 0)
+            {
+                return $"{at} has no Reactor call site (a factory call such as Button(...)). Nothing was saved.";
+            }
+            CSharpCallSite site;
+            if (anchor.Column is int column)
+            {
+                var chosen = sites.LastOrDefault(candidate => candidate.Column <= column);
+                if (chosen is null)
+                {
+                    return $"{at} has no Reactor call site at or before column {column}: {Describe(sites, at)}. Nothing was saved.";
+                }
+                site = chosen;
+            }
+            else if (sites.Count > 1)
+            {
+                return $"{at} has {sites.Count} Reactor call sites: {Describe(sites, at)}. Pass --column to choose one. Nothing was saved.";
+            }
+            else
+            {
+                site = sites[0];
+            }
+            var text = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(path))[line - 1];
+            anchor.CSharp = new CommentCSharpAnchor
+            {
+                ProjectRoot = root,
+                SourceFile = relative,
+                Line = line,
+                Column = site.Column,
+                LineHash = CSharpSourceText.LineHash(text),
+                LineText = CSharpSourceText.StoredText(text),
+                Factory = site.Name,
+                Element = site.Name,
+                Component = CSharpSourceText.EnclosingType(masked, line),
+                Exact = true,
+            };
+            anchor.SourceFile = relative;
+            anchor.Column = site.Column;
+            anchor.SourceProvenance = "user-specified";
+            anchor.Weak = false;
+            anchor.Identity.Type ??= site.Name;
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            return ex.Message;
+        }
+
+        static string Describe(IReadOnlyList<CSharpCallSite> sites, string at) =>
+            string.Join(", ", sites.Select(site => $"{at}:{site.Column} {site.Name}"));
+    }
+
+    /// <summary>
+    /// A <c>.cs</c> path under the project root, a leaf name that names exactly one file there, or a path to a file
+    /// elsewhere in the project's repository (a referenced project or a linked file: <c>..\Lib\Panel.cs</c> or absolute).
+    /// </summary>
+    internal static string? ResolveCSharpFile(string sourceRoot, string file)
+    {
+        var root = Path.GetFullPath(sourceRoot);
+        if (CommentAnchorResolver.RelativeSourcePath(file, root) is not { } relative)
+        {
+            return CSharpAnchorResolver.ResolveFile(root, file);
+        }
+        var direct = Path.GetFullPath(Path.Combine(root, relative));
+        if (File.Exists(direct) && !Helpers.PathSafety.HasReparsePointOnPath(direct, root))
+        {
+            return direct;
+        }
+        if (relative.Contains('\\'))
+        {
+            return null;
+        }
+        var matches = Directory.EnumerateFiles(root, "*.cs",
+                new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false })
+            .Where(path => !CommentAnchorResolver.IsSkipped(root, path) && Path.GetFileName(path).Equals(relative, StringComparison.OrdinalIgnoreCase))
+            .Take(2).ToArray();
+        return matches.Length == 1 ? matches[0] : null;
     }
 
     /// <summary>

@@ -249,12 +249,17 @@ struct CensusSharedLock {
     CensusSharedLock& operator=(const CensusSharedLock&) = delete;
 };
 
+// Defined in DevToolsTap.Reactor.inc: the marker anchor of an element a Reactor element produced, and its resolution.
+static bool TapReactorAnchorOf(InstanceHandle h, std::wstring* out, bool* unique, const wchar_t** reason);
+static InstanceHandle TapReactorResolveAnchor(const std::wstring& anchor);
+
 // Capture source and authored ancestor identity under one census snapshot. Names alone are local to a
 // namescope: the global last-name index cannot distinguish HomePage, DetailsPage and a dialog.
 static const int kMaxTreeWalk = 20000;
 static bool TapAnchorOf(InstanceHandle h, std::wstring* outAnchor, bool* unique = nullptr, const wchar_t** reason = nullptr)
 {
     if (!h || !outAnchor) return false;
+    {
     CensusSharedLock lock;
     const auto sourceEpoch = g_sourceEpoch.load(std::memory_order_acquire);
     std::map<InstanceHandle, std::wstring> sources;
@@ -269,7 +274,11 @@ static bool TapAnchorOf(InstanceHandle h, std::wstring* outAnchor, bool* unique 
             if (reason) *reason = L"source-epoch-changed";
         }
     }
-    return !outAnchor->empty();
+    if (!outAnchor->empty()) return true;
+    }
+    // No XAML declaration: a Reactor call site, when a Reactor element produced it (outside the census lock, which
+    // the Reactor lookup takes itself).
+    return TapReactorAnchorOf(h, outAnchor, unique, reason);
 }
 
 // resolve an anchor from TapAnchorOf back to a live handle. 0 when it does not currently resolve, which
@@ -278,6 +287,7 @@ static bool TapAnchorOf(InstanceHandle h, std::wstring* outAnchor, bool* unique 
 static InstanceHandle TapResolveAnchor(const wchar_t* anchor)
 {
     if (!anchor || !*anchor) return 0;
+    if (DevToolsReactorAnchor::IsReactorAnchor(anchor)) return TapReactorResolveAnchor(anchor);
     CensusSharedLock lock;
     std::map<InstanceHandle, std::wstring> sources;
     SourceInfo_Snapshot(sources);
@@ -504,9 +514,11 @@ static std::vector<InstanceHandle> TapCensusRoots()
 
 // See DevToolsTreeLayout's identity block for why the id is a path fold rather than a property of the element alone:
 // it is what makes two DataTemplate instances of one x:Name individually addressable, and what makes a moved
-// element's selector fail loudly instead of resolving to a similar element.
+// element's selector fail loudly instead of resolving to a similar element. A Reactor element also folds in its
+// Reactor identity, so another component rendered in the same place after navigation gets a different selector.
 static void FoldIdentities(const CensusSnapshot& cs, InstanceHandle h, unsigned long long value,
-                           std::map<InstanceHandle, unsigned long long>& values, int depth)
+                           std::map<InstanceHandle, unsigned long long>& values, int depth,
+                           const std::map<InstanceHandle, std::wstring>& reactor)
 {
     if (depth > kMaxEnumDepth) return;
     if (!values.emplace(h, value).second) return;
@@ -519,11 +531,16 @@ static void FoldIdentities(const CensusSnapshot& cs, InstanceHandle h, unsigned 
         const int ordinal = perType[ty->second]++;
         if (values.find(c) != values.end()) continue;
         auto nm = cs.name.find(c);
+        auto rx = reactor.find(c);
         const std::wstring segment = DevToolsTreeLayout::IdentitySegment(
-            ty->second, nm == cs.name.end() ? std::wstring() : nm->second, ordinal);
-        FoldIdentities(cs, c, DevToolsTreeLayout::IdentityFold(value, segment), values, depth + 1);
+            ty->second, nm == cs.name.end() ? std::wstring() : nm->second, ordinal,
+            rx == reactor.end() ? std::wstring() : rx->second);
+        FoldIdentities(cs, c, DevToolsTreeLayout::IdentityFold(value, segment), values, depth + 1, reactor);
     }
 }
+
+// Defined in DevToolsTap.Reactor.inc: the Reactor identity of each census element a Reactor element produced.
+static void TapReactorIdentities(const CensusSnapshot& cs, std::map<InstanceHandle, std::wstring>& out);
 
 // Compute the facts a client's SELECTOR vocabulary needs, over the WHOLE census rather than over whatever a
 // particular request selected. Deriving either from the request's own bounded walk would make an element's selector
@@ -531,6 +548,8 @@ static void FoldIdentities(const CensusSnapshot& cs, InstanceHandle h, unsigned 
 static void ComputeSelectorFacts(CensusSnapshot& cs)
 {
     std::map<InstanceHandle, unsigned long long> values;
+    std::map<InstanceHandle, std::wstring> reactor;
+    TapReactorIdentities(cs, reactor);
     std::map<std::wstring, int> perRootType;
     for (InstanceHandle root : CollectRoots(cs)) {
         auto ty = cs.type.find(root);
@@ -538,9 +557,11 @@ static void ComputeSelectorFacts(CensusSnapshot& cs)
         const int ordinal = perRootType[ty->second]++;
         if (values.find(root) != values.end()) continue;
         auto nm = cs.name.find(root);
+        auto rx = reactor.find(root);
         const std::wstring segment = DevToolsTreeLayout::IdentitySegment(
-            ty->second, nm == cs.name.end() ? std::wstring() : nm->second, ordinal);
-        FoldIdentities(cs, root, DevToolsTreeLayout::IdentityFold(DevToolsTreeLayout::kIdentitySeed, segment), values, 0);
+            ty->second, nm == cs.name.end() ? std::wstring() : nm->second, ordinal,
+            rx == reactor.end() ? std::wstring() : rx->second);
+        FoldIdentities(cs, root, DevToolsTreeLayout::IdentityFold(DevToolsTreeLayout::kIdentitySeed, segment), values, 0, reactor);
     }
 
     cs.id.clear();
@@ -587,6 +608,30 @@ static DevToolsReadNode SnapshotNode(const CensusSnapshot& cs, InstanceHandle h,
     }
     return n;
 }
+
+// Microsoft.UI.Reactor, defined in DevToolsTap.Reactor.inc. `agent` is ok (the managed agent answered), absent (no
+// managed agent in this process) or unavailable (the agent cannot read this Reactor). `annotations` says where the
+// element annotations come from: the agent, or the diagnostics Reactor publishes on each control (no agent needed).
+// Pipe thread only.
+struct TapReactorStatus
+{
+    bool present = false;
+    std::wstring agent = L"absent";
+    std::wstring version, reason;
+    std::wstring api;          // reactor (public diagnostics API) or internal (older Reactor read through internals)
+    std::wstring annotations;  // agent, published, or empty when neither can describe the elements
+    int sourceMap = -1;
+};
+// Whether the elements can be described: by the agent, or from what Reactor published on the controls.
+static bool TapReactorCanDescribe(const TapReactorStatus& status)
+{
+    return status.present && (status.agent == L"ok" || status.annotations == L"published");
+}
+static TapReactorStatus TapReactorStatusNow();
+static std::wstring TapReactorStatusJson(const TapReactorStatus& status);
+static bool TapReactorDescribe(TapReactorStatus& status, std::wstring* members, InstanceHandle subtree = 0, int attempts = 1);
+static void TapReactorAddAuthored(const CensusSnapshot& cs, std::set<InstanceHandle>& authored);
+static void TapReactorRefreshAuthored();
 
 // The app-authored classification, as facts rather than as JSON. Defined with the classifier further down; declared
 // here because the enumerate path is compiled first.
@@ -674,6 +719,22 @@ static std::wstring CmdEnumerate(const std::vector<std::wstring>& p)
     int depth = -1;
     if (p.size() >= 3 && !p[2].empty()) { depth = _wtoi(p[2].c_str()); if (depth < 0) depth = -1; }
     const bool authoredOnly = (p.size() >= 4 && p[3] == L"1");
+    // `annotate`: reply with an envelope that also says which window each top-level element belongs to and, in a
+    // Reactor app, which Reactor element produced each control.
+    const bool annotate = (p.size() >= 5 && p[4] == L"1");
+
+    // Reactor elements count as the app's own code, so describe them BEFORE classifying. Apps without Reactor pay
+    // only the cached probe.
+    TapReactorStatus reactor;
+    std::wstring reactorMembers;
+    bool reactorDescribed = false;
+    if (authoredOnly || annotate) {
+        reactor = TapReactorStatusNow();
+        if (TapReactorCanDescribe(reactor)) reactorDescribed = TapReactorDescribe(reactor, &reactorMembers);
+    } else {
+        // Reactor elements' selectors include their Reactor identity, so a plain enumerate needs it current too.
+        TapReactorRefreshAuthored();
+    }
 
     // Leaf-scoped critical section (C5): copy the census maps under the shared lock, then RELEASE before
     // serializing so the lock is never held across the O(nodes) JSON build (or a throw within it).
@@ -755,13 +816,66 @@ static std::wstring CmdEnumerate(const std::vector<std::wstring>& p)
     // was not selected becomes a top-level entry rather than disappearing, so trimming never orphans a
     // subtree out of the reply.
     std::set<InstanceHandle> emitted;
+    std::vector<InstanceHandle> topLevel;
     for (auto& kv : view.type) {
         InstanceHandle h = kv.first;
         if (included.find(h) == included.end()) continue;
         auto pit = view.parent.find(h);
         if (pit != view.parent.end() && included.find(pit->second) != included.end()) continue;
         if (!emitted.insert(h).second) continue;
+        topLevel.push_back(h);
         roots.push_back(SnapshotNode(view, h, 0, included, emitted));
+    }
+
+    std::wstring annotations;
+    if (annotate) {
+        // Which window each top-level element lives in, so a multi-window app reads as one tree per window.
+        struct WindowGroup { std::wstring title; std::wstring surface; unsigned int ordinal = 0; std::vector<unsigned long long> roots; };
+        auto groups = std::make_shared<std::vector<std::pair<HWND, WindowGroup>>>();
+        auto wires = std::make_shared<std::vector<std::pair<InstanceHandle, unsigned long long>>>();
+        for (InstanceHandle h : topLevel) {
+            const auto wr = view.wire.find(h);
+            if (wr != view.wire.end() && wr->second) wires->emplace_back(h, wr->second);
+        }
+        const HRESULT hr = RunOnUiThread([groups, wires]() -> HRESULT {
+            for (const auto& [h, wire] : *wires) {
+                DevToolsSurface surface;
+                if (!WindowSurfaceOf_ui(h, surface) || !surface.hostHwnd) continue;
+                auto group = std::find_if(groups->begin(), groups->end(),
+                    [&](const auto& entry) { return entry.first == surface.hostHwnd; });
+                if (group == groups->end()) {
+                    WindowGroup created;
+                    wchar_t title[256] = L"";
+                    GetWindowTextW(surface.hostHwnd, title, _countof(title));
+                    created.title = title;
+                    created.surface = surface.displayName;
+                    created.ordinal = DevToolsSurface_SessionOrdinal(surface.xamlRootKey);
+                    groups->emplace_back(surface.hostHwnd, std::move(created));
+                    group = groups->end() - 1;
+                }
+                group->second.roots.push_back(wire);
+            }
+            // The order windows were first seen, so the main window leads.
+            std::stable_sort(groups->begin(), groups->end(),
+                [](const auto& a, const auto& b) { return a.second.ordinal < b.second.ordinal; });
+            return S_OK;
+        });
+        annotations = L",\"windows\":[";
+        if (SUCCEEDED(hr)) {
+            for (size_t i = 0; i < groups->size(); ++i) {
+                const auto& [hwnd, group] = (*groups)[i];
+                if (i) annotations += L",";
+                annotations += L"{\"window\":\"" + std::to_wstring(reinterpret_cast<uintptr_t>(hwnd)) + L"\"";
+                annotations += L",\"title\":\"" + DevToolsJsonEscape(group.title) + L"\"";
+                annotations += L",\"surface\":\"" + DevToolsJsonEscape(group.surface) + L"\",\"roots\":[";
+                for (size_t r = 0; r < group.roots.size(); ++r)
+                    annotations += (r ? L",\"" : L"\"") + std::to_wstring(group.roots[r]) + L"\"";
+                annotations += L"]}";
+            }
+        }
+        annotations += L"],\"reactor\":" + TapReactorStatusJson(reactor);
+        if (reactorDescribed) annotations += L"," + reactorMembers;
+        annotations += L"}";
     }
     if (authoredOnly) {
         std::wstring out = L"{\"nodes\":";
@@ -775,9 +889,12 @@ static std::wstring CmdEnumerate(const std::vector<std::wstring>& p)
         out += L",\"authoredNodes\":" + std::to_wstring(verdicts.authored.size());
         out += L",\"classifier\":\"";
         out += (verdicts.denylistFallback ? L"denylist-fallback" : L"allowlist");
-        out += L"\"}";
+        out += L"\"";
+        out += annotations;
+        out += L"}";
         return out;
     }
     if (roots.empty()) return L"ERR no-tree";
+    if (annotate) return L"{\"nodes\":" + DevToolsRead_SerializeTree(roots) + L",\"authored\":false" + annotations + L"}";
     return DevToolsRead_SerializeTree(roots);
 }

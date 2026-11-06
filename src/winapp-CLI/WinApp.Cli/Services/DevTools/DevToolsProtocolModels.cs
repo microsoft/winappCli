@@ -63,6 +63,11 @@ internal sealed class DevToolsAttachPayload
 
     public bool? WindowOpen { get; set; }
 
+    /// <summary>The managed agent: present (launched with it), loaded (loaded now), none (no .NET runtime) or unavailable.</summary>
+    public string? ManagedAgent { get; set; }
+
+    public string? ManagedAgentReason { get; set; }
+
     public string? Error { get; set; }
 }
 

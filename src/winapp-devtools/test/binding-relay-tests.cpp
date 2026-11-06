@@ -191,6 +191,17 @@ static void Test_OnlyBindingOpsAreSendable()
     Check(DevToolsBindingRelay_IsAllowedOp(L"restoreconfirmed"), "explicit owner-wide restore is allowed");
     Check(DevToolsBindingRelay_IsAllowedOp(L"clear"),    "clear is allowed");
     Check(DevToolsBindingRelay_IsAllowedOp(L"writesource"), "writesource is allowed");
+    Check(DevToolsBindingRelay_IsAllowedOp(L"reactor"), "the Reactor element description is allowed");
+    Check(DevToolsBindingRelay_IsAllowedOp(L"reactorelement"), "one Reactor element's record and props are allowed");
+    Check(DevToolsBindingRelay_MaxReplyBytes(L"reactorelement") == 64u * 1024, "one element's answer keeps the 64 KiB bound");
+    Check(DevToolsBindingRelay_MaxReplyBytes(L"reactor") > DevToolsBindingRelay_MaxReplyBytes(L"diagnose"),
+          "a whole-window Reactor description may be larger than one binding answer");
+    Check(DevToolsBindingRelay_MaxReplyBytes(L"diagnose") == 64u * 1024, "binding answers keep their 64 KiB bound");
+    for (const wchar_t* op : { L"reactorcomponent", L"reactorsetstate", L"reactorrerender", L"reactorinvoke", L"resourceget", L"resourceset" })
+        Check(DevToolsBindingRelay_IsAllowedOp(op), "each Reactor component and resource operation is allowed");
+    Check(!DevToolsBindingRelay_IsAllowedOp(L"reactorfire"), "an operation the agent does not answer is not");
+    Check(DevToolsBindingRelay_MaxReplyBytes(L"reactorcomponent") == 256u * 1024, "a component (props, hooks, contexts) may take 256 KiB");
+    Check(DevToolsBindingRelay_MaxReplyBytes(L"reactorsetstate") == 64u * 1024, "a write answer keeps the 64 KiB bound");
 
     // Native DevToolsBindingInstall owns bind; the managed relay must not accept it.
     Check(!DevToolsBindingRelay_IsAllowedOp(L"bind"),
@@ -228,11 +239,11 @@ static void Test_NoAgentReasonDoesNotConflateTheTwoCases()
 {
     std::printf("the no-agent reason distinguishes a missing startup host from no CLR\n");
 
-    // A CLR process needs its managed binding host loaded before startup.
+    // A CLR process can have the agent loaded at startup or into the running app.
     const std::wstring managed = DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime::Clr);
-    Check(managed.find(L"DOTNET_STARTUP_HOOKS") != std::wstring::npos, "the .NET case identifies the startup prerequisite");
-    Check(managed.find(L"before app startup") != std::wstring::npos, "the prerequisite must precede startup");
-    Check(managed.find(L"winapp run --devtools on") != std::wstring::npos, "the .NET case names the command that fixes it");
+    Check(managed.find(L"winapp devtools attach") != std::wstring::npos, "the .NET case names the late-attach command");
+    Check(managed.find(L".NET 8") != std::wstring::npos, "and the runtime it needs");
+    Check(managed.find(L"winapp run --devtools on") != std::wstring::npos, "and the startup alternative");
     // Do not recommend a removed watch command.
     Check(managed.find(L"--watch") == std::wstring::npos, "no unavailable watch command is recommended");
 
@@ -464,6 +475,59 @@ static void Test_BoundsAndActualRevocation()
     CoUninitialize();
 }
 
+// The agent is shared by several in-process callers at once (the inspector, the Reactor event pump, CLI requests).
+// WaitNamedPipe only says SOME instance is free, so a caller can lose it to another between the wait and CreateFile
+// (ERROR_PIPE_BUSY). Against the busiest possible agent -- one instance, one listener -- every concurrent probe must
+// still be answered within the connect deadline instead of failing on the first busy instance.
+static void Test_ConcurrentProbesWaitForABusyAgent()
+{
+    std::printf("\n[concurrent probes against a single-instance agent are all answered]\n");
+    constexpr int kThreads = 8, kProbes = 10;
+    const auto name = L"\\\\.\\pipe\\winapp-devtools-binding-" + std::to_wstring(GetCurrentProcessId());
+    HANDLE pipe = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, nullptr);
+    if (pipe == INVALID_HANDLE_VALUE) { Check(false, "test agent pipe created"); return; }
+    std::atomic<bool> stop{false};
+    std::atomic<int> served{0};
+    std::thread server([&] {
+        while (!stop) {
+            if (!ConnectNamedPipe(pipe, nullptr) && GetLastError() != ERROR_PIPE_CONNECTED) break;
+            char request[8]{};
+            DWORD got = 0, total = 0;
+            while (total < 7 && ReadFile(pipe, request + total, 7 - total, &got, nullptr) && got) total += got;
+            if (total == 7) {
+                const char reply[] = "PROBE1 {\"reactor\":false}\n";
+                DWORD written = 0;
+                WriteFile(pipe, reply, sizeof(reply) - 1, &written, nullptr);
+                FlushFileBuffers(pipe);
+                ++served;
+            }
+            DisconnectNamedPipe(pipe);
+        }
+    });
+    std::atomic<int> failed{0};
+    std::vector<std::thread> clients;
+    for (int t = 0; t < kThreads; ++t) {
+        clients.emplace_back([&] {
+            for (int i = 0; i < kProbes; ++i) {
+                std::wstring answer;
+                if (!DevToolsBindingRelay_Probe(&answer)) ++failed;
+            }
+        });
+    }
+    for (auto& client : clients) client.join();
+    stop = true;
+    // Wake the server from ConnectNamedPipe so it sees the stop request.
+    if (WaitNamedPipeW(name.c_str(), 2000)) {
+        HANDLE wake = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (wake != INVALID_HANDLE_VALUE) CloseHandle(wake);
+    }
+    server.join();
+    CloseHandle(pipe);
+    CheckEq(failed, 0, "no probe failed while the only instance was busy");
+    CheckEq(served, kThreads * kProbes, "every probe was answered");
+}
+
 // A host launched by winapp may not be listening yet (startup) or for a moment (between listener instances). The
 // relay waits within its connect budget instead of reporting that no host was loaded.
 static void Test_ConfiguredHostIsAwaitedNotDeclaredAbsent()
@@ -519,7 +583,7 @@ static void Test_ConfiguredHostIsAwaitedNotDeclaredAbsent()
     Check(late && answer == L"{\"state\":\"none\"}", "a configured host that starts listening late is waited for");
 
     Check(!relay(answer, elapsed) && answer.find(L"not accepting connections yet") != std::wstring::npos &&
-        answer.find(L"started without the managed binding host") == std::wstring::npos && elapsed >= 1400,
+        answer.find(L"no loaded managed DevTools agent") == std::wstring::npos && elapsed >= 1400,
         "a configured host that never listens is reported as not ready, not as absent");
     SetEnvironmentVariableW(L"DOTNET_STARTUP_HOOKS", nullptr);
     owner.Reset();
@@ -543,6 +607,7 @@ int RunBindingRelayTests()
     Test_ConnectedReplyDeadline(false);
     Test_ConnectedReplyDeadline(true);
     Test_ConnectedReplyDeadline(false, true);
+    Test_ConcurrentProbesWaitForABusyAgent();
     Test_ConfiguredHostIsAwaitedNotDeclaredAbsent();
     return g_testFailures;
 }

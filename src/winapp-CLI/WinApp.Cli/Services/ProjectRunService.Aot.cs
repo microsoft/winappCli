@@ -83,6 +83,8 @@ internal sealed partial class ProjectRunService
             DevToolsXamlSources = options.CaptureDevToolsSources ? ReadDevToolsSources(publish.Properties) : null,
             DevToolsCompilerArtifacts = options.CaptureDevToolsSources
                 ? DevTools.XamlSourceCoordinates.FromProperties(csproj, properties) : null,
+            DevToolsReactor = options.CaptureDevToolsSources
+                ? DevTools.ReactorBuildFacts.From(properties, GetProp(properties, "ProjectAssetsFile")) : null,
             DevToolsUnsupportedFramework = options.CaptureDevToolsSources
                 ? ReadDevToolsUnsupportedFramework(properties, publish.Properties) : ProjectAppFramework.Unknown,
         };

@@ -811,6 +811,60 @@ static void Test_SourceUnderTheRootIsFoundByItsPath()
         RemoveDirectoryW((root + dir).c_str());
 }
 
+// A string passed by position to a password parameter is redacted using an index of the project's declarations. The
+// overlay reads call sites on the UI thread, which must never wait for that index: until a background build is ready
+// it shows no literal at all. Pipe and worker threads build it first; unchanged files are not parsed again.
+static void Test_CSharpPasswordIndexIsNeverBuiltOnTheCaller()
+{
+    const auto root = MakeFixture();
+    const auto project = root + L"\\csharp";
+    CreateDirectoryW(project.c_str(), nullptr);
+    const auto write = [](const std::wstring& path, const char* text) { std::ofstream output(path, std::ios::binary); output << text; };
+    write(project + L"\\App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\">\r\n</Project>\r\n");
+    write(project + L"\\Creds.cs", "public record Creds(string Name, string Password);\r\n");
+    write(project + L"\\Other.cs", "class Other { void Go(string name) { } }\r\n");
+    write(project + L"\\Login.cs",
+        "class Login\r\n{\r\n    void Render()\r\n    {\r\n        var login = new Creds(\"alice\", \"hunter2\");\r\n    }\r\n}\r\n");
+    const auto login = project + L"\\Login.cs";
+    const std::wstring positional = L"var login = new Creds(\"alice\", \"<redacted>\");";
+    const std::wstring everything = L"var login = new Creds(\"<redacted>\", \"<redacted>\");";
+    std::wstring code;
+
+    DevToolsAuthored_Init(root, 0);
+    const auto first = DevToolsAuthored_CSharpFilesParsed();
+    Check(DevToolsAuthored_ReadCSharp(login, 5, 0, &code, DevToolsCSharpIndex::Build), "a worker reads the call site");
+    CheckEqW(code, positional, "a worker builds the index first and redacts the password passed by position");
+    CheckEq(static_cast<long long>(DevToolsAuthored_CSharpFilesParsed() - first), 3, "the project's three files are parsed");
+
+    DevToolsAuthored_Init(root, 0);
+    Check(DevToolsAuthored_ReadCSharp(login, 5, 0, &code, DevToolsCSharpIndex::Cached), "the UI thread reads the call site");
+    CheckEqW(code, everything, "with no index ready the UI thread builds none and redacts every literal");
+    for (int i = 0; i < 200 && code != positional; ++i) {
+        Sleep(50);
+        DevToolsAuthored_ReadCSharp(login, 5, 0, &code, DevToolsCSharpIndex::Cached);
+    }
+    CheckEqW(code, positional, "the index the UI thread asked for is built in the background");
+
+    DevToolsAuthored_Init(root, 0);
+    const auto warm = DevToolsAuthored_CSharpFilesParsed();
+    DevToolsAuthored_ReadCSharp(login, 5, 0, &code, DevToolsCSharpIndex::Build);
+    CheckEqW(code, positional, "a rebuilt index still redacts the password");
+    CheckEq(static_cast<long long>(DevToolsAuthored_CSharpFilesParsed() - warm), 0, "unchanged files are not parsed again");
+
+    write(project + L"\\Other.cs", "class Other { void Go(string name, string other) { } }\r\n");
+    DevToolsAuthored_Init(root, 0);
+    const auto edited = DevToolsAuthored_CSharpFilesParsed();
+    DevToolsAuthored_ReadCSharp(login, 5, 0, &code, DevToolsCSharpIndex::Build);
+    CheckEq(static_cast<long long>(DevToolsAuthored_CSharpFilesParsed() - edited), 1, "only the edited file is parsed again");
+    CheckEqW(code, positional, "the password stays redacted after the edit");
+
+    DevToolsAuthored_Init(L"", 0);
+    for (const auto file : { L"\\App.csproj", L"\\Creds.cs", L"\\Other.cs", L"\\Login.cs" }) DeleteFileW((project + file).c_str());
+    RemoveDirectoryW(project.c_str());
+    DeleteFileW((root + L"\\MainWindow.xaml").c_str());
+    RemoveDirectoryW(root.c_str());
+}
+
 int RunAuthoredTests()
 {
     std::printf("DevToolsAuthored tests -- one source read serves property values and full XAML\n");
@@ -823,6 +877,7 @@ int RunAuthoredTests()
     Test_SourceQualifiedAnchors();
     Test_ExactCommentTextAndHistoricalLabels();
     Test_SourceUnderTheRootIsFoundByItsPath();
+    Test_CSharpPasswordIndexIsNeverBuiltOnTheCaller();
     return g_testFailures;
 }
 

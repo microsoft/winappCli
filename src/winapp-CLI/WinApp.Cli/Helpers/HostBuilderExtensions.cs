@@ -22,6 +22,14 @@ namespace WinApp.Cli.Helpers;
 
 internal static class StoreHostBuilderExtensions
 {
+    private static IServiceCollection DecorateUiAutomationWithDevToolsSelectors(this IServiceCollection services)
+    {
+        var original = services.Last(descriptor => descriptor.ServiceType == typeof(IUiAutomation));
+        services.Remove(original);
+        return services.AddSingleton<IUiAutomation>(sp => new DevToolsSelectorUiAutomation(
+            (IUiAutomation)ActivatorUtilities.CreateInstance(sp, original.ImplementationType!)));
+    }
+
     public static IServiceCollection ConfigureServices(this IServiceCollection services)
     {
         return services
@@ -89,6 +97,8 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IAzureSignToolService, AzureSignToolService>()
             // UI Automation services (from the Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation package)
             .AddWinAppUiAutomation()
+            // `winapp ui` also takes DevTools selectors for Reactor elements (<Counter>/Button, key=, App.cs:35).
+            .DecorateUiAutomationWithDevToolsSelectors()
             .AddWinAppUiRecording()
             .AddSingleton<IProcessInspector, ProcessInspector>()
             .AddSingleton<IMonotonicClock, TickCountClock>()
@@ -154,6 +164,13 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<DevToolsGetSourceCommand, DevToolsGetSourceCommand.Handler>()
                 .UseCommandHandler<DevToolsDiagnoseBindingCommand, DevToolsDiagnoseBindingCommand.Handler>()
                 .UseCommandHandler<DevToolsSetPropertyCommand, DevToolsSetPropertyCommand.Handler>()
+                .UseCommandHandler<DevToolsGetStateCommand, DevToolsGetStateCommand.Handler>()
+                .UseCommandHandler<DevToolsLogsCommand, DevToolsLogsCommand.Handler>()
+                .UseCommandHandler<DevToolsSetStateCommand, DevToolsSetStateCommand.Handler>()
+                .UseCommandHandler<DevToolsRerenderCommand, DevToolsRerenderCommand.Handler>()
+                .UseCommandHandler<DevToolsInvokeHandlerCommand, DevToolsInvokeHandlerCommand.Handler>()
+                .UseCommandHandler<DevToolsGetResourceCommand, DevToolsGetResourceCommand.Handler>()
+                .UseCommandHandler<DevToolsSetResourceCommand, DevToolsSetResourceCommand.Handler>()
                 .UseCommandHandler<DevToolsCallCommand, DevToolsCallCommand.Handler>()
                 .ConfigureCommand<DevToolsCommentsCommand>()
                 .UseCommandHandler<DevToolsCommentsAddCommand, DevToolsCommentsAddCommand.Handler>()

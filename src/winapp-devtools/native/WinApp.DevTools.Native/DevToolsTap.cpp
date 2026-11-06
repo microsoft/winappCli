@@ -28,6 +28,11 @@
 #include <functional>
 #include <algorithm>
 #include <memory>
+#include <thread>
+#include <deque>
+#include <condition_variable>
+#include <tuple>
+#include <chrono>
 #include <cstdlib>
 #include <cstdint>
 #include <share.h>
@@ -49,6 +54,9 @@
 #include "DevToolsPathProbe.h"
 #include "DevToolsAuthored.h"
 #include "DevToolsCommentAnchor.h"
+#include "DevToolsReactorAnchor.h"
+#include "DevToolsReactorPublished.h"
+#include "DevToolsReactorNames.h"
 #include "DevToolsCommentText.h"
 #include "DevToolsTreeWatch.h"
 #include "DevToolsWriteGate.h"
@@ -62,6 +70,7 @@
 #include "DevToolsPipeAcceptLoop.h"
 #include "DevToolsPipeFraming.h"
 #include "DevToolsBatch.h"
+#include "DevToolsReferences.h"
 
 // DevToolsOverlay_ArmPick / DevToolsOverlay_DisarmPick (used by the selection.arm / selection.disarm verbs below) are
 // declared in DevToolsOverlay.h (included above) and defined in DevToolsOverlay.cpp, which owns the pick catcher. Both
@@ -165,6 +174,7 @@ static std::atomic<bool> g_adviseFailed{false};
 #include "DevToolsTap.CensusQuery.inc"
 #include "DevToolsTap.PropertyRead.inc"
 #include "DevToolsTap.ElementCommands.inc"
+#include "DevToolsTap.Reactor.inc"
 #include "DevToolsTap.Route1Read.inc"
 #include "DevToolsTap.OverlayState.inc"
 #include "DevToolsTap.Commands.inc"

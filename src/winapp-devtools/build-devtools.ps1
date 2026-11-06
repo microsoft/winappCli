@@ -163,7 +163,8 @@ if (-not $SkipNativeUnitTests -and $Arch -eq $hostArch) {
     if (Test-Path $testExe) { Remove-Item -LiteralPath $testExe -Force }
     # The harness includes the real dispatcher; link the remaining runtime objects without another tap.
     $objects = ($sources | Where-Object { $_ -notin @('DevToolsTap.cpp', 'DevToolsOverlay.cpp') } | ForEach-Object { $_ -replace '\.cpp$', '.obj' }) -join ' '
-    $testCl = "cl $flags `"$testDir\native-runtime-tests.cpp`" `"$testDir\overlay-comment-fixture.cpp`" $objects /Fe:`"$testExe`" /Fo:`"$testDir\bin\\`" /Fd:`"$testDir\bin\native-runtime-tests.pdb`" /link $libs"
+    # The harness compiles the whole dispatcher into one object, which exceeds the default section limit.
+    $testCl = "cl $flags /bigobj `"$testDir\native-runtime-tests.cpp`" `"$testDir\overlay-comment-fixture.cpp`" $objects /Fe:`"$testExe`" /Fo:`"$testDir\bin\\`" /Fd:`"$testDir\bin\native-runtime-tests.pdb`" /link $libs"
     & $env:ComSpec /c "call `"$VcVars`" >nul && cd /d `"$nativeDir`" && $testCl"
     Assert-BuildSucceeded 'Native dispatcher test build'
     & $testExe

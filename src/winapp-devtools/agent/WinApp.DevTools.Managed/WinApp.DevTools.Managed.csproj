@@ -22,6 +22,17 @@
   <ItemGroup>
     <Compile Include="BindingDiagnosis.cs" />
     <Compile Include="BindingCaptureStore.cs" />
+    <Compile Include="ReactorProvider.cs" />
+    <Compile Include="ReactorElementProps.cs" />
+    <Compile Include="ReactorComponents.cs" />
+    <Compile Include="ReactorSnapshots.cs" />
+    <Compile Include="ReactorValueText.cs" />
+    <Compile Include="DevToolsSecrets.cs" />
+    <Compile Include="ReactorComponentOps.cs" />
+    <Compile Include="ReactorInternals.cs" />
+    <Compile Include="ReactorPdb.cs" />
+    <Compile Include="ReactorEvents.cs" />
+    <Compile Include="ResourceOps.cs" />
     <Compile Include="StartupHook.cs" />
     <InternalsVisibleTo Include="WinApp.DevTools.Managed.Tests" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />

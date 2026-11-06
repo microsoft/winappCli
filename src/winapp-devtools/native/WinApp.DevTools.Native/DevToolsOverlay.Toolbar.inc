@@ -520,6 +520,8 @@ static void ProtoSetPartAutomationName(const wchar_t* name, const std::wstring& 
 
 static bool CommentsShown();
 static size_t CommentCount();
+static void OnHighlightUpdatesClick(void*, void*);
+static void ReapplyReactorToolbarState();
 // Retain the named menu objects before WinUI moves their visuals into its popup tree.
 static const wchar_t* g_toolbarMenuAnchor = nullptr;
 static std::vector<std::pair<std::wstring, winrt::Windows::Foundation::IInspectable>> g_toolbarMenuParts;
@@ -1251,6 +1253,7 @@ static void WirePrototype(IInspectable* canvas)
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &ThenReturnFocus<&OnLayoutToggleClick>);
         wireNamedClick(L"DevToolsProtoTheme", g_protoSink[6], &ThenReturnFocus<&OnThemeToggleClick>);
         wireNamedClick(L"DevToolsProtoPin", g_protoSink[7], &OnPinClick);
+        wireNamedClick(L"DevToolsProtoHighlight", g_protoSink[10], &ThenReturnFocus<&OnHighlightUpdatesClick>);
         items->Release();
     }
     try {
@@ -1284,6 +1287,7 @@ static void WirePrototype(IInspectable* canvas)
         barUi->Release();
     }
 
+    ReapplyReactorToolbarState();
     DevToolsOverlayLog(L"overlay.toolbar wired (bar=%p pill=%p snaps=%p,%p,%p,%p,%p,%p position=%d)",
                   g_aRow, g_railL, g_snapUi[0], g_snapUi[1], g_snapUi[2],
                   g_snapUi[3], g_snapUi[4], g_snapUi[5], g_corner);

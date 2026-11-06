@@ -598,6 +598,17 @@ static void OnInspectorRailSelection(bool comments)
     SetCommentsView(comments);
 }
 
+// The details header's title: `Button #SaveButton`, or for a Reactor element its component or element kind first
+// (`<Counter>  ·  Border`), named by its x:Name or the C# variable it was assigned to.
+static std::wstring DetailsTitleText(const std::wstring& type, const std::wstring& name, const std::wstring& label)
+{
+    std::wstring text = type.empty() ? label : ShortType(type);
+    if (!g_selReactorLabel.empty()) text = g_selReactorLabel + L"  \u00B7  " + text;
+    if (!name.empty()) text += L" #" + name;
+    else if (!g_selTreeName.empty()) text += L" #" + g_selTreeName;
+    return text;
+}
+
 // The details header does not scroll: the element's title, its two nearest ancestors (the whole path is the
 // tooltip), the Comment button, and "Show in tree" while the Comments panel is open.
 static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& name,
@@ -607,11 +618,7 @@ static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& na
         const auto shown = [](bool v) { return v ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed; };
         const bool selected = g_selWire != 0;
         if (const auto& header = g_shell.detailsHeader) header.Visibility(shown(selected));
-        if (const auto& title = g_shell.detailTitle) {
-            std::wstring text = type.empty() ? label : ShortType(type);
-            if (!name.empty()) text += L" #" + name;
-            title.Text(text);
-        }
+        if (const auto& title = g_shell.detailTitle) title.Text(DetailsTitleText(type, name, label));
         if (const auto& crumb = g_shell.detailCrumb) {
             size_t segments = 0;
             crumb.Text(ElideBreadcrumb(breadcrumb, segments));

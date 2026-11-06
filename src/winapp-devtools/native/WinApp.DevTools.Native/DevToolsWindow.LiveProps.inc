@@ -437,18 +437,17 @@ static void UpdateSelectedTreePreview()
     try {
         const auto caption = g_treeNodes[row->second].Content().as<DevToolsXC::TextBlock>();
         const auto inlines = caption.Inlines();
-        // The last three runs are reserved for the preview, including its empty state.
-        const uint32_t n = inlines.Size();
-        if (n < 4) throw winrt::hresult_error(E_UNEXPECTED, L"The tree caption has no preview runs.");
-        inlines.GetAt(n - 3).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"  \u201C");
-        inlines.GetAt(n - 2).as<DevToolsXDoc::Run>().Text(after);
-        inlines.GetAt(n - 1).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"\u201D");
+        // Three runs are reserved for the preview, including its empty state; a Reactor call site follows them.
+        if (inlines.Size() != kTreeCaptionRuns)
+            throw winrt::hresult_error(E_UNEXPECTED, L"The tree caption has no preview runs.");
+        inlines.GetAt(kTreePreviewRun).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"  \u201C");
+        inlines.GetAt(kTreePreviewRun + 1).as<DevToolsXDoc::Run>().Text(after);
+        inlines.GetAt(kTreePreviewRun + 2).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"\u201D");
         // Selection can reveal a nonmatching row. Keep that exception, not rows whose old caption matched.
         const bool keepRevealed = !g_treeFilterQuery.empty() && g_treeVisible[row->second] &&
             (RowHiddenByJmx(row->second) ||
              g_treeLabel[row->second].find(g_treeFilterQuery) == std::wstring::npos);
-        g_treeLabel[row->second] = DevToolsTreeLayout::BuildTreeFilterLabel(
-            node.type, node.name, after + L" " + node.searchText + L" " + node.sourceUri);
+        g_treeLabel[row->second] = DevToolsTreeLayout::BuildTreeFilterLabel(node.type, node.name, TreeRowSearchText(node, after));
         const bool matchesFilter = !RowHiddenByJmx(row->second) &&
             g_treeLabel[row->second].find(g_treeFilterQuery) != std::wstring::npos;
         // Collapsing and re-showing a revealed row would move keyboard focus away.

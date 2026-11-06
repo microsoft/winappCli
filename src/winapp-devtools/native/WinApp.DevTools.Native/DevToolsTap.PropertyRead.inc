@@ -506,6 +506,8 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
             if (!taken.insert(name).second) continue;
             const auto alias = ownerless.find(name);
             if (projection && !projection->count(name) && alias == ownerless.end()) continue;
+            // Reactor's published diagnostics are shown as the element's Reactor section, not as a property row.
+            if (!projection && DevToolsReactorPublished::IsPropertyName(name)) continue;
             DevToolsReadProp prop;
             prop.name = name;
             prop.type = PickValueType(v[i]);
