@@ -409,6 +409,8 @@ function Add-InstalledAppChecks {
 function New-TestCodeSigningPfx {
     # Self-signed code-signing certificate exported to a PFX and then removed from the store, so the
     # machine does not trust it. Returns the thumbprint.
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'Known password for a locally generated benchmark certificate; not used for production signing or real credentials.')]
+    [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Subject, [Parameter(Mandatory)][string]$PfxPath, [Parameter(Mandatory)][string]$Password)
     $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $Subject -CertStoreLocation Cert:\CurrentUser\My `
         -KeyUsage DigitalSignature -KeyExportPolicy Exportable -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}') -NotAfter (Get-Date).AddYears(2)

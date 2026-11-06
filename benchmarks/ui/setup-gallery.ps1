@@ -189,7 +189,7 @@ if ($devMode) {
     Add-AppxPackage -Register (Join-Path $layout 'AppxManifest.xml') -ForceUpdateFromAnyVersion
 }
 else {
-    $thumb = (Get-PfxData -FilePath $pfx -Password (ConvertTo-SecureString 'password' -AsPlainText -Force)).EndEntityCertificates[0].Thumbprint
+    $thumb = (Get-PfxCertificate -FilePath $cer).Thumbprint
     $trusted = Get-ChildItem Cert:\LocalMachine\TrustedPeople, Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $thumb
     if (-not $trusted) {
         throw "Developer Mode is off and the benchmark certificate is not trusted. Either turn on Developer Mode, or run this once from an elevated prompt and rerun: winapp cert install `"$cer`""

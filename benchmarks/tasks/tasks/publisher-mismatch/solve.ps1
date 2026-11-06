@@ -1,3 +1,5 @@
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'Known password for a locally generated benchmark certificate; not used for production signing or real credentials.')]
+[CmdletBinding()]
 param([string]$Workspace)
 $ErrorActionPreference = 'Stop'
 Set-Location $Workspace
