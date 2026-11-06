@@ -75,6 +75,7 @@ internal sealed partial class ProjectRunService(
         "InterceptorsNamespaces",
         "_MicrosoftUIReactorTargetsLoaded",
         "PathMap",
+        "Configuration",
         "PublishProfileFullPath",
         "WebPublishProfileFile",
         "PublishProfileImported",

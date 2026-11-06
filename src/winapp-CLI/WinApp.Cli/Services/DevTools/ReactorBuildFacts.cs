@@ -8,11 +8,12 @@ namespace WinApp.Cli.Services.DevTools;
 /// <summary>
 /// What a project's build says about Microsoft.UI.Reactor, for <c>winapp run --devtools on</c>: whether it uses
 /// Reactor, whether this configuration compiles Reactor's source-map interceptors (the C# call sites DevTools
-/// shows), whether it still references the deprecated <c>Microsoft.UI.Reactor.Devtools</c> package, and the
-/// build's <c>PathMap</c> and the projects it references so recorded paths can be mapped back to files.
+/// shows), whether it still references the deprecated <c>Microsoft.UI.Reactor.Devtools</c> package, the
+/// configuration it builds, and the build's <c>PathMap</c> and the projects it references so recorded paths can be
+/// mapped back to files.
 /// </summary>
 internal sealed record ReactorBuildFacts(bool Referenced, string? SourceMapProperty, bool Interceptors, bool DevtoolsPackage, string? PathMap,
-    IReadOnlyList<string>? ProjectReferences = null)
+    IReadOnlyList<string>? ProjectReferences = null, string? Configuration = null)
 {
     internal const string PathMapVariable = "WINAPP_DEVTOOLS_PATH_MAP";
     internal const string ProjectDirectoriesVariable = "WINAPP_DEVTOOLS_PROJECT_DIRS";
@@ -22,7 +23,7 @@ internal sealed record ReactorBuildFacts(bool Referenced, string? SourceMapPrope
 
     /// <summary>The MSBuild properties these facts are read from.</summary>
     internal static readonly string[] Properties =
-        ["ReactorSourceMap", "InterceptorsNamespaces", "_MicrosoftUIReactorTargetsLoaded", "PathMap"];
+        ["ReactorSourceMap", "InterceptorsNamespaces", "_MicrosoftUIReactorTargetsLoaded", "PathMap", "Configuration"];
 
     public static ReactorBuildFacts? From(IReadOnlyDictionary<string, string> properties, string? assetsFile)
     {
@@ -38,7 +39,7 @@ internal sealed record ReactorBuildFacts(bool Referenced, string? SourceMapPrope
             .Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Contains(InterceptorsNamespace, StringComparer.Ordinal);
         return new ReactorBuildFacts(true, Get("ReactorSourceMap"), interceptors, libraries.Contains(DevtoolsPackageId), Get("PathMap"),
-            ReadProjectReferences(assetsFile));
+            ReadProjectReferences(assetsFile), Get("Configuration"));
     }
 
     /// <summary>
@@ -127,6 +128,9 @@ internal sealed record ReactorBuildFacts(bool Referenced, string? SourceMapPrope
         return ids;
     }
 
+    // MSBuild's default configuration is Debug, so an unknown one counts as Debug.
+    private bool IsDebug => Configuration is null || string.Equals(Configuration, "Debug", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>One line each for what the launch should know before DevTools shows this app.</summary>
     public IEnumerable<string> Warnings()
     {
@@ -139,10 +143,13 @@ internal sealed record ReactorBuildFacts(bool Referenced, string? SourceMapPrope
                   "can show the component tree, but not which line created each element. Run a Debug build, or set " +
                   "<ReactorSourceMap>true</ReactorSourceMap> for a build you do not distribute.";
         }
-        if (DevtoolsPackage)
+        // New Reactor apps reference the package in Debug only, for the live previews, so like Reactor's own
+        // REACTOR_DEVTOOLS_001 this speaks up only when another configuration still references it.
+        if (DevtoolsPackage && !IsDebug)
         {
-            yield return $"This project references {DevtoolsPackageId}, which is deprecated: winapp DevTools replaces it " +
-                "(the in-app toolbar, the inspector and `winapp devtools`). Remove the package reference when you no longer use its MCP tools.";
+            yield return $"This project references {DevtoolsPackageId}, which is deprecated: winapp DevTools replaces its inspection " +
+                "tools. Keep it (Debug-only) only if you use the VS Code live preview or the Visual Studio embedded preview; " +
+                "otherwise remove the package reference.";
         }
     }
 

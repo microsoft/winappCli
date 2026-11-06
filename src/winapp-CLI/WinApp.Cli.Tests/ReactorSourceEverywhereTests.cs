@@ -153,12 +153,31 @@ public class ReactorSourceEverywhereTests
         File.WriteAllText(assets, """{"libraries":{"Microsoft.UI.Reactor/0.1.0":{},"Microsoft.UI.Reactor.Devtools/0.1.0":{}}}""");
         try
         {
-            var off = ReactorBuildFacts.From(new Dictionary<string, string> { ["ReactorSourceMap"] = "false" }, assets)!;
+            var off = ReactorBuildFacts.From(new Dictionary<string, string> { ["ReactorSourceMap"] = "false", ["Configuration"] = "Release" }, assets)!;
             Assert.IsTrue(off.Referenced && off.DevtoolsPackage);
             var warnings = off.Warnings().ToArray();
             Assert.AreEqual(2, warnings.Length);
             StringAssert.Contains(warnings[0], "<ReactorSourceMap>false</ReactorSourceMap>");
             StringAssert.Contains(warnings[1], "deprecated");
+            StringAssert.Contains(warnings[1], "Visual Studio embedded preview");
+            Assert.IsFalse(warnings[1].Contains("MCP", StringComparison.Ordinal), "Reactor no longer ships the MCP tools");
+
+            // Every new Reactor app references the package in Debug only, for the live previews: no warning there.
+            foreach (var configuration in new string?[] { "Debug", "debug", null })
+            {
+                var properties = new Dictionary<string, string>
+                {
+                    ["_MicrosoftUIReactorTargetsLoaded"] = "true",
+                    ["InterceptorsNamespaces"] = "Microsoft.UI.Reactor.Generated",
+                };
+                if (configuration is not null)
+                {
+                    properties["Configuration"] = configuration;
+                }
+                var debugPackage = ReactorBuildFacts.From(properties, assets)!;
+                Assert.IsTrue(debugPackage.DevtoolsPackage);
+                Assert.AreEqual(0, debugPackage.Warnings().Count(), $"configuration {configuration ?? "(unset)"}");
+            }
 
             var release = ReactorBuildFacts.From(new Dictionary<string, string> { ["_MicrosoftUIReactorTargetsLoaded"] = "true" }, null)!;
             StringAssert.Contains(release.Warnings().Single(), "only in Debug");

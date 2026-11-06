@@ -340,8 +340,10 @@ Call sites need a Debug build, or `<ReactorSourceMap>true</ReactorSourceMap>` in
 your project. `winapp run` with DevTools turns them on by setting `REACTOR_SOURCEMAP=1`
 unless you already set that variable, and warns when the project sets
 `<ReactorSourceMap>false</ReactorSourceMap>` or the configuration compiles no source
-mapping. It also notes that `Microsoft.UI.Reactor.Devtools` is deprecated when your
-project references it: winapp DevTools replaces it.
+mapping. When a configuration other than Debug references `Microsoft.UI.Reactor.Devtools`,
+it notes that the package is deprecated: winapp DevTools replaces its inspection tools,
+so keep the package as a Debug-only reference only if you use the VS Code live preview or
+the Visual Studio embedded preview.
 
 ### Native AOT, trimmed and attached apps
 
@@ -399,10 +401,11 @@ package: Reactor 0.1.0-preview.17 still needs it for previews. To capture a prev
 
 ## Move from Reactor DevTools
 
-`winapp run` with DevTools replaces `mur devtools` and the
-`Microsoft.UI.Reactor.Devtools` package. You don't need the package or the
-`Reactor.DevtoolsSupport` switch, unless you use [component previews](#preview-one-component):
-remove them when you no longer use their MCP tools.
+`winapp run` with DevTools replaces `mur devtools` and the inspection tools of the
+`Microsoft.UI.Reactor.Devtools` package. Keep the package, as a Debug-only reference, only
+if you use the VS Code live preview, the Visual Studio embedded preview or
+[component previews](#preview-one-component); otherwise remove it. Leave the
+`Reactor.DevtoolsSupport` switch alone: winapp DevTools reads C# call sites through it.
 Agents use these commands with `--json` and the `winui-devtools` skill instead of the
 MCP server.
 
