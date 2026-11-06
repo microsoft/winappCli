@@ -219,6 +219,27 @@ static DevToolsXC::TextBlock BuildTreeCaption(size_t index, DevToolsWindowNode c
     return caption;
 }
 
+// Caption runs hold a copy of the palette brush, which does not follow a theme change. Copy the current brushes
+// again, in BuildTreeCaption's run order, without rebuilding the tree and losing its expansion state.
+static void RecolorTreeCaptions()
+{
+    IInspectable* const donors[] = { g_palAccent, g_palTertiary, g_palPrimary, g_palTertiary, g_palSecondary, g_palTertiary };
+    for (void* row : g_treeRows) {
+        if (!row) continue;
+        try {
+            const auto caption = TreeObject<DevToolsXC::TextBlock>(reinterpret_cast<IInspectable*>(row));
+            const auto inlines = caption.Inlines();
+            for (uint32_t i = 0; i < inlines.Size() && i < std::size(donors); ++i) {
+                if (!donors[i]) continue;
+                if (const auto run = inlines.GetAt(i).try_as<DevToolsXDoc::Run>())
+                    run.Foreground(TreeObject<DevToolsXC::TextBlock>(donors[i]).Foreground());
+            }
+        } catch (const winrt::hresult_error& error) {
+            DevToolsOverlayLog(L"tree.recolor failed hr=0x%08X", error.code().value);
+        }
+    }
+}
+
 static void EndTreeHover()
 {
     if (!g_treeHoverWire) return;
