@@ -13,6 +13,9 @@ internal static class DevToolsSelector
     {
         public bool Ok => Handle is not null;
 
+        /// <summary>True when the app answered completely and nothing matched: the element is not there now.</summary>
+        public bool Absent { get; init; }
+
         public static Resolution Found(string handle, string? warning = null) => new(handle, null, [], warning);
 
         public static Resolution Fail(string error, VisualTreeMatch[]? candidates = null) =>
@@ -166,9 +169,9 @@ internal static class DevToolsSelector
         }
         if (matches.Count == 0)
         {
-            return Resolution.Fail(reactor.Complete
-                ? $"No rendered Reactor element matches {selector}. Run `winapp devtools inspect` to list the components and elements that are rendered now."
-                : $"No rendered Reactor element matches {selector}, but the app was still changing and not every window answered. Run the command again.");
+            return reactor.Complete
+                ? Resolution.Fail($"No rendered Reactor element matches {selector}. Run `winapp devtools inspect` to list the components and elements that are rendered now.") with { Absent = true }
+                : Resolution.Fail($"No rendered Reactor element matches {selector}, but the app was still changing and not every window answered. Run the command again.");
         }
 
         var candidates = ReactorCandidates(tap, reactor, matches, cancellationToken);
@@ -316,7 +319,7 @@ internal static class DevToolsSelector
 
         return Resolution.Fail(
             $"No element matches the selector '{selector}'. Selectors are minted from the tree's shape, so " +
-            "re-run `winapp devtools inspect` or `winapp devtools search` to get current ones.");
+            "re-run `winapp devtools inspect` or `winapp devtools search` to get current ones.") with { Absent = true };
     }
 
     private static VisualTreeMatch[] MatchSlug(IReadOnlyList<VisualTreeMatch> candidates, DevToolsSlug.Parsed slug) =>

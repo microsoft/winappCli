@@ -193,6 +193,19 @@ public class DevToolsSelectorUiAutomationTests
     }
 
     [TestMethod]
+    public async Task ReactorSelector_TheAppCouldNotFullyAnswer_StillFails_SoGoneIsNotReported()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", """{"state":"ok","nodes":[],"files":[],"unmapped":0,"truncated":false,"complete":false}""");
+        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        await Assert.ThrowsExactlyAsync<UiElementNotFoundException>(() =>
+            bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=loading", ControlType = "Button" }, CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task ReactorSelector_ThatMatchesSeveral_IsStillAmbiguous()
     {
         using var agent = new FakeDevToolsProtocolAgent()

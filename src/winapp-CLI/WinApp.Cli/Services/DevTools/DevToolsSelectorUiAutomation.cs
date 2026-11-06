@@ -53,8 +53,9 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
     public async Task<UiElement[]> SearchAsync(UiTarget uiTarget, UiSelector selector, int maxResults, CancellationToken ct) =>
         await inner.SearchAsync(uiTarget, await TranslateAsync(uiTarget, selector, ct), maxResults, ct);
 
-    // Null when a DevTools selector matches nothing, as IUiAutomation.FindSingleElementAsync promises, so `ui wait-for`
-    // keeps polling for an element that isn't there yet; an ambiguous selector still throws.
+    // Null when the app says no element matches a DevTools selector, as IUiAutomation.FindSingleElementAsync promises, so
+    // `ui wait-for` keeps polling for an element that isn't there yet. Any other failure (an ambiguous selector, an app
+    // that couldn't answer, an element UI Automation can't find) still throws, so `--gone` never reports it gone.
     public async Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct) =>
         await TranslateOrNoneAsync(uiTarget, selector, ct) is { } translated ? await inner.FindSingleElementAsync(uiTarget, translated, ct) : null;
 
@@ -69,11 +70,13 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
         {
             return await TranslateAsync(target, selector, ct);
         }
-        catch (UiElementNotFoundException)
+        catch (UiElementNotFoundException ex) when (ex.Data.Contains(AbsentKey))
         {
             return null;
         }
     }
+
+    private const string AbsentKey = "winapp.devtools.absent";
 
     public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct) => inner.IsSameElement(selected, current, ct);
 
@@ -169,6 +172,7 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
                 var message = resolved.RemoteError?.Message ?? resolved.Error ?? $"'{selector}' matched no element.";
                 throw resolved.Candidates.Length > 0
                     ? Ambiguous(message, resolved.Candidates)
+                    : resolved.Absent ? new UiElementNotFoundException(selector) { Data = { [AbsentKey] = true } }
                     : new UiElementNotFoundException(selector);
             }
             handle = resolved.Handle!;
