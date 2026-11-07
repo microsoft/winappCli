@@ -592,7 +592,7 @@ extends:
                 targetType: 'inline'
                 script: |
                   Write-Host "SigningServiceName: ${{ parameters.signingIdentity.serviceName }}"
-            - task: EsrpRelease@10
+            - task: EsrpRelease@11
               condition: always()
               inputs:
                 ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
@@ -690,11 +690,22 @@ extends:
               targetType: 'inline'
               errorActionPreference: 'stop'
               script: |
-                # Download and install C++ Runtime framework package
-                Write-Host "Installing VCLibs dependency..."
-                $vcLibsFile = "Microsoft.VCLibs.x64.14.00.Desktop.appx"
-                Invoke-WebRequest https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx -OutFile $vcLibsFile
-                Add-AppxPackage $vcLibsFile
+                # Keep an installed compatible runtime rather than attempting a downgrade.
+                $minimumVcLibsVersion = [version]'14.0.33321.0'
+                $vcLibs = Get-AppxPackage -Name 'Microsoft.VCLibs.140.00.UWPDesktop' |
+                  Where-Object {
+                    $_.Architecture -eq 'X64' -and
+                    $_.PublisherId -eq '8wekyb3d8bbwe' -and
+                    [version]$_.Version -ge $minimumVcLibsVersion
+                  }
+                if ($vcLibs) {
+                  Write-Host "Using installed VCLibs: $($vcLibs.PackageFullName -join ', ')"
+                } else {
+                  Write-Host "Installing VCLibs dependency..."
+                  $vcLibsFile = "Microsoft.VCLibs.x64.14.00.Desktop.appx"
+                  Invoke-WebRequest https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx -OutFile $vcLibsFile
+                  Add-AppxPackage $vcLibsFile -ErrorAction Stop
+                }
                 
                 # Install gh with integrity verification
                 Write-Host "Installing gh..."
