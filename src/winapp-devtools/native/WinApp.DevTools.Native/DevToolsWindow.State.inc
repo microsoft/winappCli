@@ -132,6 +132,10 @@ static HRESULT ReleaseInspectorCaptionTheme()
     return hr;
 }
 
+static void RecolorPaneRows();
+static void RecolorPaneLiterals();
+static void RecolorTreeCaptions();
+
 struct InspectorCaptionThemeSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
@@ -139,6 +143,12 @@ struct InspectorCaptionThemeSink : DevToolsSinkBase
         if (gen != g_route1Gen) return S_OK;
         const HRESULT hr = SyncInspectorCaptionTheme();
         if (FAILED(hr)) DevToolsOverlayLog(L"route1.titlebar theme update hr=0x%08X", hr);
+        // Tree captions, property rows and the pane's inlined resource colors are fixed copies, so they keep the
+        // old theme's colors until repainted. All repaint in place, so tree expansion, open editors and unsaved
+        // drafts are kept. Literals go first: a row's new color must not be mistaken for an old literal.
+        RecolorTreeCaptions();
+        RecolorPaneLiterals();
+        RecolorPaneRows();
         return S_OK;
     }
     void Init()

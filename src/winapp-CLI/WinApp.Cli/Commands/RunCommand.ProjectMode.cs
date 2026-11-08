@@ -196,17 +196,13 @@ internal partial class RunCommand
                 return Fail($"{(aot ? "--aot" : "--framework")} applies to .NET projects and can't be used with a C++ project ({csproj.Name}).", isJson);
             }
 
-            // For C++, -p Configuration=Release is how Visual Studio users pick the configuration, so treat it
-            // like -c. Both are allowed only when they name the same configuration.
-            if (isCpp && ProjectRunService.CppConfigurationFromProperties(properties) is { } propertyConfiguration)
+            // -p Configuration=Release selects the configuration like -c Release. Both are allowed only when
+            // they name the same configuration.
+            if (!ProjectRunService.TryResolveConfiguration(
+                    configuration, parseResult.GetResult(ConfigurationOption) is { Implicit: false }, properties,
+                    out configuration, out var configurationError))
             {
-                if (parseResult.GetResult(ConfigurationOption) is { Implicit: false }
-                    && !string.Equals(propertyConfiguration, configuration, StringComparison.OrdinalIgnoreCase))
-                {
-                    return Fail($"-p Configuration={propertyConfiguration} conflicts with -c {configuration}. Pass only one of them.", isJson);
-                }
-
-                configuration = propertyConfiguration;
+                return Fail(configurationError!, isJson);
             }
 
             // For C++, -p Platform=ARM64 is how Visual Studio users pick the architecture, so honor it when
@@ -722,8 +718,12 @@ internal partial class RunCommand
                 return null;
             }
 
-            var configuration = parseResult.GetValue(ConfigurationOption) ?? "Debug";
             var properties = parseResult.GetValue(PropertyOption) ?? [];
+            // A -c / -p Configuration conflict is reported by RunProjectModeAsync; classify with -c meanwhile.
+            _ = ProjectRunService.TryResolveConfiguration(
+                parseResult.GetValue(ConfigurationOption) ?? "Debug",
+                parseResult.GetResult(ConfigurationOption) is { Implicit: false },
+                properties, out var configuration, out _);
             // Share the SAME explicit effective framework the build uses (--framework > bare
             // -p:TargetFramework) so classification and build never evaluate a different TFM.
             var framework = ProjectRunService.ResolveExplicitFramework(parseResult.GetValue(FrameworkOption), properties);

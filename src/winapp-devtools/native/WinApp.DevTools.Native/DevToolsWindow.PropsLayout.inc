@@ -330,17 +330,17 @@ static std::wstring BuildFitThumb(const DevToolsWindowLayout& L, const std::wstr
 static std::wstring DetailRow(const std::wstring& term, const std::wstring& value,
                              const std::wstring& ink, const std::wstring& dim)
 {
-    return L"<Grid Margin=\"0,0,0,3\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"78\"/>"
-           L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>"
+    return L"<Grid Margin=\"0,0,0,3\" ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"2*\"/>"
+           L"<ColumnDefinition Width=\"3*\"/></Grid.ColumnDefinitions>"
            L"<TextBlock Grid.Column=\"0\" Text=\"" + DevToolsXmlEscape(term) + L"\" FontSize=\"11\" Foreground=\"" + dim +
-           L"\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\"/>"
+           L"\" TextWrapping=\"Wrap\"/>"
            L"<TextBlock Grid.Column=\"1\" Text=\"" + DevToolsXmlEscape(value) + L"\" FontSize=\"11\" FontFamily=\"Consolas\""
-           L" Foreground=\"" + ink + L"\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\"/></Grid>";
+           L" Foreground=\"" + ink + L"\" TextWrapping=\"Wrap\"/></Grid>";
 }
 static std::wstring DetailGroup(const std::wstring& caption, const std::wstring& dim)
 {
     return L"<TextBlock Text=\"" + DevToolsXmlEscape(caption) + L"\" FontSize=\"10\" CharacterSpacing=\"80\""
-           L" Foreground=\"" + dim + L"\" Margin=\"0,0,0,5\"/>";
+           L" Foreground=\"" + dim + L"\" TextWrapping=\"Wrap\" Margin=\"0,0,0,5\"/>";
 }
 
 // Draw the box model and fit thumbnail, with details behind More. Resolve each theme key once
