@@ -50,6 +50,29 @@ static void TestThemeTarget()
                  "an unexpected effective theme safely targets Dark");
 }
 
+static void TestThemeSwitchPaintsRoot()
+{
+    Check(DevToolsTheme::SwitchPaintsRoot(false, true, false, false),
+                 "a window with no backdrop and no root Background gets a themed root");
+    Check(!DevToolsTheme::SwitchPaintsRoot(false, true, true, false),
+                 "a backdrop (Mica, Acrylic) already follows the content theme, so the root stays transparent");
+    Check(!DevToolsTheme::SwitchPaintsRoot(false, true, false, true),
+                 "an app's own root Background is never overwritten");
+    Check(!DevToolsTheme::SwitchPaintsRoot(false, false, false, false),
+                 "when the backdrop cannot be read, the root is left alone rather than covering one");
+    Check(!DevToolsTheme::SwitchPaintsRoot(true, true, false, false),
+                 "High Contrast keeps the system's own background");
+    Check(DevToolsTheme::RootBackgroundArgb(DevToolsTheme::kDark) == 0xFF000000u &&
+          DevToolsTheme::RootBackgroundArgb(DevToolsTheme::kLight) == 0xFFFFFFFFu,
+                 "the root is painted the colour a window without a backdrop shows in that theme");
+    Check(!DevToolsTheme::BrushPaints(false, false, false, 0),
+                 "no Background paints nothing");
+    Check(!DevToolsTheme::BrushPaints(true, true, true, 0),
+                 "a default style's Transparent Background paints nothing, so the root can still be painted");
+    Check(DevToolsTheme::BrushPaints(true, true, true, 1) && DevToolsTheme::BrushPaints(true, true, false, 0),
+                 "a visible colour or any other brush is the app's own background");
+}
+
 static void TestToolbarContract()
 {
     const std::filesystem::path testDir = std::filesystem::path(__FILE__).parent_path();
@@ -309,7 +332,8 @@ static void TestToolbarContract()
                      xaml.find("AutomationProperties.AutomationId=\"DevToolsSnapBC\"") != std::string::npos &&
                      xaml.find("x:Name=\"DevToolsSnapNear5\"") != std::string::npos,
                  "the toolbar offers top-center and bottom-center docking targets");
-    Check(overlay.find("if (SUCCEEDED(hrPut)) DevToolsSetToolbarRequestedTheme(target);") != std::string::npos,
+    Check(overlay.find("        DevToolsSetToolbarRequestedTheme(target);\n    }") != std::string::npos ||
+          overlay.find("        DevToolsSetToolbarRequestedTheme(target);\r\n    }") != std::string::npos,
                  "the toolbar stays inverse when its app-theme action is used");
 
     Check(selectionPanel.find("RequestedTheme=\"$PANELTHEME$\"") != std::string::npos,
@@ -720,12 +744,31 @@ static void TestToolbarContract()
                      prepare.find("SetCommentsShown(") == std::string::npos &&
                      prepare.find("CommentCount()") != std::string::npos,
                  "opening menus reads settings and comment count without changing app or persisted state");
+    const std::string tap = ReadUnit(tapDir / "DevToolsTap.cpp");
+    const auto bodyOf = [&overlay](const std::string& signature) {
+        for (size_t at = overlay.find(signature); at != std::string::npos; at = overlay.find(signature, at + 1)) {
+            const size_t open = overlay.find_first_not_of(" \r\n", at + signature.size());
+            if (open != std::string::npos && overlay[open] == '{')
+                return overlay.substr(at, overlay.find("\n}", open) - at);
+        }
+        return std::string();
+    };
+    const auto switchBody = bodyOf("static void OnThemeToggleClick(void*, void*)");
+    const auto restoreBody = bodyOf("static bool RestoreAppRequestedTheme(void* themeFe)");
+    Check(switchBody.find("PaintAppRootBackground(g_appPanel, element, target);") != std::string::npos &&
+          restoreBody.find("RestoreAppRootBackground();") != std::string::npos &&
+          overlay.find("if (!user || user.try_as<DevToolsXC::Page>()) break;") != std::string::npos &&
+          overlay.find("if (!SameObject(target.GetValue(property), brush))") != std::string::npos,
+                 "the theme switch paints the window content (a Page itself, since a Page draws its Background) and the switch back removes only DevTools' own brush");
+    Check(tap.find("DevToolsOverlay_SetHostBackdropReader(&HostHasSystemBackdrop);") != std::string::npos,
+                 "the overlay reads the window's backdrop through the tap's census root");
 }
 
 int RunToolbarTests()
 {
     std::printf("DevTools toolbar action tests\n");
     TestThemeTarget();
+    TestThemeSwitchPaintsRoot();
     TestToolbarContract();
     return g_testFailures;
 }

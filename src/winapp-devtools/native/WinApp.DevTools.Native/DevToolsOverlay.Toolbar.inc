@@ -23,25 +23,139 @@ static void DevToolsSetToolbarRequestedTheme(int appTheme)
     HostSetLayerTheme(appTheme);
 }
 
-// The app's own RequestedTheme on its content root, saved by the first switch so the switch back restores it rather
-// than leaving DevTools' value in place. `set` is false when the app never set one.
+// What the switch changed, saved so the switch back puts back exactly what was there: the app's own RequestedTheme on
+// its content root (`set` is false when the app never set one) and, when the switch painted the window's content, that
+// element's local Background (`set` is false when it had none). Both are held weakly: the toolbar can move to another
+// window between the two clicks.
 static bool g_themeSwitched = false;
 static bool g_themeOriginalSet = false;
 static DevToolsX::ElementTheme g_themeOriginal = DevToolsX::ElementTheme::Default;
+static winrt::weak_ref<DevToolsX::FrameworkElement> g_themeElement;
+static winrt::weak_ref<DevToolsX::DependencyObject> g_themePainted;
+static DevToolsX::DependencyProperty g_themeBackgroundProperty{ nullptr };
+static DevToolsXM::Brush g_themeBrush{ nullptr };
+static winrt::Windows::Foundation::IInspectable g_themeBackgroundLocal{ nullptr };
+static bool g_themeBackgroundLocalSet = false;
 
-// The switch back: the app's own value, or none. False when this switch is not a switch back.
+static bool SameObject(winrt::Windows::Foundation::IUnknown const& a, winrt::Windows::Foundation::IUnknown const& b)
+{
+    return a && b && winrt::get_abi(a.as<winrt::Windows::Foundation::IUnknown>()) ==
+                     winrt::get_abi(b.as<winrt::Windows::Foundation::IUnknown>());
+}
+
+// The element that fills the window: its content, or a UserControl's content, since a UserControl draws no Background.
+// A Page is the one UserControl that does, so it is the target itself.
+static DevToolsX::DependencyObject WindowContentOf(DevToolsX::FrameworkElement const& element)
+{
+    const auto root = element.XamlRoot();
+    DevToolsX::UIElement content = root ? root.Content() : nullptr;
+    for (int depth = 0; depth < 8; ++depth) {
+        const auto user = content ? content.try_as<DevToolsXC::UserControl>() : nullptr;
+        if (!user || user.try_as<DevToolsXC::Page>()) break;
+        content = user.Content();
+    }
+    return content;
+}
+
+static DevToolsX::DependencyProperty BackgroundPropertyOf(DevToolsX::DependencyObject const& element)
+{
+    if (element.try_as<DevToolsXC::Panel>()) return DevToolsXC::Panel::BackgroundProperty();
+    if (element.try_as<DevToolsXC::Border>()) return DevToolsXC::Border::BackgroundProperty();
+    if (element.try_as<DevToolsXC::ContentPresenter>()) return DevToolsXC::ContentPresenter::BackgroundProperty();
+    if (element.try_as<DevToolsXC::Control>()) return DevToolsXC::Control::BackgroundProperty();
+    return nullptr;
+}
+
+// Whether a Background value paints anything. Default styles often set a fully transparent brush, which does not.
+static bool BackgroundPaints(winrt::Windows::Foundation::IInspectable const& value)
+{
+    const auto brush = value ? value.try_as<DevToolsXM::Brush>() : nullptr;
+    const auto solid = brush ? brush.try_as<DevToolsXM::SolidColorBrush>() : nullptr;
+    return DevToolsTheme::BrushPaints(value != nullptr, brush != nullptr, solid != nullptr, solid ? solid.Color().A : 0);
+}
+
+// Paints the window's content in the target theme when the window would otherwise keep its old background behind the
+// new text.
+static void PaintAppRootBackground(IInspectable* host, DevToolsX::FrameworkElement const& element, int theme)
+{
+    g_themeBrush = nullptr;
+    g_themePainted = nullptr;
+    const auto target = WindowContentOf(element);
+    const auto property = target ? BackgroundPropertyOf(target) : nullptr;
+    if (!property) {
+        DevToolsOverlayLog(L"overlay.theme root left unpainted: the window content has no Background");
+        return;
+    }
+    const auto local = target.ReadLocalValue(property);
+    const bool localSet = local != DevToolsX::DependencyProperty::UnsetValue();
+    // A visible value, from any source, is the app's own. So is a local value that is not a brush (a binding), which
+    // could not be put back.
+    const bool ownBackground = BackgroundPaints(target.GetValue(property)) ||
+                               (localSet && (BackgroundPaints(local) || (local && !local.try_as<DevToolsXM::Brush>())));
+    bool hasBackdrop = false;
+    const bool backdropKnown = g_hostBackdropRead && g_hostBackdropRead(host, &hasBackdrop);
+    const bool highContrast = DevToolsHighContrastOn();
+    if (!DevToolsTheme::SwitchPaintsRoot(highContrast, backdropKnown, hasBackdrop, ownBackground)) {
+        DevToolsOverlayLog(L"overlay.theme root left unpainted highContrast=%d backdropKnown=%d backdrop=%d ownBackground=%d",
+            (int)highContrast, (int)backdropKnown, (int)hasBackdrop, (int)ownBackground);
+        return;
+    }
+    const unsigned int argb = DevToolsTheme::RootBackgroundArgb(theme);
+    const DevToolsXM::SolidColorBrush brush{ winrt::Windows::UI::Color{
+        static_cast<uint8_t>(argb >> 24), static_cast<uint8_t>(argb >> 16),
+        static_cast<uint8_t>(argb >> 8), static_cast<uint8_t>(argb) } };
+    target.SetValue(property, brush);
+    g_themePainted = winrt::make_weak(target);
+    g_themeBackgroundProperty = property;
+    g_themeBrush = brush;
+    g_themeBackgroundLocal = localSet ? local : nullptr;
+    g_themeBackgroundLocalSet = localSet;
+    DevToolsOverlayLog(L"overlay.theme painted the window content #%08X (no backdrop, no app background)", argb);
+}
+
+static void RestoreAppRootBackground()
+{
+    const auto brush = std::exchange(g_themeBrush, nullptr);
+    const auto target = std::exchange(g_themePainted, {}).get();
+    const auto property = std::exchange(g_themeBackgroundProperty, nullptr);
+    const auto local = std::exchange(g_themeBackgroundLocal, nullptr);
+    if (!brush || !target || !property) return;
+    try {
+        // A Background the app set after the switch is the app's own and stays.
+        if (!SameObject(target.GetValue(property), brush)) {
+            DevToolsOverlayLog(L"overlay.theme root background changed by the app; left as is");
+            return;
+        }
+        if (g_themeBackgroundLocalSet) target.SetValue(property, local);
+        else target.ClearValue(property);
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.theme root background restore failed hr=0x%08X", e.code().value);
+    }
+}
+
+// The switch back: the app's own values, or none. False when this click must switch the current root instead:
+// nothing was switched, or the switched root is gone or belongs to a window the toolbar has since left.
 static bool RestoreAppRequestedTheme(void* themeFe)
 {
     if (!g_themeSwitched) return false;
     g_themeSwitched = false;
     try {
-        winrt::Windows::Foundation::IInspectable object{ nullptr };
-        winrt::copy_from_abi(object, themeFe);
-        const auto element = object.as<DevToolsX::FrameworkElement>();
+        RestoreAppRootBackground();
+        const auto element = std::exchange(g_themeElement, {}).get();
+        if (!element) {
+            DevToolsOverlayLog(L"overlay.theme switched root is gone; switching the current one");
+            return false;
+        }
         if (g_themeOriginalSet) element.RequestedTheme(g_themeOriginal);
         else element.ClearValue(DevToolsX::FrameworkElement::RequestedThemeProperty());
-        DevToolsSetToolbarRequestedTheme(static_cast<int>(element.ActualTheme()));
         DevToolsOverlayLog(L"overlay.theme restored the app's own value set=%d theme=%d", (int)g_themeOriginalSet, (int)g_themeOriginal);
+        winrt::Windows::Foundation::IInspectable current{ nullptr };
+        winrt::copy_from_abi(current, themeFe);
+        if (!SameObject(current, element)) {
+            DevToolsOverlayLog(L"overlay.theme restored a window the toolbar left; switching the current one");
+            return false;
+        }
+        DevToolsSetToolbarRequestedTheme(static_cast<int>(element.ActualTheme()));
         return true;
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"overlay.theme restore failed hr=0x%08X", e.code().value);
@@ -104,7 +218,18 @@ static void OnThemeToggleClick(void*, void*)
         L"overlay.theme actual=%d target=%d put=0x%08X requested=%d/%s actualAfter=%d/%s",
         actualBefore, target, hrPut, requestedAfter, requestedMatches ? L"match" : L"mismatch",
         actualAfter, effectiveMatches ? L"match" : L"mismatch");
-    if (SUCCEEDED(hrPut)) DevToolsSetToolbarRequestedTheme(target);
+    if (SUCCEEDED(hrPut)) {
+        try {
+            winrt::Windows::Foundation::IInspectable object{ nullptr };
+            winrt::copy_from_abi(object, themeFe);
+            const auto element = object.as<DevToolsX::FrameworkElement>();
+            g_themeElement = winrt::make_weak(element);
+            PaintAppRootBackground(g_appPanel, element, target);
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"overlay.theme root background unavailable hr=0x%08X", e.code().value);
+        }
+        DevToolsSetToolbarRequestedTheme(target);
+    }
 
     reinterpret_cast<IUnknown*>(themeFe)->Release();
 }
