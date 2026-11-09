@@ -251,6 +251,50 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                            L"not-on-dispatcher", L"\"hresult\":\"" + HrStr(postHr) + L"\"");
     }
 
+    if (m == L"Inspector.registerExternal" || m == L"Inspector.unregisterExternal") {
+        // Unlike ordinary owned mutations on short request pipes, presentation belongs to the requesting
+        // persistent connection itself: it must be able to receive its own openRequested notifications.
+        if (ownerConn == 0 || ownerConn != DevToolsEvents_ConnId(conn))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                L"owner must be the token negotiated on this connection", L"owner-connection-mismatch");
+        const std::wstring displayName = p.GetString(L"displayName");
+        if (m == L"Inspector.registerExternal" &&
+            (displayName.empty() || displayName.size() > 128 || displayName.find_first_not_of(L" \t\r\n") == std::wstring::npos))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                L"displayName must contain 1 to 128 characters and cannot be blank", L"bad-args");
+        auto operation = [m, id, ownerConn, displayName]() {
+            if (!DevToolsEvents_IsOwnerLive(ownerConn))
+                return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                    L"owner does not name a live negotiated connection", L"unknown-owner");
+            const unsigned long long current = ExternalInspectorOwner_ui();
+            if (current && current != ownerConn)
+                return DevToolsRpcError(id, DevToolsErr::CapabilityUnsupported,
+                    L"Inspector presentation is already owned by " + g_externalInspectorName, L"inspector-owned");
+            if (m == L"Inspector.unregisterExternal") {
+                if (g_externalInspectorOwner == ownerConn) ClearExternalInspector_ui();
+                return DevToolsRpcResult(id, L"null");
+            }
+            const bool nativeOpen = DevToolsWindow_IsOpen();
+            g_ownedState.Reconcile(DevToolsStateAxis::Window, nativeOpen ? 1ull : 0ull);
+            // Do not close a window containing drafts, or inherit a Window.close owner's pending restore-to-open.
+            if (nativeOpen || g_ownedState.Owner(DevToolsStateAxis::Window) != 0)
+                return DevToolsRpcError(id, DevToolsErr::CapabilityUnsupported,
+                    L"Close the native inspector and release its owned window state before registering an external inspector",
+                    L"native-inspector-active");
+            g_externalInspectorName = displayName;
+            g_externalInspectorOwner = ownerConn;
+            return DevToolsRpcResult(id, L"null");
+        };
+        HRESULT postHr = PostRpcToUi(conn, id, [operation = std::move(operation), respond = req.hasId]() {
+            std::wstring response = operation();
+            return respond ? response : std::wstring();
+        });
+        if (SUCCEEDED(postHr)) return {};
+        return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher,
+            L"could not enqueue inspector registration", L"not-on-dispatcher",
+            L"\"hresult\":\"" + HrStr(postHr) + L"\"");
+    }
+
     if (m == L"VisualTree.query" || m == L"Property.setQuery")
         return HandleQuery(id, p, m == L"Property.setQuery");
     if (m == L"VisualTree.enumerate") {
@@ -486,6 +530,11 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             HRESULT hr = S_OK;
             std::wstring errorMessage;
             if (m == L"Window.open") {
+                if (ExternalInspectorOwner_ui()) {
+                    if (!respond) return std::wstring();
+                    return DevToolsRpcError(id, DevToolsErr::CapabilityUnsupported,
+                        L"Unregister the external inspector before opening the native inspector", L"inspector-external");
+                }
                 // A protocol client may open the window from a headless attach, so initialize that substrate on this
                 // same UI turn before the window is reported live. The helper is idempotent, never waits on the pipe,
                 // and attributes the rail the build turns on to this validated session rather than to nobody.

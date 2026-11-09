@@ -366,6 +366,18 @@ bool DevToolsEvents_IsOwnerLive(uint64_t connId) {
     return live;
 }
 
+bool DevToolsEvents_SendToOwner(uint64_t connId, const std::wstring& eventLine) {
+    if (connId == 0 || eventLine.empty()) return false;
+    const std::string bytes = DevToolsToUtf8(eventLine) + "\n";
+    DevToolsConnLockShared lk;
+    for (DevToolsConn* c : g_conns) {
+        if (c->id != connId || !c->negotiated.load(std::memory_order_acquire)) continue;
+        Enqueue(c, bytes, /*isResponse*/ true, DevToolsCoalesce_None, L"");
+        return true;
+    }
+    return false;
+}
+
 void DevToolsEvents_Broadcast(uint32_t bit, const std::wstring& eventLine, DevToolsCoalesce policy, const std::wstring& key) {
     if (bit == 0 || eventLine.empty()) return;
     std::string bytes = DevToolsToUtf8(eventLine) + "\n";

@@ -236,8 +236,8 @@ HRESULT DevToolsOverlay_SetComments(IXamlDiagnostics* diag, InstanceHandle root,
                                const DevToolsOverlayComment* items, size_t count, size_t* outPlaced, bool authoritative);
 
 
-// False is logged locally, and *error, when the callback sets it, is shown to the user; this callback never
-// redirects to another host.
+// The tap routes to its registered client or native window. False is logged locally;
+// *error, when the callback sets it, is shown to the user.
 typedef bool (*DevToolsInprocInspectFn)(std::wstring* error);
 void DevToolsOverlay_SetInprocInspect(DevToolsInprocInspectFn fn);
 // What an inspector open request asks for. UI thread only.

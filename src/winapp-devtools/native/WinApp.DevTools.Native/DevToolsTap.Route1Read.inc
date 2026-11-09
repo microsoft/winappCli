@@ -508,9 +508,42 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     return hr;
 }
 
+// Presentation registration and routing are serialized with native window operations on the app UI thread.
+static unsigned long long g_externalInspectorOwner = 0;
+static std::wstring g_externalInspectorName;
+
+static void ClearExternalInspector_ui()
+{
+    g_externalInspectorOwner = 0;
+    g_externalInspectorName.clear();
+}
+
+static unsigned long long ExternalInspectorOwner_ui()
+{
+    return DevToolsEvents_IsOwnerLive(g_externalInspectorOwner) ? g_externalInspectorOwner : 0;
+}
+
+static bool RequestExternalInspector_ui(const DevToolsInspectRequest& request)
+{
+    const unsigned long long owner = ExternalInspectorOwner_ui();
+    if (!owner) return false;
+    unsigned long long wire = g_lastPickHandle.load(std::memory_order_relaxed);
+    if (request.element) {
+        AcquireSRWLockShared(&g_censusLock);
+        wire = PackWire_nolock(request.element);
+        ReleaseSRWLockShared(&g_censusLock);
+        if (wire) g_lastPickHandle.store(wire, std::memory_order_relaxed);
+    }
+    std::wstring params = std::wstring(L"{\"view\":\"") + (request.comments ? L"comments" : L"inspect") + L"\"";
+    if (wire) params += L",\"handle\":\"" + std::to_wstring(wire) + L"\"";
+    params += L"}";
+    return DevToolsEvents_SendToOwner(owner, DevToolsRpcEvent(L"Inspector.openRequested", params));
+}
+
 static bool InprocInspect(std::wstring* error)
 {
     const DevToolsInspectRequest& request = DevToolsOverlay_InspectRequest();
+    if (RequestExternalInspector_ui(request)) return true;
     // A pick has already selected its element in an inspector on screen; it only needs to be in view.
     if (!request.activate && !request.comments && DevToolsWindow_RevealWithoutFocus()) return true;
     g_ownedState.Reconcile(DevToolsStateAxis::Window, DevToolsWindow_IsOpen() ? 1ull : 0ull);
