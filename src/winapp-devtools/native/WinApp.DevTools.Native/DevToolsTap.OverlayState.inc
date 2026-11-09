@@ -152,6 +152,7 @@ static const wchar_t* EnsureOverlayForOwner_ui(unsigned long long ownerConn, std
 // this client armed would also clear whatever another client, or the user, had selected.
 static DevToolsOwnedReleaseOutcome ApplyOwnedRelease_ui(unsigned long long owner)
 {
+    if (owner != 0 && g_externalInspectorOwner == owner) ClearExternalInspector_ui();
     DevToolsOwnedReleaseOutcome outcome = g_ownedState.Release(owner);
     if (outcome.released.empty()) {
         outcome.revision = g_ownedState.Revision();
