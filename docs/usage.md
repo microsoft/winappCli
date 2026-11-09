@@ -189,6 +189,7 @@ Each template's canonical short name is the first alias `dotnet new` lists for i
 
 `winapp new` no longer pins a specific template pack version. If no pack is installed it installs the **latest**. If an older pack is already installed it checks the feed and, when a newer one exists, **prompts** whether to update — except in non-interactive/`--use-defaults` runs, which keep the installed pack. Use `--template-version latest` to always take the newest without prompting (it never replaces an installed pack with an older one, and fails if the feed can't be checked), or `--template-version installed` to always use the downloaded pack without a network check. Passing an **explicit** version (e.g. `--template-version 1.2.3`) always installs exactly that version — reinstalling even when a newer pack is already present — so scaffolding is reproducible across machines.
 
+`dotnet new` can hold two copies of the pack at once, for example one from NuGet and one installed from a local `.nupkg`. `winapp new` still creates the project and warns that several copies are installed. If you pass `--template-version` and `dotnet new` would take the template from a different copy, `winapp new` stops instead. In either case, run `dotnet new uninstall Microsoft.WindowsAppSDK.WinUI.CSharp.Templates` (it removes every copy) and re-run `winapp new`.
 > [!NOTE]
 > **A first run may take longer:** Installing or updating the template pack, or restoring missing Windows App SDK NuGet packages used by the selected template, can require additional downloads. This can also happen after a new Windows App SDK version is published. If scaffolding is still running after 10 seconds, `winapp new` updates its status message to indicate that packages may be downloading or restoring.
 
@@ -1851,7 +1852,7 @@ and are separate from a project's `winapp.yaml`.
 
 | Setting | Values | Default | What it does |
 |---|---|---|---|
-| `run.devtools` | `on`, `off`, `headless` | `on` | How `winapp run` starts [DevTools](guides/devtools.md) for a WinUI project when `--devtools` isn't given. The toolbar's **When the app starts** menu changes the same setting. |
+| `run.devtools` | `on`, `off`, `headless` | `on` | How `winapp run` starts [DevTools](guides/devtools.md) for a WinUI project when `--devtools` isn't given. The toolbar's **Launch preferences** menu changes the same setting. |
 
 - `winapp config list` shows every setting with its value and whether it is your setting or the default.
 - `winapp config get <key>` shows one setting.

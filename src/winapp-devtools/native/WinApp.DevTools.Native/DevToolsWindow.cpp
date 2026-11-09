@@ -243,6 +243,27 @@ static std::wstring InlineResourceLiterals(const std::wstring& markup, size_t* a
     return DevToolsResInline::Apply(markup, ResolveBrushLiteral, ResolveTextStyleAttrs, asked, leftBehind);
 }
 
+// After a theme change, re-resolve every brush literal the pane already inlined and return each color that
+// changed as old -> new, so the open pane can be repainted in place. The first mapping wins for a shared color.
+static std::vector<std::pair<std::wstring, std::wstring>> RefreshResourceLiterals()
+{
+    std::vector<std::pair<std::wstring, std::wstring>> changes;
+    const int theme = InspectorActualTheme();
+    if (theme == g_resLiteralTheme) return changes;
+    const auto previous = g_resLiteral;
+    g_resLiteral.clear(); g_resStyleAttr.clear(); g_resLiteralTheme = theme;
+    for (const auto& [key, before] : previous) {
+        if (before.empty()) continue;
+        const std::wstring after = ResolveBrushLiteral(L"ThemeResource", key);
+        if (after.empty() || after == before) continue;
+        bool seen = false;
+        for (const auto& change : changes) seen = seen || change.first == before;
+        if (!seen) changes.emplace_back(before, after);
+    }
+    DevToolsOverlayLog(L"route1.res theme is now %d; %zu inlined colors changed", theme, changes.size());
+    return changes;
+}
+
 static HRESULT ApplyMicaBackdrop(IInspectable* window)
 {
     if (!window) return E_INVALIDARG;

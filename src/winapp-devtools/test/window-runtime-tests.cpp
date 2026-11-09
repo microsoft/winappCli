@@ -810,6 +810,8 @@ int main()
         PopulateRowValue(&testValue,colored,L"Width");
         check(testValue.foreground==&secondaryBrush && testFontStyle==2,
             "a missing value uses the secondary text brush in italic");
+        // The window keeps the copied brushes to find them after a theme change, and releases them on close.
+        ForgetRowBrushes();
         check(primaryDonor.refs==1 && secondaryDonor.refs==1 && primaryBrush.refs==1 && secondaryBrush.refs==1,
             "copying a donor brush releases what it reads");
         g_palPrimary=g_palSecondary=nullptr;testValue.foreground=nullptr;
@@ -1353,6 +1355,18 @@ int main()
                 "with no Size & spacing section on screen, a layout change falls back to rebuilding the pane");
         }
         DevToolsCardRow text;text.name=L"Text";text.type=L"String";text.value=L"Hi";text.source=L"Local";
+        const auto detail=DetailRow(L"its padding",L"0,0,0,0",L"Black",L"Gray");
+        check(detail.find(L"<ColumnDefinition Width=\"2*\"/>")!=std::wstring::npos &&
+            detail.find(L"<ColumnDefinition Width=\"3*\"/>")!=std::wstring::npos &&
+            detail.find(L"Width=\"78\"")==std::wstring::npos,
+            "layout details share the available width instead of fixing the label column");
+        check(detail.find(L"Text=\"its padding\"")!=std::wstring::npos &&
+            detail.find(L"Text=\"0,0,0,0\"")!=std::wstring::npos &&
+            detail.find(L"TextWrapping=\"Wrap\"/>")!=std::wstring::npos &&
+            detail.find(L"NoWrap")==std::wstring::npos && detail.find(L"TextTrimming")==std::wstring::npos,
+            "layout detail labels and values wrap without hiding their names behind ellipses");
+        check(DetailGroup(L"ARRANGED BY MainPage",L"Gray").find(L"TextWrapping=\"Wrap\"")!=std::wstring::npos,
+            "layout detail headings wrap when the parent name is long");
         g_layoutSectionOpen=0;
         const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noSourceInfo",L"",&stretched);
