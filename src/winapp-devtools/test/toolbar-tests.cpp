@@ -755,6 +755,9 @@ static void TestToolbarContract()
     };
     const auto switchBody = bodyOf("static void OnThemeToggleClick(void*, void*)");
     const auto restoreBody = bodyOf("static bool RestoreAppRequestedTheme(void* themeFe)");
+    Check(switchBody.find("void* themeFe = panelFe ? ThemeTargetOf(panelFe) : nullptr;") != std::string::npos &&
+          overlay.find("const auto root = object.as<DevToolsX::FrameworkElement>().XamlRoot();") != std::string::npos,
+                 "the theme goes on the window content, the element that is painted, so navigation and Page backgrounds follow it");
     Check(switchBody.find("PaintAppRootBackground(g_appPanel, element, target);") != std::string::npos &&
           restoreBody.find("RestoreAppRootBackground();") != std::string::npos &&
           overlay.find("if (!user || user.try_as<DevToolsXC::Page>()) break;") != std::string::npos &&

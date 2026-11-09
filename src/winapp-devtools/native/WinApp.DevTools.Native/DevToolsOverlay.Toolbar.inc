@@ -178,6 +178,27 @@ static void SaveAppRequestedTheme(void* themeFe)
     }
 }
 
+// The theme goes on the window's content, the element the paint also targets, so a Frame's next page and a Page's own
+// {ThemeResource} Background follow it too. Falls back to the overlay's host panel. Returns an owned reference.
+static void* ThemeTargetOf(void* panelFe)
+{
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, panelFe);
+        const auto root = object.as<DevToolsX::FrameworkElement>().XamlRoot();
+        const auto content = root ? root.Content() : nullptr;
+        if (const auto element = content ? content.try_as<DevToolsX::FrameworkElement>() : nullptr) {
+            void* themeFe = nullptr;
+            winrt::copy_to_abi(element, themeFe);
+            return themeFe;
+        }
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.theme window content unavailable hr=0x%08X; using the host panel", e.code().value);
+    }
+    reinterpret_cast<IUnknown*>(panelFe)->AddRef();
+    return panelFe;
+}
+
 static void OnThemeToggleClick(void*, void*)
 {
     if (!DevToolsTrust_MutationEnabled()) {
@@ -189,8 +210,10 @@ static void OnThemeToggleClick(void*, void*)
         return;
     }
 
-    void* themeFe = nullptr;
-    HRESULT hrThemeQi = g_appPanel->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &themeFe);
+    void* panelFe = nullptr;
+    HRESULT hrThemeQi = g_appPanel->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &panelFe);
+    void* themeFe = panelFe ? ThemeTargetOf(panelFe) : nullptr;
+    if (panelFe) reinterpret_cast<IUnknown*>(panelFe)->Release();
     int actualBefore = DevToolsTheme::kDefault;
     HRESULT hrActual = themeFe ? DevToolsGetActualTheme(themeFe, &actualBefore) : hrThemeQi;
     if (FAILED(hrActual) || !themeFe) {
