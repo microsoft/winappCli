@@ -101,6 +101,53 @@ void Test_EditProblemSaysWhatHappened()
           "a handler that threw says why");
 }
 
+void Test_ElementFactsSayWhatTheElementsCSharpSets()
+{
+    const wchar_t* kInput = LR"json({"state":"ok","tagged":true,"element":"TextField","file":"/_/App.cs","fileOnDisk":"C:\\src\\App.cs",
+      "line":23,"owner":"ReleaseForm",
+      "props":[{"name":"Placeholder","property":"PlaceholderText","value":"\"Project\""},
+               {"name":"Text","property":"Password","value":"<redacted>","redacted":true}],
+      "modifiers":[{"modifier":"Width","property":"Width","value":"320"}],
+      "themeBindings":[{"property":"Foreground","resourceKey":"TextFillColorSecondaryBrush"},{"property":"","resourceKey":"X"}]})json";
+    const auto facts = DevToolsReactorElementFacts_Parse(kInput);
+    Check(facts.element == L"TextField" && facts.site == L"App.cs:23" && facts.renderedBy == L"ReleaseForm",
+          "the element kind, its call site on this machine and the component that renders it");
+    Check(facts.owned.size() == 3 && facts.themes.size() == 1, "record properties, modifiers and ThemeRefs; a binding with no property is skipped");
+    Check(facts.ThemeOf(L"foreground") == L"TextFillColorSecondaryBrush" && facts.ThemeOf(L"Background").empty(),
+          "a ThemeRef is found by its WinUI property name, case-insensitively");
+    Check(facts.Origin(L"Foreground") == L"ThemeRef TextFillColorSecondaryBrush  \u00B7  App.cs:23",
+          "a ThemeRef property reads as the theme resource it follows, and where");
+    Check(facts.Origin(L"Width") == L".Width(320)  \u00B7  App.cs:23", "a modifier reads as the C# call");
+    Check(facts.Origin(L"PlaceholderText") == L"TextField Placeholder = \"Project\"  \u00B7  App.cs:23",
+          "a record property reads as the element's property and value");
+    Check(facts.Origin(L"Password") == L"TextField Text = <redacted>  \u00B7  App.cs:23", "a secret value is not shown");
+    Check(facts.Origin(L"Height").empty(), "a property the C# does not set has no C# origin");
+    Check(facts.OwnedWarning(L"Width") ==
+              L"Width is set in C# (App.cs:23); Reactor reapplies its C# value when <ReleaseForm> re-renders with a changed value.",
+          "an edit of a C#-set property is warned about in the words get-property uses");
+    Check(facts.OwnedWarning(L"Height").empty() && facts.OwnedWarning(L"Foreground").empty(),
+          "a property the C# does not set has no warning");
+
+    std::wstring noOwner = kInput;
+    noOwner.replace(noOwner.find(L"\"owner\":\"ReleaseForm\","), 22, L"");
+    Check(Has(DevToolsReactorElementFacts_Parse(noOwner).OwnedWarning(L"Width"), L"when its component re-renders"),
+          "without a known owner the warning names no component");
+    Check(DevToolsReactorElementFacts_Parse(kInput) == facts, "the same answer gives equal facts");
+    std::wstring ticked = kInput;
+    ticked.replace(ticked.find(L"\"320\""), 5, L"\"321\"");
+    Check(DevToolsReactorElementFacts_Parse(ticked).SameShape(facts) && !(DevToolsReactorElementFacts_Parse(ticked) == facts),
+          "a C# value that changed keeps the same shape, so the pane is not rebuilt for every render");
+    std::wstring moved = kInput;
+    const std::wstring widthModifier = L"\"modifier\":\"Width\",\"property\":\"Width\"";
+    moved.replace(moved.find(widthModifier), widthModifier.size(), L"\"modifier\":\"Height\",\"property\":\"Height\"");
+    Check(!DevToolsReactorElementFacts_Parse(moved).SameShape(facts), "a different property the C# sets is a different shape");
+
+    Check(DevToolsReactorElementFacts_Parse(LR"({"state":"ok","tagged":false,"themeBindings":[{"property":"Foreground","resourceKey":"K"}]})").Empty(),
+          "a control no Reactor element created has no facts");
+    Check(DevToolsReactorElementFacts_Parse(LR"({"state":"unavailable"})").Empty() && DevToolsReactorElementFacts_Parse(L"not json").Empty(),
+          "nor does an unavailable or broken answer");
+}
+
 }   // namespace
 
 int RunComponentPanelTests()
@@ -110,5 +157,6 @@ int RunComponentPanelTests()
     Test_ParseExplainsWhyThereIsNoComponent();
     Test_MarkupOffersEditorsOnlyForSettableStateWhenWritable();
     Test_EditProblemSaysWhatHappened();
+    Test_ElementFactsSayWhatTheElementsCSharpSets();
     return g_failures;
 }

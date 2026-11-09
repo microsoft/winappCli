@@ -1620,6 +1620,17 @@ int wmain(int argc, wchar_t** argv)
               surface.find(L"\"root\":{\"kind\":\"class\",\"name\":\"SettingsPage\"}") != std::wstring::npos &&
               surface.find(L"\"mountLine\":12") != std::wstring::npos && surface.find(L"\"windowKey\":\"Settings\"") != std::wstring::npos,
               "Surface.list names a window's Reactor root and where it was mounted");
+        {
+            ReactorSource named;
+            named.node = counter;
+            named.exact = true;
+            check(TapReactorSourceJson(named).find(L"\"name\"") == std::wstring::npos,
+                  "Source.get's Reactor part has no name for an element assigned to no variable");
+            named.node.name = L"SaveButton";
+            named.node.nameSource = L"csharp-variable";
+            check(TapReactorSourceJson(named).find(L"\"name\":\"SaveButton\",\"nameSource\":\"csharp-variable\"") != std::wstring::npos,
+                  "Source.get's Reactor part names the C# variable, so a comment on the element keeps it like an x:Name");
+        }
         AcquireSRWLockExclusive(&g_reactorAuthoredLock);
         g_reactorAnnotations[11] = button;
         g_reactorAnnotations[12] = counter;

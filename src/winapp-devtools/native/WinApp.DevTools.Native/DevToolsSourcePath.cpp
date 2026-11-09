@@ -286,6 +286,18 @@ std::vector<std::wstring> ProjectCandidates(const std::wstring& relative, const 
 }
 }
 
+bool DevToolsSourcePath_ResolveProjectFile(const std::wstring& sourceRoot, const std::wstring& relativePath,
+                                           std::wstring* resolvedPath)
+{
+    if (!resolvedPath) return false;
+    resolvedPath->clear();
+    if (sourceRoot.empty()) return false;
+    const std::vector<std::wstring> found = ProjectCandidates(ToWindowsSlashes(relativePath), sourceRoot, {});
+    if (found.size() != 1) return false;
+    *resolvedPath = found.front();
+    return true;
+}
+
 bool DevToolsSourcePath_MapCompiled(const std::wstring& compiledPath, const std::wstring& sourceRoot,
                                     const std::wstring& pathMap, std::wstring* mapped,
                                     const std::wstring& projectDirs, std::vector<std::wstring>* ambiguous)

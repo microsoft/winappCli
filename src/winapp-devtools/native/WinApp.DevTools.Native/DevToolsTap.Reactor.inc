@@ -1223,6 +1223,10 @@ static std::wstring TapReactorSourceJson(const ReactorSource& source, unsigned i
     if (!source.node.key.empty()) out += L",\"key\":\"" + DevToolsJsonEscape(source.node.key) + L"\"";
     if (!source.node.owner.empty()) out += L",\"component\":\"" + DevToolsJsonEscape(source.node.owner) + L"\"";
     if (!source.node.component.empty()) out += L",\"mounts\":\"" + DevToolsJsonEscape(source.node.component) + L"\"";
+    if (!source.node.name.empty()) {
+        out += L",\"name\":\"" + DevToolsJsonEscape(source.node.name) + L"\"";
+        if (!source.node.nameSource.empty()) out += L",\"nameSource\":\"" + source.node.nameSource + L"\"";
+    }
     if (ordinal) out += L",\"ordinal\":" + std::to_wstring(ordinal);
     return out + L"}";
 }

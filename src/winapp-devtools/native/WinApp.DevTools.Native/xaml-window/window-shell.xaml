@@ -471,6 +471,10 @@
                 <TextBlock x:Name="PStageHint" Visibility="Collapsed" FontSize="11" TextWrapping="Wrap" Margin="0,7,0,0"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
+                <!-- A Reactor element's C# sets this property: a re-render can put the C# value back over an edit. -->
+                <TextBlock x:Name="PReactorNote" Visibility="Collapsed" FontSize="11" TextWrapping="Wrap" Margin="0,7,0,0"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
                 <!-- The confirm: a commit refused because it would replace a binding or a resource link. -->
                 <Button x:Name="PConfirm" Visibility="Collapsed" Margin="0,6,0,0" Padding="6,2,6,2" HorizontalAlignment="Left">
                   <TextBlock x:Name="PConfirmText" FontSize="11" TextWrapping="Wrap"/>

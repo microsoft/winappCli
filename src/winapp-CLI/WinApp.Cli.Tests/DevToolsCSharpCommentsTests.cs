@@ -297,6 +297,35 @@ public class DevToolsCSharpCommentsTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task LiveCapture_ReactorElement_KeepsItsCSharpName_AndGetShowsTheCapturedStatement(bool exact)
+    {
+        using var agent = ReactorAgent(exact, name: "IncrementButton");
+        using var console = new TestConsole();
+        console.Profile.Width = 4096;
+        var store = new CommentStore();
+        var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+            new CommentTestTargetResolver(agent.Pid), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
+        List<string> args = ["--app", agent.Pid.ToString(), "--from-element", "7", "--text", "bigger"];
+        if (!exact) { args.Add("--confirm-likely-source"); }
+        Assert.AreEqual(0, await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(args.ToArray())), console.Output);
+
+        var comment = store.Load(StorePath).Comments.Single();
+        // The name belongs to the element that owns the call site; a control that borrowed it is not that element.
+        Assert.AreEqual(exact ? "IncrementButton" : null, comment.Anchor.Identity.Name);
+        Assert.AreEqual(exact ? "Button #IncrementButton" : "Button", CommentPusher.ToTapComments(store.Load(StorePath)).Single().Element);
+
+        using var getConsole = new TestConsole();
+        getConsole.Profile.Width = 4096;
+        var get = new DevToolsCommentsGetCommand.Handler(store, new CommentAnchorResolver(), new FixedCwd(_root), getConsole,
+            new CommentTestTargetResolver()) { ReadSourceRoot = (_, _) => _root };
+        Assert.AreEqual(0, await get.InvokeAsync(new DevToolsCommentsGetCommand().Parse([comment.Id])), getConsole.Output);
+        StringAssert.Contains(getConsole.Output, "Captured declaration: Button(\"+1\", () => setCount(count + 1)).Width(120),");
+        if (exact) { StringAssert.Contains(getConsole.Output, "Button IncrementButton"); }
+    }
+
+    [TestMethod]
     public async Task LiveCapture_ReactorElement_StoresTheLiveAutomationIdAndWindowTitle()
     {
         using var agent = ReactorAgent(exact: true)
@@ -405,12 +434,13 @@ public class DevToolsCSharpCommentsTests
         Assert.IsNull(ReactorSourceReply.Parse("""{"fileName":"ms-appx:///Main.xaml","lineNumber":2}"""));
         var reply = ReactorSourceReply.Parse("""
             {"kind":"csharp","fileName":"C:\\a\\App.cs","lineNumber":10,"columnNumber":0,"onDisk":true,
-             "reactor":{"element":"Button","exact":false,"ordinal":3}}
+             "reactor":{"element":"Button","exact":false,"ordinal":3,"name":"SaveButton","nameSource":"csharp-variable"}}
             """)!;
         Assert.AreEqual(10, reply.Line);
         Assert.AreEqual(0, reply.Column);
         Assert.IsFalse(reply.Exact);
         Assert.AreEqual(3, reply.Ordinal);
+        Assert.AreEqual("SaveButton", reply.Name);
     }
 
     [TestMethod]
@@ -425,7 +455,8 @@ public class DevToolsCSharpCommentsTests
             "a call site outside the project is not anchored");
     }
 
-    private FakeDevToolsProtocolAgent ReactorAgent(bool exact, string? file = null, bool onDisk = true, string? sourceRoot = null) => new FakeDevToolsProtocolAgent()
+    private FakeDevToolsProtocolAgent ReactorAgent(bool exact, string? file = null, bool onDisk = true, string? sourceRoot = null,
+        string? name = null) => new FakeDevToolsProtocolAgent()
         .Answer("VisualTree.find", """{"matches":[{"handle":"7","name":"","type":"Microsoft.UI.Xaml.Controls.Button"}]}""")
         .Answer("VisualTree.enumerate", """[{"handle":"7","name":"","type":"Microsoft.UI.Xaml.Controls.Button","children":[]}]""")
         .Answer("Property.get", """{"props":[]}""")
@@ -433,7 +464,7 @@ public class DevToolsCSharpCommentsTests
         {
             handle = "7", kind = "csharp", fileName = file ?? AppFile, lineNumber = 10, columnNumber = 13, onDisk,
             authoredState = "available",
-            reactor = new { element = "Button", handle = "7", exact, key = "k1", component = "App", ordinal = 2 },
+            reactor = new { element = "Button", handle = "7", exact, key = "k1", component = "App", ordinal = 2, name },
         }))
         .Answer("Internal.elementAnchor", """{"anchor":"reactor:opaque","unique":true}""")
         .Answer("Internal.sourceRoot", JsonSerializer.Serialize(new { sourceRoot = sourceRoot ?? _root }))

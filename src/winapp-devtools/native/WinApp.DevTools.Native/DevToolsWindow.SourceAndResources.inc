@@ -30,6 +30,19 @@ static std::wstring ResolveSourcePath(const std::wstring& uri, bool* sourceRootM
         : L"";
 }
 
+// A C# comment stores its file relative to the project (`App.cs`); the full path under the source root, or empty.
+static std::wstring ResolveProjectCSharpFile(const std::wstring& file)
+{
+    if (!IsCSharpPath(file)) return L"";
+    DWORD required = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", nullptr, 0);
+    if (required == 0) return L"";
+    std::vector<wchar_t> root(required);
+    DWORD written = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", root.data(), required);
+    if (written == 0 || written >= required) return L"";
+    std::wstring resolved;
+    return DevToolsSourcePath_ResolveProjectFile(std::wstring(root.data(), written), file, &resolved) ? resolved : L"";
+}
+
 // AssocQueryString can succeed with an empty value; check the value, not just the HRESULT.
 static std::wstring ShellAssocFor(const std::wstring& ext)
 {

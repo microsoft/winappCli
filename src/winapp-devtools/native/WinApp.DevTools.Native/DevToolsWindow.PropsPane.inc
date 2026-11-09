@@ -34,6 +34,20 @@ static void WireAddComment(void* frameworkElement);
 static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& name,
                                 const std::wstring& label, const std::wstring& breadcrumb);
 
+// The Reactor section read the selected element's C#. Build the pane again when that changes what its rows say: which
+// properties the C# sets or binds to a theme. A C# value that changes on every render (a timer's text) is kept for the
+// next read without rebuilding the pane each time.
+static void OnReactorElementFacts(unsigned long long raw, const DevToolsReactorElementFacts& facts)
+{
+    const InstanceHandle wire = static_cast<InstanceHandle>(raw);
+    if (!wire || wire != g_selWire) return;
+    const bool had = g_reactorFactsWire == wire;
+    const bool rebuild = had ? !g_reactorFacts.SameShape(facts) : !facts.Empty();
+    g_reactorFactsWire = wire;
+    g_reactorFacts = facts;
+    if (rebuild) DevToolsWindow_RereadSelection(wire);
+}
+
 static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, const std::wstring& breadcrumb,
                              bool force)
 {
@@ -77,8 +91,9 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
 
     std::wstring type, name; std::vector<DevToolsCardRow> rows;
     std::wstring authoredState, authoredXaml;
+    if (g_reactorFactsWire != wire) { g_reactorFactsWire = 0; g_reactorFacts = {}; }
     { WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropRead);
-      g_ctx.rowsFn(wire, type, name, rows, authoredState, authoredXaml); }
+      ReadPaneRows(wire, type, name, rows, authoredState, authoredXaml); }
     ReconcileEditRecords(wire, rows);
     // The Reactor label (`<Counter>`, `VStack`) and C# name are the tree row's; the header shows them too.
     g_selReactorLabel.clear();
@@ -208,7 +223,7 @@ g_propRows = rows;
                     ask ? DevToolsComponentSection::AskFn([ask](unsigned long long w, const std::wstring& op, const std::wstring& arg,
                                                                const std::wstring& value, std::wstring* out) {
                         return ask(static_cast<InstanceHandle>(w), op, arg, value, out);
-                    }) : DevToolsComponentSection::AskFn());
+                    }) : DevToolsComponentSection::AskFn(), OnReactorElementFacts);
             } catch (const winrt::hresult_error&) {}
             rb->Release();
         }

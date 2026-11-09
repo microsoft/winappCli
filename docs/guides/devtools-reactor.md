@@ -136,8 +136,11 @@ change.
 
 A property that follows a theme resource through a `ThemeRef`, such as
 `.Foreground(Theme.AccentText)`, shows `← ThemeRef AccentTextFillColorPrimaryBrush`
-(`"themeResource"` with `--json`). `get-property` also lists the element's event
-handlers and the method each one runs:
+(`"themeResource"` with `--json`). The inspector's property pane says the same: a
+`ThemeRef` property shows **THEME** and its editor starts at ThemeResource with the
+key filled in, and a property the C# sets shows its C# value under **DERIVED FROM**
+(`C# · .Width(120) · App.cs:67`), with the re-render warning under its editor.
+`get-property` also lists the element's event handlers and the method each one runs:
 
 ```text
   Handlers:
@@ -291,6 +294,10 @@ editing. An element with no call site of its own, such as the text inside a
 `Button`, uses the nearest Reactor element's call site, which you confirm with
 `--confirm-likely-source` (or the **Use this likely source for my comment** box in
 the app).
+
+A comment on an element with a C# name keeps that name the way a XAML comment keeps
+its `x:Name` (`Button #incrementButton`), and `comments get` shows the C# statement
+it was added on as its captured declaration.
 
 Markers appear on the live element in every window that shows it and follow edits
 after hot reload or a rebuild.

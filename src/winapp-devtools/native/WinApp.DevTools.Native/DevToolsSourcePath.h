@@ -34,3 +34,9 @@ bool DevToolsSourcePath_IsWithinRoot(const std::wstring& canonicalRoot,
 bool DevToolsSourcePath_MapCompiled(const std::wstring& compiledPath, const std::wstring& sourceRoot,
                                     const std::wstring& pathMap, std::wstring* mapped,
                                     const std::wstring& projectDirs = {}, std::vector<std::wstring>* ambiguous = nullptr);
+
+// A comment's C# file, stored relative to the project it was captured in (`Views\App.cs`, or `..\Lib\Panel.cs` for a
+// file elsewhere in the repository), as an existing file under `sourceRoot`. `..` may not leave the repository (or the
+// source root's parent outside one). False when there is no such file.
+bool DevToolsSourcePath_ResolveProjectFile(const std::wstring& sourceRoot, const std::wstring& relativePath,
+                                           std::wstring* resolvedPath);

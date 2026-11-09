@@ -8,6 +8,7 @@
 #pragma once
 
 #include <atomic>
+#include <cwchar>
 #include <cwctype>
 #include <functional>
 #include <memory>
@@ -60,6 +61,126 @@ inline std::wstring DevToolsComponentLeaf(const std::wstring& path, long long li
     const size_t slash = path.find_last_of(L"\\/");
     std::wstring leaf = slash == std::wstring::npos ? path : path.substr(slash + 1);
     return line > 0 ? leaf + L":" + std::to_wstring(line) : leaf;
+}
+
+// A WinUI property the element's C# sets: a record property (`TextField(..., Width: 320)`) or a modifier (`.Width(320)`).
+struct DevToolsReactorOwnedProperty
+{
+    std::wstring property, name, value;
+    bool modifier = false;
+    bool redacted = false;
+    bool operator==(const DevToolsReactorOwnedProperty& o) const
+    {
+        return property == o.property && name == o.name && value == o.value && modifier == o.modifier && redacted == o.redacted;
+    }
+};
+
+// What the selected element's own C# says about its properties (Reactor.element), so the property pane can say where a
+// value comes from the way `winapp devtools get-property` does. Empty for a control no Reactor element created.
+struct DevToolsReactorElementFacts
+{
+    std::wstring element;                       // the Reactor element kind: Button, TextField ...
+    std::wstring site;                          // the call site: `App.cs:23`
+    std::wstring renderedBy;                    // the component whose re-render reapplies the C# values
+    std::vector<DevToolsReactorOwnedProperty> owned;
+    std::vector<std::pair<std::wstring, std::wstring>> themes; // property, resource key (ThemeRef)
+    bool operator==(const DevToolsReactorElementFacts& o) const
+    {
+        return element == o.element && site == o.site && renderedBy == o.renderedBy && owned == o.owned && themes == o.themes;
+    }
+
+    bool Empty() const { return owned.empty() && themes.empty(); }
+
+    // The same properties set the same way, whatever their current values: what decides how the pane's rows read.
+    bool SameShape(const DevToolsReactorElementFacts& o) const
+    {
+        if (element != o.element || site != o.site || renderedBy != o.renderedBy || themes != o.themes ||
+            owned.size() != o.owned.size())
+            return false;
+        for (size_t i = 0; i < owned.size(); ++i) {
+            const auto& a = owned[i];
+            const auto& b = o.owned[i];
+            if (a.property != b.property || a.name != b.name || a.modifier != b.modifier || a.redacted != b.redacted) return false;
+        }
+        return true;
+    }
+
+    const DevToolsReactorOwnedProperty* OwnerOf(const std::wstring& property) const
+    {
+        for (const auto& o : owned)
+            if (_wcsicmp(o.property.c_str(), property.c_str()) == 0) return &o;
+        return nullptr;
+    }
+
+    std::wstring ThemeOf(const std::wstring& property) const
+    {
+        for (const auto& [p, key] : themes)
+            if (_wcsicmp(p.c_str(), property.c_str()) == 0) return key;
+        return {};
+    }
+
+    // The DERIVED FROM line: `ThemeRef TextFillColorSecondaryBrush  ·  App.cs:40`, `.Width(320)  ·  App.cs:23`.
+    std::wstring Origin(const std::wstring& property) const
+    {
+        std::wstring body;
+        if (const std::wstring key = ThemeOf(property); !key.empty()) {
+            body = L"ThemeRef " + key;
+        } else if (const auto* o = OwnerOf(property)) {
+            const std::wstring value = o->redacted ? std::wstring(L"<redacted>") : o->value;
+            body = o->modifier ? L"." + o->name + L"(" + value + L")"
+                               : (element.empty() ? std::wstring() : element + L" ") + o->name + L" = " + value;
+        } else {
+            return {};
+        }
+        return site.empty() ? body : body + L"  \u00B7  " + site;
+    }
+
+    // The one line an edit of a C#-set property is followed by; the CLI's set-property prints the same.
+    std::wstring OwnedWarning(const std::wstring& property) const
+    {
+        if (!OwnerOf(property)) return {};
+        return property + L" is set in C#" + (site.empty() ? std::wstring() : L" (" + site + L")") +
+            L"; Reactor reapplies its C# value when " + (renderedBy.empty() ? std::wstring(L"its component") : L"<" + renderedBy + L">") +
+            L" re-renders with a changed value.";
+    }
+};
+
+inline DevToolsReactorElementFacts DevToolsReactorElementFacts_Parse(const std::wstring& elementJson)
+{
+    DevToolsReactorElementFacts facts;
+    DevToolsJson e;
+    if (!DevToolsJsonParse(elementJson, e) || !e.IsObject() || e.GetString(L"state") != L"ok" || !e.GetBool(L"tagged", false))
+        return facts;
+    facts.element = e.GetString(L"element");
+    const std::wstring file = e.GetString(L"fileOnDisk", e.GetString(L"file"));
+    if (!file.empty()) facts.site = DevToolsComponentLeaf(file, e.GetInt(L"line", 0));
+    facts.renderedBy = e.GetString(L"owner");
+    if (facts.renderedBy.empty())
+        if (const DevToolsJson* component = e.Find(L"component"); component && component->IsObject())
+            facts.renderedBy = component->GetString(L"name");
+    auto read = [&](const wchar_t* member, const wchar_t* nameField, bool modifier) {
+        const DevToolsJson* items = e.Find(member);
+        if (!items || items->type != DevToolsJsonType::Array) return;
+        for (const auto& item : items->arr) {
+            if (!item.IsObject() || item.GetString(L"property").empty()) continue;
+            DevToolsReactorOwnedProperty owned;
+            owned.property = item.GetString(L"property");
+            owned.name = item.GetString(nameField, owned.property);
+            owned.value = item.GetString(L"value");
+            owned.modifier = modifier;
+            owned.redacted = item.GetBool(L"redacted", false);
+            facts.owned.push_back(std::move(owned));
+        }
+    };
+    read(L"props", L"name", false);
+    read(L"modifiers", L"modifier", true);
+    if (const DevToolsJson* bindings = e.Find(L"themeBindings"); bindings && bindings->type == DevToolsJsonType::Array) {
+        for (const auto& b : bindings->arr) {
+            if (!b.IsObject() || b.GetString(L"property").empty() || b.GetString(L"resourceKey").empty()) continue;
+            facts.themes.emplace_back(b.GetString(L"property"), b.GetString(L"resourceKey"));
+        }
+    }
+    return facts;
 }
 
 // Reads Reactor.component (and, for handlers, Reactor.element) answers into what the section shows.
@@ -255,8 +376,11 @@ class DevToolsComponentSection
 public:
     using AskFn = std::function<bool(unsigned long long raw, const std::wstring& op, const std::wstring& arg,
                                      const std::wstring& value, std::wstring* out)>;
+    // Called on the UI thread with what the element's own C# sets, each time the section reads the element.
+    using ElementFn = std::function<void(unsigned long long raw, const DevToolsReactorElementFacts& facts)>;
 
-    void Begin(DevToolsXC::Panel body, unsigned long long raw, bool readOnly, DevToolsComponentColors colors, AskFn ask)
+    void Begin(DevToolsXC::Panel body, unsigned long long raw, bool readOnly, DevToolsComponentColors colors, AskFn ask,
+               ElementFn onElement = {})
     {
         Clear();
         if (!body || !raw || !ask) return;
@@ -266,8 +390,12 @@ public:
         s->readOnly = readOnly;
         s->colors = std::move(colors);
         s->ask = std::move(ask);
+        s->onElement = std::move(onElement);
+        s->shown = shown_;
         s->queue = DevToolsD::DispatcherQueue::GetForCurrentThread();
         state_ = s;
+        // The pane is rebuilt for the same element (an edit, a re-read): show what it showed while it asks again.
+        if (shown_->raw == raw && shown_->view) Show(s, *shown_->view, {});
         Fetch(s, {});
     }
 
@@ -278,6 +406,11 @@ public:
     }
 
 private:
+    struct Shown
+    {
+        unsigned long long raw = 0;
+        std::shared_ptr<const DevToolsComponentView> view;
+    };
     struct State
     {
         DevToolsXC::Panel body{ nullptr };
@@ -285,11 +418,14 @@ private:
         bool readOnly = true;
         DevToolsComponentColors colors;
         AskFn ask;
+        ElementFn onElement;
+        std::shared_ptr<Shown> shown;
         DevToolsD::DispatcherQueue queue{ nullptr };
         std::atomic<bool> live{ true };
         std::atomic<bool> busy{ false };
     };
     std::shared_ptr<State> state_;
+    std::shared_ptr<Shown> shown_ = std::make_shared<Shown>();
 
     // Ask for the component (after an optional write) on a worker, then show it on the UI thread.
     static void Fetch(const std::shared_ptr<State>& s, std::function<std::wstring(State&)> write)
@@ -301,11 +437,17 @@ private:
             std::wstring component, element;
             s->ask(s->raw, L"reactorcomponent", L"", L"", &component);
             s->ask(s->raw, L"reactorelement", L"", L"", &element);
-            const auto view = std::make_shared<DevToolsComponentView>(DevToolsComponentPanel_Parse(component, element));
+            const auto view = std::make_shared<const DevToolsComponentView>(DevToolsComponentPanel_Parse(component, element));
+            const auto facts = std::make_shared<const DevToolsReactorElementFacts>(DevToolsReactorElementFacts_Parse(element));
             if (!s->queue || !s->live) { s->busy = false; return; }
-            s->queue.TryEnqueue([s, view, problem]() {
+            s->queue.TryEnqueue([s, view, facts, problem]() {
                 s->busy = false;
-                if (s->live) Show(s, *view, problem);
+                if (!s->live) return;
+                s->shown->raw = s->raw;
+                s->shown->view = view;
+                Show(s, *view, problem);
+                // Last: the callback may rebuild the pane, which replaces this section.
+                if (s->onElement) s->onElement(s->raw, *facts);
             });
         }).detach();
     }

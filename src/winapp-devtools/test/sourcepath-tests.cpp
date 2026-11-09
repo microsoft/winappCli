@@ -169,6 +169,20 @@ int RunSourcePathTests()
             Check(DevToolsSourcePath_MapCompiled(L"Panels/../../Shared/Badge.cs", app, L"", &mapped) &&
                       mapped == shared + L"\\Badge.cs",
                   "a ../ path is normalized");
+            std::wstring commentFile;
+            Check(DevToolsSourcePath_ResolveProjectFile(app, L"Panels\\Footer.cs", &commentFile) &&
+                      commentFile == appPanels + L"\\Footer.cs",
+                  "a comment's project-relative C# file resolves under the source root only, not a referenced project");
+            Check(DevToolsSourcePath_ResolveProjectFile(app, L"..\\Shared\\Badge.cs", &commentFile) &&
+                      commentFile == shared + L"\\Badge.cs",
+                  "a comment's C# file elsewhere in the repository resolves");
+            Check(!DevToolsSourcePath_ResolveProjectFile(app, L"..\\..\\..\\..\\outside\\App.cs", &commentFile) &&
+                      commentFile.empty(),
+                  "a comment's C# file that climbs out of the repository is refused");
+            Check(!DevToolsSourcePath_ResolveProjectFile(app, app + L"\\Panels\\Footer.cs", &commentFile) &&
+                      !DevToolsSourcePath_ResolveProjectFile(L"", L"Panels\\Footer.cs", &commentFile) &&
+                      !DevToolsSourcePath_ResolveProjectFile(app, L"Panels\\Missing.cs", &commentFile),
+                  "a rooted, rootless or missing comment file does not resolve");
             DeleteFileW((appPanels + L"\\Footer.cs").c_str());
             DeleteFileW((libPanels + L"\\Footer.cs").c_str());
             DeleteFileW((shared + L"\\Badge.cs").c_str());

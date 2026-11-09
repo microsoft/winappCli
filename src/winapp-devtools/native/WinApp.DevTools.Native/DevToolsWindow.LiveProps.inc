@@ -199,7 +199,7 @@ static void CheckEditRecordsNow(InstanceHandle wire)
         if (!g_ctx.rowsFn) return;
         std::wstring type, name, authoredState, authoredXaml;
         std::vector<DevToolsCardRow> rows;
-        g_ctx.rowsFn(wire, type, name, rows, authoredState, authoredXaml);
+        ReadPaneRows(wire, type, name, rows, authoredState, authoredXaml);
         if (!rows.empty()) ReconcileEditRecords(wire, rows);
         return;
     }

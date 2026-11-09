@@ -255,7 +255,9 @@ internal static class CommentSelectionCapture
             {
                 Handle = handle,
                 Type = ShortType(node.Type),
-                Name = Nullify(node.Name),
+                // A Reactor element has no x:Name; its C# variable plays that part, but only for the element itself,
+                // not for a control inside it that borrowed the nearest Reactor element's call site.
+                Name = Nullify(node.Name) ?? (source.Exact ? Nullify(source.Name) : null),
                 Content = content,
                 SourceFile = anchor?.SourceFile,
                 UnanchoredReason = anchor is not null ? null
@@ -580,7 +582,7 @@ internal static class CommentSelectionCapture
 
 /// <summary>The C# part of a <c>Source.get</c> answer for an element a Reactor element produced.</summary>
 internal sealed record ReactorSourceReply(string FileName, int Line, int Column, bool OnDisk, string? Element, string? Key,
-    string? Component, int Ordinal, bool Exact)
+    string? Component, int Ordinal, bool Exact, string? Name = null)
 {
     /// <summary>The reply when <paramref name="sourceJson"/> is a C# answer (<c>kind: csharp</c>); null for XAML.</summary>
     public static ReactorSourceReply? Parse(string? sourceJson)
@@ -602,7 +604,7 @@ internal sealed record ReactorSourceReply(string FileName, int Line, int Column,
         }
         var column = root.TryGetProperty("columnNumber", out var c) && c.TryGetInt32(out var col) ? col : 0;
         var onDisk = root.TryGetProperty("onDisk", out var disk) && disk.ValueKind == JsonValueKind.True;
-        string? element = null, key = null, component = null;
+        string? element = null, key = null, component = null, name = null;
         var ordinal = 0;
         var exact = true;
         if (root.TryGetProperty("reactor", out var reactor) && reactor.ValueKind == JsonValueKind.Object)
@@ -610,9 +612,10 @@ internal sealed record ReactorSourceReply(string FileName, int Line, int Column,
             element = ReactorDescription.ReadString(reactor, "element");
             key = ReactorDescription.ReadString(reactor, "key");
             component = ReactorDescription.ReadString(reactor, "component");
+            name = ReactorDescription.ReadString(reactor, "name");
             ordinal = reactor.TryGetProperty("ordinal", out var o) && o.TryGetInt32(out var value) && value >= 0 ? value : 0;
             exact = !(reactor.TryGetProperty("exact", out var e) && e.ValueKind == JsonValueKind.False);
         }
-        return new(file, lineNumber, column, onDisk, element, key, component, ordinal, exact);
+        return new(file, lineNumber, column, onDisk, element, key, component, ordinal, exact, name);
     }
 }

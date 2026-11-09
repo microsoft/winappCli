@@ -616,8 +616,8 @@ static void TestToolbarContract()
                      window.find("AutomationProperties.Name=\\\"Copy path for: \" + subject") != std::string::npos,
                  "every always-on action names the comment it acts on, so N rows are not N identical names");
     // Always-VISIBLE is not always-PRESENT (part 3): the SET of actions is still the association answer.
-    Check(window.find("if (g_xamlHandlerPresent) {") != std::string::npos,
-                 "which actions exist still depends on whether anything opens .xaml");
+    Check(window.find("if (csharp ? g_csHandlerPresent : g_xamlHandlerPresent) {") != std::string::npos,
+                 "which actions exist still depends on whether anything opens the file's type (.xaml, or .cs for a C# comment)");
     // One writer updates total-versus-placed text without reparsing the list.
     Check(window.find("return DevToolsCommentText::OffscreenNote(offscreen);") != std::string::npos &&
                      window.find("static std::wstring CommentsOffscreenNote(size_t offscreen)") != std::string::npos,

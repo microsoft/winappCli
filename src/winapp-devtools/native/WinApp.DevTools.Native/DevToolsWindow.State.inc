@@ -207,6 +207,10 @@ static DevToolsWindowPendingReferencesFn g_pendingReferencesFn;
 // The selected element's References section markup, read before the pane is built.
 static std::wstring g_selReferencesMarkup;
 static DevToolsComponentSection   g_reactorSection;
+// What the selected Reactor element's own C# sets (ThemeRefs, record properties, modifiers), from the section's last
+// answer. It arrives after the pane is built, so the pane is built once more when it changes.
+static InstanceHandle              g_reactorFactsWire = 0;
+static DevToolsReactorElementFacts g_reactorFacts;
 
 // The element whose per-selection pane state (pending writes, lost links, staged kinds) is current.
 static InstanceHandle g_dirtyNode = 0;
