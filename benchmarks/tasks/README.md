@@ -21,7 +21,10 @@ which skills load and what does the agent *say*. This benchmark reuses its event
 These are the three arms, and the default for `-Configuration`; they match the arms in
 [`benchmarks\apps`](../apps/README.md#setups). `barebones` removes only the agent's access: setup and the
 checker still run `winapp`, and the Sandbox's `C:\Program Files\WinAppCli` folder still exists, as
-in `apps`.
+in `apps`. Every configuration that keeps `winapp` on `PATH` adds the same line to the prompt, as in
+`apps`, so `cli-only` and `cli-plus-skills` differ only by the skills: "The winapp CLI (`winapp`) is
+installed and on PATH. It creates, builds, runs, packages, signs and UI-tests Windows apps; run
+`winapp --help` to see its commands."
 
 Debugging configurations, not part of the three arms (all keep `winapp` on `PATH`; request them
 with `-Configuration`):
@@ -163,7 +166,7 @@ installs, signs, builds, or drives something, so it can't be completed by explai
 
 Admin steps are pre-approved in every prompt except `ask-first` tasks, so don't design a task around an approval prompt.
 
-Results from before the approval line was added used different prompts, so they are not comparable with newer ones. Compare only runs made with the same approval wording.
+Results from before the approval line or the `winapp` line was added used different prompts, so they are not comparable with newer ones. Compare only runs made with the same prompt wording.
 
 ### Statuses
 

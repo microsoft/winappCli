@@ -1,4 +1,5 @@
 {
   "description": "The winapp CLI on PATH, but no plugins and no custom agent. Compare with barebones to see what the CLI adds, and with cli-plus-skills to see what the skills add on top.",
+  "prompt_addendum": "The winapp CLI (`winapp`) is installed and on PATH. It creates, builds, runs, packages, signs and UI-tests Windows apps; run `winapp --help` to see its commands.",
   "framework_hint": "WinUI 3"
 }

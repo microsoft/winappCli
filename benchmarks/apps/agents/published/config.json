@@ -1,5 +1,6 @@
 {
   "description": "Both plugins exactly as the published marketplace catalog (microsoft/win-dev-skills .github/plugin/marketplace.json) pins them: what users get today.",
+  "prompt_addendum": "The winapp CLI (`winapp`) is installed and on PATH. It creates, builds, runs, packages, signs and UI-tests Windows apps; run `winapp --help` to see its commands.",
   "from_repo": {
     "repo": "microsoft/win-dev-skills",
     "default_ref": "main",

@@ -374,3 +374,19 @@ Describe 'Admin approval' {
         ($defs | Where-Object Id -eq 'startup-task').AskFirst | Should -BeFalse
     }
 }
+
+Describe 'Get-TaskPrompt' {
+    It 'tells every configuration with winapp on PATH about it, and barebones nothing' {
+        $task = [pscustomobject]@{ Prompt = 'Do it.'; AskFirst = $false }
+        $bare = Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'barebones')
+        $bare | Should -Be "Do it. $(Get-AdminApprovalLine)"
+        $bare | Should -Not -Match 'winapp'
+        $cli = Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'cli-only')
+        $cli | Should -Be "Do it. $(Get-WinappCliNote) $(Get-AdminApprovalLine)"
+        Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'cli-plus-skills') | Should -Be $cli
+    }
+    It 'leaves out the admin approval for ask-first tasks' {
+        $task = [pscustomobject]@{ Prompt = 'Do it.'; AskFirst = $true }
+        Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'cli-only') | Should -Be "Do it. $(Get-WinappCliNote)"
+    }
+}

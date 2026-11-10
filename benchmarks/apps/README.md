@@ -32,8 +32,11 @@ clones it, and pins every ref to one commit for the whole run. In the dashboard,
 any to compare. For another branch, a tag or a SHA, use headless runs
 (`--agent cli-plus-skills@my-branch`).
 
-Only `barebones` hides `winapp`. The harness itself always uses `winapp` to launch and check the app,
-for every setup.
+Only `barebones` hides `winapp`. Every other setup adds one line to the prompt so the agent knows the
+CLI is there: "The winapp CLI (`winapp`) is installed and on PATH. It creates, builds, runs,
+packages, signs and UI-tests Windows apps; run `winapp --help` to see its commands." (`prompt_addendum`
+in the setup's `config.json`). With it, `cli-only` and `cli-plus-skills` differ only by the skills.
+The harness itself always uses `winapp` to launch and check the app, for every setup.
 
 All setups load plugins the way a marketplace install does (SDK `pluginDirectories`, default
 agent). Before the prompt is sent, each trial checks that every plugin skill is loaded from the
