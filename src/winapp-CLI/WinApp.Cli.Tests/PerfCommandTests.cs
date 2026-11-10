@@ -133,6 +133,8 @@ public class PerfCommandTests : BaseCommandTests
     [DataRow("perf analyze missing --view frames --min-frame-ms 10 --json")]
     [DataRow("perf analyze missing --view hotspots --min-frame-ms -1 --json")]
     [DataRow("perf analyze missing --view events --family layout --json")]
+    [DataRow("perf analyze missing --view components --sort duration --json")]
+    [DataRow("perf analyze missing --view components --min-frame-ms 5 --json")]
     [DataRow("perf --json")]
     public async Task InvalidPerfInvocationsEmitOnlyStructuredErrors(string command)
     {
@@ -204,8 +206,8 @@ public class PerfCommandTests : BaseCommandTests
                 Assert.IsFalse(summary.RootElement.GetProperty("coverage").TryGetProperty("incompleteCalls", out _));
             }
             var analysis = PerfAnalysisStore.Open(directory.FullName, CancellationToken.None);
-            Assert.AreEqual(1, analysis.Manifest.DecoderVersion);
-            Assert.AreEqual(1, analysis.Manifest.AnalyzerVersion);
+            Assert.AreEqual(2, analysis.Manifest.DecoderVersion);
+            Assert.AreEqual(2, analysis.Manifest.AnalyzerVersion);
             Assert.AreEqual(1, analysis.Manifest.Calls);
             Assert.AreEqual(1, analysis.Manifest.DecodeErrors, "The diagnostic decoding failure must remain recorded.");
             Assert.IsEmpty(analysis.Manifest.IncompleteReasons);
@@ -233,6 +235,97 @@ public class PerfCommandTests : BaseCommandTests
             Assert.AreEqual(1, events.RootElement.GetProperty("rows").GetArrayLength());
             StringAssert.Contains(events.RootElement.GetProperty("rows")[0].GetProperty("event")
                 .GetProperty("decodeError").GetString()!, "Unsupported structured");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ReactorSpansFromAPrivateSessionAreCategorizedRankedByComponentAndShownAsHotspots()
+    {
+        var directory = Directory.CreateTempSubdirectory("WinApp-Perf-Reactor-");
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            using var reactor = new ReactorTraceLoggingWriter();
+            var provider = PerfProviders.All.Single(p => p.Id == PerfProviders.Reactor);
+            var id = Guid.NewGuid().ToString("N");
+            var capture = new PerfCaptureDocument
+            {
+                Id = id, Directory = directory.FullName, SessionName = "WinApp-Perf-" + id,
+                SessionId = Guid.NewGuid(), Target = PerfProcessIdentity.Read(process), Providers = [provider],
+            };
+            using (var trace = new PrivateEtwSession(capture.SessionName, capture.SessionId, process.Id,
+                Path.Join(directory.FullName, "trace.etl"), 16))
+            {
+                capture.ProviderStates.Add(PerfCaptureWorker.EnableProvider(trace, provider));
+                capture.ReadyQpc = Stopwatch.GetTimestamp();
+                reactor.RenderPassStart(1);
+                reactor.ComponentRenderStart(1, "App", "state");
+                reactor.ReconcileStart("reconcile", "StackElement");
+                reactor.ComponentRenderStart(2, "SlowPanel", "parent");
+                // Verbose keywords are off by default, so these must not reach the ETL.
+                reactor.ChildReconcileStart(3, 3);
+                reactor.KeyedListDiagnostic("duplicateKey", true);
+                Thread.Sleep(25);
+                reactor.ComponentRenderStop(2);
+                reactor.ReconcileStop();
+                reactor.ComponentRenderStop(1);
+                reactor.EffectsStart(1);
+                reactor.EffectsStop(1);
+                reactor.RenderPassStop(1);
+                trace.Stop();
+                capture.StopQpc = Stopwatch.GetTimestamp();
+                capture.EventsLost = trace.EventsLost;
+                capture.BuffersLost = trace.BuffersLost;
+            }
+            capture.TraceFiles = directory.GetFiles("trace.etl*").Select(f => f.Name).ToArray();
+            capture.State = "completed";
+            capture.Save();
+
+            Assert.AreEqual("enabled", capture.ProviderStates.Single().State);
+            var (stdout, stderr, code) = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--view", "components", "--json"]);
+            Assert.AreEqual(0, code, stderr);
+            using (var components = JsonDocument.Parse(stdout))
+            {
+                var rows = components.RootElement.GetProperty("rows");
+                Assert.AreEqual("SlowPanel", rows[0].GetProperty("name").GetString());
+                Assert.AreEqual(1, rows[0].GetProperty("count").GetInt32());
+                Assert.AreEqual(1, rows[0].GetProperty("reasons").GetProperty("parent").GetInt32());
+                Assert.IsGreaterThanOrEqualTo(20d, rows[0].GetProperty("exclusiveMs").GetDouble());
+                Assert.AreEqual("App", rows[1].GetProperty("name").GetString());
+                Assert.IsGreaterThan(rows[0].GetProperty("inclusiveMs").GetDouble(), rows[1].GetProperty("inclusiveMs").GetDouble());
+                Assert.AreEqual(1, components.RootElement.GetProperty("reactorPasses").GetProperty("count").GetInt32());
+            }
+
+            (stdout, stderr, code) = await InvokeProgramAsync(["perf", "analyze", directory.FullName, "--json"]);
+            Assert.AreEqual(0, code, stderr);
+            using (var summary = JsonDocument.Parse(stdout))
+            {
+                var activity = summary.RootElement.GetProperty("activity").EnumerateArray()
+                    .ToDictionary(row => row.GetProperty("category").GetString()!, row => row.GetProperty("observedMs").GetDouble());
+                Assert.IsGreaterThanOrEqualTo(20d, activity["Reactor"]);
+            }
+
+            (stdout, stderr, code) = await InvokeProgramAsync(["perf", "analyze", directory.FullName, "--view", "hotspots", "--json"]);
+            Assert.AreEqual(0, code, stderr);
+            using (var hotspots = JsonDocument.Parse(stdout))
+            {
+                var row = hotspots.RootElement.GetProperty("rows").EnumerateArray().Single();
+                Assert.AreEqual("ReactorRenderPass", row.GetProperty("name").GetString());
+                Assert.AreEqual("ReactorRender:SlowPanel",
+                    row.GetProperty("dominantOperations")[0].GetProperty("name").GetString());
+            }
+
+            var analysis = PerfAnalysisStore.Open(directory.FullName, CancellationToken.None);
+            Assert.AreEqual(0, analysis.Manifest.DecodeErrors);
+            var names = PerfAnalysisStore.Read(analysis, "events.ndjson", PerfJsonContext.Default.PerfEvent)
+                .Select(e => e.Name).ToArray();
+            Assert.AreEqual(10, names.Length, string.Join(", ", names));
+            Assert.IsFalse(names.Any(name => name is "ReactorChildReconcile" or "ReactorKeyedListDiagnostic"));
         }
         finally
         {

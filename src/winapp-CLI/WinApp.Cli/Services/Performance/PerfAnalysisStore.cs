@@ -13,8 +13,8 @@ internal sealed class PerfAnalysisManifest
 {
     public int SchemaVersion { get; set; } = 1;
     public string ToolVersion { get; set; } = VersionHelper.GetVersionString();
-    public int DecoderVersion { get; set; } = 1;
-    public int AnalyzerVersion { get; set; } = 1;
+    public int DecoderVersion { get; set; } = 2;
+    public int AnalyzerVersion { get; set; } = 2;
     public required string Fingerprint { get; set; }
     public long TargetRecords { get; set; }
     public int Events { get; set; }
@@ -61,7 +61,7 @@ internal static class PerfAnalysisStore
             CheckRegularFile(manifestPath, 262144);
             var existing = JsonSerializer.Deserialize(File.ReadAllText(manifestPath), PerfJsonContext.Default.PerfAnalysisManifest)
                 ?? throw new InvalidDataException("The analysis cache manifest is empty.");
-            if (existing.SchemaVersion == 1 && existing.DecoderVersion == 1 && existing.AnalyzerVersion == 1 &&
+            if (existing.SchemaVersion == 1 && existing.DecoderVersion == 2 && existing.AnalyzerVersion == 2 &&
                 existing.Fingerprint == fingerprint)
             {
                 foreach (var file in CacheFiles)
@@ -140,6 +140,8 @@ internal static class PerfAnalysisStore
                         }
                         var e = raw.Provider == PerfProviders.Clr
                             ? ClrGcEventDecoder.Decode(raw, "v" + manifest.TargetRecords, capture.ReadyQpc!.Value, capture.Frequency)
+                            : raw.Provider == PerfProviders.Reactor
+                            ? ReactorEventDecoder.Decode(raw, "v" + manifest.TargetRecords, capture.ReadyQpc!.Value, capture.Frequency)
                             : WinUiEventDecoder.Decode(raw, "v" + manifest.TargetRecords, capture.ReadyQpc!.Value, capture.Frequency);
                         if (e is null)
                         {
@@ -298,7 +300,7 @@ internal static class PerfAnalysisStore
     private static string Fingerprint(PerfCaptureDocument capture, CancellationToken token)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        hash.AppendData(Encoding.UTF8.GetBytes("decoder:1;analyzer:1;" + VersionHelper.GetVersionString()));
+        hash.AppendData(Encoding.UTF8.GetBytes("decoder:2;analyzer:2;" + VersionHelper.GetVersionString()));
         hash.AppendData(JsonSerializer.SerializeToUtf8Bytes(capture, PerfJsonContext.Default.PerfCaptureDocument));
         long total = 0;
         foreach (var file in capture.TraceFiles)

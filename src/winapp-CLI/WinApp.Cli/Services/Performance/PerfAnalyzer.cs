@@ -11,6 +11,9 @@ internal sealed class PerfElement
     public string? Name { get; set; }
     public string? Source { get; set; }
     public string? Line { get; set; }
+    /// <summary>The Reactor component whose render span was innermost when WinUI created this element.</summary>
+    public string? Component { get; set; }
+    public string? ComponentId { get; set; }
     public double FirstObservedMs { get; set; }
     public double? DestroyedMs { get; set; }
     public bool CreationObserved { get; set; }
@@ -62,6 +65,10 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
         var element = ResolveElement(e);
         if (e.Phase == "info")
         {
+            if (e.Name == "Created" && element is not null && stacks.TryGetValue(e.Thread, out var open))
+            {
+                AttributeToComponent(element, open);
+            }
             return element?.Id;
         }
         if (!stacks.TryGetValue(e.Thread, out var stack))
@@ -83,7 +90,7 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
         }
         else if (e.Phase == "end")
         {
-            var match = stack.FindLastIndex(s => s.Begin.Provider == e.Provider && s.Begin.Name == e.Name &&
+            var match = stack.FindLastIndex(s => s.Begin.Provider == e.Provider && Pairs(s.Begin, e) &&
                 (e.ObjectId is null || s.Begin.ObjectId == e.ObjectId) &&
                 (e.Activity == Guid.Empty || s.Begin.Activity == e.Activity));
             if (match < 0)
@@ -111,7 +118,7 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
                 var duration = e.TimeMs - scope.Begin.TimeMs;
                 double? self = !scope.IncompleteChildren && IsElementOperation(scope.Begin.Name)
                     ? Math.Max(0, duration - Union(scope.Children)) : null;
-                Publish(scope, new(scope.Id, e.Name, e.Family, e.Thread, scope.Element, scope.Parent,
+                Publish(scope, new(scope.Id, scope.Begin.Name, e.Family, e.Thread, scope.Element, scope.Parent,
                     scope.Begin.Id, e.Id, scope.Begin.TimeMs, e.TimeMs, duration, self, "complete",
                     scope.IncompleteChildren ? null : Math.Max(0, duration - Union(scope.DirectChildren))));
                 if (stack.LastOrDefault() is { } parent)
@@ -144,6 +151,35 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
             }
         }
         stacks.Clear();
+    }
+
+    /// <summary>
+    /// Begin and end normally share a name. A Reactor component render begins as <c>ReactorRender:&lt;name&gt;</c>
+    /// but its Stop carries only the component ID, so it pairs by prefix and ID.
+    /// </summary>
+    private static bool Pairs(PerfEvent begin, PerfEvent end)
+    {
+        if (begin.Name == end.Name)
+        {
+            return true;
+        }
+        return end.Family == ReactorEventDecoder.Family && begin.Family == ReactorEventDecoder.Family &&
+            end.Name == ReactorEventDecoder.Render && ReactorEventDecoder.ComponentName(begin.Name) is not null &&
+            begin.Fields.GetValueOrDefault("componentId") == end.Fields.GetValueOrDefault("componentId");
+    }
+
+    private static void AttributeToComponent(PerfElement element, List<Scope> open)
+    {
+        for (var i = open.Count - 1; i >= 0; i--)
+        {
+            var begin = open[i].Begin;
+            if (begin.Family == ReactorEventDecoder.Family && ReactorEventDecoder.ComponentName(begin.Name) is { } component)
+            {
+                element.Component = component;
+                element.ComponentId = begin.Fields.GetValueOrDefault("componentId");
+                return;
+            }
+        }
     }
 
     private void Publish(Scope scope, PerfCall? call = null)

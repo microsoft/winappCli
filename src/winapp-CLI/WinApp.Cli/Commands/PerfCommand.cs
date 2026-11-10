@@ -79,7 +79,7 @@ internal sealed class PerfCommand : Command, IShortDescription
 
         var analyze = new Command("analyze", "Query a finalized winapp capture directory. ETL stays authoritative; derived NDJSON is cached locally. Partial evidence is returned with nonzero exit status.");
         var directory = new Argument<string>("directory") { Description = "Capture directory containing capture.json and its ETL files." };
-        var view = new Option<string>("--view") { Description = "summary, parsing, elements, element, frames, hotspots, events, calls, call, gc, or resources.", DefaultValueFactory = _ => "summary" };
+        var view = new Option<string>("--view") { Description = "summary, parsing, elements, element, frames, hotspots, events, calls, call, gc, resources, or components (Microsoft.UI.Reactor apps).", DefaultValueFactory = _ => "summary" };
         var limit = new Option<int>("--limit") { Description = "Rows per page, 1-100.", DefaultValueFactory = _ => 10 };
         var offset = new Option<int>("--offset") { Description = "Zero-based row offset.", DefaultValueFactory = _ => 0 };
         var maxBytes = new Option<int>("--max-bytes") { Description = "Whole JSON response byte budget, 4096-1048576.", DefaultValueFactory = _ => 16384 };
@@ -93,10 +93,10 @@ internal sealed class PerfCommand : Command, IShortDescription
         var thread = new Option<uint?>("--thread") { Description = "Restrict to an ETW thread ID." };
         var provider = new Option<string?>("--provider") { Description = "Provider GUID for the events view." };
         var eventFilter = new Option<string?>("--event") { Description = "Exact event name or evidence ID for the events view." };
-        var sort = new Option<string>("--sort") { Description = "Ranking: self, inclusive, or count for summary/elements; duration for gc.", DefaultValueFactory = _ => "self" };
+        var sort = new Option<string>("--sort") { Description = "Ranking: self, inclusive, or count for summary/elements/components; duration for gc.", DefaultValueFactory = _ => "self" };
         var depth = new Option<int?>("--depth") { Description = "Expansion depth, 0-4. Defaults: call 2, element 0. Call trees show instrumented operations, not CPU stacks." };
         var family = new Option<string?>("--family") { Description = "Exact operation family for --view calls, for example layout, frames, composition, input, or initialization." };
-        var minFrameMs = new Option<double?>("--min-frame-ms") { Description = "Minimum complete Frame duration for --view hotspots. Default: 16.67 ms." };
+        var minFrameMs = new Option<double?>("--min-frame-ms") { Description = "Minimum complete Frame or Reactor render-pass duration for --view hotspots. Default: 16.67 ms." };
         analyze.Arguments.Add(directory);
         foreach (var option in new Option[] { view, limit, offset, maxBytes, from, to, fromMarker, toMarker,
             elementId, type, elementFilter, thread, provider, eventFilter, sort, depth, family, minFrameMs })
@@ -113,10 +113,10 @@ internal sealed class PerfCommand : Command, IShortDescription
                 parse.GetValue(depth), parse.GetValue(family), parse.GetValue(minFrameMs));
             PerfQuery.Validate(options);
             if (parse.GetResult(sort) is { Implicit: false } &&
-                !(options.View is "summary" or "elements" or "element" && options.Sort is "self" or "inclusive" or "count") &&
+                !(options.View is "summary" or "elements" or "element" or "components" && options.Sort is "self" or "inclusive" or "count") &&
                 !(options.View == "gc" && options.Sort == "duration"))
             {
-                throw new ArgumentException("--sort accepts self/inclusive/count for summary and element rankings, or duration for GC. Calls, frames, and hotspots are longest-first; events and unsorted GC intervals are chronological.");
+                throw new ArgumentException("--sort accepts self/inclusive/count for summary, element, and component rankings, or duration for GC. Calls, frames, and hotspots are longest-first; events and unsorted GC intervals are chronological.");
             }
             var result = options.View == "resources"
                 ? PerfQuery.ExecuteResources(PerfCaptureDocument.Load(parse.GetRequiredValue(directory)), options)
@@ -166,10 +166,26 @@ internal sealed class PerfCommand : Command, IShortDescription
                     }
                     WriteSection(console, "Detailed summary");
                 }
+                if (result.ReactorPasses is { } passes)
+                {
+                    WriteSection(console, "Reactor render passes");
+                    console.WriteLine($"{passes.Count} passes, {passes.TotalMs:F3} ms total; mean={Timing(passes.MeanMs)}; max={Timing(passes.MaxMs)}; p95={Timing(passes.P95Ms)} ms");
+                    if (passes.LongestPassIds.Length > 0)
+                    {
+                        console.WriteLine("Longest passes: " + string.Join(", ", passes.LongestPassIds) + " (expand with --view call --id <id>)");
+                    }
+                    if (passes.OutsidePassReconciles > 0)
+                    {
+                        console.WriteLine($"Rows reconciled outside a pass (for example, virtualized list realization): {passes.OutsidePassReconciles}, {passes.OutsidePassReconcileMs:F3} ms");
+                    }
+                    WriteSection(console, "Components");
+                }
                 var columnHeaders = result.View == "resources"
                     ? $"{"Time ms",10} {"User CPU ms",12} {"Kernel CPU ms",14} {"Private MiB",12} {"Working MiB",12} {"Threads",8} {"Handles",8}"
                     : result.View == "parsing"
                     ? $"{"Resource",-42} {"Observed ms",11} {"Count",7}"
+                    : result.View == "components"
+                    ? $"{"Component",-42} {"Inclusive",9} {"Exclusive",10} {"Renders",9}"
                     : $"{"Operation / element",-42} {"Elapsed ms",9} {"Exclusive",10} {"Elem self",9}";
                 console.MarkupLineInterpolated($"[grey]{columnHeaders}[/]");
                 foreach (var row in result.Rows)
@@ -182,6 +198,24 @@ internal sealed class PerfCommand : Command, IShortDescription
                     if (result.View == "parsing")
                     {
                         console.WriteLine($"{ResourceLabel(row.Name ?? row.Id, 42),-42} {row.InclusiveMs,11:F3} {row.Count,7}");
+                        continue;
+                    }
+                    if (row.Kind == "component")
+                    {
+                        console.WriteLine($"{ResourceLabel(row.Name ?? row.Id, 42),-42} {Timing(row.InclusiveMs),9} {Timing(row.ExclusiveMs),10} {row.Count,9}");
+                        console.WriteLine($"  mean={Timing(row.MeanMs)}; max={Timing(row.MaxMs)}; p95={Timing(row.P95Ms)} ms; instances={row.Instances}; elements created={row.CreatedElements}");
+                        if (row.Reasons is { Count: > 0 } reasons)
+                        {
+                            console.WriteLine("  reasons: " + string.Join(", ", reasons.Select(reason => $"{reason.Key} {reason.Value}")));
+                        }
+                        if (row.BoundaryOverlaps is > 0)
+                        {
+                            console.WriteLine($"  boundary overlaps={row.BoundaryOverlaps}; clipped overlap={Timing(row.ClippedOverlapMs)} ms");
+                        }
+                        if (row.Evidence.Length > 0)
+                        {
+                            console.WriteLine("  evidence: " + string.Join(", ", row.Evidence));
+                        }
                         continue;
                     }
                     var indent = new string(' ', (row.Depth ?? 0) * 2);
@@ -202,7 +236,8 @@ internal sealed class PerfCommand : Command, IShortDescription
                     }
                     if (row.Element is { } element)
                     {
-                        console.WriteLine($"{indent}  {element.Id} {element.Type ?? "type not observed"} {element.Source}:{element.Line}");
+                        console.WriteLine($"{indent}  {element.Id} {element.Type ?? "type not observed"} {element.Source}:{element.Line}" +
+                            (element.Component is { } component ? $" (created by Reactor component {component})" : ""));
                     }
                     if (result.View != "summary" && row.Count is { } count)
                     {

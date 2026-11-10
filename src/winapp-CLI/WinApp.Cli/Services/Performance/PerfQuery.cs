@@ -18,6 +18,9 @@ internal sealed record PerfGcCoverage(string Availability, int RecordedEvents, i
     int IncompleteIntervals, bool Complete, string? Error = null);
 internal sealed record PerfGcOverlap(double ObservedOverlapMs, string[] IntervalIds, int OmittedIntervals);
 internal sealed record PerfActivityRow(string Category, double ObservedMs, double? RangePercent);
+/// <summary>Reactor render passes wholly inside the selected range, plus rows reconciled outside any pass.</summary>
+internal sealed record PerfReactorPassSummary(int Count, double TotalMs, double? MeanMs, double? MaxMs, double? P95Ms,
+    string[] LongestPassIds, int OutsidePassReconciles, double OutsidePassReconcileMs);
 
 internal sealed class PerfParsingResource
 {
@@ -63,6 +66,12 @@ internal sealed class PerfQueryRow
     public double? TimeMs { get; init; }
     public PerfGcOverlap? GcOverlap { get; set; }
     public List<PerfHotspotOperation>? DominantOperations { get; set; }
+    /// <summary>Components view: distinct component instances (Reactor componentId values) that rendered.</summary>
+    public int? Instances { get; init; }
+    /// <summary>Components view: render count per Reactor render reason (mount, state, props, ...).</summary>
+    public Dictionary<string, int>? Reasons { get; init; }
+    /// <summary>Components view: WinUI elements created while this component's render span was innermost.</summary>
+    public int? CreatedElements { get; init; }
     public string[] Evidence { get; set; } = [];
     public bool Projected { get; set; }
 }
@@ -86,6 +95,7 @@ internal sealed class PerfQueryResult
     public PerfProviderState? DirectCompositionProvider { get; init; }
     public uint? PrimaryUiThread { get; init; }
     public List<PerfActivityRow>? Activity { get; init; }
+    public PerfReactorPassSummary? ReactorPasses { get; set; }
     public List<PerfParsingResource>? ParsingResources { get; init; }
     public int? ParsingResourcesTotal { get; init; }
     public int? ParsingResourcesOmitted { get; set; }
@@ -154,6 +164,12 @@ internal static class PerfQuery
         {
             throw new InvalidDataException("No usable requested performance evidence was recorded. Exercise the UI while recording and retry.");
         }
+        if (options.View == "components" && !calls.Any(c => c.Family == ReactorEventDecoder.Family))
+        {
+            throw new InvalidDataException(analysis.Capture.Providers.Any(p => p.Id == PerfProviders.Reactor)
+                ? "No Reactor render spans were recorded. The components view needs a Microsoft.UI.Reactor app whose Reactor version writes Microsoft-UI-Reactor-Perf events; exercise the UI while recording."
+                : "This capture was recorded without Reactor render spans. Record it again with the current winapp.");
+        }
         var gc = PerfAnalysisStore.Read(analysis, "gc.ndjson", PerfJsonContext.Default.PerfGcInterval).ToList();
         var root = options.View == "call" ? calls.SingleOrDefault(c => c.Id == options.Id)
             ?? throw new ArgumentException("The call ID was not observed in this capture.") : null;
@@ -195,12 +211,18 @@ internal static class PerfQuery
         var gcRecorded = 0;
         var gcDecoded = 0;
         var parsingEvents = new Dictionary<string, PerfEvent>(StringComparer.Ordinal);
+        var renderEvents = new Dictionary<string, PerfEvent>(StringComparer.Ordinal);
         foreach (var e in PerfAnalysisStore.Read(analysis, "events.ndjson", PerfJsonContext.Default.PerfEvent))
         {
             if (e.Family == "parsing" && e.Phase == "begin" &&
                 (primaryUiThread is null || e.Thread == primaryUiThread))
             {
                 parsingEvents[e.Id] = e;
+            }
+            if (options.View == "components" && e.Family == ReactorEventDecoder.Family && e.Phase == "begin" &&
+                ReactorEventDecoder.ComponentName(e.Name) is not null)
+            {
+                renderEvents[e.Id] = e;
             }
             if (e.Family == "gc")
             {
@@ -251,6 +273,7 @@ internal static class PerfQuery
         var activity = options.View is "summary" or "parsing"
             ? AnalyzeActivity(calls, parsingEvents, primaryUiThread!.Value, range)
             : null;
+        PerfReactorPassSummary? passSummary = null;
         if (options.View == "gc")
         {
             if (gcRecorded == 0)
@@ -276,6 +299,10 @@ internal static class PerfQuery
         else if (options.View == "hotspots")
         {
             rows = HotspotRows(calls, elements, options, range);
+        }
+        else if (options.View == "components")
+        {
+            rows = ComponentRows(calls, renderEvents, elements.Values, options, range, out passSummary);
         }
         else if (options.View == "parsing")
         {
@@ -404,6 +431,7 @@ internal static class PerfQuery
                     : new(PerfProviders.DirectComposition, "unconfirmed", null)
                 : new(PerfProviders.DirectComposition, "not-recorded", null),
             Activity = options.View == "summary" ? activity!.Categories : null,
+            ReactorPasses = passSummary,
             ParsingResources = options.View == "summary" ? activity!.Resources.Take(10).ToList() : null,
             ParsingResourcesTotal = options.View == "summary" ? activity!.Resources.Count : null,
             ParsingResourcesOmitted = options.View == "summary" ? Math.Max(0, activity!.Resources.Count - 10) : null,
@@ -573,7 +601,11 @@ internal static class PerfQuery
             return compared != 0 ? compared : StringComparer.Ordinal.Compare(left.Call.Id, right.Call.Id);
         });
         var active = new SortedSet<ActivityInterval>(comparer);
-        var totals = ActivityCategories.ToDictionary(category => category, _ => 0d, StringComparer.Ordinal);
+        // The Reactor row appears only for captures that contain Reactor spans, so other apps' reports are unchanged.
+        var categoryNames = calls.Any(call => call.Family == ReactorEventDecoder.Family)
+            ? ActivityCategories.Append(ReactorCategory).ToArray()
+            : ActivityCategories;
+        var totals = categoryNames.ToDictionary(category => category, _ => 0d, StringComparer.Ordinal);
         var resourceDurations = new Dictionary<string, double>(StringComparer.Ordinal);
         var resourceCalls = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         var previous = range.FromMs;
@@ -626,7 +658,7 @@ internal static class PerfQuery
             throw new InvalidDataException("Observed activity exceeds the selected range.");
         }
         totals["Unclassified"] = Math.Max(0, rangeDuration - classified);
-        var categories = ActivityCategories.Append("Unclassified")
+        var categories = categoryNames.Append("Unclassified")
             .Select(category => new PerfActivityRow(category, totals[category],
                 rangeDuration > 0 ? totals[category] * 100 / rangeDuration : null))
             .ToList();
@@ -646,9 +678,12 @@ internal static class PerfQuery
     private static readonly string[] ActivityCategories =
         ["Parsing", "Layout", "Render", "Composition submission", "Other observed XAML", "Image decode/load"];
 
+    private const string ReactorCategory = "Reactor";
+
     private static string? Category(PerfCall call) => call.Family switch
     {
         "parsing" => "Parsing",
+        ReactorEventDecoder.Family => ReactorCategory,
         "layout" => "Layout",
         "images" => "Image decode/load",
         "composition" => "Composition submission",
@@ -665,6 +700,7 @@ internal static class PerfQuery
         "Render" => 4,
         "Composition submission" => 4,
         "Image decode/load" => 3,
+        ReactorCategory => 2,
         _ => 1,
     };
 
@@ -742,7 +778,10 @@ internal static class PerfQuery
         var minimumDuration = options.MinFrameMs ?? 16.67;
         var children = calls.Where(c => c.ParentCallId is not null)
             .ToLookup(c => c.ParentCallId!, StringComparer.Ordinal);
-        return calls.Where(c => c.Family == "frames" && c.Name == "Frame" && c.DurationMs >= minimumDuration &&
+        // Reactor render passes run in dispatcher callbacks between frames, so slow frames alone miss them.
+        return calls.Where(c => (c.Family == "frames" && c.Name == "Frame" ||
+                    c.Family == ReactorEventDecoder.Family && c.Name == ReactorEventDecoder.RenderPass) &&
+                c.DurationMs >= minimumDuration &&
                 Overlaps(c.StartMs, c.EndMs, range) && (options.Thread is null || c.Thread == options.Thread))
             .OrderByDescending(c => c.DurationMs)
             .ThenBy(c => c.StartMs)
@@ -750,9 +789,13 @@ internal static class PerfQuery
             .Select(frame =>
             {
                 var row = CallRow(frame, elements, range, "hotspot", children: children[frame.Id].Count());
-                row.DominantOperations = children[frame.Id]
-                    .Where(c => c.DurationMs is not null)
-                    .OrderByDescending(c => c.DurationMs)
+                // A pass's direct children are only its root render and effects; its cost is in the
+                // components and framework work beneath them, so rank every descendant by exclusive time.
+                var candidates = (frame.Family == ReactorEventDecoder.Family ? DescendantCalls(frame, children) : children[frame.Id])
+                    .Where(c => c.DurationMs is not null);
+                row.DominantOperations = (frame.Family == ReactorEventDecoder.Family
+                        ? candidates.OrderByDescending(c => c.ExclusiveMs ?? c.DurationMs)
+                        : candidates.OrderByDescending(c => c.DurationMs))
                     .ThenBy(c => c.StartMs)
                     .ThenBy(c => c.Id, StringComparer.Ordinal)
                     .Take(4)
@@ -767,6 +810,165 @@ internal static class PerfQuery
                     }).ToList();
                 return row;
             }).ToList();
+    }
+
+    private static IEnumerable<PerfCall> DescendantCalls(PerfCall root, ILookup<string, PerfCall> children)
+    {
+        var pending = new Stack<PerfCall>(children[root.Id]);
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        while (pending.TryPop(out var call))
+        {
+            if (!visited.Add(call.Id))
+            {
+                throw new InvalidDataException("The operation tree contains a repeated ID or cycle.");
+            }
+            yield return call;
+            foreach (var child in children[call.Id])
+            {
+                pending.Push(child);
+            }
+        }
+    }
+
+    private sealed class ComponentAggregate(string name)
+    {
+        public string Name { get; } = name;
+        public List<double> Durations { get; } = [];
+        public HashSet<string> Instances { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, int> Reasons { get; } = new(StringComparer.Ordinal);
+        public List<string> Evidence { get; } = [];
+        public double Inclusive { get; set; }
+        public double Exclusive { get; set; }
+        public int Overlaps { get; set; }
+        public double Clipped { get; set; }
+    }
+
+    private static List<PerfQueryRow> ComponentRows(List<PerfCall> calls, Dictionary<string, PerfEvent> renderEvents,
+        IEnumerable<PerfElement> elements, PerfQueryOptions options, PerfRange range, out PerfReactorPassSummary passes)
+    {
+        var byId = calls.ToDictionary(c => c.Id, StringComparer.Ordinal);
+        var reactor = calls.Where(c => c.Family == ReactorEventDecoder.Family &&
+            (options.Thread is null || c.Thread == options.Thread));
+        bool HasAncestor(PerfCall call, Func<PerfCall, bool> predicate)
+        {
+            var seen = 0;
+            for (var parent = call.ParentCallId; parent is not null && byId.TryGetValue(parent, out var ancestor);
+                parent = ancestor.ParentCallId)
+            {
+                if (++seen > 512)
+                {
+                    throw new InvalidDataException("The operation tree contains a cycle.");
+                }
+                if (ancestor.Family == ReactorEventDecoder.Family && predicate(ancestor))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        var aggregates = new Dictionary<string, ComponentAggregate>(StringComparer.Ordinal);
+        var passDurations = new List<(double Duration, string Id)>();
+        var outsideCount = 0;
+        var outsideMs = 0d;
+        foreach (var call in reactor)
+        {
+            if (!Overlaps(call.StartMs, call.EndMs, range))
+            {
+                continue;
+            }
+            var inside = call.DurationMs is not null && call.StartMs >= range.FromMs && call.EndMs <= range.ToMs;
+            if (call.Name == ReactorEventDecoder.RenderPass)
+            {
+                if (inside)
+                {
+                    passDurations.Add((call.DurationMs!.Value, call.Id));
+                }
+                continue;
+            }
+            if (call.Name == ReactorEventDecoder.Reconcile)
+            {
+                if (inside && !HasAncestor(call, a => a.Name is ReactorEventDecoder.RenderPass or ReactorEventDecoder.Reconcile))
+                {
+                    outsideCount++;
+                    outsideMs += call.DurationMs!.Value;
+                }
+                continue;
+            }
+            if (ReactorEventDecoder.ComponentName(call.Name) is not { } name)
+            {
+                continue;
+            }
+            if (!aggregates.TryGetValue(name, out var aggregate))
+            {
+                aggregate = new(name);
+                aggregates.Add(name, aggregate);
+            }
+            if (call.DurationMs is null)
+            {
+                continue;
+            }
+            if (!inside)
+            {
+                aggregate.Overlaps++;
+                aggregate.Clipped += ClipOverlap(call.StartMs!.Value, call.EndMs!.Value, range);
+                continue;
+            }
+            aggregate.Durations.Add(call.DurationMs.Value);
+            aggregate.Exclusive += call.ExclusiveMs ?? 0;
+            // A component nested in another render of the same type is already inside that render's inclusive time.
+            if (!HasAncestor(call, a => a.Name == call.Name))
+            {
+                aggregate.Inclusive += call.DurationMs.Value;
+            }
+            if (call.BeginEvent is { } begin && renderEvents.TryGetValue(begin, out var start))
+            {
+                if (start.Fields.GetValueOrDefault("componentId") is { } instance)
+                {
+                    aggregate.Instances.Add(instance);
+                }
+                var reason = start.Fields.GetValueOrDefault("reason") is { Length: > 0 } recorded ? recorded : "(not recorded)";
+                aggregate.Reasons[reason] = aggregate.Reasons.GetValueOrDefault(reason) + 1;
+                if (aggregate.Evidence.Count < 4)
+                {
+                    aggregate.Evidence.Add(begin);
+                }
+            }
+        }
+        var created = elements.Where(e => e.Component is not null && e.CreationObserved &&
+                e.FirstObservedMs >= range.FromMs && e.FirstObservedMs <= range.ToMs)
+            .GroupBy(e => e.Component!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        passDurations.Sort((left, right) => left.Duration.CompareTo(right.Duration));
+        passes = new(passDurations.Count, passDurations.Sum(p => p.Duration),
+            passDurations.Count > 0 ? passDurations.Average(p => p.Duration) : null,
+            passDurations.Count > 0 ? passDurations[^1].Duration : null,
+            passDurations.Count > 0 ? passDurations[(int)Math.Ceiling(passDurations.Count * .95) - 1].Duration : null,
+            passDurations.AsEnumerable().Reverse().Take(3).Select(p => p.Id).ToArray(), outsideCount, outsideMs);
+        var rows = aggregates.Values.Select(a =>
+        {
+            a.Durations.Sort();
+            return new PerfQueryRow
+            {
+                Id = "component:" + a.Name, Kind = "component", Name = a.Name, Count = a.Durations.Count,
+                InclusiveMs = a.Inclusive, ExclusiveMs = a.Exclusive,
+                MeanMs = a.Durations.Count > 0 ? a.Durations.Average() : null,
+                MaxMs = a.Durations.Count > 0 ? a.Durations[^1] : null,
+                P95Ms = a.Durations.Count > 0 ? a.Durations[(int)Math.Ceiling(a.Durations.Count * .95) - 1] : null,
+                BoundaryOverlaps = a.Overlaps, ClippedOverlapMs = a.Clipped,
+                Instances = a.Instances.Count,
+                Reasons = a.Reasons.OrderByDescending(r => r.Value).ThenBy(r => r.Key, StringComparer.Ordinal)
+                    .ToDictionary(r => r.Key, r => r.Value, StringComparer.Ordinal),
+                CreatedElements = created.GetValueOrDefault(a.Name),
+                Evidence = a.Evidence.ToArray(),
+            };
+        });
+        return (options.Sort switch
+        {
+            "inclusive" => rows.OrderByDescending(r => r.InclusiveMs),
+            "count" => rows.OrderByDescending(r => r.Count),
+            _ => rows.OrderByDescending(r => r.ExclusiveMs),
+        }).ThenBy(r => r.Id, StringComparer.Ordinal).ToList();
     }
 
     private static PerfQueryRow WithGcOverlap(PerfQueryRow row, List<PerfGcInterval> gc, PerfRange range)
@@ -923,12 +1125,12 @@ internal static class PerfQuery
 
     internal static void Validate(PerfQueryOptions options)
     {
-        if (options.View is not ("summary" or "parsing" or "elements" or "element" or "frames" or "hotspots" or "events" or "calls" or "call" or "gc" or "resources") ||
+        if (options.View is not ("summary" or "parsing" or "elements" or "element" or "frames" or "hotspots" or "events" or "calls" or "call" or "gc" or "resources" or "components") ||
             options.Limit is < 1 or > 100 || options.Offset < 0 || options.MaxBytes is < 4096 or > 1048576 ||
             options.Sort is not ("self" or "inclusive" or "count" or "duration") || options.Depth is < 0 or > 4 ||
             options.MinFrameMs is { } minimum && (!double.IsFinite(minimum) || minimum < 0))
         {
-            throw new ArgumentException("Invalid query: views summary/parsing/elements/element/frames/hotspots/events/calls/call/gc/resources; limit 1-100; offset >=0; max-bytes 4096-1048576; sort self/inclusive/count/duration; depth 0-4; min-frame-ms finite and >=0.");
+            throw new ArgumentException("Invalid query: views summary/parsing/elements/element/frames/hotspots/events/calls/call/gc/resources/components; limit 1-100; offset >=0; max-bytes 4096-1048576; sort self/inclusive/count/duration; depth 0-4; min-frame-ms finite and >=0.");
         }
         if (options.Id is not null && options.View is not ("element" or "call" or "gc") ||
             options.Depth is not null && options.View is not ("element" or "call") ||
@@ -937,9 +1139,9 @@ internal static class PerfQuery
             (options.Provider is not null || options.Event is not null || options.Element is not null) && options.View != "events" ||
             options.Family is not null && options.View != "calls" ||
             options.Thread is not null && options.View is "gc" or "resources" ||
-            options.View is "summary" or "elements" or "element" && options.Sort == "duration" ||
+            options.View is "summary" or "elements" or "element" or "components" && options.Sort == "duration" ||
             options.View == "gc" && options.Sort is not ("self" or "duration") ||
-            options.View is not ("summary" or "parsing" or "elements" or "element" or "gc") && options.Sort != "self" ||
+            options.View is not ("summary" or "parsing" or "elements" or "element" or "gc" or "components") && options.Sort != "self" ||
             options.MinFrameMs is not null && options.View != "hotspots" ||
             options.FromMarker is not null && options.FromMs is not null || options.ToMarker is not null && options.ToMs is not null)
         {

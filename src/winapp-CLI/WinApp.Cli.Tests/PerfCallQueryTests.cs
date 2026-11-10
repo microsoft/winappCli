@@ -706,6 +706,138 @@ public class PerfCallQueryTests
         new(id, "Layout", "layout", 1, null, parent, "v" + id + "b", "v" + id + "e", start, end,
             end - start, end - start, "complete", end - start);
 
+    private static PerfCall Reactor(string id, string name, double start, double end, string? parent = null,
+        double? exclusive = null) =>
+        Call(id, start, end, parent) with { Name = name, Family = "reactor", ExclusiveMs = exclusive ?? end - start };
+
+    private static PerfEvent RenderBegin(PerfCall call, string componentId, string reason) =>
+        PerfGcTests.Event(call.Name, call.StartMs!.Value) with
+        {
+            Id = call.BeginEvent!, Provider = PerfProviders.Reactor, Family = "reactor", Phase = "begin",
+            Fields = new() { ["componentId"] = componentId, ["name"] = call.Name["ReactorRender:".Length..], ["reason"] = reason },
+        };
+
+    [TestMethod]
+    public void ComponentsViewRanksComponentsByExclusiveTimeWithReasonsInstancesAndCreatedElements()
+    {
+        var calls = new[]
+        {
+            Reactor("p1", "ReactorRenderPass", 0, 30),
+            Reactor("app", "ReactorRender:App", 1, 28, "p1", exclusive: 3),
+            Reactor("rec", "ReactorReconcile", 2, 27, "app"),
+            Reactor("row1", "ReactorRender:Row", 3, 10, "rec", exclusive: 2),
+            Reactor("nested", "ReactorRender:Row", 4, 8, "row1", exclusive: 4),
+            Reactor("row2", "ReactorRender:Row", 12, 20, "rec", exclusive: 8),
+            Reactor("slow", "ReactorRender:Slow", 20, 26, "rec", exclusive: 6),
+            // A virtualized row realized during layout, outside any pass.
+            Call("layout", 39, 46),
+            Reactor("mount", "ReactorReconcile", 40, 45, "layout"),
+            Reactor("row3", "ReactorRender:Row", 41, 44, "mount", exclusive: 3),
+            Reactor("p2", "ReactorRenderPass", 50, 55),
+        };
+        var byId = calls.ToDictionary(c => c.Id);
+        PerfEvent[] events =
+        [
+            RenderBegin(byId["app"], "1", "state"), RenderBegin(byId["row1"], "10", "parent"),
+            RenderBegin(byId["nested"], "11", "mount"), RenderBegin(byId["row2"], "12", "parent"),
+            RenderBegin(byId["slow"], "2", "parent"), RenderBegin(byId["row3"], "10", "props"),
+        ];
+        PerfElement[] elements =
+        [
+            new() { Id = "e1", ObjectId = "a", Component = "Slow", CreationObserved = true, FirstObservedMs = 21 },
+            new() { Id = "e2", ObjectId = "b", Component = "Slow", CreationObserved = true, FirstObservedMs = 22 },
+            new() { Id = "e3", ObjectId = "c", Component = null, CreationObserved = true, FirstObservedMs = 23 },
+        ];
+        using var fixture = new Fixture(calls, events, elements: elements);
+
+        var result = fixture.Query(new(View: "components", Limit: 100));
+
+        Assert.AreEqual("Row,Slow,App", string.Join(',', result.Rows.Select(r => r.Name)));
+        var row = result.Rows[0];
+        Assert.AreEqual("component", row.Kind);
+        Assert.AreEqual(4, row.Count);
+        Assert.AreEqual(7d + 8d + 3d, row.InclusiveMs, "A Row nested in a Row is already inside the outer Row's time.");
+        Assert.AreEqual(2d + 4d + 8d + 3d, row.ExclusiveMs);
+        Assert.AreEqual(3, row.Instances);
+        Assert.AreEqual("parent:2,mount:1,props:1",
+            string.Join(',', row.Reasons!.Select(reason => reason.Key + ":" + reason.Value)));
+        Assert.AreEqual(2, result.Rows[1].CreatedElements);
+        Assert.AreEqual(0, row.CreatedElements);
+        Assert.AreEqual("vrow1b", row.Evidence[0]);
+
+        var passes = result.ReactorPasses!;
+        Assert.AreEqual(2, passes.Count);
+        Assert.AreEqual(35d, passes.TotalMs);
+        Assert.AreEqual(30d, passes.MaxMs);
+        Assert.AreEqual("p1,p2", string.Join(',', passes.LongestPassIds));
+        Assert.AreEqual(1, passes.OutsidePassReconciles);
+        Assert.AreEqual(5d, passes.OutsidePassReconcileMs);
+
+        Assert.AreEqual("App,Row,Slow", string.Join(',',
+            fixture.Query(new(View: "components", Sort: "inclusive")).Rows.Select(r => r.Name)));
+        Assert.AreEqual("Row", fixture.Query(new(View: "components", Sort: "count")).Rows[0].Name);
+        var clipped = fixture.Query(new(View: "components", FromMs: 0, ToMs: 15));
+        Assert.AreEqual(0, clipped.ReactorPasses!.Count, "Passes that cross the range boundary are not complete in it.");
+        Assert.AreEqual(2, clipped.Rows.Single(r => r.Name == "Row").Count);
+    }
+
+    [TestMethod]
+    public void ComponentsViewExplainsMissingReactorSpans()
+    {
+        using var fixture = new Fixture([Call("c1", 0, 10)]);
+        var error = Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: "components")));
+        StringAssert.Contains(error.Message, "Microsoft-UI-Reactor-Perf");
+        fixture.Capture.Providers = fixture.Capture.Providers.Where(p => p.Id != PerfProviders.Reactor).ToArray();
+        error = Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: "components")));
+        StringAssert.Contains(error.Message, "Record it again");
+    }
+
+    [TestMethod]
+    public void HotspotsIncludeSlowReactorPassesRankedByTheirMostExpensiveDescendants()
+    {
+        var calls = new[]
+        {
+            Frame("f1", 0, 20),
+            Reactor("p1", "ReactorRenderPass", 30, 60),
+            Reactor("app", "ReactorRender:App", 31, 59, "p1", exclusive: 2),
+            Reactor("rec", "ReactorReconcile", 32, 58, "app", exclusive: 2),
+            Reactor("slow", "ReactorRender:Slow", 33, 53, "rec"),
+            Reactor("row", "ReactorRender:Row", 54, 57, "rec"),
+            Reactor("effects", "ReactorEffects", 59, 60, "p1"),
+            Reactor("fast", "ReactorRenderPass", 70, 75),
+        };
+        using var fixture = new Fixture(calls);
+
+        var result = fixture.Query(new(View: "hotspots", Limit: 100));
+
+        Assert.AreEqual("p1,f1", string.Join(',', result.Rows.Select(r => r.Id)));
+        Assert.AreEqual("ReactorRenderPass", result.Rows[0].Name);
+        Assert.AreEqual("slow,row,app,rec", string.Join(',', result.Rows[0].DominantOperations!.Select(o => o.Id)));
+        Assert.AreEqual("p1", fixture.Query(new(View: "hotspots", MinFrameMs: 25)).Rows.Single().Id);
+    }
+
+    [TestMethod]
+    public void SummaryCategorizesReactorWorkAndKeepsNestedWinUiWorkInItsOwnCategory()
+    {
+        var calls = new[]
+        {
+            Frame("frame", 0, 100) with { Thread = 7 },
+            Reactor("pass", "ReactorRenderPass", 10, 40) with { Thread = 7 },
+            Reactor("render", "ReactorRender:App", 11, 39, "pass") with { Thread = 7 },
+            Call("layout", 20, 25, "render") with { Thread = 7 },
+        };
+        using var fixture = new Fixture(calls);
+
+        var result = fixture.Query(new(View: "summary", Limit: 100));
+
+        Assert.AreEqual("Parsing,Layout,Render,Composition submission,Other observed XAML,Image decode/load,Reactor,Unclassified",
+            string.Join(',', result.Activity!.Select(category => category.Category)));
+        AssertActivity(result, "Reactor", 25);
+        AssertActivity(result, "Layout", 5);
+        AssertActivity(result, "Unclassified", 70);
+        Assert.IsTrue(result.Rows.Any(row => row.Id == "phase:ReactorRender:App"));
+    }
+
     private static PerfCall Frame(string id, double start, double end) =>
         Call(id, start, end) with { Name = "Frame", Family = "frames" };
 
