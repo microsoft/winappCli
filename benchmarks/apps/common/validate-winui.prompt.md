@@ -226,7 +226,13 @@ Some requirements can't be validated through UI automation — e.g., "uses Mica 
 - **Do NOT fake a UI test** that always passes or always fails.
 - Skip the requirement in `validate.ps1` (or add a `Test-UI -Req N` that records `status='manual'` with a `detail` of "evaluated from artifact").
 - Evaluate it directly in your final scoring JSON from the screenshot or source files, and set its `status` to `pass`/`fail` with a `reason` explaining how you verified it.
-- Every numbered requirement MUST appear in the final `requirements` JSON object — either backed by a script test or by an artifact-based judgment.
+- Every numbered requirement MUST appear in the final `requirements` JSON object — backed by a script test, by an artifact-based judgment, or marked `not-run` (see below).
+
+### When you cannot verify a requirement
+
+`fail` means you saw the requirement not met: the app showed the wrong result, the feature is missing from the UI, or the source clearly lacks it. It does not mean "I could not check".
+
+If a requirement could not be exercised at runtime (for example real input failed with "No interactive desktop is available", a `winapp ui` command kept timing out, or the step needs hardware or a file you don't have) **and** the source code neither confirms nor clearly rules it out, set its `status` to `"not-run"` and say in `reason` what stopped you. Before choosing `not-run`, try the other evidence: UIA verbs that work without real input (`invoke`, `set-value`, `wait-for`), the UI tree, screenshots, and the source. If the source shows the feature implemented, that can support `pass`; if the source shows it missing, that is a `fail`. `not-run` requirements are left out of the score, not counted as failures.
 
 ### Key gotchas (don't relearn these)
 
@@ -300,7 +306,7 @@ Every override must be explained in the `reason` field with specific citations (
 The harness already checks the project automatically: right framework, manifest and packaging, project hygiene, title bar and backdrop, typography and color resources, `x:Bind`, build warnings, accessible names, and keyboard navigation. **Don't score those.** You judge three things.
 
 ### 1. Requirements (`requirements`)
-Your triage-reconciled pass/fail for every numbered scenario requirement (see Stage 2).
+Your triage-reconciled pass/fail for every numbered scenario requirement (see Stage 2), or `not-run` for one you could not verify (see "When you cannot verify a requirement").
 
 ### 2. Empty, loading, and error states (`quality.states`)
 If the app loads or lists data (files, folders, network, models, saved items), check from the screenshots, UI tree, and source that it shows:
@@ -337,7 +343,8 @@ After the script has run and you've triaged every requirement against `ui-tree.j
 {
   "requirements": {
     "1": { "status": "pass" },
-    "2": { "status": "fail", "reason": "Detailed explanation of what went wrong, what was expected vs actual, any error messages" }
+    "2": { "status": "fail", "reason": "Detailed explanation of what went wrong, what was expected vs actual, any error messages" },
+    "3": { "status": "not-run", "reason": "What stopped you from checking it, and what the source showed" }
   },
   "quality": {
     "states": { "status": "pass", "reason": "Empty folder shows 'No photos yet'; ProgressRing while scanning; InfoBar on access denied" }
@@ -351,8 +358,9 @@ After the script has run and you've triaged every requirement against `ui-tree.j
 
 **Rules:**
 - Keys in `requirements` are requirement **numbers** as strings ("1", "2", "10"); include **all** numbered requirements
-- `status` in `requirements` is exactly `"pass"` or `"fail"`; `quality.states.status` is `"pass"`, `"fail"`, or `"na"`
-- `reason` is required for failures and for any triage override; cite specific artifacts (test name, ui-tree.json finding, screenshot filename)
+- `status` in `requirements` is exactly `"pass"`, `"fail"`, or `"not-run"`; `quality.states.status` is `"pass"`, `"fail"`, or `"na"`
+- Use `"fail"` only when you observed the requirement not met or the source clearly lacks it; use `"not-run"` when you could not verify it either way
+- `reason` is required for failures, `not-run`, and any triage override; cite specific artifacts (test name, ui-tree.json finding, screenshot filename)
 - `design_score` is an integer 0–10
 - `issues` lists specific problems found (empty array if none); `notes` is a brief summary
 - If `validate.ps1` itself failed to run, fall back to ad-hoc `winapp ui` commands and explain the failure in `notes`

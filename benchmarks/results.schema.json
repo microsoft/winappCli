@@ -87,7 +87,7 @@
       "maximum": 3
     },
     "requirementsNotRun": {
-      "description": "apps only: 1-based ids of requirements the judge never ruled on. They are not in checks and are not counted as failures.",
+      "description": "apps only: 1-based ids of requirements the judge never ruled on or could not verify (not-run). They are not in checks and are not counted as failures.",
       "type": "array",
       "items": { "type": "integer", "minimum": 1 }
     },

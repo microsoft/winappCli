@@ -144,7 +144,7 @@ parts that don't apply are dropped and the rest renormalized).
 
 | Part | Checked by | Details |
 |---|---|---|
-| Requirements (60) | Judge | Each scenario requirement, tested with a UI script and screenshots. Requirements the judge didn't report are not counted as failures; each trial shows "judge scored n of x". |
+| Requirements (60) | Judge | Each scenario requirement, tested with a UI script and screenshots. A requirement the judge could not verify (for example real input failed and the source doesn't settle it) is reported `not-run`, as is one the judge didn't report. `not-run` requirements are not counted as failures; each trial shows "judge scored n of x". |
 | Quality checks (30) | Harness | P2 manifest · P3 packaged · P6 no WPF/WinForms/UWP leftovers · V1 custom title bar · V2 Mica/Acrylic · V3 typography via styles · V5 no hard-coded hex colors in pages · V9 no legacy Win32/WinForms UI · Q3 `x:Bind` over `{Binding}` · Q4 no build warnings (C#, XAML, WinUI analyzer, trim/AOT) · Q0 accessible names (UIA) · Q1 Tab moves focus (UIA) |
 | | Judge | Q5 usable empty/loading/error states |
 | Design (10) | Judge | 0–10 relative to an unmodified template |
