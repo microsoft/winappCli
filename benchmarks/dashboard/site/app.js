@@ -375,22 +375,20 @@
   }
 
   function methodSection(r) {
-    const commits = r.commits.map((c) => `<a href="${REPO}/commit/${esc(c)}"><code>${esc(c.slice(0, 8))}</code></a>`).join(', ') || NA;
+    const commitLinks = (list) => list.map((c) => `<a href="${REPO}/commit/${esc(c)}"><code>${esc(c.slice(0, 8))}</code></a>`).join(', ') || NA;
     const benches = Object.entries(r.benchmarks);
-    const scoring = benches.map(([n, b]) => `<code>${esc(n)}</code>: ${b.scoringVersions.map(esc).join(', ')}`).join('; ');
-    const winappVersions = [...new Set(benches.flatMap(([, b]) => b.winappVersions))];
-    const rawUrl = `${D.rawDataUrl}/${encodeURIComponent(r.release)}`;
+    const day = (iso) => esc(iso?.slice(0, 10) ?? 'n/a');
+    // One block per benchmark, so an entry that merges runs from different commits shows each.
+    const perBench = benches.map(([n, b]) => `<dt><code>${esc(n)}</code></dt><dd>${b.trialCount} runs, ${day(b.firstStartedAt)} to ${day(b.lastStartedAt)}. Commit${b.commits.length === 1 ? '' : 's'}: ${commitLinks(b.commits)}. winapp version: ${b.winappVersions.length ? b.winappVersions.map(esc).join(', ') : 'not recorded'}. Scoring version: ${b.scoringVersions.map(esc).join(', ')}.</dd>`).join('');
+    const rawUrl = `${D.rawDataUrl}/${encodeURIComponent(r.release ?? '')}`;
     const warnings = D.warnings.length
       ? `<details><summary>${D.warnings.length} data note(s) from the build</summary><ul>${D.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></details>`
       : '<p>The build found no problems in the data files.</p>';
     return `<h3>How we measured</h3>
       <dl class="facts">
-        <dt>Release</dt><dd><code>${esc(r.release)}</code></dd>
-        <dt>Commit(s) tested</dt><dd>${commits}</dd>
-        <dt>Runs started</dt><dd>${esc(r.firstStartedAt?.slice(0, 10) ?? 'n/a')} to ${esc(r.lastStartedAt?.slice(0, 10) ?? 'n/a')}</dd>
+        <dt>Run</dt><dd>${esc(entryName(r))}${r.label ? ` <span class="muted">(release value${r.releases.length === 1 ? '' : 's'}: ${r.releases.map(esc).join(', ')})</span>` : ''}</dd>
         <dt>Models</dt><dd>${r.models.map(modelLabel).map(esc).join(', ')}</dd>
-        <dt>Scoring version</dt><dd>${scoring}</dd>
-        <dt>winapp version</dt><dd>${winappVersions.length ? winappVersions.map(esc).join(', ') : 'not recorded'}</dd>
+        ${perBench}
       </dl>
       <ul>
         <li>Three setups: ${[BASE, CLI, WITH].map((a) => `<strong>${esc(armLabel(a))}</strong> (<code>${esc(a)}</code>): ${esc(ARM_INFO[a].desc)}`).join(' ')} Each "change" is ${esc(armLabel(WITH).toLowerCase())} minus ${esc(armLabel(BASE).toLowerCase())}. The Skills tab shows only ${esc(armLabel(WITH).toLowerCase())}, because the other setups have no skills installed.</li>
@@ -406,7 +404,7 @@
         <li>Flags: a model is flagged when its pass rate on a setup differs from the other models' by ${Math.round(D.rules.modelSplitPoints * 100)} points or more, or when it uses more than ${D.rules.costMultiple}x the credits it used on the other setups. Flags point to where to look; they are not results.</li>
         <li>Skill claims (Helps, Helps but costs more, No measurable difference, Not enough data) will come from fixed rules in <a href="${REPO}/issues/1182">#1182</a>. Until then every skill shows "Not enough data".</li>
       </ul>
-      <p>Raw run files: ${r.release === 'dev'
+      <p>Raw run files: ${!r.release || r.release === 'dev'
         ? 'development (<code>dev</code>) runs are not published.'
         : `<a href="${esc(rawUrl)}">${esc(rawUrl)}</a> (works once the <code>benchmark-data</code> branch exists).`} Format: <a href="${REPO}/blob/main/benchmarks/RESULTS-FORMAT.md">RESULTS-FORMAT.md</a>. Every number on this page: <a href="data.json">data.json</a>. To rerun: <a href="${REPO}/blob/main/benchmarks/apps/README.md">apps</a>, <a href="${REPO}/blob/main/benchmarks/tasks/README.md">tasks</a>.</p>
       ${warnings}`;
@@ -417,11 +415,14 @@
   }
 
   // ---------- page ----------
+  const current = () => D.releases.find((x) => x.id === state.release) ?? D.releases[0];
+  const entryName = (r) => r.label ?? (r.id === 'dev' ? 'dev (development runs)' : r.id);
+
   function render() {
-    const r = D.releases.find((x) => x.release === state.release) ?? D.releases[0];
-    state.release = r.release;
+    const r = current();
+    state.release = r.id;
     $('release-meta').textContent = `${r.firstStartedAt?.slice(0, 10) ?? ''} to ${r.lastStartedAt?.slice(0, 10) ?? ''}`;
-    $('banner').innerHTML = r.release === 'dev'
+    $('banner').innerHTML = r.releases.includes('dev')
       ? '<p class="banner">Development runs, not a release. Numbers may change.</p>'
       : '';
     $('panel-overview').innerHTML = renderOverview(r);
@@ -438,7 +439,7 @@
     if (!sel) return;
     sel.addEventListener('change', () => {
       state.appMetric = sel.value;
-      $('panel-apps').innerHTML = renderApps(D.releases.find((x) => x.release === state.release));
+      $('panel-apps').innerHTML = renderApps(current());
       bindAppMetric();
       $('app-metric').focus();
     });
@@ -467,9 +468,10 @@
       return;
     }
     const params = new URLSearchParams(location.hash.slice(1));
-    state.release = D.releases.some((r) => r.release === params.get('release')) ? params.get('release') : D.releases[0].release;
+    // Entries arrive most recent run first, so the first one is the default.
+    state.release = D.releases.some((r) => r.id === params.get('release')) ? params.get('release') : D.releases[0].id;
     const sel = $('release');
-    sel.innerHTML = D.releases.map((r) => `<option value="${esc(r.release)}">${esc(r.release === 'dev' ? 'dev (development runs)' : r.release)}</option>`).join('');
+    sel.innerHTML = D.releases.map((r) => `<option value="${esc(r.id)}">${esc(entryName(r))}</option>`).join('');
     sel.value = state.release;
     sel.addEventListener('change', () => { state.release = sel.value; render(); updateHash(); });
 

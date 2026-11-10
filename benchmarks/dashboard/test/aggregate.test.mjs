@@ -6,10 +6,10 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import {
-  aggregateBenchmark, aggregateRelease, compareReleases, metrics, trend, wilson,
+  aggregateBenchmark, aggregateRelease, compareEntries, compareReleases, metrics, trend, wilson,
 } from '../lib/aggregate.mjs';
 import { loadData } from '../lib/load.mjs';
-import { buildSiteData } from '../build.mjs';
+import { buildSiteData, parseCli } from '../build.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = join(here, 'fixtures', 'data');
@@ -194,7 +194,7 @@ test('extra and missing optional fields are tolerated', () => {
 
 test('releases sort newest first with dev last, and the trend skips dev', () => {
   assert.deepEqual(['dev', 'v0.7.1', 'v0.10.0', 'v0.7.0'].sort(compareReleases), ['v0.10.0', 'v0.7.1', 'v0.7.0', 'dev']);
-  const rel = (name, passed) => aggregateRelease(name, [t({ arm: 'cli-plus-skills', passed }), t({ arm: 'cli-plus-skills', trial: 2 })]);
+  const rel = (name, passed) => aggregateRelease(name, [t({ arm: 'cli-plus-skills', passed, extra: { release: name } }), t({ arm: 'cli-plus-skills', trial: 2, extra: { release: name } })]);
   const points = trend([rel('v0.8.0', true), rel('dev', true), rel('v0.7.0', false)]);
   assert.deepEqual(points.map((p) => [p.release, p.all]), [['v0.7.0', 0.5], ['v0.8.0', 1]]);
 });
@@ -256,4 +256,37 @@ test('build.mjs fails clearly when no trial files are found', () => {
   } finally {
     rmSync(empty, { recursive: true, force: true });
   }
+});
+
+test('--label applies to the --data before it, and folders with the same label merge into one entry', () => {
+  const opts = parseCli(['--data', 'a', '--label', 'Run 3', '--data', 'b', '--data', 'c', '--label', 'Run 3', '--out', 'o']);
+  assert.deepEqual(opts.sources, [{ dir: 'a', label: 'Run 3' }, { dir: 'b', label: null }, { dir: 'c', label: 'Run 3' }]);
+  assert.throws(() => parseCli(['--label', 'x', '--data', 'a']), /must follow a --data/);
+  assert.throws(() => parseCli(['--data', 'a', '--label', 'x', '--label', 'y']), /must follow a --data/);
+
+  const d = buildSiteData([
+    { dir: join(fixture, 'apps'), label: 'Run 3' },
+    { dir: join(fixture, 'v0.7.1'), label: 'Run 3' },
+    { dir: join(fixture, 'apps'), label: 'Run 2' },
+  ]);
+  const run3 = d.releases.find((r) => r.id === 'Run 3');
+  assert.equal(d.releases.length, 2);
+  assert.equal(run3.label, 'Run 3');
+  assert.deepEqual(Object.keys(run3.benchmarks), ['apps', 'tasks']);
+  assert.deepEqual([run3.benchmarks.apps.trialCount, run3.benchmarks.tasks.trialCount], [5, 3]);
+  assert.deepEqual(run3.releases, ['dev', 'v0.7.1']);
+  assert.equal(run3.release, null);
+  assert.equal(d.releases.find((r) => r.id === 'Run 2').benchmarks.apps.trialCount, 5);
+  assert.ok(!d.warnings.some((w) => w.includes('same trial')), 'the same files under two labels are two entries, not duplicates');
+});
+
+test('entries are listed most recent run first, and each benchmark keeps its own commits and dates', () => {
+  const at = (iso, commit, benchmark = 'apps') => t({ benchmark, extra: { startedAt: iso, commit: commit.repeat(40), winappVersion: `0.7.${commit}` } });
+  const old = aggregateRelease('Run 2', [at('2026-11-05T00:00:00Z', '1')], { label: 'Run 2' });
+  const recent = aggregateRelease('Run 3', [at('2026-11-10T00:00:00Z', '2'), at('2026-11-12T00:00:00Z', '3', 'tasks')], { label: 'Run 3' });
+  assert.deepEqual([old, recent].sort(compareEntries).map((r) => r.id), ['Run 3', 'Run 2']);
+  assert.deepEqual(recent.benchmarks.apps.commits, ['2'.repeat(40)]);
+  assert.deepEqual(recent.benchmarks.tasks.commits, ['3'.repeat(40)]);
+  assert.deepEqual(recent.benchmarks.tasks.winappVersions, ['0.7.3']);
+  assert.equal(recent.benchmarks.tasks.firstStartedAt, '2026-11-12T00:00:00Z');
 });

@@ -23,19 +23,27 @@ export function findReleaseFolders(root, depth = 0) {
   return found;
 }
 
-// Returns { releases: Map<release, trial[]>, warnings: string[] }.
-export function loadData(roots) {
+// Each source is a folder path, or { dir, label }. Trials are grouped into entries keyed by
+// the label when one is given, otherwise by the release folder name (dev, v0.7.1). Sources
+// that share a label merge into one entry, such as one run's apps and tasks results.
+// Returns { releases: Map<entry key, trial[]>, labels: Set<labeled keys>, warnings: string[] }.
+export function loadData(sources) {
   const releases = new Map();
+  const labels = new Set();
   const warnings = [];
   const seen = new Map();
-  for (const root of roots) {
+  for (const source of sources) {
+    const root = typeof source === 'string' ? source : source.dir;
+    const label = typeof source === 'string' ? null : source.label ?? null;
+    if (label) labels.add(label);
     if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Data folder not found: ${root}`);
     const folders = findReleaseFolders(root);
     if (!folders.length) warnings.push(`No release folders (dev or vX.Y.Z) found under ${root}`);
     for (const folder of folders) {
       const release = basename(folder);
-      const list = releases.get(release) ?? [];
-      releases.set(release, list);
+      const entry = label ?? release;
+      const list = releases.get(entry) ?? [];
+      releases.set(entry, list);
       let index = null;
       let read = 0;
       for (const name of readdirSync(folder).filter((n) => n.endsWith('.json')).sort()) {
@@ -57,7 +65,7 @@ export function loadData(roots) {
           continue;
         }
         if (t.release !== release) warnings.push(`${path}: release field is ${t.release} but the folder is ${release}; counted under ${release}`);
-        const key = [release, t.benchmark, t.scenario, t.arm, t.model, t.trial].join('|');
+        const key = [entry, release, t.benchmark, t.scenario, t.arm, t.model, t.trial].join('|');
         if (seen.has(key)) {
           warnings.push(`${path}: same trial as ${seen.get(key)}; skipped`);
           continue;
@@ -72,5 +80,5 @@ export function loadData(roots) {
     }
   }
   for (const [r, list] of releases) if (!list.length) releases.delete(r);
-  return { releases, warnings };
+  return { releases, labels, warnings };
 }

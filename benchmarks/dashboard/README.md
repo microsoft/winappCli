@@ -5,20 +5,20 @@ A static site that shows the `apps` and `tasks` benchmark results. It has four t
 ## Build and preview
 
 ```powershell
-node benchmarks\dashboard\build.mjs --data C:\path\to\trial-files --out $env:TEMP\winapp-dash
+node benchmarks\dashboard\build.mjs --data C:\path\to\trial-files --label "Run 2 (Nov 5-9)" --out $env:TEMP\winapp-dash
 start $env:TEMP\winapp-dash\index.html
 ```
 
 The build prints what it found:
 
 ```text
-dev: 495 trials (apps 243, tasks 252)
+Run 2 (Nov 5-9): 495 trials (apps 243, tasks 252)
 Wrote C:\Users\you\AppData\Local\Temp\winapp-dash\index.html
 ```
 
 `index.html` opens straight from disk. To serve it over HTTP instead, run `npx serve $env:TEMP\winapp-dash`.
 
-The page remembers the release and tab in the address, so `index.html#release=dev&tab=tasks` opens the Tasks tab for `dev` runs.
+The page remembers the run and tab in the address, so `index.html#tab=details` opens the Details tab for the most recent run.
 
 ## What `--data` points at
 
@@ -37,9 +37,25 @@ Files for the same release from different folders are combined. Pass `--data` mo
 node benchmarks\dashboard\build.mjs --data D:\runs\apps-results --data D:\runs\tasks-results --out .\artifacts\dash
 ```
 
+## Several development runs: `--label`
+
+Every development run has the release value `dev`, so without labels all of them merge into one "dev" entry in the Run menu. Put `--label <text>` after a `--data` folder to name the run it holds. Folders with the same label merge into one entry, so one run's `apps` and `tasks` results can come from different folders, and different commits:
+
+```powershell
+node benchmarks\dashboard\build.mjs `
+  --data <run2>\trial-files --label "Run 2 (Nov 5-9)" `
+  --data <run3>\apps --label "Run 3 (Nov 10-12)" `
+  --data <run3>\tasks --label "Run 3 (Nov 10-12)" `
+  --out $env:TEMP\winapp-dash
+```
+
+- `--label` applies to the `--data` just before it. A `--data` without a label is listed under its release folder name, as before.
+- The Run menu lists the most recent run first (by the latest run start time) and opens on it.
+- Under Details, "How we measured" lists each benchmark's commits, winapp versions and dates for the selected run, so a run that mixes commits shows them.
+
 If a release folder has an `index.json` (written by `publish-results.ps1`), the build checks that its trial count matches the files it read. The numbers always come from the trial files, because `index.json` does not include the individual checks.
 
-The build skips a file and lists it under "Data notes" on the How we measured tab when the file is not valid JSON, is missing a required field, or repeats a run that was already read. Fields the dashboard doesn't know are ignored, so newer files still build.
+The build skips a file and lists it under "Data notes" in Details when the file is not valid JSON, is missing a required field, or repeats a run that was already read. Fields the dashboard doesn't know are ignored, so newer files still build.
 
 Use `--raw-data-url` to change where the "raw data" link points (default: the `benchmark-data` branch on GitHub).
 

@@ -33,6 +33,11 @@ function orderBy(values, order) {
   });
 }
 
+// Most recent run first, by the latest startedAt in the entry; ties fall back to release order.
+export function compareEntries(a, b) {
+  return (b.lastStartedAt ?? '').localeCompare(a.lastStartedAt ?? '') || compareReleases(a.id, b.id);
+}
+
 // Newest release first; `dev` last.
 export function compareReleases(a, b) {
   if (a === b) return 0;
@@ -280,19 +285,27 @@ export function aggregateBenchmark(trials) {
     winappCommands: usageByArm(trials, arms, 'winappCommands', 'command'),
     scoringVersions: orderBy(trials.map((t) => (t.scoringVersion == null ? 'not recorded' : String(t.scoringVersion))), []),
     winappVersions: orderBy(trials.map((t) => t.winappVersion).filter(Boolean), []),
+    // Run info per benchmark, so an entry that merges runs from different commits shows them.
+    commits: orderBy(trials.map((t) => t.commit).filter(Boolean), []),
+    firstStartedAt: trials.map((t) => t.startedAt).filter(Boolean).sort()[0] ?? null,
+    lastStartedAt: trials.map((t) => t.startedAt).filter(Boolean).sort().at(-1) ?? null,
   };
 }
 
-// Normalizes one release's trials and aggregates each benchmark.
-export function aggregateRelease(release, rawTrials) {
-  const trials = rawTrials;
+// Aggregates one dropdown entry. `id` is the --label when one was given, otherwise the
+// release folder name. `release` is the release value the trials share, or null if mixed.
+export function aggregateRelease(id, trials, { label = null } = {}) {
+  const releaseValues = orderBy(trials.map((t) => t.release), []);
   const started = trials.map((t) => t.startedAt).filter(Boolean).sort();
   const benchmarks = {};
   for (const name of orderBy(trials.map((t) => t.benchmark), ['apps', 'tasks'])) {
     benchmarks[name] = aggregateBenchmark(trials.filter((t) => t.benchmark === name));
   }
   return {
-    release,
+    id,
+    label,
+    release: releaseValues.length === 1 ? releaseValues[0] : null,
+    releases: releaseValues,
     commits: orderBy(trials.map((t) => t.commit).filter(Boolean), []),
     models: orderBy(trials.map((t) => t.model), MODEL_ORDER),
     firstStartedAt: started[0] ?? null,
@@ -305,7 +318,7 @@ export function aggregateRelease(release, rawTrials) {
 // Pass rate per model on one arm across published releases (never `dev`), oldest first.
 export function trend(releases, benchmark = 'apps', arm = SKILLS_ARM) {
   return releases
-    .filter((r) => r.release !== 'dev' && r.benchmarks[benchmark]?.headline[arm])
+    .filter((r) => r.release && r.release !== 'dev' && r.benchmarks[benchmark]?.headline[arm])
     .sort((a, b) => compareReleases(b.release, a.release))
     .map((r) => {
       const h = r.benchmarks[benchmark].headline[arm];
