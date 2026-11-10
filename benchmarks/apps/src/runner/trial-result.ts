@@ -58,10 +58,11 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
   const arm = input.condition.replace(/\s*\[\d+\/\d+\]$/, "").replace(/@.+$/, "");
   if (!(ARMS as readonly string[]).includes(arm)) return null;
 
-  const checks: TrialCheck[] = [
-    { id: "builds", kind: "required", passed: input.builds, source: "harness" },
-    { id: "launches", kind: "required", passed: input.runs, source: "harness" },
-  ];
+  // A failed gate (wrong framework, Native AOT) stops the run before launch. That is a valid failing
+  // trial, not an app that could not be measured.
+  const gateFailed = input.checks.some((c) => c.kind === "gate" && c.status === "fail");
+  const checks: TrialCheck[] = [{ id: "builds", kind: "required", passed: input.builds, source: "harness" }];
+  if (input.runs || !gateFailed) checks.push({ id: "launches", kind: "required", passed: input.runs, source: "harness" });
   for (const c of input.checks) {
     const id = slug(c.id);
     if (c.status === "na" || checks.some((x) => x.id === id)) continue;
@@ -102,7 +103,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     model: slug(input.model),
     trial: input.iteration ?? 1,
     startedAt: input.startedAt.toISOString().replace(/\.\d{3}Z$/, "Z"),
-    outcome: !input.builds ? "build-failed" : !input.runs ? "app-failed" : "valid",
+    outcome: !input.builds ? "build-failed" : !input.runs && !gateFailed ? "app-failed" : "valid",
     passed: checks.every((c) => c.kind !== "required" || c.passed),
     improvements: { met: improvements.filter((c) => c.passed).length, total: improvements.length },
     checks,

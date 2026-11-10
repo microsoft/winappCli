@@ -110,13 +110,13 @@ pwsh benchmarks\publish-results.ps1 -Path .\<run folder>             # preview: 
 pwsh benchmarks\publish-results.ps1 -Path .\<run folder> -OpenPr     # opens a PR into benchmark-data
 ```
 
-The script finds the trial files under `-Path`, names them as above, validates them and
+The script finds the trial files under `-Path` where the harnesses write them (`trials\` next to `run-info.json`, or `trial-result.json` next to `results.json`) and ignores anything under a `runs\` or `app\` folder. It names them as above, validates them and
 writes `<release>\index.json`: one row per trial and one summary per
 scenario, arm and model (pass count, improvements met, median credits and time, skill and
 command counts), so a reader loads one file instead of hundreds.
 
 `-OpenPr` refuses unless the release is `vX.Y.Z` (not `dev`), every file was measured on
-the same commit, the working tree is clean and checked out at that commit, and the release
+the same commit, the working tree is clean and checked out at that commit, the `vX.Y.Z` tag points at that commit, and the release
 is not already on `benchmark-data`. It pushes `results/<release>` and opens a PR whose base
 is `benchmark-data`, not `main`. A second person reviews the numbers; merging is the publish.
 Protect `benchmark-data` so that a merged PR is the only way to change it.

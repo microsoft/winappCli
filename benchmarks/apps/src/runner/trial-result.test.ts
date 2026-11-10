@@ -47,6 +47,14 @@ test("outcome says why a trial did not produce a working app", () => {
   assert.equal((toTrialResult({ ...base, builds: false, runs: false }) as any).outcome, "build-failed");
 });
 
+test("a failed gate is a valid failing trial, not an unlaunched app", () => {
+  const gateFail = { ...base, runs: false, checks: [{ id: "G0-framework", label: "Framework", kind: "gate" as const, source: "harness" as const, status: "fail" as const }] };
+  const t = toTrialResult(gateFail) as any;
+  assert.equal(t.outcome, "valid");
+  assert.equal(t.passed, false);
+  assert.equal(t.checks.some((c: any) => c.id === "launches"), false);
+});
+
 test("a scenario can mark a requirement as required", () => {
   const t = toTrialResult({ ...base, requiredRequirements: [2] }) as any;
   assert.equal(t.passed, false);
