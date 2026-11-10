@@ -769,7 +769,7 @@ static void TestToolbarContract()
     Check(paintBody.find("const bool followsTheme = localSet && !(SameObject(local, before) || (!local && !before));") != std::string::npos &&
           switchBody.find("NoteAppRootBackground(targets.front());") != std::string::npos,
                  "a local {ThemeResource} Background, which the switch re-resolves, is the app's own and keeps its reference");
-    Check(paintBody.find("element.ActualThemeChanged(winrt::auto_revoke,") != std::string::npos &&
+    Check(paintBody.find("(painted ? painted : element).ActualThemeChanged(winrt::auto_revoke,") != std::string::npos &&
           unpaintBody.find("g_themeFollow = {};") != std::string::npos,
                  "DevTools' brush follows a theme the app sets itself while switched, and stops following on the switch back");
     Check(unpaintBody.find("ColorArgb(brush.Color()) != g_themeBrushArgb") != std::string::npos &&

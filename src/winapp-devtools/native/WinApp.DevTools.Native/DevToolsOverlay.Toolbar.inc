@@ -139,8 +139,11 @@ static void PaintAppRootBackground(IInspectable* host, DevToolsX::FrameworkEleme
     g_themeBrushArgb = argb;
     g_themeBackgroundLocal = localSet ? local : nullptr;
     g_themeBackgroundLocalSet = localSet;
-    // If the app later changes the theme itself, the page follows it, as the window's own background would.
-    g_themeFollow = element.ActualThemeChanged(winrt::auto_revoke,
+    // If the app later changes the theme itself, the page follows it, as the window's own background would. The painted
+    // element's theme is the one behind its text, so follow it rather than the switched one (inside a UserControl they
+    // differ).
+    const auto painted = target.try_as<DevToolsX::FrameworkElement>();
+    g_themeFollow = (painted ? painted : element).ActualThemeChanged(winrt::auto_revoke,
         [](DevToolsX::FrameworkElement const& sender, winrt::Windows::Foundation::IInspectable const&) {
         if (!g_themeBrush || ColorArgb(g_themeBrush.Color()) != g_themeBrushArgb) return;
         g_themeBrushArgb = DevToolsTheme::RootBackgroundArgb(static_cast<int>(sender.ActualTheme()));
