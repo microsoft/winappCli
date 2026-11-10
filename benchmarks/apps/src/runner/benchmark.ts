@@ -41,14 +41,16 @@ import {
   evaluateAccessibleNames,
   evaluateBuildWarnings,
   evaluateKeyboardTraversal,
+  evaluateLoaded,
   evaluateNativeAot,
+  evaluateReady,
   evaluateSourceChecks,
   interactiveElements,
   judgeChecks,
   projectDirFor,
   type QualityCheck,
 } from "./quality-checks.js";
-import { computeScoreV2, formatBreakdown, type ScoreBreakdown } from "./scoring.js";
+import { computeScoreV2, formatBreakdown, SCORING_VERSION, type ScoreBreakdown } from "./scoring.js";
 import { toTrialResult } from "./trial-result.js";
 import { summarizeActivity } from "./activity.js";
 import { pinRef, readPin } from "./upstream-pins.js";
@@ -73,6 +75,8 @@ import { appendBounded, PROCESS_OUTPUT_MAX_CHARS } from "./live-output.js";
 import { runUntilSdkCompletion, type SdkCompletionReason } from "./sdk-lifecycle.js";
 import { compareVersionCore, resolveWinAppToolchain } from "./winapp-toolchain.js";
 import { readLinesSync } from "./jsonl-stream.js";
+import { DESKTOP_LOCKED_ERROR, probeInteractiveDesktop, uiBlockedByLockedDesktop, waitForInteractiveDesktop } from "./desktop-lock.js";
+import { findVsMsBuild, msbuildRetryArgs } from "./vs-msbuild.js";
 import { evaluateConcurrentProcessCommand, extractCommand } from "./process-safety.js";
 import type { RunEntry, ScenarioConfig, AgentSetupConfig, GlobalConfig } from "../types.js";
 import { parse as parseYaml } from "yaml";
@@ -2247,6 +2251,24 @@ async function defaultDotnetBuild(
       undefined,
       false
     );
+    if (result.exitCode !== 0) {
+      // Some WinUI projects build only with Visual Studio's MSBuild (e.g. MSB4062 for the PRI tasks).
+      const msbuild = findVsMsBuild();
+      if (msbuild) {
+        const retryArgs = msbuildRetryArgs(csproj, buildPlatform);
+        log(`  dotnet build failed; retrying once with Visual Studio MSBuild: "${msbuild}" ${retryArgs.join(" ")}`);
+        const retry = await runProcess(msbuild, retryArgs, workDir, callbacks.onOutput, undefined, false);
+        log(`  Build gate builder: Visual Studio MSBuild (${retry.exitCode === 0 ? "succeeded" : "also failed"})`);
+        result = {
+          ...retry,
+          output: `${result.output}\n\n=== dotnet build failed; retried with Visual Studio MSBuild: ${msbuild} ${retryArgs.join(" ")} ===\n\n${retry.output}`,
+        };
+      } else {
+        log("  dotnet build failed; Visual Studio MSBuild not found, so no retry.");
+      }
+    } else {
+      log("  Build gate builder: dotnet build");
+    }
   } else {
     // Non-Windows only; Windows always builds for the host architecture above.
     const buildCommand = (globalConfig.build?.fallback_command || globalConfig.build?.command || "dotnet build {csproj} -c Debug")
@@ -2783,13 +2805,19 @@ export function parseValidationJson(output: string): any | null {
     return null;
   };
 
-  // Try ```json blocks (closed with ```) — iterate ALL matches, skipping templates
+  // Try ```json blocks (closed with ```) — iterate ALL matches, skipping templates.
+  // The judge may print a draft and then a corrected result, so the last scored block wins.
   const jsonBlockRegex = /```json\s*([\s\S]+?)\s*```/g;
   let jsonBlockMatch: RegExpExecArray | null;
+  let lastBlock: any = null;
+  let lastScored: any = null;
   while ((jsonBlockMatch = jsonBlockRegex.exec(clean)) !== null) {
     const result = tryParseBlock(jsonBlockMatch[1].trim());
-    if (result) return result;
+    if (!result) continue;
+    lastBlock = result;
+    if (result.project_score !== undefined || result.ui_score !== undefined || result.design_score !== undefined || result.requirements !== undefined) lastScored = result;
   }
+  if (lastScored ?? lastBlock) return lastScored ?? lastBlock;
 
   // Fallback: unclosed ```json block (copilot output sometimes omits closing fence)
   const unclosedMatch = clean.match(/```json\s*([\s\S]+)$/);
@@ -2818,7 +2846,7 @@ export function parseValidationJson(output: string): any | null {
 interface StructuredReqResult {
   id: number;
   text: string;
-  status: "pass" | "fail";
+  status: "pass" | "fail" | "not-run";
   reason: string;
 }
 
@@ -2839,7 +2867,7 @@ export function extractRequirementResults(
       const id = parseInt(key, 10);
       if (isNaN(id)) continue;
       const v = val as Record<string, any>;
-      const status = v.status === "pass" ? "pass" : "fail";
+      const status = v.status === "pass" ? "pass" : v.status === "fail" ? "fail" : "not-run";
       const reason = v.reason || "";
       const text = (id >= 1 && id <= scenarioRequirements.length)
         ? scenarioRequirements[id - 1]
@@ -4242,11 +4270,16 @@ async function runBenchmarkImpl(
       entry.score = 0;
       banner("App didn't run — skipping validation", "⏭️", "yellow");
     } else if (appPid) {
-      const uiChecks = await runUiQualityChecks(String(appPid), workDir, log);
+      const { checks: uiChecks, locked } = await runUiChecksWhenUnlocked(String(appPid), workDir, log, scenarioConfig.ready_element);
       if (uiChecks.length) {
         log("  Quality checks (UI):");
         logQualityChecks(uiChecks, log);
         (entry as any)._qualityChecks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...uiChecks];
+      }
+      if (locked) {
+        entry.harnessError = DESKTOP_LOCKED_ERROR;
+        entry.failReason = DESKTOP_LOCKED_ERROR;
+        entry.score = undefined;
       }
     }
   }
@@ -4259,8 +4292,9 @@ async function runBenchmarkImpl(
   // still gets builds/runs metrics, but no `score` and no `validation` block
   // in results.json — used by sweeps (and advanced flat runs that do their own
   // scoring as separate tasks) that only care whether the code compiles +
-  // launches.
-  if (entry.runs && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
+  // launches. A locked desktop already made the trial a harness error, so the
+  // judge is not run either.
+  if (entry.runs && !entry.harnessError && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
     setStatus("validating");
     banner("VALIDATION", "🔍", "magenta");
 
@@ -4384,7 +4418,8 @@ async function runBenchmarkImpl(
       log("  ERROR: Validation completed without scoring JSON");
       entry.failReason = "Validation produced no score";
     }
-    entry.score = 0;
+    entry.harnessError = entry.failReason ?? "Validation failed";
+    entry.score = undefined;
   }
   } // end if (entry.runs) for validation
 
@@ -4531,7 +4566,7 @@ async function runArtifactGates(
  * `winapp ui`. Runs under the trial's cooperative UI workflow (runProcess
  * passes WINAPP_UI_WORKFLOW_ID) and yields the desktop when done.
  */
-export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg: string) => void): Promise<QualityCheck[]> {
+export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg: string) => void, readyElement?: string): Promise<QualityCheck[]> {
   if (!isWindows || !appPid) return [];
   const tc = resolveWinAppToolchain();
   const ui = (args: string[], timeout = 20000) => runProcess(tc.executable, ["ui", ...args], cwd, () => {}, timeout, false);
@@ -4550,6 +4585,8 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
       return [
         na("Q0", "Accessible names on interactive controls", "Main window not found"),
         na("Q1", "Keyboard navigation (Tab moves focus through controls)", "Main window not found"),
+        evaluateLoaded(0, null),
+        evaluateReady(readyElement, false),
       ];
     }
     const inspect = parse((await ui(["inspect", "-w", String(hwnd), "--interactive", "--json"], 30000)).output);
@@ -4563,6 +4600,8 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
     const focusable = enabled.filter((e) =>
       !caption.test((e.name ?? "").trim()) && !caption.test((e.automationId ?? "").trim()) && !/^(Edit|Document)$/.test(String(e.type)));
     let q1: QualityCheck;
+    let inputSamples: any[] | null = null;
+    let desktopLocked = false;
     if (enabled.length === 0) {
       q1 = evaluateKeyboardTraversal([], 0);
     } else {
@@ -4578,6 +4617,7 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
       }
       if (!focusedOk) focusedOk = !!parse((await ui(["get-focused", "-w", String(hwnd), "--json"])).output)?.hasFocus;
       if (!focusedOk) {
+        desktopLocked = /no interactive desktop/i.test(focusError);
         q1 = na("Q1", "Keyboard navigation (Tab moves focus through controls)",
           `Could not focus a control (desktop busy or activation refused)${focusError ? `: ${focusError}` : ""}`);
       } else {
@@ -4587,15 +4627,43 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
           await ui(["send-keys", "tab", "--via", "send-input", "-w", String(hwnd)]);
         }
         q1 = evaluateKeyboardTraversal(samples, enabled.length);
+        inputSamples = samples;
       }
     }
-    return [q0, q1];
+    let ready: QualityCheck;
+    if (readyElement) {
+      const waited = await ui(["wait-for", readyElement, "-w", String(hwnd), "--timeout", "10000"], 20000);
+      ready = evaluateReady(readyElement, waited.exitCode === 0);
+    } else {
+      ready = evaluateReady(undefined, false);
+    }
+    return [q0, q1, evaluateLoaded(enabled.length, inputSamples, desktopLocked), ready];
   } catch (err) {
     log(`  ⚠️ UI quality checks failed: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   } finally {
     await ui(["yield"], 5000).catch(() => undefined);
   }
+}
+
+/**
+ * Runs the UI checks once the desktop is unlocked. Returns `locked` when the
+ * desktop stayed locked or input was refused because of a lock, so the caller
+ * records a harness error instead of scoring checks that measured nothing.
+ */
+async function runUiChecksWhenUnlocked(
+  appPid: string, cwd: string, log: (msg: string) => void, readyElement?: string,
+): Promise<{ checks: QualityCheck[]; locked: boolean }> {
+  if (!isWindows) return { checks: await runUiQualityChecks(appPid, cwd, log, readyElement), locked: false };
+  if (!(await waitForInteractiveDesktop(probeInteractiveDesktop, { log }))) {
+    log(`  ❌ ${DESKTOP_LOCKED_ERROR}. The desktop stayed locked; this trial gets no score.`);
+    return { checks: [], locked: true };
+  }
+  const checks = await runUiQualityChecks(appPid, cwd, log, readyElement);
+  const l2 = checks.find((c) => c.id === "L2");
+  const locked = uiBlockedByLockedDesktop(checks, l2?.status === "na" ? probeInteractiveDesktop() : true);
+  if (locked) log(`  ❌ ${DESKTOP_LOCKED_ERROR}. Input was refused because the desktop is locked; this trial gets no score.`);
+  return { checks, locked };
 }
 
 function logQualityChecks(checks: QualityCheck[], log: (msg: string) => void): void {
@@ -4620,7 +4688,7 @@ function applyValidationScore(
   const reported = extractRequirementResults(validation, scenarioReqs);
   const byId = new Map(reported.map((r) => [r.id, r]));
   const reqResults: StructuredReqResult[] = scenarioReqs.length
-    ? scenarioReqs.map((text, i) => byId.get(i + 1) ?? { id: i + 1, text, status: "fail", reason: "Not reported by the judge" })
+    ? scenarioReqs.map((text, i) => byId.get(i + 1) ?? { id: i + 1, text, status: "not-run" as const, reason: "The judge did not rule on this requirement" })
     : reported;
   const checks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...judgeChecks(validation.quality)];
   const designScore = typeof validation.design_score === "number" ? validation.design_score : null;
@@ -4640,7 +4708,7 @@ function applyValidationScore(
     } : {}),
   };
   const q = breakdown.quality;
-  log(`  Score: ${breakdown.score}/100 (Reqs ${breakdown.requirements.passed}/${breakdown.requirements.total} · Quality ${q.passed}/${q.passed + q.failed} · Design ${breakdown.design ?? "–"})`);
+  log(`  Score: ${breakdown.score}/100 (Reqs ${breakdown.requirements.passed}/${breakdown.requirements.scored} scored of ${breakdown.requirements.total} · Quality ${q.passed}/${q.passed + q.failed} · Design ${breakdown.design ?? "–"})`);
 }
 
 function saveResults(
@@ -4693,6 +4761,7 @@ function saveResults(
       build: entry.buildSessionId || null,
       validation: entry.validationSessionId || null,
     },
+    scoring_version: SCORING_VERSION,
     completion_reason: entry.completionReason,
     metrics: {
       score: entry.score,
@@ -4707,6 +4776,7 @@ function saveResults(
       ...(qualityChecks?.length ? { quality_checks: qualityChecks } : {}),
     },
     ...(entry.failReason ? { fail_reason: entry.failReason } : {}),
+    ...(entry.harnessError ? { harness_error: entry.harnessError } : {}),
     ...(buildErrors ? { build_errors: buildErrors } : {}),
   };
   if ((entry as any)._setupScriptResults) {
@@ -4727,6 +4797,11 @@ function saveResults(
   }
   if (isWindows) {
     try { results.toolchain = { winapp: resolveWinAppToolchain().version }; } catch { /* recorded elsewhere as a launch failure */ }
+  }
+  // Revalidation rebuilds with today's CLI, which may not be the one the agent used, so only a fresh run records it.
+  let winappVersion: string | undefined;
+  if (isWindows && original === undefined) {
+    try { winappVersion = resolveWinAppToolchain().fullVersion; } catch { /* no CLI */ }
   }
   const release = original?.release ?? (process.env.BENCH_RELEASE || "dev");
   const commit = original?.commit ?? currentCommit();
@@ -4751,6 +4826,7 @@ function saveResults(
     const trial = toTrialResult({
       release,
       commit,
+      winappVersion,
       scenario: entry.scenarioConfigName,
       set: config.set,
       condition: entry.condition,
@@ -4766,6 +4842,8 @@ function saveResults(
       judgeModel: (entry as any)._judgeModel,
       usage: exact,
       activity: summarizeActivity(join(trialDir, "session-logs-dir", "build-events.jsonl")),
+      harnessError: entry.harnessError,
+      timedOut: entry.completionReason === "hard_timeout",
     });
     if (trial) writeTextAtomic(join(trialDir, "trial-result.json"), JSON.stringify(trial, null, 2));
   }
@@ -5060,16 +5138,21 @@ async function revalidateBenchmarkImpl(
   if (!entry.runs) {
     entry.score = 0;
   } else if (appPid) {
-    const uiChecks = await runUiQualityChecks(String(appPid), workDir, log);
+    const { checks: uiChecks, locked } = await runUiChecksWhenUnlocked(String(appPid), workDir, log, scenarioConfig.ready_element);
     if (uiChecks.length) {
       log("  Quality checks (UI):");
       logQualityChecks(uiChecks, log);
       (entry as any)._qualityChecks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...uiChecks];
     }
+    if (locked) {
+      entry.harnessError = DESKTOP_LOCKED_ERROR;
+      entry.failReason = DESKTOP_LOCKED_ERROR;
+      entry.score = undefined;
+    }
   }
 
   // ─── VALIDATION ─── (per-task skipValidation OR global SKIP_VALIDATION env)
-  if (entry.runs && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
+  if (entry.runs && !entry.harnessError && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
     setStatus("validating");
     banner("VALIDATION", "🔍", "magenta");
 
@@ -5177,7 +5260,8 @@ async function revalidateBenchmarkImpl(
         log("  ERROR: Validation completed without scoring JSON");
         entry.failReason = "Validation produced no score";
       }
-      entry.score = 0;
+      entry.harnessError = entry.failReason ?? "Validation failed";
+      entry.score = undefined;
     }
   }
 

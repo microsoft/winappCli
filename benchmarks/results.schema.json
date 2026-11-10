@@ -21,6 +21,11 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
+    "winappVersion": {
+      "description": "Output of `winapp --version` for the CLI the trial ran, such as 0.7.1+<sha>. Can differ from commit when the CLI was built from another commit.",
+      "type": "string",
+      "minLength": 1
+    },
     "benchmark": { "enum": ["apps", "tasks"] },
     "scenario": {
       "description": "Scenario name (apps) or task id (tasks). Lowercase letters, digits and hyphens.",
@@ -28,7 +33,7 @@
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
     },
     "set": { "enum": ["tuning", "held-out"] },
-    "arm": { "enum": ["none", "cli-only", "cli-plus-plugins"] },
+    "arm": { "enum": ["barebones", "cli-only", "cli-plus-skills"] },
     "model": {
       "description": "Model under test, as passed to Copilot CLI, such as sonnet-5.5.",
       "type": "string",
@@ -70,6 +75,22 @@
       }
     },
     "usage": { "$ref": "#/definitions/usage" },
+    "scoringVersion": {
+      "description": "Version of the scoring rules that produced this trial. Results with different versions are not compared directly.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "launchLevel": {
+      "description": "apps only: how far the app got. 1 = a window exists, 2 = interactive controls present and responding, 3 = the scenario's named main-screen element appeared. Omit level 3 when the scenario defines no such element; 0 = no window. Omitted when the app ran but level 2 was not measured (for example UI input could not be sent).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "requirementsNotRun": {
+      "description": "apps only: 1-based ids of requirements the judge never ruled on. They are not in checks and are not counted as failures.",
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 }
+    },
     "skills": {
       "description": "Plugin skills the agent loaded, in order. Omit when the harness cannot capture it.",
       "type": "array",

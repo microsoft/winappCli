@@ -142,6 +142,10 @@ if (resumeRun) {
   );
   console.log(`[headless] resuming ${incomplete.length} incomplete trials in ${resumeRun}`);
   await queue.start();
+  if (queue.stoppedReason) {
+    console.error(`[headless] ${queue.stoppedReason}`);
+    process.exit(4);
+  }
   process.exit(0);
 }
 
@@ -174,7 +178,7 @@ function selectScenarios(spec: string) {
 function selectAgents(spec: string): Array<{ agent: (typeof agents)[number]; refs?: string[] }> {
   if (spec.trim().toLowerCase() === "all") return agents.map((agent) => ({ agent }));
   // `name@ref` picks a git ref for a from_repo setup (branch, tag, SHA, or
-  // pull/N/head); repeat the name to compare refs: cli-plus-plugins@main,cli-plus-plugins@my-branch.
+  // pull/N/head); repeat the name to compare refs: cli-plus-skills@main,cli-plus-skills@my-branch.
   const picked: Array<{ agent: (typeof agents)[number]; refs?: string[] }> = [];
   for (const token of spec.split(",").map((s) => s.trim()).filter(Boolean)) {
     const at = token.indexOf("@");
@@ -391,6 +395,10 @@ const queue = new BenchmarkQueue(
 
 queue.start()
   .then(() => {
+    if (queue.stoppedReason) {
+      console.error(`[headless] ${queue.stoppedReason} runDir=${runDir}`);
+      process.exit(4);
+    }
     console.log(`[headless] done. runDir=${runDir}`);
     process.exit(0);
   })

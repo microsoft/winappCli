@@ -6,13 +6,13 @@ Set-StrictMode -Version Latest
 
 $script:Configurations = [ordered]@{
     # The three arms. HideWinapp removes winapp from the agent's PATH only; setup and checks still run it.
-    'none'             = @{ Plugins = @(); Agent = $null; HideWinapp = $true }
+    'barebones'        = @{ Plugins = @(); Agent = $null; HideWinapp = $true }
     'cli-only'         = @{ Plugins = @(); Agent = $null; HideWinapp = $false }
-    'cli-plus-plugins' = @{ Plugins = @('winapp', 'winui'); Agent = $null; HideWinapp = $false }
+    'cli-plus-skills'  = @{ Plugins = @('winapp', 'winui'); Agent = $null; HideWinapp = $false }
     # Debugging configurations; not part of the three arms.
-    'winapp'           = @{ Plugins = @('winapp'); Agent = $null; HideWinapp = $false }
-    'winui'            = @{ Plugins = @('winui'); Agent = $null; HideWinapp = $false }
-    'both-agent'       = @{ Plugins = @('winapp', 'winui'); Agent = 'winappcli:winapp'; HideWinapp = $false }
+    'winapp-skills'    = @{ Plugins = @('winapp'); Agent = $null; HideWinapp = $false }
+    'winui-skills'     = @{ Plugins = @('winui'); Agent = $null; HideWinapp = $false }
+    'full-suite'       = @{ Plugins = @('winapp', 'winui'); Agent = 'winappcli:winapp'; HideWinapp = $false }
 }
 
 function Get-ConfigurationNames { return @($script:Configurations.Keys) }
@@ -46,6 +46,7 @@ function Get-TaskDefinitions {
             Set            = if ($j.PSObject.Properties['set']) { [string]$j.set } else { 'tuning' }
             Pilot          = [bool]($j.PSObject.Properties['pilot'] -and $j.pilot)
             Interactive    = [bool]($j.PSObject.Properties['interactive'] -and $j.interactive)
+            AskFirst       = [bool]($j.PSObject.Properties['adminPolicy'] -and $j.adminPolicy -eq 'ask-first')
             Allow          = if ($j.PSObject.Properties['lintAllow']) { @($j.lintAllow) } else { @() }
             Checks         = if ($j.PSObject.Properties['checks']) { @($j.checks) } else { @() }
             Path           = $dir.FullName
@@ -195,6 +196,37 @@ function Remove-SecretFromFiles {
     return @($changed)
 }
 
+function Get-AdminApprovalLine {
+    # Appended to every task prompt except those with adminPolicy 'ask-first'. Stated publicly in the README.
+    return 'This is a disposable test machine. You have my approval to run steps that need administrator rights; do not stop to ask first.'
+}
+
+function Get-WinappCliNote {
+    # Appended for every configuration that keeps winapp on PATH, so cli-only and cli-plus-skills differ only by skills.
+    return 'The winapp CLI (`winapp`) is installed and on PATH. It creates, builds, runs, packages, signs and UI-tests Windows apps; run `winapp --help` to see its commands.'
+}
+
+function Get-TaskPrompt {
+    # The prompt the agent receives: the task prompt, the winapp note when winapp is visible, then the standing admin approval unless the task is ask-first.
+    param([Parameter(Mandatory)][object]$Task, [Parameter(Mandatory)][object]$Spec)
+    $parts = @($Task.Prompt)
+    if (-not $Spec.HideWinapp) { $parts += Get-WinappCliNote }
+    if (-not $Task.AskFirst) { $parts += Get-AdminApprovalLine }
+    return $parts -join ' '
+}
+
+function Test-StoppedForAdmin {
+    # True when one sentence of the agent's last message ties admin rights or elevation to asking for approval.
+    # Requiring both in the same sentence avoids labeling an unrelated failure that mentions admin in passing.
+    param([AllowNull()][string]$FinalResponse)
+    if (-not $FinalResponse) { return $false }
+    foreach ($sentence in ($FinalResponse -split '(?<=[.!?])\s+|\r?\n')) {
+        if ($sentence -match '(?is)(administrator|admin(istrative)?\s+(rights|privileges|permission|approval)|elevat|UAC)' -and
+            $sentence -match '(?is)(approv|permission|confirm|need you to|before I|ask(ed)? (you )?first|without (your|asking))') { return $true }
+    }
+    return $false
+}
+
 function Get-Mean { param([AllowEmptyCollection()][object[]]$Values) $v = @($Values | Where-Object { $null -ne $_ }); if (-not $v) { return $null }; return ($v | Measure-Object -Average).Average }
 
 function ConvertTo-TrialResult {
@@ -206,12 +238,14 @@ function ConvertTo-TrialResult {
         [Parameter(Mandatory)][string]$Set,
         [Parameter(Mandatory)][string]$Release,
         [Parameter(Mandatory)][string]$Commit,
-        [Parameter(Mandatory)][datetime]$StartedAt
+        [Parameter(Mandatory)][datetime]$StartedAt,
+        # `winapp --version` of the CLI the run used; left out of the file when empty.
+        [string]$WinappVersion
     )
     # run.ps1 passes an ordered dictionary; its optional counts are properties, so read it as an object.
     if ($Record -is [System.Collections.IDictionary]) { $Record = [pscustomobject]$Record }
-    if ($Record.configuration -notin 'none', 'cli-only', 'cli-plus-plugins') { return $null }
-    if ($Record.mode -ne 'agent' -or $Record.taskStatus -notin 'pass', 'partial', 'fail' -or -not $Record.tokens) { return $null }
+    if ($Record.configuration -notin 'barebones', 'cli-only', 'cli-plus-skills') { return $null }
+    if ($Record.mode -ne 'agent' -or $Record.taskStatus -notin 'pass', 'partial', 'fail', 'asked_before_admin' -or -not $Record.tokens) { return $null }
     $tokens = $Record.tokens
     $checks = @($Record.checks | ForEach-Object {
             $c = [ordered]@{ id = $_.id; kind = $_.required ? 'required' : 'improvement'; passed = [bool]$_.passed; source = 'harness' }
@@ -239,7 +273,7 @@ function ConvertTo-TrialResult {
         model         = $Record.model
         trial         = [int]$Record.iteration
         startedAt     = $StartedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-        outcome       = 'valid'
+        outcome       = $Record.taskStatus -eq 'asked_before_admin' ? 'asked-before-admin' : 'valid'
         # A partly done task (some required checks passed) is not a pass.
         passed        = $Record.taskStatus -eq 'pass'
         improvements  = [ordered]@{ met = @($improvements | Where-Object passed).Count; total = $improvements.Count }
@@ -252,6 +286,7 @@ function ConvertTo-TrialResult {
             wallClockMs     = [int64]$Record.durationMs
         }
     }
+    if ($WinappVersion) { $result.Insert(3, 'winappVersion', $WinappVersion) }
     if ($skills.Count) { $result.skills = $skills }
     if ($cmdCounts) { $result.winappCommands = $commandCounts }
     return $result
@@ -269,7 +304,8 @@ function Format-Rate {
     if (-not $n) { return '—' }
     $p = @($Runs | Where-Object { $_.taskStatus -eq 'pass' }).Count
     $pa = @($Runs | Where-Object { $_.taskStatus -eq 'partial' }).Count
-    return "$p/$n$(if ($pa) { " (+$pa partial)" })"
+    $ask = @($Runs | Where-Object { $_.taskStatus -eq 'asked_before_admin' }).Count
+    return "$p/$n$(if ($pa) { " (+$pa partial)" })$(if ($ask) { " ($ask asked before admin)" })"
 }
 
 function Format-Num { param($v, [string]$f = '0') if ($null -eq $v) { return '—' } return ([double]$v).ToString($f, [Globalization.CultureInfo]::InvariantCulture) }
@@ -319,9 +355,9 @@ function Write-TaskSummary {
     foreach ($k in $Header.Keys) { & $line "- **$k**: $($Header[$k])" }
     $agentRuns = @($Runs | Where-Object { $_.mode -eq 'agent' })
     $credits = 0; foreach ($r in @($agentRuns)) { if ($null -ne $r.aiCredits) { $credits += $r.aiCredits } }
-    & $line "- **Runs**: $($Runs.Count) ($(@($Runs | Where-Object taskStatus -in 'pass','partial','fail').Count) checked; credits $(Format-Num $credits '0.0'))"
+    & $line "- **Runs**: $($Runs.Count) ($(@($Runs | Where-Object taskStatus -in 'pass','partial','fail','asked_before_admin').Count) checked; credits $(Format-Num $credits '0.0'))"
     & $line
-    & $line 'Score: pass 1, partial 0.5, fail/timeout/error 0. Skill tokens: SKILL.md content delivered plus plugin files the agent read (chars/4).'
+    & $line 'Score: pass 1, partial 0.5, fail/timeout/error/asked-before-admin 0. Pass is the full-pass count; partials and asked-before-admin runs are listed beside it and never counted as passes. Skill tokens: SKILL.md content delivered plus plugin files the agent read (chars/4).'
     & $line
 
     $cols = '| Runs | Pass | Score | Minutes | Credits | Input tok | Output tok | Skill tok | Turns | Tool calls | winapp cmds | Unsafe runs |'
@@ -350,15 +386,15 @@ function Write-TaskSummary {
         $f = $g.Group[0]; & $line "| $($f.task) | $($f.configuration) $(& $fmt (Get-RunGroupRow $g.Group))"
     }
     & $line
-    & $line '## Versus none'
+    & $line '## Versus barebones'
     & $line
-    & $line 'Paired by task, model, and iteration with the `none` run (no `winapp`, no plugins). Positive score means the configuration did better than `none`.'
+    & $line 'Paired by task, model, and iteration with the `barebones` run (no `winapp`, no plugins). Positive score means the configuration did better than `barebones`.'
     & $line
-    & $line '| Configuration | Model | Pairs | Score Δ | Pass (config / none) | Minutes Δ | Credits Δ | Output tok Δ |'
+    & $line '| Configuration | Model | Pairs | Score Δ | Pass (config / barebones) | Minutes Δ | Credits Δ | Output tok Δ |'
     & $line '|---|---|---:|---:|---|---:|---:|---:|'
     $none = @{}
-    foreach ($r in $Runs | Where-Object configuration -eq 'none') { $none["$($r.task)|$($r.model)|$($r.iteration)"] = $r }
-    foreach ($g in $Runs | Where-Object configuration -ne 'none' | Group-Object configuration, model | Sort-Object Name) {
+    foreach ($r in $Runs | Where-Object configuration -eq 'barebones') { $none["$($r.task)|$($r.model)|$($r.iteration)"] = $r }
+    foreach ($g in $Runs | Where-Object configuration -ne 'barebones' | Group-Object configuration, model | Sort-Object Name) {
         $pairs = @($g.Group | ForEach-Object { $k = "$($_.task)|$($_.model)|$($_.iteration)"; if ($none.ContainsKey($k)) { [pscustomobject]@{ c = $_; n = $none[$k] } } })
         if (-not $pairs) { continue }
         $f = $g.Group[0]
@@ -396,4 +432,4 @@ function Get-HostArchitecture {
 }
 
 Export-ModuleMember -Function Get-HostArchitecture, Get-ConfigurationNames, Get-ConfigurationSpec, Get-TaskDefinitions, New-SandboxConfiguration, Read-ToolActivity,
-Get-UnsafeActions, Remove-SecretFromFiles, ConvertTo-TrialResult, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate
+Get-UnsafeActions, Remove-SecretFromFiles, ConvertTo-TrialResult, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate, Get-AdminApprovalLine, Get-WinappCliNote, Get-TaskPrompt, Test-StoppedForAdmin

@@ -53,7 +53,9 @@ export function ResultsView({ entries, runDir, cursorIndex = 0, onCursorClamp }:
         <Text color="gray">{"  "}{"─".repeat(146)}</Text>
         {aggregated.map((agg, i) => {
           const shortModel = agg.model.replace("claude-", "");
-          const scoreStr = agg.iterations > 1
+          const scoreStr = agg.scoredTrials === 0
+            ? "\u2014"
+            : agg.iterations > 1
             ? `${agg.avgScore} (${agg.minScore}-${agg.maxScore})`
             : String(agg.avgScore);
           const grade = getGrade(agg.avgScore);

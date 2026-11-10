@@ -6,7 +6,7 @@ const base: TrialResultInput = {
   release: "dev",
   commit: "a".repeat(40),
   scenario: "Calc",
-  condition: "cli-plus-plugins [1/2]",
+  condition: "cli-plus-skills [1/2]",
   model: "claude-sonnet-5.5",
   iteration: 1,
   startedAt: new Date("2026-10-27T18:00:00.123Z"),
@@ -25,7 +25,7 @@ const base: TrialResultInput = {
 
 test("gates are required; quality checks and requirements are improvements", () => {
   const t = toTrialResult(base) as any;
-  assert.equal(t.arm, "cli-plus-plugins");
+  assert.equal(t.arm, "cli-plus-skills");
   assert.equal(t.scenario, "calc");
   assert.equal(t.startedAt, "2026-10-27T18:00:00Z");
   assert.equal(t.passed, true);
@@ -65,11 +65,51 @@ test("agent setups that are not one of the three arms are skipped", () => {
 });
 
 test("a ref suffix such as @main does not change the arm", () => {
-  assert.equal(toTrialResult({ ...base, condition: "cli-plus-plugins@main" })?.arm, "cli-plus-plugins");
+  assert.equal(toTrialResult({ ...base, condition: "cli-plus-skills@main" })?.arm, "cli-plus-skills");
   assert.equal(toTrialResult({ ...base, condition: "published@main" }), null);
+});
+
+test("winapp version is recorded when known", () => {
+  assert.equal((toTrialResult({ ...base, winappVersion: "0.7.1+91945557" }) as any).winappVersion, "0.7.1+91945557");
+  assert.equal("winappVersion" in (toTrialResult(base) as any), false);
 });
 
 test("file name follows the benchmark-data layout", () => {
   const t = toTrialResult(base) as any;
-  assert.equal(trialFileName(t), "calc__cli-plus-plugins__claude-sonnet-5.5__1.json");
+  assert.equal(trialFileName(t), "calc__cli-plus-skills__claude-sonnet-5.5__1.json");
+});
+
+test("harness errors and timeouts are not reported as app failures", () => {
+  const h = toTrialResult({ ...base, harnessError: "judge timed out" }) as any;
+  assert.equal(h.outcome, "harness-error");
+  assert.equal(h.passed, false);
+  assert.equal(h.error, "judge timed out");
+  assert.equal((toTrialResult({ ...base, timedOut: true }) as any).outcome, "timed-out");
+});
+
+test("requirements the judge did not rule on are listed, not failed", () => {
+  const t = toTrialResult({ ...base, requirements: [{ id: 1, status: "pass" }, { id: 2, status: "not-run" as any }] }) as any;
+  assert.deepEqual(t.requirementsNotRun, [2]);
+  assert.equal(t.checks.some((c: any) => c.id === "requirement-2"), false);
+  assert.equal(t.scoringVersion, 3);
+});
+
+test("launch level counts how far the app got", () => {
+  const mk = (ids: Record<string, string>) => (toTrialResult({
+    ...base,
+    checks: [...base.checks, ...Object.entries(ids).map(([id, status]) => ({ id, label: id, kind: "launch", source: "harness", status }))] as any,
+  }) as any).launchLevel;
+  assert.equal(mk({ L2: "fail" }), 1);
+  assert.equal(mk({ L2: "pass" }), 2);
+  assert.equal(mk({ L2: "pass", L3: "pass" }), 3);
+  assert.equal((toTrialResult({ ...base, runs: false }) as any).launchLevel, 0);
+});
+
+test("launch level is left out when level 2 was not measured", () => {
+  const mk = (ids: Record<string, string>) => toTrialResult({
+    ...base,
+    checks: [...base.checks, ...Object.entries(ids).map(([id, status]) => ({ id, label: id, kind: "launch", source: "harness", status }))] as any,
+  }) as any;
+  assert.equal("launchLevel" in mk({ L2: "na" }), false);
+  assert.equal("launchLevel" in mk({}), false);
 });

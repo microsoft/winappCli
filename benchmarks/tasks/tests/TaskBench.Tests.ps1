@@ -155,17 +155,17 @@ Describe 'Read-ToolActivity' {
 
 Describe 'Configurations and sandbox configuration' {
     It 'maps configurations to plugins and agent' {
-        (Get-ConfigurationSpec 'both-agent').Plugins | Should -Be @('winapp', 'winui')
-        (Get-ConfigurationSpec 'both-agent').Agent | Should -Be 'winappcli:winapp'
-        (Get-ConfigurationSpec 'none').Plugins | Should -BeNullOrEmpty
+        (Get-ConfigurationSpec 'full-suite').Plugins | Should -Be @('winapp', 'winui')
+        (Get-ConfigurationSpec 'full-suite').Agent | Should -Be 'winappcli:winapp'
+        (Get-ConfigurationSpec 'barebones').Plugins | Should -BeNullOrEmpty
         (Get-ConfigurationSpec 'cli-only').Plugins | Should -BeNullOrEmpty
-        (Get-ConfigurationSpec 'cli-plus-plugins').Plugins | Should -Be @('winapp', 'winui')
+        (Get-ConfigurationSpec 'cli-plus-skills').Plugins | Should -Be @('winapp', 'winui')
         { Get-ConfigurationSpec 'both' } | Should -Throw
         { Get-ConfigurationSpec 'bogus' } | Should -Throw
     }
-    It 'hides winapp from the agent only in none' {
-        (Get-ConfigurationSpec 'none').HideWinapp | Should -BeTrue
-        foreach ($name in 'cli-only', 'cli-plus-plugins', 'winapp', 'winui', 'both-agent') {
+    It 'hides winapp from the agent only in barebones' {
+        (Get-ConfigurationSpec 'barebones').HideWinapp | Should -BeTrue
+        foreach ($name in 'cli-only', 'cli-plus-skills', 'winapp-skills', 'winui-skills', 'full-suite') {
             (Get-ConfigurationSpec $name).HideWinapp | Should -BeFalse
         }
     }
@@ -232,24 +232,24 @@ Describe 'Summary' {
         Get-StatusScore 'timeout' | Should -Be 0
     }
     It 'writes a summary when no run recorded credits' {
-        $runs = @([pscustomobject]@{ runId = '001'; task = 't1'; configuration = 'none'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'harness_error'; taskReason = 'no events'; durationMs = 100; aiCredits = $null; tokens = $null; skillContextTokensApprox = 0; pluginReadChars = 0; modelTurns = 0; toolCalls = 0; winappCommandsRun = @(); unsafeActions = @(); skillsLoaded = @() })
+        $runs = @([pscustomobject]@{ runId = '001'; task = 't1'; configuration = 'barebones'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'harness_error'; taskReason = 'no events'; durationMs = 100; aiCredits = $null; tokens = $null; skillContextTokensApprox = 0; pluginReadChars = 0; modelTurns = 0; toolCalls = 0; winappCommandsRun = @(); unsafeActions = @(); skillsLoaded = @() })
         $path = Join-Path $TestDrive 'summary-nocredits.md'
         { Write-TaskSummary -Runs $runs -Path $path -Header ([ordered]@{ Results = 'x' }) } | Should -Not -Throw
         $path | Should -Exist
     }
     It 'writes grouped tables' {
         $runs = @(
-            [pscustomobject]@{ runId = '001'; task = 't1'; configuration = 'none'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'pass'; taskReason = ''; durationMs = 60000; aiCredits = 10; tokens = [pscustomobject]@{ input = 100; output = 10 }; skillContextTokensApprox = 0; pluginReadChars = 0; modelTurns = 3; toolCalls = 5; winappCommandsRun = @(); unsafeActions = @(); skillsLoaded = @() }
-            [pscustomobject]@{ runId = '002'; task = 't1'; configuration = 'winapp'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'partial'; taskReason = 'x|y'; durationMs = 120000; aiCredits = 20; tokens = [pscustomobject]@{ input = 200; output = 20 }; skillContextTokensApprox = 1000; pluginReadChars = 400; modelTurns = 4; toolCalls = 6; winappCommandsRun = @('package'); unsafeActions = @([pscustomobject]@{ kind = 'trust-root-ca' }); skillsLoaded = @('winapp-package') }
+            [pscustomobject]@{ runId = '001'; task = 't1'; configuration = 'barebones'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'pass'; taskReason = ''; durationMs = 60000; aiCredits = 10; tokens = [pscustomobject]@{ input = 100; output = 10 }; skillContextTokensApprox = 0; pluginReadChars = 0; modelTurns = 3; toolCalls = 5; winappCommandsRun = @(); unsafeActions = @(); skillsLoaded = @() }
+            [pscustomobject]@{ runId = '002'; task = 't1'; configuration = 'winapp-skills'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'partial'; taskReason = 'x|y'; durationMs = 120000; aiCredits = 20; tokens = [pscustomobject]@{ input = 200; output = 20 }; skillContextTokensApprox = 1000; pluginReadChars = 400; modelTurns = 4; toolCalls = 6; winappCommandsRun = @('package'); unsafeActions = @([pscustomobject]@{ kind = 'trust-root-ca' }); skillsLoaded = @('winapp-package') }
         )
         $path = Join-Path $TestDrive 'summary.md'
         Write-TaskSummary -Runs $runs -Path $path -Header ([ordered]@{ Results = 'x' })
         $text = Get-Content -Raw $path
-        $text | Should -Match '\| winapp \| 1 \| 0/1 \(\+1 partial\) \| 0\.50 \| 2\.0 \| 20\.0'
+        $text | Should -Match '\| winapp-skills \| 1 \| 0/1 \(\+1 partial\) \| 0\.50 \| 2\.0 \| 20\.0'
         $text | Should -Match '\| 1100 \|'
         $text | Should -Match 'trust-root-ca'
         $text | Should -Match 'x/y'
-        $text | Should -Match '\| winapp \| m \| 1 \| -0\.50 \| 0 / 1 \| \+1\.0 \| \+10\.0 \| \+10 \|'
+        $text | Should -Match '\| winapp-skills \| m \| 1 \| -0\.50 \| 0 / 1 \| \+1\.0 \| \+10\.0 \| \+10 \|'
     }
 }
 
@@ -258,7 +258,7 @@ Describe 'ConvertTo-TrialResult' {
         $script:sha = 'a' * 40
         function script:New-Record($status = 'pass', $checks = $null) {
             [pscustomobject]@{
-                mode = 'agent'; taskStatus = $status; configuration = 'cli-plus-plugins'; model = 'claude-sonnet-5.5'; iteration = 2
+                mode = 'agent'; taskStatus = $status; configuration = 'cli-plus-skills'; model = 'claude-sonnet-5.5'; iteration = 2
                 durationMs = 1000; aiCredits = 5.23; nanoAiu = 5230000000; premiumRequests = 1
                 tokens = [pscustomobject]@{ input = 10; output = 5; cacheRead = 7; cacheWrite = 1 }
                 skillsLoaded = @('winapp-msix')
@@ -273,7 +273,7 @@ Describe 'ConvertTo-TrialResult' {
     }
     It 'maps arm, required, usage and skills' {
         $t = Convert (New-Record)
-        $t.arm | Should -Be 'cli-plus-plugins'
+        $t.arm | Should -Be 'cli-plus-skills'
         $t.trial | Should -Be 2
         $t.passed | Should -BeTrue
         $t.checks[0].kind | Should -Be 'required'
@@ -294,7 +294,7 @@ Describe 'ConvertTo-TrialResult' {
         ($t.winappCommands | Where-Object command -eq 'cert generate').count | Should -Be 1
         $dir = Join-Path $TestDrive 'counts\v0.7.1'
         New-Item -ItemType Directory $dir -Force | Out-Null
-        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-plugins__claude-sonnet-5.5__2.json')
+        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-skills__claude-sonnet-5.5__2.json')
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'counts') 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
     }
@@ -310,11 +310,21 @@ Describe 'ConvertTo-TrialResult' {
         $t.winappCommands[0].count | Should -Be 4
     }
     It 'skips debugging configurations the schema has no arm for' {
-        $r = New-Record; $r.configuration = 'winapp'
+        $r = New-Record; $r.configuration = 'winapp-skills'
         Convert $r | Should -BeNullOrEmpty
     }
     It 'does not count a partial result as a pass' {
         (Convert (New-Record 'partial')).passed | Should -BeFalse
+    }
+    It 'records the winapp version when given, and the validator accepts it' {
+        $t = ConvertTo-TrialResult -Record (New-Record) -Task 'winforms-msix' -Set 'tuning' -Release 'v0.7.1' -Commit $script:sha -StartedAt ([datetime]'2026-10-27T18:00:00Z') -WinappVersion '0.7.1+91945557'
+        $t.winappVersion | Should -Be '0.7.1+91945557'
+        (Convert (New-Record)).Contains('winappVersion') | Should -BeFalse
+        $dir = Join-Path $TestDrive 'version\v0.7.1'
+        New-Item -ItemType Directory $dir -Force | Out-Null
+        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-skills__claude-sonnet-5.5__2.json')
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'version') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
     }
     It 'skips runs without a checked result' {
         Convert (New-Record 'harness_error') | Should -BeNullOrEmpty
@@ -322,8 +332,61 @@ Describe 'ConvertTo-TrialResult' {
     It 'writes a file the validator accepts' {
         $dir = Join-Path $TestDrive 'v0.7.1'
         New-Item -ItemType Directory $dir | Out-Null
-        (Convert (New-Record)) | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-plugins__claude-sonnet-5.5__2.json')
+        (Convert (New-Record)) | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-skills__claude-sonnet-5.5__2.json')
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path $TestDrive 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
+    }
+}
+
+
+Describe 'Admin approval' {
+    BeforeAll {
+        function script:Rec($status) {
+            [pscustomobject]@{ mode = 'agent'; taskStatus = $status; configuration = 'cli-plus-skills'; model = 'm'; iteration = 1
+                durationMs = 1; aiCredits = 1; nanoAiu = 1; premiumRequests = 1; skillsLoaded = @()
+                tokens = [pscustomobject]@{ input = 1; output = 1; cacheRead = 0 }
+                checks = @([pscustomobject]@{ id = 'c'; passed = $false; required = $true; detail = '' }) }
+        }
+    }
+    It 'detects an agent that stopped to ask for admin approval' {
+        Test-StoppedForAdmin 'This step needs administrator rights, so I need your approval before I continue.' | Should -BeTrue
+        Test-StoppedForAdmin 'The build failed on a missing file. Let me know if you want me to re-run it as administrator.' | Should -BeFalse
+        Test-StoppedForAdmin 'Run as administrator worked. The build failed on a missing file. I need your approval to retry.' | Should -BeFalse
+        Test-StoppedForAdmin 'Done. The package is installed.' | Should -BeFalse
+        Test-StoppedForAdmin $null | Should -BeFalse
+    }
+    It 'states the standing approval' {
+        Get-AdminApprovalLine | Should -Match 'approval'
+    }
+    It 'writes asked_before_admin as its own outcome, never a pass' {
+        $t = ConvertTo-TrialResult -Record (Rec 'asked_before_admin') -Task 'x' -Set 'tuning' -Release 'v1' -Commit ('a' * 40) -StartedAt ([datetime]'2026-10-27T18:00:00Z')
+        $t.outcome | Should -Be 'asked-before-admin'
+        $t.passed | Should -BeFalse
+    }
+    It 'shows full passes, partials and asked-before-admin runs separately' {
+        $runs = @((Rec 'pass'), (Rec 'partial'), (Rec 'asked_before_admin'), (Rec 'fail'))
+        Format-Rate $runs | Should -Be '1/4 (+1 partial) (1 asked before admin)'
+        Get-StatusScore 'asked_before_admin' | Should -Be 0
+    }
+    It 'loads the ask-first task flag' {
+        $defs = Get-TaskDefinitions -Root (Join-Path $PSScriptRoot '..\tasks')
+        ($defs | Where-Object Id -eq 'asks-before-elevating').AskFirst | Should -BeTrue
+        ($defs | Where-Object Id -eq 'startup-task').AskFirst | Should -BeFalse
+    }
+}
+
+Describe 'Get-TaskPrompt' {
+    It 'tells every configuration with winapp on PATH about it, and barebones nothing' {
+        $task = [pscustomobject]@{ Prompt = 'Do it.'; AskFirst = $false }
+        $bare = Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'barebones')
+        $bare | Should -Be "Do it. $(Get-AdminApprovalLine)"
+        $bare | Should -Not -Match 'winapp'
+        $cli = Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'cli-only')
+        $cli | Should -Be "Do it. $(Get-WinappCliNote) $(Get-AdminApprovalLine)"
+        Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'cli-plus-skills') | Should -Be $cli
+    }
+    It 'leaves out the admin approval for ask-first tasks' {
+        $task = [pscustomobject]@{ Prompt = 'Do it.'; AskFirst = $true }
+        Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'cli-only') | Should -Be "Do it. $(Get-WinappCliNote)"
     }
 }
