@@ -64,7 +64,7 @@ with `-Configuration`):
 # Expanded run list and a credit estimate; no Sandbox, no model calls
 pwsh benchmarks\tasks\run.ps1 -Plan
 
-# Prompt lint: errors when a prompt names winapp or a skill; warns on description overlap
+# Prompt lint: errors when a prompt names winapp, a skill, a tool or command name, or quotes a reference command; warns on description overlap
 pwsh benchmarks\tasks\run.ps1 -Lint
 
 # Checker validation, no model calls: each task's reference solution must pass, doing nothing must fail
@@ -130,22 +130,32 @@ Each task is a folder under `tasks\`:
 
 | File | Purpose |
 |---|---|
-| `task.json` | `prompt`, demand `cluster`, `workspace`, `timeoutMinutes`, `pilot`, `lintAllow`, and a plain description of every check |
+| `task.json` | `prompt`, demand `cluster`, `workspace`, `timeoutMinutes`, `pilot`, `lintAllow`, `reference`, and a plain description of every check |
 | `fixture\` | Files copied into the workspace (optional) |
 | `setup.ps1` | Runs in the Sandbox before the agent to create state the fixture can't hold: certificates, packages, a running app (optional) |
 | `check.ps1` | The deterministic checker. Writes `check.json` with `status`, `why`, and every check |
 | `solve.ps1` | A reference solution, used only by `-Validate` to prove the checker can pass |
 
-Prompts are written as a developer would ask, without skill names or the word winapp. Every task
-installs, signs, builds, or drives something, so it can't be completed by explaining.
+Prompts describe the outcome a developer wants, as they would ask for it: what should work afterwards, plus the file names, paths and identity values the checker needs. They don't name winapp, a skill, a tool, a command, a flag or the fix. A prompt may quote a command the user already ran, for example in an error message, when the task lists it in `lintAllow`. Every task installs, signs, builds, or drives something, so it can't be completed by explaining.
+
+`reference` holds the answer for reviewers, and is never sent to the agent. `task.json` is not copied into the Sandbox; the agent gets only `prompt`, the standing admin approval line, and the `winapp` line. `-Lint` and the tests fail if a prompt quotes a reference command.
+
+```json
+"reference": {
+  "approach": "The package is unsigned. Sign it in place with certs\\fabrikam-codesign.pfx without changing its identity.",
+  "commands": ["winapp sign .\\dist\\Fabrikam.Tasks_2.3.0.0_x64.msix .\\certs\\fabrikam-codesign.pfx --password <password>"]
+}
+```
+
+[PROMPT-REVIEW.md](PROMPT-REVIEW.md) lists each prompt before and after the #1253 rewrite, and which tasks still need a redesign.
 
 | Task | Cluster | What the user asks |
 |---|---|---|
 | `winforms-msix` (pilot) | MSIX packaging | Package a WinForms app as a signed MSIX and install it |
 | `electron-msix` | Electron packaging | Package an Electron app as a signed MSIX and install it |
-| `wpf-identity-toast` (pilot) | Notifications and identity | A WPF app's toast throws "Element not found"; give it identity |
+| `wpf-identity-toast` (pilot) | Notifications and identity | A WPF app's toast throws "Element not found"; make it work without changing the toast code |
 | `install-untrusted` (pilot) | Signing | Install an MSIX that fails with 0x800B0109 |
-| `sign-with-pfx` | Signing | Sign an MSIX with a password-protected PFX |
+| `sign-with-pfx` | Signing | A pipeline left an unsigned MSIX; make it ready to ship with the company PFX |
 | `publisher-mismatch` | Signing | `SignerSign() failed (0x8007000b)`: fix, sign, install |
 | `exec-alias` | Identity and manifest | Make `contoso-notes` runnable from any terminal after install |
 | `file-association` | Identity and manifest | Register the app for `.ctnote` files |
@@ -158,7 +168,7 @@ installs, signs, builds, or drives something, so it can't be completed by explai
 
 ### Add a task
 
-1. Copy the closest existing folder under `tasks\` and edit `task.json`: a natural prompt (no skill names, no "winapp"), a cluster, and a plain description of every check.
+1. Copy the closest existing folder under `tasks\` and edit `task.json`: a prompt that states the outcome (see above), a cluster, a `reference` with the approach and commands, and a plain description of every check.
 2. Put what the agent starts with in `fixture\`, or in `setup.ps1` when it can't be a file (certificates, installed packages, a running app).
 3. Write `check.ps1` so each requirement is a separate check with its own `why`. Check the end state of the machine, not what the agent said.
 4. Write `solve.ps1`, the reference solution. Run `run.ps1 -Validate -Task <name>`: the solution must pass and doing nothing must fail (the reverse for `adminPolicy: ask-first` tasks).
@@ -203,8 +213,9 @@ Recorded per run in `unsafeActions`; the Sandbox prevents harm, so these are obs
 
 `results\<stamp>\`:
 
-- `summary.md`: by configuration, by model and configuration, by task and configuration, then one
-  row per run with the checker's reason, skills loaded, `winapp` commands run, and unsafe actions.
+- `summary.md`: by configuration, then by configuration without sanity checks (below), by model and
+  configuration, by task and configuration, then one row per run with the checker's reason, skills
+  loaded, `winapp` commands run, and unsafe actions.
 - `runs.jsonl`: one object per run, including every check, tokens, credits, skill context tokens,
   plugin files read, commands, and the final response.
 - `runs\<runId>\`: `events.jsonl`, `agent.out`/`.err`, `setup.log`, `baseline.json`, `state.json`,
@@ -212,6 +223,10 @@ Recorded per run in `unsafeActions`; the Sandbox prevents harm, so these are obs
 
 **Skill tokens** in the summary is the `SKILL.md` content Copilot delivered to the model plus the
 plugin files the agent read with tools (characters / 4).
+
+### Sanity checks
+
+A task that `barebones` (no `winapp`, no plugins) passes in 90% or more of its checked runs is a **sanity check**. It can't show whether `winapp` or the skills help, so it stays out of the headline (#1253). `summary.md` names these tasks and repeats the by-configuration table without them. Runs that never reached the checker (harness errors, preflight failures) don't count toward the rate. If no configuration passes a task, check the checker for a bug before reading anything into it.
 
 To share a run, zip only its result files (no app sources or build output):
 `pwsh benchmarks\export-results.ps1 -Path <results folder> -Out results.zip`. Add `-IncludeLogs` for
