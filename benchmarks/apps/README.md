@@ -125,7 +125,7 @@ Share a run without its app sources and build output (which can reach gigabytes)
    WinUI projects build only there; `build-output.txt` and the trial log say which builder was used. Then:
    - **G0**, the right framework;
    - **G3**, Native AOT, for scenarios with `gates: [native_aot]`: a harness-run
-     `winapp run --aot -c Release` must publish without trim/AOT warnings and show a window;
+     `winapp run --aot -c Release` must publish without trim/AOT warnings and show a window. The gate stops after 20 minutes (set `BENCH_AOT_GATE_TIMEOUT_MINUTES` to change it), kills its processes, and records the trial as `harness-error`;
    - launch with `winapp run`.
 4. **Quality checks.** Source and build checks, plus UI Automation checks on the running app:
    accessible names and keyboard traversal.
@@ -137,7 +137,7 @@ Share a run without its app sources and build output (which can reach gigabytes)
 
 ## Scoring (v4)
 
-A failed gate (build, launch, G0, G3) scores **0** and skips the judge. The launch gate also fails when the app's only window is a Win32 dialog, such as ".NET is not installed". A trial where our tooling fails (the judge produced no result, or the desktop was locked during the UI checks) is a harness error. The harness waits for the desktop to unlock and re-judges the same app, without running the agent again, up to 2 times; earlier attempts are kept under `.attempts\<trial>\` and `results.json` records `harness_retries`. If it still fails, the trial has outcome `harness-error` and no score. Otherwise:
+A failed gate (build, launch, G0, G3) scores **0** and skips the judge. The launch gate also fails when the app's only window is a Win32 dialog, such as ".NET is not installed". A trial where our tooling fails (the judge produced no result, the desktop was locked during the UI checks, or the Native AOT gate timed out) is a harness error. When the app built, the harness waits for the desktop to unlock and re-judges the same app, without running the agent again, up to 2 times; earlier attempts are kept under `.attempts\<trial>\` and `results.json` records `harness_retries`. If it still fails, the trial has outcome `harness-error`, no score, and is left out of averages. Otherwise:
 
 **score = 60 × requirements + 30 × quality checks + 10 × design** (each part is its pass rate;
 parts that don't apply are dropped and the rest renormalized).
@@ -222,8 +222,7 @@ A run must not change the machine outside the results folder:
 - Preflight refuses to start when the user PATH is over 4,000 characters, or user + machine over
   16,000. It also removes trial folders left in the PATH.
 - Every trial and revalidation undoes its own PATH entries and development package registrations.
-- The queue keeps the system awake while it runs. Trials that span a sleep or host suspend are set
-  aside (`results.suspended.json`) and retried.
+- The queue keeps Windows from sleeping while it runs. It does not stop the screen from locking, so keep the desktop unlocked (set the lock timeout to never). Trials that span a sleep or host suspend anyway are set aside (`results.suspended.json`) and retried.
 
 Any process that points `DOTNET_CLI_HOME` at a new folder must also set
 `DOTNET_ADD_GLOBAL_TOOLS_TO_PATH=false`. Otherwise the .NET SDK permanently adds that folder to

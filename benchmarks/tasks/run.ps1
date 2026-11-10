@@ -304,7 +304,10 @@ if (Test-Path $runsPath) {
 }
 $pending = @($runList | Where-Object { -not $completed.Contains((& $runKey $_.Task.Id $_.Configuration $_.Model $_.Iteration $_.Mode)) })
 $step = 0
+Import-Module (Join-Path $PSScriptRoot 'lib\KeepAwake.psm1') -Force
 try {
+    # A host sleep mid-run turns the current run into a harness error and stalls the rest.
+    if (-not (Enable-KeepAwake)) { Write-Warning 'Could not stop Windows from sleeping during the run; set the power plan to never sleep.' }
     foreach ($run in $pending) {
         $index++
         if ($MaxCredits -and $spent -ge $MaxCredits) { Write-Warning "Stopping: spent $([Math]::Round($spent, 1)) of -MaxCredits $MaxCredits."; break }
@@ -471,6 +474,7 @@ try {
     }
 }
 finally {
+    Disable-KeepAwake
     if ($sandboxId -and -not $KeepSandbox) { Stop-BenchSandbox $sandboxId }
     if ($records.Count) {
         Write-TaskSummary -Runs @($records) -Path (Join-Path $OutDir 'summary.md') -Header ([ordered]@{
