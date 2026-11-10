@@ -16,6 +16,9 @@
 #include <oleauto.h>
 #include <xamlom.h>
 #include "DevToolsProjected.h"
+#include <winrt/Microsoft.UI.Composition.h>
+#include <winrt/Microsoft.UI.Xaml.Hosting.h>
+#include <winrt/Windows.UI.Composition.h>
 #include <sddl.h>
 #include <atomic>
 #include <mutex>

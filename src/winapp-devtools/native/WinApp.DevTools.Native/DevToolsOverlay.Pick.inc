@@ -819,6 +819,7 @@ void DevToolsOverlay_SetCardFreeze(DevToolsCardFreezeFn freeze) { g_cardFreeze =
 void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read) { g_srcRead = read; }
 void DevToolsOverlay_SetCSharpSourceReader(DevToolsCSharpSourceReadFn read) { g_csharpRead = read; }
 void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read) { g_isDeclared = read; }
+void DevToolsOverlay_SetHostBackdropReader(DevToolsHostBackdropFn read) { g_hostBackdropRead = read; }
 
 // Request inspector presentation on the UI thread. The tap chooses the registered client or native window.
 static void OnInspectClick(void*, void*)

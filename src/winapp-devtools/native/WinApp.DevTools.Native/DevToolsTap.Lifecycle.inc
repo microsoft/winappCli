@@ -62,6 +62,35 @@ static bool ConfirmAppContentPanel(InstanceHandle h)
     return false;
 }
 
+// The census root above an app's content is the DesktopWindowXamlSource that hosts its window, and that is where both
+// a Window.SystemBackdrop and a backdrop controller's brush end up. False when the root is not one.
+static bool HostHasSystemBackdrop(IInspectable* element, bool* hasBackdrop)
+{
+    *hasBackdrop = false;
+    if (!g_diag || !element) return false;
+    InstanceHandle handle = 0;
+    if (FAILED(g_diag->GetHandleFromIInspectable(element, &handle)) || !handle) return false;
+    InstanceHandle root = 0;
+    {
+        CensusSharedLock lock;
+        root = CensusRootOf_nolock(handle);
+    }
+    winrt::com_ptr<IInspectable> object;
+    if (!root || FAILED(g_diag->GetIInspectableFromHandle(root, object.put())) || !object) return false;
+    try {
+        winrt::Windows::Foundation::IInspectable projected{ nullptr };
+        winrt::copy_from_abi(projected, object.get());
+        const auto source = projected.try_as<winrt::Microsoft::UI::Xaml::Hosting::DesktopWindowXamlSource>();
+        const auto target = projected.try_as<winrt::Microsoft::UI::Composition::ICompositionSupportsSystemBackdrop>();
+        if (!source && !target) return false;
+        *hasBackdrop = (source && source.SystemBackdrop()) || (target && target.SystemBackdrop());
+        return true;
+    } catch (const winrt::hresult_error& error) {
+        Log(L"overlay.theme backdrop unreadable root=%llu hr=0x%08X", (unsigned long long)root, error.code().value);
+        return false;
+    }
+}
+
 static InstanceHandle FindOutermostPanel(InstanceHandle wantCensusRoot, unsigned long long xamlRootKey) {
     // Gather every type-name candidate with its depth under the lock (cheap, no COM), then confirm shallowest first
     // OUTSIDE the lock. Splitting it this way keeps the census lock free of COM calls while still letting the runtime
@@ -231,6 +260,7 @@ static const wchar_t* TryBuildOverlayOnUiThread(std::wstring* errorMessage)
     DevToolsOverlay_SetCardFreeze(&CardFreezeBridge);
     DevToolsOverlay_SetSourceReader(&OverlaySourceBridge);
     DevToolsOverlay_SetDeclaredReader(&IsDeclaredElement);
+    DevToolsOverlay_SetHostBackdropReader(&HostHasSystemBackdrop);
     DevToolsOverlay_SetSurfaceSwitch(&SwitchActiveSurface_ui);
     // A Reactor element's C# call site, for the comment flyout.
     DevToolsOverlay_SetCSharpSourceReader(&OverlayCSharpBridge);

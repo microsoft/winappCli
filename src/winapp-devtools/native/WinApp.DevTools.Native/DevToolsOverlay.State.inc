@@ -540,6 +540,7 @@ static DevToolsCardFreezeFn     g_cardFreeze = nullptr;
 static DevToolsSourceReadFn     g_srcRead = nullptr;
 static DevToolsCSharpSourceReadFn g_csharpRead = nullptr;
 static DevToolsDeclaredFn       g_isDeclared = nullptr;
+static DevToolsHostBackdropFn   g_hostBackdropRead = nullptr;
 
 static const GUID IID_RoutedEventHandler_Del =
     { 0xDAE23D85, 0x69CA, 0x5BDF, { 0x80, 0x5B, 0x61, 0x61, 0xA3, 0xA2, 0x15, 0xCC } };

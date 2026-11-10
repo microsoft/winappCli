@@ -301,6 +301,9 @@ void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read);
 // on it is linked to its declaration.
 typedef bool (*DevToolsDeclaredFn)(InstanceHandle raw);
 void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read);
+// Reads whether the window hosting `element` has a SystemBackdrop. Returns false when it cannot tell.
+typedef bool (*DevToolsHostBackdropFn)(IInspectable* element, bool* hasBackdrop);
+void DevToolsOverlay_SetHostBackdropReader(DevToolsHostBackdropFn read);
 
 // The C# a Microsoft.UI.Reactor element was created by, for an element with no XAML declaration: the header line
 // (`<Counter> · App.cs:35`), the file on disk and the statement at the call site. UI thread only; reads a cache.
