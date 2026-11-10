@@ -1,5 +1,5 @@
 import type { RunEntry } from "../types.js";
-import { runBenchmark, type BenchmarkCallbacks } from "./benchmark.js";
+import { runBenchmark, revalidateBenchmark, type BenchmarkCallbacks } from "./benchmark.js";
 import {
   appendFileSync,
   existsSync,
@@ -14,7 +14,8 @@ import { join } from "path";
 import { spawnSync } from "child_process";
 import { loadRunFromDisk } from "./config.js";
 import { startKeepAwake, systemSuspendedBetween } from "./suspend-guard.js";
-import { DESKTOP_LOCKED_ERROR, LockedDesktopStreak } from "./desktop-lock.js";
+import { DESKTOP_LOCKED_ERROR, LockedDesktopStreak, probeInteractiveDesktop, waitForInteractiveDesktop } from "./desktop-lock.js";
+import { needsHarnessRetry, retryHarnessErrors } from "./harness-retry.js";
 
 export interface QueueOptions {
   maxBuildMinutes: number;
@@ -168,6 +169,14 @@ export class BenchmarkQueue {
           }
         }
         (globalThis as typeof globalThis & { gc?: () => void }).gc?.();
+        if (!suspended && needsHarnessRetry(entry) && this._running) {
+          await retryHarnessErrors(entry, {
+            revalidate: () => revalidateBenchmark(entry, this.runDir, { onOutput: emit, onStatusChange: notifyStatus }),
+            waitForDesktop: () => waitForInteractiveDesktop(probeInteractiveDesktop, { log: (m) => emit(`${m}\n`) }),
+            isRunning: () => this._running,
+            log: (m) => emit(`${m}\n`),
+          });
+        }
         const locked = entry.harnessError === DESKTOP_LOCKED_ERROR ? true : entry.runs ? false : undefined;
         if (this.lockedStreak.record(locked) && this._running) {
           this.stoppedReason = `Stopped: ${this.lockedStreak.current} trials in a row could not drive the UI because the desktop is locked. ` +

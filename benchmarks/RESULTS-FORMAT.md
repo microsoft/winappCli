@@ -43,6 +43,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `scoringVersion` | Optional. Which scoring rules produced the result. Results with different versions are not directly comparable |
 | `launchLevel` | Optional, `apps` only. 0 did not run, 1 a window exists, 2 controls respond to input, 3 the scenario's named main-screen element appeared. Left out when the app ran but level 2 could not be measured, for example because UI input could not be sent |
 | `requirementsNotRun` | Optional, `apps` only. Requirement numbers the judge did not rule on or reported as `not-run` because it could not verify them. They are not counted as failures and have no entry in `checks` |
+| `retries` | Optional, `apps` only. How many times the harness re-judged the same app after a harness error (at most 2). The result is from the last attempt; earlier attempts are kept in the run's `.attempts` folder |
 
 ## Outcome
 
@@ -54,7 +55,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `app-failed` | The app built but crashed or did not run. Shown as a "works rate" beside the score |
 | `build-failed` | No app was produced |
 | `timed-out` | The agent ran out of time |
-| `harness-error` | Our tooling failed (locked desktop, judge never ran). `error` is set. Excluded from pass rates and rerun |
+| `harness-error` | Our tooling failed (locked desktop, judge never ran). `error` is set. Excluded from pass rates. `apps` re-judges the same app automatically, up to 2 times, before recording it (see `retries`) |
 | `asked-before-admin` | `tasks` only: the agent stopped to ask for administrator approval even though the prompt gave it. Shown as its own count, never a pass |
 
 Headline numbers use `valid` trials only and show "n valid of n total". Any outcome other than `valid` has `passed: false`.

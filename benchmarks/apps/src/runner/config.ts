@@ -590,6 +590,7 @@ export function loadRunFromDisk(
         subAgentDetails: tt.sub_agent_details,
         failReason: raw.fail_reason ?? (m.score === 0 ? (m.timeout ? "Timeout" : !m.builds ? "Build failed" : !m.runs ? "App failed to run" : undefined) : undefined),
         harnessError: raw.harness_error,
+        ...(raw.harness_retries ? { harnessRetries: raw.harness_retries } : {}),
         currentOutput: "",
         startedAt: raw.timestamp ? new Date(raw.timestamp) : undefined,
         finishedAt: raw.timestamp ? new Date(raw.timestamp) : undefined,

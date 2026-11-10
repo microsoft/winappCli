@@ -61,6 +61,8 @@ export interface TrialResultInput {
   harnessError?: string;
   /** The agent hit its time limit. Written as outcome `timed-out`. */
   timedOut?: boolean;
+  /** Times judging was automatically rerun after a harness error. */
+  retries?: number;
 }
 
 interface TrialCheck {
@@ -133,6 +135,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     outcome,
     passed: outcome === "valid" && checks.every((c) => c.kind !== "required" || c.passed),
     ...(input.harnessError ? { error: input.harnessError } : {}),
+    ...(input.retries ? { retries: input.retries } : {}),
     improvements: { met: improvements.filter((c) => c.passed).length, total: improvements.length },
     checks,
     scoringVersion: SCORING_VERSION,

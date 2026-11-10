@@ -86,6 +86,11 @@
       "minimum": 0,
       "maximum": 3
     },
+    "retries": {
+      "description": "apps only: how many times judging was automatically rerun on the same app after a harness error. The result is from the last attempt.",
+      "type": "integer",
+      "minimum": 1
+    },
     "requirementsNotRun": {
       "description": "apps only: 1-based ids of requirements the judge never ruled on or could not verify (not-run). They are not in checks and are not counted as failures.",
       "type": "array",

@@ -137,7 +137,7 @@ Share a run without its app sources and build output (which can reach gigabytes)
 
 ## Scoring (v3)
 
-A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where our tooling fails (the judge produced no result, or the desktop was locked during the UI checks) has outcome `harness-error`, no score, and is left out of averages. Otherwise:
+A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where our tooling fails (the judge produced no result, or the desktop was locked during the UI checks) is a harness error. The harness waits for the desktop to unlock and re-judges the same app, without running the agent again, up to 2 times; earlier attempts are kept under `.attempts\<trial>\` and `results.json` records `harness_retries`. If it still fails, the trial has outcome `harness-error`, no score, and is left out of averages. Otherwise:
 
 **score = 60 × requirements + 30 × quality checks + 10 × design** (each part is its pass rate;
 parts that don't apply are dropped and the rest renormalized).

@@ -4717,7 +4717,7 @@ function saveResults(
   config: ScenarioConfig,
   usage: Record<string, any>,
   /** Revalidation passes the original attempt's identity, or null when it is unknown. */
-  original?: { release: string; commit: string; startedAt: string } | null
+  original?: { release: string; commit: string; startedAt: string; winappVersion?: string } | null
 ) {
   // Extract structured validation data if available
   const valData = (entry as any)._validationData as {
@@ -4777,6 +4777,7 @@ function saveResults(
     },
     ...(entry.failReason ? { fail_reason: entry.failReason } : {}),
     ...(entry.harnessError ? { harness_error: entry.harnessError } : {}),
+    ...(entry.harnessRetries ? { harness_retries: entry.harnessRetries } : {}),
     ...(buildErrors ? { build_errors: buildErrors } : {}),
   };
   if ((entry as any)._setupScriptResults) {
@@ -4798,8 +4799,8 @@ function saveResults(
   if (isWindows) {
     try { results.toolchain = { winapp: resolveWinAppToolchain().version }; } catch { /* recorded elsewhere as a launch failure */ }
   }
-  // Revalidation rebuilds with today's CLI, which may not be the one the agent used, so only a fresh run records it.
-  let winappVersion: string | undefined;
+  // Revalidation rebuilds with today's CLI, which may not be the one the agent used, so it keeps the fresh run's version.
+  let winappVersion: string | undefined = original?.winappVersion;
   if (isWindows && original === undefined) {
     try { winappVersion = resolveWinAppToolchain().fullVersion; } catch { /* no CLI */ }
   }
@@ -4807,7 +4808,9 @@ function saveResults(
   const commit = original?.commit ?? currentCommit();
   const startedAt = original?.startedAt ?? entry.startedAt;
   // Kept here, not only in trial-result.json, so a failed judge can be retried without rerunning the agent.
-  if (original !== null && startedAt) results.attempt = { release, commit, started_at: new Date(startedAt).toISOString() };
+  if (original !== null && startedAt) {
+    results.attempt = { release, commit, started_at: new Date(startedAt).toISOString(), ...(winappVersion ? { winapp_version: winappVersion } : {}) };
+  }
   writeTextAtomic(join(trialDir, "results.json"), JSON.stringify(results, null, 2));
 
   // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
@@ -4844,6 +4847,7 @@ function saveResults(
       activity: summarizeActivity(join(trialDir, "session-logs-dir", "build-events.jsonl")),
       harnessError: entry.harnessError,
       timedOut: entry.completionReason === "hard_timeout",
+      retries: entry.harnessRetries,
     });
     if (trial) writeTextAtomic(join(trialDir, "trial-result.json"), JSON.stringify(trial, null, 2));
   }
@@ -4888,10 +4892,12 @@ function saveRevalidationResults(
     } catch {}
   }
   // Keep the original attempt's release, commit and start time; without them it can't be exported.
-  let original: { release: string; commit: string; startedAt: string } | null = null;
+  let original: { release: string; commit: string; startedAt: string; winappVersion?: string } | null = null;
   try {
     const a = JSON.parse(readFileSync(existingResults, "utf-8")).attempt;
-    if (a?.release && a.commit && a.started_at) original = { release: a.release, commit: a.commit, startedAt: a.started_at };
+    if (a?.release && a.commit && a.started_at) {
+      original = { release: a.release, commit: a.commit, startedAt: a.started_at, ...(a.winapp_version ? { winappVersion: a.winapp_version } : {}) };
+    }
   } catch {}
   saveResults(trialDir, entry, scenarioConfig, usage, original);
 }
@@ -4944,8 +4950,10 @@ export async function revalidateBenchmark(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     entry.status = "failed";
-    entry.score = 0;
+    // An exception here is our tooling, not the app, so the trial has no score.
+    entry.score = undefined;
     entry.failReason = `Revalidation failed: ${detail}`;
+    entry.harnessError = entry.failReason;
     entry.finishedAt = new Date();
     callbacks.onOutput(`\nERROR: ${entry.failReason}\n`);
     callbacks.onStatusChange(entry);
@@ -4968,6 +4976,8 @@ async function revalidateBenchmarkImpl(
   callbacks: BenchmarkCallbacks
 ): Promise<void> {
   const globalConfig = loadGlobalConfig();
+  // A harness error from the attempt being replaced must not skip this attempt's judge.
+  entry.harnessError = undefined;
 
   // Find scenario config
   const scenarioResult = loadScenario(entry.scenarioPath);

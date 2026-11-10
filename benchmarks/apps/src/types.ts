@@ -64,6 +64,8 @@ export interface RunEntry {
   failReason?: string;
   /** Set when our tooling (judge, locked desktop) failed, so the trial has no real score and is rerun, not counted. */
   harnessError?: string;
+  /** How many times judging was automatically rerun after a harness error. */
+  harnessRetries?: number;
   currentOutput: string;
   startedAt?: Date;
   finishedAt?: Date;
