@@ -332,9 +332,6 @@ static void TestToolbarContract()
                      xaml.find("AutomationProperties.AutomationId=\"DevToolsSnapBC\"") != std::string::npos &&
                      xaml.find("x:Name=\"DevToolsSnapNear5\"") != std::string::npos,
                  "the toolbar offers top-center and bottom-center docking targets");
-    Check(overlay.find("        DevToolsSetToolbarRequestedTheme(target);\n    }") != std::string::npos ||
-          overlay.find("        DevToolsSetToolbarRequestedTheme(target);\r\n    }") != std::string::npos,
-                 "the toolbar stays inverse when its app-theme action is used");
 
     Check(selectionPanel.find("RequestedTheme=\"$PANELTHEME$\"") != std::string::npos,
                  "the comment flyout requests the inverse app theme");
@@ -754,15 +751,31 @@ static void TestToolbarContract()
         return std::string();
     };
     const auto switchBody = bodyOf("static void OnThemeToggleClick(void*, void*)");
-    const auto restoreBody = bodyOf("static bool RestoreAppRequestedTheme(void* themeFe)");
-    Check(switchBody.find("void* themeFe = panelFe ? ThemeTargetOf(panelFe) : nullptr;") != std::string::npos &&
-          overlay.find("const auto root = object.as<DevToolsX::FrameworkElement>().XamlRoot();") != std::string::npos,
-                 "the theme goes on the window content, the element that is painted, so navigation and Page backgrounds follow it");
-    Check(switchBody.find("PaintAppRootBackground(g_appPanel, element, target);") != std::string::npos &&
+    const auto restoreBody = bodyOf("static bool RestoreAppRequestedTheme(DevToolsX::FrameworkElement const& currentContent)");
+    const auto targetsBody = bodyOf("static std::vector<DevToolsX::FrameworkElement> ThemeTargetsOf(DevToolsX::FrameworkElement const& panel)");
+    const auto paintBody = bodyOf("static void PaintAppRootBackground(IInspectable* host, DevToolsX::FrameworkElement const& element, int theme)");
+    const auto unpaintBody = bodyOf("static void RestoreAppRootBackground()");
+    Check(targetsBody.find("targets.push_back(content);") != std::string::npos &&
+          targetsBody.find("element.ReadLocalValue(DevToolsX::FrameworkElement::RequestedThemeProperty())") != std::string::npos &&
+          switchBody.find("const auto targets = ThemeTargetsOf(panel);") != std::string::npos &&
+          switchBody.find("const int actualBefore = static_cast<int>(panel.ActualTheme());") != std::string::npos,
+                 "the theme goes on the window content and on every element above the host panel that sets its own theme, "
+                 "and the switch flips what the host panel shows");
+    Check(switchBody.find("PaintAppRootBackground(g_appPanel, targets.front(), target);") != std::string::npos &&
+          switchBody.find("DevToolsSetToolbarRequestedTheme(target);") != std::string::npos &&
           restoreBody.find("RestoreAppRootBackground();") != std::string::npos &&
-          overlay.find("if (!user || user.try_as<DevToolsXC::Page>()) break;") != std::string::npos &&
-          overlay.find("if (!SameObject(target.GetValue(property), brush))") != std::string::npos,
-                 "the theme switch paints the window content (a Page itself, since a Page draws its Background) and the switch back removes only DevTools' own brush");
+          overlay.find("if (!user || user.try_as<DevToolsXC::Page>()) break;") != std::string::npos,
+                 "the theme switch paints the window content (a Page itself, since a Page draws its Background) and keeps the toolbar inverse");
+    Check(paintBody.find("const bool followsTheme = localSet && !(SameObject(local, before) || (!local && !before));") != std::string::npos &&
+          switchBody.find("NoteAppRootBackground(targets.front());") != std::string::npos,
+                 "a local {ThemeResource} Background, which the switch re-resolves, is the app's own and keeps its reference");
+    Check(paintBody.find("element.ActualThemeChanged(winrt::auto_revoke,") != std::string::npos &&
+          unpaintBody.find("g_themeFollow = {};") != std::string::npos,
+                 "DevTools' brush follows a theme the app sets itself while switched, and stops following on the switch back");
+    Check(unpaintBody.find("ColorArgb(brush.Color()) != g_themeBrushArgb") != std::string::npos &&
+          unpaintBody.find("!SameObject(target.GetValue(property), brush)") != std::string::npos &&
+          restoreBody.find("if (element.RequestedTheme() != g_themeApplied)") != std::string::npos,
+                 "the switch back leaves a Background, a brush change or a theme the app set while switched");
     Check(tap.find("DevToolsOverlay_SetHostBackdropReader(&HostHasSystemBackdrop);") != std::string::npos,
                  "the overlay reads the window's backdrop through the tap's census root");
 }
