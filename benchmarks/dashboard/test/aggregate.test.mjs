@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import {
-  aggregateBenchmark, aggregateRelease, compareEntries, compareReleases, metrics, wilson,
+  aggregateBenchmark, aggregateRelease, compareEntries, compareReleases, metrics, pairedGap, wilson,
 } from '../lib/aggregate.mjs';
 import { loadData } from '../lib/load.mjs';
 import { buildSiteData, parseCli } from '../build.mjs';
@@ -304,4 +304,46 @@ test('quality topics pool their check ids per setup over valid runs, and report 
   assert.ok(pack.skills.includes('winapp-manifest'));
   assert.equal(b.qualityTopics.find((q) => q.topic === 'Build warnings').change, -1);
   assert.ok(!b.qualityTopics.some((q) => q.topic === 'Typography'), 'topics with no checks are left out');
+});
+
+test('packaging checks are counted on their own and left out of quality checks met', () => {
+  const c = (id, passed) => ({ id, kind: 'improvement', passed, source: 'harness' });
+  const m = metrics([
+    t({ checks: [c('p2', true), c('P3', false), c('q0', true), c('q5', false), { id: 'requirement-1', kind: 'improvement', passed: true }] }),
+    t({ outcome: 'build-failed', checks: [c('p2', true), c('q0', true)] }),
+  ]);
+  assert.deepEqual([m.packagingMet, m.packagingTotal, m.packagingRate], [1, 2, 0.5]);
+  assert.deepEqual([m.qualityMet, m.qualityTotal, m.qualityRate], [1, 2, 0.5]);
+  assert.deepEqual([m.qualityAllMet, m.qualityAllTotal, m.qualityAllRate], [2, 4, 0.5]);
+  assert.deepEqual([m.reqMet, m.reqTotal], [1, 1]);
+});
+
+test('per-model change is the mean of paired per-app changes, with a repeatable bootstrap interval', () => {
+  const c = (passed) => [{ id: 'q0', kind: 'improvement', passed }];
+  const trials = [];
+  // Three apps: skills gain +100, 0 and +100 points on quality for model a.
+  for (const [s, base, withSkills] of [['x', false, true], ['y', true, true], ['z', false, true]]) {
+    trials.push(t({ scenario: s, arm: 'barebones', model: 'a', checks: c(base) }), t({ scenario: s, arm: 'cli-plus-skills', model: 'a', checks: c(withSkills) }));
+  }
+  const b = aggregateBenchmark(trials);
+  const g = b.pairedQualityGap.a;
+  assert.equal(g.apps, 3);
+  assert.ok(Math.abs(g.mean - 2 / 3) < 1e-9);
+  assert.ok(g.ci[0] >= 0 && g.ci[1] <= 1 && g.ci[0] <= g.mean && g.mean <= g.ci[1]);
+  assert.deepEqual(pairedGap(b.perScenario, ['a']).a.ci, g.ci, 'same seed, same interval');
+});
+
+// Optional check against the real run 2 files and the numbers from slide-numbers.py.
+// Set WINAPP_DASH_RUN2 to the trial-files folder to run it.
+test('run 2 numbers match the reference script', { skip: !process.env.WINAPP_DASH_RUN2 }, () => {
+  const d = buildSiteData([{ dir: process.env.WINAPP_DASH_RUN2, label: 'Run 2' }]);
+  const b = d.releases[0].benchmarks.apps;
+  const o = b.headline.barebones.all, w = b.headline['cli-plus-skills'].all;
+  const near = (x, want) => assert.ok(Math.abs(x * 100 - want) < 0.05 + 1e-9, `${(x * 100).toFixed(2)} vs ${want}`);
+  near(o.qualityAllRate, 65.9); near(w.qualityAllRate, 84.0);
+  near(o.qualityRate, 76.9); near(w.qualityRate, 81.1);
+  near(o.packagingRate, 11.7); near(w.packagingRate, 98.8);
+  near(b.pairedQualityGap['claude-sonnet-5.5'].mean, 1.6);
+  near(b.pairedQualityGap['gpt-6.1-sol'].mean, 8.3);
+  near(b.pairedQualityGap['claude-opus-5.5'].mean, 5.2);
 });

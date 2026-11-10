@@ -6,7 +6,7 @@ import { BASE_ARM, SKILLS_ARM } from './aggregate.mjs';
 // than the skills changed. Also used to flag apps that get easier for barebones over time.
 export const CONTROL_SHIFT = 0.05;
 
-const RATE_KEYS = ['qualityRate', 'reqRate', 'passRate'];
+const RATE_KEYS = ['qualityRate', 'packagingRate', 'reqRate', 'passRate'];
 const day = (iso) => (iso ? iso.slice(0, 10) : '');
 
 function pick(m) {

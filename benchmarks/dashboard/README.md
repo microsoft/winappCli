@@ -1,6 +1,6 @@
 # Benchmark results dashboard
 
-A static site that shows the `apps` and `tasks` benchmark results. It has four tabs: **Overview** (a one-sentence verdict, four "without → with" tiles and one chart), **By app** (one row per app scenario, sorted by change), **Skills** (what changed per quality-check topic with winapp + skills, then which skills loaded) and **Details** (outcomes, tasks, winapp commands and how we measured). It reads the per-run JSON files described in [RESULTS-FORMAT.md](../RESULTS-FORMAT.md) and needs only Node 20 or later. There are no packages to install.
+A static site that shows the `apps` and `tasks` benchmark results. It has five tabs: **Overview** (a short verdict, "without → with" tiles and one chart), **By app** (one row per app scenario, sorted by change), **Skills** (what changed per quality-check topic with winapp + skills, then which skills loaded), **Trends** and **Details** (outcomes, tasks, winapp commands and how we measured). It reads the per-run JSON files described in [RESULTS-FORMAT.md](../RESULTS-FORMAT.md) and needs only Node 20 or later. There are no packages to install.
 
 ## Build and preview
 
@@ -72,14 +72,14 @@ Use `--raw-data-url` to change where the "raw data" link points (default: the `b
 All of this is in `lib\aggregate.mjs`.
 
 - **Setups.** `barebones` is shown as "Without our tools", `cli-only` as "winapp CLI only", and `cli-plus-skills` as "With winapp + skills", with the id underneath. Every "change" is `cli-plus-skills` minus `barebones`. The Skills tab shows only `cli-plus-skills`, because the other setups have no skills installed.
-- **Verdict.** The Overview sentence names whichever of quality checks met, requirements met, or built and launched changed most, says on how many models it moved the same way, and adds the change in credits per app. It uses no thresholds.
+- **Verdict.** The Overview states the packaged-app rate, then the other quality checks, then the change in credits per app, from the data. It uses no thresholds.
 - **Built and launched** (`apps`). Runs where both the `builds` and `launches` checks passed, out of all runs, including ones that are not valid.
 
 - **Valid runs only.** Pass rates and averages count `valid` runs. Every table says "n valid of n total", and the Outcomes tab lists every other run.
 - **Debugging configurations.** The `tasks` configurations `winapp-skills`, `winui-skills` and `full-suite` are shown after the three setups and labeled as debugging.
 - **Outcomes.** Only `valid` counts as valid. `harness-error` and every other outcome count in the total and are listed under Details.
 - **Launch level** (`apps`). Counted per setup and model under Details. A file without `launchLevel` is shown as "not measured".
-- **apps metrics.** Pass rate: every `required` check passed. Requirements: judge checks named `requirement-N`. Quality checks: every other `improvement` check. Design score: the judge's 0-10 score, shown as detail. Credits: `usage.nanoAiu / 1e9`. Minutes: `usage.wallClockMs`.
+- **apps metrics.** Pass rate: every `required` check passed. Requirements: judge checks named `requirement-N`. Packaged app: the packaging checks `p2` and `p3` (`PACKAGING` in `lib\aggregate.mjs`), reported on their own because the app prompts don't ask for packaging. Quality checks met: every other `improvement` check, including judge checks such as `q5`; Overview, By app, Trends and Skills all use this definition. "Quality checks, includes packaging" appears only in the Overview details. The per-model change in the details is the mean of paired per-app changes, with a 95% bootstrap interval over apps (5000 resamples, fixed seed). Design score: the judge's 0-10 score, shown as detail. Credits: `usage.nanoAiu / 1e9`. Minutes: `usage.wallClockMs`.
 - **Confidence intervals.** Pass rates show a 95% Wilson interval.
 - **Sanity checks.** A scenario or task that the `barebones` arm passes in 90% or more of valid runs is a sanity check (#1253). For tasks (under Details) these are left out of the headline pass rate, and the table shows both numbers. Apps scenarios are flagged but not removed, because in the first runs (November 2026) every apps scenario met the rule, and removing them would have left no headline.
 - **Flags.** A model is flagged on a scenario when its pass rate differs from the other models' by 50 points or more, or when it uses more than 1.5x the credits it used on the other arms of that scenario. A scenario no setup passes is flagged as a possible checker bug.
@@ -106,7 +106,7 @@ cd benchmarks\dashboard
 npm test
 ```
 
-The tests use the small synthetic files in `test\fixtures\data`. Real results are not committed to this repository.
+The tests use the small synthetic files in `test\fixtures\data`. Real results are not committed to this repository. To also check the run 2 numbers against `slide-numbers.py`, set `WINAPP_DASH_RUN2` to the run 2 `trial-files` folder before `npm test`.
 
 ## Not done yet
 

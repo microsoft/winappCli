@@ -6,6 +6,10 @@ export const ARM_ORDER = ['barebones', 'cli-only', 'cli-plus-skills', 'winapp-sk
 
 export const MODEL_ORDER = ['claude-sonnet-5.5', 'claude-opus-5.5', 'gpt-6.1-sol'];
 
+// apps packaging checks (MSIX packaging). The app prompts don't ask for packaging, so these
+// are reported on their own and left out of "quality checks met" everywhere on the dashboard.
+export const PACKAGING = new Set(['p2', 'p3']);
+
 // A scenario that the `barebones` arm passes this often is a sanity check (#1253).
 export const SANITY_PASS_RATE = 0.9;
 
@@ -18,7 +22,7 @@ export const SKILLS_ARM = 'cli-plus-skills';
 // the skills that teach it. This is a setup-level view (barebones vs cli-plus-skills), not
 // evidence that one skill helped.
 export const QUALITY_TOPICS = [
-  { topic: 'Packaging', checks: ['p2', 'p3'], skills: ['winapp-manifest', 'winui-packaging', 'winui-dev-workflow'] },
+  { topic: 'Packaging', checks: [...PACKAGING], skills: ['winapp-manifest', 'winui-packaging', 'winui-dev-workflow'] },
   { topic: 'Build warnings', checks: ['q4'], skills: ['winui-dev-workflow'] },
   { topic: 'Accessible names', checks: ['q0'], skills: ['winui-design', 'winapp-ui-automation'] },
   { topic: 'Theme colors', checks: ['v5'], skills: ['winui-design'] },
@@ -125,6 +129,10 @@ export function isRequirementCheck(c) {
   return /^requirement-\d+$/.test(c.id);
 }
 
+export function isPackagingCheck(c) {
+  return PACKAGING.has(String(c.id).toLowerCase());
+}
+
 export function credits(t) {
   const n = t.usage?.nanoAiu;
   return typeof n === 'number' ? n / 1e9 : null;
@@ -147,6 +155,7 @@ export function metrics(trials) {
   const valid = trials.filter((t) => t.outcome === 'valid');
   const passed = valid.filter((t) => t.passed).length;
   let qualityMet = 0, qualityTotal = 0, reqMet = 0, reqTotal = 0, impMet = 0, impTotal = 0;
+  let packMet = 0, packTotal = 0, allMet = 0, allTotal = 0;
   for (const t of valid) {
     impMet += t.improvements?.met ?? 0;
     impTotal += t.improvements?.total ?? 0;
@@ -155,8 +164,15 @@ export function metrics(trials) {
         reqTotal++;
         if (c.passed) reqMet++;
       } else if (c.kind === 'improvement') {
-        qualityTotal++;
-        if (c.passed) qualityMet++;
+        allTotal++;
+        if (c.passed) allMet++;
+        if (isPackagingCheck(c)) {
+          packTotal++;
+          if (c.passed) packMet++;
+        } else {
+          qualityTotal++;
+          if (c.passed) qualityMet++;
+        }
       }
     }
   }
@@ -187,7 +203,14 @@ export function metrics(trials) {
     improvementsRate: ratio(impMet, impTotal),
     qualityMet,
     qualityTotal,
+    // Quality checks without packaging; qualityAll* includes packaging.
     qualityRate: ratio(qualityMet, qualityTotal),
+    qualityAllMet: allMet,
+    qualityAllTotal: allTotal,
+    qualityAllRate: ratio(allMet, allTotal),
+    packagingMet: packMet,
+    packagingTotal: packTotal,
+    packagingRate: ratio(packMet, packTotal),
     reqMet,
     reqTotal,
     reqRate: ratio(reqMet, reqTotal),
@@ -273,6 +296,7 @@ function diffMetrics(a, b) {
   const d = (k) => (a?.[k] == null || b?.[k] == null ? null : a[k] - b[k]);
   return {
     passRate: d('passRate'), worksRate: d('worksRate'), reqRate: d('reqRate'), qualityRate: d('qualityRate'),
+    qualityAllRate: d('qualityAllRate'), packagingRate: d('packagingRate'),
     designMean: d('designMean'), creditsMean: d('creditsMean'), minutesMean: d('minutesMean'),
   };
 }
@@ -284,6 +308,41 @@ export function armDiff(byArm) {
   const byModel = {};
   for (const m of Object.keys(skill.byModel)) byModel[m] = diffMetrics(skill.byModel[m], base.byModel[m]);
   return { arm: SKILLS_ARM, base: BASE_ARM, all: diffMetrics(skill.all, base.all), byModel };
+}
+
+// Deterministic PRNG so the bootstrap gives the same interval on every build.
+function mulberry32(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Per model: mean over apps of (cli-plus-skills minus barebones) for one rate, paired by app,
+// with a 95% bootstrap interval over apps (5000 resamples). Apps missing either side are skipped.
+export function pairedGap(perScenario, models, key = 'qualityRate', { resamples = 5000, seed = 1 } = {}) {
+  const out = {};
+  for (const m of models) {
+    const xs = [];
+    for (const s of perScenario) {
+      const w = s.cells[SKILLS_ARM]?.byModel[m]?.[key], o = s.cells[BASE_ARM]?.byModel[m]?.[key];
+      if (w != null && o != null) xs.push(w - o);
+    }
+    if (!xs.length) continue;
+    const rand = mulberry32(seed);
+    const boots = [];
+    for (let i = 0; i < resamples; i++) {
+      let sum = 0;
+      for (let j = 0; j < xs.length; j++) sum += xs[Math.floor(rand() * xs.length)];
+      boots.push(sum / xs.length);
+    }
+    boots.sort((a, b) => a - b);
+    const lo = boots[Math.floor(resamples * 0.025)], hi = boots[Math.ceil(resamples * 0.975) - 1];
+    out[m] = { mean: xs.reduce((a, b) => a + b, 0) / xs.length, ci: [lo, hi], apps: xs.length };
+  }
+  return out;
 }
 
 export function aggregateBenchmark(trials) {
@@ -316,6 +375,7 @@ export function aggregateBenchmark(trials) {
     headline,
     headlineExcludingSanity,
     effect: armDiff(headline),
+    pairedQualityGap: pairedGap(perScenario, models, 'qualityRate'),
     effectExcludingSanity: armDiff(headlineExcludingSanity),
     sanityScenarios,
     perScenario,

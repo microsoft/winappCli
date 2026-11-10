@@ -29,7 +29,9 @@
 
   // Definitions, shown as tooltips and listed in "How we measured".
   const DEFS = {
-    quality: 'Quality checks met: share of quality checks that passed in valid runs, such as accessible names, x:Bind and no hard-coded font sizes. Checked by script, plus a few by the judge model.',
+    quality: 'Quality checks met: share of quality checks that passed in valid runs, such as accessible names, x:Bind and no hard-coded font sizes. Checked by script, plus a few by the judge model. Packaging checks (p2, p3) are not included; they are shown as Packaged app.',
+    packaging: 'Packaged app: share of the packaging checks (p2, p3: the app is packaged as MSIX) that passed in valid runs. The app prompts do not ask for packaging, so it is reported on its own.',
+    qualityAll: 'Quality checks met including the packaging checks (p2, p3), in valid runs.',
     requirements: "Requirements met: share of the scenario's requested features that the judge model found working, in valid runs.",
     works: 'Built and launched: share of all runs where the app built and its window opened. Every run counts, including runs that failed to build.',
     credits: 'Credits per app: mean AI credits Copilot CLI reported per valid run (1 credit = 1,000,000,000 nano-AIU).',
@@ -159,28 +161,23 @@
   }
 
   // ---------- Overview ----------
-  const RATE_METRICS = [
-    { key: 'qualityRate', def: 'quality', phrase: (w, o) => `apps met ${w} of quality checks instead of ${o}` },
-    { key: 'reqRate', def: 'requirements', phrase: (w, o) => `apps met ${w} of the requested features instead of ${o}` },
-    { key: 'worksRate', def: 'works', phrase: (w, o) => `apps built and launched in ${w} of runs instead of ${o}` },
-  ];
-
+  // Leads with packaging, then the other quality checks, then cost. Generated from the data, no thresholds.
   function verdict(b) {
-    const e = b.effect;
     const o = b.headline[BASE].all, w = b.headline[WITH].all;
-    const ranked = RATE_METRICS.filter((m) => e.all[m.key] != null).sort((x, y) => Math.abs(e.all[y.key]) - Math.abs(e.all[x.key]));
-    if (!ranked.length) return '';
-    const top = ranked[0];
-    const sign = Math.sign(e.all[top.key]);
-    const models = b.models.filter((m) => e.byModel[m]?.[top.key] != null);
-    const agree = models.filter((m) => Math.sign(e.byModel[m][top.key]) === sign).length;
-    const scope = !models.length ? '' : agree === models.length ? `, on all ${models.length} models` : `, on ${agree} of ${models.length} models`;
-    let text = `With winapp and the skills, ${top.phrase(pctText(w[top.key]), pctText(o[top.key]))}${sign ? scope : ''}.`;
+    const parts = [];
+    if (o.packagingRate != null && w.packagingRate != null) {
+      parts.push(`With winapp and the skills, agents shipped a packaged app ${pctText(w.packagingRate)} of the time instead of ${pctText(o.packagingRate)}.`);
+    }
+    if (o.qualityRate != null && w.qualityRate != null) {
+      const subject = parts.length ? 'Other quality checks' : 'With winapp and the skills, quality checks';
+      const a = pctText(o.qualityRate), z = pctText(w.qualityRate);
+      parts.push(a === z ? `${subject} stayed at ${a}.` : `${subject} ${w.qualityRate > o.qualityRate ? 'rose' : 'fell'} from ${a} to ${z}.`);
+    }
     const rc = relChange(w.creditsMean, o.creditsMean);
     if (rc != null && Math.round(rc * 100) !== 0) {
-      text += ` They used ${Math.round(Math.abs(rc) * 100)}% ${rc > 0 ? 'more' : 'fewer'} credits per app (${w.creditsMean.toFixed(0)} instead of ${o.creditsMean.toFixed(0)}).`;
+      parts.push(`They used ${Math.round(Math.abs(rc) * 100)}% ${rc > 0 ? 'more' : 'fewer'} credits per app (${w.creditsMean.toFixed(0)} instead of ${o.creditsMean.toFixed(0)}).`);
     }
-    return text;
+    return parts.join(' ');
   }
 
   function tile(label, defKey, without, withV, change, sub = '', cliV = null) {
@@ -197,6 +194,7 @@
     const c = b.headline[CLI]?.all;
     const mid = (f) => (c ? f(c) : null);
     const tiles = [
+      tile('Packaged app', 'packaging', pct(o.packagingRate), pct(w.packagingRate), diffPts(e.packagingRate), '', mid((x) => pct(x.packagingRate))),
       tile('Quality checks met', 'quality', pct(o.qualityRate), pct(w.qualityRate), diffPts(e.qualityRate), '', mid((x) => pct(x.qualityRate))),
       tile('Requirements met', 'requirements', pct(o.reqRate), pct(w.reqRate), diffPts(e.reqRate), '', mid((x) => pct(x.reqRate))),
       tile('Built and launched', 'works', pct(o.worksRate), pct(w.worksRate), diffPts(e.worksRate), `${o.worked} of ${o.total} → ${w.worked} of ${w.total} runs`, mid((x) => pct(x.worksRate))),
@@ -206,8 +204,8 @@
 
     const arms = b.arms.filter((a) => [BASE, CLI, WITH].includes(a));
     const chart = groupedBars({
-      title: 'Quality checks met, by model',
-      desc: `For each model, the share of quality checks met in each setup: ${arms.map(armLabel).join(', ')}. The numbers are also in the details table.`,
+      title: 'Quality checks met (without packaging), by model',
+      desc: `For each model, the share of quality checks met, not counting packaging, in each setup: ${arms.map(armLabel).join(', ')}. The numbers are also in the details table.`,
       arms,
       groups: [{ label: 'All models', values: arms.map((a) => b.headline[a].all.qualityRate) }, ...b.models.map((m) => ({ label: modelLabel(m), values: arms.map((a) => b.headline[a].byModel[m].qualityRate) }))],
     });
@@ -217,6 +215,8 @@
       { h: tip('Pass rate', 'pass'), cell: (m) => `${pct(m.passRate)}${ci(m)}` },
       { h: tip('Built and launched', 'works'), cell: (m) => pct(m.worksRate) },
       { h: tip('Quality checks', 'quality'), cell: (m) => `<span title="${m.qualityMet} of ${m.qualityTotal}">${pct(m.qualityRate)}</span>` },
+      { h: tip('Packaged app', 'packaging'), cell: (m) => `<span title="${m.packagingMet} of ${m.packagingTotal}">${pct(m.packagingRate)}</span>` },
+      { h: tip('Quality checks, includes packaging', 'qualityAll'), cell: (m) => `<span title="${m.qualityAllMet} of ${m.qualityAllTotal}">${pct(m.qualityAllRate)}</span>` },
       { h: tip('Requirements', 'requirements'), cell: (m) => `<span title="${m.reqMet} of ${m.reqTotal}">${pct(m.reqRate)}</span>` },
       { h: tip('Design score', 'design'), cell: (m) => num(m.designMean) },
       { h: tip('Credits per app', 'credits'), cell: (m) => num(m.creditsMean) },
@@ -224,8 +224,8 @@
       { h: 'Tokens per app', cell: (m) => big(m.tokensMean) },
     ];
     const effectRows = [['all', b.effect.all], ...b.models.map((m) => [m, b.effect.byModel[m]])].map(([m, d]) =>
-      `<tr class="${m === 'all' ? 'all-models' : ''}"><th scope="row" class="text">${esc(modelLabel(m))}</th><td>${diffPts(d.passRate)}</td><td>${diffPts(d.worksRate)}</td><td>${diffPts(d.qualityRate)}</td><td>${diffPts(d.reqRate)}</td><td>${diffNum(d.designMean)}</td><td>${diffNum(d.creditsMean)}</td><td>${diffNum(d.minutesMean)}</td></tr>`).join('');
-    const effectHead = '<tr><th scope="col" class="text">Model</th><th scope="col">Pass rate</th><th scope="col">Built and launched</th><th scope="col">Quality checks</th><th scope="col">Requirements</th><th scope="col">Design score</th><th scope="col">Credits per app</th><th scope="col">Minutes per app</th></tr>';
+      `<tr class="${m === 'all' ? 'all-models' : ''}"><th scope="row" class="text">${esc(modelLabel(m))}</th><td>${diffPts(d.passRate)}</td><td>${diffPts(d.worksRate)}</td><td>${diffPts(d.qualityRate)}</td><td>${diffPts(d.packagingRate)}</td><td>${diffPts(d.qualityAllRate)}</td><td>${diffPts(d.reqRate)}</td><td>${diffNum(d.designMean)}</td><td>${diffNum(d.creditsMean)}</td><td>${diffNum(d.minutesMean)}</td></tr>`).join('');
+    const effectHead = '<tr><th scope="col" class="text">Model</th><th scope="col">Pass rate</th><th scope="col">Built and launched</th><th scope="col">Quality checks</th><th scope="col">Packaged app</th><th scope="col">Quality checks, includes packaging</th><th scope="col">Requirements</th><th scope="col">Design score</th><th scope="col">Credits per app</th><th scope="col">Minutes per app</th></tr>';
 
     return `<h2 class="sr-only">Overview</h2>
       <p class="verdict">${esc(verdict(b))}</p>
@@ -236,12 +236,23 @@
         <p>Pass rate is ${arms.map((a) => `${pct(b.headline[a].all.passRate)} ${esc(armLabel(a).toLowerCase())}`).join(', ')}, so it does not separate the setups; the tiles above use the measures that do.</p>
         ${table('Results by setup and model (valid runs, except Built and launched)', armModelHead(cols), armModelRows(b, b.headline, cols))}
         ${table(`Change: ${esc(armLabel(WITH))} minus ${esc(armLabel(BASE))}`, effectHead, effectRows)}
+        ${pairedTable(b)}
       </details>`;
+  }
+
+  // Per model, quality without packaging: mean over apps of the paired per-app change, with a
+  // 95% bootstrap interval over apps. An interval that includes 0 means no clear change.
+  function pairedTable(b) {
+    const g = b.pairedQualityGap ?? {};
+    const rows = b.models.filter((m) => g[m]).map((m) => `<tr><th scope="row" class="text">${esc(modelLabel(m))}</th><td>${diffPts(g[m].mean)}</td><td>${diffPts(g[m].ci[0])} to ${diffPts(g[m].ci[1])}</td><td>${g[m].apps}</td></tr>`).join('');
+    if (!rows) return '';
+    return table(`Quality checks met (without packaging), change per model, paired by app`, '<tr><th scope="col" class="text">Model</th><th scope="col">Mean change over apps</th><th scope="col">95% interval (bootstrap over apps)</th><th scope="col">Apps</th></tr>', rows);
   }
 
   // ---------- By app ----------
   const APP_METRICS = {
     qualityRate: { label: 'Quality checks met', def: 'quality', cell: pct, diff: diffPts },
+    packagingRate: { label: 'Packaged app', def: 'packaging', cell: pct, diff: diffPts },
     reqRate: { label: 'Requirements met', def: 'requirements', cell: pct, diff: diffPts },
     worksRate: { label: 'Built and launched', def: 'works', cell: pct, diff: diffPts },
     designMean: { label: 'Design score', def: 'design', cell: (x) => num(x), diff: (x) => diffNum(x) },
@@ -358,7 +369,7 @@
       <div class="legend" aria-hidden="true">${legend}</div></figure>`;
   }
 
-  const TREND_METRICS = { qualityRate: 'Quality checks met', reqRate: 'Requirements met', passRate: 'Pass rate' };
+  const TREND_METRICS = { qualityRate: 'Quality checks met (without packaging)', packagingRate: 'Packaged app', reqRate: 'Requirements met', passRate: 'Pass rate' };
 
   function renderTrends() {
     const T = D.trends?.[state.series]?.apps;
