@@ -15,7 +15,8 @@ $script:ScenarioKeys = @('id', 'app', 'description', 'prompt', 'timeoutMinutes',
 $script:InstanceKeys = @('role', 'target', 'mode', 'enter', 'page', 'invoke', 'waitFor', 'expect', 'minimize')
 $script:MethodKeys = @('$schema', 'name', 'displayName', 'description', 'plugins', 'skills', 'mcpServers', 'allowTools', 'denyTools', 'path', 'env', 'hideCommands', 'requires')
 # Records with these statuses are final; anything else (harness errors) runs again on resume.
-$script:FinalStatuses = @('pass', 'fail')
+# A timeout is final so a resume doesn't pay for it again, but it is left out of the pass rate.
+$script:FinalStatuses = @('pass', 'fail', 'timeout')
 
 # `winapp ui` subcommands; a prompt that names one tells the agent which tool to use.
 $script:UiSubcommands = @('inspect', 'search', 'list-windows', 'get-focused', 'status', 'invoke', 'set-value', 'send-keys', 'click',
@@ -534,7 +535,7 @@ function Get-LatestRecords {
 }
 
 function Test-CellDone {
-    # A cell is done when its latest record is scored (pass or fail) and was produced by the same
+    # A cell is done when its latest record is final (pass, fail or timeout) and was produced by the same
     # scenario and method definitions. Harness errors and edited definitions run again.
     param($Record, [string]$ScenarioHash, [string]$MethodHash)
     if (-not $Record) { return $false }

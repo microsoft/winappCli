@@ -275,6 +275,12 @@ Describe 'Resume and plan' {
         Test-CellDone $null 's1' 'm1' | Should -BeFalse
     }
 
+    It 'keeps a timeout without rerunning it and leaves it out of the pass rate' {
+        Test-CellDone (New-Record 1 'timeout') 's1' 'm1' | Should -BeTrue
+        Format-PassRate @('pass', 'fail', 'timeout') | Should -Be '1/2 (50%); excluded: 1 timeout'
+        @(Get-UnpassedRuns -Runs $script:Runs[0] -Records @((New-Record 1 'timeout'))).Count | Should -Be 1
+    }
+
     It 'reports cells that did not pass across every invocation of a resumed run' {
         @(Get-UnpassedRuns -Runs $script:Runs -Records @((New-Record 1 'pass'), (New-Record 2 'pass'), (New-Record 3 'pass'))).Count | Should -Be 0
         $records = @((New-Record 1 'fail'), (New-Record 2 'pass'), (New-Record 3 'error'), (New-Record 3 'pass'))

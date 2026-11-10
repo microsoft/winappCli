@@ -146,7 +146,7 @@ A run passes only when the state checks pass **and** nothing else was disturbed.
 - `wrong-window-modified`: a window the task did not target was changed.
 - `wrong-app-launched`: a related app, such as the Store Gallery, was started.
 
-A run that times out counts as a failure. A run that could not be scored, because app setup failed or Copilot exited with an error, is listed as excluded instead of counted. Rerunning the same `-OutDir` runs those again, along with any run whose scenario or method changed (including the content of the method's plugins and skills), and skips the rest. `run.ps1` exits with 1 when any run in the folder did not pass.
+A run that times out is recorded as `timeout` and listed as excluded from the pass rate, not counted as a failure. A run that could not be scored, because app setup failed or Copilot exited with an error, is also listed as excluded. Rerunning the same `-OutDir` runs those harness errors again, along with any run whose scenario or method changed (including the content of the method's plugins and skills), and skips the rest, including timeouts. `run.ps1` exits with 1 when any run in the folder did not pass.
 
 Compare two runs, for example before and after a `winapp ui` change:
 

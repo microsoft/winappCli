@@ -443,7 +443,7 @@ function Invoke-UiRun {
         $record.notes = $eval.Notes
         if ($eventLogs.Count -gt 1) { $record.notes += "found $($eventLogs.Count) events.jsonl files; parsed the largest" }
         if ($r.TimedOut) {
-            $record.status = 'fail'
+            $record.status = 'timeout'
             $record.reason = (@("timed out after $($Run.TimeoutMinutes) min") + $eval.Failures) -join '; '
         }
         elseif ($r.ExitCode -ne 0) {
