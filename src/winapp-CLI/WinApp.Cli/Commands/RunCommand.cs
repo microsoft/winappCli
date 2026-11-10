@@ -516,7 +516,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             if (parseResult.GetValue(WatchOption) &&
                 WatchConflict(requestedDevTools is not DevToolsMode.Off, parseResult.GetValue(DetachOption), isJson, debugOutput,
                     parseResult.GetValue(NoBuildOption), parseResult.GetValue(AotOption), executionTarget.IsLocal,
-                    clean, unregisterOnExit, parseResult.GetValue(ProfileOption) is not null) is { } watchConflict)
+                    clean, unregisterOnExit, parseResult.GetValue(ProfileOption) is not null, noLaunch, withoutAlias) is { } watchConflict)
             {
                 return Fail(watchConflict, isJson);
             }

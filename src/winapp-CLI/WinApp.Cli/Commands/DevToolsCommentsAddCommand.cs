@@ -338,7 +338,8 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                         "--file <path> --line <line> (--source-root <project folder> for a file in another project).";
                 }
             }
-            else if (captured is null && comment.Anchor.SourceFile.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            else if (captured is null && comment.Anchor.SourceFile.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) &&
+                UsesReactor(sourceRoot, comment.Anchor.SourceFile))
             {
                 if (CaptureCallSite(comment, sourceRoot) is { } refused)
                 {
@@ -424,6 +425,35 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Whether the project a <c>--file *.cs</c> comment is in references Microsoft.UI.Reactor, so the line must be a
+    /// Reactor call site. Any other C# file (a XAML app's code-behind) keeps a plain file and line anchor. The project
+    /// is the nearest folder above the file (or the source root) with a .csproj; with none, the file is taken as Reactor.
+    /// </summary>
+    internal static bool UsesReactor(string sourceRoot, string file)
+    {
+        try
+        {
+            var start = ResolveCSharpFile(sourceRoot, file) is { } path ? Path.GetDirectoryName(path) : Path.GetFullPath(sourceRoot);
+            for (var folder = start is null ? null : new DirectoryInfo(start); folder is not null; folder = folder.Parent)
+            {
+                var projects = folder.GetFiles("*.csproj");
+                if (projects.Length == 0)
+                {
+                    continue;
+                }
+                var assets = Path.Combine(folder.FullName, "obj", "project.assets.json");
+                return projects.Any(project => File.ReadAllText(project.FullName).Contains("Microsoft.UI.Reactor", StringComparison.OrdinalIgnoreCase)) ||
+                    (File.Exists(assets) && File.ReadAllText(assets).Contains("\"Microsoft.UI.Reactor/", StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Unreadable: check the line as a Reactor call site, which explains what it can't read.
+        }
+        return true;
     }
 
     /// <summary>

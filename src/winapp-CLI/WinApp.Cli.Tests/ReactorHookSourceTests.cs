@@ -197,4 +197,79 @@ public class ReactorHookSourceTests
 
     [TestMethod]
     public void Apply_LeavesHooksAlone_WhenTheBodyUsesNoPassword() => Assert.IsNull(ApplyTo("token"));
+
+    private static readonly string[] PwdOnly = ["pwd"];
+    private static readonly string[] FormAndPin = ["form", "pin"];
+
+    private const string BoxLogin = """
+        class Login3 : Component
+        {
+            public override Element Render()
+            {
+                var (pwd, setPwd) = UseState("hunter2");
+                var (user, setUser) = UseState("bob");
+                return VStack(TextBox(user, setUser), PasswordBox(pwd, setPwd));
+            }
+        }
+        """;
+
+    [TestMethod]
+    public void PasswordVariables_AreWhatTheBodyPassesWhereAPasswordGoes()
+    {
+        var lines = BoxLogin.Split('\n');
+        CollectionAssert.AreEqual(PwdOnly, ReactorHookSource.PasswordVariables(lines, 4, 5).ToArray());
+        var named = "class C : Component\n{\n    public override Element Render()\n    {\n" +
+            "        var f = Field(label: user, adminPassword: form.Value.Secret);\n" +
+            "        var d = new Login { UserPassword = pin!, Name = other };\n" +
+            "        var ok = userPassword == other;\n        var e = PasswordBox(default, null);\n" +
+            "        return PasswordBox(pwd + other);\n    }\n}\n";
+        CollectionAssert.AreEqual(FormAndPin, ReactorHookSource.PasswordVariables(named.Split('\n'), 4, 5).ToArray());
+        Assert.IsTrue(ReactorHookSource.NamesSecret(lines, 4, 5), "a body with a PasswordBox uses a password");
+        Assert.IsTrue(ReactorHookSource.NamesSecret(
+            "class C\n{\n    Element Render()\n    {\n        var (p, setP) = UseState(\"\");\n        return LoginForm(onPasswordChanged: setP);\n    }\n}\n".Split('\n'), 4, 5),
+            "so does a body that hands a setter to a password-changed handler");
+    }
+
+    [TestMethod]
+    public void PasswordVariables_IncludeAHookWhoseSetterAPasswordBoxCalls()
+    {
+        var uncontrolled = "class C : Component\n{\n    public override Element Render()\n    {\n" +
+            "        var (a, setA) = UseState(\"\");\n        var (b, setB) = UseState(\"\");\n" +
+            "        var (c, setC) = UseState(\"\");\n        var d = UseState(\"\");\n" +
+            "        var (e, setE) = UseState(\"\");\n        var (shown, setShown) = UseState(\"\");\n" +
+            "        var x1 = PasswordBox(default, setA);\n" +
+            "        var x2 = PasswordBox(onPasswordChanged: v => setB(v));\n" +
+            "        var x3 = PasswordBox().PasswordChanged(setC);\n" +
+            "        var x4 = PasswordBox(null, d.Set);\n" +
+            "        var x5 = PasswordBox(placeholderText: \"pin\", password: e, onPasswordChanged: setE);\n" +
+            "        return TextBox(shown, setShown);\n    }\n}\n";
+        CollectionAssert.AreEquivalent(UncontrolledPasswords, ReactorHookSource.PasswordVariables(uncontrolled.Split('\n'), 4, 5).ToArray());
+    }
+
+    private static readonly string[] UncontrolledPasswords = ["a", "b", "c", "d", "e"];
+
+    [TestMethod]
+    public void Apply_HidesAHookPassedToAPasswordBox_WhateverItsName()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"winapp-hooks-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(file, BoxLogin);
+        try
+        {
+            var json = $$"""
+                {"state":"ok","component":{"name":"Login3","kind":"class"},
+                 "definition":{"file":{{System.Text.Json.JsonSerializer.Serialize(file)}},"line":4,"column":5},
+                 "hooks":[{"index":0,"kind":"state","type":"string","value":"\"hunter2\"","canSet":true,"editable":true},
+                          {"index":1,"kind":"state","type":"string","value":"\"bob\"","canSet":true,"editable":true}]}
+                """;
+            var (state, raw) = ReactorHookSource.Apply(ReactorComponentState.Parse(json).State!, json)
+                ?? throw new AssertFailedException("the hooks were left as they were");
+            Assert.IsTrue(state.Hooks[0] is { Name: "pwd", Redacted: true, Value: "<redacted>", Editable: false }, "pwd is a password");
+            Assert.IsTrue(state.Hooks[1] is { Name: "user", Redacted: false, Value: "\"bob\"", Editable: true }, "user is shown");
+            Assert.DoesNotContain("hunter2", raw);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
 }

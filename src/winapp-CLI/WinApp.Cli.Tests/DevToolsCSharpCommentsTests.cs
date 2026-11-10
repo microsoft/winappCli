@@ -165,12 +165,31 @@ public class DevToolsCSharpCommentsTests
         StringAssert.Contains(output, "--line");
     }
 
+    [TestMethod]
+    public void OfflineAdd_CodeBehindInAXamlApp_KeepsThePlainFileAndLine()
+    {
+        File.WriteAllText(Path.Combine(_root, "App.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><PackageReference Include=\"Microsoft.WindowsAppSDK\" Version=\"1.8.0\" /></ItemGroup></Project>");
+        File.WriteAllText(Path.Combine(_root, "MainWindow.xaml.cs"),
+            "namespace App;\npublic sealed partial class MainWindow\n{\n    public MainWindow()\n    {\n        InitializeComponent();\n    }\n}\n");
+
+        var (exit, output) = Add("--text", "x", "--file", "MainWindow.xaml.cs", "--line", "5");
+
+        Assert.AreEqual(0, exit, output);
+        var comment = new CommentStore().Load(StorePath).Comments.Single();
+        Assert.AreEqual("MainWindow.xaml.cs", comment.Anchor.SourceFile);
+        Assert.AreEqual(5, comment.Anchor.Line);
+        Assert.IsNull(comment.Anchor.CSharp, "a XAML app's C# is not read as Reactor call sites");
+        Assert.IsFalse(DevToolsCommentsAddCommand.UsesReactor(_root, "App.cs"));
+    }
+
     // ---- resolver ----
 
     [TestMethod]
     public void OfflineAdd_AStringPassedToAPasswordParameter_IsNotStored_AndTheAnchorStillResolves()
     {
-        File.WriteAllText(Path.Combine(_root, "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        File.WriteAllText(Path.Combine(_root, "App.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><PackageReference Include=\"Microsoft.UI.Reactor\" Version=\"1.0.0\" /></ItemGroup></Project>");
         File.WriteAllText(Path.Combine(_root, "Models.cs"),
             "record Login2Props(string User, string UserPassword, Creds Account);\nrecord Creds(string Name, string Password);\n");
         File.WriteAllText(AppFile, AppSource.Replace("Counter());",

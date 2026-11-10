@@ -157,8 +157,9 @@ winapp devtools comments add SaveButton -a 12345 --text "Make this label clearer
 - `--from-selection` comments on the element picked in the toolbar.
 - `--file`, `--name` and `--text` work without a running app; a `--name` that matches
   one element in the file anchors to it.
-- `--file App.cs --line 35` anchors to the one Reactor call site on that line
-  (`--column` picks among several).
+- `--file App.cs --line 35` in a Reactor project anchors to the one Reactor call site on
+  that line (`--column` picks among several). In other projects a `.cs` file keeps the
+  plain file and line.
 - `--id <id>` replaces that comment; with `--from-selection` or `--from-element` and no
   `--text`, it re-anchors the comment and keeps its text. `delete <id>` removes it.
 - `--source-root <dir>` picks the project; `list --project` filters a shared store;

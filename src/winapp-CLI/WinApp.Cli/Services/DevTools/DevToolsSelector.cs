@@ -417,11 +417,12 @@ internal static class DevToolsSelector
 
         var notFound = $"No element is named '{selector}' (an x:Name, an AutomationId, or the C# variable a Reactor element was assigned to). " +
             $"Run `winapp devtools search {selector}` to find it by type or text.";
+        // A complete search that found no such name says the element isn't there; the matches are only suggestions.
         return Resolution.Fail(
             found.Result.Truncated
                 ? notFound + " The agent's node limit truncated the search, so it may exist but not have been examined."
                 : notFound,
-            found.Result.Matches.Take(10).ToArray());
+            found.Result.Matches.Take(10).ToArray()) with { Absent = !found.Result.Truncated };
     }
 
     public static (FindResult? Result, DevToolsProtocolError? Error) Find(VisualTreeTap tap, string query, bool appAuthoredOnly,

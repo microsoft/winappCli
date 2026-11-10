@@ -141,6 +141,14 @@ public class DevToolsWatchSessionTests
         Assert.IsNull(RunCommand.WatchConflict(true, false, false, false, false, false, true));
 
     [TestMethod]
+    public void WatchConflict_NamesNoLaunchAndWithoutAlias_InsteadOfBlamingDevToolsOff()
+    {
+        var message = RunCommand.WatchConflict(true, false, false, false, false, false, true, noLaunch: true, withoutAlias: true);
+        StringAssert.Contains(message, "--no-launch, --without-alias");
+        Assert.IsFalse(message!.Contains("--devtools off", StringComparison.Ordinal), message);
+    }
+
+    [TestMethod]
     public void Descendants_FindsAChildAndItsImageName()
     {
         using var child = Process.Start(new ProcessStartInfo("cmd.exe", "/c ping -n 6 127.0.0.1 >nul")

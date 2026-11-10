@@ -473,6 +473,51 @@ static void CheckReactorSecretHooks(const std::function<void(bool,const char*)>&
     check(!slots[3].Find(L"value") && !slots[3].GetBool(L"redacted", false), "a hook with no value is left alone");
     check(!TapReactorSecretRefusal(uncertain, L"0").empty() && TapReactorSecretRefusal(uncertain, L"1").empty(),
         "Reactor.setState refuses the hidden hook and lets the number through");
+
+    // `var (pwd, setPwd) = UseState("hunter2"); ... PasswordBox(pwd, setPwd)`: the hook is named pwd, but its value
+    // goes where a password goes, so it is hidden like one.
+    wchar_t temp[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, temp);
+    const std::wstring source = std::wstring(temp) + L"winapp-pwd-" + std::to_wstring(GetCurrentProcessId()) + L".cs";
+    const std::string body =
+        "class Login3 : Component\r\n{\r\n    public override Element Render()\r\n    {\r\n"
+        "        var (pwd, setPwd) = UseState(\"hunter2\");\r\n        var (user, setUser) = UseState(\"bob\");\r\n"
+        "        return VStack(TextBox(user, setUser), PasswordBox(pwd, setPwd));\r\n    }\r\n}\r\n";
+    const HANDLE file = CreateFileW(source.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(file, body.data(), (DWORD)body.size(), &written, nullptr);
+        CloseHandle(file);
+    }
+    std::wstring escaped;
+    for (const wchar_t c : source) { if (c == L'\\') escaped += L'\\'; escaped += c; }
+    DevToolsJson boxed;
+    check(DevToolsJsonParse(L"{\"state\":\"ok\",\"definition\":{\"fileOnDisk\":\"" + escaped + L"\",\"line\":4,\"column\":5},"
+        L"\"hooks\":[{\"index\":0,\"kind\":\"state\",\"value\":\"\\\"hunter2\\\"\",\"canSet\":true,\"editable\":true,\"name\":\"pwd\"},"
+        L"{\"index\":1,\"kind\":\"state\",\"value\":\"\\\"bob\\\"\",\"canSet\":true,\"editable\":true,\"name\":\"user\"}]}", boxed),
+        "a Reactor.component answer with a PasswordBox parses");
+    TapReactorRedactPasswordVariables(TapReactorPasswordVariables(boxed), boxed.obj[L"hooks"]);
+    const auto& box = boxed.obj[L"hooks"].arr;
+    check(box[0].GetString(L"value") == kDevToolsRedacted && box[0].GetBool(L"redacted", false) && !box[0].GetBool(L"editable", true),
+        "a hook passed to a PasswordBox is redacted and not editable, whatever its name");
+    check(box[1].GetString(L"value") == L"\"bob\"" && !box[1].GetBool(L"redacted", false), "a hook passed to a TextBox is shown");
+    check(!TapReactorSecretRefusal(boxed, L"0").empty() && TapReactorSecretRefusal(boxed, L"1").empty(),
+        "Reactor.setState refuses the PasswordBox hook");
+    // `var dark = UseIsDarkTheme(); var (pwd, setPwd) = UseState(...)`: Reactor can't place pwd, so any text hook may be it.
+    std::vector<DevToolsReactorPublished::Hook> afterDark(2);
+    afterDark[0].name = L"dark"; afterDark[0].indexed = true;
+    afterDark[1].name = L"pwd"; afterDark[1].indexed = false;
+    check(TapReactorSecretUnplaced(afterDark, TapReactorPasswordVariables(boxed)),
+        "an unplaced hook passed to a PasswordBox makes the hooks uncertain");
+    check(!TapReactorSecretUnplaced(afterDark), "an unplaced pwd the body doesn't pass to a PasswordBox does not");
+    DevToolsJson none, screen;
+    check(DevToolsJsonParse(LR"({"state":"none","reason":"no Reactor component renders this element"})", none) &&
+          DevToolsJsonParse(LR"({"state":"none","reason":"the window shows Reactor's error screen","errorScreen":true})", screen),
+          "Reactor.component none answers parse");
+    check(TapReactorNoComponentRefusal(none).find(L"\"code\":\"no-component\"") != std::wstring::npos &&
+          TapReactorNoComponentRefusal(screen).find(L"\"code\":\"reactor-error-screen\"") != std::wstring::npos,
+          "with no component, Reactor.setState refuses as the agent would, without writing");
+    DeleteFileW(source.c_str());
 }
 
 // AccessKey="" reaches the chain as a null "0" handle with an Object value type, though the property is a String.

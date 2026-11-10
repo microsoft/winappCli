@@ -75,7 +75,7 @@ internal partial class RunCommand
     };
 
     internal static string? WatchConflict(bool devTools, bool detach, bool json, bool debugOutput, bool noBuild, bool aot, bool local,
-        bool clean = false, bool unregisterOnExit = false, bool profile = false)
+        bool clean = false, bool unregisterOnExit = false, bool profile = false, bool noLaunch = false, bool withoutAlias = false)
     {
         if (!devTools)
         {
@@ -91,6 +91,8 @@ internal partial class RunCommand
         if (clean) { conflicts.Add("--clean"); }
         if (unregisterOnExit) { conflicts.Add("--unregister-on-exit"); }
         if (profile) { conflicts.Add("--profile"); }
+        if (noLaunch) { conflicts.Add("--no-launch"); }
+        if (withoutAlias) { conflicts.Add("--without-alias"); }
         return conflicts.Count == 0 ? null
             : $"--watch runs 'dotnet watch' in this terminal until you stop it, rebuilding and relaunching the app as you edit, so it can't be combined with {string.Join(", ", conflicts)}.";
     }

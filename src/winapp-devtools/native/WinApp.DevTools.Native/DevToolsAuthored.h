@@ -107,6 +107,9 @@ bool DevToolsAuthored_CSharpHookNames(const std::wstring& path, unsigned int lin
 // Whether that render body uses an identifier `isSecret` says names a password (DevToolsCSharpSource::BodyNamesSecret).
 bool DevToolsAuthored_CSharpBodyNamesSecret(const std::wstring& path, unsigned int line, unsigned int column,
     bool (*isSecret)(const std::wstring&));
+// The variables that render body passes where a password goes (DevToolsCSharpSource::PasswordVariables).
+std::vector<std::wstring> DevToolsAuthored_CSharpPasswordVariables(const std::wstring& path, unsigned int line,
+    unsigned int column, bool (*isSecret)(const std::wstring&));
 
 // The lowercase hex SHA256 or SHA1 (as a portable PDB records it) of a file on this machine; empty when the file
 // cannot be read or the algorithm is neither.

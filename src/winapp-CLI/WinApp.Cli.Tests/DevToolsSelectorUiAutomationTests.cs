@@ -270,6 +270,53 @@ public class DevToolsSelectorUiAutomationTests
     }
 
     [TestMethod]
+    public async Task HashName_ThatNothingHasYet_FindsNothing_SoWaitForKeepsPolling()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", """{"matches":[]}""")
+            .Answer("VisualTree.getPreviews", """{"previews":[],"truncated":false}""");
+        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        Assert.IsNull(await bridge.FindSingleElementAsync(target, new UiSelector { Query = "#doesNotExist", ControlType = "Button" }, CancellationToken.None));
+        Assert.IsNull(await bridge.FindSingleElementAsync(target, new UiSelector { Query = "#doesNotExist" }, requireUnique: true, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task HashName_ThatNothingHas_StillSuggestsSimilarNames_ToOtherCommands()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", """{"matches":[{"handle":"42","name":"","type":"Microsoft.UI.Xaml.Controls.Button","reactor":{"element":"Button","name":"incrementButton"}}]}""")
+            .Answer("VisualTree.getPreviews", """{"previews":[],"truncated":false}""");
+        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        var error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(() =>
+            bridge.SearchAsync(target, new UiSelector { Query = "#incrementButt" }, 10, CancellationToken.None));
+        StringAssert.Contains(error.Message, "incrementButton");
+        error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(() =>
+            bridge.FindSingleElementAsync(target, new UiSelector { Query = "#incrementButt", ControlType = "Button" }, CancellationToken.None));
+        StringAssert.Contains(error.Message, "incrementButton", "ui invoke, click and the others keep the suggestion");
+        Assert.IsTrue(DevToolsSelectorUiAutomation.IsAbsent(error), "and wait-for still knows nothing has that name yet");
+    }
+
+    [TestMethod]
+    public async Task HashName_ThatATruncatedSearchMissed_StillFails_SoGoneIsNotReported()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", """{"matches":[],"truncated":true}""")
+            .Answer("VisualTree.getPreviews", """{"previews":[],"truncated":false}""");
+        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        await Assert.ThrowsExactlyAsync<UiElementNotFoundException>(() =>
+            bridge.FindSingleElementAsync(target, new UiSelector { Query = "#doesNotExist", ControlType = "Button" }, CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task AWordThatIsNoReactorElementsCSharpName_KeepsItsUiMeaning()
     {
         using var agent = new FakeDevToolsProtocolAgent()

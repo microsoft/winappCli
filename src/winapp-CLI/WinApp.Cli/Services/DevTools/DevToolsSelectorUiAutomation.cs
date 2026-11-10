@@ -70,13 +70,19 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
         {
             return await TranslateAsync(target, selector, ct);
         }
-        catch (UiElementNotFoundException ex) when (ex.Data.Contains(AbsentKey))
+        catch (UiElementNotFoundException ex) when (IsAbsent(ex))
         {
             return null;
         }
     }
 
-    private const string AbsentKey = "winapp.devtools.absent";
+    internal const string AbsentKey = "winapp.devtools.absent";
+
+    /// <summary>
+    /// Whether DevTools looked at the whole app and no element has the selector's name yet. The error still lists
+    /// similar names for the other commands; <c>ui wait-for</c> keeps waiting.
+    /// </summary>
+    internal static bool IsAbsent(Exception ex) => ex.Data.Contains(AbsentKey);
 
     public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct) => inner.IsSameElement(selected, current, ct);
 
@@ -170,10 +176,15 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
             if (!resolved.Ok)
             {
                 var message = resolved.RemoteError?.Message ?? resolved.Error ?? $"'{selector}' matched no element.";
-                throw resolved.Candidates.Length > 0
+                Exception failure = resolved.Candidates.Length > 0
                     ? Ambiguous(message, resolved.Candidates)
-                    : resolved.Absent ? new UiElementNotFoundException(selector) { Data = { [AbsentKey] = true } }
                     : new UiElementNotFoundException(selector);
+                // A name nothing has yet still lists the similar ones it found, but `ui wait-for` keeps waiting for it.
+                if (resolved.Absent)
+                {
+                    failure.Data[AbsentKey] = true;
+                }
+                throw failure;
             }
             handle = resolved.Handle!;
         }

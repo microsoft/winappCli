@@ -543,8 +543,8 @@ inline bool HookNames(const std::vector<std::wstring>& lines, unsigned int line,
     return any;
 }
 
-// Whether the render body (as for HookNames) uses an identifier `isSecret` says names a password. When HookNames cannot
-// place the hooks, any of them may hold that password.
+// Whether the render body (as for HookNames) uses an identifier `isSecret` says names a password, a PasswordBox, or a
+// password-changed handler. When HookNames cannot place the hooks, any of them may hold that password.
 template <class IsSecret>
 inline bool BodyNamesSecret(const std::vector<std::wstring>& lines, unsigned int line, unsigned int column, IsSecret isSecret)
 {
@@ -552,14 +552,161 @@ inline bool BodyNamesSecret(const std::vector<std::wstring>& lines, unsigned int
     std::wstring text;
     size_t open = 0, close = 0;
     if (!Body(lines, line, column, &text, &open, &close)) return false;
+    static const std::wstring changed = L"passwordchanged";
     for (size_t i = open + 1; i < close; ++i) {
         if (!IsIdentifierStart(text[i]) || IsIdentifierChar(text[i - 1])) continue;
         size_t end = i;
         while (end < close && IsIdentifierChar(text[end])) ++end;
-        if (isSecret(text.substr(i, end - i))) return true;
+        const std::wstring word = text.substr(i, end - i);
+        if (word == L"PasswordBox" || isSecret(word)) return true;
+        if (word.size() >= changed.size()) {
+            bool handler = true;
+            for (size_t k = 0; k < changed.size() && handler; ++k)
+                handler = std::towlower(word[word.size() - changed.size() + k]) == changed[k];
+            if (handler) return true;
+        }
         i = end - 1;
     }
     return false;
+}
+
+// The variables a render body (as for HookNames) passes where a password goes, or whose setter receives one:
+//  - the first argument of `PasswordBox(...)` or of a call whose name `isSecret` says names a password (`.Password(pwd)`);
+//  - a named argument (`password: pwd`) or member (`Password = pwd`) so named;
+//  - the variable a setter belongs to (`var (pwd, setPwd) = UseState("")`) when the setter is PasswordBox's second
+//    argument, an `onPasswordChanged:` argument or the argument of `.PasswordChanged(...)`, as in an uncontrolled
+//    `PasswordBox(default, setPwd)`.
+// `form.Pwd` gives `form`. A hook assigned to one of them holds that password whatever its own name. The CLI's
+// ReactorHookSource.PasswordVariables is the same.
+template <class IsSecret>
+inline std::vector<std::wstring> PasswordVariables(const std::vector<std::wstring>& lines, unsigned int line,
+                                                   unsigned int column, IsSecret isSecret)
+{
+    using namespace detail;
+    std::vector<std::wstring> found, setters;
+    std::wstring text;
+    size_t open = 0, close = 0;
+    if (!Body(lines, line, column, &text, &open, &close)) return found;
+    auto add = [](std::vector<std::wstring>& to, const std::wstring& name) {
+        if (!name.empty() && std::find(to.begin(), to.end(), name) == to.end()) to.push_back(name);
+    };
+    auto skip = [&](size_t at) { while (at < close && std::iswspace(text[at])) ++at; return at; };
+    auto changed = [](const std::wstring& word) {
+        static const std::wstring suffix = L"passwordchanged";
+        if (word.size() < suffix.size()) return false;
+        for (size_t k = 0; k < suffix.size(); ++k)
+            if (std::towlower(word[word.size() - suffix.size() + k]) != suffix[k]) return false;
+        return true;
+    };
+    // Where the argument starting at `at` ends: the `,` or `)` that closes it.
+    auto argumentEnd = [&](size_t at) {
+        int depth = 0;
+        for (; at < close; ++at) {
+            const wchar_t c = text[at];
+            if (c == L'(' || c == L'[' || c == L'{') ++depth;
+            else if (c == L')' || c == L']' || c == L'}') { if (depth == 0) return at; --depth; }
+            else if (c == L',' && depth == 0) return at;
+        }
+        return close;
+    };
+    // The root of `name`, `name.Member` or `@name?.Member!` at `at`, when that is the whole argument.
+    auto root = [&](size_t at) -> std::wstring {
+        at = skip(at);
+        if (at < close && text[at] == L'@') ++at;
+        if (at >= close || !IsIdentifierStart(text[at])) return {};
+        size_t end = at;
+        while (end < close && IsIdentifierChar(text[end])) ++end;
+        const std::wstring name = text.substr(at, end - at);
+        for (;;) {
+            if (end < close && text[end] == L'!') ++end;
+            if (end + 1 < close && text[end] == L'?' && text[end + 1] == L'.') ++end;
+            if (end + 1 < close && text[end] == L'.' && IsIdentifierStart(text[end + 1])) {
+                for (++end; end < close && IsIdentifierChar(text[end]); ++end) {}
+                continue;
+            }
+            break;
+        }
+        end = skip(end);
+        const bool whole = end < close && (text[end] == L',' || text[end] == L')' || text[end] == L';' || text[end] == L'}');
+        return whole && name != L"null" && name != L"default" ? name : std::wstring();
+    };
+    // A setter argument (`setPwd`, `pwd.Set`, `v => setPwd(v)`): a variable whose member it uses holds the password;
+    // any other name may be a setter.
+    auto setterArgument = [&](size_t from, size_t to) {
+        for (size_t k = from; k < to; ++k) {
+            if (!IsIdentifierStart(text[k]) || (k > from && IsIdentifierChar(text[k - 1]))) continue;
+            size_t end = k;
+            while (end < to && IsIdentifierChar(text[end])) ++end;
+            const bool member = k > 0 && text[k - 1] == L'.';
+            const size_t after = skip(end);
+            if (!member && after < to && text[after] == L'.') add(found, text.substr(k, end - k));
+            else if (!member) add(setters, text.substr(k, end - k));
+            k = end - 1;
+        }
+    };
+    for (size_t i = open + 1; i < close; ++i) {
+        if (!IsIdentifierStart(text[i]) || IsIdentifierChar(text[i - 1])) continue;
+        size_t end = i;
+        while (end < close && IsIdentifierChar(text[end])) ++end;
+        const std::wstring word = text.substr(i, end - i);
+        const size_t next = skip(end);
+        const bool named = next + 1 < close && text[next] == L':' && text[next + 1] != L':';
+        if (next < close && text[next] == L'(' && word == L"PasswordBox") {
+            size_t at = next + 1;
+            for (int position = 0; at < close; ++position) {
+                const size_t stop = argumentEnd(at);
+                const size_t first = skip(at);
+                size_t nameEnd = first;
+                while (nameEnd < stop && IsIdentifierChar(text[nameEnd])) ++nameEnd;
+                const size_t colon = skip(nameEnd);
+                const bool isNamed = nameEnd > first && colon + 1 < stop && text[colon] == L':' && text[colon + 1] != L':';
+                if (!isNamed && position == 0) add(found, root(at));
+                else if (!isNamed && position == 1) setterArgument(at, stop);
+                if (stop >= close || text[stop] != L',') break;
+                at = stop + 1;
+            }
+        } else if (next < close && text[next] == L'(' && isSecret(word)) {
+            add(found, root(next + 1));
+        } else if (next < close && text[next] == L'(' && changed(word)) {
+            setterArgument(next + 1, argumentEnd(next + 1));
+        } else if (named && isSecret(word)) {
+            add(found, root(next + 1));
+        } else if (named && changed(word)) {
+            setterArgument(next + 1, argumentEnd(next + 1));
+        } else if (isSecret(word) && next + 1 < close && text[next] == L'=' && text[next + 1] != L'=' && text[next + 1] != L'>') {
+            add(found, root(next + 1));
+        }
+        i = end - 1;
+    }
+    if (setters.empty()) return found;
+    // `var (pwd, setPwd) = ...` or `(pwd, setPwd) = ...`: the variable next to a password setter holds the password.
+    for (size_t i = open + 1; i < close; ++i) {
+        if (text[i] != L'(') continue;
+        std::vector<std::wstring> names;
+        size_t at = i + 1;
+        bool simple = true;
+        for (;;) {
+            const size_t stop = argumentEnd(at);
+            std::wstring last;
+            for (size_t k = at; k < stop; ++k) {
+                if (!IsIdentifierStart(text[k]) || (k > at && IsIdentifierChar(text[k - 1]))) continue;
+                size_t end = k;
+                while (end < stop && IsIdentifierChar(text[end])) ++end;
+                last = text.substr(k, end - k);
+                k = end - 1;
+            }
+            names.push_back(last);
+            if (stop >= close) { simple = false; break; }
+            if (text[stop] == L')') { at = stop + 1; break; }
+            at = stop + 1;
+        }
+        const size_t after = skip(at);
+        if (!simple || names.size() < 2 || after + 1 >= close || text[after] != L'=' || text[after + 1] == L'=' ||
+            text[after + 1] == L'>') continue;
+        for (size_t n = 1; n < names.size(); ++n)
+            if (!names[n].empty() && std::find(setters.begin(), setters.end(), names[n]) != setters.end()) add(found, names[n - 1]);
+    }
+    return found;
 }
 
 } // namespace DevToolsCSharpSource

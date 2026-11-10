@@ -279,6 +279,39 @@ int RunSourcePathTests()
         Check(!BodyNamesSecret(body(L"        var dark = UseIsDarkTheme();\n        var (token, setToken) = UseState(\"Password\");"), 4, 5, secret),
               "a password only in a string or another name is not one");
         Check(!BodyNamesSecret(login, 99, 1, secret), "no body, no password");
+
+        const auto box = body(L"        var (pwd, setPwd) = UseState(\"hunter2\");\n        var (user, setUser) = UseState(\"\");\n"
+                              L"        var form = UseState(new Form());\n        var (pin, setPin) = UseState(\"\");\n"
+                              L"        var (other, setOther) = UseState(\"\");\n"
+                              L"        var a = PasswordBox(pwd, setPwd);\n        var b = TextBox(user, setUser);\n"
+                              L"        var c = Field(label: user, adminPassword: form.Value.Secret);\n"
+                              L"        var d = new Login { UserPassword = pin!, Name = other };\n"
+                              L"        var e = PasswordBox(default, null);\n        var f = PasswordBox(pwd + other);");
+        const auto variables = PasswordVariables(box, 4, 5, secret);
+        Check(variables == std::vector<std::wstring>{L"pwd", L"form", L"pin"},
+              "a PasswordBox argument, a password-named argument and a password-named member give their variables");
+        Check(BodyNamesSecret(body(L"        var (pwd, setPwd) = UseState(\"\");\n        var a = PasswordBox(pwd, setPwd);"), 4, 5, secret),
+              "a body with a PasswordBox uses a password");
+        Check(BodyNamesSecret(body(L"        var (p, setP) = UseState(\"\");\n        var a = LoginForm(onPasswordChanged: setP);"), 4, 5, secret),
+              "so does a body that hands a setter to a password-changed handler");
+        Check(PasswordVariables(body(L"        var ok = userPassword == other;\n        Func<int> f = () => 1;"), 4, 5, secret).empty(),
+              "a comparison is not a password assignment");
+        Check(PasswordVariables(login, 99, 1, secret).empty(), "no body, no password variables");
+        const auto uncontrolled = body(L"        var (a, setA) = UseState(\"\");\n        var (b, setB) = UseState(\"\");\n"
+                                       L"        var (c, setC) = UseState(\"\");\n        var d = UseState(\"\");\n"
+                                       L"        var (e, setE) = UseState(\"\");\n        var (shown, setShown) = UseState(\"\");\n"
+                                       L"        var x1 = PasswordBox(default, setA);\n"
+                                       L"        var x2 = PasswordBox(onPasswordChanged: v => setB(v));\n"
+                                       L"        var x3 = PasswordBox().PasswordChanged(setC);\n"
+                                       L"        var x4 = PasswordBox(null, d.Set);\n"
+                                       L"        var x5 = PasswordBox(placeholderText: \"pin\", password: e, onPasswordChanged: setE);\n"
+                                       L"        var x6 = TextBox(shown, setShown);");
+        const auto setterVariables = PasswordVariables(uncontrolled, 4, 5, secret);
+        auto has = [&](const wchar_t* name) {
+            return std::find(setterVariables.begin(), setterVariables.end(), name) != setterVariables.end();
+        };
+        Check(has(L"a") && has(L"b") && has(L"c") && has(L"d") && has(L"e") && !has(L"shown"),
+              "a hook whose setter a PasswordBox calls holds the password, as in an uncontrolled PasswordBox");
     }
 
     std::printf("== C# password parameters ==\n");

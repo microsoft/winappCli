@@ -1592,12 +1592,15 @@ static void TapReactorRedactTextHooks(DevToolsJson& hooks)
     }
 }
 
-// Whether Reactor named a password hook it could not place (one after a composite hook such as UseIsDarkTheme). Then
-// it may be any of the hooks, and the names of those before it may be off too, so every text value is hidden.
-static bool TapReactorSecretUnplaced(const std::vector<DevToolsReactorPublished::Hook>& named)
+// Whether Reactor named a password hook it could not place (one after a composite hook such as UseIsDarkTheme): a hook
+// named as a password, or one the body passes where a password goes (`passwords`). Then it may be any of the hooks, and
+// the names of those before it may be off too, so every text value is hidden.
+static bool TapReactorSecretUnplaced(const std::vector<DevToolsReactorPublished::Hook>& named,
+                                     const std::vector<std::wstring>& passwords = {})
 {
     for (const auto& hook : named)
-        if (!hook.indexed && DevToolsRead_IsSecretProperty(hook.name)) return true;
+        if (!hook.indexed && (DevToolsRead_IsSecretProperty(hook.name) ||
+                              std::find(passwords.begin(), passwords.end(), hook.name) != passwords.end())) return true;
     return false;
 }
 
@@ -1617,17 +1620,67 @@ static std::wstring TapReactorSecretRefusal(const DevToolsJson& component, const
     return L"";
 }
 
+// Reactor.setState's refusal when a Reactor.component answer says no component renders the element: the same answer
+// the agent gives (no-component, or reactor-error-screen when the window shows Reactor's error screen).
+static std::wstring TapReactorNoComponentRefusal(const DevToolsJson& component)
+{
+    std::wstring reason = component.GetString(L"reason");
+    if (reason.empty()) reason = L"no Reactor component renders this element";
+    return std::wstring(L"{\"state\":\"refused\",\"code\":\"") +
+           (component.GetBool(L"errorScreen", false) ? L"reactor-error-screen" : L"no-component") +
+           L"\",\"reason\":\"" + DevToolsJsonEscape(reason) + L"\"}";
+}
+
+// The component's render body on this machine: the definition's file, line and column; false when it isn't a C# file.
+static bool TapReactorDefinitionSource(const DevToolsJson& answer, std::wstring* path, unsigned int* line, unsigned int* column)
+{
+    const DevToolsJson* definition = answer.Find(L"definition");
+    if (!definition || !definition->IsObject()) return false;
+    *path = definition->GetString(L"fileOnDisk");
+    if (path->empty()) *path = definition->GetString(L"file");
+    const bool rooted = path->size() > 2 && ((*path)[1] == L':' || ((*path)[0] == L'\\' && (*path)[1] == L'\\'));
+    if (!rooted || path->size() < 3 || _wcsicmp(path->c_str() + path->size() - 3, L".cs") != 0) return false;
+    *line = static_cast<unsigned int>(definition->GetInt(L"line", 0));
+    *column = static_cast<unsigned int>(definition->GetInt(L"column", 0));
+    return true;
+}
+
+// The variables the component's render body passes where a password goes (DevToolsCSharpSource::PasswordVariables).
+static std::vector<std::wstring> TapReactorPasswordVariables(const DevToolsJson& answer)
+{
+    std::wstring path;
+    unsigned int line = 0, column = 0;
+    if (!TapReactorDefinitionSource(answer, &path, &line, &column)) return {};
+    return DevToolsAuthored_CSharpPasswordVariables(path, line, column, &DevToolsRead_IsSecretProperty);
+}
+
+// A hook whose variable the render body passes where a password goes (`PasswordBox(pwd, setPwd)`) holds that password
+// whatever its name: hide it, as a hook named as a secret is hidden.
+static void TapReactorRedactPasswordVariables(const std::vector<std::wstring>& variables, DevToolsJson& hooks)
+{
+    if (variables.empty()) return;
+    for (auto& hook : hooks.arr) {
+        if (!hook.IsObject() || hook.GetBool(L"redacted", false)) continue;
+        const std::wstring name = hook.GetString(L"name");
+        if (name.empty() || std::find(variables.begin(), variables.end(), name) == variables.end()) continue;
+        if (hook.Find(L"value")) {
+            DevToolsJson redacted; redacted.type = DevToolsJsonType::String; redacted.str = kDevToolsRedacted;
+            hook.obj[L"value"] = redacted;
+        }
+        DevToolsJson yes; yes.type = DevToolsJsonType::Bool; yes.b = true;
+        hook.obj[L"redacted"] = yes;
+        if (hook.Find(L"editable")) { DevToolsJson no; no.type = DevToolsJsonType::Bool; no.b = false; hook.obj[L"editable"] = no; }
+    }
+}
+
 // After a late attach Reactor published no hook names: read them from the component's render body, where the PDB says
 // it is defined (DevToolsCSharpSource::HookNames), so a hook assigned to a password variable is redacted like a
 // published one. Such names are marked as read from the source text.
 static void TapReactorNameHooksFromSource(const DevToolsJson& answer, DevToolsJson& hooks)
 {
-    const DevToolsJson* definition = answer.Find(L"definition");
-    if (!definition || !definition->IsObject()) return;
-    std::wstring path = definition->GetString(L"fileOnDisk");
-    if (path.empty()) path = definition->GetString(L"file");
-    const bool rooted = path.size() > 2 && (path[1] == L':' || (path[0] == L'\\' && path[1] == L'\\'));
-    if (!rooted || path.size() < 3 || _wcsicmp(path.c_str() + path.size() - 3, L".cs") != 0) return;
+    std::wstring path;
+    unsigned int line = 0, column = 0;
+    if (!TapReactorDefinitionSource(answer, &path, &line, &column)) return;
     std::vector<std::wstring> kinds;
     for (size_t i = 0; i < hooks.arr.size(); ++i) {
         const DevToolsJson& hook = hooks.arr[i];
@@ -1636,8 +1689,6 @@ static void TapReactorNameHooksFromSource(const DevToolsJson& answer, DevToolsJs
         kinds.push_back(hook.GetString(L"kind"));
     }
     std::vector<std::wstring> names;
-    const auto line = static_cast<unsigned int>(definition->GetInt(L"line", 0));
-    const auto column = static_cast<unsigned int>(definition->GetInt(L"column", 0));
     if (!DevToolsAuthored_CSharpHookNames(path, line, column, kinds, &names)) {
         // The hooks can't be placed (a hook DevTools doesn't know, a branch): if the body uses a password, any may hold it.
         if (DevToolsAuthored_CSharpBodyNamesSecret(path, line, column, &DevToolsRead_IsSecretProperty))
@@ -1744,9 +1795,23 @@ static bool TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         found = !named.empty();
     }
     if (named.empty()) {
-        bool anyName = false;
-        for (const auto& hook : hooks->second.arr) anyName = anyName || !hook.GetString(L"name").empty();
-        if (!anyName) TapReactorNameHooksFromSource(answer, hooks->second);
+        bool anyName = false, anyUnnamed = false;
+        for (const auto& hook : hooks->second.arr) {
+            const bool hasName = !hook.GetString(L"name").empty();
+            anyName = anyName || hasName;
+            anyUnnamed = anyUnnamed || !hasName;
+        }
+        if (!anyName) {
+            TapReactorNameHooksFromSource(answer, hooks->second);
+        } else if (anyUnnamed) {
+            // Some hooks have no name: when the body uses a password, one of them may hold it.
+            std::wstring path;
+            unsigned int line = 0, column = 0;
+            if (TapReactorDefinitionSource(answer, &path, &line, &column) &&
+                DevToolsAuthored_CSharpBodyNamesSecret(path, line, column, &DevToolsRead_IsSecretProperty))
+                TapReactorRedactTextHooks(hooks->second);
+        }
+        TapReactorRedactPasswordVariables(TapReactorPasswordVariables(answer), hooks->second);
         TapReactorRedactNamedContexts(answer, hooks->second);
         return found;
     }
@@ -1762,7 +1827,8 @@ static bool TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         unindexed.arr.push_back(std::move(entry));
     }
     if (!unindexed.arr.empty()) answer.obj[L"unindexedHooks"] = std::move(unindexed);
-    const bool secretUnplaced = TapReactorSecretUnplaced(named);
+    const auto passwords = TapReactorPasswordVariables(answer);
+    const bool secretUnplaced = TapReactorSecretUnplaced(named, passwords);
     for (auto& hook : hooks->second.arr) {
         if (!hook.IsObject()) continue;
         const DevToolsJson* index = hook.Find(L"index");
@@ -1773,6 +1839,7 @@ static bool TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         TapReactorApplyHookName(hook, hookName, line);
     }
     if (secretUnplaced) TapReactorRedactTextHooks(hooks->second);
+    TapReactorRedactPasswordVariables(passwords, hooks->second);
     TapReactorRedactNamedContexts(answer, hooks->second);
     return true;
 }
@@ -1844,14 +1911,22 @@ static bool TapReactorAskWire(unsigned long long wire, const std::wstring& opera
 // Reactor.element: what Reactor set on one element (its record properties, applied modifiers, component props), from
 // the managed agent, plus the component that rendered it from the annotation cache.
 // Reactor.setState: refused for a hook shown as a secret (by its name), otherwise the agent writes it. The agent knows
-// the names Reactor reports; the published names need the component answer first.
+// the names Reactor reports; the published names need the component answer first, so without it nothing is written.
+// With no component the write is refused as the agent would (no-component, reactor-error-screen), without asking it:
+// a component that appears by the time the agent writes would skip the secret check.
 static std::wstring CmdReactorSetState(unsigned long long wire, const std::wstring& index, const std::wstring& value)
 {
+    const std::wstring answer = CmdReactorComponent(wire);
     DevToolsJson component;
-    if (DevToolsJsonParse(CmdReactorComponent(wire), component) && component.IsObject() && component.GetString(L"state") == L"ok") {
-        std::wstring refusal = TapReactorSecretRefusal(component, index);
-        if (!refusal.empty()) return refusal;
-    }
+    const bool parsed = DevToolsJsonParse(answer, component) && component.IsObject();
+    const std::wstring state = parsed ? component.GetString(L"state") : std::wstring();
+    if (state == L"none") return TapReactorNoComponentRefusal(component);
+    if (state != L"ok")
+        return answer.rfind(L"ERR ", 0) == 0 || !state.empty()
+            ? answer
+            : DevToolsBindingRelay_UnavailableJson(L"DevTools could not read the component, so it did not write its state");
+    std::wstring refusal = TapReactorSecretRefusal(component, index);
+    if (!refusal.empty()) return refusal;
     return CmdReactorAgent(wire, L"reactorsetstate", index, value);
 }
 

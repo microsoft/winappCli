@@ -212,7 +212,8 @@ other live edits. Select **Re-apply all compiled bindings** to continue, or
 changes or edits your XAML.
 
 Passwords never leave the app. A property whose name ends in `Password` (in a
-[Reactor app](devtools-reactor.md), also a prop, hook or context with such a name)
+[Reactor app](devtools-reactor.md), also a prop, hook or context with such a name,
+or a hook whose value your C# passes to a `PasswordBox`)
 shows as `<redacted>`, and DevTools refuses to set it. Source previews and comments
 show `<redacted>` for password values in your XAML, for the text values on a line
 of C# that mentions a password, and for text your C# passes to a parameter whose

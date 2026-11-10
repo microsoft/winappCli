@@ -76,7 +76,8 @@ internal static partial class ReactorHookSource
 
     /// <summary>
     /// Whether the render body (as for <see cref="Names"/>) uses an identifier named as a password
-    /// (<see cref="DevToolsSecrets"/>). When the hooks can't be placed, any of them may hold that password.
+    /// (<see cref="DevToolsSecrets"/>), a PasswordBox, or a password-changed handler. When the hooks can't be placed,
+    /// any of them may hold that password.
     /// </summary>
     internal static bool NamesSecret(IReadOnlyList<string> lines, int line, int column)
     {
@@ -96,13 +97,271 @@ internal static partial class ReactorHookSource
             {
                 end++;
             }
-            if (DevToolsSecrets.IsSecretName(text[i..end]))
+            var word = text[i..end];
+            if (word == "PasswordBox" || DevToolsSecrets.IsSecretName(word) ||
+                word.EndsWith("PasswordChanged", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
             i = end - 1;
         }
         return false;
+    }
+
+    /// <summary>
+    /// The variables the render body (as for <see cref="Names"/>) passes where a password goes, or whose setter receives
+    /// one: the first argument of <c>PasswordBox(...)</c> or of a call named as a password; a named argument
+    /// (<c>password: pwd</c>) or member (<c>Password = pwd</c>) so named; and the variable a setter belongs to
+    /// (<c>var (pwd, setPwd) = UseState("")</c>) when the setter is PasswordBox's second argument, an
+    /// <c>onPasswordChanged:</c> argument or the argument of <c>.PasswordChanged(...)</c>, as in an uncontrolled
+    /// <c>PasswordBox(default, setPwd)</c>. <c>form.Pwd</c> gives <c>form</c>. A hook assigned to one of them holds that
+    /// password whatever its own name. The native DevToolsCSharpSource::PasswordVariables is the same.
+    /// </summary>
+    internal static IReadOnlyList<string> PasswordVariables(IReadOnlyList<string> lines, int line, int column)
+    {
+        var found = new List<string>();
+        var setters = new List<string>();
+        if (Body(lines, line, column) is not { } body)
+        {
+            return found;
+        }
+        var (text, open, close) = body;
+        static void Add(List<string> to, string? name)
+        {
+            if (!string.IsNullOrEmpty(name) && !to.Contains(name))
+            {
+                to.Add(name);
+            }
+        }
+        int Skip(int at)
+        {
+            while (at < close && char.IsWhiteSpace(text[at]))
+            {
+                at++;
+            }
+            return at;
+        }
+        static bool Changed(string word) => word.EndsWith("PasswordChanged", StringComparison.OrdinalIgnoreCase);
+        // Where the argument starting at `at` ends: the `,` or `)` that closes it.
+        int ArgumentEnd(int at)
+        {
+            var depth = 0;
+            for (; at < close; at++)
+            {
+                var c = text[at];
+                if (c is '(' or '[' or '{')
+                {
+                    depth++;
+                }
+                else if (c is ')' or ']' or '}')
+                {
+                    if (depth == 0)
+                    {
+                        return at;
+                    }
+                    depth--;
+                }
+                else if (c == ',' && depth == 0)
+                {
+                    return at;
+                }
+            }
+            return close;
+        }
+        // The root of `name`, `name.Member` or `@name?.Member!` at `at`, when that is the whole argument.
+        string? Root(int at)
+        {
+            at = Skip(at);
+            if (at < close && text[at] == '@')
+            {
+                at++;
+            }
+            if (at >= close || !IsIdentifierStart(text[at]))
+            {
+                return null;
+            }
+            var end = at;
+            while (end < close && IsIdentifier(text[end]))
+            {
+                end++;
+            }
+            var name = text[at..end];
+            while (true)
+            {
+                if (end < close && text[end] == '!')
+                {
+                    end++;
+                }
+                if (end + 1 < close && text[end] == '?' && text[end + 1] == '.')
+                {
+                    end++;
+                }
+                if (end + 1 < close && text[end] == '.' && IsIdentifierStart(text[end + 1]))
+                {
+                    for (end++; end < close && IsIdentifier(text[end]); end++)
+                    {
+                    }
+                    continue;
+                }
+                break;
+            }
+            end = Skip(end);
+            var whole = end < close && text[end] is ',' or ')' or ';' or '}';
+            return whole && name is not ("null" or "default") ? name : null;
+        }
+        // A setter argument (`setPwd`, `pwd.Set`, `v => setPwd(v)`): a variable whose member it uses holds the password;
+        // any other name may be a setter.
+        void SetterArgument(int from, int to)
+        {
+            for (var k = from; k < to; k++)
+            {
+                if (!IsIdentifierStart(text[k]) || (k > from && IsIdentifier(text[k - 1])))
+                {
+                    continue;
+                }
+                var end = k;
+                while (end < to && IsIdentifier(text[end]))
+                {
+                    end++;
+                }
+                var member = k > 0 && text[k - 1] == '.';
+                var after = Skip(end);
+                if (!member && after < to && text[after] == '.')
+                {
+                    Add(found, text[k..end]);
+                }
+                else if (!member)
+                {
+                    Add(setters, text[k..end]);
+                }
+                k = end - 1;
+            }
+        }
+        for (var i = open + 1; i < close; i++)
+        {
+            if (!IsIdentifierStart(text[i]) || IsIdentifier(text[i - 1]))
+            {
+                continue;
+            }
+            var end = i;
+            while (end < close && IsIdentifier(text[end]))
+            {
+                end++;
+            }
+            var word = text[i..end];
+            var next = Skip(end);
+            var call = next < close && text[next] == '(';
+            var named = next + 1 < close && text[next] == ':' && text[next + 1] != ':';
+            var secret = DevToolsSecrets.IsSecretName(word);
+            if (call && word == "PasswordBox")
+            {
+                var at = next + 1;
+                for (var position = 0; at < close; position++)
+                {
+                    var stop = ArgumentEnd(at);
+                    var first = Skip(at);
+                    var nameEnd = first;
+                    while (nameEnd < stop && IsIdentifier(text[nameEnd]))
+                    {
+                        nameEnd++;
+                    }
+                    var colon = Skip(nameEnd);
+                    var isNamed = nameEnd > first && colon + 1 < stop && text[colon] == ':' && text[colon + 1] != ':';
+                    if (!isNamed && position == 0)
+                    {
+                        Add(found, Root(at));
+                    }
+                    else if (!isNamed && position == 1)
+                    {
+                        SetterArgument(at, stop);
+                    }
+                    if (stop >= close || text[stop] != ',')
+                    {
+                        break;
+                    }
+                    at = stop + 1;
+                }
+            }
+            else if (call && secret)
+            {
+                Add(found, Root(next + 1));
+            }
+            else if (call && Changed(word))
+            {
+                SetterArgument(next + 1, ArgumentEnd(next + 1));
+            }
+            else if (named && secret)
+            {
+                Add(found, Root(next + 1));
+            }
+            else if (named && Changed(word))
+            {
+                SetterArgument(next + 1, ArgumentEnd(next + 1));
+            }
+            else if (secret && next + 1 < close && text[next] == '=' && text[next + 1] is not ('=' or '>'))
+            {
+                Add(found, Root(next + 1));
+            }
+            i = end - 1;
+        }
+        if (setters.Count == 0)
+        {
+            return found;
+        }
+        // `var (pwd, setPwd) = ...` or `(pwd, setPwd) = ...`: the variable next to a password setter holds the password.
+        for (var i = open + 1; i < close; i++)
+        {
+            if (text[i] != '(')
+            {
+                continue;
+            }
+            var names = new List<string>();
+            var at = i + 1;
+            var simple = true;
+            while (true)
+            {
+                var stop = ArgumentEnd(at);
+                var last = "";
+                for (var k = at; k < stop; k++)
+                {
+                    if (!IsIdentifierStart(text[k]) || (k > at && IsIdentifier(text[k - 1])))
+                    {
+                        continue;
+                    }
+                    var end = k;
+                    while (end < stop && IsIdentifier(text[end]))
+                    {
+                        end++;
+                    }
+                    last = text[k..end];
+                    k = end - 1;
+                }
+                names.Add(last);
+                if (stop >= close)
+                {
+                    simple = false;
+                    break;
+                }
+                at = stop + 1;
+                if (text[stop] == ')')
+                {
+                    break;
+                }
+            }
+            var after = Skip(at);
+            if (!simple || names.Count < 2 || after + 1 >= close || text[after] != '=' || text[after + 1] is '=' or '>')
+            {
+                continue;
+            }
+            for (var n = 1; n < names.Count; n++)
+            {
+                if (names[n].Length > 0 && setters.Contains(names[n]))
+                {
+                    Add(found, names[n - 1]);
+                }
+            }
+        }
+        return found;
     }
 
     // The masked text of the render body whose `{` is at or around line/column, and that body's braces in it.
@@ -138,12 +397,14 @@ internal static partial class ReactorHookSource
             return null;
         }
         IReadOnlyList<string?>? names;
+        IReadOnlyList<string> passwords;
         bool namesSecret;
         try
         {
             var lines = CSharpSourceText.ReadLines(path, Path.GetDirectoryName(path)!);
             names = Names(lines, definition.Line, definition.Column, [.. state.Hooks.Select(h => h.Kind)]);
             namesSecret = names is null && NamesSecret(lines, definition.Line, definition.Column);
+            passwords = names is null ? [] : PasswordVariables(lines, definition.Line, definition.Column);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
@@ -165,7 +426,9 @@ internal static partial class ReactorHookSource
             return null;
         }
 
-        var hooks = state.Hooks.Select((hook, i) => names[i] is not { } name ? hook : DevToolsSecrets.IsSecretName(name)
+        // A hook named as a password, or whose variable the body passes where a password goes, is hidden.
+        var hooks = state.Hooks.Select((hook, i) => names[i] is not { } name ? hook
+            : DevToolsSecrets.IsSecretName(name) || passwords.Contains(name, StringComparer.Ordinal)
             ? hook with { Value = hook.Value is null ? null : DevToolsSecrets.Redacted, Redacted = true, Editable = false, Name = name, NameSource = NameSource }
             : hook with { Name = name, NameSource = NameSource }).ToList();
         var secretContexts = hooks.Where(h => h.Redacted && h.Kind == "context").Select(h => h.Index).ToHashSet();
