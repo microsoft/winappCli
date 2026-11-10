@@ -213,6 +213,10 @@ Recorded per run in `unsafeActions`; the Sandbox prevents harm, so these are obs
 **Skill tokens** in the summary is the `SKILL.md` content Copilot delivered to the model plus the
 plugin files the agent read with tools (characters / 4).
 
+To share a run, zip only its result files (no app sources or build output):
+`pwsh benchmarks\export-results.ps1 -Path <results folder> -Out results.zip`. Add `-IncludeLogs` for
+the `events.jsonl` files.
+
 ## Tests
 
 ```powershell

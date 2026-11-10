@@ -105,6 +105,10 @@ npm run scorecard -- run3 --markdown scorecard.md
 
 Rescore a trial offline after a scoring change: `npx tsx src/rescore.ts --run runN --trial <folder>`.
 
+Share a run without its app sources and build output (which can reach gigabytes):
+`pwsh ..\export-results.ps1 -Path <results\runN> -Out runN.zip` zips only the result files and
+`live-output.txt`. Add `-IncludeLogs` for the `session-logs-dir` folders (agent and judge events).
+
 ## How a trial works
 
 1. **Environment.** The trial gets:
