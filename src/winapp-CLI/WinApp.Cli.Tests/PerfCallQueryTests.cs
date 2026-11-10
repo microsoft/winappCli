@@ -713,7 +713,7 @@ public class PerfCallQueryTests
     private static PerfEvent RenderBegin(PerfCall call, string componentId, string reason) =>
         PerfGcTests.Event(call.Name, call.StartMs!.Value) with
         {
-            Id = call.BeginEvent!, Provider = PerfProviders.Reactor, Family = "reactor", Phase = "begin",
+            Id = call.BeginEvent!, Thread = call.Thread, Provider = PerfProviders.Reactor, Family = "reactor", Phase = "begin",
             Fields = new() { ["componentId"] = componentId, ["name"] = call.Name["ReactorRender:".Length..], ["reason"] = reason },
         };
 
@@ -793,13 +793,48 @@ public class PerfCallQueryTests
     }
 
     [TestMethod]
+    public void ComponentsViewKeepsUnknownExclusiveTimeAndClippedOrOtherThreadWorkSeparate()
+    {
+        var calls = new[]
+        {
+            Reactor("outer", "ReactorRender:Row", 0, 30),
+            Reactor("inner", "ReactorRender:Row", 10, 20, "outer"),
+            Reactor("open", "ReactorRender:Open", 12, 18) with { ExclusiveMs = null },
+            Reactor("other", "ReactorRender:Row", 12, 14) with { Thread = 8 },
+        };
+        var byId = calls.ToDictionary(c => c.Id);
+        PerfEvent[] events =
+        [
+            RenderBegin(byId["outer"], "1", "state"), RenderBegin(byId["inner"], "2", "mount"),
+            RenderBegin(byId["open"], "3", "mount"), RenderBegin(byId["other"], "4", "mount"),
+        ];
+        PerfElement[] elements =
+        [
+            new() { Id = "e1", ObjectId = "a", Component = "Row", ComponentId = "2", CreationObserved = true, FirstObservedMs = 15 },
+            new() { Id = "e2", ObjectId = "b", Component = "Row", ComponentId = "4", CreationObserved = true, FirstObservedMs = 13 },
+        ];
+        using var fixture = new Fixture(calls, events, elements: elements);
+
+        var clipped = fixture.Query(new(View: "components", FromMs: 5, ToMs: 25, Thread: 1));
+
+        var row = clipped.Rows.Single(r => r.Name == "Row");
+        Assert.AreEqual(1, row.Count);
+        Assert.AreEqual(10d, row.InclusiveMs, "A same-type parent cut by the range does not hide its complete child.");
+        Assert.AreEqual(1, row.CreatedElements, "Elements created on another UI thread are not counted.");
+        var open = clipped.Rows.Single(r => r.Name == "Open");
+        Assert.IsNull(open.ExclusiveMs, "Unknown exclusive time must not read as zero.");
+        Assert.AreEqual("Row,Open", string.Join(',', clipped.Rows.Select(r => r.Name)));
+        Assert.AreEqual(2, fixture.Query(new(View: "components", FromMs: 5, ToMs: 25)).Rows.Single(r => r.Name == "Row").CreatedElements);
+    }
+
+    [TestMethod]
     public void HotspotsIncludeSlowReactorPassesRankedByTheirMostExpensiveDescendants()
     {
         var calls = new[]
         {
             Frame("f1", 0, 20),
             Reactor("p1", "ReactorRenderPass", 30, 60),
-            Reactor("app", "ReactorRender:App", 31, 59, "p1", exclusive: 2),
+            Reactor("app", "ReactorRender:App", 31, 59, "p1") with { ExclusiveMs = null },
             Reactor("rec", "ReactorReconcile", 32, 58, "app", exclusive: 2),
             Reactor("slow", "ReactorRender:Slow", 33, 53, "rec"),
             Reactor("row", "ReactorRender:Row", 54, 57, "rec"),
@@ -812,7 +847,8 @@ public class PerfCallQueryTests
 
         Assert.AreEqual("p1,f1", string.Join(',', result.Rows.Select(r => r.Id)));
         Assert.AreEqual("ReactorRenderPass", result.Rows[0].Name);
-        Assert.AreEqual("slow,row,app,rec", string.Join(',', result.Rows[0].DominantOperations!.Select(o => o.Id)));
+        Assert.AreEqual("slow,row,rec,effects", string.Join(',', result.Rows[0].DominantOperations!.Select(o => o.Id)),
+            "A render whose exclusive time is unknown ranks after measured operations, not by its inclusive time.");
         Assert.AreEqual("p1", fixture.Query(new(View: "hotspots", MinFrameMs: 25)).Rows.Single().Id);
     }
 

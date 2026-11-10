@@ -794,7 +794,7 @@ internal static class PerfQuery
                 var candidates = (frame.Family == ReactorEventDecoder.Family ? DescendantCalls(frame, children) : children[frame.Id])
                     .Where(c => c.DurationMs is not null);
                 row.DominantOperations = (frame.Family == ReactorEventDecoder.Family
-                        ? candidates.OrderByDescending(c => c.ExclusiveMs ?? c.DurationMs)
+                        ? candidates.OrderByDescending(c => c.ExclusiveMs)
                         : candidates.OrderByDescending(c => c.DurationMs))
                     .ThenBy(c => c.StartMs)
                     .ThenBy(c => c.Id, StringComparer.Ordinal)
@@ -838,7 +838,8 @@ internal static class PerfQuery
         public Dictionary<string, int> Reasons { get; } = new(StringComparer.Ordinal);
         public List<string> Evidence { get; } = [];
         public double Inclusive { get; set; }
-        public double Exclusive { get; set; }
+        /// <summary>Null when any counted render's exclusive time is unknown (a nested span never stopped).</summary>
+        public double? Exclusive { get; set; } = 0;
         public int Overlaps { get; set; }
         public double Clipped { get; set; }
     }
@@ -866,6 +867,7 @@ internal static class PerfQuery
             }
             return false;
         }
+        bool Inside(PerfCall call) => call.DurationMs is not null && call.StartMs >= range.FromMs && call.EndMs <= range.ToMs;
 
         var aggregates = new Dictionary<string, ComponentAggregate>(StringComparer.Ordinal);
         var passDurations = new List<(double Duration, string Id)>();
@@ -877,7 +879,7 @@ internal static class PerfQuery
             {
                 continue;
             }
-            var inside = call.DurationMs is not null && call.StartMs >= range.FromMs && call.EndMs <= range.ToMs;
+            var inside = Inside(call);
             if (call.Name == ReactorEventDecoder.RenderPass)
             {
                 if (inside)
@@ -915,9 +917,9 @@ internal static class PerfQuery
                 continue;
             }
             aggregate.Durations.Add(call.DurationMs.Value);
-            aggregate.Exclusive += call.ExclusiveMs ?? 0;
-            // A component nested in another render of the same type is already inside that render's inclusive time.
-            if (!HasAncestor(call, a => a.Name == call.Name))
+            aggregate.Exclusive += call.ExclusiveMs;
+            // A component nested in another counted render of the same type is already inside that render's inclusive time.
+            if (!HasAncestor(call, a => a.Name == call.Name && Inside(a)))
             {
                 aggregate.Inclusive += call.DurationMs.Value;
             }
@@ -935,8 +937,14 @@ internal static class PerfQuery
                 }
             }
         }
+        // A component instance renders only on its host's UI thread, so its ID selects that thread's elements.
+        var threadInstances = options.Thread is { } thread
+            ? renderEvents.Values.Where(e => e.Thread == thread)
+                .Select(e => e.Fields.GetValueOrDefault("componentId")).OfType<string>().ToHashSet(StringComparer.Ordinal)
+            : null;
         var created = elements.Where(e => e.Component is not null && e.CreationObserved &&
-                e.FirstObservedMs >= range.FromMs && e.FirstObservedMs <= range.ToMs)
+                e.FirstObservedMs >= range.FromMs && e.FirstObservedMs <= range.ToMs &&
+                (threadInstances is null || e.ComponentId is not null && threadInstances.Contains(e.ComponentId)))
             .GroupBy(e => e.Component!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         passDurations.Sort((left, right) => left.Duration.CompareTo(right.Duration));
