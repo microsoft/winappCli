@@ -206,8 +206,8 @@ public class PerfCommandTests : BaseCommandTests
                 Assert.IsFalse(summary.RootElement.GetProperty("coverage").TryGetProperty("incompleteCalls", out _));
             }
             var analysis = PerfAnalysisStore.Open(directory.FullName, CancellationToken.None);
-            Assert.AreEqual(2, analysis.Manifest.DecoderVersion);
-            Assert.AreEqual(2, analysis.Manifest.AnalyzerVersion);
+            Assert.AreEqual(3, analysis.Manifest.DecoderVersion);
+            Assert.AreEqual(3, analysis.Manifest.AnalyzerVersion);
             Assert.AreEqual(1, analysis.Manifest.Calls);
             Assert.AreEqual(1, analysis.Manifest.DecodeErrors, "The diagnostic decoding failure must remain recorded.");
             Assert.IsEmpty(analysis.Manifest.IncompleteReasons);

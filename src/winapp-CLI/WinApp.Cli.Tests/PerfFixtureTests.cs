@@ -98,7 +98,7 @@ public sealed class PerfFixtureTests
                 File.WriteAllText(Path.Join(analysis.Directory, "manifest.json"),
                     JsonSerializer.Serialize(analysis.Manifest, PerfJsonContext.Default.PerfAnalysisManifest));
                 var rebuilt = PerfAnalysisStore.Open(gcCapture.FullName, gcTimeout.Token);
-                Assert.AreEqual(2, rebuilt.Manifest.AnalyzerVersion);
+                Assert.AreEqual(3, rebuilt.Manifest.AnalyzerVersion);
                 var rebuiltResult = PerfQuery.Execute(rebuilt, new(View: "gc", Limit: 100));
                 Assert.AreEqual(JsonSerializer.Serialize(result, PerfJsonContext.Default.PerfQueryResult),
                     JsonSerializer.Serialize(rebuiltResult, PerfJsonContext.Default.PerfQueryResult));
@@ -106,7 +106,7 @@ public sealed class PerfFixtureTests
                 File.WriteAllText(Path.Join(rebuilt.Directory, "manifest.json"),
                     JsonSerializer.Serialize(rebuilt.Manifest, PerfJsonContext.Default.PerfAnalysisManifest));
                 var redecoded = PerfAnalysisStore.Open(gcCapture.FullName, gcTimeout.Token);
-                Assert.AreEqual(2, redecoded.Manifest.DecoderVersion);
+                Assert.AreEqual(3, redecoded.Manifest.DecoderVersion);
                 Assert.AreEqual(JsonSerializer.Serialize(result, PerfJsonContext.Default.PerfQueryResult),
                     JsonSerializer.Serialize(PerfQuery.Execute(redecoded, new(View: "gc", Limit: 100)),
                         PerfJsonContext.Default.PerfQueryResult));
