@@ -72,6 +72,7 @@ import {
 } from "./machine-guard.js";
 import { resolveCopilotCliPath } from "./copilot-cli.js";
 import { appendBounded, PROCESS_OUTPUT_MAX_CHARS } from "./live-output.js";
+import { aotGateTimeoutMessage, aotGateTimeoutMinutes, withDeadline } from "./aot-gate.js";
 import { runUntilSdkCompletion, type SdkCompletionReason } from "./sdk-lifecycle.js";
 import { compareVersionCore, resolveWinAppToolchain } from "./winapp-toolchain.js";
 import { readLinesSync } from "./jsonl-stream.js";
@@ -852,7 +853,8 @@ function runProcess(
   onOutput: (data: string) => void,
   timeoutMs?: number,
   useShell = true,
-  extraEnv?: Record<string, string>
+  extraEnv?: Record<string, string>,
+  onSpawn?: (pid: number) => void
 ): Promise<ProcessResult> {
   return new Promise((resolve) => {
     const trialCtx = trialContext.getStore();
@@ -872,6 +874,7 @@ function runProcess(
       env: envForChild,
     });
     trackPid(proc.pid);
+    if (proc.pid) onSpawn?.(proc.pid);
     let output = "";
     let timedOut = false;
     let timer: NodeJS.Timeout | undefined;
@@ -4216,10 +4219,18 @@ async function runBenchmarkImpl(
   // Rules v2 G3: scenario artifact gates (Native AOT), run by the harness.
   if (entry.builds && !gateFailed && scenarioConfig.gates?.length) {
     setStatus("launching");
-    const artifactChecks = await runArtifactGates(scenarioConfig, (entry as any)._csproj, workDir, trialDir, log, banner);
+    const artifacts = await runArtifactGates(scenarioConfig, (entry as any)._csproj, workDir, trialDir, log, banner);
+    const artifactChecks = artifacts.checks;
     (entry as any)._qualityChecks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...artifactChecks];
     const gate = artifactChecks.find((c) => c.status === "fail");
-    if (gate) {
+    if (artifacts.harnessError) {
+      gateFailed = true;
+      banner(`HARNESS ERROR: ${artifacts.harnessError}`, "⚠️", "yellow");
+      entry.runs = false;
+      entry.score = undefined;
+      entry.harnessError = artifacts.harnessError;
+      entry.failReason = artifacts.harnessError;
+    } else if (gate) {
       gateFailed = true;
       banner(`FAILED: gate ${gate.id} — ${gate.label}`, "❌", "red");
       entry.runs = false;
@@ -4489,27 +4500,34 @@ function removeReleaseOutputs(projectDir: string): void {
  * launches the app itself with `winapp run --aot -c Release`, so an agent
  * can't pass by launching a Debug build. The window must appear; the process
  * is closed afterwards and the Debug launch used for validation runs next.
+ * The gate has a time limit (`BENCH_AOT_GATE_TIMEOUT_MINUTES`, default 20); on
+ * timeout it kills the process tree and reports a harness error, not a G3 result.
  */
 async function runNativeAotGate(
   csproj: string,
   workDir: string,
   trialDir: string,
   log: (msg: string) => void,
-): Promise<QualityCheck> {
+): Promise<{ check?: QualityCheck; harnessError?: string }> {
   const projectDir = projectDirFor(csproj);
   const files = collectProjectFiles(projectDir);
-  if (!isWindows) return evaluateNativeAot("", files, { ok: false, reason: "Native AOT gate needs Windows" });
+  if (!isWindows) return { check: evaluateNativeAot("", files, { ok: false, reason: "Native AOT gate needs Windows" }) };
   const tc = resolveWinAppToolchain();
   removeReleaseOutputs(projectDir);
   const hostArch = osArch() === "arm64" ? "arm64" : "x64";
   const args = ["run", csproj, "--aot", "-c", "Release", "--arch", hostArch, "--detach", "--json"];
   const identity = packageIdentityForProject(csproj);
   const release = identity ? await acquirePackageLock(identity) : undefined;
+  const timeoutMinutes = aotGateTimeoutMinutes();
+  const gatePids = new Set<number>();
+  let cancelled = false;
+  let partialOutput = "";
   let launch: { ok: boolean; reason?: string } = { ok: false };
   let output = "";
-  try {
+  const gate = async () => {
     log(`  Publishing and launching: winapp ${args.join(" ")}`);
-    const result = await runProcess(tc.executable, args, workDir, () => {}, 20 * 60_000, false);
+    const result = await runProcess(tc.executable, args, workDir, (t) => { partialOutput = appendBounded(partialOutput, t, PROCESS_OUTPUT_MAX_CHARS); }, undefined, false, undefined, (p) => gatePids.add(p));
+    if (cancelled) return;
     output = result.output;
     writeFileSync(join(trialDir, "aot-publish-output.txt"), output);
     // `--json` prints the result object after the build log.
@@ -4521,10 +4539,11 @@ async function runNativeAotGate(
       const err = (typeof json?.Error === "string" ? json.Error : "") || output.trim().split(/\r?\n/).filter(Boolean).pop();
       launch = { ok: false, reason: `winapp run --aot failed (exit ${result.exitCode})${err ? `: ${err.slice(0, 200)}` : ""}` };
     } else {
+      gatePids.add(pid);
       launch = { ok: false, reason: `Published app (PID ${pid}) showed no window` };
-      for (let attempt = 1; attempt <= 6; attempt++) {
+      for (let attempt = 1; attempt <= 6 && !cancelled; attempt++) {
         try { process.kill(pid, 0); } catch { launch = { ok: false, reason: `Published app (PID ${pid}) exited during startup` }; break; }
-        const w = await runProcess(tc.executable, ["ui", "list-windows", "-a", String(pid), "--json"], workDir, () => {}, 15_000, false);
+        const w = await runProcess(tc.executable, ["ui", "list-windows", "-a", String(pid), "--json"], workDir, () => {}, 15_000, false, undefined, (p) => gatePids.add(p));
         if (w.output.includes('"hwnd"')) {
           const title = w.output.match(/"title"\s*:\s*"([^"]*)"/)?.[1];
           // Still alive a moment later: a window that closes on a startup exception doesn't count.
@@ -4537,13 +4556,28 @@ async function runNativeAotGate(
       }
       try { process.kill(pid); } catch { /* already gone */ }
     }
+  };
+  try {
+    const r = await withDeadline(gate(), timeoutMinutes * 60_000, () => {
+      cancelled = true;
+      for (const p of gatePids) killProcessTree(p, true);
+    });
+    if (r.timedOut) {
+      const message = aotGateTimeoutMessage(timeoutMinutes);
+      log(`  ⚠️  ${message}; killed its process tree (PIDs ${[...gatePids].join(", ") || "none"})`);
+      try { writeFileSync(join(trialDir, "aot-publish-output.txt"), `${partialOutput}\n${message}\n`); } catch { /* best effort */ }
+      return { harnessError: message };
+    }
   } finally {
     release?.();
   }
-  return evaluateNativeAot(output, files, launch);
+  return { check: evaluateNativeAot(output, files, launch) };
 }
 
-/** Runs the scenario's artifact gates (G3). Returns the checks; any "fail" is a gate failure. */
+/**
+ * Runs the scenario's artifact gates (G3). Returns the checks; any "fail" is a gate failure.
+ * `harnessError` is set when the gate itself could not finish (timed out).
+ */
 async function runArtifactGates(
   scenario: ScenarioConfig,
   csproj: string | undefined,
@@ -4551,14 +4585,15 @@ async function runArtifactGates(
   trialDir: string,
   log: (msg: string) => void,
   banner: (stage: string, icon: string) => void,
-): Promise<QualityCheck[]> {
-  if (!scenario.gates?.includes("native_aot")) return [];
+): Promise<{ checks: QualityCheck[]; harnessError?: string }> {
+  if (!scenario.gates?.includes("native_aot")) return { checks: [] };
   banner("NATIVE AOT GATE (G3)", "📦");
-  const check = csproj
+  const { check, harnessError } = csproj
     ? await runNativeAotGate(csproj, workDir, trialDir, log)
-    : evaluateNativeAot("", [], { ok: false, reason: "No .csproj found" });
+    : { check: evaluateNativeAot("", [], { ok: false, reason: "No .csproj found" }), harnessError: undefined };
+  if (!check) return { checks: [], harnessError };
   logQualityChecks([check], log);
-  return [check];
+  return { checks: [check] };
 }
 
 /**
@@ -5086,9 +5121,19 @@ async function revalidateBenchmarkImpl(
       saveRevalidationResults(trialDir, entry, scenarioConfig);
       return;
     }
-    const artifactChecks = await runArtifactGates(scenarioConfig, (entry as any)._csproj, workDir, trialDir, log, banner);
+    const artifacts = await runArtifactGates(scenarioConfig, (entry as any)._csproj, workDir, trialDir, log, banner);
+    const artifactChecks = artifacts.checks;
     (entry as any)._qualityChecks = [...checks, ...artifactChecks];
     const artifactGate = artifactChecks.find((c) => c.status === "fail");
+    if (artifacts.harnessError) {
+      entry.runs = false; entry.score = undefined;
+      entry.harnessError = artifacts.harnessError;
+      entry.failReason = artifacts.harnessError;
+      entry.finishedAt = new Date();
+      setStatus("failed");
+      saveRevalidationResults(trialDir, entry, scenarioConfig);
+      return;
+    }
     if (artifactGate) {
       entry.runs = false; entry.score = 0;
       entry.failReason = `Gate ${artifactGate.id} failed: ${artifactGate.detail || artifactGate.label}`;

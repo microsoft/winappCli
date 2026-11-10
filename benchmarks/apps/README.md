@@ -125,7 +125,7 @@ Share a run without its app sources and build output (which can reach gigabytes)
    WinUI projects build only there; `build-output.txt` and the trial log say which builder was used. Then:
    - **G0**, the right framework;
    - **G3**, Native AOT, for scenarios with `gates: [native_aot]`: a harness-run
-     `winapp run --aot -c Release` must publish without trim/AOT warnings and show a window;
+     `winapp run --aot -c Release` must publish without trim/AOT warnings and show a window. The gate stops after 20 minutes (set `BENCH_AOT_GATE_TIMEOUT_MINUTES` to change it), kills its processes, and records the trial as `harness-error`;
    - launch with `winapp run`.
 4. **Quality checks.** Source and build checks, plus UI Automation checks on the running app:
    accessible names and keyboard traversal.
@@ -137,7 +137,7 @@ Share a run without its app sources and build output (which can reach gigabytes)
 
 ## Scoring (v3)
 
-A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where our tooling fails (the judge produced no result, or the desktop was locked during the UI checks) has outcome `harness-error`, no score, and is left out of averages. Otherwise:
+A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where our tooling fails (the judge produced no result, the desktop was locked during the UI checks, or the Native AOT gate timed out) has outcome `harness-error`, no score, and is left out of averages. Otherwise:
 
 **score = 60 × requirements + 30 × quality checks + 10 × design** (each part is its pass rate;
 parts that don't apply are dropped and the rest renormalized).
