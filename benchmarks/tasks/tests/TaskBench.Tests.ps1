@@ -199,6 +199,27 @@ Describe 'Task definitions' {
     It 'keeps prompts in user language: no winapp or plugin skill names' {
         foreach ($t in $tasks) { $t.Prompt | Should -Not -Match '\bwinapp\b|winui-|skill' -Because $t.Id }
     }
+    It 'keeps prompts free of tool names and reference commands, except ones the task allows' {
+        foreach ($t in $tasks) { Get-PromptAnswerTerms -Task $t | Should -BeNullOrEmpty -Because $t.Id }
+    }
+    It 'gives every task a reference approach for reviewers' {
+        foreach ($t in $tasks) {
+            $t.Reference | Should -Not -BeNullOrEmpty -Because $t.Id
+            $t.Reference.approach | Should -Not -BeNullOrEmpty -Because $t.Id
+        }
+    }
+    It 'never sends the reference to the agent: not in the prompt, not in run.json' {
+        foreach ($t in $tasks) {
+            $secrets = @($t.Reference.approach) + @($t.Reference.PSObject.Properties['commands'] ? @($t.Reference.commands) : @())
+            foreach ($c in Get-ConfigurationNames) {
+                $spec = Get-ConfigurationSpec $c
+                $json = Get-RunInput -Task $t -Spec $spec -RunId 'r' -Mode 'agent' -Model 'm' -CopilotVersion '1.0.0' | ConvertTo-Json
+                ($json | ConvertFrom-Json).prompt | Should -Be (Get-TaskPrompt -Task $t -Spec $spec)
+                $json | Should -Not -Match '"reference"' -Because $t.Id
+                foreach ($s in $secrets) { $json.Contains($s) | Should -BeFalse -Because "$($t.Id) [$c] leaks '$s'" }
+            }
+        }
+    }
     It 'marks exactly three pilot tasks' { @($tasks | Where-Object Pilot).Count | Should -Be 3 }
 }
 
@@ -388,5 +409,58 @@ Describe 'Get-TaskPrompt' {
     It 'leaves out the admin approval for ask-first tasks' {
         $task = [pscustomobject]@{ Prompt = 'Do it.'; AskFirst = $true }
         Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'cli-only') | Should -Be "Do it. $(Get-WinappCliNote)"
+    }
+    It 'ignores the reference' {
+        $task = [pscustomobject]@{ Prompt = 'Do it.'; AskFirst = $false; Reference = [pscustomobject]@{ approach = 'SECRET-APPROACH'; commands = @('secret-cmd --flag') } }
+        $p = Get-TaskPrompt -Task $task -Spec (Get-ConfigurationSpec 'cli-only')
+        $p | Should -Not -Match 'SECRET-APPROACH|secret-cmd'
+    }
+}
+
+Describe 'Get-PromptAnswerTerms' {
+    It 'flags tool names and quoted reference commands' {
+        $task = [pscustomobject]@{ Prompt = 'Run signtool, then winapp pack.'; Allow = @(); Reference = [pscustomobject]@{ commands = @('winapp pack') } }
+        $terms = Get-PromptAnswerTerms -Task $task
+        $terms | Should -Contain 'signtool'
+        $terms | Should -Contain 'winapp'
+        $terms | Should -Contain "reference command 'winapp pack'"
+    }
+    It 'skips tool names the task allows, but never winapp' {
+        $task = [pscustomobject]@{ Prompt = 'signtool failed; winapp is here.'; Allow = @('signtool', 'winapp'); Reference = $null }
+        Get-PromptAnswerTerms -Task $task | Should -Be @('winapp')
+    }
+    It 'does not match a term inside a longer word' {
+        $task = [pscustomobject]@{ Prompt = 'It should relaunch OnLaunchHandler.'; Allow = @(); Reference = $null }
+        Get-PromptAnswerTerms -Task $task | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Get-SanityCheckTasks' {
+    BeforeAll {
+        function New-Run($task, $config, $status, $i) {
+            [pscustomobject]@{ runId = "{0:D3}-$task" -f $i; task = $task; configuration = $config; model = 'm'; iteration = $i; mode = 'agent'; taskStatus = $status; taskReason = ''
+                durationMs = 1000; aiCredits = 1; tokens = [pscustomobject]@{ input = 1; output = 1 }; skillContextTokensApprox = 0; pluginReadChars = 0; modelTurns = 1; toolCalls = 1
+                winappCommandsRun = @(); unsafeActions = @(); skillsLoaded = @() }
+        }
+    }
+    It 'marks tasks barebones passes at least 90% of the time' {
+        $runs = @(
+            1..10 | ForEach-Object { New-Run 'easy' 'barebones' ($(if ($_ -le 9) { 'pass' } else { 'fail' })) $_ }
+            1..10 | ForEach-Object { New-Run 'hard' 'barebones' ($(if ($_ -le 8) { 'pass' } else { 'partial' })) $_ }
+            1..2 | ForEach-Object { New-Run 'hard' 'cli-only' 'pass' $_ }
+        )
+        Get-SanityCheckTasks $runs | Should -Be @('easy')
+    }
+    It 'ignores runs that never reached the checker' {
+        $runs = @((New-Run 'x' 'barebones' 'pass' 1), (New-Run 'x' 'barebones' 'harness_error' 2))
+        Get-SanityCheckTasks $runs | Should -Be @('x')
+    }
+    It 'adds a headline without sanity checks to the summary' {
+        $runs = @((New-Run 'easy' 'barebones' 'pass' 1), (New-Run 'hard' 'barebones' 'fail' 2), (New-Run 'hard' 'cli-only' 'pass' 3))
+        $path = Join-Path $TestDrive 'summary.md'
+        Write-TaskSummary -Runs $runs -Path $path
+        $text = Get-Content -Raw $path
+        $text | Should -Match '## By configuration, without sanity checks'
+        $text | Should -Match 'or more of its runs[^\n]*`easy`'
     }
 }

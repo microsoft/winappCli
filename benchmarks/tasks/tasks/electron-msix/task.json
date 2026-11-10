@@ -1,5 +1,13 @@
 {
-  "prompt": "This is my Electron app (Sticky Notes Lite). I've never shipped anything on Windows. I'd like an MSIX installer for it. Can you build a signed .msix and install it on this machine so I can see it in the Start menu and launch it?",
+  "prompt": "This is my Electron app (Sticky Notes Lite). I've never shipped anything on Windows. I'd like an MSIX installer for it. Please build it and install it on this machine the same way a user would, so I can find it in the Start menu and launch it.",
+  "reference": {
+    "approach": "Lay out Electron's runtime with the app under resources\\app, generate a package manifest for the executable, pack it into an .msix, sign it with a certificate this machine trusts, and install the .msix file itself (not a loose-folder registration).",
+    "commands": [
+      "winapp manifest generate . --package-name StickyNotes --executable StickyNotes.exe --publisher-name 'CN=Contoso'",
+      "winapp package . --generate-cert --install-cert --publisher 'CN=Contoso' --output ..\\StickyNotes.msix",
+      "Add-AppxPackage -Path ..\\StickyNotes.msix"
+    ]
+  },
   "cluster": "Electron packaging",
   "workspace": "C:\\src\\sticky-notes",
   "timeoutMinutes": 30,

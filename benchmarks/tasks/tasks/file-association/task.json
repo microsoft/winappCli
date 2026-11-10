@@ -1,5 +1,13 @@
 {
-  "prompt": "NoteViewer (this folder) opens our .ctnote files. We're going to ship it as an MSIX, and when people install it I want it registered as the app that opens .ctnote files, so double-clicking a .ctnote file opens it in NoteViewer. Please set that up and install it on this machine so I can try it with sample.ctnote.",
+  "prompt": "NoteViewer (this folder) opens our .ctnote files. We're going to ship it as an MSIX. When people install it, double-clicking a .ctnote file should open it in NoteViewer. Please set that up and install it on this machine so I can try it with sample.ctnote.",
+  "reference": {
+    "approach": "Publish the app, generate a package manifest, add a uap:Extension with Category windows.fileTypeAssociation listing .ctnote, pack and sign the .msix with a trusted certificate, and install the .msix file.",
+    "commands": [
+      "winapp manifest generate . --package-name NoteViewer --executable NoteViewer.exe --publisher-name 'CN=Contoso'",
+      "winapp package . --generate-cert --install-cert --publisher 'CN=Contoso' --output ..\\NoteViewer.msix",
+      "Add-AppxPackage -Path ..\\NoteViewer.msix"
+    ]
+  },
   "cluster": "Package identity and manifest",
   "workspace": "C:\\src\\NoteViewer",
   "timeoutMinutes": 25,

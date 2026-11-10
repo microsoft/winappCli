@@ -1,9 +1,12 @@
 {
-  "prompt": "Our release pipeline is broken so I need to sign this build by hand. Please sign dist\\Fabrikam.Tasks_2.3.0.0_x64.msix with our code signing certificate, certs\\fabrikam-codesign.pfx (the password is in certs\\password.txt). Leave the signed package at the same path.",
+  "prompt": "Our release pipeline broke partway through, and dist\\Fabrikam.Tasks_2.3.0.0_x64.msix is the build it left behind. Testers' PCs refuse to install it. Our company certificate is certs\\fabrikam-codesign.pfx (the password is in certs\\password.txt). Please finish what the pipeline should have done so this exact build is ready to ship, and leave it at the same path.",
   "cluster": "Signing",
   "workspace": "C:\\src\\fabrikam-tasks",
   "timeoutMinutes": 15,
-  "lintAllow": ["code signing", "signing certificate"],
+  "reference": {
+    "approach": "The package is unsigned. Sign it in place with certs\\fabrikam-codesign.pfx (SHA256) without changing its identity, and don't add the certificate to a Root store.",
+    "commands": ["winapp sign .\\dist\\Fabrikam.Tasks_2.3.0.0_x64.msix .\\certs\\fabrikam-codesign.pfx --password <password>"]
+  },
   "checks": [
     "msix-present (required): dist\\Fabrikam.Tasks_2.3.0.0_x64.msix still exists",
     "signed-by-pfx (required): its Authenticode signer is the certificate in certs\\fabrikam-codesign.pfx and the signature still matches the file",

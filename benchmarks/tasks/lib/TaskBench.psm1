@@ -49,6 +49,8 @@ function Get-TaskDefinitions {
             AskFirst       = [bool]($j.PSObject.Properties['adminPolicy'] -and $j.adminPolicy -eq 'ask-first')
             Allow          = if ($j.PSObject.Properties['lintAllow']) { @($j.lintAllow) } else { @() }
             Checks         = if ($j.PSObject.Properties['checks']) { @($j.checks) } else { @() }
+            # For reviewers only: never put into the prompt or the Sandbox input.
+            Reference      = if ($j.PSObject.Properties['reference']) { $j.reference } else { $null }
             Path           = $dir.FullName
             Fixture        = & $opt 'fixture'
             Setup          = & $opt 'setup.ps1'
@@ -215,6 +217,54 @@ function Get-TaskPrompt {
     return $parts -join ' '
 }
 
+function Get-RunInput {
+    # The run.json the Sandbox receives. It carries the prompt from Get-TaskPrompt and nothing else from task.json.
+    param(
+        [Parameter(Mandatory)][object]$Task,
+        [Parameter(Mandatory)][object]$Spec,
+        [Parameter(Mandatory)][string]$RunId,
+        [Parameter(Mandatory)][string]$Mode,
+        [Parameter(Mandatory)][string]$Model,
+        [string]$CopilotVersion
+    )
+    return [ordered]@{
+        runId = $RunId; task = $Task.Id; mode = $Mode; prompt = (Get-TaskPrompt -Task $Task -Spec $Spec); model = $Model; agent = $Spec.Agent
+        plugins = @($Spec.Plugins); hideWinapp = [bool]($Spec.HideWinapp -and $Mode -eq 'agent'); copilotVersion = $CopilotVersion; timeoutMinutes = $Task.TimeoutMinutes; workspace = $Task.Workspace
+    }
+}
+
+# Tool and command names that hand the agent the method. A prompt may still quote one the user ran
+# (for example in an error message) when the task lists it in lintAllow.
+$script:AnswerTerms = @('winapp', 'makeappx', 'signtool', 'makepri', 'Add-AppxPackage', 'Import-Certificate', 'Import-PfxCertificate',
+    'certutil', 'New-SelfSignedCertificate', 'create-debug-identity', 'execution alias', 'startupTask',
+    'fileTypeAssociation', 'TrustedPeople', 'HoursBetweenUpdateChecks', 'OnLaunch', 'UI Automation', 'appinstaller', 'package identity')
+
+function Get-PromptAnswerTerms {
+    # Answer-giving terms in a prompt: the tool and command names above, plus any reference command
+    # quoted verbatim. Terms listed in the task's lintAllow are skipped.
+    param([Parameter(Mandatory)][object]$Task)
+    $allow = @($Task.Allow)
+    $found = foreach ($term in $script:AnswerTerms) {
+        if ($term -ne 'winapp' -and $term -in $allow) { continue }
+        if ($Task.Prompt -match "(?i)(?<![\w-])$([regex]::Escape($term))(?![\w-])") { $term }
+    }
+    $commands = if ($Task.Reference -and $Task.Reference.PSObject.Properties['commands']) { @($Task.Reference.commands) } else { @() }
+    $quoted = foreach ($c in $commands) { if ($c -and $Task.Prompt.IndexOf([string]$c, [StringComparison]::OrdinalIgnoreCase) -ge 0) { "reference command '$c'" } }
+    return @(@($found) + @($quoted))
+}
+
+function Get-SanityCheckTasks {
+    # Tasks that barebones (no winapp, no plugins) passes at least $Threshold of the time. They can't
+    # show whether winapp or the skills help, so they stay out of the headline (#1253).
+    param([AllowEmptyCollection()][object[]]$Runs = @(), [double]$Threshold = 0.9)
+    $checked = @(Select-EffectiveRuns $Runs | Where-Object { $_.configuration -eq 'barebones' -and $_.mode -eq 'agent' -and $_.taskStatus -in 'pass', 'partial', 'fail', 'asked_before_admin' })
+    $tasks = foreach ($g in $checked | Group-Object task) {
+        $rate = @($g.Group | Where-Object taskStatus -eq 'pass').Count / $g.Count
+        if ($rate -ge $Threshold) { $g.Name }
+    }
+    return @($tasks | Sort-Object)
+}
+
 function Test-StoppedForAdmin {
     # True when one sentence of the agent's last message ties admin rights or elevation to asking for approval.
     # Requiring both in the same sentence avoids labeling an unrelated failure that mentions admin in passing.
@@ -370,6 +420,18 @@ function Write-TaskSummary {
     & $line "|---$sep"
     foreach ($g in $Runs | Group-Object configuration | Sort-Object Name) { & $line "| $($g.Name) $(& $fmt (Get-RunGroupRow $g.Group))" }
     & $line
+    $sanity = @(Get-SanityCheckTasks $Runs)
+    if ($sanity) {
+        & $line '## By configuration, without sanity checks'
+        & $line
+        $names = ($sanity | ForEach-Object { '`{0}`' -f $_ }) -join ', '
+        & $line "Sanity checks are tasks that ``barebones`` passes in 90% or more of its runs, so they can't show whether ``winapp`` or the skills help: $names."
+        & $line
+        & $line "| Configuration $cols"
+        & $line "|---$sep"
+        foreach ($g in $Runs | Where-Object { $_.task -notin $sanity } | Group-Object configuration | Sort-Object Name) { & $line "| $($g.Name) $(& $fmt (Get-RunGroupRow $g.Group))" }
+        & $line
+    }
     & $line '## By model and configuration'
     & $line
     & $line "| Model | Configuration $cols"
@@ -432,4 +494,5 @@ function Get-HostArchitecture {
 }
 
 Export-ModuleMember -Function Get-HostArchitecture, Get-ConfigurationNames, Get-ConfigurationSpec, Get-TaskDefinitions, New-SandboxConfiguration, Read-ToolActivity,
-Get-UnsafeActions, Remove-SecretFromFiles, ConvertTo-TrialResult, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate, Get-AdminApprovalLine, Get-WinappCliNote, Get-TaskPrompt, Test-StoppedForAdmin
+Get-UnsafeActions, Remove-SecretFromFiles, ConvertTo-TrialResult, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate, Get-AdminApprovalLine, Get-WinappCliNote, Get-TaskPrompt, Test-StoppedForAdmin,
+Get-RunInput, Get-PromptAnswerTerms, Get-SanityCheckTasks

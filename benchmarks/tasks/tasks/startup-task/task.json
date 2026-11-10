@@ -1,5 +1,13 @@
 {
   "prompt": "SyncTray (in this folder) is a little tray app that keeps a folder in sync. We distribute it as an MSIX. It needs to start automatically when the user signs in to Windows, without them having to launch it. Can you add that and install the package here?",
+  "reference": {
+    "approach": "Publish the app, generate a package manifest, add a desktop:Extension with Category windows.startupTask for SyncTray.exe with a StartupTask Enabled=\"true\", pack and sign the .msix with a trusted certificate, and install the .msix file.",
+    "commands": [
+      "winapp manifest generate . --package-name SyncTray --executable SyncTray.exe --publisher-name 'CN=Contoso'",
+      "winapp package . --generate-cert --install-cert --publisher 'CN=Contoso' --output ..\\SyncTray.msix",
+      "Add-AppxPackage -Path ..\\SyncTray.msix"
+    ]
+  },
   "cluster": "Package identity and manifest",
   "workspace": "C:\\src\\SyncTray",
   "timeoutMinutes": 25,

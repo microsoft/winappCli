@@ -1,5 +1,13 @@
 {
-  "prompt": "I have a small WinForms app in this folder (TaskBoard). I want to hand it to a few testers as an MSIX installer. Please build a signed .msix for it and install it on this machine so I can confirm it actually installs and launches.",
+  "prompt": "I have a small WinForms app in this folder (TaskBoard). I want to hand it to a few testers as an MSIX installer. Please build it and install it on this machine the same way a tester would, so I can confirm it actually installs and launches.",
+  "reference": {
+    "approach": "Publish the app, generate a package manifest, pack it into an .msix, sign it with a certificate this machine trusts, and install the .msix file itself (not a loose-folder registration).",
+    "commands": [
+      "winapp manifest generate . --package-name TaskBoard --executable TaskBoard.exe --publisher-name 'CN=Contoso'",
+      "winapp package . --generate-cert --install-cert --publisher 'CN=Contoso' --output ..\\TaskBoard.msix",
+      "Add-AppxPackage -Path ..\\TaskBoard.msix"
+    ]
+  },
   "cluster": "MSIX packaging",
   "workspace": "C:\\src\\TaskBoard",
   "timeoutMinutes": 25,

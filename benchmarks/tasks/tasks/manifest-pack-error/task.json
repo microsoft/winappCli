@@ -3,7 +3,11 @@
   "cluster": "MSIX packaging",
   "workspace": "C:\\src\\litware-clock",
   "timeoutMinutes": 15,
-  "lintAllow": ["manifest validation", "package format"],
+  "lintAllow": ["manifest validation", "package format", "makeappx"],
+  "reference": {
+    "approach": "Two problems, reported one at a time: change the manifest Version from 2.1.0 to 2.1.0.0, then supply the missing Assets\\Square44x44Logo.png (for example, a copy of Square150x150Logo.png) without removing it from VisualElements. Then pack the layout into LitwareClock.msix.",
+    "commands": ["winapp package .\\layout --no-sign --output LitwareClock.msix"]
+  },
   "checks": [
     "layout-packs (required): the checker's own `makeappx pack` of layout\\ succeeds",
     "version-kept (required): the manifest Version is 2.1.x.x (2.1.0.0 expected)",

@@ -1,5 +1,14 @@
 {
   "prompt": "I'm trying to sign dist\\Northwind.Viewer_1.4.0.0_x64.msix with our cert certs\\northwind.pfx (password is in certs\\password.txt) and signtool keeps failing with:\n\nSignTool Error: An unexpected internal error has occurred.\nError information: \"Error: SignerSign() failed.\" (-2147024885/0x8007000b)\n\nThe app's files and manifest are in the layout folder. Can you fix whatever is wrong so the package gets signed with that cert, and then install it here so I can check it works?",
+  "lintAllow": ["signtool"],
+  "reference": {
+    "approach": "The manifest Publisher (CN=Northwind) doesn't match the certificate subject. Set the Publisher in layout\\AppxManifest.xml to the subject of certs\\northwind.pfx, repack and sign with that PFX, trust the certificate on this machine, and install the .msix.",
+    "commands": [
+      "winapp package .\\layout --cert .\\certs\\northwind.pfx --cert-password <password> --output .\\dist\\Northwind.Viewer_1.4.0.0_x64.msix",
+      "winapp cert install .\\certs\\northwind.pfx --password <password>",
+      "Add-AppxPackage -Path .\\dist\\Northwind.Viewer_1.4.0.0_x64.msix"
+    ]
+  },
   "cluster": "Signing",
   "workspace": "C:\\src\\northwind-viewer",
   "timeoutMinutes": 20,

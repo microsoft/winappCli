@@ -70,7 +70,7 @@ if ($Lint) {
     $errors = 0
     foreach ($t in $allTasks) {
         $issues = @()
-        if ($t.Prompt -match '\bwinapp\b') { $issues += 'ERROR names winapp' }
+        foreach ($term in Get-PromptAnswerTerms -Task $t) { $issues += "ERROR names $term" }
         foreach ($s in $skillNames) { if ($t.Prompt -match [regex]::Escape($s)) { $issues += "ERROR names skill $s" } }
         $leak = Get-ScenarioLeakage -Text $t.Prompt -Corpus $corpus -Allow $t.Allow
         foreach ($b in $leak.SharedBigrams) { $issues += "WARN shares '$($b.Bigram)' with $($b.Documents -join ', ')" }
@@ -326,10 +326,7 @@ try {
         if ($t.Setup) { Copy-Item $t.Setup (Join-Path $in 'setup.ps1') }
         if ($run.Mode -eq 'solve') { Copy-Item $t.Solve (Join-Path $in 'solve.ps1') }
         Copy-Item $t.Check (Join-Path $check 'check.ps1')
-        [ordered]@{
-            runId = $runId; task = $t.Id; mode = $run.Mode; prompt = (Get-TaskPrompt -Task $t -Spec $spec); model = $run.Model; agent = $spec.Agent
-            plugins = @($spec.Plugins); hideWinapp = [bool]($spec.HideWinapp -and $run.Mode -eq 'agent'); copilotVersion = $pinned; timeoutMinutes = $t.TimeoutMinutes; workspace = $t.Workspace
-        } | ConvertTo-Json | Set-Content (Join-Path $in 'run.json') -Encoding utf8NoBOM
+        Get-RunInput -Task $t -Spec $spec -RunId $runId -Mode $run.Mode -Model $run.Model -CopilotVersion $pinned | ConvertTo-Json | Set-Content (Join-Path $in 'run.json') -Encoding utf8NoBOM
 
         $record = [ordered]@{
             runId = $runId; task = $t.Id; cluster = $t.Cluster; configuration = $run.Configuration; model = $run.Model; agent = $spec.Agent

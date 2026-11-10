@@ -1,5 +1,14 @@
 {
-  "prompt": "The Order Calculator app is open on this PC. Please type 7 in Quantity and 13 in Unit price, click Calculate, and save the total it shows into total.txt in this folder (just the number).",
+  "prompt": "A customer wants 7 units at a unit price of 13. Order Calculator is already open on this PC, and it adds tax and shipping that change every day, so the total has to come from the app. Get the total for that order from the app and save just the number into total.txt in this folder.",
+  "reference": {
+    "approach": "Drive the running app through UI Automation: set QuantityBox to 7 and UnitPriceBox to 13, invoke CalculateButton, read TotalValue, and write that number to total.txt.",
+    "commands": [
+      "winapp ui set-value QuantityBox 7 -a OrderCalculator",
+      "winapp ui set-value UnitPriceBox 13 -a OrderCalculator",
+      "winapp ui invoke CalculateButton -a OrderCalculator",
+      "winapp ui get-value TotalValue -a OrderCalculator"
+    ]
+  },
   "cluster": "UI automation, run and debug",
   "workspace": "C:\\src\\fabrikam-orders",
   "timeoutMinutes": 15,
