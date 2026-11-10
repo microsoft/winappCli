@@ -56,7 +56,7 @@ with `-Configuration`):
 - `Microsoft.Windows.SDK.BuildTools` in the NuGet cache (any winapp packaging command downloads it).
   Task setup and checkers use its `makeappx` and `signtool`; they are not on the agent's `PATH`.
 - Pester 5 to run `tests\`.
-- A machine that stays awake. A full matrix takes many hours, and a host sleep leaves the current run as a harness error. Re-run the same command with the same `-OutDir` to redo it.
+- A desktop that stays unlocked. A full matrix takes many hours. `run.ps1` keeps Windows from sleeping while it runs, but it does not stop the screen from locking, so set the lock timeout to never. A host that sleeps anyway (for example a VM suspended by its host) leaves the current run as a harness error. Re-run the same command with the same `-OutDir` to redo it.
 
 ## Quick start
 
