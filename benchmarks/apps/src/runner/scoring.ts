@@ -1,6 +1,7 @@
 /**
  * Benchmark scoring v4 (v2 formula). Requirements the judge never ruled on or could not verify (`not-run`)
  * are excluded, not failed. v3 counted a requirement the judge could not verify as a failure.
+ * v4 also runs the same WinUI analyzer on every app in the build Q4 reads (see winui-analyzer.ts).
  *
  *   score = 0                                  if any gate fails
  *   score = 60·requirements + 30·quality + 10·design/10   otherwise

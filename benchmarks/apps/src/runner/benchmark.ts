@@ -79,6 +79,7 @@ import { compareVersionCore, resolveWinAppToolchain } from "./winapp-toolchain.j
 import { readLinesSync } from "./jsonl-stream.js";
 import { DESKTOP_LOCKED_ERROR, probeInteractiveDesktop, uiBlockedByLockedDesktop, waitForInteractiveDesktop } from "./desktop-lock.js";
 import { findVsMsBuild, msbuildRetryArgs } from "./vs-msbuild.js";
+import { failedBecauseOfAnalyzer, planWinUIAnalyzer, prepareWinUIAnalyzer, projectBuildFiles, WINUI_ANALYZER_PACKAGE, type WinUIAnalyzerRecord } from "./winui-analyzer.js";
 import { evaluateConcurrentProcessCommand, extractCommand } from "./process-safety.js";
 import type { RunEntry, ScenarioConfig, AgentSetupConfig, GlobalConfig } from "../types.js";
 import { parse as parseYaml } from "yaml";
@@ -2225,7 +2226,7 @@ async function defaultDotnetBuild(
   globalConfig: GlobalConfig,
   callbacks: BenchmarkCallbacks,
   log: (msg: string) => void,
-): Promise<{ success: boolean; csproj: string | null; output: string }> {
+): Promise<{ success: boolean; csproj: string | null; output: string; winuiAnalyzer?: WinUIAnalyzerRecord }> {
   const csproj = findCsproj(workDir);
   if (!csproj) {
     return { success: false, csproj: null, output: "" };
@@ -2233,6 +2234,7 @@ async function defaultDotnetBuild(
   log(`  Found: ${csproj}`);
 
   let result: ProcessResult;
+  let winuiAnalyzer: WinUIAnalyzerRecord | undefined;
   if (isWindows) {
     const toolchain = resolveWinAppToolchain();
     const buildPlatform = osArch() === "arm64" ? "arm64" : "x64";
@@ -2246,32 +2248,45 @@ async function defaultDotnetBuild(
       rid,
       "-p:Platform=" + buildPlatform,
     ];
-    log(`  Using harness dotnet: dotnet ${args.join(" ")}`);
-    result = await runProcess(
-      toolchain.dotnetExecutable,
-      args,
-      workDir,
-      callbacks.onOutput,
-      undefined,
-      false
-    );
-    if (result.exitCode !== 0) {
-      // Some WinUI projects build only with Visual Studio's MSBuild (e.g. MSB4062 for the PRI tasks).
-      const msbuild = findVsMsBuild();
-      if (msbuild) {
-        const retryArgs = msbuildRetryArgs(csproj, buildPlatform);
-        log(`  dotnet build failed; retrying once with Visual Studio MSBuild: "${msbuild}" ${retryArgs.join(" ")}`);
-        const retry = await runProcess(msbuild, retryArgs, workDir, callbacks.onOutput, undefined, false);
-        log(`  Build gate builder: Visual Studio MSBuild (${retry.exitCode === 0 ? "succeeded" : "also failed"})`);
-        result = {
-          ...retry,
-          output: `${result.output}\n\n=== dotnet build failed; retried with Visual Studio MSBuild: ${msbuild} ${retryArgs.join(" ")} ===\n\n${retry.output}`,
-        };
-      } else {
-        log("  dotnet build failed; Visual Studio MSBuild not found, so no retry.");
+    // Q4 counts warnings from this build, so every app gets the same WinUI analyzer here.
+    const plan = planWinUIAnalyzer(projectBuildFiles(csproj, workDir));
+    const analyzer = prepareWinUIAnalyzer(plan, trialDir);
+    winuiAnalyzer = { package: WINUI_ANALYZER_PACKAGE, version: plan.version, source: plan.source, applied: true };
+    log(plan.inject
+      ? `  WinUI analyzer: adding ${WINUI_ANALYZER_PACKAGE} ${plan.version} for this build only`
+      : `  WinUI analyzer: the project references ${WINUI_ANALYZER_PACKAGE}${plan.version ? ` ${plan.version}` : ""}`);
+    try {
+      let extraArgs = analyzer.args;
+      log(`  Using harness dotnet: dotnet ${[...args, ...extraArgs].join(" ")}`);
+      result = await runProcess(toolchain.dotnetExecutable, [...args, ...extraArgs], workDir, callbacks.onOutput, undefined, false);
+      if (result.exitCode !== 0 && plan.inject && failedBecauseOfAnalyzer(result.output)) {
+        // The build gate must not depend on the analyzer the harness added, so build again without it.
+        log("  Build failed because of the added WinUI analyzer; building again without it.");
+        const plain = await runProcess(toolchain.dotnetExecutable, args, workDir, callbacks.onOutput, undefined, false);
+        result = { ...plain, output: `${result.output}\n\n=== Build failed with the added WinUI analyzer; built again without it ===\n\n${plain.output}` };
+        extraArgs = [];
+        winuiAnalyzer = { ...winuiAnalyzer, applied: false };
       }
-    } else {
-      log("  Build gate builder: dotnet build");
+      if (result.exitCode !== 0) {
+        // Some WinUI projects build only with Visual Studio's MSBuild (e.g. MSB4062 for the PRI tasks).
+        const msbuild = findVsMsBuild();
+        if (msbuild) {
+          const retryArgs = [...msbuildRetryArgs(csproj, buildPlatform), ...extraArgs];
+          log(`  dotnet build failed; retrying once with Visual Studio MSBuild: "${msbuild}" ${retryArgs.join(" ")}`);
+          const retry = await runProcess(msbuild, retryArgs, workDir, callbacks.onOutput, undefined, false);
+          log(`  Build gate builder: Visual Studio MSBuild (${retry.exitCode === 0 ? "succeeded" : "also failed"})`);
+          result = {
+            ...retry,
+            output: `${result.output}\n\n=== dotnet build failed; retried with Visual Studio MSBuild: ${msbuild} ${retryArgs.join(" ")} ===\n\n${retry.output}`,
+          };
+        } else {
+          log("  dotnet build failed; Visual Studio MSBuild not found, so no retry.");
+        }
+      } else {
+        log("  Build gate builder: dotnet build");
+      }
+    } finally {
+      analyzer.cleanup();
     }
   } else {
     // Non-Windows only; Windows always builds for the host architecture above.
@@ -2281,7 +2296,7 @@ async function defaultDotnetBuild(
     result = await runProcess(buildCommand, [], workDir, callbacks.onOutput);
   }
   writeFileSync(join(trialDir, "build-output.txt"), result.output);
-  return { success: result.exitCode === 0, csproj, output: result.output };
+  return { success: result.exitCode === 0, csproj, output: result.output, winuiAnalyzer };
 }
 
 /** Default WinApp launch flow (packaged/unpackaged WinUI). */
@@ -4163,6 +4178,7 @@ async function runBenchmarkImpl(
   } else {
     banner("DOTNET BUILD", "🔨", "cyan");
     const dotnetResult = await defaultDotnetBuild(workDir, logsDir, globalConfig, callbacks, log);
+    (entry as any)._winuiAnalyzer = dotnetResult.winuiAnalyzer;
     if (!dotnetResult.csproj) {
       banner("FAILED: No .csproj found", "❌", "red");
       entry.builds = false;
@@ -4826,6 +4842,8 @@ function saveResults(
     ...(entry.failReason ? { fail_reason: entry.failReason } : {}),
     ...(entry.harnessError ? { harness_error: entry.harnessError } : {}),
     ...(entry.harnessRetries ? { harness_retries: entry.harnessRetries } : {}),
+    // Which WinUI analyzer the scoring build ran, so Q4 is comparable across apps.
+    ...((entry as any)._winuiAnalyzer ? { winui_analyzer: (entry as any)._winuiAnalyzer } : {}),
     ...(buildErrors ? { build_errors: buildErrors } : {}),
   };
   if ((entry as any)._setupScriptResults) {
@@ -5109,6 +5127,7 @@ async function revalidateBenchmarkImpl(
   } else {
     banner("DOTNET BUILD", "🔨", "cyan");
     const dotnetResult = await defaultDotnetBuild(workDir, trialDir, globalConfig, callbacks, log);
+    (entry as any)._winuiAnalyzer = dotnetResult.winuiAnalyzer;
     if (!dotnetResult.csproj) {
       entry.builds = false; entry.runs = false; entry.score = 0;
       entry.failReason = "No csproj";

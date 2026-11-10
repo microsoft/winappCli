@@ -122,7 +122,7 @@ Share a run without its app sources and build output (which can reach gigabytes)
    hits the wall-clock limit.
 3. **Harness build and gates.** `dotnet build` (Debug). If it fails and Visual Studio is
    installed, the harness retries once with Visual Studio MSBuild (`/restore`), because some
-   WinUI projects build only there; `build-output.txt` and the trial log say which builder was used. Then:
+   WinUI projects build only there; `build-output.txt` and the trial log say which builder was used. For this build only, the harness adds the WinUI analyzer (`Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer` 0.7.1) to projects that don't already reference it, through a temporary targets file it deletes afterwards, so Q4 counts the same warnings for every app. The app's project files are not changed. Then:
    - **G0**, the right framework;
    - **G3**, Native AOT, for scenarios with `gates: [native_aot]`: a harness-run
      `winapp run --aot -c Release` must publish without trim/AOT warnings and show a window. The gate stops after 20 minutes (set `BENCH_AOT_GATE_TIMEOUT_MINUTES` to change it), kills its processes, and records the trial as `harness-error`;
@@ -136,6 +136,8 @@ Share a run without its app sources and build output (which can reach gigabytes)
    in `results.json`.
 
 ## Scoring (v4)
+
+v4 changes from v3: the judge reports a requirement it could not verify as `not-run`, not `fail`, and Q4 runs the same WinUI analyzer on every app.
 
 A failed gate (build, launch, G0, G3) scores **0** and skips the judge. The launch gate also fails when the app's only window is a Win32 dialog, such as ".NET is not installed". A trial where our tooling fails (the judge produced no result, the desktop was locked during the UI checks, or the Native AOT gate timed out) is a harness error. When the app built, the harness waits for the desktop to unlock and re-judges the same app, without running the agent again, up to 2 times; earlier attempts are kept under `.attempts\<trial>\` and `results.json` records `harness_retries`. If it still fails, the trial has outcome `harness-error`, no score, and is left out of averages. Otherwise:
 
@@ -153,7 +155,7 @@ Average scores use valid trials only, and each view says how many, for example "
 
 `results.json` has `metrics.score_breakdown`, `metrics.quality_checks`, `metrics.requirements`,
 `judge_model`, `models_used` (billed models; `model_mismatch` when they differ from the request),
-`agent_source` (setup, ref, SHA, plugin versions), and `toolchain.winapp`.
+`agent_source` (setup, ref, SHA, plugin versions), `toolchain.winapp`, and `winui_analyzer` (the analyzer version the scoring build ran, and whether the harness added it or the project already had it).
 
 **Comparing setups:** use the scorecard. It pairs trials on model + scenario + iteration and
 reports the mean difference with a 95% CI, wins/ties/losses, and credit and time deltas. In a
