@@ -135,7 +135,7 @@ Share a run without its app sources and build output (which can reach gigabytes)
    PATH, unregisters development packages the trial registered, and records a `machine` block
    in `results.json`.
 
-## Scoring (v3)
+## Scoring (v4)
 
 A failed gate (build, launch, G0, G3) scores **0** and skips the judge. The launch gate also fails when the app's only window is a Win32 dialog, such as ".NET is not installed". A trial where our tooling fails (the judge produced no result, or the desktop was locked during the UI checks) is a harness error. The harness waits for the desktop to unlock and re-judges the same app, without running the agent again, up to 2 times; earlier attempts are kept under `.attempts\<trial>\` and `results.json` records `harness_retries`. If it still fails, the trial has outcome `harness-error` and no score. Otherwise:
 

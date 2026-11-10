@@ -1,5 +1,6 @@
 /**
- * Benchmark scoring v3 (v2 formula; requirements the judge never ruled on are excluded, not failed).
+ * Benchmark scoring v4 (v2 formula). Requirements the judge never ruled on or could not verify (`not-run`)
+ * are excluded, not failed. v3 counted a requirement the judge could not verify as a failure.
  *
  *   score = 0                                  if any gate fails
  *   score = 60·requirements + 30·quality + 10·design/10   otherwise
@@ -24,7 +25,7 @@ export interface ScoreInput {
 
 export interface ScoreBreakdown {
   /** Bumped when the formula or what counts changes, so results from different versions are never silently compared. */
-  version: 3;
+  version: 4;
   score: number;
   gates: { builds: boolean; runs: boolean; failed: string[] };
   /** `scored` = requirements the judge ruled on. Requirements it never ruled on (`notRun`) are not counted as failures. */
@@ -36,7 +37,7 @@ export interface ScoreBreakdown {
   weights: typeof SCORE_WEIGHTS;
 }
 
-export const SCORING_VERSION = 3;
+export const SCORING_VERSION = 4;
 
 export function computeScoreV2(input: ScoreInput): ScoreBreakdown {
   const failedGates = [

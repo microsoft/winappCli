@@ -76,7 +76,7 @@
     },
     "usage": { "$ref": "#/definitions/usage" },
     "scoringVersion": {
-      "description": "Version of the scoring rules that produced this trial. Results with different versions are not compared directly.",
+      "description": "Version of the scoring rules that produced this trial (current: 4; older versions stay valid). Results with different versions are not compared directly.",
       "type": "integer",
       "minimum": 1
     },

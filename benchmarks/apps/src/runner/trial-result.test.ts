@@ -110,7 +110,7 @@ test("requirements the judge did not rule on are listed, not failed", () => {
   const t = toTrialResult({ ...base, requirements: [{ id: 1, status: "pass" }, { id: 2, status: "not-run" as any }] }) as any;
   assert.deepEqual(t.requirementsNotRun, [2]);
   assert.equal(t.checks.some((c: any) => c.id === "requirement-2"), false);
-  assert.equal(t.scoringVersion, 3);
+  assert.equal(t.scoringVersion, 4);
 });
 
 test("launch level counts how far the app got", () => {
