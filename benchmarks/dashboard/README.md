@@ -1,6 +1,6 @@
 # Benchmark results dashboard
 
-A static site that shows the `apps` and `tasks` benchmark results. It has four tabs: **Overview** (a one-sentence verdict, four "without → with" tiles and one chart), **By app** (one row per app scenario, sorted by change), **Skills** (which skills loaded with winapp + skills) and **Details** (outcomes, tasks, winapp commands and how we measured). It reads the per-run JSON files described in [RESULTS-FORMAT.md](../RESULTS-FORMAT.md) and needs only Node 20 or later. There are no packages to install.
+A static site that shows the `apps` and `tasks` benchmark results. It has four tabs: **Overview** (a one-sentence verdict, four "without → with" tiles and one chart), **By app** (one row per app scenario, sorted by change), **Skills** (what changed per quality-check topic with winapp + skills, then which skills loaded) and **Details** (outcomes, tasks, winapp commands and how we measured). It reads the per-run JSON files described in [RESULTS-FORMAT.md](../RESULTS-FORMAT.md) and needs only Node 20 or later. There are no packages to install.
 
 ## Build and preview
 
@@ -84,6 +84,7 @@ All of this is in `lib\aggregate.mjs`.
 - **Sanity checks.** A scenario or task that the `barebones` arm passes in 90% or more of valid runs is a sanity check (#1253). For tasks (under Details) these are left out of the headline pass rate, and the table shows both numbers. Apps scenarios are flagged but not removed, because in the first runs (November 2026) every apps scenario met the rule, and removing them would have left no headline.
 - **Flags.** A model is flagged on a scenario when its pass rate differs from the other models' by 50 points or more, or when it uses more than 1.5x the credits it used on the other arms of that scenario. A scenario no setup passes is flagged as a possible checker bug.
 - **Skills.** Counted in all runs, whatever the outcome. Runs whose file has no `skills` field are reported as "not recorded" rather than "0".
+- **What changed with skills.** For each quality-check topic (for example Packaging = checks `p2` and `p3`), the pass rate in valid `apps` runs for `barebones` and `cli-plus-skills`, and the change. The topic list and related skills are `QUALITY_TOPICS` in `lib\aggregate.mjs`. This compares setups, not skills: a skill loading in a run is not evidence it helped.
 - **Skill claims.** Every skill shows "Not enough data" until the claim rules in #1182 are decided.
 - **Trend.** Shown once two `vX.Y.Z` releases exist. `dev` runs are never part of it.
 

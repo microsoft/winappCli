@@ -282,7 +282,7 @@
     const benches = Object.entries(r.benchmarks).map(([bn, b]) => [bn, view(b)]).filter(([, b]) => b.arms.includes(WITH));
     const names = new Set();
     for (const [, b] of benches) Object.keys(b.skills[WITH].names).forEach((n) => names.add(n));
-    if (!names.size) return `<h2>Skills</h2><p>No skills were recorded in this release.</p>`;
+    if (!names.size) return `<h2>Skills</h2>${skillImpact(r)}<p>No skills were recorded in this release.</p>`;
     const share = (b, n) => {
       const u = b.skills[WITH];
       return u.recorded ? (u.names[n]?.trials ?? 0) / u.recorded : null;
@@ -300,9 +300,31 @@
     const partial = benches.filter(([, b]) => b.skills[WITH].recorded && b.skills[WITH].recorded < b.skills[WITH].trials)
       .map(([bn, b]) => `<code>${esc(bn)}</code> recorded skills in ${b.skills[WITH].recorded} of ${b.skills[WITH].trials} runs`);
     return `<h2>Skills</h2>
+      ${skillImpact(r)}
+      <h3>Which skills loaded</h3>
       <p>Which skills the agent loaded ${esc(armLabel(WITH).toLowerCase())}, and in how many runs. The other setups have no skills installed, so they are not shown here.</p>
       ${table(`Skills loaded, ${esc(armLabel(WITH).toLowerCase())}`, head, body)}
       ${partial.length ? `<p class="muted">${partial.join('; ')}.</p>` : ''}`;
+  }
+
+  // Setup-level change per quality-check topic (apps, valid runs): barebones vs cli-plus-skills.
+  function skillImpact(r) {
+    const b = r.benchmarks.apps;
+    const topics = (b?.qualityTopics ?? []).filter((q) => q.byArm[BASE] && q.byArm[WITH]);
+    if (!topics.length) return '';
+    const cell = (v) => `${pct(v.rate)} <span class="ci">${v.passed} of ${v.total}</span>`;
+    const change = (d) => {
+      if (d == null) return `<td>${NA}</td>`;
+      const pts = Math.round(d * 100);
+      return pts < 0
+        ? `<td class="change regress">${diffPts(d)}<span class="sr-only"> (worse)</span></td>`
+        : `<td class="change">${diffPts(d)}</td>`;
+    };
+    const head = `<tr><th scope="col" class="text">Quality checks about</th><th scope="col">${armHtml(BASE)}</th><th scope="col">${armHtml(WITH)}</th><th scope="col">Change</th><th scope="col" class="text">Related skills</th></tr>`;
+    const body = topics.map((q) => `<tr><th scope="row" class="text" title="Check ids: ${esc(q.checks.join(', '))}">${esc(q.topic)}</th><td>${cell(q.byArm[BASE])}</td><td>${cell(q.byArm[WITH])}</td>${change(q.change)}<td class="text">${q.skills.map((s) => `<code class="skill">${esc(s)}</code>`).join(' ')}</td></tr>`).join('');
+    return `<h3>What changed with skills</h3>
+      ${table(`Quality checks passed in valid <code>apps</code> runs, ${esc(armLabel(BASE).toLowerCase())} vs ${esc(armLabel(WITH).toLowerCase())}`, head, body)}
+      <p class="muted">Setup-level comparison: shows what the plugin as a whole changed. A skill loading in a trial is not evidence it helped (agents load skills on harder apps), so per-skill impact needs per-skill scenarios (<a href="${REPO}/issues/1206">#1206</a>).</p>`;
   }
 
   // ---------- Details ----------

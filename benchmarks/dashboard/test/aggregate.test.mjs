@@ -290,3 +290,20 @@ test('entries are listed most recent run first, and each benchmark keeps its own
   assert.deepEqual(recent.benchmarks.tasks.winappVersions, ['0.7.3']);
   assert.equal(recent.benchmarks.tasks.firstStartedAt, '2026-11-12T00:00:00Z');
 });
+
+test('quality topics pool their check ids per setup over valid runs, and report the change', () => {
+  const c = (id, passed) => ({ id, kind: 'improvement', passed, source: 'harness' });
+  const b = aggregateBenchmark([
+    t({ arm: 'barebones', checks: [c('p2', false), c('P3', true), c('q4', true)] }),
+    t({ arm: 'barebones', trial: 2, outcome: 'build-failed', checks: [c('p2', true)] }),
+    t({ arm: 'cli-plus-skills', checks: [c('p2', true), c('p3', true), c('q4', false)] }),
+    t({ arm: 'cli-only', checks: [c('p2', true)] }),
+  ]);
+  const pack = b.qualityTopics.find((q) => q.topic === 'Packaging');
+  assert.deepEqual(pack.byArm.barebones, { passed: 1, total: 2, rate: 0.5 });
+  assert.deepEqual(pack.byArm['cli-plus-skills'], { passed: 2, total: 2, rate: 1 });
+  assert.equal(pack.change, 0.5);
+  assert.ok(pack.skills.includes('winapp-manifest'));
+  assert.equal(b.qualityTopics.find((q) => q.topic === 'Build warnings').change, -1);
+  assert.ok(!b.qualityTopics.some((q) => q.topic === 'Typography'), 'topics with no checks are left out');
+});

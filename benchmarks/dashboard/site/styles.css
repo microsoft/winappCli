@@ -148,3 +148,6 @@ td.change { font-weight: 600; }
 td.cli-col { color: var(--muted); }
 .bar { display: inline-block; width: 80px; height: 8px; background: var(--border); border-radius: 4px; vertical-align: middle; margin-right: 6px; overflow: hidden; }
 .bar > span { display: block; height: 100%; background: var(--c-with); }
+
+td.regress { color: var(--bad); }
+code.skill { white-space: nowrap; margin-right: 4px; }

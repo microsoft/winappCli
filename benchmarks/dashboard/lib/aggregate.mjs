@@ -14,6 +14,45 @@ export const BASE_ARM = 'barebones';
 export const SKILLS_ARM = 'cli-plus-skills';
 
 // Flags that tell a reader where to look closer. Thresholds are shown on the page.
+// apps quality-check topics for the Skills tab: which check ids belong to each topic, and
+// the skills that teach it. This is a setup-level view (barebones vs cli-plus-skills), not
+// evidence that one skill helped.
+export const QUALITY_TOPICS = [
+  { topic: 'Packaging', checks: ['p2', 'p3'], skills: ['winapp-manifest', 'winui-packaging', 'winui-dev-workflow'] },
+  { topic: 'Build warnings', checks: ['q4'], skills: ['winui-dev-workflow'] },
+  { topic: 'Accessible names', checks: ['q0'], skills: ['winui-design', 'winapp-ui-automation'] },
+  { topic: 'Theme colors', checks: ['v5'], skills: ['winui-design'] },
+  { topic: 'Typography', checks: ['v3'], skills: ['winui-design'] },
+  { topic: 'Backdrop', checks: ['v2'], skills: ['winui-design'] },
+  { topic: 'x:Bind', checks: ['q3'], skills: ['winui-design'] },
+  { topic: 'Empty, loading and error states', checks: ['q5'], skills: ['winui-design'] },
+];
+
+// Pass rate of each topic's checks per arm, over valid runs. Checks are matched by id,
+// case-insensitively. Topics with no matching check in any run are left out.
+export function qualityTopics(trials, arms) {
+  const out = [];
+  for (const q of QUALITY_TOPICS) {
+    const byArm = {};
+    for (const arm of arms) {
+      let passed = 0, total = 0;
+      for (const t of trials) {
+        if (t.arm !== arm || t.outcome !== 'valid') continue;
+        for (const c of t.checks ?? []) {
+          if (!q.checks.includes(String(c.id).toLowerCase())) continue;
+          total++;
+          if (c.passed) passed++;
+        }
+      }
+      byArm[arm] = { passed, total, rate: ratio(passed, total) };
+    }
+    if (!arms.some((a) => byArm[a].total)) continue;
+    const w = byArm[SKILLS_ARM]?.rate, o = byArm[BASE_ARM]?.rate;
+    out.push({ ...q, byArm, change: w == null || o == null ? null : w - o });
+  }
+  return out;
+}
+
 export const OUTLIER_RULES = {
   modelSplitPoints: 0.5, // a model's pass rate differs from the other models' by this much
   costMultiple: 1.5, // a model's mean credits on one arm are this many times its mean on the other arms
@@ -282,6 +321,7 @@ export function aggregateBenchmark(trials) {
     perScenario,
     notValid,
     skills: usageByArm(trials, arms, 'skills', 'name'),
+    qualityTopics: qualityTopics(trials, arms),
     winappCommands: usageByArm(trials, arms, 'winappCommands', 'command'),
     scoringVersions: orderBy(trials.map((t) => (t.scoringVersion == null ? 'not recorded' : String(t.scoringVersion))), []),
     winappVersions: orderBy(trials.map((t) => t.winappVersion).filter(Boolean), []),
