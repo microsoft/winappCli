@@ -44,6 +44,11 @@ expected folder; if not, it fails without spending credits.
 - **Machine:** Windows 10 1903+ with Developer Mode and long paths enabled (`LongPathsEnabled=1`), Node.js 20+, .NET SDK 10+, the WinApp CLI,
   and GitHub Copilot CLI signed in (`copilot login`). Use a **dedicated machine or VM**: trials
   launch apps, take focus for UI automation, and run for hours.
+- **An unlocked desktop.** The UI checks send keyboard input, which Windows blocks while the
+  session is locked. Turn off the lock screen timeout for the run. Before the UI checks, a trial
+  waits up to 10 minutes for the desktop to unlock; if it stays locked, the trial is a harness
+  error (`Desktop locked: UI could not be driven`). After 3 such trials in a row the run stops;
+  unlock the session and continue with `--resume-run runN`.
 - **Cost:** a trial is one build session plus one judge session. Rough averages from a
   270-trial run: Sonnet 5.5 ~70–100 credits, GPT-6.1 Sol ~100–160, Opus 5.5 ~375–420 per trial;
   5–25 minutes each.
@@ -124,7 +129,7 @@ Rescore a trial offline after a scoring change: `npx tsx src/rescore.ts --run ru
 
 ## Scoring (v3)
 
-A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where the judge itself fails has outcome `harness-error`, no score, and is left out of averages. Otherwise:
+A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where our tooling fails (the judge produced no result, or the desktop was locked during the UI checks) has outcome `harness-error`, no score, and is left out of averages. Otherwise:
 
 **score = 60 × requirements + 30 × quality checks + 10 × design** (each part is its pass rate;
 parts that don't apply are dropped and the rest renormalized).

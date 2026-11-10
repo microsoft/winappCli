@@ -14,6 +14,7 @@ import { join } from "path";
 import { spawnSync } from "child_process";
 import { loadRunFromDisk } from "./config.js";
 import { startKeepAwake, systemSuspendedBetween } from "./suspend-guard.js";
+import { DESKTOP_LOCKED_ERROR, LockedDesktopStreak } from "./desktop-lock.js";
 
 export interface QueueOptions {
   maxBuildMinutes: number;
@@ -39,6 +40,9 @@ export class BenchmarkQueue {
   private lastPersistedStatus = new Map<string, string>();
   /** Trials already retried once after a system suspend. */
   private retried = new Set<string>();
+  private lockedStreak = new LockedDesktopStreak();
+  /** Set when the queue stopped early on its own, for example on a locked desktop. */
+  stoppedReason?: string;
 
   constructor(
     entries: RunEntry[],
@@ -164,6 +168,13 @@ export class BenchmarkQueue {
           }
         }
         (globalThis as typeof globalThis & { gc?: () => void }).gc?.();
+        const locked = entry.harnessError === DESKTOP_LOCKED_ERROR ? true : entry.runs ? false : undefined;
+        if (this.lockedStreak.record(locked) && this._running) {
+          this.stoppedReason = `Stopped: ${this.lockedStreak.current} trials in a row could not drive the UI because the desktop is locked. ` +
+            "Unlock the session (and keep it unlocked, for example by disabling the lock screen timeout), then resume the run.";
+          emit(`\n⛔ ${this.stoppedReason}\n`);
+          this._running = false;
+        }
       }
     };
 

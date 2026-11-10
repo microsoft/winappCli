@@ -75,6 +75,7 @@ import { appendBounded, PROCESS_OUTPUT_MAX_CHARS } from "./live-output.js";
 import { runUntilSdkCompletion, type SdkCompletionReason } from "./sdk-lifecycle.js";
 import { compareVersionCore, resolveWinAppToolchain } from "./winapp-toolchain.js";
 import { readLinesSync } from "./jsonl-stream.js";
+import { DESKTOP_LOCKED_ERROR, probeInteractiveDesktop, uiBlockedByLockedDesktop, waitForInteractiveDesktop } from "./desktop-lock.js";
 import { evaluateConcurrentProcessCommand, extractCommand } from "./process-safety.js";
 import type { RunEntry, ScenarioConfig, AgentSetupConfig, GlobalConfig } from "../types.js";
 import { parse as parseYaml } from "yaml";
@@ -4250,11 +4251,16 @@ async function runBenchmarkImpl(
       entry.score = 0;
       banner("App didn't run — skipping validation", "⏭️", "yellow");
     } else if (appPid) {
-      const uiChecks = await runUiQualityChecks(String(appPid), workDir, log, scenarioConfig.ready_element);
+      const { checks: uiChecks, locked } = await runUiChecksWhenUnlocked(String(appPid), workDir, log, scenarioConfig.ready_element);
       if (uiChecks.length) {
         log("  Quality checks (UI):");
         logQualityChecks(uiChecks, log);
         (entry as any)._qualityChecks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...uiChecks];
+      }
+      if (locked) {
+        entry.harnessError = DESKTOP_LOCKED_ERROR;
+        entry.failReason = DESKTOP_LOCKED_ERROR;
+        entry.score = undefined;
       }
     }
   }
@@ -4267,8 +4273,9 @@ async function runBenchmarkImpl(
   // still gets builds/runs metrics, but no `score` and no `validation` block
   // in results.json — used by sweeps (and advanced flat runs that do their own
   // scoring as separate tasks) that only care whether the code compiles +
-  // launches.
-  if (entry.runs && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
+  // launches. A locked desktop already made the trial a harness error, so the
+  // judge is not run either.
+  if (entry.runs && !entry.harnessError && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
     setStatus("validating");
     banner("VALIDATION", "🔍", "magenta");
 
@@ -4575,6 +4582,7 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
       !caption.test((e.name ?? "").trim()) && !caption.test((e.automationId ?? "").trim()) && !/^(Edit|Document)$/.test(String(e.type)));
     let q1: QualityCheck;
     let inputSamples: any[] | null = null;
+    let desktopLocked = false;
     if (enabled.length === 0) {
       q1 = evaluateKeyboardTraversal([], 0);
     } else {
@@ -4590,6 +4598,7 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
       }
       if (!focusedOk) focusedOk = !!parse((await ui(["get-focused", "-w", String(hwnd), "--json"])).output)?.hasFocus;
       if (!focusedOk) {
+        desktopLocked = /no interactive desktop/i.test(focusError);
         q1 = na("Q1", "Keyboard navigation (Tab moves focus through controls)",
           `Could not focus a control (desktop busy or activation refused)${focusError ? `: ${focusError}` : ""}`);
       } else {
@@ -4609,13 +4618,33 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
     } else {
       ready = evaluateReady(undefined, false);
     }
-    return [q0, q1, evaluateLoaded(enabled.length, inputSamples), ready];
+    return [q0, q1, evaluateLoaded(enabled.length, inputSamples, desktopLocked), ready];
   } catch (err) {
     log(`  ⚠️ UI quality checks failed: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   } finally {
     await ui(["yield"], 5000).catch(() => undefined);
   }
+}
+
+/**
+ * Runs the UI checks once the desktop is unlocked. Returns `locked` when the
+ * desktop stayed locked or input was refused because of a lock, so the caller
+ * records a harness error instead of scoring checks that measured nothing.
+ */
+async function runUiChecksWhenUnlocked(
+  appPid: string, cwd: string, log: (msg: string) => void, readyElement?: string,
+): Promise<{ checks: QualityCheck[]; locked: boolean }> {
+  if (!isWindows) return { checks: await runUiQualityChecks(appPid, cwd, log, readyElement), locked: false };
+  if (!(await waitForInteractiveDesktop(probeInteractiveDesktop, { log }))) {
+    log(`  ❌ ${DESKTOP_LOCKED_ERROR}. The desktop stayed locked; this trial gets no score.`);
+    return { checks: [], locked: true };
+  }
+  const checks = await runUiQualityChecks(appPid, cwd, log, readyElement);
+  const l2 = checks.find((c) => c.id === "L2");
+  const locked = uiBlockedByLockedDesktop(checks, l2?.status === "na" ? probeInteractiveDesktop() : true);
+  if (locked) log(`  ❌ ${DESKTOP_LOCKED_ERROR}. Input was refused because the desktop is locked; this trial gets no score.`);
+  return { checks, locked };
 }
 
 function logQualityChecks(checks: QualityCheck[], log: (msg: string) => void): void {
@@ -5084,16 +5113,21 @@ async function revalidateBenchmarkImpl(
   if (!entry.runs) {
     entry.score = 0;
   } else if (appPid) {
-    const uiChecks = await runUiQualityChecks(String(appPid), workDir, log, scenarioConfig.ready_element);
+    const { checks: uiChecks, locked } = await runUiChecksWhenUnlocked(String(appPid), workDir, log, scenarioConfig.ready_element);
     if (uiChecks.length) {
       log("  Quality checks (UI):");
       logQualityChecks(uiChecks, log);
       (entry as any)._qualityChecks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...uiChecks];
     }
+    if (locked) {
+      entry.harnessError = DESKTOP_LOCKED_ERROR;
+      entry.failReason = DESKTOP_LOCKED_ERROR;
+      entry.score = undefined;
+    }
   }
 
   // ─── VALIDATION ─── (per-task skipValidation OR global SKIP_VALIDATION env)
-  if (entry.runs && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
+  if (entry.runs && !entry.harnessError && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
     setStatus("validating");
     banner("VALIDATION", "🔍", "magenta");
 
