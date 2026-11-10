@@ -98,6 +98,12 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     });
   }
 
+  // A required requirement that was never judged (for example with --skip-validation) is not a pass.
+  for (const id of required) {
+    if (input.requirements.some((r) => r.id === id)) continue;
+    checks.push({ id: `requirement-${id}`, kind: "required", passed: false, source: "judge", detail: "not checked" });
+  }
+
   const improvements = checks.filter((c) => c.kind === "improvement");
   const outcome = input.harnessError ? "harness-error"
     : input.timedOut ? "timed-out"

@@ -4,7 +4,6 @@
 #pragma warning disable CA1416
 
 using Microsoft.Diagnostics.Runtime.Utilities.DbgEng;
-using System.Text;
 
 namespace WinApp.Cli.Services;
 
@@ -57,7 +56,11 @@ internal static class XamlTriageRunner
             // The DLLs and script named by the arguments are re-verified here, not just by the parent, and
             // held until the engine is done, so the files checked are the files loaded.
             using var inputs = VerifyInputs(bin, jsProvider, ext);
-            Console.Out.Write(RunDbgEngExtension(dump, inputs.BinDir, inputs.JsProviderPath, inputs.ExtPath, useSymbols));
+
+            // Output is streamed as the engine produces it, not written once at the end: the debugger's
+            // JavaScript engine can fail-fast this process mid-command, and the parent then keeps
+            // whatever already reached the pipe.
+            RunDbgEngExtension(dump, inputs.BinDir, inputs.JsProviderPath, inputs.ExtPath, useSymbols, Console.Out, Console.Error);
             return 0;
         }
         catch (Exception ex)
@@ -126,6 +129,20 @@ internal static class XamlTriageRunner
     /// </summary>
     public static string RunDbgEngExtension(string dumpPath, string binDir, string jsProviderPath, string extPath, bool useSymbols)
     {
+        using var output = new StringWriter();
+        RunDbgEngExtension(dumpPath, binDir, jsProviderPath, extPath, useSymbols, output, TextWriter.Null);
+        return output.ToString();
+    }
+
+    /// <summary>
+    /// Executes the triage command sequence against the dump, writing DbgEng output to
+    /// <paramref name="output"/> and flushing it as each chunk arrives. Before each command, writes a
+    /// <see cref="StepMarker"/> line to <paramref name="progress"/> so a parent can tell which command
+    /// was running if this process dies.
+    /// </summary>
+    public static void RunDbgEngExtension(
+        string dumpPath, string binDir, string jsProviderPath, string extPath, bool useSymbols, TextWriter output, TextWriter progress)
+    {
         using IDisposable dbgeng = IDebugClient.Create(binDir);
         IDebugClient client = (IDebugClient)dbgeng;
         IDebugControl control = (IDebugControl)dbgeng;
@@ -133,47 +150,55 @@ internal static class XamlTriageRunner
         var hr = client.OpenDumpFile(dumpPath);
         if (hr < 0)
         {
-            return $"DbgEng failed to open dump for WinUI triage: HRESULT 0x{(uint)hr:X8}";
+            output.Write($"DbgEng failed to open dump for WinUI triage: HRESULT 0x{(uint)hr:X8}");
+            return;
         }
 
         hr = control.WaitForEvent(TimeSpan.FromSeconds(60));
         if (hr < 0)
         {
-            return $"DbgEng WaitForEvent failed during WinUI triage: HRESULT 0x{(uint)hr:X8}";
+            output.Write($"DbgEng WaitForEvent failed during WinUI triage: HRESULT 0x{(uint)hr:X8}");
+            return;
         }
 
-        var output = new StringBuilder();
-        string result;
-        using (var holder = new DbgEngOutputHolder(client, DEBUG_OUTPUT.ALL))
+        using var holder = new DbgEngOutputHolder(client, DEBUG_OUTPUT.ALL);
+        holder.OutputReceived += (text, _) =>
         {
-            holder.OutputReceived += (text, _) => output.Append(text);
-            result = RunTriageSequence(
-                jsProviderPath,
-                extPath,
-                useSymbols,
-                command => control.Execute(DEBUG_OUTCTL.THIS_CLIENT, command, DEBUG_EXECUTE.DEFAULT),
-                () => output.ToString());
-        }
-
-        return result;
+            output.Write(text);
+            output.Flush();
+        };
+        RunTriageSequence(
+            jsProviderPath,
+            extPath,
+            useSymbols,
+            command =>
+            {
+                progress.WriteLine(StepMarker + command);
+                progress.Flush();
+                return control.Execute(DEBUG_OUTCTL.THIS_CLIENT, command, DEBUG_EXECUTE.DEFAULT);
+            },
+            output);
     }
+
+    /// <summary>Prefix of the stderr line the child writes before each DbgEng command.</summary>
+    internal const string StepMarker = "xaml-triage: running ";
 
     /// <summary>
     /// Emits the DbgEng command sequence for WinUI triage — optional symbol-server configuration, the
     /// exception-context switch, the JavaScript-provider load, the script load, and the
     /// <c>!xamlstowed</c>/<c>!xamltriage</c> commands — through the supplied <paramref name="execute"/>
-    /// delegate (which returns each command's HRESULT), returning the engine output captured by
-    /// <paramref name="getOutput"/>. Extracted from <see cref="RunDbgEngExtension"/> so the symbol path,
-    /// the provider-load-failure path, and the happy path are unit-testable without a live engine, dump,
-    /// or symbol server. Behavior-preserving: the commands, their order, and the failure message match the
-    /// original in-situ sequence exactly.
+    /// delegate (which returns each command's HRESULT). Engine output goes to <paramref name="output"/>
+    /// through the engine's own callback; this method writes only its own failure message there.
+    /// Extracted from <see cref="RunDbgEngExtension(string, string, string, string, bool, TextWriter, TextWriter)"/>
+    /// so the symbol path, the provider-load-failure path, and the happy path are unit-testable without
+    /// a live engine, dump, or symbol server.
     /// </summary>
-    internal static string RunTriageSequence(
+    internal static void RunTriageSequence(
         string jsProviderPath,
         string extPath,
         bool useSymbols,
         Func<string, int> execute,
-        Func<string> getOutput)
+        TextWriter output)
     {
         if (useSymbols)
         {
@@ -196,17 +221,17 @@ internal static class XamlTriageRunner
         var loadHr = execute($".load \"{jsProvider}\"");
         if (loadHr < 0)
         {
-            return getOutput() + $"\nWinUI triage could not load the JavaScript provider " +
-                $"({jsProviderPath}): HRESULT 0x{(uint)loadHr:X8}";
+            output.Write($"\nWinUI triage could not load the JavaScript provider " +
+                $"({jsProviderPath}): HRESULT 0x{(uint)loadHr:X8}");
+            return;
         }
 
-        // Load the JS extension, then run the stowed-exception + triage commands.
+        // Load the JS extension, then run the stowed-exception + triage commands. Each runs as its own
+        // engine command, so the output of an earlier one survives if a later one crashes the process.
         // Forward slashes avoid escaping issues in the DbgEng command parser.
         var scriptPath = extPath.Replace('\\', '/');
         execute($".scriptload \"{scriptPath}\"");
         execute("!xamlstowed");
         execute("!xamltriage");
-
-        return getOutput();
     }
 }

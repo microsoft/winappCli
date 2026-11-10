@@ -73,6 +73,7 @@ static void ClearSelectionAnchor()
     g_selDetached = false;
     g_selRootLost = false;
     g_selAnchorPending = false;
+    g_selPanelPlaced = false;
     g_selPendingAnchor = RECT{};
     g_selFocusedIsComment = false;
 
@@ -214,9 +215,71 @@ static std::wstring BuildSelectionMarkup(int w, int h, int tagX, int tagY,
     });
 }
 
-// The panel is inserted directly on-canvas at its FINAL position (realized once) and never Canvas-moved on/off
-// screen: moving a TextBox-bearing subtree realizes the box's async default-template parts mid-move and crashes
-// the app.
+static DevToolsSelection::Placement SelectionPanelPlacement(const RECT& bounds, int preferredHeight, int* width)
+{
+    int w = 0, h = 0;
+    GetClientSizeDips(&w, &h);
+    DevToolsSelection::Rect viewport{ 0, 0, w, h };
+    bool constrained = true;
+    if (g_selPopup) {
+        winrt::com_ptr<IInspectable> popup;
+        HRESULT hr = g_selPopup->QueryInterface(DevToolsIid<DevToolsXCP::IPopup>(), popup.put_void());
+        if (SUCCEEDED(hr)) hr = DevToolsPopupGetIsConstrainedToRootBounds(popup.get(), &constrained);
+        if (FAILED(hr)) DevToolsOverlayLog(L"overlay.sel popup constraint read failed hr=0x%08X", hr);
+    } else {
+        // The markup requests an unconstrained popup; check the runtime's answer once it opens.
+        constrained = false;
+    }
+    DevToolsSelection::Rect workArea{};
+    if (!constrained && GetMonitorWorkAreaDips(&workArea)) viewport = workArea;
+    *width = (std::min)(kSelPanelW, (std::max)(1, viewport.right - viewport.left - 16));
+    RECT toolbarDip{};
+    const bool haveToolbar = g_toolbarSurface.xamlRootKey == g_activeSurface.xamlRootKey && ToolbarRectDip(&toolbarDip);
+    const DevToolsSelection::Rect toolbar{ toolbarDip.left, toolbarDip.top, toolbarDip.right, toolbarDip.bottom };
+    return DevToolsSelection::PlacePanel(
+        { bounds.left, bounds.top, bounds.right, bounds.bottom }, viewport, *width, preferredHeight,
+        14, 8, haveToolbar ? &toolbar : nullptr);
+}
+
+// Move the Popup itself, never its TextBox-bearing canvas subtree or its focus. This also works while typing.
+static void RepositionSelectionPanel(const RECT& bounds)
+{
+    if (!g_selPopup || !g_selPanel || g_selDetached) return;
+    int width = 0;
+    const auto placement = SelectionPanelPlacement(bounds, g_selPanelPreferredHeight, &width);
+    if (g_selPanelPlaced && width == g_selPanelWidth &&
+        placement.panelX == g_selPanelPlacement.panelX && placement.panelY == g_selPanelPlacement.panelY &&
+        placement.panelHeight == g_selPanelPlacement.panelHeight && placement.onRight == g_selPanelPlacement.onRight &&
+        EqualRect(&bounds, &g_selBounds)) return;
+
+    winrt::com_ptr<IInspectable> panel, popup;
+    HRESULT hr = g_selPanel->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), panel.put_void());
+    if (SUCCEEDED(hr)) hr = g_selPopup->QueryInterface(DevToolsIid<DevToolsXCP::IPopup>(), popup.put_void());
+    if (SUCCEEDED(hr) && (!g_selPanelPlaced || width != g_selPanelWidth))
+        hr = DevToolsPutWidth(panel.get(), width);
+    if (SUCCEEDED(hr) && (!g_selPanelPlaced || placement.panelHeight != g_selPanelPlacement.panelHeight))
+        hr = DevToolsPutMaxHeight(panel.get(), placement.panelHeight);
+    if (SUCCEEDED(hr) && (!g_selPanelPlaced || placement.panelX != g_selPanelPlacement.panelX))
+        hr = DevToolsPopupPutHorizontalOffset(popup.get(), placement.panelX);
+    if (SUCCEEDED(hr) && (!g_selPanelPlaced || placement.panelY != g_selPanelPlacement.panelY))
+        hr = DevToolsPopupPutVerticalOffset(popup.get(), placement.panelY);
+    if (FAILED(hr)) {
+        DevToolsOverlayLog(L"overlay.sel popup placement failed hr=0x%08X", hr);
+        return;
+    }
+    g_selPanelWidth = width;
+    g_selPanelPlacement = placement;
+    g_selPanelPlaced = true;
+    g_selBounds = bounds;
+    if (IInspectable* leader = DevToolsSelFindName(g_selUi, L"DevToolsSelLeader")) {
+        MoveOverlayElement(leader, placement.onRight ? bounds.right + 2 : placement.panelX + width,
+                           (bounds.top + bounds.bottom) / 2.0);
+        leader->Release();
+    }
+    UpdateCatcherHole();
+}
+
+// Realize the editor once at its initial position; subsequent placement changes only update its Popup.
 static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
 {
     const bool focusComment = std::exchange(g_selFocusCommentOnOpen, false) && fromUserPick;
@@ -256,20 +319,14 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
 
 // PANEL geometry: use the monitor work area when the Popup confirms it is unconstrained; otherwise use the
 // client area.
-    const int pw = kSelPanelW;
     // Header, comment box, save row and footer, plus the likely-source review and each other comment. The panel still
     // sizes to its content; this only decides where it fits.
     const std::vector<std::wstring> otherComments = SelOtherComments(g_selPendingHandle);
     const int estimatedHeight = 300 + (authoredState == L"likely" ? 120 : 0) + 72 * (int)(std::min)(otherComments.size(), size_t(3));
-    DevToolsSelection::Rect viewport{ 0, 0, w, h };
-    DevToolsSelection::Rect workArea{};
-    if (GetMonitorWorkAreaDips(&workArea)) viewport = workArea;
     const DevToolsSelection::Rect element{ ex, ey, ex + ew, ey + eh };
-    RECT toolbarDip{};
-    const bool haveToolbar = g_toolbarSurface.xamlRootKey == g_activeSurface.xamlRootKey && ToolbarRectDip(&toolbarDip);
-    const DevToolsSelection::Rect toolbar{ toolbarDip.left, toolbarDip.top, toolbarDip.right, toolbarDip.bottom };
+    int pw = 0;
     const DevToolsSelection::Placement placement =
-        DevToolsSelection::PlacePanel(element, viewport, pw, estimatedHeight, 14, 8, haveToolbar ? &toolbar : nullptr);
+        SelectionPanelPlacement({ ex, ey, ex + ew, ey + eh }, estimatedHeight, &pw);
     const bool onRight = placement.onRight;
     const int px = placement.panelX;
     const int py = placement.panelY;
@@ -283,6 +340,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
     if (originY < 0.0) originY = 0.0; if (originY > 1.0) originY = 1.0;
 
     ClearSelectionAnchor();
+    g_selPanelPreferredHeight = estimatedHeight;
 
     const bool readOnly = !DevToolsTrust_MutationEnabled();
 
@@ -358,6 +416,28 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
         DevToolsSelWireKey(g_selPanel, g_selKeyDownSink, &OnSelKeyDown);
     }
     if (g_selComment) {
+        if (focusComment) {
+            try {
+                winrt::Windows::Foundation::IInspectable comment{ nullptr };
+                winrt::copy_from_abi(comment, g_selComment);
+                // The scrolling body realizes its editor after the popup opens. Focus only its first load,
+                // and never let a replaced or closed panel take focus back.
+                comment.as<DevToolsX::FrameworkElement>().Loaded(
+                    [generation = g_selGen, pending = true](auto&&, auto&&) mutable {
+                        if (!std::exchange(pending, false) || generation != g_selGen || !g_selComment) return;
+                        void* box = nullptr;
+                        bool focused = false;
+                        if (SUCCEEDED(g_selComment->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &box)) && box) {
+                            DevToolsFocus(box, 3 /*FocusState.Programmatic*/, &focused);
+                            reinterpret_cast<IUnknown*>(box)->Release();
+                        }
+                        if (focused) DevToolsTextBoxCaretToEnd(g_selComment);
+                        DevToolsOverlayLog(L"overlay.sel comment box focused on load=%d", (int)focused);
+                    });
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"overlay.sel comment focus subscription failed hr=0x%08X", e.code().value);
+            }
+        }
         DevToolsSelWireFocus(g_selComment, DevToolsUiEvent::GotFocus, g_selFocusInSink,
                         readOnly ? &OnSelGotFocus : &OnSelCommentGotFocus);
         DevToolsSelWireFocus(g_selComment, DevToolsUiEvent::LostFocus, g_selFocusOutSink,
@@ -430,6 +510,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
     if (g_selComment && !CommentsHaveProjectFolder())
         GuestCommentSetStatus(g_selUi, L"DevToolsGuestCommentStatus", DevToolsCommentText::NoProjectFolderStatus(GetCurrentProcessId()));
     if (g_selPopup) {
+        if (g_selPanel) SelRememberFocus();
         HostLiftPopup(g_selPopup, g_selectionPopup.get());
         void* popup = nullptr;
         if (SUCCEEDED(g_selPopup->QueryInterface(DevToolsIid<DevToolsXCP::IPopup>(), &popup)) && popup) {
@@ -440,6 +521,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
                           hrOpen, (int)constrained, hrRead);
             reinterpret_cast<IUnknown*>(popup)->Release();
         }
+        RepositionSelectionPanel(e);
         if (g_selPanel) {
             try {
                 winrt::Windows::Foundation::IInspectable panel{ nullptr };
@@ -448,31 +530,17 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
             } catch (const winrt::hresult_error&) {}
         }
         UpdateCatcherHole();
-        if (g_selPanel) { SelRememberFocus(); KeepChordsInPanel(g_selPanel); }
-        // A pick in the app is a request to comment: the box takes focus so typing starts at once. Pointer input
-        // was last, so programmatic focus shows a caret without keyboard visuals.
-        if (focusComment && g_selComment) {
-            void* box = nullptr;
-            bool focused = false;
-            if (SUCCEEDED(g_selComment->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &box)) && box) {
-                DevToolsFocus(box, 3 /*FocusState.Programmatic*/, &focused);
-                reinterpret_cast<IUnknown*>(box)->Release();
-            }
-            // Typing continues an existing comment rather than prepending to it.
-            if (focused) DevToolsTextBoxCaretToEnd(g_selComment);
-            DevToolsOverlayLog(L"overlay.sel comment box focused on open=%d", (int)focused);
-        }
+        if (g_selPanel) KeepChordsInPanel(g_selPanel);
     }
     if (!g_selOperationError.empty())
         SetSelectionOperationError(g_selOperationProperty, g_selOperationError);
     if (g_selPanel) BeginNamedStoryboard(g_selPanel, L"DevToolsSelMorph");
     insp->Release();
     DevToolsOverlayLog(L"overlay.sel shown title=%s fromUserPick=%d tag=%d,%d panel=%s(%d,%d side=%s) others=%zu readOnly=%d"
-                  L" element=%d,%d,%d,%d viewport=%d,%d,%d,%d",
+                  L" element=%d,%d,%d,%d",
                   title.c_str(), (int)fromUserPick, tagX, tagY, g_selPanel ? L"yes" : L"no", px, py,
                   onRight ? L"right" : L"left", otherComments.size(), (int)readOnly,
-                  element.left, element.top, element.right, element.bottom,
-                  viewport.left, viewport.top, viewport.right, viewport.bottom);
+                  element.left, element.top, element.right, element.bottom);
 }
 
 

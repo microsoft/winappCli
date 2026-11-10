@@ -10,7 +10,10 @@ static bool          g_pinned     = false;
 static double        g_protoW = 0.0;
 static double        g_protoH = 0.0;
 static double        g_chipW = 104.0;
-static EventSink g_protoSink[24];
+static double        g_chipH = kChipH;
+static double        g_barW = kBarW;
+static double        g_barH = kBarH;
+static EventSink g_protoSink[25];
 static int g_toolbarFocusWithin = 0;
 static EventSink g_resizeSink;
 static EventSink g_originSink;
@@ -53,6 +56,7 @@ static bool SelFinishBeforeMoving();
 static bool SelHasCommentDraft();
 static bool PickerEditorIsOpen();
 static void UpdateCatcherHole();
+static void ShowCommentToast(const std::wstring& text, bool problem);
 static void ResetPickPointer()
 {
     g_pressValid = false;
@@ -815,17 +819,19 @@ void DevToolsOverlay_SetCardFreeze(DevToolsCardFreezeFn freeze) { g_cardFreeze =
 void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read) { g_srcRead = read; }
 void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read) { g_isDeclared = read; }
 
-// Open the single in-process inspector on the UI thread, or focus its existing window.
+// Request inspector presentation on the UI thread. The tap chooses the registered client or native window.
 static void OnInspectClick(void*, void*)
 {
     DevToolsInprocInspectFn inproc = g_inprocInspect.load();
-    if (inproc && inproc()) {
-        DevToolsOverlayLog(L"overlay.inspect opened in-proc (Route 1) window");
+    std::wstring error;
+    if (inproc && inproc(&error)) {
+        DevToolsOverlayLog(L"overlay.inspect presentation handled");
 // Auto-save and the do-not-auto-confirm-a-binding rule are the shared dismiss path's, not repeated here.
         DismissSelectionPanel();
         return;
     }
     DevToolsOverlayLog(L"overlay.inspect in-proc route unavailable");
+    if (!error.empty()) ShowCommentToast(L"DevTools window did not open: " + error, true);
 }
 
 static_assert(static_cast<int>(DevToolsX::ElementTheme::Default) == DevToolsTheme::kDefault);

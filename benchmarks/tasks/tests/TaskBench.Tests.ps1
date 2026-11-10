@@ -298,6 +298,21 @@ Describe 'ConvertTo-TrialResult' {
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'counts') 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
     }
+    It 'keeps the counts when the record is an ordered dictionary, as run.ps1 passes it' {
+        $r = [ordered]@{
+            mode = 'agent'; taskStatus = 'pass'; configuration = 'cli-only'; model = 'm'; iteration = 1; durationMs = 1; aiCredits = 1; nanoAiu = 1000000000; premiumRequests = 1
+            tokens = [pscustomobject]@{ input = 1; output = 1; cacheRead = 0; cacheWrite = 0 }
+            skillsLoaded = @('winapp-setup'); skillLoadCounts = [ordered]@{ 'winapp-setup' = 3 }
+            winappCommandCounts = [ordered]@{ 'package' = 4 }; checks = @()
+        }
+        $t = Convert $r
+        $t.skills[0].count | Should -Be 3
+        $t.winappCommands[0].count | Should -Be 4
+    }
+    It 'skips debugging configurations the schema has no arm for' {
+        $r = New-Record; $r.configuration = 'winapp'
+        Convert $r | Should -BeNullOrEmpty
+    }
     It 'does not count a partial result as a pass' {
         (Convert (New-Record 'partial')).passed | Should -BeFalse
     }

@@ -7,12 +7,19 @@
 static DWORD writerPid;
 static unsigned writerSpawns;
 static std::wstring writerCommand;
+static std::wstring resolveWriterExe;
+static int resolveWriterExit = 0;
 static DWORD WINAPI WriterPid() { return writerPid ? writerPid : GetCurrentProcessId(); }
 static BOOL WINAPI ObserveWriter(LPCWSTR, LPWSTR command, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES,
-    BOOL, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION)
+    BOOL, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW startup, LPPROCESS_INFORMATION process)
 {
     ++writerSpawns;
     writerCommand = command;
+    if (!resolveWriterExe.empty()) {
+        std::wstring child = L"\"" + resolveWriterExe + L"\" --resolve-writer " + std::to_wstring(resolveWriterExit);
+        return CreateProcessW(resolveWriterExe.c_str(), child.data(), nullptr, nullptr, FALSE,
+            CREATE_NO_WINDOW, nullptr, nullptr, startup, process);
+    }
     SetLastError(ERROR_CANCELLED);
     return FALSE; // Observe the actual spawn boundary without starting a process or timer.
 }
@@ -22,9 +29,34 @@ static BOOL WINAPI ObserveWriter(LPCWSTR, LPWSTR command, LPSECURITY_ATTRIBUTES,
 #undef GetCurrentProcessId
 #undef CreateProcessW
 
+// Keep the real process handle and real Windows timer. Only replace the CLI's work with a bounded child
+// of this test executable, so its delayed exit can prove that local resolution waits for completion.
+void CommentFixtureResolveWriter(const wchar_t* exe, int exitCode)
+{
+    resolveWriterExe = exe ? exe : L"";
+    resolveWriterExit = exitCode;
+    DevToolsOverlay_SetCliExe(exe);
+}
+
 void OverlayFixtureSeedHighlight(InstanceHandle handle)
 {
     g_lastHighlightHandle = handle;
+}
+
+void OverlayFixtureInspect(InstanceHandle element, bool comments)
+{
+    DevToolsInspectRequest request;
+    request.element = element;
+    request.comments = comments;
+    Inspect(request);
+}
+
+void OverlayFixturePick(InstanceHandle element, bool comments)
+{
+    const bool prior = CommentModeOn();
+    SetCommentMode(comments);
+    OpenPicked(element, g_pickedSink && g_pickedSink(element));
+    SetCommentMode(prior);
 }
 
 // The overlay host falls back to Popups whenever any step of the UI-layer lookup does not answer, or when forced.

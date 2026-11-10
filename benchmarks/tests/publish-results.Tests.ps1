@@ -34,4 +34,26 @@ Describe 'publish-results.ps1' {
         & pwsh -NoProfile -File $script:publisher -Path $run -OutDir (Join-Path $TestDrive 'o3') -OpenPr 2>&1 | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
     }
+    It 'never deletes the results it reads when -OutDir points at them' {
+        $run = New-Run
+        $src = Get-ChildItem $run -Recurse -Filter trial-result.json | Select-Object -First 1
+        $out = & pwsh -NoProfile -File $script:publisher -Path $run -OutDir $run 2>&1 | Out-String
+        $LASTEXITCODE | Should -Be 0
+        $src.FullName | Should -Exist
+        $same = New-Run
+        New-Item -ItemType Directory (Join-Path $same 'v0.7.1') -Force | Out-Null
+        Move-Item (Join-Path $same 'trial-1\trial-result.json') (Join-Path $same 'v0.7.1\trial-result.json')
+        & pwsh -NoProfile -File $script:publisher -Path $same -OutDir $same 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        Join-Path $same 'v0.7.1\trial-result.json' | Should -Exist
+    }
+    It 'rejects a release that is not a safe folder name before touching the disk' {
+        $run = New-Run '..\victim'
+        $marker = Join-Path $TestDrive 'victim-marker'
+        New-Item -ItemType Directory (Join-Path $TestDrive 'victim') -Force | Out-Null
+        Set-Content (Join-Path $TestDrive 'victim\marker.txt') 'keep'
+        & pwsh -NoProfile -File $script:publisher -Path $run -OutDir (Join-Path $TestDrive 'out\sub') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        Join-Path $TestDrive 'victim\marker.txt' | Should -Exist
+    }
 }

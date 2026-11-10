@@ -330,17 +330,17 @@ static std::wstring BuildFitThumb(const DevToolsWindowLayout& L, const std::wstr
 static std::wstring DetailRow(const std::wstring& term, const std::wstring& value,
                              const std::wstring& ink, const std::wstring& dim)
 {
-    return L"<Grid Margin=\"0,0,0,3\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"78\"/>"
-           L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>"
+    return L"<Grid Margin=\"0,0,0,3\" ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"2*\"/>"
+           L"<ColumnDefinition Width=\"3*\"/></Grid.ColumnDefinitions>"
            L"<TextBlock Grid.Column=\"0\" Text=\"" + DevToolsXmlEscape(term) + L"\" FontSize=\"11\" Foreground=\"" + dim +
-           L"\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\"/>"
+           L"\" TextWrapping=\"Wrap\"/>"
            L"<TextBlock Grid.Column=\"1\" Text=\"" + DevToolsXmlEscape(value) + L"\" FontSize=\"11\" FontFamily=\"Consolas\""
-           L" Foreground=\"" + ink + L"\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\"/></Grid>";
+           L" Foreground=\"" + ink + L"\" TextWrapping=\"Wrap\"/></Grid>";
 }
 static std::wstring DetailGroup(const std::wstring& caption, const std::wstring& dim)
 {
     return L"<TextBlock Text=\"" + DevToolsXmlEscape(caption) + L"\" FontSize=\"10\" CharacterSpacing=\"80\""
-           L" Foreground=\"" + dim + L"\" Margin=\"0,0,0,5\"/>";
+           L" Foreground=\"" + dim + L"\" TextWrapping=\"Wrap\" Margin=\"0,0,0,5\"/>";
 }
 
 // Draw the box model and fit thumbnail, with details behind More. Resolve each theme key once
@@ -430,25 +430,6 @@ static std::wstring BuildBoxModel(const DevToolsWindowLayout& L, const std::vect
             L"not. The thumbnail is to scale.\" FontSize=\"10\" TextWrapping=\"Wrap\" Margin=\"0,6,0,0\""
             L" Foreground=\"" + dim + L"\"/>";
     return out;
-}
-// Build the collapsed authored-XAML line from source text so it reflects what the user wrote.
-static std::wstring AuthoredXamlOneLine(const std::wstring& xaml)
-{
-    size_t nl = xaml.find_first_of(L"\r\n");
-    std::wstring head = (nl == std::wstring::npos) ? xaml : xaml.substr(0, nl);
-    while (!head.empty() && (head.back() == L' ' || head.back() == L'\t')) head.pop_back();
-
-    const std::wstring key = L"x:Name=\"";
-    const size_t at = xaml.find(key);
-    if (at != std::wstring::npos) {
-        const size_t vs = at + key.size();
-        const size_t ve = xaml.find(L'"', vs);
-        if (ve != std::wstring::npos && head.find(key) == std::wstring::npos)
-            head += L" x:Name=\"" + xaml.substr(vs, ve - vs) + L"\"";
-    }
-    const bool truncated = (nl != std::wstring::npos) || head.size() < xaml.size();
-    if (truncated) head += L" \u2026";
-    return head;
 }
 
 static std::wstring BuildParentDecidesBlock(const DevToolsWindowLayout& L)
@@ -597,19 +578,16 @@ static std::wstring BuildLayoutDisclosure(const DevToolsWindowLayout& L, const s
 {
     const bool open = LayoutSectionOpen();
     std::wstring m = L"<StackPanel Margin=\"0,8,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacing\">";
-    m += L"<HyperlinkButton x:Name=\"LayoutSectionToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
-         L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Size and spacing\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingToggle\">";
-    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"7\">";
-    m += L"<TextBlock x:Name=\"LayoutSectionChev\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\" FontSize=\"8\""
-         L" VerticalAlignment=\"Center\" Text=\"" + std::wstring(open ? L"\uE70D" : L"\uE76C") + L"\""
+    m += L"<Expander x:Name=\"LayoutSectionToggle\" HorizontalAlignment=\"Stretch\""
+         L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.Name=\"Size and spacing\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"" +
+         std::wstring(open ? L"True" : L"False") + L"\"><Expander.Header>";
+    m += L"<TextBlock Text=\"Size &amp; spacing\" Style=\"{StaticResource BodyTextBlockStyle}\""
          L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    m += L"<TextBlock Text=\"SIZE &amp; SPACING\" Style=\"{StaticResource CaptionTextBlockStyle}\" CharacterSpacing=\"60\""
-         DT_FG_SECONDARY L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    m += L"</StackPanel></HyperlinkButton>";
-    m += L"<StackPanel x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\" Visibility=\"" +
-         std::wstring(open ? L"Visible" : L"Collapsed") + L"\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\">";
+    m += L"</Expander.Header>";
+    m += L"<StackPanel x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\">";
     m += BuildLayoutSection(L, rows);
-    m += L"</StackPanel></StackPanel>";
+    m += L"</StackPanel></Expander></StackPanel>";
     return m;
 }

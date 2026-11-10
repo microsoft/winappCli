@@ -2985,6 +2985,8 @@ async function runBenchmarkImpl(
   const logsDir = join(trialDir, "session-logs-dir");
   mkdirSync(workDir, { recursive: true });
   mkdirSync(logsDir, { recursive: true });
+  // A new attempt must not leave an earlier export behind if it ends early.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
 
   // Keep SDK SQLite/session state on a short physical path. Deep benchmark
   // trial names can push SQLite paths beyond Windows' practical path limit.
@@ -4665,7 +4667,9 @@ function saveResults(
   trialDir: string,
   entry: RunEntry,
   config: ScenarioConfig,
-  usage: Record<string, any>
+  usage: Record<string, any>,
+  /** Revalidation passes the original attempt's identity, or null when it is unknown. */
+  original?: { release: string; commit: string; startedAt: string } | null
 ) {
   // Extract structured validation data if available
   const valData = (entry as any)._validationData as {
@@ -4746,20 +4750,35 @@ function saveResults(
   if (isWindows) {
     try { results.toolchain = { winapp: resolveWinAppToolchain().version }; } catch { /* recorded elsewhere as a launch failure */ }
   }
+  const release = original?.release ?? (process.env.BENCH_RELEASE || "dev");
+  const commit = original?.commit ?? currentCommit();
+  const startedAt = original?.startedAt ?? entry.startedAt;
+  // Kept here, not only in trial-result.json, so a failed judge can be retried without rerunning the agent.
+  if (original !== null && startedAt) results.attempt = { release, commit, started_at: new Date(startedAt).toISOString() };
   writeTextAtomic(join(trialDir, "results.json"), JSON.stringify(results, null, 2));
 
   // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
   const exact = usage?.exact;
-  if (exact && entry.startedAt) {
+  // Never leave an earlier result behind when this evaluation can't be exported.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
+  // A tooling failure while judging is not an app result, and must not count as a pass.
+  const judgingFailed = /^(Re)?[Vv]alidation /.test(entry.failReason ?? "");
+  // A release result names one commit, so plugins from another commit would mislabel it.
+  const pluginSha = entry.agentSource?.sha;
+  const pluginMismatch = release !== "dev" && !!entry.agentSource &&
+    (pluginSha !== commit || !!entry.agentSource.dirty);
+  if (judgingFailed) console.warn(`  No trial-result.json written: ${entry.failReason}.`);
+  if (pluginMismatch) console.warn(`  No trial-result.json written: plugins came from ${pluginSha?.slice(0, 8)}${entry.agentSource?.dirty ? " (uncommitted changes)" : ""} but the release commit is ${commit.slice(0, 8)}.`);
+  if (exact && startedAt && original !== null && !judgingFailed && !pluginMismatch) {
     const trial = toTrialResult({
-      release: process.env.BENCH_RELEASE || "dev",
-      commit: currentCommit(),
+      release,
+      commit,
       scenario: entry.scenarioConfigName,
       set: config.set,
       condition: entry.condition,
       model: entry.model,
       iteration: entry.iteration,
-      startedAt: new Date(entry.startedAt),
+      startedAt: new Date(startedAt),
       builds: !!entry.builds,
       runs: !!entry.runs,
       checks: qualityChecks ?? [],
@@ -4814,7 +4833,13 @@ function saveRevalidationResults(
       if (!entry.agentSource && old.agent_source) entry.agentSource = old.agent_source;
     } catch {}
   }
-  saveResults(trialDir, entry, scenarioConfig, usage);
+  // Keep the original attempt's release, commit and start time; without them it can't be exported.
+  let original: { release: string; commit: string; startedAt: string } | null = null;
+  try {
+    const a = JSON.parse(readFileSync(existingResults, "utf-8")).attempt;
+    if (a?.release && a.commit && a.started_at) original = { release: a.release, commit: a.commit, startedAt: a.started_at };
+  } catch {}
+  saveResults(trialDir, entry, scenarioConfig, usage, original);
 }
 
 

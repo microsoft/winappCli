@@ -22,6 +22,9 @@ Describe 'validate-results.ps1' {
     It 'rejects a non-valid outcome that claims to have passed' {
         Invoke-Validator ($good -replace '"outcome": "valid"', '"outcome": "app-failed"') | Should -Be 1
     }
+    It 'accepts a timed-out trial with no failed check' {
+        Invoke-Validator ($good -replace '"outcome": "valid",\s*"passed": true', '"outcome": "timed-out", "passed": false') | Should -Be 0
+    }
     It 'rejects an unknown outcome' { Invoke-Validator ($good -replace '"outcome": "valid"', '"outcome": "bogus"') | Should -Be 1 }
     It 'rejects a harness-error outcome without an error message' {
         Invoke-Validator ($good -replace '"outcome": "valid",\s*"passed": true', '"outcome": "harness-error", "passed": false') | Should -Be 1

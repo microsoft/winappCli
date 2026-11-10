@@ -126,7 +126,7 @@ internal partial class MsixService(
     /// If the Executable attribute contains a placeholder and no --executable is provided,
     /// attempts to infer by searching for .exe files in the input folder.
     /// </summary>
-    private static string ResolveManifestPlaceholders(string manifestContent, string? executable, DirectoryInfo inputFolder, TaskContext taskContext)
+    internal static string ResolveManifestPlaceholders(string manifestContent, string? executable, DirectoryInfo inputFolder, TaskContext taskContext)
     {
         // Check if manifest contains any placeholders at all
         if (!PlaceholderHelper.ContainsPlaceholders(manifestContent))
