@@ -10,11 +10,16 @@ import type { Activity } from "./activity.js";
 import type { QualityCheck } from "./quality-checks.js";
 import { SCORING_VERSION } from "./scoring.js";
 
-/** 0 = no window, 1 = window, 2 = loaded, 3 = ready. Level 3 is only reachable when the scenario names a ready element. */
-function launchLevel(runs: boolean, checks: QualityCheck[]): number {
+/**
+ * 0 = no window, 1 = window, 2 = loaded, 3 = ready. Level 3 is only reachable when the scenario names a ready element.
+ * Undefined when the app ran but level 2 was not measured (UI input could not be sent), so a window alone is not reported as level 1.
+ */
+function launchLevel(runs: boolean, checks: QualityCheck[]): number | undefined {
   if (!runs) return 0;
-  const passed = (id: string) => checks.some((c) => c.id === id && c.status === "pass");
-  return passed("L2") ? (passed("L3") ? 3 : 2) : 1;
+  const status = (id: string) => checks.find((c) => c.id === id)?.status;
+  const l2 = status("L2");
+  if (l2 === undefined || l2 === "na") return undefined;
+  return l2 === "pass" ? (status("L3") === "pass" ? 3 : 2) : 1;
 }
 
 export const ARMS = ["none", "cli-only", "cli-plus-plugins"] as const;
@@ -110,6 +115,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     : !input.builds ? "build-failed"
     : !input.runs ? "app-failed"
     : "valid";
+  const level = launchLevel(input.runs, input.checks);
   return {
     schemaVersion: 1,
     release: input.release,
@@ -127,7 +133,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     improvements: { met: improvements.filter((c) => c.passed).length, total: improvements.length },
     checks,
     scoringVersion: SCORING_VERSION,
-    launchLevel: launchLevel(input.runs, input.checks),
+    ...(level !== undefined ? { launchLevel: level } : {}),
     ...(notRun.length ? { requirementsNotRun: notRun } : {}),
     ...(input.judgeModel ? { judge: { model: input.judgeModel, designScore: input.designScore } } : {}),
     ...(input.activity ? { skills: input.activity.skills, winappCommands: input.activity.winappCommands } : {}),

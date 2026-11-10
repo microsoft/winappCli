@@ -94,8 +94,17 @@ test("launch level counts how far the app got", () => {
     ...base,
     checks: [...base.checks, ...Object.entries(ids).map(([id, status]) => ({ id, label: id, kind: "launch", source: "harness", status }))] as any,
   }) as any).launchLevel;
-  assert.equal(mk({}), 1);
+  assert.equal(mk({ L2: "fail" }), 1);
   assert.equal(mk({ L2: "pass" }), 2);
   assert.equal(mk({ L2: "pass", L3: "pass" }), 3);
   assert.equal((toTrialResult({ ...base, runs: false }) as any).launchLevel, 0);
+});
+
+test("launch level is left out when level 2 was not measured", () => {
+  const mk = (ids: Record<string, string>) => toTrialResult({
+    ...base,
+    checks: [...base.checks, ...Object.entries(ids).map(([id, status]) => ({ id, label: id, kind: "launch", source: "harness", status }))] as any,
+  }) as any;
+  assert.equal("launchLevel" in mk({ L2: "na" }), false);
+  assert.equal("launchLevel" in mk({}), false);
 });

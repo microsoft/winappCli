@@ -40,7 +40,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `skills` | Optional: plugin skills the agent loaded, in order, with `atMs` after start |
 | `error` | Set only when the harness failed, not the agent |
 | `scoringVersion` | Optional. Which scoring rules produced the result. Results with different versions are not directly comparable |
-| `launchLevel` | Optional, `apps` only. 0 did not run, 1 a window exists, 2 controls respond to input, 3 the scenario's named main-screen element appeared |
+| `launchLevel` | Optional, `apps` only. 0 did not run, 1 a window exists, 2 controls respond to input, 3 the scenario's named main-screen element appeared. Left out when the app ran but level 2 could not be measured, for example because UI input could not be sent |
 | `requirementsNotRun` | Optional, `apps` only. Requirement numbers the judge did not rule on. They are not counted as failures and have no entry in `checks` |
 
 ## Outcome
