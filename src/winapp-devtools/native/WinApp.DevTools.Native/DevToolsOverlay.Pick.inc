@@ -819,13 +819,13 @@ void DevToolsOverlay_SetCardFreeze(DevToolsCardFreezeFn freeze) { g_cardFreeze =
 void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read) { g_srcRead = read; }
 void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read) { g_isDeclared = read; }
 
-// Open the single in-process inspector on the UI thread, or focus its existing window.
+// Request inspector presentation on the UI thread. The tap chooses the registered client or native window.
 static void OnInspectClick(void*, void*)
 {
     DevToolsInprocInspectFn inproc = g_inprocInspect.load();
     std::wstring error;
     if (inproc && inproc(&error)) {
-        DevToolsOverlayLog(L"overlay.inspect opened in-proc (Route 1) window");
+        DevToolsOverlayLog(L"overlay.inspect presentation handled");
 // Auto-save and the do-not-auto-confirm-a-binding rule are the shared dismiss path's, not repeated here.
         DismissSelectionPanel();
         return;
