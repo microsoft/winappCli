@@ -76,6 +76,7 @@ import { runUntilSdkCompletion, type SdkCompletionReason } from "./sdk-lifecycle
 import { compareVersionCore, resolveWinAppToolchain } from "./winapp-toolchain.js";
 import { readLinesSync } from "./jsonl-stream.js";
 import { DESKTOP_LOCKED_ERROR, probeInteractiveDesktop, uiBlockedByLockedDesktop, waitForInteractiveDesktop } from "./desktop-lock.js";
+import { findVsMsBuild, msbuildRetryArgs } from "./vs-msbuild.js";
 import { evaluateConcurrentProcessCommand, extractCommand } from "./process-safety.js";
 import type { RunEntry, ScenarioConfig, AgentSetupConfig, GlobalConfig } from "../types.js";
 import { parse as parseYaml } from "yaml";
@@ -2250,6 +2251,24 @@ async function defaultDotnetBuild(
       undefined,
       false
     );
+    if (result.exitCode !== 0) {
+      // Some WinUI projects build only with Visual Studio's MSBuild (e.g. MSB4062 for the PRI tasks).
+      const msbuild = findVsMsBuild();
+      if (msbuild) {
+        const retryArgs = msbuildRetryArgs(csproj, buildPlatform);
+        log(`  dotnet build failed; retrying once with Visual Studio MSBuild: "${msbuild}" ${retryArgs.join(" ")}`);
+        const retry = await runProcess(msbuild, retryArgs, workDir, callbacks.onOutput, undefined, false);
+        log(`  Build gate builder: Visual Studio MSBuild (${retry.exitCode === 0 ? "succeeded" : "also failed"})`);
+        result = {
+          ...retry,
+          output: `${result.output}\n\n=== dotnet build failed; retried with Visual Studio MSBuild: ${msbuild} ${retryArgs.join(" ")} ===\n\n${retry.output}`,
+        };
+      } else {
+        log("  dotnet build failed; Visual Studio MSBuild not found, so no retry.");
+      }
+    } else {
+      log("  Build gate builder: dotnet build");
+    }
   } else {
     // Non-Windows only; Windows always builds for the host architecture above.
     const buildCommand = (globalConfig.build?.fallback_command || globalConfig.build?.command || "dotnet build {csproj} -c Debug")

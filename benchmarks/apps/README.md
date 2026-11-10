@@ -114,7 +114,9 @@ Rescore a trial offline after a scoring change: `npx tsx src/rescore.ts --run ru
 2. **Build session.** The agent works in `results\runN\<trial>\app`. Events stream to
    `session-logs-dir\build-events.jsonl`. The session ends when the agent stops, goes silent, or
    hits the wall-clock limit.
-3. **Harness build and gates.** `dotnet build` (Debug), then:
+3. **Harness build and gates.** `dotnet build` (Debug). If it fails and Visual Studio is
+   installed, the harness retries once with Visual Studio MSBuild (`/restore`), because some
+   WinUI projects build only there; `build-output.txt` and the trial log say which builder was used. Then:
    - **G0**, the right framework;
    - **G3**, Native AOT, for scenarios with `gates: [native_aot]`: a harness-run
      `winapp run --aot -c Release` must publish without trim/AOT warnings and show a window;
