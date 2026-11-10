@@ -1112,6 +1112,29 @@ function Get-RoutingAnswerMatrix {
     }
 }
 
+function Merge-RetriedRuns {
+    # A cell (model, scenario, configuration, agent, iteration) that hit a harness error and was run
+    # again keeps one record: its latest attempt that is not a harness error, or its latest harness
+    # error when every attempt failed that way. Cells with no harness error keep every record. Records
+    # are in the order they were written, so the latest is the last one.
+    param([AllowEmptyCollection()][object[]]$Records = @())
+    $harness = @('harness_error', 'preflight_failed')
+    $keys = @($Records | ForEach-Object {
+            '{0}|{1}|{2}|{3}|{4}' -f $_.model, $_.scenario, $_.configuration, (Get-RecordValue $_ 'agent'), (Get-RecordValue $_ 'iteration')
+        })
+    $hasHarness = @{}; $lastGood = @{}; $last = @{}
+    for ($i = 0; $i -lt $Records.Count; $i++) {
+        $k = $keys[$i]
+        $last[$k] = $i
+        if ($Records[$i].status -in $harness) { $hasHarness[$k] = $true } else { $lastGood[$k] = $i }
+    }
+    for ($i = 0; $i -lt $Records.Count; $i++) {
+        $k = $keys[$i]
+        $keep = if (-not $hasHarness[$k]) { $true } elseif ($lastGood.ContainsKey($k)) { $lastGood[$k] -eq $i } else { $last[$k] -eq $i }
+        if ($keep) { $Records[$i] }
+    }
+}
+
 function Write-BenchmarkSummary {
     # Builds summary.md from runs.jsonl, reading one line at a time.
     param(
@@ -1127,6 +1150,7 @@ function Write-BenchmarkSummary {
             if ($line.Trim()) { $rows.Add(($line | ConvertFrom-Json)) }
         }
     }
+    $rows = @(Merge-RetriedRuns @($rows))
 
     $sb = [System.Text.StringBuilder]::new()
     [void]$sb.AppendLine('# Agent plugin benchmark')
@@ -1142,7 +1166,7 @@ function Write-BenchmarkSummary {
     $routing = @($rows | Where-Object { $_.configuration -ne 'none' -and (Get-RecordValue $_ 'cohort') -ne 'explicit-command' })
     $naRows = @($rows | Where-Object status -eq 'n/a')
     $st = Get-StatusStats $routing
-    [void]$sb.AppendLine("- Pass rate: $($st.Text). Leaves out the ``none`` control and explicit-command scenarios")
+    [void]$sb.AppendLine("- Routing pass rate: $($st.Text). Leaves out the ``none`` control and explicit-command scenarios")
     if (@($routing | Where-Object { Get-RecordValue $_ 'answer' })) {
         $bases = @($routing | ForEach-Object { Get-RecordValue $_ 'answerBasis' } | Where-Object { $_ } | Group-Object | ForEach-Object { "$($_.Count) from $($_.Name)" })
         [void]$sb.AppendLine("- Answer pass rate: $((Get-StatusStats $routing -Property answer).Text) over the same runs. Basis: $($bases -join ', ')")
@@ -1150,7 +1174,7 @@ function Write-BenchmarkSummary {
         [void]$sb.AppendLine("- Routed and answered $($mx.RoutedAnswered), routed and blocked $($mx.RoutedBlocked), routed only $($mx.RoutedOnly), answered only $($mx.AnsweredOnly), blocked only $($mx.BlockedOnly), neither $($mx.Neither) (of $($mx.Total) runs with both scored)")
     }
     $explicit = @($rows | Where-Object { $_.configuration -ne 'none' -and (Get-RecordValue $_ 'cohort') -eq 'explicit-command' })
-    if ($explicit) { [void]$sb.AppendLine("- Explicit-command pass rate: $((Get-StatusStats $explicit).Text)") }
+    if ($explicit) { [void]$sb.AppendLine("- Explicit-command routing pass rate: $((Get-StatusStats $explicit).Text)") }
     $missed = @($rows | Where-Object { $_.configuration -ne 'none' -and $_.status -in 'fail', 'partial' })
     $cmdMiss = @($missed | Where-Object { (Get-RecordValue $_ 'commandWithoutSkill') -eq $true })
     if (@($rows | Where-Object { $null -ne (Get-RecordValue $_ 'commandHit') })) {
@@ -1181,9 +1205,9 @@ function Write-BenchmarkSummary {
     if ($plugged) {
         [void]$sb.AppendLine('## By set and cohort')
         [void]$sb.AppendLine()
-        [void]$sb.AppendLine('Pass rate is pass / (pass + partial + fail). The `none` control is reported separately below.')
+        [void]$sb.AppendLine('Routing pass rate is pass / (pass + partial + fail). The `none` control is reported separately below.')
         [void]$sb.AppendLine()
-        [void]$sb.AppendLine('| Set | Cohort | Model | Runs | Pass | Partial | Fail | n/a | Pass rate | Answer rate | Right command, no skill |')
+        [void]$sb.AppendLine('| Set | Cohort | Model | Runs | Pass | Partial | Fail | n/a | Routing pass rate | Answer rate | Right command, no skill |')
         [void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|---|---|')
         foreach ($g in ($plugged | Group-Object set, cohort, model | Sort-Object { $_.Group[0].set }, { $_.Group[0].cohort }, { $_.Group[0].model })) {
             $r0 = $g.Group[0]
@@ -1268,7 +1292,7 @@ function Write-BenchmarkSummary {
         if (-not $sr) { continue }
         [void]$sb.AppendLine("## $scenario")
         [void]$sb.AppendLine()
-        [void]$sb.AppendLine('| Configuration | Model | Pass | Skills loaded (most common, freq) | Median input (incl. cached) | Median skill context (~tokens, approx.) | Median output | Median cache read | Median duration | Repeated deliveries (~extra tokens) |')
+        [void]$sb.AppendLine('| Configuration | Model | Routing pass | Skills loaded (most common, freq) | Median input (incl. cached) | Median skill context (~tokens, approx.) | Median output | Median cache read | Median duration | Repeated deliveries (~extra tokens) |')
         [void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|---|')
         foreach ($g in ($sr | Group-Object configuration, model)) {
             $runs = @($g.Group)
@@ -1416,64 +1440,65 @@ function Read-ComparisonRuns {
     param([Parameter(Mandatory)][string[]]$ResultsDirs, [Parameter(Mandatory)][object[]]$Scenarios)
     $byId = @{}
     foreach ($s in $Scenarios) { $byId[$s.Id] = $s }
-    foreach ($dir in $ResultsDirs) {
+    $records = foreach ($dir in $ResultsDirs) {
         $path = Join-Path $dir 'runs.jsonl'
         if (-not (Test-Path -LiteralPath $path)) { throw "No runs.jsonl in $dir" }
         foreach ($line in [System.IO.File]::ReadLines($path)) {
-            if (-not $line.Trim()) { continue }
-            $rec = $line | ConvertFrom-Json -Depth 64
-            $status = $rec.status
-            $answer = Get-RecordValue $rec 'answer'
-            $applied = $null
-            $s = $byId[$rec.scenario]
-            $hash = Get-RecordValue $rec 'promptHash'
-            if (-not $s -and $status -in 'pass', 'fail', 'n/a', 'partial') {
-                # Without a current definition the run cannot be re-evaluated; never score a stale status.
-                $status = 'scenario_removed'
-                $answer = $null
-            }
-            elseif ($s -and $hash -and $hash -ne (Get-ShortHash $s.Prompt) -and $status -in 'pass', 'fail', 'n/a', 'partial') {
-                # The model saw a different prompt than the current scenario has, so the run is not comparable.
-                $status = 'prompt_changed'
-                $answer = $null
-            }
-            elseif ($s -and $status -in 'pass', 'fail', 'n/a', 'partial') {
-                $pre = Get-RecordValue $rec 'preflight'
-                $installed = @(@(if ($pre) { $pre.expectedSkills }) + @(Get-RecordValue $rec 'skillFilesInstalled') | Where-Object { $_ })
-                # Get-RecordValue would unroll an empty command list to $null ("not recorded").
-                $cmds = $null
-                $cmdProp = $rec.PSObject.Properties['winappCommands']
-                if ($cmdProp -and $null -ne $cmdProp.Value) { $cmds = [string[]]@($cmdProp.Value) }
-                $deniedProp = $rec.PSObject.Properties['winappCommandsDenied']
-                $denied = Get-DeniedWinappCommands -Recorded ($deniedProp -and $null -ne $deniedProp.Value ? [string[]]@($deniedProp.Value) : $null) `
-                    -WinappCommands $cmds -Response (Get-RecordValue $rec 'finalResponse') -DeniedToolCalls (Get-RecordValue $rec 'deniedToolCalls')
-                $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @(@($rec.skillsLoaded) + @(Get-RecordValue $rec 'skillFilesRead') | Where-Object { $_ }) -InstalledSkills $installed `
-                    -WinappCommands $cmds -Response (Get-RecordValue $rec 'finalResponse') -DeniedCommands $denied
-                $status = $eval.Status
-                $answer = $eval.Answer
-                $applied = $eval.AppliedChecks
-            }
-            $primaryCaps = if ($s -and (Get-RecordValue $s.Expect 'Capabilities')) { @($s.Expect.Capabilities.Primary | ForEach-Object { $_ } | Select-Object -Unique) } else { @(Get-RecordValue $rec 'primaryCapabilities') }
-            $tokens = Get-RecordValue $rec 'tokens'
-            [pscustomobject]@{
-                Key          = "$($rec.model)|$($rec.scenario)|$($rec.configuration)"
-                Scenario     = $rec.scenario
-                Configuration = $rec.configuration
-                Model        = $rec.model
-                Set          = if ($s) { Get-RecordValue $s 'Set' } else { Get-RecordValue $rec 'set' }
-                Cohort       = if ($s) { Get-RecordValue $s 'Cohort' } else { Get-RecordValue $rec 'cohort' }
-                Agent        = Get-RecordValue $rec 'agent'
-                Status       = $status
-                Answer       = $answer
-                PrimaryCapabilities = @($primaryCaps | Where-Object { $_ })
-                AppliedChecks = $applied
-                Ctx          = Get-RecordValue $rec 'skillContextTokensApprox'
-                RefTokens    = Get-RecordValue $rec 'skillFileTokensApprox'
-                Input        = if ($tokens) { $tokens.input } else { $null }
-                Credits      = Get-RecordValue $rec 'aiCredits'
-                Repeats      = Get-RecordValue $rec 'skillRepeatDeliveries'
-                RepeatTokens = Get-RecordValue $rec 'skillRepeatContextTokensApprox'
-            }
+            if ($line.Trim()) { $line | ConvertFrom-Json -Depth 64 }
+        }
+    }
+    foreach ($rec in @(Merge-RetriedRuns @($records))) {
+        $status = $rec.status
+        $answer = Get-RecordValue $rec 'answer'
+        $applied = $null
+        $s = $byId[$rec.scenario]
+        $hash = Get-RecordValue $rec 'promptHash'
+        if (-not $s -and $status -in 'pass', 'fail', 'n/a', 'partial') {
+            # Without a current definition the run cannot be re-evaluated; never score a stale status.
+            $status = 'scenario_removed'
+            $answer = $null
+        }
+        elseif ($s -and $hash -and $hash -ne (Get-ShortHash $s.Prompt) -and $status -in 'pass', 'fail', 'n/a', 'partial') {
+            # The model saw a different prompt than the current scenario has, so the run is not comparable.
+            $status = 'prompt_changed'
+            $answer = $null
+        }
+        elseif ($s -and $status -in 'pass', 'fail', 'n/a', 'partial') {
+            $pre = Get-RecordValue $rec 'preflight'
+            $installed = @(@(if ($pre) { $pre.expectedSkills }) + @(Get-RecordValue $rec 'skillFilesInstalled') | Where-Object { $_ })
+            # Get-RecordValue would unroll an empty command list to $null ("not recorded").
+            $cmds = $null
+            $cmdProp = $rec.PSObject.Properties['winappCommands']
+            if ($cmdProp -and $null -ne $cmdProp.Value) { $cmds = [string[]]@($cmdProp.Value) }
+            $deniedProp = $rec.PSObject.Properties['winappCommandsDenied']
+            $denied = Get-DeniedWinappCommands -Recorded ($deniedProp -and $null -ne $deniedProp.Value ? [string[]]@($deniedProp.Value) : $null) `
+                -WinappCommands $cmds -Response (Get-RecordValue $rec 'finalResponse') -DeniedToolCalls (Get-RecordValue $rec 'deniedToolCalls')
+            $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @(@($rec.skillsLoaded) + @(Get-RecordValue $rec 'skillFilesRead') | Where-Object { $_ }) -InstalledSkills $installed `
+                -WinappCommands $cmds -Response (Get-RecordValue $rec 'finalResponse') -DeniedCommands $denied
+            $status = $eval.Status
+            $answer = $eval.Answer
+            $applied = $eval.AppliedChecks
+        }
+        $primaryCaps = if ($s -and (Get-RecordValue $s.Expect 'Capabilities')) { @($s.Expect.Capabilities.Primary | ForEach-Object { $_ } | Select-Object -Unique) } else { @(Get-RecordValue $rec 'primaryCapabilities') }
+        $tokens = Get-RecordValue $rec 'tokens'
+        [pscustomobject]@{
+            Key          = "$($rec.model)|$($rec.scenario)|$($rec.configuration)"
+            Scenario     = $rec.scenario
+            Configuration = $rec.configuration
+            Model        = $rec.model
+            Set          = if ($s) { Get-RecordValue $s 'Set' } else { Get-RecordValue $rec 'set' }
+            Cohort       = if ($s) { Get-RecordValue $s 'Cohort' } else { Get-RecordValue $rec 'cohort' }
+            Agent        = Get-RecordValue $rec 'agent'
+            Status       = $status
+            Answer       = $answer
+            PrimaryCapabilities = @($primaryCaps | Where-Object { $_ })
+            AppliedChecks = $applied
+            Ctx          = Get-RecordValue $rec 'skillContextTokensApprox'
+            RefTokens    = Get-RecordValue $rec 'skillFileTokensApprox'
+            Input        = if ($tokens) { $tokens.input } else { $null }
+            Credits      = Get-RecordValue $rec 'aiCredits'
+            Repeats      = Get-RecordValue $rec 'skillRepeatDeliveries'
+            RepeatTokens = Get-RecordValue $rec 'skillRepeatContextTokensApprox'
         }
     }
 }
@@ -1584,7 +1609,7 @@ function Get-ComparisonReport {
         $names = if ($parents.Count -eq 1) { "$(($dirs | ForEach-Object { Split-Path $_ -Leaf }) -join ', ') in $($parents[0])" } else { $dirs -join ', ' }
         "$names ($($runs.Count) runs$(if ($agents) { "; agent $($agents -join ', ')" }))"
     }
-    $header = '| Pass (base → cand) | Δ pass | Skill context/run (~tokens) | Δ | Input/run | Δ | AI credits/run | Δ | Repeated deliveries | Answer (base → cand) | Δ answer | Answer blocked | Reference reads/run (~tokens) | Δ |'
+    $header = '| Routing pass (base → cand) | Δ routing pass | Skill context/run (~tokens) | Δ | Input/run | Δ | AI credits/run | Δ | Repeated deliveries | Answer (base → cand) | Δ answer | Answer blocked | Reference reads/run (~tokens) | Δ |'
     $rule = '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'
 
     $md = [System.Collections.Generic.List[string]]::new()
@@ -1599,7 +1624,7 @@ function Get-ComparisonReport {
     $md.Add('Pass/fail is re-evaluated against the current scenario expectations, so both sides use the same rules. Runs of')
     $md.Add('scenarios that no longer exist are excluded as `scenario_removed`, and runs recorded with a different prompt as')
     $md.Add('`prompt_changed`.')
-    $md.Add('Pass rates score `pass`, `partial`, and `fail`; other runs (`n/a`, timeouts, errors) are listed as excluded. A')
+    $md.Add('Routing pass rates score `pass`, `partial`, and `fail`; other runs (`n/a`, timeouts, errors) are listed as excluded. A')
     $md.Add('cell shows `check differs` when what its expectation checks differs between the sides (the installed primary,')
     $md.Add('acceptable, and forbidden capabilities, or for skill-name expectations the installed expected and forbidden')
     $md.Add('skills), for example when a candidate adds or removes an expected capability. Such cells, and cells with no')
@@ -1607,7 +1632,7 @@ function Get-ComparisonReport {
     $md.Add('harness errors are left out.')
     $md.Add('Skill context is characters / 4. Repeated deliveries are only measured by runs recorded with this version of')
     $md.Add('the harness.')
-    $md.Add('Pass is routing (the expected skill loaded). Answer is whether the final response names the answer signals,')
+    $md.Add('Routing pass means the expected skill loaded. Answer is whether the final response names the answer signals,')
     $md.Add('scored from the response or, for runs recorded without it, from the recorded winapp commands.')
     $md.Add('Answer blocked counts runs that tried the right winapp command in a denied shell call but did not name it')
     $md.Add('in the response; they are scored as not answered.')
@@ -1706,4 +1731,4 @@ Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-Wina
 Get-CreditSpend, Compare-PreflightSkills, Format-PassRate, Format-Count,
 Get-ShortHash, Get-SkillSetHash, Read-CapabilityMap, Get-CapabilityMap, Set-CapabilityMap, Resolve-SkillCapabilities,
 Test-CapabilityExpectations, Test-AnswerExpectations, Test-ScenarioExpectations, Add-EvaluationFields, Get-StatusStats,
-Get-RoutingAnswerMatrix, Get-DeniedWinappCommands
+Get-RoutingAnswerMatrix, Get-DeniedWinappCommands, Merge-RetriedRuns

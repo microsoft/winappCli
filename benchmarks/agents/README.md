@@ -115,7 +115,7 @@ Nothing is installed into your own Copilot home.
 
 Each invocation writes `results\<timestamp>\`:
 
-- `summary.md`: totals (pass rate, tokens, credits, repeated deliveries, right command named
+- `summary.md`: totals (routing pass rate and answer pass rate, tokens, credits, repeated deliveries, right command named
   without a skill), pass/partial/fail by set, cohort, and model, the no-plugin control, the `n/a`
   cells, and per scenario one row per configuration and model with pass rate, the most common set
   of loaded skills, median tokens, skill context, and duration, and repeated deliveries.
@@ -138,7 +138,7 @@ How to read the token columns:
   again, and the skill context those repeats added. They show in the totals and in each row. When a
   repeated skill's size is unknown, the tokens show as `unknown` or `partial`.
 
-Run statuses (pass rates score `pass`, `partial`, and `fail`; every other status is listed as excluded,
+Run statuses (routing pass rates score `pass`, `partial`, and `fail`; every other status is listed as excluded,
 for example `1/2 (50%), 1 partial; excluded: 1 timeout`):
 
 | Status | Meaning |
@@ -152,7 +152,7 @@ for example `1/2 (50%), 1 partial; excluded: 1 timeout`):
 | `harness_error` | Copilot exited with an error, no session log was found, or the workspace was modified |
 | `cleanup_failed` | The run's temporary folders could not be deleted (`reason` keeps the original status) |
 
-The headline pass rate leaves out:
+The headline is the **routing pass rate**: did the expected skill load. The answer pass rate is printed beside it (see [Routing and answer](#routing-and-answer)). Both leave out:
 
 - the `none` configuration: a no-plugin control that shows what models do unaided (which `winapp`
   commands they name, and what it costs). It has its own table.
@@ -261,6 +261,7 @@ re-evaluated in memory against the current scenario expectations; the folders ar
   installed expected and forbidden skills). For example, a candidate that adds or removes an expected
   capability. It then tests something different on each side, so it is left out of the per-model
   pass rate. Renaming or merging skills does not change the check when the capability map covers it.
+- A run that ended in `harness_error` or `preflight_failed` and was run again, in the same folder or in a folder listed after it on the same side, counts once: the latest attempt for that model, scenario, configuration, and iteration that is not a harness error. `summary.md` uses the same rule.
 - `-Scenario` and `-Model` must name values present in the compared results.
 - Runs recorded before repeated deliveries were measured show `-` for them, and runs recorded before
   reference reads were tracked show `n/a` for those.

@@ -303,6 +303,32 @@ Describe 'Write-BenchmarkSummary' {
         $text | Should -Match '\| winui \| m \| -; excluded: 1 n/a \|.*\| n/a \|'
     }
 
+    It 'labels the headline as the routing pass rate and merges a retried harness error into its retry' {
+        $runs = Join-Path $TestDrive 'runs-retry.jsonl'
+        $base = @{ scenario = 's1'; configuration = 'winapp'; model = 'm'; reason = ''; skillsLoaded = @(); tokens = $null; skillContextTokensApprox = $null; aiCredits = 1; durationMs = 1000 }
+        @(
+            @{ iteration = 1; status = 'harness_error' }
+            @{ iteration = 2; status = 'fail' }
+            @{ iteration = 1; status = 'pass' }
+            @{ iteration = 3; status = 'harness_error' }
+        ) | ForEach-Object { $rec = $_ + $base; $rec | ConvertTo-Json -Compress -Depth 5 } | Set-Content $runs
+        $out = Join-Path $TestDrive 'summary-retry.md'
+        Write-BenchmarkSummary -RunsPath $runs -SummaryPath $out -Header ([ordered]@{ Models = 'm' }) -ScenarioOrder 's1'
+        $text = Get-Content -Raw $out
+
+        $text | Should -MatchExactly 'Routing pass rate: 1/2 \(50%\); excluded: 1 harness_error'
+        $text | Should -Match 'Runs: 3 '
+    }
+
+    It 'merges retried harness errors: the latest attempt that is not a harness error wins' {
+        $r = { param($i, $s, $n) [pscustomobject]@{ model = 'm'; scenario = 's'; configuration = 'c'; iteration = $i; status = $s; n = $n } }
+        $merged = @(Merge-RetriedRuns @(
+                (& $r 1 'harness_error' 'a'), (& $r 1 'fail' 'b'), (& $r 1 'harness_error' 'c'), (& $r 1 'pass' 'd'),
+                (& $r 2 'harness_error' 'e'), (& $r 2 'preflight_failed' 'f'),
+                (& $r 3 'pass' 'g'), (& $r 3 'fail' 'h')))
+        @($merged.n) | Should -Be @('d', 'f', 'g', 'h')
+    }
+
     It 'shows repeat tokens as unknown or partial when their size was not measured, and counts runs without credits' {
         $runs = Join-Path $TestDrive 'runs-unknown.jsonl'
         $base = @{ scenario = 's1'; configuration = 'winapp'; model = 'm'; reason = ''; tokens = $null; skillContextTokensApprox = $null; durationMs = 1000; skillsLoaded = @('a') }

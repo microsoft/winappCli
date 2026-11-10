@@ -551,7 +551,7 @@ foreach ($run in $runList) {
     $tok = if ($rec.tokens) { "in $($rec.tokens.input) / out $($rec.tokens.output)" } else { 'tokens n/a' }
     if ($null -ne $rec.skillContextTokensApprox) { $tok += " / skill ctx ~$($rec.skillContextTokensApprox)" }
     $dur = if ($null -ne $rec.durationMs) { '{0:N0}s' -f ($rec.durationMs / 1000) } else { '' }
-    Write-Host " $($rec.status) | answer: $(if ($rec.answer) { $rec.answer } else { '-' }) | skills: $skills | $tok | $dur"
+    Write-Host " routing: $($rec.status) | answer: $(if ($rec.answer) { $rec.answer } else { '-' }) | skills: $skills | $tok | $dur"
     if ($rec.status -notin 'pass', 'fail', 'partial' -and $rec.reason) { Write-Host "    $($rec.reason)" }
 }
 
