@@ -301,6 +301,9 @@ void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read);
 // on it is linked to its declaration.
 typedef bool (*DevToolsDeclaredFn)(InstanceHandle raw);
 void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read);
+// Reads whether the window hosting `element` has a SystemBackdrop. Returns false when it cannot tell.
+typedef bool (*DevToolsHostBackdropFn)(IInspectable* element, bool* hasBackdrop);
+void DevToolsOverlay_SetHostBackdropReader(DevToolsHostBackdropFn read);
 
 // `fromUserPick` is call-local state; protocol/window selections must not open the comment flyout.
 void DevToolsOverlay_ShowBadgeForHandle(IXamlDiagnostics* diag, InstanceHandle target, bool fromUserPick = false);
