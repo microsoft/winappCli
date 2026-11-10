@@ -5,7 +5,7 @@
   "benchmark": "tasks",
   "scenario": "sign",
   "set": "tuning",
-  "arm": "none",
+  "arm": "barebones",
   "model": "claude-sonnet-5.5",
   "trial": 1,
   "startedAt": "2026-11-05T10:00:00Z",

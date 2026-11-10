@@ -6,21 +6,40 @@
   const $ = (id) => document.getElementById(id);
   const REPO = 'https://github.com/microsoft/winappCli';
 
+  // The three arms, then the tasks debugging configurations (not part of the comparison).
   const ARM_INFO = {
-    none: {
-      label: 'none',
+    barebones: {
+      label: 'barebones',
       short: 'No winapp, no skills',
       desc: 'The agent gets no winapp CLI and no plugin skills. It works from what the model already knows and the standard Windows and .NET tools on the machine.',
     },
     'cli-only': {
       label: 'cli-only',
       short: 'winapp CLI only',
-      desc: 'The winapp CLI is on PATH. No plugin skills are installed, so the agent has to discover winapp on its own.',
+      desc: 'The winapp CLI is on PATH. No plugin skills are installed. Runs made after #1263 also tell the agent in the prompt that winapp is installed.',
     },
-    'cli-plus-plugins': {
-      label: 'cli-plus-plugins',
+    'cli-plus-skills': {
+      label: 'cli-plus-skills',
       short: 'winapp CLI + skills',
       desc: 'The winapp CLI is on PATH and the winapp and WinUI plugins are installed, so the agent can load their skills.',
+    },
+    'winapp-skills': {
+      label: 'winapp-skills',
+      short: 'Debugging: winapp plugin only',
+      debug: true,
+      desc: 'tasks debugging configuration: winapp on PATH and only the winapp plugin installed.',
+    },
+    'winui-skills': {
+      label: 'winui-skills',
+      short: 'Debugging: WinUI plugin only',
+      debug: true,
+      desc: 'tasks debugging configuration: winapp on PATH and only the WinUI plugin installed.',
+    },
+    'full-suite': {
+      label: 'full-suite',
+      short: 'Debugging: both plugins + winapp agent',
+      debug: true,
+      desc: 'tasks debugging configuration: winapp on PATH, both plugins installed, and the agent started as the winapp custom agent.',
     },
   };
 
@@ -144,9 +163,9 @@
         <dt>Minutes per app</dt><dd>${num(m.minutesMean)}</dd></dl></div>`;
     }).join('');
 
-    const none = b.headline.none?.all;
-    const sanityNote = none?.valid && none.passRate >= D.rules.sanityPassRate
-      ? `<div class="callout warn"><p><strong>The pass rate does not separate the arms here.</strong> Without winapp or skills (<code>none</code>), agents already pass ${pct(none.passRate)} of valid runs. A pass needs only the required gates, such as the app building and launching. Compare the arms on requirements met and quality checks instead.</p></div>`
+    const base = b.headline.barebones?.all;
+    const sanityNote = base?.valid && base.passRate >= D.rules.sanityPassRate
+      ? `<div class="callout warn"><p><strong>The pass rate does not separate the arms here.</strong> Without winapp or skills (<code>barebones</code>), agents already pass ${pct(base.passRate)} of valid runs. A pass needs only the required gates, such as the app building and launching. Compare the arms on requirements met and quality checks instead.</p></div>`
       : '';
 
     const series = b.models.map(modelLabel);
@@ -175,7 +194,7 @@
 
     const t = D.trend.apps;
     const trendHtml = t.length >= 2
-      ? lineChart({ title: 'Pass rate with winapp CLI + skills, by release', desc: 'Pass rate on the cli-plus-plugins arm for each published release, one line per model.', points: t, series: b.models })
+      ? lineChart({ title: 'Pass rate with winapp CLI + skills, by release', desc: 'Pass rate on the cli-plus-skills arm for each published release, one line per model.', points: t, series: b.models })
       : `<p class="muted">A release-by-release trend appears here once two releases are published. Development (<code>dev</code>) runs are never part of the trend.</p>`;
 
     return `<h2>Whole-plugin headline: full app builds</h2>
@@ -229,7 +248,7 @@
       <p>Each cell is one scenario, arm and model, over valid runs only. Hover a value for the counts behind it. A red <span class="flag-mark">!</span> marks a cell named in the Flags column.</p>
       <div class="inline-control"><label for="scenario-metric">Show</label><select id="scenario-metric">${options}</select></div>
       ${scenarioMatrix(b, state.scenarioMetric, { caption: `${SCENARIO_METRICS[state.scenarioMetric].label} by scenario, arm and model`, noteFor: (s) => flagList(s, 'Sanity check') })}
-      <p class="muted">How flags are set: a model is flagged when its pass rate on an arm differs from the other models' by ${Math.round(D.rules.modelSplitPoints * 100)} points or more, or when it uses more than ${D.rules.costMultiple}x the credits it used on the other arms of the same scenario. "Sanity check" means the <code>none</code> arm passes ${Math.round(D.rules.sanityPassRate * 100)}% or more of valid runs (#1253). Flags point to where to look; they are not results.</p>`;
+      <p class="muted">How flags are set: a model is flagged when its pass rate on an arm differs from the other models' by ${Math.round(D.rules.modelSplitPoints * 100)} points or more, or when it uses more than ${D.rules.costMultiple}x the credits it used on the other arms of the same scenario. "Sanity check" means the <code>barebones</code> arm passes ${Math.round(D.rules.sanityPassRate * 100)}% or more of valid runs (#1253). Flags point to where to look; they are not results.</p>`;
   }
 
   function renderOutcomes(r) {
@@ -245,6 +264,14 @@
         html += table(`Runs that are not valid (${b.notValid.length} of ${b.trialCount})`, '<tr><th scope="col" class="text">Scenario</th><th scope="col" class="text">Arm</th><th scope="col" class="text">Model</th><th scope="col">Run</th><th scope="col" class="text">Outcome</th><th scope="col" class="text">Error</th><th scope="col">Credits</th><th scope="col">Minutes</th></tr>', rows);
       } else {
         html += `<p>All ${b.trialCount} runs are valid.</p>`;
+      }
+      if (name === 'apps' && b.launchLevelNames.length) {
+        const lv = b.launchLevelNames;
+        const lhead = `<tr><th scope="col" class="text">Arm</th><th scope="col" class="text">Model</th>${lv.map((l) => `<th scope="col">${l === 'not measured' ? 'Not measured' : `Level ${esc(l)}`}</th>`).join('')}</tr>`;
+        const lcols = lv.map((l) => ({ cell: (m) => m.launchLevels[l] ?? 0 }));
+        html += `<h3>How far the app launched (<code>apps</code>)</h3>
+          <p>Launch level, all runs: 0 did not run, 1 a window exists, 2 controls respond to input, 3 the scenario's main screen appeared. "Not measured" means the app ran but level 2 could not be checked, for example because UI input could not be sent.</p>`
+          + table('Launch level by arm and model (all runs)', lhead, cellRows(b, b.headline, lcols));
       }
     }
     return html;
@@ -275,11 +302,11 @@
 
   function renderSkills(r) {
     return `<h2>Skills</h2>
-      <p>Which plugin skills the agent loaded, and in how many runs (all outcomes). Skills can only load on <code>cli-plus-plugins</code>; the other arms are shown so that a skill loading where it should not would be visible.</p>
+      <p>Which plugin skills the agent loaded, and in how many runs (all outcomes). In the three arms, skills can only load on <code>cli-plus-skills</code>; the other arms are shown so that a skill loading where it should not would be visible.</p>
       <div class="callout"><p><strong>Claims are not published yet.</strong> Each skill will get one automatic sentence (Helps, Helps but costs more, No measurable difference, Not enough data) from fixed rules that are still being decided in <a href="${REPO}/issues/1182">#1182</a>. Until those rules are agreed, every skill shows "Not enough data".</p></div>
       ${usageTable(r, 'skills', 'Skills loaded, by benchmark and arm', 'Skill', true)}
       <h3>winapp commands</h3>
-      <p>Which <code>winapp</code> commands the agent ran, and in how many runs. A command that appears on <code>none</code> means the arm did not fully hide winapp.</p>
+      <p>Which <code>winapp</code> commands the agent ran, and in how many runs. A command that appears on <code>barebones</code> means the arm did not fully hide winapp. Runs made before <a href="${REPO}/pull/1263">#1263</a> did not tell <code>cli-only</code> agents that winapp was installed, so they may not have used it.</p>
       ${usageTable(r, 'winappCommands', 'winapp commands run, by benchmark and arm', 'Command', false)}`;
   }
 
@@ -307,7 +334,7 @@
     }
     const head = `<tr><th scope="col" class="text">Arm</th><th scope="col" class="text">Model</th>${cols.map((c) => `<th scope="col">${c.h}</th>`).join('')}<th scope="col">Headline pass rate (sanity checks left out)</th></tr>`;
     const sanityNote = sanity.length
-      ? `<div class="callout warn"><p><strong>Sanity checks: ${sanity.length} of ${b.scenarios.length} tasks.</strong> The <code>none</code> arm passes ${Math.round(D.rules.sanityPassRate * 100)}% or more of their valid runs, so they can't show whether winapp or the skills help. They are left out of the headline pass rate (rule from <a href="${REPO}/issues/1253">#1253</a>). The table shows the pass rate both with and without them.</p></div>`
+      ? `<div class="callout warn"><p><strong>Sanity checks: ${sanity.length} of ${b.scenarios.length} tasks.</strong> The <code>barebones</code> arm passes ${Math.round(D.rules.sanityPassRate * 100)}% or more of their valid runs, so they can't show whether winapp or the skills help. They are left out of the headline pass rate (rule from <a href="${REPO}/issues/1253">#1253</a>). The table shows the pass rate both with and without them.</p></div>`
       : '';
     return `<h2>Tasks: small scripted jobs</h2>
       <p>In the <code>tasks</code> benchmark an agent does one packaging, signing or UI job in Windows Sandbox, and a script checks the result. This release has ${b.scenarios.length} task(s), ${b.trialCount} runs.</p>
@@ -322,7 +349,8 @@
     const rawUrl = `${D.rawDataUrl}/${encodeURIComponent(r.release)}`;
     const benches = Object.entries(r.benchmarks);
     const scoring = benches.map(([n, b]) => `<code>${esc(n)}</code>: ${b.scoringVersions.map(esc).join(', ')}`).join('; ');
-    const winappVersions = benches.flatMap(([, b]) => b.winappVersions);
+    const winappVersions = [...new Set(benches.flatMap(([, b]) => b.winappVersions))];
+    const debugArms = [...new Set(benches.flatMap(([, b]) => b.arms))].filter((a) => ARM_INFO[a]?.debug);
     const warnings = D.warnings.length
       ? `<details><summary>${D.warnings.length} data note(s) from the build</summary><ul>${D.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></details>`
       : '<p>The build found no problems in the data files.</p>';
@@ -335,10 +363,10 @@
         <dt>Models</dt><dd>${r.models.map(modelLabel).map(esc).join(', ')}</dd>
         <dt>Scoring version</dt><dd>${scoring}</dd>
         <dt>winapp version</dt><dd>${winappVersions.length ? winappVersions.map(esc).join(', ') : 'not recorded'}</dd>
-        ${r.armAliasesUsed.length ? `<dt>Arm names</dt><dd>These files use older arm names: ${r.armAliasesUsed.map(esc).join(', ')}.</dd>` : ''}
       </dl>
       <h3>The three arms</h3>
-      <ul>${Object.values(ARM_INFO).map((a) => `<li><strong>${esc(a.label)}</strong>: ${esc(a.desc)}</li>`).join('')}</ul>
+      <ul>${Object.values(ARM_INFO).filter((a) => !a.debug).map((a) => `<li><strong>${esc(a.label)}</strong>: ${esc(a.desc)}</li>`).join('')}</ul>
+      ${debugArms.length ? `<h3>Debugging configurations</h3><p>These <code>tasks</code> runs are not one of the three arms and are not part of the comparison.</p><ul>${debugArms.map((a) => `<li><strong>${esc(armLabel(a))}</strong>: ${esc(ARM_INFO[a].desc)}</li>`).join('')}</ul>` : ''}
       <h3>What counts</h3>
       <ul>
         <li>Each run is one agent attempt at one scenario, with one model on one arm. The harness writes one small JSON file per run.</li>
@@ -346,7 +374,7 @@
         <li>A run passes when every <em>required</em> check passes. <em>Improvement</em> checks never fail a run; they are reported as quality checks and requirements met.</li>
         <li>Pass/fail comes from scripts. The judge model's design score is shown as detail and never changes a pass.</li>
         <li>Pass rates show a 95% confidence interval (Wilson). With few runs per cell the interval is wide, so small differences may be noise.</li>
-        <li>A scenario that the <code>none</code> arm passes in ${Math.round(D.rules.sanityPassRate * 100)}% or more of valid runs is a sanity check: it can't show whether winapp or the skills help (<a href="${REPO}/issues/1253">#1253</a>).</li>
+        <li>A scenario that the <code>barebones</code> arm passes in ${Math.round(D.rules.sanityPassRate * 100)}% or more of valid runs is a sanity check: it can't show whether winapp or the skills help (<a href="${REPO}/issues/1253">#1253</a>).</li>
         <li>Credits are the AI credits Copilot CLI reports (1 credit = 1,000,000,000 nano-AIU). No dollar prices are used.</li>
       </ul>
       <h3>Raw data and reruns</h3>

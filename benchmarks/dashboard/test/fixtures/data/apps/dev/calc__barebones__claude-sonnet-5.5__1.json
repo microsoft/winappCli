@@ -36,6 +36,7 @@
     }
   ],
   "scoringVersion": 3,
+  "launchLevel": 2,
   "judge": {
     "model": "j",
     "designScore": 6

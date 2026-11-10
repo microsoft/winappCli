@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "release": "v0.7.1",
+  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "benchmark": "tasks",
+  "scenario": "sign",
+  "set": "tuning",
+  "arm": "full-suite",
+  "model": "claude-sonnet-5.5",
+  "trial": 1,
+  "startedAt": "2026-11-05T10:00:00Z",
+  "outcome": "valid",
+  "passed": true,
+  "improvements": {
+    "met": 0,
+    "total": 0
+  },
+  "checks": [
+    {
+      "id": "signed",
+      "kind": "required",
+      "passed": true,
+      "source": "harness"
+    }
+  ],
+  "usage": {
+    "tokens": {
+      "input": 1000,
+      "output": 100,
+      "cacheRead": 500
+    },
+    "subAgentTokens": null,
+    "nanoAiu": 10000000000,
+    "premiumRequests": 1,
+    "wallClockMs": 60000
+  }
+}

@@ -1,14 +1,12 @@
 // Pure functions that turn trial result files (benchmarks/RESULTS-FORMAT.md) into the
 // numbers the dashboard shows. No file system access here, so tests can feed objects directly.
 
-export const ARM_ORDER = ['none', 'cli-only', 'cli-plus-plugins'];
-
-// Older runs recorded the arms under their harness names.
-export const ARM_ALIASES = { barebones: 'none', 'cli-plus-skills': 'cli-plus-plugins' };
+// The three arms, then the tasks debugging configurations.
+export const ARM_ORDER = ['barebones', 'cli-only', 'cli-plus-skills', 'winapp-skills', 'winui-skills', 'full-suite'];
 
 export const MODEL_ORDER = ['claude-sonnet-5.5', 'claude-opus-5.5', 'gpt-6.1-sol'];
 
-// A scenario that the `none` arm passes this often is a sanity check (#1253).
+// A scenario that the `barebones` arm passes this often is a sanity check (#1253).
 export const SANITY_PASS_RATE = 0.9;
 
 // Flags that tell a reader where to look closer. Thresholds are shown on the page.
@@ -21,10 +19,6 @@ const RELEASE_RE = /^(dev|v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$/;
 
 export function isReleaseName(name) {
   return RELEASE_RE.test(name);
-}
-
-export function canonicalArm(arm) {
-  return ARM_ALIASES[arm] ?? arm;
 }
 
 function orderBy(values, order) {
@@ -120,6 +114,12 @@ export function metrics(trials) {
   }
   const outcomes = {};
   for (const t of trials) outcomes[t.outcome] = (outcomes[t.outcome] ?? 0) + 1;
+  // apps only: launchLevel is omitted when level 2 could not be measured.
+  const launchLevels = {};
+  for (const t of trials.filter((x) => x.benchmark === 'apps')) {
+    const k = Number.isInteger(t.launchLevel) ? String(t.launchLevel) : 'not measured';
+    launchLevels[k] = (launchLevels[k] ?? 0) + 1;
+  }
   const design = valid.map((t) => t.judge?.designScore).filter((x) => typeof x === 'number');
   return {
     total: trials.length,
@@ -143,6 +143,7 @@ export function metrics(trials) {
     minutesMean: mean(valid.map(minutes)),
     tokensMean: mean(valid.map(tokens)),
     askedBeforeAdmin: outcomes['asked-before-admin'] ?? 0,
+    launchLevels,
     outcomes,
   };
 }
@@ -183,9 +184,9 @@ function scenarioFlags(cells, arms, models) {
     const nonValid = cell.all.total - cell.all.valid;
     if (nonValid) flags.push({ kind: 'not-valid', arm, text: `${nonValid} of ${cell.all.total} runs on ${arm} are not valid` });
   }
-  const none = cells.none?.all;
-  if (none?.valid && none.passRate >= SANITY_PASS_RATE) {
-    flags.push({ kind: 'sanity', arm: 'none', text: `none passes ${none.passed} of ${none.valid} valid runs (${pct(none.passRate)})` });
+  const base = cells.barebones?.all;
+  if (base?.valid && base.passRate >= SANITY_PASS_RATE) {
+    flags.push({ kind: 'sanity', arm: 'barebones', text: `barebones passes ${base.passed} of ${base.valid} valid runs (${pct(base.passRate)})` });
   }
   if (arms.some((a) => cells[a]?.all.valid) && arms.every((a) => !cells[a]?.all.passed)) {
     flags.push({ kind: 'no-pass', text: 'No setup passes this scenario. Check the checker for a bug' });
@@ -238,6 +239,7 @@ export function aggregateBenchmark(trials) {
     models,
     scenarios,
     outcomeNames: orderBy(trials.map((t) => t.outcome), ['valid', 'app-failed', 'build-failed', 'timed-out', 'harness-error', 'asked-before-admin']),
+    launchLevelNames: orderBy(Object.keys(metrics(trials).launchLevels), ['0', '1', '2', '3', 'not measured']),
     trialCount: trials.length,
     headline,
     headlineExcludingSanity,
@@ -253,7 +255,7 @@ export function aggregateBenchmark(trials) {
 
 // Normalizes one release's trials and aggregates each benchmark.
 export function aggregateRelease(release, rawTrials) {
-  const trials = rawTrials.map((t) => ({ ...t, armRecorded: t.arm, arm: canonicalArm(t.arm) }));
+  const trials = rawTrials;
   const started = trials.map((t) => t.startedAt).filter(Boolean).sort();
   const benchmarks = {};
   for (const name of orderBy(trials.map((t) => t.benchmark), ['apps', 'tasks'])) {
@@ -266,13 +268,12 @@ export function aggregateRelease(release, rawTrials) {
     firstStartedAt: started[0] ?? null,
     lastStartedAt: started.at(-1) ?? null,
     trialCount: trials.length,
-    armAliasesUsed: orderBy(trials.filter((t) => t.armRecorded !== t.arm).map((t) => `${t.armRecorded} = ${t.arm}`), []),
     benchmarks,
   };
 }
 
 // Pass rate per model on one arm across published releases (never `dev`), oldest first.
-export function trend(releases, benchmark = 'apps', arm = 'cli-plus-plugins') {
+export function trend(releases, benchmark = 'apps', arm = 'cli-plus-skills') {
   return releases
     .filter((r) => r.release !== 'dev' && r.benchmarks[benchmark]?.headline[arm])
     .sort((a, b) => compareReleases(b.release, a.release))

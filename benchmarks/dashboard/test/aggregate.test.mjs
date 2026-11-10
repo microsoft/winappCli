@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import {
-  aggregateBenchmark, aggregateRelease, canonicalArm, compareReleases, metrics, trend, wilson,
+  aggregateBenchmark, aggregateRelease, compareReleases, metrics, trend, wilson,
 } from '../lib/aggregate.mjs';
 import { loadData } from '../lib/load.mjs';
 import { buildSiteData } from '../build.mjs';
@@ -18,7 +18,7 @@ function t(o = {}) {
   const outcome = o.outcome ?? 'valid';
   return {
     schemaVersion: 1, release: 'dev', commit: 'a'.repeat(40), benchmark: o.benchmark ?? 'apps',
-    scenario: o.scenario ?? 's1', set: 'tuning', arm: o.arm ?? 'none', model: o.model ?? 'm1', trial: o.trial ?? 1,
+    scenario: o.scenario ?? 's1', set: 'tuning', arm: o.arm ?? 'barebones', model: o.model ?? 'm1', trial: o.trial ?? 1,
     startedAt: '2026-11-05T10:00:00Z', outcome, passed: outcome === 'valid' && o.passed !== false,
     improvements: o.improvements ?? { met: 0, total: 0 }, checks: o.checks ?? [],
     usage: { tokens: { input: 100, output: 10, cacheRead: 0 }, nanoAiu: o.nanoAiu ?? 2e9, wallClockMs: o.ms ?? 120000 },
@@ -75,41 +75,44 @@ test('wilson interval contains the observed rate', () => {
   assert.equal(wilson(0, 0), null);
 });
 
-test('old arm names map to the published ones', () => {
-  assert.equal(canonicalArm('barebones'), 'none');
-  assert.equal(canonicalArm('cli-plus-skills'), 'cli-plus-plugins');
-  assert.equal(canonicalArm('cli-only'), 'cli-only');
-  const r = aggregateRelease('dev', [t({ arm: 'barebones' }), t({ arm: 'cli-plus-skills' })]);
-  assert.deepEqual(r.benchmarks.apps.arms, ['none', 'cli-plus-plugins']);
-  assert.deepEqual(r.armAliasesUsed, ['barebones = none', 'cli-plus-skills = cli-plus-plugins']);
+test('launch level is counted for apps, and a missing one is "not measured"', () => {
+  const m = metrics([t({ extra: { launchLevel: 2 } }), t({ extra: { launchLevel: 0 } }), t(), t({ benchmark: 'tasks' })]);
+  assert.deepEqual(m.launchLevels, { 2: 1, 0: 1, 'not measured': 1 });
+  assert.deepEqual(aggregateBenchmark([t({ extra: { launchLevel: 3 } }), t({ trial: 2 })]).launchLevelNames, ['3', 'not measured']);
+});
+
+test('harness-error runs are counted in the total but not as valid', () => {
+  const m = metrics([t(), t({ outcome: 'harness-error' })]);
+  assert.deepEqual([m.valid, m.total, m.passed, m.passRate], [1, 2, 1, 1]);
 });
 
 test('arms and models follow the published order', () => {
   const b = aggregateBenchmark([
-    t({ arm: 'cli-plus-plugins', model: 'gpt-6.1-sol' }),
-    t({ arm: 'none', model: 'claude-opus-5.5' }),
+    t({ arm: 'cli-plus-skills', model: 'gpt-6.1-sol' }),
+    t({ arm: 'barebones', model: 'claude-opus-5.5' }),
     t({ arm: 'cli-only', model: 'claude-sonnet-5.5' }),
-    t({ arm: 'none', model: 'zz-other' }),
+    t({ arm: 'barebones', model: 'zz-other' }),
+    t({ arm: 'full-suite', model: 'gpt-6.1-sol' }),
   ]);
-  assert.deepEqual(b.arms, ['none', 'cli-only', 'cli-plus-plugins']);
+  assert.deepEqual(b.arms, ['barebones', 'cli-only', 'cli-plus-skills', 'full-suite']);
   assert.deepEqual(b.models, ['claude-sonnet-5.5', 'claude-opus-5.5', 'gpt-6.1-sol', 'zz-other']);
 });
 
-test('a scenario the none arm passes 90% or more is a sanity check and leaves the headline', () => {
+test('a scenario the barebones arm passes 90% or more is a sanity check and leaves the headline', () => {
   const trials = [];
-  for (let i = 1; i <= 10; i++) trials.push(t({ scenario: 'easy', arm: 'none', trial: i }));
-  for (let i = 1; i <= 10; i++) trials.push(t({ scenario: 'hard', arm: 'none', trial: i, passed: i <= 3 }));
+  for (let i = 1; i <= 10; i++) trials.push(t({ scenario: 'easy', arm: 'barebones', trial: i }));
+  for (let i = 1; i <= 10; i++) trials.push(t({ scenario: 'hard', arm: 'barebones', trial: i, passed: i <= 3 }));
   trials.push(t({ scenario: 'easy', arm: 'cli-only' }), t({ scenario: 'hard', arm: 'cli-only', passed: false }));
   const b = aggregateBenchmark(trials);
   assert.deepEqual(b.sanityScenarios, ['easy']);
-  assert.equal(b.headline.none.all.passed, 13);
-  assert.equal(b.headlineExcludingSanity.none.all.passed, 3);
-  assert.equal(b.headlineExcludingSanity.none.all.valid, 10);
+  assert.equal(b.headline.barebones.all.passed, 13);
+  assert.equal(b.headlineExcludingSanity.barebones.all.passed, 3);
+  assert.equal(b.headlineExcludingSanity.barebones.all.valid, 10);
 });
 
-test('89% on none is not a sanity check', () => {
+test('89% on barebones is not a sanity check', () => {
   const trials = [];
-  for (let i = 1; i <= 9; i++) trials.push(t({ arm: 'none', trial: i, passed: i <= 8 }));
+  for (let i = 1; i <= 9; i++) trials.push(t({ arm: 'barebones', trial: i, passed: i <= 8 }));
   assert.deepEqual(aggregateBenchmark(trials).sanityScenarios, []);
 });
 
@@ -117,36 +120,36 @@ test('flags model splits, cost outliers, invalid runs and scenarios nobody passe
   const b = aggregateBenchmark([
     t({ arm: 'cli-only', model: 'a', trial: 1 }), t({ arm: 'cli-only', model: 'a', trial: 2 }),
     t({ arm: 'cli-only', model: 'b', trial: 1, passed: false }), t({ arm: 'cli-only', model: 'b', trial: 2, passed: false }),
-    t({ arm: 'none', model: 'a', nanoAiu: 1e9 }), t({ arm: 'none', model: 'b', outcome: 'harness-error' }),
-    t({ arm: 'cli-plus-plugins', model: 'a', nanoAiu: 5e9 }),
-    t({ scenario: 's2', arm: 'none', passed: false }), t({ scenario: 's2', arm: 'cli-only', passed: false }),
+    t({ arm: 'barebones', model: 'a', nanoAiu: 1e9 }), t({ arm: 'barebones', model: 'b', outcome: 'harness-error' }),
+    t({ arm: 'cli-plus-skills', model: 'a', nanoAiu: 5e9 }),
+    t({ scenario: 's2', arm: 'barebones', passed: false }), t({ scenario: 's2', arm: 'cli-only', passed: false }),
   ]);
   const kinds = (s) => b.perScenario.find((x) => x.scenario === s).flags.map((f) => `${f.kind}:${f.arm ?? ''}:${f.model ?? ''}`);
   const s1 = kinds('s1');
   assert.ok(s1.includes('model-split:cli-only:a'));
   assert.ok(s1.includes('model-split:cli-only:b'));
-  assert.ok(s1.includes('not-valid:none:'));
-  // model a: 5 credits on cli-plus-plugins vs mean(1, 2) = 1.5 on the other arms.
-  assert.ok(s1.includes('cost:cli-plus-plugins:a'));
-  assert.ok(!s1.some((k) => k.startsWith('cost:none')));
+  assert.ok(s1.includes('not-valid:barebones:'));
+  // model a: 5 credits on cli-plus-skills vs mean(1, 2) = 1.5 on the other arms.
+  assert.ok(s1.includes('cost:cli-plus-skills:a'));
+  assert.ok(!s1.some((k) => k.startsWith('cost:barebones')));
   assert.ok(kinds('s2').includes('no-pass::'));
 });
 
 test('skills and commands count runs, and say how many runs recorded them', () => {
   const b = aggregateBenchmark([
-    t({ arm: 'cli-plus-plugins', trial: 1, extra: { skills: [{ name: 'winui-design', count: 2 }, { name: 'winui-dev-workflow' }] } }),
-    t({ arm: 'cli-plus-plugins', trial: 2, extra: { skills: [{ name: 'winui-dev-workflow', count: 1 }] } }),
-    t({ arm: 'cli-plus-plugins', trial: 3 }),
-    t({ arm: 'none', extra: { skills: [], winappCommands: [{ command: 'run', count: 3 }] } }),
+    t({ arm: 'cli-plus-skills', trial: 1, extra: { skills: [{ name: 'winui-design', count: 2 }, { name: 'winui-dev-workflow' }] } }),
+    t({ arm: 'cli-plus-skills', trial: 2, extra: { skills: [{ name: 'winui-dev-workflow', count: 1 }] } }),
+    t({ arm: 'cli-plus-skills', trial: 3 }),
+    t({ arm: 'barebones', extra: { skills: [], winappCommands: [{ command: 'run', count: 3 }] } }),
   ]);
-  const s = b.skills['cli-plus-plugins'];
+  const s = b.skills['cli-plus-skills'];
   assert.equal(s.trials, 3);
   assert.equal(s.recorded, 2);
   assert.deepEqual(s.names['winui-dev-workflow'], { trials: 2, uses: 2 });
   assert.deepEqual(s.names['winui-design'], { trials: 1, uses: 2 });
-  assert.equal(b.skills.none.recorded, 1);
-  assert.deepEqual(b.winappCommands.none.names.run, { trials: 1, uses: 3 });
-  assert.equal(b.winappCommands['cli-plus-plugins'].recorded, 0);
+  assert.equal(b.skills.barebones.recorded, 1);
+  assert.deepEqual(b.winappCommands.barebones.names.run, { trials: 1, uses: 3 });
+  assert.equal(b.winappCommands['cli-plus-skills'].recorded, 0);
 });
 
 test('extra and missing optional fields are tolerated', () => {
@@ -160,7 +163,7 @@ test('extra and missing optional fields are tolerated', () => {
 
 test('releases sort newest first with dev last, and the trend skips dev', () => {
   assert.deepEqual(['dev', 'v0.7.1', 'v0.10.0', 'v0.7.0'].sort(compareReleases), ['v0.10.0', 'v0.7.1', 'v0.7.0', 'dev']);
-  const rel = (name, passed) => aggregateRelease(name, [t({ arm: 'cli-plus-plugins', passed }), t({ arm: 'cli-plus-plugins', trial: 2 })]);
+  const rel = (name, passed) => aggregateRelease(name, [t({ arm: 'cli-plus-skills', passed }), t({ arm: 'cli-plus-skills', trial: 2 })]);
   const points = trend([rel('v0.8.0', true), rel('dev', true), rel('v0.7.0', false)]);
   assert.deepEqual(points.map((p) => [p.release, p.all]), [['v0.7.0', 0.5], ['v0.8.0', 1]]);
 });
@@ -168,33 +171,37 @@ test('releases sort newest first with dev last, and the trend skips dev', () => 
 test('loadData reads both folder layouts and reports bad files', () => {
   const { releases, warnings } = loadData([fixture]);
   assert.deepEqual([...releases.keys()].sort(), ['dev', 'v0.7.1']);
-  assert.equal(releases.get('dev').length, 4);
-  assert.equal(releases.get('v0.7.1').length, 2);
+  assert.equal(releases.get('dev').length, 5);
+  assert.equal(releases.get('v0.7.1').length, 3);
   assert.ok(warnings.some((w) => w.includes('broken.json') && w.includes('not valid JSON')));
   assert.ok(!warnings.some((w) => w.includes('index.json')), 'index.json trial count matches');
 });
 
 test('loadData skips duplicates when the same root is given twice', () => {
   const { releases, warnings } = loadData([fixture, fixture]);
-  assert.equal(releases.get('dev').length, 4);
-  assert.ok(warnings.filter((w) => w.includes('same trial')).length >= 4);
+  assert.equal(releases.get('dev').length, 5);
+  assert.ok(warnings.filter((w) => w.includes('same trial')).length >= 5);
 });
 
 test('site data from the fixture has the expected counts', () => {
   const d = buildSiteData([fixture], { now: new Date('2026-11-10T00:00:00Z') });
   assert.deepEqual(d.releases.map((r) => r.release), ['v0.7.1', 'dev']);
   const apps = d.releases[1].benchmarks.apps;
-  assert.equal(apps.trialCount, 4);
-  assert.deepEqual([apps.headline.none.all.valid, apps.headline.none.all.total], [1, 2]);
-  assert.equal(apps.headline.none.all.reqRate, 0);
-  assert.equal(apps.headline['cli-plus-plugins'].all.passed, 2);
-  assert.equal(apps.headline['cli-plus-plugins'].all.creditsMean, 20);
-  assert.equal(apps.headline['cli-plus-plugins'].all.designMean, 8);
-  assert.deepEqual(apps.notValid.map((n) => n.outcome), ['build-failed']);
-  assert.equal(apps.skills['cli-plus-plugins'].names['winui-dev-workflow'].trials, 2);
+  assert.equal(apps.trialCount, 5);
+  assert.deepEqual([apps.headline['cli-only'].all.valid, apps.headline['cli-only'].all.total], [0, 1]);
+  assert.deepEqual(apps.notValid.map((n) => n.outcome).sort(), ['build-failed', 'harness-error']);
+  assert.deepEqual(apps.headline.barebones.all.launchLevels, { 2: 1, 'not measured': 1 });
+  assert.deepEqual([apps.headline.barebones.all.valid, apps.headline.barebones.all.total], [1, 2]);
+  assert.equal(apps.headline.barebones.all.reqRate, 0);
+  assert.equal(apps.headline['cli-plus-skills'].all.passed, 2);
+  assert.equal(apps.headline['cli-plus-skills'].all.creditsMean, 20);
+  assert.equal(apps.headline['cli-plus-skills'].all.designMean, 8);
+  assert.equal(apps.skills['cli-plus-skills'].names['winui-dev-workflow'].trials, 2);
   const tasks = d.releases[0].benchmarks.tasks;
   assert.equal(tasks.headline['cli-only'].all.askedBeforeAdmin, 1);
   assert.equal(tasks.headline['cli-only'].all.valid, 0);
+  assert.deepEqual(tasks.arms, ['barebones', 'cli-only', 'full-suite']);
+  assert.deepEqual(tasks.launchLevelNames, []);
   assert.deepEqual(d.trend.apps, []);
 });
 
