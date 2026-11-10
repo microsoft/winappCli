@@ -35,6 +35,8 @@ export interface ExactUsage {
 export interface TrialResultInput {
   release: string;
   commit: string;
+  /** `winapp --version` output of the CLI the trial used, e.g. `0.7.1+<sha>`. */
+  winappVersion?: string;
   scenario: string;
   set?: "tuning" | "held-out";
   /** Agent setup name; a " [1/2]" suffix is ignored. */
@@ -120,6 +122,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     schemaVersion: 1,
     release: input.release,
     commit: input.commit,
+    ...(input.winappVersion ? { winappVersion: input.winappVersion } : {}),
     benchmark: "apps",
     scenario: slug(input.scenario),
     set: input.set ?? "tuning",

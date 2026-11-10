@@ -316,6 +316,16 @@ Describe 'ConvertTo-TrialResult' {
     It 'does not count a partial result as a pass' {
         (Convert (New-Record 'partial')).passed | Should -BeFalse
     }
+    It 'records the winapp version when given, and the validator accepts it' {
+        $t = ConvertTo-TrialResult -Record (New-Record) -Task 'winforms-msix' -Set 'tuning' -Release 'v0.7.1' -Commit $script:sha -StartedAt ([datetime]'2026-10-27T18:00:00Z') -WinappVersion '0.7.1+91945557'
+        $t.winappVersion | Should -Be '0.7.1+91945557'
+        (Convert (New-Record)).Contains('winappVersion') | Should -BeFalse
+        $dir = Join-Path $TestDrive 'version\v0.7.1'
+        New-Item -ItemType Directory $dir -Force | Out-Null
+        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-plugins__claude-sonnet-5.5__2.json')
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'version') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
     It 'skips runs without a checked result' {
         Convert (New-Record 'harness_error') | Should -BeNullOrEmpty
     }

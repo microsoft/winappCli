@@ -21,6 +21,11 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
+    "winappVersion": {
+      "description": "Output of `winapp --version` for the CLI the trial ran, such as 0.7.1+<sha>. Can differ from commit when the CLI was built from another commit.",
+      "type": "string",
+      "minLength": 1
+    },
     "benchmark": { "enum": ["apps", "tasks"] },
     "scenario": {
       "description": "Scenario name (apps) or task id (tasks). Lowercase letters, digits and hyphens.",

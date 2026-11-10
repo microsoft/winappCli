@@ -4798,6 +4798,11 @@ function saveResults(
   if (isWindows) {
     try { results.toolchain = { winapp: resolveWinAppToolchain().version }; } catch { /* recorded elsewhere as a launch failure */ }
   }
+  // Revalidation rebuilds with today's CLI, which may not be the one the agent used, so only a fresh run records it.
+  let winappVersion: string | undefined;
+  if (isWindows && original === undefined) {
+    try { winappVersion = resolveWinAppToolchain().fullVersion; } catch { /* no CLI */ }
+  }
   const release = original?.release ?? (process.env.BENCH_RELEASE || "dev");
   const commit = original?.commit ?? currentCommit();
   const startedAt = original?.startedAt ?? entry.startedAt;
@@ -4821,6 +4826,7 @@ function saveResults(
     const trial = toTrialResult({
       release,
       commit,
+      winappVersion,
       scenario: entry.scenarioConfigName,
       set: config.set,
       condition: entry.condition,

@@ -69,6 +69,11 @@ test("a ref suffix such as @main does not change the arm", () => {
   assert.equal(toTrialResult({ ...base, condition: "published@main" }), null);
 });
 
+test("winapp version is recorded when known", () => {
+  assert.equal((toTrialResult({ ...base, winappVersion: "0.7.1+91945557" }) as any).winappVersion, "0.7.1+91945557");
+  assert.equal("winappVersion" in (toTrialResult(base) as any), false);
+});
+
 test("file name follows the benchmark-data layout", () => {
   const t = toTrialResult(base) as any;
   assert.equal(trialFileName(t), "calc__cli-plus-plugins__claude-sonnet-5.5__1.json");
