@@ -1,0 +1,24 @@
+{
+  "prompt": "PowerInfo, in this folder, is a small .NET console app. Add a `GetBatteryPercent()` method to the `PowerStatus` class in `Battery.cs` that returns the current battery charge as a percentage. Use the Windows Runtime APIs that ship with Windows, not P/Invoke or WMI. This machine has no battery, so you can't check the value by running it, but the project must still build.",
+  "reference": {
+    "approach": "Target a Windows 10 SDK framework (net10.0-windows10.0.19041.0) so the WinRT projection is referenced. In GetBatteryPercent, call Windows.Devices.Power.Battery.AggregateBattery.GetReport() and return RemainingCapacityInMilliwattHours * 100 / FullChargeCapacityInMilliwattHours, or null when either value is missing. BatteryReport has no percentage property.",
+    "commands": [
+      "winapp find-api \"battery charge\" --max 3",
+      "winapp find-api members Windows.Devices.Power.Battery Windows.Devices.Power.BatteryReport"
+    ]
+  },
+  "skill": "winapp-find-api",
+  "set": "tuning",
+  "cluster": "API lookup",
+  "workspace": "C:\\src\\PowerInfo",
+  "timeoutMinutes": 20,
+  "checks": [
+    "builds (required, guard): `dotnet build` of PowerInfo.csproj succeeds when the checker runs it. The fixture already builds, so this only guards against breaking it",
+    "method-callable (required): a probe file that calls `PowerInfo.PowerStatus.GetBatteryPercent()` with no arguments and uses its return value compiles",
+    "battery-api (required): Battery.cs gets a report from Windows.Devices.Power.Battery (AggregateBattery or FromIdAsync, then GetReport())",
+    "percent-from-capacity (required): Battery.cs reads RemainingCapacityInMilliwattHours and FullChargeCapacityInMilliwattHours and divides",
+    "no-stand-ins (required, guard): no workspace source declares its own Battery or BatteryReport type, or members with the battery API's names",
+    "windows-sdk-tfm: the project evaluates to a net*-windows10.* target framework"
+  ],
+  "whyGoodTest": "The most common reason to look up an API: the developer knows the goal (battery percentage), not the type name. Agents without a lookup tend to invent a plausible member such as a percentage property, which BatteryReport doesn't have; the checker's build catches an invented member, so the test is fair without judging style. It needs no battery: the checker only builds and reads the code, and the probe proves the method exists without running it."
+}

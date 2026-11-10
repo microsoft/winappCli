@@ -1,0 +1,21 @@
+{
+  "prompt": "The Reminders console app in this folder no longer builds: `dotnet build` reports CS1061 errors in `Notifier.cs`. Fix the code so it builds and still shows the reminder toast, without dropping anything the code is trying to do.",
+  "reference": {
+    "approach": "Both errors are members that don't exist on the real types. ToastNotification has ExpirationTime (not ExpiresAt) and ToastNotifier has Show (not Display). Rename the two members and keep everything else.",
+    "commands": [
+      "winapp find-api members ToastNotification ToastNotifier --filter e"
+    ]
+  },
+  "skill": "winapp-find-api",
+  "set": "tuning",
+  "cluster": "API lookup",
+  "workspace": "C:\\src\\Reminders",
+  "timeoutMinutes": 20,
+  "checks": [
+    "builds (required): `dotnet build` of Reminders.csproj succeeds when the checker runs it (the fixture fails with two CS1061 errors)",
+    "toast-real-api (required): Notifier.cs still creates a Windows.UI.Notifications.ToastNotification, gets a notifier from CreateToastNotifier(), and calls Show()",
+    "no-workarounds (required, guard): no #if, dynamic or reflection in Notifier.cs; no workspace source declares stand-in toast types or ExpiresAt/Display members; Notifier.cs is still compiled",
+    "real-member-fix: Notifier.cs sets ToastNotification.ExpirationTime (the expiry is kept, not deleted) and no package was added"
+  ],
+  "whyGoodTest": "The skill's description names CS0117, CS1061 and WMC0011 as the errors it fixes, so this is a core job. Without a lookup an agent often guesses a second wrong name (ExpiresAt -> Expiration or ExpiresOn) or deletes the line that doesn't compile. The build is the objective proof; the improvement check separates using the member the API has from deleting the expiry."
+}

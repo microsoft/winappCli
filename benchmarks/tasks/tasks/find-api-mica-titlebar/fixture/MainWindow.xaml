@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="PhotoNotes.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Photo Notes">
+    <Grid RowDefinitions="Auto,*">
+        <TextBlock Text="Photo Notes" Margin="16,12" Style="{StaticResource SubtitleTextBlockStyle}" />
+        <ListView Grid.Row="1" x:Name="Notes" Margin="16,0,16,16" />
+    </Grid>
+</Window>
