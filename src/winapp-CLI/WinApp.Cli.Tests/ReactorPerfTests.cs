@@ -119,8 +119,28 @@ public class ReactorPerfTests
         var elements = analyzer.Elements.ToDictionary(e => e.ObjectId);
         Assert.AreEqual("Panel", elements["00000000000000a1"].Component);
         Assert.AreEqual("2", elements["00000000000000a1"].ComponentId);
+        Assert.AreEqual(4d, elements["00000000000000a1"].CreatedMs);
         Assert.AreEqual("App", elements["00000000000000a2"].Component);
         Assert.IsNull(elements["00000000000000a3"].Component);
+    }
+
+    [TestMethod]
+    public void AnElementSeenBeforeItsCreatedEventRecordsTheCreationTime()
+    {
+        var analyzer = new PerfAnalyzer(_ => { });
+        var added = new PerfEvent("va", 0, 5, 7, PerfProviders.Diagnostics, 61, 0, 0, Guid.Empty, "Added", "metadata",
+            "info", "00000000000000a1", new() { ["ParentId"] = "0000000000000000" });
+        var created = added with { Id = "vc", TimeMs = 12, Provider = PerfProviders.Xaml, Name = "Created", Fields = [] };
+        foreach (var e in new[] { added, RenderStart(11, "1", "Row"), created, RenderStop(14, "1") })
+        {
+            analyzer.Accept(e);
+        }
+        analyzer.Complete();
+
+        var element = analyzer.Elements.Single();
+        Assert.AreEqual(5d, element.FirstObservedMs);
+        Assert.AreEqual(12d, element.CreatedMs);
+        Assert.AreEqual("Row", element.Component);
     }
 
     [TestMethod]

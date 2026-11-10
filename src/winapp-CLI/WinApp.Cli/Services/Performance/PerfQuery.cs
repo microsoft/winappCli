@@ -942,8 +942,8 @@ internal static class PerfQuery
             ? renderEvents.Values.Where(e => e.Thread == thread)
                 .Select(e => e.Fields.GetValueOrDefault("componentId")).OfType<string>().ToHashSet(StringComparer.Ordinal)
             : null;
-        var created = elements.Where(e => e.Component is not null && e.CreationObserved &&
-                e.FirstObservedMs >= range.FromMs && e.FirstObservedMs <= range.ToMs &&
+        var created = elements.Where(e => e.Component is not null && e.CreatedMs is { } createdMs &&
+                createdMs >= range.FromMs && createdMs <= range.ToMs &&
                 (threadInstances is null || e.ComponentId is not null && threadInstances.Contains(e.ComponentId)))
             .GroupBy(e => e.Component!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
@@ -1054,7 +1054,7 @@ internal static class PerfQuery
                     {
                         Id = element.Id, ObjectId = element.ObjectId, Type = Clip(element.Type, 80), Name = Clip(element.Name, 80),
                         FirstObservedMs = element.FirstObservedMs, DestroyedMs = element.DestroyedMs,
-                        CreationObserved = element.CreationObserved, Evidence = element.Evidence.Take(2).ToList(),
+                        CreationObserved = element.CreationObserved, CreatedMs = element.CreatedMs, Evidence = element.Evidence.Take(2).ToList(),
                     };
                 }
                 if (row.Call is { } call)

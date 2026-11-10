@@ -744,9 +744,9 @@ public class PerfCallQueryTests
         ];
         PerfElement[] elements =
         [
-            new() { Id = "e1", ObjectId = "a", Component = "Slow", CreationObserved = true, FirstObservedMs = 21 },
-            new() { Id = "e2", ObjectId = "b", Component = "Slow", CreationObserved = true, FirstObservedMs = 22 },
-            new() { Id = "e3", ObjectId = "c", Component = null, CreationObserved = true, FirstObservedMs = 23 },
+            new() { Id = "e1", ObjectId = "a", Component = "Slow", CreationObserved = true, FirstObservedMs = 21, CreatedMs = 21 },
+            new() { Id = "e2", ObjectId = "b", Component = "Slow", CreationObserved = true, FirstObservedMs = 22, CreatedMs = 22 },
+            new() { Id = "e3", ObjectId = "c", Component = null, CreationObserved = true, FirstObservedMs = 23, CreatedMs = 23 },
         ];
         using var fixture = new Fixture(calls, events, elements: elements);
 
@@ -810,8 +810,8 @@ public class PerfCallQueryTests
         ];
         PerfElement[] elements =
         [
-            new() { Id = "e1", ObjectId = "a", Component = "Row", ComponentId = "2", CreationObserved = true, FirstObservedMs = 15 },
-            new() { Id = "e2", ObjectId = "b", Component = "Row", ComponentId = "4", CreationObserved = true, FirstObservedMs = 13 },
+            new() { Id = "e1", ObjectId = "a", Component = "Row", ComponentId = "2", CreationObserved = true, FirstObservedMs = 15, CreatedMs = 15 },
+            new() { Id = "e2", ObjectId = "b", Component = "Row", ComponentId = "4", CreationObserved = true, FirstObservedMs = 13, CreatedMs = 13 },
         ];
         using var fixture = new Fixture(calls, events, elements: elements);
 
@@ -825,6 +825,22 @@ public class PerfCallQueryTests
         Assert.IsNull(open.ExclusiveMs, "Unknown exclusive time must not read as zero.");
         Assert.AreEqual("Row,Open", string.Join(',', clipped.Rows.Select(r => r.Name)));
         Assert.AreEqual(2, fixture.Query(new(View: "components", FromMs: 5, ToMs: 25)).Rows.Single(r => r.Name == "Row").CreatedElements);
+    }
+
+    [TestMethod]
+    public void ComponentsViewCountsElementsByCreationTimeNotFirstObservation()
+    {
+        var calls = new[] { Reactor("row", "ReactorRender:Row", 11, 14) };
+        PerfElement[] elements =
+        [
+            new() { Id = "e1", ObjectId = "a", Component = "Row", ComponentId = "1", CreationObserved = true, FirstObservedMs = 5, CreatedMs = 12 },
+            new() { Id = "e2", ObjectId = "b", Component = "Row", ComponentId = "1", CreationObserved = true, FirstObservedMs = 12, CreatedMs = 25 },
+        ];
+        using var fixture = new Fixture(calls, [RenderBegin(calls[0], "1", "mount")], elements: elements);
+
+        var row = fixture.Query(new(View: "components", FromMs: 10, ToMs: 20)).Rows.Single();
+
+        Assert.AreEqual(1, row.CreatedElements, "Only the element created inside the range counts, whenever it was first seen.");
     }
 
     [TestMethod]

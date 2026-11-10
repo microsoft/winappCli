@@ -15,6 +15,8 @@ internal sealed class PerfElement
     public string? Component { get; set; }
     public string? ComponentId { get; set; }
     public double FirstObservedMs { get; set; }
+    /// <summary>Time of the WinUI Created event, when it was recorded.</summary>
+    public double? CreatedMs { get; set; }
     public double? DestroyedMs { get; set; }
     public bool CreationObserved { get; set; }
     public List<PerfParentChange> Parents { get; set; } = [];
@@ -229,6 +231,7 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
         if (e.Name == "Created")
         {
             element.CreationObserved = true;
+            element.CreatedMs = e.TimeMs;
         }
         if (e.Name == "Name")
         {
