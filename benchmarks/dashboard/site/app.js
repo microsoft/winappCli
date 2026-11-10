@@ -49,7 +49,7 @@
     'asked-before-admin': 'The agent safely stopped before an admin step. Not counted as a failure.',
   };
 
-  const state = { release: null, tab: 'overview', appMetric: 'qualityRate' };
+  const state = { release: null, tab: 'overview', appMetric: 'qualityRate', series: 'dev', trendModel: 'all', trendMetric: 'qualityRate' };
 
   // ---------- formatting ----------
   function esc(s) {
@@ -226,10 +226,6 @@
     const effectRows = [['all', b.effect.all], ...b.models.map((m) => [m, b.effect.byModel[m]])].map(([m, d]) =>
       `<tr class="${m === 'all' ? 'all-models' : ''}"><th scope="row" class="text">${esc(modelLabel(m))}</th><td>${diffPts(d.passRate)}</td><td>${diffPts(d.worksRate)}</td><td>${diffPts(d.qualityRate)}</td><td>${diffPts(d.reqRate)}</td><td>${diffNum(d.designMean)}</td><td>${diffNum(d.creditsMean)}</td><td>${diffNum(d.minutesMean)}</td></tr>`).join('');
     const effectHead = '<tr><th scope="col" class="text">Model</th><th scope="col">Pass rate</th><th scope="col">Built and launched</th><th scope="col">Quality checks</th><th scope="col">Requirements</th><th scope="col">Design score</th><th scope="col">Credits per app</th><th scope="col">Minutes per app</th></tr>';
-    const t = D.trend.apps;
-    const trend = t.length >= 2
-      ? `<p>Pass rate ${esc(armLabel(WITH).toLowerCase())}, by release: ${t.map((p) => `${esc(p.release)} ${pct(p.all)}`).join(', ')}.</p>`
-      : '<p class="muted">A release-by-release trend appears once two releases are published.</p>';
 
     return `<h2 class="sr-only">Overview</h2>
       <p class="verdict">${esc(verdict(b))}</p>
@@ -240,7 +236,6 @@
         <p>Pass rate is ${arms.map((a) => `${pct(b.headline[a].all.passRate)} ${esc(armLabel(a).toLowerCase())}`).join(', ')}, so it does not separate the setups; the tiles above use the measures that do.</p>
         ${table('Results by setup and model (valid runs, except Built and launched)', armModelHead(cols), armModelRows(b, b.headline, cols))}
         ${table(`Change: ${esc(armLabel(WITH))} minus ${esc(armLabel(BASE))}`, effectHead, effectRows)}
-        <h3>Trend</h3>${trend}
       </details>`;
   }
 
@@ -325,6 +320,143 @@
     return `<h3>What changed with skills</h3>
       ${table(`Quality checks passed in valid <code>apps</code> runs, ${esc(armLabel(BASE).toLowerCase())} vs ${esc(armLabel(WITH).toLowerCase())}`, head, body)}
       <p class="muted">Setup-level comparison: shows what the plugin as a whole changed. A skill loading in a trial is not evidence it helped (agents load skills on harder apps), so per-skill impact needs per-skill scenarios (<a href="${REPO}/issues/1206">#1206</a>).</p>`;
+  }
+
+  // ---------- Trends ----------
+  // Line chart over runs. A step i-1 -> i that is not comparable is not connected, and a
+  // dashed vertical marker sits between the two runs, with the change titles on hover.
+  function trendChart({ title, desc, labels, subLabels, series, markers, domain, format }) {
+    const id = `chart-${++chartId}`;
+    const W = 680, H = 260, left = 90, right = 60, top = 16, bottom = 50;
+    const plotW = W - left - right, plotH = H - top - bottom;
+    const n = labels.length;
+    const x = (i) => left + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+    const [lo, hi] = domain;
+    const y = (v) => top + plotH - ((v - lo) / (hi - lo)) * plotH;
+    const ticks = [lo, (lo + hi) / 2, hi].map((v) => `<line class="axis" x1="${left}" x2="${W - right}" y1="${y(v)}" y2="${y(v)}"/><text x="${left - 6}" y="${y(v) + 4}" text-anchor="end">${esc(format(v))}</text>`).join('');
+    const zero = lo < 0 && hi > 0 ? `<line class="zero" x1="${left}" x2="${W - right}" y1="${y(0)}" y2="${y(0)}"/>` : '';
+    const marks = markers.map((m) => {
+      const mx = (x(m.index - 1) + x(m.index)) / 2;
+      return `<g class="marker" tabindex="0" aria-label="Method changed: ${esc(m.title)}"><title>Method changed: ${esc(m.title)}</title><line x1="${mx}" x2="${mx}" y1="${top}" y2="${top + plotH}"/><text x="${mx}" y="${top - 4}" text-anchor="middle">method changed</text></g>`;
+    }).join('');
+    let lines = '';
+    for (const s of series) {
+      let seg = [];
+      const flush = () => { if (seg.length > 1) lines += `<polyline class="ln ${s.cls}" fill="none" points="${seg.join(' ')}"/>`; seg = []; };
+      s.values.forEach((v, i) => {
+        if (i > 0 && s.breaks?.[i - 1]) flush();
+        if (v == null) { flush(); return; }
+        seg.push(`${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+        lines += `<circle class="pt ${s.cls}" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4"><title>${esc(labels[i])}, ${esc(s.name)}: ${esc(format(v))}${s.n?.[i] ? `, ${esc(s.n[i])}` : ''}</title></circle>`;
+      });
+      flush();
+    }
+    const xl = labels.map((l, i) => `<text x="${x(i)}" y="${H - bottom + 18}" text-anchor="middle">${esc(l)}</text><text class="sub" x="${x(i)}" y="${H - bottom + 34}" text-anchor="middle">${esc(subLabels[i] ?? '')}</text>`).join('');
+    const legend = series.map((s) => `<span class="${s.cls}">${esc(s.name)}</span>`).join('');
+    return `<figure class="chart"><figcaption id="${id}-t">${esc(title)}</figcaption>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-labelledby="${id}-t ${id}-d"><desc id="${id}-d">${esc(desc)}</desc>${ticks}${zero}${marks}${lines}${xl}</svg>
+      <div class="legend" aria-hidden="true">${legend}</div></figure>`;
+  }
+
+  const TREND_METRICS = { qualityRate: 'Quality checks met', reqRate: 'Requirements met', passRate: 'Pass rate' };
+
+  function renderTrends() {
+    const T = D.trends?.[state.series]?.apps;
+    const seriesOpts = [['dev', 'Development runs'], ['release', 'Releases']].map(([k, v]) => `<option value="${k}"${k === state.series ? ' selected' : ''}>${v}</option>`).join('');
+    const pts = T?.points ?? [];
+    const models = [...new Set(pts.flatMap((p) => p.info.models))];
+    if (!models.includes(state.trendModel)) state.trendModel = 'all';
+    const modelOpts = ['all', ...models].map((m) => `<option value="${esc(m)}"${m === state.trendModel ? ' selected' : ''}>${esc(modelLabel(m))}</option>`).join('');
+    const metricOpts = Object.entries(TREND_METRICS).map(([k, v]) => `<option value="${k}"${k === state.trendMetric ? ' selected' : ''}>${v}</option>`).join('');
+    const controls = `<div class="inline-control"><label for="trend-series">Show</label><select id="trend-series">${seriesOpts}</select>
+      <label for="trend-model">Model</label><select id="trend-model">${modelOpts}</select></div>`;
+    const head = `<h2>Trends</h2>${controls}`;
+    if (pts.length < 2) {
+      const msg = pts.length === 0
+        ? (state.series === 'release' ? 'No releases are published yet. The release trend uses releases only, never development runs.' : 'No development runs yet.')
+        : 'One run so far; trends appear after the next run.';
+      return `${head}<p class="verdict-sm">${msg}</p>${runInfoTable(pts)}${methodChangeList(T)}`;
+    }
+
+    const m = state.trendModel;
+    const pick = (o) => (m === 'all' ? o.all : o.byModel[m]) ?? {};
+    const labels = pts.map((p) => p.name);
+    const nText = (p) => {
+      const o = pick(p.arms[BASE] ?? { all: {}, byModel: {} }), w = pick(p.arms[WITH] ?? { all: {}, byModel: {} });
+      return `n ${o.valid ?? 0} · ${w.valid ?? 0}`;
+    };
+    const subLabels = pts.map(nText);
+    const markers = T.steps.map((s, i) => ({ s, index: i + 1 })).filter(({ s }) => Object.values(s.comparable).some((c) => c === false))
+      .map(({ s, index }) => ({ index, title: s.changes.map((c) => c.title).join('; ') }));
+
+    const gapVals = (k) => pts.map((p) => pick(p.gap)[k] ?? null);
+    const gq = gapVals('qualityRate'), gr = gapVals('reqRate');
+    const all = [...gq, ...gr].filter((v) => v != null);
+    const lo = Math.min(0, ...all) - 0.05, hi = Math.max(0, ...all) + 0.05;
+    const gapBreaks = T.steps.map((s) => !s.comparable.gap);
+    const gapChart = trendChart({
+      title: `Gap: ${armLabel(WITH)} minus ${armLabel(BASE)}`,
+      desc: 'Percentage-point difference per run for quality checks met and requirements met. The line is broken where the method changed.',
+      labels, subLabels, markers, domain: [lo, hi], format: (v) => `${v > 0 ? '+' : ''}${Math.round(v * 100)} pts`,
+      series: [
+        { name: 'Quality checks met', cls: 'gq', values: gq, breaks: gapBreaks, n: subLabels },
+        { name: 'Requirements met', cls: 'gr', values: gr, breaks: gapBreaks, n: subLabels },
+      ],
+    });
+
+    const k = state.trendMetric;
+    const armList = [BASE, CLI, WITH].filter((a) => pts.some((p) => p.arms[a]));
+    const rawChart = trendChart({
+      title: `${TREND_METRICS[k]}, each setup`,
+      desc: `${TREND_METRICS[k]} per run for each setup. A setup's line is broken where the method changed for that setup.`,
+      labels, subLabels: pts.map(() => ''), markers, domain: [0, 1], format: pctText,
+      series: armList.map((a) => ({
+        name: armLabel(a), cls: `s-${armClass(a)}`, breaks: T.steps.map((s) => s.comparable[a] === false),
+        values: pts.map((p) => (p.arms[a] ? pick(p.arms[a])[k] ?? null : null)),
+        n: pts.map((p) => (p.arms[a] ? `n ${pick(p.arms[a]).valid ?? 0} of ${pick(p.arms[a]).total ?? 0}` : '')),
+      })),
+    });
+
+    const notes = T.notes.map((nt) => `<div class="callout warn"><p><strong>${esc(armLabel(BASE))} moved: something other than the skills changed (model, machine or harness).</strong> Between ${esc(nameOf(T, nt.from))} and ${esc(nameOf(T, nt.to))}: ${nt.moved.map((x) => `${esc(TREND_METRICS[x.metric])} ${pctText(x.from)} → ${pctText(x.to)}`).join(', ')}.</p></div>`).join('');
+
+    return `${head}
+      ${notes}
+      ${gapChart}
+      <div class="inline-control"><label for="trend-metric">Setups</label><select id="trend-metric">${metricOpts}</select></div>
+      ${rawChart}
+      ${decayTable(T)}
+      ${runInfoTable(pts)}
+      ${methodChangeList(T)}`;
+  }
+
+  const nameOf = (T, id) => T.points.find((p) => p.id === id)?.name ?? id;
+
+  function decayTable(T) {
+    if (!T.decay.length) return '';
+    const head = `<tr><th scope="col" class="text">App</th>${T.points.map((p) => `<th scope="col">${esc(p.name)}</th>`).join('')}<th scope="col" class="text">Flag</th></tr>`;
+    const body = T.decay.map((d) => `<tr><th scope="row" class="text">${esc(d.scenario)}</th>${d.values.map((v) => (v ? `<td title="Pass rate ${pctText(v.passRate ?? 0)}, ${v.valid} valid of ${v.total}">${pct(v[d.metric])} <span class="ci">pass ${pct(v.passRate)}</span></td>` : `<td>${NA}</td>`)).join('')}<td class="text">${d.rising ? '<span class="tag">Getting easier</span>' : ''}</td></tr>`).join('');
+    return `<h3>${esc(armLabel(BASE))}, per app</h3>
+      <p class="muted">Quality checks met ${esc(armLabel(BASE).toLowerCase())}. "Getting easier" means it rose more than ${Math.round(D.rules.controlShift * 100)} points across comparable runs, so models may be solving the app without help.</p>
+      ${table(`${esc(armLabel(BASE))} quality checks met per app and run`, head, body)}`;
+  }
+
+  function runInfoTable(pts) {
+    if (!pts.length) return '';
+    const commits = (list) => list.map((c) => `<a href="${REPO}/commit/${esc(c)}"><code>${esc(c.slice(0, 8))}</code></a>`).join(', ') || NA;
+    const body = pts.map((p) => `<tr><th scope="row" class="text">${esc(p.name)}</th><td class="text">${esc(p.firstStartedAt?.slice(0, 10) ?? '')} to ${esc(p.lastStartedAt?.slice(0, 10) ?? '')}</td><td class="text">${commits(p.info.commits)}</td><td class="text">${p.info.pluginsCommits.length ? commits(p.info.pluginsCommits) : '<span class="muted">not recorded</span>'}</td><td class="text">${p.info.winappVersions.length ? p.info.winappVersions.map(esc).join(', ') : '<span class="muted">not recorded</span>'}</td><td class="text">${p.info.models.map(modelLabel).map(esc).join(', ')}</td><td class="text">${p.info.scoringVersions.map(esc).join(', ')}</td></tr>`).join('');
+    const head = '<tr><th scope="col" class="text">Run</th><th scope="col" class="text">Dates</th><th scope="col" class="text">Commit</th><th scope="col" class="text">Plugins commit</th><th scope="col" class="text">winapp version</th><th scope="col" class="text">Models</th><th scope="col" class="text">Scoring version</th></tr>';
+    return `<details class="more"><summary>Run info</summary>${table('What each run measured (apps)', head, body)}</details>`;
+  }
+
+  function methodChangeList(T) {
+    const list = D.methodChanges ?? [];
+    if (!list.length) return '';
+    const comp = (c) => (c.comparable && typeof c.comparable === 'object'
+      ? Object.entries(c.comparable).map(([a, v]) => `${esc(armLabel(a))}: ${v ? 'comparable' : 'not comparable'}`).join(', ')
+      : c.comparable ? 'comparable' : 'not comparable');
+    const auto = (T?.steps ?? []).flatMap((s) => s.changes).filter((c) => !list.some((x) => x.id === c.id));
+    const items = [...list, ...auto].map((c) => `<li><strong>${esc(c.date)} ${esc(c.title)}</strong> (${esc((c.affects ?? []).join(', ') || 'all')}; ${c.comparable === undefined ? 'not comparable' : comp(c)}). ${esc(c.detail ?? '')}</li>`).join('');
+    return `<details class="more"><summary>Method changes</summary><ul>${items}</ul></details>`;
   }
 
   // ---------- Details ----------
@@ -451,8 +583,19 @@
     $('panel-apps').innerHTML = renderApps(r);
     $('panel-skills').innerHTML = renderSkills(r);
     $('panel-details').innerHTML = renderDetails(r);
+    drawTrends();
     $('footer').innerHTML = `Built ${esc(D.generatedAt.slice(0, 16).replace('T', ' '))} UTC. All numbers: <a href="data.json">data.json</a>.`;
     bindAppMetric();
+  }
+
+  // Trends depend on all runs, not the selected one. Its selectors are redrawn with the panel.
+  function drawTrends() {
+    $('panel-trends').innerHTML = renderTrends();
+    for (const [id, key] of [['trend-series', 'series'], ['trend-model', 'trendModel'], ['trend-metric', 'trendMetric']]) {
+      const sel = $(id);
+      if (!sel) continue;
+      sel.addEventListener('change', () => { state[key] = sel.value; drawTrends(); $(id)?.focus(); });
+    }
   }
 
   // The selector is redrawn with its panel, so bind it after each draw.

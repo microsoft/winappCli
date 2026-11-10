@@ -327,6 +327,8 @@ export function aggregateBenchmark(trials) {
     winappVersions: orderBy(trials.map((t) => t.winappVersion).filter(Boolean), []),
     // Run info per benchmark, so an entry that merges runs from different commits shows them.
     commits: orderBy(trials.map((t) => t.commit).filter(Boolean), []),
+    // Optional: the commit the plugins came from, when the harness records it.
+    pluginsCommits: orderBy(trials.map((t) => t.pluginsCommit).filter(Boolean), []),
     firstStartedAt: trials.map((t) => t.startedAt).filter(Boolean).sort()[0] ?? null,
     lastStartedAt: trials.map((t) => t.startedAt).filter(Boolean).sort().at(-1) ?? null,
   };
@@ -353,17 +355,4 @@ export function aggregateRelease(id, trials, { label = null } = {}) {
     trialCount: trials.length,
     benchmarks,
   };
-}
-
-// Pass rate per model on one arm across published releases (never `dev`), oldest first.
-export function trend(releases, benchmark = 'apps', arm = SKILLS_ARM) {
-  return releases
-    .filter((r) => r.release && r.release !== 'dev' && r.benchmarks[benchmark]?.headline[arm])
-    .sort((a, b) => compareReleases(b.release, a.release))
-    .map((r) => {
-      const h = r.benchmarks[benchmark].headline[arm];
-      const byModel = {};
-      for (const [m, v] of Object.entries(h.byModel)) byModel[m] = v.passRate;
-      return { release: r.release, all: h.all.passRate, byModel };
-    });
 }

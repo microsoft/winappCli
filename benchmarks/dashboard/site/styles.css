@@ -151,3 +151,21 @@ td.cli-col { color: var(--muted); }
 
 td.regress { color: var(--bad); }
 code.skill { white-space: nowrap; margin-right: 4px; }
+
+/* Trends */
+:root { --c-gq: #0969da; --c-gr: #bf3989; }
+@media (prefers-color-scheme: dark) { :root { --c-gq: #79c0ff; --c-gr: #ff80c8; } }
+svg .ln { stroke-width: 2.5; }
+svg .ln.gq { stroke: var(--c-gq); } svg .pt.gq { fill: var(--c-gq); }
+svg .ln.gr { stroke: var(--c-gr); } svg .pt.gr { fill: var(--c-gr); }
+svg .ln.s-without { stroke: var(--c-without); } svg .pt.s-without { fill: var(--c-without); }
+svg .ln.s-cli { stroke: var(--c-cli); } svg .pt.s-cli { fill: var(--c-cli); }
+svg .ln.s-with { stroke: var(--c-with); } svg .pt.s-with { fill: var(--c-with); }
+svg .zero { stroke: var(--muted); stroke-width: 1; }
+svg .marker line { stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 5 4; }
+svg .marker text { fill: var(--bad); font-size: 10px; }
+svg .marker:focus { outline: none; } svg .marker:focus line { stroke-width: 3; }
+svg text.sub { fill: var(--muted); font-size: 10px; }
+.legend span.gq::before { background: var(--c-gq); } .legend span.gr::before { background: var(--c-gr); }
+.legend span.s-without::before { background: var(--c-without); } .legend span.s-cli::before { background: var(--c-cli); } .legend span.s-with::before { background: var(--c-with); }
+.verdict-sm { font-size: 1.15rem; font-weight: 600; margin: 16px 0; }

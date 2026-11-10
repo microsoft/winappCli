@@ -1,26 +1,57 @@
 #!/usr/bin/env node
 // Builds the static benchmark dashboard from trial result files.
 //   node benchmarks/dashboard/build.mjs --data <dir> [--label <text>] [--data <dir> [--label <text>] ...] --out <dir>
-import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { aggregateRelease, compareEntries, trend, BASE_ARM, SKILLS_ARM, OUTLIER_RULES, SANITY_PASS_RATE } from './lib/aggregate.mjs';
+import { buildTrends, CONTROL_SHIFT } from './lib/trends.mjs';
+import { aggregateRelease, compareEntries, BASE_ARM, SKILLS_ARM, OUTLIER_RULES, SANITY_PASS_RATE } from './lib/aggregate.mjs';
 import { loadData } from './lib/load.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_RAW_DATA_URL = 'https://github.com/microsoft/winappCli/tree/benchmark-data';
 
+// Method changes: method-changes.json next to this script, plus a method-changes.json at the
+// top of any --data folder. Entries with the same id are replaced by the later file.
+export function loadMethodChanges(dirs, warnings = []) {
+  const byId = new Map();
+  for (const file of [join(here, 'method-changes.json'), ...dirs.map((d) => join(d, 'method-changes.json'))]) {
+    if (!existsSync(file)) continue;
+    let list;
+    try {
+      list = JSON.parse(readFileSync(file, 'utf8'));
+    } catch (e) {
+      warnings.push(`${file}: not valid JSON (${e.message}); skipped`);
+      continue;
+    }
+    if (!Array.isArray(list)) {
+      warnings.push(`${file}: expected an array of method changes; skipped`);
+      continue;
+    }
+    for (const c of list) {
+      if (!c?.id || !/^\d{4}-\d{2}-\d{2}$/.test(c.date ?? '') || !c.title) {
+        warnings.push(`${file}: a method change needs id, date (YYYY-MM-DD) and title; skipped ${JSON.stringify(c?.id ?? c)}`);
+        continue;
+      }
+      byId.set(c.id, c);
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // sources: folder paths, or { dir, label } pairs. See loadData.
 export function buildSiteData(sources, { rawDataUrl = DEFAULT_RAW_DATA_URL, now = new Date() } = {}) {
   const { releases, labels, warnings } = loadData(sources);
   const out = [...releases.keys()].map((k) => aggregateRelease(k, releases.get(k), { label: labels.has(k) ? k : null })).sort(compareEntries);
+  const methodChanges = loadMethodChanges(sources.map((s) => (typeof s === 'string' ? s : s.dir)), warnings);
   return {
     generatedAt: now.toISOString(),
     rawDataUrl,
-    rules: { sanityPassRate: SANITY_PASS_RATE, baseArm: BASE_ARM, skillsArm: SKILLS_ARM, ...OUTLIER_RULES },
+    rules: { sanityPassRate: SANITY_PASS_RATE, baseArm: BASE_ARM, skillsArm: SKILLS_ARM, controlShift: CONTROL_SHIFT, ...OUTLIER_RULES },
     warnings,
     releases: out,
-    trend: { apps: trend(out, 'apps'), tasks: trend(out, 'tasks') },
+    methodChanges,
+    trends: buildTrends(out, methodChanges),
   };
 }
 

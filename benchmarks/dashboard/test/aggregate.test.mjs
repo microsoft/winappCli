@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import {
-  aggregateBenchmark, aggregateRelease, compareEntries, compareReleases, metrics, trend, wilson,
+  aggregateBenchmark, aggregateRelease, compareEntries, compareReleases, metrics, wilson,
 } from '../lib/aggregate.mjs';
 import { loadData } from '../lib/load.mjs';
 import { buildSiteData, parseCli } from '../build.mjs';
@@ -192,11 +192,8 @@ test('extra and missing optional fields are tolerated', () => {
   assert.deepEqual(b.winappVersions, ['0.7.1']);
 });
 
-test('releases sort newest first with dev last, and the trend skips dev', () => {
+test('releases sort newest first with dev last', () => {
   assert.deepEqual(['dev', 'v0.7.1', 'v0.10.0', 'v0.7.0'].sort(compareReleases), ['v0.10.0', 'v0.7.1', 'v0.7.0', 'dev']);
-  const rel = (name, passed) => aggregateRelease(name, [t({ arm: 'cli-plus-skills', passed, extra: { release: name } }), t({ arm: 'cli-plus-skills', trial: 2, extra: { release: name } })]);
-  const points = trend([rel('v0.8.0', true), rel('dev', true), rel('v0.7.0', false)]);
-  assert.deepEqual(points.map((p) => [p.release, p.all]), [['v0.7.0', 0.5], ['v0.8.0', 1]]);
 });
 
 test('loadData reads both folder layouts and reports bad files', () => {
@@ -233,7 +230,8 @@ test('site data from the fixture has the expected counts', () => {
   assert.equal(tasks.headline['cli-only'].all.valid, 0);
   assert.deepEqual(tasks.arms, ['barebones', 'cli-only', 'full-suite']);
   assert.deepEqual(tasks.launchLevelNames, []);
-  assert.deepEqual(d.trend.apps, []);
+  assert.equal(d.trends.dev.apps.points.length, 1);
+  assert.equal(d.trends.release.tasks.points.length, 1);
 });
 
 test('build.mjs writes a site that loads its data', () => {

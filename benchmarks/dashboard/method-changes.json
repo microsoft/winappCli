@@ -1,0 +1,19 @@
+[
+  {
+    "date": "2026-11-10",
+    "id": "run-3-fixes",
+    "title": "Run 3 fixes",
+    "affects": ["apps", "tasks"],
+    "comparable": { "barebones": true, "cli-only": false, "cli-plus-skills": false },
+    "detail": "Trials on a locked desktop are excluded. Builds retry with Visual Studio MSBuild. launchLevel is left empty when it was not measured. Prompts for setups that have winapp (cli-only and cli-plus-skills) now say winapp is installed, so those two setups are not comparable with earlier runs; barebones is."
+  },
+  {
+    "date": "2026-11-10",
+    "id": "scoring-v4",
+    "title": "Scoring version 4",
+    "affects": ["apps"],
+    "scoringVersion": 4,
+    "comparable": false,
+    "detail": "The judge reports a requirement as not run when it can't verify it, instead of passing or failing it."
+  }
+]

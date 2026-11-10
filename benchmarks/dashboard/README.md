@@ -86,7 +86,18 @@ All of this is in `lib\aggregate.mjs`.
 - **Skills.** Counted in all runs, whatever the outcome. Runs whose file has no `skills` field are reported as "not recorded" rather than "0".
 - **What changed with skills.** For each quality-check topic (for example Packaging = checks `p2` and `p3`), the pass rate in valid `apps` runs for `barebones` and `cli-plus-skills`, and the change. The topic list and related skills are `QUALITY_TOPICS` in `lib\aggregate.mjs`. This compares setups, not skills: a skill loading in a run is not evidence it helped.
 - **Skill claims.** Every skill shows "Not enough data" until the claim rules in #1182 are decided.
-- **Trend.** Shown once two `vX.Y.Z` releases exist. `dev` runs are never part of it.
+
+## Trends and method changes
+
+The Trends tab plots one point per run, ordered by date. Development runs and releases are separate views; the release view uses releases only (#1182). With one run it says "One run so far; trends appear after the next run."
+
+- **Gap chart.** `cli-plus-skills` minus `barebones` for quality checks met and requirements met, with the number of valid runs per setup under each point. A model selector shows one model at a time.
+- **Setups chart.** Each setup's own value for the chosen metric.
+- **Method changes.** `method-changes.json` in this folder lists changes to how we measure. Each entry has `date` (YYYY-MM-DD), `id`, `title`, `affects` (`apps`, `tasks`), `comparable` and `detail`. `comparable` is `true`, `false`, or per setup, such as `{ "barebones": true, "cli-plus-skills": false }`. An entry with `scoringVersion` applies where runs first reach that scoring version; otherwise it applies between two runs when its date is after the first run ended and no later than the day the second run started. A data folder may hold its own `method-changes.json`; entries with the same `id` replace the ones here. A change in `scoringVersion` with no entry still counts as not comparable.
+- **Breaks.** Where a change is not comparable, a dashed "method changed" line sits between the two runs (hover for the change), and the line is not drawn across it. The gap breaks if either `barebones` or `cli-plus-skills` is not comparable.
+- **Control.** `barebones` should not move between comparable runs. If its quality checks, requirements or pass rate move more than 5 points, the tab says "barebones moved: something other than the skills changed (model, machine or harness)".
+- **Per app.** `barebones` quality checks met per app and run. An app is flagged "Getting easier" when that rises more than 5 points across comparable runs.
+- **Run info.** Per run: dates, commits, plugins commit (`pluginsCommit` in the trial files, when present), winapp versions, models and scoring versions.
 
 ## Tests
 
