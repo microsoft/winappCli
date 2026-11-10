@@ -9,13 +9,16 @@
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { resultsRoot } from "./runner/config.js";
+import { failedBuildGate, resultsRoot } from "./runner/config.js";
+import { trialOutcome, type TrialOutcome } from "./runner/trial-result.js";
 
 interface Trial {
   arm: string;
   model: string;
   scenario: string;
   iteration: number;
+  /** Only `valid` trials are scored; the others are counted. */
+  outcome: TrialOutcome;
   score: number;
   success: boolean;
   req: number | null;
@@ -58,6 +61,13 @@ for (const name of readdirSync(runDir)) {
     model: String(r.model ?? "?"),
     scenario: r.scenario,
     iteration: r.iteration ?? 1,
+    outcome: trialOutcome({
+      harnessError: r.harness_error,
+      timedOut: m.timeout === true,
+      builds: m.builds,
+      runs: m.runs,
+      failedGate: failedBuildGate(m.quality_checks),
+    }),
     score: typeof m.score === "number" ? m.score : 0,
     success: !!m.builds && !!m.runs && !(b?.gates?.failed?.length) && !r.fail_reason,
     req: b?.requirements?.pct ?? null,
@@ -102,14 +112,19 @@ const models = [...new Set(trials.map((t) => t.model))];
 const lines: string[] = [];
 const out = (s = "") => lines.push(s);
 
+const valid = (ts: Trial[]) => ts.filter((t) => t.outcome === "valid");
+
 function headline(ts: Trial[]): void {
-  out("| Setup | n | Score | Success | Requirements | Quality | Design | Credits | Session min |");
+  out("| Setup | Valid of total | Score | Success | Requirements | Quality | Design | Credits | Session min |");
   out("|---|---:|---:|---:|---:|---:|---:|---:|---:|");
   for (const arm of arms) {
-    const at = ts.filter((t) => t.arm === arm);
-    if (!at.length) continue;
+    const all = ts.filter((t) => t.arm === arm);
+    if (!all.length) continue;
+    // A harness error says nothing about the agent, so it is left out of every column.
+    const at = all.filter((t) => t.outcome !== "harness-error");
+    const v = valid(all);
     const ok = at.filter((t) => t.success);
-    out(`| ${arm} | ${at.length} | ${fmtCi(ci(at.map((t) => t.score)))} | ${pct(ok.length / at.length)} | ${pct(ok.length ? mean(vals(ok, "req")) : null)} | ${pct(ok.length ? mean(vals(ok, "quality")) : null)} | ${fmt(vals(ok, "design").length ? mean(vals(ok, "design")) : null, 1)} | ${fmtCi(ci(vals(at, "credits")), 1)} | ${fmtCi(ci(vals(at, "minutes")), 1)} |`);
+    out(`| ${arm} | ${v.length} of ${all.length} | ${v.length ? fmtCi(ci(v.map((t) => t.score))) : "–"} | ${at.length ? pct(ok.length / at.length) : "–"} | ${pct(ok.length ? mean(vals(ok, "req")) : null)} | ${pct(ok.length ? mean(vals(ok, "quality")) : null)} | ${fmt(vals(ok, "design").length ? mean(vals(ok, "design")) : null, 1)} | ${at.length ? fmtCi(ci(vals(at, "credits")), 1) : "–"} | ${at.length ? fmtCi(ci(vals(at, "minutes")), 1) : "–"} |`);
   }
   out();
 }
@@ -121,8 +136,8 @@ function paired(ts: Trial[]): void {
   for (let i = 0; i < arms.length; i++) {
     for (let j = i + 1; j < arms.length; j++) {
       const [a, b] = [arms[i], arms[j]];
-      const A = new Map(ts.filter((t) => t.arm === a).map((t) => [key(t), t]));
-      const pairs = ts.filter((t) => t.arm === b && A.has(key(t))).map((t) => [A.get(key(t))!, t] as const);
+      const A = new Map(valid(ts).filter((t) => t.arm === a).map((t) => [key(t), t]));
+      const pairs = valid(ts).filter((t) => t.arm === b && A.has(key(t))).map((t) => [A.get(key(t))!, t] as const);
       if (!pairs.length) continue;
       const d = pairs.map(([x, y]) => y.score - x.score);
       const dc = pairs.filter(([x, y]) => x.credits !== null && y.credits !== null).map(([x, y]) => y.credits! - x.credits!);
@@ -140,7 +155,7 @@ function byScenario(ts: Trial[]): void {
   out(`|---|${arms.map(() => "---:").join("|")}|`);
   for (const s of scenarios) {
     out(`| ${s} | ${arms.map((a) => {
-      const xs = ts.filter((t) => t.arm === a && t.scenario === s).map((t) => t.score);
+      const xs = valid(ts).filter((t) => t.arm === a && t.scenario === s).map((t) => t.score);
       return xs.length ? `${fmt(mean(xs))} (${xs.join(", ")})` : "–";
     }).join(" | ")} |`);
   }
@@ -150,7 +165,7 @@ function byScenario(ts: Trial[]): void {
 const scenarioCount = new Set(trials.map((t) => t.scenario)).size;
 out(`# Scorecard: ${runName}`);
 out();
-out(`${trials.length} trials · ${arms.length} setups · ${models.length} model(s) (${models.join(", ")}) · ${scenarioCount} scenarios. Means with 95% CI; pairs match model, scenario, and iteration. Small samples show direction, not significance.`);
+out(`${trials.length} trials (${valid(trials).length} valid) · ${arms.length} setups · ${models.length} model(s) (${models.join(", ")}) · ${scenarioCount} scenarios. Scores use valid trials only: build failures, apps that didn't run, timeouts and harness errors are counted, not scored. Means with 95% CI; pairs match model, scenario, and iteration and need both trials valid. Small samples show direction, not significance.`);
 out();
 
 if (models.length > 1) {
@@ -185,10 +200,15 @@ for (const id of ids) {
     return st.length ? `${pct(st.filter((s) => s === "pass").length / st.length)} (${st.length})` : "–";
   }).join(" | ")} |`);
 }
-const failed = trials.filter((t) => !t.success);
+const failed = trials.filter((t) => !t.success && t.outcome !== "harness-error");
 if (failed.length) {
   out();
   out(`Gate failures (${failed.length}): ${failed.map((t) => `${t.model}/${t.arm}/${t.scenario}#${t.iteration}`).join(", ")}`);
+}
+const harnessErrors = trials.filter((t) => t.outcome === "harness-error");
+if (harnessErrors.length) {
+  out();
+  out(`Harness errors, not scored (${harnessErrors.length}): ${harnessErrors.map((t) => `${t.model}/${t.arm}/${t.scenario}#${t.iteration}`).join(", ")}`);
 }
 
 const text = lines.join("\n");

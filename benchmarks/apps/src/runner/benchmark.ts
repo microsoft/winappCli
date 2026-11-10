@@ -42,6 +42,7 @@ import {
   evaluateBuildWarnings,
   evaluateKeyboardTraversal,
   evaluateLoaded,
+  evaluateOnlyDialog,
   evaluateNativeAot,
   evaluateReady,
   evaluateSourceChecks,
@@ -3974,27 +3975,11 @@ async function runBenchmarkImpl(
     await cleanupApps(true);
     setStatus("timeout");
     entry.finishedAt = new Date();
-    writeFileSync(
-      join(trialDir, "results.json"),
-      JSON.stringify(
-        {
-          trial: entry.trialName,
-          scenario: entry.scenarioConfigName,
-          condition: entry.condition,
-          model: entry.model,
-          metrics: { score: 0, builds: false, runs: false, timeout: true },
-        },
-        null,
-        2
-      )
-    );
-    return;
-  }
-
-  // Build session failed before producing a usable session. Persist a
-  // failed-status results.json so the trial doesn't dead-end (UI stuck on
-  // "building", no aggregate / re-score data).
-  if (buildResult.exitCode !== 0) {
+    // The trial is saved with its usage below, once the session's usage has been read.
+  } else if (buildResult.exitCode !== 0) {
+    // Build session failed before producing a usable session. Persist a
+    // failed-status results.json so the trial doesn't dead-end (UI stuck on
+    // "building", no aggregate / re-score data).
     banner(`BUILD SESSION FAILED (exit ${buildResult.exitCode})`, "❌", "red");
     // Mirror to session-log.txt so the error survives a UI reload (the live
     // onOutput buffer is renderer-side only).
@@ -4145,6 +4130,15 @@ async function runBenchmarkImpl(
     );
   }
 
+  if (buildResult.timedOut) {
+    entry.builds = false;
+    entry.runs = false;
+    entry.score = 0;
+    entry.failReason = "Timeout";
+    saveResults(trialDir, entry, scenarioConfig, usage);
+    return;
+  }
+
   // ── 8. Build ──
   setStatus("dotnet_build");
   if (agentConfig.build_command) {
@@ -4209,6 +4203,7 @@ async function runBenchmarkImpl(
       banner(`FAILED: gate ${gate.id} — ${gate.label}`, "❌", "red");
       entry.runs = false;
       entry.score = 0;
+      entry.failedGate = gate.id;
       entry.failReason = `Gate ${gate.id} failed: ${gate.detail || gate.label}`;
     }
   }
@@ -4224,6 +4219,7 @@ async function runBenchmarkImpl(
       banner(`FAILED: gate ${gate.id} — ${gate.label}`, "❌", "red");
       entry.runs = false;
       entry.score = 0;
+      entry.failedGate = gate.id;
       entry.failReason = `Gate ${gate.id} failed: ${gate.detail || gate.label}`;
     }
   }
@@ -4280,6 +4276,8 @@ async function runBenchmarkImpl(
         entry.harnessError = DESKTOP_LOCKED_ERROR;
         entry.failReason = DESKTOP_LOCKED_ERROR;
         entry.score = undefined;
+      } else {
+        failLaunchOnAppGate(entry, uiChecks, log);
       }
     }
   }
@@ -4575,12 +4573,16 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
   try {
     // Right after launch the window may not be listed yet; give it a few seconds.
     let hwnd: unknown;
+    let windowList: any[] = [];
     for (let attempt = 0; attempt < 6 && !hwnd; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
       const windows = parse((await ui(["list-windows", "-a", appPid, "--json"])).output);
-      hwnd = (Array.isArray(windows) ? windows : [windows])
-        .find((w: any) => w?.hwnd && w.title && w.title !== "PopupHost")?.hwnd;
+      windowList = Array.isArray(windows) ? windows : [windows];
+      hwnd = windowList.find((w: any) => w?.hwnd && w.title && w.title !== "PopupHost")?.hwnd;
     }
+    // An error dialog alone (for example ".NET is not installed") is not a running app.
+    const onlyDialog = evaluateOnlyDialog(windowList);
+    if (onlyDialog) return [onlyDialog];
     if (!hwnd) {
       return [
         na("Q0", "Accessible names on interactive controls", "Main window not found"),
@@ -4644,6 +4646,16 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
   } finally {
     await ui(["yield"], 5000).catch(() => undefined);
   }
+}
+
+/** A failed launch gate from the UI checks (only an error dialog) means the app did not run. */
+function failLaunchOnAppGate(entry: RunEntry, uiChecks: QualityCheck[], log: (msg: string) => void): void {
+  const gate = uiChecks.find((c) => c.kind === "gate" && c.status === "fail");
+  if (!gate) return;
+  entry.runs = false;
+  entry.score = 0;
+  entry.failReason = `App failed: ${gate.detail || gate.label}`;
+  log(`  FAIL ❌ ${entry.failReason}`);
 }
 
 /**
@@ -4767,6 +4779,7 @@ function saveResults(
       score: entry.score,
       builds: entry.builds,
       runs: entry.runs,
+      ...(entry.completionReason === "hard_timeout" ? { timeout: true } : {}),
       time_and_tokens: usage,
       ...(valData ? {
         requirements: valData.requirements,
@@ -4978,6 +4991,7 @@ async function revalidateBenchmarkImpl(
   const globalConfig = loadGlobalConfig();
   // A harness error from the attempt being replaced must not skip this attempt's judge.
   entry.harnessError = undefined;
+  entry.failedGate = undefined;
 
   // Find scenario config
   const scenarioResult = loadScenario(entry.scenarioPath);
@@ -5090,6 +5104,7 @@ async function revalidateBenchmarkImpl(
     const gate = checks.find((c) => c.kind === "gate" && c.status === "fail");
     if (gate) {
       entry.runs = false; entry.score = 0;
+      entry.failedGate = gate.id;
       entry.failReason = `Gate ${gate.id} failed: ${gate.detail || gate.label}`;
       entry.finishedAt = new Date();
       setStatus("failed");
@@ -5101,6 +5116,7 @@ async function revalidateBenchmarkImpl(
     const artifactGate = artifactChecks.find((c) => c.status === "fail");
     if (artifactGate) {
       entry.runs = false; entry.score = 0;
+      entry.failedGate = artifactGate.id;
       entry.failReason = `Gate ${artifactGate.id} failed: ${artifactGate.detail || artifactGate.label}`;
       entry.finishedAt = new Date();
       setStatus("failed");
@@ -5158,6 +5174,8 @@ async function revalidateBenchmarkImpl(
       entry.harnessError = DESKTOP_LOCKED_ERROR;
       entry.failReason = DESKTOP_LOCKED_ERROR;
       entry.score = undefined;
+    } else {
+      failLaunchOnAppGate(entry, uiChecks, log);
     }
   }
 

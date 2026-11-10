@@ -52,9 +52,9 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `outcome` | Meaning |
 |---|---|
 | `valid` | The agent finished and the checks ran. Pass or fail is a real result |
-| `app-failed` | The app built but crashed or did not run. Shown as a "works rate" beside the score |
+| `app-failed` | The app built but did not open a real window: no window, a crash, or only an error dialog. Shown as a "works rate" beside the score. In `apps`, a failed framework or Native AOT gate is the agent's work failing, so that trial is `valid` with `passed: false` |
 | `build-failed` | No app was produced |
-| `timed-out` | The agent ran out of time |
+| `timed-out` | The agent ran out of time. Counted, not scored |
 | `harness-error` | Our tooling failed (locked desktop, judge never ran). `error` is set. Excluded from pass rates. `apps` re-judges the same app automatically, up to 2 times, before recording it (see `retries`) |
 | `asked-before-admin` | `tasks` only: the agent stopped to ask for administrator approval even though the prompt gave it. Shown as its own count, never a pass |
 

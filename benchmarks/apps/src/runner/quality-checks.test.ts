@@ -5,6 +5,7 @@ import {
   evaluateBuildWarnings,
   evaluateKeyboardTraversal,
   evaluateLoaded,
+  evaluateOnlyDialog,
   evaluateReady,
   evaluateNativeAot,
   evaluateSourceChecks,
@@ -182,4 +183,17 @@ test("launch level 3 needs the scenario's named element", () => {
   assert.equal(evaluateReady(undefined, false).status, "na");
   assert.equal(evaluateReady("Add", true).status, "pass");
   assert.equal(evaluateReady("Add", false).status, "fail");
+});
+
+test("an app that shows only an error dialog fails the launch gate and scores 0", () => {
+  const gate = evaluateOnlyDialog([{ hwnd: 1, title: "TaskManager", className: "#32770" }]);
+  assert.equal(gate?.kind, "gate");
+  assert.equal(gate?.status, "fail");
+  assert.match(gate?.detail ?? "", /Only a dialog window: 'TaskManager'/);
+  assert.equal(computeScoreV2({ builds: true, runs: true, checks: [gate!], requirements: [{ status: "pass" }] }).score, 0);
+
+  // A real window next to a dialog, or a CLI that doesn't report window classes, is not failed.
+  assert.equal(evaluateOnlyDialog([{ hwnd: 1, title: "Tasks", className: "WinUIDesktopWin32WindowClass" }, { hwnd: 2, title: "Oops", className: "#32770" }]), undefined);
+  assert.equal(evaluateOnlyDialog([{ hwnd: 1, title: "Tasks" }]), undefined);
+  assert.equal(evaluateOnlyDialog([]), undefined);
 });

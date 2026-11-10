@@ -16,6 +16,7 @@ import { loadRunFromDisk } from "./config.js";
 import { startKeepAwake, systemSuspendedBetween } from "./suspend-guard.js";
 import { DESKTOP_LOCKED_ERROR, LockedDesktopStreak, probeInteractiveDesktop, waitForInteractiveDesktop } from "./desktop-lock.js";
 import { needsHarnessRetry, retryHarnessErrors } from "./harness-retry.js";
+import { entryOutcome } from "./aggregate.js";
 
 export interface QueueOptions {
   maxBuildMinutes: number;
@@ -142,6 +143,7 @@ export class BenchmarkQueue {
                 model: entry.model,
                 metrics: { score: 0, builds: false, runs: false, timeout: false },
                 fail_reason: `runBenchmark threw: ${msg.split("\n")[0]}`,
+                harness_error: `Runner error: ${msg.split("\n")[0]}`,
                 error_excerpt: msg.slice(0, 4000),
               }, null, 2)
             );
@@ -149,6 +151,8 @@ export class BenchmarkQueue {
 
           entry.status = "failed";
           entry.failReason = err instanceof Error ? err.message : String(err);
+          // The harness crashed, not the agent, so the trial is not counted as a failure.
+          entry.harnessError = `Runner error: ${msg.split("\n")[0]}`;
           notifyStatus(entry);
         }
         // A trial that spanned a system sleep/suspend (e.g. a VM hibernated by
@@ -298,7 +302,7 @@ export class BenchmarkQueue {
 
     for (const [key, entries] of groups) {
       const completed = entries.filter(
-        (e) => e.status === "done" && e.score != null
+        (e) => e.score != null && entryOutcome(e) === "valid"
       );
       if (completed.length === 0) continue;
 

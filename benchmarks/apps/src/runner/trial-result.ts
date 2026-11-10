@@ -24,6 +24,21 @@ function launchLevel(runs: boolean, checks: QualityCheck[]): number | undefined 
 
 export const ARMS = ["barebones", "cli-only", "cli-plus-skills"] as const;
 
+export type TrialOutcome = "valid" | "app-failed" | "build-failed" | "timed-out" | "harness-error";
+
+/**
+ * Why a trial ended (benchmarks/RESULTS-FORMAT.md). Only `valid` trials count toward scores.
+ * A failed build gate (G0 wrong framework, G3 Native AOT) is the agent's work failing, so it stays `valid`;
+ * `app-failed` is an app that built but did not open a real window (no window, crashed, or only an error dialog).
+ */
+export function trialOutcome(t: { harnessError?: string; timedOut?: boolean; builds?: boolean; runs?: boolean; failedGate?: string }): TrialOutcome {
+  if (t.harnessError) return "harness-error";
+  if (t.timedOut) return "timed-out";
+  if (!t.builds) return "build-failed";
+  if (!t.runs && !t.failedGate) return "app-failed";
+  return "valid";
+}
+
 export interface ExactUsage {
   tokens: { input: number; output: number; cacheRead: number };
   subAgentTokens: { input: number; output: number; cacheRead: number } | null;
@@ -114,11 +129,10 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
   }
 
   const improvements = checks.filter((c) => c.kind === "improvement");
-  const outcome = input.harnessError ? "harness-error"
-    : input.timedOut ? "timed-out"
-    : !input.builds ? "build-failed"
-    : !input.runs ? "app-failed"
-    : "valid";
+  const outcome = trialOutcome({
+    ...input,
+    failedGate: input.checks.find((c) => c.kind === "gate" && c.status === "fail" && c.id !== "L1")?.id,
+  });
   const level = launchLevel(input.runs, input.checks);
   return {
     schemaVersion: 1,

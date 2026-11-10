@@ -276,6 +276,20 @@ export function evaluateLoaded(enabledCount: number, focusSamples: any[] | null,
     answered ? `${enabledCount} enabled controls; window answered after input` : "Window stopped answering UI queries after input");
 }
 
+/**
+ * Launch gate L1: the app opened a real window, not only a Win32 dialog (class `#32770`,
+ * as used by MessageBox, TaskDialog and the .NET host's "install .NET" prompt).
+ * `windows` is the app's `winapp ui list-windows --json`. Returns a failed gate when
+ * every titled window is a dialog, and undefined otherwise (including when the CLI
+ * doesn't report window classes), so an app is never failed on missing data.
+ */
+export function evaluateOnlyDialog(windows: any[]): QualityCheck | undefined {
+  const titled = windows.filter((w) => w?.hwnd && w.title && w.title !== "PopupHost");
+  if (titled.length === 0 || !titled.every((w) => w.className === "#32770")) return undefined;
+  return check("L1", "Launch: app window, not only a dialog", "gate", "fail",
+    `Only a dialog window: '${String(titled[0].title).slice(0, 120)}'`);
+}
+
 /** Launch level 3 ("ready"): the scenario's named element appeared. `na` when the scenario defines none. */
 export function evaluateReady(readyElement: string | undefined, found: boolean): QualityCheck {
   const label = "Launch level 3: main screen element appeared";

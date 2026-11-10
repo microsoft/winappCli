@@ -1,6 +1,7 @@
 import type { RunEntry } from "../types.js";
 import { parseTokenString } from "./format.js";
 import { estimatePrice, type PriceEstimate } from "./pricing.js";
+import { trialOutcome, type TrialOutcome } from "./trial-result.js";
 
 /** Seconds in a session-time string such as "1h 2m 3s", "4m 5s" or "6s". */
 export function parseDurationText(text: string | undefined): number | undefined {
@@ -32,8 +33,10 @@ export interface AggregatedEntry {
   completed: number;
   /** Trials with no real result because our tooling failed; excluded from `avgScore` and the other means. */
   harnessErrors: number;
-  /** Trials that produced a score. When 0, vgScore, minScore and maxScore are placeholders; show a dash. */
+  /** Valid trials, the only ones in `avgScore`, `minScore` and `maxScore`. When 0, those are placeholders; show a dash. */
   scoredTrials: number;
+  /** Trials per outcome. Only `valid` ones are scored; the others are counted. */
+  outcomes: Record<TrialOutcome, number>;
   buildRate: number;
   runRate: number;
   avgSessionTime?: string;
@@ -48,6 +51,26 @@ export interface AggregatedEntry {
   avgSubAgentCount?: number;
   avgPrice?: PriceEstimate;
   entries: RunEntry[];
+}
+
+/** Outcome of a run entry; an interrupted trial never produced a result, like a harness error. */
+export function entryOutcome(e: RunEntry): TrialOutcome {
+  return trialOutcome({
+    harnessError: e.harnessError ?? (e.status === "interrupted" ? e.failReason ?? "Interrupted" : undefined),
+    timedOut: e.status === "timeout" || e.completionReason === "hard_timeout",
+    builds: e.builds,
+    runs: e.runs,
+    failedGate: e.failedGate,
+  });
+}
+
+/** "3 valid of 5 (1 build failed, 1 harness error)": the headline's sample size, with what was left out. */
+export function validOfTotal(a: Pick<AggregatedEntry, "outcomes" | "iterations">): string {
+  const o = a.outcomes;
+  const other = ([["app-failed", "app failed"], ["build-failed", "build failed"], ["timed-out", "timed out"], ["harness-error", "harness error"]] as const)
+    .filter(([k]) => o[k] > 0)
+    .map(([k, label]) => `${o[k]} ${label}`);
+  return `${o.valid} valid of ${a.iterations}${other.length ? ` (${other.join(", ")})` : ""}`;
 }
 
 /**
@@ -71,7 +94,9 @@ export function aggregateEntries(entries: RunEntry[]): AggregatedEntry[] {
   const result: AggregatedEntry[] = [];
   for (const [, group] of groups) {
     const withScores = group.filter((e) => e.score != null);
-    const scores = withScores.map((e) => e.score!);
+    const outcomes: Record<TrialOutcome, number> = { valid: 0, "app-failed": 0, "build-failed": 0, "timed-out": 0, "harness-error": 0 };
+    for (const e of group) outcomes[entryOutcome(e)]++;
+    const scores = withScores.filter((e) => entryOutcome(e) === "valid").map((e) => e.score!);
     const baseCondition = group[0].condition.replace(/\s*\[\d+\/\d+\]$/, "");
 
     const tokens = withScores
@@ -151,6 +176,7 @@ export function aggregateEntries(entries: RunEntry[]): AggregatedEntry[] {
       completed: withScores.length,
       harnessErrors: group.filter((e) => e.harnessError).length,
       scoredTrials: scores.length,
+      outcomes,
       buildRate: group.filter((e) => e.builds).length / group.length,
       runRate: group.filter((e) => e.runs).length / group.length,
       avgTokens: tokens.length > 0 ? Math.round(tokens.reduce((a, b) => a + b, 0) / tokens.length) : undefined,

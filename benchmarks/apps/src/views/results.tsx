@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type { RunEntry } from "../types.js";
-import { aggregateEntries } from "../runner/aggregate.js";
+import { aggregateEntries, validOfTotal } from "../runner/aggregate.js";
 import { getGrade } from "../components/grades.js";
 import { parseTokenString } from "../components/scatter-plot.js";
 
@@ -93,6 +93,7 @@ export function ResultsView({ entries, runDir, cursorIndex = 0, onCursorClamp }:
               </Text>
               {isCursor && (
                 <Box flexDirection="column">
+                  <Text color="gray">{"     "}↳ Score from {validOfTotal(agg)}</Text>
                   <Text color="gray">
                     {"     "}↳ Total tokens (main+subs): {formatTok(totalInputNum)}
                     {`  |  Cached: ${formatTok(totalCachedNum)} (${totalInputNum > 0 ? (totalCachedNum / totalInputNum * 100).toFixed(1) : "0"}%)`}

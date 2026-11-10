@@ -66,6 +66,8 @@ export interface RunEntry {
   harnessError?: string;
   /** How many times judging was automatically rerun after a harness error. */
   harnessRetries?: number;
+  /** A build gate (G0 framework, G3 Native AOT) failed: the agent's work was judged and failed, so the trial is still valid. */
+  failedGate?: string;
   currentOutput: string;
   startedAt?: Date;
   finishedAt?: Date;

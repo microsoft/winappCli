@@ -47,6 +47,25 @@ test("outcome says why a trial did not produce a working app", () => {
   assert.equal((toTrialResult({ ...base, builds: false, runs: false }) as any).outcome, "build-failed");
 });
 
+test("only an error dialog is app-failed; a failed build gate is the agent's work failing and stays valid", () => {
+  const dialog = toTrialResult({
+    ...base,
+    runs: false,
+    checks: [...base.checks, { id: "L1", label: "Launch", kind: "gate", source: "harness", status: "fail", detail: "Only a dialog window: 'TaskManager'" }],
+  }) as any;
+  assert.equal(dialog.outcome, "app-failed");
+  assert.equal(dialog.passed, false);
+  assert.equal(dialog.launchLevel, 0);
+
+  const wrongFramework = toTrialResult({
+    ...base,
+    runs: false,
+    checks: [{ id: "G0-framework", label: "Framework", kind: "gate", source: "harness", status: "fail" }],
+  }) as any;
+  assert.equal(wrongFramework.outcome, "valid");
+  assert.equal(wrongFramework.passed, false);
+});
+
 test("a scenario can mark a requirement as required", () => {
   const t = toTrialResult({ ...base, requiredRequirements: [2] }) as any;
   assert.equal(t.passed, false);

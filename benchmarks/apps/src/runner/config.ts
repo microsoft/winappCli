@@ -295,6 +295,12 @@ export function loadPrompt(scenarioPath: string): string {
   return existsSync(promptFile) ? readFileSync(promptFile, "utf-8") : "";
 }
 
+/** Id of a failed build gate (G0 framework, G3 Native AOT) in saved quality checks; the launch gate L1 is not one. */
+export function failedBuildGate(checks: unknown): string | undefined {
+  if (!Array.isArray(checks)) return undefined;
+  return checks.find((c: any) => c?.kind === "gate" && c.status === "fail" && c.id !== "L1")?.id;
+}
+
 export function loadValidationPrompt(platformHint?: string): string {
   // Route to platform-specific validation prompt
   const variant = platformHint?.toLowerCase().includes("swiftui") ? "swiftui"
@@ -591,6 +597,7 @@ export function loadRunFromDisk(
         failReason: raw.fail_reason ?? (m.score === 0 ? (m.timeout ? "Timeout" : !m.builds ? "Build failed" : !m.runs ? "App failed to run" : undefined) : undefined),
         harnessError: raw.harness_error,
         ...(raw.harness_retries ? { harnessRetries: raw.harness_retries } : {}),
+        ...(failedBuildGate(m.quality_checks) ? { failedGate: failedBuildGate(m.quality_checks) } : {}),
         currentOutput: "",
         startedAt: raw.timestamp ? new Date(raw.timestamp) : undefined,
         finishedAt: raw.timestamp ? new Date(raw.timestamp) : undefined,

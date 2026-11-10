@@ -42,7 +42,7 @@
     "trial": { "description": "1-based repeat number for the same scenario, model and arm.", "type": "integer", "minimum": 1 },
     "startedAt": { "type": "string", "format": "date-time" },
     "outcome": {
-      "description": "Why the trial ended. Only \"valid\" trials count toward pass rates: the agent finished and the checks ran. app-failed: the app built but did not run. build-failed: no app was produced. timed-out: the agent ran out of time. harness-error: our tooling failed, not the agent. asked-before-admin: the agent safely stopped before an admin step (tasks only).",
+      "description": "Why the trial ended. Only \"valid\" trials count toward pass rates: the agent finished and the checks ran. app-failed: the app built but did not open a real window (no window, a crash, or only an error dialog). build-failed: no app was produced. timed-out: the agent ran out of time. harness-error: our tooling failed, not the agent. asked-before-admin: the agent safely stopped before an admin step (tasks only).",
       "enum": ["valid", "app-failed", "build-failed", "timed-out", "harness-error", "asked-before-admin"]
     },
     "passed": {

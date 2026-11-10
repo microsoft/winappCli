@@ -137,10 +137,12 @@ Share a run without its app sources and build output (which can reach gigabytes)
 
 ## Scoring (v3)
 
-A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where our tooling fails (the judge produced no result, or the desktop was locked during the UI checks) is a harness error. The harness waits for the desktop to unlock and re-judges the same app, without running the agent again, up to 2 times; earlier attempts are kept under `.attempts\<trial>\` and `results.json` records `harness_retries`. If it still fails, the trial has outcome `harness-error`, no score, and is left out of averages. Otherwise:
+A failed gate (build, launch, G0, G3) scores **0** and skips the judge. The launch gate also fails when the app's only window is a Win32 dialog, such as ".NET is not installed". A trial where our tooling fails (the judge produced no result, or the desktop was locked during the UI checks) is a harness error. The harness waits for the desktop to unlock and re-judges the same app, without running the agent again, up to 2 times; earlier attempts are kept under `.attempts\<trial>\` and `results.json` records `harness_retries`. If it still fails, the trial has outcome `harness-error` and no score. Otherwise:
 
 **score = 60 × requirements + 30 × quality checks + 10 × design** (each part is its pass rate;
 parts that don't apply are dropped and the rest renormalized).
+
+Average scores use valid trials only, and each view says how many, for example "2 valid of 6 (1 app failed, 1 build failed, 1 timed out, 1 harness error)". A failed G0 or G3 gate is the agent's work failing, so it stays valid and scores 0. A build failure, an app that built but didn't open a real window, a timeout, and a harness error are counted, not scored; build and run rates show them.
 
 | Part | Checked by | Details |
 |---|---|---|

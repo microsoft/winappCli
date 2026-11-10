@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type { RunEntry } from "../types.js";
-import { aggregateEntries } from "../runner/aggregate.js";
+import { aggregateEntries, validOfTotal } from "../runner/aggregate.js";
 import { getGrade } from "../components/grades.js";
 
 interface SummaryData {
@@ -84,7 +84,7 @@ export function SummaryView({ entries, runDir }: Props) {
 
       {/* Rankings from data */}
       <Box flexDirection="column" marginTop={1} paddingX={1} flexShrink={0}>
-        <Text bold color="yellow">Rankings (by avg score)</Text>
+        <Text bold color="yellow">Rankings (by avg score of valid trials)</Text>
         {aggregated.map((agg, i) => {
           const grade = getGrade(agg.avgScore);
           const scoreRange =
@@ -95,7 +95,7 @@ export function SummaryView({ entries, runDir }: Props) {
               : `${agg.avgScore}/100`;
           return (
             <Text key={i} color={grade.color}>
-              {"  "}{i + 1}. {pad(grade.letter, 4)} {pad(agg.condition, 28)} {pad(agg.model.replace("claude-", ""), 12)} {pad(scoreRange, 20)} {pad(agg.avgInputTokens || "\u2014", 8)} {pad(agg.avgCredits != null ? `${agg.avgCredits} AIU` : "\u2014", 12)}
+              {"  "}{i + 1}. {pad(grade.letter, 4)} {pad(agg.condition, 28)} {pad(agg.model.replace("claude-", ""), 12)} {pad(scoreRange, 20)} {pad(agg.avgInputTokens || "\u2014", 8)} {pad(agg.avgCredits != null ? `${agg.avgCredits} AIU` : "\u2014", 12)} {validOfTotal(agg)}
             </Text>
           );
         })}
