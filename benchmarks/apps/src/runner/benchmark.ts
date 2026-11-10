@@ -75,6 +75,8 @@ import { appendBounded, PROCESS_OUTPUT_MAX_CHARS } from "./live-output.js";
 import { runUntilSdkCompletion, type SdkCompletionReason } from "./sdk-lifecycle.js";
 import { compareVersionCore, resolveWinAppToolchain } from "./winapp-toolchain.js";
 import { readLinesSync } from "./jsonl-stream.js";
+import { DESKTOP_LOCKED_ERROR, probeInteractiveDesktop, uiBlockedByLockedDesktop, waitForInteractiveDesktop } from "./desktop-lock.js";
+import { findVsMsBuild, msbuildRetryArgs } from "./vs-msbuild.js";
 import { evaluateConcurrentProcessCommand, extractCommand } from "./process-safety.js";
 import type { RunEntry, ScenarioConfig, AgentSetupConfig, GlobalConfig } from "../types.js";
 import { parse as parseYaml } from "yaml";
@@ -2249,6 +2251,24 @@ async function defaultDotnetBuild(
       undefined,
       false
     );
+    if (result.exitCode !== 0) {
+      // Some WinUI projects build only with Visual Studio's MSBuild (e.g. MSB4062 for the PRI tasks).
+      const msbuild = findVsMsBuild();
+      if (msbuild) {
+        const retryArgs = msbuildRetryArgs(csproj, buildPlatform);
+        log(`  dotnet build failed; retrying once with Visual Studio MSBuild: "${msbuild}" ${retryArgs.join(" ")}`);
+        const retry = await runProcess(msbuild, retryArgs, workDir, callbacks.onOutput, undefined, false);
+        log(`  Build gate builder: Visual Studio MSBuild (${retry.exitCode === 0 ? "succeeded" : "also failed"})`);
+        result = {
+          ...retry,
+          output: `${result.output}\n\n=== dotnet build failed; retried with Visual Studio MSBuild: ${msbuild} ${retryArgs.join(" ")} ===\n\n${retry.output}`,
+        };
+      } else {
+        log("  dotnet build failed; Visual Studio MSBuild not found, so no retry.");
+      }
+    } else {
+      log("  Build gate builder: dotnet build");
+    }
   } else {
     // Non-Windows only; Windows always builds for the host architecture above.
     const buildCommand = (globalConfig.build?.fallback_command || globalConfig.build?.command || "dotnet build {csproj} -c Debug")
@@ -2985,6 +3005,8 @@ async function runBenchmarkImpl(
   const logsDir = join(trialDir, "session-logs-dir");
   mkdirSync(workDir, { recursive: true });
   mkdirSync(logsDir, { recursive: true });
+  // A new attempt must not leave an earlier export behind if it ends early.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
 
   // Keep SDK SQLite/session state on a short physical path. Deep benchmark
   // trial names can push SQLite paths beyond Windows' practical path limit.
@@ -4248,11 +4270,16 @@ async function runBenchmarkImpl(
       entry.score = 0;
       banner("App didn't run — skipping validation", "⏭️", "yellow");
     } else if (appPid) {
-      const uiChecks = await runUiQualityChecks(String(appPid), workDir, log, scenarioConfig.ready_element);
+      const { checks: uiChecks, locked } = await runUiChecksWhenUnlocked(String(appPid), workDir, log, scenarioConfig.ready_element);
       if (uiChecks.length) {
         log("  Quality checks (UI):");
         logQualityChecks(uiChecks, log);
         (entry as any)._qualityChecks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...uiChecks];
+      }
+      if (locked) {
+        entry.harnessError = DESKTOP_LOCKED_ERROR;
+        entry.failReason = DESKTOP_LOCKED_ERROR;
+        entry.score = undefined;
       }
     }
   }
@@ -4265,8 +4292,9 @@ async function runBenchmarkImpl(
   // still gets builds/runs metrics, but no `score` and no `validation` block
   // in results.json — used by sweeps (and advanced flat runs that do their own
   // scoring as separate tasks) that only care whether the code compiles +
-  // launches.
-  if (entry.runs && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
+  // launches. A locked desktop already made the trial a harness error, so the
+  // judge is not run either.
+  if (entry.runs && !entry.harnessError && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
     setStatus("validating");
     banner("VALIDATION", "🔍", "magenta");
 
@@ -4573,6 +4601,7 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
       !caption.test((e.name ?? "").trim()) && !caption.test((e.automationId ?? "").trim()) && !/^(Edit|Document)$/.test(String(e.type)));
     let q1: QualityCheck;
     let inputSamples: any[] | null = null;
+    let desktopLocked = false;
     if (enabled.length === 0) {
       q1 = evaluateKeyboardTraversal([], 0);
     } else {
@@ -4588,6 +4617,7 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
       }
       if (!focusedOk) focusedOk = !!parse((await ui(["get-focused", "-w", String(hwnd), "--json"])).output)?.hasFocus;
       if (!focusedOk) {
+        desktopLocked = /no interactive desktop/i.test(focusError);
         q1 = na("Q1", "Keyboard navigation (Tab moves focus through controls)",
           `Could not focus a control (desktop busy or activation refused)${focusError ? `: ${focusError}` : ""}`);
       } else {
@@ -4607,13 +4637,33 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
     } else {
       ready = evaluateReady(undefined, false);
     }
-    return [q0, q1, evaluateLoaded(enabled.length, inputSamples), ready];
+    return [q0, q1, evaluateLoaded(enabled.length, inputSamples, desktopLocked), ready];
   } catch (err) {
     log(`  ⚠️ UI quality checks failed: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   } finally {
     await ui(["yield"], 5000).catch(() => undefined);
   }
+}
+
+/**
+ * Runs the UI checks once the desktop is unlocked. Returns `locked` when the
+ * desktop stayed locked or input was refused because of a lock, so the caller
+ * records a harness error instead of scoring checks that measured nothing.
+ */
+async function runUiChecksWhenUnlocked(
+  appPid: string, cwd: string, log: (msg: string) => void, readyElement?: string,
+): Promise<{ checks: QualityCheck[]; locked: boolean }> {
+  if (!isWindows) return { checks: await runUiQualityChecks(appPid, cwd, log, readyElement), locked: false };
+  if (!(await waitForInteractiveDesktop(probeInteractiveDesktop, { log }))) {
+    log(`  ❌ ${DESKTOP_LOCKED_ERROR}. The desktop stayed locked; this trial gets no score.`);
+    return { checks: [], locked: true };
+  }
+  const checks = await runUiQualityChecks(appPid, cwd, log, readyElement);
+  const l2 = checks.find((c) => c.id === "L2");
+  const locked = uiBlockedByLockedDesktop(checks, l2?.status === "na" ? probeInteractiveDesktop() : true);
+  if (locked) log(`  ❌ ${DESKTOP_LOCKED_ERROR}. Input was refused because the desktop is locked; this trial gets no score.`);
+  return { checks, locked };
 }
 
 function logQualityChecks(checks: QualityCheck[], log: (msg: string) => void): void {
@@ -4665,7 +4715,9 @@ function saveResults(
   trialDir: string,
   entry: RunEntry,
   config: ScenarioConfig,
-  usage: Record<string, any>
+  usage: Record<string, any>,
+  /** Revalidation passes the original attempt's identity, or null when it is unknown. */
+  original?: { release: string; commit: string; startedAt: string } | null
 ) {
   // Extract structured validation data if available
   const valData = (entry as any)._validationData as {
@@ -4746,20 +4798,41 @@ function saveResults(
   if (isWindows) {
     try { results.toolchain = { winapp: resolveWinAppToolchain().version }; } catch { /* recorded elsewhere as a launch failure */ }
   }
+  // Revalidation rebuilds with today's CLI, which may not be the one the agent used, so only a fresh run records it.
+  let winappVersion: string | undefined;
+  if (isWindows && original === undefined) {
+    try { winappVersion = resolveWinAppToolchain().fullVersion; } catch { /* no CLI */ }
+  }
+  const release = original?.release ?? (process.env.BENCH_RELEASE || "dev");
+  const commit = original?.commit ?? currentCommit();
+  const startedAt = original?.startedAt ?? entry.startedAt;
+  // Kept here, not only in trial-result.json, so a failed judge can be retried without rerunning the agent.
+  if (original !== null && startedAt) results.attempt = { release, commit, started_at: new Date(startedAt).toISOString() };
   writeTextAtomic(join(trialDir, "results.json"), JSON.stringify(results, null, 2));
 
   // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
   const exact = usage?.exact;
-  if (exact && entry.startedAt) {
+  // Never leave an earlier result behind when this evaluation can't be exported.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
+  // A tooling failure while judging is not an app result, and must not count as a pass.
+  const judgingFailed = /^(Re)?[Vv]alidation /.test(entry.failReason ?? "");
+  // A release result names one commit, so plugins from another commit would mislabel it.
+  const pluginSha = entry.agentSource?.sha;
+  const pluginMismatch = release !== "dev" && !!entry.agentSource &&
+    (pluginSha !== commit || !!entry.agentSource.dirty);
+  if (judgingFailed) console.warn(`  No trial-result.json written: ${entry.failReason}.`);
+  if (pluginMismatch) console.warn(`  No trial-result.json written: plugins came from ${pluginSha?.slice(0, 8)}${entry.agentSource?.dirty ? " (uncommitted changes)" : ""} but the release commit is ${commit.slice(0, 8)}.`);
+  if (exact && startedAt && original !== null && !judgingFailed && !pluginMismatch) {
     const trial = toTrialResult({
-      release: process.env.BENCH_RELEASE || "dev",
-      commit: currentCommit(),
+      release,
+      commit,
+      winappVersion,
       scenario: entry.scenarioConfigName,
       set: config.set,
       condition: entry.condition,
       model: entry.model,
       iteration: entry.iteration,
-      startedAt: new Date(entry.startedAt),
+      startedAt: new Date(startedAt),
       builds: !!entry.builds,
       runs: !!entry.runs,
       checks: qualityChecks ?? [],
@@ -4814,7 +4887,13 @@ function saveRevalidationResults(
       if (!entry.agentSource && old.agent_source) entry.agentSource = old.agent_source;
     } catch {}
   }
-  saveResults(trialDir, entry, scenarioConfig, usage);
+  // Keep the original attempt's release, commit and start time; without them it can't be exported.
+  let original: { release: string; commit: string; startedAt: string } | null = null;
+  try {
+    const a = JSON.parse(readFileSync(existingResults, "utf-8")).attempt;
+    if (a?.release && a.commit && a.started_at) original = { release: a.release, commit: a.commit, startedAt: a.started_at };
+  } catch {}
+  saveResults(trialDir, entry, scenarioConfig, usage, original);
 }
 
 
@@ -5059,16 +5138,21 @@ async function revalidateBenchmarkImpl(
   if (!entry.runs) {
     entry.score = 0;
   } else if (appPid) {
-    const uiChecks = await runUiQualityChecks(String(appPid), workDir, log, scenarioConfig.ready_element);
+    const { checks: uiChecks, locked } = await runUiChecksWhenUnlocked(String(appPid), workDir, log, scenarioConfig.ready_element);
     if (uiChecks.length) {
       log("  Quality checks (UI):");
       logQualityChecks(uiChecks, log);
       (entry as any)._qualityChecks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...uiChecks];
     }
+    if (locked) {
+      entry.harnessError = DESKTOP_LOCKED_ERROR;
+      entry.failReason = DESKTOP_LOCKED_ERROR;
+      entry.score = undefined;
+    }
   }
 
   // ─── VALIDATION ─── (per-task skipValidation OR global SKIP_VALIDATION env)
-  if (entry.runs && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
+  if (entry.runs && !entry.harnessError && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
     setStatus("validating");
     banner("VALIDATION", "🔍", "magenta");
 

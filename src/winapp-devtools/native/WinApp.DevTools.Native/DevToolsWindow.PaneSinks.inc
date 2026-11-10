@@ -2,12 +2,16 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+static void ShowEl(IInspectable* el, bool visible);
+
 static void SetStatusText(const std::wstring& s)
 {
     if (!g_statusTb) return;
     HSTRING hs = MakeStr(s);
     DevToolsPutText(g_statusTb, hs);
     WindowsDeleteString(hs);
+    ShowEl(g_statusTb, !s.empty());
+    if (g_statusHostUi) DevToolsPutVisibility(g_statusHostUi, s.empty() ? 1 : 0);
 }
 
 // The last write's failure reason, and the row it is shown on until that row's next commit or another selection.
@@ -225,6 +229,19 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
 // right thing even if the pane has since been rebuilt for another node. UI thread only (TextBox.LostFocus).
 struct LostFocusSink : DevToolsSinkBase
 {
+    void Detach()
+    {
+        if (!box) return;
+        // A delayed blur may still save to its original element, but must not keep or read the old control.
+        winrt::com_ptr<IInspectable> held;
+        held.copy_from(box);
+        box = nullptr;
+        detached = true;
+        if (retired) return;
+        hasDetachedText = g_ctx.readInputFn && g_ctx.readInputFn(held.get(), detachedText);
+        if (!hasDetachedText)
+            DevToolsOverlayLog(L"route1.props departing editor read failed for '%s'", prop.c_str());
+    }
     void SyncCommittedValue(const std::wstring& value)
     {
         if (gen != g_route1Gen || retired || selWire != g_selWire || !box) return;
@@ -249,9 +266,11 @@ struct LostFocusSink : DevToolsSinkBase
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen || refreshing || retired) return S_OK;
-        if (!g_ctx.readInputFn || !g_ctx.writeFn || !box) return S_OK;
+        if (!g_ctx.writeFn || (!box && !detached)) return S_OK;
         std::wstring text;
-        if (!g_ctx.readInputFn(box, text)) {
+        const bool read = detached ? (text = detachedText, hasDetachedText)
+                                  : (g_ctx.readInputFn && g_ctx.readInputFn(box, text));
+        if (!read) {
             DevToolsOverlayLog(L"route1.input read failed for '%s'", prop.c_str());
             if (selWire == g_selWire) SetStatusText(L"Couldn't read the " + prop + L" editor");
             return S_OK;
@@ -267,6 +286,7 @@ struct LostFocusSink : DevToolsSinkBase
     void Init(InstanceHandle w, const std::wstring& p, const std::wstring& t, const std::wstring& orig, IInspectable* b)
     {
         selWire = w; prop = p; type = t; original = orig; box = b;
+        detached = hasDetachedText = false; detachedText.clear();
         hasShown = box && g_ctx.readInputFn && g_ctx.readInputFn(box, shown);
         recordable = w == g_selWire && OriginalFor(p, orig, first);
         InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
@@ -282,6 +302,8 @@ struct LostFocusSink : DevToolsSinkBase
     // from the removed box would write its text over whatever the rebuild just did (for example, Restore).
     bool           retired = false;
     IInspectable*  box = nullptr;
+    std::wstring detachedText;
+    bool detached = false, hasDetachedText = false;
 };
 
 // The pane's text editors, so an edit can be saved before the selection changes or the pane is rebuilt, even
@@ -293,41 +315,48 @@ struct PaneEditor
     bool*                 retired = nullptr;
     LostFocusSink*        text = nullptr;
     std::function<void()> commit;
+    void*                 owner = nullptr;
 };
 static std::vector<PaneEditor> g_paneEditors;
 static bool g_flushingEditor = false;
 
 static void RegisterPaneEditor(const std::wstring& path, void* element, bool* retired, LostFocusSink* text,
-                               std::function<void()> commit)
+                               std::function<void()> commit, void* owner = nullptr)
 {
     if (!element) return;
     IUnknown* ident = nullptr;
     if (FAILED(reinterpret_cast<IUnknown*>(element)->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&ident))) || !ident)
         return;
-    g_paneEditors.push_back({ path, ident, retired, text, std::move(commit) });
+    g_paneEditors.push_back({ path, ident, retired, text, std::move(commit), owner });
 }
 
-// A row's expansion is being rebuilt: its old boxes are leaving the registry but stay live, so a focus-out
-// still saves them as it did before.
-static void ForgetPaneEditors(const std::wstring& path)
+// Capture the departing text before releasing the box, so a delayed blur can save without reading old UI.
+static void ForgetPaneEditors(const std::wstring& path, void* owner = nullptr)
 {
+    std::vector<PaneEditor> departing;
     for (size_t i = g_paneEditors.size(); i-- > 0; ) {
-        if (g_paneEditors[i].path != path) continue;
-        if (g_paneEditors[i].ident) g_paneEditors[i].ident->Release();
+        if (g_paneEditors[i].path != path || (owner && g_paneEditors[i].owner != owner)) continue;
+        departing.push_back(std::move(g_paneEditors[i]));
         g_paneEditors.erase(g_paneEditors.begin() + i);
+    }
+    for (auto& e : departing) {
+        if (e.text) e.text->Detach();
+        if (e.ident) e.ident->Release();
     }
 }
 
 // `retire` when the pane is rebuilt for the same element: the flush already saved the boxes, and a late focus-out
-// would write over what the rebuild shows (for example, Restore). When the selection moves to another element the
-// boxes stay live, so a focus-out that arrives after the move still saves to the element its box was built for.
+// would write over what the rebuild shows (for example, Restore). When the selection moves, a delayed blur uses
+// captured text and the original element handle rather than keeping its old control alive.
 static void ReleasePaneEditors(bool retire)
 {
-    for (auto& e : g_paneEditors) {
+    std::vector<PaneEditor> departing;
+    departing.swap(g_paneEditors);
+    for (auto& e : departing) {
         if (retire && e.retired) *e.retired = true;
+        if (e.text) e.text->Detach();
         if (e.ident) e.ident->Release();
     }
-    g_paneEditors.clear();
 }
 static void RetirePaneEditors() { ReleasePaneEditors(/*retire*/ true); }
 
@@ -482,7 +511,7 @@ static void ClampInspectorSplit()
     if (!g_splitPaneFe || !g_splitHostFe) return;
     double available = 0.0;
     if (FAILED(DevToolsGetActualWidth(g_splitHostFe, &available)) || available <= 0.0) return;
-    if (g_splitTarget <= 0.0) g_splitTarget = 420.0;
+    if (g_splitTarget <= 0.0) g_splitTarget = DevToolsInspector::kDefaultTreeWidth;
     g_splitTarget = DevToolsInspector::TreeWidth(g_splitTarget, available);
     DevToolsPutWidth(g_splitPaneFe, g_splitTarget);
 }
@@ -544,59 +573,84 @@ struct SplitterKeySink : DevToolsSinkBase
     void Init() { InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
 };
 
-// Switch Set/Computed view and rebuild from Click. WinUI retains the sender; the sink's
-// generation guard makes stale callbacks inert.
-// Segment clicks set the target view rather than flip state, so re-clicking the active half is stable.
-struct OnlySetToggleSink : DevToolsSinkBase
+// The Computed | Set selector sits in the property toolbar, which a view change rebuilds. The rebuild runs after
+// the selection event returns, and keyboard focus moves to the new selector when the old one had it.
+static DevToolsXC::SelectorBar g_propViewSelector{nullptr};
+
+static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen) return S_OK;
-        if (g_propView == view) {
-            ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-            return S_OK;
+    try {
+        const auto items = selector.Items();
+        if (items.Size() != 2) return;
+        const auto selected = selector.SelectedItem();
+        if (!selected) {
+            selector.SelectedItem(items.GetAt(ShowingSetView() ? 1 : 0));
+            return;
         }
+        const auto view = selected == items.GetAt(1) ? DevToolsPropView::Set : DevToolsPropView::Computed;
+        if (g_propView == view) return;
         g_propView = view;
-        ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-        return S_OK;
+        bool hadFocus = false;
+        DevToolsD::DispatcherQueue queue{nullptr};
+        if (const auto ui = selector.try_as<DevToolsX::UIElement>()) {
+            queue = ui.DispatcherQueue();
+            const auto self = ui.as<DevToolsX::DependencyObject>();
+            if (const auto root = ui.XamlRoot()) {
+                for (auto node = DevToolsXI::FocusManager::GetFocusedElement(root).try_as<DevToolsX::DependencyObject>();
+                     node && !hadFocus; node = DevToolsXM::VisualTreeHelper::GetParent(node))
+                    hadFocus = node == self;
+            }
+        }
+        const auto rebuild = [gen = g_route1Gen, hadFocus] {
+            if (gen != g_route1Gen) return;
+            ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+            if (!hadFocus) return;
+            try {
+                if (const auto bar = g_propViewSelector) {
+                    const auto token = std::make_shared<winrt::event_token>();
+                    *token = bar.Loaded([gen, token](auto const& sender, auto const&) {
+                        try {
+                            const auto loaded = sender.template as<DevToolsXC::SelectorBar>();
+                            loaded.Loaded(*token);
+                            if (gen != g_route1Gen || loaded != g_propViewSelector) return;
+                            if (const auto item = loaded.SelectedItem())
+                                if (!item.Focus(DevToolsX::FocusState::Keyboard))
+                                    DevToolsOverlayLog(L"route1.props view focus refused");
+                        } catch (const winrt::hresult_error& e) {
+                            DevToolsOverlayLog(L"route1.props view focus failed hr=0x%08X", e.code().value);
+                        }
+                    });
+                }
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.props view focus failed hr=0x%08X", e.code().value);
+            }
+        };
+        if (!queue || !queue.TryEnqueue(rebuild)) rebuild();
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.props view selection failed hr=0x%08X", e.code().value);
+        SetStatusText(L"Could not update the property view. Refresh the inspector and retry.");
     }
-    void Init(DevToolsPropView v) { view = v; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    DevToolsPropView view = DevToolsPropView::Computed;
-};
+}
 
-// Expand / collapse the props-pane ancestor breadcrumb. The breadcrumb is shown elided to one line
-// (BcShort); this flips to the full wrapped chain (BcFull) and back. Both TextBlocks are AddRef'd IUIElements
-// held for the pane's lifetime, so the toggle is one put_Visibility pair -- no pane rebuild, no lost scroll
-// position.
-struct BreadcrumbSink : DevToolsSinkBase
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen) return S_OK;
-        if (!g_bcShort || !g_bcFull) return S_OK;
-        g_bcExpanded = !g_bcExpanded;
-        DevToolsPutVisibility(g_bcShort, g_bcExpanded ? 1 : 0);
-        DevToolsPutVisibility(g_bcFull, g_bcExpanded ? 0 : 1);
-        SetToggleLabel(g_bcToggleLbl, g_bcExpanded ? L"Show less" : g_bcExpandText.c_str());
-        return S_OK;
-    }
-    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-};
-
-// Disclosure sinks hold AddRef’d pane elements only for the current pane lifetime.
+// WinUI owns disclosure visibility and automation; callbacks only remember the user's choice.
 struct LayoutSectionSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen) return S_OK;
-        if (!g_layoutBody) return S_OK;
-        g_layoutSectionOpen = LayoutSectionOpen() ? 0 : 1;
-        DevToolsSettingsSetBool(L"InspectorSizeSpacingOpen", g_layoutSectionOpen == 1);
-        DevToolsPutVisibility(g_layoutBody, g_layoutSectionOpen == 1 ? 0 : 1);
-        SetToggleLabel(g_layoutBodyChev, g_layoutSectionOpen == 1 ? L"\uE70D" : L"\uE76C");
+        g_layoutSectionOpen = open ? 1 : 0;
+        DevToolsSettingsSetBool(L"InspectorSizeSpacingOpen", open);
         return S_OK;
     }
-    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
+    void Init(bool expanding)
+    {
+        open = expanding;
+        InitSink(expanding
+            ? DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderExpandingEventArgs>>()
+            : DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderCollapsedEventArgs>>(),
+            g_route1Gen);
+    }
+    bool open = false;
 };
 
 struct AxmlToggleSink : DevToolsSinkBase
@@ -604,14 +658,18 @@ struct AxmlToggleSink : DevToolsSinkBase
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen) return S_OK;
-        if (!g_axmlOne || !g_axmlFull) return S_OK;
-        g_axmlExpanded = !g_axmlExpanded;
-        DevToolsPutVisibility(g_axmlOne,  g_axmlExpanded ? 1 : 0);
-        DevToolsPutVisibility(g_axmlFull, g_axmlExpanded ? 0 : 1);
-        SetToggleLabel(g_axmlChev, g_axmlExpanded ? L"\uE70D" : L"\uE76C");
+        g_axmlExpanded = open;
         return S_OK;
     }
-    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
+    void Init(bool expanding)
+    {
+        open = expanding;
+        InitSink(expanding
+            ? DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderExpandingEventArgs>>()
+            : DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderCollapsedEventArgs>>(),
+            g_route1Gen);
+    }
+    bool open = false;
 };
 
 // Short display for the source line: the leaf filename + ":<line>" from a ms-appx:///path/Foo.xaml URI (or a

@@ -2,9 +2,13 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
-static std::wstring ResolveSourcePath(const std::wstring& uri)
+static constexpr wchar_t kSourceRootMissing[] =
+    L"No source folder is set. Attach again with --source-root <project folder>.";
+
+static std::wstring ResolveSourcePath(const std::wstring& uri, bool* sourceRootMissing = nullptr)
 {
     DWORD required = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", nullptr, 0);
+    if (sourceRootMissing) *sourceRootMissing = required == 0;
     if (required == 0) return L"";
     std::vector<wchar_t> root(required);
     DWORD written = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", root.data(), required);
@@ -31,7 +35,7 @@ static std::wstring ShellAssocFor(const std::wstring& ext)
     return std::wstring(buf.data(), wcsnlen(buf.data(), buf.size()));
 }
 
-// The two actions that cannot fail, offered whenever the shell has no handler.
+// Recovery actions do not need a file association.
 static bool RevealInExplorer(const std::wstring& path)
 {
     const std::wstring args = L"/select,\"" + path + L"\"";
@@ -61,9 +65,11 @@ static bool CopyTextToClipboard(const std::wstring& text)
     return ok;
 }
 
-static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, const std::wstring& offScreenPrefix)
+static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, const std::wstring& offScreenPrefix,
+                                  const std::function<void(const std::wstring&)>& feedback = {})
 {
-    const std::wstring path = ResolveSourcePath(uri);
+    bool sourceRootMissing = false;
+    const std::wstring path = ResolveSourcePath(uri, &sourceRootMissing);
     const std::wstring display = SourceFileName(uri);
     const DevToolsShellOpen::Result r = DevToolsShellOpen::Decide(
         path, L".xaml",
@@ -73,26 +79,68 @@ static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, co
             HINSTANCE rc = ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             return static_cast<int>(reinterpret_cast<INT_PTR>(rc));
         });
-    SetStatusText(DevToolsShellOpen::Describe(r, display, line, path, offScreenPrefix));
+    const std::wstring message = sourceRootMissing ? std::wstring(kSourceRootMissing)
+        : DevToolsShellOpen::Describe(r, display, line, path, offScreenPrefix);
+    if (feedback) feedback(message);
+    else SetStatusText(message);
     DevToolsOverlayLog(L"route1.opensource outcome=%d handler='%s' path='%s'",
                   (int)r.outcome, r.handler.c_str(), path.c_str());
     return (r.outcome == DevToolsShellOpen::Outcome::NoPath) ? std::wstring() : path;
 }
 
-// Open the selected node's XAML source file in the default editor. Resolves g_selSourceFile (the ms-appx URI
-// captured on select) to a real path under WINAPP_DEVTOOLS_SOURCE_ROOT and hands it to the shell through the
-// SHARED hand-off (DevToolsShellOpen), which asks for the association first so the shell's app-picker can never be
-// how a user discovers there is no handler. The comments row uses the same helper. UI thread only
-// (Button.Click); gen-guarded so a click racing window teardown is inert; leaked.
-struct OpenSourceSink : DevToolsSinkBase
+enum class SourceAction { Open, Reveal, Copy };
+
+// XAML's visual ownership does not keep this WinRT wrapper's weak references alive.
+// Retain it for the pane's lifetime; the sinks still hold only weak references.
+static DevToolsXC::TextBlock g_sourceStatus{ nullptr };
+// The same for the comment box's elements: its handlers hold them weakly, so the pane holds them here.
+static std::vector<winrt::Windows::Foundation::IInspectable> g_commentBoxParts;
+
+// Keep feedback with the source header that owns these actions, not the current selection's status line.
+struct SourceActionSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen) return S_OK;
-        HandOffSource(g_selSourceFile, g_selSourceLine, L"");
+        auto status = feedback.get();
+        if (!status) return S_OK;
+        auto report = [&](const std::wstring& text) {
+            try {
+                status.Text(text);
+                status.Visibility(DevToolsX::Visibility::Visible);
+                using namespace winrt::Microsoft::UI::Xaml::Automation::Peers;
+                if (auto peer = FrameworkElementAutomationPeer::FromElement(status))
+                    peer.RaiseAutomationEvent(AutomationEvents::LiveRegionChanged);
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.source feedback failed hr=0x%08X", e.code().value);
+            }
+        };
+        if (action == SourceAction::Open) {
+            HandOffSource(uri, line, L"", report);
+        } else {
+            bool sourceRootMissing = false;
+            const std::wstring path = ResolveSourcePath(uri, &sourceRootMissing);
+            if (path.empty()) {
+                report(sourceRootMissing ? kSourceRootMissing
+                    : L"Source file unavailable. Check that it still exists under the project's source folder.");
+            } else if (action == SourceAction::Reveal) {
+                report(RevealInExplorer(path) ? L"Showed " + path + L" in File Explorer."
+                                               : L"Couldn't open File Explorer for " + path);
+            } else {
+                report(CopyTextToClipboard(path) ? L"Copied " + path : L"Couldn't copy " + path);
+            }
+        }
         return S_OK;
     }
-    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
+    void Init(SourceAction a, const DevToolsXC::TextBlock& status)
+    {
+        action = a; uri = g_selSourceFile; line = g_selSourceLine; feedback = status;
+        InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
+    }
+    SourceAction action = SourceAction::Open;
+    std::wstring uri;
+    unsigned int line = 0;
+    winrt::weak_ref<DevToolsXC::TextBlock> feedback;
 };
 
 static std::wstring CurrentEditSeed(const std::wstring& path, const std::wstring& fallback);
@@ -260,11 +308,16 @@ static std::wstring BuildBreadcrumb(const std::vector<DevToolsWindowNode>& nodes
     return bc;
 }
 
+static std::wstring PidText()
+{
+    wchar_t buf[32];
+    swprintf_s(buf, L"PID %lu", GetCurrentProcessId());
+    return buf;
+}
+
 static std::wstring TitleWithPid()
 {
-    wchar_t buf[64];
-    swprintf_s(buf, L"WinApp DevTools \u00B7 PID %lu", GetCurrentProcessId());
-    return buf;
+    return L"WinApp DevTools \u00B7 " + PidText();
 }
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
@@ -330,6 +383,141 @@ static void ReplaceToken(std::wstring& s, const std::wstring& token, const std::
 {
     size_t pos = s.find(token);
     if (pos != std::wstring::npos) s.replace(pos, token.size(), value);
+}
+
+// The TitleBar control draws its own icon; WM_SETICON only reaches the taskbar and Alt+Tab. Hand it the frame of
+// the embedded winapp.ico that fits a 16-pixel icon at this DPI. BitmapImage decodes those frames because they are
+// stored as PNG; a classic bitmap frame is rejected so the control shows no icon rather than an empty gap.
+static HRESULT LoadInspectorTitleBarIcon(HWND hwnd, IInspectable** iconSource)
+{
+    *iconSource = nullptr;
+    const HMODULE module = reinterpret_cast<HMODULE>(&__ImageBase);
+    auto resourceBytes = [module](LPCWSTR name, LPCWSTR type, DWORD* size) -> const BYTE* {
+        *size = 0;
+        HRSRC res = FindResourceW(module, name, type);
+        HGLOBAL data = res ? LoadResource(module, res) : nullptr;
+        if (!data) return nullptr;
+        *size = SizeofResource(module, res);
+        return static_cast<const BYTE*>(LockResource(data));
+    };
+    DWORD size = 0;
+    const BYTE* directory = resourceBytes(L"WINAPP_DEVTOOLS", RT_GROUP_ICON, &size);
+    if (!directory) return HRESULT_FROM_WIN32(ERROR_RESOURCE_NAME_NOT_FOUND);
+    const UINT dpi = hwnd ? GetDpiForWindow(hwnd) : 0;
+    const int px = MulDiv(16, dpi ? static_cast<int>(dpi) : USER_DEFAULT_SCREEN_DPI, USER_DEFAULT_SCREEN_DPI);
+    const int id = LookupIconIdFromDirectoryEx(const_cast<PBYTE>(directory), TRUE, px, px, LR_DEFAULTCOLOR);
+    const BYTE* png = id ? resourceBytes(MAKEINTRESOURCEW(id), RT_ICON, &size) : nullptr;
+    static constexpr BYTE pngSignature[] = { 0x89, 0x50, 0x4E, 0x47 };
+    if (!png || size < sizeof(pngSignature) || memcmp(png, pngSignature, sizeof(pngSignature)) != 0) {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    winrt::com_ptr<IStream> stream;
+    stream.attach(SHCreateMemStream(png, size));
+    if (!stream) return E_OUTOFMEMORY;
+    winrt::com_ptr<IUnknown> randomAccess, imageIconSource, bitmapSource;
+    winrt::com_ptr<IInspectable> markup, image;
+    HRESULT hr = CreateRandomAccessStreamOverStream(stream.get(), BSOS_DEFAULT,
+        DevToolsIid<winrt::Windows::Storage::Streams::IRandomAccessStream>(), randomAccess.put_void());
+    if (SUCCEEDED(hr)) {
+        hr = LoadMarkupWin(L"<ImageIconSource xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">"
+                           L"<ImageIconSource.ImageSource><BitmapImage/></ImageIconSource.ImageSource></ImageIconSource>",
+                           markup.put());
+        if (SUCCEEDED(hr) && !markup) hr = E_UNEXPECTED;
+    }
+    if (SUCCEEDED(hr)) hr = markup->QueryInterface(DevToolsIid<DevToolsXC::IImageIconSource>(), imageIconSource.put_void());
+    if (SUCCEEDED(hr)) {
+        hr = DevToolsImageIconSourceGetImageSource(imageIconSource.get(), image.put());
+        if (SUCCEEDED(hr) && !image) hr = E_UNEXPECTED;
+    }
+    if (SUCCEEDED(hr)) hr = image->QueryInterface(DevToolsIid<DevToolsXMI::IBitmapSource>(), bitmapSource.put_void());
+    if (SUCCEEDED(hr)) hr = DevToolsBitmapSourceSetSource(bitmapSource.get(), randomAccess.get());
+    DevToolsOverlayLog(L"route1.titlebar icon px=%d frame=%d bytes=%lu hr=0x%08X", px, id, size, hr);
+    if (FAILED(hr)) return hr;
+    *iconSource = markup.detach();
+    return S_OK;
+}
+
+// Content extends under the caption only once the control can take over dragging; if the window rejects the control,
+// the system caption comes back, so the window never shows two caption bars or none.
+static HRESULT AttachInspectorTitleBar(void* window, void* titleBarUi)
+{
+    HRESULT hr = DevToolsWinPutExtendsContentIntoTitleBar(window, true);
+    if (FAILED(hr)) return hr;
+    hr = DevToolsWinSetTitleBar(window, titleBarUi);
+    if (FAILED(hr)) DevToolsWinPutExtendsContentIntoTitleBar(window, false);
+    return hr;
+}
+
+// The taskbar, Alt+Tab and `winapp ui` read the TitleWithPid() window title. The TitleBar control copies its shorter
+// Title there when its template is applied, which happens before it raises Loaded.
+struct InspectorWindowTitleSink : DevToolsSinkBase
+{
+    HWND hwnd = nullptr;
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    {
+        if (gen != g_route1Gen) return S_OK;
+        if (!SetWindowTextW(hwnd, TitleWithPid().c_str())) {
+            DevToolsOverlayLog(L"route1.titlebar title reset error=%lu", GetLastError());
+        }
+        return S_OK;
+    }
+    void Init(HWND window)
+    {
+        hwnd = window;
+        InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
+    }
+};
+
+static HRESULT KeepInspectorWindowTitle(IInspectable* titleBar, HWND hwnd)
+{
+    if (!hwnd) return E_HANDLE;
+    winrt::com_ptr<IUnknown> fe;
+    HRESULT hr = titleBar->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), fe.put_void());
+    if (FAILED(hr)) return hr;
+    auto* sink = new InspectorWindowTitleSink();
+    sink->Init(hwnd);
+    __int64 token = 0;
+    hr = DevToolsAddLoaded(fe.get(), sink, &token);
+    sink->Release();
+    return hr;
+}
+
+// Row 0 of the shell is the WinUI TitleBar control. When the window cannot hand its caption to the control, the
+// control is collapsed and Windows keeps drawing the standard caption. A collapsed control is never templated, so it
+// also leaves the window title alone.
+static HRESULT ConfigureInspectorTitleBar(void* window, IInspectable* content, HWND hwnd)
+{
+    winrt::com_ptr<IUnknown> rootFe, titleBarAbi, titleBarUi;
+    winrt::com_ptr<IInspectable> titleBar;
+    HRESULT hr = content->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), rootFe.put_void());
+    if (SUCCEEDED(hr)) {
+        HSTRING name = MakeStr(L"InspectorTitleBar");
+        hr = DevToolsFindName(rootFe.get(), name, titleBar.put());
+        WindowsDeleteString(name);
+        if (SUCCEEDED(hr) && !titleBar) hr = E_NOINTERFACE;
+    }
+    if (SUCCEEDED(hr)) hr = titleBar->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), titleBarUi.put_void());
+    if (FAILED(hr)) {
+        DevToolsOverlayLog(L"route1.titlebar not found hr=0x%08X; keeping system caption", hr);
+        return S_FALSE;
+    }
+
+    winrt::com_ptr<IInspectable> icon;
+    HRESULT iconHr = titleBar->QueryInterface(DevToolsIid<DevToolsXC::ITitleBar>(), titleBarAbi.put_void());
+    if (SUCCEEDED(iconHr)) iconHr = LoadInspectorTitleBarIcon(hwnd, icon.put());
+    if (SUCCEEDED(iconHr)) iconHr = DevToolsTitleBarControlPutIconSource(titleBarAbi.get(), icon.get());
+    if (FAILED(iconHr)) DevToolsOverlayLog(L"route1.titlebar no icon hr=0x%08X", iconHr);
+
+    hr = KeepInspectorWindowTitle(titleBar.get(), hwnd);
+    if (SUCCEEDED(hr)) hr = AttachInspectorTitleBar(window, titleBarUi.get());
+    if (FAILED(hr)) {
+        DevToolsPutVisibility(titleBarUi.get(), 1);
+        DevToolsOverlayLog(L"route1.titlebar attach failed hr=0x%08X; keeping system caption", hr);
+        return S_FALSE;
+    }
+    DevToolsOverlayLog(L"route1.titlebar TitleBar control replaces the system caption");
+    return S_OK;
 }
 
 // The row PALETTE: live donor elements declared in window-shell.xaml, held from the shell wiring.

@@ -52,6 +52,14 @@ test("a scenario can mark a requirement as required", () => {
   assert.equal(t.passed, false);
 });
 
+test("a required requirement that was never judged fails the trial", () => {
+  const t = toTrialResult({ ...base, requirements: [], requiredRequirements: [2] }) as any;
+  assert.equal(t.passed, false);
+  const c = t.checks.find((x: any) => x.id === "requirement-2");
+  assert.equal(c.kind, "required");
+  assert.equal(c.detail, "not checked");
+});
+
 test("agent setups that are not one of the three arms are skipped", () => {
   assert.equal(toTrialResult({ ...base, condition: "published" }), null);
 });
@@ -59,6 +67,11 @@ test("agent setups that are not one of the three arms are skipped", () => {
 test("a ref suffix such as @main does not change the arm", () => {
   assert.equal(toTrialResult({ ...base, condition: "cli-plus-skills@main" })?.arm, "cli-plus-skills");
   assert.equal(toTrialResult({ ...base, condition: "published@main" }), null);
+});
+
+test("winapp version is recorded when known", () => {
+  assert.equal((toTrialResult({ ...base, winappVersion: "0.7.1+91945557" }) as any).winappVersion, "0.7.1+91945557");
+  assert.equal("winappVersion" in (toTrialResult(base) as any), false);
 });
 
 test("file name follows the benchmark-data layout", () => {
@@ -86,8 +99,17 @@ test("launch level counts how far the app got", () => {
     ...base,
     checks: [...base.checks, ...Object.entries(ids).map(([id, status]) => ({ id, label: id, kind: "launch", source: "harness", status }))] as any,
   }) as any).launchLevel;
-  assert.equal(mk({}), 1);
+  assert.equal(mk({ L2: "fail" }), 1);
   assert.equal(mk({ L2: "pass" }), 2);
   assert.equal(mk({ L2: "pass", L3: "pass" }), 3);
   assert.equal((toTrialResult({ ...base, runs: false }) as any).launchLevel, 0);
+});
+
+test("launch level is left out when level 2 was not measured", () => {
+  const mk = (ids: Record<string, string>) => toTrialResult({
+    ...base,
+    checks: [...base.checks, ...Object.entries(ids).map(([id, status]) => ({ id, label: id, kind: "launch", source: "harness", status }))] as any,
+  }) as any;
+  assert.equal("launchLevel" in mk({ L2: "na" }), false);
+  assert.equal("launchLevel" in mk({}), false);
 });

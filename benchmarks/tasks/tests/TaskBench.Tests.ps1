@@ -298,8 +298,33 @@ Describe 'ConvertTo-TrialResult' {
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'counts') 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
     }
+    It 'keeps the counts when the record is an ordered dictionary, as run.ps1 passes it' {
+        $r = [ordered]@{
+            mode = 'agent'; taskStatus = 'pass'; configuration = 'cli-only'; model = 'm'; iteration = 1; durationMs = 1; aiCredits = 1; nanoAiu = 1000000000; premiumRequests = 1
+            tokens = [pscustomobject]@{ input = 1; output = 1; cacheRead = 0; cacheWrite = 0 }
+            skillsLoaded = @('winapp-setup'); skillLoadCounts = [ordered]@{ 'winapp-setup' = 3 }
+            winappCommandCounts = [ordered]@{ 'package' = 4 }; checks = @()
+        }
+        $t = Convert $r
+        $t.skills[0].count | Should -Be 3
+        $t.winappCommands[0].count | Should -Be 4
+    }
+    It 'skips debugging configurations the schema has no arm for' {
+        $r = New-Record; $r.configuration = 'winapp-skills'
+        Convert $r | Should -BeNullOrEmpty
+    }
     It 'does not count a partial result as a pass' {
         (Convert (New-Record 'partial')).passed | Should -BeFalse
+    }
+    It 'records the winapp version when given, and the validator accepts it' {
+        $t = ConvertTo-TrialResult -Record (New-Record) -Task 'winforms-msix' -Set 'tuning' -Release 'v0.7.1' -Commit $script:sha -StartedAt ([datetime]'2026-10-27T18:00:00Z') -WinappVersion '0.7.1+91945557'
+        $t.winappVersion | Should -Be '0.7.1+91945557'
+        (Convert (New-Record)).Contains('winappVersion') | Should -BeFalse
+        $dir = Join-Path $TestDrive 'version\v0.7.1'
+        New-Item -ItemType Directory $dir -Force | Out-Null
+        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-skills__claude-sonnet-5.5__2.json')
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'version') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
     }
     It 'skips runs without a checked result' {
         Convert (New-Record 'harness_error') | Should -BeNullOrEmpty

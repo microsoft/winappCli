@@ -18,8 +18,8 @@ internal interface IXamlTriageService
 {
     /// <summary>
     /// Runs the WinUI triage pass against a dump and returns a structured result: a real
-    /// stowed-exception breakdown, a graceful skip (with an explanatory note for the log), or
-    /// nothing when triage was not applicable.
+    /// stowed-exception breakdown, partial output from a pass that stopped early, a graceful skip
+    /// (with an explanatory note for the log), or nothing when triage was not applicable.
     /// </summary>
     /// <remarks>
     /// This method never throws for missing tooling or unsupported scenarios — it

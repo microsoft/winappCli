@@ -76,6 +76,7 @@ internal partial class RunCommand
                     var selector = GuestDevToolsSelector.ForLaunch(prepared.Id);
                     var output = CreateDirectGuestResult(target.Reference, target.Capabilities.Architecture, target.Epoch.Value);
                     output.ProcessId = checked((uint)frame.Process!.ProcessId);
+                    output.UiTargetArgs = FormatUiTargetArgs(target.Reference.Selector, output.ProcessId.Value);
                     if (run.Package is { } package)
                     {
                         output.AUMID = $"{appLauncherService.ComputePackageFamilyName(package.PackageName, package.Publisher)}!{package.ApplicationId}";

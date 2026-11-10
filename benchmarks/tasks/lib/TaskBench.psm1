@@ -224,8 +224,13 @@ function ConvertTo-TrialResult {
         [Parameter(Mandatory)][string]$Set,
         [Parameter(Mandatory)][string]$Release,
         [Parameter(Mandatory)][string]$Commit,
-        [Parameter(Mandatory)][datetime]$StartedAt
+        [Parameter(Mandatory)][datetime]$StartedAt,
+        # `winapp --version` of the CLI the run used; left out of the file when empty.
+        [string]$WinappVersion
     )
+    # run.ps1 passes an ordered dictionary; its optional counts are properties, so read it as an object.
+    if ($Record -is [System.Collections.IDictionary]) { $Record = [pscustomobject]$Record }
+    if ($Record.configuration -notin 'barebones', 'cli-only', 'cli-plus-skills') { return $null }
     if ($Record.mode -ne 'agent' -or $Record.taskStatus -notin 'pass', 'partial', 'fail', 'asked_before_admin' -or -not $Record.tokens) { return $null }
     $tokens = $Record.tokens
     $checks = @($Record.checks | ForEach-Object {
@@ -267,6 +272,7 @@ function ConvertTo-TrialResult {
             wallClockMs     = [int64]$Record.durationMs
         }
     }
+    if ($WinappVersion) { $result.Insert(3, 'winappVersion', $WinappVersion) }
     if ($skills.Count) { $result.skills = $skills }
     if ($cmdCounts) { $result.winappCommands = $commandCounts }
     return $result

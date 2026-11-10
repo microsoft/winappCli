@@ -55,6 +55,10 @@ uint64_t DevToolsEvents_ResolveOwnerToken(const std::wstring& token);
 
 bool DevToolsEvents_IsOwnerLive(uint64_t connId);
 
+// Enqueue only to this negotiated connection, without requiring a broadcast subscription.
+// Uses the response queue's bounded, non-dropping admission; a stalled client is disconnected at the hard cap.
+bool DevToolsEvents_SendToOwner(uint64_t connId, const std::wstring& eventLine);
+
 void DevToolsEvents_Broadcast(uint32_t domainBit, const std::wstring& eventLine,
                          DevToolsCoalesce policy, const std::wstring& coalesceKey);
 

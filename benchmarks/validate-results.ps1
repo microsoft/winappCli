@@ -35,7 +35,7 @@ foreach ($file in $files) {
     $required = @($r.checks | Where-Object kind -eq 'required')
     $improvements = @($r.checks | Where-Object kind -eq 'improvement')
 
-    $expectPassed = -not $r.error -and -not @($required | Where-Object { -not $_.passed })
+    $expectPassed = $r.outcome -eq 'valid' -and -not $r.error -and -not @($required | Where-Object { -not $_.passed })
     if ($r.passed -ne $expectPassed) { & $fail "passed is $($r.passed) but the required checks say $expectPassed" }
 
     $met = @($improvements | Where-Object passed).Count

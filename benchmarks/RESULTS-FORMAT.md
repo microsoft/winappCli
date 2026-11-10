@@ -26,6 +26,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 |---|---|
 | `schemaVersion` | `1` |
 | `release`, `commit` | winapp release (`v0.7.1` or `dev`) and the full commit SHA tested |
+| `winappVersion` | Optional. `winapp --version` of the CLI the trial ran, such as `0.7.1+<sha>`. It can differ from `commit` when the CLI was built from another commit |
 | `benchmark` | `apps` or `tasks` |
 | `scenario`, `model`, `trial` | What ran. `trial` counts repeats, starting at 1 |
 | `set` | `tuning` or `held-out` |
@@ -40,7 +41,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `skills` | Optional: plugin skills the agent loaded, in order, with `atMs` after start |
 | `error` | Set only when the harness failed, not the agent |
 | `scoringVersion` | Optional. Which scoring rules produced the result. Results with different versions are not directly comparable |
-| `launchLevel` | Optional, `apps` only. 0 did not run, 1 a window exists, 2 controls respond to input, 3 the scenario's named main-screen element appeared |
+| `launchLevel` | Optional, `apps` only. 0 did not run, 1 a window exists, 2 controls respond to input, 3 the scenario's named main-screen element appeared. Left out when the app ran but level 2 could not be measured, for example because UI input could not be sent |
 | `requirementsNotRun` | Optional, `apps` only. Requirement numbers the judge did not rule on. They are not counted as failures and have no entry in `checks` |
 
 ## Outcome

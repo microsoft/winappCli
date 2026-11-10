@@ -46,8 +46,25 @@ if ($releases.Count -ne 1) { throw "Results mix releases ($($releases -join ', '
 if ($commits.Count -ne 1) { throw "Results were measured on $($commits.Count) different commits ($($commits -join ', ')). A release run must use one commit." }
 $release = $releases[0]; $commit = $commits[0]
 
-# 2. Stage <OutDir>\<release>\ with the canonical file names.
-$stage = Join-Path $OutDir $release
+# 2. Stage <OutDir>\<release>\ with the canonical file names. Every value that becomes part of a
+#    path is checked first, and the staging folder is never allowed to hold a source file, so a
+#    preview can't delete or overwrite the results it is reading.
+$safe = '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+if ($release -notmatch $safe -or $release -match '\.\.') { throw "Release '$release' is not a safe folder name." }
+foreach ($x in $trials) {
+    $t = $x.Trial
+    foreach ($field in 'scenario', 'arm', 'model') {
+        if ([string]$t.$field -notmatch $safe -or [string]$t.$field -match '\.\.') { throw "$field '$($t.$field)' in $($x.Source) is not safe to use in a file name." }
+    }
+    if ([string]$t.trial -notmatch '^\d+$') { throw "trial '$($t.trial)' in $($x.Source) is not a number." }
+}
+$stage = Join-Path ([IO.Path]::GetFullPath($OutDir)) $release
+$stagePrefix = $stage.TrimEnd('\') + '\'
+foreach ($x in $trials) {
+    if ([IO.Path]::GetFullPath($x.Source).StartsWith($stagePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "-OutDir '$OutDir' would overwrite the results being read ($($x.Source)). Choose a different -OutDir."
+    }
+}
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 $seen = @{}
@@ -94,8 +111,8 @@ $groups = @($trials.Trial | Group-Object { '{0}|{1}|{2}|{3}|{4}' -f $_.benchmark
             improvementsTotal = ($g | ForEach-Object { $_.improvements.total } | Measure-Object -Sum).Sum
             medianNanoAiu = Get-Median ($g | ForEach-Object { $_.usage.nanoAiu })
             medianWallClockMs = Get-Median ($g | ForEach-Object { $_.usage.wallClockMs })
-            skills = Sum-Counts @($g | ForEach-Object { $_.skills } | Where-Object { $_ }) 'name' 'count'
-            winappCommands = Sum-Counts @($g | ForEach-Object { $_.winappCommands } | Where-Object { $_ }) 'command' 'count'
+            skills = @(Sum-Counts @($g | ForEach-Object { $_.skills } | Where-Object { $_ }) 'name' 'count')
+            winappCommands = @(Sum-Counts @($g | ForEach-Object { $_.winappCommands } | Where-Object { $_ }) 'command' 'count')
         }
     } | Sort-Object { $_.benchmark }, { $_.scenario }, { $_.arm }, { $_.model })
 
@@ -135,6 +152,7 @@ try {
     & git -C $wt push -u origin $branch
     if ($LASTEXITCODE -ne 0) { throw "Could not push $branch." }
     & gh pr create --base $DataBranch --head $branch --title "Benchmark results for $release" --body "Results for $release, measured on commit ``$commit``: $($rows.Count) trials in $($groups.Count) scenario/arm/model groups. Merging publishes them. Files were validated against benchmarks/results.schema.json."
+    if ($LASTEXITCODE -ne 0) { throw 'gh pr create failed; the results branch was pushed but no pull request was opened.' }
 }
 finally {
     & git -C $repoRoot worktree remove --force $wt

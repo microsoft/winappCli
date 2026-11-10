@@ -142,6 +142,10 @@ if (resumeRun) {
   );
   console.log(`[headless] resuming ${incomplete.length} incomplete trials in ${resumeRun}`);
   await queue.start();
+  if (queue.stoppedReason) {
+    console.error(`[headless] ${queue.stoppedReason}`);
+    process.exit(4);
+  }
   process.exit(0);
 }
 
@@ -391,6 +395,10 @@ const queue = new BenchmarkQueue(
 
 queue.start()
   .then(() => {
+    if (queue.stoppedReason) {
+      console.error(`[headless] ${queue.stoppedReason} runDir=${runDir}`);
+      process.exit(4);
+    }
     console.log(`[headless] done. runDir=${runDir}`);
     process.exit(0);
   })

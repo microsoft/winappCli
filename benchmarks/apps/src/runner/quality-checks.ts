@@ -264,12 +264,13 @@ export function evaluateKeyboardTraversal(focusSamples: any[], interactiveCount:
 /**
  * Launch level 2 ("loaded"): the window shows interactive, enabled controls and still
  * answers UI queries after keyboard input. `focusSamples` are `get-focused --json`
- * results taken while tabbing; pass `null` when input could not be sent.
+ * results taken while tabbing; pass `null` when input could not be sent, and
+ * `desktopLocked` when `winapp ui` reported that the session is locked.
  */
-export function evaluateLoaded(enabledCount: number, focusSamples: any[] | null): QualityCheck {
+export function evaluateLoaded(enabledCount: number, focusSamples: any[] | null, desktopLocked = false): QualityCheck {
   const label = "Launch level 2: interactive controls present and responding";
   if (enabledCount === 0) return check("L2", label, "launch", "fail", "No enabled interactive controls");
-  if (focusSamples === null) return check("L2", label, "launch", "na", "Could not send input (desktop busy)");
+  if (focusSamples === null) return check("L2", label, "launch", "na", `Could not send input (desktop ${desktopLocked ? "locked" : "busy"})`);
   const answered = focusSamples.some((s) => s && typeof s === "object");
   return check("L2", label, "launch", answered ? "pass" : "fail",
     answered ? `${enabledCount} enabled controls; window answered after input` : "Window stopped answering UI queries after input");
