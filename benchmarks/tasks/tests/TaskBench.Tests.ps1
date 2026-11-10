@@ -326,6 +326,20 @@ Describe 'ConvertTo-TrialResult' {
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'version') 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
     }
+    It 'records the plugins commit for arms with plugins, and the validator accepts it' {
+        $common = @{ Task = 'winforms-msix'; Set = 'tuning'; Release = 'v0.7.1'; Commit = $script:sha; StartedAt = [datetime]'2026-10-27T18:00:00Z' }
+        $plugins = 'b' * 40
+        $t = ConvertTo-TrialResult -Record (New-Record) @common -PluginsCommit $plugins
+        $t.pluginsCommit | Should -Be $plugins
+        $bare = New-Record; $bare.configuration = 'barebones'
+        (ConvertTo-TrialResult -Record $bare @common -PluginsCommit $plugins).Contains('pluginsCommit') | Should -BeFalse
+        (ConvertTo-TrialResult -Record (New-Record) @common -PluginsCommit 'not-a-sha').Contains('pluginsCommit') | Should -BeFalse
+        $dir = Join-Path $TestDrive 'plugins\v0.7.1'
+        New-Item -ItemType Directory $dir -Force | Out-Null
+        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-skills__claude-sonnet-5.5__2.json')
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'plugins') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
     It 'skips runs without a checked result' {
         Convert (New-Record 'harness_error') | Should -BeNullOrEmpty
     }

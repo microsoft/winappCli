@@ -240,7 +240,9 @@ function ConvertTo-TrialResult {
         [Parameter(Mandatory)][string]$Commit,
         [Parameter(Mandatory)][datetime]$StartedAt,
         # `winapp --version` of the CLI the run used; left out of the file when empty.
-        [string]$WinappVersion
+        [string]$WinappVersion,
+        # Commit the plugins (skills) came from; left out when empty, not a full SHA, or the arm has no plugins.
+        [string]$PluginsCommit
     )
     # run.ps1 passes an ordered dictionary; its optional counts are properties, so read it as an object.
     if ($Record -is [System.Collections.IDictionary]) { $Record = [pscustomobject]$Record }
@@ -287,6 +289,7 @@ function ConvertTo-TrialResult {
         }
     }
     if ($WinappVersion) { $result.Insert(3, 'winappVersion', $WinappVersion) }
+    if ($Record.configuration -ne 'barebones' -and $PluginsCommit -match '^[0-9a-f]{40}$') { $result.Insert(($WinappVersion ? 4 : 3), 'pluginsCommit', $PluginsCommit) }
     if ($skills.Count) { $result.skills = $skills }
     if ($cmdCounts) { $result.winappCommands = $commandCounts }
     return $result

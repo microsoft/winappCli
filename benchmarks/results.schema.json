@@ -26,6 +26,11 @@
       "type": "string",
       "minLength": 1
     },
+    "pluginsCommit": {
+      "description": "Full SHA of the commit the plugins (skills) were loaded from: the ref an apps arm pinned, or the local checkout. Omitted when the arm loads no plugins.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
     "benchmark": { "enum": ["apps", "tasks"] },
     "scenario": {
       "description": "Scenario name (apps) or task id (tasks). Lowercase letters, digits and hyphens.",

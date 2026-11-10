@@ -52,6 +52,8 @@ export interface TrialResultInput {
   commit: string;
   /** `winapp --version` output of the CLI the trial used, e.g. `0.7.1+<sha>`. */
   winappVersion?: string;
+  /** Commit the plugins (skills) were loaded from: the pinned ref, or the local checkout. */
+  pluginsCommit?: string;
   scenario: string;
   set?: "tuning" | "held-out";
   /** Agent setup name; a " [1/2]" suffix is ignored. */
@@ -139,6 +141,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     release: input.release,
     commit: input.commit,
     ...(input.winappVersion ? { winappVersion: input.winappVersion } : {}),
+    ...(arm !== "barebones" && /^[0-9a-f]{40}$/.test(input.pluginsCommit ?? "") ? { pluginsCommit: input.pluginsCommit } : {}),
     benchmark: "apps",
     scenario: slug(input.scenario),
     set: input.set ?? "tuning",

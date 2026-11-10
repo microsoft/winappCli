@@ -27,6 +27,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `schemaVersion` | `1` |
 | `release`, `commit` | winapp release (`v0.7.1` or `dev`) and the full commit SHA tested |
 | `winappVersion` | Optional. `winapp --version` of the CLI the trial ran, such as `0.7.1+<sha>`. It can differ from `commit` when the CLI was built from another commit |
+| `pluginsCommit` | Optional. Full SHA of the commit the plugins (skills) came from: in `apps`, the commit a `cli-plus-skills@<ref>` arm pinned, or the local checkout when plugins load from it; in `tasks`, the plugin checkout in `run-info.json`. Left out when the arm loads no plugins, such as `barebones`. Use it to tie a trend to a skills version |
 | `benchmark` | `apps` or `tasks` |
 | `scenario`, `model`, `trial` | What ran. `trial` counts repeats, starting at 1 |
 | `set` | `tuning` or `held-out` |

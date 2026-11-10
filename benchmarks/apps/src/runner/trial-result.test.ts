@@ -93,6 +93,14 @@ test("winapp version is recorded when known", () => {
   assert.equal("winappVersion" in (toTrialResult(base) as any), false);
 });
 
+test("the plugins commit is recorded for arms that load plugins", () => {
+  const sha = "b".repeat(40);
+  assert.equal((toTrialResult({ ...base, pluginsCommit: sha }) as any).pluginsCommit, sha);
+  assert.equal("pluginsCommit" in (toTrialResult(base) as any), false);
+  assert.equal("pluginsCommit" in (toTrialResult({ ...base, condition: "barebones", pluginsCommit: sha }) as any), false);
+  assert.equal("pluginsCommit" in (toTrialResult({ ...base, pluginsCommit: "main" }) as any), false);
+});
+
 test("file name follows the benchmark-data layout", () => {
   const t = toTrialResult(base) as any;
   assert.equal(trialFileName(t), "calc__cli-plus-skills__claude-sonnet-5.5__1.json");

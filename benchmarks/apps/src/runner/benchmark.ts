@@ -4843,6 +4843,7 @@ function saveResults(
       release,
       commit,
       winappVersion,
+      pluginsCommit: entry.agentSource?.sha,
       scenario: entry.scenarioConfigName,
       set: config.set,
       condition: entry.condition,
