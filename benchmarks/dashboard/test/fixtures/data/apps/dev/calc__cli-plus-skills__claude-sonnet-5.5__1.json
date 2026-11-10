@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "release": "dev",
+  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "benchmark": "apps",
+  "scenario": "calc",
+  "set": "tuning",
+  "arm": "cli-plus-skills",
+  "model": "claude-sonnet-5.5",
+  "trial": 1,
+  "startedAt": "2026-11-05T10:00:00Z",
+  "outcome": "valid",
+  "passed": true,
+  "improvements": {
+    "met": 2,
+    "total": 2
+  },
+  "checks": [
+    {
+      "id": "builds",
+      "kind": "required",
+      "passed": true,
+      "source": "harness"
+    },
+    {
+      "id": "q0",
+      "kind": "improvement",
+      "passed": true,
+      "source": "harness"
+    },
+    {
+      "id": "requirement-1",
+      "kind": "improvement",
+      "passed": true,
+      "source": "judge"
+    }
+  ],
+  "judge": {
+    "model": "j",
+    "designScore": 8
+  },
+  "skills": [
+    {
+      "name": "winui-dev-workflow",
+      "count": 2
+    }
+  ],
+  "winappCommands": [
+    {
+      "command": "new",
+      "count": 1
+    }
+  ],
+  "winappVersion": "0.7.1",
+  "usage": {
+    "tokens": {
+      "input": 1000,
+      "output": 100,
+      "cacheRead": 500
+    },
+    "subAgentTokens": null,
+    "nanoAiu": 30000000000,
+    "premiumRequests": 1,
+    "wallClockMs": 60000
+  }
+}

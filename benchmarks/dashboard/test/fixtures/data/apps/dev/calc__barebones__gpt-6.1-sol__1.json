@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "release": "dev",
+  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "benchmark": "apps",
+  "scenario": "calc",
+  "set": "tuning",
+  "arm": "barebones",
+  "model": "gpt-6.1-sol",
+  "trial": 1,
+  "startedAt": "2026-11-05T10:00:00Z",
+  "outcome": "build-failed",
+  "passed": false,
+  "improvements": {
+    "met": 0,
+    "total": 0
+  },
+  "checks": [
+    {
+      "id": "builds",
+      "kind": "required",
+      "passed": false,
+      "source": "harness"
+    }
+  ],
+  "skills": [],
+  "usage": {
+    "tokens": {
+      "input": 1000,
+      "output": 100,
+      "cacheRead": 500
+    },
+    "subAgentTokens": null,
+    "nanoAiu": 10000000000,
+    "premiumRequests": 1,
+    "wallClockMs": 60000
+  }
+}

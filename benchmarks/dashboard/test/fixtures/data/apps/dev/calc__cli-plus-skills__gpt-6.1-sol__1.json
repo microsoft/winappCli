@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "release": "dev",
+  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "benchmark": "apps",
+  "scenario": "calc",
+  "set": "tuning",
+  "arm": "cli-plus-skills",
+  "model": "gpt-6.1-sol",
+  "trial": 1,
+  "startedAt": "2026-11-05T10:00:00Z",
+  "outcome": "valid",
+  "passed": true,
+  "improvements": {
+    "met": 2,
+    "total": 2
+  },
+  "checks": [
+    {
+      "id": "builds",
+      "kind": "required",
+      "passed": true,
+      "source": "harness"
+    },
+    {
+      "id": "q0",
+      "kind": "improvement",
+      "passed": true,
+      "source": "harness"
+    },
+    {
+      "id": "requirement-1",
+      "kind": "improvement",
+      "passed": true,
+      "source": "judge"
+    }
+  ],
+  "judge": {
+    "model": "j",
+    "designScore": null
+  },
+  "skills": [
+    {
+      "name": "winui-dev-workflow",
+      "count": 1
+    },
+    {
+      "name": "winui-design",
+      "count": 1
+    }
+  ],
+  "usage": {
+    "tokens": {
+      "input": 1000,
+      "output": 100,
+      "cacheRead": 500
+    },
+    "subAgentTokens": null,
+    "nanoAiu": 10000000000,
+    "premiumRequests": 1,
+    "wallClockMs": 60000
+  }
+}

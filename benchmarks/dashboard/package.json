@@ -1,0 +1,14 @@
+{
+  "name": "winapp-benchmark-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Builds the static benchmark results dashboard from trial result files.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test"
+  }
+}
