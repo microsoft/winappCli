@@ -9,6 +9,10 @@ export const MODEL_ORDER = ['claude-sonnet-5.5', 'claude-opus-5.5', 'gpt-6.1-sol
 // A scenario that the `barebones` arm passes this often is a sanity check (#1253).
 export const SANITY_PASS_RATE = 0.9;
 
+// The "change" shown on the dashboard is SKILLS_ARM minus BASE_ARM.
+export const BASE_ARM = 'barebones';
+export const SKILLS_ARM = 'cli-plus-skills';
+
 // Flags that tell a reader where to look closer. Thresholds are shown on the page.
 export const OUTLIER_RULES = {
   modelSplitPoints: 0.5, // a model's pass rate differs from the other models' by this much
@@ -121,9 +125,16 @@ export function metrics(trials) {
     launchLevels[k] = (launchLevels[k] ?? 0) + 1;
   }
   const design = valid.map((t) => t.judge?.designScore).filter((x) => typeof x === 'number');
+  // apps only: "works" means the app built and launched. Every run is in the denominator,
+  // including runs that are not valid, so a build failure counts against the arm.
+  const apps = trials.filter((t) => t.benchmark === 'apps');
+  const checkPassed = (t, id) => (t.checks ?? []).some((c) => c.id === id && c.passed);
+  const worked = apps.filter((t) => checkPassed(t, 'builds') && checkPassed(t, 'launches')).length;
   return {
     total: trials.length,
     valid: valid.length,
+    worked,
+    worksRate: ratio(worked, apps.length),
     passed,
     passRate: ratio(passed, valid.length),
     passCi: wilson(passed, valid.length),
@@ -214,6 +225,23 @@ function usageByArm(trials, arms, field, nameKey) {
   return out;
 }
 
+function diffMetrics(a, b) {
+  const d = (k) => (a?.[k] == null || b?.[k] == null ? null : a[k] - b[k]);
+  return {
+    passRate: d('passRate'), worksRate: d('worksRate'), reqRate: d('reqRate'), qualityRate: d('qualityRate'),
+    designMean: d('designMean'), creditsMean: d('creditsMean'), minutesMean: d('minutesMean'),
+  };
+}
+
+// Effect: cli-plus-skills minus barebones, overall and per model. Null when either arm is missing.
+export function armDiff(byArm) {
+  const skill = byArm[SKILLS_ARM], base = byArm[BASE_ARM];
+  if (!skill || !base) return null;
+  const byModel = {};
+  for (const m of Object.keys(skill.byModel)) byModel[m] = diffMetrics(skill.byModel[m], base.byModel[m]);
+  return { arm: SKILLS_ARM, base: BASE_ARM, all: diffMetrics(skill.all, base.all), byModel };
+}
+
 export function aggregateBenchmark(trials) {
   const arms = orderBy(trials.map((t) => t.arm), ARM_ORDER);
   const models = orderBy(trials.map((t) => t.model), MODEL_ORDER);
@@ -224,7 +252,7 @@ export function aggregateBenchmark(trials) {
     const st = trials.filter((t) => t.scenario === scenario);
     const cells = byArmModel(st, arms, models);
     const flags = scenarioFlags(cells, arms, models);
-    return { scenario, set: st[0].set ?? null, cells, flags, sanity: flags.some((f) => f.kind === 'sanity') };
+    return { scenario, set: st[0].set ?? null, cells, flags, sanity: flags.some((f) => f.kind === 'sanity'), effect: armDiff(cells) };
   });
 
   const sanityScenarios = perScenario.filter((s) => s.sanity).map((s) => s.scenario);
@@ -243,6 +271,8 @@ export function aggregateBenchmark(trials) {
     trialCount: trials.length,
     headline,
     headlineExcludingSanity,
+    effect: armDiff(headline),
+    effectExcludingSanity: armDiff(headlineExcludingSanity),
     sanityScenarios,
     perScenario,
     notValid,
@@ -273,7 +303,7 @@ export function aggregateRelease(release, rawTrials) {
 }
 
 // Pass rate per model on one arm across published releases (never `dev`), oldest first.
-export function trend(releases, benchmark = 'apps', arm = 'cli-plus-skills') {
+export function trend(releases, benchmark = 'apps', arm = SKILLS_ARM) {
   return releases
     .filter((r) => r.release !== 'dev' && r.benchmarks[benchmark]?.headline[arm])
     .sort((a, b) => compareReleases(b.release, a.release))

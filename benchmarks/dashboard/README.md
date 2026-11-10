@@ -1,6 +1,6 @@
 # Benchmark results dashboard
 
-A static site that shows the `apps` and `tasks` benchmark results: a whole-plugin headline, per-scenario tables, every outcome, which skills loaded, and how we measured. It reads the per-run JSON files described in [RESULTS-FORMAT.md](../RESULTS-FORMAT.md) and needs only Node 20 or later. There are no packages to install.
+A static site that shows the `apps` and `tasks` benchmark results. It has four tabs: **Overview** (a one-sentence verdict, four "without → with" tiles and one chart), **By app** (one row per app scenario, sorted by change), **Skills** (which skills loaded with winapp + skills) and **Details** (outcomes, tasks, winapp commands and how we measured). It reads the per-run JSON files described in [RESULTS-FORMAT.md](../RESULTS-FORMAT.md) and needs only Node 20 or later. There are no packages to install.
 
 ## Build and preview
 
@@ -55,13 +55,17 @@ Use `--raw-data-url` to change where the "raw data" link points (default: the `b
 
 All of this is in `lib\aggregate.mjs`.
 
+- **Setups.** `barebones` is shown as "Without our tools", `cli-only` as "winapp CLI only", and `cli-plus-skills` as "With winapp + skills", with the id underneath. Every "change" is `cli-plus-skills` minus `barebones`. The Skills tab shows only `cli-plus-skills`, because the other setups have no skills installed.
+- **Verdict.** The Overview sentence names whichever of quality checks met, requirements met, or built and launched changed most, says on how many models it moved the same way, and adds the change in credits per app. It uses no thresholds.
+- **Built and launched** (`apps`). Runs where both the `builds` and `launches` checks passed, out of all runs, including ones that are not valid.
+
 - **Valid runs only.** Pass rates and averages count `valid` runs. Every table says "n valid of n total", and the Outcomes tab lists every other run.
-- **Arms.** `barebones`, `cli-only` and `cli-plus-skills`, as recorded. The `tasks` debugging configurations (`winapp-skills`, `winui-skills`, `full-suite`) are shown after them and labeled as debugging, not part of the comparison.
-- **Outcomes.** Only `valid` counts as valid. `harness-error` and every other outcome count in the total and are listed on the Outcomes tab.
-- **Launch level** (`apps`). Counted per arm and model on the Outcomes tab. A file without `launchLevel` is shown as "not measured".
+- **Debugging configurations.** The `tasks` configurations `winapp-skills`, `winui-skills` and `full-suite` are shown after the three setups and labeled as debugging.
+- **Outcomes.** Only `valid` counts as valid. `harness-error` and every other outcome count in the total and are listed under Details.
+- **Launch level** (`apps`). Counted per setup and model under Details. A file without `launchLevel` is shown as "not measured".
 - **apps metrics.** Pass rate: every `required` check passed. Requirements: judge checks named `requirement-N`. Quality checks: every other `improvement` check. Design score: the judge's 0-10 score, shown as detail. Credits: `usage.nanoAiu / 1e9`. Minutes: `usage.wallClockMs`.
 - **Confidence intervals.** Pass rates show a 95% Wilson interval.
-- **Sanity checks.** A scenario or task that the `barebones` arm passes in 90% or more of valid runs is a sanity check (#1253). On the Tasks tab these are left out of the headline pass rate, and the table shows both numbers. On the apps tabs they are flagged but not removed, because in the first runs (November 2026) every apps scenario met the rule, and removing them would have left no headline.
+- **Sanity checks.** A scenario or task that the `barebones` arm passes in 90% or more of valid runs is a sanity check (#1253). For tasks (under Details) these are left out of the headline pass rate, and the table shows both numbers. Apps scenarios are flagged but not removed, because in the first runs (November 2026) every apps scenario met the rule, and removing them would have left no headline.
 - **Flags.** A model is flagged on a scenario when its pass rate differs from the other models' by 50 points or more, or when it uses more than 1.5x the credits it used on the other arms of that scenario. A scenario no setup passes is flagged as a possible checker bug.
 - **Skills.** Counted in all runs, whatever the outcome. Runs whose file has no `skills` field are reported as "not recorded" rather than "0".
 - **Skill claims.** Every skill shows "Not enough data" until the claim rules in #1182 are decided.

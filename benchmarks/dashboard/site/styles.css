@@ -120,3 +120,31 @@ dl.facts { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14
 details { margin: 8px 0; }
 summary { cursor: pointer; }
 footer { padding: 16px 20px 32px; border-top: 1px solid var(--border); }
+
+/* 10-second view */
+:root { --c-without: #8c959f; --c-cli: #54aeff; --c-with: #0969da; }
+@media (prefers-color-scheme: dark) { :root { --c-without: #6e7681; --c-cli: #1f6feb; --c-with: #79c0ff; } }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.banner { display: inline-block; margin: 12px 0 0; padding: 4px 10px; border: 1px solid var(--warn-border); background: var(--warn-bg); border-radius: 12px; font-size: 0.9em; }
+.verdict { font-size: 1.45rem; font-weight: 600; line-height: 1.35; margin: 22px 0 4px; max-width: 60ch; }
+.context { margin: 0 0 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 8px 0 20px; }
+.tile { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: var(--panel); }
+.tile-label { color: var(--muted); font-size: 0.95em; }
+.tile-value { font-size: 1.9rem; font-weight: 600; font-variant-numeric: tabular-nums; margin: 4px 0; }
+.tile-value .from { color: var(--muted); font-weight: 500; }
+.tile-change { font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile-sub { color: var(--muted); font-size: 0.88em; margin-top: 4px; }
+.tip { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+.arm-id { display: block; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.75em; font-weight: 400; color: var(--muted); }
+figure.chart { max-width: 760px; }
+svg rect.without { fill: var(--c-without); } svg rect.cli { fill: var(--c-cli); } svg rect.with { fill: var(--c-with); }
+svg text.val { font-weight: 600; }
+.legend span.without::before { background: var(--c-without); } .legend span.cli::before { background: var(--c-cli); } .legend span.with::before { background: var(--c-with); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 2px; }
+details.more { margin: 16px 0; border-top: 1px solid var(--border); padding-top: 8px; }
+details.more > summary { font-weight: 600; padding: 4px 0; }
+td.change { font-weight: 600; }
+td.cli-col { color: var(--muted); }
+.bar { display: inline-block; width: 80px; height: 8px; background: var(--border); border-radius: 4px; vertical-align: middle; margin-right: 6px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--c-with); }

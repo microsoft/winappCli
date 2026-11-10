@@ -5,7 +5,7 @@ import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { aggregateRelease, compareReleases, trend, OUTLIER_RULES, SANITY_PASS_RATE } from './lib/aggregate.mjs';
+import { aggregateRelease, compareReleases, trend, BASE_ARM, SKILLS_ARM, OUTLIER_RULES, SANITY_PASS_RATE } from './lib/aggregate.mjs';
 import { loadData } from './lib/load.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -18,7 +18,7 @@ export function buildSiteData(roots, { rawDataUrl = DEFAULT_RAW_DATA_URL, now = 
   return {
     generatedAt: now.toISOString(),
     rawDataUrl,
-    rules: { sanityPassRate: SANITY_PASS_RATE, ...OUTLIER_RULES },
+    rules: { sanityPassRate: SANITY_PASS_RATE, baseArm: BASE_ARM, skillsArm: SKILLS_ARM, ...OUTLIER_RULES },
     warnings,
     releases: out,
     trend: { apps: trend(out, 'apps'), tasks: trend(out, 'tasks') },

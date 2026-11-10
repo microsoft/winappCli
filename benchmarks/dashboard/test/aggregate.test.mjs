@@ -86,6 +86,37 @@ test('harness-error runs are counted in the total but not as valid', () => {
   assert.deepEqual([m.valid, m.total, m.passed, m.passRate], [1, 2, 1, 1]);
 });
 
+test('built-and-launched rate counts every apps run, including ones that are not valid', () => {
+  const ok = [{ id: 'builds', kind: 'required', passed: true }, { id: 'launches', kind: 'required', passed: true }];
+  const m = metrics([
+    t({ checks: ok }),
+    t({ checks: [{ id: 'builds', kind: 'required', passed: true }, { id: 'launches', kind: 'required', passed: false }], passed: false }),
+    t({ outcome: 'build-failed', checks: [{ id: 'builds', kind: 'required', passed: false }] }),
+    t({ outcome: 'harness-error', checks: ok }),
+  ]);
+  assert.equal(m.worked, 2);
+  assert.equal(m.worksRate, 0.5);
+  assert.equal(metrics([t({ benchmark: 'tasks', checks: ok })]).worksRate, null);
+});
+
+test('the change is cli-plus-skills minus barebones, overall and per model', () => {
+  const q = (passed) => [{ id: 'q0', kind: 'improvement', passed }];
+  const b = aggregateBenchmark([
+    t({ arm: 'barebones', model: 'a', checks: q(false), nanoAiu: 10e9 }),
+    t({ arm: 'barebones', model: 'b', checks: q(true), nanoAiu: 10e9 }),
+    t({ arm: 'cli-only', model: 'a', checks: q(true), nanoAiu: 1e9 }),
+    t({ arm: 'cli-plus-skills', model: 'a', checks: q(true), nanoAiu: 12e9 }),
+    t({ arm: 'cli-plus-skills', model: 'b', checks: q(true), nanoAiu: 14e9 }),
+  ]);
+  assert.equal(b.effect.all.qualityRate, 0.5);
+  assert.equal(b.effect.all.creditsMean, 3);
+  assert.equal(b.effect.byModel.a.qualityRate, 1);
+  assert.equal(b.effect.byModel.b.qualityRate, 0);
+  assert.equal(b.perScenario[0].effect.all.qualityRate, 0.5);
+  assert.deepEqual(b.arms, ['barebones', 'cli-only', 'cli-plus-skills']);
+  assert.equal(aggregateBenchmark([t({ arm: 'barebones' }), t({ arm: 'cli-only' })]).effect, null);
+});
+
 test('arms and models follow the published order', () => {
   const b = aggregateBenchmark([
     t({ arm: 'cli-plus-skills', model: 'gpt-6.1-sol' }),

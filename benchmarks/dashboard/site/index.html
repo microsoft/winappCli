@@ -12,7 +12,7 @@
   <header class="site">
     <div class="wrap">
       <h1>winapp benchmark results</h1>
-      <p class="lede">How much the <code>winapp</code> CLI and the winapp and WinUI agent skills help AI agents build Windows apps, measured on real runs.</p>
+      <p class="lede">Do the <code>winapp</code> CLI and its agent skills help AI agents build better Windows apps? Measured on real runs.</p>
       <div class="controls">
         <label for="release">Release</label>
         <select id="release"></select>
@@ -23,19 +23,15 @@
   <main id="main" class="wrap">
     <div id="banner"></div>
     <div role="tablist" aria-label="Result views" id="tabs">
-      <button role="tab" id="tab-headline" aria-controls="panel-headline" data-tab="headline">Headline</button>
-      <button role="tab" id="tab-scenarios" aria-controls="panel-scenarios" data-tab="scenarios">Scenarios</button>
-      <button role="tab" id="tab-outcomes" aria-controls="panel-outcomes" data-tab="outcomes">Outcomes</button>
+      <button role="tab" id="tab-overview" aria-controls="panel-overview" data-tab="overview">Overview</button>
+      <button role="tab" id="tab-apps" aria-controls="panel-apps" data-tab="apps">By app</button>
       <button role="tab" id="tab-skills" aria-controls="panel-skills" data-tab="skills">Skills</button>
-      <button role="tab" id="tab-tasks" aria-controls="panel-tasks" data-tab="tasks">Tasks</button>
-      <button role="tab" id="tab-method" aria-controls="panel-method" data-tab="method">How we measured</button>
+      <button role="tab" id="tab-details" aria-controls="panel-details" data-tab="details">Details</button>
     </div>
-    <section role="tabpanel" id="panel-headline" aria-labelledby="tab-headline" tabindex="0"></section>
-    <section role="tabpanel" id="panel-scenarios" aria-labelledby="tab-scenarios" tabindex="0" hidden></section>
-    <section role="tabpanel" id="panel-outcomes" aria-labelledby="tab-outcomes" tabindex="0" hidden></section>
+    <section role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0"></section>
+    <section role="tabpanel" id="panel-apps" aria-labelledby="tab-apps" tabindex="0" hidden></section>
     <section role="tabpanel" id="panel-skills" aria-labelledby="tab-skills" tabindex="0" hidden></section>
-    <section role="tabpanel" id="panel-tasks" aria-labelledby="tab-tasks" tabindex="0" hidden></section>
-    <section role="tabpanel" id="panel-method" aria-labelledby="tab-method" tabindex="0" hidden></section>
+    <section role="tabpanel" id="panel-details" aria-labelledby="tab-details" tabindex="0" hidden></section>
   </main>
   <footer class="wrap muted" id="footer"></footer>
   <noscript><p class="wrap">This page needs JavaScript to draw the tables. The numbers are in <a href="data.json">data.json</a>.</p></noscript>
