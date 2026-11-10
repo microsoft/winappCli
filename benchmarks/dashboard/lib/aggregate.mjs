@@ -23,7 +23,7 @@ export const SKILLS_ARM = 'cli-plus-skills';
 // evidence that one skill helped.
 export const QUALITY_TOPICS = [
   { topic: 'Packaging', checks: [...PACKAGING], skills: ['winapp-manifest', 'winui-packaging', 'winui-dev-workflow'] },
-  { topic: 'Build warnings', checks: ['q4'], skills: ['winui-dev-workflow'] },
+  { topic: 'Build warnings (C# only)', checks: ['q4'], note: 'Counts C# warnings only: the WinUI analyzer comes with the winapp new template, so its warnings appear mostly in cli-plus-skills projects.', skills: ['winui-dev-workflow'] },
   { topic: 'Accessible names', checks: ['q0'], skills: ['winui-design', 'winapp-ui-automation'] },
   { topic: 'Theme colors', checks: ['v5'], skills: ['winui-design'] },
   { topic: 'Typography', checks: ['v3'], skills: ['winui-design'] },
@@ -45,7 +45,7 @@ export function qualityTopics(trials, arms) {
         for (const c of t.checks ?? []) {
           if (!q.checks.includes(String(c.id).toLowerCase())) continue;
           total++;
-          if (c.passed) passed++;
+          if (checkPassed(c)) passed++;
         }
       }
       byArm[arm] = { passed, total, rate: ratio(passed, total) };
@@ -129,6 +129,19 @@ export function isRequirementCheck(c) {
   return /^requirement-\d+$/.test(c.id);
 }
 
+// apps "no build warnings" check (q4), counted by C# warnings only. The WinUI analyzer
+// (WUI warnings) comes with the `winapp new` template, so it is in most cli-plus-skills
+// projects and few barebones ones; counting its warnings would compare different things.
+// The detail reads like "CS: 1, WUI: 9". A failed q4 passes when it reports no CS warnings;
+// if the detail can't be parsed, the recorded result is kept.
+export function checkPassed(c) {
+  if (c.passed || String(c.id).toLowerCase() !== 'q4') return c.passed;
+  const detail = String(c.detail ?? '').trim();
+  if (!/^[A-Za-z#]+:\s*\d+(\s*,\s*[A-Za-z#]+:\s*\d+)*$/.test(detail)) return c.passed;
+  const counts = Object.fromEntries([...detail.matchAll(/([A-Za-z#]+):\s*(\d+)/g)].map((m) => [m[1].toUpperCase(), Number(m[2])]));
+  return (counts.CS ?? 0) === 0;
+}
+
 export function isPackagingCheck(c) {
   return PACKAGING.has(String(c.id).toLowerCase());
 }
@@ -162,16 +175,16 @@ export function metrics(trials) {
     for (const c of t.checks ?? []) {
       if (isRequirementCheck(c)) {
         reqTotal++;
-        if (c.passed) reqMet++;
+        if (checkPassed(c)) reqMet++;
       } else if (c.kind === 'improvement') {
         allTotal++;
-        if (c.passed) allMet++;
+        if (checkPassed(c)) allMet++;
         if (isPackagingCheck(c)) {
           packTotal++;
-          if (c.passed) packMet++;
+          if (checkPassed(c)) packMet++;
         } else {
           qualityTotal++;
-          if (c.passed) qualityMet++;
+          if (checkPassed(c)) qualityMet++;
         }
       }
     }
@@ -188,8 +201,8 @@ export function metrics(trials) {
   // apps only: "works" means the app built and launched. Every run is in the denominator,
   // including runs that are not valid, so a build failure counts against the arm.
   const apps = trials.filter((t) => t.benchmark === 'apps');
-  const checkPassed = (t, id) => (t.checks ?? []).some((c) => c.id === id && c.passed);
-  const worked = apps.filter((t) => checkPassed(t, 'builds') && checkPassed(t, 'launches')).length;
+  const hasPassed = (t, id) => (t.checks ?? []).some((c) => c.id === id && c.passed);
+  const worked = apps.filter((t) => hasPassed(t, 'builds') && hasPassed(t, 'launches')).length;
   return {
     total: trials.length,
     valid: valid.length,

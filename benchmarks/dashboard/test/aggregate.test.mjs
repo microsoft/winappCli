@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import {
-  aggregateBenchmark, aggregateRelease, compareEntries, compareReleases, metrics, pairedGap, wilson,
+  aggregateBenchmark, aggregateRelease, compareEntries, checkPassed, compareReleases, metrics, pairedGap, wilson,
 } from '../lib/aggregate.mjs';
 import { loadData } from '../lib/load.mjs';
 import { buildSiteData, parseCli } from '../build.mjs';
@@ -302,7 +302,7 @@ test('quality topics pool their check ids per setup over valid runs, and report 
   assert.deepEqual(pack.byArm['cli-plus-skills'], { passed: 2, total: 2, rate: 1 });
   assert.equal(pack.change, 0.5);
   assert.ok(pack.skills.includes('winapp-manifest'));
-  assert.equal(b.qualityTopics.find((q) => q.topic === 'Build warnings').change, -1);
+  assert.equal(b.qualityTopics.find((q) => q.checks.includes('q4')).change, -1);
   assert.ok(!b.qualityTopics.some((q) => q.topic === 'Typography'), 'topics with no checks are left out');
 });
 
@@ -333,17 +333,38 @@ test('per-model change is the mean of paired per-app changes, with a repeatable 
   assert.deepEqual(pairedGap(b.perScenario, ['a']).a.ci, g.ci, 'same seed, same interval');
 });
 
-// Optional check against the real run 2 files and the numbers from slide-numbers.py.
+test('the build-warnings check counts C# warnings only', () => {
+  const q4 = (passed, detail) => ({ id: 'q4', kind: 'improvement', passed, source: 'harness', detail });
+  assert.equal(checkPassed(q4(false, 'WUI: 9')), true, 'WinUI analyzer warnings only');
+  assert.equal(checkPassed(q4(false, 'CS: 1, WUI: 9')), false);
+  assert.equal(checkPassed(q4(false, 'CS: 1')), false);
+  assert.equal(checkPassed(q4(false, 'CS: 0, WUI: 3')), true);
+  assert.equal(checkPassed(q4(false, 'something went wrong')), false, 'unparsed detail keeps the recorded result');
+  assert.equal(checkPassed(q4(false, undefined)), false);
+  assert.equal(checkPassed(q4(true, 'No C#/XAML/trim/analyzer warnings')), true);
+  assert.equal(checkPassed({ id: 'q0', kind: 'improvement', passed: false, detail: 'WUI: 2' }), false, 'other checks unchanged');
+  const m = metrics([t({ checks: [q4(false, 'WUI: 4'), { id: 'q0', kind: 'improvement', passed: true }] })]);
+  assert.deepEqual([m.qualityMet, m.qualityTotal], [2, 2]);
+  const b = aggregateBenchmark([t({ arm: 'cli-plus-skills', checks: [q4(false, 'WUI: 4')] }), t({ arm: 'barebones', checks: [q4(false, 'CS: 2')] })]);
+  const topic = b.qualityTopics.find((q) => q.checks.includes('q4'));
+  assert.equal(topic.topic, 'Build warnings (C# only)');
+  assert.deepEqual([topic.byArm['cli-plus-skills'].passed, topic.byArm.barebones.passed], [1, 0]);
+});
+
+// Optional check against the real run 2 files. Rates and per-model means match slide-numbers.py
+// except where q4 is counted by C# warnings only (quality checks met and its per-model change).
 // Set WINAPP_DASH_RUN2 to the trial-files folder to run it.
 test('run 2 numbers match the reference script', { skip: !process.env.WINAPP_DASH_RUN2 }, () => {
   const d = buildSiteData([{ dir: process.env.WINAPP_DASH_RUN2, label: 'Run 2' }]);
   const b = d.releases[0].benchmarks.apps;
   const o = b.headline.barebones.all, w = b.headline['cli-plus-skills'].all;
   const near = (x, want) => assert.ok(Math.abs(x * 100 - want) < 0.05 + 1e-9, `${(x * 100).toFixed(2)} vs ${want}`);
-  near(o.qualityAllRate, 65.9); near(w.qualityAllRate, 84.0);
-  near(o.qualityRate, 76.9); near(w.qualityRate, 81.1);
+  near(o.qualityAllRate, 65.9); near(w.qualityAllRate, 86.1);
+  near(o.qualityRate, 76.9); near(w.qualityRate, 83.6);
   near(o.packagingRate, 11.7); near(w.packagingRate, 98.8);
-  near(b.pairedQualityGap['claude-sonnet-5.5'].mean, 1.6);
-  near(b.pairedQualityGap['gpt-6.1-sol'].mean, 8.3);
-  near(b.pairedQualityGap['claude-opus-5.5'].mean, 5.2);
+  const q4 = b.qualityTopics.find((q) => q.checks.includes('q4'));
+  near(q4.byArm.barebones.rate, 100.0); near(q4.byArm['cli-plus-skills'].rate, 98.8);
+  near(b.pairedQualityGap['claude-sonnet-5.5'].mean, 6.9);
+  near(b.pairedQualityGap['gpt-6.1-sol'].mean, 8.7);
+  near(b.pairedQualityGap['claude-opus-5.5'].mean, 7.1);
 });

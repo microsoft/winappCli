@@ -29,7 +29,7 @@
 
   // Definitions, shown as tooltips and listed in "How we measured".
   const DEFS = {
-    quality: 'Quality checks met: share of quality checks that passed in valid runs, such as accessible names, x:Bind and no hard-coded font sizes. Checked by script, plus a few by the judge model. Packaging checks (p2, p3) are not included; they are shown as Packaged app.',
+    quality: 'Quality checks met: share of quality checks that passed in valid runs, such as accessible names, x:Bind and no hard-coded font sizes. Checked by script, plus a few by the judge model. Packaging checks (p2, p3) are not included; they are shown as Packaged app. The build-warnings check (q4) counts C# warnings only, because the WinUI analyzer comes with the winapp new template and is in few projects without it.',
     packaging: 'Packaged app: share of the packaging checks (p2, p3: the app is packaged as MSIX) that passed in valid runs. The app prompts do not ask for packaging, so it is reported on its own.',
     qualityAll: 'Quality checks met including the packaging checks (p2, p3), in valid runs.',
     requirements: "Requirements met: share of the scenario's requested features that the judge model found working, in valid runs.",
@@ -330,6 +330,7 @@
     const body = topics.map((q) => `<tr><th scope="row" class="text" title="Check ids: ${esc(q.checks.join(', '))}">${esc(q.topic)}</th><td>${cell(q.byArm[BASE])}</td><td>${cell(q.byArm[WITH])}</td>${change(q.change)}<td class="text">${q.skills.map((s) => `<code class="skill">${esc(s)}</code>`).join(' ')}</td></tr>`).join('');
     return `<h3>What changed with skills</h3>
       ${table(`Quality checks passed in valid <code>apps</code> runs, ${esc(armLabel(BASE).toLowerCase())} vs ${esc(armLabel(WITH).toLowerCase())}`, head, body)}
+      ${topics.filter((q) => q.note).map((q) => `<p class="muted"><strong>${esc(q.topic)}:</strong> ${esc(q.note)}</p>`).join('')}
       <p class="muted">Setup-level comparison: shows what the plugin as a whole changed. A skill loading in a trial is not evidence it helped (agents load skills on harder apps), so per-skill impact needs per-skill scenarios (<a href="${REPO}/issues/1206">#1206</a>).</p>`;
   }
 
