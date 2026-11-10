@@ -201,3 +201,30 @@ Describe 'MSIX file helpers' {
         (Find-WorkspaceFile -Root (Join-Path $TestDrive 'ws') -Include '*.msix').Name | Should -Be @('c.msix')
     }
 }
+
+Describe 'Generated-fixture helpers' {
+    It 'picks distinct names and never an excluded one' {
+        foreach ($i in 1..20) {
+            $picked = Get-RandomPick -From 'A', 'B', 'C', 'D' -Count 3 -Except 'D'
+            $picked.Count | Should -Be 3
+            ($picked | Select-Object -Unique).Count | Should -Be 3
+            $picked | Should -Not -Contain 'D'
+        }
+    }
+    It 'fails when the pool is too small' {
+        { Get-RandomPick -From 'A', 'B' -Count 3 } | Should -Throw '*Only 2 names*'
+    }
+    It 'strips comments from C# source' {
+        $file = Join-Path $TestDrive 'a.cs'
+        Set-Content $file "var x = Real(); // Fake()`n/* Other() */ var y = 1;"
+        $code = Get-CSharpCode $file
+        $code | Should -Match 'Real\('
+        $code | Should -Not -Match 'Fake|Other'
+    }
+    It 'reads a task state file and fails clearly when setup did not write one' {
+        $state = Join-Path $TestDrive 'state.json'
+        Set-Content $state '{ "client": "UsageReporter" }'
+        (Read-TaskState $state).client | Should -Be 'UsageReporter'
+        { Read-TaskState (Join-Path $TestDrive 'missing.json') } | Should -Throw '*setup.ps1 did not run*'
+    }
+}

@@ -1,0 +1,23 @@
+{
+  "prompt": "OrderSync, in this folder, is a small .NET console job. We upgraded our internal telemetry package, Contoso.Telemetry, from 1.4 to 2.0 (2.0 is the only version left on our internal feed), and now `dotnet build` fails in `AppTelemetry.cs`. Update the code for 2.0 so it builds and the job still sends its `orders_synced` usage event, with the same properties, to the telemetry service when it runs.",
+  "reference": {
+    "approach": "Contoso.Telemetry 2.0 renamed the client type, the event method and the flush, and the flush became async. The names are generated at random on every run (see the state file, C:\\bench-state\\find-api-telemetry-upgrade.json). Use the client type, its event method (documented as queuing a named custom event for the service, not the one that writes a local diagnostic trace), and the async method that sends queued items (not the one that stops sending); await it, because Dispose discards unsent items.",
+    "commands": [
+      "dotnet build",
+      "winapp find-api telemetry",
+      "winapp find-api members <client type> --all"
+    ]
+  },
+  "skill": "winapp-find-api",
+  "set": "tuning",
+  "cluster": "API lookup",
+  "workspace": "C:\\src\\OrderSync",
+  "timeoutMinutes": 20,
+  "checks": [
+    "builds (required): `dotnet build` of OrderSync.csproj succeeds when the checker runs it (the fixture fails with CS0246 against Contoso.Telemetry 2.0)",
+    "event-sent (required): running the app with the library's outbox redirected records an `orders_synced` event written by this run's generated library. Calling the diagnostic method, skipping the send, or calling the pause method records nothing",
+    "no-workarounds (required, guard): Contoso.Telemetry is still referenced; AppTelemetry.cs has no #if, dynamic or reflection; no workspace source declares Contoso.Telemetry types or writes the outbox itself",
+    "properties-kept: the event still carries count=3 and elapsed_ms"
+  ],
+  "whyGoodTest": "Fixing a build after a dependency upgrade renamed its API is a common job, and the skill names CS0246 and CS1061 as its triggers. setup.ps1 generates the package on every run with new type and member names (from pools of plausible names) and its own signature value, so there is nothing to remember: not from training data, not from an earlier run. That keeps the test from decaying as models are retrained. The only way to the fix is reading the package's metadata, which `winapp find-api` indexes from the project's NuGet references, including its XML summaries. Two decoys with the same shape (a diagnostic method and a pause method) mean a guess that merely compiles still fails, and the checker runs the app instead of reading the code, so any correct spelling of the fix passes."
+}

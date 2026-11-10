@@ -497,6 +497,78 @@ function Invoke-SdkTool {
     return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
 }
 
+function Get-RandomPick {
+    # Distinct random items from a list, so a generated library's names differ on every run.
+    param([Parameter(Mandatory)][string[]]$From, [int]$Count = 1, [string[]]$Except = @())
+    $pool = @($From | Where-Object { $_ -notin $Except } | Select-Object -Unique)
+    if ($pool.Count -lt $Count) { throw "Only $($pool.Count) names left to pick $Count from" }
+    return @($pool | Get-Random -Count $Count)
+}
+
+function New-LocalNuGetPackage {
+    # Compiles C# source into a class library with XML docs and packs it into a folder feed. The source
+    # is built in a scratch folder that is deleted afterwards, so only the .nupkg remains. Returns the .nupkg path.
+    param(
+        [Parameter(Mandatory)][string]$Id,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$FeedPath,
+        [string]$TargetFramework = 'net8.0',
+        [string]$Description = $Id,
+        [string]$Authors = 'Contoso'
+    )
+    $work = Join-Path ([System.IO.Path]::GetTempPath()) "pkg-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Force -Path $work, $FeedPath | Out-Null
+    try {
+        $desc = [System.Security.SecurityElement]::Escape($Description)
+        Set-Content -LiteralPath (Join-Path $work "$Id.csproj") -Encoding utf8NoBOM -Value @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$TargetFramework</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PackageId>$Id</PackageId>
+    <Version>$Version</Version>
+    <Authors>$Authors</Authors>
+    <Description>$desc</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>false</IncludeSymbols>
+    <DebugType>none</DebugType>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>
+"@
+        Set-Content -LiteralPath (Join-Path $work 'Library.cs') -Value $Source -Encoding utf8NoBOM
+        $out = & dotnet pack (Join-Path $work "$Id.csproj") -c Release -o $FeedPath -nologo 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { throw "dotnet pack $Id failed: $out" }
+        return (Join-Path $FeedPath "$Id.$Version.nupkg")
+    }
+    finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+function Read-TaskState {
+    # The per-run facts a setup script generated (random names, secrets), read by the checker and solve.ps1.
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { throw "Task state '$Path' is missing; setup.ps1 did not run" }
+    return (Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json)
+}
+
+function Get-CSharpCode {
+    # C# source without comments, so a name that appears only in a comment doesn't count.
+    param([Parameter(Mandatory)][string]$Path)
+    $text = Get-Content -Raw -LiteralPath $Path
+    return ($text -replace '(?s)/\*.*?\*/', '' -replace '//[^\r\n]*', '')
+}
+
+function Invoke-DotnetBuild {
+    # dotnet build with exit code and the first few distinct errors, for a check's detail text.
+    param([Parameter(Mandatory)][string]$Project, [string[]]$Arguments = @())
+    $out = & dotnet build $Project -nologo -v q @Arguments 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    $errors = @($out -split "`r?`n" | Where-Object { $_ -match ': error ' } | ForEach-Object { ($_ -replace '\s+\[[^\]]+\]$', '').Trim() } | Select-Object -Unique -First 4)
+    return [pscustomobject]@{ Ok = ($code -eq 0); Output = $out; Detail = "dotnet build exit $code$(if ($errors) { '; ' + ($errors -join ' | ') })" }
+}
+
 #endregion
 
 Export-ModuleMember -Function *

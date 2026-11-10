@@ -1,0 +1,24 @@
+{
+  "prompt": "ReportExporter, in this folder, has the reporting database password hard-coded in `Database.cs`. Before release it has to come from the company secret store instead, through our internal `Contoso.Secrets` package, which the project already references. The password is stored there under the name `reports-db`, and this machine already has access to it. Change `Database.ConnectionString()` to read it from the store, and don't modify the stored secret. The project must still build.",
+  "reference": {
+    "approach": "Contoso.Secrets has one client type with a static method that opens the signed-in user's store, a method that decrypts a secret by name, and a value type whose text property holds the secret. All names are generated at random on every run (see the state file, C:\\bench-state\\find-api-secret-store.json). Open the store, read reports-db, and put the value type's text property into the connection string. Don't call the rotate method (it replaces the secret), don't use the describe method (no value), and don't use ToString() or Fingerprint (masked or hashed).",
+    "commands": [
+      "dotnet build",
+      "winapp find-api secret --max 5",
+      "winapp find-api members <client type> <value type> --all"
+    ]
+  },
+  "skill": "winapp-find-api",
+  "set": "tuning",
+  "cluster": "API lookup",
+  "workspace": "C:\\src\\ReportExporter",
+  "timeoutMinutes": 20,
+  "checks": [
+    "builds (required, guard): `dotnet build` of ReportExporter.csproj succeeds when the checker runs it. The fixture already builds, so this only guards against breaking it",
+    "password-from-store (required): a probe app that calls `Database.ConnectionString()` (sync or async) gets a connection string containing this run's reports-db secret",
+    "secret-unchanged (required, guard): the stored reports-db secret is still the one setup created (it was not rotated)",
+    "no-workarounds (required, guard): the secret isn't copied into the workspace, the store file isn't read directly, no workspace source declares Contoso.Secrets types or uses reflection or dynamic, and the package is still referenced",
+    "dev-password-removed: the hard-coded development password is no longer in the workspace source"
+  ],
+  "whyGoodTest": "Writing new code against an unfamiliar internal library is the everyday version of 'use the right members of a type you don't know'. setup.ps1 generates the package on every run with new type, member and property names and a new secret, so nothing can be remembered from training data or from an earlier run, and the test doesn't decay as models are retrained. The way through is reading the package's metadata, which `winapp find-api` indexes from the project's NuGet references along with the XML summaries. Plausible wrong choices fail on outcome, not style: the describe method has no value, ToString() is masked, Fingerprint is a hash, and the rotate method changes the secret, which the guard catches. The checker calls the method and compares the result, so any correct way of writing it passes."
+}

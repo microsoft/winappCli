@@ -1,0 +1,25 @@
+{
+  "prompt": "NoteKeeper.Core, in this folder, is the shared library of our notes app. Add a `public static Task<string> SummarizeAsync(Note note)` method to the `NoteSummary` class that returns a short summary of the note's body, generated on the device by the Windows AI language model that comes with the Windows App SDK. The project is pinned to the Windows App SDK version our customers have deployed, so keep that version. This machine has no NPU, so you can't run it, but the project must still build with `dotnet build`.",
+  "reference": {
+    "approach": "Microsoft.WindowsAppSDK 1.7.260224002 has LanguageModel (GetReadyState, EnsureReadyAsync, CreateAsync) but no LanguageModel.GenerateResponseAsync; that arrived with Microsoft.WindowsAppSDK.AI 1.8.39, in the 1.8 release line. Summarize with new TextSummarizer(model).SummarizeParagraphAsync(note.Body) (or SummarizeAsync) and return result.Text, after checking GetReadyState() and calling EnsureReadyAsync() when needed. Keep the package version.",
+    "commands": [
+      "dotnet build",
+      "winapp find-api members LanguageModel TextSummarizer LanguageModelResponseResult",
+      "winapp find-api summarize --max 3"
+    ]
+  },
+  "skill": "winapp-find-api",
+  "set": "held-out",
+  "cluster": "API lookup",
+  "workspace": "C:\\src\\NoteKeeper",
+  "timeoutMinutes": 20,
+  "checks": [
+    "builds (required, guard): `dotnet build` of NoteKeeper.Core.csproj succeeds when the checker runs it. The fixture already builds, so this only guards against breaking it",
+    "method-callable (required): a probe file that calls `NoteKeeper.NoteSummary.SummarizeAsync(Note)` and uses it as `Task<string>` compiles",
+    "on-device-summary (required): the code creates a model with LanguageModel.CreateAsync() and summarizes with TextSummarizer (SummarizeAsync or SummarizeParagraphAsync)",
+    "sdk-pinned (required, guard): the only Windows App SDK package reference is still Microsoft.WindowsAppSDK 1.7.260224002",
+    "no-stand-ins (required, guard): no workspace source declares LanguageModel, TextSummarizer or LanguageModelResponseResult, or uses dynamic or reflection",
+    "checks-model-ready: the code calls LanguageModel.GetReadyState() or EnsureReadyAsync()"
+  ],
+  "whyGoodTest": "Projects often stay on an older package version that matches what their customers have deployed, and the agent has to code against that version, not the newest one. Here the well-known call, LanguageModel.GenerateResponseAsync, is missing from the pinned Microsoft.WindowsAppSDK 1.7.260224002 metadata (it is in Microsoft.WindowsAppSDK.AI 1.8.39 and every later release), so writing it from memory fails with CS1061; the version's own metadata shows that TextSummarizer is the way to summarize. The test doesn't decay as models are retrained: newer training data teaches the newer API even more strongly, and the pinned package never changes. The build plus the pin guard is the objective proof; it needs no NPU because nothing runs."
+}
