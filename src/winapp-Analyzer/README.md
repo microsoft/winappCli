@@ -16,7 +16,7 @@ src/winapp-Analyzer/
 │   ├── Allowlists.cs                          # declarative per-rule carve-outs
 │   ├── ApiMappings.g.cs / FeatureMappings.g.cs # data-driven from Microsoft Learn
 │   ├── Microsoft.WindowsAppSDK.Analyzers.targets # XAML AdditionalFiles + stand-down contract
-│   └── Rules/                                 # 9 DiagnosticAnalyzers
+│   └── Rules/                                 # 11 DiagnosticAnalyzers
 ├── Microsoft.WindowsAppSDK.Analyzers.Tests/   # xUnit test project (net10.0)
 ├── tests/Test-StandDownContract.ps1           # MSBuild .targets stand-down regression test
 ├── RULES.md                                   # full rule catalog + ID methodology
@@ -39,7 +39,7 @@ migration table from the older `WUIxxx` 3-digit scheme.
 |---|---|---|
 | UWP → WinUI 3 API compatibility | `WUI0xxx` | `Window.Current`, `CoreDispatcher`, `GetForCurrentView`, `using Windows.UI.Xaml` |
 | Migration-table data-driven | `WUI1xxx` | UWP API has WinAppSDK equivalent / no equivalent / feature-area hint (driven by `ApiMappings.g.cs` + `FeatureMappings.g.cs`) |
-| Runtime / layout / XAML pitfalls | `WUI2xxx` | Raw `TabView` content, nested `x:Bind` without fallback, `x:Bind` without `Mode`, null `Converter`, missing `AutomationId`, attached-property syntax |
+| Runtime / layout / XAML pitfalls | `WUI2xxx` | Raw `TabView` content, non-event `async void`, virtualized reset cache loss, nested `x:Bind` without fallback, `x:Bind` without `Mode`, null `Converter`, missing `AutomationId`, attached-property syntax |
 | MVVM patterns | `WUI3xxx` | Old `[ObservableProperty]` field syntax |
 | Interop | `WUI4xxx` | `WebView2` not initialized, removed ONNX Runtime GenAI APIs |
 

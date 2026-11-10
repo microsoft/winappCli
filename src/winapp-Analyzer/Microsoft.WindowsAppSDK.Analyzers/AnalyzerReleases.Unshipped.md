@@ -15,6 +15,8 @@ WUI1010 | WinUI.Migration | Info | Migration feature-area hint
 WUI2001 | WinUI.Runtime | Warning | TabView raw content pitfall
 WUI2002 | WinUI.Runtime | Warning | TabView raw content pitfall (cross-file XAML)
 WUI2003 | WinUI.Compatibility | Warning | UWP-only XAML control with no WinUI 3 equivalent
+WUI2004 | WinUI.Runtime | Warning | Non-event async method returns void
+WUI2005 | WinUI.Runtime | Warning | Virtualized reset drops rebuilt range cache
 WUI2010 | WinUI.Runtime | Warning | Nested x:Bind without fallback
 WUI2011 | WinUI.Runtime | Warning | x:Bind missing Mode
 WUI2012 | WinUI.Runtime | Warning | Null converter usage
