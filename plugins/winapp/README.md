@@ -15,7 +15,7 @@ The skills have your agent run these on your Windows computer:
 
 - WinApp CLI (`winapp`) commands. If WinApp CLI isn't installed, the agent installs it with WinGet or npm.
 - Your project's own build commands, such as `dotnet build`, `npm run build`, or `cmake --build`.
-- PowerShell to install or remove app packages, and Windows Sandbox tools (`wsb`, `dism`, `icacls`).
+- PowerShell to install or remove app packages, and Windows Sandbox tools (`wsb`, `dism`).
 - The Azure CLI (`az login`), if you sign with Azure Trusted Signing and aren't signed in to Azure.
 
 Steps that need administrator rights, such as trusting a development certificate, profiling app startup, or turning on Windows Sandbox, need your approval first. The agent also asks before it attaches WinUI DevTools to a running app or changes the app's properties. For UI automation, it sends clicks and keystrokes to the app you name, or runs the app in Windows Sandbox.
