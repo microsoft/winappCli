@@ -122,6 +122,7 @@ public class ReactorPerfTests
         Assert.AreEqual(4d, elements["00000000000000a1"].CreatedMs);
         Assert.AreEqual("App", elements["00000000000000a2"].Component);
         Assert.IsNull(elements["00000000000000a3"].Component);
+        Assert.IsNull(elements["00000000000000a3"].CreatedMs, "Elements outside Reactor keep main's JSON shape.");
     }
 
     [TestMethod]

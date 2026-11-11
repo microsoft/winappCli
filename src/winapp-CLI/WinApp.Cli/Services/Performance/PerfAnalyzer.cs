@@ -17,7 +17,7 @@ internal sealed class PerfElement
     /// <summary>Where that component was created in C# (<c>File.cs:line</c>), when Reactor's source map recorded it.</summary>
     public string? ComponentCallSite { get; set; }
     public double FirstObservedMs { get; set; }
-    /// <summary>Time of the WinUI Created event, when it was recorded.</summary>
+    /// <summary>Time of the WinUI Created event, recorded only for elements attributed to a Reactor component.</summary>
     public double? CreatedMs { get; set; }
     public double? DestroyedMs { get; set; }
     public bool CreationObserved { get; set; }
@@ -72,7 +72,7 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
         {
             if (e.Name == "Created" && element is not null && stacks.TryGetValue(e.Thread, out var open))
             {
-                AttributeToComponent(element, open);
+                AttributeToComponent(element, open, e.TimeMs);
             }
             return element?.Id;
         }
@@ -174,7 +174,7 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
             begin.Fields.GetValueOrDefault("componentId") == end.Fields.GetValueOrDefault("componentId");
     }
 
-    private static void AttributeToComponent(PerfElement element, List<Scope> open)
+    private static void AttributeToComponent(PerfElement element, List<Scope> open, double createdMs)
     {
         for (var i = open.Count - 1; i >= 0; i--)
         {
@@ -184,6 +184,7 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
                 element.Component = component;
                 element.ComponentId = begin.Fields.GetValueOrDefault("componentId");
                 element.ComponentCallSite = ReactorEventDecoder.CallSite(begin.Fields);
+                element.CreatedMs = createdMs;
                 return;
             }
         }
@@ -236,7 +237,6 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
         if (e.Name == "Created")
         {
             element.CreationObserved = true;
-            element.CreatedMs = e.TimeMs;
         }
         if (e.Name == "Name")
         {
