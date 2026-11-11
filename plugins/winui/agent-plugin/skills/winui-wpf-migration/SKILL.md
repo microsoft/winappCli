@@ -1,111 +1,104 @@
 ---
 name: winui-wpf-migration
-description: "Migrate or port a WPF app to WinUI 3: namespaces (System.Windows to Microsoft.UI.Xaml), control mapping (DataGrid, WrapPanel, TabControl), Dispatcher to DispatcherQueue, imaging, MVVM with CommunityToolkit.Mvvm, ThemeResource. Use when converting WPF code or fixing migration build errors."
+description: "Migrate WPF desktop apps to WinUI 3: project files, XAML, MVVM, resources, windowing, imaging, installers, and tests. Use for WPF ports and migration regressions. Preserve existing behavior and deployment; not for unrelated Windows App SDK work."
 ---
 
-### Migration Process
+# WPF to WinUI 3 Migration
 
-Use the **WinApp CLI 0.7+** prerequisites and per-app analyzer setup in `winui-dev-workflow`. The normal SDK path needs .NET 8.0.100 or later **and** the SDK required by the target TFM; Native AOT additionally needs MSVC/Desktop C++ tools. Handle missing prerequisites as described there.
+Port WPF code to WinUI 3 while preserving the application's behavior, deployment, stored data, and external contracts. Work through project setup, code and resource conversion, installer changes, and validation in dependency order.
 
-#### Step 1: Audit the WPF Source
-Before writing code, inventory WPF-specific APIs:
-```powershell
-# Find all WPF namespace usage
-Select-String -Path (Get-ChildItem -Recurse -Filter "*.cs" | Where-Object { $_.FullName -notlike "*\obj\*" }) -Pattern "System\.Windows\." | Select-Object -Property Filename, LineNumber, Line
-```
-List: WPF controls used, custom MVVM framework, imaging APIs, threading patterns, Win32 interop.
+## When to Use
 
-#### Step 2: Create WinUI 3 Project and Align Namespaces
-```powershell
-winapp new --name <AppName> --template winui-mvvm --template-version latest --use-defaults
-```
-Immediately set `<RootNamespace>` in `.csproj` to match the WPF namespace. Update `x:Class` in `App.xaml`, `MainWindow.xaml` and their code-behind files. Add the analyzer per `winui-dev-workflow`. Build to verify before porting any code.
+- Convert WPF XAML, controls, bindings, or `System.Windows.*` APIs to WinUI 3.
+- Port dispatcher calls, windows, dialogs, file pickers, or imaging code.
+- Adapt observable properties, commands, resources, and tests during a WPF migration.
+- Fix project, runtime, installer, or signing failures caused by that migration.
 
-Before implementing API replacements, restore the app project and check its exact references from the WinUI project directory, not the old WPF project or machine SDK:
-```powershell
-winapp find-api DispatcherQueue --json --project-dir .
-winapp find-api members DispatcherQueue --filter TryEnqueue --json --project-dir .
-winapp find-api check-property ListView ItemsSource SelectionMode --json --project-dir .
-```
-Use `winapp find-ui "<intent>"` for usage samples; see `winui-design` for project selection and batch API checks.
+Use `winui-design` for control samples, `winui-dev-workflow` for project setup and build/run commands, and `winui-packaging` when packaging is in scope. Keep the target project's versions, deployment, and required behavior when using those workflows.
 
-#### Step 3: Replace Namespaces
+## Migration Sequence
 
-| WPF | WinUI 3 |
-|-----|---------|
-| `System.Windows` | `Microsoft.UI.Xaml` |
-| `System.Windows.Controls` | `Microsoft.UI.Xaml.Controls` |
-| `System.Windows.Media` | `Microsoft.UI.Xaml.Media` |
-| `System.Windows.Input` | `Microsoft.UI.Xaml.Input` |
-| `System.Windows.Data` | `Microsoft.UI.Xaml.Data` |
-| `System.Windows.Threading.Dispatcher` | `Microsoft.UI.Dispatching.DispatcherQueue` |
-| `PresentationCore` / `PresentationFramework` | Remove entirely |
+Port bounded groups of files in dependency order:
 
-#### Step 4: Replace Controls
+1. **Project files** — prepare the WinUI target, package references, XAML/resource items, native references, and assets. Keep assembly names and deployment settings required by existing callers.
+2. **Models and shared logic** — remove UI-framework dependencies from reusable logic. Share CLI/UI behavior through a library when needed, without executable-to-executable project references.
+3. **MVVM** — replace custom observable/command infrastructure with CommunityToolkit.Mvvm. Preserve setter transformations, defaults, serialization attributes, notifications, and command behavior.
+4. **Resource strings** — migrate the application's `.resx` strings and their code/XAML consumers to `.resw`, connect the PRI resource index and accessor, and keep stable keys.
+5. **Services and imaging** — replace WPF types and propagate asynchronous APIs through callers. Preserve codec, metadata, cancellation, and error behavior.
+6. **View models** — move UI updates onto their owning dispatcher queue and adapt binding/command notifications.
+7. **Views and pages** — start with leaf views. Port markup, styles, converters, templates, keyboard behavior, and accessibility.
+8. **Main view and shell** — integrate the converted views, navigation, windows, and owner-dependent dialogs/pickers.
+9. **Application startup** — merge initialization, resources, activation, and cleanup into the WinUI lifecycle.
+10. **Installer and build pipeline** — update resource/component inventories, output paths, signing inputs, and build/publish dependencies for the resulting artifacts.
+11. **Tests** — adapt async calls, resource access, pixel/metadata assertions, settings fixtures, and integration scenarios.
 
-| WPF Control | WinUI 3 Equivalent |
-|------------|-------------------|
-| `DataGrid` | `ListView` with Grid column headers |
-| `WrapPanel` | `ItemsRepeater` + `UniformGridLayout` |
-| `TabControl` | `TabView` |
-| `StatusBar` | `Grid` row at bottom with `TextBlock` elements |
-| `Menu` / `MenuItem` | `MenuBar` / `MenuBarItem` / `MenuFlyoutItem` |
-| `ToolBar` | `CommandBar` |
-| `Expander` (custom) | `Expander` (built-in) |
+Compile each migrated group and run its relevant tests when the repository permits those checks. Follow restrictions that defer builds to final acceptance, and keep failures attributable to the changed group.
 
-#### Step 5: Replace Threading
-```csharp
-// WPF
-Application.Current.Dispatcher.Invoke(() => { /* UI work */ });
+## Migration Rules
 
-// WinUI 3
-dispatcherQueue.TryEnqueue(() => { /* UI work */ });
-```
-Get via `DispatcherQueue.GetForCurrentThread()`. No `Application.Current.Dispatcher` in WinUI 3.
+### Projects and application code
 
-#### Step 6: Replace Imaging
-**Critical:** `PresentationCore.dll` and `System.Windows.Media.Imaging` crash the WinUI XAML compiler. This is an architectural incompatibility — no workaround exists.
-- Remove ALL `System.Windows.Media.Imaging` references at migration start
-- Replace with `Windows.Graphics.Imaging` (WinRT) or `Microsoft.UI.Xaml.Media.Imaging.BitmapImage`
-- Do NOT add `<UseWPF>true</UseWPF>` — it silently corrupts the build
-- If heavy imaging code exists, migrate it early (step 2, not step 7)
+- Merge into the target's `App.xaml` and `App.xaml.cs`; preserve generated startup and initialization that the target SDK needs.
+- Remove WPF-only dependencies and project items once their callers have been ported. Do not add `UseWPF` or a WPF framework reference to the WinUI application to conceal an incomplete conversion.
+- Change `WindowsPackageType`, `WindowsAppSDKSelfContained`, `SelfContained`, or package identity only as part of the chosen deployment configuration.
+- Keep reusable logic out of executable project references; check unexpected copied executables, dependency files, and runtime configuration files in the output.
+- Use CommunityToolkit.Mvvm for migrated observable properties and commands. Prefer source-generated partial properties with a supported compiler and Toolkit version.
+- Inject or resolve services through dependency injection; do not construct service implementations in views or view models. Register services during application setup.
+- Prefer `WinUIEx.WindowEx` or an existing base derived from it for top-level windows. Declare supported window settings in XAML and use raw `AppWindow`/presenter calls for behavior the helper does not expose.
+- Use `ContentDialog` for in-app dialogs and `Frame`/`Page` for sub-views. Reserve separate windows for distinct top-level surfaces.
+- Preserve JSON names, enum values, defaults, resource keys, CLI options, and IPC/COM contracts.
 
-#### Step 7: Replace MVVM Framework
-Delete custom `ObservableObject`/`RelayCommand`/`DelegateCommand`. Use CommunityToolkit.Mvvm:
-- `INotifyPropertyChanged` base → `ObservableObject` with `[ObservableProperty]` partial properties (fix MVVMTK0045; don't keep fields)
-- Custom `RelayCommand` → `[RelayCommand]` attribute
-- Prefer `{x:Bind}` for known types; keep runtime `{Binding}`/`DisplayMemberPath` where needed. See `winui-packaging`'s `references/sourcegen-patterns.md` for binding modes, `x:DataType`, and AOT-safe runtime binding.
-- `DynamicResource` → `{ThemeResource}`
+### XAML and resources
 
-#### Step 8: Replace Resources
-- `.resx` → `.resw` (copy + rename to `Strings\en-us\`)
-- `{x:Static}` → `x:Uid` for localized strings
-- `Properties.Resources.Key` → `ResourceLoader.GetString("Key")`
+- Replace `clr-namespace:` with `using:`, and map unsupported markup individually. `x:DataType` enables typed templates but does not reproduce WPF's implicit template selection.
+- Use `ThemeResource` for theme-dependent resources, `StaticResource` for fixed resources, and binding/code for other dynamic values.
+- Replace WPF triggers with the appropriate visual states, bindings, or WinUI behaviors. Put state groups on a `Page`/`UserControl` content root or a control-template root.
+- Use direct Boolean `x:Bind`, existing control states, or suitable Toolkit converters before copying a WPF converter. Preserve the intended conversion and its inverse.
+- Prefer `x:Bind` for new and migrated views with known types. Use classic `Binding` where the source must be resolved through runtime `DataContext`.
+- Audit binding source, effective mode, and update timing. WPF editable properties that bind two-way by default need explicit `Mode=TwoWay` in WinUI.
+- Put `DataContext` and element resources on the hosted view/root element. A WinUI `Window` does not expose the WPF equivalents.
+- Preserve valid `PreviewKeyDown`/`PreviewKeyUp` handlers; redesign WPF mouse preview events according to their required behavior.
+- Keep resource lookup out of early static initialization paths used by models, CLI entry points, or tests.
 
-### Critical Rules
+### Threading and imaging
 
-- ❌ NEVER reference `PresentationCore`, `PresentationFramework`, or `System.Windows.Controls` assemblies
-- ❌ NEVER add `<UseWPF>true</UseWPF>`
-- Keep packaged as the default; see `winui-dev-workflow` Critical Rules for unpackaged experiments.
-- ❌ NEVER delete `Package.appxmanifest`
-- ❌ NEVER overwrite `App.xaml` / `App.xaml.cs` — merge WPF code into the WinUI 3 boilerplate
-- ✅ Launch with project-mode `winapp run`, not the .exe directly.
-- ✅ Break migration into file-level tasks — not one massive rewrite
+- Map `Dispatcher.Invoke` by its completion and exception semantics. `DispatcherQueue.TryEnqueue` only reports whether work was accepted.
+- Track the window/queue that owns UI state. Use that window's loaded `XamlRoot` for dialogs and its HWND or `WindowId` for the selected picker API.
+- Keep image processing separate from XAML image sources. Validate pixel format, alpha, dimensions, orientation, codec options, and stream ownership.
+- Preserve all required frames and metadata when replacing WPF encoders; a successful encode alone does not establish equivalent output.
 
-### Post-Migration Validation
+## Common Migration Failures
 
-```powershell
-# Check for remaining WPF references (should return nothing)
-Select-String -Path (Get-ChildItem -Recurse -Filter "*.cs" | Where-Object { $_.FullName -notlike "*\obj\*" }) -Pattern "System\.Windows\."
+| Symptom | What to check |
+|---|---|
+| A WinUI project still needs WPF assemblies | Find remaining callers, resource items, generated files, and shared-library dependencies before removing references. |
+| Startup reports a Windows App SDK runtime/COM activation error | Check the chosen package identity, runtime deployment, architecture, and initialization path; do not change deployment properties blindly. |
+| A window's bindings or resources do not resolve | Move view state and resources to the hosted view/root and check the binding source. |
+| Edited text does not reach the view model | Check explicit `Mode=TwoWay`, update timing, and notifications. |
+| A dialog or picker opens without the correct owner | Supply the owning loaded `XamlRoot`, HWND, or `WindowId` required by that API. |
+| Localized strings fail during startup or tests | Check PRI generation/name, resource-map lookup, initialization timing, and the test resource accessor. |
+| An installer reports a missing `.resources.dll` | Check whether the resource migration stopped producing that file, then update component and language-directory entries from actual output. |
+| Unexpected `.exe`, `.deps.json`, or `.runtimeconfig.json` files appear | Check executable project references and copied output before harvesting or signing artifacts. |
+| Scripts work from a solution but fail from a project | Review `$(SolutionDir)` dependencies and use a stable path base appropriate to the declaring file. |
+| Packaging or signing cannot find build artifacts | Check target ordering, selected build/publish output, and stale file inventories. |
+| Image quality, dimensions, or tests change | Check codec options and types, pixel/alpha representation, integer widths, and frame/metadata handling. |
 
-# Verify packaging preserved
-Test-Path "Package.appxmanifest"  # should be True
+## Detailed References
 
-# Build (the analyzer participates when installed)
-dotnet build .\MyApp.csproj -p:Platform=x64
+Read the reference that matches the current phase:
 
-# Run the migrated app
-winapp run .\MyApp.csproj --detach --json
-```
+- [Project and Application Migration](references/project-and-application-migration.md) — project items, MVVM, localization, installer/build changes, tests, and compatibility.
+- [Namespace and API Mapping](references/namespace-api-mapping.md) — namespaces, types, controls, properties, packages, and interop.
+- [XAML Migration](references/xaml-migration.md) — markup, binding, converters, templates, styles, and resource syntax.
+- [Threading and Windowing](references/threading-and-windowing.md) — queue semantics, window sizing/lifecycle, dialogs, pickers, and custom entry points.
+- [Imaging Migration](references/imaging-migration.md) — streams, codecs, options, multi-frame operations, metadata, and image tests.
 
-For UI validation, see `winui-ui-testing`; for crash diagnostics, see `winui-dev-workflow`. If AOT is intended, also test the published artifact via the workflow's AOT path; the run above is JIT, even in Release.
+## Completion Checklist
+
+- [ ] The WinUI application's project items and dependencies reflect the completed conversion.
+- [ ] Startup, shutdown, window ownership, dialogs, and pickers preserve the required behavior.
+- [ ] Binding updates, commands, themes, localization, keyboard access, and automation remain correct.
+- [ ] Settings fixtures, CLI behavior, and both directions of any existing IPC integration remain compatible.
+- [ ] Installer inventories and signing inputs match the actual build/publish output.
+- [ ] Tests exercise the same image, resource, and application behavior as before the migration.
+- [ ] The intended published output is validated; use `winui-dev-workflow` for Native AOT publish/run steps and `winui-packaging`'s `references/sourcegen-patterns.md` for trimming/binding/serialization guidance.
