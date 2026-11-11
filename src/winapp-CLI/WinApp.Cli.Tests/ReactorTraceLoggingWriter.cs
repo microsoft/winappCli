@@ -34,6 +34,14 @@ internal sealed unsafe partial class ReactorTraceLoggingWriter : IDisposable
     private static readonly byte[] EffectsMetadata = Event("Effects", ("componentId", InUInt64));
     private static readonly byte[] ChildReconcileStartMetadata = Event("ChildReconcile", ("oldCount", InUInt32), ("newCount", InUInt32));
     private static readonly byte[] KeyedListDiagnosticMetadata = Event("KeyedListDiagnostic", ("kind", InUnicodeString), ("bailedOut", InBool32));
+    // Schema revision 2 appends fields to these events; the event IDs and versions are unchanged.
+    private static readonly byte[] RenderPassStartV2Metadata = Event("RenderPass",
+        ("hostId", InUInt64), ("requesterId", InUInt64), ("requesterName", InUnicodeString), ("requestCount", InUInt32));
+    private static readonly byte[] ComponentRenderStartV2Metadata = Event("ComponentRender",
+        ("componentId", InUInt64), ("name", InUnicodeString), ("reason", InUnicodeString),
+        ("callSiteFile", InUnicodeString), ("callSiteLine", InUInt32), ("callSiteColumn", InUInt32));
+    private static readonly byte[] ReconcileStopV2Metadata = Event("Reconcile",
+        ("inserted", InUInt32), ("removed", InUInt32), ("moved", InUInt32), ("replaced", InUInt32));
 
     private ulong handle;
 
@@ -56,6 +64,18 @@ internal sealed unsafe partial class ReactorTraceLoggingWriter : IDisposable
         Write(5, 4, 1, Pass, ReconcileStartMetadata, new Payload().String16(entry).String16(element));
 
     public void ReconcileStop() => Write(6, 4, 2, Pass, ReconcileStopMetadata, new Payload());
+
+    public void RenderPassStart(ulong hostId, ulong requesterId, string requesterName, uint requestCount) =>
+        Write(1, 4, 1, Pass, RenderPassStartV2Metadata,
+            new Payload().UInt64(hostId).UInt64(requesterId).String16(requesterName).UInt32(requestCount));
+
+    public void ComponentRenderStart(ulong componentId, string name, string reason, string callSiteFile, uint line, uint column) =>
+        Write(3, 4, 1, Component, ComponentRenderStartV2Metadata,
+            new Payload().UInt64(componentId).String16(name).String16(reason).String16(callSiteFile).UInt32(line).UInt32(column));
+
+    public void ReconcileStop(uint inserted, uint removed, uint moved, uint replaced) =>
+        Write(6, 4, 2, Pass, ReconcileStopV2Metadata,
+            new Payload().UInt32(inserted).UInt32(removed).UInt32(moved).UInt32(replaced));
     public void EffectsStart(ulong componentId) => Write(7, 4, 1, Pass, EffectsMetadata, new Payload().UInt64(componentId));
     public void EffectsStop(ulong componentId) => Write(8, 4, 2, Pass, EffectsMetadata, new Payload().UInt64(componentId));
 

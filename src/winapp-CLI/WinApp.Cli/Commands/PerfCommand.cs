@@ -170,9 +170,24 @@ internal sealed class PerfCommand : Command, IShortDescription
                 {
                     WriteSection(console, "Reactor render passes");
                     console.WriteLine($"{passes.Count} passes, {passes.TotalMs:F3} ms total; mean={Timing(passes.MeanMs)}; max={Timing(passes.MaxMs)}; p95={Timing(passes.P95Ms)} ms");
-                    if (passes.LongestPassIds.Length > 0)
+                    if (passes.LongestPasses.Count > 0)
                     {
-                        console.WriteLine("Longest passes: " + string.Join(", ", passes.LongestPassIds) + " (expand with --view call --id <id>)");
+                        console.WriteLine("Longest passes (expand with --view call --id <id>):");
+                        foreach (var pass in passes.LongestPasses)
+                        {
+                            console.WriteLine($"  {pass.Id} {pass.DurationMs:F3} ms" +
+                                (ReactorPassRequest(pass.RequesterId, pass.RequesterName, pass.RequestCount) is { } request ? "; " + request : ""));
+                        }
+                    }
+                    if (passes.Requesters is { } requesters)
+                    {
+                        console.WriteLine("Passes requested by: " + (requesters.Count == 0 ? "no component" :
+                            string.Join(", ", requesters.Select(r => $"{r.Name} {r.Passes} ({r.TotalMs:F3} ms)"))) +
+                            (passes.UnrequestedPasses is > 0 ? $"; not requested by a component: {passes.UnrequestedPasses}" : ""));
+                    }
+                    if (passes.ReconcileEdits is { } edits)
+                    {
+                        console.WriteLine("Reconcile edits: " + string.Join(", ", edits.Select(edit => $"{edit.Key} {edit.Value}")));
                     }
                     if (passes.OutsidePassReconciles > 0)
                     {
@@ -208,6 +223,10 @@ internal sealed class PerfCommand : Command, IShortDescription
                         {
                             console.WriteLine("  reasons: " + string.Join(", ", reasons.Select(reason => $"{reason.Key} {reason.Value}")));
                         }
+                        if (row.CallSites is { Length: > 0 } sites)
+                        {
+                            console.WriteLine("  created at: " + string.Join(", ", sites));
+                        }
                         if (row.BoundaryOverlaps is > 0)
                         {
                             console.WriteLine($"  boundary overlaps={row.BoundaryOverlaps}; clipped overlap={Timing(row.ClippedOverlapMs)} ms");
@@ -229,6 +248,10 @@ internal sealed class PerfCommand : Command, IShortDescription
                     if (row.Call is { } call)
                     {
                         console.WriteLine($"{indent}  thread {call.Thread}, {call.Status}, parent {call.ParentCallId ?? "none"}, {row.ChildCount?.ToString() ?? "unknown"} children");
+                        if (ReactorDetail(call.Name, call.Attributes) is { } reactorDetail)
+                        {
+                            console.WriteLine($"{indent}  {reactorDetail}");
+                        }
                         if (row.ClippedOverlapMs != call.DurationMs)
                         {
                             console.WriteLine($"{indent}  overlap with query: {Timing(row.ClippedOverlapMs)} ms");
@@ -237,7 +260,10 @@ internal sealed class PerfCommand : Command, IShortDescription
                     if (row.Element is { } element)
                     {
                         console.WriteLine($"{indent}  {element.Id} {element.Type ?? "type not observed"} {element.Source}:{element.Line}" +
-                            (element.Component is { } component ? $" (created by Reactor component {component})" : ""));
+                            (element.Component is { } component
+                                ? $" (created by Reactor component {component}" +
+                                    (element.ComponentCallSite is { } site ? $" at {site})" : ")")
+                                : ""));
                     }
                     if (result.View != "summary" && row.Count is { } count)
                     {
@@ -268,6 +294,10 @@ internal sealed class PerfCommand : Command, IShortDescription
                     foreach (var operation in row.DominantOperations ?? [])
                     {
                         console.WriteLine($"{indent}  {operation.Id} {operation.Name} ({operation.Family}): {operation.DurationMs:F3} ms elapsed, {Timing(operation.ExclusiveMs)} ms exclusive");
+                        if (ReactorDetail(operation.Name, operation.Attributes) is { } operationDetail)
+                        {
+                            console.WriteLine($"{indent}    {operationDetail}");
+                        }
                         if (operation.Evidence.Length > 0)
                         {
                             console.WriteLine(indent + "    evidence: " + string.Join(", ", operation.Evidence));
@@ -447,6 +477,33 @@ internal sealed class PerfCommand : Command, IShortDescription
     }
 
     private static string Timing(double? value) => value?.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) ?? "unknown";
+
+    private static string? ReactorPassRequest(string? requesterId, string? requesterName, int? requestCount) =>
+        requesterId is null ? null :
+        (requesterId == "0" ? "not requested by a component" : $"requested by {requesterName} (component {requesterId})") +
+        (requestCount is { } count ? $", {count} {(count == 1 ? "request" : "requests")}" : "");
+
+    /// <summary>One line describing what a Reactor span recorded, or null when it recorded nothing extra.</summary>
+    private static string? ReactorDetail(string name, Dictionary<string, string>? attributes)
+    {
+        if (attributes is null)
+        {
+            return null;
+        }
+        if (name == ReactorEventDecoder.RenderPass)
+        {
+            return ReactorPassRequest(attributes.GetValueOrDefault("requesterId"), attributes.GetValueOrDefault("requesterName"),
+                int.TryParse(attributes.GetValueOrDefault("requestCount"), out var count) ? count : null);
+        }
+        if (name == ReactorEventDecoder.Reconcile && attributes.ContainsKey("inserted"))
+        {
+            return "edits: " + string.Join(", ", PerfQuery.ReconcileEditNames
+                .Select(edit => $"{edit} {attributes.GetValueOrDefault(edit, "?")}"));
+        }
+        return ReactorEventDecoder.ComponentName(name) is not null && ReactorEventDecoder.CallSite(attributes) is { } site
+            ? "created at " + site
+            : null;
+    }
 
     internal static bool IsDescendant(ParseResult parse)
     {

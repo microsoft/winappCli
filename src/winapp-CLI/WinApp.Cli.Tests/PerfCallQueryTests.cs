@@ -769,7 +769,12 @@ public class PerfCallQueryTests
         Assert.AreEqual(2, passes.Count);
         Assert.AreEqual(35d, passes.TotalMs);
         Assert.AreEqual(30d, passes.MaxMs);
-        Assert.AreEqual("p1,p2", string.Join(',', passes.LongestPassIds));
+        Assert.AreEqual("p1,p2", string.Join(',', passes.LongestPasses.Select(p => p.Id)));
+        Assert.IsNull(passes.LongestPasses[0].RequesterId, "Schema revision 1 passes have no recorded requester.");
+        Assert.IsNull(passes.Requesters, "Revision 1 must not report zero requesters.");
+        Assert.IsNull(passes.UnrequestedPasses);
+        Assert.IsNull(passes.ReconcileEdits);
+        Assert.IsNull(row.CallSites);
         Assert.AreEqual(1, passes.OutsidePassReconciles);
         Assert.AreEqual(5d, passes.OutsidePassReconcileMs);
 
@@ -779,6 +784,57 @@ public class PerfCallQueryTests
         var clipped = fixture.Query(new(View: "components", FromMs: 0, ToMs: 15));
         Assert.AreEqual(0, clipped.ReactorPasses!.Count, "Passes that cross the range boundary are not complete in it.");
         Assert.AreEqual(2, clipped.Rows.Single(r => r.Name == "Row").Count);
+    }
+
+    [TestMethod]
+    public void ComponentsViewSummarizesRevisionTwoRequestersEditsAndCallSites()
+    {
+        Dictionary<string, string> Pass(string id, string name, string count) =>
+            new() { ["hostId"] = "1", ["requesterId"] = id, ["requesterName"] = name, ["requestCount"] = count };
+        Dictionary<string, string> Edits(int inserted, int removed, int moved, int replaced) => new()
+        {
+            ["inserted"] = inserted.ToString(), ["removed"] = removed.ToString(),
+            ["moved"] = moved.ToString(), ["replaced"] = replaced.ToString(),
+        };
+        var calls = new[]
+        {
+            Reactor("p1", "ReactorRenderPass", 0, 30) with { Attributes = Pass("7", "Counter", "3") },
+            Reactor("r1", "ReactorReconcile", 1, 29, "p1") with { Attributes = Edits(1, 1, 2, 0) },
+            Reactor("row1", "ReactorRender:Row", 2, 10, "r1"),
+            Reactor("row2", "ReactorRender:Row", 11, 12, "r1"),
+            Reactor("p2", "ReactorRenderPass", 40, 50) with { Attributes = Pass("7", "Counter", "1") },
+            Reactor("r2", "ReactorReconcile", 41, 49, "p2") with { Attributes = Edits(0, 3, 0, 1) },
+            Reactor("p3", "ReactorRenderPass", 60, 65) with { Attributes = Pass("0", "", "0") },
+            // A revision-1 pass in the same capture (older host) is not counted as unrequested.
+            Reactor("p4", "ReactorRenderPass", 70, 72),
+        };
+        var byId = calls.ToDictionary(c => c.Id);
+        PerfEvent[] events =
+        [
+            RenderBegin(byId["row1"], "10", "parent") with { Fields = new()
+            {
+                ["componentId"] = "10", ["name"] = "Row", ["reason"] = "parent",
+                ["callSiteFile"] = "MainPage.cs", ["callSiteLine"] = "40", ["callSiteColumn"] = "9",
+            } },
+            RenderBegin(byId["row2"], "11", "parent") with { Fields = new()
+            {
+                ["componentId"] = "11", ["name"] = "Row", ["reason"] = "parent",
+                ["callSiteFile"] = "", ["callSiteLine"] = "0", ["callSiteColumn"] = "0",
+            } },
+        ];
+        using var fixture = new Fixture(calls, events);
+
+        var result = fixture.Query(new(View: "components", Limit: 100));
+
+        var passes = result.ReactorPasses!;
+        Assert.AreEqual("p1,p2,p3", string.Join(',', passes.LongestPasses.Select(p => p.Id)));
+        Assert.AreEqual(new PerfReactorPass("p1", 30, "7", "Counter", 3), passes.LongestPasses[0]);
+        Assert.AreEqual(new PerfReactorPass("p3", 5, "0", "", 0), passes.LongestPasses[2]);
+        Assert.AreEqual(new PerfReactorRequester("Counter", 2, 40), passes.Requesters!.Single());
+        Assert.AreEqual(1, passes.UnrequestedPasses);
+        Assert.AreEqual("inserted:1,removed:4,moved:2,replaced:1",
+            string.Join(',', passes.ReconcileEdits!.Select(e => e.Key + ":" + e.Value)));
+        Assert.AreEqual("MainPage.cs:40", result.Rows.Single().CallSites!.Single(), "An empty call site is not reported.");
     }
 
     [TestMethod]
@@ -851,7 +907,10 @@ public class PerfCallQueryTests
             Frame("f1", 0, 20),
             Reactor("p1", "ReactorRenderPass", 30, 60),
             Reactor("app", "ReactorRender:App", 31, 59, "p1") with { ExclusiveMs = null },
-            Reactor("rec", "ReactorReconcile", 32, 58, "app", exclusive: 2),
+            Reactor("rec", "ReactorReconcile", 32, 58, "app", exclusive: 2) with
+            {
+                Attributes = new() { ["inserted"] = "2", ["removed"] = "0", ["moved"] = "5", ["replaced"] = "0" },
+            },
             Reactor("slow", "ReactorRender:Slow", 33, 53, "rec"),
             Reactor("row", "ReactorRender:Row", 54, 57, "rec"),
             Reactor("effects", "ReactorEffects", 59, 60, "p1"),
@@ -865,6 +924,8 @@ public class PerfCallQueryTests
         Assert.AreEqual("ReactorRenderPass", result.Rows[0].Name);
         Assert.AreEqual("slow,row,rec,effects", string.Join(',', result.Rows[0].DominantOperations!.Select(o => o.Id)),
             "A render whose exclusive time is unknown ranks after measured operations, not by its inclusive time.");
+        Assert.AreEqual("5", result.Rows[0].DominantOperations!.Single(o => o.Id == "rec").Attributes!["moved"],
+            "Reconcile edit counts travel with the hotspot operation.");
         Assert.AreEqual("p1", fixture.Query(new(View: "hotspots", MinFrameMs: 25)).Rows.Single().Id);
     }
 

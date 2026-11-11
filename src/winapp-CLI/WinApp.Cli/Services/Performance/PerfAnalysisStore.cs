@@ -13,8 +13,8 @@ internal sealed class PerfAnalysisManifest
 {
     public int SchemaVersion { get; set; } = 1;
     public string ToolVersion { get; set; } = VersionHelper.GetVersionString();
-    public int DecoderVersion { get; set; } = 3;
-    public int AnalyzerVersion { get; set; } = 3;
+    public int DecoderVersion { get; set; } = 4;
+    public int AnalyzerVersion { get; set; } = 4;
     public required string Fingerprint { get; set; }
     public long TargetRecords { get; set; }
     public int Events { get; set; }
@@ -61,7 +61,7 @@ internal static class PerfAnalysisStore
             CheckRegularFile(manifestPath, 262144);
             var existing = JsonSerializer.Deserialize(File.ReadAllText(manifestPath), PerfJsonContext.Default.PerfAnalysisManifest)
                 ?? throw new InvalidDataException("The analysis cache manifest is empty.");
-            if (existing.SchemaVersion == 1 && existing.DecoderVersion == 3 && existing.AnalyzerVersion == 3 &&
+            if (existing.SchemaVersion == 1 && existing.DecoderVersion == 4 && existing.AnalyzerVersion == 4 &&
                 existing.Fingerprint == fingerprint)
             {
                 foreach (var file in CacheFiles)
@@ -300,7 +300,7 @@ internal static class PerfAnalysisStore
     private static string Fingerprint(PerfCaptureDocument capture, CancellationToken token)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        hash.AppendData(Encoding.UTF8.GetBytes("decoder:3;analyzer:3;" + VersionHelper.GetVersionString()));
+        hash.AppendData(Encoding.UTF8.GetBytes("decoder:4;analyzer:4;" + VersionHelper.GetVersionString()));
         hash.AppendData(JsonSerializer.SerializeToUtf8Bytes(capture, PerfJsonContext.Default.PerfCaptureDocument));
         long total = 0;
         foreach (var file in capture.TraceFiles)

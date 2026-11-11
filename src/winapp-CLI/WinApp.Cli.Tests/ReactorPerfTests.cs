@@ -160,6 +160,98 @@ public class ReactorPerfTests
     }
 
     [TestMethod]
+    public void RevisionTwoFieldsAreOptionalAndDecodeWhenPresent()
+    {
+        var revision2 = Decode(Raw(1, 1, "RenderPass",
+            new() { ["hostId"] = "1", ["requesterId"] = "7", ["requesterName"] = "Counter", ["requestCount"] = "2" }));
+        var partial = Decode(Raw(1, 1, "RenderPass", new() { ["hostId"] = "1", ["requesterId"] = "7" }));
+        var reconcile = Decode(Raw(6, 2, "Reconcile",
+            new() { ["inserted"] = "1", ["removed"] = "0", ["moved"] = "3", ["replaced"] = "0" }));
+        var render = Decode(Raw(3, 1, "ComponentRender", new()
+        {
+            ["componentId"] = "1", ["name"] = "RenderEachTime in MainPage.Render", ["reason"] = "mount",
+            ["callSiteFile"] = "MainPage.cs", ["callSiteLine"] = "40", ["callSiteColumn"] = "13",
+            ["futureField"] = "ignored but kept",
+        }));
+        foreach (var e in new[] { revision2, partial, reconcile, render })
+        {
+            Assert.IsNull(e.DecodeError);
+        }
+        Assert.AreEqual("Counter", revision2.Fields["requesterName"]);
+        Assert.AreEqual("ReactorRender:RenderEachTime in MainPage.Render", render.Name,
+            "Function components are named by their render function in revision 2.");
+        Assert.AreEqual("MainPage.cs:40", ReactorEventDecoder.CallSite(render.Fields));
+        Assert.AreEqual("end", reconcile.Phase);
+
+        var longName = Decode(Raw(3, 1, "ComponentRender", new()
+        {
+            ["componentId"] = "1", ["name"] = "A", ["reason"] = "mount", ["callSiteFile"] = new string('x', 2000), ["callSiteLine"] = "1",
+        }));
+        Assert.AreEqual(512, longName.Fields["callSiteFile"].Length);
+    }
+
+    [TestMethod]
+    public void CallsKeepRevisionTwoDetailsAndElementsKeepTheComponentCallSite()
+    {
+        var calls = new List<PerfCall>();
+        var analyzer = new PerfAnalyzer(calls.Add);
+        var created = new PerfEvent("vc", 0, 4, 7, PerfProviders.Xaml, 61, 0, 0, Guid.Empty, "Created", "metadata",
+            "info", "00000000000000a1", []);
+        foreach (var e in new[]
+        {
+            Decode(Raw(1, 1, "RenderPass", new() { ["hostId"] = "1", ["requesterId"] = "0", ["requesterName"] = "", ["requestCount"] = "0" }, 0)),
+            Decode(Raw(5, 1, "Reconcile", new() { ["entry"] = "reconcile", ["element"] = "StackElement" }, 1)),
+            Decode(Raw(3, 1, "ComponentRender", new()
+            {
+                ["componentId"] = "2", ["name"] = "Row", ["reason"] = "mount",
+                ["callSiteFile"] = "MainPage.cs", ["callSiteLine"] = "40", ["callSiteColumn"] = "13",
+            }, 2)),
+            created,
+            RenderStop(5, "2"),
+            Decode(Raw(3, 1, "ComponentRender", new()
+            {
+                ["componentId"] = "3", ["name"] = "Cell", ["reason"] = "mount",
+                ["callSiteFile"] = "", ["callSiteLine"] = "0", ["callSiteColumn"] = "0",
+            }, 6)),
+            RenderStop(7, "3"),
+            Decode(Raw(6, 2, "Reconcile", new() { ["inserted"] = "2", ["removed"] = "1", ["moved"] = "0", ["replaced"] = "0" }, 8)),
+            PassStop(9),
+        })
+        {
+            analyzer.Accept(e);
+        }
+        analyzer.Complete();
+
+        var pass = calls.Single(c => c.Name == "ReactorRenderPass").Attributes!;
+        Assert.AreEqual("0", pass["requesterId"]);
+        Assert.IsFalse(pass.ContainsKey("requesterName"), "An empty requester name is not recorded.");
+        Assert.AreEqual("2", calls.Single(c => c.Name == "ReactorReconcile").Attributes!["inserted"]);
+        var row = calls.Single(c => c.Name == "ReactorRender:Row").Attributes!;
+        Assert.AreEqual("MainPage.cs", row["callSiteFile"]);
+        Assert.IsFalse(row.ContainsKey("name"), "The component name is already in the call name.");
+        var cell = calls.Single(c => c.Name == "ReactorRender:Cell").Attributes!;
+        Assert.IsFalse(cell.ContainsKey("callSiteLine"), "An empty call site (source map off) is dropped.");
+        Assert.AreEqual("MainPage.cs:40", analyzer.Elements.Single().ComponentCallSite);
+    }
+
+    [TestMethod]
+    public void RevisionOneCallsHaveNoRevisionTwoDetails()
+    {
+        var calls = new List<PerfCall>();
+        var analyzer = new PerfAnalyzer(calls.Add);
+        foreach (var e in new[] { PassStart(0), ReconcileStart(1), RenderStart(2, "1", "FuncElement"), RenderStop(3, "1"), ReconcileStop(4), PassStop(5) })
+        {
+            analyzer.Accept(e);
+        }
+        analyzer.Complete();
+
+        Assert.AreEqual("1", calls.Single(c => c.Name == "ReactorRenderPass").Attributes!["hostId"]);
+        Assert.IsFalse(calls.Single(c => c.Name == "ReactorRenderPass").Attributes!.ContainsKey("requesterId"));
+        Assert.IsFalse(calls.Single(c => c.Name == "ReactorReconcile").Attributes!.ContainsKey("inserted"));
+        Assert.IsNull(ReactorEventDecoder.CallSite(new() { ["componentId"] = "1" }));
+    }
+
+    [TestMethod]
     public void WinUiScopesStillPairByExactName()
     {
         var calls = new List<PerfCall>();
@@ -172,5 +264,6 @@ public class ReactorPerfTests
         }
         analyzer.Complete();
         Assert.AreEqual(2d, calls.Single().DurationMs);
+        Assert.IsNull(calls.Single().Attributes, "Non-Reactor calls carry no Reactor details.");
     }
 }

@@ -46,7 +46,8 @@ description: Investigate slow WinUI 3 layout, scrolling and virtualization using
    [composition submission](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/winui-performance.md#separate-xaml-work-from-composition-submission).
    For Microsoft.UI.Reactor apps, the summary has a `Reactor` category; query
    `--view components` over the same marker range to rank components by exclusive
-   time with render counts and reasons, and expect slow render passes in `hotspots`; see
+   time with render counts and reasons, and expect slow render passes in `hotspots`
+   with the component that requested them; see
    [Reactor components](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/winui-performance.md#find-expensive-reactor-components).
 7. Report observed cost, supporting event IDs, coverage gaps, and one concrete next
    experiment. Preserve stdout when partial results accompany a nonzero exit code.
@@ -66,6 +67,9 @@ description: Investigate slow WinUI 3 layout, scrolling and virtualization using
   as app code or CPU use. Off-thread image decode is not UI-thread occupancy.
 - A Reactor app with no `Reactor` category is using a Reactor version without
   perf spans; that is missing evidence, not zero Reactor cost.
+- Reactor `created at` call sites appear only when source mapping is on
+  (`REACTOR_SOURCEMAP=1`). It adds cost, so don't compare timings between
+  recordings with and without it.
 - Process CPU counters include all target threads but do not attribute functions,
   modules, or waits. Sampled memory/thread maxima can miss brief spikes; missing
   samples are not zero resource use.

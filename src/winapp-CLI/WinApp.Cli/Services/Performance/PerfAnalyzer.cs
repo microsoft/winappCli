@@ -14,6 +14,8 @@ internal sealed class PerfElement
     /// <summary>The Reactor component whose render span was innermost when WinUI created this element.</summary>
     public string? Component { get; set; }
     public string? ComponentId { get; set; }
+    /// <summary>Where that component was created in C# (<c>File.cs:line</c>), when Reactor's source map recorded it.</summary>
+    public string? ComponentCallSite { get; set; }
     public double FirstObservedMs { get; set; }
     /// <summary>Time of the WinUI Created event, when it was recorded.</summary>
     public double? CreatedMs { get; set; }
@@ -26,7 +28,8 @@ internal sealed class PerfElement
 internal sealed record PerfParentChange(double TimeMs, string? ParentId, string Evidence);
 internal sealed record PerfCall(string Id, string Name, string Family, uint Thread, string? ElementId,
     string? ParentCallId, string? BeginEvent, string? EndEvent, double? StartMs, double? EndMs,
-    double? DurationMs, double? SelfMs, string Status, double? ExclusiveMs = null);
+    double? DurationMs, double? SelfMs, string Status, double? ExclusiveMs = null,
+    Dictionary<string, string>? Attributes = null);
 
 internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
 {
@@ -122,7 +125,8 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
                     ? Math.Max(0, duration - Union(scope.Children)) : null;
                 Publish(scope, new(scope.Id, scope.Begin.Name, e.Family, e.Thread, scope.Element, scope.Parent,
                     scope.Begin.Id, e.Id, scope.Begin.TimeMs, e.TimeMs, duration, self, "complete",
-                    scope.IncompleteChildren ? null : Math.Max(0, duration - Union(scope.DirectChildren))));
+                    scope.IncompleteChildren ? null : Math.Max(0, duration - Union(scope.DirectChildren)),
+                    ReactorEventDecoder.Attributes(scope.Begin, e)));
                 if (stack.LastOrDefault() is { } parent)
                 {
                     parent.IncompleteChildren |= scope.IncompleteChildren;
@@ -179,6 +183,7 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
             {
                 element.Component = component;
                 element.ComponentId = begin.Fields.GetValueOrDefault("componentId");
+                element.ComponentCallSite = ReactorEventDecoder.CallSite(begin.Fields);
                 return;
             }
         }

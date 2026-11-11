@@ -206,8 +206,8 @@ public class PerfCommandTests : BaseCommandTests
                 Assert.IsFalse(summary.RootElement.GetProperty("coverage").TryGetProperty("incompleteCalls", out _));
             }
             var analysis = PerfAnalysisStore.Open(directory.FullName, CancellationToken.None);
-            Assert.AreEqual(3, analysis.Manifest.DecoderVersion);
-            Assert.AreEqual(3, analysis.Manifest.AnalyzerVersion);
+            Assert.AreEqual(4, analysis.Manifest.DecoderVersion);
+            Assert.AreEqual(4, analysis.Manifest.AnalyzerVersion);
             Assert.AreEqual(1, analysis.Manifest.Calls);
             Assert.AreEqual(1, analysis.Manifest.DecodeErrors, "The diagnostic decoding failure must remain recorded.");
             Assert.IsEmpty(analysis.Manifest.IncompleteReasons);
@@ -276,6 +276,13 @@ public class PerfCommandTests : BaseCommandTests
                 reactor.EffectsStart(1);
                 reactor.EffectsStop(1);
                 reactor.RenderPassStop(1);
+                // A second pass in schema revision 2, so one capture holds both revisions.
+                reactor.RenderPassStart(1, 2, "SlowPanel", 1);
+                reactor.ComponentRenderStart(2, "SlowPanel", "state", "MainPage.cs", 40, 9);
+                reactor.ReconcileStart("reconcile", "StackElement");
+                reactor.ReconcileStop(1, 0, 2, 0);
+                reactor.ComponentRenderStop(2);
+                reactor.RenderPassStop(1);
                 trace.Stop();
                 capture.StopQpc = Stopwatch.GetTimestamp();
                 capture.EventsLost = trace.EventsLost;
@@ -293,12 +300,17 @@ public class PerfCommandTests : BaseCommandTests
             {
                 var rows = components.RootElement.GetProperty("rows");
                 Assert.AreEqual("SlowPanel", rows[0].GetProperty("name").GetString());
-                Assert.AreEqual(1, rows[0].GetProperty("count").GetInt32());
+                Assert.AreEqual(2, rows[0].GetProperty("count").GetInt32());
                 Assert.AreEqual(1, rows[0].GetProperty("reasons").GetProperty("parent").GetInt32());
+                Assert.AreEqual(1, rows[0].GetProperty("reasons").GetProperty("state").GetInt32());
+                Assert.AreEqual("MainPage.cs:40", rows[0].GetProperty("callSites")[0].GetString());
                 Assert.IsGreaterThanOrEqualTo(20d, rows[0].GetProperty("exclusiveMs").GetDouble());
                 Assert.AreEqual("App", rows[1].GetProperty("name").GetString());
-                Assert.IsGreaterThan(rows[0].GetProperty("inclusiveMs").GetDouble(), rows[1].GetProperty("inclusiveMs").GetDouble());
-                Assert.AreEqual(1, components.RootElement.GetProperty("reactorPasses").GetProperty("count").GetInt32());
+                Assert.IsGreaterThan(20d, rows[1].GetProperty("inclusiveMs").GetDouble());
+                var passes = components.RootElement.GetProperty("reactorPasses");
+                Assert.AreEqual(2, passes.GetProperty("count").GetInt32());
+                Assert.AreEqual("SlowPanel", passes.GetProperty("requesters")[0].GetProperty("name").GetString());
+                Assert.AreEqual(2, passes.GetProperty("reconcileEdits").GetProperty("moved").GetInt32());
             }
 
             (stdout, stderr, code) = await InvokeProgramAsync(["perf", "analyze", directory.FullName, "--json"]);
@@ -324,7 +336,7 @@ public class PerfCommandTests : BaseCommandTests
             Assert.AreEqual(0, analysis.Manifest.DecodeErrors);
             var names = PerfAnalysisStore.Read(analysis, "events.ndjson", PerfJsonContext.Default.PerfEvent)
                 .Select(e => e.Name).ToArray();
-            Assert.AreEqual(10, names.Length, string.Join(", ", names));
+            Assert.AreEqual(16, names.Length, string.Join(", ", names));
             Assert.IsFalse(names.Any(name => name is "ReactorChildReconcile" or "ReactorKeyedListDiagnostic"));
         }
         finally

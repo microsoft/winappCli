@@ -18,6 +18,9 @@ internal static class ReactorEventDecoder
 
     private sealed record Schema(string EventName, string Name, byte Opcode, string[] Fields);
 
+    // Required fields are schema revision 1's. Revision 2 only appends fields (RenderPass Start requesterId,
+    // requesterName, requestCount; ComponentRender Start callSiteFile/Line/Column; Reconcile Stop edit counts),
+    // so they are read when present and older Reactor builds still decode.
     private static readonly Dictionary<ushort, Schema> Schemas = new()
     {
         [1] = new("RenderPass", RenderPass, 1, ["hostId"]),
@@ -45,7 +48,12 @@ internal static class ReactorEventDecoder
         {
             return null;
         }
-        var fields = raw.Fields is null ? new Dictionary<string, string>(StringComparer.Ordinal) : new(raw.Fields, StringComparer.Ordinal);
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value) in raw.Fields ?? [])
+        {
+            // Names, file names and other strings from the app are capped like event names.
+            fields[key] = value.Length > 512 ? value[..512] : value;
+        }
         var error = raw.DecodeError ??
             (!raw.TraceLogging ? "Reactor events must be self-describing TraceLogging events." :
             raw.Version != 0 ? "Unsupported Reactor event version." :
@@ -71,4 +79,43 @@ internal static class ReactorEventDecoder
     /// <summary>The component type name of a <see cref="Render"/> scope or call, or null for other names.</summary>
     public static string? ComponentName(string name) =>
         name.StartsWith(Render + ":", StringComparison.Ordinal) ? name[(Render.Length + 1)..] : null;
+
+    /// <summary>
+    /// <c>File.cs:line</c> from a ComponentRender Start, or null when the app recorded no call site
+    /// (schema revision 1, or Reactor's source map off at run time).
+    /// </summary>
+    public static string? CallSite(Dictionary<string, string> fields) =>
+        fields.GetValueOrDefault("callSiteFile") is { Length: > 0 } file &&
+        fields.GetValueOrDefault("callSiteLine") is { } line && line != "0"
+            ? file + ":" + line
+            : null;
+
+    /// <summary>
+    /// The Start and Stop fields of a Reactor span, kept on its call so views can show what the span
+    /// recorded (pass requester, reconcile edits, call site). Null for other providers.
+    /// </summary>
+    public static Dictionary<string, string>? Attributes(PerfEvent begin, PerfEvent end)
+    {
+        if (begin.Family != Family)
+        {
+            return null;
+        }
+        var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value) in begin.Fields.Concat(end.Fields))
+        {
+            // The component name is already in the call name; empty revision-2 fields mean "not recorded".
+            if (key == "name" || value.Length == 0 || key == "requesterName" && begin.Fields.GetValueOrDefault("requesterId") == "0")
+            {
+                continue;
+            }
+            attributes[key] = value;
+        }
+        if (CallSite(begin.Fields) is null)
+        {
+            attributes.Remove("callSiteFile");
+            attributes.Remove("callSiteLine");
+            attributes.Remove("callSiteColumn");
+        }
+        return attributes.Count > 0 ? attributes : null;
+    }
 }

@@ -20,7 +20,12 @@ internal sealed record PerfGcOverlap(double ObservedOverlapMs, string[] Interval
 internal sealed record PerfActivityRow(string Category, double ObservedMs, double? RangePercent);
 /// <summary>Reactor render passes wholly inside the selected range, plus rows reconciled outside any pass.</summary>
 internal sealed record PerfReactorPassSummary(int Count, double TotalMs, double? MeanMs, double? MaxMs, double? P95Ms,
-    string[] LongestPassIds, int OutsidePassReconciles, double OutsidePassReconcileMs);
+    List<PerfReactorPass> LongestPasses, int OutsidePassReconciles, double OutsidePassReconcileMs,
+    List<PerfReactorRequester>? Requesters = null, int? UnrequestedPasses = null, Dictionary<string, int>? ReconcileEdits = null);
+/// <summary>Requester fields are null when the Reactor version did not record them (schema revision 1).</summary>
+internal sealed record PerfReactorPass(string Id, double DurationMs, string? RequesterId, string? RequesterName, int? RequestCount);
+/// <summary>A component whose re-render request scheduled passes in the range.</summary>
+internal sealed record PerfReactorRequester(string Name, int Passes, double TotalMs);
 
 internal sealed class PerfParsingResource
 {
@@ -37,6 +42,8 @@ internal sealed class PerfHotspotOperation
     public required string Family { get; init; }
     public double DurationMs { get; init; }
     public double? ExclusiveMs { get; init; }
+    /// <summary>What a Reactor span recorded, such as reconcile edit counts or the component's call site.</summary>
+    public Dictionary<string, string>? Attributes { get; init; }
     public string[] Evidence { get; set; } = [];
 }
 
@@ -72,6 +79,8 @@ internal sealed class PerfQueryRow
     public Dictionary<string, int>? Reasons { get; init; }
     /// <summary>Components view: WinUI elements created while this component's render span was innermost.</summary>
     public int? CreatedElements { get; init; }
+    /// <summary>Components view: the most common C# call sites that created this component (Reactor source map).</summary>
+    public string[]? CallSites { get; init; }
     public string[] Evidence { get; set; } = [];
     public bool Projected { get; set; }
 }
@@ -806,6 +815,7 @@ internal static class PerfQuery
                         Family = c.Family,
                         DurationMs = c.DurationMs!.Value,
                         ExclusiveMs = c.ExclusiveMs,
+                        Attributes = c.Attributes,
                         Evidence = new[] { c.BeginEvent, c.EndEvent }.OfType<string>().ToArray(),
                     }).ToList();
                 return row;
@@ -837,6 +847,7 @@ internal static class PerfQuery
         public HashSet<string> Instances { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, int> Reasons { get; } = new(StringComparer.Ordinal);
         public List<string> Evidence { get; } = [];
+        public Dictionary<string, int> CallSites { get; } = new(StringComparer.Ordinal);
         public double Inclusive { get; set; }
         /// <summary>Null when any counted render's exclusive time is unknown (a nested span never stopped).</summary>
         public double? Exclusive { get; set; } = 0;
@@ -870,9 +881,10 @@ internal static class PerfQuery
         bool Inside(PerfCall call) => call.DurationMs is not null && call.StartMs >= range.FromMs && call.EndMs <= range.ToMs;
 
         var aggregates = new Dictionary<string, ComponentAggregate>(StringComparer.Ordinal);
-        var passDurations = new List<(double Duration, string Id)>();
+        var passCalls = new List<PerfCall>();
         var outsideCount = 0;
         var outsideMs = 0d;
+        Dictionary<string, int>? edits = null;
         foreach (var call in reactor)
         {
             if (!Overlaps(call.StartMs, call.EndMs, range))
@@ -884,7 +896,7 @@ internal static class PerfQuery
             {
                 if (inside)
                 {
-                    passDurations.Add((call.DurationMs!.Value, call.Id));
+                    passCalls.Add(call);
                 }
                 continue;
             }
@@ -894,6 +906,18 @@ internal static class PerfQuery
                 {
                     outsideCount++;
                     outsideMs += call.DurationMs!.Value;
+                }
+                // Each Reconcile counts only its own host's edits, so summing every span counts each edit once.
+                if (inside && call.Attributes is { } recorded)
+                {
+                    foreach (var edit in ReconcileEditNames)
+                    {
+                        if (recorded.TryGetValue(edit, out var text) && int.TryParse(text, out var count))
+                        {
+                            edits ??= ReconcileEditNames.ToDictionary(name => name, _ => 0, StringComparer.Ordinal);
+                            edits[edit] += count;
+                        }
+                    }
                 }
                 continue;
             }
@@ -935,6 +959,10 @@ internal static class PerfQuery
                 {
                     aggregate.Evidence.Add(begin);
                 }
+                if (ReactorEventDecoder.CallSite(start.Fields) is { } site)
+                {
+                    aggregate.CallSites[site] = aggregate.CallSites.GetValueOrDefault(site) + 1;
+                }
             }
         }
         // A component instance renders only on its host's UI thread, so its ID selects that thread's elements.
@@ -947,12 +975,7 @@ internal static class PerfQuery
                 (threadInstances is null || e.ComponentId is not null && threadInstances.Contains(e.ComponentId)))
             .GroupBy(e => e.Component!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-        passDurations.Sort((left, right) => left.Duration.CompareTo(right.Duration));
-        passes = new(passDurations.Count, passDurations.Sum(p => p.Duration),
-            passDurations.Count > 0 ? passDurations.Average(p => p.Duration) : null,
-            passDurations.Count > 0 ? passDurations[^1].Duration : null,
-            passDurations.Count > 0 ? passDurations[(int)Math.Ceiling(passDurations.Count * .95) - 1].Duration : null,
-            passDurations.AsEnumerable().Reverse().Take(3).Select(p => p.Id).ToArray(), outsideCount, outsideMs);
+        passes = PassSummary(passCalls, outsideCount, outsideMs, edits);
         var rows = aggregates.Values.Select(a =>
         {
             a.Durations.Sort();
@@ -968,6 +991,9 @@ internal static class PerfQuery
                 Reasons = a.Reasons.OrderByDescending(r => r.Value).ThenBy(r => r.Key, StringComparer.Ordinal)
                     .ToDictionary(r => r.Key, r => r.Value, StringComparer.Ordinal),
                 CreatedElements = created.GetValueOrDefault(a.Name),
+                CallSites = a.CallSites.Count > 0
+                    ? a.CallSites.OrderByDescending(s => s.Value).ThenBy(s => s.Key, StringComparer.Ordinal).Take(3).Select(s => s.Key).ToArray()
+                    : null,
                 Evidence = a.Evidence.ToArray(),
             };
         });
@@ -977,6 +1003,30 @@ internal static class PerfQuery
             "count" => rows.OrderByDescending(r => r.Count),
             _ => rows.OrderByDescending(r => r.ExclusiveMs),
         }).ThenBy(r => r.Id, StringComparer.Ordinal).ToList();
+    }
+
+    internal static readonly string[] ReconcileEditNames = ["inserted", "removed", "moved", "replaced"];
+
+    private static PerfReactorPassSummary PassSummary(List<PerfCall> passCalls, int outsideCount, double outsideMs,
+        Dictionary<string, int>? edits)
+    {
+        var durations = passCalls.Select(p => p.DurationMs!.Value).Order().ToList();
+        string? Field(PerfCall pass, string key) => pass.Attributes?.GetValueOrDefault(key);
+        PerfReactorPass Describe(PerfCall pass) => new(pass.Id, pass.DurationMs!.Value, Field(pass, "requesterId"),
+            Field(pass, "requesterName"), int.TryParse(Field(pass, "requestCount"), out var count) ? count : null);
+        // Schema revision 2 records who requested each pass; revision 1 leaves these unknown rather than zero.
+        var recorded = passCalls.Where(p => Field(p, "requesterId") is not null).ToList();
+        var requesters = recorded.Count == 0 ? null : recorded.Where(p => Field(p, "requesterId") != "0")
+            .GroupBy(p => Field(p, "requesterName") is { Length: > 0 } name ? name : "(unnamed)", StringComparer.Ordinal)
+            .Select(g => new PerfReactorRequester(g.Key, g.Count(), g.Sum(p => p.DurationMs!.Value)))
+            .OrderByDescending(r => r.TotalMs).ThenBy(r => r.Name, StringComparer.Ordinal).Take(5).ToList();
+        return new(durations.Count, durations.Sum(),
+            durations.Count > 0 ? durations.Average() : null,
+            durations.Count > 0 ? durations[^1] : null,
+            durations.Count > 0 ? durations[(int)Math.Ceiling(durations.Count * .95) - 1] : null,
+            passCalls.OrderByDescending(p => p.DurationMs).ThenBy(p => p.Id, StringComparer.Ordinal).Take(3).Select(Describe).ToList(),
+            outsideCount, outsideMs, requesters,
+            recorded.Count == 0 ? null : recorded.Count(p => Field(p, "requesterId") == "0"), edits);
     }
 
     private static PerfQueryRow WithGcOverlap(PerfQueryRow row, List<PerfGcInterval> gc, PerfRange range)

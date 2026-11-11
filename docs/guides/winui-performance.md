@@ -257,14 +257,19 @@ other apps are unaffected. The output looks like this:
 
 ```text
 ── Reactor render passes ──────────────────────────────
-227 passes, 3782.600 ms total; mean=16.663; max=209.720; p95=28.027 ms
-Longest passes: c8, c4900, c2696 (expand with --view call --id <id>)
+187 passes, 4245.712 ms total; mean=22.704; max=472.016; p95=45.216 ms
+Longest passes (expand with --view call --id <id>):
+  c8 472.016 ms; not requested by a component, 1 request
+  c4688 235.465 ms; requested by App (component 1), 1 request
+Passes requested by: App 186 (3773.696 ms); not requested by a component: 1
+Reconcile edits: inserted 188, removed 178, moved 182, replaced 9
 
 ── Components ─────────────────────────────────────────
 Component                                  Inclusive  Exclusive   Renders
-SlowPanel                                   2989.667   2989.667       118
-  mean=25.336; max=32.635; p95=25.432 ms; instances=6; elements created=7
-  reasons: props 112, mount 6
+SlowPanel                                   2791.181   2791.181        97
+  mean=28.775; max=86.277; p95=42.264 ms; instances=5; elements created=6
+  reasons: props 92, mount 5
+  created at: Program.cs:51
 ```
 
 - **Inclusive** is a component's render, effects, and the reconcile of the subtree
@@ -279,15 +284,28 @@ SlowPanel                                   2989.667   2989.667       118
   render was the innermost one. The `elements` view also shows the owning component.
 - Rows that a virtualized list realizes during layout run outside any render
   pass; the pass summary reports them separately.
+- **Requested by** names the component whose state change scheduled a pass, and
+  how many requests the pass batched. "Not requested by a component" covers the
+  first mount and host-level re-renders. **Reconcile edits** count the children
+  inserted, removed, moved, and replaced; `hotspots` shows them per pass.
+- **Created at** is the line of C# that created the component. Reactor records it
+  only when the app was built with source mapping (the default for Debug builds)
+  and source mapping is on at run time, for example with `REACTOR_SOURCEMAP=1`.
+  Source mapping adds its own cost, so compare timings only between recordings
+  that both have it on or both have it off.
 - `--sort inclusive` or `--sort count` change the ranking. Function and memo
-  components appear as `FuncElement` and `MemoElement`.
+  components are named by their render function, for example `MainPage.Row` or
+  `RenderEachTime in MainPage.Render`. Older Reactor versions name them
+  `FuncElement` and `MemoElement`.
 
 Reactor passes run between frames, so a slow pass can leave every frame fast.
 `hotspots` lists long passes next to long frames, and `--view calls --family reactor`
 lists every pass, component render, and reconcile.
 
 The spans require a Reactor version that writes the `Microsoft-UI-Reactor-Perf`
-events. With an older Reactor, the report is the same as for any WinUI app and
+events. Requesters, reconcile edits, call sites, and render-function names need a
+newer Reactor; without them those lines are left out. With an older Reactor, the
+report is the same as for any WinUI app and
 `--view components` explains that no Reactor spans were recorded. Recordings made
 before winapp supported Reactor spans cannot gain them; record again.
 
