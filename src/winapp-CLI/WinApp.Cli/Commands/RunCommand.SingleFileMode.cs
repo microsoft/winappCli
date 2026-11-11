@@ -84,6 +84,13 @@ internal partial class RunCommand
                 return propertyError;
             }
 
+            if (!ProjectRunService.TryResolveConfiguration(
+                    configuration, parseResult.GetResult(ConfigurationOption) is { Implicit: false }, properties,
+                    out configuration, out var configurationError))
+            {
+                return Fail(configurationError!, isJson);
+            }
+
             // Same resolution project mode uses: --runtime's arch beats --arch, else the process arch.
             if (!TryResolveArchitecture(archOption, runtimeOption, out var architecture, out var archError))
             {

@@ -174,7 +174,7 @@ function selectScenarios(spec: string) {
 function selectAgents(spec: string): Array<{ agent: (typeof agents)[number]; refs?: string[] }> {
   if (spec.trim().toLowerCase() === "all") return agents.map((agent) => ({ agent }));
   // `name@ref` picks a git ref for a from_repo setup (branch, tag, SHA, or
-  // pull/N/head); repeat the name to compare refs: winappcli@main,winappcli@my-branch.
+  // pull/N/head); repeat the name to compare refs: cli-plus-plugins@main,cli-plus-plugins@my-branch.
   const picked: Array<{ agent: (typeof agents)[number]; refs?: string[] }> = [];
   for (const token of spec.split(",").map((s) => s.trim()).filter(Boolean)) {
     const at = token.indexOf("@");

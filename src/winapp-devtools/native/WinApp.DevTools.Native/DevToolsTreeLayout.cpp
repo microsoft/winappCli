@@ -283,6 +283,19 @@ std::vector<char> ComputeVisibility(const std::vector<Row>& rows, const std::vec
     return visible;
 }
 
+std::vector<size_t> ComputeVisibleParents(const std::vector<Row>& rows, const std::vector<char>& visible)
+{
+    std::vector<size_t> parents(rows.size(), kNoRow), ancestors;
+    for (size_t i = 0; i < rows.size(); ++i) {
+        while (!ancestors.empty() && rows[ancestors.back()].depth >= rows[i].depth)
+            ancestors.pop_back();
+        if (i >= visible.size() || !visible[i]) continue;
+        if (!ancestors.empty()) parents[i] = ancestors.back();
+        ancestors.push_back(i);
+    }
+    return parents;
+}
+
 void ExpandAncestors(const std::vector<Row>& rows, std::vector<char>& collapsed, size_t target,
                      bool jmxActive)
 {
@@ -345,8 +358,8 @@ std::wstring ElideBreadcrumb(const std::wstring& full, size_t& outSegments)
         p = q + kSep.size();
     }
     outSegments = seg.size();
-    if (seg.size() <= 4) return full; // short enough to show whole -- eliding would only lose information
-    return seg.front() + kSep + L"\u2026" + kSep + seg[seg.size() - 2] + kSep + seg.back();
+    if (seg.size() <= 2) return full;
+    return L"\u2026" + kSep + seg[seg.size() - 2] + kSep + seg.back();
 }
 
 } // namespace DevToolsTreeLayout

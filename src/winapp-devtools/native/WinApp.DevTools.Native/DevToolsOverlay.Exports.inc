@@ -43,7 +43,7 @@ static void SetPickButtonOn(bool armed)
     const bool on = armed && !CommentModeOn();
     if (g_pickModeSink) g_pickModeSink(on);
     DevToolsOverlayLog(L"overlay.pickmode button state=%s comments=%d", on ? L"ON" : L"OFF", (int)(armed && CommentModeOn()));
-    ProtoSetToggle(L"DevToolsProtoComments", L"DevToolsCommentsOn", L"DevToolsCommentsOff", armed && CommentModeOn());
+    ProtoSetToggle(L"DevToolsProtoComments", L"", L"", armed && CommentModeOn());
     ProtoSetToggle(L"DevToolsProtoPick", L"DevToolsPickOn", L"DevToolsPickOff", on);
     UpdateChipLabel();
 }
@@ -53,7 +53,7 @@ static void SetCommentsShown(bool on)
 {
     g_commentsShown = on;
     if (on) DrawAllPins(); else ClearAllPinsUi();
-    ProtoSetToggle(L"DevToolsToggleMarkers", L"DevToolsMarkersCheck", L"", on);
+    ProtoSetToggle(L"DevToolsToggleMarkers", L"", L"", on);
     UpdateCommentBadge();
     DevToolsOverlayLog(L"overlay.comments %s (pins=%zu)", on ? L"show" : L"hide", g_pins.size());
 }
@@ -844,11 +844,12 @@ static bool TryElementLayoutBox(IXamlDiagnostics* diag, InstanceHandle rootHandl
 // Highlight by handle on the UI thread. Prefer layout bounds, then bounded hit-test scanning only when geometry
 // is unavailable.
 HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle rootHandle, InstanceHandle target,
-                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay)
+                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay, bool preview)
 {
     (void)isOverlay;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::OverlayHighlight);
     if (!diag) return E_INVALIDARG;
+    preview = preview && target != g_selectedHandle;
 
     auto applied = [](InstanceHandle h) { g_lastHighlightHandle = h; TrackingSync(); NotifyStateChanged(); };
 
@@ -871,7 +872,7 @@ HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle r
         if (TryElementRootBounds(diag, rootHandle, target, &g, &noVisibleBox)) {
             DevToolsOverlayLog(L"overlay.highlight target=%llu geometric bounds L=%ld T=%ld R=%ld B=%ld",
                 (unsigned long long)target, g.left, g.top, g.right, g.bottom);
-            const HRESULT draw = DrawAdorner(diag, g.left, g.top, g.right - g.left, g.bottom - g.top, seed);
+            const HRESULT draw = DrawAdorner(diag, g.left, g.top, g.right - g.left, g.bottom - g.top, seed, preview);
             if (FAILED(draw)) return draw;
             g_lastPickBoundsDip = g;
             applied(target);
@@ -926,7 +927,7 @@ HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle r
         RECT b{ (LONG)L, (LONG)T, (LONG)(R + 1), (LONG)(B + 1) };
         DevToolsOverlayLog(L"overlay.highlight target=%llu seed=%ld,%ld bounds L=%ld T=%ld R=%ld B=%ld",
             (unsigned long long)target, seedX, seedY, b.left, b.top, b.right, b.bottom);
-        const HRESULT draw = DrawAdorner(diag, b.left, b.top, b.right - b.left, b.bottom - b.top, seed);
+        const HRESULT draw = DrawAdorner(diag, b.left, b.top, b.right - b.left, b.bottom - b.top, seed, preview);
         if (FAILED(draw)) return draw;
         g_lastPickBoundsDip = b;
         result = S_OK;
@@ -988,6 +989,7 @@ HRESULT DevToolsOverlay_HideChromeForCapture(bool hide)
         std::vector<DevToolsX::UIElement> chrome;
         for (auto const& layer : g_layerRoots) if (layer.root) chrome.push_back(layer.root);
         for (auto const& slot : g_hostSlots) if (!slot.layerKey && slot.content) chrome.push_back(slot.content);
+        if (auto presenter = g_toolbarMenuPresenter.get()) chrome.push_back(presenter);
         // The flyout is a windowed popup: its content is not under any host root.
         if (g_selPanel) {
             winrt::Windows::Foundation::IInspectable panel{ nullptr };

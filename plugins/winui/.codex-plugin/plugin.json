@@ -4,10 +4,10 @@
   "description": "Agents and skills for WinUI 3 app development. Create new WinUI 3 desktop apps, convert from other frameworks to WinUI 3, or add features to existing WinUI 3 applications.",
   "author": {
     "name": "Microsoft",
-    "url": "https://github.com/microsoft/win-dev-skills"
+    "url": "https://github.com/microsoft/WinAppCli"
   },
   "homepage": "https://aka.ms/winui-skills",
-  "repository": "https://github.com/microsoft/win-dev-skills",
+  "repository": "https://github.com/microsoft/WinAppCli",
   "license": "MIT",
   "keywords": [
     "windows",

@@ -26,10 +26,12 @@ type TargetRecordArgSpec = {
   property: keyof TargetRecordOptions;
   flag: string;
   kind: 'boolean' | 'value';
+  keepEmpty?: true;
 };
 
 export const TARGET_RECORD_ARG_SPECS: readonly TargetRecordArgSpec[] = [
   { property: 'durationSec', flag: '--duration-sec', kind: 'value' },
+  { property: 'expectSandbox', flag: '--expect-sandbox', kind: 'value', keepEmpty: true },
   { property: 'fps', flag: '--fps', kind: 'value' },
   { property: 'frames', flag: '--frames', kind: 'boolean' },
   { property: 'json', flag: '--json', kind: 'boolean' },
@@ -54,7 +56,7 @@ export function buildTargetRecordArgs(options: TargetRecordOptions): string[] {
     const value = options[spec.property];
     if (spec.kind === 'boolean') {
       if (value) args.push(spec.flag);
-    } else if (value !== undefined && value !== '') {
+    } else if (value !== undefined && (value !== '' || spec.keepEmpty)) {
       args.push(spec.flag, value.toString());
     }
   }

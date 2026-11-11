@@ -6,7 +6,6 @@
 // change only for a dependency property it is given, so the commonly changed ones are registered for the selected
 // element; a change re-reads just the properties that changed and updates the rows that differ.
 
-static DevToolsWindowElementFn g_elementFn = nullptr;
 static DevToolsWindowValuesFn  g_valuesFn = nullptr;
 void DevToolsWindow_SetElementResolver(DevToolsWindowElementFn element, DevToolsWindowValuesFn values)
 {
@@ -21,9 +20,12 @@ struct LiveWatch
     winrt::weak_ref<DevToolsX::DependencyObject> element;
     std::vector<std::pair<DevToolsX::DependencyProperty, int64_t>> tokens;
     std::vector<std::wstring> changed;   // properties reported since the last read
+    winrt::weak_ref<DevToolsX::FrameworkElement> layoutSource;
+    winrt::event_token layoutToken{};
 };
 static LiveWatch g_live;
 static UINT_PTR  g_liveTimer = 0;
+static UINT_PTR  g_liveLayoutTimer = 0;
 static size_t    g_liveRegistered = 0, g_liveUnregistered = 0;
 
 // The dependency properties apps commonly change from code, for this element's classes.
@@ -119,6 +121,10 @@ static std::vector<std::pair<const wchar_t*, DevToolsX::DependencyProperty>> Liv
 static void LiveUnwatch()
 {
     if (g_liveTimer) { KillTimer(nullptr, g_liveTimer); g_liveTimer = 0; }
+    if (g_liveLayoutTimer) { KillTimer(nullptr, g_liveLayoutTimer); g_liveLayoutTimer = 0; }
+    if (auto source = g_live.layoutSource.get()) {
+        try { source.LayoutUpdated(g_live.layoutToken); } catch (...) {}
+    }
     if (auto element = g_live.element.get()) {
         for (const auto& [dp, token] : g_live.tokens) {
             try { element.UnregisterPropertyChangedCallback(dp, token); ++g_liveUnregistered; } catch (...) {}
@@ -133,6 +139,97 @@ static void LiveUnwatch()
 }
 
 static void UpdateSelectedTreePreview();
+static void RedrawLayoutSectionFromRows(InstanceHandle wire);
+
+// Property rows whose values the Size & spacing section reads.
+static bool FeedsLayoutSection(const std::wstring& name)
+{
+    static const wchar_t* names[] = { L"Width", L"MinWidth", L"MaxWidth", L"Margin", L"Padding",
+                                      L"BorderThickness", L"HorizontalAlignment" };
+    for (const wchar_t* n : names) if (name == n) return true;
+    return false;
+}
+
+// Live reads carry only the value fields. Lay them over the pane's rows so the edit records compare like with like.
+// A child the live read didn't return is dropped rather than kept with its cached value, which may be stale.
+static void OverlayLiveValues(DevToolsCardRow& row, const DevToolsCardRow& live)
+{
+    row.value = live.value;
+    row.valueState = live.valueState;
+    row.source = live.source;
+    std::vector<DevToolsCardRow> children;
+    for (auto& child : row.children)
+        for (const auto& lc : live.children)
+            if (lc.name == child.name) { OverlayLiveValues(child, lc); children.push_back(std::move(child)); break; }
+    row.children = std::move(children);
+}
+
+static void ReconcileLiveValues(InstanceHandle wire, const std::vector<DevToolsCardRow>& fresh)
+{
+    std::vector<DevToolsCardRow> merged;
+    merged.reserve(fresh.size());
+    for (const auto& f : fresh) {
+        DevToolsCardRow row = f;
+        for (const auto& known : g_propRows)
+            if (known.name == f.name) {
+                row = known;
+                OverlayLiveValues(row, f);
+                break;
+            }
+        merged.push_back(std::move(row));
+    }
+    ReconcileEditRecords(wire, merged);
+}
+
+// Read the element's edited and app-changed properties now. The selected element's live values are laid over its
+// pane rows; another element (a late save after the selection moved) is read in full, since its rows aren't loaded.
+// A field such as Foreground.Color also needs the full read, because the live read returns only whole properties.
+static void CheckEditRecordsNow(InstanceHandle wire)
+{
+    if (!wire) return;
+    bool any = false, nested = false;
+    auto note = [&](const std::wstring& prop) {
+        any = true;
+        if (wire == g_selWire && OwningRowName(g_propRows, prop) != prop) nested = true;
+    };
+    for (const auto& rec : g_editRecords) if (rec.wire == wire) note(rec.prop);
+    for (const auto& app : g_appChanged) if (app.wire == wire) note(app.prop);
+    if (!any) return;
+    if (wire != g_selWire || nested) {
+        if (!g_ctx.rowsFn) return;
+        std::wstring type, name, authoredState, authoredXaml;
+        std::vector<DevToolsCardRow> rows;
+        g_ctx.rowsFn(wire, type, name, rows, authoredState, authoredXaml);
+        if (!rows.empty()) ReconcileEditRecords(wire, rows);
+        return;
+    }
+    if (!g_valuesFn) return;
+    std::vector<std::wstring> names;
+    auto want = [&](const std::wstring& prop) {
+        const std::wstring top = OwningRowName(g_propRows, prop);
+        if (std::find(names.begin(), names.end(), top) == names.end()) names.push_back(top);
+    };
+    for (const auto& rec : g_editRecords) if (rec.wire == wire) want(rec.prop);
+    for (const auto& app : g_appChanged) if (app.wire == wire) want(app.prop);
+    std::vector<DevToolsCardRow> fresh;
+    if (g_valuesFn(wire, names, &fresh)) ReconcileLiveValues(wire, fresh);
+}
+
+static int ElementThemeOf(InstanceHandle wire)
+{
+    if (!wire || !g_elementFn) return -1;
+    IInspectable* element = g_elementFn(wire);
+    if (!element) return -1;
+    int theme = -1;
+    void* fe = nullptr;
+    if (SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+        int value = 0;
+        if (SUCCEEDED(DevToolsGetActualTheme(fe, &value))) theme = value;
+        reinterpret_cast<IUnknown*>(fe)->Release();
+    }
+    element->Release();
+    return theme;
+}
 
 static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
 {
@@ -140,8 +237,18 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
     g_liveTimer = 0;
     if (!g_live.wire || g_live.wire != g_selWire || g_live.gen != g_route1Gen || !g_valuesFn) return;
     if (g_ctx.wireLiveFn && !g_ctx.wireLiveFn(g_live.wire)) { LiveUnwatch(); return; }
+    // Tree captions do not replace property editors, so they can follow app changes during a draft too.
+    UpdateSelectedTreePreview();
     // An edit is in progress: its row is not replaced under the user; look again once it is committed or cancelled.
-    if (!CanRereadSelection(nullptr)) { g_liveTimer = SetTimer(nullptr, 0, 250, &LiveRefreshProc); return; }
+    // Edit records are still checked, so an app change during the edit still drops a stale Restore.
+    if (!CanRereadSelection(nullptr)) {
+        if (!g_live.changed.empty()) {
+            std::vector<DevToolsCardRow> peek;
+            if (g_valuesFn(g_live.wire, g_live.changed, &peek)) ReconcileLiveValues(g_live.wire, peek);
+        }
+        g_liveTimer = SetTimer(nullptr, 0, 250, &LiveRefreshProc);
+        return;
+    }
     LARGE_INTEGER freq{}, t0{}, t1{};
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&t0);
@@ -149,13 +256,16 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
     g_live.changed.clear();
     std::vector<DevToolsCardRow> fresh;
     if (!g_valuesFn(g_live.wire, names, &fresh)) return;
+    ReconcileLiveValues(g_live.wire, fresh);
     const auto plan = DevToolsLiveRows::Decide(g_propRows, fresh, false,
         [](const std::wstring& prop) { return PropIsExpanded(prop); });
     if (plan.action == DevToolsLiveRows::Action::Rebuild) {
         DevToolsWindow_RereadSelection(g_live.wire);
     } else if (plan.action == DevToolsLiveRows::Action::UpdateRows) {
+        bool layoutInputChanged = false;
         for (const auto& [i, k] : plan.changed) {
             DevToolsCardRow& row = g_propRows[i];
+            if (FeedsLayoutSection(row.name)) layoutInputChanged = true;
             row.value = fresh[k].value;
             row.valueState = fresh[k].valueState;
             row.source = fresh[k].source;
@@ -165,16 +275,93 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
                 g_propRowLabels[i] = std::move(label);
             }
             if (void* value = PaneRowChild(row.name, L"PValue")) {
-                PopulateRowValue(static_cast<IInspectable*>(value), row);
+                PopulateRowValue(static_cast<IInspectable*>(value), row, row.name);
                 reinterpret_cast<IUnknown*>(value)->Release();
             }
+            if (void* header = PaneRowChild(row.name, L"PHeader")) {
+                NamePropertyHeader(static_cast<IInspectable*>(header), row, row.name);
+                reinterpret_cast<IUnknown*>(header)->Release();
+            }
         }
+        if (layoutInputChanged) RedrawLayoutSectionFromRows(g_live.wire);
     }
-    // The caption can change even when no shown row did (it may come from a property the pane does not list).
-    UpdateSelectedTreePreview();
     QueryPerformanceCounter(&t1);
     DevToolsOverlayLog(L"route1.live update action=%d read=%zu changed=%zu uiMs=%.2f", (int)plan.action,
         names.size(), plan.changed.size(), (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart);
+}
+
+// Whether two layout reads would draw the same Size & spacing section.
+static bool SameLayout(const DevToolsWindowLayout& a, const DevToolsWindowLayout& b)
+{
+    auto eq = [](double x, double y) { return fabs(x - y) < 0.5; };
+    return a.haveDesired == b.haveDesired && a.haveRender == b.haveRender && a.haveOffset == b.haveOffset &&
+           a.haveParentBox == b.haveParentBox && a.haveInParent == b.haveInParent &&
+           eq(a.desiredW, b.desiredW) && eq(a.desiredH, b.desiredH) &&
+           eq(a.renderW, b.renderW) && eq(a.renderH, b.renderH) &&
+           eq(a.offsetX, b.offsetX) && eq(a.offsetY, b.offsetY) &&
+           eq(a.parentW, b.parentW) && eq(a.parentH, b.parentH) &&
+           eq(a.inParentX, b.inParentX) && eq(a.inParentY, b.inParentY) &&
+           a.childIndex == b.childIndex && a.childCount == b.childCount &&
+           a.haveActual == b.haveActual && eq(a.actualW, b.actualW) && eq(a.actualH, b.actualH) &&
+           a.parentType == b.parentType && a.parentOrientation == b.parentOrientation &&
+           a.parentSpacing == b.parentSpacing && a.parentPadding == b.parentPadding &&
+           a.gridRow == b.gridRow && a.gridColumn == b.gridColumn &&
+           a.gridRowSpan == b.gridRowSpan && a.gridColumnSpan == b.gridColumnSpan;
+}
+
+// Replaces only the Size & spacing section's contents, so the property rows, focus and scroll are untouched.
+static bool ReplaceLayoutSection(const DevToolsWindowLayout& layout)
+{
+    if (!g_layoutBody) return false;
+    const std::wstring markup = InlineResourceLiterals(
+        L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
+        L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">" + BuildLayoutSection(layout, g_propRows) +
+        L"</StackPanel>", nullptr, nullptr);
+    IInspectable* frag = nullptr;
+    if (FAILED(LoadMarkupWin(markup, &frag)) || !frag) return false;
+    winrt::Windows::Foundation::IInspectable fresh{ nullptr };
+    winrt::attach_abi(fresh, frag);
+    try {
+        winrt::Windows::Foundation::IInspectable body{ nullptr };
+        winrt::copy_from_abi(body, g_layoutBody);
+        auto children = body.as<DevToolsXC::Panel>().Children();
+        children.Clear();
+        children.Append(fresh.as<DevToolsX::UIElement>());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// The section is drawn from the property rows too, so redraw it after one it reads changed, even when the
+// element's geometry did not.
+static void RedrawLayoutSectionFromRows(InstanceHandle wire)
+{
+    if (!g_paneHaveLayout || !g_ctx.layoutFn) return;
+    DevToolsWindowLayout now;
+    if (g_ctx.layoutFn(wire, now) && ReplaceLayoutSection(now)) g_paneLayout = now;
+}
+
+// A layout pass ran (the window resized, a sibling grew): re-read the selected element's layout and redraw
+// Size & spacing only when what it shows has changed.
+static void CALLBACK LiveLayoutProc(HWND, UINT, UINT_PTR id, DWORD)
+{
+    KillTimer(nullptr, id);
+    g_liveLayoutTimer = 0;
+    if (!g_live.wire || g_live.wire != g_selWire || g_live.gen != g_route1Gen || !g_ctx.layoutFn) return;
+    if (g_ctx.wireLiveFn && !g_ctx.wireLiveFn(g_live.wire)) { LiveUnwatch(); return; }
+    DevToolsWindowLayout now;
+    const bool have = g_ctx.layoutFn(g_live.wire, now);
+    if (have == g_paneHaveLayout && (!have || SameLayout(now, g_paneLayout))) return;
+    if (have && g_paneHaveLayout && ReplaceLayoutSection(now)) {
+        g_paneLayout = now;
+        DevToolsOverlayLog(L"route1.live layout changed; redrew Size & spacing");
+        return;
+    }
+    // The section appears or disappears, which only a full rebuild can do.
+    if (!CanRereadSelection(nullptr)) { g_liveLayoutTimer = SetTimer(nullptr, 0, 250, &LiveLayoutProc); return; }
+    DevToolsOverlayLog(L"route1.live layout changed; rebuilding the pane");
+    DevToolsWindow_RereadSelection(g_live.wire);
 }
 
 // Called after the pane shows an element: follow that element, and stop following the previous one.
@@ -208,6 +395,15 @@ static void LiveWatchSelection()
             g_live.tokens.emplace_back(dp, token);
             ++g_liveRegistered;
         }
+        // Size & spacing follows layout passes, which no dependency property reports (a window resize changes
+        // the space offered, not this element's properties). Bursts are read at most every 250 ms.
+        if (const auto fe = element.try_as<DevToolsX::FrameworkElement>()) {
+            g_live.layoutToken = fe.LayoutUpdated([wire, gen](auto&&, auto&&) {
+                if (wire != g_live.wire || gen != g_route1Gen) return;
+                if (!g_liveLayoutTimer) g_liveLayoutTimer = SetTimer(nullptr, 0, 250, &LiveLayoutProc);
+            });
+            g_live.layoutSource = winrt::make_weak(fe);
+        }
         DevToolsOverlayLog(L"route1.live watching %zu properties (registered=%zu unregistered=%zu)",
             g_live.tokens.size(), g_liveRegistered, g_liveUnregistered);
     } catch (...) {
@@ -221,9 +417,10 @@ static bool RereadTreeCaption(size_t original, std::wstring* before)
 {
     if (!g_ctx.previewFn || original >= g_allTreeNodes.size()) return false;
     *before = g_allTreeNodes[original].preview;
+    const std::wstring beforeSearch = g_allTreeNodes[original].searchText;
     g_allTreeNodes[original].previewRead = false;
     g_ctx.previewFn(g_allTreeNodes, { original });
-    return g_allTreeNodes[original].preview != *before;
+    return g_allTreeNodes[original].preview != *before || g_allTreeNodes[original].searchText != beforeSearch;
 }
 
 // The selected element's caption in the tree ("Count: 3"), which follows its properties too.
@@ -231,25 +428,35 @@ static void UpdateSelectedTreePreview()
 {
     const auto row = g_nodeIdxByWire.find(g_selWire);
     if (row == g_nodeIdxByWire.end() || row->second >= g_renderedOriginalIndices.size() ||
-        row->second >= g_treeControls.size() || !g_treeControls[row->second]) return;
+        row->second >= g_treeNodes.size()) return;
     const size_t original = g_renderedOriginalIndices[row->second];
     std::wstring before;
     if (!RereadTreeCaption(original, &before)) return;
-    const std::wstring after = g_allTreeNodes[original].preview;
+    const auto& node = g_allTreeNodes[original];
+    const std::wstring& after = node.preview;
     try {
-        winrt::Windows::Foundation::IInspectable object{ nullptr };
-        winrt::copy_from_abi(object, static_cast<IInspectable*>(g_treeControls[row->second]));
-        const auto button = object.as<DevToolsXC::ContentControl>();
-        const auto inlines = button.Content().as<DevToolsXC::TextBlock>().Inlines();
-        // The caption ends with the preview between quotes: "\u201C", preview, "\u201D".
+        const auto caption = g_treeNodes[row->second].Content().as<DevToolsXC::TextBlock>();
+        const auto inlines = caption.Inlines();
+        // The last three runs are reserved for the preview, including its empty state.
         const uint32_t n = inlines.Size();
-        if (before.empty() || after.empty() || n < 3) { RefreshTreeFromApp(true); return; }
+        if (n < 4) throw winrt::hresult_error(E_UNEXPECTED, L"The tree caption has no preview runs.");
+        inlines.GetAt(n - 3).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"  \u201C");
         inlines.GetAt(n - 2).as<DevToolsXDoc::Run>().Text(after);
-        // The row's accessible name ends with the same preview.
-        std::wstring name = DevToolsXA::AutomationProperties::GetName(button).c_str();
-        if (name.size() >= before.size() && name.compare(name.size() - before.size(), before.size(), before) == 0)
-            DevToolsXA::AutomationProperties::SetName(button, name.substr(0, name.size() - before.size()) + after);
-    } catch (...) {
-        RefreshTreeFromApp(true);
+        inlines.GetAt(n - 1).as<DevToolsXDoc::Run>().Text(after.empty() ? L"" : L"\u201D");
+        // Selection can reveal a nonmatching row. Keep that exception, not rows whose old caption matched.
+        const bool keepRevealed = !g_treeFilterQuery.empty() && g_treeVisible[row->second] &&
+            (RowHiddenByJmx(row->second) ||
+             g_treeLabel[row->second].find(g_treeFilterQuery) == std::wstring::npos);
+        g_treeLabel[row->second] = DevToolsTreeLayout::BuildTreeFilterLabel(
+            node.type, node.name, after + L" " + node.searchText + L" " + node.sourceUri);
+        const bool matchesFilter = !RowHiddenByJmx(row->second) &&
+            g_treeLabel[row->second].find(g_treeFilterQuery) != std::wstring::npos;
+        // Collapsing and re-showing a revealed row would move keyboard focus away.
+        if (!g_treeFilterQuery.empty() && (!keepRevealed || matchesFilter)) ApplyTreeFilter(g_treeFilterQuery);
+        // Copies the new caption, name and tooltip to the realized row without rebuilding the tree.
+        else SyncTreeStructure();
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"tree.preview failed hr=0x%08X", error.code().value);
+        SetStatusText(L"Could not update the tree caption. Press F5 to refresh the tree.");
     }
 }

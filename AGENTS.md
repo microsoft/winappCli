@@ -223,7 +223,7 @@ guide, and its TypeScript examples are checked against the public API by npm tes
 
 To measure which plugin skills Copilot CLI loads (and the tokens it uses) for realistic prompts, run the local agent benchmark: `pwsh benchmarks\agents\run.ps1 -Plan`. See [`benchmarks/agents/README.md`](benchmarks/agents/README.md).
 
-To measure whether the plugins help Copilot build complete, working WinUI apps (build, launch, requirements, quality checks, design), run the app benchmark: `cd benchmarks\apps; npm ci; npm run bench -- --scenario calc --agent "none,published,winappcli@main,winappcli@my-branch" --dry-run`. Trials cost real AI credits and take minutes each. See [`benchmarks/apps/README.md`](benchmarks/apps/README.md).
+To measure whether the plugins help Copilot build complete, working WinUI apps (build, launch, requirements, quality checks, design), run the app benchmark: `cd benchmarks\apps; npm ci; npm run bench -- --scenario calc --agent "none,cli-only,cli-plus-plugins" --dry-run`. Trials cost real AI credits and take minutes each. See [`benchmarks/apps/README.md`](benchmarks/apps/README.md).
 
 ### Running tests on a Microsoft corporate machine
 
@@ -569,6 +569,20 @@ the plugin validator, so the post-build CI job also checks command examples. Run
 `-CliSchemaPath .\artifacts\docs\cli-schema.json` to the plugin validator.
 `Plugin Check` (`.github/workflows/plugin-check.yml`) runs structural checks on PRs
 without waiting for a CLI build, skipping quickly when no plugin-related file changed.
+
+`Plugin Check` also lints every plugin root with vally, the check Awesome Copilot runs
+before it accepts a plugin listing update. It is stricter than the validator: each
+`SKILL.md` must be at most 500 lines, and its relative links must stay inside its own
+skill folder, so name another skill in plain text (`` `winapp-performance` ``) instead of
+linking to its `SKILL.md`. Move long sections into the skill's `references/` folder. Run it
+locally with:
+
+```powershell
+npm ci --prefix scripts/vally --ignore-scripts
+node scripts/vally/lint-skills.mjs
+```
+
+Keep `@microsoft/vally` in `scripts/vally/package.json` at the version Awesome Copilot pins.
 
 ## C# service architecture guidelines
 

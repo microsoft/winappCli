@@ -31,6 +31,8 @@ static bool CanRereadSelection(bool* filterFocused)
 }
 
 static void WireAddComment(void* frameworkElement);
+static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& name,
+                                const std::wstring& label, const std::wstring& breadcrumb);
 
 static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, const std::wstring& breadcrumb,
                              bool force)
@@ -38,25 +40,47 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropPane);
     if (!g_ctx.propsHostChildren || !g_ctx.rowsFn) return;
     if (!force && wire != 0 && wire == g_selWire) return;
+    // Save the focused editor before its pane goes away, while g_selWire still names the element it edits. Its
+    // focus-out would otherwise arrive after the selection moved.
+    std::wstring flushed;
+    if (!g_flushingEditor) {
+        const bool leaving = g_selWire != 0 && wire != g_selWire;
+        const std::wstring saved = FlushFocusedEditor(leaving);
+        if (leaving) flushed = saved;
+        ReleasePaneEditors(/*retire*/ !leaving);
+    }
+    // After the flush: saving the editor can rebuild this pane, which moves the stashed draft into a new box.
+    RetireKindEditors();
+    RetireRowExpandSinks();
     StashCommentDraft();
-    for (auto& r : g_editRows) if (r.box) reinterpret_cast<IUnknown*>(r.box)->Release();
-    g_editRows.clear();
     ReleasePropFilterState();
-    ReleaseBreadcrumbRefs();
     ReleaseLayoutSectionRefs();
-    if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
-    // Selecting a DIFFERENT node starts a fresh dirty-tracking session (its changed markers reflect only edits made
-    // while it stays selected). A reset/undo click rebuilds the pane for the SAME wire and must preserve the set.
-    // The binding-lost list and any un-confirmed pending write are per-node for the same reason: they describe
-    // what happened to THIS element's rows while it was selected.
-    if (wire != g_dirtyNode) { g_dirtySeed.clear(); g_bindingLost.clear(); g_linkLost.clear(); g_pendingWrites.clear();
-                               g_sessionAssign.clear(); g_pendingKind.clear(); WalkForget(); g_dirtyNode = wire; }
+    g_propViewSelector = nullptr;
+    g_sourceStatus = nullptr;
+    g_commentBoxParts.clear();
+    // Selecting a DIFFERENT node resets the pane state that describes what happened to the selection's rows:
+    // lost bindings and links, unconfirmed writes, staged kinds. Edit records are kept for the whole session, so
+    // Restore still works after the user comes back to an element; only records for elements that are gone are dropped.
+    if (wire != g_dirtyNode) {
+        g_bindingLost.clear(); g_linkLost.clear(); g_pendingWrites.clear();
+        g_sessionAssign.clear(); g_pendingKind.clear(); WalkForget(); g_dirtyNode = wire;
+        if (g_ctx.wireLiveFn) {
+            for (size_t i = g_editRecords.size(); i-- > 0; )
+                if (!g_ctx.wireLiveFn(g_editRecords[i].wire)) g_editRecords.erase(g_editRecords.begin() + i);
+            for (size_t i = g_appChanged.size(); i-- > 0; )
+                if (!g_ctx.wireLiveFn(g_appChanged[i].wire)) g_appChanged.erase(g_appChanged.begin() + i);
+        }
+    }
+    // The message footer outlives the fragment, so a message about the previous element ends with its selection.
+    if (wire != g_selWire) SetStatusText(L"");
     g_selWire = wire; g_selLabel = label; g_selBreadcrumb = breadcrumb;
 
     std::wstring type, name; std::vector<DevToolsCardRow> rows;
     std::wstring authoredState, authoredXaml;
     { WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropRead);
       g_ctx.rowsFn(wire, type, name, rows, authoredState, authoredXaml); }
+    ReconcileEditRecords(wire, rows);
+    UpdateDetailsHeader(type, name, label, breadcrumb);
 
     const PaneEditMap emap = BuildEditMap(rows);
 
@@ -77,6 +101,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
 
     DevToolsWindowLayout layout; bool haveLayout = false;
     if (g_ctx.layoutFn && wire) haveLayout = g_ctx.layoutFn(wire, layout);
+    g_paneLayout = layout; g_paneHaveLayout = haveLayout;
 
     IInspectable* frag = nullptr;
     LARGE_INTEGER freq{}, tAuthor0{}, tAuthor1{}, tParse1{}, tWire1{};
@@ -125,8 +150,8 @@ g_propRows = rows;
         return;
     }
 
-    // Wire the fragment: FindName the Status line + each editable TextBox (E<i>), and attach a per-row
-    // LostFocus commit sink so leaving a field writes it to the live app element (no Apply button).
+    // Wire the fragment: the property rows, the disclosures, the Computed|Set selector, the filter, and the
+    // comment and source actions. Messages go to the window's footer, which outlives this fragment.
     QueryPerformanceCounter(&tParse1);
     void* fe = nullptr;
     if (SUCCEEDED(frag->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
@@ -136,115 +161,57 @@ g_propRows = rows;
         };
         const int repeaterItems = WirePropRepeater(fe);
         DevToolsOverlayLog(L"route1.props repeater items=%d rows=%zu", repeaterItems, g_propRows.size());
-        if (IInspectable* st = findByName(L"Status")) {
-            void* tb = nullptr;
-            if (SUCCEEDED(st->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tb)) && tb) g_statusTb = reinterpret_cast<IInspectable*>(tb);
-            st->Release();
-        } else {
-            bool anyEditableRow = false;
-            for (const auto& r2 : rows) if (!r2.type.empty()) { anyEditableRow = true; break; }
-            // BuildPropsFragment emits the Status line whenever ANY row is editable, so rows-editable plus
-            // no-Status means the emitter and this wiring have drifted. SetStatusText silently no-ops on a
-            // null g_statusTb, so EVERY status message would disappear -- including "Replaced the binding on
-            // X, that can't be undone", the one message whose whole job is to stop a user believing a
-            // destructive edit was harmless. Losing that quietly is worse than losing the line.
-            if (anyEditableRow)
-                DevToolsOverlayLog(L"route1.wire MISS: rows are editable but there is no Status line -- every status message will be swallowed");
-        }
-        // Breadcrumb expander: hold both TextBlocks as IUIElement and wire the "Show all N ancestors"
-        // HyperlinkButton to flip between them. Only present when the chain was actually long enough to elide.
-        if (IInspectable* bs = findByName(L"BcShort")) {
-            bs->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &g_bcShort);
-            bs->Release();
-        }
-        if (IInspectable* bf = findByName(L"BcFull")) {
-            bf->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &g_bcFull);
-            bf->Release();
-        }
-        if (g_bcShort && g_bcFull) {
-            DevToolsPutVisibility(g_bcShort, g_bcExpanded ? 1 : 0);
-            DevToolsPutVisibility(g_bcFull, g_bcExpanded ? 0 : 1);
-            if (IInspectable* bl = findByName(L"BcToggleLbl")) {
-                bl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_bcToggleLbl);
-                bl->Release();
-            }
-            if (IInspectable* bt = findByName(L"BcToggle")) {
-                void* bb = nullptr;
-                if (SUCCEEDED(bt->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    BreadcrumbSink* bcs = new BreadcrumbSink(); bcs->Init();
-                    __int64 tok = 0; void** bvt = *reinterpret_cast<void***>(bb);
-                    DevToolsAddClick(bb, bcs, &tok);
-                    reinterpret_cast<IUnknown*>(bb)->Release();
-                }
-                bt->Release();
-            }
-        }
         if (IInspectable* lb = findByName(L"LayoutSectionBody")) {
             lb->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutBody);
             lb->Release();
         }
-        if (IInspectable* lc = findByName(L"LayoutSectionChev")) {
-            lc->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), (void**)&g_layoutBodyChev);
-            lc->Release();
-        }
         if (IInspectable* lt = findByName(L"LayoutSectionToggle")) {
-            void* bb = nullptr;
-            if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                LayoutSectionSink* sink = new LayoutSectionSink(); sink->Init();
-                __int64 tok = 0;
-                DevToolsAddClick(bb, sink, &tok);
-                reinterpret_cast<IUnknown*>(bb)->Release();
+            void* ex = nullptr;
+            if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
+                for (bool open : {true, false}) {
+                    auto* sink = new LayoutSectionSink(); sink->Init(open);
+                    __int64 tok = 0;
+                    const HRESULT hr = open
+                        ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
+                        : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
+                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.props layout disclosure wiring failed hr=0x%08X", hr);
+                }
+                reinterpret_cast<IUnknown*>(ex)->Release();
             }
             lt->Release();
         }
-        if (IInspectable* a1 = findByName(L"AxmlOne")) {
-            a1->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_axmlOne);
-            a1->Release();
-        }
-        if (IInspectable* af = findByName(L"AxmlFull")) {
-            af->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_axmlFull);
-            af->Release();
-        }
-        if (IInspectable* ac = findByName(L"AxmlChev")) {
-            ac->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), (void**)&g_axmlChev);
-            ac->Release();
-        }
-        if (g_axmlOne && g_axmlFull && g_axmlExpanded) {
-            DevToolsPutVisibility(g_axmlOne, 1);
-            DevToolsPutVisibility(g_axmlFull, 0);
-            SetToggleLabel(g_axmlChev, L"\uE70D");
-        }
         if (IInspectable* at = findByName(L"AxmlToggle")) {
-            void* bb = nullptr;
-            if (SUCCEEDED(at->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                AxmlToggleSink* ats = new AxmlToggleSink(); ats->Init();
-                __int64 tok = 0;
-                DevToolsAddClick(bb, ats, &tok);
-                reinterpret_cast<IUnknown*>(bb)->Release();
+            void* ex = nullptr;
+            if (SUCCEEDED(at->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
+                for (bool open : {true, false}) {
+                    auto* sink = new AxmlToggleSink(); sink->Init(open);
+                    __int64 tok = 0;
+                    const HRESULT hr = open
+                        ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
+                        : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
+                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.props XAML disclosure wiring failed hr=0x%08X", hr);
+                }
+                reinterpret_cast<IUnknown*>(ex)->Release();
             }
             at->Release();
         }
-        // Wire the view switch. BOTH halves get the same sink: it flips the view, so clicking the one that
-        // is already active is a no-op flip back and forth -- which is wrong. The sink therefore SETS the
-        // view rather than toggling it, keyed off which button was found.
-        for (const wchar_t* n : { L"OnlySetToggle", L"ViewComputed" }) {
-            if (IInspectable* tg = findByName(n)) {
-                void* bb = nullptr;
-                if (SUCCEEDED(tg->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    OnlySetToggleSink* os = new OnlySetToggleSink();
-                    os->Init(wcscmp(n, L"OnlySetToggle") == 0 ? DevToolsPropView::Set : DevToolsPropView::Computed);
-                    __int64 tok = 0;
-                    DevToolsAddClick(bb, os, &tok);
-                    reinterpret_cast<IUnknown*>(bb)->Release();
+        if (IInspectable* pv = findByName(L"PropViewSelector")) {
+            try {
+                winrt::Windows::Foundation::IInspectable object{ nullptr };
+                winrt::copy_from_abi(object, pv);
+                if (auto selector = object.try_as<DevToolsXC::SelectorBar>()) {
+                    g_propViewSelector = selector;
+                    selector.SelectionChanged([gen = g_route1Gen](DevToolsXC::SelectorBar const& sender, auto&&) {
+                        if (gen == g_route1Gen) ApplyPropViewSelection(sender);
+                    });
                 }
-                tg->Release();
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.props view selector wiring failed hr=0x%08X -- Computed|Set will not switch",
+                              e.code().value);
             }
+            pv->Release();
         }
         {
-            if (IInspectable* pc = findByName(L"PropCount")) {
-                pc->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_propCountTb);
-                g_propCountEl = pc;
-            }
             if (IInspectable* sl = findByName(L"PropShowAllLbl")) {
                 sl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_propShowAllLbl);
                 sl->Release();
@@ -295,21 +262,30 @@ g_propRows = rows;
                 DevToolsOverlayLog(L"route1.wire PropNoMatch MISS -- an empty pane will render blank and say nothing");
             ApplyPropFilter(g_propFilterQuery);
         }
-        // Source "Open" button: wire its Click to an OpenSourceSink (present only when the node had resolvable
-        // source under WINAPP_DEVTOOLS_SOURCE_ROOT). Independent of editable rows -- a read-only node can still
-        // link to source. Leaked/gen-guarded like the other sinks.
         WireAddComment(fe);
-        if (IInspectable* ob = findByName(L"OpenSource")) {
-            void* bb = nullptr;
-            if (SUCCEEDED(ob->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                OpenSourceSink* os = new OpenSourceSink();
-                os->Init();
-                __int64 otok = 0;
-                void** bvt = *reinterpret_cast<void***>(bb);
-                DevToolsAddClick(bb, os, &otok);
-                reinterpret_cast<IUnknown*>(bb)->Release();
+        if (IInspectable* st = findByName(L"SourceStatus")) {
+            winrt::Windows::Foundation::IInspectable object{ nullptr };
+            winrt::copy_from_abi(object, st);
+            st->Release();
+            const auto status = object.as<DevToolsXC::TextBlock>();
+            g_sourceStatus = status;
+            for (const auto& [button, action] : {
+                    std::pair{ L"OpenSource", SourceAction::Open },
+                    std::pair{ L"RevealSource", SourceAction::Reveal },
+                    std::pair{ L"CopySourcePath", SourceAction::Copy } }) {
+                if (IInspectable* ob = findByName(button)) {
+                    void* bb = nullptr;
+                    if (SUCCEEDED(ob->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                        auto* sink = new SourceActionSink();
+                        sink->Init(action, status);
+                        __int64 token = 0;
+                        const HRESULT hr = DevToolsAddClick(bb, sink, &token);
+                        if (FAILED(hr)) DevToolsOverlayLog(L"route1.source %s add_Click failed hr=0x%08X", button, hr);
+                        reinterpret_cast<IUnknown*>(bb)->Release();
+                    }
+                    ob->Release();
+                }
             }
-            ob->Release();
         }
         reinterpret_cast<IUnknown*>(fe)->Release();
     }
@@ -333,6 +309,20 @@ g_propRows = rows;
                   (double)(tAuthor1.QuadPart - tAuthor0.QuadPart) * ms,
                   (double)(tParse1.QuadPart - tAuthor1.QuadPart) * ms,
                   (double)(tWire1.QuadPart - tParse1.QuadPart) * ms);
+    if (!flushed.empty()) {
+        SetStatusText(flushed);
+        if (g_statusTb) {
+            try {
+                winrt::Windows::Foundation::IInspectable object{ nullptr };
+                winrt::copy_from_abi(object, g_statusTb);
+                if (auto peer = winrt::Microsoft::UI::Xaml::Automation::Peers::FrameworkElementAutomationPeer::FromElement(
+                        object.as<DevToolsX::UIElement>()))
+                    peer.RaiseNotificationEvent(winrt::Microsoft::UI::Xaml::Automation::Peers::AutomationNotificationKind::ActionCompleted,
+                                                winrt::Microsoft::UI::Xaml::Automation::Peers::AutomationNotificationProcessing::ImportantMostRecent,
+                                                flushed, L"DevToolsEditSaved");
+            } catch (...) {}
+        }
+    }
     LiveWatchSelection();
 }
 
@@ -416,36 +406,38 @@ static void ResetRoute1State()
 {
     LiveUnwatch();
     g_route1Gen++;
+    RetireKindEditors();
+    RetireRowExpandSinks();
     ReleaseInspectorCaptionTheme();
-    if (HWND h = Route1WindowHwnd()) { KillTimer(h, kRefreshTimerId); KillTimer(h, kDisarmAfterWindowPickTimerId); }
+    if (HWND h = Route1WindowHwnd()) KillTimer(h, kRefreshTimerId);
     if (g_ctx.highlightFn) g_ctx.highlightFn(0, true);
-    // Release the editable inspector state (tracked TextBox refs + status line + props-host children).
-    for (auto& r : g_editRows) if (r.box) reinterpret_cast<IUnknown*>(r.box)->Release();
-    g_editRows.clear();
+    // Release the editable inspector state (message footer + props-host children).
+    g_sourceStatus = nullptr;
+    g_commentBoxParts.clear();
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
-    ReleaseBreadcrumbRefs(); ReleaseLayoutSectionRefs(); ReleasePropFilterState();
-    g_bcExpanded = false; g_axmlExpanded = false;
+    if (g_statusHostUi) { reinterpret_cast<IUnknown*>(g_statusHostUi)->Release(); g_statusHostUi = nullptr; }
+    ReleaseLayoutSectionRefs(); ReleasePropFilterState();
+    g_propViewSelector = nullptr;
+    g_axmlExpanded = false;
     g_propFilterQuery.clear(); g_propFilterRaw.clear();
-    g_dirtySeed.clear(); g_dirtyNode = 0; g_propView = DevToolsPropView::Computed; g_propShowAll = false;
+    RetirePaneEditors();
+    g_editRecords.clear(); g_appChanged.clear(); g_dirtyNode = 0; g_propView = DevToolsPropView::Computed; g_propShowAll = false;
     g_bindingLost.clear(); g_linkedRows.clear(); g_linkLost.clear();
     g_sessionAssign.clear(); g_pendingKind.clear(); g_pendingWrites.clear();
     if (g_ctx.propsHostChildren) { g_ctx.propsHostChildren->Release(); g_ctx.propsHostChildren = nullptr; }
     g_selWire = 0; g_selLabel.clear(); g_selBreadcrumb.clear();
     g_selSourceFile.clear(); g_selSourceLine = 0;
-    // Release tree-selection visual state. g_selCtrl points at a Button from the window being torn down --
-    // it MUST be dropped here so the next window's first select doesn't put_Background on a freed control.
-    if (g_selCtrl)    { reinterpret_cast<IUnknown*>(g_selCtrl)->Release(); g_selCtrl = nullptr; }
     ReleaseTreeRowState();
     g_allTreeNodes.clear(); g_allTreeAppAuthored.clear();
     if (g_treeHostChildren) { g_treeHostChildren->Release(); g_treeHostChildren = nullptr; }
-    if (g_treeRowsPanelChildren) { g_treeRowsPanelChildren->Release(); g_treeRowsPanelChildren = nullptr; }
-    g_treeA11y.clear(); g_treeCollapseAtBuild.clear(); g_treeViewDepth.clear();
+    g_treeA11y.clear();
     // The row palette belongs to the window being torn down. Holding it across a close would leave
     // the next window's rows reading brushes out of a dead XamlRoot.
     for (IInspectable** slot : { &g_palTransparent, &g_palAccent, &g_palPrimary, &g_palSecondary,
                                  &g_palTertiary, &g_palMonoFont, &g_palGlyphFont, &g_palCaption }) {
         if (*slot) { (*slot)->Release(); *slot = nullptr; }
     }
+    ForgetRowBrushes();
     for (IInspectable** slot : { &g_tmplHeader, &g_tmplRow, &g_tmplExpRead, &g_tmplExpEdit }) {
         if (*slot) { (*slot)->Release(); *slot = nullptr; }
     }
@@ -459,6 +451,7 @@ static void ResetRoute1State()
     if (g_jmxLbl)  { reinterpret_cast<IUnknown*>(g_jmxLbl)->Release();  g_jmxLbl  = nullptr; }
     if (g_jmxBtnCtrl) { reinterpret_cast<IUnknown*>(g_jmxBtnCtrl)->Release(); g_jmxBtnCtrl = nullptr; }
     if (g_pickBtnCtrl) { reinterpret_cast<IUnknown*>(g_pickBtnCtrl)->Release(); g_pickBtnCtrl = nullptr; }
+    if (g_focusBtnCtrl) { reinterpret_cast<IUnknown*>(g_focusBtnCtrl)->Release(); g_focusBtnCtrl = nullptr; }
     if (g_pickOnUi) { reinterpret_cast<IUnknown*>(g_pickOnUi)->Release(); g_pickOnUi = nullptr; }
     if (g_focusOnUi) { reinterpret_cast<IUnknown*>(g_focusOnUi)->Release(); g_focusOnUi = nullptr; }
     if (g_focusNoticeUi) { reinterpret_cast<IUnknown*>(g_focusNoticeUi)->Release(); g_focusNoticeUi = nullptr; }
@@ -475,9 +468,6 @@ static void ResetRoute1State()
     if (g_splitPaneFe) { reinterpret_cast<IUnknown*>(g_splitPaneFe)->Release(); g_splitPaneFe = nullptr; }
     if (g_splitHostFe) { reinterpret_cast<IUnknown*>(g_splitHostFe)->Release(); g_splitHostFe = nullptr; }
     g_splitTarget = 0.0;
-    if (g_selBrush)   { g_selBrush->Release();   g_selBrush   = nullptr; }
-    if (g_clearBrush) { g_clearBrush->Release(); g_clearBrush = nullptr; }
-    g_selBrushTried = false;
     g_ctx.rowsFn = nullptr;
     g_ctx.readInputFn = nullptr;
     g_ctx.writeFn = nullptr;

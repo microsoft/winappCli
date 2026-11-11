@@ -22,7 +22,7 @@ October 2026 without its history. Everything needed to run it is in this folder;
 
 Setup: 10 scenarios (all except `calc`, `counter-winui`, `imageresizer-wpf-to-winui`,
 `local-llm-chat`) × `none` / `published` / `winappcli@main` (then named `bare`,
-`winappcli-published`, `winappcli`) × Claude Sonnet 5.5, Claude Opus 5.5, GPT-6.1 Sol ×
+`winappcli-published`, `winappcli`; `winappcli` is now `cli-plus-plugins`) × Claude Sonnet 5.5, Claude Opus 5.5, GPT-6.1 Sol ×
 3 iterations. Judge: Claude Sonnet 5.5. WinApp CLI 0.7.2 prerelease; winappCli `main` at
 `76f2b9f`; published catalog winappcli 0.7.1 / winui 0.7.1.
 
@@ -66,7 +66,7 @@ All 270 trials are valid. 13 trials originally lost to machine or harness proble
 cd benchmarks\apps
 npm ci; npm run doctor
 # Your branch vs main vs published vs no plugins: one model, 3 iterations, 3 quick scenarios (36 trials, ~2–3 h, ~1,800 credits on Sonnet)
-npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent "none,published,winappcli@main,winappcli@my-branch" --iterations 3 --concurrency 3
+npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent "none,cli-only,published,cli-plus-plugins@main,cli-plus-plugins@my-branch" --iterations 3 --concurrency 3
 npm run scorecard -- runN
 ```
 
@@ -113,7 +113,7 @@ cleaned per trial). Delete old runs you no longer need.
 ## Next steps
 
 1. **Align with `benchmarks/agents`:**
-   - shared setup names (`benchmarks/agents` uses `none`/`winapp`/`winui`/`both`; this uses `none`/`winappcli`/`published`);
+   - shared setup names (`benchmarks/agents` uses `none`/`winapp`/`winui`/`both`; this uses `none`/`cli-only`/`cli-plus-plugins`/`published`);
    - a common `published` definition;
    - one comparison report format.
 2. **New scenarios** beyond greenfield WinUI:

@@ -140,6 +140,219 @@ public class SandboxAdoptionTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task AgentOnlyRepair_PreservesEpochAndPackageOwnership(bool expectedId)
+    {
+        using var harness = new AdoptionHarness();
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        var before = harness.ReadState()!;
+        var epoch = ExecutionTargetEpoch.Create(id, before.BootNonce!);
+        var ownership = new PackageOwnership
+        {
+            PackageName = "Contoso.MyApp",
+            Publisher = "CN=Contoso",
+            PackageFamilyName = "Contoso.MyApp_abc",
+            RegisteredLocation = @"C:\WinApp\deployments\owned-package-layout",
+        };
+        var claim = harness.Deployments.Commit(
+            WindowsSandboxTarget.Default,
+            new DeploymentState
+            {
+                SchemaVersion = DeploymentStateStore.CurrentSchemaVersion,
+                Revision = 0,
+                DeploymentId = "owned-package",
+                TargetEpoch = epoch.Value,
+                Dirty = false,
+                Package = ownership,
+                WasPackaged = true,
+            },
+            expectedRevision: 0);
+        harness.Lifecycle.GetExpectation = () => expectedId
+            ? SandboxExpectation.Parse(id, SandboxExpectation.OptionName) : null;
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Agent stopped");
+        var developmentModeSteps = harness.Cli.Operations.Count(op =>
+            op.Contains("AllowDevelopmentWithoutDevLicense", StringComparison.Ordinal));
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        var after = harness.ReadState()!;
+        Assert.AreEqual(before.BootNonce, after.BootNonce);
+        Assert.AreEqual(before.BootstrappedEpoch, after.BootstrappedEpoch);
+        Assert.AreEqual(epoch.Value, harness.ReadMaterial().TargetEpoch);
+        var current = new TargetDeploymentService(harness.Deployments).ReadCurrent(
+            WindowsSandboxTarget.Default, ExecutionTargetEpoch.Create(id, after.BootNonce!), claim.DeploymentId);
+        Assert.AreEqual(claim, current, "Agent repair must preserve the current-generation package ownership claim.");
+        Assert.AreEqual(ownership, current!.Package);
+        Assert.AreEqual(developmentModeSteps, harness.Cli.Operations.Count(op =>
+            op.Contains("AllowDevelopmentWithoutDevLicense", StringComparison.Ordinal)),
+            "Agent-only repair must not repeat first-generation guest setup.");
+        Assert.IsEmpty(harness.Cli.Stopped);
+    }
+
+    [TestMethod]
+    public async Task ExpectedIdOnly_WhoseGuestDoesNotAnswer_IsRepaired()
+    {
+        using var harness = new AdoptionHarness();
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.Lifecycle.GetExpectation = () => SandboxExpectation.Parse(id, SandboxExpectation.OptionName);
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Connect timed out");
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+    }
+
+    [TestMethod]
+    public async Task ExpectedId_Inspection_UnpreparedInstanceIsRunningWithoutAttachingOrClaiming()
+    {
+        using var harness = new AdoptionHarness();
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
+        harness.Lifecycle.GetExpectation = () => SandboxExpectation.Parse(id, SandboxExpectation.OptionName);
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw new AssertFailedException("An unmanaged instance has no authenticated agent to reconnect.");
+
+        var attachment = await harness.Backend.TryAttachAsync(TestContext.CancellationToken);
+
+        Assert.IsTrue(attachment.Running);
+        Assert.IsTrue(attachment.Epoch.IsNone);
+        Assert.IsNull(attachment.Connection);
+        Assert.IsNull(harness.ReadState());
+        Assert.IsEmpty(harness.Cli.Operations, "Inspection must not prepare the expected instance.");
+        Assert.IsEmpty(harness.Cli.Stopped);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExpectedId_Inspection_UnavailableAgentDoesNotPrepare(bool warm)
+    {
+        using var harness = new AdoptionHarness();
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        if (warm)
+        {
+            harness.MarkBootstrapped();
+        }
+        var state = harness.ReadState()!;
+        harness.Lifecycle.GetExpectation = () => SandboxExpectation.Parse(id, SandboxExpectation.OptionName);
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Replacement guest");
+        var operations = harness.Cli.Operations.Count;
+
+        var attachment = await harness.Backend.TryAttachAsync(TestContext.CancellationToken);
+
+        Assert.IsTrue(attachment.Running);
+        Assert.IsNull(attachment.Connection);
+        Assert.AreEqual(ExecutionTargetEpoch.Create(id, state.BootNonce!), attachment.Epoch);
+        Assert.AreEqual(state.Revision, harness.ReadState()!.Revision);
+        Assert.AreEqual(operations, harness.Cli.Operations.Count, "Inspection must not prepare the guest.");
+    }
+
+    [TestMethod]
+    public async Task ExpectedId_InterruptedBootstrap_PreservesRecordedEpoch()
+    {
+        using var harness = new AdoptionHarness();
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        var state = harness.ReadState()!;
+        harness.Lifecycle.GetExpectation = () => SandboxExpectation.Parse(id, SandboxExpectation.OptionName);
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw new AssertFailedException("An interrupted first bootstrap has no warm agent to reconnect.");
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        var prepared = harness.ReadState()!;
+        Assert.AreEqual(id, prepared.InstanceId);
+        Assert.AreEqual(state.BootNonce, prepared.BootNonce);
+        Assert.IsNull(prepared.BootstrappedEpoch);
+        Assert.IsNull(prepared.GuestAddress);
+        Assert.AreEqual(ExecutionTargetEpoch.Create(id, prepared.BootNonce!).Value, harness.ReadMaterial().TargetEpoch);
+        Assert.IsEmpty(harness.Cli.Stopped);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExpectedId_AuthenticatedWarmAgentIsReusedWithoutPreparation(bool inspect)
+    {
+        using var harness = new AdoptionHarness();
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        var before = harness.ReadState()!;
+        harness.Lifecycle.GetExpectation = () => SandboxExpectation.Parse(id, SandboxExpectation.OptionName);
+        var operations = harness.Cli.Operations.Count;
+        var enumerations = harness.Cli.ListCalls;
+        var pair = new LoopbackTransportPair();
+        await using var host = pair.Host;
+        await using var guest = pair.Guest;
+        var attempts = 0;
+        harness.Backend.ReconnectTransport = (_, material, _) =>
+        {
+            attempts++;
+            Assert.AreEqual(before.BootstrappedEpoch, material.TargetEpoch);
+            return Task.FromResult<IGuestTransport>(host);
+        };
+
+        var connection = inspect
+            ? (await harness.Backend.TryAttachAsync(TestContext.CancellationToken)).Connection
+            : await harness.Backend.EnsureConnectedAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken);
+
+        Assert.IsNotNull(connection);
+        Assert.AreEqual(before.BootstrappedEpoch, connection.Epoch.Value);
+        Assert.IsTrue(connection.Reused);
+        Assert.AreEqual(1, attempts);
+        Assert.AreEqual(enumerations + 1, harness.Cli.ListCalls, "Expectations must check the live inventory.");
+        Assert.AreEqual(operations, harness.Cli.Operations.Count);
+        Assert.AreEqual(before.Revision, harness.ReadState()!.Revision);
+    }
+
+    [TestMethod]
+    [DataRow("missing")]
+    [DataRow("replacement")]
+    [DataRow("additional")]
+    public async Task ExpectedId_RepairRace_RejectsReplacementWithoutPreparing(string change)
+    {
+        using var harness = new AdoptionHarness();
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.Lifecycle.GetExpectation = () => SandboxExpectation.Parse(id, SandboxExpectation.OptionName);
+        var operations = harness.Cli.Operations.Count;
+        var before = harness.ReadState()!;
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+        {
+            harness.Cli.SetRunning(change switch
+            {
+                "missing" => [],
+                "additional" => [id, Guid.NewGuid().ToString()],
+                _ => [Guid.NewGuid().ToString()],
+            });
+            throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Replacement guest");
+        };
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => harness.Backend.EnsureConnectedAsync(new EnsureTargetOptions(true), TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, error.Error.Code);
+        Assert.AreEqual(before, harness.ReadState());
+        Assert.AreEqual(operations, harness.Cli.Operations.Count);
+        Assert.IsEmpty(harness.Cli.Stopped);
+    }
+
+    [TestMethod]
     [DataRow("not-an-address")]
     [DataRow("999.0.0.1")]
     [DataRow("::1")]
@@ -167,12 +380,17 @@ public class SandboxAdoptionTests
     }
 
     [TestMethod]
-    public async Task WarmReconnect_AuthenticatesCachedGenerationWithoutEnumeratingOrMutating()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task WarmReconnect_AuthenticatesCachedGenerationWithoutEnumeratingOrMutating(bool expected)
     {
         using var harness = new AdoptionHarness();
-        harness.Cli.SetRunning(ManualInstanceId);
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
         harness.MarkBootstrapped();
+        harness.Lifecycle.GetExpectation = () => expected
+            ? SandboxExpectation.Parse(id, SandboxExpectation.OptionName) : null;
         var before = harness.ReadState()!;
         var enumerations = harness.Cli.ListCalls;
         var operations = harness.Cli.Operations.Count;
@@ -219,16 +437,23 @@ public class SandboxAdoptionTests
     }
 
     [TestMethod]
-    [DataRow("bootstrap")]
-    [DataRow("nonce")]
-    [DataRow("instance")]
-    [DataRow("address")]
-    public async Task WarmReconnect_IncompleteOrDifferentOwnership_DoesNotConnect(string changed)
+    [DataRow("bootstrap", false)]
+    [DataRow("bootstrap", true)]
+    [DataRow("nonce", false)]
+    [DataRow("nonce", true)]
+    [DataRow("instance", false)]
+    [DataRow("instance", true)]
+    [DataRow("address", false)]
+    [DataRow("address", true)]
+    public async Task WarmReconnect_IncompleteOrDifferentOwnership_DoesNotConnect(string changed, bool expected)
     {
         using var harness = new AdoptionHarness();
-        harness.Cli.SetRunning(ManualInstanceId);
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
         harness.MarkBootstrapped();
+        harness.Lifecycle.GetExpectation = () => expected
+            ? SandboxExpectation.Parse(id, SandboxExpectation.OptionName) : null;
         var state = harness.ReadState()!;
         harness.WriteState(changed switch
         {
@@ -963,6 +1188,7 @@ public class SandboxAdoptionTests
 
             var directories = new TargetStateDirectoryProvider(_root.FullName);
             _stateStore = new TargetStateStore(directories);
+            Deployments = new DeploymentStateStore(directories);
             var stateStore = _stateStore;
             Cli = new AdoptionSandboxCli();
 
@@ -977,9 +1203,10 @@ public class SandboxAdoptionTests
             File.WriteAllText(Path.Join(_root.FullName, "libSkiaSharp.dll"), "skia");
             File.WriteAllText(Path.Join(_root.FullName, "libHarfBuzzSharp.dll"), "harfbuzz");
 
+            Lifecycle = new WindowsSandboxLifecycle(Cli, stateStore);
             Backend = new WindowsSandboxBackend(
                 Cli,
-                new WindowsSandboxLifecycle(Cli, stateStore),
+                Lifecycle,
                 directories,
                 new StaticBinaryProvider(binary),
                 new NoOpWindowController(),
@@ -1000,7 +1227,11 @@ public class SandboxAdoptionTests
 
         public AdoptionSandboxCli Cli { get; }
 
+        public WindowsSandboxLifecycle Lifecycle { get; }
+
         public WindowsSandboxBackend Backend { get; }
+
+        public DeploymentStateStore Deployments { get; }
 
         public string BinaryDirectory => _root.FullName;
 

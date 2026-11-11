@@ -114,9 +114,10 @@ HRESULT DevToolsOverlay_RecoverHost(IXamlDiagnostics* diag, DevToolsFindHostPane
                                   InstanceHandle* currentPanel);
 bool DevToolsOverlay_IsToolbarRequested();
 
-// Highlight a live app handle by probing the same hit-test path used by picking.
+// Highlight a live app handle by probing the same hit-test path used by picking. `preview` draws the lighter
+// hover outline (inspector tree hover) unless the target is already the selection.
 HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle rootHandle, InstanceHandle target,
-                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay);
+                                   DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay, bool preview = false);
 
 // Commit selection chrome on the UI thread; hover callers use highlight-only state.
 HRESULT DevToolsOverlay_SelectHandle(IXamlDiagnostics* diag, InstanceHandle rootHandle, InstanceHandle target,
@@ -143,7 +144,7 @@ bool DevToolsOverlay_SetExternalFocusTracking(bool enabled);
 typedef void (*DevToolsOverlayStateChangedFn)(void);
 void DevToolsOverlay_SetStateChangedSink(DevToolsOverlayStateChangedFn sink);
 
-// Query the shared sticky picker without arming it.
+// Query the shared picker without arming it.
 bool DevToolsOverlay_IsPickArmed();
 
 // Toolbar visibility also requires a live root still hosting overlay content.
@@ -212,7 +213,7 @@ std::wstring DevToolsOverlay_GuestCommentToken(const std::wstring& operation, co
 void DevToolsOverlay_NoticeCommentsStale();
 // Shows the toolbar and moves keyboard focus to it, as Ctrl+Shift+F12 does. UI thread only.
 bool DevToolsOverlay_FocusToolbar();
-bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstring& revision,
+bool DevToolsOverlay_ResolveComment(const std::wstring& id, const std::wstring& revision,
     std::function<void(int)> completed);
 // Saves a comment on element through the in-app comment writer, for the inspector: id updates that comment, an
 // empty id adds a new one. Returns the id written. completed gets 0 once it is saved, nonzero otherwise; it may
@@ -235,8 +236,9 @@ HRESULT DevToolsOverlay_SetComments(IXamlDiagnostics* diag, InstanceHandle root,
                                const DevToolsOverlayComment* items, size_t count, size_t* outPlaced, bool authoritative);
 
 
-// False is logged locally; this callback never redirects to another host.
-typedef bool (*DevToolsInprocInspectFn)();
+// The tap routes to its registered client or native window. False is logged locally;
+// *error, when the callback sets it, is shown to the user.
+typedef bool (*DevToolsInprocInspectFn)(std::wstring* error);
 void DevToolsOverlay_SetInprocInspect(DevToolsInprocInspectFn fn);
 // What an inspector open request asks for. UI thread only.
 struct DevToolsInspectRequest
@@ -299,6 +301,9 @@ void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read);
 // on it is linked to its declaration.
 typedef bool (*DevToolsDeclaredFn)(InstanceHandle raw);
 void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read);
+// Reads whether the window hosting `element` has a SystemBackdrop. Returns false when it cannot tell.
+typedef bool (*DevToolsHostBackdropFn)(IInspectable* element, bool* hasBackdrop);
+void DevToolsOverlay_SetHostBackdropReader(DevToolsHostBackdropFn read);
 
 // `fromUserPick` is call-local state; protocol/window selections must not open the comment flyout.
 void DevToolsOverlay_ShowBadgeForHandle(IXamlDiagnostics* diag, InstanceHandle target, bool fromUserPick = false);
@@ -309,7 +314,7 @@ bool DevToolsOverlay_ArmPick();
 // Explicit cancel tears down the catcher and clears selection; idempotent on the UI thread.
 void DevToolsOverlay_DisarmPick();
 
-// Window-owned one-shot completion removes the catcher after PointerReleased without deselecting.
+// One-shot completion removes the catcher without deselecting; call outside PointerReleased.
 void DevToolsOverlay_CompleteOneShotPick();
 
 // Pick-mode notifications come from the same UI-thread point that updates the overlay button.

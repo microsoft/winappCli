@@ -1,6 +1,6 @@
 <!-- In-process DevTools inspector window chrome. ONE contiguous, reviewable XAML document for
-     the static shell (toolbar, filter box, scrollable tree container, column separator, properties
-     pane), loaded at runtime through the app's own Microsoft.UI.Xaml.Markup.XamlReader.Load. Named elements
+     the static shell (title bar, side rail, and one card that holds the tree or comments panel, the column
+     splitter and the details pane), loaded at runtime through the app's own Microsoft.UI.Xaml.Markup.XamlReader.Load. Named elements
      (TreeFilter, PropsHost,...) are wired up afterwards via FindName in DevToolsWindow.cpp. This file
      is embedded verbatim by gen-xaml-resources.ps1 into DevToolsWindowXaml.g.h (DevToolsXaml::WindowShell) at build time.
 
@@ -9,198 +9,177 @@
      parse time. Do NOT put raw non-ASCII bytes here.
 
      TOKENS (substituted by BuildWindowMarkup before the document is parsed):
-       $TREEHEADER$ -> "VISUAL TREE - N NODES" (node-count header above the tree list)
+       $TREEHEADER$ -> "N nodes" (node count in the tree panel header)
+       $SUBTITLE$   -> "PID <process id>" (title bar subtitle)
      The data-driven rows are parsed into their own namescope and swapped through TreeRowsHost. That lets a
-     Just-my-XAML toggle rebuild the capped population without tearing down PropsHost or an in-flight edit. -->
+     Just-my-XAML toggle rebuild the capped population without tearing down PropsHost or an in-flight edit.
+
+     TITLE BAR: row 0 is the WinUI TitleBar control, so this window needs Windows App SDK 1.7 or later. The
+     control copies its Title into the window title; ConfigureInspectorTitleBar puts the PID window title back
+     once the control has loaded, because `winapp ui` recognizes the inspector by that title. If content cannot
+     extend into the caption, the control is collapsed and Windows draws the standard caption. -->
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Background="Transparent">
+  <Grid.RowDefinitions>
+    <RowDefinition Height="Auto"/>
+    <RowDefinition Height="*"/>
+  </Grid.RowDefinitions>
+  <TitleBar x:Name="InspectorTitleBar" Grid.Row="0" Title="WinApp DevTools" Subtitle="$SUBTITLE$"
+            AutomationProperties.AutomationId="InspectorTitleBar"/>
+  <!-- The side rail switches the left panel between the visual tree and the comments list, and leaves room
+       for more tools. NavigationView's content area is the one card: in LeftCompact mode the control draws
+       its border, corner and fill, so the panes inside have none of their own. -->
+  <NavigationView x:Name="InspectorNav" Grid.Row="1" PaneDisplayMode="LeftCompact" Margin="0,16,0,0"
+                  IsPaneToggleButtonVisible="False" IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
+                  AlwaysShowHeader="False" IsTitleBarAutoPaddingEnabled="False" SelectionFollowsFocus="Enabled"
+                  AutomationProperties.Name="Inspector view"
+                  AutomationProperties.AutomationId="WinAppDevToolsInspectorView">
+    <NavigationView.MenuItems>
+      <NavigationViewItem x:Name="TreeTabBtn" Content="Visual tree" IsSelected="True"
+                          AutomationProperties.Name="Visual tree (inspector)"
+                          AutomationProperties.AutomationId="ViewTabTree">
+        <NavigationViewItem.Icon>
+          <FontIcon Glyph="&#xE8A4;"/>
+        </NavigationViewItem.Icon>
+      </NavigationViewItem>
+      <NavigationViewItem x:Name="CommentsTabBtn" Content="Comments"
+                          AutomationProperties.Name="Comments (inspector)"
+                          AutomationProperties.AutomationId="ViewTabComments">
+        <NavigationViewItem.Icon>
+          <FontIcon Glyph="&#xE90A;"/>
+        </NavigationViewItem.Icon>
+        <NavigationViewItem.InfoBadge>
+          <InfoBadge x:Name="CommentsBadge" Value="0" Visibility="Collapsed"/>
+        </NavigationViewItem.InfoBadge>
+      </NavigationViewItem>
+    </NavigationView.MenuItems>
   <!-- Content (tree | splitter | props). The tree pane carries an explicit Width and its column is
        Auto, so a drag can resize it directly via FrameworkElement.Width; the props column takes the rest.
        (A star/star split cannot be resized without writing GridLength through the ABI, and WinUI ships no
        GridSplitter -- that control lives in the Community Toolkit, which this overlay deliberately does not
-       take a dependency on. A Thumb is the primitive underneath it and needs nothing new.) -->
-  <Grid>
+       take a dependency on. A Thumb is the primitive underneath it and needs nothing new.)
+       The props column has no MinWidth: TreeWidth already keeps it at 300 or more. A MinWidth would make the
+       card wider than the window when space is short, so the card would report that width and the tree would
+       never shrink. The tree Width matches DevToolsInspector::kDefaultTreeWidth. -->
+  <Grid x:Name="InspectorCard">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="Auto"/>
       <ColumnDefinition Width="6"/>
-      <ColumnDefinition Width="1*" MinWidth="300"/>
+      <ColumnDefinition Width="1*"/>
     </Grid.ColumnDefinitions>
+    <!-- Both headers share a content-sized row so their divider stays aligned as text grows. -->
+    <Border Grid.ColumnSpan="3" BorderThickness="0,0,0,1"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" IsHitTestVisible="False"/>
 
-    <Grid Grid.Column="0" x:Name="TreePane" Width="420">
+      <!-- The rail item that is selected decides which panel header shows. -->
+      <Grid x:Name="TreePanelHeader" Grid.Row="0" ColumnSpacing="8" Padding="14,8" MinHeight="52"
+            Width="{Binding Width, ElementName=TreePane}" VerticalAlignment="Center">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="2*"/>
+          <ColumnDefinition Width="3*"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="Visual tree" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        <TextBlock x:Name="TreeHeader" Grid.Column="1" Text="$TREEHEADER$" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+      </Grid>
+      <Grid x:Name="CommentsPanelHeader" Grid.Row="0" ColumnSpacing="8" Padding="14,8" MinHeight="52"
+            Width="{Binding Width, ElementName=TreePane}" VerticalAlignment="Center" Visibility="Collapsed">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="2*"/>
+          <ColumnDefinition Width="3*"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="Comments" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        <TextBlock x:Name="CommentsCountLbl" Grid.Column="1" Text="0 open" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+      </Grid>
+    <Grid Grid.Column="0" Grid.Row="1" x:Name="TreePane" Width="372">
       <Grid.RowDefinitions>
-        <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
       </Grid.RowDefinitions>
-      <!-- RadioButtons expose one exclusive SelectionItem group. SetCommentsView owns IsChecked;
-           mode is accessible state, not only a painted accent or changing label. -->
-      <Grid Grid.Row="0" x:Name="ViewTabs" Margin="8,6,8,0"
-            BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-        <Grid.Resources>
-          <Style x:Key="DevToolsViewTab" TargetType="RadioButton">
-            <Setter Property="MinWidth" Value="0"/>
-            <Setter Property="Padding" Value="11,6,11,7"/>
-            <Setter Property="VerticalAlignment" Value="Bottom"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
-            <Setter Property="Template">
-              <Setter.Value>
-                <ControlTemplate TargetType="RadioButton">
-                  <Grid x:Name="TabRoot" Background="{TemplateBinding Background}" CornerRadius="4,4,0,0">
-                    <VisualStateManager.VisualStateGroups>
-                      <VisualStateGroup x:Name="CommonStates">
-                        <VisualState x:Name="Normal"/>
-                        <VisualState x:Name="PointerOver">
-                          <VisualState.Setters>
-                            <Setter Target="TabRoot.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/>
-                          </VisualState.Setters>
-                        </VisualState>
-                        <VisualState x:Name="Pressed">
-                          <VisualState.Setters>
-                            <Setter Target="TabRoot.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}"/>
-                          </VisualState.Setters>
-                        </VisualState>
-                        <VisualState x:Name="Disabled">
-                          <VisualState.Setters>
-                            <Setter Target="TabText.Foreground" Value="{ThemeResource TextFillColorDisabledBrush}"/>
-                          </VisualState.Setters>
-                        </VisualState>
-                      </VisualStateGroup>
-                      <VisualStateGroup x:Name="CheckStates">
-                        <VisualState x:Name="Checked">
-                          <VisualState.Setters>
-                            <Setter Target="TabRule.Visibility" Value="Visible"/>
-                            <Setter Target="TabText.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
-                            <Setter Target="TabText.FontWeight" Value="SemiBold"/>
-                          </VisualState.Setters>
-                        </VisualState>
-                        <VisualState x:Name="Unchecked"/>
-                        <VisualState x:Name="Indeterminate"/>
-                      </VisualStateGroup>
-                    </VisualStateManager.VisualStateGroups>
-                    <StackPanel Orientation="Horizontal" Margin="{TemplateBinding Padding}">
-                      <!-- The tab already owns its accessible name; its label must not announce a duplicate. -->
-                      <TextBlock x:Name="TabText" FontSize="12" VerticalAlignment="Center"
-                                 AutomationProperties.AccessibilityView="Raw"
-                                 Foreground="{TemplateBinding Foreground}"
-                                 Text="{TemplateBinding Tag}"/>
-                      <ContentPresenter VerticalAlignment="Center"
-                                        Content="{TemplateBinding Content}"
-                                        ContentTemplate="{TemplateBinding ContentTemplate}"/>
-                    </StackPanel>
-                    <Border x:Name="TabRule" Height="2" CornerRadius="1" Visibility="Collapsed"
-                            VerticalAlignment="Bottom" Margin="8,0,8,0"
-                            Background="{ThemeResource AccentFillColorDefaultBrush}"/>
-                  </Grid>
-                </ControlTemplate>
-              </Setter.Value>
-            </Setter>
-          </Style>
-        </Grid.Resources>
-        <StackPanel Orientation="Horizontal" Spacing="2" HorizontalAlignment="Left">
-          <!-- Qualify the accessible Comments name because the inspector and overlay share one app UIA
-               namespace. SelectionItemPattern reports mode independently of the visible label. -->
-          <RadioButton x:Name="TreeTabBtn" Style="{StaticResource DevToolsViewTab}" Tag="Visual tree"
-                       IsChecked="True"
-                       ToolTipService.ToolTip="Show this app's visual tree"
-                       AutomationProperties.Name="Visual tree (inspector)"
-                       AutomationProperties.AutomationId="ViewTabTree"/>
-          <!-- The badge is the open-comment count: the same set the overlay's marker toggle shows. It is
-               Collapsed at zero so "no comments" is a readable state and not a 0 chip. -->
-          <RadioButton x:Name="CommentsTabBtn" Style="{StaticResource DevToolsViewTab}" Tag="Comments"
-                       ToolTipService.ToolTip="Show this app's UI comments"
-                       AutomationProperties.Name="Comments (inspector)"
-                       AutomationProperties.AutomationId="ViewTabComments">
-            <Border x:Name="CommentsBadge" Visibility="Collapsed" Margin="6,0,0,0"
-                    MinWidth="18" Height="16" CornerRadius="8" Padding="5,0"
-                    Background="{ThemeResource AccentFillColorDefaultBrush}">
-              <TextBlock x:Name="CommentsLbl" Text="0" FontSize="10" FontWeight="SemiBold"
-                         Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                         HorizontalAlignment="Center" VerticalAlignment="Center"
-                         AutomationProperties.AccessibilityView="Raw"/>
-            </Border>
-          </RadioButton>
-        </StackPanel>
-      </Grid>
-      <Grid x:Name="TreeControls" Grid.Row="1" Margin="8,8,8,4" ColumnSpacing="8">
+      <Grid x:Name="TreeControls" Grid.Row="0" Margin="8,8,8,4" ColumnSpacing="8">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="PickBtn" Grid.Column="0" Width="32" Height="32" Padding="0"
+        <ToggleButton x:Name="PickBtn" Grid.Column="0" MinWidth="32" MinHeight="32" Padding="8"
+               VerticalAlignment="Stretch" VerticalContentAlignment="Center"
                ToolTipService.ToolTip="Pick element (Ctrl+Shift+P)"
                AutomationProperties.Name="Pick element (inspector)"
                AutomationProperties.AutomationId="PickElementToggle">
-          <Grid Width="28" Height="28">
-            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7C9;" FontSize="14"/>
+          <Grid MinWidth="28" MinHeight="28">
+            <PathIcon FlowDirection="LeftToRight" Width="16" Height="16"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Data="F1 M12.3867 3H13.25C13.7141 3 14.1591 3.18451 14.4873 3.5127C14.8155 3.84088 15 4.28588 15 4.75C15 4.75525 14.9982 4.76042 14.998 4.76562H15V9.5C15 9.58493 14.9787 9.6653 14.9414 9.73535L14 8.96484V4.76562H14.002C14.0018 4.76042 14 4.75525 14 4.75C14 4.5511 13.921 4.36038 13.7803 4.21973C13.6397 4.07908 13.4489 4 13.25 4H11.5C11.4967 4 11.4935 3.99909 11.4902 3.99902H9.50977C9.50651 3.99909 9.50327 4 9.5 4H6.5C6.49673 4 6.49349 3.99909 6.49023 3.99902H4.50977C4.50651 3.99909 4.50327 4 4.5 4H2.75C2.55109 4 2.36038 4.07908 2.21973 4.21973C2.07908 4.36038 2 4.55109 2 4.75V11.25C2 11.4489 2.07908 11.6397 2.21973 11.7803C2.36038 11.921 2.5511 12 2.75 12H4.5C4.51021 12 4.52022 12.0023 4.53027 12.0029H6.46973C6.47978 12.0023 6.48979 12 6.5 12H8.00098V13H6.78125V13.0029H2.95703V13H2.75C2.28588 13 1.84088 12.8155 1.5127 12.4873C1.19373 12.1683 1.012 11.739 1.00195 11.2891H1V4.73438H1.00098C1.00507 4.27589 1.18819 3.8372 1.5127 3.5127C1.84089 3.18451 2.28587 3 2.75 3H4.26562V2.99902H12.3867V3Z M15.723 11.6682C16.268 12.1142 15.953 12.9992 15.248 12.9992H12.262C12.105 12.9992 11.958 13.0722 11.863 13.1982L10.348 15.2032C9.914 15.7772 8.999 15.4702 9 14.7512L9.002 7.75125C9.002 7.11825 9.737 6.77025 10.227 7.17125L15.723 11.6682Z"/>
             <Border x:Name="PickOn" Width="16" Height="2" CornerRadius="1"
                    Background="{ThemeResource AccentFillColorDefaultBrush}"
                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Visibility="Collapsed"/>
           </Grid>
-        </Button>
-        <Button x:Name="FocusBtn" Grid.Column="1" Width="32" Height="32" Padding="0"
+        </ToggleButton>
+        <ToggleButton x:Name="FocusBtn" Grid.Column="1" MinWidth="32" MinHeight="32" Padding="8"
+               VerticalAlignment="Stretch" VerticalContentAlignment="Center"
                ToolTipService.ToolTip="Track keyboard focus"
                AutomationProperties.Name="Track keyboard focus"
                AutomationProperties.AutomationId="FocusTrackingToggle">
-          <Grid Width="28" Height="28">
-            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7B3;" FontSize="14"/>
+          <Grid MinWidth="28" MinHeight="28">
+            <PathIcon FlowDirection="LeftToRight" Width="16" Height="16"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Data="F1 M2.75 4C2.55109 4 2.36032 4.07902 2.21967 4.21967C2.07902 4.36032 2 4.55109 2 4.75C2 5.02614 1.77614 5.25 1.5 5.25C1.22386 5.25 1 5.02614 1 4.75C1 4.28587 1.18437 3.84075 1.51256 3.51256C1.84075 3.18437 2.28587 3 2.75 3H4.5C4.77614 3 5 3.22386 5 3.5C5 3.77614 4.77614 4 4.5 4H2.75Z M1.5 10.75C1.77614 10.75 2 10.9739 2 11.25C2 11.4489 2.07902 11.6397 2.21967 11.7803C2.36032 11.921 2.55109 12 2.75 12H4.5C4.77614 12 5 12.2239 5 12.5C5 12.7761 4.77614 13 4.5 13H2.75C2.28587 13 1.84075 12.8156 1.51256 12.4874C1.18437 12.1592 1 11.7141 1 11.25C1 10.9739 1.22386 10.75 1.5 10.75Z M11 3.5C11 3.22386 11.2239 3 11.5 3H13.25C13.7141 3 14.1592 3.18437 14.4874 3.51256C14.8156 3.84075 15 4.28587 15 4.75C15 5.02614 14.7761 5.25 14.5 5.25C14.2239 5.25 14 5.02614 14 4.75C14 4.55109 13.921 4.36032 13.7803 4.21967C13.6397 4.07902 13.4489 4 13.25 4H11.5C11.2239 4 11 3.77614 11 3.5Z M13.8016 10.7685C14.1895 11.086 13.9653 11.716 13.4634 11.716H11.3378C11.226 11.716 11.1214 11.768 11.0537 11.8577L9.97523 13.285C9.66628 13.6936 9.01491 13.4751 9.01563 12.9632L9.01705 7.98011C9.01705 7.52949 9.54028 7.28176 9.8891 7.56722L13.8016 10.7685Z M9.43555 5.00586C9.45672 5.00312 9.47808 5 9.5 5H12.5C12.7368 5 12.9346 5.16472 12.9863 5.38574H13V8.52441C13 8.60927 12.9786 8.68976 12.9414 8.75977L12 7.98926V6H9.5C9.47804 6 9.45676 5.99591 9.43555 5.99316C9.41434 5.99591 9.39305 6 9.37109 6H4V10H8V11H3.5C3.22386 11 3 10.7761 3 10.5C3 10.4791 3.00336 10.4587 3.00586 10.4385C3.00336 10.4182 3 10.3979 3 10.377V5.5C3 5.22386 3.22386 5 3.5 5C3.5152 5 3.53007 5.00258 3.54492 5.00391C3.55977 5.00258 3.57465 5 3.58984 5H9.37109C9.39301 5 9.41438 5.00312 9.43555 5.00586Z"/>
             <Border x:Name="FocusOn" Width="16" Height="2" CornerRadius="1"
                    Background="{ThemeResource AccentFillColorDefaultBrush}"
                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Visibility="Collapsed"/>
           </Grid>
-        </Button>
+        </ToggleButton>
         <TextBox x:Name="TreeFilter" Grid.Column="2" PlaceholderText="Filter tree: type or #name" AutomationProperties.Name="TreeFilter"/>
         <!-- The wrapper owns the tooltip so the unavailable reason remains discoverable even while the
              ToggleButton itself is disabled. JmxLbl is the single live text source: it is collapsed, so it is
              absent from the UIA tree by construction, and the toggle's AutomationProperties.Name is what
              carries the state and the unavailable reason to assistive tech. Do not drop that binding. -->
-        <Grid Grid.Column="3" Width="32" Height="32" Background="Transparent"
+        <Grid Grid.Column="3" Background="Transparent"
               ToolTipService.ToolTip="{Binding Text, ElementName=JmxLbl}">
-          <ToggleButton x:Name="JmxBtn" Width="32" Height="32" Padding="0"
+          <ToggleButton x:Name="JmxBtn" MinWidth="32" MinHeight="32" Padding="8"
+                        VerticalAlignment="Stretch" VerticalContentAlignment="Center"
                         AutomationProperties.Name="{Binding Text, ElementName=JmxLbl}"
                         AutomationProperties.AutomationId="JustMyXamlToggle">
-            <FontIcon Glyph="&#xE943;" FontSize="14"/>
+            <FontIcon Glyph="&#xE943;" FontSize="14" IsTextScaleFactorEnabled="True"/>
           </ToggleButton>
           <TextBlock x:Name="JmxLbl" Text="Just my XAML" Visibility="Collapsed"
                      AutomationProperties.AccessibilityView="Raw"/>
         </Grid>
       </Grid>
-      <Border x:Name="FocusNoticeHost" Grid.Row="2" Visibility="Collapsed"
+      <Border x:Name="FocusNoticeHost" Grid.Row="1" Visibility="Collapsed"
               Margin="8,0,8,4" Padding="8,6,8,6" CornerRadius="4"
               Background="{ThemeResource ControlFillColorSecondaryBrush}">
         <TextBlock x:Name="FocusNotice" FontSize="11" TextWrapping="Wrap"
                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                    AutomationProperties.AutomationId="FocusNotice"/>
       </Border>
-      <ScrollViewer x:Name="TreeScroll" Grid.Row="3" ZoomMode="Disabled" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="8">
-          <TextBlock x:Name="TreeHeader" Margin="4,4,4,10" Text="$TREEHEADER$" Style="{StaticResource CaptionTextBlockStyle}"
-                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" CharacterSpacing="60"/>
-          <TextBlock x:Name="TreeNoMatches" Visibility="Collapsed" Margin="4,0,4,0" TextWrapping="Wrap"
+      <Grid x:Name="TreeScroll" Grid.Row="2" Margin="8,4,8,8">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+          <TextBlock x:Name="TreeNoMatches" Grid.Row="0" Visibility="Collapsed" Margin="4,0,4,0" TextWrapping="Wrap"
                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                      AutomationProperties.AutomationId="TreeNoMatches"
                      AutomationProperties.LiveSetting="Polite"/>
-          <StackPanel x:Name="TreeRowsHost">
-            <StackPanel.Resources>
-              <SolidColorBrush x:Key="DevToolsChevronTransparent" Color="Transparent"/>
-              <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBackgroundCheckedDisabled" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="SubtleFillColorSecondaryBrush"/>
-              <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="SubtleFillColorTertiaryBrush"/>
-              <StaticResource x:Key="ToggleButtonBorderBrushChecked" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBorderBrushCheckedPointerOver" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBorderBrushCheckedPressed" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonBorderBrushCheckedDisabled" ResourceKey="DevToolsChevronTransparent"/>
-              <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="TextFillColorPrimaryBrush"/>
-              <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="TextFillColorPrimaryBrush"/>
-              <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="TextFillColorSecondaryBrush"/>
-              <StaticResource x:Key="ToggleButtonForegroundCheckedDisabled" ResourceKey="TextFillColorDisabledBrush"/>
-            </StackPanel.Resources>
-          </StackPanel>
+          <!-- 24 px tree rows, the height of WinUI's Compact density, with a 2 px gap between row highlights.
+               Like WinUI's default padding (3 top, 5 bottom), 2 px more space below makes the text look centered. -->
+          <Grid x:Name="TreeRowsHost" Grid.Row="1">
+            <Grid.Resources>
+              <x:Double x:Key="TreeViewItemMinHeight">24</x:Double>
+              <Thickness x:Key="TreeViewItemPresenterMargin">4,1</Thickness>
+              <Thickness x:Key="TreeViewItemPresenterPadding">0,0,0,2</Thickness>
+            </Grid.Resources>
+          </Grid>
           <StackPanel x:Name="RowPalette" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw">
             <Border x:Name="PalTransparent" Background="Transparent"/>
             <TextBlock x:Name="PalAccent" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
@@ -211,14 +190,15 @@
             <TextBlock x:Name="PalGlyphFont" FontFamily="Segoe Fluent Icons"/>
             <TextBlock x:Name="PalCaption" Style="{StaticResource CaptionTextBlockStyle}"/>
           </StackPanel>
-        </StackPanel>
-      </ScrollViewer>
-      <ScrollViewer x:Name="CommentsScroll" Grid.Row="3" Visibility="Collapsed" ZoomMode="Disabled" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+      </Grid>
+      <ScrollViewer x:Name="CommentsScroll" Grid.Row="2" Visibility="Collapsed" ZoomMode="Disabled" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="CommentsHost" Margin="8"/>
       </ScrollViewer>
     </Grid>
 
-    <Grid Grid.Column="1">
+    <Grid Grid.Column="1" Grid.RowSpan="2">
+      <Border Width="1" HorizontalAlignment="Center" IsHitTestVisible="False"
+              Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
       <Thumb x:Name="PaneSplitter" Background="Transparent" BorderThickness="0"
              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
              IsTabStop="True" UseSystemFocusVisuals="True"
@@ -244,39 +224,35 @@
         </ContentControl.ContentTemplate>
       </ContentControl>
 
-      <!-- THE COLLAPSED ROW. Every property row, whatever its value shape, realizes this one.
-
-           The name column is a FIXED 126px and left-aligned so the values form a straight vertical edge down
-           the pane. A reflowing row is the defect being fixed, so this width is load-bearing rather than
-           taste. Both columns are monospace for the same reason.
-
-           PValueBtn is a flat Button rather than a bare TextBlock for two reasons that are not aesthetic:
-           clicking the value must expand the row AND land in the editor in one action, and the row has to
-           stay reachable as "<Property> value" through UIA so the pane is drivable and screen-readable.
-           Its MinHeight is 22, not the Button style's 32 -- the row's floor is the text. -->
+      <!-- One header owns pointer, keyboard and ExpandCollapse behavior. The fixed name column
+           keeps values aligned. Editors are content, not part of the header's click target. -->
       <ContentControl x:Name="TmplRow">
         <ContentControl.ContentTemplate>
           <DataTemplate>
             <StackPanel x:Name="PRoot" Spacing="0">
-              <Grid ColumnSpacing="8" ColumnDefinitions="14,126,*" MinHeight="22" Padding="4,1,4,1">
-                <Button x:Name="PChevron" Grid.Column="0" Content="&#xE76C;" FontFamily="Segoe Fluent Icons" FontSize="8"
-                        Background="Transparent" BorderThickness="0" Padding="0" MinWidth="0" MinHeight="0"
-                        Width="14" Height="18" VerticalAlignment="Center" Visibility="Collapsed"/>
-                <TextBlock x:Name="PName" Grid.Column="1" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
-                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                <!-- Keep the changed marker outside the value Button so UIA invocation cannot turn status
-                     into the nearest ancestor's action. Both share the value cell without another column. -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
-                  <TextBlock x:Name="PDot" Text="&#x25CF;" FontSize="10" Margin="2,0,5,0" VerticalAlignment="Center"
-                             Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
-                  <Button x:Name="PValueBtn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                          Background="Transparent" BorderThickness="0" Padding="2,0,2,0" MinHeight="22" MinWidth="0">
-                    <TextBlock x:Name="PValue" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
-                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                  </Button>
-                </StackPanel>
-              </Grid>
-              <StackPanel x:Name="PExpand" Visibility="Collapsed" Spacing="0"/>
+              <Expander x:Name="PHeader" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch" Padding="0" MinWidth="0" MinHeight="26">
+                <Expander.Resources>
+                  <Thickness x:Key="ExpanderHeaderPadding">4,1,4,1</Thickness>
+                  <Thickness x:Key="ExpanderChevronMargin">8,0,4,0</Thickness>
+                </Expander.Resources>
+                <Expander.Header>
+                  <Grid ColumnSpacing="8" ColumnDefinitions="2*,3*" MinHeight="22"
+                        Background="Transparent" HorizontalAlignment="Stretch">
+                    <TextBlock x:Name="PName" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
+                               TextWrapping="Wrap"
+                               AutomationProperties.AccessibilityView="Raw"/>
+                    <Grid Grid.Column="1" ColumnDefinitions="Auto,*">
+                      <TextBlock x:Name="PDot" Text="&#x25CF;" FontSize="10" Margin="2,0,5,0" VerticalAlignment="Center"
+                                 Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                      <TextBlock x:Name="PValue" Grid.Column="1" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
+                                 TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                 AutomationProperties.AccessibilityView="Raw"/>
+                    </Grid>
+                  </Grid>
+                </Expander.Header>
+                <StackPanel x:Name="PExpand" Spacing="0"/>
+              </Expander>
             </StackPanel>
           </DataTemplate>
         </ContentControl.ContentTemplate>
@@ -286,9 +262,7 @@
       <ContentControl x:Name="TmplExpRead">
         <ContentControl.ContentTemplate>
           <DataTemplate>
-            <Border x:Name="PExpFrame" Margin="22,1,0,6" Padding="9,7,9,8" CornerRadius="0,4,4,0"
-                    BorderThickness="2,0,0,0" BorderBrush="{ThemeResource AccentFillColorSecondaryBrush}"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <Border x:Name="PExpFrame" Padding="8" Background="Transparent">
               <StackPanel Spacing="0">
                 <TextBlock x:Name="PDerivedHdr" Text="DERIVED FROM" FontSize="10" CharacterSpacing="60" Margin="0,0,0,3" Visibility="Collapsed" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                 <StackPanel x:Name="PWitAuthored" Visibility="Collapsed">
@@ -301,7 +275,7 @@
                 <StackPanel x:Name="PWitChain" Visibility="Collapsed" Margin="0,4,0,4">
                   <StackPanel x:Name="PChain" Spacing="4"/>
                 </StackPanel>
-                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,2,0,2" Spacing="0"/>
+                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,2,0,2" Spacing="2"/>
               </StackPanel>
             </Border>
           </DataTemplate>
@@ -336,9 +310,7 @@
       <ContentControl x:Name="TmplExpEdit">
         <ContentControl.ContentTemplate>
           <DataTemplate>
-            <Border x:Name="PExpFrame" Margin="22,1,0,6" Padding="9,7,9,8" CornerRadius="0,4,4,0"
-                    BorderThickness="2,0,0,0" BorderBrush="{ThemeResource AccentFillColorSecondaryBrush}"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <Border x:Name="PExpFrame" Padding="8" Background="Transparent">
               <StackPanel Spacing="0">
 
                 <!-- KIND. Selecting stages; it does not apply. Opening this list to see the options must not
@@ -352,6 +324,7 @@
                   <StackPanel x:Name="PEdText" Visibility="Collapsed" Spacing="3">
                     <TextBlock x:Name="PEdTextLbl" Text="VALUE" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                     <TextBox x:Name="PEdit" MinHeight="30" FontSize="12" FontFamily="Consolas"/>
+                    <TextBlock x:Name="PEditHint" Visibility="Collapsed" Text="Enter applies &#183; Shift+Enter adds a new line" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
                   </StackPanel>
 
                   <StackPanel x:Name="PEdBool" Visibility="Collapsed" Spacing="3">
@@ -384,8 +357,10 @@
 
                   <StackPanel x:Name="PEdRes" Visibility="Collapsed" Spacing="3">
                     <TextBlock x:Name="PResLbl" Text="RESOURCE KEY" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                    <TextBox x:Name="PResKey" MinHeight="30" FontSize="12" FontFamily="Consolas" PlaceholderText="type a key"/>
-                    <StackPanel x:Name="PResSug" Spacing="0" Visibility="Collapsed"/>
+                    <AutoSuggestBox x:Name="PResKey" MinHeight="30" FontSize="12" FontFamily="Consolas"
+                                    PlaceholderText="type a key" UpdateTextOnSelect="False"/>
+                    <TextBlock x:Name="PResError" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed"
+                               IsTextSelectionEnabled="True" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
                     <TextBlock x:Name="PResNote" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Text="the key, as text. The resolved value is on the row above."/>
                   </StackPanel>
@@ -422,10 +397,10 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,4,0,0">
                       <TextBlock x:Name="PXWhy" Grid.Column="0" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center"
                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                      <Button x:Name="PXInfo" Grid.Column="1" Width="22" Height="22" MinWidth="0" MinHeight="0" Padding="0"
+                      <Button x:Name="PXInfo" Grid.Column="1" MinWidth="22" MinHeight="22" Padding="4"
                               VerticalAlignment="Top"
-                              ToolTipService.ToolTip="An {x:Bind} is compiled into generated code when the app is built, and the runtime exposes no way to create or change one.&#x0A;&#x0A;Choosing {Binding} installs a runtime binding with SetBinding, on the running app only. Your .xaml is not changed, and the compiled binding cannot be restored without restarting.">
-                        <FontIcon Glyph="&#xE946;" FontSize="12" AutomationProperties.AccessibilityView="Raw"/>
+                              ToolTipService.ToolTip="An {x:Bind} is compiled into generated code when the app is built, and the runtime exposes no way to create or change one.&#x0A;&#x0A;Choosing {Binding} installs a temporary runtime binding. Generated compiled-binding updates can overwrite it. Your .xaml is not changed.">
+                        <FontIcon Glyph="&#xE946;" FontSize="12" IsTextScaleFactorEnabled="True" AutomationProperties.AccessibilityView="Raw"/>
                       </Button>
                     </Grid>
                     <!-- The same text the tooltip carries, revealed while PXInfo has focus. This is the half a
@@ -458,9 +433,15 @@
                   </Grid>
                   <StackPanel x:Name="PBindRestoreRow" Visibility="Collapsed" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                     <Button x:Name="PBindRestore" Content="Restore binding" FontSize="12" Padding="8,4,8,4" MinHeight="0"
-                            ToolTipService.ToolTip="Re-attach the binding written in your XAML"/>
-                    <TextBlock x:Name="PBindRestoreNote" FontSize="12" VerticalAlignment="Center" Visibility="Collapsed"
-                               Text="Re-applies every x:Bind on this page." Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
+                            ToolTipService.ToolTip="Re-attach the captured binding, or ask before re-applying all compiled bindings on its owner"/>
+                  </StackPanel>
+                  <StackPanel x:Name="PBindRestoreConfirm" Visibility="Collapsed" Spacing="6" Margin="0,4,0,0">
+                    <TextBlock x:Name="PBindRestoreScope" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Button x:Name="PBindRestoreYes" Content="Re-apply all compiled bindings" FontSize="12" Padding="8,4,8,4" MinHeight="0"/>
+                      <Button x:Name="PBindRestoreCancel" Content="Cancel" FontSize="12" Padding="8,4,8,4" MinHeight="0"/>
+                    </StackPanel>
                   </StackPanel>
                   <TextBlock x:Name="PDiagQ" FontSize="12" FontFamily="Consolas" TextWrapping="Wrap" Visibility="Collapsed"
                              IsTextSelectionEnabled="True"/>
@@ -531,7 +512,7 @@
                   </StackPanel>
                 </Border>
 
-                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,6,0,0" Spacing="0"/>
+                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,6,0,0" Spacing="2"/>
 
 
               </StackPanel>
@@ -543,17 +524,92 @@
 
     </StackPanel>
 
-    <Grid x:Name="DetailsPane" Grid.Column="2"
-          Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-          BorderBrush="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-          BorderThickness="1"
-          CornerRadius="8,0,0,0">
-      <ScrollViewer x:Name="PropsScroll" AutomationProperties.AutomationId="WinAppDevToolsPropScroll"
-                    AutomationProperties.Name="Properties pane scroller">
-        <StackPanel x:Name="PropsHost" Margin="14">
-          <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Text="Select a node on the left to inspect and edit its properties."/>
+    <!-- Details: a header that stays put (the element, its nearest ancestors, and Comment), the property
+         fragment that PropsHost swaps per selection, and a footer for messages such as "Comment saved." -->
+      <Grid x:Name="DetailsHeader" Grid.Column="2" Grid.Row="0" MinHeight="52" Padding="14,8" ColumnSpacing="8" Visibility="Collapsed">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+          <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="DetailTitle" FontSize="15" FontWeight="SemiBold" TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="WinAppDevToolsDetailTitle"/>
+            <Border x:Name="DetailPill" Grid.Column="1" Visibility="Collapsed" Padding="6,0,6,1" CornerRadius="4"
+                    BorderThickness="1" VerticalAlignment="Center"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                    Background="{ThemeResource ControlFillColorSecondaryBrush}">
+              <TextBlock x:Name="DetailPillText" FontSize="11"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </Border>
+          </Grid>
+          <!-- The two nearest ancestors; the full path is the tooltip and the accessible name. -->
+          <TextBlock x:Name="DetailCrumb" FontSize="12" TextWrapping="NoWrap"
+                     TextTrimming="CharacterEllipsis"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                     AutomationProperties.AutomationId="WinAppDevToolsBreadcrumb"/>
+        </StackPanel>
+        <Button x:Name="ShowInTreeBtn" Grid.Column="1" Visibility="Collapsed" MinHeight="28" Padding="10,4"
+                FontSize="12" VerticalAlignment="Center"
+                ToolTipService.ToolTip="Show this element in the visual tree"
+                AutomationProperties.Name="Show in tree"
+                AutomationProperties.AutomationId="WinAppDevToolsShowInTree">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <PathIcon Data="F1 M2.5,1 H6.5 A1.5,1.5 0 0 1 8,2.5 V4 A1.5,1.5 0 0 1 6.5,5.5 H2.5 A1.5,1.5 0 0 1 1,4 V2.5 A1.5,1.5 0 0 1 2.5,1 Z M2.5,2 A0.5,0.5 0 0 0 2,2.5 V4 A0.5,0.5 0 0 0 2.5,4.5 H6.5 A0.5,0.5 0 0 0 7,4 V2.5 A0.5,0.5 0 0 0 6.5,2 Z M9.5,6 H13.5 A1.5,1.5 0 0 1 15,7.5 V9 A1.5,1.5 0 0 1 13.5,10.5 H9.5 A1.5,1.5 0 0 1 8,9 V7.5 A1.5,1.5 0 0 1 9.5,6 Z M9.5,7 A0.5,0.5 0 0 0 9,7.5 V9 A0.5,0.5 0 0 0 9.5,9.5 H13.5 A0.5,0.5 0 0 0 14,9 V7.5 A0.5,0.5 0 0 0 13.5,7 Z M9.5,10.5 H13.5 A1.5,1.5 0 0 1 15,12 V13.5 A1.5,1.5 0 0 1 13.5,15 H9.5 A1.5,1.5 0 0 1 8,13.5 V12 A1.5,1.5 0 0 1 9.5,10.5 Z M9.5,11.5 A0.5,0.5 0 0 0 9,12 V13.5 A0.5,0.5 0 0 0 9.5,14 H13.5 A0.5,0.5 0 0 0 14,13.5 V12 A0.5,0.5 0 0 0 13.5,11.5 Z M4,5 H5 V13.25 H4 Z M5,12.25 H8.5 V13.25 H5 Z M5,7.75 H8.5 V8.75 H5 Z"
+                      VerticalAlignment="Center"/>
+            <TextBlock Text="Show in tree" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+        <Button x:Name="AddCommentBtn" Grid.Column="2" MinHeight="28" Padding="10,4" FontSize="12"
+                VerticalAlignment="Center"
+                ToolTipService.ToolTip="Comment on this element"
+                AutomationProperties.Name="Add comment"
+                AutomationProperties.AutomationId="WinAppDevToolsAddComment">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="&#xE90A;" FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                       FontSize="14" IsTextScaleFactorEnabled="True" VerticalAlignment="Center"
+                       AutomationProperties.AccessibilityView="Raw"/>
+            <TextBlock Text="Comment" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+      </Grid>
+    <Grid x:Name="DetailsPane" Grid.Column="2" Grid.Row="1">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <ScrollViewer x:Name="PropsScroll" Grid.Row="0" AutomationProperties.AutomationId="WinAppDevToolsPropScroll"
+                    AutomationProperties.Name="Properties">
+        <StackPanel x:Name="PropsHost" Margin="14,12,14,16">
+          <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Text="Select an element in the tree, or click a comment."/>
         </StackPanel>
       </ScrollViewer>
+      <!-- Messages stay here, under the properties, instead of at the end of a list that may be scrolled away. -->
+      <Border x:Name="StatusHost" Grid.Row="1" Visibility="Collapsed" Margin="12,0,12,12" Padding="12,8"
+              CornerRadius="4" BorderThickness="1"
+              BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}"
+              Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}">
+        <Grid ColumnSpacing="10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <FontIcon Glyph="&#xE946;" FontSize="14" VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    AutomationProperties.AccessibilityView="Raw"/>
+          <TextBlock x:Name="Status" Grid.Column="1" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
+                     AutomationProperties.Name="Property pane status"
+                     AutomationProperties.AutomationId="WinAppDevToolsPropStatus"
+                     AutomationProperties.LiveSetting="Polite"/>
+        </Grid>
+      </Border>
     </Grid>
   </Grid>
+  </NavigationView>
 </Grid>

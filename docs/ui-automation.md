@@ -329,7 +329,7 @@ winapp ui inspect -w 131906
 winapp ui screenshot -w 131906
 ```
 
-Use `-a` for discovery, `-w` for stable targeting. When `-a` matches multiple windows, the command lists them with HWNDs for you to pick.
+Use `-a` for discovery, `-w` for stable targeting. When `-a` matches multiple windows, the command lists them with HWNDs for you to pick. `-w` takes the HWND in decimal or `0x` hex, so `-w 131906` and `-w 0x20342` are the same window.
 
 ## Selectors
 

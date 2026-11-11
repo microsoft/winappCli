@@ -28,6 +28,7 @@
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
+#include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 
 namespace DevToolsX   = winrt::Microsoft::UI::Xaml;
 namespace DevToolsCnt = winrt::Microsoft::UI::Content;
@@ -43,6 +44,7 @@ namespace DevToolsXI  = winrt::Microsoft::UI::Xaml::Input;
 namespace DevToolsXMk = winrt::Microsoft::UI::Xaml::Markup;
 namespace DevToolsXM  = winrt::Microsoft::UI::Xaml::Media;
 namespace DevToolsXMA = winrt::Microsoft::UI::Xaml::Media::Animation;
+namespace DevToolsXMI = winrt::Microsoft::UI::Xaml::Media::Imaging;
 
 using DevToolsUIElementVector = winrt::Windows::Foundation::Collections::IVector<DevToolsX::UIElement>;
 using DevToolsColumnDefinitionVector = winrt::Windows::Foundation::Collections::IVector<DevToolsXC::ColumnDefinition>;
@@ -85,6 +87,10 @@ inline HRESULT DevToolsWinGetAppWindow(void* win2, ::IInspectable** appWindow) n
 { return DevToolsAbi<DevToolsX::IWindow2>(win2)->get_AppWindow(reinterpret_cast<void**>(appWindow)); }
 inline HRESULT DevToolsWinPutSystemBackdrop(void* win2, void* backdrop) noexcept
 { return DevToolsAbi<DevToolsX::IWindow2>(win2)->put_SystemBackdrop(backdrop); }
+inline HRESULT DevToolsWinPutExtendsContentIntoTitleBar(void* win, bool value) noexcept
+{ return DevToolsAbi<DevToolsX::IWindow>(win)->put_ExtendsContentIntoTitleBar(value); }
+inline HRESULT DevToolsWinSetTitleBar(void* win, void* uiElement) noexcept
+{ return DevToolsAbi<DevToolsX::IWindow>(win)->SetTitleBar(uiElement); }
 
 inline HRESULT DevToolsAppWindowGetFromWindowId(void* statics, unsigned __int64 windowId, ::IInspectable** appWindow) noexcept
 {
@@ -110,6 +116,14 @@ inline HRESULT DevToolsTitleBarGetRightInset(void* titleBar, int* physicalPx) no
 { return DevToolsAbi<DevToolsW::IAppWindowTitleBar>(titleBar)->get_RightInset(reinterpret_cast<int32_t*>(physicalPx)); }
 inline HRESULT DevToolsTitleBarPutPreferredTheme(void* titleBar3, DevToolsW::TitleBarTheme theme) noexcept
 { return DevToolsAbi<DevToolsW::IAppWindowTitleBar3>(titleBar3)->put_PreferredTheme(static_cast<int32_t>(theme)); }
+
+// The WinUI TitleBar control drawn inside the window content, not the system caption above.
+inline HRESULT DevToolsTitleBarControlPutIconSource(void* titleBar, void* iconSource) noexcept
+{ return DevToolsAbi<DevToolsXC::ITitleBar>(titleBar)->put_IconSource(iconSource); }
+inline HRESULT DevToolsImageIconSourceGetImageSource(void* imageIconSource, ::IInspectable** imageSource) noexcept
+{ return DevToolsAbi<DevToolsXC::IImageIconSource>(imageIconSource)->get_ImageSource(reinterpret_cast<void**>(imageSource)); }
+inline HRESULT DevToolsBitmapSourceSetSource(void* bitmapSource, void* randomAccessStream) noexcept
+{ return DevToolsAbi<DevToolsXMI::IBitmapSource>(bitmapSource)->SetSource(randomAccessStream); }
 
 inline HRESULT DevToolsFindName(void* fe, HSTRING name, ::IInspectable** found) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->FindName(DevToolsAbiStr(name), reinterpret_cast<void**>(found)); }
@@ -152,6 +166,8 @@ inline HRESULT DevToolsGetDataContext(void* fe, ::IInspectable** value) noexcept
 
 inline HRESULT DevToolsAddSizeChanged(void* fe, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->add_SizeChanged(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsAddLoaded(void* fe, void* handler, __int64* token) noexcept
+{ return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->add_Loaded(handler, DevToolsAbiTok(token)); }
 inline HRESULT DevToolsRemoveSizeChanged(void* fe, __int64 token) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->remove_SizeChanged(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsGetActualWidth(void* fe, double* value) noexcept
@@ -181,6 +197,8 @@ inline HRESULT DevToolsPutWidth(void* fe, double value) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_Width(value); }
 inline HRESULT DevToolsPutHeight(void* fe, double value) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_Height(value); }
+inline HRESULT DevToolsPutMaxHeight(void* fe, double value) noexcept
+{ return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_MaxHeight(value); }
 
 inline HRESULT DevToolsGetRequestedTheme(void* fe, int* theme) noexcept
 {
@@ -260,6 +278,8 @@ inline HRESULT DevToolsConverterLocalToScreen(void* converter, float x, float y,
 }
 inline HRESULT DevToolsUpdateLayout(void* ui) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->UpdateLayout(); }
+inline HRESULT DevToolsMeasure(void* ui, float availableW, float availableH) noexcept
+{ return DevToolsAbi<DevToolsX::IUIElement>(ui)->Measure(winrt::Windows::Foundation::Size{ availableW, availableH }); }
 inline HRESULT DevToolsStartBringIntoView(void* ui) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->StartBringIntoView(); }
 inline HRESULT DevToolsFocus(void* ui, int focusState, bool* succeeded) noexcept
@@ -284,6 +304,8 @@ inline HRESULT DevToolsAddGotFocus(void* ui, void* handler, __int64* token) noex
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_GotFocus(handler, DevToolsAbiTok(token)); }
 inline HRESULT DevToolsAddLostFocus(void* ui, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_LostFocus(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveLostFocus(void* ui, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsX::IUIElement>(ui)->remove_LostFocus(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsGetOriginalSource(void* routedEventArgs, ::IInspectable** source) noexcept
 { return DevToolsAbi<DevToolsX::IRoutedEventArgs>(routedEventArgs)->get_OriginalSource(reinterpret_cast<void**>(source)); }
 inline HRESULT DevToolsAddPointerEntered(void* ui, void* handler, __int64* token) noexcept
@@ -294,6 +316,8 @@ inline HRESULT DevToolsAddPointerMoved(void* ui, void* handler, __int64* token) 
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_PointerMoved(handler, DevToolsAbiTok(token)); }
 inline HRESULT DevToolsAddPointerPressed(void* ui, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_PointerPressed(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemovePointerPressed(void* ui, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsX::IUIElement>(ui)->remove_PointerPressed(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsAddPointerReleased(void* ui, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsX::IUIElement>(ui)->add_PointerReleased(handler, DevToolsAbiTok(token)); }
 inline HRESULT DevToolsAddPreviewKeyDown(void* ui, void* handler, __int64* token) noexcept
@@ -396,6 +420,8 @@ inline HRESULT DevToolsPutBackground(void* control, void* brush) noexcept
 { return DevToolsAbi<DevToolsXC::IControl>(control)->put_Background(brush); }
 inline HRESULT DevToolsAddTextChanged(void* textBox, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->add_TextChanged(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveTextChanged(void* textBox, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->remove_TextChanged(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsGetTextBoxText(void* textBox, HSTRING* text) noexcept
 { return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->get_Text(reinterpret_cast<void**>(text)); }
 inline HRESULT DevToolsGetPlaceholderText(void* textBox, HSTRING* text) noexcept
@@ -519,6 +545,8 @@ inline HRESULT DevToolsPutVerticalAlignment(void* fe, int alignment) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_VerticalAlignment(alignment); }
 inline HRESULT DevToolsPutMinWidth(void* fe, double value) noexcept
 { return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_MinWidth(value); }
+inline HRESULT DevToolsPutMaxWidth(void* fe, double value) noexcept
+{ return DevToolsAbi<DevToolsX::IFrameworkElement>(fe)->put_MaxWidth(value); }
 
 inline HRESULT DevToolsPutBorderThickness(void* control, double l, double t, double r, double b) noexcept
 { return DevToolsAbi<DevToolsXC::IControl>(control)->put_BorderThickness({ l, t, r, b }); }
@@ -626,6 +654,15 @@ inline HRESULT DevToolsGetArgsData(void* getArgs, ::IInspectable** data) noexcep
 inline HRESULT DevToolsGetRecycleElement(void* recycleArgs, ::IInspectable** element) noexcept
 { return DevToolsAbi<DevToolsX::IElementFactoryRecycleArgs>(recycleArgs)->get_Element(reinterpret_cast<void**>(element)); }
 
+inline HRESULT DevToolsAddExpanding(void* expander, void* sink, __int64* token) noexcept
+{ return DevToolsAbi<DevToolsXC::IExpander>(expander)->add_Expanding(sink, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveExpanding(void* expander, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXC::IExpander>(expander)->remove_Expanding(*DevToolsAbiTok(&token)); }
+inline HRESULT DevToolsAddCollapsed(void* expander, void* sink, __int64* token) noexcept
+{ return DevToolsAbi<DevToolsXC::IExpander>(expander)->add_Collapsed(sink, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveCollapsed(void* expander, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXC::IExpander>(expander)->remove_Collapsed(*DevToolsAbiTok(&token)); }
+
 inline HRESULT DevToolsGetContentTemplate(void* contentControl, ::IInspectable** tmpl) noexcept
 { return DevToolsAbi<DevToolsXC::IContentControl>(contentControl)->get_ContentTemplate(reinterpret_cast<void**>(tmpl)); }
 inline HRESULT DevToolsTemplateLoadContent(void* dataTemplate, ::IInspectable** content) noexcept
@@ -673,12 +710,18 @@ inline HRESULT DevToolsAddToggled(void* toggleSwitch, void* handler, __int64* to
 
 inline HRESULT DevToolsAddClick(void* buttonBase, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXCP::IButtonBase>(buttonBase)->add_Click(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveClick(void* buttonBase, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXCP::IButtonBase>(buttonBase)->remove_Click(*DevToolsAbiTok(&token)); }
 inline HRESULT DevToolsToggleButtonPutIsChecked(void* toggleButton, void* boxedBool) noexcept
 { return DevToolsAbi<DevToolsXCP::IToggleButton>(toggleButton)->put_IsChecked(boxedBool); }
 inline HRESULT DevToolsGetSelectedIndex(void* selector, int* index) noexcept
 { return DevToolsAbi<DevToolsXCP::ISelector>(selector)->get_SelectedIndex(index); }
+inline HRESULT DevToolsPutSelectedIndex(void* selector, int index) noexcept
+{ return DevToolsAbi<DevToolsXCP::ISelector>(selector)->put_SelectedIndex(index); }
 inline HRESULT DevToolsAddSelectionChanged(void* selector, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXCP::ISelector>(selector)->add_SelectionChanged(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveSelectionChanged(void* selector, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXCP::ISelector>(selector)->remove_SelectionChanged(*DevToolsAbiTok(&token)); }
 
 inline HRESULT DevToolsGetKey(void* keyArgs, int* virtualKey) noexcept
 { return DevToolsAbi<DevToolsXI::IKeyRoutedEventArgs>(keyArgs)->get_Key(virtualKey); }

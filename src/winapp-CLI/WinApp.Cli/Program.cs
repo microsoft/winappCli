@@ -381,7 +381,6 @@ internal static class Program
                 return TargetOutput.RejectSelection(
                     serviceProvider.GetRequiredService<IAnsiConsole>(), effectiveJson, selectionError);
             }
-
             if (targetsSandbox)
             {
                 serviceProvider.GetRequiredService<WindowsSandboxLifecycle>().GetExpectation = () => expectation;

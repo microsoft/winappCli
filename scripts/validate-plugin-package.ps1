@@ -230,6 +230,48 @@ else {
     }
 }
 
+# --- Marketplace listings ---------------------------------------------------------------
+# Every plugin folder under $PluginsRoot must be listed in each marketplace file, at the repo
+# version, so a release never leaves a plugin behind. Codex lists only plugins that ship a
+# .codex-plugin manifest, and its entries carry no version.
+$VersionFile = Join-Path $ProjectRoot "version.json"
+$RepoVersion = $null
+if (Test-Path $VersionFile -PathType Leaf) {
+    $versionJson = Read-JsonFile $VersionFile "version.json"
+    if ($versionJson) { $RepoVersion = [string]$versionJson.version }
+}
+
+$Marketplaces = @(
+    @{ Path = '.github/plugin/marketplace.json'; Versioned = $true; Requires = { param($Dir) $true } },
+    @{ Path = '.claude-plugin/marketplace.json'; Versioned = $true; Requires = { param($Dir) $true } },
+    @{ Path = '.agents/plugins/marketplace.json'; Versioned = $false; Requires = { param($Dir) Test-Path (Join-Path $Dir '.codex-plugin/plugin.json') -PathType Leaf } }
+)
+$PluginDirs = @(Get-ChildItem -Path $PluginsRoot -Directory -ErrorAction SilentlyContinue)
+foreach ($marketplace in $Marketplaces) {
+    $marketplaceFile = Join-Path $ProjectRoot $marketplace.Path
+    if (-not (Test-Path $marketplaceFile -PathType Leaf)) {
+        Add-Failure "marketplace file $($marketplace.Path) not found"
+        continue
+    }
+    $listing = Read-JsonFile $marketplaceFile $marketplace.Path
+    if (-not $listing) { continue }
+    $entries = @($listing.plugins)
+    foreach ($pluginDir in $PluginDirs) {
+        if (-not (& $marketplace.Requires $pluginDir.FullName)) { continue }
+        $expectedSource = "./plugins/$($pluginDir.Name)"
+        $entry = $entries | Where-Object {
+            $source = if ($_.source -is [string]) { $_.source } else { $_.source.path }
+            "$source".TrimEnd('/') -eq $expectedSource
+        } | Select-Object -First 1
+        if (-not $entry) {
+            Add-Failure "plugin '$($pluginDir.Name)' is not listed in $($marketplace.Path)"
+        }
+        elseif ($marketplace.Versioned -and $RepoVersion -and $entry.version -ne $RepoVersion) {
+            Add-Failure "plugin '$($pluginDir.Name)' in $($marketplace.Path) has version '$($entry.version)', expected '$RepoVersion' from version.json"
+        }
+    }
+}
+
 # --- Skill content, for every plugin under $PluginsRoot that has skills ------------------
 $Utf8 = [System.Text.UTF8Encoding]::new($false)
 $Invariant = [System.Globalization.CultureInfo]::InvariantCulture

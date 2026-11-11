@@ -30,7 +30,8 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
 // write is unconfirmed.
 static bool CanRereadSelection(bool* filterFocused = nullptr);
 
-static void SelectRowVisual(void* rowControl);
+static void SyncTreeSelection();
+static void SyncTreeStructure();
 
 static unsigned g_route1Gen = 0;
 static unsigned g_treeRowsGen = 0;
@@ -55,56 +56,33 @@ static void CALLBACK HoverRevertProc(HWND, UINT, UINT_PTR id, DWORD);
 
 static void SetFocusNotice(const std::wstring& text);
 
-struct NodeClickSink : DevToolsSinkBase
+struct NodeClickSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void* sender, void* /*args*/)
+    HRESULT Invoke(void*, void*)
     {
         // Inert once the owning window has been torn down (stale generation) -- guards against a click that
         // races window close, or a leaked sink from a prior window, touching a freed subtree.
         if (gen != g_route1Gen || rowsGen != g_treeRowsGen) return S_OK;
         if (!ctx) return S_OK;
-        if (hoverExit) {
-            g_hoverRevertEpoch = ++g_hoverEpoch;
-            g_hoverRevertGen = g_route1Gen;
-            if (!g_hoverRevertTimer) g_hoverRevertTimer = SetTimer(nullptr, 0, USER_TIMER_MINIMUM, HoverRevertProc);
-            return S_OK;
-        }
-        if (hoverOnly) {
-            // The per-row-crossing cost the `hover` scenario exists to measure. The exit branch above
-            // is deliberately outside it: an exit only posts a timer, and charging that to the crossing would
-            // bury the one thing worth seeing, which is what the enter's highlight costs.
-            WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinTreeHover);
-            ++g_hoverEpoch;
-            if (ctx->highlightFn) ctx->highlightFn(handle, false);
-            // Hover stops at the highlight -- rebuilding the property pane on every PointerEntered would
-            // jank the app UI thread. Only a click (select) reads the props and rebuilds the inspector.
-            return S_OK;
-        }
         SetFocusNotice(L"");
         if (ctx->highlightFn) ctx->highlightFn(handle, true);
-        void* rowCtrl = nullptr;
-        if (sender && SUCCEEDED(reinterpret_cast<IUnknown*>(sender)->QueryInterface(
-                DevToolsIid<DevToolsXC::IControl>(), &rowCtrl)) && rowCtrl) {
-            SelectRowVisual(rowCtrl);
-            reinterpret_cast<IUnknown*>(rowCtrl)->Release();
-        }
         g_selectedWire = handle;
+        SyncTreeSelection();
         // Clicking the selected row again re-reads it, unless that would discard an open editor or pending write.
         ShowPropsForNode(handle, label, breadcrumb, /*force*/ handle == g_selWire && CanRereadSelection());
         return S_OK;
     }
-    void Init(InstanceHandle h, const std::wstring& lbl, const std::wstring& bc, WindowContext* c, bool hover)
+    void Init(InstanceHandle h, const std::wstring& lbl, const std::wstring& bc, WindowContext* c)
     {
-        handle = h; label = lbl; breadcrumb = bc; ctx = c; hoverOnly = hover; rowsGen = g_treeRowsGen;
-        InitSink(IID_RoutedEventHandler_Del, g_route1Gen, &IID_PointerEventHandler_Del);
+        handle = h; label = lbl; breadcrumb = bc; ctx = c; rowsGen = g_treeRowsGen;
+        gen = g_route1Gen;
     }
     InstanceHandle handle = 0;
     std::wstring   label;
     std::wstring   breadcrumb;
     WindowContext* ctx = nullptr;
-    bool           hoverOnly = false;
-    bool           hoverExit = false;
     unsigned       rowsGen = 0;
+    unsigned       gen = 0;
 };
 
 static IInspectable* g_route1WindowInsp = nullptr;
@@ -113,6 +91,7 @@ static bool g_route1WindowHidden = false;
 
 static bool g_watchdogSawApp = false;
 static WindowContext g_ctx;
+static DevToolsWindowElementFn g_elementFn = nullptr;
 
 // the window's own binding-path walk. Set by DevToolsWindow_SetPathWalk, read from the worker
 // that asks. Declared here rather than beside the comment bridge below because the property expansion, which
@@ -153,6 +132,10 @@ static HRESULT ReleaseInspectorCaptionTheme()
     return hr;
 }
 
+static void RecolorPaneRows();
+static void RecolorPaneLiterals();
+static void RecolorTreeCaptions();
+
 struct InspectorCaptionThemeSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
@@ -160,6 +143,12 @@ struct InspectorCaptionThemeSink : DevToolsSinkBase
         if (gen != g_route1Gen) return S_OK;
         const HRESULT hr = SyncInspectorCaptionTheme();
         if (FAILED(hr)) DevToolsOverlayLog(L"route1.titlebar theme update hr=0x%08X", hr);
+        // Tree captions, property rows and the pane's inlined resource colors are fixed copies, so they keep the
+        // old theme's colors until repainted. All repaint in place, so tree expansion, open editors and unsaved
+        // drafts are kept. Literals go first: a row's new color must not be mistaken for an old literal.
+        RecolorTreeCaptions();
+        RecolorPaneLiterals();
+        RecolorPaneRows();
         return S_OK;
     }
     void Init()
@@ -196,26 +185,50 @@ static void CALLBACK HoverRevertProc(HWND, UINT, UINT_PTR id, DWORD)
                   (unsigned long long)g_selWire);
 }
 
-struct EditRow { std::wstring prop; std::wstring type; std::wstring original; IInspectable* box = nullptr; };
-static std::vector<EditRow> g_editRows;
+// The details pane's message footer: the text (ITextBlock) and the bar that holds it (IUIElement). Both live in the
+// window shell, so a message stays in view however far the property list is scrolled.
 static IInspectable*        g_statusTb = nullptr;
-// Props-pane breadcrumb: the elided one-line chain and the full wrapped chain, both QI'd to IUIElement
-// and AddRef-held for the pane's lifetime so BreadcrumbSink can flip between them with put_Visibility.
-static void*                g_bcShort = nullptr;
-static void*                g_bcFull = nullptr;
-static void*                g_bcToggleLbl = nullptr; // the expander's label TextBlock (ITextBlock, AddRef'd)
-static std::wstring         g_bcExpandText;
-static bool                 g_bcExpanded = false;
-// g_selWire (WIRE handle of the currently selected node) is declared above NodeClickSink so the hover-exit
-// sink can revert the app highlight to it.
+static void*                g_statusHostUi = nullptr;
+// The hover timer restores the app highlight to g_selWire after the pointer leaves the tree.
 static std::wstring         g_selLabel;
 static std::wstring         g_selBreadcrumb;
 static std::wstring         g_selSourceFile;
 static unsigned int         g_selSourceLine = 0;
 
-// Dirty tracking records what this pane changed because runtime local values cannot recover resource keys.
+// The element whose per-selection pane state (pending writes, lost links, staged kinds) is current.
 static InstanceHandle g_dirtyNode = 0;
-static std::vector<std::pair<std::wstring, std::wstring>> g_dirtySeed;
+
+// What Restore puts back, per element and property, for the whole session. Only the first edit records it.
+// Value: write `original` back. Unset: clear the local value. Resource: re-assign `key`; `original` is its markup.
+enum class DevToolsOriginal { Value, Unset, Resource };
+struct EditRecord
+{
+    InstanceHandle   wire = 0;
+    std::wstring     prop;
+    DevToolsOriginal kind = DevToolsOriginal::Value;
+    std::wstring     original;
+    std::wstring     key;
+    bool             theme = false;
+    // The value read back after DevTools' last write. A different value later means the app changed it, and
+    // putting the original back would undo the app's change rather than the user's.
+    std::wstring     baseline;
+    bool             needsBaseline = true;
+    // The element's ActualTheme when `baseline` was read, or -1 if unknown. A theme switch changes theme-following
+    // values without the app touching them, so a different theme takes a new baseline instead of dropping Restore.
+    int              baselineTheme = -1;
+    // Whether the property was set on the element when `baseline` was read. After Clear it isn't, so its value
+    // follows the parent or a style, and a change there is not the app changing this element.
+    bool             baselineSetHere = true;
+    // DevTools last set the property to a {ThemeResource}. Kept here because the pane forgets its session
+    // assignments when the selection moves, and the value still follows the theme.
+    bool             themeAssigned = false;
+};
+static std::vector<EditRecord> g_editRecords;
+// Properties whose record was dropped because the app changed the value after the user's edit, and the value the
+// app set, which is what a later edit's Restore must put back. `setHere` is false when the app's value isn't set on
+// the element (the app cleared it back to a style or default), so Restore clears the property instead.
+struct AppChange { InstanceHandle wire = 0; std::wstring prop; std::wstring value; bool setHere = true; };
+static std::vector<AppChange> g_appChanged;
 // Resolve a named child of the REALIZED row for `prop`, AddRef'd, or null when that row is not currently on
 // screen. Defined with the repeater below. Looked up live rather than cached because a virtualized row's
 // elements are released the moment it leaves the viewport, and a cached pointer would outlive the element.
@@ -226,6 +239,9 @@ static size_t RebuildPaneItems();
 // Following the selected element's property changes (DevToolsWindow.LiveProps.inc).
 static void LiveWatchSelection();
 static void LiveUnwatch();
+// The layout the Size & spacing section was built from, so a layout pass that changes it rebuilds the pane.
+static DevToolsWindowLayout g_paneLayout{};
+static bool g_paneHaveLayout = false;
 
 // Set and Computed views persist across selections, resetting on window teardown.
 // Computed groups effective state by concern; Set groups authored/local values by origin.
@@ -238,8 +254,6 @@ static std::wstring g_propFilterQuery;
 static bool g_propShowAll = false;
 static void* g_propShowAllLbl = nullptr;
 
-static void* g_propCountTb = nullptr;
-static IInspectable* g_propCountEl = nullptr;
 static size_t g_propRowTotal = 0;
 
 static void* g_propEmptyUi = nullptr;
@@ -267,25 +281,10 @@ static void UpdatePropEmptyState(size_t shown)
     WindowsDeleteString(hs);
 }
 
-static void UpdatePropCount(size_t shown)
-{
-    UpdatePropEmptyState(shown);
-    if (!g_propCountTb) return;
-    HSTRING hs = MakeStr(std::to_wstring(shown) + L" of " + std::to_wstring(g_propRowTotal));
-    DevToolsPutText(g_propCountTb, hs);
-    WindowsDeleteString(hs);
-    if (g_propCountEl)
-        SetAutomationTextOn(g_propCountEl,
-                            L"Showing " + std::to_wstring(shown) + L" of " +
-                            std::to_wstring(g_propRowTotal) + L" properties",
-                            L"WinAppDevToolsPropCount", L"");
-}
 static void* g_propFilterTextBox = nullptr;
 
 static void ReleasePropFilterState()
 {
-    if (g_propCountTb) { reinterpret_cast<IUnknown*>(g_propCountTb)->Release(); g_propCountTb = nullptr; }
-    if (g_propCountEl) { g_propCountEl->Release(); g_propCountEl = nullptr; }
     if (g_propShowAllLbl) { reinterpret_cast<IUnknown*>(g_propShowAllLbl)->Release(); g_propShowAllLbl = nullptr; }
     if (g_propFilterTextBox) { reinterpret_cast<IUnknown*>(g_propFilterTextBox)->Release(); g_propFilterTextBox = nullptr; }
     if (g_propEmptyUi) { reinterpret_cast<IUnknown*>(g_propEmptyUi)->Release(); g_propEmptyUi = nullptr; }
@@ -297,15 +296,56 @@ static void ReleasePropFilterState()
 // A property is "set here" (in code/XAML on this element) when its winning value comes from a Local assignment
 // or a Binding. Everything else (Style/Built-in style/Inherited/Default/Trigger/Animation/Visual state) came from
 // somewhere other than this element's own declaration -- the exact set-in-code vs inherited distinction.
-static bool SourceIsSetHere(const std::wstring& s) { return s == L"Local" || s == L"Binding"; }
+static bool SourceIsSetHere(const std::wstring& s) { return s == L"Local" || s == L"Binding" || s == kDevToolsReadLiveEditSource; }
+// Sources that mean the element has no local value. An animation, visual state or trigger can hide a local value
+// underneath, so those don't count.
+static bool SourceIsFallback(const std::wstring& s)
+{
+    return s == L"Default" || s == L"Style" || s == L"Built-in style" || s == L"Inherited" || s == L"Template";
+}
 
-static std::wstring* DirtyFind(const std::wstring& p) { for (auto& e : g_dirtySeed) if (e.first == p) return &e.second; return nullptr; }
+static EditRecord* RecordFind(InstanceHandle w, const std::wstring& p)
+{
+    for (auto& e : g_editRecords) if (e.wire == w && e.prop == p) return &e;
+    return nullptr;
+}
+static void RecordErase(InstanceHandle w, const std::wstring& p)
+{
+    for (size_t i = 0; i < g_editRecords.size(); ++i)
+        if (g_editRecords[i].wire == w && g_editRecords[i].prop == p) { g_editRecords.erase(g_editRecords.begin() + i); return; }
+}
+static EditRecord* DirtyFind(const std::wstring& p) { return RecordFind(g_selWire, p); }
 static bool DirtyHas(const std::wstring& p) { return DirtyFind(p) != nullptr; }
-static void DirtyErase(const std::wstring& p) { for (size_t i = 0; i < g_dirtySeed.size(); ++i) if (g_dirtySeed[i].first == p) { g_dirtySeed.erase(g_dirtySeed.begin() + i); return; } }
+static void DirtyErase(const std::wstring& p) { RecordErase(g_selWire, p); }
+static const AppChange* AppChangedFind(InstanceHandle w, const std::wstring& p)
+{
+    for (const auto& e : g_appChanged) if (e.wire == w && e.prop == p) return &e;
+    return nullptr;
+}
+static bool AppChanged(InstanceHandle w, const std::wstring& p) { return AppChangedFind(w, p) != nullptr; }
+static void AppChangedErase(InstanceHandle w, const std::wstring& p)
+{
+    for (size_t i = 0; i < g_appChanged.size(); ++i)
+        if (g_appChanged[i].wire == w && g_appChanged[i].prop == p) { g_appChanged.erase(g_appChanged.begin() + i); return; }
+}
+// After an app change, the next edit replaces what the app set, not the element's old resource or authored value.
+static bool OriginalFromAppChange(InstanceHandle w, const std::wstring& p, EditRecord& out)
+{
+    const AppChange* app = AppChangedFind(w, p);
+    if (!app) return false;
+    out = EditRecord{};
+    out.wire = w; out.prop = p; out.original = app->value;
+    out.kind = app->setHere ? DevToolsOriginal::Value : DevToolsOriginal::Unset;
+    return true;
+}
 
 static std::vector<std::wstring> g_bindingLost;
 static bool BindingLost(const std::wstring& p) { for (const auto& e : g_bindingLost) if (e == p) return true; return false; }
 static void NoteBindingLost(const std::wstring& p) { if (!BindingLost(p)) g_bindingLost.push_back(p); }
+static void BindingLostErase(const std::wstring& p)
+{
+    for (size_t i = g_bindingLost.size(); i-- > 0;) if (g_bindingLost[i] == p) g_bindingLost.erase(g_bindingLost.begin() + i);
+}
 
 // Track authored resource links and links replaced in this selection. Runtime local-value bits
 // cannot recover a resolved resource key, so the pane's authoredKind supplies the pre-write
@@ -406,15 +446,6 @@ static void PendingKindErase(const std::wstring& p)
 // the Collapsed confirm Button that replaces it in the same grid cell, `label` the Button's inner TextBlock so
 // the prompt can name the value being written. All AddRef'd; released on every pane rebuild.
 
-// Drop the props-pane breadcrumb TextBlock refs. Called on every pane rebuild and on window teardown,
-// so the sink can never flip Visibility on a released element.
-static void ReleaseBreadcrumbRefs()
-{
-    if (g_bcShort) { reinterpret_cast<IUnknown*>(g_bcShort)->Release(); g_bcShort = nullptr; }
-    if (g_bcFull)  { reinterpret_cast<IUnknown*>(g_bcFull)->Release();  g_bcFull  = nullptr; }
-    if (g_bcToggleLbl) { reinterpret_cast<IUnknown*>(g_bcToggleLbl)->Release(); g_bcToggleLbl = nullptr; }
-}
-
 // The Size & spacing section's disclosure, remembered across panes and runs.
 static int g_layoutSectionOpen = -1;
 static bool LayoutSectionOpen()
@@ -423,93 +454,41 @@ static bool LayoutSectionOpen()
     return g_layoutSectionOpen == 1;
 }
 static IInspectable* g_layoutBody = nullptr;
-static IInspectable* g_layoutBodyChev = nullptr;
-static IInspectable* g_axmlOne  = nullptr;
-static IInspectable* g_axmlFull = nullptr;
-static IInspectable* g_axmlChev = nullptr;
 static bool g_axmlExpanded = false;
 static void ReleaseLayoutSectionRefs()
 {
     if (g_layoutBody) { g_layoutBody->Release(); g_layoutBody = nullptr; }
-    if (g_layoutBodyChev) { g_layoutBodyChev->Release(); g_layoutBodyChev = nullptr; }
-    if (g_axmlOne)  { g_axmlOne->Release();  g_axmlOne  = nullptr; }
-    if (g_axmlFull) { g_axmlFull->Release(); g_axmlFull = nullptr; }
-    if (g_axmlChev) { g_axmlChev->Release(); g_axmlChev = nullptr; }
 }
 
-static IInspectable* g_selBrush   = nullptr;
-static IInspectable* g_clearBrush = nullptr;
-static bool          g_selBrushTried = false;
-static void*         g_selCtrl    = nullptr; // currently-selected row's Button (QI'd IControl, AddRef'd)
-
-// Parse the two selection brushes with the app's XamlReader on first use. Best-effort: if parsing fails the
-// selection just won't tint (no crash) -- SelectRowVisual guards on g_selBrush.
-static void EnsureSelBrushes()
-{
-    if (g_selBrush || g_selBrushTried) return;
-    g_selBrushTried = true;
-    const wchar_t* kPres = L"http://schemas.microsoft.com/winfx/2006/xaml/presentation";
-    std::wstring sel = std::wstring(L"<SolidColorBrush xmlns=\"") + kPres +
-        L"\" Color=\"{ThemeResource SystemAccentColor}\" Opacity=\"0.35\"/>";
-    std::wstring clr = std::wstring(L"<SolidColorBrush xmlns=\"") + kPres + L"\" Color=\"Transparent\"/>";
-    IInspectable* s = nullptr; if (SUCCEEDED(LoadMarkupWin(sel, &s))) g_selBrush = s;
-    IInspectable* c = nullptr; if (SUCCEEDED(LoadMarkupWin(clr, &c))) g_clearBrush = c;
-}
-
-static void SelectRowVisual(void* rowControl)
-{
-    EnsureSelBrushes();
-    if (!g_selBrush || !g_clearBrush) return;
-    if (g_selCtrl == rowControl) return;
-    if (g_selCtrl) {
-        DevToolsPutBackground(g_selCtrl, g_clearBrush);
-        reinterpret_cast<IUnknown*>(g_selCtrl)->Release();
-        g_selCtrl = nullptr;
-    }
-    if (rowControl) {
-        DevToolsPutBackground(rowControl, g_selBrush);
-        reinterpret_cast<IUnknown*>(rowControl)->AddRef();
-        g_selCtrl = rowControl;
-    }
-}
-
-static std::vector<void*> g_treeRows;      // per rendered row: the Row<i> Grid QI'd to IUIElement (AddRef'd)
-static std::vector<void*> g_treeRowFe;
-static std::vector<void*> g_treeControls;  // per rendered row: node Button as IControl (AddRef'd; current subtree only)
+static std::vector<void*> g_treeRows;      // Node captions as IUIElement (AddRef'd).
+static std::vector<void*> g_treeControls;  // Currently realized TreeViewItem containers as IControl.
+static DevToolsXC::TreeView g_treeView{nullptr};
+static std::vector<DevToolsXC::TreeViewNode> g_treeNodes;
+static std::vector<size_t> g_treeParents;
+static std::vector<char> g_treeIncluded;
+static bool g_treeUpdating = false;
 static std::vector<int>   g_treeDepth;
 static std::vector<char>  g_treeCollapsed;
 static std::vector<char>  g_treeVisible;
-static std::vector<void*> g_treeGlyph;
-static std::vector<void*> g_treeChevronToggle;
 static std::vector<std::wstring> g_treeLabel;
 static std::vector<std::wstring> g_treeShortType;
 static std::vector<DevToolsWindowNode> g_allTreeNodes;
 static std::vector<char> g_allTreeAppAuthored;
 static std::vector<size_t> g_renderedOriginalIndices; // rendered row -> full snapshot index (breadcrumbs/reselection)
 static IInspectable* g_treeHostChildren = nullptr;
-// Rows are realized LAZILY: only rows the current view shows get an element, so these carry what a
-// later realization needs. The rows panel's own Children (AddRef'd) is where a newly realized row is
-// INSERTED, at the position that keeps the list in row order.
-static IInspectable* g_treeRowsPanelChildren = nullptr;
 static std::vector<DevToolsTreeLayout::A11yRow> g_treeA11y;
-static std::vector<char> g_treeCollapseAtBuild;
-static int g_treeMinDepth = 0;
-static std::vector<int> g_treeViewDepth;
-static int g_treeIndentBaseline = 0;
-static std::vector<NodeClickSink*> g_nodeSinks;
+static std::vector<std::unique_ptr<NodeClickSink>> g_nodeSinks;
 static std::map<InstanceHandle, size_t> g_nodeIdxByWire;
 static IInspectable*      g_filterBox = nullptr; // the tree filter TextBox (AddRef'd; read via readInputFn)
 static void*              g_filterTextBox = nullptr;
 static std::wstring       g_treeFilterQuery;
-// The tree list's ScrollViewer as IUIElement (AddRef'd). Declared with the tree state rather than with the
-// comments view that also hides/shows it, because the live refresh reads and restores its offset.
+// The tree host is hidden when switching to comments. The standard TreeView owns its scrolling.
 static void*              g_treeScrollUi = nullptr;
+static DevToolsXC::ScrollViewer g_treeScroller{nullptr};
+static InstanceHandle g_treeHoverWire = 0;
 
 static void ApplyTreeFilter(const std::wstring& queryRaw);
 static void SetStatusText(const std::wstring& s);
-// Defined after the row builder it calls. Rows are realized lazily, so every path that makes a row
-// visible has to run this first -- a row with no element cannot be shown.
-static int EnsureRowsRealized(const std::vector<char>& shouldShow);
 static void FocusTargetAppForPick();
 static void FocusInspectorAfterPick();
 static bool RefreshTreeFromApp(bool refreshValues = false);
@@ -523,6 +502,7 @@ static bool  g_focusActive  = false;
 static void* g_jmxLbl       = nullptr;
 static void* g_jmxBtnCtrl   = nullptr;
 static void* g_pickBtnCtrl  = nullptr;
+static void* g_focusBtnCtrl = nullptr;
 static void* g_pickOnUi     = nullptr; // icon-button active indicator (IUIElement, AddRef'd)
 static void* g_focusOnUi    = nullptr; // icon-button active indicator (IUIElement, AddRef'd)
 // focus notice: the Border as IUIElement (shown/hidden) and its TextBlock (the message). Both AddRef'd.

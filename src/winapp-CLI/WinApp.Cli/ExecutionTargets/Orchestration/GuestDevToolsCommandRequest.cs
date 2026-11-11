@@ -14,7 +14,7 @@ namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
 internal static class GuestDevToolsCommandRequest
 {
-    private static readonly string[] HostOnlyOptions = ["--on", "--app", "--pid", "--source-root"];
+    private static readonly string[] HostOnlyOptions = ["--on", "--app", "--pid", "--source-root", "--expect-sandbox"];
 
     internal static async Task<DevToolsListPayload> DiscoverAsync(
         PreparedTarget target, GuestDevToolsHost host, GuestDevToolsCapabilities? expected, bool includeAvailable,

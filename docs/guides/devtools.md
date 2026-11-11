@@ -6,6 +6,10 @@ Sandbox, attaching to a running app, query targeting, comment storage, the proto
 and troubleshooting, see [Advanced DevTools](devtools-advanced.md). Every command's
 `--help` lists its options and examples.
 
+The DevTools window needs Windows App SDK 1.7 or later. In an app that uses an older
+version, the window doesn't open, and DevTools shows a message that names the required
+version.
+
 ## Get started
 
 1. From your WinUI project directory, build and launch the app:
@@ -30,6 +34,10 @@ and troubleshooting, see [Advanced DevTools](devtools-advanced.md). Every comman
    opens beside your app with the element tree, properties, bindings and layout.
 
    ![The DevTools inspector window with the element tree and properties](../images/devtools-inspector.png)
+
+   Click anywhere in a property's header, such as **Height Auto**, to expand or
+   collapse it. With the keyboard, Tab to the header and press Enter or Space.
+   Tab again to reach its editors; editing does not collapse the property.
 
 5. Ask your agent to read the comments and make the changes:
 
@@ -64,11 +72,21 @@ winapp config unset run.devtools      # back to the default, on
 
 If DevTools can't start in a run where you didn't pass `--devtools`, the app runs
 without it and winapp says why; with `--devtools on` or `headless`, that's an error.
-If the app is already running, `run` closes it so DevTools can start it.
+For a known WPF-only or Windows Forms-only project, `--devtools on` or `headless`
+fails before launch: DevTools requires WinUI 3. Use `winapp run . --devtools off`
+to run it without DevTools. Apps that host WinUI alongside another framework and
+targets whose framework isn't known are still checked when DevTools attaches.
+
+With `--devtools on` or `headless`, `run` checks the required DevTools engine before
+closing a running app for the replacement launch ([details](../usage.md#run)). If
+that check fails, the running app stays open and no replacement starts. Without
+`--devtools`, the normal replacement launch continues without DevTools.
 
 ## Use the toolbar
 
-- **Select element** shows the element you click in the DevTools window.
+- **Select element** shows the element you click in the DevTools window, then turns
+  picking off. Your next click reaches the app. Select **Select element** again to
+  inspect another element, or press **Esc** before picking to cancel.
 - **Comments** opens the comment panel on the element you click.
 - Clicking a control's template part or generated text selects the control from your
   XAML; turn off **Just my XAML** in the DevTools window to pick the parts themselves.
@@ -79,6 +97,19 @@ If the app is already running, `run` closes it so DevTools can start it.
 - When collapsed, the toolbar reads **DevTools**. It reads **Picking** or **Commenting** while that mode is on,
   because then your clicks go to DevTools instead of the app.
 - `winapp ui screenshot` leaves the toolbar, markers and comment panel out of the image.
+
+In the **Visual tree**, press **Tab** to enter the tree, then **Up arrow** or
+**Down arrow** to move between rows. **Enter** or **Space** selects a row.
+**Right arrow** expands a collapsed row or moves to its first child.
+**Left arrow** collapses an expanded row or moves to its parent.
+Press **Tab** again to leave the tree.
+
+While the tree filter contains text, all matching rows stay visible and expansion
+is disabled. Clear the filter to expand or collapse rows again.
+
+In a property's resource-key editor, type part of a key, then click a suggestion
+or choose it with **Down arrow** and **Enter**. Choosing fills the field without
+changing the app. Press **Enter** again or select **Apply** to assign the resource.
 
 ## Review comments with an agent
 
@@ -121,9 +152,13 @@ winapp devtools diagnose-binding SaveButton Content
 winapp devtools set-property SaveButton Width 200
 ```
 
-Target an element with the selector printed in brackets, a unique `x:Name`, or a
-unique AutomationId (the same one `winapp ui` uses). Ambiguous names fail and list
-the candidates. When more than one app has DevTools, add `-a <pid, name or title>`.
+Copy the selector printed in brackets, such as `button-savebutton-a1b2c3d4e5`,
+or a number like `42`, into another command.
+
+You can also type an `x:Name` or AutomationId (the same one `winapp ui` uses).
+If it matches more than one element across those two identities, the command
+fails and lists selectors to use instead. When more than one app has DevTools,
+add `-a <pid, name or title>`.
 
 `inspect` and `search` show where each element is declared, such as
 `MainWindow.xaml:37`, when DevTools can confirm it against your source. They show your
@@ -139,6 +174,34 @@ winapp devtools search --of-type TextBlock --with 'FontSize>=20' --fields 'Text,
 edit your source and are gone when the app restarts. Setting a bound property replaces
 its binding until you restart the app; the output warns you. `diagnose-binding` shows
 what a binding resolves to; add `--json` for every observation.
+
+For a brush, pass a fixed color, such as
+`winapp devtools set-property SaveButton Background '#FF0067C0'`.
+The CLI does not create `{ThemeResource key}` or `{StaticResource key}` references.
+To change the reference permanently, edit the XAML and rebuild the app.
+
+In the inspector, choose **ThemeResource** or **StaticResource** in the property's
+kind list to try a resource on the running app. Type a key, such as `BBAccentBrush`;
+suggestions include compatible resources from the selected element, its parents,
+and the app, including merged and active-theme dictionaries. Choose a suggestion
+or finish typing, then press Enter to apply it. If the key cannot be applied, the
+error appears beneath the field and says whether the previous value was restored.
+Correct the key or resource type and try again. If a previous value could not be
+restored, set the property again. You can still type a key when suggestions are
+unavailable or incomplete.
+
+To try a regular binding in the inspector, choose **Binding**, enter a path such as
+`Title`, choose its mode, then select **Replace entire binding**. The editor uses
+the installed binding's path when you return to the element. Replacing an `x:Bind`
+(a binding compiled into app code) is temporary: generated updates can overwrite
+the replacement.
+
+After a live edit overrides a binding, use **Restore binding** to reattach the
+captured regular binding. For compiled bindings, Restore asks before reapplying
+**all compiled bindings on the same owner**, such as the page. This can overwrite
+other live edits. Select **Re-apply all compiled bindings** to continue, or
+**Cancel** to leave the bindings unchanged. Neither action undoes source-model
+changes or edits your XAML.
 
 Passwords never leave the app: password properties show as `<redacted>`, DevTools
 refuses to set them, and passwords in your XAML show as `******` in source previews

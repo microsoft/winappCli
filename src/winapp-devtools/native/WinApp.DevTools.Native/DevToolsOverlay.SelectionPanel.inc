@@ -10,6 +10,10 @@ static IInspectable* g_selPopup   = nullptr;
 static IInspectable* g_selIcon    = nullptr;
 static IInspectable* g_selPanel   = nullptr;
 static IInspectable* g_selComment = nullptr;
+static int g_selPanelPreferredHeight = 300;
+static int g_selPanelWidth = 0;
+static DevToolsSelection::Placement g_selPanelPlacement{};
+static bool g_selPanelPlaced = false;
 
 static void DevToolsSetSelectionPanelRequestedTheme(int requestedTheme)
 {
@@ -170,6 +174,13 @@ static void SelReturnFocus()
     winrt::com_ptr<IInspectable> focused, target = std::move(g_selReturnFocus);
     bool inPanel = false;
     if (!g_selPanel || FAILED(DevToolsFocusedWithin(g_selPanel, focused.put(), &inPanel)) || (focused && !inPanel)) return;
+    // Focus() also activates the app's window. While another window is in front, such as the inspector after a
+    // tree selection replaced the peek, leave focus alone: WinUI's own fallback for the removed peek does not
+    // activate the window.
+    if (!IsAppSurfaceWindow(GetForegroundWindow())) {
+        DevToolsOverlayLog(L"overlay.sel focus left alone: the app is not the front window");
+        return;
+    }
     bool moved = false;
     const HRESULT hr = DevToolsFocusWithPointer(target.get(), g_selPanel, &moved);
     DevToolsOverlayLog(L"overlay.sel focus returned to the app hr=0x%08X moved=%d", hr, (int)moved);

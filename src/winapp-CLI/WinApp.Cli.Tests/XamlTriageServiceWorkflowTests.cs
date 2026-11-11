@@ -373,6 +373,61 @@ public sealed class XamlTriageServiceWorkflowTests
     }
 
     [TestMethod]
+    public async Task TryAnalyzeAsync_ChildCrashesAfterOutput_KeepsPartialOutputAndNamesStep()
+    {
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true);
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        // Simulates the bug-bash failure: !xamlstowed output reaches stdout, then the JavaScript engine
+        // fail-fasts during !xamltriage (-1073740791 == 0xC0000409).
+        service.TriageStartInfoFactory = (_, _, _, _) => BatchStartInfo(
+            "@echo off\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamlstowed 1>&2\r\n" +
+            "echo STOWED-BREAKDOWN\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamltriage 1>&2\r\n" +
+            "exit /b -1073740791\r\n");
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.Partial, result.Outcome);
+        Assert.IsNotNull(result.LogText);
+        StringAssert.Contains(result.LogText, "STOWED-BREAKDOWN");
+        StringAssert.Contains(result.LogText, "stopped early");
+        Assert.IsNotNull(result.Reason);
+        StringAssert.Contains(result.Reason, "crashed (0xC0000409)");
+        StringAssert.Contains(result.Reason, "'!xamltriage'");
+    }
+
+    [TestMethod]
+    public async Task TryAnalyzeAsync_ChildCrashesBeforeOutput_ReturnsSkippedWithReason()
+    {
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true);
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        service.TriageStartInfoFactory = (_, _, _, _) => BatchStartInfo(
+            "@echo off\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}.scriptload x 1>&2\r\n" +
+            "exit /b -1073740791\r\n");
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome);
+        Assert.IsNotNull(result.Reason);
+        StringAssert.Contains(result.Reason, "0xC0000409");
+        StringAssert.Contains(result.Reason, "'.scriptload x'");
+    }
+
+    [TestMethod]
+    public void DescribeChildExit_NoStepMarker_ReportsExitCodeOnly()
+    {
+        Assert.AreEqual(
+            "the triage child process exited with code 1.",
+            XamlTriageService.DescribeChildExit(1, "xaml-triage failed: boom\r\n"));
+    }
+
+    [TestMethod]
     public async Task TryAnalyzeAsync_CallerCancellation_Propagates()
     {
         using var cts = new CancellationTokenSource();
@@ -585,6 +640,29 @@ public sealed class XamlTriageServiceWorkflowTests
         Assert.IsNull(output);
         Assert.IsNotNull(skipNote);
         StringAssert.Contains(skipNote, "timed out");
+    }
+
+    [TestMethod]
+    public async Task RunTriageProcessAsync_TimeoutAfterOutput_KeepsPartialOutputAndNamesStep()
+    {
+        XamlTriageService.TriageTimeoutOverride = TimeSpan.FromSeconds(2);
+        var service = CreateService();
+        service.TriageStartInfoFactory = (_, _, _, _) => BatchStartInfo(
+            "@echo off\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamlstowed 1>&2\r\n" +
+            "echo stowed breakdown before hang\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamltriage 1>&2\r\n" +
+            "ping -n 30 127.0.0.1 >nul\r\n" +
+            "exit /b 0\r\n");
+
+        var (output, skipNote) = await service.RunTriageProcessAsync(
+            @"C:\crash.dmp", FakeBinaries(hasSymSrv: true), @"C:\ext.js", useSymbols: false, CancellationToken.None);
+
+        Assert.IsNotNull(output);
+        StringAssert.Contains(output, "stowed breakdown before hang");
+        Assert.IsNotNull(skipNote);
+        StringAssert.Contains(skipNote, "timed out");
+        StringAssert.Contains(skipNote, "while running '!xamltriage'");
     }
 
     [TestMethod]

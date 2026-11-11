@@ -2,16 +2,178 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+// After Enter saves a text box, its focus-out handler still holds the text it was built with. Bring it up to
+// date so leaving the box later does not count as another edit.
+static void ResyncPaneEditor(const std::wstring& path)
+{
+    for (auto& e : g_paneEditors) {
+        if (e.path != path || !e.text || !e.text->box || !g_ctx.readInputFn) continue;
+        std::wstring now;
+        if (!g_ctx.readInputFn(e.text->box, now)) continue;
+        e.text->shown = now;
+        e.text->hasShown = true;
+        e.text->original = CurrentEditSeed(path);
+    }
+}
+
+// Only expansion editors use this owning delegate. The shared/static sink base stays immortal.
+struct KindEditorSink : DevToolsSinkBase
+{
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** p) override
+    {
+        const HRESULT hr = DevToolsSinkBase::QueryInterface(r, p);
+        if (SUCCEEDED(hr) && r != __uuidof(IMarshal)) AddRef();
+        return hr;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&refs); }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG left = InterlockedDecrement(&refs);
+        if (!left) delete this;
+        return left;
+    }
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
+    {
+        if (!Active()) return S_OK;
+        // A write or a focus change can synchronously rebuild this expansion and unsubscribe us.
+        // Keep this call's snapshot, controls and delegate alive independently of registration.
+        winrt::com_ptr<IUnknown> self, heldRow = rowRoot, heldExpansion = expansionRoot, heldPublisher = publisher;
+        self.copy_from(reinterpret_cast<IUnknown*>(this));
+        KindCtx active = ctx;
+        active.retired = &retired;
+        return Run(active, args);
+    }
+    virtual ~KindEditorSink() { if (ftm) ftm->Release(); }
+    virtual HRESULT Run(const KindCtx& active, void* args) = 0;
+    bool Active() const { return !retired && gen == g_route1Gen && ctx.wire == g_selWire; }
+    void InitEditor(const KindCtx& c, const GUID& iid)
+    {
+        ctx = c;
+        if (c.rowFe) rowRoot.copy_from(reinterpret_cast<IUnknown*>(c.rowFe));
+        if (c.expFe) expansionRoot.copy_from(reinterpret_cast<IUnknown*>(c.expFe));
+        InitSink(iid, g_route1Gen);
+    }
+    void Retire()
+    {
+        retired = true;
+        ctx.row.reset();
+        if (publisher) {
+            const HRESULT hr = remove(publisher.get(), token);
+            if (FAILED(hr))
+                DevToolsOverlayLog(L"route1.props editor '%s' unsubscribe failed hr=0x%08X", ctx.path.c_str(), hr);
+            publisher = nullptr;
+        }
+        rowRoot = nullptr;
+        expansionRoot = nullptr;
+        ctx.rowFe = ctx.expFe = nullptr;
+    }
+    KindCtx ctx;
+    bool retired = false;
+    long refs = 1;
+    winrt::com_ptr<IUnknown> rowRoot, expansionRoot, publisher;
+    __int64 token = 0;
+    HRESULT (*remove)(void*, __int64) = nullptr;
+};
+static std::vector<KindEditorSink*> g_kindEditorSinks;
+
+static bool WireKindEditor(KindEditorSink* sink, void* publisher,
+                           HRESULT (*add)(void*, void*, __int64*), HRESULT (*remove)(void*, __int64))
+{
+    sink->remove = remove;
+    const HRESULT hr = add(publisher, sink, &sink->token);
+    if (FAILED(hr)) {
+        DevToolsOverlayLog(L"route1.props editor '%s' subscribe failed hr=0x%08X", sink->ctx.path.c_str(), hr);
+        sink->Release();
+        return false;
+    }
+    sink->publisher.copy_from(reinterpret_cast<IUnknown*>(publisher));
+    g_kindEditorSinks.push_back(sink);
+    return true;
+}
+
+static void RetireKindEditors(void* rowFe = nullptr)
+{
+    std::wstring path;
+    if (rowFe) {
+        for (const auto* sink : g_rowExpandSinks)
+            if (sink->rowFe == rowFe) { path = sink->path; break; }
+    }
+    std::vector<KindEditorSink*> retiring;
+    for (size_t i = g_kindEditorSinks.size(); i-- > 0; ) {
+        auto* sink = g_kindEditorSinks[i];
+        const bool child = !path.empty() && sink->ctx.path.compare(0, path.size() + 1, path + L".") == 0;
+        if (rowFe && !(child || sink->ctx.rowFe == rowFe)) continue;
+        retiring.push_back(sink);
+        g_kindEditorSinks.erase(g_kindEditorSinks.begin() + i);
+    }
+    // Removing controls or reading their final text can reenter another handler in the retiring batch.
+    for (auto* sink : retiring) sink->retired = true;
+    for (auto* sink : retiring) {
+        if (sink->ctx.expFe) ForgetPaneEditors(sink->ctx.path, sink->ctx.expFe);
+        if (sink->ctx.expFe) ReleaseFieldBoxesWhere(std::wstring(), sink->ctx.expFe);
+        if (sink->ctx.expFe && sink->ctx.expFe == g_validateExpFe) {
+            if (g_validateTimer) KillTimer(nullptr, g_validateTimer);
+            g_validateTimer = 0;
+            g_validateExpFe = nullptr;
+        }
+        sink->Retire();
+        sink->Release();
+    }
+}
+
+// Restore uses the same subscription lifetime, without retaining a property snapshot.
+struct BindRestoreSink : KindEditorSink
+{
+    enum class Choice { Request, Confirm, Cancel };
+    HRESULT Run(const KindCtx& ctx, void*) override
+    {
+        if (choice != Choice::Request) {
+            DiagAnswer* answer = DiagFind(ctx.path);
+            DevToolsJson action;
+            if (!answer || !DevToolsJsonParse(answer->action, action) ||
+                action.GetString(L"state") != L"confirmation-required") return S_OK;
+            if (choice == Choice::Confirm && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) {
+                SetStatusText(L"Another binding Restore is running. Try confirming again when it finishes");
+                return S_OK;
+            }
+            answer->action.clear();
+            if (void* panel = PaneRowChild(ctx.path, L"PBindRestoreConfirm")) {
+                DevToolsPutVisibility(panel, 1);
+                reinterpret_cast<IUnknown*>(panel)->Release();
+            }
+            if (choice == Choice::Cancel) {
+                SetStatusText(L"Cancelled Restore binding on " + ctx.path + L". No bindings were changed");
+                return S_OK;
+            }
+        }
+        if (choice == Choice::Request && InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
+        SetStatusText(L"Restoring the binding on " + ctx.path + L"...");
+        if (!StartDiag(ctx.path, choice == Choice::Confirm ? L"restoreconfirmed" : L"restore")) {
+            InterlockedExchange(&g_diagRestoreBusy, 0);
+            SetStatusText(L"Could not start restoring " + ctx.path);
+        }
+        return S_OK;
+    }
+    void Init(const std::wstring& path, Choice action = Choice::Request, void* rowFe = nullptr)
+    {
+        KindCtx c; c.path = path; c.wire = g_selWire; c.rowFe = rowFe;
+        choice = action;
+        InitEditor(c, IID_RoutedEventHandler_Del);
+    }
+    Choice choice = Choice::Request;
+};
+
 // A KIND was selected in the dropdown. It STAGES -- nothing is written. That is the whole of Q4: opening this
 // list to see what is available must not destroy a live binding, and a kind with no content yet is not a
 // valid state to apply.
-struct KindSelectSink : DevToolsSinkBase
+struct KindSelectSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
-        if (gen != g_route1Gen || !ctx.row || !sel) return S_OK;
+        if (!ctx.row || !sel) return S_OK;
         int idx = -1;
         DevToolsGetSelectedIndex(sel, &idx);
+        if (!Active()) return S_OK;
         if (idx < 0 || idx >= kDevToolsKindCount) return S_OK;
         const DevToolsKind chosen = (DevToolsKind)idx;
         const DevToolsKind current = CurrentKindOf(*ctx.row, ctx.path);
@@ -29,70 +191,66 @@ struct KindSelectSink : DevToolsSinkBase
     }
     void Init(const KindCtx& c, void* selector)
     {
-        ctx = c; sel = selector;
-        InitSink(IID_SelectionChanged_Del, g_route1Gen);
+        sel = selector;
+        InitEditor(c, IID_SelectionChanged_Del);
     }
-    KindCtx ctx;
     void* sel = nullptr;
 };
 
-struct KindApplySink : DevToolsSinkBase
+struct KindApplySink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
-        if (gen != g_route1Gen || !ctx.row) return S_OK;
+        // A late focus-out after the selection moved would otherwise write this element's edit to the new one.
+        if (gen != g_route1Gen || !ctx.row || retired || ctx.wire != g_selWire) return S_OK;
         CommitKind(ctx, true);
         return S_OK;
     }
-    void Init(const KindCtx& c) { ctx = c; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
+    void Init(const KindCtx& c) { InitEditor(c, IID_RoutedEventHandler_Del); }
 };
-struct KindCancelSink : DevToolsSinkBase
+struct KindCancelSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
         if (gen != g_route1Gen || !ctx.row) return S_OK;
         PendingKindErase(ctx.path);
         RebuildExpansion(ctx.rowFe, *ctx.row, ctx.path, ctx.edit);
-        SetStatusText(L"Cancelled");
+        if (gen == g_route1Gen && ctx.wire == g_selWire) SetStatusText(L"Cancelled");
         return S_OK;
     }
-    void Init(const KindCtx& c) { ctx = c; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
+    void Init(const KindCtx& c) { InitEditor(c, IID_RoutedEventHandler_Del); }
 };
 
 // The {x:Bind} EXIT. It stages {Binding} -- it does not apply it -- so the user sees the pre-filled path and
 // the banner naming what a graft does before anything happens. That is the whole difference from the round-9
 // design, where the same graft happened as a side effect of typing and had to be warned about after the fact.
-struct XBindExitSink : DevToolsSinkBase
+struct XBindExitSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
         if (gen != g_route1Gen || !ctx.row) return S_OK;
         PendingKindSet(ctx.path, DevToolsKind::Binding);
         RebuildExpansion(ctx.rowFe, *ctx.row, ctx.path, ctx.edit);
         return S_OK;
     }
-    void Init(const KindCtx& c) { ctx = c; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
+    void Init(const KindCtx& c) { InitEditor(c, IID_RoutedEventHandler_Del); }
 };
 
 // Focus reveals the same explanation as the tooltip for keyboard/touch access.
-// This sink retains its element; generation guards make callbacks from stale subtrees inert.
-struct XBindInfoRevealSink : DevToolsSinkBase
+// The invocation holds the expansion root; retirement makes queued callbacks inert.
+struct XBindInfoRevealSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx&, void*) override
     {
         if (gen != g_route1Gen || !target) return S_OK;
         ShowEl(target, show);
         return S_OK;
     }
-    void Init(IInspectable* t, bool s)
+    void Init(const KindCtx& c, IInspectable* t, bool s)
     {
         target = t;
-        if (target) target->AddRef();
         show = s;
-        InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
+        InitEditor(c, IID_RoutedEventHandler_Del);
     }
     IInspectable* target = nullptr;
     bool show = false;
@@ -104,83 +262,196 @@ static bool ColorPickerApplies(bool escaped, const std::wstring& chosen, const s
     return !escaped && _wcsicmp(chosen.c_str(), shown.c_str()) != 0;
 }
 
-struct KindKeySink : DevToolsSinkBase
+struct KindKeySink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
+    HRESULT Run(const KindCtx& ctx, void* args) override
     {
-        if (gen != g_route1Gen || !ctx.row || !args) return S_OK;
+        if (gen != g_route1Gen || !ctx.row || !args || ctx.wire != g_selWire) return S_OK;
         int key = 0;
         if (FAILED(DevToolsGetKey(args, &key))) return S_OK;
+        if (!Active()) return S_OK;
         if (key == 13 /*Enter*/) {
+            if (resourceQuery) return S_OK; // AutoSuggestBox distinguishes choosing a suggestion from submitting text.
             if (DevToolsEditText::StartsNewLine(multiline, (GetKeyState(VK_SHIFT) & 0x8000) != 0,
                     (GetKeyState(VK_CONTROL) & 0x8000) != 0)) return S_OK;
-            DevToolsPutHandled(args, true); CommitKind(ctx);
+            DevToolsPutHandled(args, true);
+            const unsigned seq = g_commitSeq;
+            CommitKind(ctx);
+            if (Active() && seq != g_commitSeq && DevToolsWriteLanded(g_lastCommitOc)) ResyncPaneEditor(ctx.path);
         }
         else if (key == 27 /*Escape*/ && PendingKindFind(ctx.path)) {
+            if (resourceQuery) {
+                if (IInspectable* el = FindInRow(ctx.expFe, L"PResKey")) {
+                    winrt::Windows::Foundation::IInspectable object{nullptr};
+                    winrt::attach_abi(object, el);
+                    auto suggest = object.try_as<DevToolsXC::IAutoSuggestBox>();
+                    if (suggest && suggest.IsSuggestionListOpen()) return S_OK;
+                }
+            }
             DevToolsPutHandled(args, true);
             PendingKindErase(ctx.path);
             RebuildExpansion(ctx.rowFe, *ctx.row, ctx.path, ctx.edit);
         }
         return S_OK;
     }
-    void Init(const KindCtx& c, bool lines = false) { ctx = c; multiline = lines; InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
+    void Init(const KindCtx& c, bool lines = false, bool resource = false)
+    { InitEditor(c, IID_KeyEventHandler_Del); multiline = lines; resourceQuery = resource; }
     bool multiline = false;
+    bool resourceQuery = false;
 };
 
-struct ExpBackgroundFocusSink : DevToolsSinkBase
+struct ExpBackgroundFocusSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx&, void*) override
     {
         if (gen != g_route1Gen || !target) return S_OK;
         bool moved = false;
         DevToolsFocus(target, 1 /*Pointer*/, &moved);
         return S_OK;
     }
-    // Non-owning, for the same reason LostFocusSink's box is: the target lives in the same expansion this
-    // handler is registered on, so it cannot outlive the element that raises the event.
-    void Init(void* focusTargetUi) { target = focusTargetUi; InitSink(IID_PointerEventHandler_Del, g_route1Gen); }
+    // The executing invocation holds the expansion that owns this target.
+    void Init(const KindCtx& c, void* focusTargetUi)
+    { target = focusTargetUi; InitEditor(c, IID_PointerEventHandler_Del); }
     void* target = nullptr;
 };
 
-// A suggested resource key was clicked: put it in the field. It does NOT apply, for the same reason selecting
-// a kind does not -- looking at what is available must not be the same gesture as taking it.
+struct PathValidateSink : KindEditorSink
+{
+    HRESULT Run(const KindCtx& ctx, void*) override
+    {
+        std::wstring text;
+        if (box && g_ctx.readInputFn && g_ctx.readInputFn(box, text) && Active())
+            ValidateOnType(ctx.path, text);
+        return S_OK;
+    }
+    void Init(const KindCtx& c, IInspectable* b)
+    {
+        box = b;
+        g_validateExpFe = c.expFe;
+        InitEditor(c, IID_TextChanged_Del);
+    }
+    IInspectable* box = nullptr; // the expansion root keeps it alive during a callback
+};
+
+// Contains-matching, so typing "Primary" finds TextFillColorPrimaryBrush. Keeps the candidates' order.
+static std::vector<std::wstring> FilterResourceKeys(const std::vector<std::wstring>& keys, std::wstring query)
+{
+    std::transform(query.begin(), query.end(), query.begin(), towlower);
+    std::vector<std::wstring> matches;
+    for (const auto& key : keys) {
+        std::wstring folded = key;
+        std::transform(folded.begin(), folded.end(), folded.begin(), towlower);
+        if (folded.find(query) != std::wstring::npos) matches.push_back(key);
+    }
+    return matches;
+}
+
+// Pointer and keyboard suggestion choices fill the field, never the running app.
 struct ResSuggestSink : DevToolsSinkBase
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void* sender, void* args)
     {
-        if (gen != g_route1Gen || !box) return S_OK;
-        void* tx = nullptr;
-        if (SUCCEEDED(reinterpret_cast<IInspectable*>(box)->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
-            HSTRING h = MakeStr(key); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
-            reinterpret_cast<IUnknown*>(tx)->Release();
+        if (gen != g_route1Gen || !sender || !args) return S_OK;
+        try {
+            DevToolsXC::IAutoSuggestBox box{nullptr};
+            DevToolsXC::IAutoSuggestBoxSuggestionChosenEventArgs chosen{nullptr};
+            winrt::copy_from_abi(box, sender);
+            winrt::copy_from_abi(chosen, args);
+            box.Text(winrt::unbox_value<winrt::hstring>(chosen.SelectedItem()));
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.props resource suggestion failed hr=0x%08X", e.code().value);
         }
         return S_OK;
     }
-    void Init(void* keyBox, const std::wstring& k)
-    { box = keyBox; key = k; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    void* box = nullptr;
-    std::wstring key;
+    void Init()
+    {
+        InitSink(DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::AutoSuggestBox,
+            DevToolsXC::AutoSuggestBoxSuggestionChosenEventArgs>>(), g_route1Gen);
+    }
+};
+
+static void SetResourceNote(void* expansion, const ResourceKeys& candidates, bool anyMatch)
+{
+    if (IInspectable* note = FindInRow(expansion, L"PResNote")) {
+        SetTextOn(note, !g_ctx.resolveFn
+            ? L"This build cannot assign resources."
+            : candidates.partial
+                ? L"Some resources could not be listed. You can still type a key and press Enter."
+                : !anyMatch
+                    ? L"No matching keys. Type a key from your app's resources and press Enter."
+                    : L"Choose a key or type one, then press Enter to apply it.");
+        note->Release();
+    }
+}
+
+using ResourceKeyChangedEventHandler = winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::AutoSuggestBox,
+    DevToolsXC::AutoSuggestBoxTextChangedEventArgs>;
+
+// Any new key makes the last lookup error stale. Only typing refilters, so choosing a suggestion closes the list.
+// A delegate rather than a sink: the editor owns it, so its snapshot of up to 4096 keys is freed with the editor.
+static ResourceKeyChangedEventHandler ResourceKeyChangedHandler(void* expansion, std::wstring path, ResourceKeys candidates)
+{
+    return [expansion, path = std::move(path), candidates = std::move(candidates),
+            gen = g_route1Gen, wire = g_selWire](const DevToolsXC::AutoSuggestBox& box,
+                                                 const DevToolsXC::AutoSuggestBoxTextChangedEventArgs& args) {
+        if (gen != g_route1Gen || wire != g_selWire) return;
+        SetResourceError(expansion, path, L"");
+        if (!box || !args) return;
+        try {
+            if (args.Reason() != DevToolsXC::AutoSuggestionBoxTextChangeReason::UserInput) return;
+            const auto matches = FilterResourceKeys(candidates.keys, std::wstring(box.Text()));
+            SetResourceNote(expansion, candidates, !matches.empty());
+            auto items = winrt::single_threaded_vector<winrt::Windows::Foundation::IInspectable>();
+            for (const auto& key : matches) items.Append(winrt::box_value(key));
+            box.ItemsSource(items);
+            box.IsSuggestionListOpen(items.Size() > 0);
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.props resource filtering failed hr=0x%08X", e.code().value);
+        }
+    };
+}
+
+struct ResQuerySink : DevToolsSinkBase
+{
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
+    {
+        if (gen != g_route1Gen || !ctx.row || !args || ctx.wire != g_selWire) return S_OK;
+        try {
+            DevToolsXC::IAutoSuggestBoxQuerySubmittedEventArgs submitted{nullptr};
+            winrt::copy_from_abi(submitted, args);
+            if (!submitted.ChosenSuggestion()) CommitKind(ctx);
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.props resource submission failed hr=0x%08X", e.code().value);
+        }
+        return S_OK;
+    }
+    void Init(const KindCtx& c)
+    {
+        ctx = c;
+        InitSink(DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::AutoSuggestBox,
+            DevToolsXC::AutoSuggestBoxQuerySubmittedEventArgs>>(), g_route1Gen);
+    }
+    KindCtx ctx;
 };
 
 // Write a test value THROUGH a TwoWay binding to its SOURCE. Deliberately an action and not a field: it
 // changes the app's DATA rather than its appearance, and looking like value editing is exactly the ambiguity
 // the kind-specific editor removed. The binding survives -- and that is asserted by the agent's read-back
 // rather than assumed, because the obvious route (a local write on the target) demonstrably does not.
-struct WriteToSourceSink : DevToolsSinkBase
+struct WriteToSourceSink : KindEditorSink
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    HRESULT Run(const KindCtx& ctx, void*) override
     {
         if (gen != g_route1Gen || !ctx.row) return S_OK;
-        ApplyWriteToSource(ctx.path, ReadBox(ctx.expFe, L"PWriteVal"));
+        const auto value = ReadBox(ctx.expFe, L"PWriteVal");
+        if (Active()) ApplyWriteToSource(ctx.path, value);
         return S_OK;
     }
-    void Init(const KindCtx& c) { ctx = c; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-    KindCtx ctx;
+    void Init(const KindCtx& c) { InitEditor(c, IID_RoutedEventHandler_Del); }
 };
 
 // Unset editors say which value is absent instead of showing runtime sentinel tokens as editable text.
-static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r)
+static std::wstring RowShownValue(const DevToolsCardRow& r)
 {
     std::wstring shown = r.value;
     const bool unset = r.valueState == L"unset";
@@ -191,11 +462,168 @@ static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r)
     const bool noValue = RowValueIsMissing(r);
     if (noValue && shown.size() > 2 && shown.front() == L'{' && shown.back() == L'}')
         shown = shown.substr(1, shown.size() - 2);
-    SetTextOn(v, shown);
+    return shown;
+}
+
+static std::wstring RowAccessibleName(const DevToolsCardRow& r, const std::wstring& path)
+{
+    const auto shown = RowShownValue(r);
+    return path + L", " + (shown.empty() ? L"(empty)" : shown);
+}
+
+static void NamePropertyHeader(IInspectable* header, const DevToolsCardRow& r, const std::wstring& path)
+{
+    SetAutomationTextOn(header, RowAccessibleName(r, path), path + L" value", L"");
+}
+
+// The brush each text palette donor had when a row first copied it. Row copies keep that brush after a theme
+// change, so RecolorPaneRows looks for it and swaps in the donor's new brush.
+struct RowBrushSlot { IInspectable** donor; DevToolsXM::Brush copied; };
+static RowBrushSlot g_rowBrushes[] = {
+    { &g_palPrimary, nullptr }, { &g_palSecondary, nullptr }, { &g_palTertiary, nullptr },
+};
+
+static void ForgetRowBrushes()
+{
+    for (RowBrushSlot& slot : g_rowBrushes) slot.copied = nullptr;
+}
+
+// The palette slots hold donor TextBlocks, not brushes. put_Foreground rejects a TextBlock, so copy the
+// donor's current brush instead. The copy does not follow a later theme change; RecolorPaneRows fixes that.
+static void PutDonorForeground(void* textBlock, IInspectable* donor)
+{
+    if (!textBlock || !donor) return;
+    void* donorText = nullptr;
+    if (FAILED(donor->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &donorText)) || !donorText) return;
+    IInspectable* brush = nullptr;
+    if (SUCCEEDED(DevToolsGetTextForeground(donorText, &brush)) && brush) {
+        DevToolsPutTextForeground(textBlock, brush);
+        for (RowBrushSlot& slot : g_rowBrushes) {
+            if (*slot.donor != donor || slot.copied) continue;
+            try { slot.copied = TreeObject<DevToolsXM::Brush>(brush); } catch (const winrt::hresult_error&) {}
+        }
+        brush->Release();
+    }
+    reinterpret_cast<IUnknown*>(donorText)->Release();
+}
+
+static void RecolorPaneText(DevToolsX::DependencyObject const& node,
+                            std::vector<std::pair<DevToolsXM::Brush, DevToolsXM::Brush>> const& swaps)
+{
+    if (const auto text = node.try_as<DevToolsXC::TextBlock>()) {
+        const auto foreground = text.Foreground();
+        for (const auto& [from, to] : swaps) {
+            if (foreground == from) { text.Foreground(to); break; }
+        }
+    }
+    const int count = DevToolsXM::VisualTreeHelper::GetChildrenCount(node);
+    for (int i = 0; i < count; ++i) RecolorPaneText(DevToolsXM::VisualTreeHelper::GetChild(node, i), swaps);
+}
+
+// Repaint property rows after a theme change without rebuilding them, so an open editor and its draft stay.
+// Only text that still holds a brush copied from the old theme's palette changes.
+static void RecolorPaneRows()
+{
+    std::vector<std::pair<DevToolsXM::Brush, DevToolsXM::Brush>> swaps;
+    try {
+        for (RowBrushSlot& slot : g_rowBrushes) {
+            if (!slot.copied || !*slot.donor) continue;
+            const auto current = TreeObject<DevToolsXC::TextBlock>(*slot.donor).Foreground();
+            if (!current || current == slot.copied) continue;
+            swaps.emplace_back(slot.copied, current);
+            slot.copied = current;
+        }
+        if (!swaps.empty() && g_propRepeater)
+            RecolorPaneText(TreeObject<DevToolsX::DependencyObject>(g_propRepeater), swaps);
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"route1.props recolor failed hr=0x%08X", error.code().value);
+    }
+}
+
+static bool ParseArgbHex(const std::wstring& hex, uint32_t& argb)
+{
+    if (hex.size() != 9 || hex[0] != L'#') return false;
+    wchar_t* end = nullptr;
+    argb = static_cast<uint32_t>(wcstoul(hex.c_str() + 1, &end, 16));
+    return end == hex.c_str() + 9;
+}
+
+// Swap a brush the pane's markup set locally if its color is one the old theme inlined. Values that come from a
+// control template or a live resource are not local, so they keep following the theme on their own.
+static void RecolorLocalBrush(DevToolsX::DependencyObject const& node, DevToolsX::DependencyProperty const& property,
+                              std::vector<std::pair<uint32_t, uint32_t>> const& swaps)
+{
+    const auto brush = node.ReadLocalValue(property).try_as<DevToolsXM::SolidColorBrush>();
+    if (!brush) return;
+    const auto c = brush.Color();
+    const uint32_t argb = (uint32_t(c.A) << 24) | (uint32_t(c.R) << 16) | (uint32_t(c.G) << 8) | c.B;
+    for (const auto& [from, to] : swaps) {
+        if (argb != from) continue;
+        node.SetValue(property, DevToolsXM::SolidColorBrush{ winrt::Windows::UI::Color{
+            uint8_t(to >> 24), uint8_t(to >> 16), uint8_t(to >> 8), uint8_t(to) } });
+        return;
+    }
+}
+
+static void RecolorInlines(DevToolsXDoc::InlineCollection const& inlines, std::vector<std::pair<uint32_t, uint32_t>> const& swaps)
+{
+    for (auto const& item : inlines) {
+        RecolorLocalBrush(item, DevToolsXDoc::TextElement::ForegroundProperty(), swaps);
+        if (const auto span = item.try_as<DevToolsXDoc::Span>()) RecolorInlines(span.Inlines(), swaps);
+    }
+}
+
+static void RecolorLiteralTree(DevToolsX::DependencyObject const& node, std::vector<std::pair<uint32_t, uint32_t>> const& swaps)
+{
+    namespace Shapes = winrt::Microsoft::UI::Xaml::Shapes;
+    if (const auto text = node.try_as<DevToolsXC::TextBlock>()) {
+        RecolorLocalBrush(node, DevToolsXC::TextBlock::ForegroundProperty(), swaps);
+        RecolorInlines(text.Inlines(), swaps);
+    } else if (node.try_as<DevToolsXC::Control>()) {
+        RecolorLocalBrush(node, DevToolsXC::Control::ForegroundProperty(), swaps);
+        RecolorLocalBrush(node, DevToolsXC::Control::BackgroundProperty(), swaps);
+        RecolorLocalBrush(node, DevToolsXC::Control::BorderBrushProperty(), swaps);
+    } else if (node.try_as<DevToolsXC::Border>()) {
+        RecolorLocalBrush(node, DevToolsXC::Border::BackgroundProperty(), swaps);
+        RecolorLocalBrush(node, DevToolsXC::Border::BorderBrushProperty(), swaps);
+    } else if (node.try_as<DevToolsXC::Panel>()) {
+        RecolorLocalBrush(node, DevToolsXC::Panel::BackgroundProperty(), swaps);
+    } else if (node.try_as<DevToolsXC::IconElement>()) {
+        RecolorLocalBrush(node, DevToolsXC::IconElement::ForegroundProperty(), swaps);
+    } else if (node.try_as<Shapes::Shape>()) {
+        RecolorLocalBrush(node, Shapes::Shape::FillProperty(), swaps);
+        RecolorLocalBrush(node, Shapes::Shape::StrokeProperty(), swaps);
+    }
+    const int count = DevToolsXM::VisualTreeHelper::GetChildrenCount(node);
+    for (int i = 0; i < count; ++i) RecolorLiteralTree(DevToolsXM::VisualTreeHelper::GetChild(node, i), swaps);
+}
+
+// The pane's markup has theme resources baked in as fixed colors (InlineResourceLiterals). After a theme change,
+// repaint those colors in place, so the layout box, notes and notices follow the theme and open editors stay.
+static void RecolorPaneLiterals()
+{
+    std::vector<std::pair<uint32_t, uint32_t>> swaps;
+    for (const auto& [before, after] : RefreshResourceLiterals()) {
+        uint32_t from = 0, to = 0;
+        if (ParseArgbHex(before, from) && ParseArgbHex(after, to)) swaps.emplace_back(from, to);
+    }
+    if (swaps.empty() || !g_ctx.propsHostChildren) return;
+    try {
+        for (auto const& child : TreeObject<DevToolsUIElementVector>(g_ctx.propsHostChildren))
+            RecolorLiteralTree(child, swaps);
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"route1.props literal recolor failed hr=0x%08X", error.code().value);
+    }
+}
+
+static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r, const std::wstring& path)
+{
+    SetTextOn(v, RowShownValue(r));
+    SetAutomationTextOn(v, RowAccessibleName(r, path), path + L" shown", L"");
+    const bool noValue = RowValueIsMissing(r);
     void* tb = nullptr;
     if (SUCCEEDED(v->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tb)) && tb) {
-        if (void* brush = noValue ? static_cast<void*>(g_palSecondary) : static_cast<void*>(g_palPrimary))
-            DevToolsPutTextForeground(tb, brush);
+        PutDonorForeground(tb, noValue ? g_palSecondary : g_palPrimary);
         DevToolsPutFontStyle(tb, noValue ? 2 /*Italic*/ : 0 /*Normal*/);
         reinterpret_cast<IUnknown*>(tb)->Release();
     }
@@ -205,9 +633,9 @@ static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r)
 // type styles, not fills that High Contrast can replace.
 static void PopulateRowLine(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
-    // The NAME. A value set on this element gets bold so "what I set" pops out of the defaulted majority;
-    // an UNSET one goes italic and dim. Weight and style rather than colour, because the template owns the
-    // theme and both survive High Contrast.
+    // The NAME, always in the secondary brush so the value reads first. A value set on this element gets bold
+    // so "what I set" pops out of the defaulted majority; an UNSET one goes italic. Weight and style carry
+    // that difference because both survive High Contrast.
     const bool setHere = !r.authoredKind.empty() || SourceIsSetHere(r.source);
     const bool unset   = r.valueState == L"unset";
     if (IInspectable* n = FindInRow(fe, L"PName")) {
@@ -216,27 +644,18 @@ static void PopulateRowLine(void* fe, const DevToolsCardRow& r, const std::wstri
         if (SUCCEEDED(n->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tb)) && tb) {
             DevToolsPutTextFontWeight(tb, setHere ? 700 : 400);
             DevToolsPutFontStyle(tb, unset ? 2 /*Italic*/ : 0 /*Normal*/);
-            if (void* brush = unset ? static_cast<void*>(g_palTertiary) : static_cast<void*>(g_palSecondary))
-                DevToolsPutTextForeground(tb, brush);
+            PutDonorForeground(tb, g_palSecondary);
             reinterpret_cast<IUnknown*>(tb)->Release();
         }
         n->Release();
     }
 
-    // Explicit accessible identities follow recycled row data. Property value opens the row;
-// Property editor names its separate input control. Keep names distinct across both inspector views.
-    if (IInspectable* e = FindInRow(fe, L"PValueBtn"))
-        { SetAutomationTextOn(e, path + L" value", path + L" value", L""); e->Release(); }
-    if (IInspectable* e = FindInRow(fe, L"PValue"))
-        { SetAutomationTextOn(e, path + L" shown", path + L" shown", L""); e->Release(); }
     // The changed MARKER states a fact; it is not an action, and its name must not read as one.
     if (IInspectable* d = FindInRow(fe, L"PDot"))
         { SetAutomationTextOn(d, path + L" changed", L"", L""); d->Release(); }
 
-    if (IInspectable* c = FindInRow(fe, L"PChevron"))
-        { SetAutomationTextOn(c, L"Expand " + path, L"", L""); c->Release(); }
     if (IInspectable* v = FindInRow(fe, L"PValue")) {
-        PopulateRowValue(v, r);
+        PopulateRowValue(v, r, path);
         v->Release();
     }
 
@@ -248,38 +667,19 @@ static void PopulateRowLine(void* fe, const DevToolsCardRow& r, const std::wstri
     const bool expandable = RowHasExpansion(r, path, edit);
     std::shared_ptr<const DevToolsCardRow> shared;
     if (expandable) shared = std::make_shared<const DevToolsCardRow>(r);
-    if (IInspectable* ch = FindInRow(fe, L"PChevron")) {
-        ShowEl(ch, expandable);
-        void* bb = nullptr;
-        if (expandable && SUCCEEDED(ch->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-            void* rowUi = nullptr;
-            reinterpret_cast<IUnknown*>(fe)->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &rowUi);
-            RowExpandSink* es = new RowExpandSink();
-            es->Init(shared, path, edit, rowUi, /*wantsEditor*/ false);
-            __int64 tok = 0;
-            const HRESULT hrE = DevToolsAddClick(bb, es, &tok);
-            if (FAILED(hrE))
-                DevToolsOverlayLog(L"route1.props row '%s' triangle add_Click FAILED hr=0x%08X -- it will not open",
-                              path.c_str(), hrE);
-            reinterpret_cast<IUnknown*>(bb)->Release();
+    if (IInspectable* header = FindInRow(fe, L"PHeader")) {
+        NamePropertyHeader(header, r, path);
+        void* control = nullptr;
+        if (!expandable && SUCCEEDED(header->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), &control)) && control) {
+            DevToolsPutIsEnabled(control, false);
+            reinterpret_cast<IUnknown*>(control)->Release();
         }
-        ch->Release();
-    }
-    if (IInspectable* btn = FindInRow(fe, L"PValueBtn")) {
-        void* bb = nullptr;
-        if (expandable && SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-            void* rowUi = nullptr;
-            reinterpret_cast<IUnknown*>(fe)->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &rowUi);
-            RowExpandSink* vs = new RowExpandSink();
-            vs->Init(shared, path, edit, rowUi, /*wantsEditor*/ edit >= 0);
-            __int64 tok = 0;
-            const HRESULT hrV = DevToolsAddClick(bb, vs, &tok);
-            if (FAILED(hrV))
-                DevToolsOverlayLog(L"route1.props row '%s' value add_Click FAILED hr=0x%08X -- it will not open",
-                              path.c_str(), hrV);
-            reinterpret_cast<IUnknown*>(bb)->Release();
+        void* expander = nullptr;
+        if (expandable && SUCCEEDED(header->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &expander)) && expander) {
+            WireRowExpansion(shared, path, edit, fe, expander);
+            reinterpret_cast<IUnknown*>(expander)->Release();
         }
-        btn->Release();
+        header->Release();
     }
 
     if (expandable && PropIsExpanded(r.name)) {
@@ -346,7 +746,31 @@ static void NameTheEditor(void* fe, const std::wstring& path, const wchar_t* pri
     for (const wchar_t* nm : kAllEditorParts) {
         if (wcscmp(nm, primary) != 0) continue;
         if (IInspectable* e = FindInRow(fe, nm)) {
-            SetAutomationTextOn(e, path + L" editor", path + L" editor", L"");
+            if (wcscmp(primary, L"PResKey") == 0) {
+                SetAutomationTextOn(e, path + L" resource suggestions", path + L" resource suggestions", L"");
+                try {
+                    const auto box = TreeObject<DevToolsXC::AutoSuggestBox>(e);
+                    auto nameInput = [name = path + L" editor"](auto const& sender, auto const&) {
+                        const auto input = TreeDescendant<DevToolsXC::TextBox>(
+                            sender.template as<DevToolsX::DependencyObject>());
+                        if (input) {
+                            DevToolsTreeA::AutomationProperties::SetName(input, name);
+                            DevToolsTreeA::AutomationProperties::SetAutomationId(input, name);
+                        } else {
+                            DevToolsOverlayLog(L"route1.props resource input missing for '%s'", name.c_str());
+                        }
+                    };
+                    box.Loaded(nameInput);
+                    if (box.IsLoaded()) {
+                        box.ApplyTemplate();
+                        nameInput(box, nullptr);
+                    }
+                } catch (const winrt::hresult_error& error) {
+                    DevToolsOverlayLog(L"route1.props resource input naming failed hr=0x%08X", error.code().value);
+                }
+            } else {
+                SetAutomationTextOn(e, path + L" editor", path + L" editor", L"");
+            }
             e->Release();
             named = true;
         }
@@ -357,6 +781,25 @@ static void NameTheEditor(void* fe, const std::wstring& path, const wchar_t* pri
     if (!named)
         DevToolsOverlayLog(L"route1.props MISS: '%s' named editor part %s is not in the expansion",
                       path.c_str(), primary);
+}
+
+static void PopulateColorSwatch(IInspectable* swatch, const std::wstring& value)
+{
+    if (!IsHexColor(value)) return;
+    IInspectable* brush = nullptr;
+    const HRESULT hr = LoadMarkupWin(L"<SolidColorBrush xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Color=\""
+                                    + value + L"\"/>", &brush);
+    if (SUCCEEDED(hr) && brush) {
+        void* border = nullptr;
+        if (SUCCEEDED(swatch->QueryInterface(DevToolsIid<DevToolsXC::IBorder>(), &border)) && border) {
+            const HRESULT put = DevToolsPutBorderBackground(border, brush);
+            if (FAILED(put)) DevToolsOverlayLog(L"route1.props swatch refresh failed hr=0x%08X", put);
+            reinterpret_cast<IUnknown*>(border)->Release();
+        }
+        brush->Release();
+    } else {
+        DevToolsOverlayLog(L"route1.props swatch brush load failed hr=0x%08X", hr);
+    }
 }
 
 static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit,
@@ -386,13 +829,12 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
         if (IInspectable* el = FindInRow(fe, b)) { ShowEl(el, wcscmp(b, show) == 0); el->Release(); }
     }
 
-    auto wireKeys = [&](const wchar_t* name, bool multiline = false) {
+    auto wireKeys = [&](const wchar_t* name, bool multiline = false, bool resourceQuery = false) {
         if (IInspectable* el = FindInRow(fe, name)) {
             void* ui = nullptr;
             if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-                KindKeySink* ks = new KindKeySink(); ks->Init(ctx, multiline);
-                __int64 tok = 0;
-                DevToolsAddPreviewKeyDown(ui, ks, &tok);
+                KindKeySink* ks = new KindKeySink(); ks->Init(ctx, multiline, resourceQuery);
+                WireKindEditor(ks, ui, DevToolsAddPreviewKeyDown, DevToolsRemovePreviewKeyDown);
                 reinterpret_cast<IUnknown*>(ui)->Release();
             }
             el->Release();
@@ -410,8 +852,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
         static const wchar_t* const kXBindDetail =
             L"An {x:Bind} is compiled into generated code when the app is built, and the runtime exposes no "
             L"way to create or change one.\n\n"
-            L"Choosing {Binding} installs a runtime binding with SetBinding - on the running app only. Your "
-            L".xaml is not changed, and the compiled binding cannot be restored without restarting.";
+            L"Choosing {Binding} installs a temporary runtime binding. Generated compiled-binding updates "
+            L"can overwrite it. Your .xaml is not changed.";
         if (IInspectable* e = FindInRow(fe, L"PXWhy")) { SetTextOn(e, kXBindHeadline); e->Release(); }
         if (IInspectable* t = FindInRow(fe, L"PXInfoText")) {
             SetTextOn(t, kXBindDetail);
@@ -424,15 +866,10 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                                     L"", L"");
                 void* ui = nullptr;
                 if (SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-                    XBindInfoRevealSink* on = new XBindInfoRevealSink();  on->Init(t, true);
-                    XBindInfoRevealSink* off = new XBindInfoRevealSink(); off->Init(t, false);
-                    __int64 tok = 0;
-                    const HRESULT hrG = DevToolsAddGotFocus(ui, on, &tok);
-                    const HRESULT hrL = DevToolsAddLostFocus(ui, off, &tok);
-                    if (FAILED(hrG) || FAILED(hrL))
-                        DevToolsOverlayLog(L"route1.props x:Bind info for '%s' focus wiring FAILED got=0x%08X lost=0x%08X"
-                                      L" -- the keyboard route to the explanation is gone",
-                                      path.c_str(), hrG, hrL);
+                    XBindInfoRevealSink* on = new XBindInfoRevealSink();  on->Init(ctx, t, true);
+                    XBindInfoRevealSink* off = new XBindInfoRevealSink(); off->Init(ctx, t, false);
+                    WireKindEditor(on, ui, DevToolsAddGotFocus, DevToolsRemoveGotFocus);
+                    WireKindEditor(off, ui, DevToolsAddLostFocus, DevToolsRemoveLostFocus);
                     reinterpret_cast<IUnknown*>(ui)->Release();
                 }
                 b->Release();
@@ -444,11 +881,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             void* bb = nullptr;
             if (edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 XBindExitSink* xs = new XBindExitSink(); xs->Init(ctx);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddClick(bb, xs, &tok);
-                if (FAILED(hr))
-                    DevToolsOverlayLog(L"route1.props x:Bind exit for '%s' add_Click FAILED hr=0x%08X -- the row is a dead end",
-                                  path.c_str(), hr);
+                WireKindEditor(xs, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -460,103 +893,53 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
     case DevToolsKind::Static: {
         if (IInspectable* e = FindInRow(fe, L"PResLbl"))
             { SetTextOn(e, kind == DevToolsKind::Theme ? L"THEME RESOURCE KEY" : L"STATIC RESOURCE KEY"); e->Release(); }
-        const SessionAssign* sa = SessionAssignFind(path);
-        const bool sameKind = sa && sa->kind == kind;
         // SEEDING: a resource kind the row ALREADY has keeps its key; a newly staged one starts EMPTY with a
         // typeahead, because there is no key to carry over from a literal or a binding.
-        std::wstring seedKey;
-        if (CurrentKindOf(r, path) == kind)
-            seedKey = sameKind ? MarkupInner(sa->detail) : r.authoredKey;
+        const std::wstring seedKey = ResourceEditorSeed(r, path, kind);
+        ResourceKeys candidates = g_ctx.resolveFn ? ResourceKeyCandidates(r) : ResourceKeys{};
+        SetResourceNote(fe, candidates, !FilterResourceKeys(candidates.keys, seedKey).empty());
         if (IInspectable* e = FindInRow(fe, L"PResKey")) {
-            void* tx = nullptr;
-            if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
-                HSTRING h = MakeStr(seedKey); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
-                reinterpret_cast<IUnknown*>(tx)->Release();
+            void* box = nullptr;
+            if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsXC::IAutoSuggestBox>(), &box)) && box) {
+                HSTRING h = MakeStr(seedKey);
+                DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->put_Text(DevToolsAbiStr(h));
+                WindowsDeleteString(h);
+                const auto changed = ResourceKeyChangedHandler(fe, path, std::move(candidates));
+                auto* chosen = new ResSuggestSink(); chosen->Init();
+                auto* submitted = new ResQuerySink(); submitted->Init(ctx);
+                __int64 tok = 0;
+                const HRESULT textHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_TextChanged(winrt::get_abi(changed), DevToolsAbiTok(&tok));
+                const HRESULT choiceHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_SuggestionChosen(chosen, DevToolsAbiTok(&tok));
+                const HRESULT queryHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_QuerySubmitted(submitted, DevToolsAbiTok(&tok));
+                if (FAILED(textHr) || FAILED(choiceHr) || FAILED(queryHr))
+                    DevToolsOverlayLog(L"route1.props resource wiring failed text=0x%08X choice=0x%08X query=0x%08X",
+                        textHr, choiceHr, queryHr);
+                reinterpret_cast<IUnknown*>(box)->Release();
             }
             e->Release();
         }
-        if (IInspectable* box = FindInRow(fe, L"PResSug")) {
-            const bool canResolve = g_ctx.resolveFn != nullptr;
-            std::vector<std::wstring> keys = canResolve ? ResourceKeyCandidates(r) : std::vector<std::wstring>();
-            if (keys.size() > 6) keys.resize(6);
-            void* pnl = nullptr; void* kids = nullptr;
-            if (!keys.empty() &&
-                SUCCEEDED(box->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
-                SUCCEEDED(DevToolsPanelGetChildren(pnl, reinterpret_cast<IInspectable**>(&kids))) && kids)
-            {
-                IInspectable* keyBox = FindInRow(fe, L"PResKey");
-                for (const std::wstring& k : keys) {
-                    IInspectable* btn = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Button");
-                    if (!btn) continue;
-                    void* cc = nullptr;
-                    if (SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXC::IContentControl>(), &cc)) && cc) {
-                        IInspectable* boxed = nullptr;
-                        if (SUCCEEDED(BoxString(k, &boxed)) && boxed) { DevToolsPutContent(cc, boxed); boxed->Release(); }
-                        reinterpret_cast<IUnknown*>(cc)->Release();
-                    }
-                    void* ctl = nullptr;
-                    if (SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), &ctl)) && ctl) {
-                        DevToolsPutControlFontSize(ctl, 11.0);
-                        DevToolsPutPadding(ctl, 6, 2, 6, 2);
-                        reinterpret_cast<IUnknown*>(ctl)->Release();
-                    }
-                    void* sfe = nullptr;
-                    if (SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &sfe)) && sfe) {
-                        DevToolsPutHorizontalAlignment(sfe, 0 /*Left*/);
-                        reinterpret_cast<IUnknown*>(sfe)->Release();
-                    }
-                    void* bb = nullptr;
-                    if (keyBox && SUCCEEDED(btn->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                        ResSuggestSink* ss = new ResSuggestSink(); ss->Init(keyBox, k);
-                        __int64 tok = 0;
-                        DevToolsAddClick(bb, ss, &tok);
-                        reinterpret_cast<IUnknown*>(bb)->Release();
-                    }
-                    SetAutomationTextOn(btn, L"Use key " + k + L" for " + path, L"", L"");
-                    DevToolsVecAppend(reinterpret_cast<IInspectable*>(kids), btn);
-                    btn->Release();
-                }
-                if (keyBox) keyBox->Release();
-                reinterpret_cast<IUnknown*>(kids)->Release();
-                ShowEl(box, true);
-            }
-            if (pnl) reinterpret_cast<IUnknown*>(pnl)->Release();
-            if (IInspectable* n = FindInRow(fe, L"PResNote")) {
-                if (!canResolve) {
-                    SetTextOn(n, L"This build cannot assign resources, so a key cannot be applied here.");
-                } else if (keys.empty()) {
-                    SetTextOn(n, L"No suggestion fits a " + ShortType(RowResourceType(r)) + L": the keys "
-                                 L"DevTools can name are this element's own resource keys and the built-in "
-                                 L"theme brushes, and none of them is assignable here. Type a key from your "
-                                 L"app's resources - the resolved value appears on the row above.");
-                }
-                n->Release();
-            }
-            box->Release();
-        }
-        wireKeys(L"PResKey");
+        wireKeys(L"PResKey", false, true);
         break;
     }
 
     case DevToolsKind::Binding: {
         // SEEDING: -> {Binding} takes the EXISTING path, which is the graft case. Coming from an {x:Bind}
-        // that is exactly what makes the exit useful: the path the developer wrote is already there.
+        // that is exactly what makes the exit useful: the path the developer wrote is already there. An x:Bind
+        // path starts at the page, though, so it is checked right away instead of waiting for the first keystroke.
+        const std::wstring seeded = BindingPathOf(r, path);
+        const bool fromXBind = CurrentKindOf(r, path) == DevToolsKind::XBind;
         if (IInspectable* e = FindInRow(fe, L"PPath")) {
             void* tx = nullptr;
             if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
-                HSTRING h = MakeStr(BindingPathOf(r, path)); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
+                HSTRING h = MakeStr(seeded); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
                 reinterpret_cast<IUnknown*>(tx)->Release();
             }
             if (edit >= 0) {
                 void* tbx = nullptr;
                 if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tbx)) && tbx) {
                     PathValidateSink* vs = new PathValidateSink();
-                    vs->Init(path, e, fe);
-                    __int64 tok = 0;
-                    const HRESULT hr = DevToolsAddTextChanged(tbx, vs, &tok);
-                    if (FAILED(hr))
-                        DevToolsOverlayLog(L"route1.props path validator for '%s' add_TextChanged FAILED hr=0x%08X"
-                                      L" -- a bad path will only be caught on commit", path.c_str(), hr);
+                    vs->Init(ctx, e);
+                    WireKindEditor(vs, tbx, DevToolsAddTextChanged, DevToolsRemoveTextChanged);
                     reinterpret_cast<IUnknown*>(tbx)->Release();
                 }
             }
@@ -566,7 +949,9 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
         g_validateBad = false;
         g_validateProp = path;
         g_validatePath.clear();
+        g_validateFromXBind = fromXBind;
         if (IInspectable* m = FindInRow(fe, L"PPathMsg")) { SetTextOn(m, L""); ShowEl(m, false); m->Release(); }
+        if (fromXBind && edit >= 0 && !seeded.empty()) ValidateOnType(path, seeded);
         const std::wstring mode = BindingModeOf(r, path);
         if (IInspectable* e = FindInRow(fe, L"PMode")) {
             FillCombo(e, BindingModes());
@@ -619,17 +1004,19 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             void* bb = nullptr;
             if (twoWay && edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 WriteToSourceSink* ws = new WriteToSourceSink(); ws->Init(ctx);
-                __int64 tok = 0;
-                DevToolsAddClick(bb, ws, &tok);
+                WireKindEditor(ws, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
         }
         if (IInspectable* e = FindInRow(fe, L"PBindNote")) {
-            SetTextOn(e, twoWay
+            std::wstring note = twoWay
                 ? L"A literal write to a TwoWay binding is not destructive: the expression stays installed and "
                   L"the write goes through to the source. Applied to the running app only."
-                : L"Applied with SetBinding to the running app only - your .xaml is not changed.");
+                : L"Applied with SetBinding to the running app only - your .xaml is not changed.";
+            if (r.authoredKind == L"xBind")
+                note += L" This replacement is temporary: generated compiled-binding updates can overwrite it.";
+            SetTextOn(e, note);
             e->Release();
         }
         wireKeys(L"PPath");
@@ -683,19 +1070,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             }
         } else if (ek == L"color") {
             if (IInspectable* sw = FindInRow(fe, L"PSwatch")) {
-                if (IsHexColor(seed)) {
-                    IInspectable* brush = nullptr;
-                    // Parsed as a literal, never as a resource reference: this is a #AARRGGBB string.
-                    if (SUCCEEDED(LoadMarkupWin(L"<SolidColorBrush xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Color=\""
-                                                + seed + L"\"/>", &brush)) && brush) {
-                        void* bd = nullptr;
-                        if (SUCCEEDED(sw->QueryInterface(DevToolsIid<DevToolsXC::IBorder>(), &bd)) && bd) {
-                            DevToolsPutBorderBackground(bd, brush);
-                            reinterpret_cast<IUnknown*>(bd)->Release();
-                        }
-                        brush->Release();
-                    }
-                }
+                PopulateColorSwatch(sw, seed);
                 sw->Release();
             }
             LostFocusSink* hexCommit = nullptr;
@@ -716,9 +1091,13 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         commit->Init(g_selWire, path, r.type, seed, reinterpret_cast<IInspectable*>(box));
                         __int64 tok = 0;
                         DevToolsAddLostFocus(ui, commit, &tok);
+                        RegisterPaneEditor(path, ui, &commit->retired, commit,
+                                           [commit] { commit->Invoke(nullptr, nullptr); }, ctx.expFe);
                         hexCommit = commit;
                         hexBox = hx; hexBox->AddRef();
                     }
+                    if (ui) reinterpret_cast<IUnknown*>(ui)->Release();
+                    if (box) reinterpret_cast<IUnknown*>(box)->Release();
                 }
                 hx->Release();
             }
@@ -790,6 +1169,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         // Placeholder-only: nothing is pre-selected, so building the expansion cannot commit.
                         EnumSelectSink* ps = new EnumSelectSink();
                         ps->Init(g_selWire, path, r.type, seed, presets, psel);
+                        ps->textEditor = hexCommit;
                         __int64 tok = 0;
                         DevToolsAddSelectionChanged(psel, ps, &tok);
                         reinterpret_cast<IUnknown*>(psel)->Release();
@@ -806,6 +1186,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             if (IInspectable* lbl = FindInRow(fe, L"PFieldsLbl"))
                 { SetTextOn(lbl, ShortType(r.type)); lbl->Release(); }
             if (IInspectable* host = FindInRow(fe, L"PFieldBoxes")) {
+                // Boxes left under this expansion are from an earlier build of it; only the new ones are the value.
+                ReleaseFieldBoxesWhere(path, ctx.expFe);
                 const std::vector<std::wstring> vals = SplitFields(seed, r.fields.size());
                 void* pnl = nullptr; void* kids = nullptr;
                 if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
@@ -820,7 +1202,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                             void* ctb = nullptr;
                             if (SUCCEEDED(cap->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &ctb)) && ctb) {
                                 DevToolsAbi<DevToolsXC::ITextBlock>(ctb)->put_FontSize(10.0);
-                                if (g_palTertiary) DevToolsPutTextForeground(ctb, g_palTertiary);
+                                PutDonorForeground(ctb, g_palTertiary);
                                 reinterpret_cast<IUnknown*>(ctb)->Release();
                             }
                         }
@@ -856,15 +1238,18 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                             void* bui = nullptr;
                             if (SUCCEEDED(bx->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &bui)) && bui) {
                                 KindApplySink* fs = new KindApplySink(); fs->Init(ctx);
-                                __int64 tok = 0;
-                                DevToolsAddLostFocus(bui, fs, &tok);
+                                if (WireKindEditor(fs, bui, DevToolsAddLostFocus, DevToolsRemoveLostFocus)) {
+                                    winrt::com_ptr<KindApplySink> owner;
+                                    owner.copy_from(fs);
+                                    RegisterPaneEditor(path, bui, &fs->retired, nullptr,
+                                                       [owner] { owner->Invoke(nullptr, nullptr); }, ctx.expFe);
+                                }
                                 KindKeySink* ks = new KindKeySink(); ks->Init(ctx);
-                                __int64 ktok = 0;
-                                DevToolsAddPreviewKeyDown(bui, ks, &ktok);
+                                WireKindEditor(ks, bui, DevToolsAddPreviewKeyDown, DevToolsRemovePreviewKeyDown);
                                 reinterpret_cast<IUnknown*>(bui)->Release();
                             }
                         }
-                        g_fieldBoxes.push_back({ path, i, bx });
+                        g_fieldBoxes.push_back({ path, i, bx, ctx.expFe });
                         col->Release();
                     }
                     reinterpret_cast<IUnknown*>(kids)->Release();
@@ -890,6 +1275,15 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     reinterpret_cast<IUnknown*>(tx)->Release();
                 }
                 SetPlaceholderOn(e, RowEditPlaceholder(r));
+                // Enter applies even here, so a multi-line editor says how to add a line instead.
+                const bool multilineHint = DevToolsEditText::IsMultiline(seed);
+                if (IInspectable* hint = FindInRow(fe, L"PEditHint")) { ShowEl(hint, multilineHint); hint->Release(); }
+                try {
+                    winrt::Windows::Foundation::IInspectable object{ nullptr };
+                    winrt::copy_from_abi(object, e);
+                    DevToolsXA::AutomationProperties::SetHelpText(object.as<DevToolsX::DependencyObject>(),
+                        multilineHint ? L"Enter applies. Shift+Enter adds a new line" : L"");
+                } catch (const winrt::hresult_error&) {}
                 e->Release();
             }
             if (edit >= 0) {
@@ -905,10 +1299,15 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         if (FAILED(hrM))
                             DevToolsOverlayLog(L"route1.props row '%s' commit wiring FAILED hr=0x%08X -- it will not commit",
                                           path.c_str(), hrM);
+                        else
+                            RegisterPaneEditor(path, edUi, &commit->retired, commit,
+                                               [commit] { commit->Invoke(nullptr, nullptr); }, ctx.expFe);
                     } else {
                         DevToolsOverlayLog(L"route1.props MISS: editable row '%s' expansion has no editor -- it will never commit",
                                       path.c_str());
                     }
+                    if (edUi) reinterpret_cast<IUnknown*>(edUi)->Release();
+                    if (box) reinterpret_cast<IUnknown*>(box)->Release();
                     ed->Release();
                 }
             }

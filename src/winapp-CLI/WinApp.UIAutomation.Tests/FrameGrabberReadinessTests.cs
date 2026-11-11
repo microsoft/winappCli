@@ -51,7 +51,13 @@ public class FrameGrabberReadinessTests
         using IFrameGrabber grabber = new LegacyGrabber(
             async (timeout, ct) =>
             {
-                await Task.Delay(timeout, ct);
+                var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
+                var remaining = (long)timeout.TotalMilliseconds;
+                while (remaining > 0)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(remaining), ct);
+                    remaining = deadline - Environment.TickCount64;
+                }
                 return true;
             },
             () => { reads++; return null; });

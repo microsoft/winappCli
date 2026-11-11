@@ -256,6 +256,12 @@ internal sealed class WindowsSandboxBackend(
             return reused;
         }
 
+        // Recheck after a failed reconnect before preparing the caller's exact instance.
+        if (lifecycle.CurrentExpectation() is { } expectation)
+        {
+            expectation.RequireOnlyRunning(await cli.ListAsync(cancellationToken).ConfigureAwait(false));
+        }
+
         _progress.Report(lease.IsWarm
             ? "Repairing the Windows Sandbox connection..."
             : "Preparing the Windows Sandbox guest agent...");
@@ -420,8 +426,11 @@ internal sealed class WindowsSandboxBackend(
     public async Task<TargetConnection?> TryReconnectAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+
+        var expectation = lifecycle.CurrentExpectation();
         var state = stateStore?.Read(Target);
         if (state?.InstanceId is not { } instanceId ||
+            (expectation is not null && !expectation.IsInstance(instanceId)) ||
             string.IsNullOrWhiteSpace(instanceId) ||
             string.IsNullOrWhiteSpace(state.BootNonce) ||
             string.IsNullOrWhiteSpace(state.GuestAddress))
@@ -495,7 +504,7 @@ internal sealed class WindowsSandboxBackend(
         // case where connection material on disk describes an agent that is actually there. Anything
         // else has no agent to attach to, and manufacturing one is what this method exists not to do.
         var state = stateStore?.Read(Target);
-        var isWarm = string.Equals(
+        var isWarm = !reconciliation.Epoch.IsNone && string.Equals(
             state?.BootstrappedEpoch, reconciliation.Epoch.Value, StringComparison.Ordinal);
 
         if (!isWarm)

@@ -147,11 +147,19 @@ internal partial class RunCommand
                 Unavailable = devToolsUnavailable,
             };
 
-        // The one line a run prints when DevTools came from the default rather than the command line.
-        internal static string? DefaultDevToolsLine(DevToolsResolution run, bool dotnetRun = false) => run is { Enabled: true, FailOpen: true }
-            ? $"DevTools {run.Mode.ToString().ToLowerInvariant()} ({(run.Source == DevToolsModeSource.Setting ? "your default" : "default")}) · " +
-              $"turn off: {(dotnetRun ? "-p:WinAppRunDevTools=off" : "--devtools off")} or winapp config set run.devtools off"
-            : null;
+        // The one line a run prints when DevTools came from the default rather than the command line:
+        // how to flip it for one run and by default.
+        internal static string? DefaultDevToolsLine(DevToolsResolution run, bool dotnetRun = false)
+        {
+            if (run is not { Enabled: true, FailOpen: true } && run is not { Mode: DevToolsMode.Off, Source: DevToolsModeSource.Setting })
+            {
+                return null;
+            }
+            var flip = run.Enabled ? "off" : "on";
+            return $"DevTools {run.Mode.ToString().ToLowerInvariant()} ({(run.Source == DevToolsModeSource.Setting ? "your default" : "default")}) · " +
+                $"turn {flip} for one run: {(dotnetRun ? $"-p:WinAppRunDevTools={flip}" : $"--devtools {flip}")} · " +
+                $"by default: winapp config set run.devtools {flip}";
+        }
 
         // 'dotnet run' through the NuGet package: options reach winapp as MSBuild properties.
         private bool dotnetRun;
@@ -165,21 +173,23 @@ internal partial class RunCommand
         }
 
         // DevTools the user didn't ask for on this command line steps aside rather than failing the run.
-        private void DevToolsStepsAside(string reason, bool isJson)
+        private void DevToolsStepsAside(string reason, bool isJson, bool runsWithoutDevTools = true)
         {
             devToolsUnavailable = reason;
             DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.FellBack);
             if (!isJson)
             {
-                logger.LogWarning("{UISymbol} {Line}", UiSymbols.Warning, StepAsideLine(reason));
+                logger.LogWarning("{UISymbol} {Line}", UiSymbols.Warning, StepAsideLine(reason, runsWithoutDevTools));
             }
         }
 
         // A reason's first line is the summary; any lines below it (commands to run instead) follow the line as they are.
-        internal static string StepAsideLine(string reason)
+        // The "runs without DevTools" suffix is left off when the app exited or headless inspection still works.
+        internal static string StepAsideLine(string reason, bool runsWithoutDevTools = true)
         {
-            var lines = reason.Trim().Split('\n', 2);
-            return $"DevTools unavailable: {lines[0].TrimEnd().TrimEnd('.', ':')} · the app runs without DevTools" +
+            var lines = DevToolsErrors.DescribeHresults(reason).Trim().Split('\n', 2);
+            return $"DevTools unavailable: {lines[0].TrimEnd().TrimEnd('.', ':')}" +
+                (runsWithoutDevTools ? " · the app runs without DevTools" : "") +
                 (lines.Length > 1 ? "\n" + lines[1] : "");
         }
 
@@ -226,7 +236,8 @@ internal partial class RunCommand
         private async Task<int?> RunInspectorAliasAsync(
             InspectorAlias? alias, DirectoryInfo inputFolder, FileInfo? projectFile, string? aumid, string? arguments,
             bool debugOutput, bool useSymbols, bool detach, bool isJson, bool showOverlay, bool unregisterOnExit,
-            string? packageName, string? packageFullName, CancellationToken cancellationToken, bool nativeAot = false,
+            string? packageName, string? packageFullName, IReadOnlyDictionary<string, string?> preparedEnvironment,
+            CancellationToken cancellationToken,
             IReadOnlyList<string>? sources = null, XamlCompilerArtifacts? compiler = null)
         {
             if (alias?.Target is null || alias.Error is not null)
@@ -244,9 +255,7 @@ internal partial class RunCommand
             var launchedAny = false;
             try
             {
-                var managed = !nativeAot && (projectFile is not null && !ProjectRunService.IsCppProject(projectFile) ||
-                    (alias.Target.TargetExecutable is { } executable && File.Exists(Path.ChangeExtension(executable, ".runtimeconfig.json"))));
-                var environment = CreateDevToolsEnvironment(projectFile?.DirectoryName, managed);
+                var environment = preparedEnvironment;
                 using var coordinates = await XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(projectFile, sources, compiler, cancellationToken,
                     (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(alias.Target.TargetExecutable!)!, token));
                 if (coordinates is not null)
@@ -283,7 +292,7 @@ internal partial class RunCommand
                     }
                     if (devToolsRun.FailOpen)
                     {
-                        DevToolsStepsAside($"the app exited right after launch{(result.ExitCode is int exited ? $" (exit code {exited})" : "")}.", isJson);
+                        DevToolsStepsAside($"the app exited right after launch{(result.ExitCode is int exited ? $" (exit code {exited})" : "")}.", isJson, runsWithoutDevTools: false);
                         if (isJson) { PrintJson(aumid, null, null, coordinates?.Exclusions, coordinates?.Error); }
                         return result.ExitCode ?? 0;
                     }
@@ -367,7 +376,7 @@ internal partial class RunCommand
                     {
                         return InspectorFailure(aumid, pid, unavailable + attachHint, isJson, coordinates);
                     }
-                    DevToolsStepsAside(unavailable, isJson);
+                    DevToolsStepsAside(unavailable, isJson, runsWithoutDevTools: !launched.HasExited && connection is null);
                 }
                 else
                 {
