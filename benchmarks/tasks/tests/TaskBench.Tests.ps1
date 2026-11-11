@@ -284,6 +284,11 @@ Describe 'ConvertTo-TrialResult' {
         $t.usage.tokens.cacheRead | Should -Be 7
         $t.skills[0].name | Should -Be 'winapp-msix'
     }
+    It 'writes no file for a run that timed out, even if its checks passed' {
+        $r = New-Record
+        $r | Add-Member timedOut $true
+        Convert $r | Should -BeNullOrEmpty
+    }
     It 'records how often each skill was loaded and each winapp command was run' {
         $r = New-Record
         $r | Add-Member skillLoadCounts ([ordered]@{ 'winapp-msix' = 2 })

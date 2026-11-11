@@ -212,6 +212,8 @@ function ConvertTo-TrialResult {
     if ($Record -is [System.Collections.IDictionary]) { $Record = [pscustomobject]$Record }
     if ($Record.configuration -notin 'none', 'cli-only', 'cli-plus-plugins') { return $null }
     if ($Record.mode -ne 'agent' -or $Record.taskStatus -notin 'pass', 'partial', 'fail' -or -not $Record.tokens) { return $null }
+    # A run that hit the time limit was cut off, so it is not a checked result even if its checks passed.
+    if ($Record.PSObject.Properties['timedOut']?.Value) { return $null }
     $tokens = $Record.tokens
     $checks = @($Record.checks | ForEach-Object {
             $c = [ordered]@{ id = $_.id; kind = $_.required ? 'required' : 'improvement'; passed = [bool]$_.passed; source = 'harness' }
