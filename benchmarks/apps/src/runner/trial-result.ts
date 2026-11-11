@@ -112,8 +112,11 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     checks.push({ id: `requirement-${id}`, kind: "required", passed: false, source: "judge", detail: "not checked" });
   }
 
+  // A required requirement the judge did not rule on can't be a pass or an app failure, so the judging is incomplete.
+  const unjudged = notRun.filter((id) => required.has(id));
+  const harnessError = input.harnessError ?? (unjudged.length ? `Judge did not rule on required requirement ${unjudged.join(", ")}` : undefined);
   const improvements = checks.filter((c) => c.kind === "improvement");
-  const outcome = input.harnessError ? "harness-error"
+  const outcome = harnessError ? "harness-error"
     : input.timedOut ? "timed-out"
     : !input.builds ? "build-failed"
     : !input.runs && !gateFailed ? "app-failed"
@@ -133,7 +136,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     startedAt: input.startedAt.toISOString().replace(/\.\d{3}Z$/, "Z"),
     outcome,
     passed: outcome === "valid" && checks.every((c) => c.kind !== "required" || c.passed),
-    ...(input.harnessError ? { error: input.harnessError } : {}),
+    ...(harnessError ? { error: harnessError } : {}),
     improvements: { met: improvements.filter((c) => c.passed).length, total: improvements.length },
     checks,
     scoringVersion: SCORING_VERSION,

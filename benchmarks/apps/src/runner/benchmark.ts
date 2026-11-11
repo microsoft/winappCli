@@ -2957,6 +2957,8 @@ export async function runBenchmark(
   opts: { maxBuildMinutes: number; concurrency?: number },
   callbacks: BenchmarkCallbacks
 ): Promise<void> {
+  // A rerun or resume of a harness-error trial must not inherit the previous attempt's error.
+  entry.harnessError = undefined;
   const cfg = loadAgentConfig(entry.pluginPath);
   const ctx = createTrialEnv(runDir, entry.trialName, cfg);
   ctx.uiWorkflowId = uiWorkflowIdFor(runDir, entry.id);
@@ -4622,12 +4624,17 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
           `Could not focus a control (desktop busy or activation refused)${focusError ? `: ${focusError}` : ""}`);
       } else {
         const samples: any[] = [];
+        let inputError = "";
         for (let i = 0; i < 12; i++) {
           samples.push(parse((await ui(["get-focused", "-w", String(hwnd), "--json"])).output));
-          await ui(["send-keys", "tab", "--via", "send-input", "-w", String(hwnd)]);
+          const sent = await ui(["send-keys", "tab", "--via", "send-input", "-w", String(hwnd)]);
+          if (sent.exitCode !== 0 && !inputError) inputError = sent.output.trim().split(/\r?\n/).pop()?.slice(0, 160) || "send-keys failed";
         }
         q1 = evaluateKeyboardTraversal(samples, enabled.length);
-        inputSamples = samples;
+        // Level 2 needs answers after input was delivered: drop the pre-input sample, and leave it
+        // unmeasured when any key could not be sent (a lock is then detected by the caller's probe).
+        if (inputError) desktopLocked = /no interactive desktop/i.test(inputError);
+        else inputSamples = samples.slice(1);
       }
     }
     let ready: QualityCheck;
@@ -4709,6 +4716,13 @@ function applyValidationScore(
   };
   const q = breakdown.quality;
   log(`  Score: ${breakdown.score}/100 (Reqs ${breakdown.requirements.passed}/${breakdown.requirements.scored} scored of ${breakdown.requirements.total} · Quality ${q.passed}/${q.passed + q.failed} · Design ${breakdown.design ?? "–"})`);
+  // Without any requirement rulings the other parts are scaled up to 100, so a broken judge would raise the score.
+  if (scenarioReqs.length && breakdown.requirements.scored === 0) {
+    entry.failReason = "Validation ruled on no requirements";
+    entry.harnessError = entry.failReason;
+    entry.score = undefined;
+    log(`  ERROR: ${entry.failReason}`);
+  }
 }
 
 function saveResults(
@@ -4814,15 +4828,12 @@ function saveResults(
   const exact = usage?.exact;
   // Never leave an earlier result behind when this evaluation can't be exported.
   rmSync(join(trialDir, "trial-result.json"), { force: true });
-  // A tooling failure while judging is not an app result, and must not count as a pass.
-  const judgingFailed = /^(Re)?[Vv]alidation /.test(entry.failReason ?? "");
   // A release result names one commit, so plugins from another commit would mislabel it.
   const pluginSha = entry.agentSource?.sha;
   const pluginMismatch = release !== "dev" && !!entry.agentSource &&
     (pluginSha !== commit || !!entry.agentSource.dirty);
-  if (judgingFailed) console.warn(`  No trial-result.json written: ${entry.failReason}.`);
   if (pluginMismatch) console.warn(`  No trial-result.json written: plugins came from ${pluginSha?.slice(0, 8)}${entry.agentSource?.dirty ? " (uncommitted changes)" : ""} but the release commit is ${commit.slice(0, 8)}.`);
-  if (exact && startedAt && original !== null && !judgingFailed && !pluginMismatch) {
+  if (exact && startedAt && original !== null && !pluginMismatch) {
     const trial = toTrialResult({
       release,
       commit,
@@ -4906,6 +4917,7 @@ export async function revalidateBenchmark(
   runDir: string,
   callbacks: BenchmarkCallbacks
 ): Promise<void> {
+  entry.harnessError = undefined;
   const trialDir = join(runDir, entry.trialName);
   const archiveDir = join(
     runDir,
@@ -4946,6 +4958,7 @@ export async function revalidateBenchmark(
     entry.status = "failed";
     entry.score = 0;
     entry.failReason = `Revalidation failed: ${detail}`;
+    entry.harnessError = entry.failReason;
     entry.finishedAt = new Date();
     callbacks.onOutput(`\nERROR: ${entry.failReason}\n`);
     callbacks.onStatusChange(entry);

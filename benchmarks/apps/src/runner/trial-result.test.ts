@@ -68,6 +68,13 @@ test("a required requirement that was never judged fails the trial", () => {
   assert.equal(c.detail, "not checked");
 });
 
+test("a required requirement the judge did not rule on is a harness error, not a pass", () => {
+  const t = toTrialResult({ ...base, requirements: [{ id: 1, status: "pass" }, { id: 2, status: "not-run" as any }], requiredRequirements: [2] }) as any;
+  assert.equal(t.outcome, "harness-error");
+  assert.equal(t.passed, false);
+  assert.match(t.error, /requirement 2/);
+});
+
 test("agent setups that are not one of the three arms are skipped", () => {
   assert.equal(toTrialResult({ ...base, condition: "published" }), null);
 });

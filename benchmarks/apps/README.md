@@ -97,7 +97,7 @@ npm run scorecard -- run3 --markdown scorecard.md
 | `--judge-model m` | `judge.model` in `common/config.json` | Fixed grader for every trial |
 | `--skip-validation` | off | Build + launch only, no judge |
 | `--run-meta file.json` | | Explicit task list (mix models, setups, refs) |
-| `--resume-run runN` | | Run queued/interrupted trials of a run |
+| `--resume-run runN` | | Run queued, interrupted and harness-error trials of a run |
 | `--revalidate-run runN --revalidate-trial <folder>` | | Rebuild, relaunch and re-judge an existing app; no new build session |
 | `--dry-run` | | Print the task list |
 
@@ -131,7 +131,7 @@ Rescore a trial offline after a scoring change: `npx tsx src/rescore.ts --run ru
 
 ## Scoring (v3)
 
-A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where our tooling fails (the judge produced no result, or the desktop was locked during the UI checks) has outcome `harness-error`, no score, and is left out of averages. Otherwise:
+A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where our tooling fails (the judge produced no result, ruled on none of the requirements or skipped a required one, or the desktop was locked during the UI checks) has outcome `harness-error`, no score, and is left out of averages. Otherwise:
 
 **score = 60 × requirements + 30 × quality checks + 10 × design** (each part is its pass rate;
 parts that don't apply are dropped and the rest renormalized).

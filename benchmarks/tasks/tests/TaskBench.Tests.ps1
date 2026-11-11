@@ -359,6 +359,8 @@ Describe 'Admin approval' {
         Test-StoppedForAdmin 'Run as administrator worked. The build failed on a missing file. I need your approval to retry.' | Should -BeFalse
         Test-StoppedForAdmin 'Done. The package is installed.' | Should -BeFalse
         Test-StoppedForAdmin $null | Should -BeFalse
+        Test-StoppedForAdmin 'Installing the certificate requires admin privileges. Would you like me to proceed?' | Should -BeTrue
+        Test-StoppedForAdmin 'I ran the install with elevation since you gave approval, but signtool failed.' | Should -BeFalse
     }
     It 'states the standing approval' {
         Get-AdminApprovalLine | Should -Match 'approval'

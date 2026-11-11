@@ -117,8 +117,11 @@ if (resumeRun) {
   const { loadRunFromDisk } = await import("./runner/config.js");
   const loaded = loadRunFromDisk(runDir);
   const incomplete = loaded.entries.filter(
-    (entry) => entry.status === "queued" || entry.status === "interrupted"
-  );
+    // Harness errors (locked desktop, judge failure) measured nothing, so they are rerun too.
+    (entry) => entry.status === "queued" || entry.status === "interrupted" || !!entry.harnessError
+  ).map((entry) => entry.harnessError
+    ? { ...entry, status: "queued" as const, score: undefined, builds: undefined, runs: undefined, failReason: undefined, harnessError: undefined, startedAt: undefined, finishedAt: undefined }
+    : entry);
   if (incomplete.length === 0) {
     console.log(`[headless] ${resumeRun} has no incomplete trials.`);
     process.exit(0);
