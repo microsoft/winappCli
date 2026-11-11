@@ -32,12 +32,12 @@ $repoRoot = (& git -C $PSScriptRoot rev-parse --show-toplevel).Trim()
 
 # 1. Find trial files, only where the harnesses write them: `tasks` puts `trials\` next to run-info.json,
 #    `apps` puts trial-result.json next to results.json. Anything under a `runs\` or `app\` folder is
-#    skipped, because the agent under test can write there.
+#    skipped, because the agent under test can write there, and so is `.attempts\`, where a rerun keeps the old attempt.
 $root = [IO.Path]::GetFullPath($Path).TrimEnd('\') + '\'
 $candidates = @(Get-ChildItem -LiteralPath $Path -Filter *.json -File -Recurse | Where-Object {
         $folders = [IO.Path]::GetFullPath($_.DirectoryName).TrimEnd('\') + '\'
         $folders = $folders.Substring([math]::Min($root.Length, $folders.Length)).Split('\', [StringSplitOptions]::RemoveEmptyEntries)
-        if ($folders -match '^(runs|app)$') { return $false }
+        if ($folders -match '^(runs|app|\.attempts)$') { return $false }
         ($_.Name -eq 'trial-result.json' -and (Test-Path -LiteralPath (Join-Path $_.DirectoryName 'results.json'))) -or
         ($_.Directory.Name -eq 'trials' -and (Test-Path -LiteralPath (Join-Path $_.Directory.Parent.FullName 'run-info.json')))
     })

@@ -114,7 +114,7 @@ pwsh benchmarks\publish-results.ps1 -Path .\<run folder>             # preview: 
 pwsh benchmarks\publish-results.ps1 -Path .\<run folder> -OpenPr     # opens a PR into benchmark-data
 ```
 
-The script finds the trial files under `-Path` where the harnesses write them (`trials\` next to `run-info.json`, or `trial-result.json` next to `results.json`) and ignores anything under a `runs\` or `app\` folder. It names them as above, validates them and
+The script finds the trial files under `-Path` where the harnesses write them (`trials\` next to `run-info.json`, or `trial-result.json` next to `results.json`) and ignores anything under a `runs\`, `app\` or `.attempts\` folder (earlier attempts of a rerun trial). It names them as above, validates them and
 writes `<release>\index.json`: one row per trial and one summary per
 scenario, arm and model (pass count, improvements met, median credits and time, skill and
 command counts), so a reader loads one file instead of hundreds.
