@@ -4899,6 +4899,7 @@ function saveResults(
       pluginsCommit: entry.agentSource?.sha,
       scenario: entry.scenarioConfigName,
       set: config.set,
+      targetSkill: config.skill,
       condition: entry.condition,
       model: entry.model,
       iteration: entry.iteration,

@@ -2,6 +2,7 @@
 name: photo-organizer
 description: "WinUI 3 photo organizer that naturally requires multiple CommunityToolkit controls (masonry layout, chip-style tag input, image crop, resizable split, sort/filter)"
 type: new
+skill: winapp-find-ui
 app_name: PhotoOrganizer
 requirements:
   - "Core: photos use a masonry/staggered layout; the collection sorts by name, date taken, and file size and filters by tag without rebuilding the underlying list; each photo can get a color tag from a picker with both a spectrum and preset swatches; Frame-based navigation switches between Library and Settings"

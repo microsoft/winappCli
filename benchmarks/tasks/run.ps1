@@ -39,6 +39,7 @@ $pluginPaths = [ordered]@{
     winui  = if ($WinUIPlugin) { (Resolve-Path $WinUIPlugin).Path } else { & $resolve $config.plugins.winui }
 }
 $allTasks = Get-TaskDefinitions -Root (Join-Path $PSScriptRoot 'tasks')
+$targetSkills = @{}; foreach ($x in $allTasks) { if ($x.Skill) { $targetSkills[$x.Id] = $x.Skill } }
 
 # --- Summarize an existing results folder ------------------------------------------------
 if ($Summarize) {
@@ -58,7 +59,7 @@ if ($Summarize) {
         $r.shellCommandCount = $act.shellCommands.Count; $r.failedToolCalls = $act.failedToolCalls
     }
     $runs | ForEach-Object { $_ | ConvertTo-Json -Depth 8 -Compress } | Set-Content (Join-Path $Summarize 'runs.jsonl') -Encoding utf8NoBOM
-    Write-TaskSummary -Runs $runs -Path (Join-Path $Summarize 'summary.md') -Header @{ 'Results' = $Summarize }
+    Write-TaskSummary -Runs $runs -Path (Join-Path $Summarize 'summary.md') -Header @{ 'Results' = $Summarize } -TargetSkills $targetSkills
     Write-Host "Wrote $(Join-Path $Summarize 'summary.md')"
     return
 }
@@ -447,7 +448,7 @@ try {
         # A release result names one commit, so plugins from another checkout or with edits would mislabel it.
         $badPlugin = if ($trialRelease -ne 'dev') { @($spec.Plugins | Where-Object { $pluginInfo[$_].dirty -or $pluginInfo[$_].sha -ne $trialCommit }) } else { @() }
         if ($badPlugin) { Write-Warning "No trial file written: plugin '$($badPlugin -join ', ')' is not the clean checkout at $trialCommit." }
-        $trial = $badPlugin ? $null : (ConvertTo-TrialResult -Record $record -Task $t.Id -Set $t.Set -Release $trialRelease -Commit $trialCommit -StartedAt $runStarted -WinappVersion $winappVersion -PluginsCommit (@($spec.Plugins | ForEach-Object { $pluginInfo[$_].sha } | Where-Object { $_ }) | Select-Object -First 1))
+        $trial = $badPlugin ? $null : (ConvertTo-TrialResult -Record $record -Task $t.Id -Set $t.Set -Release $trialRelease -Commit $trialCommit -StartedAt $runStarted -WinappVersion $winappVersion -PluginsCommit (@($spec.Plugins | ForEach-Object { $pluginInfo[$_].sha } | Where-Object { $_ }) | Select-Object -First 1) -TargetSkill $t.Skill)
         if ($trial) {
             $trialDir = Join-Path $OutDir 'trials'
             New-Item -ItemType Directory -Force $trialDir | Out-Null
@@ -478,7 +479,7 @@ finally {
     if ($sandboxId -and -not $KeepSandbox) { Stop-BenchSandbox $sandboxId }
     if ($records.Count) {
         Write-TaskSummary -Runs @($records) -Path (Join-Path $OutDir 'summary.md') -Header ([ordered]@{
-                'Copilot CLI' = $pinned; 'winapp' = $winappVersion; 'Credits spent' = [Math]::Round($spent, 1); 'Results' = $OutDir })
+                'Copilot CLI' = $pinned; 'winapp' = $winappVersion; 'Credits spent' = [Math]::Round($spent, 1); 'Results' = $OutDir }) -TargetSkills $targetSkills
         Write-Host "Summary: $(Join-Path $OutDir 'summary.md')"
     }
     if (-not $KeepSandbox) { Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue }

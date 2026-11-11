@@ -200,6 +200,11 @@ Describe 'Task definitions' {
         foreach ($t in $tasks) { $t.Prompt | Should -Not -Match '\bwinapp\b|winui-|skill' -Because $t.Id }
     }
     It 'marks exactly three pilot tasks' { @($tasks | Where-Object Pilot).Count | Should -Be 3 }
+    It 'names a target skill that exists in the plugins for every task' {
+        $plugins = Join-Path $PSScriptRoot '..\..\..\plugins'
+        $known = @(Get-ChildItem (Join-Path $plugins 'winapp\skills'), (Join-Path $plugins 'winui\agent-plugin\skills') -Directory | ForEach-Object Name)
+        foreach ($t in $tasks) { $t.Skill | Should -BeIn $known -Because $t.Id }
+    }
 }
 
 Describe 'Select-EffectiveRuns' {
@@ -250,6 +255,31 @@ Describe 'Summary' {
         $text | Should -Match 'trust-root-ca'
         $text | Should -Match 'x/y'
         $text | Should -Match '\| winapp-skills \| m \| 1 \| -0\.50 \| 0 / 1 \| \+1\.0 \| \+10\.0 \| \+10 \|'
+        $text | Should -Not -Match 'Skill activation'
+    }
+    It 'reports how often each target skill loaded, and flags a skill that loads in fewer than half its runs' {
+        $run = { param($id, $task, $cfg, $skills, $status = 'pass') [pscustomobject]@{ runId = $id; task = $task; configuration = $cfg; model = 'm'; iteration = [int]$id; mode = 'agent'; taskStatus = $status; taskReason = ''; durationMs = 1; aiCredits = 1; tokens = $null; skillContextTokensApprox = 0; pluginReadChars = 0; modelTurns = 1; toolCalls = 1; winappCommandsRun = @(); unsafeActions = @(); skillsLoaded = @($skills) } }
+        $runs = @(
+            & $run '001' 'sign' 'cli-plus-skills' 'winapp-signing'
+            & $run '002' 'sign' 'cli-plus-skills' @()
+            & $run '003' 'api' 'cli-plus-skills' @()
+            & $run '004' 'api' 'cli-plus-skills' 'winapp-setup'
+            & $run '005' 'api' 'cli-plus-skills' 'winapp-find-api'
+            & $run '006' 'api' 'cli-plus-skills' @() 'harness_error'
+            & $run '007' 'api' 'cli-only' @()
+        )
+        $targets = @{ sign = 'winapp-signing'; api = 'winapp-find-api' }
+        $v = Get-SkillActivationVerdict (Get-SkillActivation -Runs $runs -TargetSkills $targets)
+        ($v | Where-Object Skill -eq 'winapp-signing').ActivationFailed | Should -BeFalse
+        $api = $v | Where-Object Skill -eq 'winapp-find-api'
+        $api.Runs | Should -Be 3 -Because 'harness errors and plugin-less configurations are left out'
+        $api.Loaded | Should -Be 1
+        $api.ActivationFailed | Should -BeTrue
+        $path = Join-Path $TestDrive 'summary-activation.md'
+        Write-TaskSummary -Runs $runs -Path $path -TargetSkills $targets
+        $text = Get-Content -Raw $path
+        $text | Should -Match '\| winapp-find-api \| cli-plus-skills \| api \| loaded in 1 of 3 runs \| activation failed: no value claim \|'
+        $text | Should -Match '\| winapp-signing \| cli-plus-skills \| sign \| loaded in 1 of 2 runs \| activated \|'
     }
 }
 
@@ -338,6 +368,17 @@ Describe 'ConvertTo-TrialResult' {
         New-Item -ItemType Directory $dir -Force | Out-Null
         $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-skills__claude-sonnet-5.5__2.json')
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'plugins') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
+    It 'records the target skill after the set, and the validator accepts it' {
+        $t = ConvertTo-TrialResult -Record (New-Record) -Task 'winforms-msix' -Set 'tuning' -Release 'v0.7.1' -Commit $script:sha -StartedAt ([datetime]'2026-10-27T18:00:00Z') -TargetSkill 'winapp-package'
+        $t.targetSkill | Should -Be 'winapp-package'
+        @($t.Keys)[@($t.Keys).IndexOf('set') + 1] | Should -Be 'targetSkill'
+        (Convert (New-Record)).Contains('targetSkill') | Should -BeFalse
+        $dir = Join-Path $TestDrive 'target\v0.7.1'
+        New-Item -ItemType Directory $dir -Force | Out-Null
+        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-skills__claude-sonnet-5.5__2.json')
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'target') 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
     }
     It 'skips runs without a checked result' {

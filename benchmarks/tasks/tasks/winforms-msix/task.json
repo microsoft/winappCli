@@ -3,6 +3,7 @@
   "cluster": "MSIX packaging",
   "workspace": "C:\\src\\TaskBoard",
   "timeoutMinutes": 25,
+  "skill": "winapp-package",
   "pilot": true,
   "lintAllow": ["msix installer"],
   "checks": [

@@ -3,6 +3,7 @@
   "cluster": "Toolchain and SDK setup",
   "workspace": "C:\\src\\NoteTaker",
   "timeoutMinutes": 25,
+  "skill": "winui-dev-workflow",
   "checks": [
     "winui-project (required): a .csproj under the folder evaluates to UseWinUI=true with a Microsoft.WindowsAppSDK PackageReference",
     "named-notetaker: the project is named NoteTaker",

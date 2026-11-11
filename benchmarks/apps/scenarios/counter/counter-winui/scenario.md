@@ -2,6 +2,7 @@
 name: counter-winui
 description: "Simple counter app with increment/decrement, reset, and history — minimal baseline to verify WinUI 3 build pipeline"
 type: new
+skill: winui-dev-workflow
 app_name: CounterApp
 requirements:
   - "Core: the app shows a large counter value starting at 0, and the +, −, and Reset buttons change it by 1 or reset it to 0"

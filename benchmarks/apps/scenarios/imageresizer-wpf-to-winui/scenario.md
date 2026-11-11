@@ -2,6 +2,7 @@
 name: imageresizer-wpf-to-winui
 description: 'Convert ImageResizer PowerToy from WPF to WinUI 3'
 type: convert
+skill: winui-wpf-migration
 app_name: ImageResizer
 original_app:
   source_dir: '{repo_root}\..\PowerToys\src\modules\imageresizer'

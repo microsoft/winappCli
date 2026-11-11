@@ -2,6 +2,7 @@
 name: native-aot-photo-library
 description: "Build a folder-based WinUI 3 photo organizer and editor that publishes and launches with .NET Native AOT"
 type: new
+skill: winui-dev-workflow
 app_name: AotPhotoLibrary
 gates:
   - native_aot

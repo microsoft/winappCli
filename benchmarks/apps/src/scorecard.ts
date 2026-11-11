@@ -9,7 +9,9 @@
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { failedBuildGate, resultsRoot } from "./runner/config.js";
+import { failedBuildGate, loadScenario, resolveScenarioPath, resultsRoot } from "./runner/config.js";
+import { summarizeActivity } from "./runner/activity.js";
+import { activationMarkdown } from "./runner/skill-activation.js";
 import { trialOutcome, type TrialOutcome } from "./runner/trial-result.js";
 
 interface Trial {
@@ -27,6 +29,10 @@ interface Trial {
   credits: number | null;
   minutes: number | null;
   checks: Record<string, string>;
+  /** The skill the scenario targets, from the trial file or else the scenario's frontmatter. */
+  targetSkill: string | null;
+  /** Skills the agent loaded; null when the event stream is missing. */
+  skills: string[] | null;
 }
 
 const args = process.argv.slice(2);
@@ -46,6 +52,15 @@ function minutes(s: unknown): number | null {
   return h || m || sec ? h * 60 + m + sec / 60 : null;
 }
 
+const targetSkillOf = new Map<string, string | null>();
+function scenarioTargetSkill(scenario: string): string | null {
+  if (!targetSkillOf.has(scenario)) {
+    const dir = resolveScenarioPath(scenario);
+    targetSkillOf.set(scenario, (dir && loadScenario(dir)?.config.skill) || null);
+  }
+  return targetSkillOf.get(scenario)!;
+}
+
 const trials: Trial[] = [];
 for (const name of readdirSync(runDir)) {
   const f = join(runDir, name, "results.json");
@@ -56,6 +71,10 @@ for (const name of readdirSync(runDir)) {
   const b = m.score_breakdown;
   const checks: Record<string, string> = {};
   for (const c of m.quality_checks ?? []) checks[c.id] = c.status;
+  let trialFile: any = null;
+  try { trialFile = JSON.parse(readFileSync(join(runDir, name, "trial-result.json"), "utf-8")); } catch { /* not written */ }
+  const activity = trialFile?.skills ? null : summarizeActivity(join(runDir, name, "session-logs-dir", "build-events.jsonl"));
+  const skills: string[] | null = trialFile?.skills ? trialFile.skills.map((s: any) => String(s.name)) : activity ? activity.skills.map((s) => s.name) : null;
   trials.push({
     arm: String(r.condition ?? "?").replace(/\s*\[\d+\/\d+\]\s*$/, ""),
     model: String(r.model ?? "?"),
@@ -76,6 +95,8 @@ for (const name of readdirSync(runDir)) {
     credits: typeof m.time_and_tokens?.credits === "number" ? m.time_and_tokens.credits : null,
     minutes: minutes(m.time_and_tokens?.session_time),
     checks,
+    targetSkill: typeof trialFile?.targetSkill === "string" ? trialFile.targetSkill : scenarioTargetSkill(r.scenario),
+    skills,
   });
 }
 if (!trials.length) { console.error(`No results.json in ${runDir}`); process.exit(1); }
@@ -200,6 +221,8 @@ for (const id of ids) {
     return st.length ? `${pct(st.filter((s) => s === "pass").length / st.length)} (${st.length})` : "–";
   }).join(" | ")} |`);
 }
+out();
+for (const l of activationMarkdown(trials)) out(l);
 const failed = trials.filter((t) => !t.success && t.outcome !== "harness-error");
 if (failed.length) {
   out();

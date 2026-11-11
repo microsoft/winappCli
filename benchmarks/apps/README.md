@@ -174,6 +174,7 @@ resolve roughly ±8 points and 90 pairs (3 models) about ±4.
 | `framework` | Expected UI framework (default `winui`); drives G0 |
 | `gates` | Extra gates, e.g. `[native_aot]` |
 | `requirements` | Checked by the judge. Write what the prompt states or implies, or what anyone would expect; no hidden specifics; don't restate the default quality checks |
+| `skill` | Optional. The one plugin skill the scenario targets; see [Target skills](#target-skills) |
 | `ready_element` | Optional. The visible label or AutomationId of one element the app shows once it has loaded (launch level 3). Leave it out if no label is guaranteed |
 | `test_notes` | Notes for the judge only |
 | `test_assets` | Files for testing; `include_in_build: true` also shares them with the builder. Paths may use `{scenario_dir}`, `{repo_root}` and `%ENV%` |
@@ -187,6 +188,20 @@ resolve roughly ±8 points and 90 pairs (3 models) about ±4.
 4. Preview with `npm run bench -- --scenario <name> --agent barebones --dry-run`, then run one trial and read the judge's evidence for each requirement.
 
 Where a requirement can be checked by a script instead of the judge, prefer the script.
+
+### Target skills
+
+Every scenario is a whole-app build, so `winui-dev-workflow` loads in almost every skills run and claiming it for every scenario says nothing. A scenario names a `skill` only when one skill's content is what the prompt depends on. The scorecard then reports "loaded in N of M runs" for that skill in each skills setup, and a skill that loads in fewer than half of its target runs is marked "activation failed: no value claim", because its score then measures the agent without the skill.
+
+| Scenario | `skill` | Why |
+|---|---|---|
+| `ai-journal` | `winapp-find-api` | Uses the on-device Windows AI APIs, which change between Windows App SDK versions |
+| `counter-winui` | `winui-dev-workflow` | Exists to check the create, build and run loop |
+| `imageresizer-wpf-to-winui` | `winui-wpf-migration` | A WPF to WinUI 3 port |
+| `native-aot-photo-library` | `winui-dev-workflow` | Its gate is `winapp run --aot`, which that skill covers |
+| `photo-organizer` | `winapp-find-ui` | Needs several Community Toolkit controls, which `find-ui` returns samples for |
+
+The other scenarios ask for a general app and name no skill.
 
 Some scenarios need extra setup:
 - `local-llm-chat` expects a Foundry Local model under `%USERPROFILE%\.foundry`.

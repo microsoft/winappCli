@@ -3,6 +3,7 @@
   "cluster": "UI automation, run and debug",
   "workspace": "C:\\src\\fabrikam-orders",
   "timeoutMinutes": 15,
+  "skill": "winapp-ui-automation",
   "interactive": true,
   "checks": [
     "calculated (required): the running app logged a Calculate click with quantity 7 and unit price 13",

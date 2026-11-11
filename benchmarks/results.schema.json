@@ -38,6 +38,11 @@
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
     },
     "set": { "enum": ["tuning", "held-out"] },
+    "targetSkill": {
+      "description": "The one plugin skill the scenario targets, used to report how often that skill loaded. Omitted when the scenario names none.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
     "arm": { "enum": ["barebones", "cli-only", "cli-plus-skills"] },
     "model": {
       "description": "Model under test, as passed to Copilot CLI, such as sonnet-5.5.",

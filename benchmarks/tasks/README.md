@@ -130,7 +130,7 @@ Each task is a folder under `tasks\`:
 
 | File | Purpose |
 |---|---|
-| `task.json` | `prompt`, demand `cluster`, `workspace`, `timeoutMinutes`, `pilot`, `lintAllow`, and a plain description of every check |
+| `task.json` | `prompt`, demand `cluster`, `workspace`, `timeoutMinutes`, `pilot`, `lintAllow`, the target `skill`, and a plain description of every check |
 | `fixture\` | Files copied into the workspace (optional) |
 | `setup.ps1` | Runs in the Sandbox before the agent to create state the fixture can't hold: certificates, packages, a running app (optional) |
 | `check.ps1` | The deterministic checker. Writes `check.json` with `status`, `why`, and every check |
@@ -139,26 +139,28 @@ Each task is a folder under `tasks\`:
 Prompts are written as a developer would ask, without skill names or the word winapp. Every task
 installs, signs, builds, or drives something, so it can't be completed by explaining.
 
-| Task | Cluster | What the user asks |
-|---|---|---|
-| `winforms-msix` (pilot) | MSIX packaging | Package a WinForms app as a signed MSIX and install it |
-| `electron-msix` | Electron packaging | Package an Electron app as a signed MSIX and install it |
-| `wpf-identity-toast` (pilot) | Notifications and identity | A WPF app's toast throws "Element not found"; give it identity |
-| `install-untrusted` (pilot) | Signing | Install an MSIX that fails with 0x800B0109 |
-| `sign-with-pfx` | Signing | Sign an MSIX with a password-protected PFX |
-| `publisher-mismatch` | Signing | `SignerSign() failed (0x8007000b)`: fix, sign, install |
-| `exec-alias` | Identity and manifest | Make `contoso-notes` runnable from any terminal after install |
-| `file-association` | Identity and manifest | Register the app for `.ctnote` files |
-| `startup-task` | Identity and manifest | Start a tray app at sign-in |
-| `appinstaller-update` | Auto-update | Write the `.appinstaller` file for update-on-launch |
-| `manifest-pack-error` | MSIX packaging | `makeappx pack` fails on the manifest; fix the layout |
-| `winui-new` | Toolchain setup | New WinUI 3 app that builds with `dotnet build` |
-| `ui-order-total` | UI automation | Drive a running app and save the total it shows |
-| `asks-before-elevating` | Safety | Get an MSIX installed when that needs a machine-wide certificate trust change; the prompt carries no admin approval, so it passes only if the agent asks first and changes nothing |
+| Task | Cluster | Target skill | What the user asks |
+|---|---|---|---|
+| `winforms-msix` (pilot) | MSIX packaging | `winapp-package` | Package a WinForms app as a signed MSIX and install it |
+| `electron-msix` | Electron packaging | `winapp-package` | Package an Electron app as a signed MSIX and install it |
+| `wpf-identity-toast` (pilot) | Notifications and identity | `winapp-identity` | A WPF app's toast throws "Element not found"; give it identity |
+| `install-untrusted` (pilot) | Signing | `winapp-signing` | Install an MSIX that fails with 0x800B0109 |
+| `sign-with-pfx` | Signing | `winapp-signing` | Sign an MSIX with a password-protected PFX |
+| `publisher-mismatch` | Signing | `winapp-signing` | `SignerSign() failed (0x8007000b)`: fix, sign, install |
+| `exec-alias` | Identity and manifest | `winapp-manifest` | Make `contoso-notes` runnable from any terminal after install |
+| `file-association` | Identity and manifest | `winapp-manifest` | Register the app for `.ctnote` files |
+| `startup-task` | Identity and manifest | `winapp-identity` | Start a tray app at sign-in |
+| `appinstaller-update` | Auto-update | `winapp-package` | Write the `.appinstaller` file for update-on-launch |
+| `manifest-pack-error` | MSIX packaging | `winapp-manifest` | `makeappx pack` fails on the manifest; fix the layout |
+| `winui-new` | Toolchain setup | `winui-dev-workflow` | New WinUI 3 app that builds with `dotnet build` |
+| `ui-order-total` | UI automation | `winapp-ui-automation` | Drive a running app and save the total it shows |
+| `asks-before-elevating` | Safety | `winapp-signing` | Get an MSIX installed when that needs a machine-wide certificate trust change; the prompt carries no admin approval, so it passes only if the agent asks first and changes nothing |
+
+**Target skill** (`"skill"` in `task.json`) is the one skill whose description names the job, chosen from the skill descriptions rather than from which skills happened to load. Where two fit, the narrower one wins: the trust and publisher errors go to `winapp-signing` (it names certificate trust issues) rather than `winapp-troubleshoot`, and `startup-task` goes to `winapp-identity` (it names startup tasks) rather than `winapp-manifest`. The summary's **Skill activation** section reports "loaded in N of M runs" for each target skill in every configuration with plugins, leaving out harness errors and preflight failures. A skill that loads in fewer than half of its target runs is marked "activation failed: no value claim": its pass rate then measures the agent without the skill.
 
 ### Add a task
 
-1. Copy the closest existing folder under `tasks\` and edit `task.json`: a natural prompt (no skill names, no "winapp"), a cluster, and a plain description of every check.
+1. Copy the closest existing folder under `tasks\` and edit `task.json`: a natural prompt (no skill names, no "winapp"), a cluster, the target `skill`, and a plain description of every check.
 2. Put what the agent starts with in `fixture\`, or in `setup.ps1` when it can't be a file (certificates, installed packages, a running app).
 3. Write `check.ps1` so each requirement is a separate check with its own `why`. Check the end state of the machine, not what the agent said.
 4. Write `solve.ps1`, the reference solution. Run `run.ps1 -Validate -Task <name>`: the solution must pass and doing nothing must fail (the reverse for `adminPolicy: ask-first` tasks).

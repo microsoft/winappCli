@@ -3,6 +3,7 @@
   "cluster": "Package identity and manifest",
   "workspace": "C:\\src\\SyncTray",
   "timeoutMinutes": 25,
+  "skill": "winapp-identity",
   "checks": [
     "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
     "installed (required): a new package whose application is SyncTray.exe is installed",

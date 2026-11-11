@@ -44,6 +44,7 @@ function Get-TaskDefinitions {
             Workspace      = [string]$j.workspace
             TimeoutMinutes = if ($j.PSObject.Properties['timeoutMinutes']) { [int]$j.timeoutMinutes } else { 20 }
             Set            = if ($j.PSObject.Properties['set']) { [string]$j.set } else { 'tuning' }
+            Skill          = if ($j.PSObject.Properties['skill'] -and $j.skill) { [string]$j.skill } else { $null }
             Pilot          = [bool]($j.PSObject.Properties['pilot'] -and $j.pilot)
             Interactive    = [bool]($j.PSObject.Properties['interactive'] -and $j.interactive)
             AskFirst       = [bool]($j.PSObject.Properties['adminPolicy'] -and $j.adminPolicy -eq 'ask-first')
@@ -242,7 +243,9 @@ function ConvertTo-TrialResult {
         # `winapp --version` of the CLI the run used; left out of the file when empty.
         [string]$WinappVersion,
         # Commit the plugins (skills) came from; left out when empty, not a full SHA, or the arm has no plugins.
-        [string]$PluginsCommit
+        [string]$PluginsCommit,
+        # The one plugin skill the task targets (task.json `skill`); left out when empty.
+        [string]$TargetSkill
     )
     # run.ps1 passes an ordered dictionary; its optional counts are properties, so read it as an object.
     if ($Record -is [System.Collections.IDictionary]) { $Record = [pscustomobject]$Record }
@@ -290,6 +293,7 @@ function ConvertTo-TrialResult {
     }
     if ($WinappVersion) { $result.Insert(3, 'winappVersion', $WinappVersion) }
     if ($Record.configuration -ne 'barebones' -and $PluginsCommit -match '^[0-9a-f]{40}$') { $result.Insert(($WinappVersion ? 4 : 3), 'pluginsCommit', $PluginsCommit) }
+    if ($TargetSkill) { $result.Insert(([array]$result.Keys).IndexOf('set') + 1, 'targetSkill', $TargetSkill) }
     if ($skills.Count) { $result.skills = $skills }
     if ($cmdCounts) { $result.winappCommands = $commandCounts }
     return $result
@@ -348,8 +352,42 @@ function Select-EffectiveRuns {
     return @($chosen | Sort-Object { & $number $_ })
 }
 
+function Get-SkillActivation {
+    # For each task with a target skill and each configuration that installs plugins: how many agent runs
+    # loaded the target skill. Harness errors and preflight failures are left out, because they never
+    # gave the agent a fair chance to load anything.
+    param([AllowEmptyCollection()][object[]]$Runs = @(), [System.Collections.IDictionary]$TargetSkills = @{})
+    $eligible = @($Runs | Where-Object {
+            $_.mode -eq 'agent' -and $TargetSkills[[string]$_.task] -and $_.taskStatus -notin 'harness_error', 'preflight_failed' -and
+            (Get-ConfigurationNames) -contains $_.configuration -and (Get-ConfigurationSpec $_.configuration).Plugins.Count -gt 0
+        })
+    return @($eligible | Group-Object task, configuration | Sort-Object Name | ForEach-Object {
+            $f = $_.Group[0]; $skill = [string]$TargetSkills[[string]$f.task]
+            [pscustomobject]@{
+                Task = $f.task; Configuration = $f.configuration; Skill = $skill; Runs = $_.Count
+                Loaded = @($_.Group | Where-Object { @($_.skillsLoaded) -contains $skill }).Count
+            }
+        })
+}
+
+function Get-SkillActivationVerdict {
+    # Rolls Get-SkillActivation rows up per skill and configuration. A skill that loads in fewer than half
+    # of its target runs gets no value claim: a pass or fail there says nothing about the skill's content.
+    param([AllowEmptyCollection()][object[]]$Rows = @())
+    return @($Rows | Group-Object Skill, Configuration | Sort-Object Name | ForEach-Object {
+            $runs = ($_.Group | Measure-Object Runs -Sum).Sum; $loaded = ($_.Group | Measure-Object Loaded -Sum).Sum
+            [pscustomobject]@{
+                Skill = $_.Group[0].Skill; Configuration = $_.Group[0].Configuration; Tasks = @($_.Group.Task | Sort-Object -Unique)
+                Runs = [int]$runs; Loaded = [int]$loaded
+                ActivationFailed = $runs -gt 0 -and (2 * $loaded) -lt $runs
+            }
+        })
+}
+
 function Write-TaskSummary {
-    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Runs, [Parameter(Mandatory)][string]$Path, [System.Collections.IDictionary]$Header = @{})
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Runs, [Parameter(Mandatory)][string]$Path, [System.Collections.IDictionary]$Header = @{},
+        # Task id -> the skill it targets (task.json `skill`), for the skill activation section.
+        [System.Collections.IDictionary]$TargetSkills = @{})
     $Runs = Select-EffectiveRuns $Runs
     $sb = [System.Text.StringBuilder]::new()
     $line = { param($t = '') [void]$sb.AppendLine($t) }
@@ -389,6 +427,23 @@ function Write-TaskSummary {
         $f = $g.Group[0]; & $line "| $($f.task) | $($f.configuration) $(& $fmt (Get-RunGroupRow $g.Group))"
     }
     & $line
+    $activation = Get-SkillActivation -Runs $Runs -TargetSkills $TargetSkills
+    if ($activation) {
+        & $line '## Skill activation'
+        & $line
+        & $line 'Each task names the one skill it targets. A skill that loads in fewer than half of its target runs gets no value claim: its pass rate measures the agent without the skill.'
+        & $line
+        & $line '| Skill | Configuration | Target tasks | Loaded | Verdict |'
+        & $line '|---|---|---|---|---|'
+        foreach ($v in Get-SkillActivationVerdict $activation) {
+            & $line "| $($v.Skill) | $($v.Configuration) | $($v.Tasks -join ', ') | loaded in $($v.Loaded) of $($v.Runs) runs | $($v.ActivationFailed ? 'activation failed: no value claim' : 'activated') |"
+        }
+        & $line
+        & $line '| Task | Configuration | Target skill | Loaded |'
+        & $line '|---|---|---|---|'
+        foreach ($a in $activation) { & $line "| $($a.Task) | $($a.Configuration) | $($a.Skill) | loaded in $($a.Loaded) of $($a.Runs) runs |" }
+        & $line
+    }
     & $line '## Versus barebones'
     & $line
     & $line 'Paired by task, model, and iteration with the `barebones` run (no `winapp`, no plugins). Positive score means the configuration did better than `barebones`.'
@@ -435,4 +490,4 @@ function Get-HostArchitecture {
 }
 
 Export-ModuleMember -Function Get-HostArchitecture, Get-ConfigurationNames, Get-ConfigurationSpec, Get-TaskDefinitions, New-SandboxConfiguration, Read-ToolActivity,
-Get-UnsafeActions, Remove-SecretFromFiles, ConvertTo-TrialResult, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate, Get-AdminApprovalLine, Get-WinappCliNote, Get-TaskPrompt, Test-StoppedForAdmin
+Get-UnsafeActions, Remove-SecretFromFiles, ConvertTo-TrialResult, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Get-SkillActivation, Get-SkillActivationVerdict, Write-TaskSummary, Format-Rate, Get-AdminApprovalLine, Get-WinappCliNote, Get-TaskPrompt, Test-StoppedForAdmin

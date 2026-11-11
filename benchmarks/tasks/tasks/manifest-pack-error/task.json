@@ -3,6 +3,7 @@
   "cluster": "MSIX packaging",
   "workspace": "C:\\src\\litware-clock",
   "timeoutMinutes": 15,
+  "skill": "winapp-manifest",
   "lintAllow": ["manifest validation", "package format"],
   "checks": [
     "layout-packs (required): the checker's own `makeappx pack` of layout\\ succeeds",

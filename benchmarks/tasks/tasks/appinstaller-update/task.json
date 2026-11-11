@@ -3,6 +3,7 @@
   "cluster": "Auto-update and App Installer",
   "workspace": "C:\\src\\contoso-notes-release",
   "timeoutMinutes": 15,
+  "skill": "winapp-package",
   "checks": [
     "appinstaller-exists (required): an .appinstaller file exists under the folder",
     "appinstaller-xml (required): it is an <AppInstaller> document in an App Installer schema namespace",

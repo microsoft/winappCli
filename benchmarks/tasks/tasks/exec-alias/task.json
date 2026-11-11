@@ -3,6 +3,7 @@
   "cluster": "Package identity and manifest",
   "workspace": "C:\\src\\ContosoNotes",
   "timeoutMinutes": 25,
+  "skill": "winapp-manifest",
   "checks": [
     "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
     "installed (required): a new package whose application is ContosoNotes.exe is installed",

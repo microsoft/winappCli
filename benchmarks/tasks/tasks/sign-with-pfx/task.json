@@ -3,6 +3,7 @@
   "cluster": "Signing",
   "workspace": "C:\\src\\fabrikam-tasks",
   "timeoutMinutes": 15,
+  "skill": "winapp-signing",
   "lintAllow": ["code signing", "signing certificate"],
   "checks": [
     "msix-present (required): dist\\Fabrikam.Tasks_2.3.0.0_x64.msix still exists",

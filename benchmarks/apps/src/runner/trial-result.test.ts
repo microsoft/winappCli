@@ -140,3 +140,11 @@ test("launch level is left out when level 2 was not measured", () => {
   assert.equal("launchLevel" in mk({ L2: "na" }), false);
   assert.equal("launchLevel" in mk({}), false);
 });
+
+test("targetSkill follows set when the scenario names one", () => {
+  const t = toTrialResult({ ...base, targetSkill: "winui-wpf-migration" }) as any;
+  assert.equal(t.targetSkill, "winui-wpf-migration");
+  const keys = Object.keys(t);
+  assert.equal(keys[keys.indexOf("set") + 1], "targetSkill");
+  assert.equal("targetSkill" in (toTrialResult(base) as any), false);
+});

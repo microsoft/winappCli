@@ -3,6 +3,7 @@
   "cluster": "Notifications and package identity",
   "workspace": "C:\\src\\PingNotifier",
   "timeoutMinutes": 25,
+  "skill": "winapp-identity",
   "pilot": true,
   "lintAllow": ["package identity", "toast notification"],
   "checks": [

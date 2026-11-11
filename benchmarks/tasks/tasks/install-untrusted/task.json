@@ -3,6 +3,7 @@
   "cluster": "Signing",
   "workspace": "C:\\src\\notes-test",
   "timeoutMinutes": 15,
+  "skill": "winapp-signing",
   "pilot": true,
   "lintAllow": ["publisher certificate", "root certificate", "intermediate certificates"],
   "checks": [

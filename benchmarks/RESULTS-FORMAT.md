@@ -31,6 +31,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `benchmark` | `apps` or `tasks` |
 | `scenario`, `model`, `trial` | What ran. `trial` counts repeats, starting at 1 |
 | `set` | `tuning` or `held-out` |
+| `targetSkill` | Optional. The one plugin skill the scenario targets: `skill` in `task.json` (tasks) or in `scenario.md` frontmatter (apps). Reports count the `cli-plus-skills` trials whose `skills` include it ("loaded in N of M runs"), and a skill that loads in fewer than half of them gets no value claim |
 | `arm` | `barebones`, `cli-only` or `cli-plus-skills` |
 | `startedAt` | When the trial started (UTC) |
 | `outcome` | Why the trial ended (below). Only `valid` trials count toward pass rates |
@@ -99,8 +100,8 @@ There is no single score. Each check is `required` or an `improvement`:
 
 | Harness | File | Notes |
 |---|---|---|
-| `tasks` | `<run dir>\trials\<scenario>__<arm>__<model>__<trial>.json` | `release` is the pinned release when run with `-Winapp release`, otherwise `dev`. `set` comes from `"set"` in `task.json` (default `tuning`) |
-| `apps` | `<trial dir>\trial-result.json` | `release` comes from the `BENCH_RELEASE` environment variable (default `dev`). `set` and `required_requirements` (1-based numbers) come from the scenario config. Setups other than the three arms, such as `published`, write no file |
+| `tasks` | `<run dir>\trials\<scenario>__<arm>__<model>__<trial>.json` | `release` is the pinned release when run with `-Winapp release`, otherwise `dev`. `set` comes from `"set"` in `task.json` (default `tuning`), `targetSkill` from `"skill"` |
+| `apps` | `<trial dir>\trial-result.json` | `release` comes from the `BENCH_RELEASE` environment variable (default `dev`). `set`, `skill` (written as `targetSkill`) and `required_requirements` (1-based numbers) come from the scenario config. Setups other than the three arms, such as `published`, write no file |
 
 `apps` writes `harness-error`, `timed-out`, `build-failed` and `app-failed` outcomes. Runs with no usage data still write no file, and `tasks` writes only `valid` and `asked-before-admin`.
 `skills` and `winappCommands` hold how many times each skill was loaded and each `winapp`

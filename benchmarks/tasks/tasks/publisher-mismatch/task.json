@@ -3,6 +3,7 @@
   "cluster": "Signing",
   "workspace": "C:\\src\\northwind-viewer",
   "timeoutMinutes": 20,
+  "skill": "winapp-signing",
   "checks": [
     "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
     "msix-built (required): an .msix exists under the project folder",

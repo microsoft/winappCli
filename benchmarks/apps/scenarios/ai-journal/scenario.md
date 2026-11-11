@@ -2,6 +2,7 @@
 name: ai-journal
 description: "Implicitly tests the usage of local Windows Copilot Runtime / Generative AI / Phi Silica APIs."
 type: new
+skill: winapp-find-api
 app_name: SecureJournal
 requirements:
   - "The app must contain a text area for writing entries and a button to trigger 'Insights'."

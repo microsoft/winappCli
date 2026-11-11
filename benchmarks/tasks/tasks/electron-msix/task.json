@@ -3,6 +3,7 @@
   "cluster": "Electron packaging",
   "workspace": "C:\\src\\sticky-notes",
   "timeoutMinutes": 30,
+  "skill": "winapp-package",
   "lintAllow": ["msix installer"],
   "checks": [
     "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",

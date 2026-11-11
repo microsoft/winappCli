@@ -161,6 +161,8 @@ export interface ScenarioConfig {
   ready_element?: string;
   /** Scenario set for the benchmark-data format. Defaults to "tuning". */
   set?: "tuning" | "held-out";
+  /** The one plugin skill the scenario targets, for the skill activation report. Most scenarios name none. */
+  skill?: string;
   test_notes?: string;
   test_assets?: Array<{
     name: string;

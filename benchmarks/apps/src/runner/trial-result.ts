@@ -56,6 +56,8 @@ export interface TrialResultInput {
   pluginsCommit?: string;
   scenario: string;
   set?: "tuning" | "held-out";
+  /** The one plugin skill the scenario targets (scenario.md `skill`). */
+  targetSkill?: string;
   /** Agent setup name; a " [1/2]" suffix is ignored. */
   condition: string;
   model: string;
@@ -145,6 +147,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     benchmark: "apps",
     scenario: slug(input.scenario),
     set: input.set ?? "tuning",
+    ...(input.targetSkill ? { targetSkill: input.targetSkill } : {}),
     arm,
     model: slug(input.model),
     trial: input.iteration ?? 1,
