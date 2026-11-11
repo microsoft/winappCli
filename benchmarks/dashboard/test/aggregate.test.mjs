@@ -6,10 +6,10 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import {
-  aggregateBenchmark, aggregateRelease, compareEntries, checkPassed, compareReleases, metrics, pairedGap, wilson,
+  aggregateBenchmark, aggregateRelease, compareEntries, checkPassed, compareReleases, metrics, pairedGap, skillActivation, wilson,
 } from '../lib/aggregate.mjs';
 import { loadData } from '../lib/load.mjs';
-import { buildSiteData, parseCli } from '../build.mjs';
+import { buildSiteData, loadTargetSkills, parseCli } from '../build.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = join(here, 'fixtures', 'data');
@@ -366,4 +366,45 @@ test('run 2 numbers match the reference script', { skip: !process.env.WINAPP_DAS
   near(b.pairedQualityGap['claude-sonnet-5.5'].mean, 6.9);
   near(b.pairedQualityGap['gpt-6.1-sol'].mean, 8.7);
   near(b.pairedQualityGap['claude-opus-5.5'].mean, 7.1);
+  // Target-skill activation from target-skills.json (run 2 trial files carry no targetSkill).
+  const act = (bench, skill) => d.releases[0].benchmarks[bench].activation.perSkill.find((s) => s.skill === skill);
+  assert.deepEqual(['loaded', 'runs', 'activationFailed'].map((k) => act('apps', 'winapp-find-api')[k]), [3, 9, true]);
+  assert.deepEqual(['loaded', 'runs', 'activationFailed'].map((k) => act('tasks', 'winapp-signing')[k]), [13, 24, false]);
+});
+
+test('skillActivation counts target-skill loads in the skills setup and flags a skill under half', () => {
+  const sk = (...names) => ({ skills: names.map((name) => ({ name })) });
+  const a = skillActivation([
+    t({ scenario: 'sign', arm: 'cli-plus-skills', extra: { targetSkill: 'winapp-signing', ...sk('winapp-signing') } }),
+    t({ scenario: 'sign', arm: 'cli-plus-skills', extra: { targetSkill: 'winapp-signing', ...sk() } }),
+    t({ scenario: 'api', arm: 'cli-plus-skills', extra: sk('winapp-setup') }),
+    t({ scenario: 'api', arm: 'cli-plus-skills', extra: sk() }),
+    t({ scenario: 'api', arm: 'cli-plus-skills', extra: sk('winapp-find-api') }),
+    t({ scenario: 'api', arm: 'cli-plus-skills', outcome: 'harness-error', extra: sk('winapp-find-api') }),
+    t({ scenario: 'api', arm: 'cli-plus-skills' }),
+    t({ scenario: 'api', arm: 'cli-only', extra: sk() }),
+    t({ scenario: 'calc', arm: 'cli-plus-skills', extra: sk('winui-dev-workflow') }),
+  ], { api: 'winapp-find-api' });
+  assert.deepEqual(a.perScenario.map((r) => `${r.scenario}:${r.skill}:${r.loaded}/${r.runs}`), ['api:winapp-find-api:1/3', 'sign:winapp-signing:1/2']);
+  assert.deepEqual(a.perSkill.map((s) => `${s.skill}:${s.activationFailed}`), ['winapp-find-api:true', 'winapp-signing:false']);
+});
+
+test('skillActivation reads a tasks file without skills as none loaded', () => {
+  const a = skillActivation([t({ benchmark: 'tasks', scenario: 'x', arm: 'cli-plus-skills' })], { x: 'winapp-package' });
+  assert.deepEqual(a.perSkill.map((s) => [s.loaded, s.runs, s.activationFailed]), [[0, 1, true]]);
+});
+
+test('target-skills.json names only skills that exist in the plugins', () => {
+  const map = loadTargetSkills();
+  const plugins = join(here, '..', '..', '..', 'plugins');
+  const exists = (s) => existsSync(join(plugins, 'winapp', 'skills', s)) || existsSync(join(plugins, 'winui', 'agent-plugin', 'skills', s));
+  assert.ok(Object.keys(map.apps ?? {}).length && Object.keys(map.tasks ?? {}).length);
+  for (const [bench, scenarios] of Object.entries(map)) {
+    for (const [scenario, skill] of Object.entries(scenarios)) assert.ok(exists(skill), `${bench}/${scenario}: ${skill}`);
+  }
+});
+
+test('aggregateRelease uses the target-skill map for trials without targetSkill', () => {
+  const r = aggregateRelease('dev', [t({ scenario: 'ai-journal', arm: 'cli-plus-skills', extra: { skills: [] } })], { targetSkills: { apps: { 'ai-journal': 'winapp-find-api' } } });
+  assert.equal(r.benchmarks.apps.activation.perSkill[0].activationFailed, true);
 });

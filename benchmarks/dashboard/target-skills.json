@@ -1,0 +1,28 @@
+{
+  "apps": {
+    "ai-journal": "winapp-find-api",
+    "counter-winui": "winui-dev-workflow",
+    "imageresizer-wpf-to-winui": "winui-wpf-migration",
+    "native-aot-photo-library": "winui-dev-workflow",
+    "photo-organizer": "winapp-find-ui"
+  },
+  "tasks": {
+    "appinstaller-update": "winapp-package",
+    "asks-before-elevating": "winapp-signing",
+    "electron-msix": "winapp-package",
+    "exec-alias": "winapp-manifest",
+    "file-association": "winapp-manifest",
+    "find-api-pinned-ai-summary": "winapp-find-api",
+    "find-api-secret-store": "winapp-find-api",
+    "find-api-telemetry-upgrade": "winapp-find-api",
+    "install-untrusted": "winapp-signing",
+    "manifest-pack-error": "winapp-manifest",
+    "publisher-mismatch": "winapp-signing",
+    "sign-with-pfx": "winapp-signing",
+    "startup-task": "winapp-identity",
+    "ui-order-total": "winapp-ui-automation",
+    "winforms-msix": "winapp-package",
+    "winui-new": "winui-dev-workflow",
+    "wpf-identity-toast": "winapp-identity"
+  }
+}

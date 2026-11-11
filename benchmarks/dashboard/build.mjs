@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildTrends, CONTROL_SHIFT } from './lib/trends.mjs';
-import { aggregateRelease, compareEntries, BASE_ARM, SKILLS_ARM, OUTLIER_RULES, SANITY_PASS_RATE } from './lib/aggregate.mjs';
+import { aggregateRelease, compareEntries, ACTIVATION_MIN_RATE, BASE_ARM, SKILLS_ARM, OUTLIER_RULES, SANITY_PASS_RATE } from './lib/aggregate.mjs';
 import { loadData } from './lib/load.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -40,15 +40,30 @@ export function loadMethodChanges(dirs, warnings = []) {
   return [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// Target skills for trial files written before trials carried `targetSkill`: target-skills.json
+// next to this script, { "apps": { "<scenario>": "<skill>" }, "tasks": { ... } }.
+export function loadTargetSkills(warnings = [], file = join(here, 'target-skills.json')) {
+  if (!existsSync(file)) return {};
+  try {
+    const map = JSON.parse(readFileSync(file, 'utf8'));
+    if (map && typeof map === 'object' && !Array.isArray(map)) return map;
+    warnings.push(`${file}: expected an object of benchmark -> scenario -> skill; skipped`);
+  } catch (e) {
+    warnings.push(`${file}: not valid JSON (${e.message}); skipped`);
+  }
+  return {};
+}
+
 // sources: folder paths, or { dir, label } pairs. See loadData.
 export function buildSiteData(sources, { rawDataUrl = DEFAULT_RAW_DATA_URL, now = new Date() } = {}) {
   const { releases, labels, warnings } = loadData(sources);
-  const out = [...releases.keys()].map((k) => aggregateRelease(k, releases.get(k), { label: labels.has(k) ? k : null })).sort(compareEntries);
+  const targetSkills = loadTargetSkills(warnings);
+  const out = [...releases.keys()].map((k) => aggregateRelease(k, releases.get(k), { label: labels.has(k) ? k : null, targetSkills })).sort(compareEntries);
   const methodChanges = loadMethodChanges(sources.map((s) => (typeof s === 'string' ? s : s.dir)), warnings);
   return {
     generatedAt: now.toISOString(),
     rawDataUrl,
-    rules: { sanityPassRate: SANITY_PASS_RATE, baseArm: BASE_ARM, skillsArm: SKILLS_ARM, controlShift: CONTROL_SHIFT, ...OUTLIER_RULES },
+    rules: { sanityPassRate: SANITY_PASS_RATE, baseArm: BASE_ARM, skillsArm: SKILLS_ARM, controlShift: CONTROL_SHIFT, activationMinRate: ACTIVATION_MIN_RATE, ...OUTLIER_RULES },
     warnings,
     releases: out,
     methodChanges,

@@ -306,6 +306,39 @@ function usageByArm(trials, arms, field, nameKey) {
   return out;
 }
 
+// A skill that loads in fewer than half of its target runs gets no value claim.
+export const ACTIVATION_MIN_RATE = 0.5;
+
+// Skill activation in the skills setup: for each scenario that names a target skill (the trial's
+// `targetSkill`, or else the scenario's entry in target-skills.json), how many runs loaded it.
+// Harness errors are left out. tasks always records skills, so a tasks file without `skills`
+// means none loaded; an apps file without it was not recorded and is left out.
+export function skillActivation(trials, targets = {}) {
+  const rows = new Map();
+  for (const t of trials) {
+    const skill = t.targetSkill ?? targets[t.scenario];
+    if (!skill || t.arm !== SKILLS_ARM || t.outcome === 'harness-error') continue;
+    const loaded = Array.isArray(t.skills) ? t.skills.map((s) => s?.name) : t.benchmark === 'tasks' ? [] : null;
+    if (!loaded) continue;
+    const row = rows.get(t.scenario) ?? { scenario: t.scenario, skill, runs: 0, loaded: 0 };
+    row.runs++;
+    if (loaded.includes(skill)) row.loaded++;
+    rows.set(t.scenario, row);
+  }
+  const perScenario = [...rows.values()].sort((a, b) => a.scenario.localeCompare(b.scenario));
+  const bySkill = new Map();
+  for (const r of perScenario) {
+    const s = bySkill.get(r.skill) ?? { skill: r.skill, scenarios: [], runs: 0, loaded: 0 };
+    s.scenarios.push(r.scenario);
+    s.runs += r.runs;
+    s.loaded += r.loaded;
+    bySkill.set(r.skill, s);
+  }
+  const perSkill = [...bySkill.values()].map((s) => ({ ...s, activationFailed: s.runs > 0 && s.loaded / s.runs < ACTIVATION_MIN_RATE }))
+    .sort((a, b) => a.skill.localeCompare(b.skill));
+  return { arm: SKILLS_ARM, perScenario, perSkill };
+}
+
 function diffMetrics(a, b) {
   const d = (k) => (a?.[k] == null || b?.[k] == null ? null : a[k] - b[k]);
   return {
@@ -359,7 +392,8 @@ export function pairedGap(perScenario, models, key = 'qualityRate', { resamples 
   return out;
 }
 
-export function aggregateBenchmark(trials) {
+// targets: scenario -> target skill, for trials that don't carry `targetSkill` (see target-skills.json).
+export function aggregateBenchmark(trials, { targets = {} } = {}) {
   const arms = orderBy(trials.map((t) => t.arm), ARM_ORDER);
   const models = orderBy(trials.map((t) => t.model), MODEL_ORDER);
   const scenarios = orderBy(trials.map((t) => t.scenario), []);
@@ -395,6 +429,7 @@ export function aggregateBenchmark(trials) {
     perScenario,
     notValid,
     skills: usageByArm(trials, arms, 'skills', 'name'),
+    activation: skillActivation(trials, targets),
     qualityTopics: qualityTopics(trials, arms),
     winappCommands: usageByArm(trials, arms, 'winappCommands', 'command'),
     scoringVersions: orderBy(trials.map((t) => (t.scoringVersion == null ? 'not recorded' : String(t.scoringVersion))), []),
@@ -410,12 +445,13 @@ export function aggregateBenchmark(trials) {
 
 // Aggregates one dropdown entry. `id` is the --label when one was given, otherwise the
 // release folder name. `release` is the release value the trials share, or null if mixed.
-export function aggregateRelease(id, trials, { label = null } = {}) {
+// targetSkills: { apps: { scenario: skill }, tasks: { ... } }, used when trials lack `targetSkill`.
+export function aggregateRelease(id, trials, { label = null, targetSkills = {} } = {}) {
   const releaseValues = orderBy(trials.map((t) => t.release), []);
   const started = trials.map((t) => t.startedAt).filter(Boolean).sort();
   const benchmarks = {};
   for (const name of orderBy(trials.map((t) => t.benchmark), ['apps', 'tasks'])) {
-    benchmarks[name] = aggregateBenchmark(trials.filter((t) => t.benchmark === name));
+    benchmarks[name] = aggregateBenchmark(trials.filter((t) => t.benchmark === name), { targets: targetSkills[name] ?? {} });
   }
   return {
     id,

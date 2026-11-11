@@ -38,7 +38,8 @@
     minutes: 'Minutes per app: mean wall-clock time per valid run.',
     pass: 'Pass rate: share of valid runs where every required check passed (builds, launches, right framework).',
     design: "Design score: the judge model's 0-10 rating. Detail only; it never changes a pass.",
-    claim: 'Each skill will get one automatic sentence (Helps, Helps but costs more, No measurable difference, Not enough data) once the rules in #1182 are agreed.',
+    claim: 'Each skill will get one automatic sentence (Helps, Helps but costs more, No measurable difference, Not enough data) once the rules in #1182 are agreed. A skill that loads in fewer than half of the runs of the scenarios it targets already shows Activation failed: its results measure the agent without it, so no value claim is made.',
+    activation: 'Target runs that loaded it: runs with winapp + skills of the scenarios that name this skill as their target, and how many of them loaded it. Harness errors are left out.',
     valid: 'Valid: the agent finished and the checks ran. Other outcomes (build-failed, harness-error, ...) are left out of rates and averages and listed under Details.',
   };
 
@@ -290,6 +291,26 @@
     const benches = Object.entries(r.benchmarks).map(([bn, b]) => [bn, view(b)]).filter(([, b]) => b.arms.includes(WITH));
     const names = new Set();
     for (const [, b] of benches) Object.keys(b.skills[WITH].names).forEach((n) => names.add(n));
+    // Target-skill activation, summed over benchmarks.
+    const act = new Map();
+    for (const [bn, b] of benches) {
+      for (const s of b.activation?.perSkill ?? []) {
+        const a = act.get(s.skill) ?? { runs: 0, loaded: 0, scenarios: [] };
+        a.runs += s.runs; a.loaded += s.loaded; a.scenarios.push(...s.scenarios.map((sc) => `${bn}: ${sc}`));
+        act.set(s.skill, a);
+        names.add(s.skill);
+      }
+    }
+    const minRate = D?.rules?.activationMinRate ?? 0.5;
+    const failed = (n) => { const a = act.get(n); return !!a && a.runs > 0 && a.loaded / a.runs < minRate; };
+    const actCell = (n) => {
+      const a = act.get(n);
+      if (!a) return '<td class="text"><span class="muted">no target scenario</span></td>';
+      return `<td class="text" title="${esc(a.scenarios.join(', '))}">loaded in ${a.loaded} of ${a.runs} target runs</td>`;
+    };
+    const claimCell = (n) => (failed(n)
+      ? '<td class="text"><span class="tag">Activation failed</span></td>'
+      : '<td class="text"><span class="tag info">Not enough data</span></td>');
     if (!names.size) return `<h2>Skills</h2>${skillImpact(r)}<p>No skills were recorded in this release.</p>`;
     const share = (b, n) => {
       const u = b.skills[WITH];
@@ -303,14 +324,14 @@
       const v = u.names[n]?.trials ?? 0, p = v / u.recorded;
       return `<td class="text"><span class="bar" aria-hidden="true"><span style="width:${Math.round(p * 100)}%"></span></span> ${v} of ${u.recorded} <span class="muted">(${pctText(p)})</span></td>`;
     };
-    const head = `<tr><th scope="col" class="text">Skill</th>${benches.map(([bn]) => `<th scope="col"><code>${esc(bn)}</code> runs that loaded it</th>`).join('')}<th scope="col" class="text">${tip('Claim', 'claim')}</th></tr>`;
-    const body = sorted.map((n) => `<tr><th scope="row" class="text"><code>${esc(n)}</code></th>${benches.map(([, b]) => cell(b, n)).join('')}<td class="text"><span class="tag info">Not enough data</span></td></tr>`).join('');
+    const head = `<tr><th scope="col" class="text">Skill</th>${benches.map(([bn]) => `<th scope="col"><code>${esc(bn)}</code> runs that loaded it</th>`).join('')}<th scope="col" class="text">${tip('Target runs that loaded it', 'activation')}</th><th scope="col" class="text">${tip('Claim', 'claim')}</th></tr>`;
+    const body = sorted.map((n) => `<tr><th scope="row" class="text"><code>${esc(n)}</code></th>${benches.map(([, b]) => cell(b, n)).join('')}${actCell(n)}${claimCell(n)}</tr>`).join('');
     const partial = benches.filter(([, b]) => b.skills[WITH].recorded && b.skills[WITH].recorded < b.skills[WITH].trials)
       .map(([bn, b]) => `<code>${esc(bn)}</code> recorded skills in ${b.skills[WITH].recorded} of ${b.skills[WITH].trials} runs`);
     return `<h2>Skills</h2>
       ${skillImpact(r)}
       <h3>Which skills loaded</h3>
-      <p>Which skills the agent loaded ${esc(armLabel(WITH).toLowerCase())}, and in how many runs. The other setups have no skills installed, so they are not shown here.</p>
+      <p>Which skills the agent loaded ${esc(armLabel(WITH).toLowerCase())}, and in how many runs. The other setups have no skills installed, so they are not shown here. Most scenarios name one skill they target; a skill that loads in fewer than half of those runs shows <strong>Activation failed</strong> and gets no value claim, because its results then measure the agent without it.</p>
       ${table(`Skills loaded, ${esc(armLabel(WITH).toLowerCase())}`, head, body)}
       ${partial.length ? `<p class="muted">${partial.join('; ')}.</p>` : ''}`;
   }
