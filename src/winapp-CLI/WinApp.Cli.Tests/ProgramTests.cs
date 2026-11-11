@@ -222,6 +222,20 @@ public class ProgramMainTests
         Assert.AreEqual(1, exitCode,
             $"Parse error for '{string.Join(" ", args)}' must exit with code 1.");
     }
+
+    [TestMethod]
+    public async Task Main_CliSchemaWithParseError_ExitsZeroWithSchemaJson()
+    {
+        // Review feedback (agammann): RequestedDescriptiveAction exempts --help and
+        // --cli-schema from the parse-error exit rule, so a malformed command line that
+        // still asks for the schema must exit 0 with schema JSON.
+        var (stdout, _, exitCode) = await ProgramMainTestHarness.InvokeProgramAsync(["cert", "bogus", "--cli-schema"]);
+
+        Assert.AreEqual(0, exitCode,
+            "A --cli-schema request must succeed even when the parser recorded errors for other tokens.");
+        Assert.IsTrue(stdout.Contains('{', StringComparison.Ordinal),
+            $"--cli-schema must emit machine-readable JSON. Got: {stdout}");
+    }
 }
 
 [TestClass]
