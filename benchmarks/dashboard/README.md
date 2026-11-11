@@ -73,7 +73,7 @@ All of this is in `lib\aggregate.mjs`.
 
 - **Setups.** `barebones` is shown as "Without our tools", `cli-only` as "winapp CLI only", and `cli-plus-skills` as "With winapp + skills", with the id underneath. Every "change" is `cli-plus-skills` minus `barebones`. The Skills tab shows only `cli-plus-skills`, because the other setups have no skills installed.
 - **Verdict.** The Overview states the packaged-app rate, then the other quality checks, then the change in credits per app, from the data. It uses no thresholds.
-- **Built and launched** (`apps`). Runs where both the `builds` and `launches` checks passed, out of all runs, including ones that are not valid.
+- **Built and launched** (`apps`). Valid runs where both the `builds` and `launches` checks passed. Runs our harness failed aren't counted. When every setup is at 100%, the Overview shows one line instead of a tile.
 
 - **Valid runs only.** Pass rates and averages count `valid` runs. Every table says "n valid of n total", and the Outcomes tab lists every other run.
 - **Debugging configurations.** The `tasks` configurations `winapp-skills`, `winui-skills` and `full-suite` are shown after the three setups and labeled as debugging.

@@ -198,15 +198,16 @@ export function metrics(trials) {
     launchLevels[k] = (launchLevels[k] ?? 0) + 1;
   }
   const design = valid.map((t) => t.judge?.designScore).filter((x) => typeof x === 'number');
-  // apps only: "works" means the app built and launched. Every run is in the denominator,
-  // including runs that are not valid, so a build failure counts against the arm.
-  const apps = trials.filter((t) => t.benchmark === 'apps');
+  // apps only: "works" means the app built and launched, out of valid runs. Runs our harness
+  // failed (harness errors, and run 2's MSB4062 build-gate failures labeled build-failed) are not the agent's work.
+  const apps = valid.filter((t) => t.benchmark === 'apps');
   const hasPassed = (t, id) => (t.checks ?? []).some((c) => c.id === id && c.passed);
   const worked = apps.filter((t) => hasPassed(t, 'builds') && hasPassed(t, 'launches')).length;
   return {
     total: trials.length,
     valid: valid.length,
     worked,
+    worksTotal: apps.length,
     worksRate: ratio(worked, apps.length),
     passed,
     passRate: ratio(passed, valid.length),

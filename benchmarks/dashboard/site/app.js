@@ -33,7 +33,7 @@
     packaging: 'Packaged app: share of the packaging checks (p2, p3: the app is packaged as MSIX) that passed in valid runs. The app prompts do not ask for packaging, so it is reported on its own.',
     qualityAll: 'Quality checks met including the packaging checks (p2, p3), in valid runs.',
     requirements: "Requirements met: share of the scenario's requested features that the judge model found working, in valid runs.",
-    works: 'Built and launched: share of all runs where the app built and its window opened. Every run counts, including runs that failed to build.',
+    works: 'Built and launched: share of valid runs where the app built and its window opened. Runs our harness failed are not counted.',
     credits: 'Credits per app: mean AI credits Copilot CLI reported per valid run (1 credit = 1,000,000,000 nano-AIU).',
     minutes: 'Minutes per app: mean wall-clock time per valid run.',
     pass: 'Pass rate: share of valid runs where every required check passed (builds, launches, right framework).',
@@ -193,11 +193,12 @@
     const o = b.headline[BASE].all, w = b.headline[WITH].all, e = b.effect.all;
     const c = b.headline[CLI]?.all;
     const mid = (f) => (c ? f(c) : null);
+    const allWorked = [o, w, c].filter(Boolean).every((x) => x.worksTotal > 0 && x.worked === x.worksTotal);
     const tiles = [
       tile('Packaged app', 'packaging', pct(o.packagingRate), pct(w.packagingRate), diffPts(e.packagingRate), '', mid((x) => pct(x.packagingRate))),
       tile('Quality checks met', 'quality', pct(o.qualityRate), pct(w.qualityRate), diffPts(e.qualityRate), '', mid((x) => pct(x.qualityRate))),
       tile('Requirements met', 'requirements', pct(o.reqRate), pct(w.reqRate), diffPts(e.reqRate), '', mid((x) => pct(x.reqRate))),
-      tile('Built and launched', 'works', pct(o.worksRate), pct(w.worksRate), diffPts(e.worksRate), `${o.worked} of ${o.total} → ${w.worked} of ${w.total} runs`, mid((x) => pct(x.worksRate))),
+      allWorked ? '' : tile('Built and launched', 'works', pct(o.worksRate), pct(w.worksRate), diffPts(e.worksRate), `${o.worked} of ${o.worksTotal} → ${w.worked} of ${w.worksTotal} valid runs`, mid((x) => pct(x.worksRate))),
       tile('Credits per app', 'credits', num(o.creditsMean, 0), num(w.creditsMean, 0), diffRel(w.creditsMean, o.creditsMean),
         `${tip('Minutes per app', 'minutes')}: ${num(o.minutesMean)} → ${num(w.minutesMean)}`, mid((x) => num(x.creditsMean, 0))),
     ].join('');
@@ -231,10 +232,11 @@
       <p class="verdict">${esc(verdict(b))}</p>
       <p class="muted context">${b.scenarios.length} app scenarios, ${b.models.length} models (${b.models.map(modelLabel).join(', ')}), ${b.arms.reduce((s, a) => s + b.headline[a].all.total, 0)} runs. Hover a label for its definition.</p>
       <div class="tiles">${tiles}</div>
+      ${allWorked ? '<p class="muted context">Every app built and launched in every setup (valid runs).</p>' : ''}
       ${chart}
       <details class="more"><summary>Show details</summary>
         <p>Pass rate is ${arms.map((a) => `${pct(b.headline[a].all.passRate)} ${esc(armLabel(a).toLowerCase())}`).join(', ')}, so it does not separate the setups; the tiles above use the measures that do.</p>
-        ${table('Results by setup and model (valid runs, except Built and launched)', armModelHead(cols), armModelRows(b, b.headline, cols))}
+        ${table('Results by setup and model (valid runs)', armModelHead(cols), armModelRows(b, b.headline, cols))}
         ${table(`Change: ${esc(armLabel(WITH))} minus ${esc(armLabel(BASE))}`, effectHead, effectRows)}
         ${pairedTable(b)}
       </details>`;

@@ -86,7 +86,7 @@ test('harness-error runs are counted in the total but not as valid', () => {
   assert.deepEqual([m.valid, m.total, m.passed, m.passRate], [1, 2, 1, 1]);
 });
 
-test('built-and-launched rate counts every apps run, including ones that are not valid', () => {
+test('built-and-launched rate counts valid apps runs only', () => {
   const ok = [{ id: 'builds', kind: 'required', passed: true }, { id: 'launches', kind: 'required', passed: true }];
   const m = metrics([
     t({ checks: ok }),
@@ -94,8 +94,7 @@ test('built-and-launched rate counts every apps run, including ones that are not
     t({ outcome: 'build-failed', checks: [{ id: 'builds', kind: 'required', passed: false }] }),
     t({ outcome: 'harness-error', checks: ok }),
   ]);
-  assert.equal(m.worked, 2);
-  assert.equal(m.worksRate, 0.5);
+  assert.deepEqual([m.worked, m.worksTotal, m.worksRate], [1, 2, 0.5]);
   assert.equal(metrics([t({ benchmark: 'tasks', checks: ok })]).worksRate, null);
 });
 
