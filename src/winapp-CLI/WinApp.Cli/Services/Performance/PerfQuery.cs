@@ -80,7 +80,7 @@ internal sealed class PerfQueryRow
     /// <summary>Components view: WinUI elements created while this component's render span was innermost.</summary>
     public int? CreatedElements { get; init; }
     /// <summary>Components view: the most common C# call sites that created this component (Reactor source map).</summary>
-    public string[]? CallSites { get; init; }
+    public string[]? CallSites { get; set; }
     public string[] Evidence { get; set; } = [];
     public bool Projected { get; set; }
 }
@@ -1111,6 +1111,10 @@ internal static class PerfQuery
                 {
                     row.Call = call with { Name = Clip(call.Name, 80)! };
                 }
+                if (row.CallSites is { Length: > 0 } sites)
+                {
+                    row.CallSites = [Clip(sites[0], 80)!];
+                }
                 foreach (var operation in row.DominantOperations ?? [])
                 {
                     operation.Name = Clip(operation.Name, 80)!;
@@ -1130,6 +1134,15 @@ internal static class PerfQuery
             {
                 resource.Resource = Clip(resource.Resource, 80)!;
                 resource.Projected = true;
+            }
+            else if (result.ReactorPasses is { } passes && (passes.LongestPasses.Any(p => p.RequesterName is { Length: > 80 }) ||
+                passes.Requesters?.Any(r => r.Name.Length > 80) == true))
+            {
+                result.ReactorPasses = passes with
+                {
+                    LongestPasses = passes.LongestPasses.Select(p => p with { RequesterName = Clip(p.RequesterName, 80) }).ToList(),
+                    Requesters = passes.Requesters?.Select(r => r with { Name = Clip(r.Name, 80)! }).ToList(),
+                };
             }
             else if (result.Limitations.Length > 1)
             {

@@ -838,6 +838,42 @@ public class PerfCallQueryTests
     }
 
     [TestMethod]
+    public void ComponentsViewFitsTheMinimumByteBudgetWithLongRequesterNamesAndCallSites()
+    {
+        var longName = new string('R', 512);
+        var calls = new List<PerfCall>();
+        var events = new List<PerfEvent>();
+        for (var i = 0; i < 6; i++)
+        {
+            var pass = Reactor($"p{i}", "ReactorRenderPass", i * 20, i * 20 + 10 + i) with
+            {
+                Attributes = new() { ["hostId"] = "1", ["requesterId"] = $"{i + 1}", ["requesterName"] = longName + i, ["requestCount"] = "1" },
+            };
+            var render = Reactor($"r{i}", "ReactorRender:" + longName, i * 20 + 1, i * 20 + 9, pass.Id);
+            calls.Add(pass);
+            calls.Add(render);
+            events.Add(RenderBegin(render, $"{i + 10}", "state") with { Fields = new()
+            {
+                ["componentId"] = $"{i + 10}", ["name"] = longName, ["reason"] = "state",
+                ["callSiteFile"] = new string('F', 500) + (i % 3), ["callSiteLine"] = "40", ["callSiteColumn"] = "9",
+            } });
+        }
+        using var fixture = new Fixture(calls.ToArray(), events.ToArray());
+
+        var full = fixture.Query(new(View: "components", Limit: 1, MaxBytes: 1048576));
+        var result = fixture.Query(new(View: "components", Limit: 1, MaxBytes: 4096));
+
+        Assert.IsTrue(result.ByteBudgetLimited);
+        Assert.AreEqual(full.ReactorPasses!.Count, result.ReactorPasses!.Count, "Totals survive the projection.");
+        Assert.AreEqual(full.ReactorPasses.TotalMs, result.ReactorPasses.TotalMs);
+        Assert.AreEqual(5, result.ReactorPasses.Requesters!.Count);
+        Assert.IsTrue(result.ReactorPasses.Requesters.All(r => r.Name.Length <= 80));
+        Assert.AreEqual(full.ReactorPasses.LongestPasses[0].Id, result.ReactorPasses.LongestPasses[0].Id);
+        Assert.AreEqual(full.Rows.Single().Count, result.Rows.Single().Count);
+        Assert.IsLessThanOrEqualTo(4096, JsonSerializer.SerializeToUtf8Bytes(result, PerfJsonContext.Default.PerfQueryResult).Length);
+    }
+
+    [TestMethod]
     public void ComponentsViewExplainsMissingReactorSpans()
     {
         using var fixture = new Fixture([Call("c1", 0, 10)]);
