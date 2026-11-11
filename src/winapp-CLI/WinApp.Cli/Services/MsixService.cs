@@ -731,7 +731,7 @@ internal partial class MsixService(
             certPath = new FileInfo(Path.Combine(outputFolder.FullName, $"{finalPackageName}_cert.pfx"));
             if (certPath.Exists && certIfExists == IfExists.Error)
             {
-                throw new InvalidOperationException($"Certificate file already exists: {certPath.FullName}{Environment.NewLine}Use --if-exists skip to reuse it, --if-exists overwrite to replace it, or pass it with --cert \"{certPath.FullName}\".");
+                throw new InvalidOperationException($"Certificate file already exists: {certPath.FullName}{Environment.NewLine}To continue, add one of these flags to the same command:{Environment.NewLine}  Reuse it:    --if-exists skip{Environment.NewLine}  Replace it:  --if-exists overwrite{Environment.NewLine}Or use the existing file by replacing --generate-cert with:{Environment.NewLine}  --cert \"{certPath.FullName}\"");
             }
 
             if (certPath.Exists && certIfExists == IfExists.Skip)
