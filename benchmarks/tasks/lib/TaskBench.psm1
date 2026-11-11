@@ -294,7 +294,8 @@ function ConvertTo-TrialResult {
     if ($WinappVersion) { $result.Insert(3, 'winappVersion', $WinappVersion) }
     if ($Record.configuration -ne 'barebones' -and $PluginsCommit -match '^[0-9a-f]{40}$') { $result.Insert(($WinappVersion ? 4 : 3), 'pluginsCommit', $PluginsCommit) }
     if ($TargetSkill) { $result.Insert(([array]$result.Keys).IndexOf('set') + 1, 'targetSkill', $TargetSkill) }
-    if ($skills.Count) { $result.skills = $skills }
+    # An arm with plugins always records its skills, so an empty list means none loaded rather than not captured.
+    if ($skills.Count -or $Record.configuration -eq 'cli-plus-skills') { $result.skills = $skills }
     if ($cmdCounts) { $result.winappCommands = $commandCounts }
     return $result
 }

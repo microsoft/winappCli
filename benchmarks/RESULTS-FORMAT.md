@@ -40,7 +40,7 @@ pwsh benchmarks\validate-results.ps1 -Path .\v0.7.1
 | `checks` | Every check that ran (below) |
 | `judge` | `apps` only: judge model and design score (0-10). Detail only |
 | `usage` | Tokens, AI credits and time (below) |
-| `skills` | Optional: plugin skills the agent loaded, in order, with `atMs` after start |
+| `skills` | Optional: plugin skills the agent loaded, in order, with `atMs` after start. An empty list means the harness recorded skills and none loaded; a missing field means it could not record them |
 | `error` | Set only when the harness failed, not the agent |
 | `scoringVersion` | Optional. Which scoring rules produced the result (current: 4). Results with different versions are not directly comparable. v4: the `apps` judge reports a requirement it could not verify as `not-run` instead of `fail`, so it no longer counts as a failure, and the `apps` scoring build runs the same WinUI analyzer version on every app, so the no-build-warnings check (Q4) is comparable across setups |
 | `launchLevel` | Optional, `apps` only. 0 did not run, 1 a window exists, 2 controls respond to input, 3 the scenario's named main-screen element appeared. Left out when the app ran but level 2 could not be measured, for example because UI input could not be sent |

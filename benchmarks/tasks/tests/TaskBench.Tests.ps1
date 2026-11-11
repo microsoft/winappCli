@@ -314,6 +314,14 @@ Describe 'ConvertTo-TrialResult' {
         $t.usage.tokens.cacheRead | Should -Be 7
         $t.skills[0].name | Should -Be 'winapp-msix'
     }
+    It 'writes an empty skills list when a run with plugins loaded none, and none for an arm without plugins' {
+        $r = New-Record; $r.skillsLoaded = @()
+        $t = Convert $r
+        $t.Contains('skills') | Should -BeTrue
+        @($t.skills).Count | Should -Be 0
+        $r.configuration = 'cli-only'
+        (Convert $r).Contains('skills') | Should -BeFalse
+    }
     It 'records how often each skill was loaded and each winapp command was run' {
         $r = New-Record
         $r | Add-Member skillLoadCounts ([ordered]@{ 'winapp-msix' = 2 })
