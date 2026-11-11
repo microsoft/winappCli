@@ -910,13 +910,13 @@ internal static class PerfQuery
                 // Each Reconcile counts only its own host's edits, so summing every span counts each edit once.
                 if (inside && call.Attributes is { } recorded)
                 {
-                    foreach (var edit in ReconcileEditNames)
+                    var parsed = ReconcileEditNames
+                        .Select(edit => (edit, count: int.TryParse(recorded.GetValueOrDefault(edit), out var n) ? n : (int?)null))
+                        .Where(e => e.count is not null);
+                    foreach (var (edit, count) in parsed)
                     {
-                        if (recorded.TryGetValue(edit, out var text) && int.TryParse(text, out var count))
-                        {
-                            edits ??= ReconcileEditNames.ToDictionary(name => name, _ => 0, StringComparer.Ordinal);
-                            edits[edit] += count;
-                        }
+                        edits ??= ReconcileEditNames.ToDictionary(name => name, _ => 0, StringComparer.Ordinal);
+                        edits[edit] += count!.Value;
                     }
                 }
                 continue;
