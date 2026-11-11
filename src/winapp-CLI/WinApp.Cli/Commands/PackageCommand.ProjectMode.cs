@@ -232,6 +232,7 @@ internal partial class PackageCommand
             var certPath = parseResult.GetValue(CertOption);
             var certPassword = parseResult.GetRequiredValue(CertPasswordOption);
             var generateCert = parseResult.GetValue(GenerateCertOption);
+            var certIfExists = parseResult.GetValue(IfExistsOption);
             var noSign = parseResult.GetValue(NoSignOption);
             // Signing is resolved to one policy: --no-sign explicitly requests an unsigned artifact and is
             // mutually exclusive with an explicit signing request (spec §6), not last-one-wins.
@@ -408,7 +409,7 @@ internal partial class PackageCommand
             {
                 return await RunProjectBundleModeAsync(
                     csproj, resolvedArches, buildOptions, preparation, output, name, publisher,
-                    signing, selfContainedFlag, manifestPath, executable, skipPri, cancellationToken);
+                    signing, selfContainedFlag, manifestPath, executable, skipPri, certIfExists, cancellationToken);
             }
 
             if (!noBuild && preparation.IsDefinitivelyUnpackaged)
@@ -462,7 +463,7 @@ internal partial class PackageCommand
                             var result = await msixService.DeliverNativeMsixAsync(
                                 nativeOutcome.PackagePath, output, name, taskContext,
                                 signing.ShouldSign, signing.Cert, signing.CertPassword, signing.GenerateCert,
-                                signing.InstallCert, publisher, signing.TimestampUrl, ct);
+                                signing.InstallCert, publisher, signing.TimestampUrl, certIfExists, ct);
 
                             taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
                             if (result.Signed)
@@ -593,7 +594,8 @@ internal partial class PackageCommand
                         runtimeAlreadyBundled: runtimeAlreadyBundled,
                         timestampUrl: signing.TimestampUrl,
                         appxRecipe: string.IsNullOrWhiteSpace(resolution.AppxRecipePath) ? null : new FileInfo(resolution.AppxRecipePath),
-                        cancellationToken: ct);
+                        cancellationToken: ct,
+                        certIfExists: certIfExists);
 
                     taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
                     if (result.Signed)
@@ -725,6 +727,7 @@ internal partial class PackageCommand
             FileInfo? manifestPath,
             string? executable,
             bool skipPri,
+            IfExists certIfExists,
             CancellationToken cancellationToken)
         {
             var bundleStagingDir = new DirectoryInfo(Path.Join(Path.GetTempPath(), $"winapp-bundle-{Guid.NewGuid():N}"));
@@ -774,7 +777,7 @@ internal partial class PackageCommand
                         var result = await msixService.CreateBundleFromPackagesAsync(
                             sliceMsixFiles, output, name, taskContext,
                             autoSign, signing.Cert, signing.CertPassword, signing.GenerateCert, signing.InstallCert,
-                            publisher, signing.TimestampUrl, ct);
+                            publisher, signing.TimestampUrl, certIfExists, ct);
 
                         taskContext.AddStatusMessage($"{UiSymbols.Package} Bundle: {result.BundlePath}");
                         if (result.Signed)

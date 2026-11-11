@@ -25,6 +25,7 @@ internal partial class MsixService
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
+        IfExists certIfExists = IfExists.Error,
         CancellationToken cancellationToken = default)
     {
         // Stage intermediates under a short-path temp dir to avoid MAX_PATH issues
@@ -244,7 +245,7 @@ internal partial class MsixService
 
                 await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert,
                     finalPackageName, extractedPublisher, outputBundlePath, certificatePath,
-                    resolvedManifest, taskContext, cancellationToken);
+                    resolvedManifest, taskContext, cancellationToken, certIfExists: certIfExists);
             }
 
             return new CreateMsixBundleResult(outputBundlePath, autoSign, sliceResults);

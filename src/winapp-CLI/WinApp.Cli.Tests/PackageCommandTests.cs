@@ -2544,6 +2544,85 @@ public class PackageCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task CreateMsixPackageAsync_GenerateDevCertWithExistingCertFile_FailsWithClearMessage()
+    {
+        var packageDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "ExistingCertPackage"));
+        CreateTestPackageStructure(packageDir);
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
+        var existingCert = Path.Join(_tempDirectory.FullName, "ExistingCertPackage_cert.pfx");
+        await File.WriteAllTextAsync(existingCert, "existing", TestContext.CancellationToken);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _msixService.CreateMsixPackageAsync(
+            inputFolder: packageDir,
+            outputPath: _tempDirectory,
+            TestTaskContext,
+            packageName: "ExistingCertPackage",
+            skipPri: true,
+            autoSign: true,
+            certificatePassword: "testpassword123",
+            generateDevCert: true,
+            cancellationToken: CancellationToken.None));
+
+        StringAssert.Contains(ex.GetBaseException().Message, "Certificate file already exists");
+        StringAssert.Contains(ex.GetBaseException().Message, "--if-exists");
+        Assert.AreEqual("existing", await File.ReadAllTextAsync(existingCert, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task CreateMsixPackageAsync_GenerateDevCertIfExistsOverwrite_ReplacesCertAndSigns()
+    {
+        var packageDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "OverwriteCertPackage"));
+        CreateTestPackageStructure(packageDir);
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
+        var existingCert = Path.Join(_tempDirectory.FullName, "OverwriteCertPackage_cert.pfx");
+        await File.WriteAllTextAsync(existingCert, "existing", TestContext.CancellationToken);
+
+        var result = await _msixService.CreateMsixPackageAsync(
+            inputFolder: packageDir,
+            outputPath: _tempDirectory,
+            TestTaskContext,
+            packageName: "OverwriteCertPackage",
+            skipPri: true,
+            autoSign: true,
+            certificatePassword: "testpassword123",
+            generateDevCert: true,
+            certIfExists: IfExists.Overwrite,
+            cancellationToken: CancellationToken.None);
+
+        Assert.IsTrue(result.Signed);
+        Assert.AreNotEqual("existing", await File.ReadAllTextAsync(existingCert, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task CreateMsixPackageAsync_GenerateDevCertIfExistsSkip_ReusesCertAndSigns()
+    {
+        var packageDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "SkipCertPackage"));
+        CreateTestPackageStructure(packageDir);
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
+
+        async Task<CreateMsixPackageResult> PackAsync(IfExists certIfExists) => await _msixService.CreateMsixPackageAsync(
+            inputFolder: packageDir,
+            outputPath: _tempDirectory,
+            TestTaskContext,
+            packageName: "SkipCertPackage",
+            skipPri: true,
+            autoSign: true,
+            certificatePassword: "testpassword123",
+            generateDevCert: true,
+            certIfExists: certIfExists,
+            cancellationToken: CancellationToken.None);
+
+        await PackAsync(IfExists.Error);
+        var cert = Path.Join(_tempDirectory.FullName, "SkipCertPackage_cert.pfx");
+        var original = await File.ReadAllBytesAsync(cert, TestContext.CancellationToken);
+
+        var second = await PackAsync(IfExists.Skip);
+
+        Assert.IsTrue(second.Signed);
+        CollectionAssert.AreEqual(original, await File.ReadAllBytesAsync(cert, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
     public async Task CreateMsixPackageAsync_NativeExecutable_IncludesDetectedArchitectureInPackageName()
     {
         // Arrange - real native x64 PE so ProcessorArchitecture is auto-detected from the executable.

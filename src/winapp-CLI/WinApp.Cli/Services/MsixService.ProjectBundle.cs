@@ -29,6 +29,7 @@ internal partial class MsixService
         bool installDevCert,
         string? publisher,
         string? timestampUrl,
+        IfExists certIfExists,
         CancellationToken cancellationToken)
     {
         if (sliceMsixFiles.Count < 2)
@@ -117,7 +118,7 @@ internal partial class MsixService
                     await SignMsixPackageAsync(
                         finalBundlePath.Directory!, certPassword, generateDevCert, installDevCert,
                         finalPackageName, publisher ?? reference.IdentityPublisher,
-                        stagingBundle, certPath, extractedManifests[0], taskContext, cancellationToken, timestampUrl);
+                        stagingBundle, certPath, extractedManifests[0], taskContext, cancellationToken, timestampUrl, certIfExists);
                     signed = true;
                 }
 

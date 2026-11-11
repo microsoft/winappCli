@@ -32,7 +32,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
 
     IReadOnlyList<(string Heading, Option[] Options)> ICompactHelpCommand.OptionGroups =>
     [
-        ("Signing", [CertOption, CertPasswordOption, GenerateCertOption, InstallCertOption, PublisherOption, NoSignOption]),
+        ("Signing", [CertOption, CertPasswordOption, GenerateCertOption, IfExistsOption, InstallCertOption, PublisherOption, NoSignOption]),
         ("Package contents", [OutputOption, ManifestOption, NameOption, ExecutableOption, SelfContainedOption, SkipPriOption]),
         ("Build (.csproj or .vcxproj input only)", [ConfigurationOption, ArchOption, FrameworkOption, PropertyOption, NoBuildOption, NoRestoreOption]),
     ];
@@ -44,6 +44,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
     public static Option<FileInfo> CertOption { get; }
     public static Option<string> CertPasswordOption { get; }
     public static Option<bool> GenerateCertOption { get; }
+    public static Option<IfExists> IfExistsOption { get; }
     public static Option<bool> NoSignOption { get; }
     public static Option<bool> InstallCertOption { get; }
     public static Option<string?> PublisherOption { get; }
@@ -95,6 +96,11 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
         GenerateCertOption = new Option<bool>("--generate-cert")
         {
             Description = "Generate a new development certificate"
+        };
+        IfExistsOption = new Option<IfExists>("--if-exists")
+        {
+            Description = "Behavior when --generate-cert finds its certificate file already exists: 'error' (fail, default), 'skip' (sign with the existing certificate), or 'overwrite' (replace it)",
+            DefaultValueFactory = (argumentResult) => IfExists.Error,
         };
         NoSignOption = new Option<bool>("--no-sign")
         {
@@ -178,6 +184,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
         Options.Add(CertOption);
         Options.Add(CertPasswordOption);
         Options.Add(GenerateCertOption);
+        Options.Add(IfExistsOption);
         Options.Add(NoSignOption);
         Options.Add(InstallCertOption);
         Options.Add(PublisherOption);
@@ -284,6 +291,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
             var certPath = parseResult.GetValue(CertOption);
             var certPassword = parseResult.GetRequiredValue(CertPasswordOption);
             var generateCert = parseResult.GetValue(GenerateCertOption);
+            var certIfExists = parseResult.GetValue(IfExistsOption);
             var noSign = parseResult.GetValue(NoSignOption);
             var installCert = parseResult.GetValue(InstallCertOption);
             var publisher = parseResult.GetValue(PublisherOption);
@@ -412,7 +420,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
                         try
                         {
                             var autoSign = !noSign && (certPath != null || generateCert);
-                            var result = await msixService.CreateSparseIdentityPackageAsync(candidateManifest, output, taskContext, autoSign, certPath, certPassword, generateCert, installCert, publisher, ct);
+                            var result = await msixService.CreateSparseIdentityPackageAsync(candidateManifest, output, taskContext, autoSign, certPath, certPassword, generateCert, installCert, publisher, certIfExists, ct);
 
                             taskContext.AddStatusMessage($"{UiSymbols.Package} Identity package: {result.MsixPath}");
                             if (result.Signed)
@@ -519,7 +527,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
                     {
                         var autoSign = !noSign && (certPath != null || generateCert);
 
-                        var result = await msixService.CreateMsixPackageAsync(inputFolder, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, cancellationToken: cancellationToken);
+                        var result = await msixService.CreateMsixPackageAsync(inputFolder, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, cancellationToken: cancellationToken, certIfExists: certIfExists);
 
                         taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
                         if (result.Signed)
@@ -545,7 +553,7 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
                     {
                         var autoSign = !noSign && (certPath != null || generateCert);
 
-                        var result = await msixService.CreateMsixBundleAsync(inputFolders, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, cancellationToken);
+                        var result = await msixService.CreateMsixBundleAsync(inputFolders, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, certIfExists, cancellationToken);
 
                         taskContext.AddStatusMessage($"{UiSymbols.Package} Bundle: {result.BundlePath}");
                         if (result.Signed)

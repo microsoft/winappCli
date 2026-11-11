@@ -337,7 +337,8 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--manifest <path>` - Path to manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported; default: auto-detect)
 - `--cert <path>` - Path to signing certificate (enables auto-signing)
 - `--cert-password <password>` - Certificate password (default: "password")
-- `--generate-cert` - Generate a new development certificate
+- `--generate-cert` - Generate a new development certificate next to the package (`<name>_cert.pfx`)
+- `--if-exists <error|skip|overwrite>` - What `--generate-cert` does when that `.pfx` already exists: `error` (default) stops, `skip` signs with the existing certificate, `overwrite` replaces it
 - `--no-sign` - Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with `--cert` or `--generate-cert`.
 - `--install-cert` - Install certificate to machine
 - `--publisher <name>` - Publisher for certificate generation. Accepts a full X.500 distinguished name or a bare name (automatically wrapped as `CN=<name>`)

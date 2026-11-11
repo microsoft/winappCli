@@ -218,6 +218,7 @@ internal partial class MsixService
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
+        IfExists certIfExists = IfExists.Error,
         CancellationToken cancellationToken = default)
     {
         if (!manifestPath.Exists)
@@ -280,7 +281,7 @@ internal partial class MsixService
 
             if (autoSign)
             {
-                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, packageName, extractedPublisher, outputMsixPath, certificatePath, manifestPath, taskContext, cancellationToken);
+                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, packageName, extractedPublisher, outputMsixPath, certificatePath, manifestPath, taskContext, cancellationToken, certIfExists: certIfExists);
             }
         }
         finally

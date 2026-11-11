@@ -87,6 +87,10 @@ winapp package ./bin/Release --generate-cert
 
 # Also install the cert to trust it on this machine (requires admin)
 winapp package ./bin/Release --generate-cert --install-cert
+
+# Running it again fails because the .pfx exists. Reuse it, or replace it:
+winapp package ./bin/Release --generate-cert --if-exists skip
+winapp package ./bin/Release --generate-cert --if-exists overwrite
 ```
 
 ### Unsigned output (Store submission or external signing)

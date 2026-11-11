@@ -341,6 +341,7 @@ internal partial class MsixService(
         string? timestampUrl = null,
         FileInfo? appxRecipe = null,
         DirectoryInfo? windowsAppSdkPackageDirectory = null,
+        IfExists certIfExists = IfExists.Error,
         CancellationToken cancellationToken = default)
     {
         // Validate input folder and manifest
@@ -634,7 +635,7 @@ internal partial class MsixService(
                 try
                 {
                     await CreateMsixPackageFromFolderAsync(stagingDir, stagingMsix, taskContext, cancellationToken);
-                    await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, stagingMsix, certificatePath, resolvedManifestPath, taskContext, cancellationToken, timestampUrl);
+                    await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, stagingMsix, certificatePath, resolvedManifestPath, taskContext, cancellationToken, timestampUrl, certIfExists);
                     File.Move(stagingMsix.FullName, outputMsixPath.FullName, overwrite: true);
                 }
                 catch
@@ -716,7 +717,7 @@ internal partial class MsixService(
         return new FileInfo(Path.Combine(directory, $"{stem}.winapp-{Guid.NewGuid():N}{extension}"));
     }
 
-    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext, CancellationToken cancellationToken, string? timestampUrl = null)
+    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext,     CancellationToken cancellationToken, string? timestampUrl = null, IfExists certIfExists = IfExists.Error)
     {
         if (certPath == null && generateDevCert)
         {
@@ -728,7 +729,23 @@ internal partial class MsixService(
             taskContext.AddDebugMessage($"{UiSymbols.Package} Generating certificate for publisher: {extractedPublisher}");
 
             certPath = new FileInfo(Path.Combine(outputFolder.FullName, $"{finalPackageName}_cert.pfx"));
-            await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, taskContext, certificatePassword, cancellationToken: cancellationToken);
+            if (certPath.Exists && certIfExists == IfExists.Error)
+            {
+                throw new InvalidOperationException($"Certificate file already exists: {certPath.FullName}{Environment.NewLine}Use --if-exists skip to reuse it, --if-exists overwrite to replace it, or pass it with --cert \"{certPath.FullName}\".");
+            }
+
+            if (certPath.Exists && certIfExists == IfExists.Skip)
+            {
+                taskContext.AddStatusMessage($"{UiSymbols.Warning} Certificate file already exists, reusing it: {certPath.FullName}");
+            }
+            else
+            {
+                if (certPath.Exists)
+                {
+                    taskContext.AddStatusMessage($"{UiSymbols.Warning} Overwriting existing certificate file: {certPath.FullName}");
+                }
+                await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, taskContext, certificatePassword, cancellationToken: cancellationToken);
+            }
         }
 
         if (certPath == null)
