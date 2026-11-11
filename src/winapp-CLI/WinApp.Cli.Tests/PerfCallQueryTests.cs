@@ -845,11 +845,12 @@ public class PerfCallQueryTests
         var events = new List<PerfEvent>();
         for (var i = 0; i < 6; i++)
         {
-            var pass = Reactor($"p{i}", "ReactorRenderPass", i * 20, i * 20 + 10 + i) with
+            var start = i * 20d;
+            var pass = Reactor($"p{i}", "ReactorRenderPass", start, start + 10d + i) with
             {
                 Attributes = new() { ["hostId"] = "1", ["requesterId"] = $"{i + 1}", ["requesterName"] = longName + i, ["requestCount"] = "1" },
             };
-            var render = Reactor($"r{i}", "ReactorRender:" + longName, i * 20 + 1, i * 20 + 9, pass.Id);
+            var render = Reactor($"r{i}", "ReactorRender:" + longName, start + 1d, start + 9d, pass.Id);
             calls.Add(pass);
             calls.Add(render);
             events.Add(RenderBegin(render, $"{i + 10}", "state") with { Fields = new()
