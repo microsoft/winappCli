@@ -1,6 +1,6 @@
 ---
 name: winapp-find-api
-description: Look up real Windows, WinRT, and Windows App SDK APIs (types, members, enums) from a project's references or the installed SDKs with winapp find-api instead of guessing. Use before coding against an unverified API, or to fix unknown-member, CS0117, CS1061, or WMC0011 errors. Not for registry code.
+description: Fix CS0246, CS1061, CS0117 or WMC0011 build errors, or write code against an unfamiliar or upgraded package, by looking up the real types and members a project references (its NuGet packages, Windows, WinRT, Windows App SDK) with winapp find-api instead of guessing. Not for registry code.
 ---
 
 **If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
@@ -34,6 +34,7 @@ agent loops.
 - Validating that a property exists on a type — catching typos and wrong-type mistakes before they become CS0117/XAML binding errors
 - Enumerating an enum's values (e.g. `Symbol`, `Visibility`)
 - Exploring the namespaces and packages a project can call into
+- Coding against a NuGet package you haven't used before, or one whose API changed after an upgrade: the project scope indexes the project's own packages, including their XML doc summaries
 - AI agents grounding code generation in the *actual* API surface a project references, instead of guessing
 - **Diagnosing a compile error that names a type or member** — see below
 
