@@ -2,6 +2,7 @@
 // Builds the static benchmark dashboard from trial result files.
 //   node benchmarks/dashboard/build.mjs --data <dir> [--label <text>] [--data <dir> [--label <text>] ...] --out <dir>
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildTrends, CONTROL_SHIFT } from './lib/trends.mjs';
@@ -106,6 +107,10 @@ function main() {
   writeFileSync(join(outDir, 'data.json'), json);
   // data.js lets index.html open straight from disk, where browsers block fetch().
   writeFileSync(join(outDir, 'data.js'), `window.BENCH_DATA = ${json};\n`);
+  // Tag local asset links with a content hash so a rebuilt page never runs a cached app.js or data.js.
+  const indexPath = join(outDir, 'index.html');
+  const stamp = createHash('sha256').update(readFileSync(join(outDir, 'app.js'))).update(readFileSync(join(outDir, 'styles.css'))).update(json).digest('hex').slice(0, 10);
+  writeFileSync(indexPath, readFileSync(indexPath, 'utf8').replace(/(src|href)="(app\.js|data\.js|styles\.css)"/g, `$1="$2?v=${stamp}"`));
 
   for (const r of data.releases) {
     const parts = Object.entries(r.benchmarks).map(([b, v]) => `${b} ${v.trialCount}`);
