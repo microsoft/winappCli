@@ -3,6 +3,9 @@ param([string]$Workspace)
 $ErrorActionPreference = 'Stop'
 Set-Location $Workspace
 npm install --no-audit --no-fund 2>&1 | Write-Host
+if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit code $LASTEXITCODE)." }
+npx --no-install install-electron 2>&1 | Write-Host
+if ($LASTEXITCODE -ne 0) { throw "Electron installation failed (exit code $LASTEXITCODE)." }
 $layout = Join-Path $Workspace 'out\layout'
 New-Item -ItemType Directory -Force $layout | Out-Null
 Copy-Item .\node_modules\electron\dist\* $layout -Recurse -Force
