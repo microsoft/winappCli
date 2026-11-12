@@ -89,6 +89,7 @@ internal sealed class PerfQueryResult
     public List<PerfParsingResource>? ParsingResources { get; init; }
     public int? ParsingResourcesTotal { get; init; }
     public int? ParsingResourcesOmitted { get; set; }
+    public PerfWindowExperience? WindowExperience { get; init; }
     public Dictionary<uint, double> LayoutBusyMsByThread { get; init; } = [];
     public string[] Limitations { get; set; } =
     [
@@ -148,6 +149,7 @@ internal static class PerfQuery
         {
             "events" => manifest.Events > 0,
             "gc" => manifest.Events > 0,
+            "summary" => calls.Count > 0 || analysis.Capture.WindowEvidence.Events.Count > 0,
             _ => calls.Count > 0,
         };
         if (!hasRequestedEvidence)
@@ -160,11 +162,12 @@ internal static class PerfQuery
         var selectedGc = options.View == "gc" && options.Id is not null
             ? gc.SingleOrDefault(g => g.Id == options.Id) ?? throw new ArgumentException("The GC interval ID was not observed in this capture.") : null;
         var from = Marker(analysis, options.FromMarker) ?? options.FromMs ?? root?.StartMs ??
-            selectedGc?.StartMs ?? Math.Min(0, manifest.FirstEventMs!.Value);
+            selectedGc?.StartMs ?? Math.Min(0, manifest.FirstEventMs ?? 0);
         var to = Marker(analysis, options.ToMarker) ?? options.ToMs ??
             root?.EndMs ?? selectedGc?.EndMs ??
             (analysis.Capture.StopQpc is { } stopped ?
-                (stopped - analysis.Capture.ReadyQpc!.Value) * 1000.0 / analysis.Capture.Frequency : manifest.LastEventMs!.Value);
+                (stopped - analysis.Capture.ReadyQpc!.Value) * 1000.0 / analysis.Capture.Frequency :
+                manifest.LastEventMs ?? from);
         if (!double.IsFinite(from) || !double.IsFinite(to) || from > to)
         {
             throw new ArgumentException("The time range must be finite and ordered.");
@@ -179,7 +182,10 @@ internal static class PerfQuery
         uint? primaryUiThread = null;
         if (options.View is "summary" or "parsing")
         {
-            primaryUiThread = SelectPrimaryUiThread(calls, range, options.Thread);
+            if (calls.Count > 0 || options.View == "parsing" || options.Thread is not null)
+            {
+                primaryUiThread = SelectPrimaryUiThread(calls, range, options.Thread);
+            }
             if (options.View == "parsing")
             {
                 selectedThread = primaryUiThread;
@@ -249,7 +255,9 @@ internal static class PerfQuery
             gcAvailability == "observed" && gcErrors == 0 && gcIncomplete == 0 && manifest.CaptureReasons.Count == 0,
             Clip(gcState?.Error, 256));
         var activity = options.View is "summary" or "parsing"
-            ? AnalyzeActivity(calls, parsingEvents, primaryUiThread!.Value, range)
+            ? primaryUiThread is { } activityThread
+                ? AnalyzeActivity(calls, parsingEvents, activityThread, range)
+                : new ActivityAnalysis([], [])
             : null;
         if (options.View == "gc")
         {
@@ -383,6 +391,13 @@ internal static class PerfQuery
         {
             reasons.Add("Some managed garbage-collection or runtime-pause events have missing or inconsistent start/end events in the selected time range.");
         }
+        var windowExperience = options.View == "summary"
+            ? PerfWindowExperienceBuilder.Create(analysis.Capture, range)
+            : null;
+        if (windowExperience?.Status == "partial")
+        {
+            reasons.Add("Window responsiveness evidence is incomplete because probe errors occurred or the event limit was reached.");
+        }
         var page = rows.Skip(options.Offset).Take(options.Limit).ToList();
         var gcOverlapReliable = analysis.Capture.EventsLost == 0 &&
             analysis.Capture.BuffersLost == 0 &&
@@ -407,6 +422,7 @@ internal static class PerfQuery
             ParsingResources = options.View == "summary" ? activity!.Resources.Take(10).ToList() : null,
             ParsingResourcesTotal = options.View == "summary" ? activity!.Resources.Count : null,
             ParsingResourcesOmitted = options.View == "summary" ? Math.Max(0, activity!.Resources.Count - 10) : null,
+            WindowExperience = windowExperience,
             LayoutBusyMsByThread = busy.ToDictionary(p => p.Key, p => PerfAnalyzer.Union(p.Value)),
             Coverage = new(reasons.Count == 0, Clip(analysis.Capture.StartupCoverage, 160)!,
                 decodeErrors, analysis.Capture.EventsLost, analysis.Capture.BuffersLost,

@@ -25,9 +25,10 @@ description: Investigate slow WinUI 3 layout, scrolling and virtualization using
 5. Run `winapp perf stop <id> --json` before closing the app.
 6. Start with
    `winapp perf analyze <directory> --from-marker scenario-start --to-marker scenario-end --json`
-   to compare mutually exclusive primary-UI-thread activity, the hottest parsed
-   XAML resources, and the detailed operation ranking. Use `--view parsing` over
-   the same range when the parsing preview needs full paging. Then query
+   to compare the window experience timeline, mutually exclusive
+   primary-UI-thread activity, the hottest parsed XAML resources, and the
+   detailed operation ranking. Use `--view parsing` over the same range when the
+   parsing preview needs full paging. Then query
    `winapp perf analyze <directory> --view hotspots --from-marker scenario-start
    --to-marker scenario-end --json`; its default threshold is 16.67 ms and each
    row includes dominant direct child operations. Expand a
@@ -69,6 +70,10 @@ description: Investigate slow WinUI 3 layout, scrolling and virtualization using
   `directCompositionProvider` before interpreting missing events.
 - Call trees are instrumented operation scopes, not CPU stacks or visual trees.
   Keep exclusive scope time distinct from element self time.
+- Window `response-delayed` means a visible, previously responsive window did
+  not answer the sampled 100 ms `WM_NULL` probe. Do not call it a Windows hang
+  or a root cause. For `perf start`, first observed/visible/responsive values
+  begin at attach readiness and are not startup timings.
 - GC is requested by default but may be unavailable. Check `gcCoverage` separately;
   missing events are not zero pauses. Background GC duration is not suspension time,
   and overlapping runtime suspension is not proof that GC blocked the native UI.

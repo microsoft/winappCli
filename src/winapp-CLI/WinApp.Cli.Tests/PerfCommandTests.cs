@@ -5,6 +5,7 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.DependencyInjection;
@@ -446,6 +447,79 @@ public class PerfCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task DefaultConsoleReportShowsWindowExperienceWithoutClaimingAHang()
+    {
+        var windowEvidence = new PerfWindowEvidence
+        {
+            Events =
+            [
+                new(PerfWindowEventTypes.Observed, 1, 7, 73),
+                new(PerfWindowEventTypes.Visible, 2, 7, 73),
+                new(PerfWindowEventTypes.Responsive, 3, 7, 73),
+                new(PerfWindowEventTypes.ResponseDelayed, 10, 7, 73,
+                    nameof(PerfWindowProbeOutcome.Timeout), 1460),
+                new(PerfWindowEventTypes.ResponseRecovered, 20, 7, 73),
+            ],
+        };
+        var directory = CreateCachedAnalysis(
+            [],
+            windowEvidence: windowEvidence);
+        try
+        {
+            var exitCode = await ParseAndInvokeWithCaptureAsync(
+                GetRequiredService<PerfCommand>(),
+                ["analyze", directory.FullName]);
+
+            Assert.AreEqual(0, exitCode);
+            StringAssert.Contains(TestAnsiConsole.Output, "Window experience");
+            StringAssert.Contains(TestAnsiConsole.Output, "First visible observation: 2.000 ms");
+            StringAssert.Contains(TestAnsiConsole.Output, "First responsive observation: 3.000 ms");
+            StringAssert.Contains(TestAnsiConsole.Output, "Response delays: 1");
+            StringAssert.Contains(TestAnsiConsole.Output, "longest sampled interval: 10.000 ms");
+            StringAssert.Contains(TestAnsiConsole.Output, "Sampling cadence: 250 ms; response-probe timeout: 100 ms");
+            Assert.IsFalse(TestAnsiConsole.Output.Contains("startup", StringComparison.OrdinalIgnoreCase));
+            Assert.IsFalse(TestAnsiConsole.Output.Contains("stopped responding", StringComparison.OrdinalIgnoreCase));
+            Assert.IsFalse(TestAnsiConsole.Output.Contains("hang", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PartialWindowEvidenceReturnsPartialData()
+    {
+        var windowEvidence = new PerfWindowEvidence
+        {
+            Events =
+            [
+                new(PerfWindowEventTypes.Observed, 1, 7, 73),
+                new(PerfWindowEventTypes.ProbeFailed, 2, 7, 73,
+                    nameof(PerfWindowProbeOutcome.AccessDenied), 5),
+            ],
+        };
+        var directory = CreateCachedAnalysis([], windowEvidence: windowEvidence);
+        try
+        {
+            var (stdout, stderr, code) = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--json"]);
+
+            Assert.AreEqual(1, code);
+            using var error = JsonDocument.Parse(stderr);
+            Assert.AreEqual("partial_data", error.RootElement.GetProperty("code").GetString());
+            using var result = JsonDocument.Parse(stdout);
+            Assert.AreEqual("partial", result.RootElement.GetProperty("windowExperience")
+                .GetProperty("status").GetString());
+            Assert.IsFalse(result.RootElement.GetProperty("coverage").GetProperty("complete").GetBoolean());
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
     [DataRow("summary", false)]
     [DataRow("parsing", false)]
     [DataRow("summary", true)]
@@ -696,6 +770,39 @@ public class PerfCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task SummaryJsonIncludesWindowExperienceWithinByteBudget()
+    {
+        var directory = CreateCachedAnalysis(
+            [new("frame", "Frame", "frames", 73, null, null, "f1", "f2", 0, 40, 40, null, "complete", 40)],
+            windowEvidence: new()
+            {
+                Events =
+                [
+                    new(PerfWindowEventTypes.Observed, 1, 7, 73),
+                    new(PerfWindowEventTypes.Visible, 2, 7, 73),
+                    new(PerfWindowEventTypes.Responsive, 3, 7, 73),
+                ],
+            });
+        try
+        {
+            var (stdout, stderr, code) = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--json", "--max-bytes", "4096"]);
+
+            Assert.AreEqual(0, code, stderr);
+            Assert.IsLessThanOrEqualTo(4096, Encoding.UTF8.GetByteCount(stdout));
+            using var json = JsonDocument.Parse(stdout);
+            var window = json.RootElement.GetProperty("windowExperience");
+            Assert.AreEqual("complete", window.GetProperty("status").GetString());
+            Assert.AreEqual(2d, window.GetProperty("firstVisibleMs").GetDouble());
+            Assert.AreEqual(3d, window.GetProperty("firstResponsiveMs").GetDouble());
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
     [DataRow("pid")]
     [DataRow("name")]
     [DataRow("partial")]
@@ -885,7 +992,8 @@ public class PerfCommandTests : BaseCommandTests
         IEnumerable<PerfEvent>? events = null,
         IEnumerable<PerfElement>? elements = null,
         PerfProcessResources? resources = null,
-        PerfProviderState? compositionState = null)
+        PerfProviderState? compositionState = null,
+        PerfWindowEvidence? windowEvidence = null)
     {
         var directory = Directory.CreateTempSubdirectory("WinApp-Perf-Console-");
         File.WriteAllBytes(Path.Join(directory.FullName, "trace.etl"), []);
@@ -908,6 +1016,7 @@ public class PerfCommandTests : BaseCommandTests
             Providers = PerfProviders.All.Where(provider => provider.Id == PerfProviders.Xaml ||
                 compositionState is not null && provider.Id == PerfProviders.DirectComposition).ToArray(),
             ProviderStates = compositionState is null ? [] : [compositionState],
+            WindowEvidence = windowEvidence ?? new(),
         };
         capture.Save();
 

@@ -22,11 +22,17 @@ internal sealed class PerfCaptureWorker : IDisposable
     private readonly IPrivateEtwApi? etwApi;
     private PrivateEtwSession? session;
     private Process? target;
+    private readonly PerfWindowMonitor windowMonitor;
     private long deadline;
     private long lastProbe;
     private long lastResourceProbe;
+    private long lastWindowProbe;
 
-    private PerfCaptureWorker(PerfControlRegistration registration, string registrationPath, IPrivateEtwApi? etwApi)
+    private PerfCaptureWorker(
+        PerfControlRegistration registration,
+        string registrationPath,
+        IPrivateEtwApi? etwApi,
+        IPerfWindowSnapshotSource? windowSource)
     {
         this.registration = registration;
         this.registrationPath = registrationPath;
@@ -43,12 +49,19 @@ internal sealed class PerfCaptureWorker : IDisposable
         capture.Providers = PerfProviders.All;
         capture.ProviderStates = [];
         capture.Frequency = Stopwatch.Frequency;
+        windowMonitor = new(
+            windowSource ?? new PerfWindowSnapshotSource(
+                new PerfWindowResponseProbe(new PerfWindowMessageNative())),
+            capture.WindowEvidence);
         this.registration = registration with { Worker = capture.Worker };
         SaveRegistration();
         deadline = Stopwatch.GetTimestamp() + 30 * Stopwatch.Frequency;
     }
 
-    public static async Task<int> RunAsync(string[] args, IPrivateEtwApi? etwApi = null)
+    public static async Task<int> RunAsync(
+        string[] args,
+        IPrivateEtwApi? etwApi = null,
+        IPerfWindowSnapshotSource? windowSource = null)
     {
         if (args.Length != 2)
         {
@@ -63,7 +76,11 @@ internal sealed class PerfCaptureWorker : IDisposable
             using var directories = elevated || registration.Mode == PerfProfileModes.Elevated
                 ? PerfCaptureDirectoryLease.Open(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, registration.Directory)
                 : null;
-            using var worker = new PerfCaptureWorker(registration, args[1], etwApi);
+            using var worker = new PerfCaptureWorker(
+                registration,
+                args[1],
+                etwApi,
+                windowSource);
             return await worker.RunAsync();
         }
         catch (Exception ex)
@@ -108,6 +125,7 @@ internal sealed class PerfCaptureWorker : IDisposable
                 }
                 ProbeRuntime();
                 ProbeResources();
+                ProbeWindows();
                 if (!connection.IsCompleted)
                 {
                     continue;
@@ -248,6 +266,7 @@ internal sealed class PerfCaptureWorker : IDisposable
         {
             return;
         }
+
         lastProbe = Stopwatch.GetTimestamp();
         try
         {
@@ -304,6 +323,26 @@ internal sealed class PerfCaptureWorker : IDisposable
             resources.LastError = ex.Message.Length > 512 ? ex.Message[..512] : ex.Message;
         }
         capture.Save();
+    }
+
+    private void ProbeWindows()
+    {
+        if (target is null || target.HasExited ||
+            Stopwatch.GetTimestamp() - lastWindowProbe <
+                PerfWindowEvidence.CadenceMs * Stopwatch.Frequency / 1000)
+        {
+            return;
+        }
+        lastWindowProbe = Stopwatch.GetTimestamp();
+        if (windowMonitor.Observe(target.Id, lastWindowProbe))
+        {
+            if (capture.WindowEvidence.Truncated &&
+                !capture.Warnings.Contains("Window experience events reached their capture limit."))
+            {
+                capture.Warnings.Add("Window experience events reached their capture limit.");
+            }
+            capture.Save();
+        }
     }
 
     internal static string? UnfilteredProvidersWarning(PerfCaptureDocument capture)
@@ -442,6 +481,7 @@ internal sealed class PerfCaptureWorker : IDisposable
             ProbeResources(force: true);
         }
         ProbeRuntime();
+        ProbeWindows();
         capture.State = "stopping";
         capture.StopReason = reason;
         capture.Save();
