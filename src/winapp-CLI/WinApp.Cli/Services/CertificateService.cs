@@ -190,7 +190,9 @@ internal partial class CertificateService(
             // Trimmed/AOT builds can surface the raw resource key (e.g. UnauthorizedAccess_IODenied_NoPathName).
             var reason = error is UnauthorizedAccessException && !error.Message.Contains(' ')
                 ? $"Access to '{outputPath.FullName}' was denied. Check that the file or folder is writable and not in use."
-                : error.Message;
+                : error is IOException && !error.Message.Contains(' ')
+                    ? $"'{outputPath.FullName}' could not be written. Check that the file or folder is writable and not in use by another program."
+                    : error.Message;
             throw new InvalidOperationException($"Failed to generate development certificate: {reason}", reason == error.Message ? error : null);
         }
         finally

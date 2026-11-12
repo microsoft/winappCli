@@ -718,7 +718,7 @@ internal partial class MsixService(
     }
 
     private static FileInfo GetGeneratedCertPath(DirectoryInfo outputFolder, string packageName)
-        => new(Path.Combine(outputFolder.FullName, $"{packageName}_cert.pfx"));
+        => new(Path.Join(outputFolder.FullName, $"{packageName}_cert.pfx"));
 
     // Called before packing too, so a refused certificate never replaces an existing signed package.
     private static void ThrowIfGeneratedCertExists(FileInfo certPath, IfExists certIfExists)
@@ -749,11 +749,20 @@ internal partial class MsixService(
             }
             else
             {
-                if (certPath.Exists)
+                var existed = certPath.Exists;
+                if (existed)
                 {
                     taskContext.AddStatusMessage($"{UiSymbols.Warning} Overwriting existing certificate file: {certPath.FullName}");
                 }
-                await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, taskContext, certificatePassword, cancellationToken: cancellationToken);
+
+                try
+                {
+                    await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, taskContext, certificatePassword, cancellationToken: cancellationToken);
+                }
+                catch (InvalidOperationException ex) when (existed)
+                {
+                    throw new InvalidOperationException($"Unable to replace the existing certificate {certPath.FullName}.{Environment.NewLine}{ex.Message}{Environment.NewLine}To keep the existing certificate, add --if-exists skip, or delete the file.");
+                }
             }
         }
 

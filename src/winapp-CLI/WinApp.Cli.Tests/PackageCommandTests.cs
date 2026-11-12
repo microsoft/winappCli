@@ -2595,6 +2595,38 @@ public class PackageCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task CreateMsixPackageAsync_GenerateDevCertOverwriteOfLockedCert_SuggestsSkip()
+    {
+        var packageDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "LockedCertPackage"));
+        CreateTestPackageStructure(packageDir);
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
+        var existingCert = Path.Join(_tempDirectory.FullName, "LockedCertPackage_cert.pfx");
+        await File.WriteAllTextAsync(existingCert, "existing", TestContext.CancellationToken);
+        File.SetAttributes(existingCert, FileAttributes.ReadOnly);
+
+        try
+        {
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _msixService.CreateMsixPackageAsync(
+                inputFolder: packageDir,
+                outputPath: _tempDirectory,
+                TestTaskContext,
+                packageName: "LockedCertPackage",
+                skipPri: true,
+                autoSign: true,
+                certificatePassword: "testpassword123",
+                generateDevCert: true,
+                cancellationToken: CancellationToken.None));
+
+            StringAssert.Contains(ex.GetBaseException().Message, "Unable to replace the existing certificate");
+            StringAssert.Contains(ex.GetBaseException().Message, "--if-exists skip");
+        }
+        finally
+        {
+            File.SetAttributes(existingCert, FileAttributes.Normal);
+        }
+    }
+
+    [TestMethod]
     public async Task CreateMsixPackageAsync_GenerateDevCertIfExistsSkip_ReusesCertAndSigns()
     {
         var packageDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "SkipCertPackage"));
