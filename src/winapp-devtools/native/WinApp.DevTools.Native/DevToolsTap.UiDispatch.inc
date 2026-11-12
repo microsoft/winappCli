@@ -114,7 +114,7 @@ static HRESULT PostRpcToUi(DevToolsConn* conn, const std::wstring& id, std::func
     auto* handler = new (std::nothrow) UiResponseHandler(conn, id, std::move(fn));
     if (!handler) return E_OUTOFMEMORY;
     bool enqueued = false;
-    HRESULT hr = DevToolsDispatcherTryEnqueue(g_dispatcher, handler, &enqueued);
+    HRESULT hr = EnqueueUiOperation(g_dispatcher, handler, &enqueued);
     handler->Release();
     if (FAILED(hr)) return hr;
     return enqueued ? S_OK : E_FAIL;
@@ -132,7 +132,7 @@ static HRESULT PostToUi(std::function<void()> fn)
     });
     if (!handler) return E_OUTOFMEMORY;
     bool enqueued = false;
-    HRESULT hr = DevToolsDispatcherTryEnqueue(g_dispatcher, handler, &enqueued);
+    HRESULT hr = EnqueueUiOperation(g_dispatcher, handler, &enqueued);
     handler->Release();
     if (FAILED(hr)) return hr;
     return enqueued ? S_OK : E_FAIL;

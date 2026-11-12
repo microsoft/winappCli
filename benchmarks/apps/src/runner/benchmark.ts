@@ -49,6 +49,8 @@ import {
   type QualityCheck,
 } from "./quality-checks.js";
 import { computeScoreV2, formatBreakdown, type ScoreBreakdown } from "./scoring.js";
+import { toTrialResult } from "./trial-result.js";
+import { summarizeActivity } from "./activity.js";
 import { pinRef, readPin } from "./upstream-pins.js";
 import { findAncestorProjectFiles, hideToolsFromPath } from "./trial-env.js";
 import {
@@ -1964,7 +1966,7 @@ function formatDurationMs(ms: number): string {
  * Returns the AIU total (rounded to 2 decimals) or undefined when the stream
  * carries no usage events.
  */
-function sumSessionCredits(eventsFile: string): number | undefined {
+function sumSessionNanoAiu(eventsFile: string): number | undefined {
   if (!existsSync(eventsFile)) return undefined;
   let nanoAiu = 0;
   let found = false;
@@ -1983,7 +1985,12 @@ function sumSessionCredits(eventsFile: string): number | undefined {
   } catch {
     return undefined;
   }
-  return found ? Math.round((nanoAiu / 1e9) * 100) / 100 : undefined;
+  return found ? nanoAiu : undefined;
+}
+
+function sumSessionCredits(eventsFile: string): number | undefined {
+  const nano = sumSessionNanoAiu(eventsFile);
+  return nano === undefined ? undefined : Math.round((nano / 1e9) * 100) / 100;
 }
 
 function aggregateSessionUsage(
@@ -2135,6 +2142,15 @@ function aggregateSessionUsage(
   if (totalAdded || totalRemoved) {
     usage.code_changes = `+${totalAdded} -${totalRemoved}`;
   }
+  // Exact integers for the trial file (the formatted strings above are rounded).
+  const sumTotals = (t: Record<string, { input: number; output: number; cached: number }>) =>
+    Object.values(t).reduce((a, m) => ({ input: a.input + m.input, output: a.output + m.output, cacheRead: a.cacheRead + m.cached }), { input: 0, output: 0, cacheRead: 0 });
+  usage.exact = {
+    tokens: sumTotals(mainModelTotals),
+    subAgentTokens: Object.keys(subModelTotals).length ? sumTotals(subModelTotals) : null,
+    premiumRequests: totalPremium,
+    wallClockMs: sessionDurationMs,
+  };
   for (const [model, totals] of Object.entries(mainModelTotals)) {
     usage.models[model] = {
       input: formatTokenCount(totals.input),
@@ -2961,6 +2977,8 @@ async function runBenchmarkImpl(
   const logsDir = join(trialDir, "session-logs-dir");
   mkdirSync(workDir, { recursive: true });
   mkdirSync(logsDir, { recursive: true });
+  // A new attempt must not leave an earlier export behind if it ends early.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
 
   // Keep SDK SQLite/session state on a short physical path. Deep benchmark
   // trial names can push SQLite paths beyond Windows' practical path limit.
@@ -4028,6 +4046,7 @@ async function runBenchmarkImpl(
     if (sessionUsage) {
       usage.sub_agent_count = sessionUsage.sub_agent_count;
       usage.sub_agent_models = sessionUsage.sub_agent_models;
+      usage.exact = sessionUsage.exact;
       if (usage.credits == null && sessionUsage.credits != null) usage.credits = sessionUsage.credits;
     }
   }
@@ -4038,6 +4057,8 @@ async function runBenchmarkImpl(
   // estimate when available.
   const buildCredits = sumSessionCredits(join(logsDir, "build-events.jsonl"));
   if (buildCredits != null) usage.credits = buildCredits;
+  const buildNanoAiu = sumSessionNanoAiu(join(logsDir, "build-events.jsonl"));
+  if (usage.exact) usage.exact = { ...usage.exact, nanoAiu: buildNanoAiu ?? null };
 
   entry.sessionTime = usage.session_time;
   entry.apiTime = usage.api_time;
@@ -4626,7 +4647,9 @@ function saveResults(
   trialDir: string,
   entry: RunEntry,
   config: ScenarioConfig,
-  usage: Record<string, any>
+  usage: Record<string, any>,
+  /** Revalidation passes the original attempt's identity, or null when it is unknown. */
+  original?: { release: string; commit: string; startedAt: string } | null
 ) {
   // Extract structured validation data if available
   const valData = (entry as any)._validationData as {
@@ -4705,7 +4728,58 @@ function saveResults(
   if (isWindows) {
     try { results.toolchain = { winapp: resolveWinAppToolchain().version }; } catch { /* recorded elsewhere as a launch failure */ }
   }
+  const release = original?.release ?? (process.env.BENCH_RELEASE || "dev");
+  const commit = original?.commit ?? currentCommit();
+  const startedAt = original?.startedAt ?? entry.startedAt;
+  // Kept here, not only in trial-result.json, so a failed judge can be retried without rerunning the agent.
+  if (original !== null && startedAt) results.attempt = { release, commit, started_at: new Date(startedAt).toISOString() };
   writeTextAtomic(join(trialDir, "results.json"), JSON.stringify(results, null, 2));
+
+  // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
+  const exact = usage?.exact;
+  // Never leave an earlier result behind when this evaluation can't be exported.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
+  // A tooling failure while judging is not an app result, and must not count as a pass.
+  const judgingFailed = /^(Re)?[Vv]alidation /.test(entry.failReason ?? "");
+  // A release result names one commit, so plugins from another commit would mislabel it.
+  const pluginSha = entry.agentSource?.sha;
+  const pluginMismatch = release !== "dev" && !!entry.agentSource &&
+    (pluginSha !== commit || !!entry.agentSource.dirty);
+  if (judgingFailed) console.warn(`  No trial-result.json written: ${entry.failReason}.`);
+  if (pluginMismatch) console.warn(`  No trial-result.json written: plugins came from ${pluginSha?.slice(0, 8)}${entry.agentSource?.dirty ? " (uncommitted changes)" : ""} but the release commit is ${commit.slice(0, 8)}.`);
+  if (exact && startedAt && original !== null && !judgingFailed && !pluginMismatch) {
+    const trial = toTrialResult({
+      release,
+      commit,
+      scenario: entry.scenarioConfigName,
+      set: config.set,
+      condition: entry.condition,
+      model: entry.model,
+      iteration: entry.iteration,
+      startedAt: new Date(startedAt),
+      builds: !!entry.builds,
+      runs: !!entry.runs,
+      checks: qualityChecks ?? [],
+      requirements: valData?.requirements ?? [],
+      requiredRequirements: config.required_requirements,
+      designScore: valData?.scoreBreakdown?.design ?? null,
+      judgeModel: (entry as any)._judgeModel,
+      usage: exact,
+      activity: summarizeActivity(join(trialDir, "session-logs-dir", "build-events.jsonl")),
+    });
+    if (trial) writeTextAtomic(join(trialDir, "trial-result.json"), JSON.stringify(trial, null, 2));
+  }
+}
+
+let cachedCommit: string | undefined;
+/** Full SHA of the winappCli checkout this harness runs from; all zeros outside a git checkout. */
+function currentCommit(): string {
+  if (cachedCommit === undefined) {
+    const r = spawnSync("git", ["rev-parse", "HEAD"], { cwd: dirname(fileURLToPath(import.meta.url)), encoding: "utf-8" });
+    const sha = r.status === 0 ? r.stdout.trim() : "";
+    cachedCommit = /^[0-9a-f]{40}$/.test(sha) ? sha : "0".repeat(40);
+  }
+  return cachedCommit;
 }
 
 function saveRevalidationResults(
@@ -4735,7 +4809,13 @@ function saveRevalidationResults(
       if (!entry.agentSource && old.agent_source) entry.agentSource = old.agent_source;
     } catch {}
   }
-  saveResults(trialDir, entry, scenarioConfig, usage);
+  // Keep the original attempt's release, commit and start time; without them it can't be exported.
+  let original: { release: string; commit: string; startedAt: string } | null = null;
+  try {
+    const a = JSON.parse(readFileSync(existingResults, "utf-8")).attempt;
+    if (a?.release && a.commit && a.started_at) original = { release: a.release, commit: a.commit, startedAt: a.started_at };
+  } catch {}
+  saveResults(trialDir, entry, scenarioConfig, usage, original);
 }
 
 
