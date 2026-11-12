@@ -50,7 +50,7 @@ import {
   projectDirFor,
   type QualityCheck,
 } from "./quality-checks.js";
-import { computeScoreV2, formatBreakdown, SCORING_VERSION, type ScoreBreakdown } from "./scoring.js";
+import { computeScoreV2, formatBreakdown, incompleteJudging, SCORING_VERSION, type ScoreBreakdown } from "./scoring.js";
 import { toTrialResult } from "./trial-result.js";
 import { summarizeActivity } from "./activity.js";
 import { pinRef, readPin } from "./upstream-pins.js";
@@ -4717,9 +4717,9 @@ function applyValidationScore(
   };
   const q = breakdown.quality;
   log(`  Score: ${breakdown.score}/100 (Reqs ${breakdown.requirements.passed}/${breakdown.requirements.scored} scored of ${breakdown.requirements.total} · Quality ${q.passed}/${q.passed + q.failed} · Design ${breakdown.design ?? "–"})`);
-  // Without any requirement rulings the other parts are scaled up to 100, so a broken judge would raise the score.
-  if (scenarioReqs.length && breakdown.requirements.scored === 0) {
-    entry.failReason = "Validation ruled on no requirements";
+  const incomplete = incompleteJudging(reqResults, scenarioConfig.required_requirements);
+  if (incomplete) {
+    entry.failReason = incomplete;
     entry.harnessError = entry.failReason;
     entry.score = undefined;
     log(`  ERROR: ${entry.failReason}`);

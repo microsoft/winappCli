@@ -14,7 +14,7 @@ import {
   extractRequirementResults,
 } from "./runner/benchmark.js";
 import { collectProjectFiles, evaluateBuildWarnings, evaluateSourceChecks, judgeChecks, type QualityCheck } from "./runner/quality-checks.js";
-import { computeScoreV2, formatBreakdown } from "./runner/scoring.js";
+import { computeScoreV2, formatBreakdown, incompleteJudging } from "./runner/scoring.js";
 
 export interface RescoreResult {
   runName: string;
@@ -121,12 +121,13 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
     designScore: typeof validation.design_score === "number" ? validation.design_score : null,
   });
 
-  // Same rule as a live run: a judge that ruled on no requirements is our failure, not a score.
-  const judgeFailed = scenarioReqs.length > 0 && breakdown.requirements.scored === 0;
-  if (judgeFailed) {
-    prior.harness_error = "Validation ruled on no requirements";
+  // Same rule as a live run: judging we can't score is our failure, not a score.
+  const incomplete = incompleteJudging(requirements, scenario.config.required_requirements);
+  const judgeFailed = !!incomplete;
+  if (incomplete) {
+    prior.harness_error = incomplete;
     prior.fail_reason = prior.harness_error;
-  } else if (prior.harness_error === "Validation ruled on no requirements") {
+  } else if (/^(Validation ruled on no requirements|Judge did not rule on required)/.test(prior.harness_error ?? "")) {
     delete prior.harness_error;
     delete prior.fail_reason;
   }

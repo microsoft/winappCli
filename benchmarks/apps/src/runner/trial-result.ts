@@ -8,7 +8,7 @@
  */
 import type { Activity } from "./activity.js";
 import type { QualityCheck } from "./quality-checks.js";
-import { SCORING_VERSION } from "./scoring.js";
+import { incompleteJudging, SCORING_VERSION } from "./scoring.js";
 
 /**
  * 0 = no window, 1 = window, 2 = loaded, 3 = ready. Level 3 is only reachable when the scenario names a ready element.
@@ -114,7 +114,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
 
   // A required requirement the judge did not rule on can't be a pass or an app failure, so the judging is incomplete.
   const unjudged = notRun.filter((id) => required.has(id));
-  const harnessError = input.harnessError ?? (unjudged.length ? `Judge did not rule on required requirement ${unjudged.join(", ")}` : undefined);
+  const harnessError = input.harnessError ?? (unjudged.length ? incompleteJudging(input.requirements, [...required]) : undefined);
   const improvements = checks.filter((c) => c.kind === "improvement");
   const outcome = harnessError ? "harness-error"
     : input.timedOut ? "timed-out"
