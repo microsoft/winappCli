@@ -618,7 +618,7 @@ struct TapReactorStatus
     bool present = false;
     std::wstring agent = L"absent";
     std::wstring version, reason;
-    std::wstring api;          // reactor (public diagnostics API) or internal (older Reactor read through internals)
+    std::wstring api;          // reactor: read through Reactor's public diagnostics API
     std::wstring annotations;  // agent, published, or empty when neither can describe the elements
     int sourceMap = -1;
 };

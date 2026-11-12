@@ -29,7 +29,6 @@
     <Compile Include="ReactorValueText.cs" />
     <Compile Include="DevToolsSecrets.cs" />
     <Compile Include="ReactorComponentOps.cs" />
-    <Compile Include="ReactorInternals.cs" />
     <Compile Include="ReactorPdb.cs" />
     <Compile Include="ReactorEvents.cs" />
     <Compile Include="ResourceOps.cs" />

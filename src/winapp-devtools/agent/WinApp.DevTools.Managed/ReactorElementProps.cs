@@ -142,49 +142,9 @@ internal static class ReactorElementProps
     }
 
     /// <summary>
-    /// A value shown as itself rather than member by member: primitives, enums, text, numbers, dates, times, GUIDs and
-    /// URIs, and their nullables.
-    /// </summary>
-    internal static bool IsScalar(Type type)
-    {
-        type = Nullable.GetUnderlyingType(type) ?? type;
-        return type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal) || type == typeof(Guid) ||
-            type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) || type == typeof(DateOnly) ||
-            type == typeof(TimeOnly) || type == typeof(Uri) || type == typeof(Version);
-    }
-
-    /// <summary>A component's props as name/value rows; a scalar props value is one row named <c>Props</c>.</summary>
-    internal static IReadOnlyList<(string Name, string Value, bool Redacted)> ComponentProps(object? props)
-    {
-        if (props is null)
-        {
-            return [];
-        }
-        var type = props.GetType();
-        if (IsScalar(type))
-        {
-            var (text, redacted) = Format("Props", props);
-            return [("Props", text, redacted)];
-        }
-        var list = new List<(string, string, bool)>();
-        foreach (var property in type.GetProperties(PublicInstance))
-        {
-            if (property.Name == "EqualityContract" || property.GetIndexParameters().Length > 0)
-            {
-                continue;
-            }
-            object? value;
-            try { value = property.GetValue(props); }
-            catch (TargetInvocationException) { continue; }
-            var (text, redacted) = Format(property.Name, value);
-            list.Add((property.Name, text, redacted));
-        }
-        return list;
-    }
-
-    /// <summary>
-    /// A value as shown to the developer: redacted when its name says it is a secret (<see cref="DevToolsSecrets"/>).
-    /// A collection shows its count, never its items, and a <c>ToString</c> that throws is reported rather than raised.
+    /// A value as shown to the developer: redacted when its name says it is a secret, or when its type holds one
+    /// (<see cref="DevToolsSecrets"/>). A collection shows its count, never its items, and a <c>ToString</c> that throws
+    /// is reported rather than raised.
     /// </summary>
     internal static (string Text, bool Redacted) Format(string name, object? value)
     {
@@ -197,6 +157,10 @@ internal static class ReactorElementProps
             value = optional.GetProperty("HasValue", PublicInstance)?.GetValue(value) is true
                 ? optional.GetProperty("Value", PublicInstance)?.GetValue(value)
                 : null;
+        }
+        if (DevToolsSecrets.HoldsSecret(value?.GetType()))
+        {
+            return (DevToolsSecrets.Redacted, true);
         }
         // Every collection is summarised by its count: its own ToString may enumerate it.
         if (value is IEnumerable and not string)

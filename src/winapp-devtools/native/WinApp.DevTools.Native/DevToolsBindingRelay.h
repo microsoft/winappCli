@@ -55,3 +55,5 @@ enum class DevToolsAppRuntime { Clr, NativeAot, None };
 // The .NET runtime this process runs on: the CLR, Native AOT, or none.
 DevToolsAppRuntime DevToolsBindingRelay_AppRuntime();
 const wchar_t* DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime runtime);
+// Why get-resource and set-resource can't run without the managed agent: they read and write resources only there.
+const wchar_t* DevToolsBindingRelay_NoAgentResourceReason(DevToolsAppRuntime runtime);

@@ -137,11 +137,6 @@ internal static class ReactorProvider
                 var reactorParent = parent;
                 if (node is UIElement element)
                 {
-                    // A XAML-hosted island renders into its own content; its root control is found further down.
-                    if (api.IslandHost(element) is { } island)
-                    {
-                        hosts[island.RootControl] = island;
-                    }
                     var tag = api.GetTag(element);
                     var host = hosts.GetValueOrDefault(element);
                     if ((tag is not null || host is not null) && Identity(element) is var id && id != 0 && seen.Add(id))
@@ -285,12 +280,6 @@ internal static class ReactorProvider
         var tag = api.GetTag(element);
         // Reactor's text diagnostics format the props of the component mounted here; DevTools redacts them.
         var shownProps = api.DescribeComponent(element);
-        object? props = null;
-        var hasComponentProps = shownProps is not null;
-        if (shownProps is null)
-        {
-            props = api.ComponentProps(tag, out hasComponentProps);
-        }
         using var stream = new MemoryStream();
         using (var w = new Utf8JsonWriter(stream))
         {
@@ -329,7 +318,7 @@ internal static class ReactorProvider
                     w.WriteStartObject();
                     w.WriteString("modifier", modifier.Modifier);
                     w.WriteString("property", modifier.Property);
-                    var (value, redacted) = api.TextDiagnostics && modifier.Value is string text
+                    var (value, redacted) = applied is not null && modifier.Value is string text
                         ? ReactorElementProps.FormatText(modifier.Property, text)
                         : ReactorElementProps.Format(modifier.Property, modifier.Value);
                     w.WriteString("value", value);
@@ -375,21 +364,17 @@ internal static class ReactorProvider
                 }
                 w.WriteEndArray();
             }
-            if (hasComponentProps)
+            if (shownProps is not null)
             {
                 w.WriteStartObject("componentProps");
-                if (props is not null) { w.WriteString("type", ReactorApi.TypeName(props.GetType())); }
-                else if (shownProps is not null && api.MountedProps(tag) is { } record) { w.WriteString("type", ReactorApi.TypeName(record.GetType())); }
+                if (api.MountedProps(tag) is { } record) { w.WriteString("type", ReactorApi.TypeName(record.GetType())); }
                 w.WriteStartArray("values");
-                var rows = shownProps is not null
-                    ? shownProps.Props.Select(p => (p.Name, p.Value, p.Redacted)).ToList()
-                    : ReactorElementProps.ComponentProps(props);
-                foreach (var (name, value, redacted) in rows)
+                foreach (var prop in shownProps.Props)
                 {
                     w.WriteStartObject();
-                    w.WriteString("name", name);
-                    w.WriteString("value", value);
-                    if (redacted) { w.WriteBoolean("redacted", true); }
+                    w.WriteString("name", prop.Name);
+                    w.WriteString("value", prop.Value);
+                    if (prop.Redacted) { w.WriteBoolean("redacted", true); }
                     w.WriteEndObject();
                 }
                 w.WriteEndArray();
@@ -531,13 +516,14 @@ internal sealed record ReactorHostInfo(
     (string File, int Line, int Column)? Mount = null,
     string? ErrorScreen = null);
 /// <summary>
-/// Reflection over Reactor, bound once per Reactor assembly. Reactor versions with the public diagnostics API
-/// (<c>ReactorDiagnostics.GetHosts</c> with <c>DescribeComponent</c>) are read only through it;
-/// older versions (published 0.1.0-preview.16 and earlier) are read through <see cref="ReactorInternals"/>, the one
-/// place that touches Reactor internals. <see cref="PublicDiagnostics"/> picks the path once.
+/// Reflection over Reactor, bound once per Reactor assembly. Reactor is read only through its public diagnostics API
+/// (<c>ReactorDiagnostics.GetHosts</c> with <c>DescribeComponent</c>), which Reactor has from
+/// <see cref="MinimumVersion"/>; an older Reactor answers <see cref="Error"/>.
 /// </summary>
 internal sealed partial class ReactorApi
 {
+    /// <summary>The first Reactor release with the public diagnostics API DevTools reads.</summary>
+    internal const string MinimumVersion = "0.1.0-preview.17";
     private const string ReconcilerType = "Microsoft.UI.Reactor.Core.Reconciler";
     private const string DiagnosticsType = "Microsoft.UI.Reactor.Core.Diagnostics.ReactorDiagnostics";
     private static ReactorApi? cached;
@@ -592,9 +578,11 @@ internal sealed partial class ReactorApi
             .FirstOrDefault(method => method.Name == "TrySetState" && method.GetParameters() is { Length: 4 } p &&
                 p[0].ParameterType == typeof(UIElement) && p[1].ParameterType == typeof(int) && p[2].ParameterType == typeof(string) && p[3].IsOut);
         rerenderComponent = diagnostics?.GetMethod("Rerender", BindingFlags.Public | BindingFlags.Static, [typeof(UIElement)]);
-        PublicDiagnostics = getHosts is not null && describeComponent is not null;
-        Internals = PublicDiagnostics ? null : new ReactorInternals(assembly);
-        if (getElementTag is null || element is null)
+        if (getHosts is null || describeComponent is null)
+        {
+            Error = OutdatedReason(Version);
+        }
+        else if (getElementTag is null || element is null)
         {
             Error = $"this Reactor version ({Version}) does not expose Reconciler.GetElementTag(UIElement)";
         }
@@ -604,14 +592,15 @@ internal sealed partial class ReactorApi
 
     public string? Error { get; }
 
-    /// <summary>Whether this Reactor has the public diagnostics API; false for published 0.1.0-preview.16 and earlier.</summary>
-    public bool PublicDiagnostics { get; }
+    /// <summary>
+    /// Why DevTools cannot read a Reactor without the public diagnostics API. The CLI recognizes it by
+    /// "DevTools needs Microsoft.UI.Reactor" and shows it alone, because no launch option helps.
+    /// </summary>
+    internal static string OutdatedReason(string version) =>
+        $"this app uses Microsoft.UI.Reactor {version}; DevTools needs Microsoft.UI.Reactor {MinimumVersion} or later. Update the package";
 
-    /// <summary><c>reactor</c> when DevTools reads Reactor through its public diagnostics API, <c>internal</c> otherwise.</summary>
-    public string Api => PublicDiagnostics ? "reactor" : "internal";
-
-    /// <summary>The internals adapter, only for a Reactor without the public diagnostics API.</summary>
-    internal ReactorInternals? Internals { get; }
+    /// <summary>How DevTools reads Reactor: always <c>reactor</c>, its public diagnostics API.</summary>
+    public string Api => "reactor";
 
     public static ReactorApi? TryLoad(IEnumerable<Assembly> loaded)
     {
@@ -638,18 +627,12 @@ internal sealed partial class ReactorApi
     public Dictionary<UIElement, ReactorHostInfo> WindowHosts()
     {
         var hosts = new Dictionary<UIElement, ReactorHostInfo>(ReferenceEqualityComparer.Instance);
-        foreach (var host in Internals is { } internals ? internals.WindowHosts() : PublicHosts())
+        foreach (var host in PublicHosts())
         {
             hosts.TryAdd(host.RootControl, host);
         }
         return hosts;
     }
-
-    /// <summary>
-    /// A <c>ReactorHostControl</c> island inside XAML, described by the root it renders. Only needed without the
-    /// public host registry, which already lists every island.
-    /// </summary>
-    public ReactorHostInfo? IslandHost(UIElement element) => Internals?.IslandHost(element);
 
     // The root component Reactor's DescribeComponent names for a host's root control, with its type when one class has
     // that name.
@@ -874,16 +857,6 @@ internal sealed partial class ReactorApi
                 string.IsNullOrEmpty(targetType) ? null : targetType, Member(edge, "TargetAutomationId") as string));
         }
         return list;
-    }
-
-    /// <summary>
-    /// The props a component element was rendered with, for Reactor versions without <c>DescribeComponent</c>, which
-    /// reports them itself.
-    /// </summary>
-    public object? ComponentProps(object? tag, out bool known)
-    {
-        known = tag is not null && componentElement?.IsInstanceOfType(tag) == true && componentProps is not null;
-        return known ? componentProps!.GetValue(tag) : null;
     }
 
     /// <summary>The props record a component element was rendered with; null for any other element.</summary>

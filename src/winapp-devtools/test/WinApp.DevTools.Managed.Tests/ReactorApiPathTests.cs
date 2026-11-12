@@ -9,79 +9,41 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace WinApp.DevTools.Managed.Tests;
 
 /// <summary>
-/// DevTools reads a Reactor with the public diagnostics API (GetHosts and DescribeComponent) only through it, and an
-/// older Reactor (published 0.1.0-preview.16) only through the internals adapter. Built against emitted stand-ins of both shapes.
+/// DevTools reads Reactor only through its public diagnostics API (GetHosts and DescribeComponent); a Reactor without
+/// it gets one message asking for an update. Built against emitted stand-ins of both shapes.
 /// </summary>
 [TestClass]
 public sealed class ReactorApiPathTests
 {
     [TestMethod]
-    public void PublicDiagnostics_AreUsedAlone_WhenReactorHasThem()
+    public void PublicDiagnostics_AreRead_WhenReactorHasThem()
     {
         var reactor = FakeReactor(getHosts: true, describeComponent: true);
         var api = ReactorApi.ForAssembly(reactor);
 
         Assert.IsNull(api.Error);
-        Assert.IsTrue(api.PublicDiagnostics);
         Assert.AreEqual("reactor", api.Api);
-        Assert.IsNull(api.Internals, "no internals adapter for a Reactor with the public API");
-
         Assert.AreEqual(0, api.WindowHosts().Count);
         Assert.IsTrue(Flag(reactor, DiagnosticsType, "HostsRead"), "the host registry answered");
-        Assert.IsFalse(Flag(reactor, AppType, "WindowsRead"), "ReactorApp.Windows is not consulted");
-    }
-
-    [TestMethod]
-    public void Internals_AreUsed_ForAReactorWithoutThePublicApi()
-    {
-        var reactor = FakeReactor(getHosts: false, describeComponent: false);
-        var api = ReactorApi.ForAssembly(reactor);
-
-        Assert.IsNull(api.Error);
-        Assert.IsFalse(api.PublicDiagnostics);
-        Assert.AreEqual("internal", api.Api);
-        Assert.IsNotNull(api.Internals);
-
-        Assert.AreEqual(0, api.WindowHosts().Count);
-        Assert.IsTrue(Flag(reactor, AppType, "WindowsRead"), "the adapter reads ReactorApp.Windows");
-    }
-
-    [TestMethod]
-    [DataRow(true, false)]
-    [DataRow(false, true)]
-    public void APartialPublicApi_FallsBackToInternalsAsAWhole(bool getHosts, bool describeComponent)
-    {
-        var reactor = FakeReactor(getHosts, describeComponent);
-        var api = ReactorApi.ForAssembly(reactor);
-
-        Assert.IsFalse(api.PublicDiagnostics);
-        Assert.IsNotNull(api.Internals);
-        api.WindowHosts();
-        Assert.IsFalse(Flag(reactor, DiagnosticsType, "HostsRead"), "one path per Reactor version, never both");
-        Assert.IsTrue(Flag(reactor, AppType, "WindowsRead"));
-    }
-
-    [TestMethod]
-    public void TextDiagnostics_AreThePublicApi()
-    {
-        // Reactor's final API: GetHosts and DescribeComponent/TrySetState/Rerender.
-        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, describeComponent: true));
-
-        Assert.IsTrue(api.PublicDiagnostics);
-        Assert.IsTrue(api.TextDiagnostics);
-        Assert.IsNull(api.Internals);
         Assert.IsNull(api.DescribeComponent(null!), "no component described here");
         Assert.AreEqual((false, "Counter has no hook 9."), api.SetState(null!, 9, "1"), "Reactor's refusal is passed on word for word");
         Assert.IsTrue(api.Rerender(null!));
     }
 
     [TestMethod]
-    public void IslandHost_IsOnlyAskedOfTheInternalsAdapter()
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public void AReactorWithoutThePublicApi_AsksForAnUpdate(bool getHosts, bool describeComponent)
     {
-        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, describeComponent: true));
-        Assert.IsNull(api.IslandHost(null!), "the public host registry already lists islands");
-    }
+        var api = ReactorApi.ForAssembly(FakeReactor(getHosts, describeComponent));
 
+        Assert.AreEqual($"this app uses Microsoft.UI.Reactor {api.Version}; DevTools needs Microsoft.UI.Reactor 0.1.0-preview.17 or later. Update the package",
+            api.Error);
+        using var answer = System.Text.Json.JsonDocument.Parse(ReactorProvider.Describe(null!, api));
+        Assert.AreEqual("unavailable", answer.RootElement.GetProperty("state").GetString(), "the tree shows raw controls");
+        Assert.AreEqual(api.Error, answer.RootElement.GetProperty("reason").GetString());
+    }
     [TestMethod]
     public void PendingReferences_ComeFromGetReferenceEdges_WhenReactorHasIt()
     {
@@ -103,7 +65,6 @@ public sealed class ReactorApiPathTests
     }
 
     private const string DiagnosticsType = "Microsoft.UI.Reactor.Core.Diagnostics.ReactorDiagnostics";
-    private const string AppType = "Microsoft.UI.Reactor.ReactorApp";
 
     private static bool Flag(Assembly assembly, string type, string field) =>
         assembly.GetType(type)?.GetField(field)?.GetValue(null) is true;
@@ -121,11 +82,6 @@ public sealed class ReactorApiPathTests
         il.Emit(OpCodes.Ldnull);
         il.Emit(OpCodes.Ret);
         reconciler.CreateType();
-
-        var app = module.DefineType(AppType, TypeAttributes.Public | TypeAttributes.Class);
-        var windowsRead = app.DefineField("WindowsRead", typeof(bool), FieldAttributes.Public | FieldAttributes.Static);
-        EmptyListGetter(app, "Windows", windowsRead);
-        app.CreateType();
 
         if (getHosts || describeComponent || referenceEdges is not null)
         {
@@ -169,14 +125,6 @@ public sealed class ReactorApiPathTests
             diagnostics.CreateType();
         }
         return assembly;
-    }
-
-    private static void EmptyListGetter(TypeBuilder type, string name, FieldBuilder flag)
-    {
-        var getter = type.DefineMethod("get_" + name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
-            typeof(object[]), Type.EmptyTypes);
-        EmitFlagAndEmptyArray(getter.GetILGenerator(), flag);
-        type.DefineProperty(name, PropertyAttributes.None, typeof(object[]), null).SetGetMethod(getter);
     }
 
     private static void EmitFlagAndEmptyArray(ILGenerator il, FieldInfo flag)

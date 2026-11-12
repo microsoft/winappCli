@@ -208,6 +208,16 @@ const wchar_t* DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime runtime)
            L"diagnosed by the managed host under any launch option. Use get-property to read the property's live value and where it comes from.";
 }
 
+const wchar_t* DevToolsBindingRelay_NoAgentResourceReason(DevToolsAppRuntime runtime)
+{
+    if (runtime == DevToolsAppRuntime::Clr) return DevToolsBindingRelay_NoAgentReason(runtime);
+    if (runtime == DevToolsAppRuntime::NativeAot)
+        return L"Native AOT apps can't load the managed DevTools agent, so resources can't be read or set. "
+               L"get-resource and set-resource need a .NET app that isn't Native AOT.";
+    return L"this app has no .NET runtime, so there is no managed agent to load, and resources can't be read or set "
+           L"under any launch option. get-resource and set-resource need a .NET app.";
+}
+
 bool DevToolsBindingRelay_IsAllowedOp(const std::wstring& op)
 {
     // Only managed binding operations and the Reactor element description cross this pipe.

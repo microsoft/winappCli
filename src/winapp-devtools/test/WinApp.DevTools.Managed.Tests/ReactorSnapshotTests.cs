@@ -73,6 +73,7 @@ public sealed class ReactorSnapshotTests
         Assert.AreEqual("Counter", component.GetProperty("name").GetString());
         StringAssert.EndsWith(component.GetProperty("type").GetString(), "+Counter", "the element record's type is still reported");
         Assert.AreEqual("Counter.Render", root.GetProperty("definition").GetProperty("method").GetString(), "and where it is defined");
+        Assert.AreEqual("SHA256", root.GetProperty("definition").GetProperty("checksumAlgorithm").GetString());
 
         var props = root.GetProperty("props");
         Assert.AreEqual("CounterProps", props.GetProperty("type").GetString());
@@ -151,8 +152,6 @@ public sealed class ReactorSnapshotTests
         Assert.AreEqual((false, "'x' is not a valid int."), component.TrySetText(4, "x"));
         Assert.AreEqual("3", component.Hook(0)!.Value);
         Assert.IsNull(component.Hook(9));
-        Assert.AreEqual(0, component.Hooks().Count, "typed hooks are not read on this path");
-        Assert.IsFalse(component.TrySet(0, 42), "typed writes are not used on this path");
         Assert.IsTrue(component.Rerender());
     }
 
@@ -172,6 +171,22 @@ public sealed class ReactorSnapshotTests
         Assert.IsFalse(asked, "the value never reaches Reactor");
     }
 
+    [TestMethod]
+    public void SetState_RefusesAHookWhoseTypeHoldsAPassword()
+    {
+        var snapshot = new ComponentSnapshot("LoginForm", "function", false, [],
+            [new(0, "", "state", "Login", "Login { User = ada, Password = hunter2 }", false, false)], []);
+        var asked = false;
+        var component = Component(snapshot, (_, _) => { asked = true; return (true, null); });
+        string? answer = null;
+
+        ReactorComponentOps.SetStateText(null!, null!, null, component, 0, "null", idleBefore: true, json => answer = json);
+
+        Assert.IsNotNull(answer);
+        using var doc = JsonDocument.Parse(answer);
+        Assert.AreEqual("secret", doc.RootElement.GetProperty("code").GetString());
+        Assert.IsFalse(asked, "the value never reaches Reactor");
+    }
     [TestMethod]
     public void RowState_ARowItsListRecycled_HasNoComponent_AndAParkedOneIsOffScreen()
     {

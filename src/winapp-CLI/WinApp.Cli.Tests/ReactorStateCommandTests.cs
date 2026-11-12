@@ -13,7 +13,7 @@ namespace WinApp.Cli.Tests;
 public class ReactorStateCommandTests
 {
     private const string Counter = """
-        {"state":"ok","version":"0.1.0","api":"internal","exact":true,"idle":true,
+        {"state":"ok","version":"0.1.0","api":"reactor","exact":true,"idle":true,
          "component":{"kind":"class","name":"Counter","type":"Counter","isRoot":false,"mounted":true},
          "declared":{"file":"C:\\src\\App.cs","line":44,"column":13},
          "definition":{"file":"/_/App.cs","fileOnDisk":"C:\\src\\App.cs","line":71,"column":5,"method":"Counter.Render","checksumAlgorithm":"SHA256","checksum":"ab","stale":true},
@@ -124,7 +124,7 @@ public class ReactorStateCommandTests
     public async Task SetState_SendsTheIndexAndValueAndReportsTheReadBack()
     {
         using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.setState", """
-            {"state":"ok","component":"Counter","index":0,"kind":"state","type":"int","requested":"42","before":"3","after":"42","changed":true,"waitedForIdle":true,"rendered":true,"api":"internal"}
+            {"state":"ok","component":"Counter","index":0,"kind":"state","type":"int","requested":"42","before":"3","after":"42","changed":true,"waitedForIdle":true,"rendered":true,"api":"reactor"}
             """);
         var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["42", "0", "42"]);
 
@@ -243,7 +243,7 @@ public class ReactorStateCommandTests
 
     // A late attach: Reactor recorded no hook names, and the definition's C# is on this machine.
     private static string LateAttachLogin(string sourcePath) => $$"""
-        {"state":"ok","version":"0.1.0","api":"internal","exact":true,"idle":true,
+        {"state":"ok","version":"0.1.0","api":"reactor","exact":true,"idle":true,
          "component":{"kind":"class","name":"Login2","type":"Login2","isRoot":false,"mounted":true},
          "definition":{"file":{{JsonSerializer.Serialize(sourcePath)}},"line":4,"column":5,"method":"Login2.Render"},
          "hooks":[
@@ -331,7 +331,7 @@ public class ReactorStateCommandTests
             using var allowed = new FakeDevToolsProtocolAgent()
                 .Answer("Reactor.component", LateAttachLogin(path))
                 .Answer("Reactor.setState", """
-                    {"state":"ok","component":"Login2","index":1,"kind":"state","type":"int","requested":"5","before":"3","after":"5","changed":true,"waitedForIdle":true,"rendered":true,"api":"internal"}
+                    {"state":"ok","component":"Login2","index":1,"kind":"state","type":"int","requested":"5","before":"3","after":"5","changed":true,"waitedForIdle":true,"rendered":true,"api":"reactor"}
                     """);
             var (allowedExit, allowedOutput) = await Run(new DevToolsSetStateCommand(), allowed, ["42", "count", "5"]);
             Assert.AreEqual(0, allowedExit, allowedOutput);
@@ -616,7 +616,7 @@ public class ReactorStateCommandTests
     }
 
     private const string DoneToday = """
-        {"state":"ok","version":"0.1.0","api":"internal","exact":true,"idle":true,
+        {"state":"ok","version":"0.1.0","api":"reactor","exact":true,"idle":true,
          "component":{"kind":"class","name":"DoneToday","type":"DoneToday","isRoot":false,"mounted":true},
          "props":{"type":"DoneTodayProps","values":[{"name":"Id","value":"13"}]},
          "hooks":[

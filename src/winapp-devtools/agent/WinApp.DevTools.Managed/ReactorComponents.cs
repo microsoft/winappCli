@@ -1,72 +1,14 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
-using System.Collections;
 using System.Globalization;
 using System.Reflection;
 
 namespace WinApp.DevTools.Managed;
 
-/// <summary>One hook cell of a mounted component, in call order.</summary>
-internal sealed record ReactorHook(int Index, string Kind, Type? ValueType, object? Value, bool CanSet, bool Migrated);
-
-/// <summary>One context a component reads through <c>UseContext</c>.</summary>
-internal sealed record ReactorContextRead(int HookIndex, string Name, Type? ValueType, object? Value, bool IsDefault);
-
-/// <summary>
-/// One mounted component: its identity, props, hooks and contexts, and the two writes DevTools makes (a state value
-/// and a re-render). Every member must run on the UI thread that renders the component.
-/// </summary>
-internal abstract class ReactorComponentHandle
-{
-    /// <summary><c>reactor</c> when Reactor's public diagnostics answered; <c>internal</c> otherwise.</summary>
-    public abstract string Api { get; }
-    public abstract string Kind { get; }
-    public abstract bool IsRoot { get; }
-    public abstract Type? ComponentType { get; }
-    public abstract Delegate? RenderFunc { get; }
-    public abstract object? Props { get; }
-    public abstract object? DeclaringElement { get; }
-    public abstract bool IsMounted { get; }
-    public abstract IReadOnlyList<ReactorHook> Hooks();
-    public abstract IReadOnlyList<ReactorContextRead> Contexts();
-    /// <summary>Writes an already typed value into a settable cell; false when the cell refuses it.</summary>
-    public abstract bool TrySet(int index, object? value);
-    public abstract bool Rerender();
-
-    public virtual string Name => ComponentType is { } type ? ReactorApi.TypeName(type)
-        : ReactorApi.DelegateName(RenderFunc, Kind == "memo" ? "Memo" : IsRoot ? "render" : "RenderEachTime");
-
-    /// <summary>The method that renders the component: a class component's <c>Render</c>, or the render delegate.</summary>
-    public MethodInfo? RenderMethod
-    {
-        get
-        {
-            if (RenderFunc?.Method is { } method)
-            {
-                return method;
-            }
-            for (var type = ComponentType; type is not null && type != typeof(object); type = type.BaseType)
-            {
-                if (type.GetMethod("Render", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly,
-                        Type.EmptyTypes) is { IsAbstract: false } render)
-                {
-                    return render;
-                }
-            }
-            return null;
-        }
-    }
-}
-
-/// <summary>Values as DevTools reads, shows and parses them for components.</summary>
+/// <summary>Type names, text parsing and handler names, as DevTools shows and reads them for Reactor components.</summary>
 internal static class ReactorComponents
 {
-    private const int MaxValueLength = 200;
-
-    internal static string ContextName(Type? valueType) =>
-        valueType is null ? "Context" : $"Context<{FriendlyTypeName(valueType)}>";
-
     /// <summary><c>int</c>, <c>string?</c>, <c>List&lt;TaskItem&gt;</c>: the type as C# reads it.</summary>
     internal static string FriendlyTypeName(Type type)
     {
@@ -98,13 +40,6 @@ internal static class ReactorComponents
         return type.IsGenericType ? $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FriendlyTypeName))}>" : name;
     }
 
-    /// <summary>
-    /// Whether DevTools offers to edit a value: a type that can be typed as text, whose name does not say it is a
-    /// secret, and was not redacted.
-    /// </summary>
-    internal static bool IsEditableValue(string name, Type? type, bool redacted) =>
-        !redacted && !DevToolsSecrets.IsSecretName(name) && IsEditable(type);
-
     /// <summary>A type a value can be typed as on the command line: primitives, strings, enums and their nullables.</summary>
     internal static bool IsEditable(Type? type)
     {
@@ -118,38 +53,8 @@ internal static class ReactorComponents
     }
 
     /// <summary>
-    /// A value as shown to the developer: redacted when its name says it is a secret, collections summarised by their
-    /// count (never enumerated), long text cut.
-    /// </summary>
-    internal static (string Text, bool Redacted) Format(string name, Type? declared, object? value)
-    {
-        if (DevToolsSecrets.IsSecretName(name))
-        {
-            return (DevToolsSecrets.Redacted, true);
-        }
-        // Every collection is summarised by its count: its own ToString may enumerate it.
-        if (value is IEnumerable and not string)
-        {
-            // A collection expression's runtime type is compiler-generated (<>z__ReadOnlyArray); name the declared one.
-            var shownType = value.GetType().Name.StartsWith('<') && declared is not null ? declared : value.GetType();
-            var text = ReactorValueText.Count(value) is { } count
-                ? $"{FriendlyTypeName(shownType)} ({count.ToString(CultureInfo.InvariantCulture)} items)"
-                : $"{FriendlyTypeName(shownType)} (count unknown)";
-            return (text, false);
-        }
-        if (value is string s)
-        {
-            var quoted = "\"" + s.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal)
-                .Replace("\n", "\\n", StringComparison.Ordinal).Replace("\r", "\\r", StringComparison.Ordinal) + "\"";
-            return (quoted.Length > MaxValueLength ? quoted[..MaxValueLength] + "..." : quoted, false);
-        }
-        var (shown, redacted) = ReactorElementProps.Format(name, value);
-        return (shown.Length > MaxValueLength ? shown[..MaxValueLength] + "..." : shown, redacted);
-    }
-
-    /// <summary>
-    /// Parses command-line text to a hook's value type. No conversion beyond that: a value of any other type is
-    /// refused with a reason, because a complex state value cannot be typed safely from text.
+    /// Parses command-line text to a handler argument's type. No conversion beyond that: a value of any other type is
+    /// refused with a reason, because a complex value cannot be typed safely from text.
     /// </summary>
     internal static bool TryParse(string text, Type type, out object? value, out string? error)
     {

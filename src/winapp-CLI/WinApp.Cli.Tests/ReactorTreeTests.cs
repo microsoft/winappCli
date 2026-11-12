@@ -14,7 +14,7 @@ public class ReactorTreeTests
 
     // App (class component) -> FlexColumn -> [TextBlock, <Counter> -> FlexRow -> Button]
     private const string Described = """
-        {"state":"ok","version":"0.1.0-preview.16","sourceMap":true,
+        {"state":"ok","version":"0.1.0-preview.17","sourceMap":true,
          "nodes":[
            {"handle":"10","element":"Component","file":0,"line":8,"component":{"kind":"class","name":"App","type":"App"}},
            {"handle":"11","parent":"10","element":"FlexColumn","file":0,"line":24},
@@ -33,7 +33,7 @@ public class ReactorTreeTests
         var reactor = ReactorDescription.Parse(Described)!;
 
         Assert.IsTrue(reactor.IsReactor);
-        Assert.AreEqual("0.1.0-preview.16", reactor.Version);
+        Assert.AreEqual("0.1.0-preview.17", reactor.Version);
         Assert.AreEqual(true, reactor.SourceMap);
         Assert.AreEqual(2, reactor.Unmapped);
         CollectionAssert.AreEqual(Expected("10", "16"), reactor.Roots.Select(root => root.Handle).ToArray());
@@ -132,6 +132,19 @@ public class ReactorTreeTests
         StringAssert.Contains(unreadable.ExplainUnavailable(), "winapp run --devtools on");
     }
 
+    [TestMethod]
+    public void ExplainUnavailable_AnOutdatedReactorAsksOnlyForAnUpdate()
+    {
+        using var outdated = System.Text.Json.JsonDocument.Parse("""
+            {"present":true,"agent":"unavailable","version":"0.1.0-preview.16",
+             "reason":"this app uses Microsoft.UI.Reactor 0.1.0-preview.16; DevTools needs Microsoft.UI.Reactor 0.1.0-preview.17 or later. Update the package"}
+            """);
+        var tree = ReactorDescription.ParseAnnotations(outdated.RootElement)!;
+
+        Assert.AreEqual(ReactorDescription.UnavailableToken, tree.Token);
+        Assert.AreEqual("This app uses Microsoft.UI.Reactor 0.1.0-preview.16; DevTools needs Microsoft.UI.Reactor 0.1.0-preview.17 or later. " +
+            "Update the package.", tree.ExplainUnavailable(), "no launch advice: relaunching would not help");
+    }
     [TestMethod]
     public void ParseAnnotations_PublishedDiagnosticsDescribeWithoutTheAgent()
     {

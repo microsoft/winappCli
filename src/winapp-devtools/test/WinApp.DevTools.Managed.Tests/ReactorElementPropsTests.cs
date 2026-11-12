@@ -124,18 +124,6 @@ public sealed class ReactorElementPropsTests
     }
 
     [TestMethod]
-    public void ComponentProps_ListsValuesAndRedactsPasswords()
-    {
-        var rows = ReactorElementProps.ComponentProps(new LoginProps("ada", "s3cret", () => { }));
-
-        Assert.AreEqual("ada", rows.Single(r => r.Name == "User").Value);
-        Assert.AreEqual(DevToolsSecrets.Redacted, rows.Single(r => r.Name == "UserPassword").Value);
-        StringAssert.StartsWith(rows.Single(r => r.Name == "Submit").Value, "handler ");
-        CollectionAssert.AreEqual(new[] { "Props=3" },
-            ReactorElementProps.ComponentProps(3).Select(r => $"{r.Name}={r.Value}").ToArray());
-    }
-
-    [TestMethod]
     public void Location_ReadsTheColumnWhenReactorRecordsOne()
     {
         Assert.AreEqual(("App.cs", 35, 13), ReactorApi.Location(new SourceLocation("App.cs", 35, 13)));

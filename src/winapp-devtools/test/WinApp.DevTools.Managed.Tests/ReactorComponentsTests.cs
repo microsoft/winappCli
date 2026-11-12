@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
-using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace WinApp.DevTools.Managed.Tests;
@@ -13,53 +12,6 @@ public sealed class ReactorComponentsTests
 
     public sealed record TaskItem(int Id, string Title);
 
-    public sealed class Ref<T>(T current)
-    {
-        public T Current { get; set; } = current;
-    }
-
-    // The shapes of Reactor's internal hook cells, named as Reactor names them.
-    private sealed class ValueHookState<T>(T value, byte setterKind = 1)
-    {
-        public T Value = value;
-        public byte SetterKind = setterKind;
-        public bool Migrated = false;
-    }
-
-    private sealed class MemoHookState<T>(T value)
-    {
-        public T Value = value;
-    }
-
-    private sealed class EffectHookState;
-
-    private sealed class Context<T>(T fallback)
-    {
-        public Type ValueType => typeof(T);
-        public T DefaultValue { get; } = fallback;
-    }
-
-    private sealed class ContextHookState(object context, object? last)
-    {
-        public object Context = context;
-        public object? LastValue = last;
-    }
-
-    private sealed class RenderContext(params object[] hooks)
-    {
-        public int Renders;
-#pragma warning disable IDE0052, CS0414 // Read by reflection, as Reactor's own fields are.
-        private readonly List<object> _hooks = [.. hooks];
-        private readonly Action _requestRerender = null!;
-#pragma warning restore IDE0052, CS0414
-        public RenderContext Init()
-        {
-            typeof(RenderContext).GetField("_requestRerender", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-                .SetValue(this, (Action)(() => Renders++));
-            return this;
-        }
-    }
-
     private sealed class Counter
     {
         public object Render() => (Action)Increment;
@@ -70,95 +22,6 @@ public sealed class ReactorComponentsTests
             return Step;
             static void Step() { }
         }
-    }
-
-    private static InternalReactorComponent Internal(RenderContext context) =>
-        new(context, "class", false, typeof(Counter), null, new TaskItem(1, "Ship"), null, null);
-
-    [TestMethod]
-    public void Internal_ReadsEveryHookKindInCallOrder()
-    {
-        var theme = new Context<string>("Light");
-        var component = Internal(new RenderContext(
-            new ValueHookState<int>(3),
-            new ValueHookState<Filter>(Filter.All, setterKind: 2),
-            new ValueHookState<Ref<int>>(new Ref<int>(0)),
-            new MemoHookState<string>("memo"),
-            new EffectHookState(),
-            new ContextHookState(theme, "Dark")).Init());
-
-        var hooks = component.Hooks();
-
-        CollectionAssert.AreEqual(new[] { "state", "reducer", "ref", "memo", "effect", "context" }, hooks.Select(h => h.Kind).ToArray());
-        Assert.AreEqual(3, hooks[0].Value);
-        Assert.IsTrue(hooks[0].CanSet);
-        Assert.IsTrue(hooks[1].CanSet);
-        Assert.IsFalse(hooks[2].CanSet);
-        Assert.AreEqual(typeof(string), hooks[5].ValueType);
-        var context = component.Contexts().Single();
-        Assert.AreEqual(5, context.HookIndex);
-        Assert.AreEqual("Dark", context.Value);
-        Assert.IsFalse(context.IsDefault);
-        Assert.AreEqual("Context<string>", context.Name);
-    }
-
-    public enum SessionToken { None, Issued }
-
-    [TestMethod]
-    public void AHooksTypeDoesNotMakeItASecret()
-    {
-        var component = Internal(new RenderContext(new ValueHookState<SessionToken?>(SessionToken.Issued)).Init());
-        var json = ReactorComponentOps.Json(w => ReactorComponentOps.WriteComponent(w, component, null));
-        using var doc = JsonDocument.Parse(json);
-        var hook = doc.RootElement.GetProperty("hooks")[0];
-
-        Assert.AreEqual("Issued", hook.GetProperty("value").GetString(), "only a name ending in Password is a secret, as for XAML");
-        Assert.IsFalse(hook.TryGetProperty("redacted", out _));
-        Assert.IsTrue(hook.GetProperty("editable").GetBoolean());
-    }
-
-    [TestMethod]
-    public void Internal_SetRerendersOnlyWhenTheValueChanges()
-    {
-        var context = new RenderContext(new ValueHookState<int>(3), new ValueHookState<Ref<int>>(new Ref<int>(0))).Init();
-        var component = Internal(context);
-
-        Assert.IsTrue(component.TrySet(0, 42));
-        Assert.AreEqual(42, component.Hooks()[0].Value);
-        Assert.AreEqual(1, context.Renders);
-
-        Assert.IsTrue(component.TrySet(0, 42));
-        Assert.AreEqual(1, context.Renders, "an equal value must not schedule a render");
-
-        Assert.IsFalse(component.TrySet(0, "42"), "no conversion: a string is not an int");
-        Assert.IsFalse(component.TrySet(1, new Ref<int>(5)), "a ref is not state");
-        Assert.IsFalse(component.TrySet(9, 1));
-        Assert.IsTrue(component.Rerender());
-        Assert.AreEqual(2, context.Renders);
-    }
-
-    [TestMethod]
-    public void WriteComponent_ReportsHooksPropsContextsAndTheRenderDefinition()
-    {
-        var component = Internal(new RenderContext(new ValueHookState<int>(3), new ContextHookState(new Context<string>("Light"), "Dark")).Init());
-        var json = ReactorComponentOps.Json(w => ReactorComponentOps.WriteComponent(w, component, null));
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        Assert.AreEqual("Counter", root.GetProperty("component").GetProperty("name").GetString());
-        var hook = root.GetProperty("hooks")[0];
-        Assert.AreEqual("state", hook.GetProperty("kind").GetString());
-        Assert.AreEqual("int", hook.GetProperty("type").GetString());
-        Assert.AreEqual("3", hook.GetProperty("value").GetString());
-        Assert.IsTrue(hook.GetProperty("editable").GetBoolean());
-        Assert.AreEqual("Context<string>", root.GetProperty("hooks")[1].GetProperty("context").GetString());
-        Assert.AreEqual("Ship", root.GetProperty("props").GetProperty("values").EnumerateArray()
-            .Single(v => v.GetProperty("name").GetString() == "Title").GetProperty("value").GetString());
-        var definition = root.GetProperty("definition");
-        StringAssert.EndsWith(definition.GetProperty("file").GetString(), "ReactorComponentsTests.cs");
-        Assert.AreEqual("Counter.Render", definition.GetProperty("method").GetString());
-        Assert.AreEqual("SHA256", definition.GetProperty("checksumAlgorithm").GetString());
-        Assert.AreEqual(64, definition.GetProperty("checksum").GetString()!.Length);
     }
 
     [TestMethod]
@@ -218,12 +81,8 @@ public sealed class ReactorComponentsTests
     private enum Access { None = 0, Read = 1, Write = 2 }
 
     [TestMethod]
-    public void Format_SummarisesCollectionsAndRedactsPasswords()
+    public void FriendlyTypeName_ReadsAsCSharp()
     {
-        var list = new List<TaskItem> { new(1, "a"), new(2, "b") };
-        Assert.AreEqual("List<TaskItem> (2 items)", ReactorComponents.Format("", list.GetType(), list).Text);
-        Assert.AreEqual("TaskItem { Id = 1, Title = a }", ReactorComponents.Format("", typeof(TaskItem), list[0]).Text);
-        Assert.AreEqual(("<redacted>", true), ReactorComponents.Format("ApiPassword", typeof(string), "hunter2"));
         Assert.AreEqual("string?", ReactorComponents.FriendlyTypeName(typeof(string)) + "?");
         Assert.AreEqual("int?", ReactorComponents.FriendlyTypeName(typeof(int?)));
         Assert.AreEqual("Dictionary<string, int>", ReactorComponents.FriendlyTypeName(typeof(Dictionary<string, int>)));

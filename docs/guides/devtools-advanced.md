@@ -225,8 +225,7 @@ has `pending: true` and no handle.
 
 In a Reactor app, a reference can also name an element that hasn't been created yet, such
 as a button on a tab that isn't open. The line names the element Reactor expects and
-says it isn't shown (`XYFocusRight → Button (not shown)`), the same way. This needs
-Reactor 0.1.0-preview.17 or later.
+says it isn't shown (`XYFocusRight → Button (not shown)`), the same way.
 
 ## Look up and change resources
 
@@ -246,8 +245,9 @@ or replaces the key in that element's own resources. Brushes and colors take
 
 `{ThemeResource}` references and Reactor `ThemeRef`s pick up the new value;
 `{StaticResource}` references keep the value they loaded. The change is in memory
-only; restart the app to undo it. Both commands work in any WinUI app with DevTools, XAML or
-Reactor.
+only; restart the app to undo it. Both commands work in XAML and Reactor apps that run on
+.NET with the managed DevTools agent loaded (`winapp run --devtools on` or
+`winapp devtools attach`), not in Native AOT or C++ apps.
 
 `set-resource` reads the value back after the app has re-rendered. If the app's own
 code sets the key again on every render (a Reactor `.Set(b => b.Resources[...] = ...)`),

@@ -224,7 +224,7 @@ internal static class ReactorComponentOps
     }
 
     /// <summary>The component's identity, where it is declared and defined, its props, hooks and contexts.</summary>
-    internal static void WriteComponent(Utf8JsonWriter w, ReactorComponentHandle component, ReactorApi? api)
+    internal static void WriteComponent(Utf8JsonWriter w, SnapshotReactorComponent component, ReactorApi? api)
     {
         w.WriteString("api", component.Api);
         w.WriteStartObject("component");
@@ -232,7 +232,7 @@ internal static class ReactorComponentOps
         w.WriteString("name", component.Name);
         if (component.ComponentType is { } type) { w.WriteString("type", type.FullName ?? type.Name); }
         w.WriteBoolean("isRoot", component.IsRoot);
-        w.WriteBoolean("mounted", component.IsMounted);
+        w.WriteBoolean("mounted", true);
         w.WriteEndObject();
 
         if (component.DeclaringElement is { } declaring && ReactorApi.Location(ReactorReflect.Member(declaring, "CallSite")) is { } site)
@@ -259,70 +259,10 @@ internal static class ReactorComponentOps
             w.WriteEndObject();
         }
 
-        if (component is SnapshotReactorComponent shown)
-        {
-            WriteSnapshotValues(w, shown);
-            return;
-        }
-
-        var props = component.Props;
-        if (props is not null || component.Kind == "class")
-        {
-            w.WriteStartObject("props");
-            if (props is not null) { w.WriteString("type", ReactorComponents.FriendlyTypeName(props.GetType())); }
-            w.WriteStartArray("values");
-            foreach (var (name, value, redacted) in ReactorElementProps.ComponentProps(props))
-            {
-                w.WriteStartObject();
-                w.WriteString("name", name);
-                w.WriteString("value", value);
-                if (redacted) { w.WriteBoolean("redacted", true); }
-                w.WriteEndObject();
-            }
-            w.WriteEndArray();
-            w.WriteEndObject();
-        }
-
-        var contexts = component.Contexts();
-        w.WriteStartArray("hooks");
-        foreach (var hook in component.Hooks())
-        {
-            w.WriteStartObject();
-            w.WriteNumber("index", hook.Index);
-            w.WriteString("kind", hook.Kind);
-            if (hook.ValueType is { } valueType) { w.WriteString("type", ReactorComponents.FriendlyTypeName(valueType)); }
-            if (hook.Kind is not ("effect" or "navigationLifecycle" or "unknown"))
-            {
-                var context = hook.Kind == "context" ? contexts.FirstOrDefault(c => c.HookIndex == hook.Index) : null;
-                var (text, redacted) = ReactorComponents.Format(context?.Name ?? "", hook.ValueType, hook.Value);
-                w.WriteString("value", text);
-                if (redacted) { w.WriteBoolean("redacted", true); }
-                if (context is not null) { w.WriteString("context", context.Name); }
-                w.WriteBoolean("canSet", hook.CanSet);
-                w.WriteBoolean("editable", hook.CanSet && ReactorComponents.IsEditableValue(context?.Name ?? "", hook.ValueType, redacted));
-            }
-            if (hook.Migrated) { w.WriteBoolean("migrated", true); }
-            w.WriteEndObject();
-        }
-        w.WriteEndArray();
-
-        w.WriteStartArray("contexts");
-        foreach (var context in contexts)
-        {
-            w.WriteStartObject();
-            w.WriteNumber("hook", context.HookIndex);
-            w.WriteString("name", context.Name);
-            if (context.ValueType is { } valueType) { w.WriteString("type", ReactorComponents.FriendlyTypeName(valueType)); }
-            var (text, redacted) = ReactorComponents.Format(context.Name, context.ValueType, context.Value);
-            w.WriteString("value", text);
-            if (redacted) { w.WriteBoolean("redacted", true); }
-            if (context.IsDefault) { w.WriteBoolean("isDefault", true); }
-            w.WriteEndObject();
-        }
-        w.WriteEndArray();
+        WriteSnapshotValues(w, component);
     }
 
-    // Props, hooks and contexts as Reactor formatted them, secrets redacted, in the shape the typed path writes.
+    // Props, hooks and contexts as Reactor formatted them, secrets redacted.
     private static void WriteSnapshotValues(Utf8JsonWriter w, SnapshotReactorComponent component)
     {
         var snapshot = component.Snapshot;
@@ -416,61 +356,7 @@ internal static class ReactorComponentOps
                 done(NoComponent(element, api));
                 return;
             }
-            var parked = row == ReactorRowState.Parked;
-            if (component is SnapshotReactorComponent shown)
-            {
-                SetStateText(element, api, host, shown, index, text, idleBefore, done, parked);
-                return;
-            }
-            var hook = component.Hooks().FirstOrDefault(h => h.Index == index);
-            if (hook is null)
-            {
-                done(Refused("bad-hook", $"<{component.Name}> has no hook {index}; run `winapp devtools get-state` to list them"));
-                return;
-            }
-            if (!hook.CanSet)
-            {
-                done(Refused("not-settable", $"hook {index} of <{component.Name}> is a {hook.Kind} hook; only state, reducer and persisted hooks can be set"));
-                return;
-            }
-            var beforeText = ReactorComponents.Format("", hook.ValueType, hook.Value).Text;
-            if (hook.ValueType is null)
-            {
-                done(Refused("bad-value", "the hook has no value type"));
-                return;
-            }
-            if (!ReactorComponents.TryParse(text, hook.ValueType, out var parsed, out var parseError))
-            {
-                done(Refused("bad-value", parseError!));
-                return;
-            }
-            if (!component.TrySet(index, parsed))
-            {
-                done(Refused("refused", $"<{component.Name}> refused the value (it may have unmounted)"));
-                return;
-            }
-            // Let the re-render the write scheduled finish before reading back, so `after` is what the UI shows.
-            WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, idleAfter =>
-            {
-                var current = api.FindComponent(element, out _) ?? component;
-                var after = current.Hooks().FirstOrDefault(h => h.Index == index);
-                done(Json(w =>
-                {
-                    w.WriteString("state", "ok");
-                    w.WriteString("component", current.Name);
-                    w.WriteNumber("index", index);
-                    w.WriteString("kind", hook.Kind);
-                    w.WriteString("type", ReactorComponents.FriendlyTypeName(hook.ValueType));
-                    w.WriteString("requested", text);
-                    w.WriteString("before", beforeText);
-                    if (after is null) { w.WriteNull("after"); }
-                    else { w.WriteString("after", ReactorComponents.Format("", after.ValueType, after.Value).Text); }
-                    w.WriteBoolean("changed", after is not null && !Equals(hook.Value, after.Value));
-                    w.WriteBoolean("waitedForIdle", idleBefore);
-                    WriteRendered(w, idleAfter, parked);
-                    w.WriteString("api", current.Api);
-                }));
-            });
+            SetStateText(element, api, host, component, index, text, idleBefore, done, row == ReactorRowState.Parked);
         });
     }
 
@@ -496,7 +382,7 @@ internal static class ReactorComponentOps
         }
         WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, idleAfter =>
         {
-            var current = api.FindComponent(element, out _) as SnapshotReactorComponent ?? component;
+            var current = api.FindComponent(element, out _) ?? component;
             var after = current.Hook(index);
             done(Json(w =>
             {
@@ -776,21 +662,20 @@ internal sealed partial class ReactorApi
     /// The component that renders <paramref name="element"/>: the component mounted at it (a component's wrapper or
     /// a host's root control) or at its nearest ancestor that is one. <paramref name="exact"/> is true for the former.
     /// </summary>
-    public ReactorComponentHandle? FindComponent(UIElement element, out bool exact) => FindComponent(element, out exact, out _);
+    public SnapshotReactorComponent? FindComponent(UIElement element, out bool exact) => FindComponent(element, out exact, out _);
 
     /// <summary>
     /// <see cref="FindComponent(UIElement, out bool)"/>, with where the element's list row stands
     /// (<see cref="RowState"/>). A recycled row has no component: null.
     /// </summary>
-    public ReactorComponentHandle? FindComponent(UIElement element, out bool exact, out ReactorRowState row)
+    public SnapshotReactorComponent? FindComponent(UIElement element, out bool exact, out ReactorRowState row)
     {
         exact = false;
         row = ReactorRowState.Live;
         var chain = Ancestors(element);
-        var hosts = Internals?.HostObjects(chain);
         for (var i = 0; i < chain.Count; i++)
         {
-            if ((Internals is { } internals ? internals.ComponentAt(chain[i], hosts!) : SnapshotComponentAt(chain[i])) is { } component)
+            if (SnapshotComponentAt(chain[i]) is { } component)
             {
                 row = RowState(chain.Select(IsParkedRow).ToList(), i);
                 if (row == ReactorRowState.Recycled)
@@ -826,10 +711,6 @@ internal sealed partial class ReactorApi
     public object? HostFor(UIElement element)
     {
         var chain = Ancestors(element);
-        if (Internals is { } internals)
-        {
-            return internals.HostFor(chain);
-        }
         var hosts = PublicHostObjects();
         return chain.Select(ancestor => hosts.GetValueOrDefault(ancestor)).FirstOrDefault(host => host is not null);
     }
@@ -865,10 +746,6 @@ internal sealed partial class ReactorApi
     /// </summary>
     public string? ErrorScreenReason(UIElement element)
     {
-        if (!PublicDiagnostics)
-        {
-            return null;
-        }
         var hosts = WindowHosts();
         return Ancestors(element).Select(ancestor => hosts.GetValueOrDefault(ancestor)).FirstOrDefault(host => host is not null) is { } host &&
             host.ErrorScreen is { } headline

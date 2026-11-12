@@ -534,7 +534,8 @@ static std::wstring TapReactorPublishedAnswer_ui(const std::set<InstanceHandle>*
         static const bool asked = ReactorEnvironment(L"REACTOR_DIAGNOSTICS") == L"1";
         return asked
             ? L"{\"state\":\"unavailable\",\"reason\":\"no managed DevTools agent is loaded, and this Reactor version does not "
-              L"publish its diagnostics on the controls (Native AOT and trimmed builds need a Reactor that does)\"}"
+              L"publish its diagnostics on the controls. Native AOT and trimmed builds need Microsoft.UI.Reactor "
+              L"0.1.0-preview.17 or later; update the package\"}"
             : L"{\"state\":\"unavailable\",\"reason\":\"no managed DevTools agent is loaded, and Reactor publishes its diagnostics "
               L"on the controls only when the app is launched with `winapp run --devtools on` (REACTOR_DIAGNOSTICS=1)\"}";
     }
@@ -1255,7 +1256,7 @@ static std::wstring CmdReactorAgent(unsigned long long wire, const wchar_t* op, 
             return L"{\"state\":\"unavailable\",\"reason\":\"" + DevToolsJsonEscape(reason) + L"\"}";
         }
     } else if (!DevToolsBindingRelay_AgentPresent()) {
-        return DevToolsBindingRelay_UnavailableJson(DevToolsBindingRelay_NoAgentReason(DevToolsBindingRelay_AppRuntime()));
+        return DevToolsBindingRelay_UnavailableJson(DevToolsBindingRelay_NoAgentResourceReason(DevToolsBindingRelay_AppRuntime()));
     }
 
     DevToolsBindingApartment apartment;

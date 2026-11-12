@@ -222,14 +222,15 @@ which follows a C#-set value to the component state that produced it (`"kind": "
 `invoke-handler <selector> OnClick` only try a change live and need the user's
 authorization like `set-property`. An `indeterminate` result means the write may have
 happened: read back with `get-state`, never retry blindly. `get-resource` and
-`set-resource --scope app|element` read and live-edit XAML resources in any app.
+`set-resource --scope app|element` read and live-edit XAML resources in .NET apps with the
+managed agent loaded, not in Native AOT or C++ apps.
 `winapp ui` commands accept the same Reactor selectors when DevTools is attached, including
 `#name`, a C# name and the bracketed selectors an ambiguity error lists.
 `get-property <selector>` (no property name) also lists **References**: the
 `LabeledBy`, `DescribedBy`, `FlowsTo`, `FlowsFrom` and `XYFocus*` targets from and to the
 element (`references` in `--json`), with `cycle: true` when following one comes back.
 In a Reactor app, a target that isn't created yet shows as `→ Button (not shown)`
-(`pending: true`, no handle); Reactor 0.1.0-preview.16 and earlier list only shown targets.
+(`pending: true`, no handle).
 Users moving from Reactor's own DevTools (`mur devtools`, Microsoft.UI.Reactor.Devtools)
 should use these commands instead; see the guide's
 [migration table](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-reactor.md#move-from-reactor-devtools).

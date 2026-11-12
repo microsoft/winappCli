@@ -7,7 +7,8 @@ namespace WinApp.DevTools.Managed.Tests;
 
 /// <summary>
 /// Reactor values follow the XAML rule: a prop, hook, context or applied property whose name ends in "Password" is
-/// redacted. Nothing else is: not other secret-looking names, not types, and not the text of a value.
+/// redacted. So is a value whose type has a public member with such a name, because its text (a record's
+/// <c>ToString</c>) prints it. Nothing else is: not other secret-looking names, and not the text of a value.
 /// </summary>
 [TestClass]
 public sealed class ReactorSecretParityTests
@@ -16,7 +17,18 @@ public sealed class ReactorSecretParityTests
 
     public sealed record Login(string User, string Password);
 
-    public sealed record LoginProps(string User, string UserPassword, string ApiToken);
+    public sealed record Session(string Id, Login Account);
+
+    // A class without its own ToString prints only its type name, so a record holding it prints no password.
+    public sealed class Vault
+    {
+        public string Password { get; set; } = "";
+    }
+
+    public sealed record Locker(string Name, Vault Vault);
+
+    private static ReactorShownValue Shown(string name, string type, string value) =>
+        ReactorShownValue.From(new ReactorSnapshotTests.DiagnosticValue(0, name, "state", type, value, true, false))!;
 
     [TestMethod]
     [DataRow("UserPassword")]
@@ -25,10 +37,11 @@ public sealed class ReactorSecretParityTests
     public void NamesEndingInPassword_AreRedacted(string name)
     {
         Assert.IsTrue(DevToolsSecrets.IsSecretName(name));
-        Assert.AreEqual(("<redacted>", true), ReactorComponents.Format(name, typeof(string), "hunter2"));
-        Assert.AreEqual(("<redacted>", true), ReactorComponents.Format(name, typeof(string), null), "even when it holds nothing");
-        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format(name, 42));
-        Assert.IsFalse(ReactorComponents.IsEditableValue(name, typeof(string), redacted: false), "and never offered for editing");
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format(name, "hunter2"));
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format(name, null), "even when it holds nothing");
+        var hook = Shown(name, "string", "\"hunter2\"");
+        Assert.AreEqual("<redacted>", hook.Value);
+        Assert.IsFalse(hook.Editable, "and never offered for editing");
     }
 
     [TestMethod]
@@ -42,28 +55,38 @@ public sealed class ReactorSecretParityTests
     public void OtherNames_AreShownAsXamlShowsThem(string name)
     {
         Assert.IsFalse(DevToolsSecrets.IsSecretName(name));
-        Assert.AreEqual(("\"abc123\"", false), ReactorComponents.Format(name, typeof(string), "abc123"));
         Assert.AreEqual(("abc123", false), ReactorElementProps.Format(name, "abc123"));
-        Assert.IsTrue(ReactorComponents.IsEditableValue(name, typeof(string), redacted: false));
+        var hook = Shown(name, "string", "\"abc123\"");
+        Assert.AreEqual("\"abc123\"", hook.Value);
+        Assert.IsTrue(hook.Editable);
     }
 
     [TestMethod]
-    public void ComponentProps_RedactOnlyThePasswordRow()
+    public void ValuesWhoseTypeHoldsAPassword_AreRedacted()
     {
-        var rows = ReactorElementProps.ComponentProps(new LoginProps("ada", "hunter2", "abc123"));
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Account", new Login("ada", "hunter2")));
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Logins", new List<Login> { new("ada", "hunter2") }), "a list of them");
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Session", new Session("s1", new Login("ada", "hunter2"))),
+            "a record that holds one prints it too");
 
-        Assert.AreEqual(("User", "ada", false), rows.Single(r => r.Name == "User"));
-        Assert.AreEqual(("UserPassword", "<redacted>", true), rows.Single(r => r.Name == "UserPassword"));
-        Assert.AreEqual(("ApiToken", "abc123", false), rows.Single(r => r.Name == "ApiToken"), "a prop named ApiToken is shown");
+        // Reactor formats hooks, props and contexts itself and names their type as C# reads it.
+        var hook = Shown("", "Login", "Login { User = ada, Password = hunter2 }");
+        Assert.AreEqual("<redacted>", hook.Value);
+        Assert.IsTrue(hook.Redacted, "so set-state refuses it");
+        Assert.IsFalse(hook.Editable);
+        Assert.IsTrue(Shown("", "List<Login>", "List<Login> (1 item)").Redacted);
+        Assert.IsTrue(Shown("", "Session?", "Session { Id = s1, Account = Login { User = ada, Password = hunter2 } }").Redacted);
     }
 
     [TestMethod]
-    public void ValueTextAndTypes_AreNeverScanned()
+    public void ValuesWithoutAPasswordMember_AreShown()
     {
-        Assert.AreEqual(("\"token=abc123\"", false), ReactorComponents.Format("Status", typeof(string), "token=abc123"));
-        Assert.AreEqual(("ApiToken { Value = a }", false), ReactorComponents.Format("", typeof(ApiToken), new ApiToken("a")));
-        Assert.AreEqual(("Login { User = ada, Password = hunter2 }", false), ReactorElementProps.Format("Account", new Login("ada", "hunter2")));
+        Assert.AreEqual(("ApiToken { Value = a }", false), ReactorElementProps.Format("Token", new ApiToken("a")));
         Assert.AreEqual("List<ApiToken> (1 items)", ReactorElementProps.Format("Items", new List<ApiToken> { new("a") }).Text);
+        Assert.IsFalse(ReactorElementProps.Format("Locker", new Locker("a", new Vault())).Redacted, "Vault prints only its type name");
+        Assert.AreEqual("ApiToken { Value = a }", Shown("", "ApiToken", "ApiToken { Value = a }").Value);
+        Assert.AreEqual(("token=abc123", false), ReactorElementProps.Format("Status", "token=abc123"), "value text is never scanned");
+        Assert.IsFalse(Shown("", "string", "\"Password = hunter2\"").Redacted);
     }
 
     [TestMethod]

@@ -276,6 +276,22 @@ static void Test_NoAgentReasonDoesNotConflateTheTwoCases()
     }
 }
 
+static void Test_NoAgentResourceReasonTalksAboutResources()
+{
+    std::printf("get-resource and set-resource without the agent say resources can't be read, not bindings\n");
+
+    for (const DevToolsAppRuntime runtime : { DevToolsAppRuntime::NativeAot, DevToolsAppRuntime::None }) {
+        const std::wstring reason = DevToolsBindingRelay_NoAgentResourceReason(runtime);
+        Check(reason.find(L"resources can't be read or set") != std::wstring::npos, "...it names resources");
+        Check(reason.find(L"binding") == std::wstring::npos && reason.find(L"Binding") == std::wstring::npos,
+              "...and never mentions bindings");
+        Check(reason.find(L"get-property") == std::wstring::npos, "...or a command that does not read resources");
+    }
+    Check(std::wstring(DevToolsBindingRelay_NoAgentResourceReason(DevToolsAppRuntime::Clr)) ==
+              DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime::Clr),
+          "a .NET app gets the same attach advice as for bindings");
+}
+
 static void Test_ConnectedReplyDeadline(bool partial, bool writeBlocked = false)
 {
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -600,6 +616,7 @@ int RunBindingRelayTests()
     Test_OnlyBindingOpsAreSendable();
     Test_UnavailableIsAlwaysWellFormedAndCarriesAReason();
     Test_NoAgentReasonDoesNotConflateTheTwoCases();
+    Test_NoAgentResourceReasonTalksAboutResources();
     Test_ForeignServerGetsNoFrame();
     Test_ForeignServerGetsNoFrame(true);
     Test_ForeignServerGetsNoFrame(true, true);

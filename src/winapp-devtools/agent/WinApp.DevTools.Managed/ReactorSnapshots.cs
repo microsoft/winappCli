@@ -9,8 +9,8 @@ namespace WinApp.DevTools.Managed;
 
 /// <summary>
 /// One value of Reactor's <c>ComponentSnapshot</c> (a <c>DiagnosticValue</c>): a prop, a hook or a context, formatted
-/// by Reactor. A value whose name, or whose context's name, says it is a secret (<see cref="DevToolsSecrets"/>) is
-/// replaced here and is never editable.
+/// by Reactor. A value whose name, or whose context's name, says it is a secret, or whose type holds one
+/// (<see cref="DevToolsSecrets"/>), is replaced here and is never editable.
 /// </summary>
 internal sealed record ReactorShownValue(int Index, string Name, string Kind, string Type, string Value, bool Editable,
     bool Redacted, bool Migrated)
@@ -24,7 +24,7 @@ internal sealed record ReactorShownValue(int Index, string Name, string Kind, st
         var name = ReactorReflect.Member(value, "Name") as string ?? "";
         var type = ReactorReflect.Member(value, "Type") as string ?? "";
         var text = ReactorReflect.Member(value, "Value") as string ?? "";
-        var secret = DevToolsSecrets.IsSecretName(name) || DevToolsSecrets.IsSecretName(contextName);
+        var secret = DevToolsSecrets.IsSecretName(name) || DevToolsSecrets.IsSecretName(contextName) || DevToolsSecrets.HoldsSecret(type);
         return new ReactorShownValue(
             ReactorReflect.Member(value, "Index") is int index ? index : -1,
             name,
@@ -84,9 +84,10 @@ internal sealed record ReactorSnapshot(string Name, string Kind, bool IsRoot, IR
 }
 
 /// <summary>
-/// A component described by Reactor's text diagnostics (<c>DescribeComponent</c>, <c>TrySetState</c>,
+/// A mounted component, described by Reactor's text diagnostics (<c>DescribeComponent</c>, <c>TrySetState</c>,
 /// <c>Rerender</c>). Its values are Reactor's own text; where it is declared and defined still comes from the element
-/// record that mounted it (or, for a root, the one component type of that name).
+/// record that mounted it (or, for a root, the one component type of that name). Every member must run on the UI
+/// thread that renders the component.
 /// </summary>
 internal sealed class SnapshotReactorComponent(
     ReactorSnapshot snapshot,
@@ -95,32 +96,46 @@ internal sealed class SnapshotReactorComponent(
     object? declaringElement,
     string? propsType,
     Func<int, string, (bool Ok, string? Error)> setState,
-    Func<bool> rerender) : ReactorComponentHandle
+    Func<bool> rerender)
 {
     public ReactorSnapshot Snapshot { get; } = snapshot;
 
     /// <summary>The props record's type as C# reads it, when the element record that mounted the component says.</summary>
     public string? PropsType { get; } = propsType;
 
-    public override string Api => "reactor";
-    public override string Kind => Snapshot.Kind;
-    public override bool IsRoot => Snapshot.IsRoot;
-    public override string Name => Snapshot.Name;
-    public override Type? ComponentType => componentType;
-    public override Delegate? RenderFunc => renderFunc;
-    public override object? Props => null;
-    public override object? DeclaringElement => declaringElement;
-    public override bool IsMounted => true;
+    public string Api => "reactor";
+    public string Kind => Snapshot.Kind;
+    public bool IsRoot => Snapshot.IsRoot;
+    public string Name => Snapshot.Name;
+    public Type? ComponentType => componentType;
+    public Delegate? RenderFunc => renderFunc;
+    public object? DeclaringElement => declaringElement;
 
-    // Values are text on this path: see Snapshot.
-    public override IReadOnlyList<ReactorHook> Hooks() => [];
-    public override IReadOnlyList<ReactorContextRead> Contexts() => [];
-    public override bool TrySet(int index, object? value) => false;
+    /// <summary>The method that renders the component: a class component's <c>Render</c>, or the render delegate.</summary>
+    public MethodInfo? RenderMethod
+    {
+        get
+        {
+            if (RenderFunc?.Method is { } method)
+            {
+                return method;
+            }
+            for (var type = ComponentType; type is not null && type != typeof(object); type = type.BaseType)
+            {
+                if (type.GetMethod("Render", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly,
+                        Type.EmptyTypes) is { IsAbstract: false } render)
+                {
+                    return render;
+                }
+            }
+            return null;
+        }
+    }
 
     /// <summary>Reactor's <c>TrySetState</c>: parses the text to the hook's type; the error is a sentence to show as is.</summary>
     public (bool Ok, string? Error) TrySetText(int index, string text) => setState(index, text);
 
-    public override bool Rerender() => rerender();
+    public bool Rerender() => rerender();
 
     /// <summary>The hook of this index, if Reactor reported one.</summary>
     public ReactorShownValue? Hook(int index) => Snapshot.State.FirstOrDefault(h => h.Index == index);
@@ -129,9 +144,6 @@ internal sealed class SnapshotReactorComponent(
 internal sealed partial class ReactorApi
 {
     private static readonly Dictionary<string, Type?> ComponentTypes = new(StringComparer.Ordinal);
-
-    /// <summary>Whether Reactor reports components as text (<c>ReactorDiagnostics.DescribeComponent</c>).</summary>
-    public bool TextDiagnostics => describeComponent is not null;
 
     /// <summary>Reactor's <c>DescribeComponent</c> for the component mounted at a wrapper or host root; null elsewhere.</summary>
     internal ReactorSnapshot? DescribeComponent(UIElement control)

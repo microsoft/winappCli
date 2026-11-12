@@ -211,16 +211,20 @@ other live edits. Select **Re-apply all compiled bindings** to continue, or
 **Cancel** to leave the bindings unchanged. Neither action undoes source-model
 changes or edits your XAML.
 
-Passwords never leave the app. A property whose name ends in `Password` (in a
-[Reactor app](devtools-reactor.md), also a prop, hook or context with such a name,
-or a hook whose value your C# passes to a `PasswordBox`)
-shows as `<redacted>`, and DevTools refuses to set it. Source previews and comments
-show `<redacted>` for password values in your XAML, for the text values on a line
-of C# that mentions a password, and for text your C# passes to a parameter whose
-name ends in `Password`, such as `new Login("bob", "<redacted>")` for
-`record Login(string User, string Password)`. DevTools finds that parameter in your
-project and the projects it references; text passed to code it can't find there is
-shown as written.
+DevTools hides passwords: it shows them as `<redacted>` and refuses to set them. It hides:
+
+- a property whose name ends in `Password`, and in a [Reactor app](devtools-reactor.md) a
+  prop, hook or context with such a name
+- in a Reactor app and in binding diagnoses, a value whose type has a public field or property
+  whose name ends in `Password`, such as `record Login(string User, string Password)` or a
+  `List<Login>`
+- in a Reactor app, a hook your C# passes directly to a `PasswordBox`
+- in source previews and comments, password values in your XAML and the text values on a
+  line of C# that mentions a password
+
+A password passed through your own wrapper component is shown. For example, with
+`SecretField(pwd, setPwd)`, where `SecretField` renders a `PasswordBox`, `get-state` shows
+`pwd`'s value unless the variable or the parameter name ends in `Password`.
 
 For a terminal you keep using, launch with `winapp run . --detach`: it prints the PID
 and the next command. For scripts, add `--json`; see
