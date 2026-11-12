@@ -163,7 +163,13 @@ winapp run .\MyApp.vcxproj
 winapp run .
 ```
 
-C++ projects need Visual Studio or Build Tools for Visual Studio with the **Desktop development with C++** workload and **C++ WinUI app development tools**. `winapp pack` doesn't build `.vcxproj` projects, so create the MSIX package in Visual Studio. For prerequisites and options, see [C++ projects (.vcxproj)](../usage.md#c-projects-vcxproj). For C++ apps that don't use WinUI, see [Using WinApp CLI with C++](cpp.md).
+C++ projects need Visual Studio or Build Tools for Visual Studio with the **Desktop development with C++** workload and **C++ WinUI app development tools**. You can also build, package, and sign a `.vcxproj` with `winapp pack`:
+
+```powershell
+winapp pack .\MyApp.vcxproj -c Release --arch x64 --cert .\devcert.pfx
+```
+
+For packaging options, see [Packaging a project directly](../usage.md#packaging-a-project-directly). For build prerequisites and options, see [C++ projects (.vcxproj)](../usage.md#c-projects-vcxproj). For C++ apps that don't use WinUI, see [Using WinApp CLI with C++](cpp.md).
 
 ## Samples
 
