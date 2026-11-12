@@ -108,8 +108,8 @@ extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
   parameters:
     settings:
-      # CFSClean blocks NuGet endpoints, including publishing to api.nuget.org.
-      networkIsolationPolicy: Permissive,CFSClean2
+      # NuGet publishing goes through ESRP Release, so no job contacts api.nuget.org directly.
+      networkIsolationPolicy: Permissive,CFSClean
     sdl:
       policheck:
         enabled: true
@@ -632,18 +632,29 @@ extends:
               artifactName: nuget-packages
               targetPath: $(Pipeline.Workspace)/nuget-packages
           steps:
-            - task: 1ES.PublishNuget@1
-              displayName: 'NuGet push to nuget.org'
-              retryCountOnTaskFailure: 2
+            # ESRP pushes to nuget.org on our behalf, so this job never contacts nuget.org itself and
+            # stays compliant with the CFSClean network isolation policy. NuGet needs EsrpRelease@14
+            # or later. Every package in the folder must belong to the organizationname organization.
+            - task: EsrpRelease@14
+              displayName: 'ESRP Release - NuGet'
               inputs:
-                # nuget.exe rather than DotNetCoreCLI@2, which cannot use the encrypted API key
-                # from the NuGet-WinAppCLI service connection. Lost when #795 reverted the split
-                # pipeline back into this file; without it the push fails to authenticate.
-                useDotNetTask: false
-                packagesToPush: '$(Pipeline.Workspace)/nuget-packages/*.nupkg'
-                packageParentPath: '$(Pipeline.Workspace)/nuget-packages'
-                nuGetFeedType: external
-                publishFeedCredentials: 'NuGet-WinAppCLI'
+                ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+                usemanagedidentity: false
+                keyvaultname: ${{ parameters.signingIdentity.akvName }}
+                authcertname: ${{ parameters.signingIdentity.authCertName }}
+                signcertname: ${{ parameters.signingIdentity.signCertName }}
+                clientid: ${{ parameters.signingIdentity.appId }}
+                intent: 'PackageDistribution'
+                contenttype: 'NuGet'
+                organizationname: 'WindowsSDK'
+                contentsource: 'Folder'
+                folderlocation: $(Pipeline.Workspace)/nuget-packages/
+                waitforreleasecompletion: true
+                owners: '$(EsrpOwnersEmail)'
+                approvers: '$(EsrpApproversEmail)'
+                serviceendpointurl: 'https://api.esrp.microsoft.com'
+                mainpublisher: 'ESRPRELPACMAN'
+                domaintenantid: ${{ parameters.signingIdentity.tenantId }}
 
     - stage: Release_WinGet
       displayName: Create WinGet Release
@@ -1056,10 +1067,9 @@ extends:
           # metadata inspection.
           #
           # Only these two are verifiable this way. github-service-connection is consumed solely by
-          # GitHubRelease@1, whose every action mutates, and NuGet-WinAppCLI carries an API key that
-          # is only validated on push - so neither CREDENTIAL can be exercised without actually
-          # releasing. See .pipelines/README.md; do not add a fake check for them. The network path
-          # to nuget.org is a separate question, and is a real check - see the last step below.
+          # GitHubRelease@1, whose every action mutates, so its CREDENTIAL cannot be exercised
+          # without actually releasing. See .pipelines/README.md; do not add a fake check for it.
+          # NuGet publishing goes through ESRP Release with the signing identity checked below.
           #
           # Both bind the same parameters the real signing and symbol tasks bind, not the
           # underlying variables, so a run that overrides either identity verifies the connection
@@ -1104,39 +1114,6 @@ extends:
                 $token = (Get-AzAccessToken -AsSecureString -ResourceUrl api://30471ccf-0966-45b9-a979-065dbedb24c1).Token
                 if (-not $token -or $token.Length -eq 0) { throw "Symbol publishing connection did not yield an access token." }
                 Write-Host "[PASS] Symbol publishing connection issued a token for the symbol service."
-
-          # The push cannot be rehearsed - its API key is only validated on push, and a push is an
-          # immutable publish - but the network path to it can be, and that is the part that
-          # actually broke. 1ES centrally onboarded this pipeline to the CFSClean network isolation
-          # policy, which DNS-blackholes api.nuget.org; releases stopped being able to publish and
-          # the rehearsal did not notice, because it skips Release_NuGet and a run that never
-          # reaches a blocked endpoint looks compliant to everyone.
-          #
-          # So this reaches the exact endpoint the release pushes to, under the exact policy mix the
-          # release runs, and publishes nothing. It is not a credential check and must not grow into
-          # a fake one; it answers only "could a release get a packet there at all".
-          #
-          # Retried because a genuine nuget.org outage would otherwise redden the Monday build for a
-          # reason nobody here can act on.
-          - task: PowerShell@2
-            displayName: Verify nuget.org is reachable (publishes nothing)
-            condition: succeededOrFailed()
-            retryCountOnTaskFailure: 2
-            inputs:
-              pwsh: true
-              targetType: inline
-              script: |
-                $index = 'https://api.nuget.org/v3/index.json'
-                try {
-                  $response = Invoke-WebRequest -Uri $index -UseBasicParsing -TimeoutSec 30
-                  Write-Host "[PASS] Reached $index (HTTP $($response.StatusCode)); a release push has a network path."
-                }
-                catch {
-                  Write-Host "[FAIL] $index is unreachable: $($_.Exception.Message)"
-                  Write-Host "A release from rel/v* would fail at 'NuGet push to nuget.org'."
-                  Write-Host "If that is a socket-permission or DNS failure, this pipeline has most likely been re-onboarded to the CFSClean network isolation policy. Open the 'Start Network Isolation' task, look for a policy reported with Source=[PerPipelineRequiredConfig], and mail netiso@microsoft.com with a link to this run."
-                  throw
-                }
 
     # -------------------------------------------------------------------------------------------
     # Prerelease library-package publish (opt-in, manual only).
@@ -1342,12 +1319,24 @@ extends:
               artifactName: prerelease-nuget
               targetPath: $(Pipeline.Workspace)/prerelease-nuget
           steps:
-            - task: 1ES.PublishNuget@1
-              displayName: 'NuGet push to nuget.org'
-              retryCountOnTaskFailure: 2
+            # Same ESRP NuGet publish as Release_NuGet; see the comment there.
+            - task: EsrpRelease@14
+              displayName: 'ESRP Release - NuGet'
               inputs:
-                useDotNetTask: false
-                packagesToPush: '$(Pipeline.Workspace)/prerelease-nuget/*.nupkg'
-                packageParentPath: '$(Pipeline.Workspace)/prerelease-nuget'
-                nuGetFeedType: external
-                publishFeedCredentials: 'NuGet-WinAppCLI'
+                ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+                usemanagedidentity: false
+                keyvaultname: ${{ parameters.signingIdentity.akvName }}
+                authcertname: ${{ parameters.signingIdentity.authCertName }}
+                signcertname: ${{ parameters.signingIdentity.signCertName }}
+                clientid: ${{ parameters.signingIdentity.appId }}
+                intent: 'PackageDistribution'
+                contenttype: 'NuGet'
+                organizationname: 'WindowsSDK'
+                contentsource: 'Folder'
+                folderlocation: $(Pipeline.Workspace)/prerelease-nuget/
+                waitforreleasecompletion: true
+                owners: '$(EsrpOwnersEmail)'
+                approvers: '$(EsrpApproversEmail)'
+                serviceendpointurl: 'https://api.esrp.microsoft.com'
+                mainpublisher: 'ESRPRELPACMAN'
+                domaintenantid: ${{ parameters.signingIdentity.tenantId }}
