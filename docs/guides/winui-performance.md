@@ -143,6 +143,7 @@ include the structured `limitations` field.
 | Composition submission | Main-device commit and DComp surface-update calls on the selected UI thread; not GPU execution or display latency |
 | Other observed XAML | Other timed XAML framework, input, scrolling, virtualization, and initialization work |
 | Image decode/load | Timed image work on the selected UI thread; off-thread decode does not contribute |
+| Reactor | Render passes, component renders, reconciles, and effects in [Microsoft.UI.Reactor apps](#find-expensive-reactor-components); WinUI work nested inside them keeps its own category. Shown only when the recording contains Reactor spans |
 | Unclassified | The remaining selected-range time, including idle, waits, and uninstrumented work |
 
 Without `--thread`, analysis chooses the thread with the most complete frames in
@@ -176,12 +177,13 @@ Replace element and event IDs with IDs from your results.
 | `elements` | Element rankings; `--type` filters observed type names, and `--sort` accepts `self`, `inclusive`, or `count` |
 | `element` | One trace-local element and, with `--depth`, elements observed beneath it during the selected range |
 | `frames` | UI-side frame, render-walk and submission intervals, longest first |
-| `hotspots` | Complete `Frame` intervals at or above `--min-frame-ms`, longest first, with dominant direct operations and GC overlap |
+| `hotspots` | Complete `Frame` intervals and Reactor render passes at or above `--min-frame-ms`, longest first, with dominant operations and GC overlap |
 | `events` | Original event names, descriptors and selected payload fields, in time order |
 | `calls` | Instrumented operations, longest first; `--family layout` restricts the operation family |
 | `call` | One operation and its execution subtree, selected with `--id`; default depth 2, maximum 4 |
 | `gc` | CLR collection lifetimes and runtime suspension episodes, in time order |
 | `resources` | Process CPU counters, private bytes, working set, thread count, and handle count, in time order |
+| `components` | Microsoft.UI.Reactor components ranked by exclusive time, with render counts and reasons; see [Find expensive Reactor components](#find-expensive-reactor-components) |
 
 All views accept `--from-ms` and `--to-ms`. `--thread` selects the UI thread for
 `summary` and `parsing`, and restricts UI operations or raw events in other
@@ -195,9 +197,11 @@ The events view additionally accepts `--provider <guid>`, `--element <id>`, and
 
 `hotspots` defaults `--min-frame-ms` to `16.67`. Thresholding uses each complete
 frame's full elapsed duration, even when the selected range clips the frame;
-`clippedOverlapMs` reports only the selected-range overlap. Each row embeds up to
+`clippedOverlapMs` reports only the selected-range overlap. Each frame row embeds up to
 four longest complete direct child operations with their call IDs, families,
-elapsed/exclusive durations, and evidence IDs. Use a child ID with
+elapsed/exclusive durations, and evidence IDs. Reactor render passes use the same
+threshold; their rows embed the four operations anywhere inside the pass with the
+most exclusive time, such as a slow component. Use a child ID with
 `--view call --id <call-id>` for deeper expansion. These are instrumented direct
 children, not CPU stacks, GPU work, or visual-tree descendants.
 
@@ -240,6 +244,70 @@ JSON rows include parent IDs, depth, ancestor IDs, child counts and `depthLimite
 Follow `nextOffset` to page the same tree without losing its context. A frame
 containing a long layout can be expanded into the element operations inside it,
 rather than treating the entire frame duration as rendering work.
+
+## Find expensive Reactor components
+
+```powershell
+winapp perf analyze .\traces\scroll --view components --from-marker scenario-start --to-marker scenario-end
+```
+
+For apps built with [Microsoft.UI.Reactor](https://github.com/microsoft/microsoft-ui-reactor),
+recordings also include Reactor's render spans. No extra flag is needed, and
+other apps are unaffected. The output looks like this:
+
+```text
+── Reactor render passes ──────────────────────────────
+187 passes, 4245.712 ms total; mean=22.704; max=472.016; p95=45.216 ms
+Longest passes (expand with --view call --id <id>):
+  c8 472.016 ms; not requested by a component, 1 request
+  c4688 235.465 ms; requested by App (component 1), 1 request
+Passes requested by: App 186 (3773.696 ms); not requested by a component: 1
+Reconcile edits: inserted 188, removed 178, moved 182, replaced 9
+
+── Components ─────────────────────────────────────────
+Component                                  Inclusive  Exclusive   Renders
+SlowPanel                                   2791.181   2791.181        97
+  mean=28.775; max=86.277; p95=42.264 ms; instances=5; elements created=6
+  reasons: props 92, mount 5
+  created at: Program.cs:51
+```
+
+- **Inclusive** is a component's render, effects, and the reconcile of the subtree
+  it returned. A component nested inside another render of the same type is not
+  counted twice. **Exclusive** subtracts the timed operations directly inside it:
+  child components, timed WinUI work, and, for a window's root component, the
+  pass's reconcile (ranked separately as `ReactorReconcile` in the summary).
+- **Reasons** say why it rendered: `mount`, `state`, `props`, `context`,
+  `parent` (nothing let it skip the render), `hotReload`, or `forced`. Many
+  `parent` or `props` renders of a cheap component can point to a missing memo.
+- **Elements created** counts WinUI elements created while that component's
+  render was the innermost one. The `elements` view also shows the owning component.
+- Rows that a virtualized list realizes during layout run outside any render
+  pass; the pass summary reports them separately.
+- **Requested by** names the component whose state change scheduled a pass, and
+  how many requests the pass batched. "Not requested by a component" covers the
+  first mount and host-level re-renders. **Reconcile edits** count the children
+  inserted, removed, moved, and replaced; `hotspots` shows them per pass.
+- **Created at** is the line of C# that created the component. Reactor records it
+  only when the app was built with source mapping (the default for Debug builds)
+  and source mapping is on at run time, for example with `REACTOR_SOURCEMAP=1`.
+  Source mapping adds its own cost, so compare timings only between recordings
+  that both have it on or both have it off.
+- `--sort inclusive` or `--sort count` change the ranking. Function and memo
+  components are named by their render function, for example `MainPage.Row` or
+  `RenderEachTime in MainPage.Render`. Older Reactor versions name them
+  `FuncElement` and `MemoElement`.
+
+Reactor passes run between frames, so a slow pass can leave every frame fast.
+`hotspots` lists long passes next to long frames, and `--view calls --family reactor`
+lists every pass, component render, and reconcile.
+
+The spans require a Reactor version that writes the `Microsoft-UI-Reactor-Perf`
+events. Requesters, reconcile edits, call sites, and render-function names need a
+newer Reactor; without them those lines are left out. With an older Reactor, the
+report is the same as for any WinUI app and
+`--view components` explains that no Reactor spans were recorded. Recordings made
+before winapp supported Reactor spans cannot gain them; record again.
 
 ## Check GC overlap
 
@@ -405,7 +473,8 @@ decoding ETL again; content fingerprints detect changed inputs. If cache integri
 checks fail, remove **only** that capture's `analysis` directory and analyze again.
 
 Recording uses the target PID and native XAML, XAML diagnostics, XAML operational,
-and Controls.Perf providers, plus optional CLR GC and DirectComposition events. Controls.Debug, kernel
+and Controls.Perf providers, plus optional CLR GC, DirectComposition, and Reactor
+(`Microsoft-UI-Reactor-Perf`, render passes and component renders only) events. Controls.Debug, kernel
 tracing, CPU sampling, and EventPipe are not enabled. Where Windows rejects a
 narrower event-ID filter, PID filtering stays enabled and the corresponding
 `providerStates` entry has `eventIdFilterApplied: false`.

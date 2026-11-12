@@ -116,6 +116,9 @@ internal static class PerfProviders
     public static readonly Guid Controls = new("F55F7011-988D-4674-A724-E01B39DC7AF6");
     public static readonly Guid Clr = new("e13c0d23-ccbc-4e12-931b-d9cc2eee27e4");
     public static readonly Guid DirectComposition = new("c44219d0-f344-11df-a5e2-b307dfd72085");
+    // Microsoft-UI-Reactor-Perf: TraceLogging render spans from Microsoft.UI.Reactor apps. Apps that do not
+    // register it write nothing, so enabling it is harmless for other apps.
+    public static readonly Guid Reactor = new("0902a96c-4e92-5b91-4d2b-5a8058055c78");
 
     public static readonly PerfProvider[] All =
     [
@@ -127,6 +130,8 @@ internal static class PerfProviders
         new(Clr, "Microsoft-Windows-DotNETRuntime", "1", 4, [1, 2, 3, 7, 8, 9], Optional: true),
         new(DirectComposition, "Microsoft-Windows-DirectComposition", "3", 5,
             [2, 3, 4, 5, 10, 11, 25], Optional: true),
+        // Pass (0x1) and Component (0x2) spans at informational level; the verbose child-list and state keywords stay off.
+        new(Reactor, "Microsoft-UI-Reactor-Perf", "3", 4, Optional: true),
     ];
 }
 

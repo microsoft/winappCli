@@ -11,7 +11,14 @@ internal sealed class PerfElement
     public string? Name { get; set; }
     public string? Source { get; set; }
     public string? Line { get; set; }
+    /// <summary>The Reactor component whose render span was innermost when WinUI created this element.</summary>
+    public string? Component { get; set; }
+    public string? ComponentId { get; set; }
+    /// <summary>Where that component was created in C# (<c>File.cs:line</c>), when Reactor's source map recorded it.</summary>
+    public string? ComponentCallSite { get; set; }
     public double FirstObservedMs { get; set; }
+    /// <summary>Time of the WinUI Created event, recorded only for elements attributed to a Reactor component.</summary>
+    public double? CreatedMs { get; set; }
     public double? DestroyedMs { get; set; }
     public bool CreationObserved { get; set; }
     public List<PerfParentChange> Parents { get; set; } = [];
@@ -21,7 +28,8 @@ internal sealed class PerfElement
 internal sealed record PerfParentChange(double TimeMs, string? ParentId, string Evidence);
 internal sealed record PerfCall(string Id, string Name, string Family, uint Thread, string? ElementId,
     string? ParentCallId, string? BeginEvent, string? EndEvent, double? StartMs, double? EndMs,
-    double? DurationMs, double? SelfMs, string Status, double? ExclusiveMs = null);
+    double? DurationMs, double? SelfMs, string Status, double? ExclusiveMs = null,
+    Dictionary<string, string>? Attributes = null);
 
 internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
 {
@@ -62,6 +70,10 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
         var element = ResolveElement(e);
         if (e.Phase == "info")
         {
+            if (e.Name == "Created" && element is not null && stacks.TryGetValue(e.Thread, out var open))
+            {
+                AttributeToComponent(element, open, e.TimeMs);
+            }
             return element?.Id;
         }
         if (!stacks.TryGetValue(e.Thread, out var stack))
@@ -83,7 +95,7 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
         }
         else if (e.Phase == "end")
         {
-            var match = stack.FindLastIndex(s => s.Begin.Provider == e.Provider && s.Begin.Name == e.Name &&
+            var match = stack.FindLastIndex(s => s.Begin.Provider == e.Provider && Pairs(s.Begin, e) &&
                 (e.ObjectId is null || s.Begin.ObjectId == e.ObjectId) &&
                 (e.Activity == Guid.Empty || s.Begin.Activity == e.Activity));
             if (match < 0)
@@ -111,9 +123,10 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
                 var duration = e.TimeMs - scope.Begin.TimeMs;
                 double? self = !scope.IncompleteChildren && IsElementOperation(scope.Begin.Name)
                     ? Math.Max(0, duration - Union(scope.Children)) : null;
-                Publish(scope, new(scope.Id, e.Name, e.Family, e.Thread, scope.Element, scope.Parent,
+                Publish(scope, new(scope.Id, scope.Begin.Name, e.Family, e.Thread, scope.Element, scope.Parent,
                     scope.Begin.Id, e.Id, scope.Begin.TimeMs, e.TimeMs, duration, self, "complete",
-                    scope.IncompleteChildren ? null : Math.Max(0, duration - Union(scope.DirectChildren))));
+                    scope.IncompleteChildren ? null : Math.Max(0, duration - Union(scope.DirectChildren)),
+                    ReactorEventDecoder.Attributes(scope.Begin, e)));
                 if (stack.LastOrDefault() is { } parent)
                 {
                     parent.IncompleteChildren |= scope.IncompleteChildren;
@@ -144,6 +157,37 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
             }
         }
         stacks.Clear();
+    }
+
+    /// <summary>
+    /// Begin and end normally share a name. A Reactor component render begins as <c>ReactorRender:&lt;name&gt;</c>
+    /// but its Stop carries only the component ID, so it pairs by prefix and ID.
+    /// </summary>
+    private static bool Pairs(PerfEvent begin, PerfEvent end)
+    {
+        if (begin.Name == end.Name)
+        {
+            return true;
+        }
+        return end.Family == ReactorEventDecoder.Family && begin.Family == ReactorEventDecoder.Family &&
+            end.Name == ReactorEventDecoder.Render && ReactorEventDecoder.ComponentName(begin.Name) is not null &&
+            begin.Fields.GetValueOrDefault("componentId") == end.Fields.GetValueOrDefault("componentId");
+    }
+
+    private static void AttributeToComponent(PerfElement element, List<Scope> open, double createdMs)
+    {
+        for (var i = open.Count - 1; i >= 0; i--)
+        {
+            var begin = open[i].Begin;
+            if (begin.Family == ReactorEventDecoder.Family && ReactorEventDecoder.ComponentName(begin.Name) is { } component)
+            {
+                element.Component = component;
+                element.ComponentId = begin.Fields.GetValueOrDefault("componentId");
+                element.ComponentCallSite = ReactorEventDecoder.CallSite(begin.Fields);
+                element.CreatedMs = createdMs;
+                return;
+            }
+        }
     }
 
     private void Publish(Scope scope, PerfCall? call = null)
