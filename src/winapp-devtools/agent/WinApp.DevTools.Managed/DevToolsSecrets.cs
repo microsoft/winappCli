@@ -3,7 +3,6 @@
 
 using System.Collections.Concurrent;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
 namespace WinApp.DevTools.Managed;
@@ -108,16 +107,21 @@ internal static class DevToolsSecrets
         return declaring is not null && declaring != typeof(object) && declaring != typeof(ValueType);
     }
 
-    // Every loaded type with this name (generic arity dropped), from assemblies outside the .NET runtime directory.
+    /// <summary>
+    /// Whether an assembly is part of .NET itself, by name. Not by folder: a self-contained app's own assemblies sit in
+    /// the runtime directory too.
+    /// </summary>
+    internal static bool IsDotNetAssembly(string? name) =>
+        name is "mscorlib" or "netstandard" or "System" || (name?.StartsWith("System.", StringComparison.Ordinal) ?? false);
+
+    // Every loaded type with this name (generic arity dropped), from assemblies that are not part of .NET itself.
     private static List<Type> TypesNamed(string name)
     {
         lock (IndexLock)
         {
-            var runtime = RuntimeEnvironment.GetRuntimeDirectory();
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
-                if (!Indexed.Add(assembly) || assembly.IsDynamic ||
-                    (assembly.Location.Length > 0 && assembly.Location.StartsWith(runtime, StringComparison.OrdinalIgnoreCase)))
+                if (!Indexed.Add(assembly) || assembly.IsDynamic || IsDotNetAssembly(assembly.GetName().Name))
                 {
                     continue;
                 }

@@ -148,6 +148,17 @@ inline bool MentionsPassword(const std::wstring& code)
     return false;
 }
 
+// The end of the character literal ('"', '\'', '\u0022') opening at `at`, or 0 when the quote opens none, such as an
+// apostrophe in text (`Don't`) on a line inside a multi-line string.
+inline size_t CharLiteralEnd(const std::wstring& code, size_t at)
+{
+    for (size_t k = at + 1; k < code.size() && k <= at + 11 && code[k] != L'\n'; ++k) {
+        if (code[k] == L'\\') ++k;
+        else if (code[k] == L'\'') return k > at + 1 && (code[at + 1] == L'\\' || k == at + 2) ? k + 1 : 0;
+    }
+    return 0;
+}
+
 // Replaces the value of each string literal whose opening quote (its index in `code`) `redact` selects with
 // <redacted>. A literal ends at its line's end unless it is a raw literal. Comments and character literals ('"') are
 // copied as they are.
@@ -174,10 +185,7 @@ inline void RedactLiterals(std::wstring& code, Predicate redact)
             i = stop;
             continue;
         }
-        if (c == L'\'') {
-            size_t k = i + 1;
-            while (k < n && code[k] != L'\'' && code[k] != L'\n') { if (code[k] == L'\\') ++k; ++k; }
-            const size_t stop = k < n && code[k] == L'\'' ? k + 1 : (std::min)(k, n);
+        if (const size_t stop = c == L'\'' ? CharLiteralEnd(code, i) : 0) {
             out.append(code, i, stop - i);
             i = stop;
             continue;

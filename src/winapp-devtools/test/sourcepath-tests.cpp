@@ -330,6 +330,10 @@ int RunSourcePathTests()
         std::wstring comment = L"PasswordBox(/* \" */ \"hunter2\")";
         DevToolsCSharpSource::Redact(comment);
         Check(comment == L"PasswordBox(/* \" */ \"<redacted>\")", "a quote in a comment does not hide the password after it");
+        std::wstring prose = L"Don't reuse the password \"hunter2\"";
+        DevToolsCSharpSource::Redact(prose);
+        Check(prose == L"Don't reuse the password \"<redacted>\"",
+              "an apostrophe in text inside a multi-line string does not hide the password after it");
     }
 
     DeleteFileW((pages + L"\\MainPage.xaml").c_str());

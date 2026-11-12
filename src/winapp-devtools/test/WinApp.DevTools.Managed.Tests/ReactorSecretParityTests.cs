@@ -78,6 +78,20 @@ public sealed class ReactorSecretParityTests
         Assert.IsTrue(Shown("", "Session?", "Session { Id = s1, Account = Login { User = ada, Password = hunter2 } }").Redacted);
     }
 
+    // A self-contained app's own assemblies sit in the .NET runtime directory, so the app's types are found by the
+    // assembly's name, not its folder.
+    [TestMethod]
+    [DataRow("System.Private.CoreLib", true)]
+    [DataRow("System", true)]
+    [DataRow("netstandard", true)]
+    [DataRow("RxReleaseStudio", false)]
+    [DataRow("Microsoft.UI.Reactor", false)]
+    [DataRow("SystemTools", false)]
+    public void DotNetAssemblies_AreRecognizedByName(string name, bool dotNet)
+    {
+        Assert.AreEqual(dotNet, DevToolsSecrets.IsDotNetAssembly(name));
+    }
+
     [TestMethod]
     public void ValuesWithoutAPasswordMember_AreShown()
     {

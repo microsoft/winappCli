@@ -111,6 +111,9 @@ public class DevToolsCSharpCommentsTests
     [DataRow("PasswordBox(c == '\"' ? \"hunter2\" : \"y\")", "PasswordBox(c == '\"' ? \"<redacted>\" : \"<redacted>\")")]
     [DataRow("PasswordBox(/* \" */ \"hunter2\")", "PasswordBox(/* \" */ \"<redacted>\")")]
     [DataRow("PasswordBox(@\"\"\"\" + \"hunter2\")", "PasswordBox(@\"<redacted>\" + \"<redacted>\")")]
+    [DataRow("Don't reuse the password \"hunter2\"", "Don't reuse the password \"<redacted>\"")]
+    [DataRow("it's \"hunter2\", the password, isn't it", "it's \"<redacted>\", the password, isn't it")]
+    [DataRow("PasswordBox(c == '\\'' ? \"hunter2\" : \"y\")", "PasswordBox(c == '\\'' ? \"<redacted>\" : \"<redacted>\")")]
     public void Redact_AQuoteInACharacterLiteralOrComment_DoesNotHideThePassword(string code, string expected)
     {
         Assert.AreEqual(expected, CSharpSourceText.Redact(code));

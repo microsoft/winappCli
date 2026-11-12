@@ -311,6 +311,24 @@ internal static class CSharpSourceText
     /// <summary>The lines of a file as DevTools shows them: each through <see cref="Redact(string)"/>.</summary>
     internal static string[] RedactLines(IReadOnlyList<string> lines) => lines.Select(Redact).ToArray();
 
+    // The end of the character literal ('"', '\'', '\u0022') opening at `at`, or 0 when the quote opens none, such as an
+    // apostrophe in text (`Don't`) on a line inside a multi-line string.
+    private static int CharLiteralEnd(string code, int at)
+    {
+        for (var k = at + 1; k < code.Length && k <= at + 11 && code[k] != '\n'; k++)
+        {
+            if (code[k] == '\\')
+            {
+                k++;
+            }
+            else if (code[k] == '\'')
+            {
+                return k > at + 1 && (code[at + 1] == '\\' || k == at + 2) ? k + 1 : 0;
+            }
+        }
+        return 0;
+    }
+
     // Replaces the value of each string literal whose opening quote `redact` selects with <redacted>. Comments and
     // character literals ('"') are copied as they are.
     private static string RedactLiterals(string code, Func<int, bool> redact)
@@ -337,13 +355,10 @@ internal static class CSharpSourceText
                 i = stop;
                 continue;
             }
-            if (c == '\'')
+            if (c == '\'' && CharLiteralEnd(code, i) is var charEnd and > 0)
             {
-                var k = i + 1;
-                while (k < n && code[k] != '\'' && code[k] != '\n') { if (code[k] == '\\') { k++; } k++; }
-                var stop = k < n && code[k] == '\'' ? k + 1 : Math.Min(k, n);
-                output.Append(code, i, stop - i);
-                i = stop;
+                output.Append(code, i, charEnd - i);
+                i = charEnd;
                 continue;
             }
             if (c == '"' || ((c == '@' || c == '$') && i + 1 < n && code[i + 1] is '"' or '@' or '$'))
