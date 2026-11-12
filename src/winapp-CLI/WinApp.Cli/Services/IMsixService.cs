@@ -32,7 +32,7 @@ internal interface IMsixService
         string? timestampUrl = null,
         FileInfo? appxRecipe = null,
         DirectoryInfo? windowsAppSdkPackageDirectory = null,
-        IfExists certIfExists = IfExists.Error,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -52,7 +52,7 @@ internal interface IMsixService
         bool installDevCert = false,
         string? publisher = null,
         string? timestampUrl = null,
-        IfExists certIfExists = IfExists.Error,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -72,7 +72,7 @@ internal interface IMsixService
         bool installDevCert = false,
         string? publisher = null,
         string? timestampUrl = null,
-        IfExists certIfExists = IfExists.Error,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default);
 
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(
@@ -90,7 +90,7 @@ internal interface IMsixService
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
-        IfExists certIfExists = IfExists.Error,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default);
 
     public Task<MsixIdentityResult> AddSparseIdentityAsync(
@@ -117,7 +117,7 @@ internal interface IMsixService
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
-        IfExists certIfExists = IfExists.Error,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default);
 
     /// <summary>

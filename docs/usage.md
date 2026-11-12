@@ -338,7 +338,7 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--cert <path>` - Path to signing certificate (enables auto-signing)
 - `--cert-password <password>` - Certificate password (default: "password")
 - `--generate-cert` - Generate a new development certificate next to the package (`<name>_cert.pfx`)
-- `--if-exists <error|skip|overwrite>` - What `--generate-cert` does when that `.pfx` already exists: `error` (default) stops, `skip` signs with the existing certificate, `overwrite` replaces it
+- `--if-exists <overwrite|skip|error>` - What `--generate-cert` does when that `.pfx` already exists: `overwrite` (default) replaces it, `skip` signs with the existing certificate, `error` stops. Only valid with `--generate-cert`
 - `--no-sign` - Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with `--cert` or `--generate-cert`.
 - `--install-cert` - Install certificate to machine
 - `--publisher <name>` - Publisher for certificate generation. Accepts a full X.500 distinguished name or a bare name (automatically wrapped as `CN=<name>`)

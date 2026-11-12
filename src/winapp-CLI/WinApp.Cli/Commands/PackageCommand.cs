@@ -99,8 +99,8 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
         };
         IfExistsOption = new Option<IfExists>("--if-exists")
         {
-            Description = "Behavior when --generate-cert finds its certificate file already exists: 'error' (fail, default), 'skip' (sign with the existing certificate), or 'overwrite' (replace it)",
-            DefaultValueFactory = (argumentResult) => IfExists.Error,
+            Description = "Behavior when --generate-cert finds its certificate file already exists:             'overwrite' (replace it, default), 'skip' (sign with the existing certificate), or 'error' (fail)",
+                        DefaultValueFactory = (argumentResult) => IfExists.Overwrite,
         };
         NoSignOption = new Option<bool>("--no-sign")
         {
@@ -298,6 +298,14 @@ internal partial class PackageCommand : Command, IShortDescription, ICompactHelp
             var manifestPath = parseResult.GetValue(ManifestOption);
             var selfContained = parseResult.GetValue(SelfContainedOption);
             var executable = parseResult.GetValue(ExecutableOption);
+
+            if (!generateCert && parseResult.GetResult(IfExistsOption) is { Implicit: false })
+            {
+                return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
+                {
+                    return Task.FromResult((1, $"{UiSymbols.Error} --if-exists only applies together with --generate-cert."));
+                }, cancellationToken);
+            }
 
             // Project mode: a single explicit .csproj or .vcxproj input (not an existing directory that
             // merely happens to be named like one) builds the project and packages its output. Runs before

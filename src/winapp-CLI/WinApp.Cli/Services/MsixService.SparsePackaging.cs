@@ -218,7 +218,7 @@ internal partial class MsixService
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
-        IfExists certIfExists = IfExists.Error,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default)
     {
         if (!manifestPath.Exists)
@@ -276,6 +276,11 @@ internal partial class MsixService
             }
 
             taskContext.AddDebugMessage($"{UiSymbols.Package} Packaging sparse identity manifest (external content): {manifestPath.Name}");
+
+            if (autoSign && generateDevCert && certificatePath == null)
+            {
+                ThrowIfGeneratedCertExists(GetGeneratedCertPath(outputFolder, packageName), certIfExists);
+            }
 
             await CreateMsixPackageFromFolderAsync(stagingDir, outputMsixPath, taskContext, cancellationToken);
 

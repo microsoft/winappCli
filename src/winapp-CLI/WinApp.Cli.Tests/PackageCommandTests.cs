@@ -2546,7 +2546,7 @@ public class PackageCommandTests : BaseCommandTests
     [TestMethod]
     public async Task CreateMsixPackageAsync_GenerateDevCertWithExistingCertFile_FailsWithClearMessage()
     {
-        var packageDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "ExistingCertPackage"));
+        var packageDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "ExistingCertPackage"));
         CreateTestPackageStructure(packageDir);
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
         var existingCert = Path.Join(_tempDirectory.FullName, "ExistingCertPackage_cert.pfx");
@@ -2561,6 +2561,7 @@ public class PackageCommandTests : BaseCommandTests
             autoSign: true,
             certificatePassword: "testpassword123",
             generateDevCert: true,
+            certIfExists: IfExists.Error,
             cancellationToken: CancellationToken.None));
 
         StringAssert.Contains(ex.GetBaseException().Message, "Certificate file already exists");
@@ -2571,7 +2572,7 @@ public class PackageCommandTests : BaseCommandTests
     [TestMethod]
     public async Task CreateMsixPackageAsync_GenerateDevCertIfExistsOverwrite_ReplacesCertAndSigns()
     {
-        var packageDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "OverwriteCertPackage"));
+        var packageDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "OverwriteCertPackage"));
         CreateTestPackageStructure(packageDir);
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
         var existingCert = Path.Join(_tempDirectory.FullName, "OverwriteCertPackage_cert.pfx");
@@ -2596,7 +2597,7 @@ public class PackageCommandTests : BaseCommandTests
     [TestMethod]
     public async Task CreateMsixPackageAsync_GenerateDevCertIfExistsSkip_ReusesCertAndSigns()
     {
-        var packageDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "SkipCertPackage"));
+        var packageDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "SkipCertPackage"));
         CreateTestPackageStructure(packageDir);
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
 

@@ -341,7 +341,7 @@ internal partial class MsixService(
         string? timestampUrl = null,
         FileInfo? appxRecipe = null,
         DirectoryInfo? windowsAppSdkPackageDirectory = null,
-        IfExists certIfExists = IfExists.Error,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default)
     {
         // Validate input folder and manifest
@@ -717,7 +717,19 @@ internal partial class MsixService(
         return new FileInfo(Path.Combine(directory, $"{stem}.winapp-{Guid.NewGuid():N}{extension}"));
     }
 
-    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext,     CancellationToken cancellationToken, string? timestampUrl = null, IfExists certIfExists = IfExists.Error)
+    private static FileInfo GetGeneratedCertPath(DirectoryInfo outputFolder, string packageName)
+        => new(Path.Combine(outputFolder.FullName, $"{packageName}_cert.pfx"));
+
+    // Called before packing too, so a refused certificate never replaces an existing signed package.
+    private static void ThrowIfGeneratedCertExists(FileInfo certPath, IfExists certIfExists)
+    {
+        if (certPath.Exists && certIfExists == IfExists.Error)
+        {
+            throw new InvalidOperationException($"Certificate file already exists: {certPath.FullName}{Environment.NewLine}To continue, add one of these flags to the same command:{Environment.NewLine}  Reuse it:    --if-exists skip{Environment.NewLine}  Replace it:  --if-exists overwrite{Environment.NewLine}Or use the existing file by replacing --generate-cert with:{Environment.NewLine}  --cert \"{certPath.FullName}\"");
+        }
+    }
+
+    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext,     CancellationToken cancellationToken, string? timestampUrl = null, IfExists certIfExists = IfExists.Overwrite)
     {
         if (certPath == null && generateDevCert)
         {
@@ -728,11 +740,8 @@ internal partial class MsixService(
 
             taskContext.AddDebugMessage($"{UiSymbols.Package} Generating certificate for publisher: {extractedPublisher}");
 
-            certPath = new FileInfo(Path.Combine(outputFolder.FullName, $"{finalPackageName}_cert.pfx"));
-            if (certPath.Exists && certIfExists == IfExists.Error)
-            {
-                throw new InvalidOperationException($"Certificate file already exists: {certPath.FullName}{Environment.NewLine}To continue, add one of these flags to the same command:{Environment.NewLine}  Reuse it:    --if-exists skip{Environment.NewLine}  Replace it:  --if-exists overwrite{Environment.NewLine}Or use the existing file by replacing --generate-cert with:{Environment.NewLine}  --cert \"{certPath.FullName}\"");
-            }
+            certPath = GetGeneratedCertPath(outputFolder, finalPackageName);
+            ThrowIfGeneratedCertExists(certPath, certIfExists);
 
             if (certPath.Exists && certIfExists == IfExists.Skip)
             {
