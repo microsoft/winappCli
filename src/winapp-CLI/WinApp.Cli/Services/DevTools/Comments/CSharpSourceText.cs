@@ -149,7 +149,8 @@ internal static class CSharpSourceText
                     while (j < n && line[j] is '@' or '$') { if (line[j] == '@') { isVerbatim = true; } j++; }
                     var quotes = 0;
                     while (j + quotes < n && line[j + quotes] == '"') { quotes++; }
-                    if (quotes >= 3) { rawQuotes = quotes; i = j + quotes; continue; }
+                    // `@""""` is a verbatim string that starts with an escaped quote, not a raw one.
+                    if (quotes >= 3 && !isVerbatim) { rawQuotes = quotes; i = j + quotes; continue; }
                     if (isVerbatim) { verbatim = true; i = j + 1; continue; }
                     i = j + 1;
                     while (i < n && line[i] != '"') { if (line[i] == '\\') { line[i++] = ' '; } if (i < n) { line[i++] = ' '; } }
@@ -307,48 +308,11 @@ internal static class CSharpSourceText
     /// <summary>Code that mentions a password shows no string literal values (<c>PasswordBox("&lt;redacted&gt;")</c>).</summary>
     internal static string Redact(string code) => MentionsPassword(code) ? RedactLiterals(code, _ => true) : code;
 
-    /// <summary>
-    /// Code as DevTools shows or stores it: <see cref="Redact(string)"/>, and the string literals a password parameter
-    /// receives (<c>new Login("bob", "&lt;redacted&gt;")</c> for <c>record Login(string User, string Password)</c>)
-    /// when <paramref name="declarations"/> declares the called method, constructor or record.
-    /// </summary>
-    internal static string Redact(string code, CSharpDeclarations declarations)
-    {
-        if (MentionsPassword(code))
-        {
-            return Redact(code);
-        }
-        var lines = SplitLines(code);
-        var ranges = CSharpArguments.SecretRanges(string.Join('\n', Mask(lines)), declarations);
-        return ranges.Count == 0 ? code : RedactLiterals(string.Join('\n', lines), at => Inside(ranges, at));
-    }
+    /// <summary>The lines of a file as DevTools shows them: each through <see cref="Redact(string)"/>.</summary>
+    internal static string[] RedactLines(IReadOnlyList<string> lines) => lines.Select(Redact).ToArray();
 
-    /// <summary>
-    /// The lines of a file with the string literals a password parameter receives redacted, reading each call whole
-    /// (its arguments may continue on later lines). Store and compare a line through <see cref="StoredText"/> and
-    /// <see cref="LineHash"/> of these lines, so a comment's line is matched by the text it was stored with.
-    /// </summary>
-    internal static string[] RedactLines(IReadOnlyList<string> lines, CSharpDeclarations declarations)
-    {
-        var result = lines.ToArray();
-        var ranges = CSharpArguments.SecretRanges(string.Join('\n', Mask(lines)), declarations);
-        var offset = 0;
-        for (var index = 0; index < result.Length && ranges.Count > 0; index++)
-        {
-            var start = offset;
-            var end = offset + result[index].Length;
-            if (ranges.Any(range => range.Start < end && range.End > start))
-            {
-                result[index] = RedactLiterals(result[index], at => Inside(ranges, start + at));
-            }
-            offset = end + 1;
-        }
-        return result;
-    }
-
-    private static bool Inside(List<(int Start, int End)> ranges, int at) => ranges.Any(range => at >= range.Start && at < range.End);
-
-    // Replaces the value of each string literal whose opening quote `redact` selects with <redacted>.
+    // Replaces the value of each string literal whose opening quote `redact` selects with <redacted>. Comments and
+    // character literals ('"') are copied as they are.
     private static string RedactLiterals(string code, Func<int, bool> redact)
     {
         var output = new StringBuilder(code.Length);
@@ -361,6 +325,23 @@ internal static class CSharpSourceText
             {
                 var lineEnd = code.IndexOf('\n', i);
                 var stop = lineEnd < 0 ? n : lineEnd;
+                output.Append(code, i, stop - i);
+                i = stop;
+                continue;
+            }
+            if (c == '/' && i + 1 < n && code[i + 1] == '*')
+            {
+                var end = code.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                var stop = end < 0 ? n : end + 2;
+                output.Append(code, i, stop - i);
+                i = stop;
+                continue;
+            }
+            if (c == '\'')
+            {
+                var k = i + 1;
+                while (k < n && code[k] != '\'' && code[k] != '\n') { if (code[k] == '\\') { k++; } k++; }
+                var stop = k < n && code[k] == '\'' ? k + 1 : Math.Min(k, n);
                 output.Append(code, i, stop - i);
                 i = stop;
                 continue;
@@ -378,7 +359,7 @@ internal static class CSharpSourceText
                     i = j + 2;
                     continue;
                 }
-                var open = quotes >= 3 ? quotes : 1;
+                var open = quotes >= 3 && !verbatim ? quotes : 1;
                 var k = j + open;
                 if (open >= 3)
                 {

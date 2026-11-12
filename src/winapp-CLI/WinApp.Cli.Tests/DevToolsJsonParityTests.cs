@@ -573,40 +573,25 @@ public class DevToolsJsonParityTests
         StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(), "Hot Reload");
     }
 
-    // A string passed to a password parameter is hidden even though the statement never says "password".
+    // The CLI redacts the app's C# again, so a quote character before the password cannot hide it.
     [TestMethod]
-    public async Task GetSource_RedactsAStringPassedToAPasswordParameter()
+    public async Task GetSource_RedactsAPasswordAfterAQuoteCharacter()
     {
-        var folder = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"winapp-positional-{Guid.NewGuid():N}")).FullName;
-        var file = Path.Combine(folder, "Panels.cs");
-        const string statement = "Component<Login2, Login2Props>(new Login2Props(\"bob\", \"pos-secret-1\", new Creds(\"alice\", \"nested-pw-1\"))),";
-        File.WriteAllText(Path.Combine(folder, "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />");
-        File.WriteAllText(Path.Combine(folder, "Models.cs"),
-            "record Login2Props(string User, string UserPassword, Creds Account);\nrecord Creds(string Name, string Password);\n");
-        File.WriteAllText(file, "class Panel : Component\n{\n    public override Element Render() => VStack(\n        " + statement + "\n        TextBlock(\"x\"));\n}\n");
-        try
+        const string statement = "PasswordBox(c == '\"' ? \"hunter2\" : \"y\"),";
+        foreach (var json in new[] { false, true })
         {
-            foreach (var json in new[] { false, true })
-            {
-                using var agent = new FakeDevToolsProtocolAgent()
-                    .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
-                    .Answer("Source.get", JsonSerializer.Serialize(new
-                    {
-                        handle = "42", kind = "csharp", fileName = file, lineNumber = 4, columnNumber = 9, onDisk = true,
-                        authoredState = "available", csharp = statement,
-                    }));
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Source.get", JsonSerializer.Serialize(new
+                {
+                    handle = "42", kind = "csharp", fileName = "C:\\missing\\Panels.cs", lineNumber = 4, columnNumber = 9,
+                    onDisk = false, authoredState = "available", csharp = statement,
+                }));
 
-                var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, json ? ["42", "--json"] : ["42"]);
+            var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, json ? ["42", "--json"] : ["42"]);
 
-                Assert.AreEqual(0, exit, output);
-                Assert.IsFalse(output.Contains("pos-secret-1", StringComparison.Ordinal) || output.Contains("nested-pw-1", StringComparison.Ordinal), output);
-                var shown = json ? JsonDocument.Parse(output).RootElement.GetProperty("csharp").GetString()! : output;
-                StringAssert.Contains(shown, "new Login2Props(\"bob\", \"<redacted>\", new Creds(\"alice\", \"<redacted>\"))");
-            }
-        }
-        finally
-        {
-            Directory.Delete(folder, recursive: true);
+            Assert.AreEqual(0, exit, output);
+            Assert.IsFalse(output.Contains("hunter2", StringComparison.Ordinal), output);
         }
     }
 

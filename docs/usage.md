@@ -1400,21 +1400,8 @@ winapp devtools inspect
 ```
 
 Inspect a WinUI 3 app's XAML tree, read or change live properties, diagnose
-bindings, and save source-anchored review comments. For Microsoft.UI.Reactor apps,
-`winapp devtools` also shows Reactor components, which C# line created each element,
-and which properties that C# sets, shows each element's C# variable name like an
-`x:Name` (`Button #incrementButton`), and reads and changes component state by hook
-name or index (`get-state`, `set-state`, `rerender`, `invoke-handler`). Native AOT,
-trimmed and attached Reactor apps launched by `winapp run` with DevTools show their
-components, call sites and names without loading the managed agent. Comments on Reactor
-elements are anchored to their C# call site (`comments add --file App.cs --line 35`
-works without a running app), and `logs` shows the warnings and errors Reactor
-reported since launch. `get-resource` and
-`set-resource` read and live-edit XAML resources in any app. `winapp devtools attach`
-also loads the managed agent into a running .NET 8+ app, and
-`winapp run . --watch` keeps DevTools attached through Hot Reload and
-restarts. Moving from `mur devtools`? See
-[Move from Reactor DevTools](guides/devtools-reactor.md#move-from-reactor-devtools). See the
+bindings, and save source-anchored review comments. Microsoft.UI.Reactor apps also
+show their components, C# call sites and component state. See the
 [DevTools guide](guides/devtools.md) for the workflow, [Reactor apps](guides/devtools-reactor.md) for Reactor components and state, [Advanced DevTools](guides/devtools-advanced.md) for Sandbox, late attach and the protocol, and
 `winapp devtools --help` for available commands.
 

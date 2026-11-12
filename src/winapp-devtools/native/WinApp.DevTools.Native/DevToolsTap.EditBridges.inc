@@ -318,7 +318,7 @@ static void Route1ReadRows(InstanceHandle wire, std::wstring& outType, std::wstr
     // No XAML declaration: the C# statement a Reactor element was created by stands in for the authored XAML.
     if (outAuthoredXaml.empty() && outAuthoredState == L"noSourceInfo") {
         ReactorSource source;
-        if (TapReactorSourceFor(ih, &source, true, DevToolsCSharpIndex::Cached)) {
+        if (TapReactorSourceFor(ih, &source, true)) {
             outAuthoredState = L"csharp";
             outAuthoredXaml = source.code;
         }
@@ -754,7 +754,7 @@ static bool OverlaySourceBridge(InstanceHandle raw, std::wstring* outFile, unsig
 static bool OverlayCSharpBridge(InstanceHandle raw, DevToolsCSharpSourceInfo* out)
 {
     ReactorSource source;
-    if (!out || !TapReactorSourceFor(raw, &source, true, DevToolsCSharpIndex::Cached)) {
+    if (!out || !TapReactorSourceFor(raw, &source, true)) {
         if (TapReactorMaybePresent()) TapReactorRefreshInspectorAsync();
         return false;
     }

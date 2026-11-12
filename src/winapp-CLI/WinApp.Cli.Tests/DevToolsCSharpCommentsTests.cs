@@ -43,6 +43,9 @@ public class DevToolsCSharpCommentsTests
         }
         """;
 
+    private const string ReactorProject =
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><PackageReference Include=\"Microsoft.UI.Reactor\" Version=\"1.0.0\" /></ItemGroup></Project>";
+
     private string _root = string.Empty;
 
     private string AppFile => Path.Combine(_root, "App.cs");
@@ -55,6 +58,7 @@ public class DevToolsCSharpCommentsTests
         _root = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "uic-cs-" + Guid.NewGuid().ToString("N")[..8])).FullName;
         Directory.CreateDirectory(Path.Combine(_root, ".git"));
         File.WriteAllText(AppFile, AppSource);
+        File.WriteAllText(Path.Combine(_root, "App.csproj"), ReactorProject);
     }
 
     [TestCleanup]
@@ -93,6 +97,23 @@ public class DevToolsCSharpCommentsTests
         Assert.AreEqual("Button@1", string.Join(",", CSharpSourceText.CallSites(masked[0]).Select(site => $"{site.Name}@{site.Column}")));
         Assert.AreEqual(0, CSharpSourceText.CallSites(masked[1]).Count, "the verbatim string continues onto line 2");
         Assert.AreEqual("TextBlock@15", string.Join(",", CSharpSourceText.CallSites(masked[2]).Select(site => $"{site.Name}@{site.Column}")));
+    }
+
+    [TestMethod]
+    public void Mask_AVerbatimStringOfOneQuote_DoesNotHideTheLinesAfterIt()
+    {
+        string[] lines = ["var quote = @\"\"\"\";", "Button(\"Save\")"];
+        var masked = CSharpSourceText.Mask(lines);
+        Assert.AreEqual("Button@1", string.Join(",", CSharpSourceText.CallSites(masked[1]).Select(site => $"{site.Name}@{site.Column}")));
+    }
+
+    [TestMethod]
+    [DataRow("PasswordBox(c == '\"' ? \"hunter2\" : \"y\")", "PasswordBox(c == '\"' ? \"<redacted>\" : \"<redacted>\")")]
+    [DataRow("PasswordBox(/* \" */ \"hunter2\")", "PasswordBox(/* \" */ \"<redacted>\")")]
+    [DataRow("PasswordBox(@\"\"\"\" + \"hunter2\")", "PasswordBox(@\"<redacted>\" + \"<redacted>\")")]
+    public void Redact_AQuoteInACharacterLiteralOrComment_DoesNotHideThePassword(string code, string expected)
+    {
+        Assert.AreEqual(expected, CSharpSourceText.Redact(code));
     }
 
     [TestMethod]
@@ -183,37 +204,32 @@ public class DevToolsCSharpCommentsTests
         Assert.IsFalse(DevToolsCommentsAddCommand.UsesReactor(_root, "App.cs"));
     }
 
-    // ---- resolver ----
+    [TestMethod]
+    public void OfflineAdd_ACSharpFileInNoProject_KeepsThePlainFileAndLine()
+    {
+        File.Delete(Path.Combine(_root, "App.csproj"));
+
+        var (exit, output) = Add("--text", "x", "--file", "App.cs", "--line", "7");
+
+        Assert.AreEqual(0, exit, output);
+        var comment = new CommentStore().Load(StorePath).Comments.Single();
+        Assert.AreEqual(7, comment.Anchor.Line);
+        Assert.IsNull(comment.Anchor.CSharp, "a file in no Reactor project is not read as Reactor call sites");
+    }
 
     [TestMethod]
-    public void OfflineAdd_AStringPassedToAPasswordParameter_IsNotStored_AndTheAnchorStillResolves()
+    public void OfflineAdd_AFileBasedReactorApp_AnchorsToTheCallSite()
     {
-        File.WriteAllText(Path.Combine(_root, "App.csproj"),
-            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><PackageReference Include=\"Microsoft.UI.Reactor\" Version=\"1.0.0\" /></ItemGroup></Project>");
-        File.WriteAllText(Path.Combine(_root, "Models.cs"),
-            "record Login2Props(string User, string UserPassword, Creds Account);\nrecord Creds(string Name, string Password);\n");
-        File.WriteAllText(AppFile, AppSource.Replace("Counter());",
-            "Component<Login2, Login2Props>(new Login2Props(\"bob\", \"pos-secret-1\", new Creds(\"alice\", \"nested-pw-1\"))));",
-            StringComparison.Ordinal));
+        File.Delete(Path.Combine(_root, "App.csproj"));
+        File.WriteAllText(AppFile, "#:package Microsoft.UI.Reactor@1.0.0\n" + AppSource);
 
         var (exit, output) = Add("--text", "x", "--file", "App.cs", "--line", "11");
 
         Assert.AreEqual(0, exit, output);
-        var stored = File.ReadAllText(StorePath);
-        Assert.IsFalse(stored.Contains("pos-secret-1", StringComparison.Ordinal) || stored.Contains("nested-pw-1", StringComparison.Ordinal), stored);
-        var comment = new CommentStore().Load(StorePath).Comments.Single();
-        StringAssert.Contains(comment.Anchor.CSharp!.LineText, "new Login2Props(\"bob\", \"<redacted>\", new Creds(\"alice\", \"<redacted>\"))");
-        var view = View(comment);
-        Assert.IsTrue(view.AnchorConfirmed, "the line is compared by its redacted text");
-        Assert.AreEqual("call-site", view.Hits.Single().Via);
-        Assert.IsFalse(view.Hits.Single().Text!.Contains("pos-secret-1", StringComparison.Ordinal));
-
-        File.WriteAllText(AppFile, File.ReadAllText(AppFile).Replace("    public override Element Render()\n    {",
-            "    // moved\n    public override Element Render()\n    {", StringComparison.Ordinal));
-        view = View(new CommentStore().Load(StorePath).Comments.Single());
-        Assert.IsTrue(view.AnchorConfirmed, "a moved line is found by the same redacted text");
-        Assert.AreEqual(12, view.Hits.Single().Line);
+        Assert.IsNotNull(new CommentStore().Load(StorePath).Comments.Single().Anchor.CSharp, "the #:package directive marks a Reactor app");
     }
+
+    // ---- resolver ----
 
     [TestMethod]
     public void Resolver_MovedLine_StaysConfirmed()

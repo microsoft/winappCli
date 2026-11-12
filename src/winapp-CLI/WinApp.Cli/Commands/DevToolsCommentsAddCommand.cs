@@ -430,13 +430,15 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
     /// <summary>
     /// Whether the project a <c>--file *.cs</c> comment is in references Microsoft.UI.Reactor, so the line must be a
     /// Reactor call site. Any other C# file (a XAML app's code-behind) keeps a plain file and line anchor. The project
-    /// is the nearest folder above the file (or the source root) with a .csproj; with none, the file is taken as Reactor.
+    /// is the nearest folder above the file (or the source root) with a .csproj. A file in no project is Reactor only as
+    /// a .NET file-based app with <c>#:package Microsoft.UI.Reactor</c>. An unreadable file or project is not Reactor.
     /// </summary>
     internal static bool UsesReactor(string sourceRoot, string file)
     {
         try
         {
-            var start = ResolveCSharpFile(sourceRoot, file) is { } path ? Path.GetDirectoryName(path) : Path.GetFullPath(sourceRoot);
+            var path = ResolveCSharpFile(sourceRoot, file);
+            var start = path is not null ? Path.GetDirectoryName(path) : Path.GetFullPath(sourceRoot);
             for (var folder = start is null ? null : new DirectoryInfo(start); folder is not null; folder = folder.Parent)
             {
                 var projects = folder.GetFiles("*.csproj");
@@ -448,12 +450,13 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                 return projects.Any(project => File.ReadAllText(project.FullName).Contains("Microsoft.UI.Reactor", StringComparison.OrdinalIgnoreCase)) ||
                     (File.Exists(assets) && File.ReadAllText(assets).Contains("\"Microsoft.UI.Reactor/", StringComparison.OrdinalIgnoreCase));
             }
+            return path is not null && File.ReadLines(path).TakeWhile(line => line.StartsWith('#') || line.Trim().Length == 0)
+                .Any(line => line.StartsWith("#:package Microsoft.UI.Reactor", StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Unreadable: check the line as a Reactor call site, which explains what it can't read.
+            return false;
         }
-        return true;
     }
 
     /// <summary>
@@ -506,7 +509,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             {
                 site = sites[0];
             }
-            var text = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(path))[line - 1];
+            var text = CSharpSourceText.Redact(lines[line - 1]);
             anchor.CSharp = new CommentCSharpAnchor
             {
                 ProjectRoot = root,

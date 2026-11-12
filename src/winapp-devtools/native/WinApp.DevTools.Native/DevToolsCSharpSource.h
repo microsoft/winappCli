@@ -88,7 +88,8 @@ inline void ScanLine(const std::wstring& line, size_t from, ScanState& s)
             bool isVerbatim = false;
             while (j < n && (line[j] == L'@' || line[j] == L'$')) { if (line[j] == L'@') isVerbatim = true; ++j; }
             const size_t quotes = quotesAt(j);
-            if (quotes >= 3) { s.rawQuotes = (int)quotes; i = j + quotes; continue; }
+            // `@""""` is a verbatim string that starts with an escaped quote, not a raw one.
+            if (quotes >= 3 && !isVerbatim) { s.rawQuotes = (int)quotes; i = j + quotes; continue; }
             if (isVerbatim) { s.verbatim = true; i = j + 1; continue; }
             i = j + 1;
             while (i < n && line[i] != L'"') { if (line[i] == L'\\') ++i; ++i; }
@@ -148,7 +149,8 @@ inline bool MentionsPassword(const std::wstring& code)
 }
 
 // Replaces the value of each string literal whose opening quote (its index in `code`) `redact` selects with
-// <redacted>. A literal ends at its line's end unless it is a raw literal.
+// <redacted>. A literal ends at its line's end unless it is a raw literal. Comments and character literals ('"') are
+// copied as they are.
 template <typename Predicate>
 inline void RedactLiterals(std::wstring& code, Predicate redact)
 {
@@ -165,6 +167,21 @@ inline void RedactLiterals(std::wstring& code, Predicate redact)
             i = end;
             continue;
         }
+        if (c == L'/' && i + 1 < n && code[i + 1] == L'*') {
+            const size_t end = code.find(L"*/", i + 2);
+            const size_t stop = end == std::wstring::npos ? n : end + 2;
+            out.append(code, i, stop - i);
+            i = stop;
+            continue;
+        }
+        if (c == L'\'') {
+            size_t k = i + 1;
+            while (k < n && code[k] != L'\'' && code[k] != L'\n') { if (code[k] == L'\\') ++k; ++k; }
+            const size_t stop = k < n && code[k] == L'\'' ? k + 1 : (std::min)(k, n);
+            out.append(code, i, stop - i);
+            i = stop;
+            continue;
+        }
         if (c == L'"' || ((c == L'@' || c == L'$') && i + 1 < n && (code[i + 1] == L'"' || code[i + 1] == L'@' || code[i + 1] == L'$'))) {
             size_t j = i;
             bool verbatim = false;
@@ -172,7 +189,7 @@ inline void RedactLiterals(std::wstring& code, Predicate redact)
             size_t quotes = 0;
             while (j + quotes < n && code[j + quotes] == L'"') ++quotes;
             if (quotes == 2 && !verbatim) { out.append(code, i, j + 2 - i); i = j + 2; continue; }  // ""
-            const size_t open = quotes >= 3 ? quotes : 1;
+            const size_t open = quotes >= 3 && !verbatim ? quotes : 1;
             size_t k = j + open;
             if (open >= 3) {
                 const size_t end = code.find(std::wstring(open, L'"'), k);
@@ -263,7 +280,7 @@ inline std::vector<std::wstring> Mask(const std::vector<std::wstring>& lines)
                 while (j < n && (line[j] == L'@' || line[j] == L'$')) { if (line[j] == L'@') isVerbatim = true; ++j; }
                 size_t quotes = 0;
                 while (j + quotes < n && line[j + quotes] == L'"') ++quotes;
-                if (quotes >= 3) { rawQuotes = quotes; i = j + quotes; continue; }
+                if (quotes >= 3 && !isVerbatim) { rawQuotes = quotes; i = j + quotes; continue; }
                 if (isVerbatim) { verbatim = true; i = j + 1; continue; }
                 i = j + 1;
                 while (i < n && line[i] != L'"') { if (line[i] == L'\\') line[i++] = L' '; if (i < n) line[i++] = L' '; }

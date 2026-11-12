@@ -68,8 +68,8 @@ internal static class CSharpAnchorResolver
                 var sameFile = sameProject && relative.Equals(cs.SourceFile, StringComparison.OrdinalIgnoreCase);
                 var lines = CSharpSourceText.ReadLines(file, boundary);
                 var masked = CSharpSourceText.Mask(lines);
-                // Compared and shown as stored: with the strings a password parameter receives redacted.
-                var shown = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(file));
+                // Compared and shown as stored: without string values on lines that mention a password.
+                var shown = CSharpSourceText.RedactLines(lines);
                 if (sameFile && cs.Line >= 1 && cs.Line <= lines.Length &&
                     CSharpSourceText.LineHash(shown[cs.Line - 1]) == cs.LineHash &&
                     FactoryColumn(masked[cs.Line - 1], cs) is int column)

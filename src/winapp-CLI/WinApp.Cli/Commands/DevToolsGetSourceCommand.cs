@@ -287,7 +287,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                             var lines = CSharpSourceText.ReadLines(local, Path.GetDirectoryName(local)!);
                             if (line <= lines.Length)
                             {
-                                code = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(local))[line - 1].Trim();
+                                code = CSharpSourceText.Redact(lines[line - 1]).Trim();
                             }
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -302,12 +302,8 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     authoredState = candidates.Count > 1 ? "ambiguous" : "noFile";
                 }
             }
-            // A string passed to a password parameter is redacted even when the statement never says "password".
-            if (code.Length > 0)
-            {
-                code = CSharpSourceText.Redact(code, CSharpDeclarations.ForSource(
-                    path ?? (onDisk ? DevToolsJson.ProjectPath(DevToolsJson.SourceRoot(target.Tap!, cancellationToken), file) : null)));
-            }
+            // A statement that mentions a password shows no string values, however the app sent it.
+            code = CSharpSourceText.Redact(code);
             if (json)
             {
                 WriteJson(DevToolsJson.Serialize(writer =>

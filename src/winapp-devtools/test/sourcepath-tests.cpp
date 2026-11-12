@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 #include "DevToolsSourcePath.h"
-#include "DevToolsCSharpArguments.h"
 #include "DevToolsCSharpSource.h"
 
 #include <windows.h>
@@ -314,52 +313,23 @@ int RunSourcePathTests()
               "a hook whose setter a PasswordBox calls holds the password, as in an uncontrolled PasswordBox");
     }
 
-    std::printf("== C# password parameters ==\n");
+    std::printf("== C# literals the scanner must not misread ==\n");
     {
-        using namespace DevToolsCSharpArguments;
-        Declarations models;
-        models.Add(DevToolsCSharpSource::SplitLines(
-            L"record Login2Props(string User, string UserPassword, Creds Account);\n"
-            L"public record Creds(string Name, string Password);\n"
-            L"static class F\n{\n"
-            L"    public static Element Component<TComponent, TProps>(TProps props, string? key = null) => null!;\n"
-            L"    public static Element Pair(string a, string bPassword) => null!;\n"
-            L"    public static Element Pair(string a, string b, int c = 0) => null!;\n"
-            L"    public static Element Pin(this Element element, string label, string pinPassword) => element;\n"
-            L"}\n"));
-        auto shown = [&](const std::wstring& code) {
-            const auto lines = RedactLines(DevToolsCSharpSource::SplitLines(code), models);
-            std::wstring out;
-            for (size_t k = 0; k < lines.size(); ++k) { if (k) out += L'\n'; out += lines[k]; }
-            return out;
-        };
-        Check(shown(L"Component<Login2, Login2Props>(new Login2Props(\"bob\", \"pos-secret-1\", new Creds(\"alice\", \"nested-pw-1\"))),") ==
-                  L"Component<Login2, Login2Props>(new Login2Props(\"bob\", \"<redacted>\", new Creds(\"alice\", \"<redacted>\"))),",
-              "a positional argument of a password parameter is redacted, in nested constructors too");
-        Check(shown(L"Component<Login2, Login2Props>(new(\"bob\", \"pw-1\", new(\"alice\", \"pw-2\")))") ==
-                  L"Component<Login2, Login2Props>(new(\"bob\", \"<redacted>\", new(\"alice\", \"<redacted>\")))",
-              "a target-typed new takes its type from the parameter");
-        Check(shown(L"Login2Props p = new(\"bob\", \"pw-3\", null!);") == L"Login2Props p = new(\"bob\", \"<redacted>\", null!);",
-              "a target-typed new takes its type from the declaration");
-        Check(shown(L"TextBlock(\"x\").Pin(\"PIN\", \"1234\")") == L"TextBlock(\"x\").Pin(\"PIN\", \"<redacted>\")",
-              "an extension method called on its receiver skips its this parameter");
-        Check(shown(L"var login = new Login2Props(\n    \"bob\",\n    \"pw-5\",\n    null);") ==
-                  L"var login = new Login2Props(\n    \"bob\",\n    \"<redacted>\",\n    null);",
-              "a call over several lines is read whole");
-        Check(shown(L"new Mystery(\"bob\", \"not-known\")") == L"new Mystery(\"bob\", \"not-known\")", "an unknown declaration is left alone");
-        Check(shown(L"Pair(\"a\", \"b\")") == L"Pair(\"a\", \"b\")", "overloads that disagree are left alone");
-        Check(shown(L"Unknown(userPassword: \"x\")") == L"Unknown(userPassword: \"<redacted>\")", "a named argument is redacted by its name");
-        Check(shown(L"new Options { User = \"bob\", ApiPassword = \"x\" }") == L"new Options { User = \"bob\", ApiPassword = \"<redacted>\" }",
-              "an initializer member is redacted by its name");
-        Declarations first, second, merged;
-        first.Add(DevToolsCSharpSource::SplitLines(L"record Login2Props(string User, string UserPassword, Creds Account);\n"));
-        second.Add(DevToolsCSharpSource::SplitLines(L"public record Creds(string Name, string Password);\n"));
-        merged.Merge(first);
-        merged.Merge(second);
-        const auto mergedLines = RedactLines(DevToolsCSharpSource::SplitLines(
-            L"new Login2Props(\"bob\", \"pw-6\", new Creds(\"alice\", \"pw-7\"))"), merged);
-        Check(mergedLines.size() == 1 && mergedLines[0] == L"new Login2Props(\"bob\", \"<redacted>\", new Creds(\"alice\", \"<redacted>\"))",
-              "declarations merged from separately read files redact as one index");
+        // @"""" is a verbatim string holding one quote, not the start of a raw string that runs to the end of the file.
+        const std::vector<std::wstring> verbatimQuote{L"var q = @\"\"\"\" + F(", L"    1);", L"var b = Button(\"Save\");"};
+        Check(DevToolsCSharpSource::Statement(verbatimQuote, 1, 0) == L"var q = @\"\"\"\" + F(\n    1);",
+              "a call after a verbatim string of one quote ends where its parenthesis closes");
+        const auto masked = DevToolsCSharpSource::Mask(verbatimQuote);
+        Check(masked.size() == 3 && masked[2].find(L"Button(") != std::wstring::npos,
+              "the line after a verbatim string of one quote is still code");
+
+        std::wstring quoteChar = L"PasswordBox(c == '\"' ? \"hunter2\" : \"y\")";
+        DevToolsCSharpSource::Redact(quoteChar);
+        Check(quoteChar == L"PasswordBox(c == '\"' ? \"<redacted>\" : \"<redacted>\")",
+              "a quote character literal does not hide the password after it");
+        std::wstring comment = L"PasswordBox(/* \" */ \"hunter2\")";
+        DevToolsCSharpSource::Redact(comment);
+        Check(comment == L"PasswordBox(/* \" */ \"<redacted>\")", "a quote in a comment does not hide the password after it");
     }
 
     DeleteFileW((pages + L"\\MainPage.xaml").c_str());
