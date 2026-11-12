@@ -31,10 +31,10 @@ internal static class DevToolsSecrets
     private static readonly Dictionary<string, List<Type>> TypesByName = new(StringComparer.Ordinal);
     private static readonly HashSet<Assembly> Indexed = [];
 
-    // "Login { User = ada, Password = hunter2 }": the shape a record's ToString prints (an anonymous type's has no
-    // name), and a member in it whose name ends in Password.
-    private static readonly Regex RecordText = new(@"^(?:[A-Za-z_][\w.`<>\[\], ?]*\s)?\{\s", RegexOptions.CultureInvariant);
-    private static readonly Regex SecretMember = new(@"[{,]\s\w*password\s=\s", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    // A member whose name ends in Password inside a record's printed braces ("Login { User = ada, Password = hunter2 }"),
+    // anywhere in the text: a tuple, a KeyValuePair or a type's own ToString can print a record inside its own text.
+    private static readonly Regex SecretMember =
+        new(@"\{\s[^{}]*?\w*password\s=\s", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     internal static bool IsSecretName(string? name) =>
         name is not null && name.EndsWith("Password", StringComparison.OrdinalIgnoreCase);
@@ -42,10 +42,11 @@ internal static class DevToolsSecrets
     /// <summary>
     /// Whether a value's text, printed the way a record prints itself, shows a member whose name ends in "Password".
     /// This catches what <see cref="HoldsSecret(Type?)"/> can't see: a derived record, or one held as <c>object</c>,
-    /// prints the members of its runtime type. A string's own text is never scanned.
+    /// prints the members of its runtime type, and a tuple or wrapper prints the record it holds. A string's own text
+    /// (a string value, or Reactor's quoted text of one) is never scanned.
     /// </summary>
     internal static bool PrintsSecret(object? value, string? text) =>
-        value is not string && text is not null && RecordText.IsMatch(text) && SecretMember.IsMatch(text);
+        value is not string && text is not null && !text.StartsWith('"') && SecretMember.IsMatch(text);
 
     /// <summary>Forgets what was learned about types, after .NET Hot Reload changed them.</summary>
     internal static void ClearCache()

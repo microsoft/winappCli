@@ -38,6 +38,12 @@ public sealed class ReactorSecretParityTests
 
     public sealed record Wrapper(object Value);
 
+    // A class with its own ToString that prints the record it holds.
+    public sealed class Holder(AuthState auth)
+    {
+        public override string ToString() => $"Holder({auth})";
+    }
+
     private static ReactorShownValue Shown(string name, string type, string value) =>
         ReactorShownValue.From(new ReactorSnapshotTests.DiagnosticValue(0, name, "state", type, value, true, false))!;
 
@@ -109,6 +115,11 @@ public sealed class ReactorSecretParityTests
         Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("State", new AppState(new SignedIn("ada", "hunter2"), 1)));
         Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Box", new Wrapper(new Login("ada", "hunter2"))));
         Assert.IsFalse(ReactorElementProps.Format("State", new AppState(new SignedOut(), 1)).Redacted, "nothing to hide while signed out");
+        AuthState signedIn = new SignedIn("ada", "hunter2");
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Pair", (signedIn, 1)), "a tuple prints the record it holds");
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Entry", new KeyValuePair<string, AuthState>("k", signedIn)));
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Holder", new Holder(signedIn)), "so does a type's own ToString");
+        Assert.IsTrue(Shown("", "(AuthState, int)", "(SignedIn { User = ada, Password = hunter2 }, 1)").Redacted);
 
         // Reactor formats the hook itself and names only the declared type.
         var hook = Shown("", "AppState", "AppState { Auth = SignedIn { User = ada, Password = hunter2 }, Count = 1 }");
