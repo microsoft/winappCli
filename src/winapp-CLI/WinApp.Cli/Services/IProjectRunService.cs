@@ -69,6 +69,14 @@ internal interface IProjectRunService
     Task<string?> CheckSingleFileSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Verifies that the SDK <c>dotnet watch</c> resolves in <paramref name="workingDirectory"/> (≥ 9.0.100) can
+    /// relaunch a packaged app: <c>winapp run --watch</c> hooks the <c>ComputeRunArguments</c> target, which the
+    /// .NET 8 SDK doesn't define.
+    /// </summary>
+    /// <returns>An actionable error message if the SDK is missing/too old, otherwise <c>null</c>.</returns>
+    Task<string?> CheckPackagedWatchSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Builds the project (unless <see cref="ProjectRunOptions.NoBuild"/>) and resolves the evaluated
     /// MSBuild output properties, returning the packaging determination and launch paths.
     /// </summary>
@@ -136,6 +144,16 @@ internal interface IProjectRunService
     /// throws or builds; a failed evaluation is treated as indeterminate.
     /// </returns>
     Task<bool> IsDefinitivelyUnpackagedAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Evaluates the project without building it and reports whether it is packaged, using the same rules as the
+    /// post-build determination. <c>false</c> when it is unpackaged or the evaluation failed: the post-build
+    /// determination stays authoritative.
+    /// </summary>
+    Task<bool> IsPackagedBeforeBuildAsync(
         FileInfo csproj,
         ProjectRunOptions options,
         CancellationToken cancellationToken);

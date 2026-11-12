@@ -35,7 +35,8 @@ focus to the toolbar (showing it if the user hid it), and Esc returns it. Use a 
 to return to the terminal with the app still running and its PID printed.
 Use an exact PID with `-a` when multiple apps are attached.
 Never stop another app automatically to make a rebuild succeed.
-For an edit loop on a .NET 8+ project (packaged or unpackaged), `winapp run . --watch`
+For an edit loop on a .NET project (unpackaged: .NET 8 SDK or later; packaged: .NET 9
+SDK or later), `winapp run . --watch`
 runs it under `dotnet watch`: Hot Reload edits keep DevTools attached, and when an
 edit needs a restart the app is relaunched (a packaged app is registered again first)
 and DevTools attaches to the new process (it prints the new PID).

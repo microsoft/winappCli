@@ -128,6 +128,22 @@ public class DevToolsWatchSessionTests
         StringAssert.Contains(userSet, "--property:SolutionDir=D:\\shared\\");
     }
 
+    /// <summary>
+    /// The watch build must match winapp's first build, including the properties winapp added on its own: the
+    /// publish profile it inferred and, on a machine without the Windows SDK, the CsWinRT metadata folder.
+    /// </summary>
+    [TestMethod]
+    public void WatchArguments_ForwardTheInferredPublishProfileAndCsWinRTMetadata()
+    {
+        var csproj = new FileInfo(@"C:\src\App\App.csproj");
+        var options = new ProjectRunOptions("Debug", "arm64", "net10.0-windows10.0.19041.0", false, false, [], PublishProfile: "win-arm64.pubxml");
+
+        var arguments = ProjectRunService.BuildWatchArguments(csproj, options, null, csWinRTMetadataFolder: @"C:\cache\winmd");
+
+        StringAssert.EndsWith(arguments, "--property:PublishProfile=win-arm64.pubxml " +
+            @"--property:ProjectToOverrideProjectExtensionsPath=C:\src\App\App.csproj --property:CsWinRTWindowsMetadata=C:\cache\winmd");
+    }
+
     [TestMethod]
     [DataRow(false, false, false, false, false, false, true, "can't be combined with --devtools off")]
     [DataRow(true, true, true, false, false, false, true, "--detach, --json")]

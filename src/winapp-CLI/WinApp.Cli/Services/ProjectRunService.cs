@@ -117,6 +117,16 @@ internal sealed partial class ProjectRunService(
             tooOldReason: "is too old for project mode",
             cancellationToken);
 
+    /// <inheritdoc />
+    public Task<string?> CheckPackagedWatchSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
+        => CheckSdkFloorAsync(
+            workingDirectory,
+            minimumMajor: 9,
+            minimumPatch: 100,
+            upgradeHint: "Install .NET SDK 9.0.100 or newer from https://aka.ms/dotnet/download, or run without --watch.",
+            tooOldReason: "can't relaunch a packaged app under --watch",
+            cancellationToken);
+
     /// <summary>
     /// Probes <c>dotnet --version</c> and reports whether the installed SDK meets a minimum floor.
     /// Shared by project mode (8.0.100, for MSBuild <c>--getProperty</c>) and single-file mode (10.0.300,
@@ -718,7 +728,9 @@ internal sealed partial class ProjectRunService(
             DevToolsReactor: options.CaptureDevToolsSources
                 ? DevTools.ReactorBuildFacts.From(props, GetProp(props, "ProjectAssetsFile")) : null,
             DevToolsUnsupportedFramework: options.CaptureDevToolsSources
-                ? ReadDevToolsUnsupportedFramework(props, stdout) : ProjectAppFramework.Unknown);
+                ? ReadDevToolsUnsupportedFramework(props, stdout) : ProjectAppFramework.Unknown,
+            BuildOptions: options,
+            CsWinRTMetadata: csWinRTMetadata);
 
         return new ProjectBuildOutcome(resolution, 0);
     }
@@ -851,6 +863,17 @@ internal sealed partial class ProjectRunService(
         // indeterminate; let the authoritative build classify.
         return props is not null
             && string.Equals(GetProp(props, "WindowsPackageType"), "None", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsPackagedBeforeBuildAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken)
+    {
+        var props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
+        return props is not null
+            && DeterminePackaging(props, GetProp(props, "TargetDir")) == ProjectPackaging.Packaged;
     }
 
     /// <summary>

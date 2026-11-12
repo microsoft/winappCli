@@ -65,7 +65,7 @@ internal partial class RunCommand
     {
         Description = "Run the project under 'dotnet watch' with DevTools: edits apply through .NET Hot Reload, and when an edit " +
             "needs a restart the app is rebuilt and relaunched with DevTools attached again. Packaged apps are re-registered and " +
-            "relaunched through their staged execution alias. .NET 8+ projects only.",
+            "relaunched through their staged execution alias. Needs the .NET 8 SDK or later, or the .NET 9 SDK or later for a packaged app.",
     };
 
     internal static Option<bool> WatchLaunchOption { get; } = new("--devtools-watch-launch")

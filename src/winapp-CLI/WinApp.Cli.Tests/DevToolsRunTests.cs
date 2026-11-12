@@ -925,6 +925,8 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     public async Task Watch_Unpackaged_RunsDotnetWatch_AndAttachesEveryAppItStarts()
     {
         var app = Prepare("project", false);
+        // An unpackaged app starts without the ComputeRunArguments hook, so it keeps working on the .NET 8 SDK.
+        _projects.PackagedWatchSdkError = "The .NET SDK 8.0.428 can't relaunch a packaged app under --watch.";
         var handler = GetRequiredService<RunCommand.Handler>();
         var polls = 0;
         handler.ProcessDescendants = _ =>
@@ -986,6 +988,57 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.IsFalse(_launcher.LastEnvironment.ContainsKey("DOTNET_STARTUP_HOOKS"), "The launch step composes the hooks itself.");
         Assert.IsEmpty(_attach.Calls, "The launch step attaches DevTools.");
         Assert.IsEmpty(_msix.AddLooseLayoutInspectorRequests, "The launch step registers the package.");
+    }
+
+    /// <summary>
+    /// A two-framework app: <c>winapp run . --watch</c> built the first framework, so <c>dotnet watch</c> must build
+    /// that one too, with the same publish profile and CsWinRT metadata, instead of stopping at "Specify which
+    /// framework to run using '--framework'".
+    /// </summary>
+    [TestMethod]
+    public async Task Watch_BuildsWithTheOptionsTheFirstBuildResolved()
+    {
+        var app = Prepare("project", true);
+        GetRequiredService<RunCommand.Handler>().WinappExecutable = () => @"C:\tools\winapp.exe";
+        _launcher.LaunchOverride = () => { _process.HasExited = true; return _process; };
+        _projects.BuildOutcome = _projects.BuildOutcome! with
+        {
+            Resolution = _projects.BuildOutcome!.Resolution! with
+            {
+                BuildOptions = new ProjectRunOptions("Debug", "x64", "net10.0-windows10.0.19041.0", false, false, [],
+                    PublishProfile: "win-x64.pubxml"),
+                CsWinRTMetadata = @"C:\cache\winmd",
+            },
+        };
+
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "headless", "--watch"), TestAnsiConsole.Output + ConsoleStdErr);
+
+        var arguments = _launcher.LaunchExecutableCalls.Single().Arguments!;
+        StringAssert.Contains(arguments, "-f net10.0-windows10.0.19041.0");
+        StringAssert.Contains(arguments, "--property:PublishProfile=win-x64.pubxml");
+        StringAssert.Contains(arguments, @"--property:CsWinRTWindowsMetadata=C:\cache\winmd");
+    }
+
+    /// <summary>
+    /// A packaged watch relaunches the app after the SDK's <c>ComputeRunArguments</c> target, which the .NET 8 SDK
+    /// lacks. It is refused before the build when the project already evaluates as packaged, otherwise after the
+    /// build, and in both cases before <c>dotnet watch</c> starts.
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Watch_Packaged_OnSdkWithoutComputeRunArguments_IsRefused(bool packagedBeforeBuild)
+    {
+        var app = Prepare("project", true);
+        _projects.PackagedWatchSdkError = "The .NET SDK 8.0.428 can't relaunch a packaged app under --watch.";
+        _projects.PackagedBeforeBuild = packagedBeforeBuild;
+
+        var exit = await Run(app.Input, "--devtools", "headless", "--watch");
+
+        Assert.AreNotEqual(0, exit);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "can't relaunch a packaged app under --watch");
+        Assert.HasCount(packagedBeforeBuild ? 0 : 1, _projects.BuildOptions);
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
     }
 
     [TestMethod]

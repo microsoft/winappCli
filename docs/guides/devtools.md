@@ -241,7 +241,8 @@ process in the same mode (`on` or `headless`):
 ✅ The app restarted (PID 27376); DevTools attached again.
 ```
 
-This works for packaged and unpackaged .NET 8 or later projects. A packaged app is
+This works for unpackaged projects with the .NET 8 SDK or later, and for packaged
+projects with the .NET 9 SDK or later. A packaged app is
 registered again and relaunched with its package identity on each restart, so it keeps
 its DevTools and Hot Reload connection; this needs the app's execution alias to be
 enabled, as `winapp run` with DevTools already does. `dotnet watch` doesn't watch `.xaml`

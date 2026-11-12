@@ -54,8 +54,8 @@ internal partial class RunCommand
             string watchArguments;
             try
             {
-                // The same Platform/RID the build pass resolved, so dotnet watch builds into, and starts, the same output.
-                watchArguments = ProjectRunService.BuildWatchArguments(csproj, ProjectRunService.ResolvePlatformInjection(csproj, options), appArgs);
+                // The options the build pass resolved, so dotnet watch builds into, and starts, the same output.
+                watchArguments = WatchArguments(resolution, csproj, options, appArgs);
             }
             catch (ProjectRunException ex)
             {
@@ -85,8 +85,8 @@ internal partial class RunCommand
         /// loose layout and starts the app through its staged execution alias, which carries both <c>dotnet watch</c>'s
         /// Hot Reload environment and the DevTools environment into the packaged app, then attaches DevTools.
         /// </summary>
-        private async Task<int> RunWatchedPackagedProjectAsync(ParseResult parseResult, FileInfo csproj, FileInfo? solution,
-            ProjectRunOptions options, string? appArgs, CancellationToken cancellationToken)
+        private async Task<int> RunWatchedPackagedProjectAsync(ParseResult parseResult, ProjectRunResolution resolution, FileInfo csproj,
+            FileInfo? solution, ProjectRunOptions options, string? appArgs, CancellationToken cancellationToken)
         {
             if (WinappExecutable() is not { } winapp)
             {
@@ -96,7 +96,7 @@ internal partial class RunCommand
             try
             {
                 var launchTargets = WriteWatchLaunchTargets(winappDirectoryService.GetGlobalWinappDirectory());
-                watchArguments = ProjectRunService.BuildWatchArguments(csproj, ProjectRunService.ResolvePlatformInjection(csproj, options), null,
+                watchArguments = WatchArguments(resolution, csproj, options, null,
                 [
                     $"CustomAfterMicrosoftCommonTargets={EscapeMSBuildProperty(launchTargets)}",
                     $"WinAppDevToolsWatchRunCommand={EscapeMSBuildProperty(winapp)}",
@@ -119,10 +119,26 @@ internal partial class RunCommand
                 (watcher, token) => watcher.WaitForExitAsync(token), cancellationToken);
         }
 
+        // dotnet watch gets the build's resolved inputs, not only what the user typed: the pinned framework of a
+        // multi-targeted project, the injected Platform, the inferred publish profile and the CsWinRT metadata.
+        private static string WatchArguments(ProjectRunResolution resolution, FileInfo csproj, ProjectRunOptions options, string? appArgs,
+            IReadOnlyList<string>? launchProperties = null) =>
+            ProjectRunService.BuildWatchArguments(csproj, resolution.BuildOptions ?? options, appArgs, launchProperties, resolution.CsWinRTMetadata);
+
         /// <summary>Starts <c>dotnet watch</c> in this terminal and runs <paramref name="whileWatching"/> until it exits or Ctrl+C.</summary>
         private async Task<int> RunWatcherAsync(FileInfo csproj, string watchArguments, IReadOnlyDictionary<string, string?> environment,
             Func<ILaunchedProcess, CancellationToken, Task> whileWatching, CancellationToken cancellationToken)
         {
+            // dotnet watch rebuilds the app, so it imports the same packaging targets winapp's own build did.
+            if (ProjectRunService.WithPackagingReferenceTargets(null) is { } buildEnvironment)
+            {
+                var merged = new Dictionary<string, string?>(environment, StringComparer.OrdinalIgnoreCase);
+                foreach (var (name, value) in buildEnvironment)
+                {
+                    merged[name] = value;
+                }
+                environment = merged;
+            }
             ILaunchedProcess watcher;
             try
             {

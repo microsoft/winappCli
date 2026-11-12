@@ -188,14 +188,16 @@ internal sealed partial class ProjectRunService
 
     /// <summary>
     /// Arguments for <c>dotnet watch</c> running a project the way the build pass built it (same
-    /// Configuration, RID, TFM and user <c>-p</c>), so the first watch build is incremental and the app it starts is
-    /// the build output winapp resolved. <c>--non-interactive</c> restarts the app on edits Hot Reload can't apply
-    /// instead of prompting; <c>--no-launch-profile</c> matches <c>winapp run</c>, which ignores launchSettings.json.
-    /// <paramref name="launchProperties"/> (already MSBuild-escaped) replace how <c>dotnet run</c> starts the app,
-    /// e.g. <c>RunCommand</c> for a packaged app.
+    /// Configuration, RID, TFM, user <c>-p</c>, and the properties winapp injected: <c>Platform</c>, the
+    /// inferred publish profile and <paramref name="csWinRTMetadataFolder"/>), so the first watch build is
+    /// incremental and the app it starts is the build output winapp resolved. Pass the build's resolved options
+    /// (<see cref="ProjectRunResolution.BuildOptions"/>). <c>--non-interactive</c> restarts the app on edits Hot
+    /// Reload can't apply instead of prompting; <c>--no-launch-profile</c> matches <c>winapp run</c>, which ignores
+    /// launchSettings.json. <paramref name="launchProperties"/> (already MSBuild-escaped) replace how
+    /// <c>dotnet run</c> starts the app, e.g. <c>RunCommand</c> for a packaged app.
     /// </summary>
     internal static string BuildWatchArguments(FileInfo csproj, ProjectRunOptions options, string? appArguments,
-        IReadOnlyList<string>? launchProperties = null)
+        IReadOnlyList<string>? launchProperties = null, string? csWinRTMetadataFolder = null)
     {
         var tokens = new List<string>
         {
@@ -233,6 +235,13 @@ internal sealed partial class ProjectRunService
         {
             tokens.Add($"--property:Platform={options.Platform}");
         }
+        var injected = new List<string>();
+        AppendInferredPublishProfile(injected, csproj, options);
+        if (!string.IsNullOrEmpty(csWinRTMetadataFolder))
+        {
+            injected.Add($"-p:CsWinRTWindowsMetadata={csWinRTMetadataFolder}");
+        }
+        tokens.AddRange(injected.Select(token => "--property:" + token["-p:".Length..]));
         foreach (var property in launchProperties ?? [])
         {
             tokens.Add($"--property:{property}");

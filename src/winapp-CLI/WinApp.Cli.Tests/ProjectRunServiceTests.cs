@@ -2604,6 +2604,7 @@ public class ProjectRunServiceTests
         Assert.IsNotNull(outcome.Resolution);
         Assert.AreEqual(1, dotnet.StreamingCalls.Count, "exactly one build pass should have run");
         StringAssert.Contains(dotnet.StreamingCalls[0], $"-p:CsWinRTWindowsMetadata={folder}");
+        Assert.AreEqual(folder, outcome.Resolution.CsWinRTMetadata, "--watch injects the same folder");
         Assert.AreEqual(1, shim.ResolvedMonikers.Count, "the shim should be consulted once");
         Assert.AreEqual("net10.0-windows10.0.26100.0", shim.ResolvedMonikers[0],
             "the shim must be consulted with the project's target framework moniker");
@@ -5179,6 +5180,7 @@ public class ProjectRunServiceTests
         Assert.IsNotNull(outcome.Resolution, "a multi-targeted project should resolve after pinning a TFM");
         StringAssert.Contains(dotnet.StreamingCalls[0], "-f net10.0-windows10.0.26100.0", "the first declared TFM must be pinned into the build pass");
         Assert.IsFalse(dotnet.StreamingCalls[0].Contains("net8.0-windows10.0.26100.0"), "only the first TFM should be pinned");
+        Assert.AreEqual("net10.0-windows10.0.26100.0", outcome.Resolution.BuildOptions?.Framework, "--watch builds the pinned TFM too");
     }
 
     [TestMethod]
@@ -5691,6 +5693,23 @@ public class ProjectRunServiceTests
 
         await Assert.ThrowsExactlyAsync<OperationCanceledException>(
             () => service.CheckSdkAsync(_tempDir, cts.Token));
+    }
+
+    [TestMethod]
+    [DataRow("8.0.428", true)]
+    [DataRow("9.0.100", false)]
+    public async Task CheckPackagedWatchSdkAsync_RequiresTheFirstSdkWithComputeRunArguments(string version, bool refused)
+    {
+        var dotnet = new FakeDotNetService { RunDotnetCommandHandler = _ => (0, version, string.Empty) };
+        var service = NewServiceWith(dotnet, out _);
+
+        var error = await service.CheckPackagedWatchSdkAsync(_tempDir, CancellationToken.None);
+
+        Assert.AreEqual(refused, error is not null, error);
+        if (refused)
+        {
+            StringAssert.Contains(error!, "The .NET SDK 8.0.428 can't relaunch a packaged app under --watch. Install .NET SDK 9.0.100 or newer");
+        }
     }
 
     #endregion

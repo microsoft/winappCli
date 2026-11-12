@@ -289,6 +289,20 @@ internal partial class RunCommand
                 }
             }
 
+            // A packaged --watch relaunches the app from a target that runs after ComputeRunArguments, which the .NET 8
+            // SDK lacks. Probe the SDK dotnet watch will use (it starts in the current directory); when it's too old,
+            // refuse before building if the project already evaluates as packaged, and otherwise after the build.
+            var watch = parseResult.GetValue(WatchOption);
+            var packagedWatchSdkError = watch
+                ? await projectRunService.CheckPackagedWatchSdkAsync(
+                    new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory()), cancellationToken)
+                : null;
+            if (packagedWatchSdkError is not null
+                && await projectRunService.IsPackagedBeforeBuildAsync(csproj, buildOptions, cancellationToken))
+            {
+                return Fail(packagedWatchSdkError, isJson);
+            }
+
             ProjectBuildOutcome outcome;
             try
             {
@@ -332,10 +346,14 @@ internal partial class RunCommand
                 }
             }
 
-            if (parseResult.GetValue(WatchOption))
+            if (watch)
             {
+                if (resolution.Packaging == ProjectPackaging.Packaged && packagedWatchSdkError is not null)
+                {
+                    return Fail(packagedWatchSdkError, isJson);
+                }
                 return resolution.Packaging == ProjectPackaging.Packaged
-                    ? await RunWatchedPackagedProjectAsync(parseResult, csproj, solution, buildOptions, appArgs, cancellationToken)
+                    ? await RunWatchedPackagedProjectAsync(parseResult, resolution, csproj, solution, buildOptions, appArgs, cancellationToken)
                     : await RunWatchedProjectAsync(resolution, csproj, buildOptions, appArgs,
                         showOverlay: devToolsRun.ShowToolbar, cancellationToken);
             }
