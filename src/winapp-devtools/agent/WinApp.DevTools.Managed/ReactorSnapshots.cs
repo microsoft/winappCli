@@ -24,7 +24,9 @@ internal sealed record ReactorShownValue(int Index, string Name, string Kind, st
         var name = ReactorReflect.Member(value, "Name") as string ?? "";
         var type = ReactorReflect.Member(value, "Type") as string ?? "";
         var text = ReactorReflect.Member(value, "Value") as string ?? "";
-        var secret = DevToolsSecrets.IsSecretName(name) || DevToolsSecrets.IsSecretName(contextName) || DevToolsSecrets.HoldsSecret(type);
+        // Reactor quotes a string's text, so PrintsSecret reads only a value printed as a record.
+        var secret = DevToolsSecrets.IsSecretName(name) || DevToolsSecrets.IsSecretName(contextName) || DevToolsSecrets.HoldsSecret(type) ||
+            DevToolsSecrets.PrintsSecret(null, text);
         return new ReactorShownValue(
             ReactorReflect.Member(value, "Index") is int index ? index : -1,
             name,

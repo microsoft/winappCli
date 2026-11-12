@@ -415,7 +415,7 @@ internal static class ResourceOps
         SolidColorBrush brush => $"SolidColorBrush {Hex(brush.Color)}" + (brush.Opacity < 1 ? $" (Opacity {brush.Opacity.ToString(CultureInfo.InvariantCulture)})" : ""),
         Windows.UI.Color color => Hex(color),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
-        _ => value.ToString() ?? "",
+        _ => value.ToString() is { } text ? (DevToolsSecrets.PrintsSecret(value, text) ? DevToolsSecrets.Redacted : text) : "",
     };
 
     private static string Hex(Windows.UI.Color c) => $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";

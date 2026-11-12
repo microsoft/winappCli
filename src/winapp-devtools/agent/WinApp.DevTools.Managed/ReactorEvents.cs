@@ -57,7 +57,7 @@ internal static class ReactorEvents
         Publish(new ReactorEventRecord("hotReload", "info", "MetadataUpdate", true,
             [("source", "metadataUpdate"), ("types", types?.Length ?? 0)]));
 
-    internal static void ClearCache(Type[]? types) { }
+    internal static void ClearCache(Type[]? types) => DevToolsSecrets.ClearCache();
 
     /// <summary>What DevTools reports for one Reactor event, or null for an event it does not report.</summary>
     internal static ReactorEventRecord? Translate(string name, EventLevel level, IReadOnlyList<string>? names, IReadOnlyList<object?>? payload)

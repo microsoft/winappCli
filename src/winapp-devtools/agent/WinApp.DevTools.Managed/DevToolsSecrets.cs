@@ -31,8 +31,32 @@ internal static class DevToolsSecrets
     private static readonly Dictionary<string, List<Type>> TypesByName = new(StringComparer.Ordinal);
     private static readonly HashSet<Assembly> Indexed = [];
 
+    // "Login { User = ada, Password = hunter2 }": the shape a record's ToString prints (an anonymous type's has no
+    // name), and a member in it whose name ends in Password.
+    private static readonly Regex RecordText = new(@"^(?:[A-Za-z_][\w.`<>\[\], ?]*\s)?\{\s", RegexOptions.CultureInvariant);
+    private static readonly Regex SecretMember = new(@"[{,]\s\w*password\s=\s", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     internal static bool IsSecretName(string? name) =>
         name is not null && name.EndsWith("Password", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether a value's text, printed the way a record prints itself, shows a member whose name ends in "Password".
+    /// This catches what <see cref="HoldsSecret(Type?)"/> can't see: a derived record, or one held as <c>object</c>,
+    /// prints the members of its runtime type. A string's own text is never scanned.
+    /// </summary>
+    internal static bool PrintsSecret(object? value, string? text) =>
+        value is not string && text is not null && RecordText.IsMatch(text) && SecretMember.IsMatch(text);
+
+    /// <summary>Forgets what was learned about types, after .NET Hot Reload changed them.</summary>
+    internal static void ClearCache()
+    {
+        Types.Clear();
+        lock (IndexLock)
+        {
+            TypesByName.Clear();
+            Indexed.Clear();
+        }
+    }
 
     /// <summary>
     /// Whether a value of <paramref name="type"/> can print a password: the type, an item or type argument of it, or

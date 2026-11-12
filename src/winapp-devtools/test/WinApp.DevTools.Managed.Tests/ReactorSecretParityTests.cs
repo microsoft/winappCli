@@ -27,6 +27,17 @@ public sealed class ReactorSecretParityTests
 
     public sealed record Locker(string Name, Vault Vault);
 
+    // A union-style state record: the declared member type has no password, the runtime one does.
+    public abstract record AuthState;
+
+    public sealed record SignedOut : AuthState;
+
+    public sealed record SignedIn(string User, string Password) : AuthState;
+
+    public sealed record AppState(AuthState Auth, int Count);
+
+    public sealed record Wrapper(object Value);
+
     private static ReactorShownValue Shown(string name, string type, string value) =>
         ReactorShownValue.From(new ReactorSnapshotTests.DiagnosticValue(0, name, "state", type, value, true, false))!;
 
@@ -90,6 +101,22 @@ public sealed class ReactorSecretParityTests
     public void DotNetAssemblies_AreRecognizedByName(string name, bool dotNet)
     {
         Assert.AreEqual(dotNet, DevToolsSecrets.IsDotNetAssembly(name));
+    }
+
+    [TestMethod]
+    public void ARecordThatPrintsAPasswordOfItsRuntimeType_IsRedacted()
+    {
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("State", new AppState(new SignedIn("ada", "hunter2"), 1)));
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Box", new Wrapper(new Login("ada", "hunter2"))));
+        Assert.IsFalse(ReactorElementProps.Format("State", new AppState(new SignedOut(), 1)).Redacted, "nothing to hide while signed out");
+
+        // Reactor formats the hook itself and names only the declared type.
+        var hook = Shown("", "AppState", "AppState { Auth = SignedIn { User = ada, Password = hunter2 }, Count = 1 }");
+        Assert.AreEqual("<redacted>", hook.Value);
+        Assert.IsFalse(hook.Editable);
+        Assert.IsTrue(Shown("", "object", "{ User = ada, Password = hunter2 }").Redacted, "an anonymous type prints its members too");
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.FormatText("Tag", "SignedIn { User = ada, Password = hunter2 }"));
+        Assert.AreEqual(("Hello, Password = x", false), ReactorElementProps.FormatText("Text", "Hello, Password = x"), "plain text is not a record");
     }
 
     [TestMethod]

@@ -177,6 +177,10 @@ internal static class ReactorElementProps
             IFormattable f => ReactorValueText.SafeText(f, v => ((IFormattable)v).ToString(null, CultureInfo.InvariantCulture)),
             _ => ReactorValueText.SafeText(value, v => v.ToString()),
         };
+        if (DevToolsSecrets.PrintsSecret(value, text))
+        {
+            return (DevToolsSecrets.Redacted, true);
+        }
         return (text.Length > MaxValueLength ? text[..MaxValueLength] + "..." : text, false);
     }
 
@@ -185,7 +189,7 @@ internal static class ReactorElementProps
     /// <see cref="Format"/>.
     /// </summary>
     internal static (string Text, bool Redacted) FormatText(string name, string text) =>
-        DevToolsSecrets.IsSecretName(name) ? (DevToolsSecrets.Redacted, true) : (text, false);
+        DevToolsSecrets.IsSecretName(name) || DevToolsSecrets.PrintsSecret(null, text) ? (DevToolsSecrets.Redacted, true) : (text, false);
 
     private static IEnumerable<PropertyInfo> OwnProperties(Type type, Type? elementBase)
     {

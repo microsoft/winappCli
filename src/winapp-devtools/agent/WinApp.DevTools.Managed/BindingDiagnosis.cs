@@ -286,7 +286,9 @@ internal static class BindingDiagnosis
         string Value(object? value)
         {
             secret |= DevToolsSecrets.HoldsSecret(value?.GetType());
-            return secret ? DevToolsSecrets.Redacted : Str(value);
+            var text = secret ? DevToolsSecrets.Redacted : Str(value);
+            secret |= text == DevToolsSecrets.Redacted && value is not string;
+            return text;
         }
         // This diagnosis is read-only evidence; it deliberately avoids claiming source freshness or ConvertBack success.
         Field(sb, "reason", "Forward path and CLR type evaluated only; target freshness, change notifications, ConvertBack and source setters were not checked. Prior reverse-write failures cannot be validated by this read.");
@@ -834,8 +836,10 @@ internal static class BindingDiagnosis
         if (v is null) return "(null)";
         if (ReferenceEquals(v, DependencyProperty.UnsetValue)) return "(unset)";
         if (DevToolsSecrets.HoldsSecret(v.GetType())) return DevToolsSecrets.Redacted;
-        try { return v.ToString() ?? "(null)"; }
+        string text;
+        try { text = v.ToString() ?? "(null)"; }
         catch (Exception ex) { return "(ToString threw " + Describe(ex) + ")"; }
+        return DevToolsSecrets.PrintsSecret(v, text) ? DevToolsSecrets.Redacted : text;
     }
 
     private static void Field(StringBuilder sb, string key, string? value)

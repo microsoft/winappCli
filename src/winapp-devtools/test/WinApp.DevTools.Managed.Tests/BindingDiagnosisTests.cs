@@ -205,6 +205,26 @@ public sealed class BindingDiagnosisTests
         Assert.IsTrue(result.RootElement.GetProperty("redacted").GetBoolean());
     }
 
+    private abstract record AuthState;
+
+    private sealed record SignedIn(string User, string Password) : AuthState;
+
+    private sealed record AppState(AuthState Auth, int Count);
+
+    private sealed class StateSource
+    {
+        public AppState State { get; } = new(new SignedIn("ada", "hunter2"), 1);
+    }
+
+    [TestMethod]
+    public void AValueThatPrintsAPasswordOfADerivedRecordIsRedacted()
+    {
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate("State", new StateSource(), "Source", "{Binding}", "OneWay",
+            typeof(object), "Tag", () => new AppState(new SignedIn("ada", "hunter2"), 1)));
+        Assert.IsFalse(result.RootElement.GetRawText().Contains("hunter2", StringComparison.Ordinal), result.RootElement.GetRawText());
+        Assert.IsTrue(result.RootElement.GetProperty("redacted").GetBoolean());
+    }
+
     [TestMethod]
     public void UnreadableTargetIsDisclosedWithoutChangingPathObservation()
     {

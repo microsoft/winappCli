@@ -217,14 +217,16 @@ DevTools hides passwords: it shows them as `<redacted>` and refuses to set them.
   prop, hook or context with such a name
 - in a Reactor app and in binding diagnoses, a value whose type has a public field or property
   whose name ends in `Password`, such as `record Login(string User, string Password)` or a
-  `List<Login>`
-- in a Reactor app, a hook your C# passes directly to a `PasswordBox`
+  `List<Login>`, and a record value that prints such a member
+  (`AppState { Auth = SignedIn { User = ada, Password = … } }`)
+- in a Reactor app, a hook your C# passes directly to a `PasswordBox`, or as an argument
+  named like a password (`SecretField(password: pwd)`)
 - in source previews and comments, password values in your XAML and the text values on a
   line of C# that mentions a password
 
-A password passed through your own wrapper component is shown. For example, with
-`SecretField(pwd, setPwd)`, where `SecretField` renders a `PasswordBox`, `get-state` shows
-`pwd`'s value unless the variable or the parameter name ends in `Password`.
+A password passed through your own wrapper component by position is shown. For example,
+with `SecretField(pwd, setPwd)`, where `SecretField` renders a `PasswordBox`, `get-state`
+shows `pwd`'s value unless the variable's name ends in `Password`.
 
 For a terminal you keep using, launch with `winapp run . --detach`: it prints the PID
 and the next command. For scripts, add `--json`; see
