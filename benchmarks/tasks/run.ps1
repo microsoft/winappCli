@@ -434,7 +434,8 @@ try {
         }
         # Admin steps are pre-approved, so an agent that still stops to ask is reported apart from a failure.
         # The ask-first task is the one place where asking is the expected behavior and is judged by its own checker.
-        if ($run.Mode -eq 'agent' -and -not $t.AskFirst -and $record.taskStatus -in 'fail', 'partial' -and (Test-StoppedForAdmin $record.finalResponse)) {
+        # Only fail runs are relabeled: a partial run did real work, so it keeps its partial credit.
+        if ($run.Mode -eq 'agent' -and -not $t.AskFirst -and $record.taskStatus -eq 'fail' -and (Test-StoppedForAdmin $record.finalResponse)) {
             $record.taskReason = "stopped to ask for admin approval despite the standing approval; $($record.taskReason)"
             $record.taskStatus = 'asked_before_admin'
         }

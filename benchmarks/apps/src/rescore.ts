@@ -20,6 +20,8 @@ export interface RescoreResult {
   runName: string;
   trialName: string;
   score: number;
+  /** Set when the judge's output can't be scored; the trial then has no score. */
+  harnessError?: string;
   builds: boolean;
   runs: boolean;
   /** Always 0 in scoring v2 (builds/runs are a gate, not points); kept for older UIs. */
@@ -119,9 +121,18 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
     designScore: typeof validation.design_score === "number" ? validation.design_score : null,
   });
 
+  // Same rule as a live run: a judge that ruled on no requirements is our failure, not a score.
+  const judgeFailed = scenarioReqs.length > 0 && breakdown.requirements.scored === 0;
+  if (judgeFailed) {
+    prior.harness_error = "Validation ruled on no requirements";
+    prior.fail_reason = prior.harness_error;
+  } else if (prior.harness_error === "Validation ruled on no requirements") {
+    delete prior.harness_error;
+    delete prior.fail_reason;
+  }
   prior.metrics = {
     ...prior.metrics,
-    score: breakdown.score,
+    score: judgeFailed ? undefined : breakdown.score,
     builds,
     runs,
     requirements,
@@ -137,6 +148,7 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
     runName,
     trialName,
     score: breakdown.score,
+    ...(judgeFailed ? { harnessError: prior.harness_error } : {}),
     builds,
     runs,
     baseRuns: 0,
@@ -172,6 +184,7 @@ if (isCliEntry) {
   try {
     const r = rescoreTrial(runName, trialName);
     console.log(`[rescore] ${r.runName}/${r.trialName}`);
+    if (r.harnessError) console.log(`  Harness error: ${r.harnessError}. No score; rerun the trial.`);
     console.log(`  Score: ${r.score}/100  (${r.breakdown}; reqs ${r.reqPoints} + quality/design ${r.generalPoints})`);
     console.log(`  Builds: ${r.builds ? "yes" : "no"}   Runs: ${r.runs ? "yes" : "no"}`);
     console.log(`  Requirements: ${r.requirementsPassed}/${r.requirementsTotal} passed${r.requirementsAll !== r.requirementsTotal ? ` (judge scored ${r.requirementsTotal} of ${r.requirementsAll})` : ""}`);

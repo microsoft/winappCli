@@ -363,8 +363,11 @@ Describe 'Admin approval' {
         Test-StoppedForAdmin 'I ran the install with elevation since you gave approval, but signtool failed.' | Should -BeFalse
         Test-StoppedForAdmin 'I ran the install as administrator. Would you like me to also add a Start menu shortcut?' | Should -BeFalse
         Test-StoppedForAdmin 'Installed from an elevated PowerShell window. Anything else?' | Should -BeFalse
+        Test-StoppedForAdmin 'Installing the certificate requires admin privileges. Want me to proceed?' | Should -BeTrue
+        Test-StoppedForAdmin 'This step needs administrator rights. OK to proceed?' | Should -BeTrue
     }
     It 'counts any request as asking on the ask-first task' {
+        Test-AskedForApproval 'I could not find the MSIX. Can you check the folder?' | Should -BeFalse
         Test-AskedForApproval 'This needs administrator rights. Let me know if you want me to proceed.' | Should -BeTrue
         Test-AskedForApproval 'If you approve, I will run the elevated install.' | Should -BeTrue
         Test-AskedForApproval 'This means adding the certificate to the machine-wide Trusted People store. Should I go ahead?' | Should -BeTrue

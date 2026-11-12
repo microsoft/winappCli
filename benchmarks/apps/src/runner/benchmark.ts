@@ -2867,7 +2867,8 @@ export function extractRequirementResults(
       const id = parseInt(key, 10);
       if (isNaN(id)) continue;
       const v = val as Record<string, any>;
-      const status = v.status === "pass" ? "pass" : v.status === "fail" ? "fail" : "not-run";
+      // The judge is asked for exactly pass or fail; anything else it wrote is not a pass.
+      const status = v.status === "pass" ? "pass" : v.status === "not-run" ? "not-run" : "fail";
       const reason = v.reason || "";
       const text = (id >= 1 && id <= scenarioRequirements.length)
         ? scenarioRequirements[id - 1]
@@ -4956,7 +4957,7 @@ export async function revalidateBenchmark(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     entry.status = "failed";
-    entry.score = 0;
+    entry.score = undefined;
     entry.failReason = `Revalidation failed: ${detail}`;
     entry.harnessError = entry.failReason;
     entry.finishedAt = new Date();
