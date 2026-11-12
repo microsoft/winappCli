@@ -30,9 +30,16 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = (& git -C $PSScriptRoot rev-parse --show-toplevel).Trim()
 
-# 1. Find trial files. Other JSON in the run folders (results.json, runs.jsonl) is ignored.
+# 1. Find trial files, only where the harnesses write them: `tasks` puts `trials\` next to run-info.json,
+#    `apps` puts trial-result.json next to results.json. Anything under a `runs\` or `app\` folder is
+#    skipped, because the agent under test can write there, and so is `.attempts\`, where a rerun keeps the old attempt.
+$root = [IO.Path]::GetFullPath($Path).TrimEnd('\') + '\'
 $candidates = @(Get-ChildItem -LiteralPath $Path -Filter *.json -File -Recurse | Where-Object {
-        $_.Name -eq 'trial-result.json' -or $_.Directory.Name -eq 'trials' -or $_.Name -like '*__*__*__*.json'
+        $folders = [IO.Path]::GetFullPath($_.DirectoryName).TrimEnd('\') + '\'
+        $folders = $folders.Substring([math]::Min($root.Length, $folders.Length)).Split('\', [StringSplitOptions]::RemoveEmptyEntries)
+        if ($folders -match '^(runs|app|\.attempts)$') { return $false }
+        ($_.Name -eq 'trial-result.json' -and (Test-Path -LiteralPath (Join-Path $_.DirectoryName 'results.json'))) -or
+        ($_.Directory.Name -eq 'trials' -and (Test-Path -LiteralPath (Join-Path $_.Directory.Parent.FullName 'run-info.json')))
     })
 $trials = foreach ($f in $candidates) {
     $t = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
@@ -136,7 +143,8 @@ if ($release -notmatch '^v\d+\.\d+\.\d+$') { throw "Release is '$release'. Only 
 if (@(& git -C $repoRoot status --porcelain).Count) { throw 'The working tree has uncommitted changes. Publish from a clean checkout of the release commit.' }
 $head = (& git -C $repoRoot rev-parse HEAD).Trim()
 if ($head -ne $commit) { throw "Checked out commit is $($head.Substring(0, 8)) but the results were measured on $($commit.Substring(0, 8)). Check out that commit first." }
-
+$tagCommit = (& git -C $repoRoot rev-parse --verify --quiet "refs/tags/$release^{commit}" 2>$null)
+if (-not $tagCommit -or $tagCommit.Trim() -ne $commit) { throw "Tag $release does not point at $($commit.Substring(0, 8)). Results must be measured on the commit the release tag points at." }
 # 5. Branch off benchmark-data, add the folder, open the PR.
 & git -C $repoRoot fetch origin $DataBranch 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "origin/$DataBranch does not exist. A maintainer must create it first (see RESULTS-FORMAT.md)." }

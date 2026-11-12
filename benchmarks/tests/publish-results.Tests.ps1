@@ -43,9 +43,31 @@ Describe 'publish-results.ps1' {
         $same = New-Run
         New-Item -ItemType Directory (Join-Path $same 'v0.7.1') -Force | Out-Null
         Move-Item (Join-Path $same 'trial-1\trial-result.json') (Join-Path $same 'v0.7.1\trial-result.json')
+        Copy-Item (Join-Path $same 'trial-1\results.json') (Join-Path $same 'v0.7.1\results.json')
         & pwsh -NoProfile -File $script:publisher -Path $same -OutDir $same 2>&1 | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
         Join-Path $same 'v0.7.1\trial-result.json' | Should -Exist
+    }
+    It 'ignores trial files planted where the agent under test can write' {
+        $run = New-Run
+        foreach ($dir in 'runs\x\trials', 'runs\x\app', 'stray') {
+            $d = Join-Path $run $dir
+            New-Item -ItemType Directory $d -Force | Out-Null
+            Copy-Item $script:example (Join-Path $d 'trial-result.json')
+            Copy-Item $script:example (Join-Path $d 'a__b__c__99.json')
+        }
+        $out = Join-Path $TestDrive 'planted'
+        & pwsh -NoProfile -File $script:publisher -Path $run -OutDir $out 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Get-Content (Join-Path $out 'v0.7.1\index.json') -Raw | ConvertFrom-Json).trialCount | Should -Be 1
+    }
+    It 'ignores the earlier attempt a resumed run keeps in .attempts' {
+        $run = New-Run
+        Copy-Item (Join-Path $run 'trial-1') (Join-Path $run '.attempts\trial-1\001') -Recurse
+        $out = Join-Path $TestDrive 'resumed'
+        & pwsh -NoProfile -File $script:publisher -Path $run -OutDir $out 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Get-Content (Join-Path $out 'v0.7.1\index.json') -Raw | ConvertFrom-Json).trialCount | Should -Be 1
     }
     It 'rejects a release that is not a safe folder name before touching the disk' {
         $run = New-Run '..\victim'
