@@ -187,6 +187,10 @@ Corresponding `.resw` entries name the target properties:
 Preserve stable identifiers or update every consumer of a renamed key.
 Shared libraries outside this migration retain their `.resx` resources and generated accessors.
 
+Code lookup uses the path stored in the PRI, which can differ from the resource-file identifier. With the standard `.resw` indexer (`convertDotsToSlashes="true"`), keep an entry named `Error.FileNotFound` in the resource file and read it with `GetString("Error/FileNotFound")`. See the [code lookup rules](https://learn.microsoft.com/windows/apps/windows-app-sdk/mrtcore/localize-strings#refer-to-a-string-resource-identifier-from-code).
+
+For custom indexing, inspect the generated PRI with `MakePRI dump` and use its actual resource paths. Keep the shared accessor's input as a PRI path; do not blanket-replace dots, because the [indexer preserves dots inside `[...]`](https://learn.microsoft.com/windows/uwp/app-resources/makepri-exe-format-specific-indexers#resw).
+
 ### Named PRI Files and Deferred Lookup
 
 If the application uses a custom PRI filename, keep the build property, deployed file, and runtime lookup in agreement:

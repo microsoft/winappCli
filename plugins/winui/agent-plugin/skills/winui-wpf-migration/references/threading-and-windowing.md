@@ -349,11 +349,11 @@ The owner must already be loaded into the XAML tree and have a non-null `XamlRoo
 
 ## File and Folder Pickers
 
-Choose the API from the target Windows App SDK version.
+Choose the API using the target Windows App SDK version and whether the application must support running as administrator.
 
 ### Windows App SDK 1.8 and later
 
-The `Microsoft.Windows.Storage.Pickers` APIs accept a `WindowId` in their constructor and do not require `InitializeWithWindow`:
+The `Microsoft.Windows.Storage.Pickers` APIs support both normal and elevated processes. They accept a `WindowId` in their constructor and do not require `InitializeWithWindow`:
 
 ```csharp
 var picker = new Microsoft.Windows.Storage.Pickers.FileOpenPicker(
@@ -367,7 +367,9 @@ Use the returned result type defined by that API; do not assume it is the same a
 
 ### Older Windows App SDK targets / legacy WinRT pickers
 
-`Windows.Storage.Pickers` in a desktop app must be initialized with the owning HWND:
+`Windows.Storage.Pickers` supports only non-elevated processes; initializing the owning HWND does not remove that restriction. If the application must run as administrator on an older SDK, retain or use a native Win32 dialog such as `IFileDialog`. Preserve the application's execution-level policy. See the [official guidance for elevated desktop apps](https://learn.microsoft.com/uwp/api/windows.storage.pickers.filesavepicker#in-a-desktop-app-that-requires-elevation).
+
+For a non-elevated desktop app, initialize the picker with the owning HWND:
 
 ```csharp
 var picker = new Windows.Storage.Pickers.FileOpenPicker();
