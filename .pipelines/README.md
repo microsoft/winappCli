@@ -61,15 +61,13 @@ Notes:
 ## Publishing to nuget.org
 
 Both `Release_NuGet` and `Prerelease_Nugets_Publish` hand the signed `.nupkg` files to ESRP Release
-(`EsrpRelease@14`, `contenttype: NuGet`). ESRP pushes them to nuget.org under the **`WindowsSDK`**
-NuGet organization. No job in this pipeline contacts `api.nuget.org`, which keeps the pipeline
-compliant with the `CFSClean` network isolation policy. That policy blocks direct pushes to nuget.org.
+(`EsrpRelease@14`, `contenttype: NuGet`), which pushes them to nuget.org. No job in this pipeline
+contacts `api.nuget.org`, which keeps the pipeline compliant with the `CFSClean` network isolation
+policy. That policy blocks direct pushes to nuget.org.
 
-ESRP only publishes packages that are onboarded for our ESRP client ID. Adding a package with a new
-ID outside `Microsoft.Windows.SDK.BuildTools.WinApp`, `Microsoft.Windows.SDK.BuildTools.WinApp.*` and
-`Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer` needs a scope update first. Otherwise the release
-fails with `ErrorCode 2201: Tenant is not allowed to publish`. See
-[Publishing to NuGet via ESRP Release](https://eng.ms/docs/microsoft-security/identity/trust-and-security-services/tss-release-distribute/tss-release-esrp-parent/oss-publishing/releasing-open-source/nuget).
+ESRP only publishes package IDs that are onboarded for our ESRP client. A new package ID needs a
+scope update with the ESRP Release team before its first release. Otherwise the release fails with
+`ErrorCode 2201: Tenant is not allowed to publish`.
 
 ---
 
@@ -188,7 +186,7 @@ Everything else, for real:
   about the credential, and it is better to say so than to fake coverage. It is covered the moment
   you cut a real release.
 - **ESRP's NuGet onboarding is not checked.** The signing identity's token is verified, but whether
-  ESRP may publish each package to the `WindowsSDK` organization is only known when a release runs.
+  ESRP may publish each package is only known when a release runs.
 - **The publish calls themselves never run.** The rehearsal validates their preconditions, not the
   final API call.
 
