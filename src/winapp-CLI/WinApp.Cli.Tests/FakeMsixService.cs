@@ -232,6 +232,7 @@ internal class FakeMsixService : IMsixService
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default)
     {
         CreateSparseIdentityCalls.Add((manifestPath.FullName, autoSign));
@@ -280,6 +281,7 @@ internal class FakeMsixService : IMsixService
         string? timestampUrl = null,
         FileInfo? appxRecipe = null,
         DirectoryInfo? windowsAppSdkPackageDirectory = null,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default)
     {
         CreatePackageCalls.Add(inputFolder);
@@ -309,6 +311,7 @@ internal class FakeMsixService : IMsixService
         bool installDevCert = false,
         string? publisher = null,
         string? timestampUrl = null,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default)
     {
         DeliverNativeMsixCalls.Add(new DeliverNativeArgs(producedMsix, output, name, autoSign, certPath, publisher));
@@ -339,6 +342,7 @@ internal class FakeMsixService : IMsixService
         bool installDevCert = false,
         string? publisher = null,
         string? timestampUrl = null,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default)
     {
         CreateBundleFromPackagesCalls.Add(new BundleFromPackagesArgs(sliceMsixFiles, output, name, autoSign));
@@ -367,6 +371,7 @@ internal class FakeMsixService : IMsixService
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default)
     {
         CreateBundleCalls.Add(inputFolders);

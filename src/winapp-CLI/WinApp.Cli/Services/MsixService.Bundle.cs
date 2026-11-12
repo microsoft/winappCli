@@ -25,6 +25,7 @@ internal partial class MsixService
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default)
     {
         // Stage intermediates under a short-path temp dir to avoid MAX_PATH issues
@@ -203,6 +204,10 @@ internal partial class MsixService
             }
 
             // --- Step 5: Pack each slice serially ---
+            if (autoSign && generateDevCert && certificatePath == null)
+            {
+                ThrowIfGeneratedCertExists(GetGeneratedCertPath(outputFolder, finalPackageName), certIfExists);
+            }
             var intermediateFiles = new List<FileInfo>();
             var sliceResults = new List<BundleSliceInfo>();
 
@@ -244,7 +249,7 @@ internal partial class MsixService
 
                 await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert,
                     finalPackageName, extractedPublisher, outputBundlePath, certificatePath,
-                    resolvedManifest, taskContext, cancellationToken);
+                    resolvedManifest, taskContext, cancellationToken, certIfExists: certIfExists);
             }
 
             return new CreateMsixBundleResult(outputBundlePath, autoSign, sliceResults);
