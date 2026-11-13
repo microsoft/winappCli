@@ -74,8 +74,8 @@ for (const name of readdirSync(runDir)) {
 if (!trials.length) { console.error(`No results.json in ${runDir}`); process.exit(1); }
 if (harnessErrors) console.error(`Left out ${harnessErrors} harness-error trial(s); rerun them with --resume-run ${runName}.`);
 
-// Keep `setup@ref` only when a setup ran at more than one ref (e.g. cli-plus-plugins@main
-// vs cli-plus-plugins@my-branch); a single ref collapses to the setup name.
+// Keep `setup@ref` only when a setup ran at more than one ref (e.g. cli-plus-skills@main
+// vs cli-plus-skills@my-branch); a single ref collapses to the setup name.
 {
   const refsBySetup = new Map<string, Set<string>>();
   for (const t of trials) {

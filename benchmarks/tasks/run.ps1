@@ -327,7 +327,7 @@ try {
         if ($run.Mode -eq 'solve') { Copy-Item $t.Solve (Join-Path $in 'solve.ps1') }
         Copy-Item $t.Check (Join-Path $check 'check.ps1')
         [ordered]@{
-            runId = $runId; task = $t.Id; mode = $run.Mode; prompt = $(if ($t.AskFirst) { $t.Prompt } else { "$($t.Prompt) $(Get-AdminApprovalLine)" }); model = $run.Model; agent = $spec.Agent
+            runId = $runId; task = $t.Id; mode = $run.Mode; prompt = (Get-TaskPrompt -Task $t -Spec $spec); model = $run.Model; agent = $spec.Agent
             plugins = @($spec.Plugins); hideWinapp = [bool]($spec.HideWinapp -and $run.Mode -eq 'agent'); copilotVersion = $pinned; timeoutMinutes = $t.TimeoutMinutes; workspace = $t.Workspace
         } | ConvertTo-Json | Set-Content (Join-Path $in 'run.json') -Encoding utf8NoBOM
 

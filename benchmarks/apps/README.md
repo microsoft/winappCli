@@ -19,21 +19,24 @@ It complements [`benchmarks/agents`](../agents/README.md):
 
 | Setup | `winapp` CLI | Plugins | Use |
 |---|---|---|---|
-| `none` | hidden from PATH (`env.hide_tools`) | none | Baseline: no CLI, no skills |
+| `barebones` | hidden from PATH (`env.hide_tools`) | none | Baseline: no CLI, no skills, no agent |
 | `cli-only` | on PATH | none | What the CLI alone gives the agent |
-| `cli-plus-plugins` | on PATH | `plugins/winapp` + `plugins/winui/agent-plugin` from `microsoft/winappCli` at a **ref you pick**: `main` (default), a branch, tag, SHA, or `pull/N/head` | `cli-plus-plugins@main` for the current state; `cli-plus-plugins@my-branch` for your change. Each ref is its own setup in the results |
+| `cli-plus-skills` | on PATH | `plugins/winapp` + `plugins/winui/agent-plugin` from `microsoft/winappCli` at a **ref you pick**: `main` (default), a branch, tag, SHA, or `pull/N/head` | `cli-plus-skills@main` for the current state; `cli-plus-skills@my-branch` for your change. Each ref is its own setup in the results |
 | `published` | on PATH | both plugins exactly as the published catalog (`microsoft/win-dev-skills`) pins them | What users get today |
 
-Compare `none` with `cli-only` to see what the CLI adds, and `cli-only` with `cli-plus-plugins` to
-see what the plugins add on top. A typical branch comparison is `none`, `cli-only`, `published`,
-`cli-plus-plugins@main` and `cli-plus-plugins@<your branch>`. Push the branch first; the harness
+Compare `barebones` with `cli-only` to see what the CLI adds, and `cli-only` with `cli-plus-skills` to
+see what the skills add on top. A typical branch comparison is `barebones`, `cli-only`, `published`,
+`cli-plus-skills@main` and `cli-plus-skills@<your branch>`. Push the branch first; the harness
 clones it, and pins every ref to one commit for the whole run. In the dashboard, the setup list is
-`none`, `cli-only`, `published`, `cli-plus-plugins main`, and the repo's open pull requests; select
+`barebones`, `cli-only`, `published`, `cli-plus-skills main`, and the repo's open pull requests; select
 any to compare. For another branch, a tag or a SHA, use headless runs
-(`--agent cli-plus-plugins@my-branch`).
+(`--agent cli-plus-skills@my-branch`).
 
-Only `none` hides `winapp`. The harness itself always uses `winapp` to launch and check the app,
-for every setup.
+Only `barebones` hides `winapp`. Every other setup adds one line to the prompt so the agent knows the
+CLI is there: "The winapp CLI (`winapp`) is installed and on PATH. It creates, builds, runs,
+packages, signs and UI-tests Windows apps; run `winapp --help` to see its commands." (`prompt_addendum`
+in the setup's `config.json`). With it, `cli-only` and `cli-plus-skills` differ only by the skills.
+The harness itself always uses `winapp` to launch and check the app, for every setup.
 
 All setups load plugins the way a marketplace install does (SDK `pluginDirectories`, default
 agent). Before the prompt is sent, each trial checks that every plugin skill is loaded from the
@@ -70,13 +73,12 @@ In the dashboard's scenario, setup and model lists: Space/Enter toggles, `A` sel
 
 ```powershell
 # One trial
-npm run bench -- --scenario calc --agent cli-plus-plugins
-
+npm run bench -- --scenario calc --agent cli-plus-skills
 # Compare your branch with main, the published plugins and no plugins (3 iterations)
-npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent "none,cli-only,published,cli-plus-plugins@main,cli-plus-plugins@my-branch" --iterations 3 --concurrency 3
+npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent "barebones,cli-only,published,cli-plus-skills@main,cli-plus-skills@my-branch" --iterations 3 --concurrency 3
 
 # A pull request (also works for forks)
-npm run bench -- --scenario calc --agent "cli-plus-plugins@main,cli-plus-plugins@pull/1234/head"
+npm run bench -- --scenario calc --agent "cli-plus-skills@main,cli-plus-skills@pull/1234/head"
 
 # Preview without running
 npm run bench -- --scenario all --agent all --dry-run
@@ -93,7 +95,7 @@ npm run scorecard -- run3 --markdown scorecard.md
 | `--iterations n` | 1 | |
 | `--concurrency n` | 1 | 3–4 is fine on a 16-core machine |
 | `--max-build-minutes n` | 60 | Per build session |
-| `--upstream-ref r1,r2` | `default_ref` | Same as `cli-plus-plugins@r1,cli-plus-plugins@r2` for every `from_repo` setup without an explicit ref (catalog setups keep their default) |
+| `--upstream-ref r1,r2` | `default_ref` | Same as `cli-plus-skills@r1,cli-plus-skills@r2` for every `from_repo` setup without an explicit ref (catalog setups keep their default) |
 | `--judge-model m` | `judge.model` in `common/config.json` | Fixed grader for every trial |
 | `--skip-validation` | off | Build + launch only, no judge |
 | `--run-meta file.json` | | Explicit task list (mix models, setups, refs) |
@@ -103,6 +105,10 @@ npm run scorecard -- run3 --markdown scorecard.md
 
 Rescore a trial offline after a scoring change: `npx tsx src/rescore.ts --run runN --trial <folder>`.
 
+Share a run without its app sources and build output (which can reach gigabytes):
+`pwsh ..\export-results.ps1 -Path <results\runN> -Out runN.zip` zips only the result files and
+`live-output.txt`. Add `-IncludeLogs` for the `session-logs-dir` folders (agent and judge events).
+
 ## How a trial works
 
 1. **Environment.** The trial gets:
@@ -110,7 +116,7 @@ Rescore a trial offline after a scoring change: `npx tsx src/rescore.ts --run ru
      `DOTNET_ADD_GLOBAL_TOOLS_TO_PATH=false`);
    - `DOTNET_ROOT` matching the `dotnet` on PATH;
    - an isolated Copilot config (your `config.json` only);
-   - `env.hide_tools` applied, which is how `none` loses `winapp`.
+   - `env.hide_tools` applied, which is how `barebones` loses `winapp`.
 2. **Build session.** The agent works in `results\runN\<trial>\app`. Events stream to
    `session-logs-dir\build-events.jsonl`. The session ends when the agent stops, goes silent, or
    hits the wall-clock limit.
@@ -174,7 +180,7 @@ resolve roughly ±8 points and 90 pairs (3 models) about ±4.
 1. Create `scenarios/<name>/scenario.md` with the frontmatter above. Write the body as a natural request a developer would type; don't name controls or files.
 2. Write 3-6 `requirements`. Each must be something the prompt states or implies, and must be observable through the UI (for example "dividing by zero shows a message"). Put a concrete example in each so the judge tests the same thing every time.
 3. Optionally set `ready_element`. Pick a label the prompt or a requirement makes certain, such as a button the request names. Confirm it against a built app with `winapp ui wait-for "<label>" -a <app>` before committing; a wrong label makes every trial fail level 3.
-4. Preview with `npm run bench -- --scenario <name> --agent none --dry-run`, then run one trial and read the judge's evidence for each requirement.
+4. Preview with `npm run bench -- --scenario <name> --agent barebones --dry-run`, then run one trial and read the judge's evidence for each requirement.
 
 Where a requirement can be checked by a script instead of the judge, prefer the script.
 
@@ -235,7 +241,7 @@ folder. `Q` quits.
 
 ```
 benchmarks/apps/
-  agents/        setup configs (none, cli-only, cli-plus-plugins, published)
+  agents/        setup configs (barebones, cli-only, cli-plus-skills, published)
   common/        judge prompt, UI test harness, judge model
   scenarios/     one folder per scenario
   scripts/       Test-Prerequisites.ps1 (npm run doctor)

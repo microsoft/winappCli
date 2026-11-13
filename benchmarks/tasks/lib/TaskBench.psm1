@@ -6,13 +6,13 @@ Set-StrictMode -Version Latest
 
 $script:Configurations = [ordered]@{
     # The three arms. HideWinapp removes winapp from the agent's PATH only; setup and checks still run it.
-    'none'             = @{ Plugins = @(); Agent = $null; HideWinapp = $true }
+    'barebones'        = @{ Plugins = @(); Agent = $null; HideWinapp = $true }
     'cli-only'         = @{ Plugins = @(); Agent = $null; HideWinapp = $false }
-    'cli-plus-plugins' = @{ Plugins = @('winapp', 'winui'); Agent = $null; HideWinapp = $false }
+    'cli-plus-skills'  = @{ Plugins = @('winapp', 'winui'); Agent = $null; HideWinapp = $false }
     # Debugging configurations; not part of the three arms.
-    'winapp'           = @{ Plugins = @('winapp'); Agent = $null; HideWinapp = $false }
-    'winui'            = @{ Plugins = @('winui'); Agent = $null; HideWinapp = $false }
-    'both-agent'       = @{ Plugins = @('winapp', 'winui'); Agent = 'winappcli:winapp'; HideWinapp = $false }
+    'winapp-skills'    = @{ Plugins = @('winapp'); Agent = $null; HideWinapp = $false }
+    'winui-skills'     = @{ Plugins = @('winui'); Agent = $null; HideWinapp = $false }
+    'full-suite'       = @{ Plugins = @('winapp', 'winui'); Agent = 'winappcli:winapp'; HideWinapp = $false }
 }
 
 function Get-ConfigurationNames { return @($script:Configurations.Keys) }
@@ -201,6 +201,20 @@ function Get-AdminApprovalLine {
     return 'This is a disposable test machine. You have my approval to run steps that need administrator rights; do not stop to ask first.'
 }
 
+function Get-WinappCliNote {
+    # Appended for every configuration that keeps winapp on PATH, so cli-only and cli-plus-skills differ only by skills.
+    return 'The winapp CLI (`winapp`) is installed and on PATH. It creates, builds, runs, packages, signs and UI-tests Windows apps; run `winapp --help` to see its commands.'
+}
+
+function Get-TaskPrompt {
+    # The prompt the agent receives: the task prompt, the winapp note when winapp is visible, then the standing admin approval unless the task is ask-first.
+    param([Parameter(Mandatory)][object]$Task, [Parameter(Mandatory)][object]$Spec)
+    $parts = @($Task.Prompt)
+    if (-not $Spec.HideWinapp) { $parts += Get-WinappCliNote }
+    if (-not $Task.AskFirst) { $parts += Get-AdminApprovalLine }
+    return $parts -join ' '
+}
+
 function Test-StoppedForAdmin {
     # Used on tasks that carry the standing approval: true when the agent's last message mentions admin rights
     # or elevation and, in that sentence or the next, asks whether to proceed or for approval
@@ -247,7 +261,7 @@ function ConvertTo-TrialResult {
     )
     # run.ps1 passes an ordered dictionary; its optional counts are properties, so read it as an object.
     if ($Record -is [System.Collections.IDictionary]) { $Record = [pscustomobject]$Record }
-    if ($Record.configuration -notin 'none', 'cli-only', 'cli-plus-plugins') { return $null }
+    if ($Record.configuration -notin 'barebones', 'cli-only', 'cli-plus-skills') { return $null }
     if ($Record.mode -ne 'agent' -or $Record.taskStatus -notin 'pass', 'partial', 'fail', 'asked_before_admin' -or -not $Record.tokens) { return $null }
     # A run that hit the time limit was cut off, so it is not a checked result even if its checks passed.
     if ($Record.PSObject.Properties['timedOut']?.Value) { return $null }
@@ -391,15 +405,15 @@ function Write-TaskSummary {
         $f = $g.Group[0]; & $line "| $($f.task) | $($f.configuration) $(& $fmt (Get-RunGroupRow $g.Group))"
     }
     & $line
-    & $line '## Versus none'
+    & $line '## Versus barebones'
     & $line
-    & $line 'Paired by task, model, and iteration with the `none` run (no `winapp`, no plugins). Positive score means the configuration did better than `none`.'
+    & $line 'Paired by task, model, and iteration with the `barebones` run (no `winapp`, no plugins). Positive score means the configuration did better than `barebones`.'
     & $line
-    & $line '| Configuration | Model | Pairs | Score Δ | Pass (config / none) | Minutes Δ | Credits Δ | Output tok Δ |'
+    & $line '| Configuration | Model | Pairs | Score Δ | Pass (config / barebones) | Minutes Δ | Credits Δ | Output tok Δ |'
     & $line '|---|---|---:|---:|---|---:|---:|---:|'
     $none = @{}
-    foreach ($r in $Runs | Where-Object configuration -eq 'none') { $none["$($r.task)|$($r.model)|$($r.iteration)"] = $r }
-    foreach ($g in $Runs | Where-Object configuration -ne 'none' | Group-Object configuration, model | Sort-Object Name) {
+    foreach ($r in $Runs | Where-Object configuration -eq 'barebones') { $none["$($r.task)|$($r.model)|$($r.iteration)"] = $r }
+    foreach ($g in $Runs | Where-Object configuration -ne 'barebones' | Group-Object configuration, model | Sort-Object Name) {
         $pairs = @($g.Group | ForEach-Object { $k = "$($_.task)|$($_.model)|$($_.iteration)"; if ($none.ContainsKey($k)) { [pscustomobject]@{ c = $_; n = $none[$k] } } })
         if (-not $pairs) { continue }
         $f = $g.Group[0]
@@ -437,4 +451,4 @@ function Get-HostArchitecture {
 }
 
 Export-ModuleMember -Function Get-HostArchitecture, Get-ConfigurationNames, Get-ConfigurationSpec, Get-TaskDefinitions, New-SandboxConfiguration, Read-ToolActivity,
-Get-UnsafeActions, Remove-SecretFromFiles, ConvertTo-TrialResult, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate, Get-AdminApprovalLine, Test-StoppedForAdmin, Test-AskedForApproval
+Get-UnsafeActions, Remove-SecretFromFiles, ConvertTo-TrialResult, Get-StatusScore, Get-RunGroupRow, Select-EffectiveRuns, Write-TaskSummary, Format-Rate, Get-AdminApprovalLine, Get-WinappCliNote, Get-TaskPrompt, Test-StoppedForAdmin, Test-AskedForApproval
