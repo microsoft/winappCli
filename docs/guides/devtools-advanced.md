@@ -231,6 +231,34 @@ source; restore re-reads the source and is not an undo. The inspector offers **R
 binding** on a property you edited. `Binding.clearValue` (managed) and
 `HotReload.clearProperty` (native) clear a local value.
 
+### Assign a resource or a binding
+
+These do what the inspector's resource and binding editors do. Each takes `handle` or
+`name`, like `HotReload.setProperty`, and needs a session that allows edits:
+
+```powershell
+winapp devtools call Resource.assign handle=123 prop=Foreground key=AccentBrush theme:=true -a 12345
+winapp devtools call Binding.install handle=123 prop=Text path=Vm.Title mode=TwoWay -a 12345
+winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 12345
+```
+
+- `Resource.assign` sets a `{StaticResource}` key, or a `{ThemeResource}` key with
+  `theme:=true`. An unknown key fails with `resource-not-found` and puts back the previous
+  value (`data.restored` says whether that worked).
+- `Binding.install` replaces the property's binding with a new `{Binding}` on the
+  DataContext. Use it to switch an `{x:Bind}` property to `{Binding}`. Converter, source
+  and other options are not kept; `warning` lists them.
+- `Binding.writeSource` writes through a TwoWay `{Binding}` to its source and keeps the
+  binding. It needs a .NET app launched with `winapp run --devtools on`.
+
+Each result has `before`, `after` and `undo`: the call that puts back what the edit
+replaced, for example
+`"undo": {"method": "HotReload.setProperty", "params": {"handle": "123", "prop": "Text", "type": "String", "value": "Hello"}}`.
+Replacing an app binding or `{x:Bind}` saves it first, so `undo` is `Binding.restore`; for
+`{x:Bind}` it passes `confirmOwnerRebind`, which refreshes every compiled binding on the owner.
+When nothing can be put back, `undo` is `null` and `undoReason` says why. Changes apply to
+the running app only; your .xaml is unchanged.
+
 ## Troubleshooting
 
 The common cases are in [When something fails](devtools.md#when-something-fails).

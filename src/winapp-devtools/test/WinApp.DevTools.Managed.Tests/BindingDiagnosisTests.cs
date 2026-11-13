@@ -219,4 +219,19 @@ public sealed class BindingDiagnosisTests
         Assert.AreEqual("evaluated", result.RootElement.GetProperty("state").GetString());
         Assert.AreEqual("whole-source", result.RootElement.GetProperty("sourceValue").GetString());
     }
+
+    private enum Shade { Light, Dark }
+
+    [TestMethod]
+    public void WriteSourceUndoTextRoundTripsTheSourceValue()
+    {
+        Assert.AreEqual("Draft", BindingDiagnosis.SourceUndoText("Draft", typeof(string)));
+        Assert.AreEqual("", BindingDiagnosis.SourceUndoText("", typeof(string)));
+        Assert.AreEqual("0.1", BindingDiagnosis.SourceUndoText(0.1, typeof(double)));
+        Assert.AreEqual("42", BindingDiagnosis.SourceUndoText(42, typeof(int?)));
+        Assert.AreEqual("True", BindingDiagnosis.SourceUndoText(true, typeof(bool)));
+        Assert.AreEqual("Dark", BindingDiagnosis.SourceUndoText(Shade.Dark, typeof(Shade)));
+        Assert.IsNull(BindingDiagnosis.SourceUndoText(null, typeof(string)), "null has no text form to write back");
+        Assert.IsNull(BindingDiagnosis.SourceUndoText(new object(), typeof(object)), "an object cannot be written back as text");
+    }
 }
