@@ -13,7 +13,7 @@ export interface QualityCheck {
   id: string;
   label: string;
   /** "gate" checks zero the trial score on failure; "quality" checks feed the 30-point quality share. */
-  kind: "gate" | "quality";
+  kind: "gate" | "quality" | "launch";
   /** Who decided: harness (deterministic) or judge (LLM). */
   source: "harness" | "judge";
   status: CheckStatus;
@@ -259,6 +259,28 @@ export function evaluateKeyboardTraversal(focusSamples: any[], interactiveCount:
   const needed = Math.min(3, interactiveCount);
   return check("Q1", "Keyboard navigation (Tab moves focus through controls)", "quality", distinct.size >= needed ? "pass" : "fail",
     `Tab reached ${distinct.size} distinct control(s); needed ${needed}`);
+}
+
+/**
+ * Launch level 2 ("loaded"): the window shows interactive, enabled controls and still
+ * answers UI queries after keyboard input. `focusSamples` are `get-focused --json`
+ * results taken while tabbing; pass `null` when input could not be sent, and
+ * `desktopLocked` when `winapp ui` reported that the session is locked.
+ */
+export function evaluateLoaded(enabledCount: number, focusSamples: any[] | null, desktopLocked = false): QualityCheck {
+  const label = "Launch level 2: interactive controls present and responding";
+  if (enabledCount === 0) return check("L2", label, "launch", "fail", "No enabled interactive controls");
+  if (focusSamples === null) return check("L2", label, "launch", "na", `Could not send input (desktop ${desktopLocked ? "locked" : "busy"})`);
+  const answered = focusSamples.some((s) => s && typeof s === "object");
+  return check("L2", label, "launch", answered ? "pass" : "fail",
+    answered ? `${enabledCount} enabled controls; window answered after input` : "Window stopped answering UI queries after input");
+}
+
+/** Launch level 3 ("ready"): the scenario's named element appeared. `na` when the scenario defines none. */
+export function evaluateReady(readyElement: string | undefined, found: boolean): QualityCheck {
+  const label = "Launch level 3: main screen element appeared";
+  if (!readyElement) return check("L3", label, "launch", "na", "Scenario defines no ready element");
+  return check("L3", label, "launch", found ? "pass" : "fail", `${found ? "Found" : "Did not find"} '${readyElement}'`);
 }
 
 /** Merge judge-reported quality items (e.g. Q5 states) into the check list. */
