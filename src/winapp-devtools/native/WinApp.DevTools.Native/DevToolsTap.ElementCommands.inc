@@ -46,14 +46,15 @@ static std::wstring CmdBindingOp(unsigned long long wire, const std::wstring& op
     struct BindState { winrt::com_ptr<IAgileReference> element; std::wstring authored; };
     auto st = std::make_shared<BindState>();
     st->authored = authoredOverride;
-    HRESULT hr = RunOnUiThread([wire, prop, st]() -> HRESULT {
+    HRESULT hr = RunOnUiThread([wire, prop, op, st]() -> HRESULT {
         DevToolsBindingRelay_NoteUiThread();
         // RE-RESOLVE inside the closure: never carry a raw handle across the UI-thread hop (UAF by
         // construction), same discipline as property.get.
         InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
         AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih, &e); ReleaseSRWLockShared(&g_censusLock);
         if (!ok) return E_INVALIDARG;
-        if (st->authored.empty()) {
+        // writesource carries the value in this slot, so an empty value must not be replaced by the markup.
+        if (st->authored.empty() && op != L"writesource") {
             std::vector<DevToolsReadProp> props;
             if (SUCCEEDED(ReadCuratedProps(ih, &props, nullptr))) {
                 for (const auto& r : props) { if (r.name == prop) { st->authored = r.authored; break; } }
@@ -89,6 +90,8 @@ static std::wstring CmdBindingInstall(unsigned long long wire, const std::wstrin
                                       const std::wstring& path, const std::wstring& mode)
 {
     if (!wire || prop.empty()) return L"ERR bad-args";
+    if (RefuseSecretWrite(prop, nullptr))
+        return DevToolsBindingRelay_UnavailableJson(L"'" + prop + L"' holds a secret; DevTools does not read or write it.");
     { InstanceHandle ih0 = 0; const wchar_t* e = nullptr; bool ok;
       AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih0, &e); ReleaseSRWLockShared(&g_censusLock);
       if (!ok) return std::wstring(L"ERR ") + e; }

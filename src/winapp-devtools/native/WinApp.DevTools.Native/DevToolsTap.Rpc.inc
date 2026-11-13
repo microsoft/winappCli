@@ -178,6 +178,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             m == L"Property.get" || m == L"Property.setQuery" || m == L"Layout.get" ||
             m == L"Source.get" || m == L"Resource.resolve" || m == L"Binding.walk" ||
             m == L"Binding.diagnose" || m == L"HotReload.setProperty" || m == L"HotReload.clearProperty" ||
+            m == L"Resource.assign" || m == L"Binding.install" || m == L"Binding.writeSource" ||
             m == L"Surface.list" || m == L"Surface.setActive" || m == L"Overlay.highlight" ||
             m == L"Selection.select" || m == L"Internal.pick" || m == L"Selection.arm";
         if (!supported) return DevToolsRpcError(id, DevToolsErr::InvalidParams,
@@ -343,6 +344,9 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
     if (m == L"Layout.get")        return BridgeJson(id, L"layout.get|" + p.GetString(L"handle"));
     if (m == L"Source.get")        return BridgeJson(id, L"element.source|" + p.GetString(L"handle"));
     if (m == L"Resource.resolve")  return BridgeJson(id, L"resource.resolve|" + p.GetString(L"handle") + L"|" + p.GetString(L"prop"));
+    if (m == L"Resource.assign")     return RpcResourceAssign(conn, id, p);
+    if (m == L"Binding.install")     return RpcBindingInstall(conn, id, p);
+    if (m == L"Binding.writeSource") return RpcBindingWriteSource(conn, id, p);
 
     if (m == L"Binding.walk") {
         const std::wstring handle = p.GetString(L"handle");

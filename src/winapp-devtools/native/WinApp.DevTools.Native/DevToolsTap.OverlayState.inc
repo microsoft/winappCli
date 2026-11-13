@@ -289,27 +289,35 @@ static void OnOverlayStateChanged()
 // HandleRpc validates overlayOwnerConn; zero means no ownership claim. The string bridge does
 // not parse caller-supplied ownership or bypass the RPC access checks.
 static std::wstring BridgeEscape(const std::wstring& value);
+// "#<wire>" or an x:Name, within the request's window/root scope, to a live wire handle. Empty on success,
+// otherwise the bridge's "ERR <token>" reply.
+static std::wstring ResolvePropertyTarget(const std::wstring& target, unsigned long long* outWire)
+{
+    unsigned long long wire = 0;
+    CensusSharedLock lock;
+    if (!target.empty() && target[0] == L'#') {
+        if (!DevToolsParseWireHandle(target.substr(1), false, &wire)) return L"ERR bad-args";
+    } else {
+        for (const auto& found : g_nameOf) {
+            if (found.second != target || (g_windowScope && !g_windowScope->members.count(found.first))) continue;
+            if (wire) return L"ERR ambiguous-selector";
+            wire = PackWire_nolock(found.first);
+        }
+        if (!wire) return L"ERR not-found";
+    }
+    InstanceHandle handle = 0;
+    const wchar_t* error = nullptr;
+    if (!ResolveWire_nolock(wire, &handle, &error)) return std::wstring(L"ERR ") + error;
+    *outWire = wire;
+    return L"";
+}
+
 static std::wstring MutatePropertyTarget(const std::wstring& target,
                                         std::function<HRESULT(InstanceHandle)> mutation,
                                         std::shared_ptr<std::wstring> detail = nullptr)
 {
     unsigned long long wire = 0;
-    {
-        CensusSharedLock lock;
-        if (!target.empty() && target[0] == L'#') {
-            if (!DevToolsParseWireHandle(target.substr(1), false, &wire)) return L"ERR bad-args";
-        } else {
-            for (const auto& found : g_nameOf) {
-                if (found.second != target || (g_windowScope && !g_windowScope->members.count(found.first))) continue;
-                if (wire) return L"ERR ambiguous-selector";
-                wire = PackWire_nolock(found.first);
-            }
-            if (!wire) return L"ERR not-found";
-        }
-        InstanceHandle handle = 0;
-        const wchar_t* error = nullptr;
-        if (!ResolveWire_nolock(wire, &handle, &error)) return std::wstring(L"ERR ") + error;
-    }
+    if (std::wstring refused = ResolvePropertyTarget(target, &wire); !refused.empty()) return refused;
     auto error = std::make_shared<const wchar_t*>(nullptr);
     bool completed = false;
     const HRESULT hr = RunOnUiThread([wire, mutation = std::move(mutation), error]() {

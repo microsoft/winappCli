@@ -258,9 +258,9 @@ static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx)
     return prior;
 }
 
-static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const PriorLocalValue& prior)
+static HRESULT RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const PriorLocalValue& prior)
 {
-    if (!prior.restorable || !WindowElementCurrent_ui(h)) return;
+    if (!prior.restorable || !WindowElementCurrent_ui(h)) return E_FAIL;
     HRESULT hr = S_OK;
     if (!prior.had) hr = g_vts3->ClearProperty(h, idx);
     else if (prior.object) hr = g_vts3->SetProperty(h, prior.object, idx);
@@ -272,6 +272,7 @@ static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const Pri
         SysFreeString(tn); SysFreeString(vv);
     }
     Log(L"setprop: restored the previous value after a rejected write (hr=0x%08X)", hr);
+    return hr;
 }
 
 // Takes (and so clears) the error WinUI originated on this thread. Left in place, a later failure on this thread, for

@@ -1133,6 +1133,94 @@ static int GuestNegotiation(int argc, wchar_t** argv)
 
 #include "query-runtime-tests.inc"
 
+// ResolveResource answers S_OK for a missing key; the failure arrives on the resource-error callback and the lookup
+// clears the property. Models both, plus the literal write the restore uses.
+struct ResourceTreeService : TextTreeService {
+    bool local = true;
+    std::wstring pending;
+    std::vector<std::wstring> resolved;
+    using TextTreeService::TextTreeService;
+    HRESULT STDMETHODCALLTYPE GetPropertyValuesChain(InstanceHandle handle,unsigned int* sc,PropertyChainSource** sources,
+        unsigned int* pc,PropertyChainValue** values) override {
+        const HRESULT hr=TextTreeService::GetPropertyValuesChain(handle,sc,sources,pc,values);
+        if(SUCCEEDED(hr) && !local) (*values)[0].PropertyChainIndex=1;
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE ResolveResource(InstanceHandle,LPCWSTR key,ResourceType,unsigned int) override {
+        resolved.push_back(key);
+        if(std::wstring(key)==L"Missing"){
+            AcquireSRWLockExclusive(&g_resErrLock);++g_resErr.seq;ReleaseSRWLockExclusive(&g_resErrLock);
+            local=false;text.text.clear();
+            return S_OK;
+        }
+        local=true;text.text=L"from "+std::wstring(key);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE CreateInstance(BSTR,BSTR value,InstanceHandle* out) override {pending=value;*out=0x5000;return S_OK;}
+    HRESULT STDMETHODCALLTYPE SetProperty(InstanceHandle,InstanceHandle value,unsigned int) override {
+        if(value!=0x5000) return E_INVALIDARG;
+        local=true;text.text=pending;return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE ClearProperty(InstanceHandle,unsigned int) override {local=false;text.text.clear();return S_OK;}
+};
+
+static void CheckResourceAssign(const std::function<void(bool,const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    ResourceTreeService tree(diagnostics.text);
+    auto* previousDiagnostics=g_diag; auto* previousService=g_vts3;
+    g_diag=&diagnostics;g_vts3=&tree;
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_nameOf.clear(); g_byName.clear(); g_type.clear();
+    { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+    MintSlot_nolock(901);
+    g_type[901]=L"Microsoft.UI.Xaml.Controls.TextBox"; g_nameOf[901]=L"Title";
+    const auto handle=std::to_wstring(PackWire_nolock(901));
+    g_dispatcher=reinterpret_cast<IInspectable*>(1);
+    g_testEnqueueUiOperation=QueryEnqueue;
+    DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
+    auto assign=[&](const std::wstring& target,const wchar_t* key){
+        DevToolsJson parsed;
+        DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Resource.assign\","
+            L"\"params\":{"+target+L",\"prop\":\"Text\",\"key\":\""+key+L"\"}}")),parsed);
+        return parsed;
+    };
+
+    diagnostics.text.text=L"Hello";
+    auto missing=assign(L"\"handle\":\""+handle+L"\"",L"Missing");
+    const DevToolsJson* error=missing.Find(L"error");
+    check(error && error->GetString(L"message").find(L"'Missing' was not found")!=std::wstring::npos &&
+        error->Find(L"data") && error->Find(L"data")->GetString(L"token")==L"resource-not-found",
+        "Resource.assign reports an unknown key as an error even though ResolveResource answered S_OK");
+    check(error && error->Find(L"data") && error->Find(L"data")->GetBool(L"restored",false) &&
+        tree.local && diagnostics.text.text==L"Hello" && tree.pending==L"Hello",
+        "and writes the previous literal back after the failed lookup cleared it");
+
+    auto assigned=assign(L"\"name\":\"Title\"",L"Greeting");
+    const DevToolsJson* result=assigned.Find(L"result");
+    check(result && result->GetString(L"after")==L"from Greeting" && result->GetString(L"before")==L"Hello" &&
+        result->GetString(L"kind")==L"staticResource" && result->GetString(L"previousKind")==L"literal",
+        "a key the app has is assigned by name, reporting the value before and after");
+    const DevToolsJson* undo=result ? result->Find(L"undo") : nullptr;
+    check(undo && undo->GetString(L"method")==L"HotReload.setProperty" && undo->Find(L"params") &&
+        undo->Find(L"params")->GetString(L"value")==L"Hello" && undo->Find(L"params")->GetString(L"handle")==handle,
+        "and answers with the literal write that undoes it, addressed by handle");
+
+    tree.resolved.clear();
+    auto again=assign(L"\"handle\":\""+handle+L"\"",L"Missing");
+    check(again.Find(L"error") && tree.local && diagnostics.text.text==L"from Greeting" &&
+        tree.resolved==std::vector<std::wstring>{L"Missing",L"Greeting"},
+        "a failed key after an earlier assignment re-assigns that earlier key, not its resolved value");
+    auto chained=assign(L"\"handle\":\""+handle+L"\"",L"Other");
+    const DevToolsJson* chainedUndo=chained.Find(L"result") ? chained.Find(L"result")->Find(L"undo") : nullptr;
+    check(chainedUndo && chainedUndo->GetString(L"method")==L"Resource.assign" &&
+        chainedUndo->Find(L"params")->GetString(L"key")==L"Greeting",
+        "and the undo of a second assignment re-assigns the first key");
+
+    { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+    g_testEnqueueUiOperation=nullptr; g_dispatcher=nullptr;
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_nameOf.clear(); g_type.clear();
+    g_diag=previousDiagnostics; g_vts3=previousService;
+}
 static void CheckMalformedMutationHandles(const std::function<void(bool, const char*)>& check)
 {
     TextDiagnostics diagnostics;
@@ -1443,6 +1531,7 @@ int wmain(int argc, wchar_t** argv)
     CheckCensusFollowsReparentsAndParentlessRemoves(check);
     CheckTreeDeltasFollowSubscription(check);
     CheckQueries(check);
+    CheckResourceAssign(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
     {
         wchar_t self[MAX_PATH]{};
