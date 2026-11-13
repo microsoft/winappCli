@@ -49,7 +49,8 @@ public class XamlTriageResultTests
     [TestMethod]
     public void None_IsSingletonInstance()
     {
-        Assert.AreSame(XamlTriageResult.None, XamlTriageResult.None,
+        var firstAccess = XamlTriageResult.None;
+        Assert.AreSame(firstAccess, XamlTriageResult.None,
             "None is exposed as a shared instance property, not a fresh allocation per access.");
     }
 }
