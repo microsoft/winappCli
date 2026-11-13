@@ -241,6 +241,23 @@ public class ReactorStateCommandTests
         }
     }
 
+    [TestMethod]
+    [DataRow("\"truncated\":false,\"complete\":false")]
+    [DataRow("\"truncated\":true,\"complete\":true")]
+    public async Task SetState_RefusesAComponentSelectorWhenTheSearchCannotProveItIsTheOnlyMatch(string incomplete)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", $$"""{"state":"ok","nodes":[{"handle":"42","element":"Counter","component":{"name":"Counter","type":"Counter","kind":"class"},"file":0,"line":9}],"files":["C:\\src\\App.cs"],"unmapped":0,{{incomplete}}}""")
+            .Answer("Reactor.component", NamedCounter);
+        var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["<Counter>", "0", "42", "--json"]);
+
+        Assert.AreEqual(1, exit, output);
+        var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
+        Assert.AreEqual("ambiguous-selector", error.GetProperty("token").GetString());
+        StringAssert.Contains(error.GetProperty("message").GetString(), "Run the command again");
+        Assert.IsFalse(agent.ReceivedRequests.Any(r => r.Contains("Reactor.setState", StringComparison.Ordinal)));
+    }
+
     // A late attach: Reactor recorded no hook names, and the definition's C# is on this machine.
     private static string LateAttachLogin(string sourcePath) => $$"""
         {"state":"ok","version":"0.1.0","api":"reactor","exact":true,"idle":true,
@@ -336,6 +353,37 @@ public class ReactorStateCommandTests
             var (allowedExit, allowedOutput) = await Run(new DevToolsSetStateCommand(), allowed, ["42", "count", "5"]);
             Assert.AreEqual(0, allowedExit, allowedOutput);
             Assert.AreEqual(1, Params(allowed, "Reactor.setState").GetProperty("hook").GetInt32(), "a hook named from source is addressable by name");
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task SetState_RefusesAHookNameReadFromCSharpThatChangedSinceTheBuild()
+    {
+        var path = WriteSource(LoginSource);
+        try
+        {
+            var stale = LateAttachLogin(path).Replace("\"method\":\"Login2.Render\"}", "\"method\":\"Login2.Render\",\"stale\":true}", StringComparison.Ordinal);
+            using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", stale))
+            {
+                var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["42", "count", "5", "--json"]);
+                Assert.AreEqual(1, exit, output);
+                var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
+                Assert.AreEqual("stale-source", error.GetProperty("token").GetString());
+                StringAssert.Contains(error.GetProperty("message").GetString(), "pass the hook's index");
+                Assert.IsFalse(agent.ReceivedRequests.Any(r => r.Contains("Reactor.setState", StringComparison.Ordinal)));
+            }
+
+            using var byIndex = new FakeDevToolsProtocolAgent()
+                .Answer("Reactor.component", stale)
+                .Answer("Reactor.setState", """
+                    {"state":"ok","component":"Login2","index":1,"kind":"state","type":"int","requested":"5","before":"3","after":"5","changed":true,"waitedForIdle":true,"rendered":true,"api":"reactor"}
+                    """);
+            var (indexExit, indexOutput) = await Run(new DevToolsSetStateCommand(), byIndex, ["42", "1", "5"]);
+            Assert.AreEqual(0, indexExit, indexOutput);
         }
         finally
         {

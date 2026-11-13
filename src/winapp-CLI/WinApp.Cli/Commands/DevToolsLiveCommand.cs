@@ -257,8 +257,8 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
                     exitCode = Fail(
                         json,
                         target.Pid,
-                        $"Refusing to write through the x:Name '{selector.Trim()}': {resolved.Warning} " +
-                        "Pass the selector `winapp devtools inspect` printed, or a handle. A write must not " +
+                        $"Refusing to write through '{selector.Trim()}': {resolved.Warning} " +
+                        "Run the command again, or pass the selector `winapp devtools inspect` printed, or a handle. A write must not " +
                         "land on an element that was never examined.",
                         "ambiguous-selector");
                     return null;

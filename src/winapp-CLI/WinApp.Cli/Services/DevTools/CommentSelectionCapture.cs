@@ -245,6 +245,12 @@ internal static class CommentSelectionCapture
         var elementPath = anchorResponse.Ok ? ReadStringResult(anchorResponse, "anchor") : null;
         var rootResponse = tap.GetSourceRoot(cancellationToken);
         var sourceRoot = Nullify(ReadStringResult(rootResponse, "sourceRoot"));
+        if (source.Stale && source.OnDisk && sourceRoot is not null)
+        {
+            return Failed(new(-32000, "stale-source",
+                $"{Path.GetFileName(source.FileName.Replace('/', '\\'))} changed since the app was built, so its line {source.Line} may now hold " +
+                "different code. Rebuild and relaunch the app (winapp run), then capture the comment again."));
+        }
         var anchor = sourceRoot is null || !source.OnDisk ? null : BuildCSharpAnchor(sourceRoot, source);
         var (style, brushes) = CommentElementContext.Read(propsJson, sourceRoot);
         var site = anchor is null ? null : $"{anchor.SourceFile}:{anchor.Line}";
@@ -584,6 +590,9 @@ internal static class CommentSelectionCapture
 internal sealed record ReactorSourceReply(string FileName, int Line, int Column, bool OnDisk, string? Element, string? Key,
     string? Component, int Ordinal, bool Exact, string? Name = null)
 {
+    /// <summary>The file on disk changed since the app was built, so its line and column may point at other code.</summary>
+    public bool Stale { get; init; }
+
     /// <summary>The reply when <paramref name="sourceJson"/> is a C# answer (<c>kind: csharp</c>); null for XAML.</summary>
     public static ReactorSourceReply? Parse(string? sourceJson)
     {
@@ -616,6 +625,9 @@ internal sealed record ReactorSourceReply(string FileName, int Line, int Column,
             ordinal = reactor.TryGetProperty("ordinal", out var o) && o.TryGetInt32(out var value) && value >= 0 ? value : 0;
             exact = !(reactor.TryGetProperty("exact", out var e) && e.ValueKind == JsonValueKind.False);
         }
-        return new(file, lineNumber, column, onDisk, element, key, component, ordinal, exact, name);
+        return new(file, lineNumber, column, onDisk, element, key, component, ordinal, exact, name)
+        {
+            Stale = ReactorDescription.ReadString(root, "authoredState") == "stale",
+        };
     }
 }

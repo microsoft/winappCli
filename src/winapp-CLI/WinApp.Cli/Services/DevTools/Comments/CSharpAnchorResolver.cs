@@ -72,7 +72,7 @@ internal static class CSharpAnchorResolver
                 var shown = CSharpSourceText.RedactLines(lines);
                 if (sameFile && cs.Line >= 1 && cs.Line <= lines.Length &&
                     CSharpSourceText.LineHash(shown[cs.Line - 1]) == cs.LineHash &&
-                    FactoryColumn(masked[cs.Line - 1], cs) is int column)
+                    FactoryColumns(masked[cs.Line - 1], cs) is [var column])
                 {
                     return [Hit(relative, cs.Line, column, "strong", 0, "call-site", shown[cs.Line - 1])];
                 }
@@ -81,10 +81,6 @@ internal static class CSharpAnchorResolver
                 var to = span?.End ?? lines.Length;
                 for (var line = from; line <= to && line <= lines.Length; line++)
                 {
-                    if (FactoryColumn(masked[line - 1], cs) is not int at)
-                    {
-                        continue;
-                    }
                     var sameText = CSharpSourceText.LineHash(shown[line - 1]) == cs.LineHash;
                     // A project-wide search (the captured file is gone) looks for the captured line only.
                     if (!sameText && broad)
@@ -93,8 +89,12 @@ internal static class CSharpAnchorResolver
                     }
                     var text = CSharpSourceText.StoredText(shown[line - 1]);
                     var keyed = !string.IsNullOrEmpty(cs.Key) && lines[line - 1].Contains(cs.Key, StringComparison.Ordinal);
-                    hits.Add((Hit(relative, line, at, "weak", sameText ? 1 : 2, sameText ? "line-text" : "factory", shown[line - 1]),
-                        sameText ? 100 : Similarity(cs.LineText, text), keyed));
+                    // Several calls to the factory, none at the captured column, are each a candidate to confirm.
+                    foreach (var at in FactoryColumns(masked[line - 1], cs))
+                    {
+                        hits.Add((Hit(relative, line, at, "weak", sameText ? 1 : 2, sameText ? "line-text" : "factory", shown[line - 1]),
+                            sameText ? 100 : Similarity(cs.LineText, text), keyed));
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
@@ -143,23 +143,22 @@ internal static class CSharpAnchorResolver
     };
 
     /// <summary>
-    /// The column of the call this anchor names on a masked line: the factory at the stored column, else the nearest
-    /// call to that factory. Null when the line makes no such call.
+    /// The columns of the call this anchor names on a masked line: the factory at the stored column, else the only
+    /// call to that factory, else every call to it, nearest first, since reformatting can shift which one is nearest.
+    /// Empty when the line makes no such call.
     /// </summary>
-    internal static int? FactoryColumn(string maskedLine, CommentCSharpAnchor cs)
+    internal static IReadOnlyList<int> FactoryColumns(string maskedLine, CommentCSharpAnchor cs)
     {
         var name = cs.Factory ?? cs.Element;
         var sites = CSharpSourceText.CallSites(maskedLine);
         if (name is null)
         {
-            return sites.Count == 1 ? sites[0].Column : null;
+            return sites.Count == 1 ? [sites[0].Column] : [];
         }
         var matching = sites.Where(site => site.Name == name).ToList();
-        if (matching.Count == 0)
-        {
-            return null;
-        }
-        return matching.OrderBy(site => Math.Abs(site.Column - cs.Column)).First().Column;
+        return matching.Any(site => site.Column == cs.Column)
+            ? [cs.Column]
+            : [.. matching.OrderBy(site => Math.Abs(site.Column - cs.Column)).Select(site => site.Column)];
     }
 
     /// <summary>How much of the captured line survives in a candidate, 0-99, by shared tokens.</summary>

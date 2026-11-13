@@ -21,6 +21,7 @@ public class DevToolsCSharpCommentsTests
 {
     private static readonly string AppSource = AppSourceText.ReplaceLineEndings("\n");
     private static readonly string[] DuplicatedLineCandidates = ["App.cs:11:13", "App.cs:12:13"];
+    private static readonly int[] ReindentedButtonColumns = [31, 44];
 
     private const string AppSourceText = """
         using Microsoft.UI.Reactor;
@@ -295,6 +296,39 @@ public class DevToolsCSharpCommentsTests
         Assert.IsTrue(CommentViewBuilder.IsMaybeStale(view));
     }
 
+    [TestMethod]
+    public async Task LiveCapture_ReactorElementWhoseFileChangedSinceTheBuild_IsRefused()
+    {
+        using var agent = ReactorAgent(exact: true, authoredState: "stale");
+        using var console = new TestConsole();
+        var store = new CommentStore();
+        var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+            new CommentTestTargetResolver(agent.Pid), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
+        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(
+            ["--app", agent.Pid.ToString(), "--from-element", "7", "--text", "bigger", "--json"]));
+
+        Assert.AreEqual(1, exit, console.Output);
+        StringAssert.Contains(console.Output, "changed since the app was built");
+        StringAssert.Contains(console.Output, "Rebuild and relaunch the app");
+        Assert.IsFalse(File.Exists(StorePath), "nothing is stored at code the running app may not have");
+    }
+
+    [TestMethod]
+    public void Resolver_ReindentedLineWithTwoCallsToTheFactory_NeedsConfirmation()
+    {
+        File.WriteAllText(AppFile, "class App : Component\n{\n    public override Element Render()\n    {\n" +
+            "        return HStack(Button(\"A\"), Button(\"B\"));\n    }\n}\n");
+        Add("--text", "x", "--file", "App.cs", "--line", "5", "--column", "36");
+        var stored = new CommentStore().Load(StorePath).Comments.Single();
+        Assert.AreEqual(36, stored.Anchor.CSharp!.Column, "the second Button");
+
+        File.WriteAllText(AppFile, File.ReadAllText(AppFile).Replace("        return HStack", "                return HStack", StringComparison.Ordinal));
+        var view = View(stored);
+        Assert.IsFalse(view.AnchorConfirmed, string.Join(";", view.Hits.Select(hit => $"{hit.Line}:{hit.Column} {hit.Via} {hit.Confidence}")));
+        Assert.IsTrue(view.RequiresConfirmation);
+        CollectionAssert.AreEquivalent(ReindentedButtonColumns, view.Hits.Select(hit => hit.Column).ToArray());
+    }
+
     // ---- live capture ----
 
     [TestMethod]
@@ -494,14 +528,14 @@ public class DevToolsCSharpCommentsTests
     }
 
     private FakeDevToolsProtocolAgent ReactorAgent(bool exact, string? file = null, bool onDisk = true, string? sourceRoot = null,
-        string? name = null) => new FakeDevToolsProtocolAgent()
+        string? name = null, string authoredState = "available") => new FakeDevToolsProtocolAgent()
         .Answer("VisualTree.find", """{"matches":[{"handle":"7","name":"","type":"Microsoft.UI.Xaml.Controls.Button"}]}""")
         .Answer("VisualTree.enumerate", """[{"handle":"7","name":"","type":"Microsoft.UI.Xaml.Controls.Button","children":[]}]""")
         .Answer("Property.get", """{"props":[]}""")
         .Answer("Source.get", JsonSerializer.Serialize(new
         {
             handle = "7", kind = "csharp", fileName = file ?? AppFile, lineNumber = 10, columnNumber = 13, onDisk,
-            authoredState = "available",
+            authoredState,
             reactor = new { element = "Button", handle = "7", exact, key = "k1", component = "App", ordinal = 2, name },
         }))
         .Answer("Internal.elementAnchor", """{"anchor":"reactor:opaque","unique":true}""")

@@ -18,12 +18,19 @@ public class DevToolsLogsCommandTests
           {"seq":2,"kind":"warning","level":"warning","event":"Warning","time":"2026-10-02T09:00:01.000Z","log":true,"category":"Theme","operation":"Resolve","message":"Missing brush key"}]}
         """;
 
-    private static async Task<(int Exit, string Output)> Run(FakeDevToolsProtocolAgent agent, params string[] args)
+    private static async Task<(int Exit, string Output)> Run(FakeDevToolsProtocolAgent agent, params string[] args) =>
+        await Run(agent, exited: true, args);
+
+    private static async Task<(int Exit, string Output)> Run(FakeDevToolsProtocolAgent agent, bool exited, params string[] args)
     {
         using var console = new TestConsole();
         console.Profile.Width = 300;
         var command = new DevToolsLogsCommand();
-        command.Action = new DevToolsLogsCommand.Handler(agent.Resolver(), console) { Interval = TimeSpan.FromMilliseconds(10) };
+        command.Action = new DevToolsLogsCommand.Handler(agent.Resolver(), console)
+        {
+            Interval = TimeSpan.FromMilliseconds(10),
+            HasExited = _ => exited,
+        };
         var exit = await command.Parse(args).InvokeAsync();
         return (exit, console.Output);
     }
@@ -81,6 +88,18 @@ public class DevToolsLogsCommandTests
         StringAssert.Contains(output, "Render error in <Counter>");
         StringAssert.Contains(output, "Window opened: ReactorWindow");
         Assert.AreEqual(1, output.Split("Render error").Length - 1, "an entry is printed once");
+    }
+
+    [TestMethod]
+    public async Task Logs_FollowReportsAFailedRequest_WhileTheAppIsStillRunning()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.logs", Logs, request => request.Contains("\"since\":0", StringComparison.Ordinal))
+            .Error("Reactor.logs", -32000, "no-response", "The app did not answer.");
+        var (exit, output) = await Run(agent, exited: false, "--follow");
+        Assert.AreEqual(1, exit, output);
+        StringAssert.Contains(output, "Render error in <Counter>");
+        StringAssert.Contains(output, "did not answer");
     }
 
     [TestMethod]

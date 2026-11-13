@@ -160,7 +160,7 @@ inline size_t CharLiteralEnd(const std::wstring& code, size_t at)
 }
 
 // Replaces the value of each string literal whose opening quote (its index in `code`) `redact` selects with
-// <redacted>. A literal ends at its line's end unless it is a raw literal. Comments and character literals ('"') are
+// <redacted>. A literal ends at its line's end unless it is a raw or verbatim literal. Comments and character literals ('"') are
 // copied as they are.
 template <typename Predicate>
 inline void RedactLiterals(std::wstring& code, Predicate redact)
@@ -203,7 +203,7 @@ inline void RedactLiterals(std::wstring& code, Predicate redact)
                 const size_t end = code.find(std::wstring(open, L'"'), k);
                 k = end == std::wstring::npos ? n : end;
             } else {
-                while (k < n && code[k] != L'\n') {
+                while (k < n && (verbatim || code[k] != L'\n')) {
                     if (code[k] == L'"') {
                         if (verbatim && k + 1 < n && code[k + 1] == L'"') { k += 2; continue; }
                         break;

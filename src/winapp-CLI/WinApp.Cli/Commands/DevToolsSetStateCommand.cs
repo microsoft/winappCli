@@ -87,6 +87,15 @@ internal class DevToolsSetStateCommand : DevToolsLiveCommand, IHelpExamples
                         why + " Run `winapp devtools get-state <selector>` to list the hooks.", "bad-hook"));
                 }
                 hook = found.Index;
+                // A name read from C# that changed since the build may now sit at a different index than the running
+                // app's hook of that name.
+                if (found.NameSource == ReactorHookSource.NameSource && state.Definition is { Stale: true } changed)
+                {
+                    return Task.FromResult(Fail(json, target.Pid,
+                        $"'{hookText}' was read from {Path.GetFileName(changed.File.Replace('/', '\\'))}, which changed since the app was built, " +
+                        $"so it may not be hook {hook} in the running app. Rebuild and relaunch the app (winapp run), or pass the hook's index " +
+                        "from `winapp devtools get-state <selector>`.", "stale-source"));
+                }
             }
             if (state?.Hooks.FirstOrDefault(h => h.Index == hook) is { Redacted: true })
             {

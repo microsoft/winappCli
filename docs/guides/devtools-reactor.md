@@ -170,8 +170,9 @@ contexts it reads. When Reactor recorded no hook names (for example after
 `winapp devtools attach`), DevTools reads them from the render method's C#, as long as
 its hook calls run in a fixed order: not in a branch, a loop, a lambda or a custom
 hook. Those names are marked as read from the file (`"nameSource": "csharp-source-text"`
-with `--json`) and can be out of date if you edited it after the build. Otherwise
-hooks show their index only. Pass a component
+with `--json`) and can be out of date if you edited it after the build. When the file
+changed since the build, `set-state` refuses such a name and asks for the hook's index.
+Otherwise hooks show their index only. Pass a component
 (`"<Counter>"`) or any element inside it. `defined` is where the component's render
 method is, read from the app's PDB; when that file changed after the build, the
 output says lines may have moved. Passwords show as `<redacted>` and cannot be set;
@@ -279,7 +280,9 @@ A call site in a project your app references, or in a linked file, is anchored t
 the file is in the same repository: pass its path from your project
 (`--file ..\MyLibrary\Panels\Footer.cs --line 6`) or its full path. When DevTools cannot
 link a comment to source, for example for an element with no C# call site, `comments add`
-still saves it and says why, with how to link it (`"unanchored"` with `--json`).
+still saves it and says why, with how to link it (`"unanchored"` with `--json`). If the
+element's C# file changed since the app was built, `comments add` refuses to capture it,
+because the recorded line may now hold other code; rebuild and run the app first.
 To move an existing comment to the element picked in the app, keep its text:
 
 ```powershell
@@ -289,8 +292,9 @@ winapp devtools comments add --id cmt_example --from-selection -a TaskBoard
 `comments list` and `get` find the call site again in the current source. The stored
 line still making the same call, or the same line moved elsewhere in the component
 that rendered it, is confirmed. An edited or duplicated line, or a renamed file,
-gives ranked candidates with `requiresConfirmation`; confirm the intended one before
-editing. An element with no call site of its own, such as the text inside a
+gives ranked candidates with `requiresConfirmation`; so does a line with several calls
+to the same factory, such as two `Button` calls, after its indentation changed.
+Confirm the intended one before editing. An element with no call site of its own, such as the text inside a
 `Button`, uses the nearest Reactor element's call site, which you confirm with
 `--confirm-likely-source` (or the **Use this likely source for my comment** box in
 the app).

@@ -334,6 +334,9 @@ int RunSourcePathTests()
         DevToolsCSharpSource::Redact(prose);
         Check(prose == L"Don't reuse the password \"<redacted>\"",
               "an apostrophe in text inside a multi-line string does not hide the password after it");
+        std::wstring multiline = L"PasswordBox(@\"first\nhunter2\")";
+        DevToolsCSharpSource::Redact(multiline);
+        Check(multiline == L"PasswordBox(@\"<redacted>\")", "a verbatim string that spans lines is redacted to its end");
     }
 
     DeleteFileW((pages + L"\\MainPage.xaml").c_str());

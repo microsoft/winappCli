@@ -165,7 +165,11 @@ internal static class DevToolsSelector
         var matches = parsed.Match(reactor);
         if (matches.Count == 1)
         {
-            return Resolution.Found(matches[0].Handle);
+            // One match from a search that missed a window or was cut short does not prove there is only one.
+            return reactor.Complete && !reactor.Truncated
+                ? Resolution.Found(matches[0].Handle)
+                : Resolution.Found(matches[0].Handle,
+                    $"{selector} matched one rendered element, but not every window answered or the list was cut short, so another may match.");
         }
         if (matches.Count == 0)
         {

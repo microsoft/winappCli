@@ -52,6 +52,8 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
     {
         internal TimeSpan Interval { get; init; } = FollowInterval;
 
+        internal Func<int, bool> HasExited { get; init; } = Helpers.RunFailure.HasExited;
+
         protected override async Task<int> RunAsync(DevToolsTarget target, ParseResult parseResult, bool json, CancellationToken cancellationToken)
         {
             var follow = parseResult.GetValue(FollowOption);
@@ -63,7 +65,7 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
                 var response = target.Tap!.RequestReactorLogs(since, level, cancellationToken);
                 if (!response.Ok)
                 {
-                    if (!first && follow)
+                    if (!first && follow && HasExited(target.Pid))
                     {
                         // The app went away while following: what was printed stands.
                         return 0;
