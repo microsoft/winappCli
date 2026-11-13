@@ -25,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 
 $root = (Resolve-Path -LiteralPath $Path).Path.TrimEnd('\')
-$outFull = [IO.Path]::GetFullPath($Out)
+$outFull = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Out)
 $names = 'results.json', 'trial-result.json', 'state.json', 'test-results.json', 'live-output.txt', 'run-meta.json',
     'upstream-pins.json', 'runs.jsonl', 'summary.md', 'check.json', 'agent-run.json', 'agent-run.log'
 $skipDirs = 'app', 'obj', 'bin', 'node_modules', '.git'

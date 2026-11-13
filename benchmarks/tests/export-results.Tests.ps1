@@ -49,4 +49,11 @@ Describe 'export-results.ps1' {
         $entries | Should -Contain 'runs/001-t/events.jsonl'
         $entries | Should -Not -Contain 'apps/run1/000_calc/app/Calc/results.json'
     }
+    It 'writes a relative -Out under the current PowerShell location' {
+        $root = Join-Path $TestDrive 'out3'
+        New-FakeRun $root
+        Push-Location $TestDrive
+        try { & $script:Script -Path $root -Out 'relative.zip' *> $null } finally { Pop-Location }
+        Join-Path $TestDrive 'relative.zip' | Should -Exist
+    }
 }
