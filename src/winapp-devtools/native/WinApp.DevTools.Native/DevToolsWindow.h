@@ -25,6 +25,10 @@ struct DevToolsWindowNode
     std::wstring   searchText;
     bool           previewRead = false;
     std::wstring   sourceUri;
+    // Set when a Microsoft.UI.Reactor element produced this control: what the row shows instead of the WinUI type
+    // (`<Counter>` for a component, the element kind when it differs) and its C# call site (`App.cs:35`).
+    std::wstring   reactorLabel;
+    std::wstring   reactorSource;
 };
 
 using DevToolsWindowRowsFn      = std::function<void(InstanceHandle wire, std::wstring& outType,
@@ -130,6 +134,30 @@ using DevToolsWindowWalkFn = std::function<bool(InstanceHandle wire, const std::
                                            const std::wstring& tryPath, std::wstring* outJson)>;
 void DevToolsWindow_SetPathWalk(DevToolsWindowWalkFn walkFn);
 
+// Worker-only: ask the managed agent a Reactor question about one element (reactorcomponent, reactorelement,
+// reactorsetstate, reactorinvoke). Feeds the property pane's Reactor section.
+using DevToolsWindowReactorAskFn = std::function<bool(InstanceHandle wire, const std::wstring& op, const std::wstring& arg,
+                                                      const std::wstring& value, std::wstring* out)>;
+void DevToolsWindow_SetReactorAsk(DevToolsWindowReactorAskFn askFn);
+
+// UI thread: the References section markup for an element (LabeledBy, DescribedBy, FlowsTo, FlowsFrom, XYFocus* from and to it),
+// or empty when it has none. See DevToolsReferences.h.
+using DevToolsWindowReferencesFn = std::function<std::wstring(InstanceHandle wire)>;
+void DevToolsWindow_SetReferences(DevToolsWindowReferencesFn referencesFn);
+// Worker thread: References lines that can only be read off the UI thread (Reactor targets that aren't shown yet), as a
+// StackPanel to append to the section, with its header when `withHeader`; empty when there are none.
+using DevToolsWindowPendingReferencesFn = std::function<std::wstring(InstanceHandle wire, bool withHeader)>;
+void DevToolsWindow_SetPendingReferences(DevToolsWindowPendingReferencesFn pendingFn);
+
+// "Just my code" counts elements authored outside XAML (Microsoft.UI.Reactor call sites) through `authoredFn`, asked
+// per wire. `refreshFn` is called (on the UI thread, must not block) whenever the tree is re-read, so the owner can
+// refresh what `authoredFn` knows and then call DevToolsWindow_Reclassify. UI thread only.
+using DevToolsWindowAuthoredFn = std::function<bool(InstanceHandle /*wire*/)>;
+void DevToolsWindow_SetCodeAuthored(DevToolsWindowAuthoredFn authoredFn, std::function<void()> refreshFn);
+
+// Re-run "Just my code" over the rows after the authored set changed. UI thread only; a no-op when closed.
+void DevToolsWindow_Reclassify();
+
 // The live element behind a wire handle (null when it is gone; the caller releases it), so the pane can follow its
 // property changes, and a read of just the named properties' values. UI thread only.
 using DevToolsWindowElementFn = IInspectable* (*)(InstanceHandle wire);
@@ -146,6 +174,8 @@ bool DevToolsWindow_RevealWithoutFocus();
 bool DevToolsWindow_OnPicked(InstanceHandle wire, bool releaseCommit);
 // Re-reads the properties pane when `wire` is the element it shows and no edit would be lost. UI thread only.
 void DevToolsWindow_RereadSelection(InstanceHandle wire);
+// Re-reads the selected element's properties (its Reactor state changed). UI thread only.
+void DevToolsWindow_RereadCurrentSelection();
 
 void DevToolsWindow_OnPickModeChanged(bool armed);
 

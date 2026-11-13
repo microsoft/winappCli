@@ -245,11 +245,20 @@ static bool HasAuthoredSource(InstanceHandle handle)
     return g_srcRead && g_srcRead(handle, &file, &line, &column) && !file.empty();
 }
 
-// A comment is linked when it lands on a declaration in the project. Framework and template parts carry a source
-// file too, but their comment can only offer unrelated candidates found by type.
+// A Reactor element's C# call site, readable on this machine (exact, or the nearest Reactor element's).
+static bool HasCSharpSource(InstanceHandle handle)
+{
+    DevToolsCSharpSourceInfo csharp;
+    return handle && g_csharpRead && g_csharpRead(handle, &csharp) && !csharp.code.empty();
+}
+
+// A comment is linked when it lands on a declaration in the project, or on the C# call site of a Reactor element
+// that has no XAML. Framework and template parts carry a source file too, but their comment can only offer
+// unrelated candidates found by type.
 static bool IsLinkedElement(InstanceHandle handle)
 {
-    return g_isDeclared ? g_isDeclared(handle) : HasAuthoredSource(handle);
+    if (g_isDeclared ? g_isDeclared(handle) : HasAuthoredSource(handle)) return true;
+    return !HasAuthoredSource(handle) && HasCSharpSource(handle);
 }
 
 static bool LaunchCommentAdd(const std::wstring& text, const std::wstring& id)
@@ -269,6 +278,13 @@ static bool LaunchCommentAdd(const std::wstring& text, const std::wstring& id)
     const bool likelyConfirmed = LikelySourceConfirmed(g_selUi);
     if (state == L"likely" && !likelyConfirmed) {
         g_commentSourceError = L"Review the likely XAML source, then check 'Use this likely source for my comment'. Nothing was saved.";
+        return false;
+    }
+    // A Reactor element is linked through its C# call site; one without its own is confirmed like a likely source.
+    DevToolsCSharpSourceInfo csharp;
+    const bool hasCSharp = !hasSource && handle && g_csharpRead && g_csharpRead(handle, &csharp) && !csharp.code.empty();
+    if (hasCSharp && !csharp.exact && !likelyConfirmed) {
+        g_commentSourceError = L"Review the likely C# source, then check 'Use this likely source for my comment'. Nothing was saved.";
         return false;
     }
     std::wstring outgoing = text;

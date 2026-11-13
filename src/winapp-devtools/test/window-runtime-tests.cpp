@@ -1400,6 +1400,23 @@ int main()
         check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
             "the reason says an x:Bind value reads as Local");
+        // A Reactor element: its component badge, the C# source with the statement, and no "authored values
+        // unavailable" note, because the C# is its authored source.
+        g_selReactorLabel=L"<Counter>";
+        const auto csharp=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border",L"Window > StackPanel",
+            L"C:\\src\\App.cs",36,{text},L"csharp",L"Component<Counter>(),",nullptr);
+        check(DetailsTitleText(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border")==L"<Counter>  \u00B7  Border",
+            "a component row's details header names the component before its WinUI type");
+        g_selTreeName=L"incrementButton";
+        check(DetailsTitleText(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border")==L"<Counter>  \u00B7  Border #incrementButton",
+            "and the C# variable it was assigned to");
+        g_selTreeName.clear();
+        check(csharp.find(L"AutomationProperties.Name=\"C# source\"")!=std::wstring::npos &&
+            csharp.find(L"Component&lt;Counter&gt;(),")!=std::wstring::npos && csharp.find(L"Text=\"C# on disk\"")!=std::wstring::npos,
+            "the properties pane shows the C# statement at the Reactor call site");
+        check(csharp.find(L"x:Bind and resource sources not shown")==std::wstring::npos && csharp.find(L"App.cs : 36")!=std::wstring::npos,
+            "a C# element shows its call site and no missing-XAML note");
+        g_selReactorLabel.clear();
         g_layoutSectionOpen=-1;
     }
     {
@@ -1548,6 +1565,24 @@ int main()
             "changed supplemental search text is refreshed even when the visible preview stays the same");
         check(!RereadTreeCaption(0, &before), "unchanged supplemental search text is left alone");
         g_ctx.previewFn = nullptr; g_allTreeNodes.clear();
+    }
+    {
+        // A live caption change rewrites a Reactor row's preview runs and keeps its Reactor identity: the call-site
+        // run after the preview is not overwritten, and the accessible name and filter still read as Reactor.
+        DevToolsWindowNode reactor{};
+        reactor.type = L"Microsoft.UI.Xaml.Controls.Button";
+        reactor.name = L"incrementButton";
+        reactor.reactorLabel = L"<Counter>";
+        reactor.reactorSource = L"key=inc  App.cs:74";
+        DevToolsWindowNode xaml = reactor;
+        xaml.reactorLabel.clear();
+        xaml.reactorSource.clear();
+        check(TreeRowIdentity(reactor) == L"<Counter> #incrementButton key=inc  App.cs:74",
+              "a Reactor row is named by its component and call site");
+        check(TreeRowIdentity(xaml) == L"Button #incrementButton", "a XAML row is named by its type");
+        const auto search = TreeRowSearchText(reactor, L"Count: 3");
+        check(search.find(L"Count: 3") != std::wstring::npos && search.find(L"<Counter>") != std::wstring::npos &&
+              search.find(L"App.cs:74") != std::wstring::npos, "the filter still finds a Reactor row by component and call site");
     }
     {
         // A pick that opens the inspector selects its row before the tree's first layout. That reveal must wait for
@@ -2061,6 +2096,14 @@ int main()
             g_ctx.readInputFn=savedRead; g_propRows={text};
         }
         g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr; g_valuesFn=nullptr;
+    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // The live tree refresh follows a tree that never settles at a steady pace.
+        check(TreeRefreshDueAt(10000, 10000, 0) == 10250, "a single change refreshes after the debounce");
+        check(TreeRefreshDueAt(10300, 10000, 0) == 10550, "a burst keeps pushing the refresh back");
+        check(TreeRefreshDueAt(12900, 10000, 0) == 13000, "but no later than three seconds after its first change");
+        check(TreeRefreshDueAt(20300, 20300, 20000) == 22000, "and no sooner than two seconds after the last refresh");
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

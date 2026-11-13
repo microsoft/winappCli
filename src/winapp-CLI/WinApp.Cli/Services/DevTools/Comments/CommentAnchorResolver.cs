@@ -28,6 +28,11 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
             return [];
         }
 
+        if (anchor.CSharp is not null)
+        {
+            return CSharpAnchorResolver.ReAnchor(anchor, sourceRoot, logger);
+        }
+
         var identity = anchor.Identity;
         List<string> files;
         try

@@ -13,6 +13,9 @@ internal static class DevToolsSelector
     {
         public bool Ok => Handle is not null;
 
+        /// <summary>True when the app answered completely and nothing matched: the element is not there now.</summary>
+        public bool Absent { get; init; }
+
         public static Resolution Found(string handle, string? warning = null) => new(handle, null, [], warning);
 
         public static Resolution Fail(string error, VisualTreeMatch[]? candidates = null) =>
@@ -38,6 +41,25 @@ internal static class DevToolsSelector
         public string? ShortFile => Facts?.File ?? DevToolsFormat.ShortFileName(File);
 
         public string Selector => Display(Handle, Type, Name, Id);
+
+        /// <summary>Extra context printed after the candidate, such as the window it is in.</summary>
+        public string? Detail { get; init; }
+
+        /// <summary>The HWND of the window the candidate is in, when known.</summary>
+        public string? Window { get; init; }
+
+        /// <summary>What to show instead of the WinUI type: a Reactor component (<c>&lt;Counter&gt;</c>) or element kind.</summary>
+        public string? Label { get; init; }
+
+        /// <summary>The C# variable a Reactor element was assigned to, which a selector names like an x:Name.</summary>
+        public string? ReactorName { get; init; }
+
+        /// <summary>Whether Reactor created this element, so it comes from the app's C#, not its XAML.</summary>
+        public bool IsReactor { get; init; }
+
+        /// <summary>Whether the selector is this element's x:Name or C# name.</summary>
+        public bool IsNamed(string name, StringComparison comparison) =>
+            string.Equals(Name, name, comparison) || string.Equals(ReactorName, name, comparison);
     }
 
     internal sealed record FindResult(
@@ -90,14 +112,138 @@ internal static class DevToolsSelector
         }
 
         selector = selector.Trim();
+        // `#incrementButton` names an element the way the tree prints it: an x:Name or a Reactor element's C# name.
+        if (selector.Length > 1 && selector[0] == '#' && IsIdentifier(selector[1..]))
+        {
+            return ResolveName(tap, selector[1..], cancellationToken);
+        }
         if (IsHandle(selector))
         {
             return Resolution.Found(selector);
         }
 
+        if (ReactorSelector.Parse(selector) is { } reactor)
+        {
+            return ResolveReactor(tap, selector, reactor, cancellationToken);
+        }
+
         return DevToolsSlug.Parse(selector) is DevToolsSlug.Parsed slug
             ? ResolveSlug(tap, selector, slug, cancellationToken)
             : ResolveName(tap, selector, cancellationToken);
+    }
+
+    /// <summary>The component name in a <c>&lt;Counter&gt;</c> selector; null for any other selector.</summary>
+    public static string? ComponentName(string selector) =>
+        selector.Length > 2 && selector[0] == '<' && selector[^1] == '>' && selector[1..^1].Trim() is { Length: > 0 } name
+            ? name
+            : null;
+
+    /// <summary>
+    /// Resolves a Reactor selector (<c>&lt;Counter&gt;</c>, <c>&lt;Counter&gt;/Button</c>, <c>key=t1</c>,
+    /// <c>App.cs:35</c>) to the control the matching Reactor element produced. Several matches (the same component
+    /// twice in one window, or once in each of two windows) are ambiguous: the resolution fails and lists every
+    /// match with its selector and window, so <c>-w</c> or one of those selectors picks one.
+    /// </summary>
+    private static Resolution ResolveReactor(VisualTreeTap tap, string selector, ReactorSelector parsed, CancellationToken cancellationToken)
+    {
+        var response = tap.RequestReactorDescribe(cancellationToken);
+        if (!response.Ok)
+        {
+            return Resolution.Fail(response.Error!);
+        }
+        if (ReactorDescription.Parse(response.ResultJson) is not { } reactor)
+        {
+            return Resolution.Fail("The DevTools agent returned an unreadable Reactor description.");
+        }
+        if (!reactor.IsReactor)
+        {
+            return Resolution.Fail(new DevToolsProtocolError(0, reactor.Token, reactor.State == "absent"
+                ? $"'{selector}' names a Reactor element, but this app does not use Microsoft.UI.Reactor. Use an x:Name or a selector from `winapp devtools inspect`."
+                : reactor.ExplainUnavailable()));
+        }
+
+        var matches = parsed.Match(reactor);
+        if (matches.Count == 1)
+        {
+            // One match from a search that missed a window or was cut short does not prove there is only one.
+            return reactor.Complete && !reactor.Truncated
+                ? Resolution.Found(matches[0].Handle)
+                : Resolution.Found(matches[0].Handle,
+                    $"{selector} matched one rendered element, but not every window answered or the list was cut short, so another may match.");
+        }
+        if (matches.Count == 0)
+        {
+            return reactor.Complete
+                ? Resolution.Fail($"No rendered Reactor element matches {selector}. Run `winapp devtools inspect` to list the components and elements that are rendered now.") with { Absent = true }
+                : Resolution.Fail($"No rendered Reactor element matches {selector}, but the app was still changing and not every window answered. Run the command again.");
+        }
+
+        var candidates = ReactorCandidates(tap, reactor, matches, cancellationToken);
+        var windows = candidates.Select(candidate => candidate.Window).Where(window => window is not null).Distinct().Count();
+        // -w only helps when the matches are in different windows and no window was picked yet.
+        return Resolution.Fail(
+            $"{selector} matches {candidates.Length} rendered elements{(windows > 1 ? $" in {windows} windows" : "")}. " +
+            (windows > 1 && tap.Window is null ? "Pass -w <window> to pick a window, or use" : "Use") + " one of their selectors:",
+            candidates);
+    }
+
+    /// <summary>The Reactor elements that mount a component of this name, or that a host's root component of this name rendered.</summary>
+    internal static IReadOnlyList<ReactorNode> ComponentMatches(ReactorDescription reactor, string name, StringComparison comparison)
+    {
+        bool Named(ReactorComponent? component) =>
+            component is not null && (string.Equals(component.Name, name, comparison) || string.Equals(component.Type, name, comparison));
+        return [.. reactor.ByHandle.Values.Where(node => Named(node.Component) || Named(node.Host?.Root))];
+    }
+
+    /// <summary>
+    /// Candidate lines for Reactor matches: each with the selector the tree prints for it (a slug, so it can be
+    /// passed straight back), its Reactor label, key, call site and window.
+    /// </summary>
+    internal static VisualTreeMatch[] ReactorCandidates(VisualTreeTap tap, ReactorDescription reactor,
+        IReadOnlyList<ReactorNode> matches, CancellationToken cancellationToken)
+    {
+        var tree = new Dictionary<string, (VisualTreeNode Node, int Depth)>(StringComparer.Ordinal);
+        var response = tap.RequestEnumerate(null, null, cancellationToken: cancellationToken);
+        if (response.Ok && VisualTreeNode.ParseForest(response.ResultJson) is { } roots)
+        {
+            void Walk(VisualTreeNode node, int depth)
+            {
+                tree.TryAdd(node.Handle, (node, depth));
+                foreach (var child in node.Children)
+                {
+                    Walk(child, depth + 1);
+                }
+            }
+            foreach (var root in roots)
+            {
+                Walk(root, 0);
+            }
+        }
+        return [.. matches.Select(node => ReactorCandidate(reactor, node, tree.TryGetValue(node.Handle, out var live) ? live : null))];
+    }
+
+    internal static VisualTreeMatch ReactorCandidate(ReactorDescription reactor, ReactorNode node, (VisualTreeNode Node, int Depth)? live)
+    {
+        // The window is recorded on the host a component's tree hangs from.
+        ReactorHost? host = null;
+        for (var current = node; current is not null && host is null;
+             current = current.Parent is { } parent ? reactor.ByHandle.GetValueOrDefault(parent) : null)
+        {
+            host = current.Host;
+        }
+        var label = node.Component is { } component ? $"<{component.Name}>"
+            : node.Host?.Root is { } root ? $"<{root.Name}>" : node.Element;
+        var details = new List<string>();
+        if (node.Name is not null) { details.Add("#" + node.Name); }
+        if (node.Key is not null) { details.Add($"key={node.Key}"); }
+        if (node.ShortSource is { } site) { details.Add(site); }
+        if (host?.Window is { } hwnd)
+        {
+            details.Add(host.Title is { Length: > 0 } title ? $"window \"{title}\" (-w {hwnd})" : $"window -w {hwnd}");
+        }
+        return new VisualTreeMatch(node.Handle, live?.Node.Name ?? "", live?.Node.Type ?? label, null, live?.Node.Id,
+            live?.Node.UniqueName ?? false, live?.Depth ?? 0)
+        { Detail = details.Count == 0 ? null : string.Join(" ", details), Window = host?.Window, Label = label, ReactorName = node.Name, IsReactor = true };
     }
 
     /// <summary>
@@ -157,6 +303,17 @@ internal static class DevToolsSelector
 
         if (nearMisses.Length > 0)
         {
+            // In a Reactor app the usual cause is navigation, a tab switch or a conditional: the component the selector
+            // named is gone, and the same-typed elements left (often template parts) are not candidates for it.
+            if (tap.RequestReactorDescribe(cancellationToken) is { Ok: true } described &&
+                ReactorDescription.Parse(described.ResultJson) is { IsReactor: true })
+            {
+                return Resolution.Fail(
+                    $"'{selector}' is stale: the element it named is no longer rendered, for example because the app " +
+                    "navigated, switched tabs or a condition removed it, or a different component is rendered in its place. " +
+                    "Run `winapp devtools search` with the component's name (for example `winapp devtools search \"<Counter>\"`) " +
+                    "or `winapp devtools inspect` to get its current selector.");
+            }
             return Resolution.Fail(
                 $"'{selector}' is stale: an element of that type and name is live, but at a different place in " +
                 "the tree, so it is not the one this selector named. Re-run `winapp devtools inspect` or " +
@@ -166,7 +323,7 @@ internal static class DevToolsSelector
 
         return Resolution.Fail(
             $"No element matches the selector '{selector}'. Selectors are minted from the tree's shape, so " +
-            "re-run `winapp devtools inspect` or `winapp devtools search` to get current ones.");
+            "re-run `winapp devtools inspect` or `winapp devtools search` to get current ones.") with { Absent = true };
     }
 
     private static VisualTreeMatch[] MatchSlug(IReadOnlyList<VisualTreeMatch> candidates, DevToolsSlug.Parsed slug) =>
@@ -220,8 +377,10 @@ internal static class DevToolsSelector
             return Resolution.Fail(previewError);
         }
 
+        // find() is a substring search over type/#name/file, so narrow to an EXACT x:Name (or a Reactor element's C#
+        // name, which reads the same way) before deciding.
         var exact = matches
-            .Where(m => string.Equals(m.Name, selector, StringComparison.Ordinal))
+            .Where(m => m.IsNamed(selector, StringComparison.Ordinal))
             .ToArray();
         var byAutomationId = matches
             .Where(m => string.Equals(facts.GetValueOrDefault(m.Handle)?.AutomationId, selector, StringComparison.Ordinal))
@@ -253,19 +412,21 @@ internal static class DevToolsSelector
         }
 
         var caseInsensitive = found.Result.Matches
-            .Where(m => string.Equals(m.Name, selector, StringComparison.OrdinalIgnoreCase))
+            .Where(m => m.IsNamed(selector, StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if (caseInsensitive.Length == 1)
         {
             return Resolution.Found(caseInsensitive[0].Handle, incomplete);
         }
 
-        var notFound = $"No element has x:Name or AutomationId '{selector}'. Run `winapp devtools search {selector}` to find it by type or text.";
+        var notFound = $"No element is named '{selector}' (an x:Name, an AutomationId, or the C# variable a Reactor element was assigned to). " +
+            $"Run `winapp devtools search {selector}` to find it by type or text.";
+        // A complete search that found no such name says the element isn't there; the matches are only suggestions.
         return Resolution.Fail(
             found.Result.Truncated
                 ? notFound + " The agent's node limit truncated the search, so it may exist but not have been examined."
                 : notFound,
-            found.Result.Matches.Take(10).ToArray());
+            found.Result.Matches.Take(10).ToArray()) with { Absent = !found.Result.Truncated };
     }
 
     public static (FindResult? Result, DevToolsProtocolError? Error) Find(VisualTreeTap tap, string query, bool appAuthoredOnly,
@@ -302,6 +463,30 @@ internal static class DevToolsSelector
 
                 var file = ReadString(m, "file");
                 var id = ReadString(m, "id");
+                string? label = null;
+                string? detail = null;
+                string? reactorName = null;
+                var isReactor = m.TryGetProperty("reactor", out var reactor) && reactor.ValueKind == JsonValueKind.Object;
+                if (isReactor)
+                {
+                    var element = ReadString(reactor, "element");
+                    var component = ReadString(reactor, "component");
+                    label = component.Length > 0 ? $"<{component}>" : element.Length > 0 && !string.Equals(element,
+                        DevToolsFormat.ShortTypeName(ReadString(m, "type")), StringComparison.Ordinal) ? element : null;
+                    var parts = new List<string>();
+                    if (ReadString(reactor, "name") is { Length: > 0 } name)
+                    {
+                        reactorName = name;
+                        parts.Add("#" + name);
+                    }
+                    if (ReadString(reactor, "key") is { Length: > 0 } key) { parts.Add($"key={key}"); }
+                    if (ReadString(reactor, "file") is { Length: > 0 } site)
+                    {
+                        parts.Add(ReactorNode.Short(site, reactor.TryGetProperty("line", out var line) && line.TryGetInt32(out var l) ? l : 0));
+                    }
+                    if (ReadString(reactor, "owner") is { Length: > 0 } owner) { parts.Add($"in <{owner}>"); }
+                    detail = parts.Count == 0 ? null : string.Join(" ", parts);
+                }
                 matches.Add(new VisualTreeMatch(
                     handle,
                     ReadString(m, "name"),
@@ -309,7 +494,8 @@ internal static class DevToolsSelector
                     file.Length == 0 ? null : file,
                     id.Length == 0 ? null : id,
                     m.TryGetProperty("uniqueName", out var unique) && unique.ValueKind == JsonValueKind.True,
-                    m.TryGetProperty("depth", out var d) && d.TryGetInt32(out var depth) ? depth : 0));
+                    m.TryGetProperty("depth", out var d) && d.TryGetInt32(out var depth) ? depth : 0)
+                { Label = label, Detail = detail, ReactorName = reactorName, IsReactor = isReactor });
             }
         }
 
@@ -321,6 +507,9 @@ internal static class DevToolsSelector
             root.TryGetProperty("classificationTruncated", out var ct) && ct.ValueKind == JsonValueKind.True,
             root.TryGetProperty("sourceInstrumented", out var si) && si.ValueKind == JsonValueKind.True), null);
     }
+
+    private static bool IsIdentifier(string text) =>
+        text.Length > 0 && (char.IsLetter(text[0]) || text[0] == '_') && text.All(c => char.IsLetterOrDigit(c) || c == '_');
 
     private static string ReadString(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String

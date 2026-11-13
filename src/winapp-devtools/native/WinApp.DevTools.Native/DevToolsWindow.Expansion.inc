@@ -4,6 +4,48 @@
 
 static void PopulateExpansionWitnesses(void* fe, const DevToolsCardRow& r, const std::wstring& path);
 
+// A property a Reactor ThemeRef sets follows its theme resource the way {ThemeResource} does in XAML, so its row reads
+// and edits as one: the THEME chip, the ThemeResource kind with its key, and the warning before a literal replaces the
+// link. Only rows no XAML authored: a Reactor element has no XAML declaration.
+static void ApplyReactorFacts(std::vector<DevToolsCardRow>& rows)
+{
+    for (auto& r : rows) {
+        if (!r.authoredKind.empty() || !r.authored.empty()) continue;
+        const std::wstring key = g_reactorFacts.ThemeOf(r.name);
+        if (key.empty()) continue;
+        r.authoredKind = L"themeResource";
+        r.authoredKey = key;
+        r.authored = L"{ThemeResource " + key + L"}";
+    }
+}
+
+// Every read of an element's property rows: what the runtime reports, plus, for the element whose Reactor facts are
+// known, what its C# says (ApplyReactorFacts). A re-read that skipped them would drop a ThemeRef row back to a literal.
+static void ReadPaneRows(InstanceHandle wire, std::wstring& type, std::wstring& name, std::vector<DevToolsCardRow>& rows,
+                         std::wstring& authoredState, std::wstring& authoredXaml)
+{
+    g_ctx.rowsFn(wire, type, name, rows, authoredState, authoredXaml);
+    if (wire && wire == g_reactorFactsWire) ApplyReactorFacts(rows);
+}
+
+// What the selected Reactor element's own C# says about this property, as its DERIVED FROM line: `THEME  ·  ThemeRef
+// <key>  ·  App.cs:40` or `C#  ·  .Width(320)  ·  App.cs:23`. Empty for any other row, and for one the XAML authored.
+static std::wstring ReactorOriginFor(const DevToolsCardRow& r, const std::wstring& path)
+{
+    if (!g_reactorFactsWire || g_reactorFactsWire != g_selWire || path != r.name) return {};
+    const std::wstring key = g_reactorFacts.ThemeOf(r.name);
+    if (!key.empty())
+        return r.authoredKind == L"themeResource" && r.authoredKey == key ? L"THEME  \u00B7  " + g_reactorFacts.Origin(r.name) : L"";
+    return r.authored.empty() && g_reactorFacts.OwnerOf(r.name) ? L"C#  \u00B7  " + g_reactorFacts.Origin(r.name) : L"";
+}
+
+// Under the editor of a property the element's C# sets: a re-render can put the C# value back over an edit.
+static std::wstring ReactorOwnedWarningFor(const DevToolsCardRow& r, const std::wstring& path)
+{
+    if (!g_reactorFactsWire || g_reactorFactsWire != g_selWire || path != r.name) return {};
+    return g_reactorFacts.OwnedWarning(r.name);
+}
+
 // Expansion UI owns retained refs and event sinks for the realized row lifetime; stale generation guards callbacks.
 
 // The line under "Edited" that says what Restore puts back.
@@ -102,6 +144,15 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             SetAutomationTextOn(hint, path + L" staged hint", path + L" staged hint", L"");
         }
         hint->Release();
+    }
+    if (IInspectable* note = FindInRow(fe, L"PReactorNote")) {
+        const std::wstring warning = ReactorOwnedWarningFor(r, path);
+        ShowEl(note, !warning.empty());
+        if (!warning.empty()) {
+            SetTextOn(note, warning);
+            SetAutomationTextOn(note, path + L" C# note", path + L" C# note", L"");
+        }
+        note->Release();
     }
     // An existing {Binding} row is not being changed until its path or mode is: the replacement warning and its
     // Apply wait for that edit, and go away again if the edit is undone.
@@ -831,8 +882,10 @@ static void PopulateExpansionWitnesses(void* fe, const DevToolsCardRow& r, const
     const DevToolsKind current = CurrentKindOf(r, path);
     bool anyWitness = false;
     if (IInspectable* w = FindInRow(fe, L"PWitAuthored")) {
-        std::wstring line;
-        if (r.authoredKind != L"literal" && !r.authored.empty()) {
+        std::wstring line = ReactorOriginFor(r, path);
+        if (!line.empty()) {
+            // The element's C# is this row's source; the XAML branches below have nothing to add.
+        } else if (r.authoredKind != L"literal" && !r.authored.empty()) {
             const std::wstring inner = MarkupInner(r.authored);
             const std::wstring body = inner.empty() ? (r.authoredKey.empty() ? r.authored : r.authoredKey) : inner;
             line = std::wstring(OriginChip(r)) + L"  \u00B7  " + body;
@@ -979,7 +1032,7 @@ static bool RefreshCommittedValue(const std::wstring& prop)
         DevToolsOverlayLog(L"route1.props refresh read failed for '%s'", prop.c_str());
         return false;
     }
-    g_ctx.rowsFn(g_selWire, type, name, fresh, authoredState, authoredXaml);
+    ReadPaneRows(g_selWire, type, name, fresh, authoredState, authoredXaml);
     ReconcileEditRecords(g_selWire, fresh);
     auto* current = FindPropertyRow(g_propRows, prop);
     const auto* updated = FindPropertyRow(fresh, prop);

@@ -88,6 +88,8 @@ internal sealed record PackageGraphSource(FileInfo AssetsFile, string? RuntimeId
 /// <param name="Platform">The evaluated MSBuild <c>Platform</c> (e.g. <c>x64</c>, <c>ARM64</c>, <c>Win32</c>) the output was built for. Set for C++ projects.</param>
 /// <param name="WindowsAppSdkPackageDir">The evaluated <c>MicrosoftWindowsAppSDKPackageDir</c>: the Windows App SDK package folder the build imported, which holds the matching runtime MSIX. Set for C++ projects that import the Windows App SDK props, including <c>packages.config</c> projects that import them from a shared <c>.props</c> file.</param>
 /// <param name="DevToolsUnsupportedFramework">A framework known not to host WinUI from evaluated build metadata; Unknown leaves launch-time detection in charge.</param>
+/// <param name="BuildOptions">The build inputs after winapp resolved them (pinned target framework, injected <c>Platform</c>, inferred publish profile), so a later <c>dotnet watch</c> builds exactly what the first build did. Null for C++ and Native AOT.</param>
+/// <param name="CsWinRTMetadata">The <c>CsWinRTWindowsMetadata</c> folder the build injected on a machine without the targeted Windows SDK, or null.</param>
 internal sealed record ProjectRunResolution(
     FileInfo Csproj,
     string TargetDir,
@@ -109,8 +111,11 @@ internal sealed record ProjectRunResolution(
     string? Configuration = null,
     string? Platform = null,
     Services.DevTools.XamlCompilerArtifacts? DevToolsCompilerArtifacts = null,
+    Services.DevTools.ReactorBuildFacts? DevToolsReactor = null,
     string? WindowsAppSdkPackageDir = null,
-    Services.ProjectAppFramework DevToolsUnsupportedFramework = Services.ProjectAppFramework.Unknown);
+    Services.ProjectAppFramework DevToolsUnsupportedFramework = Services.ProjectAppFramework.Unknown,
+    ProjectRunOptions? BuildOptions = null,
+    string? CsWinRTMetadata = null);
 
 /// <summary>
 /// User-provided build inputs for project mode, forwarded to <c>dotnet build</c> / <c>dotnet msbuild</c>.

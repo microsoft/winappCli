@@ -31,9 +31,17 @@ internal partial class RunCommand
 
         private sealed record GuestInspectorRun(
             FileInfo Project, IReadOnlyList<string> Sources, string Executable, string? Arguments, bool ShowOverlay, bool Detach,
-            MsixIdentityResult? Package = null, bool Managed = true, Services.DevTools.XamlCompilerArtifacts? Compiler = null);
+            MsixIdentityResult? Package = null, bool Managed = true, Services.DevTools.XamlCompilerArtifacts? Compiler = null,
+            bool AllowNoXamlSources = false);
 
         private sealed record PreparedGuestInspector(string Id, GuestSourceManifest Sources);
+
+        /// <summary>
+        /// The sources a Sandbox launch copies for comments: the evaluated XAML, plus the C# files of a
+        /// Microsoft.UI.Reactor project so comments can anchor to its call sites.
+        /// </summary>
+        private IReadOnlyList<string> WithReactorSources(FileInfo project, IReadOnlyList<string>? xaml) =>
+            devToolsReactor is null ? xaml ?? [] : [.. xaml ?? [], .. GuestSourceSnapshot.ReactorCSharpSources(project)];
 
         private async Task<PreparedGuestInspector> PrepareGuestInspectorAsync(
             PreparedTarget target, GuestInspectorRun run, GuestDevToolsCapabilities expected, DirectoryInfo payload, CancellationToken cancellationToken)
@@ -45,7 +53,8 @@ internal partial class RunCommand
             var snapshot = new DirectoryInfo(Path.Combine(directory.FullName, "sources"));
             try
             {
-                var sources = await GuestSourceSnapshot.CreateAsync(run.Project, run.Sources, snapshot, cancellationToken, run.Compiler);
+                var sources = await GuestSourceSnapshot.CreateAsync(run.Project, run.Sources, snapshot, cancellationToken, run.Compiler,
+                    run.AllowNoXamlSources);
                 sources = await BindCoordinatePayloadAsync(sources, payload.FullName, cancellationToken);
                 LogSourceExclusions(sources.CoordinateExclusions);
                 sources = await GuestSourceSnapshot.DeployAsync(target, sources, snapshot, id, cancellationToken);

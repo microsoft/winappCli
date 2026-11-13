@@ -10,6 +10,9 @@
 #include <utility>
 #include "DevToolsTestCheck.h"
 
+#include <regex>
+#include <set>
+
 static std::string ReadText(const std::filesystem::path& path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -634,8 +637,8 @@ static void TestToolbarContract()
                      window.find("AutomationProperties.Name=\\\"Copy path for: \" + subject") != std::string::npos,
                  "every always-on action names the comment it acts on, so N rows are not N identical names");
     // Always-VISIBLE is not always-PRESENT (part 3): the SET of actions is still the association answer.
-    Check(window.find("if (g_xamlHandlerPresent) {") != std::string::npos,
-                 "which actions exist still depends on whether anything opens .xaml");
+    Check(window.find("if (csharp ? g_csHandlerPresent : g_xamlHandlerPresent) {") != std::string::npos,
+                 "which actions exist still depends on whether anything opens the file's type (.xaml, or .cs for a C# comment)");
     // One writer updates total-versus-placed text without reparsing the list.
     Check(window.find("return DevToolsCommentText::OffscreenNote(offscreen);") != std::string::npos &&
                      window.find("static std::wstring CommentsOffscreenNote(size_t offscreen)") != std::string::npos,
@@ -701,6 +704,21 @@ static void TestToolbarContract()
                  "the inspector's Comment action saves through the in-app comment writer");
     Check(overlay.find("static EventSink g_protoSink[25];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
+    Check(overlay.find("wireNamedClick(L\"DevToolsProtoHighlight\", g_protoSink[10], &ThenReturnFocus<&OnHighlightUpdatesClick>);") != std::string::npos &&
+                     xaml.find("x:Name=\"DevToolsProtoHighlight\" Visibility=\"Collapsed\"") != std::string::npos &&
+                     xaml.find("x:Name=\"DevToolsChipErrors\" Visibility=\"Collapsed\"") != std::string::npos &&
+                     xaml.find("x:Name=\"DevToolsBarErrors\" Visibility=\"Collapsed\"") != std::string::npos,
+                 "Highlight updates and the Reactor error badge start hidden and are wired by name");
+    // Binding a sink replaces its callback, so two controls on one sink both run the last handler bound: the pill
+    // once ran Highlight updates instead of opening the bar.
+    {
+        const std::regex wired(R"(wire(?:NamedClick|UiEvent)\([^;]*?g_protoSink\[(\d+)\])");
+        std::set<std::string> slots;
+        bool unique = true;
+        for (std::sregex_iterator it(overlay.begin(), overlay.end(), wired), end; it != end; ++it)
+            unique = slots.insert((*it)[1].str()).second && unique;
+        Check(unique && slots.size() >= 15, "each toolbar control has its own event sink");
+    }
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &ThenReturnFocus<&OnPickClick>);") != std::string::npos,
                  "Pick is wired by namescope identity, and gives focus back to the app after a command run through UI Automation");
     Check(overlay.find("wireNamedClick(L\"DevToolsProtoComments\", g_protoSink[3], &ThenReturnFocus<&OnCommentModeClick>);") != std::string::npos &&

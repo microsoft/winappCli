@@ -226,6 +226,8 @@ internal class DevToolsAttachCommand : Command, IShortDescription, IHelpExamples
                 NodeCount = connection.NodeCount,
                 OverlayShown = showInteractiveSurface ? true : null,
                 WindowOpen = showWindow ? true : null,
+                ManagedAgent = connection.ManagedAgent?.ProtocolValue,
+                ManagedAgentReason = connection.ManagedAgent?.Reason,
                 // A connected-but-degraded attach (visual tree didn't bind, or a capped posture) is still
                 // Ok=true with a warning: the protocol is up and readable either way.
                 Error = connection.Error ?? postureNote,
@@ -265,6 +267,19 @@ internal class DevToolsAttachCommand : Command, IShortDescription, IHelpExamples
             if (showWindow)
             {
                 ansiConsole.MarkupLine($"   Window: [green]open[/]");
+            }
+            switch (connection.ManagedAgent?.State)
+            {
+                case ManagedAgentState.Loaded:
+                    ansiConsole.MarkupLineInterpolated(
+                        $"   Managed agent: [green]loaded[/] ({connection.ManagedAgent.ElapsedMs} ms)");
+                    break;
+                case ManagedAgentState.Present:
+                    ansiConsole.MarkupLine("   Managed agent: [green]running[/]");
+                    break;
+                case ManagedAgentState.Unavailable when connection.ManagedAgent.Note is { } agentNote:
+                    ansiConsole.MarkupLineInterpolated($"{UiSymbols.Warning} {agentNote}");
+                    break;
             }
 
             if (connection.Error is not null)

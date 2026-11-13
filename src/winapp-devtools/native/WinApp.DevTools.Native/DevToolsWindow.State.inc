@@ -98,6 +98,9 @@ static DevToolsWindowElementFn g_elementFn = nullptr;
 // is what asks, is built long before that point in this file.
 // Path-walk callbacks are declared early because property expansions can ask before comment bridge code.
 static DevToolsWindowWalkFn g_walkFn;
+static DevToolsWindowAuthoredFn g_codeAuthoredFn;
+static std::function<void()> g_codeAuthoredRefreshFn;
+static bool g_reclassifying = false;
 static IUnknown*     g_inspectorXamlRoot = nullptr;
 static IInspectable* g_inspectorContent = nullptr;
 static IUnknown* g_captionTheme = nullptr;
@@ -194,6 +197,20 @@ static std::wstring         g_selLabel;
 static std::wstring         g_selBreadcrumb;
 static std::wstring         g_selSourceFile;
 static unsigned int         g_selSourceLine = 0;
+// The Reactor label of the selected element (`<Counter>`, `VStack`), shown ahead of its WinUI type.
+static std::wstring         g_selReactorLabel;
+static std::wstring         g_selTreeName;      // the row's name: the x:Name, or a Reactor element's C# name
+// The property pane's Reactor section: the component that renders the selected element, asked from a worker.
+static DevToolsWindowReactorAskFn g_reactorAskFn;
+static DevToolsWindowReferencesFn g_referencesFn;
+static DevToolsWindowPendingReferencesFn g_pendingReferencesFn;
+// The selected element's References section markup, read before the pane is built.
+static std::wstring g_selReferencesMarkup;
+static DevToolsComponentSection   g_reactorSection;
+// What the selected Reactor element's own C# sets (ThemeRefs, record properties, modifiers), from the section's last
+// answer. It arrives after the pane is built, so the pane is built once more when it changes.
+static InstanceHandle              g_reactorFactsWire = 0;
+static DevToolsReactorElementFacts g_reactorFacts;
 
 // The element whose per-selection pane state (pending writes, lost links, staged kinds) is current.
 static InstanceHandle g_dirtyNode = 0;
@@ -497,6 +514,10 @@ static std::vector<char>  g_treeAppAuthored;
 static bool  g_jmxActive    = false;
 static bool  g_jmxAvailable = false;
 static int   g_jmxSrcSeen = 0;
+// Rows a Reactor call site created. With none, the filter is about XAML and says so; with some, it covers code too.
+static int   g_jmxCodeSeen = 0;
+static const wchar_t* JmxName() { return g_jmxCodeSeen > 0 ? L"Just my code" : L"Just my XAML"; }
+static const wchar_t* JmxScope() { return g_jmxCodeSeen > 0 ? L"your XAML or Reactor code" : L"your XAML"; }
 static DevToolsPickRoute g_pickRoute;
 static bool  g_focusActive  = false;
 static void* g_jmxLbl       = nullptr;

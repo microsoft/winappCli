@@ -4,7 +4,8 @@ DevTools lets you inspect a running WinUI 3 app, try live property changes, diag
 bindings, and leave comments on elements for an agent to turn into code changes. For
 Sandbox, attaching to a running app, query targeting, comment storage, the protocol
 and troubleshooting, see [Advanced DevTools](devtools-advanced.md). Every command's
-`--help` lists its options and examples.
+`--help` lists its options and examples. For an app built with Microsoft.UI.Reactor, see
+[Inspect a Reactor app](devtools-reactor.md).
 
 The DevTools window needs Windows App SDK 1.7 or later. In an app that uses an older
 version, the window doesn't open, and DevTools shows a message that names the required
@@ -87,13 +88,19 @@ that check fails, the running app stays open and no replacement starts. Without
 - **Select element** shows the element you click in the DevTools window, then turns
   picking off. Your next click reaches the app. Select **Select element** again to
   inspect another element, or press **Esc** before picking to cancel.
-- **Comments** opens the comment panel on the element you click.
+- **Comments** opens the comment panel on the element you click. It shows where the
+  element is declared: its XAML file and line, or a Reactor element's C# call site.
 - Clicking a control's template part or generated text selects the control from your
   XAML; turn off **Just my XAML** in the DevTools window to pick the parts themselves.
+  In a Reactor app the toggle is named **Just my code** and keeps you on elements your
+  C# created.
 - Saved comments show as markers on their elements; the arrow beside **Comments**
   lists them and hides or shows the markers.
 - **Ctrl+Shift+F12** brings back a hidden toolbar; **⋯** hides it, keeps it open, or
   sets what happens when the app starts.
+- In a [Reactor app](devtools-reactor.md), a red count shows render errors and keyed-list
+  warnings since launch, and **Highlight updates** outlines components as they re-render.
+
 - When collapsed, the toolbar reads **DevTools**. It reads **Picking** or **Commenting** while that mode is on,
   because then your clicks go to DevTools instead of the app.
 - `winapp ui screenshot` leaves the toolbar, markers and comment panel out of the image.
@@ -129,7 +136,8 @@ A match is confirmed when the declaration or `x:Name` matches exactly one place,
 including after lines move. Otherwise `get` lists ranked candidates: confirm the
 intended one before editing. A comment marked **Not linked to source** (`weak` and
 `requiresConfirmation` in `--json`) has no source location; search the project for its
-`x:Name`, AutomationId or text.
+`x:Name`, AutomationId or text. A comment on a Reactor element is anchored to its C# call
+site; see [Comments on Reactor code](devtools-reactor.md#leave-comments-on-reactor-code).
 
 The agent should verify the location, make the change, and resolve the comment after
 checking the result. If the element can't be confirmed, mark it stale instead of
@@ -162,7 +170,7 @@ add `-a <pid, name or title>`.
 
 `inspect` and `search` show where each element is declared, such as
 `MainWindow.xaml:37`, when DevTools can confirm it against your source. They show your
-own XAML; add `--all` for framework and control-template elements. `search` matches
+own XAML and Reactor code; add `--all` for framework and control-template elements. `search` matches
 text, type, `x:Name`, AutomationId and file. To filter by property, use `--of-type`
 and `--with`:
 
@@ -203,13 +211,60 @@ other live edits. Select **Re-apply all compiled bindings** to continue, or
 **Cancel** to leave the bindings unchanged. Neither action undoes source-model
 changes or edits your XAML.
 
-Passwords never leave the app: password properties show as `<redacted>`, DevTools
-refuses to set them, and passwords in your XAML show as `******` in source previews
-and comments.
+DevTools hides passwords: it shows them as `<redacted>` and refuses to set them. It hides:
+
+- a property whose name ends in `Password`, and in a [Reactor app](devtools-reactor.md) a
+  prop, hook or context with such a name
+- in a Reactor app and in binding diagnoses, a value whose type has a public field or property
+  whose name ends in `Password`, such as `record Login(string User, string Password)` or a
+  `List<Login>`, and a record value that prints such a member
+  (`AppState { Auth = SignedIn { User = ada, Password = … } }`)
+- in a Reactor app, a hook your C# passes directly to a `PasswordBox`, or as an argument
+  named like a password (`SecretField(password: pwd)`)
+- in source previews and comments, password values in your XAML and the text values on a
+  line of C# that mentions a password
+
+A password passed through your own wrapper component by position is shown. For example,
+with `SecretField(pwd, setPwd)`, where `SecretField` renders a `PasswordBox`, `get-state`
+shows `pwd`'s value unless the variable's name ends in `Password`.
 
 For a terminal you keep using, launch with `winapp run . --detach`: it prints the PID
 and the next command. For scripts, add `--json`; see
 [JSON output](devtools-advanced.md#json-output).
+
+## Keep DevTools attached while you edit
+
+```powershell
+winapp run . --watch
+```
+
+`--watch` runs your project under `dotnet watch`. Edits that .NET Hot Reload can apply
+change the running app, and DevTools stays attached. When an edit needs a restart,
+`dotnet watch` rebuilds and relaunches the app, and DevTools attaches to the new
+process in the same mode (`on` or `headless`):
+
+```text
+✅ The app restarted (PID 27376); DevTools attached again.
+```
+
+This works for unpackaged projects with the .NET 8 SDK or later, and for packaged
+projects with the .NET 9 SDK or later. A packaged app is
+registered again and relaunched with its package identity on each restart, so it keeps
+its DevTools and Hot Reload connection; this needs the app's execution alias to be
+enabled, as `winapp run` with DevTools already does. `dotnet watch` doesn't watch `.xaml`
+files by default, so after editing XAML, save a C# file or press Ctrl+R in the
+terminal to restart.
+
+Press Ctrl+C to stop `dotnet watch` and the app. `--watch` needs DevTools on (the default for a
+WinUI project) or `--devtools headless`, and can't be combined with `--devtools off`,
+`--detach`, `--json`, `--debug-output`, `--no-build`, `--aot`, `--clean`,
+`--unregister-on-exit` or `--on sandbox`.
+
+To pass arguments to your app, put them after `--`:
+
+```powershell
+winapp run . --watch -- --my-flag value
+```
 
 ## When something fails
 

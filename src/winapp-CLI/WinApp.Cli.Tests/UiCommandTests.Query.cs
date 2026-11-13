@@ -163,6 +163,19 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    public async Task QueryOptions_Wait_ANameNothingHasYet_KeepsPolling_EvenWithSimilarNames()
+    {
+        var absent = new UiAmbiguousSelectorException("No element is named 'incrementButt'. Did you mean incrementButton?");
+        absent.Data[WinApp.Cli.Services.DevTools.DevToolsSelectorUiAutomation.AbsentKey] = true;
+        _fakeUia.FindSingleThrow = absent;
+        var exit = await ParseAndInvokeWithCaptureAsync(QueryCommand("wait-for"),
+            ["#incrementButt", "-a", "TestApp", "--type", "Button", "--timeout", "150", "--json"]);
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(TestAnsiConsole.Output, "\"timedOut\": true");
+        Assert.IsTrue(_fakeUia.Queries.Count > 1, "wait-for polled instead of failing at once");
+    }
+
+    [TestMethod]
     public async Task QueryOptions_Wait_AmbiguousRootIsNotGone()
     {
         _fakeUia.FindSingleThrow = new UiAmbiguousSelectorException("Root matched multiple elements.");

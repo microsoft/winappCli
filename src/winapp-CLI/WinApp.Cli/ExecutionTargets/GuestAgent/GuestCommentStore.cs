@@ -488,6 +488,10 @@ internal sealed class GuestCommentStore(CommentStore local, GuestCommentContext 
         {
             authored.ProjectRoot = sourceRoot;
         }
+        if (copy.Anchor.CSharp is { } csharp)
+        {
+            csharp.ProjectRoot = sourceRoot;
+        }
         return copy;
     }
 }

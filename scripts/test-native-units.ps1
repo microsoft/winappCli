@@ -70,7 +70,11 @@ $testCpps = @(
     (Join-Path $testDir "shellopen-tests.cpp"),
     (Join-Path $testDir "pipeaccept-tests.cpp"),
     (Join-Path $testDir "framing-tests.cpp"),
-    (Join-Path $testDir "events-tests.cpp")
+    (Join-Path $testDir "events-tests.cpp"),
+    (Join-Path $testDir "componentpanel-tests.cpp"),
+    (Join-Path $testDir "reactoranchor-tests.cpp"),
+    (Join-Path $testDir "reactorpublished-tests.cpp"),
+    (Join-Path $testDir "references-tests.cpp")
 )
 $unitCpps = @(
     (Join-Path $srcDir "DevToolsTreeLayout.cpp"),

@@ -817,6 +817,7 @@ void DevToolsOverlay_SetCardScope(DevToolsCardScopeFn scope) { g_cardScope = sco
 
 void DevToolsOverlay_SetCardFreeze(DevToolsCardFreezeFn freeze) { g_cardFreeze = freeze; }
 void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read) { g_srcRead = read; }
+void DevToolsOverlay_SetCSharpSourceReader(DevToolsCSharpSourceReadFn read) { g_csharpRead = read; }
 void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read) { g_isDeclared = read; }
 void DevToolsOverlay_SetHostBackdropReader(DevToolsHostBackdropFn read) { g_hostBackdropRead = read; }
 
