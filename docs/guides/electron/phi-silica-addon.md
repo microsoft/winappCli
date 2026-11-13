@@ -2,16 +2,16 @@
 <!-- description: Build a native Node addon for your Electron app that runs the on-device Phi Silica language model through the Windows App SDK from JavaScript. -->
 # Creating a Phi Silica Addon
 
-This guide shows you how to create a C# native addon that calls the Phi Silica AI API in your Electron app. Phi Silica is a small language model that runs locally on Windows 11 devices with NPUs (Neural Processing Units).
+This guide shows you how to create a C# native addon that calls the Phi Silica AI API in your Electron app. Phi Silica is a small language model that runs locally on supported Windows 11 devices, including Copilot+ PCs with an NPU (Neural Processing Unit) and eligible GPU devices.
 
 ## Prerequisites
 
-Before starting this guide, make sure you've:
+Before starting this guide, make sure you have:
 - Completed the [development environment setup](setup.md)
-- **Copilot+ PC** - Phi Silica requires a device with an NPU (Neural Processing Unit)
+- A device that meets the [Phi Silica hardware and software requirements](https://learn.microsoft.com/windows/ai/apis/phi-silica#supported-hardware), either a Copilot+ PC with an NPU or an eligible GPU device.
 
 > [!NOTE]
-> If you are not on a Copilot+ PC, you can still follow this guide to learn the addon creation process. The code will gracefully handle devices without NPU support by returning a message indicating the model is not available.
+> You can still follow this guide to learn the addon creation process if Phi Silica isn't available on your device. The code checks model availability and returns a message if the model can't run. If the model is supported but isn't ready, the code calls `EnsureReadyAsync()` to download or initialize it.
 
 ## Step 1: Create a C# Native Addon
 
@@ -104,7 +104,7 @@ namespace csAddon
 ```
 
 > [!NOTE]
-> Phi Silica requires Windows 11 with an NPU-equipped device (Copilot+ PC). If you don't have compatible hardware, the API will return a message indicating the model is not available. You can still complete this tutorial and package the app - it will gracefully handle devices without NPU support.
+> Phi Silica supports Copilot+ PCs with an NPU and eligible GPU devices. Check the [current requirements](https://learn.microsoft.com/windows/ai/apis/phi-silica#supported-hardware) for supported hardware, Windows and Windows App SDK versions, and GPU drivers. The sample returns "Model is not available" when the model can't run on the device.
 
 ## Step 3: Build the C# Addon
 

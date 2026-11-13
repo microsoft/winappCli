@@ -177,13 +177,15 @@ function loadTrialData(trialDir: string): TrialData | null {
 
   const m = results.metrics || {};
   const tt = m.time_and_tokens || {};
+  // Our tooling failed (locked desktop, judge), so the trial has no score to show or average.
+  if (results.harness_error) return null;
 
   let projectScore = 0, uiScore = 0, visualScore = 0, functionalityScore = 0;
   let scoringVersion: 1 | 2 = 1;
   const reqResults = new Map<string, ReqResult>();
 
-  // === Scoring v2 (score_breakdown) ===
-  if (m.score_breakdown?.version === 2 && Array.isArray(m.requirements)) {
+  // === Scoring v2 and later (score_breakdown); v3 only changed how unjudged requirements count ===
+  if (m.score_breakdown?.version >= 2 && Array.isArray(m.requirements)) {
     scoringVersion = 2;
     const b = m.score_breakdown;
     const tenth = (v: number | null | undefined) => (typeof v === "number" ? Math.round(v * 100) / 10 : 0);
@@ -191,6 +193,8 @@ function loadTrialData(trialDir: string): TrialData | null {
     uiScore = tenth(b.quality?.pct);
     visualScore = typeof b.design === "number" ? b.design : 0;
     for (const req of m.requirements) {
+      // A requirement the judge never ruled on is unevaluated, not a failure.
+      if (req.status !== "pass" && req.status !== "fail") continue;
       const id = String(req.id);
       reqResults.set(id, { text: req.text || `Requirement ${id}`, passed: req.status === "pass", reason: req.reason || "" });
     }
@@ -669,10 +673,10 @@ export function generateHtmlReport(entries: RunEntry[], runDir: string): string 
     // Scoring methodology
     const allV2 = trials.length > 0 && trials.every((t) => t.scoringVersion === 2);
     contextHtml += allV2 ? `<div class="scenario-section">
-      <h3>📊 Scoring methodology (v2)</h3>
+      <h3>📊 Scoring methodology (v2 and later)</h3>
       <p class="scenario-section-note">Total score out of 100. Failing any gate (builds, launches, right framework) scores 0. Components that don't apply are dropped and the rest renormalized.</p>
       <table class="scoring-table">
-        <tr><td class="scoring-cat">Requirements (60)</td><td>Share of the scenario's requirements that pass, tested by the validation agent.</td></tr>
+        <tr><td class="scoring-cat">Requirements (60)</td><td>Share of the scenario's requirements that pass, among those the validation agent ruled on. Requirements it did not rule on are not counted.</td></tr>
         <tr><td class="scoring-cat">Quality checks (30)</td><td>Share of the default quality checks that pass: project hygiene, packaging, title bar and backdrop, typography and color resources, x:Bind, build warnings, and accessible names and keyboard navigation (checked by the harness), plus empty/loading/error states (judged).</td></tr>
         <tr><td class="scoring-cat">Design (10)</td><td>The judge's 0–10 design score, relative to an unmodified template.</td></tr>
       </table>

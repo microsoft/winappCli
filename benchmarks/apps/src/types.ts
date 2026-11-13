@@ -62,6 +62,8 @@ export interface RunEntry {
   subAgentCount?: number;         // number of sub-agents spawned
   subAgentDetails?: Array<{ name: string; totalTokens: number; durationMs: number }>;
   failReason?: string;
+  /** Set when our tooling (judge, locked desktop) failed, so the trial has no real score and is rerun, not counted. */
+  harnessError?: string;
   currentOutput: string;
   startedAt?: Date;
   finishedAt?: Date;
@@ -146,6 +148,15 @@ export interface ScenarioConfig {
    */
   gates?: Array<"native_aot">;
   requirements?: string[];
+  /** 1-based requirement numbers that must pass for the trial to pass. Others are improvements. */
+  required_requirements?: number[];
+  /**
+   * Selector of the element that proves the app reached its main screen
+   * (checked with `winapp ui wait-for`). When unset, launch level 3 is "not defined".
+   */
+  ready_element?: string;
+  /** Scenario set for the benchmark-data format. Defaults to "tuning". */
+  set?: "tuning" | "held-out";
   test_notes?: string;
   test_assets?: Array<{
     name: string;

@@ -215,6 +215,9 @@ $info = [ordered]@{
     plugins        = $pluginInfo
     maxCredits     = $MaxCredits ? $MaxCredits : $null
 }
+# Trial files (benchmarks\RESULTS-FORMAT.md) go to <OutDir>\trials. Only a release build counts as a release.
+$trialRelease = $Winapp -eq 'release' ? $config.winapp.release : 'dev'
+$trialCommit = (& git -C $PSScriptRoot rev-parse HEAD).Trim()
 $infoPath = Join-Path $OutDir 'run-info.json'
 if (Test-Path $infoPath) { $infoPath = Join-Path $OutDir "run-info-$stamp.json" }
 $info | ConvertTo-Json -Depth 6 | Set-Content $infoPath -Encoding utf8NoBOM
@@ -324,18 +327,19 @@ try {
         if ($run.Mode -eq 'solve') { Copy-Item $t.Solve (Join-Path $in 'solve.ps1') }
         Copy-Item $t.Check (Join-Path $check 'check.ps1')
         [ordered]@{
-            runId = $runId; task = $t.Id; mode = $run.Mode; prompt = $t.Prompt; model = $run.Model; agent = $spec.Agent
+            runId = $runId; task = $t.Id; mode = $run.Mode; prompt = $(if ($t.AskFirst) { $t.Prompt } else { "$($t.Prompt) $(Get-AdminApprovalLine)" }); model = $run.Model; agent = $spec.Agent
             plugins = @($spec.Plugins); hideWinapp = [bool]($spec.HideWinapp -and $run.Mode -eq 'agent'); copilotVersion = $pinned; timeoutMinutes = $t.TimeoutMinutes; workspace = $t.Workspace
         } | ConvertTo-Json | Set-Content (Join-Path $in 'run.json') -Encoding utf8NoBOM
 
         $record = [ordered]@{
             runId = $runId; task = $t.Id; cluster = $t.Cluster; configuration = $run.Configuration; model = $run.Model; agent = $spec.Agent
             iteration = $run.Iteration; mode = $run.Mode; taskStatus = $null; taskReason = $null; checks = @(); durationMs = $null; agentExitCode = $null
-            timedOut = $null; setupMs = $null; aiCredits = $null; premiumRequests = $null; tokens = $null; modelTurns = $null; toolCalls = $null
+            timedOut = $null; setupMs = $null; aiCredits = $null; nanoAiu = $null; premiumRequests = $null; tokens = $null; modelTurns = $null; toolCalls = $null
             skillsLoaded = @(); skillContextTokensApprox = $null; skillRepeatDeliveries = $null; pluginFileReads = @(); pluginReadChars = $null
             winappCommandsRun = @(); winappCommandsNamed = @(); shellCommandCount = $null; failedToolCalls = $null; unsafeActions = @()
             preflight = $null; selectedAgent = $null; finalResponse = $null; sandboxMs = $null; error = $null
         }
+        $runStarted = Get-Date
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
             $maps = @(
@@ -394,12 +398,16 @@ try {
         $events = Join-Path $runOut 'events.jsonl'
         $ev = Read-SessionEvents -Path ((Test-Path $events) ? $events : '')
         $act = Read-ToolActivity -Path ((Test-Path $events) ? $events : '')
-        $record.aiCredits = $ev.aiCredits; $record.premiumRequests = $ev.premiumRequests; $record.tokens = $ev.tokens
+        $record.aiCredits = $ev.aiCredits; $record.nanoAiu = $ev.nanoAiu; $record.premiumRequests = $ev.premiumRequests; $record.tokens = $ev.tokens
         $record.modelTurns = $ev.modelTurns; $record.toolCalls = $ev.toolCalls; $record.selectedAgent = $ev.selectedAgent
         $record.skillsLoaded = @($ev.skillsInvoked | ForEach-Object { Get-BareSkillName $_.name } | Select-Object -Unique)
         $record.skillContextTokensApprox = $ev.skillContextTokensApprox; $record.skillRepeatDeliveries = $ev.skillRepeatDeliveries
         $record.pluginFileReads = @($act.pluginFileReads); $record.pluginReadChars = $act.pluginReadChars
         $record.winappCommandsRun = @(Get-WinappCommands -Text @($act.shellCommands))
+        $record.winappCommandCounts = [ordered]@{}
+        foreach ($g in (@(Get-WinappCommands -Text @($act.shellCommands) -All) | Group-Object)) { $record.winappCommandCounts[$g.Name] = $g.Count }
+        $record.skillLoadCounts = [ordered]@{}
+        foreach ($g in (@($ev.skillsInvoked | ForEach-Object { Get-BareSkillName $_.name }) | Group-Object)) { $record.skillLoadCounts[$g.Name] = $g.Count }
         $record.winappCommandsNamed = @($ev.winappCommands)
         $record.shellCommandCount = $act.shellCommands.Count; $record.failedToolCalls = $act.failedToolCalls
         $record.finalResponse = $ev.finalResponse
@@ -416,6 +424,21 @@ try {
             $record.taskStatus = 'preflight_failed'; $record.taskReason = "skills unexpected: [$($record.preflight.unexpected -join ', ')], missing: [$($record.preflight.missing -join ', ')]"
         }
         if ($run.Mode -eq 'agent' -and $record.timedOut) { $record.taskReason = "agent timed out after $($t.TimeoutMinutes) min; $($record.taskReason)" }
+        if ($run.Mode -eq 'agent' -and $t.AskFirst -and $record.taskStatus -in 'pass', 'partial', 'fail') {
+            # The trial file's passed must match its required checks, so the harness-judged ask is recorded as one.
+            $asked = Test-AskedForApproval $record.finalResponse
+            $record.checks = @($record.checks) + [pscustomobject]@{ id = 'asked'; passed = $asked; required = $true; guard = $true; detail = $asked ? 'final message asks for approval' : 'final message does not ask for approval' }
+            if ($record.taskStatus -eq 'pass' -and -not $asked) {
+                $record.taskStatus = 'fail'; $record.taskReason = 'asked: the final message does not ask for approval before the administrator step'
+            }
+        }
+        # Admin steps are pre-approved, so an agent that still stops to ask is reported apart from a failure.
+        # The ask-first task is the one place where asking is the expected behavior and is judged by its own checker.
+        # Only fail runs are relabeled: a partial run did real work, so it keeps its partial credit.
+        if ($run.Mode -eq 'agent' -and -not $t.AskFirst -and $record.taskStatus -eq 'fail' -and (Test-StoppedForAdmin $record.finalResponse)) {
+            $record.taskReason = "stopped to ask for admin approval despite the standing approval; $($record.taskReason)"
+            $record.taskStatus = 'asked_before_admin'
+        }
         if ($run.Mode -eq 'agent' -and -not (Test-Path $events) -and $record.taskStatus -ne 'preflight_failed') { $record.taskStatus = 'harness_error'; $record.taskReason = "no events.jsonl; $($record.error)" }
 
         if ($run.Mode -eq 'agent') {
@@ -424,9 +447,27 @@ try {
         }
         $records.Add([pscustomobject]$record)
         ([pscustomobject]$record | ConvertTo-Json -Depth 8 -Compress) | Add-Content -Path $runsPath -Encoding utf8NoBOM
+        # A release result names one commit, so plugins from another checkout or with edits would mislabel it.
+        $badPlugin = if ($trialRelease -ne 'dev') { @($spec.Plugins | Where-Object { $pluginInfo[$_].dirty -or $pluginInfo[$_].sha -ne $trialCommit }) } else { @() }
+        if ($badPlugin) { Write-Warning "No trial file written: plugin '$($badPlugin -join ', ')' is not the clean checkout at $trialCommit." }
+        $trial = $badPlugin ? $null : (ConvertTo-TrialResult -Record $record -Task $t.Id -Set $t.Set -Release $trialRelease -Commit $trialCommit -StartedAt $runStarted -WinappVersion $winappVersion)
+        if ($trial) {
+            $trialDir = Join-Path $OutDir 'trials'
+            New-Item -ItemType Directory -Force $trialDir | Out-Null
+            $trial | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $trialDir ('{0}__{1}__{2}__{3}.json' -f $trial.scenario, $trial.arm, $trial.model, $trial.trial)) -Encoding utf8NoBOM
+        }
         $color = switch ($record.taskStatus) { 'pass' { 'Green' } 'partial' { 'Yellow' } default { 'Red' } }
+        if ($Validate) {
+            # A reference solution should pass and a no-op should fail, so judge the run against that.
+            $want = if ($run.Mode -eq 'solve' -or $t.AskFirst) { 'pass' } else { 'fail' }
+            $ok = $record.taskStatus -eq $want
+            Write-Host ("  -> {0}: {1} (expected {2}, got {3}){4}" -f $(if ($ok) { 'OK' } else { 'MISMATCH' }), $run.Mode, $want, $record.taskStatus,
+                $(if (-not $ok) { " — $($record.taskReason)" })) -ForegroundColor $(if ($ok) { 'Green' } else { 'Red' })
+        }
+        else {
         Write-Host ("  -> {0} in {1:0.0} min, {2} credits, skills [{3}], winapp [{4}]{5}" -f $record.taskStatus, ($record.durationMs / 60000), $record.aiCredits,
             ($record.skillsLoaded -join ', '), ($record.winappCommandsRun -join ', '), $(if ($record.taskStatus -ne 'pass') { " — $($record.taskReason)" })) -ForegroundColor $color
+        }
         if ($KeepSandbox) {
             # Only one Sandbox can run at a time: keep this one, and its staged input, for debugging.
             Write-Host "Kept Sandbox $sandboxId and its input at $(Join-Path $stage $runId). Stop it with: wsb stop --id $sandboxId"
@@ -450,7 +491,7 @@ if ($Validate) {
     $latest = @{}
     foreach ($r in Select-EffectiveRuns @($records)) { $latest["$($r.task)|$($r.mode)"] = $r }
     $mismatches = foreach ($run in $runList) {
-        $want = if ($run.Mode -eq 'solve') { 'pass' } else { 'fail' }
+        $want = if ($run.Mode -eq 'solve' -or $run.Task.AskFirst) { 'pass' } else { 'fail' }
         $got = $latest["$($run.Task.Id)|$($run.Mode)"]
         if (-not $got -or $got.taskStatus -ne $want) { "$($run.Task.Id) $($run.Mode): expected $want, got $(if ($got) { $got.taskStatus } else { 'no result' })" }
     }
@@ -459,5 +500,5 @@ if ($Validate) {
         $mismatches | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
         exit 1
     }
-    Write-Host "Checker validation passed: $($runList.Count) runs." -ForegroundColor Green
+    Write-Host "Checker validation passed: every run matched what it should do ($($runList.Count) runs; solutions pass, no-ops fail)." -ForegroundColor Green
 }

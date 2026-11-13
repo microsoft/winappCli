@@ -476,8 +476,20 @@ static void NamePropertyHeader(IInspectable* header, const DevToolsCardRow& r, c
     SetAutomationTextOn(header, RowAccessibleName(r, path), path + L" value", L"");
 }
 
+// The brush each text palette donor had when a row first copied it. Row copies keep that brush after a theme
+// change, so RecolorPaneRows looks for it and swaps in the donor's new brush.
+struct RowBrushSlot { IInspectable** donor; DevToolsXM::Brush copied; };
+static RowBrushSlot g_rowBrushes[] = {
+    { &g_palPrimary, nullptr }, { &g_palSecondary, nullptr }, { &g_palTertiary, nullptr },
+};
+
+static void ForgetRowBrushes()
+{
+    for (RowBrushSlot& slot : g_rowBrushes) slot.copied = nullptr;
+}
+
 // The palette slots hold donor TextBlocks, not brushes. put_Foreground rejects a TextBlock, so copy the
-// donor's live brush instead; that also keeps the row on the current theme.
+// donor's current brush instead. The copy does not follow a later theme change; RecolorPaneRows fixes that.
 static void PutDonorForeground(void* textBlock, IInspectable* donor)
 {
     if (!textBlock || !donor) return;
@@ -486,9 +498,122 @@ static void PutDonorForeground(void* textBlock, IInspectable* donor)
     IInspectable* brush = nullptr;
     if (SUCCEEDED(DevToolsGetTextForeground(donorText, &brush)) && brush) {
         DevToolsPutTextForeground(textBlock, brush);
+        for (RowBrushSlot& slot : g_rowBrushes) {
+            if (*slot.donor != donor || slot.copied) continue;
+            try { slot.copied = TreeObject<DevToolsXM::Brush>(brush); } catch (const winrt::hresult_error&) {}
+        }
         brush->Release();
     }
     reinterpret_cast<IUnknown*>(donorText)->Release();
+}
+
+static void RecolorPaneText(DevToolsX::DependencyObject const& node,
+                            std::vector<std::pair<DevToolsXM::Brush, DevToolsXM::Brush>> const& swaps)
+{
+    if (const auto text = node.try_as<DevToolsXC::TextBlock>()) {
+        const auto foreground = text.Foreground();
+        for (const auto& [from, to] : swaps) {
+            if (foreground == from) { text.Foreground(to); break; }
+        }
+    }
+    const int count = DevToolsXM::VisualTreeHelper::GetChildrenCount(node);
+    for (int i = 0; i < count; ++i) RecolorPaneText(DevToolsXM::VisualTreeHelper::GetChild(node, i), swaps);
+}
+
+// Repaint property rows after a theme change without rebuilding them, so an open editor and its draft stay.
+// Only text that still holds a brush copied from the old theme's palette changes.
+static void RecolorPaneRows()
+{
+    std::vector<std::pair<DevToolsXM::Brush, DevToolsXM::Brush>> swaps;
+    try {
+        for (RowBrushSlot& slot : g_rowBrushes) {
+            if (!slot.copied || !*slot.donor) continue;
+            const auto current = TreeObject<DevToolsXC::TextBlock>(*slot.donor).Foreground();
+            if (!current || current == slot.copied) continue;
+            swaps.emplace_back(slot.copied, current);
+            slot.copied = current;
+        }
+        if (!swaps.empty() && g_propRepeater)
+            RecolorPaneText(TreeObject<DevToolsX::DependencyObject>(g_propRepeater), swaps);
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"route1.props recolor failed hr=0x%08X", error.code().value);
+    }
+}
+
+static bool ParseArgbHex(const std::wstring& hex, uint32_t& argb)
+{
+    if (hex.size() != 9 || hex[0] != L'#') return false;
+    wchar_t* end = nullptr;
+    argb = static_cast<uint32_t>(wcstoul(hex.c_str() + 1, &end, 16));
+    return end == hex.c_str() + 9;
+}
+
+// Swap a brush the pane's markup set locally if its color is one the old theme inlined. Values that come from a
+// control template or a live resource are not local, so they keep following the theme on their own.
+static void RecolorLocalBrush(DevToolsX::DependencyObject const& node, DevToolsX::DependencyProperty const& property,
+                              std::vector<std::pair<uint32_t, uint32_t>> const& swaps)
+{
+    const auto brush = node.ReadLocalValue(property).try_as<DevToolsXM::SolidColorBrush>();
+    if (!brush) return;
+    const auto c = brush.Color();
+    const uint32_t argb = (uint32_t(c.A) << 24) | (uint32_t(c.R) << 16) | (uint32_t(c.G) << 8) | c.B;
+    for (const auto& [from, to] : swaps) {
+        if (argb != from) continue;
+        node.SetValue(property, DevToolsXM::SolidColorBrush{ winrt::Windows::UI::Color{
+            uint8_t(to >> 24), uint8_t(to >> 16), uint8_t(to >> 8), uint8_t(to) } });
+        return;
+    }
+}
+
+static void RecolorInlines(DevToolsXDoc::InlineCollection const& inlines, std::vector<std::pair<uint32_t, uint32_t>> const& swaps)
+{
+    for (auto const& item : inlines) {
+        RecolorLocalBrush(item, DevToolsXDoc::TextElement::ForegroundProperty(), swaps);
+        if (const auto span = item.try_as<DevToolsXDoc::Span>()) RecolorInlines(span.Inlines(), swaps);
+    }
+}
+
+static void RecolorLiteralTree(DevToolsX::DependencyObject const& node, std::vector<std::pair<uint32_t, uint32_t>> const& swaps)
+{
+    namespace Shapes = winrt::Microsoft::UI::Xaml::Shapes;
+    if (const auto text = node.try_as<DevToolsXC::TextBlock>()) {
+        RecolorLocalBrush(node, DevToolsXC::TextBlock::ForegroundProperty(), swaps);
+        RecolorInlines(text.Inlines(), swaps);
+    } else if (node.try_as<DevToolsXC::Control>()) {
+        RecolorLocalBrush(node, DevToolsXC::Control::ForegroundProperty(), swaps);
+        RecolorLocalBrush(node, DevToolsXC::Control::BackgroundProperty(), swaps);
+        RecolorLocalBrush(node, DevToolsXC::Control::BorderBrushProperty(), swaps);
+    } else if (node.try_as<DevToolsXC::Border>()) {
+        RecolorLocalBrush(node, DevToolsXC::Border::BackgroundProperty(), swaps);
+        RecolorLocalBrush(node, DevToolsXC::Border::BorderBrushProperty(), swaps);
+    } else if (node.try_as<DevToolsXC::Panel>()) {
+        RecolorLocalBrush(node, DevToolsXC::Panel::BackgroundProperty(), swaps);
+    } else if (node.try_as<DevToolsXC::IconElement>()) {
+        RecolorLocalBrush(node, DevToolsXC::IconElement::ForegroundProperty(), swaps);
+    } else if (node.try_as<Shapes::Shape>()) {
+        RecolorLocalBrush(node, Shapes::Shape::FillProperty(), swaps);
+        RecolorLocalBrush(node, Shapes::Shape::StrokeProperty(), swaps);
+    }
+    const int count = DevToolsXM::VisualTreeHelper::GetChildrenCount(node);
+    for (int i = 0; i < count; ++i) RecolorLiteralTree(DevToolsXM::VisualTreeHelper::GetChild(node, i), swaps);
+}
+
+// The pane's markup has theme resources baked in as fixed colors (InlineResourceLiterals). After a theme change,
+// repaint those colors in place, so the layout box, notes and notices follow the theme and open editors stay.
+static void RecolorPaneLiterals()
+{
+    std::vector<std::pair<uint32_t, uint32_t>> swaps;
+    for (const auto& [before, after] : RefreshResourceLiterals()) {
+        uint32_t from = 0, to = 0;
+        if (ParseArgbHex(before, from) && ParseArgbHex(after, to)) swaps.emplace_back(from, to);
+    }
+    if (swaps.empty() || !g_ctx.propsHostChildren) return;
+    try {
+        for (auto const& child : TreeObject<DevToolsUIElementVector>(g_ctx.propsHostChildren))
+            RecolorLiteralTree(child, swaps);
+    } catch (const winrt::hresult_error& error) {
+        DevToolsOverlayLog(L"route1.props literal recolor failed hr=0x%08X", error.code().value);
+    }
 }
 
 static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r, const std::wstring& path)

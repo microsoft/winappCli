@@ -7,7 +7,7 @@ static void SetToolbarMenuTheme(int requestedTheme);
 
 static void DevToolsSetToolbarRequestedTheme(int appTheme)
 {
-    const int toolbarTheme = DevToolsBuildPalette().highContrast
+    const int toolbarTheme = DevToolsHighContrastOn()
         ? DevToolsTheme::kDefault
         : DevToolsTheme::ToggleTarget(appTheme);
     for (IInspectable* element : { g_railL, g_aRow }) {
@@ -23,44 +23,210 @@ static void DevToolsSetToolbarRequestedTheme(int appTheme)
     HostSetLayerTheme(appTheme);
 }
 
-// The app's own RequestedTheme on its content root, saved by the first switch so the switch back restores it rather
-// than leaving DevTools' value in place. `set` is false when the app never set one.
-static bool g_themeSwitched = false;
-static bool g_themeOriginalSet = false;
-static DevToolsX::ElementTheme g_themeOriginal = DevToolsX::ElementTheme::Default;
+// What the switch changed, saved so the switch back puts back exactly what was there: the app's own RequestedTheme on
+// each switched element (`set` is false when the app never set one) and, when the switch painted the window's content,
+// that element's local Background (`set` is false when it had none). Elements are held weakly: the toolbar can move to
+// another window between the two clicks.
+struct ThemeOverride {
+    winrt::weak_ref<DevToolsX::FrameworkElement> element;
+    bool originalSet = false;
+    DevToolsX::ElementTheme original = DevToolsX::ElementTheme::Default;
+};
+static std::vector<ThemeOverride> g_themeOverrides;
+static DevToolsX::ElementTheme g_themeApplied = DevToolsX::ElementTheme::Default;
+static winrt::weak_ref<DevToolsX::DependencyObject> g_themePainted;
+static DevToolsX::DependencyProperty g_themeBackgroundProperty{ nullptr };
+static DevToolsXM::SolidColorBrush g_themeBrush{ nullptr };
+static unsigned int g_themeBrushArgb = 0;
+static DevToolsX::FrameworkElement::ActualThemeChanged_revoker g_themeFollow;
+static winrt::Windows::Foundation::IInspectable g_themeBackgroundLocal{ nullptr };
+static bool g_themeBackgroundLocalSet = false;
+// The window content's local Background just before the switch, to tell a {ThemeResource} (which the switch
+// re-resolves) from a fixed value.
+static winrt::Windows::Foundation::IInspectable g_themeBackgroundBefore{ nullptr };
 
-// The switch back: the app's own value, or none. False when this switch is not a switch back.
-static bool RestoreAppRequestedTheme(void* themeFe)
+static bool SameObject(winrt::Windows::Foundation::IUnknown const& a, winrt::Windows::Foundation::IUnknown const& b)
 {
-    if (!g_themeSwitched) return false;
-    g_themeSwitched = false;
+    return a && b && winrt::get_abi(a.as<winrt::Windows::Foundation::IUnknown>()) ==
+                     winrt::get_abi(b.as<winrt::Windows::Foundation::IUnknown>());
+}
+
+static winrt::Windows::UI::Color ArgbColor(unsigned int argb)
+{
+    return { static_cast<uint8_t>(argb >> 24), static_cast<uint8_t>(argb >> 16),
+             static_cast<uint8_t>(argb >> 8), static_cast<uint8_t>(argb) };
+}
+
+static unsigned int ColorArgb(winrt::Windows::UI::Color const& c)
+{
+    return (unsigned int)c.A << 24 | (unsigned int)c.R << 16 | (unsigned int)c.G << 8 | (unsigned int)c.B;
+}
+
+// The element that fills the window: its content, or a UserControl's content, since a UserControl draws no Background.
+// A Page is the one UserControl that does, so it is the target itself.
+static DevToolsX::DependencyObject WindowContentOf(DevToolsX::FrameworkElement const& element)
+{
+    const auto root = element.XamlRoot();
+    DevToolsX::UIElement content = root ? root.Content() : nullptr;
+    for (int depth = 0; depth < 8; ++depth) {
+        const auto user = content ? content.try_as<DevToolsXC::UserControl>() : nullptr;
+        if (!user || user.try_as<DevToolsXC::Page>()) break;
+        content = user.Content();
+    }
+    return content;
+}
+
+static DevToolsX::DependencyProperty BackgroundPropertyOf(DevToolsX::DependencyObject const& element)
+{
+    if (element.try_as<DevToolsXC::Panel>()) return DevToolsXC::Panel::BackgroundProperty();
+    if (element.try_as<DevToolsXC::Border>()) return DevToolsXC::Border::BackgroundProperty();
+    if (element.try_as<DevToolsXC::ContentPresenter>()) return DevToolsXC::ContentPresenter::BackgroundProperty();
+    if (element.try_as<DevToolsXC::Control>()) return DevToolsXC::Control::BackgroundProperty();
+    return nullptr;
+}
+
+// Whether a Background value paints anything. Default styles often set a fully transparent brush, which does not.
+static bool BackgroundPaints(winrt::Windows::Foundation::IInspectable const& value)
+{
+    const auto brush = value ? value.try_as<DevToolsXM::Brush>() : nullptr;
+    const auto solid = brush ? brush.try_as<DevToolsXM::SolidColorBrush>() : nullptr;
+    return DevToolsTheme::BrushPaints(value != nullptr, brush != nullptr, solid != nullptr, solid ? solid.Color().A : 0);
+}
+
+static void NoteAppRootBackground(DevToolsX::FrameworkElement const& element)
+{
+    g_themeBackgroundBefore = nullptr;
+    const auto target = WindowContentOf(element);
+    const auto property = target ? BackgroundPropertyOf(target) : nullptr;
+    if (property) g_themeBackgroundBefore = target.ReadLocalValue(property);
+}
+
+// Paints the window's content in the target theme when the window would otherwise keep its old background behind the
+// new text.
+static void PaintAppRootBackground(IInspectable* host, DevToolsX::FrameworkElement const& element, int theme)
+{
+    g_themeBrush = nullptr;
+    g_themePainted = nullptr;
+    g_themeFollow = {};
+    const auto before = std::exchange(g_themeBackgroundBefore, nullptr);
+    const auto target = WindowContentOf(element);
+    const auto property = target ? BackgroundPropertyOf(target) : nullptr;
+    if (!property) {
+        DevToolsOverlayLog(L"overlay.theme root left unpainted: the window content has no Background");
+        return;
+    }
+    const auto local = target.ReadLocalValue(property);
+    const bool localSet = local != DevToolsX::DependencyProperty::UnsetValue();
+    // A visible value, from any source, is the app's own. So is a local value that is not a brush (a binding), which
+    // could not be put back, or one the switch just changed (a {ThemeResource}), whose reference would be lost.
+    const bool followsTheme = localSet && !(SameObject(local, before) || (!local && !before));
+    const bool ownBackground = BackgroundPaints(target.GetValue(property)) || followsTheme ||
+                               (localSet && (BackgroundPaints(local) || (local && !local.try_as<DevToolsXM::Brush>())));
+    bool hasBackdrop = false;
+    const bool backdropKnown = g_hostBackdropRead && g_hostBackdropRead(host, &hasBackdrop);
+    const bool highContrast = DevToolsHighContrastOn();
+    if (!DevToolsTheme::SwitchPaintsRoot(highContrast, backdropKnown, hasBackdrop, ownBackground)) {
+        DevToolsOverlayLog(L"overlay.theme root left unpainted highContrast=%d backdropKnown=%d backdrop=%d ownBackground=%d",
+            (int)highContrast, (int)backdropKnown, (int)hasBackdrop, (int)ownBackground);
+        return;
+    }
+    const unsigned int argb = DevToolsTheme::RootBackgroundArgb(theme);
+    const DevToolsXM::SolidColorBrush brush{ ArgbColor(argb) };
+    target.SetValue(property, brush);
+    g_themePainted = winrt::make_weak(target);
+    g_themeBackgroundProperty = property;
+    g_themeBrush = brush;
+    g_themeBrushArgb = argb;
+    g_themeBackgroundLocal = localSet ? local : nullptr;
+    g_themeBackgroundLocalSet = localSet;
+    // If the app later changes the theme itself, the page follows it, as the window's own background would. The painted
+    // element's theme is the one behind its text, so follow it rather than the switched one (inside a UserControl they
+    // differ).
+    const auto painted = target.try_as<DevToolsX::FrameworkElement>();
+    g_themeFollow = (painted ? painted : element).ActualThemeChanged(winrt::auto_revoke,
+        [](DevToolsX::FrameworkElement const& sender, winrt::Windows::Foundation::IInspectable const&) {
+        if (!g_themeBrush || ColorArgb(g_themeBrush.Color()) != g_themeBrushArgb) return;
+        g_themeBrushArgb = DevToolsTheme::RootBackgroundArgb(static_cast<int>(sender.ActualTheme()));
+        g_themeBrush.Color(ArgbColor(g_themeBrushArgb));
+    });
+    DevToolsOverlayLog(L"overlay.theme painted the window content #%08X (no backdrop, no app background)", argb);
+}
+
+static void RestoreAppRootBackground()
+{
+    g_themeFollow = {};
+    const auto brush = std::exchange(g_themeBrush, nullptr);
+    const auto target = std::exchange(g_themePainted, {}).get();
+    const auto property = std::exchange(g_themeBackgroundProperty, nullptr);
+    const auto local = std::exchange(g_themeBackgroundLocal, nullptr);
+    if (!brush || !target || !property) return;
     try {
-        winrt::Windows::Foundation::IInspectable object{ nullptr };
-        winrt::copy_from_abi(object, themeFe);
-        const auto element = object.as<DevToolsX::FrameworkElement>();
-        if (g_themeOriginalSet) element.RequestedTheme(g_themeOriginal);
-        else element.ClearValue(DevToolsX::FrameworkElement::RequestedThemeProperty());
-        DevToolsSetToolbarRequestedTheme(static_cast<int>(element.ActualTheme()));
-        DevToolsOverlayLog(L"overlay.theme restored the app's own value set=%d theme=%d", (int)g_themeOriginalSet, (int)g_themeOriginal);
+        // A Background the app set after the switch, or a change it made to DevTools' brush, is the app's own and stays.
+        if (!SameObject(target.GetValue(property), brush) || ColorArgb(brush.Color()) != g_themeBrushArgb ||
+            brush.Opacity() != 1.0) {
+            DevToolsOverlayLog(L"overlay.theme root background changed by the app; left as is");
+            return;
+        }
+        if (g_themeBackgroundLocalSet) target.SetValue(property, local);
+        else target.ClearValue(property);
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.theme root background restore failed hr=0x%08X", e.code().value);
+    }
+}
+
+// The elements the switch themes: the window's content, so a Frame's next page and a Page's own {ThemeResource}
+// Background follow it, and every element between the content and the overlay's host panel that sets its own
+// RequestedTheme, since each of those overrides the content's for what is inside it. Just the host panel when the
+// window content is not a FrameworkElement.
+static std::vector<DevToolsX::FrameworkElement> ThemeTargetsOf(DevToolsX::FrameworkElement const& panel)
+{
+    std::vector<DevToolsX::FrameworkElement> targets;
+    const auto root = panel.XamlRoot();
+    const auto content = root && root.Content() ? root.Content().try_as<DevToolsX::FrameworkElement>() : nullptr;
+    if (!content) return { panel };
+    targets.push_back(content);
+    DevToolsX::DependencyObject node = panel;
+    for (int depth = 0; node && depth < 64 && !SameObject(node, content); ++depth) {
+        const auto element = node.try_as<DevToolsX::FrameworkElement>();
+        if (element && element.ReadLocalValue(DevToolsX::FrameworkElement::RequestedThemeProperty()) !=
+                           DevToolsX::DependencyProperty::UnsetValue())
+            targets.push_back(element);
+        node = DevToolsXM::VisualTreeHelper::GetParent(node);
+    }
+    return targets;
+}
+
+// The switch back: the app's own values, or none. False when this click must switch the current window instead:
+// nothing was switched, or the switched window content is gone or belongs to a window the toolbar has since left.
+static bool RestoreAppRequestedTheme(DevToolsX::FrameworkElement const& currentContent)
+{
+    if (g_themeOverrides.empty()) return false;
+    const auto overrides = std::exchange(g_themeOverrides, {});
+    try {
+        RestoreAppRootBackground();
+        DevToolsX::FrameworkElement switched{ nullptr };
+        for (const auto& item : overrides) {
+            const auto element = item.element.get();
+            if (!element) continue;
+            if (!switched) switched = element;
+            // A theme the app set on this element after the switch is the app's own and stays.
+            if (element.RequestedTheme() != g_themeApplied) {
+                DevToolsOverlayLog(L"overlay.theme the app changed the theme; left as is");
+            } else if (item.originalSet) {
+                element.RequestedTheme(item.original);
+            } else {
+                element.ClearValue(DevToolsX::FrameworkElement::RequestedThemeProperty());
+            }
+        }
+        DevToolsOverlayLog(L"overlay.theme restored the app's own values on %u element(s)", (unsigned)overrides.size());
+        if (!switched || !SameObject(switched, currentContent)) {
+            DevToolsOverlayLog(L"overlay.theme the switched window is gone or the toolbar left it; switching the current one");
+            return false;
+        }
         return true;
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"overlay.theme restore failed hr=0x%08X", e.code().value);
         return false;
-    }
-}
-
-static void SaveAppRequestedTheme(void* themeFe)
-{
-    try {
-        winrt::Windows::Foundation::IInspectable object{ nullptr };
-        winrt::copy_from_abi(object, themeFe);
-        const auto element = object.as<DevToolsX::FrameworkElement>();
-        const auto local = element.ReadLocalValue(DevToolsX::FrameworkElement::RequestedThemeProperty());
-        g_themeOriginalSet = local != DevToolsX::DependencyProperty::UnsetValue();
-        g_themeOriginal = g_themeOriginalSet ? element.RequestedTheme() : DevToolsX::ElementTheme::Default;
-    } catch (const winrt::hresult_error& e) {
-        DevToolsOverlayLog(L"overlay.theme could not read the app's own value hr=0x%08X", e.code().value);
-        g_themeOriginalSet = false;
     }
 }
 
@@ -74,39 +240,35 @@ static void OnThemeToggleClick(void*, void*)
         DevToolsOverlayLog(L"overlay.theme unavailable: app content root not retained");
         return;
     }
-
-    void* themeFe = nullptr;
-    HRESULT hrThemeQi = g_appPanel->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &themeFe);
-    int actualBefore = DevToolsTheme::kDefault;
-    HRESULT hrActual = themeFe ? DevToolsGetActualTheme(themeFe, &actualBefore) : hrThemeQi;
-    if (FAILED(hrActual) || !themeFe) {
-        DevToolsOverlayLog(L"overlay.theme get ActualTheme failed qi=0x%08X get=0x%08X", hrThemeQi, hrActual);
-        if (themeFe) reinterpret_cast<IUnknown*>(themeFe)->Release();
-        return;
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, g_appPanel);
+        const auto panel = object.as<DevToolsX::FrameworkElement>();
+        const auto targets = ThemeTargetsOf(panel);
+        if (RestoreAppRequestedTheme(targets.front())) {
+            DevToolsSetToolbarRequestedTheme(static_cast<int>(panel.ActualTheme()));
+            return;
+        }
+        // What the user sees is the host panel's theme, whichever element above it decides that.
+        const int actualBefore = static_cast<int>(panel.ActualTheme());
+        const int target = DevToolsTheme::ToggleTarget(actualBefore);
+        NoteAppRootBackground(targets.front());
+        g_themeApplied = static_cast<DevToolsX::ElementTheme>(target);
+        for (const auto& element : targets) {
+            const bool originalSet = element.ReadLocalValue(DevToolsX::FrameworkElement::RequestedThemeProperty()) !=
+                                     DevToolsX::DependencyProperty::UnsetValue();
+            g_themeOverrides.push_back({ winrt::make_weak(element), originalSet,
+                                         originalSet ? element.RequestedTheme() : DevToolsX::ElementTheme::Default });
+            element.RequestedTheme(g_themeApplied);
+        }
+        const int actualAfter = static_cast<int>(panel.ActualTheme());
+        DevToolsOverlayLog(L"overlay.theme actual=%d target=%d elements=%u actualAfter=%d/%s", actualBefore, target,
+            (unsigned)targets.size(), actualAfter, actualAfter == target ? L"match" : L"mismatch");
+        PaintAppRootBackground(g_appPanel, targets.front(), target);
+        DevToolsSetToolbarRequestedTheme(target);
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.theme switch failed hr=0x%08X", e.code().value);
     }
-
-    if (RestoreAppRequestedTheme(themeFe)) {
-        reinterpret_cast<IUnknown*>(themeFe)->Release();
-        return;
-    }
-    SaveAppRequestedTheme(themeFe);
-    const int target = DevToolsTheme::ToggleTarget(actualBefore);
-    HRESULT hrPut = DevToolsPutRequestedTheme(themeFe, target);
-    g_themeSwitched = SUCCEEDED(hrPut);
-    int requestedAfter = DevToolsTheme::kDefault;
-    HRESULT hrRequestedAfter = DevToolsGetRequestedTheme(themeFe, &requestedAfter);
-    int actualAfter = actualBefore;
-    HRESULT hrActualAfter = DevToolsGetActualTheme(themeFe, &actualAfter);
-
-    const bool requestedMatches = SUCCEEDED(hrPut) && SUCCEEDED(hrRequestedAfter) && requestedAfter == target;
-    const bool effectiveMatches = SUCCEEDED(hrActualAfter) && actualAfter == target;
-    DevToolsOverlayLog(
-        L"overlay.theme actual=%d target=%d put=0x%08X requested=%d/%s actualAfter=%d/%s",
-        actualBefore, target, hrPut, requestedAfter, requestedMatches ? L"match" : L"mismatch",
-        actualAfter, effectiveMatches ? L"match" : L"mismatch");
-    if (SUCCEEDED(hrPut)) DevToolsSetToolbarRequestedTheme(target);
-
-    reinterpret_cast<IUnknown*>(themeFe)->Release();
 }
 
 // `ICanvasStatics::SetLeft` takes a UIElement, so its ABI parameter is the element's IUIElement pointer --
@@ -132,21 +294,36 @@ static IInspectable* DevToolsSelFindName(IInspectable* root, const wchar_t* name
 // Shared anchor for the pill and bar.
 // Pill and bar share one anchor so corner and center parking remain aligned.
 static Client ClientGeom() { return Client{ g_protoW, g_protoH, g_titleBarInsetDip }; }
-static double ChipX() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, (double)kChipH, &x, &y); return x; }
-static double ChipY() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, (double)kChipH, &x, &y); return y; }
-static double BarX()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), (double)kBarW, (double)kBarH, &x, &y); return x; }
-static double BarY()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), (double)kBarW, (double)kBarH, &x, &y); return y; }
+static double ChipX() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, g_chipH, &x, &y); return x; }
+static double ChipY() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, g_chipH, &x, &y); return y; }
+static double BarX()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_barW, g_barH, &x, &y); return x; }
+static double BarY()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_barW, g_barH, &x, &y); return y; }
+
+static void ConstrainToolbarWidth()
+{
+    if (!g_aRow) return;
+    try {
+        winrt::com_ptr<IUnknown> bar;
+        winrt::check_hresult(g_aRow->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), bar.put_void()));
+        const double width = (std::max)(1.0, g_protoW - 2 * kEdgeGap);
+        winrt::check_hresult(DevToolsPutMinWidth(bar.get(), (std::min)(double(kBarW), width)));
+        winrt::check_hresult(DevToolsPutMaxWidth(bar.get(), width));
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar viewport sizing failed hr=0x%08X", e.code().value);
+    }
+}
 
 static void SnapTargetPos(int c, double* x, double* y)
 {
     double cx = 0.0, cy = 0.0;
-    Anchor(c, ClientGeom(), g_chipW, (double)kChipH, &cx, &cy);
+    Anchor(c, ClientGeom(), g_chipW, g_chipH, &cx, &cy);
     *x = cx + g_chipW / 2.0 - (double)kSnapW / 2.0;
-    *y = cy + (double)kChipH / 2.0 - (double)kSnapH / 2.0;
+    *y = cy + g_chipH / 2.0 - (double)kSnapH / 2.0;
 }
 
 static bool g_dragging = false;
 static const wchar_t* g_toolbarMenu = nullptr;
+static bool g_keepToolbarMenuOpen = false;
 static bool CloseToolbarMenu(bool focusAnchor = false);
 
 static void ShowARow(bool open)
@@ -167,8 +344,8 @@ static bool ToolbarRectDip(RECT* out)
 {
     if (!g_toolbarVisible || (!g_railL && !g_aRow)) return false;
     const double left = (std::min)(ChipX(), BarX()), top = (std::min)(ChipY(), BarY());
-    const double right = (std::max)(ChipX() + g_chipW, BarX() + kBarW);
-    const double bottom = (std::max)(ChipY() + kChipH, BarY() + kBarH);
+    const double right = (std::max)(ChipX() + g_chipW, BarX() + g_barW);
+    const double bottom = (std::max)(ChipY() + g_chipH, BarY() + g_barH);
     *out = RECT{ (LONG)std::floor(left), (LONG)std::floor(top), (LONG)std::ceil(right), (LONG)std::ceil(bottom) };
     return true;
 }
@@ -525,17 +702,42 @@ static winrt::Windows::Foundation::IInspectable ToolbarPart(const wchar_t* name)
 
 static void SetToolbarMenuTheme(int requestedTheme)
 {
+    // The default menu background is an acrylic brush that resolves against the app's theme, so a dark
+    // toolbar over a light app showed light-theme text on a light menu. Give the menu an opaque surface for
+    // the toolbar's theme. Under High Contrast (kDefault) the system brushes stay in charge.
+    const bool ownSurface = requestedTheme != DevToolsTheme::kDefault;
+    const bool dark = requestedTheme == DevToolsTheme::kDark;
+    const winrt::Windows::UI::Color background = dark
+        ? winrt::Windows::UI::Color{ 0xFF, 0x2C, 0x2C, 0x2C } : winrt::Windows::UI::Color{ 0xFF, 0xF9, 0xF9, 0xF9 };
+    const winrt::Windows::UI::Color border = dark
+        ? winrt::Windows::UI::Color{ 0x33, 0x00, 0x00, 0x00 } : winrt::Windows::UI::Color{ 0x0F, 0x00, 0x00, 0x00 };
     try {
         for (const wchar_t* name : { L"DevToolsCommentsMenu", L"DevToolsMoreMenu" }) {
             if (auto menu = ToolbarPart(name).try_as<DevToolsXC::MenuFlyout>()) {
                 DevToolsX::Style style{ winrt::xaml_typename<DevToolsXC::MenuFlyoutPresenter>() };
                 style.Setters().Append(DevToolsX::Setter{ DevToolsX::FrameworkElement::RequestedThemeProperty(),
                     winrt::box_value(static_cast<DevToolsX::ElementTheme>(requestedTheme)) });
+                if (ownSurface) {
+                    style.Setters().Append(DevToolsX::Setter{ DevToolsXC::Control::BackgroundProperty(),
+                        DevToolsXM::SolidColorBrush{ background } });
+                    style.Setters().Append(DevToolsX::Setter{ DevToolsXC::Control::BorderBrushProperty(),
+                        DevToolsXM::SolidColorBrush{ border } });
+                }
                 menu.MenuFlyoutPresenterStyle(style);
             }
         }
-        if (auto presenter = g_toolbarMenuPresenter.get())
+        if (auto presenter = g_toolbarMenuPresenter.get()) {
             presenter.RequestedTheme(static_cast<DevToolsX::ElementTheme>(requestedTheme));
+            if (auto control = presenter.try_as<DevToolsXC::Control>()) {
+                if (ownSurface) {
+                    control.Background(DevToolsXM::SolidColorBrush{ background });
+                    control.BorderBrush(DevToolsXM::SolidColorBrush{ border });
+                } else {
+                    control.ClearValue(DevToolsXC::Control::BackgroundProperty());
+                    control.ClearValue(DevToolsXC::Control::BorderBrushProperty());
+                }
+            }
+        }
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"overlay.toolbar menu theme failed hr=0x%08X", e.code().value);
     }
@@ -577,19 +779,14 @@ static DevToolsXCP::FlyoutPlacementMode ToolbarMenuPlacement()
     return CornerIsTop(g_corner) ? DevToolsXCP::FlyoutPlacementMode::Bottom : DevToolsXCP::FlyoutPlacementMode::Top;
 }
 
-// Choosing "Don't start DevTools" closes the More menu and reopens it, so the hint for turning DevTools back on stays
-// in view. WinUI ignores ShowAt for a menu until its popup finishes closing, and raises Closed just before that, so the
-// reopen is queued from Closed.
-static bool g_reopenMoreMenu = false;
-
 static void PrepareToolbarMenu(const wchar_t* name, const wchar_t* anchor)
 {
-    g_reopenMoreMenu = false; // a menu opening first makes a pending reopen stale
     if (g_toolbarMenu && wcscmp(g_toolbarMenu, name) != 0) CloseToolbarMenu();
     auto menu = ToolbarPart(name).as<DevToolsXC::MenuFlyout>();
     menu.Placement(ToolbarMenuPlacement());
     const auto anchorElement = ToolbarPart(anchor).as<DevToolsX::FrameworkElement>();
-    SetToolbarMenuTheme(DevToolsBuildPalette().highContrast ? DevToolsTheme::kDefault : static_cast<int>(anchorElement.ActualTheme()));
+    // Read High Contrast live: the palette caches it at startup, and a contrast theme can be turned on mid-run.
+    SetToolbarMenuTheme(DevToolsHighContrastOn() ? DevToolsTheme::kDefault : static_cast<int>(anchorElement.ActualTheme()));
     if (wcscmp(name, L"DevToolsCommentsMenu") == 0) {
         ToolbarPart(L"DevToolsShowAllComments").as<DevToolsXC::MenuFlyoutItem>()
             .Text(L"Open comments list (" + std::to_wstring(CommentCount()) + L")");
@@ -600,31 +797,6 @@ static void PrepareToolbarMenu(const wchar_t* name, const wchar_t* anchor)
     }
     g_toolbarMenu = name;
     g_toolbarMenuAnchor = anchor;
-}
-
-static void QueueMoreMenuReopen()
-{
-    try {
-        auto anchor = ToolbarPart(L"DevToolsProtoMore").as<DevToolsX::FrameworkElement>();
-        if (!anchor) {
-            DevToolsOverlayLog(L"overlay.toolbar recovery instruction has no toolbar anchor");
-            return;
-        }
-        auto weak = winrt::make_weak(anchor);
-        if (!anchor.DispatcherQueue().TryEnqueue([weak]() {
-            try {
-                auto target = weak.get();
-                if (target && target.IsLoaded() && g_toolbarVisible && g_aRowOpen)
-                    ToolbarPart(L"DevToolsMoreMenu").as<DevToolsXC::MenuFlyout>().ShowAt(target);
-                else
-                    DevToolsOverlayLog(L"overlay.toolbar recovery instruction skipped: the toolbar is not open");
-            } catch (const winrt::hresult_error& e) {
-                DevToolsOverlayLog(L"overlay.toolbar recovery instruction failed hr=0x%08X", e.code().value);
-            }
-        })) DevToolsOverlayLog(L"overlay.toolbar recovery instruction queue refused");
-    } catch (const winrt::hresult_error& e) {
-        DevToolsOverlayLog(L"overlay.toolbar recovery instruction scheduling failed hr=0x%08X", e.code().value);
-    }
 }
 
 static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
@@ -661,15 +833,17 @@ static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
                 DevToolsOverlayLog(L"overlay.toolbar menu opened failed hr=0x%08X", e.code().value);
             }
         });
+        menu.Closing([](auto&&, DevToolsXCP::FlyoutBaseClosingEventArgs const& e) {
+            if (!g_keepToolbarMenuOpen) return;
+            g_keepToolbarMenuOpen = false;
+            e.Cancel(true);
+        });
         menu.Closed([name](auto&&, auto&&) {
             if (g_toolbarMenu && wcscmp(g_toolbarMenu, name) == 0)
                 g_toolbarMenu = g_toolbarMenuAnchor = nullptr;
             g_toolbarMenuPresenter = {};
             UpdateCatcherHole();
-            if (g_reopenMoreMenu && wcscmp(name, L"DevToolsMoreMenu") == 0) {
-                g_reopenMoreMenu = false;
-                QueueMoreMenuReopen();
-            } else if (!g_pinned && !g_barHover && g_toolbarFocusWithin == 0)
+            if (!g_pinned && !g_barHover && g_toolbarFocusWithin == 0)
                 SetTimer(nullptr, 0, 50, &ToolbarFocusLeftProc);
         });
     } catch (const winrt::hresult_error& e) {
@@ -697,14 +871,21 @@ static std::string DefaultMode()
     return mode == L"headless" ? "headless" : mode == L"off" ? "off" : "on";
 }
 
-// "When the app starts" is a view of that setting: Show toolbar is on, Hide toolbar is headless, Don't start is off.
-// The re-enable hint under the radios is only visible while "off" is the selected mode (issue #1148).
+// "Launch preferences" is a view of that setting: Start DevTools off is off; with it on, Show toolbar picks on or
+// headless. Show toolbar is hidden while DevTools is off and keeps its last state for when it's turned back on.
 static void SetStartModeUi(const std::string& mode)
 {
-    const wchar_t* name = mode == "headless" ? L"DevToolsStartHidden" : mode == "off" ? L"DevToolsStartOff" : L"DevToolsStartShown";
-    for (const wchar_t* item : { L"DevToolsStartShown", L"DevToolsStartHidden", L"DevToolsStartOff" })
-        ProtoSetToggle(item, L"", L"", wcscmp(item, name) == 0);
-    ProtoSetPartVisible(L"DevToolsStartOffHint", mode == "off");
+    ProtoSetToggle(L"DevToolsStartEnabled", L"", L"", mode != "off");
+    if (mode != "off") ProtoSetToggle(L"DevToolsStartShown", L"", L"", mode == "on");
+    ProtoSetPartVisible(L"DevToolsStartShown", mode != "off");
+}
+
+static bool StartShownChecked()
+{
+    try {
+        if (auto item = ToolbarPart(L"DevToolsStartShown").try_as<DevToolsXC::ToggleMenuFlyoutItem>()) return item.IsChecked();
+    } catch (const winrt::hresult_error&) {}
+    return true;
 }
 
 // Hidden for this run: DevTools stays attached, and Ctrl+Shift+F12 or Overlay.show brings the toolbar back. A mode
@@ -718,19 +899,25 @@ static void OnHideToolbarClick(void*, void*)
     DevToolsOverlayLog(L"overlay.toolbar hidden from its menu");
 }
 
+// The launch preference toggles update in place: WinUI closes a menu after any item's Click, so the menu's
+// Closing handler cancels that one close.
 static void SetDefaultMode(const char* mode)
 {
-    CloseToolbarMenu();
+    g_keepToolbarMenuOpen = true;
+    SetTimer(nullptr, 0, 0, [](HWND, UINT, UINT_PTR id, DWORD) { KillTimer(nullptr, id); g_keepToolbarMenuOpen = false; });
     DevToolsSettingsSetText(L"DefaultMode", mode);
     SetStartModeUi(mode);
     DevToolsOverlayLog(L"overlay.toolbar default mode -> %S (persisted)", mode);
 }
-static void OnStartShownClick(void*, void*) { SetDefaultMode("on"); }
-static void OnStartHiddenClick(void*, void*) { SetDefaultMode("headless"); }
-static void OnStartOffClick(void*, void*)
+// Each toggle flips the saved mode; the menu's own check state is only used to remember Show toolbar while off.
+static void OnStartEnabledClick(void*, void*)
 {
-    g_reopenMoreMenu = g_toolbarMenu && wcscmp(g_toolbarMenu, L"DevToolsMoreMenu") == 0;
-    SetDefaultMode("off");
+    SetDefaultMode(DefaultMode() != "off" ? "off" : StartShownChecked() ? "on" : "headless");
+}
+static void OnStartShownClick(void*, void*)
+{
+    const std::string mode = DefaultMode();
+    if (mode != "off") SetDefaultMode(mode == "on" ? "headless" : "on");
 }
 static std::wstring ChipSurfaceLabel()
 {
@@ -765,24 +952,30 @@ static void UpdateChipLabel()
                        surface.c_str());
 }
 
-// Re-anchor from SizeChanged, after ActualWidth reflects the new label. Label assignment alone cannot supply
-// the final width.
-// Re-anchor after SizeChanged because text assignment alone lacks final ActualWidth.
-static void OnChipResize(void*, void*)
+// Both surfaces measure their content. Placement and hit testing use those same dimensions.
+static void OnToolbarSizeChanged(void*, void*)
 {
-    if (!g_railL) return;
-    void* fe = nullptr;
-    if (FAILED(g_railL->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) || !fe) return;
-    double w = 0.0;
-    HRESULT hr = DevToolsGetActualWidth(fe, &w);
-    reinterpret_cast<IUnknown*>(fe)->Release();
-    if (FAILED(hr) || w <= 0.0) return;
-    if (w == g_chipW) return;
-    g_chipW = w;
-    if (!g_aRowOpen && !g_dragging) MoveOverlayElement(g_railL, ChipX(), ChipY());
-    DevToolsOverlayLog(L"overlay.pill width=%.0f -> anchored %s position=%d", w,
-                  CornerIsCenter(g_corner) ? L"center" : (CornerIsLeft(g_corner) ? L"left" : L"right"),
-                  g_corner);
+    try {
+        auto measure = [](IInspectable* raw, double& width, double& height) {
+            if (!raw) return;
+            winrt::com_ptr<IUnknown> element;
+            winrt::check_hresult(raw->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), element.put_void()));
+            double w = 0, h = 0;
+            winrt::check_hresult(DevToolsGetActualWidth(element.get(), &w));
+            winrt::check_hresult(DevToolsGetActualHeight(element.get(), &h));
+            if (w > 0 && h > 0) {
+                width = w;
+                height = h;
+            }
+        };
+        measure(g_railL, g_chipW, g_chipH);
+        measure(g_aRow, g_barW, g_barH);
+        if (!g_dragging) MoveOverlayElement(g_railL, ChipX(), ChipY());
+        MoveOverlayElement(g_aRow, BarX(), BarY());
+        HostYieldToWindowedPopups();
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar size update failed hr=0x%08X", e.code().value);
+    }
 }
 
 static void SetCorner(int corner, bool persist)
@@ -810,7 +1003,7 @@ static void ShowSnapTargets(bool on)
 
 static int NearestCornerForPill(double px, double py)
 {
-    return NearestCorner(ClientGeom(), g_chipW, (double)kChipH, px, py);
+    return NearestCorner(ClientGeom(), g_chipW, g_chipH, px, py);
 }
 
 static void HighlightSnapTarget(int corner)
@@ -845,7 +1038,7 @@ static void OnDragHandlePressed(void*, void*)
     g_dragOffX = (double)dx - ChipX();
     g_dragOffY = (double)dy - ChipY();
     if (g_dragOffX < 0.0 || g_dragOffX > g_chipW) g_dragOffX = g_chipW / 2.0;
-    if (g_dragOffY < 0.0 || g_dragOffY > (double)kChipH) g_dragOffY = (double)kChipH / 2.0;
+    if (g_dragOffY < 0.0 || g_dragOffY > g_chipH) g_dragOffY = g_chipH / 2.0;
     g_dragNear = g_corner;
     ShowSnapTargets(true);
     HighlightSnapTarget(g_dragNear);
@@ -977,6 +1170,7 @@ static void RepositionToolbar()
     if (wDip <= 0 || hDip <= 0) return;
     g_protoW = (double)wDip; g_protoH = (double)hDip;
     g_titleBarInsetDip = MeasureTitleBarInsetDip();
+    ConstrainToolbarWidth();
     ShowARow(g_aRowOpen);
     if (g_pinned)       ProtoSetPinned(true);
     if (g_dragging)     ShowSnapTargets(true);
@@ -1066,8 +1260,8 @@ static void WirePrototype(IInspectable* canvas)
         }
     }
     for (const wchar_t* name : { L"DevToolsCommentsMenu", L"DevToolsShowAllComments", L"DevToolsToggleMarkers",
-            L"DevToolsMoreMenu", L"DevToolsHideToolbar", L"DevToolsProtoPin", L"DevToolsStartShown",
-            L"DevToolsStartHidden", L"DevToolsStartOff", L"DevToolsStartOffHint" }) {
+            L"DevToolsMoreMenu", L"DevToolsHideToolbar", L"DevToolsProtoPin", L"DevToolsStartEnabled",
+            L"DevToolsStartShown" }) {
         auto part = ToolbarPart(name);
         if (part) g_toolbarMenuParts.emplace_back(name, part);
         else DevToolsOverlayLog(L"overlay.toolbar missing menu part %s", name);
@@ -1095,6 +1289,21 @@ static void WirePrototype(IInspectable* canvas)
               DevToolsBorderGetChild(border, &sp); border->Release();
           } }
         borderInsp->Release();
+        if (!sp) return false;
+        try {
+            winrt::Windows::Foundation::IInspectable content{ nullptr };
+            winrt::copy_from_abi(content, sp);
+            if (const auto scroll = content.try_as<DevToolsXC::ScrollViewer>()) {
+                auto panelContent = scroll.Content();
+                sp->Release();
+                sp = nullptr;
+                winrt::copy_to_abi(panelContent, *reinterpret_cast<void**>(&sp));
+            }
+        } catch (const winrt::hresult_error& e) {
+            sp->Release();
+            DevToolsOverlayLog(L"overlay.toolbar scroll content unavailable hr=0x%08X", e.code().value);
+            return false;
+        }
         if (!sp) return false;
         IInspectable* panel = nullptr;
         if (SUCCEEDED(sp->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), reinterpret_cast<void**>(&panel))) && panel) {
@@ -1147,6 +1356,7 @@ static void WirePrototype(IInspectable* canvas)
 // Cache the movable groups (AddRef'd for the agent lifetime).
     if (g_aRow)    { g_aRow->Release();    g_aRow = nullptr; }    childAt(1, &g_aRow);
     if (g_railL)   { g_railL->Release();   g_railL = nullptr; }   childAt(0, &g_railL);
+    ConstrainToolbarWidth();
     for (int i = 0; i < kCornerCount; ++i) {
         if (g_snapUi[i]) { g_snapUi[i]->Release(); g_snapUi[i] = nullptr; }
         childAt(2 + (unsigned int)i, &g_snapUi[i]);
@@ -1169,7 +1379,7 @@ static void WirePrototype(IInspectable* canvas)
         }
         void* fe = nullptr;
         if (SUCCEEDED(g_railL->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
-            g_protoSink[8].Bind(&IID_SizeChanged_Del, &OnChipResize);
+            g_protoSink[8].Bind(&IID_SizeChanged_Del, &OnToolbarSizeChanged);
             __int64 tok = 0;
             HRESULT hr = DevToolsAddSizeChanged(fe, &g_protoSink[8], &tok);
             reinterpret_cast<IUnknown*>(fe)->Release();
@@ -1196,9 +1406,8 @@ static void WirePrototype(IInspectable* canvas)
         wireNamedClick(L"DevToolsToggleMarkers", g_protoSink[17], &OnToggleMarkersClick);
         WireToolbarMenu(L"DevToolsCommentsMenu", L"DevToolsProtoComments");
         wireNamedClick(L"DevToolsHideToolbar", g_protoSink[19], &OnHideToolbarClick);
-        wireNamedClick(L"DevToolsStartShown", g_protoSink[20], &OnStartShownClick);
-        wireNamedClick(L"DevToolsStartHidden", g_protoSink[21], &OnStartHiddenClick);
-        wireNamedClick(L"DevToolsStartOff", g_protoSink[22], &OnStartOffClick);
+        wireNamedClick(L"DevToolsStartEnabled", g_protoSink[20], &OnStartEnabledClick);
+        wireNamedClick(L"DevToolsStartShown", g_protoSink[21], &OnStartShownClick);
         WireToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore");
         wireNamedClick(L"DevToolsProtoInspect", g_protoSink[4], &ThenReturnFocus<&OnInspectClick>);
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &ThenReturnFocus<&OnLayoutToggleClick>);
@@ -1216,6 +1425,14 @@ static void WirePrototype(IInspectable* canvas)
         DevToolsOverlayLog(L"overlay.toolbar GettingFocus subscription failed hr=0x%08X", e.code().value);
     }
     if (barUi) {
+        void* fe = nullptr;
+        if (SUCCEEDED(barUi->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+            g_protoSink[24].Bind(&IID_SizeChanged_Del, &OnToolbarSizeChanged);
+            __int64 token = 0;
+            const HRESULT hr = DevToolsAddSizeChanged(fe, &g_protoSink[24], &token);
+            reinterpret_cast<IUnknown*>(fe)->Release();
+            if (FAILED(hr)) DevToolsOverlayLog(L"overlay.toolbar size subscription failed hr=0x%08X", hr);
+        }
         try {
             auto bar = ToolbarPart(L"DevToolsBar").as<DevToolsX::UIElement>();
             bar.PointerEntered([](auto&&, auto&&) { g_barHover = true; });

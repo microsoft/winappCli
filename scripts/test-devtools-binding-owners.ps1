@@ -10,7 +10,10 @@ writes or existing app access. Closing one owned window tests lifetime scoping; 
 VerifyComments also writes comments and edits only the unique staged fixture's XAML,
 then reads historical/current source matches without rebuilding the running fixture.
 ProbeOverlay uses one window and records current-head UIA and screenshot observations.
-Its runtime phase is restricted to a disposable GitHub-hosted runner.
+Its runtime phase requires a disposable GitHub-hosted runner or ExclusiveDesktop.
+.PARAMETER ExclusiveDesktop
+Explicitly reserve the local desktop for ProbeOverlay. Do not use the mouse or keyboard
+or run other desktop tests until it finishes. Fixture ownership and cleanup guards remain active.
 #>
 [CmdletBinding()]
 param(
@@ -20,7 +23,8 @@ param(
     [switch]$ExpectWindowUnavailable,
     [switch]$VerifyComments,
     [switch]$LargeCommentTree,
-    [switch]$ProbeOverlay
+    [switch]$ProbeOverlay,
+    [switch]$ExclusiveDesktop
 )
 $ErrorActionPreference = 'Stop'
 $Cli = (Resolve-Path -LiteralPath $Cli).Path
@@ -31,6 +35,7 @@ if ($LargeCommentTree -and -not $VerifyComments) { throw 'LargeCommentTree requi
 if ($ProbeOverlay -and ($VerifyComments -or $LargeCommentTree -or $ExpectWindowUnavailable)) {
     throw 'ProbeOverlay is a separate one-window acceptance mode.'
 }
+if ($ExclusiveDesktop -and -not $ProbeOverlay) { throw 'ExclusiveDesktop requires ProbeOverlay.' }
 if ($PrepareOnly) {
     if (Test-Path -LiteralPath $receipt) { throw 'Use a fresh evidence directory for preparation.' }
     $name = 'WinApp.DevTools.Bind.' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
@@ -57,6 +62,7 @@ if ($PrepareOnly) {
         verifyComments = [bool]$VerifyComments;
         largeCommentTree = [bool]$LargeCommentTree;
         probeOverlay = [bool]$ProbeOverlay;
+        exclusiveDesktop = [bool]$ExclusiveDesktop;
         hashes = @(Get-FileHash -LiteralPath $Cli, (Join-Path (Split-Path $Cli) 'WinApp.DevTools.Native.dll'),
             (Join-Path (Split-Path $Cli) 'WinApp.DevTools.Managed.dll') | Select-Object Path, Hash) } |
         ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $receipt
@@ -64,8 +70,9 @@ if ($PrepareOnly) {
     return
 }
 
-if ($ProbeOverlay -and ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted')) {
-    throw 'Overlay probing is restricted to the disposable GitHub-hosted UI job, not a shared desktop.'
+if ($ProbeOverlay -and -not $ExclusiveDesktop -and
+    ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted')) {
+    throw 'Overlay probing needs a disposable GitHub-hosted runner or an explicitly reserved local desktop (-ExclusiveDesktop).'
 }
 $prepared = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
 $stage = (Resolve-Path -LiteralPath $prepared.stage).Path
@@ -77,6 +84,7 @@ if ($name -notmatch '^WinApp\.DevTools\.Bind\.[a-f0-9]{12}$' -or
     -not $project.StartsWith($stage + '\', [StringComparison]::OrdinalIgnoreCase) -or
     $prepared.cli -ne $Cli -or [bool]$prepared.verifyComments -ne [bool]$VerifyComments -or
     [bool]$prepared.probeOverlay -ne [bool]$ProbeOverlay -or
+    [bool]$prepared.exclusiveDesktop -ne [bool]$ExclusiveDesktop -or
     [bool]$prepared.largeCommentTree -ne [bool]$LargeCommentTree) { throw 'Invalid prepared fixture identity.' }
 foreach ($file in $prepared.hashes) {
     if ((Get-FileHash -LiteralPath $file.Path).Hash -ne $file.Hash) { throw "Prepared payload changed: $($file.Path)" }
@@ -163,6 +171,15 @@ function Check([bool]$Condition, [string]$Message) {
     $script:checks++
     Write-Host "PASS $Message"
 }
+function Wait-Focused([string]$Expected) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(3)
+    do {
+        $current = Invoke-Cli @('ui', 'get-focused', '-a', $app)
+        if ($current.element.automationId -eq $Expected) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return [string]$current.element.automationId
+}
 function Wait-CommentStatus([string]$App, [string]$Expected) {
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
     do {
@@ -245,7 +262,19 @@ function Diagnose([string]$Handle, [string]$Window, [string]$Expected) {
     }
     else { Check ($diagnosis.ok -eq $true -and $diagnosis.result.sourceValue -ceq $Expected) "exact source value: $Expected" }
 }
+$localSettings = @()
 try {
+    if ($ExclusiveDesktop) {
+        $settings = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.winapp\state'
+        $backup = (New-Item -ItemType Directory -Path (Join-Path $evidence 'settings-backup')).FullName
+        foreach ($key in @('ToolbarPinned', 'ToolbarCorner', 'LayoutAdorners', 'CommentMarkersHidden', 'InspectorSizeSpacingOpen', 'DefaultMode')) {
+            $path = Join-Path $settings "devtools-$key.setting"
+            $saved = Join-Path $backup "devtools-$key.setting"
+            $exists = Test-Path -LiteralPath $path
+            if ($exists) { Move-Item -LiteralPath $path -Destination $saved }
+            $localSettings += [pscustomobject]@{ path = $path; saved = $saved; existed = $exists }
+        }
+    }
     $launchArguments = '"' + $report + '"' + $(if ($LargeCommentTree) { ' large' } elseif ($ProbeOverlay) { ' single' } else { '' })
     if ($ProbeOverlay) { $env:WINAPP_DEVTOOLS_LOG = '1' }
     $launch = Invoke-Cli @('run', $project, '--devtools', 'headless', '--detach', '--args', $launchArguments)
@@ -298,13 +327,27 @@ try {
         Check (-not $tree.truncated -and $tree.depthLimitedElements -eq 0) 'overlay probe has a complete owned source tree'
         $heading = @(Nodes $tree.elements | Where-Object name -eq 'WindowHeading')
         Check ($heading.Count -eq 1) 'overlay probe selects one exact authored heading'
+        $null = Invoke-Cli @('ui', 'focus', 'ShortcutOther', '-a', $app)
         Enter-CommentMode
+        $null = Invoke-Cli @('ui', 'focus', 'ShortcutOther', '-a', $app)
+        Check ((Wait-Focused 'ShortcutOther') -eq 'ShortcutOther') 'a non-first app control has focus before picking the heading'
         $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $selection = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
         Check ($selection.result.handle -eq [string]$heading[0].handle) 'pick settled on the exact owned authored heading'
         $openFocus = Invoke-Cli @('ui', 'get-focused', '-a', $app)
         Check ($openFocus.element.automationId -eq 'DevToolsSelComment') 'an in-app pick puts keyboard focus in the comment box'
+        $null = Invoke-Cli @('ui', 'send-keys', 'text=Picked comment', '-a', $app, '--via', 'send-input')
+        # SendInput queues keys; wait for the editor to process them without refocusing or retyping.
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--value', 'Picked comment', '-t', '5000')
+        $typedAfterPick = Invoke-Cli @('ui', 'get-property', 'DevToolsSelComment', '-a', $app, '-p', 'Value')
+        Check ($typedAfterPick.properties.Value -ceq 'Picked comment') 'typing immediately after a pick enters the comment without an extra focus action'
+        $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', '', '-a', $app)
+        $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--gone', '-t', '5000')
+        Check ((Wait-Focused 'ShortcutOther') -eq 'ShortcutOther') 'closing the comment returns focus to the original non-first app control'
+        $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $peek = Inspect-WithChrome
         $chip = Chip-State
         Check ($chip.label -eq 'Commenting' -and $chip.name -eq 'DevTools (open toolbar), Commenting') 'comment mode shows Commenting on the collapsed toolbar'
@@ -324,12 +367,33 @@ try {
         Check ($peekPanel.Count -eq 1 -and $peekToolbar.Count -eq 1 -and -not (Overlaps $peekPanel[0] $peekToolbar[0])) 'the flyout opens clear of the toolbar'
         $popupBounds = @($all | Where-Object { $_.type -eq 'Window' -or $_.className -match 'Popup' } |
             Select-Object selector, name, className, isOffscreen, x, y, width, height)
-        $null = Invoke-Cli @('ui', 'screenshot', '-w', $window, '--capture-screen', '-o', (Join-Path $evidence 'overlay-peek.png'))
+        # CLI screenshots hide DevTools; PrintWindow captures only the owned window, including its chrome.
+        Add-Type -AssemblyName System.Drawing
+        function Capture-Window([string]$Name, [string]$Handle = $window) {
+            Window-Guard $Handle
+            $path = Join-Path $evidence $Name
+            $rect = [BindingOwnersGuard]::PhysicalWindowRect([IntPtr][long]$Handle)
+            $bitmap = [Drawing.Bitmap]::new($rect.right - $rect.left, $rect.bottom - $rect.top)
+            try {
+                $graphics = [Drawing.Graphics]::FromImage($bitmap)
+                $hdc = $graphics.GetHdc()
+                try {
+                    if (-not [BindingOwnersGuard]::PrintWindow([IntPtr][long]$Handle, $hdc, 2)) {
+                        throw "Owned window capture failed: $Handle"
+                    }
+                }
+                finally { $graphics.ReleaseHdc($hdc); $graphics.Dispose() }
+                $bitmap.Save($path, [Drawing.Imaging.ImageFormat]::Png)
+            }
+            finally { $bitmap.Dispose() }
+            return $path
+        }
+        $null = Capture-Window 'overlay-peek.png'
         $popupWindows = @($peek.windows | Where-Object className -eq 'Microsoft.UI.Content.PopupWindowSiteBridge')
         Check ($popupWindows.Count -eq 1) 'one owned flyout popup is available for bounded capture'
         $popupWindow = [string]$popupWindows[0].hwnd
         Window-Guard $popupWindow
-        $null = Invoke-Cli @('ui', 'screenshot', '-w', $popupWindow, '--capture-screen', '-o', (Join-Path $evidence 'overlay-comment-panel.png'))
+        $null = Capture-Window 'overlay-comment-panel.png' $popupWindow
         $windowRoots = @($peek.windows | ForEach-Object { $_.elements[0] })
         $maximumWidth = ($windowRoots | Measure-Object width -Maximum).Maximum
         $maximumHeight = ($windowRoots | Measure-Object height -Maximum).Maximum
@@ -348,6 +412,7 @@ try {
         Check (@($expandedNodes | Where-Object { $_.automationId -eq 'DevToolsProtoPill' -and -not $_.isOffscreen }).Count -eq 1 -and
             @($expandedNodes | Where-Object { $_.automationId -eq 'DevToolsProtoRailL' -and -not $_.isOffscreen }).Count -eq 0) 'keyboard expansion exposes the bar without a second visible pill'
         $null = Invoke-Cli @('devtools', 'call', 'Overlay.hide', '-a', $app)
+        Start-Sleep -Milliseconds 400
         $hidden = Inspect-WithChrome
         $hiddenNodes = @($hidden.windows | ForEach-Object { Nodes $_.elements })
         Check (@($hiddenNodes | Where-Object {
@@ -358,16 +423,22 @@ try {
         $restoredNodes = @($restored.windows | ForEach-Object { Nodes $_.elements })
         Check (@($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoPill' -and -not $_.isOffscreen }).Count -eq 1 -and
             @($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoRailL' -and -not $_.isOffscreen }).Count -eq 0) 'show restores the previously expanded toolbar state'
-        # Standard radio menu items report their check state through TogglePattern.
+        # Standard toggle menu items report their check state through TogglePattern.
         $defaultBefore = Invoke-Cli @('config', 'get', 'run.devtools')
+        $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoMore', '-a', $app)
         try {
-            foreach ($mode in @(@('headless', 'DevToolsStartHidden'), @('off', 'DevToolsStartOff'), @('on', 'DevToolsStartShown'))) {
+            foreach ($mode in @(@('headless', 'On', 'Off'), @('off', 'Off', $null), @('on', 'On', 'On'))) {
                 $null = Invoke-Cli @('config', 'set', 'run.devtools', $mode[0])
                 Open-ToolbarMenu More
-                foreach ($id in @('DevToolsStartShown', 'DevToolsStartHidden', 'DevToolsStartOff')) {
-                    $selected = Invoke-Cli @('ui', 'get-property', $id, '-a', $app, '-p', 'ToggleState')
-                    $expected = if ($id -eq $mode[1]) { 'On' } else { 'Off' }
-                    Check ($selected.properties.ToggleState -eq $expected) "the menu reports $id as $expected for the CLI default $($mode[0])"
+                $enabled = Invoke-Cli @('ui', 'get-property', 'DevToolsStartEnabled', '-a', $app, '-p', 'ToggleState')
+                Check ($enabled.properties.ToggleState -eq $mode[1]) "the menu reports Start DevTools as $($mode[1]) for the CLI default $($mode[0])"
+                if ($mode[2]) {
+                    $shownState = (Invoke-Cli @('ui', 'get-property', 'DevToolsStartShown', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+                    Check ($shownState -eq $mode[2]) "the menu reports Show toolbar as $($mode[2]) for the CLI default $($mode[0])"
+                } else {
+                    # Invoke-Cli fails the run if Show toolbar is still in the menu.
+                    $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartShown', '-a', $app, '--gone', '-t', '3000')
+                    Check $true 'Show toolbar is hidden while DevTools is off'
                 }
                 $unchanged = Invoke-Cli @('config', 'get', 'run.devtools')
                 Check ($unchanged.value -eq $mode[0]) 'opening More does not change the startup setting'
@@ -375,17 +446,19 @@ try {
                 $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '--gone', '-t', '3000')
             }
             Open-ToolbarMenu More
-            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartHidden', '-a', $app)
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartShown', '-a', $app)
             $chosen = Invoke-Cli @('config', 'get', 'run.devtools')
             Check ($chosen.value -eq 'headless' -and $chosen.source -eq 'setting') 'winapp config reads the default chosen in the menu'
-            Open-ToolbarMenu More
-            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartOff', '-a', $app)
-            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartOffHint', '-a', $app, '-t', '5000')
-            $hint = Invoke-Cli @('ui', 'get-property', 'DevToolsStartOffHint', '-a', $app, '-p', 'Name')
-            Check ($hint.properties.Name -like '*winapp config set run.devtools on*' -and
-                $hint.properties.Name -like '*winapp run . --devtools on*') 'choosing off leaves both recovery commands visible'
+            $shownAfter = (Invoke-Cli @('ui', 'get-property', 'DevToolsStartShown', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
+            Check ($shownAfter -eq 'Off') 'the menu stays open and shows the new Show toolbar state'
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartEnabled', '-a', $app)
+            $off = Invoke-Cli @('config', 'get', 'run.devtools')
+            Check ($off.value -eq 'off') 'unchecking Start DevTools turns DevTools off for the next run'
+            # Invoke-Cli fails the run if Show toolbar is still in the open menu.
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartShown', '-a', $app, '--gone', '-t', '3000')
+            Check ($null -ne (Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '-t', '3000'))) 'turning DevTools off keeps the menu open and hides Show toolbar'
             $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
-            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartOffHint', '-a', $app, '--gone', '-t', '3000')
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '--gone', '-t', '3000')
             $commentState = (Invoke-Cli @('ui', 'get-property', 'DevToolsProtoComments', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
             Open-ToolbarMenu Comments
             $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoComments', '-a', $app, '-p', 'ExpandCollapseState', '--value', 'Expanded', '-t', '3000')
@@ -516,22 +589,7 @@ try {
             @((Invoke-Cli @('ui', 'inspect', '-a', $app, '-i')).windows | ForEach-Object { Nodes $_.elements } |
                 Where-Object name -eq 'Comment on this element').Count -eq 0) 'comment markers stay out of the UI Automation tree'
         $windowBox = @($pins.windows | Where-Object { [string]$_.hwnd -eq $window })[0].elements[0]
-        # winapp ui screenshot leaves DevTools chrome out of the image, so capture the window itself to see the markers.
-        Add-Type -AssemblyName System.Drawing
         $windowRect = [BindingOwnersGuard]::PhysicalWindowRect([IntPtr][long]$window)
-        function Capture-Window([string]$Name) {
-            $path = Join-Path $evidence $Name
-            $bitmap = [Drawing.Bitmap]::new($windowRect.right - $windowRect.left, $windowRect.bottom - $windowRect.top)
-            try {
-                $graphics = [Drawing.Graphics]::FromImage($bitmap)
-                $hdc = $graphics.GetHdc()
-                try { $null = [BindingOwnersGuard]::PrintWindow([IntPtr][long]$window, $hdc, 2) }
-                finally { $graphics.ReleaseHdc($hdc); $graphics.Dispose() }
-                $bitmap.Save($path, [Drawing.Imaging.ImageFormat]::Png)
-            }
-            finally { $bitmap.Dispose() }
-            return $path
-        }
         function Toggle-Markers {
             Open-ToolbarMenu Comments
             $before = (Invoke-Cli @('ui', 'get-property', 'DevToolsToggleMarkers', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
@@ -620,14 +678,16 @@ try {
             $scale = [BindingOwnersGuard]::GetDpiForWindow([IntPtr][long]$inspectorWindow) / 96.0
             $initialHeader = @(Nodes (Invoke-Cli @('ui', 'inspect', '-w', $inspectorWindow, '--depth', '40')).windows[0].elements |
                 Where-Object automationId -eq 'Opacity value')
-            Check ($initialHeader.Count -eq 1 -and $initialHeader[0].height -le 32 * $scale) 'property headers remain compact'
+            # The 32-DIP chevron and each one-DIP border round separately to physical pixels.
+            $maxHeaderHeight = [Math]::Ceiling(32 * $scale) + 2 * [Math]::Ceiling($scale)
+            Check ($initialHeader.Count -eq 1 -and $initialHeader[0].height -le $maxHeaderHeight) 'single-line property headers fit the platform chevron and border'
             foreach ($part in @('name', 'value', 'empty space', 'chevron')) {
                 $pane = Invoke-Cli @('ui', 'inspect', '-w', $inspectorWindow, '--depth', '40')
                 $headers = @(Nodes $pane.windows[0].elements | Where-Object automationId -eq 'Opacity value')
                 Check ($headers.Count -eq 1) 'one accessible header represents the property'
                 $header = $headers[0]
                 # A collapsed Expander's UIA bounds can include clipped content above its visible header.
-                $headerHeight = 26 * $scale
+                $headerHeight = $initialHeader[0].height
                 $offset = switch ($part) {
                     'name' { 24 * $scale }
                     'value' { 150 * $scale }
@@ -680,15 +740,6 @@ try {
         }
 
         # Ctrl+Shift+F12 moves keyboard focus to the toolbar; Esc returns it to the app element that had it.
-        function Wait-Focused([string]$Expected) {
-            $deadline = [DateTime]::UtcNow.AddSeconds(3)
-            do {
-                $current = Invoke-Cli @('ui', 'get-focused', '-a', $app)
-                if ($current.element.automationId -eq $Expected) { break }
-                Start-Sleep -Milliseconds 100
-            } while ([DateTime]::UtcNow -lt $deadline)
-            return [string]$current.element.automationId
-        }
         $null = Invoke-Cli @('ui', 'focus', 'ShortcutReturn', '-a', $app)
         $null = Invoke-Cli @('ui', 'send-keys', 'ctrl+shift+f12', '-a', $app, '--via', 'send-input')
         Check ((Wait-Focused 'DevToolsProtoPick') -eq 'DevToolsProtoPick') 'Ctrl+Shift+F12 moves keyboard focus to the toolbar'
@@ -880,6 +931,18 @@ try {
         $named = @($nodes | Where-Object name -eq 'WindowHeading')
         $templates = @($nodes | Where-Object name -eq 'TemplateHeading')
         Check ($named.Count -eq 1 -and $templates.Count -eq 2) 'comment targets are exact owned-window handles'
+        $offline = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'offline-named', '--text', 'Offline source marker',
+            '--file', 'MainWindow.xaml', '--name', 'WindowHeading', '--source-root', $sourceRoot)
+        Check (-not $offline.comment.anchor.elementPath) 'offline source comment has no stored runtime anchor'
+        $storePath = Join-Path $sourceRoot '.winapp\ui-comments.json'
+        $offlineStored = ((Get-Content -LiteralPath $storePath -Raw | ConvertFrom-Json).comments |
+            Where-Object id -eq 'offline-named') | ConvertTo-Json -Depth 100 -Compress
+        Check (-not ($offlineStored | ConvertFrom-Json).anchor.elementPath) 'persisted offline comment has no runtime anchor'
+        $null = Invoke-Cli @('devtools', 'attach', '--pid', [string]$owned.Id, '--source-root', $sourceRoot)
+        $markers = (Invoke-Cli @('devtools', 'call', 'Comment.list', '-a', [string]$owned.Id)).result
+        Check ($markers.total -eq 1 -and $markers.placed -eq 0 -and $markers.comments.Count -eq 1 -and
+            $markers.comments[0].id -eq 'offline-named' -and -not $markers.comments[0].placed -and
+            -not $markers.comments[0].anchor -and $markers.comments[0].handle -eq '0') 'duplicate live instances refuse the offline marker'
         $repeated = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'repeated', '--text', 'A unique x:Name is one place to edit',
             '--from-element', [string]$named[0].handle, '--app', [string]$owned.Id, '--source-root', $sourceRoot)
         Check ($repeated.comment.anchorConfirmed -and -not $repeated.comment.requiresConfirmation) 'a unique x:Name confirms even when its window is open twice'
@@ -915,8 +978,18 @@ try {
             }
             Check ($classification.truncated -eq $false -and $classification.censusNodes -ge 400) 'explicit bounded classification completes the larger census'
         }
+        $null = Invoke-Cli @('devtools', 'attach', '--pid', [string]$owned.Id, '--source-root', $sourceRoot)
+        $markers = (Invoke-Cli @('devtools', 'call', 'Comment.list', '-a', [string]$owned.Id)).result
+        $marker = @($markers.comments | Where-Object id -eq 'offline-named')
+        Check ($marker.Count -eq 1 -and $marker[0].placed -and $marker[0].anchor -and
+            $marker[0].handle -eq [string]$named[0].handle -and $markers.total -eq $markers.comments.Count -and
+            $markers.placed -eq @($markers.comments | Where-Object placed -eq $true).Count) 'refresh places the offline marker on the exact surviving native handle'
+        $offlineCurrent = ((Get-Content -LiteralPath $storePath -Raw | ConvertFrom-Json).comments |
+            Where-Object id -eq 'offline-named') | ConvertTo-Json -Depth 100 -Compress
+        Check ($offlineCurrent -ceq $offlineStored) 'runtime placement leaves the stored anchor and original comment identity unchanged'
         $captured = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'named', '--text', 'Review the heading',
             '--from-element', [string]$named[0].handle, '--app', [string]$owned.Id, '--source-root', $sourceRoot)
+        Check ($marker[0].anchor -ceq $captured.comment.anchor.elementPath) 'offline marker anchor matches a fresh live capture'
         $plain = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'unnamed', '--text', 'Review the unnamed heading',
             '--from-element', [string]$unnamed[0].handle, '--app', [string]$owned.Id, '--source-root', $sourceRoot)
         Check ($captured.comment.anchorConfirmed -and $plain.comment.anchorConfirmed) 'unique authored declarations confirm despite bound runtime text'
@@ -935,6 +1008,14 @@ try {
         Check ($edited.comment.anchorConfirmed -and $edited.comment.hits[0].text.Contains('Implemented heading')) 'named declaration survives successful authored edit'
         $weak = Invoke-Cli @('devtools', 'comments', 'get', 'unnamed', '--source-root', $sourceRoot)
         Check (-not $weak.comment.anchorConfirmed -and $weak.comment.requiresConfirmation -and $weak.comment.hits.Count -gt 0) 'changed unnamed declaration remains a ranked suggestion'
+        $null = Invoke-Cli @('devtools', 'attach', '--pid', [string]$owned.Id, '--source-root', $sourceRoot)
+        $markers = (Invoke-Cli @('devtools', 'call', 'Comment.list', '-a', [string]$owned.Id)).result
+        $marker = @($markers.comments | Where-Object id -eq 'offline-named')
+        Check ($marker.Count -eq 1 -and -not $marker[0].placed -and -not $marker[0].anchor -and
+            $marker[0].handle -eq '0') 'refresh refuses an offline marker whose captured source declaration changed'
+        $offlineCurrent = ((Get-Content -LiteralPath $storePath -Raw | ConvertFrom-Json).comments |
+            Where-Object id -eq 'offline-named') | ConvertTo-Json -Depth 100 -Compress
+        Check ($offlineCurrent -ceq $offlineStored) 'stale-source refusal preserves the entire stored offline comment'
         $saved = Invoke-Cli @('devtools', 'comments', 'update', 'named', '--status', 'resolved', '--note', 'Verified staged source', '--source-root', $sourceRoot)
         Check ($saved.comment.status -eq 'resolved' -and $saved.comment.anchor.authored.declaration -ceq $declaration) 'status update preserves creation evidence'
         Guard
@@ -954,46 +1035,84 @@ try {
     Check ($closed.ok -eq $false) 'closed target is not rebound to the surviving Window'
     $overlay = (Invoke-Cli @('devtools', 'call', 'Overlay.getState', '-a', [string]$owned.Id)).result
     Check ($overlay.toolbarVisible -eq $false) 'overlay remains hidden'
+    if ($VerifyComments) {
+        Control 'exit'
+        Check ($owned.WaitForExit(30000) -and $owned.ExitCode -eq 0) 'original fixture exits before the launch-only marker check'
+        $owned = $null
+        $report += '.launch'
+        $launchStarted = [DateTime]::UtcNow
+        $launchArguments = '"' + $report + '" single-large'
+        $launch = Invoke-Cli @('run', $project, '--devtools', 'headless', '--detach', '--args', $launchArguments)
+        $candidate = Get-Process -Id $launch.processId -ErrorAction Stop
+        $executable = $candidate.Path
+        $started = $candidate.StartTime.ToUniversalTime()
+        if ($candidate.ProcessName -ne $name -or $started -lt $launchStarted -or
+            -not $executable.StartsWith($stage + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Relaunch did not identify the owned fixture.'
+        }
+        $owned = $candidate
+        $null = $owned.Handle
+        # Read placement before attach or any command that could warm source classification.
+        $markers = (Invoke-Cli @('devtools', 'call', 'Comment.list', '-a', [string]$owned.Id)).result
+        $marker = @($markers.comments | Where-Object id -eq 'offline-named')
+        Check ($marker.Count -eq 1 -and $marker[0].placed -and $marker[0].anchor) 'launch alone places the offline marker in the larger window'
+        $tree = Invoke-Cli @('devtools', 'inspect', '-a', [string]$owned.Id, '--all', '--depth', '30')
+        $nodes = @(Nodes $tree.elements)
+        $named = @($nodes | Where-Object name -eq 'WindowHeading')
+        Check ($nodes.Count -ge 400 -and $named.Count -eq 1 -and
+            $marker[0].handle -eq [string]$named[0].handle) 'launch marker targets the exact named handle in the larger tree'
+        $offlineCurrent = ((Get-Content -LiteralPath $storePath -Raw | ConvertFrom-Json).comments |
+            Where-Object id -eq 'offline-named') | ConvertTo-Json -Depth 100 -Compress
+        Check ($offlineCurrent -ceq $offlineStored) 'launch placement preserves the stored offline comment'
+    }
     [ordered]@{ checks = $checks; result = 'passed' } | ConvertTo-Json | Set-Content (Join-Path $evidence 'result.json')
 }
 finally {
-    # A failed launch may have created the unique app before returning its PID.
-    if (-not $owned) {
-        $candidates = @(Get-Process | Where-Object ProcessName -eq $name)
-        if ($candidates.Count -eq 1 -and $candidates[0].StartTime.ToUniversalTime() -ge $launchStarted -and
-            $candidates[0].Path.StartsWith($stage + '\', [StringComparison]::OrdinalIgnoreCase)) {
-            $owned = $candidates[0]
-            $null = $owned.Handle
-            $started = $owned.StartTime.ToUniversalTime()
-            $executable = $owned.Path
-        }
-    }
-    if ($owned -and -not $owned.HasExited) {
-        Control 'exit'
-        if (-not $owned.WaitForExit(30000)) {
-            throw "Owned PID $($owned.Id) did not exit normally. Retaining its package/stage; no kill attempted."
-        }
-    }
-    $package = @(Get-AppxPackage -Name $name)
-    if ($ProbeOverlay -and $owned) {
-        Copy-Item -LiteralPath (Join-Path $env:TEMP "winapp-devtools-$($owned.Id).log") -Destination $evidence -ErrorAction SilentlyContinue
-    }
-    if ($owned -and $owned.HasExited) {
-        [ordered]@{ pid = $owned.Id; exitCode = $owned.ExitCode } | ConvertTo-Json |
-            Set-Content (Join-Path $evidence 'normal-shutdown.json')
-        foreach ($item in $package) {
-            if (-not $item.InstallLocation.StartsWith($stage + '\', [StringComparison]::OrdinalIgnoreCase)) {
-                throw 'Package install location does not match the owned stage; cleanup refused.'
+    try {
+        # A failed launch may have created the unique app before returning its PID.
+        if (-not $owned) {
+            $candidates = @(Get-Process | Where-Object ProcessName -eq $name)
+            if ($candidates.Count -eq 1 -and $candidates[0].StartTime.ToUniversalTime() -ge $launchStarted -and
+                $candidates[0].Path.StartsWith($stage + '\', [StringComparison]::OrdinalIgnoreCase)) {
+                $owned = $candidates[0]
+                $null = $owned.Handle
+                $started = $owned.StartTime.ToUniversalTime()
+                $executable = $owned.Path
             }
-            Remove-AppxPackage -Package $item.PackageFullName
         }
-        if ($owned.ExitCode -ne 0) { throw "Owned fixture exit was abnormal: $($owned.ExitCode)" }
+        if ($owned -and -not $owned.HasExited) {
+            Control 'exit'
+            if (-not $owned.WaitForExit(30000)) {
+                throw "Owned PID $($owned.Id) did not exit normally. Retaining its package/stage; no kill attempted."
+            }
+        }
+        $package = @(Get-AppxPackage -Name $name)
+        if ($ProbeOverlay -and $owned) {
+            Copy-Item -LiteralPath (Join-Path $env:TEMP "winapp-devtools-$($owned.Id).log") -Destination $evidence -ErrorAction SilentlyContinue
+        }
+        if ($owned -and $owned.HasExited) {
+            [ordered]@{ pid = $owned.Id; exitCode = $owned.ExitCode } | ConvertTo-Json |
+                Set-Content (Join-Path $evidence 'normal-shutdown.json')
+            foreach ($item in $package) {
+                if (-not $item.InstallLocation.StartsWith($stage + '\', [StringComparison]::OrdinalIgnoreCase)) {
+                    throw 'Package install location does not match the owned stage; cleanup refused.'
+                }
+                Remove-AppxPackage -Package $item.PackageFullName
+            }
+            if ($owned.ExitCode -ne 0) { throw "Owned fixture exit was abnormal: $($owned.ExitCode)" }
+        }
+        if (@(Get-AppxPackage -Name $name).Count -eq 0 -and @(Get-Process | Where-Object ProcessName -eq $name).Count -eq 0) {
+            Remove-Item -LiteralPath $stage -Recurse -Force
+        }
+        else { throw 'Owned fixture process or package remains; retaining its stage.' }
+        if (Test-Path -LiteralPath $stage) { throw 'Owned fixture stage remains after cleanup.' }
+        [ordered]@{ package = $name; processAbsent = $true; packageAbsent = $true; stageAbsent = $true } |
+            ConvertTo-Json | Set-Content (Join-Path $evidence 'cleanup.json')
     }
-    if (@(Get-AppxPackage -Name $name).Count -eq 0 -and @(Get-Process | Where-Object ProcessName -eq $name).Count -eq 0) {
-        Remove-Item -LiteralPath $stage -Recurse -Force
+    finally {
+        foreach ($setting in $localSettings) {
+            if ($setting.existed) { Move-Item -LiteralPath $setting.saved -Destination $setting.path -Force }
+            elseif (Test-Path -LiteralPath $setting.path) { Remove-Item -LiteralPath $setting.path }
+        }
     }
-    else { throw 'Owned fixture process or package remains; retaining its stage.' }
-    if (Test-Path -LiteralPath $stage) { throw 'Owned fixture stage remains after cleanup.' }
-    [ordered]@{ package = $name; processAbsent = $true; packageAbsent = $true; stageAbsent = $true } |
-        ConvertTo-Json | Set-Content (Join-Path $evidence 'cleanup.json')
 }
