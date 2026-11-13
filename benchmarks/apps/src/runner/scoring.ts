@@ -94,3 +94,18 @@ export function formatBreakdown(b: ScoreBreakdown): string {
   const scored = r.scored < r.total ? ` (${r.scored}/${r.total} scored)` : "";
   return `R${pct(r.pct)}${scored} Q${pct(b.quality.pct)} D${b.design ?? "–"}`;
 }
+
+/**
+ * Why the judge's rulings can't be scored, or undefined when they can. With no rulings the other parts
+ * are scaled up to 100, and a skipped required requirement can be neither a pass nor an app failure,
+ * so both are our failure (a harness error), not a score.
+ */
+export function incompleteJudging(
+  requirements: Array<{ id: number; status?: string }>,
+  requiredIds: readonly number[] = [],
+): string | undefined {
+  const ruled = requirements.filter((r) => r.status === "pass" || r.status === "fail");
+  if (requirements.length && !ruled.length) return "Validation ruled on no requirements";
+  const missing = requiredIds.filter((id) => !ruled.some((r) => r.id === id));
+  return missing.length ? `Judge did not rule on required requirement ${missing.join(", ")}` : undefined;
+}

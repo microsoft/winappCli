@@ -40,5 +40,6 @@ export function findVsMsBuild(
 }
 
 export function msbuildRetryArgs(csproj: string, platform: string): string[] {
-  return [csproj, "/restore", "/p:Configuration=Debug", `/p:Platform=${platform}`];
+  // RuntimeIdentifier is explicit because 32-bit MSBuild would otherwise default `winapp init` projects to win-x86.
+  return [csproj, "/restore", "/p:Configuration=Debug", `/p:Platform=${platform}`, `/p:RuntimeIdentifier=win-${platform}`];
 }

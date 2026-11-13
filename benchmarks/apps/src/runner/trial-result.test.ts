@@ -47,6 +47,14 @@ test("outcome says why a trial did not produce a working app", () => {
   assert.equal((toTrialResult({ ...base, builds: false, runs: false }) as any).outcome, "build-failed");
 });
 
+test("a failed gate is a valid failing trial, not an unlaunched app", () => {
+  const gateFail = { ...base, runs: false, checks: [{ id: "G0-framework", label: "Framework", kind: "gate" as const, source: "harness" as const, status: "fail" as const }] };
+  const t = toTrialResult(gateFail) as any;
+  assert.equal(t.outcome, "valid");
+  assert.equal(t.passed, false);
+  assert.equal(t.checks.some((c: any) => c.id === "launches"), false);
+});
+
 test("a scenario can mark a requirement as required", () => {
   const t = toTrialResult({ ...base, requiredRequirements: [2] }) as any;
   assert.equal(t.passed, false);
@@ -58,6 +66,13 @@ test("a required requirement that was never judged fails the trial", () => {
   const c = t.checks.find((x: any) => x.id === "requirement-2");
   assert.equal(c.kind, "required");
   assert.equal(c.detail, "not checked");
+});
+
+test("a required requirement the judge did not rule on is a harness error, not a pass", () => {
+  const t = toTrialResult({ ...base, requirements: [{ id: 1, status: "pass" }, { id: 2, status: "not-run" as any }], requiredRequirements: [2] }) as any;
+  assert.equal(t.outcome, "harness-error");
+  assert.equal(t.passed, false);
+  assert.match(t.error, /requirement 2/);
 });
 
 test("agent setups that are not one of the three arms are skipped", () => {

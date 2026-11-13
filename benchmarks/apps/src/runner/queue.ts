@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "fs";
-import { join } from "path";
+import { basename, join } from "path";
 import { spawnSync } from "child_process";
 import { loadRunFromDisk } from "./config.js";
 import { startKeepAwake, systemSuspendedBetween } from "./suspend-guard.js";
@@ -171,7 +171,7 @@ export class BenchmarkQueue {
         const locked = entry.harnessError === DESKTOP_LOCKED_ERROR ? true : entry.runs ? false : undefined;
         if (this.lockedStreak.record(locked) && this._running) {
           this.stoppedReason = `Stopped: ${this.lockedStreak.current} trials in a row could not drive the UI because the desktop is locked. ` +
-            "Unlock the session (and keep it unlocked, for example by disabling the lock screen timeout), then resume the run.";
+            `Unlock the session (and keep it unlocked, for example by disabling the lock screen timeout), then run --resume-run ${basename(this.runDir)}.`;
           emit(`\n⛔ ${this.stoppedReason}\n`);
           this._running = false;
         }

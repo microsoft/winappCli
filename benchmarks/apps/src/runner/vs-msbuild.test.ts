@@ -28,5 +28,5 @@ test("no retry builder without vswhere, or when vswhere finds nothing", () => {
 });
 
 test("retry builds Debug for the same platform and restores first", () => {
-  assert.deepEqual(msbuildRetryArgs("C:\\a\\App.csproj", "x64"), ["C:\\a\\App.csproj", "/restore", "/p:Configuration=Debug", "/p:Platform=x64"]);
+  assert.deepEqual(msbuildRetryArgs("C:\\a\\App.csproj", "x64"), ["C:\\a\\App.csproj", "/restore", "/p:Configuration=Debug", "/p:Platform=x64", "/p:RuntimeIdentifier=win-x64"]);
 });

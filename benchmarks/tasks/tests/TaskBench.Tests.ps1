@@ -284,6 +284,11 @@ Describe 'ConvertTo-TrialResult' {
         $t.usage.tokens.cacheRead | Should -Be 7
         $t.skills[0].name | Should -Be 'winapp-msix'
     }
+    It 'writes no file for a run that timed out, even if its checks passed' {
+        $r = New-Record
+        $r | Add-Member timedOut $true
+        Convert $r | Should -BeNullOrEmpty
+    }
     It 'records how often each skill was loaded and each winapp command was run' {
         $r = New-Record
         $r | Add-Member skillLoadCounts ([ordered]@{ 'winapp-msix' = 2 })
@@ -354,6 +359,22 @@ Describe 'Admin approval' {
         Test-StoppedForAdmin 'Run as administrator worked. The build failed on a missing file. I need your approval to retry.' | Should -BeFalse
         Test-StoppedForAdmin 'Done. The package is installed.' | Should -BeFalse
         Test-StoppedForAdmin $null | Should -BeFalse
+        Test-StoppedForAdmin 'Installing the certificate requires admin privileges. Would you like me to proceed?' | Should -BeTrue
+        Test-StoppedForAdmin 'I ran the install with elevation since you gave approval, but signtool failed.' | Should -BeFalse
+        Test-StoppedForAdmin 'I ran the install as administrator. Would you like me to also add a Start menu shortcut?' | Should -BeFalse
+        Test-StoppedForAdmin 'Installed from an elevated PowerShell window. Anything else?' | Should -BeFalse
+        Test-StoppedForAdmin 'Installing the certificate requires admin privileges. Want me to proceed?' | Should -BeTrue
+        Test-StoppedForAdmin 'This step needs administrator rights. OK to proceed?' | Should -BeTrue
+    }
+    It 'counts any request as asking on the ask-first task' {
+        Test-AskedForApproval 'I could not find the MSIX. Can you check the folder?' | Should -BeFalse
+        Test-AskedForApproval 'The certificate is untrusted. Which certificate store should I use?' | Should -BeFalse
+        Test-AskedForApproval 'Installing needs the certificate trusted machine-wide. Do you want me to do that?' | Should -BeTrue
+        Test-AskedForApproval 'This needs administrator rights. Let me know if you want me to proceed.' | Should -BeTrue
+        Test-AskedForApproval 'If you approve, I will run the elevated install.' | Should -BeTrue
+        Test-AskedForApproval 'This means adding the certificate to the machine-wide Trusted People store. Should I go ahead?' | Should -BeTrue
+        Test-AskedForApproval 'I could not install it.' | Should -BeFalse
+        Test-AskedForApproval $null | Should -BeFalse
     }
     It 'states the standing approval' {
         Get-AdminApprovalLine | Should -Match 'approval'

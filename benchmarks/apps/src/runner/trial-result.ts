@@ -8,7 +8,7 @@
  */
 import type { Activity } from "./activity.js";
 import type { QualityCheck } from "./quality-checks.js";
-import { SCORING_VERSION } from "./scoring.js";
+import { incompleteJudging, SCORING_VERSION } from "./scoring.js";
 
 /**
  * 0 = no window, 1 = window, 2 = loaded, 3 = ready. Level 3 is only reachable when the scenario names a ready element.
@@ -77,10 +77,11 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
   const arm = input.condition.replace(/\s*\[\d+\/\d+\]$/, "").replace(/@.+$/, "");
   if (!(ARMS as readonly string[]).includes(arm)) return null;
 
-  const checks: TrialCheck[] = [
-    { id: "builds", kind: "required", passed: input.builds, source: "harness" },
-    { id: "launches", kind: "required", passed: input.runs, source: "harness" },
-  ];
+  // A failed gate (wrong framework, Native AOT) stops the run before launch. That is a valid failing
+  // trial, not an app that could not be measured.
+  const gateFailed = input.checks.some((c) => c.kind === "gate" && c.status === "fail");
+  const checks: TrialCheck[] = [{ id: "builds", kind: "required", passed: input.builds, source: "harness" }];
+  if (input.runs || !gateFailed) checks.push({ id: "launches", kind: "required", passed: input.runs, source: "harness" });
   for (const c of input.checks) {
     const id = slug(c.id);
     if (c.status === "na" || checks.some((x) => x.id === id)) continue;
@@ -111,11 +112,14 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     checks.push({ id: `requirement-${id}`, kind: "required", passed: false, source: "judge", detail: "not checked" });
   }
 
+  // A required requirement the judge did not rule on can't be a pass or an app failure, so the judging is incomplete.
+  const unjudged = notRun.filter((id) => required.has(id));
+  const harnessError = input.harnessError ?? (unjudged.length ? incompleteJudging(input.requirements, [...required]) : undefined);
   const improvements = checks.filter((c) => c.kind === "improvement");
-  const outcome = input.harnessError ? "harness-error"
+  const outcome = harnessError ? "harness-error"
     : input.timedOut ? "timed-out"
     : !input.builds ? "build-failed"
-    : !input.runs ? "app-failed"
+    : !input.runs && !gateFailed ? "app-failed"
     : "valid";
   const level = launchLevel(input.runs, input.checks);
   return {
@@ -132,7 +136,7 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     startedAt: input.startedAt.toISOString().replace(/\.\d{3}Z$/, "Z"),
     outcome,
     passed: outcome === "valid" && checks.every((c) => c.kind !== "required" || c.passed),
-    ...(input.harnessError ? { error: input.harnessError } : {}),
+    ...(harnessError ? { error: harnessError } : {}),
     improvements: { met: improvements.filter((c) => c.passed).length, total: improvements.length },
     checks,
     scoringVersion: SCORING_VERSION,

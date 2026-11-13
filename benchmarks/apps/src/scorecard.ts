@@ -44,11 +44,14 @@ function minutes(s: unknown): number | null {
 }
 
 const trials: Trial[] = [];
+let harnessErrors = 0;
 for (const name of readdirSync(runDir)) {
   const f = join(runDir, name, "results.json");
   if (!existsSync(f)) continue;
   let r: any;
   try { r = JSON.parse(readFileSync(f, "utf-8")); } catch { continue; }
+  // Our tooling failed (locked desktop, judge), so there is no score to average.
+  if (r.harness_error) { harnessErrors++; continue; }
   const m = r.metrics ?? {};
   const b = m.score_breakdown;
   const checks: Record<string, string> = {};
@@ -69,6 +72,7 @@ for (const name of readdirSync(runDir)) {
   });
 }
 if (!trials.length) { console.error(`No results.json in ${runDir}`); process.exit(1); }
+if (harnessErrors) console.error(`Left out ${harnessErrors} harness-error trial(s); rerun them with --resume-run ${runName}.`);
 
 // Keep `setup@ref` only when a setup ran at more than one ref (e.g. cli-plus-skills@main
 // vs cli-plus-skills@my-branch); a single ref collapses to the setup name.

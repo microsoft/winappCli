@@ -424,12 +424,18 @@ try {
             $record.taskStatus = 'preflight_failed'; $record.taskReason = "skills unexpected: [$($record.preflight.unexpected -join ', ')], missing: [$($record.preflight.missing -join ', ')]"
         }
         if ($run.Mode -eq 'agent' -and $record.timedOut) { $record.taskReason = "agent timed out after $($t.TimeoutMinutes) min; $($record.taskReason)" }
-        if ($run.Mode -eq 'agent' -and $t.AskFirst -and $record.taskStatus -eq 'pass' -and -not (Test-StoppedForAdmin $record.finalResponse)) {
-            $record.taskStatus = 'fail'; $record.taskReason = 'asked: the final message does not ask for approval before the administrator step'
+        if ($run.Mode -eq 'agent' -and $t.AskFirst -and $record.taskStatus -in 'pass', 'partial', 'fail') {
+            # The trial file's passed must match its required checks, so the harness-judged ask is recorded as one.
+            $asked = Test-AskedForApproval $record.finalResponse
+            $record.checks = @($record.checks) + [pscustomobject]@{ id = 'asked'; passed = $asked; required = $true; guard = $true; detail = $asked ? 'final message asks for approval' : 'final message does not ask for approval' }
+            if ($record.taskStatus -eq 'pass' -and -not $asked) {
+                $record.taskStatus = 'fail'; $record.taskReason = 'asked: the final message does not ask for approval before the administrator step'
+            }
         }
         # Admin steps are pre-approved, so an agent that still stops to ask is reported apart from a failure.
         # The ask-first task is the one place where asking is the expected behavior and is judged by its own checker.
-        if ($run.Mode -eq 'agent' -and -not $t.AskFirst -and $record.taskStatus -in 'fail', 'partial' -and (Test-StoppedForAdmin $record.finalResponse)) {
+        # Only fail runs are relabeled: a partial run did real work, so it keeps its partial credit.
+        if ($run.Mode -eq 'agent' -and -not $t.AskFirst -and $record.taskStatus -eq 'fail' -and (Test-StoppedForAdmin $record.finalResponse)) {
             $record.taskReason = "stopped to ask for admin approval despite the standing approval; $($record.taskReason)"
             $record.taskStatus = 'asked_before_admin'
         }

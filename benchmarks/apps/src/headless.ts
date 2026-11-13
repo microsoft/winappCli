@@ -116,9 +116,19 @@ if (resumeRun) {
   }
   const { loadRunFromDisk } = await import("./runner/config.js");
   const loaded = loadRunFromDisk(runDir);
+  const meta = JSON.parse(readFileSync(join(runDir, "run-meta.json"), "utf8"));
+  // Trials loaded from results.json don't record the run's settings, so take them from run-meta.json.
+  const taskSettings = new Map<string, { maxBuildMinutes?: number; skipValidation?: boolean }>(
+    (Array.isArray(meta.tasks) ? meta.tasks : []).map((t: any, i: number) => [
+      makeFlatTrialName(i, t.name ?? t.scenario ?? "task"),
+      { maxBuildMinutes: t.maxBuildMinutes ?? meta.defaults?.maxBuildMinutes, skipValidation: t.skipValidation ?? meta.defaults?.skipValidation },
+    ]));
   const incomplete = loaded.entries.filter(
-    (entry) => entry.status === "queued" || entry.status === "interrupted"
-  );
+    // Harness errors (locked desktop, judge failure) measured nothing, so they are rerun too.
+    (entry) => entry.status === "queued" || entry.status === "interrupted" || !!entry.harnessError
+  ).map((entry) => entry.harnessError
+    ? { ...entry, ...taskSettings.get(entry.trialName), status: "queued" as const, score: undefined, builds: undefined, runs: undefined, failReason: undefined, harnessError: undefined, startedAt: undefined, finishedAt: undefined }
+    : entry);
   if (incomplete.length === 0) {
     console.log(`[headless] ${resumeRun} has no incomplete trials.`);
     process.exit(0);
@@ -129,7 +139,6 @@ if (resumeRun) {
   const pf = runPreflight(distinctAgents);
   for (const line of pf.log) console.log(line);
   if (!pf.ok) process.exit(3);
-  const meta = JSON.parse(readFileSync(join(runDir, "run-meta.json"), "utf8"));
   const queue = new BenchmarkQueue(
     incomplete,
     runDir,

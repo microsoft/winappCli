@@ -89,7 +89,7 @@ export function SummaryView({ entries, runDir }: Props) {
           const grade = getGrade(agg.avgScore);
           const scoreRange =
             agg.scoredTrials === 0
-              ? "\u2014"
+              ? "no scored trials"
               : agg.iterations > 1
               ? `${agg.avgScore}/100 (${agg.minScore}-${agg.maxScore})`
               : `${agg.avgScore}/100`;
