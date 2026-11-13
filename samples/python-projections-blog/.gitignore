@@ -1,0 +1,6 @@
+.venv/
+.winapp/
+Assets/
+Package.appxmanifest
+winapp.yaml
+*.png
