@@ -145,6 +145,7 @@ Additional guides:
 - [Sparse packaging](./docs/guides/sparse.md): give an unpackaged app package identity with an identity-only MSIX and external content
 - [Shell completion](./docs/guides/shell-completion.md): tab completion for commands, options, and values in PowerShell, bash, zsh, and fish
 - [.NET file-based apps](./docs/guides/dotnet-file-based.md): run a single `.cs` file with package identity, no project file or manifest required
+- [Python](./docs/guides/python.md): Windows API bindings, script identity and packaging; [unpackaged WinUI sample](./samples/python-winui)
 - **Electron JS/TypeScript bindings** *(npm only)*: opt into auto-generated WinRT bindings via `winapp init --add-js-bindings`. See task-focused guides:
   - [File picker](/docs/guides/electron/js-file-picker.md) — open native Windows file/folder pickers from the renderer
   - [Toast notifications](/docs/guides/electron/js-notification.md) — show Windows toasts with actions

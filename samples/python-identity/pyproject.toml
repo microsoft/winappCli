@@ -1,0 +1,13 @@
+[project]
+name = "winapp-python-identity"
+version = "0.0.0"
+requires-python = ">=3.11,<3.15"
+dependencies = []
+
+[tool.winapp.python-bindings]
+package = "winapp_bindings"
+codegen-version = "0.1.0rc24"
+additional-winmds = [
+    { namespace = "Windows.ApplicationModel", classes = ["Package"] },
+]
+additional-refs = []

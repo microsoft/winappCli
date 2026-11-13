@@ -1,0 +1,1 @@
+-e '.\.winapp\python\winapp_bindings'

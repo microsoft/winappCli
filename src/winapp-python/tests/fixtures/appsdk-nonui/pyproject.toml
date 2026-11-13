@@ -1,0 +1,4 @@
+[project]
+name = "winapp-appsdk-nonui-example"
+version = "0.0.0"
+requires-python = ">=3.11,<3.15"

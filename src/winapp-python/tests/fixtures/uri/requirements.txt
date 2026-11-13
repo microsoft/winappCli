@@ -1,0 +1,2 @@
+# The configured generated bindings declare the matching dynwinrt runtime.
+-e '.\.winapp\python\myapp_winrt'
