@@ -8,6 +8,19 @@
  */
 import type { Activity } from "./activity.js";
 import type { QualityCheck } from "./quality-checks.js";
+import { incompleteJudging, SCORING_VERSION } from "./scoring.js";
+
+/**
+ * 0 = no window, 1 = window, 2 = loaded, 3 = ready. Level 3 is only reachable when the scenario names a ready element.
+ * Undefined when the app ran but level 2 was not measured (UI input could not be sent), so a window alone is not reported as level 1.
+ */
+function launchLevel(runs: boolean, checks: QualityCheck[]): number | undefined {
+  if (!runs) return 0;
+  const status = (id: string) => checks.find((c) => c.id === id)?.status;
+  const l2 = status("L2");
+  if (l2 === undefined || l2 === "na") return undefined;
+  return l2 === "pass" ? (status("L3") === "pass" ? 3 : 2) : 1;
+}
 
 export const ARMS = ["none", "cli-only", "cli-plus-plugins"] as const;
 
@@ -22,6 +35,8 @@ export interface ExactUsage {
 export interface TrialResultInput {
   release: string;
   commit: string;
+  /** `winapp --version` output of the CLI the trial used, e.g. `0.7.1+<sha>`. */
+  winappVersion?: string;
   scenario: string;
   set?: "tuning" | "held-out";
   /** Agent setup name; a " [1/2]" suffix is ignored. */
@@ -42,6 +57,10 @@ export interface TrialResultInput {
   /** Skills loaded and winapp commands run; omitted when the event stream is unavailable. */
   activity?: Activity | null;
   failReason?: string;
+  /** Our tooling failed (judge never produced a result, locked desktop). Written as outcome `harness-error`. */
+  harnessError?: string;
+  /** The agent hit its time limit. Written as outcome `timed-out`. */
+  timedOut?: boolean;
 }
 
 interface TrialCheck {
@@ -75,7 +94,9 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     });
   }
   const required = new Set(input.requiredRequirements ?? []);
+  const notRun: number[] = [];
   for (const r of input.requirements) {
+    if (r.status !== "pass" && r.status !== "fail") { notRun.push(r.id); continue; }
     checks.push({
       id: `requirement-${r.id}`,
       kind: required.has(r.id) ? "required" : "improvement",
@@ -91,11 +112,21 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     checks.push({ id: `requirement-${id}`, kind: "required", passed: false, source: "judge", detail: "not checked" });
   }
 
+  // A required requirement the judge did not rule on can't be a pass or an app failure, so the judging is incomplete.
+  const unjudged = notRun.filter((id) => required.has(id));
+  const harnessError = input.harnessError ?? (unjudged.length ? incompleteJudging(input.requirements, [...required]) : undefined);
   const improvements = checks.filter((c) => c.kind === "improvement");
+  const outcome = harnessError ? "harness-error"
+    : input.timedOut ? "timed-out"
+    : !input.builds ? "build-failed"
+    : !input.runs && !gateFailed ? "app-failed"
+    : "valid";
+  const level = launchLevel(input.runs, input.checks);
   return {
     schemaVersion: 1,
     release: input.release,
     commit: input.commit,
+    ...(input.winappVersion ? { winappVersion: input.winappVersion } : {}),
     benchmark: "apps",
     scenario: slug(input.scenario),
     set: input.set ?? "tuning",
@@ -103,10 +134,14 @@ export function toTrialResult(input: TrialResultInput): Record<string, unknown> 
     model: slug(input.model),
     trial: input.iteration ?? 1,
     startedAt: input.startedAt.toISOString().replace(/\.\d{3}Z$/, "Z"),
-    outcome: !input.builds ? "build-failed" : !input.runs && !gateFailed ? "app-failed" : "valid",
-    passed: checks.every((c) => c.kind !== "required" || c.passed),
+    outcome,
+    passed: outcome === "valid" && checks.every((c) => c.kind !== "required" || c.passed),
+    ...(harnessError ? { error: harnessError } : {}),
     improvements: { met: improvements.filter((c) => c.passed).length, total: improvements.length },
     checks,
+    scoringVersion: SCORING_VERSION,
+    ...(level !== undefined ? { launchLevel: level } : {}),
+    ...(notRun.length ? { requirementsNotRun: notRun } : {}),
     ...(input.judgeModel ? { judge: { model: input.judgeModel, designScore: input.designScore } } : {}),
     ...(input.activity ? { skills: input.activity.skills, winappCommands: input.activity.winappCommands } : {}),
     usage: input.usage,
