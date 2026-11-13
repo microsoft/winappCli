@@ -208,6 +208,34 @@ public class ProgramMainTests
         Assert.IsFalse(stderr.Contains("Did you mean", StringComparison.Ordinal),
             $"A non-dash unknown command must not trigger the single-dash typo hint. Got stderr: {stderr}");
     }
+
+    [TestMethod]
+    [DataRow(new[] { "cert", "bogus" })]
+    [DataRow(new[] { "init", "a", "b", "c" })]
+    [DataRow(new[] { "--verbose", "bogus" })]
+    public async Task Main_ParseError_ExitsOne(string[] args)
+    {
+        // Issue #1015: parse errors that print help must exit 1, not 0, so scripts
+        // and agents don't treat a rejected command line as success.
+        var (_, _, exitCode) = await ProgramMainTestHarness.InvokeProgramAsync(args);
+
+        Assert.AreEqual(1, exitCode,
+            $"Parse error for '{string.Join(" ", args)}' must exit with code 1.");
+    }
+
+    [TestMethod]
+    public async Task Main_CliSchemaWithParseError_ExitsZeroWithSchemaJson()
+    {
+        // Review feedback (agammann): RequestedDescriptiveAction exempts --help and
+        // --cli-schema from the parse-error exit rule, so a malformed command line that
+        // still asks for the schema must exit 0 with schema JSON.
+        var (stdout, _, exitCode) = await ProgramMainTestHarness.InvokeProgramAsync(["cert", "bogus", "--cli-schema"]);
+
+        Assert.AreEqual(0, exitCode,
+            "A --cli-schema request must succeed even when the parser recorded errors for other tokens.");
+        Assert.IsTrue(stdout.Contains('{', StringComparison.Ordinal),
+            $"--cli-schema must emit machine-readable JSON. Got: {stdout}");
+    }
 }
 
 [TestClass]

@@ -342,13 +342,13 @@ internal static class Program
             }
         }
 
-        return await RunWithTelemetryAsync(parsedArgs, isCompleteMode || framedStdout, () =>
+        return await RunWithTelemetryAsync(parsedArgs, isCompleteMode || framedStdout, async () =>
         {
             // --help and --cli-schema describe the command; they never execute it, so they run here
             // regardless of --on rather than validating or preparing a target just to print text.
             if (IsDescriptiveAction(parsedArgs))
             {
-                return parsedArgs.InvokeAsync();
+                return await parsedArgs.InvokeAsync();
             }
 
             // Target selection is settled before anything else, and settled for every command.
@@ -376,12 +376,11 @@ internal static class Program
             {
                 if (effectiveJson && TryEmitCommandJsonError(parsedArgs, selectionError.Message))
                 {
-                    return Task.FromResult(TargetOutput.InvalidCommandLineExitCode);
+                    return TargetOutput.InvalidCommandLineExitCode;
                 }
-                return Task.FromResult(TargetOutput.RejectSelection(
-                    serviceProvider.GetRequiredService<IAnsiConsole>(), effectiveJson, selectionError));
+                return TargetOutput.RejectSelection(
+                    serviceProvider.GetRequiredService<IAnsiConsole>(), effectiveJson, selectionError);
             }
-
             if (targetsSandbox)
             {
                 serviceProvider.GetRequiredService<WindowsSandboxLifecycle>().GetExpectation = () => expectation;
@@ -395,7 +394,7 @@ internal static class Program
             if (parsedArgs.CommandResult.Command is not RunCommand &&
                 WindowsCommandLine.FindOptionLikePositionals(parsedArgs) is { Count: > 0 } stray)
             {
-                return Task.FromResult(RejectOptionLikePositionals(parsedArgs, stray, effectiveJson));
+                return RejectOptionLikePositionals(parsedArgs, stray, effectiveJson);
             }
 
             // One pre-dispatch interception, before any local UI service runs. A command the user
@@ -410,19 +409,19 @@ internal static class Program
             // truthful, and it runs on this machine only because it runs nothing at all.
             if (GuestCommentContext.TryActivateGuestContext(parsedArgs, serviceProvider, effectiveJson) is { } guestContextExitCode)
             {
-                return Task.FromResult(guestContextExitCode);
+                return guestContextExitCode;
             }
 
             if (ExecutionTargetDevToolsRouter.ShouldRoute(parsedArgs))
             {
-                return serviceProvider.GetRequiredService<ExecutionTargetDevToolsRouter>()
+                return await serviceProvider.GetRequiredService<ExecutionTargetDevToolsRouter>()
                     .RouteAsync(parsedArgs, CancellationToken.None, Console.Out);
             }
 
             if (parsedArgs.Errors.Count == 0 && ExecutionTargetUiRouter.ShouldRoute(parsedArgs))
             {
                 var router = serviceProvider.GetRequiredService<ExecutionTargetUiRouter>();
-                return router.RouteAsync(
+                return await router.RouteAsync(
                     args,
                     TargetUiRequirements.For(parsedArgs),
                     effectiveJson,
@@ -437,10 +436,10 @@ internal static class Program
                 // error, so point at --help instead. A bare "winapp ui" or command group keeps its
                 // help: that is how people discover the commands.
                 parseError.ShowHelp = false;
-                return InvokeWithHelpPointerAsync(parsedArgs);
+                return await InvokeWithHelpPointerAsync(parsedArgs);
             }
 
-            return InvokeCommandAsync();
+            return await InvokeCommandAsync();
 
             async Task<int> InvokeCommandAsync()
             {
@@ -455,6 +454,16 @@ internal static class Program
                 {
                     DevToolsUiTip.WriteIfApplies(parsedArgs, Console.Error);
                 }
+                // Parse errors must exit non-zero (issue #1015). InvokeAsync displays
+                // the error and help text, but return 1 explicitly so scripts and
+                // agents don't treat a rejected command line as success.
+                // Exception: a help / CLI-schema request succeeds by displaying text,
+                // even when the parser also recorded errors for other tokens
+                // (e.g. `run --help --args guest-agent` must still exit 0).
+                if (parsedArgs.Errors.Count > 0 && result == 0 && !RequestedDescriptiveAction(parsedArgs))
+                {
+                    return 1;
+                }
                 return serviceProvider.GetRequiredService<ExecutionTargets.GuestAgent.GuestCommentContext>()
                     .ClassifyWriterResult(result);
             }
@@ -466,9 +475,44 @@ internal static class Program
         parsedArgs.Action is { Terminating: true } action &&
         action != parsedArgs.CommandResult.Command.Action;
 
+    /// <summary>
+    /// True when the user asked for a describe-the-command action (help / CLI schema) on any
+    /// command in this parse, even when the parser also recorded errors for other tokens.
+    /// Unlike <see cref="IsDescriptiveAction"/>, this does not require a clean parse: the
+    /// request itself is what matters, because a help/schema request succeeds by displaying
+    /// text. Detected from the matched options rather than the selected action, so it holds
+    /// whether the parser selected the help action or a parse-error action for the request.
+    /// </summary>
+    private static bool RequestedDescriptiveAction(System.CommandLine.ParseResult parsedArgs)
+    {
+        for (System.CommandLine.Parsing.CommandResult? command = parsedArgs.CommandResult;
+            command is not null;
+            command = command.Parent as System.CommandLine.Parsing.CommandResult)
+        {
+            foreach (var option in command.Children.OfType<System.CommandLine.Parsing.OptionResult>())
+            {
+                if (option.Implicit)
+                {
+                    continue;
+                }
+                if (option.Option is System.CommandLine.Help.HelpOption ||
+                    option.Option == WinAppRootCommand.CliSchemaOption)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static async Task<int> InvokeWithHelpPointerAsync(System.CommandLine.ParseResult parsedArgs)
     {
         var exitCode = await parsedArgs.InvokeAsync();
+        // Parse errors must exit non-zero (issue #1015).
+        if (parsedArgs.Errors.Count > 0 && exitCode == 0)
+        {
+            return 1;
+        }
         var names = new List<string>();
         for (var command = parsedArgs.CommandResult.Command; command is not null and not System.CommandLine.RootCommand;
             command = command.Parents.OfType<System.CommandLine.Command>().FirstOrDefault())
