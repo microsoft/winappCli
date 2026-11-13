@@ -34,6 +34,10 @@ public sealed class ReactorSecretParityTests
 
     public sealed record SignedIn(string User, string Password) : AuthState;
 
+    public sealed record Profile(string Name);
+
+    public sealed record Member(Profile Profile, string Password) : AuthState;
+
     public sealed record AppState(AuthState Auth, int Count);
 
     public sealed record Wrapper(object Value);
@@ -128,6 +132,26 @@ public sealed class ReactorSecretParityTests
         Assert.IsTrue(Shown("", "object", "{ User = ada, Password = hunter2 }").Redacted, "an anonymous type prints its members too");
         Assert.AreEqual(("<redacted>", true), ReactorElementProps.FormatText("Tag", "SignedIn { User = ada, Password = hunter2 }"));
         Assert.AreEqual(("Hello, Password = x", false), ReactorElementProps.FormatText("Text", "Hello, Password = x"), "plain text is not a record");
+    }
+
+    [TestMethod]
+    public void APasswordPrintedAfterABrace_IsRedacted()
+    {
+        AuthState member = new Member(new Profile("ada"), "hunter2");
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Auth", member), "after a nested record");
+        Assert.IsTrue(Shown("", "AuthState", "Member { Profile = Profile { Name = ada }, Password = hunter2 }").Redacted);
+        Assert.IsTrue(Shown("", "AuthState", "SignedIn { Greeting = Hi {name}, Password = hunter2 }").Redacted);
+        Assert.IsTrue(Shown("", "AuthState", "SignedIn { Opts = Opts { }, Password = hunter2 }").Redacted);
+        Assert.IsFalse(Shown("", "AuthState", "SignedOut { }").Redacted);
+    }
+
+    [TestMethod]
+    public void LongText_IsCheckedQuickly()
+    {
+        var text = "{ " + new string('a', 200_000);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.IsFalse(ReactorElementProps.FormatText("ToolTip", text).Redacted);
+        Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
     }
 
     [TestMethod]

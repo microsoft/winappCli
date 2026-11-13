@@ -31,10 +31,13 @@ internal static class DevToolsSecrets
     private static readonly Dictionary<string, List<Type>> TypesByName = new(StringComparer.Ordinal);
     private static readonly HashSet<Assembly> Indexed = [];
 
-    // A member whose name ends in Password inside a record's printed braces ("Login { User = ada, Password = hunter2 }"),
-    // anywhere in the text: a tuple, a KeyValuePair or a type's own ToString can print a record inside its own text.
+    // A member whose name ends in Password, printed the way a record prints one ("Login { User = ada, Password = hunter2 }"),
+    // anywhere in text that holds a record's braces: a tuple, a KeyValuePair or a type's own ToString can print a record
+    // inside its own text, and the record can print a nested record or a brace before the password. Both patterns run
+    // in linear time on long text such as a chat message shown in a ToolTip.
+    private static readonly Regex RecordBraces = new(@"\{\s", RegexOptions.CultureInvariant);
     private static readonly Regex SecretMember =
-        new(@"\{\s[^{}]*?\w*password\s=\s", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        new(@"[{,]\s\w*password\s=\s", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     internal static bool IsSecretName(string? name) =>
         name is not null && name.EndsWith("Password", StringComparison.OrdinalIgnoreCase);
@@ -46,7 +49,7 @@ internal static class DevToolsSecrets
     /// (a string value, or Reactor's quoted text of one) is never scanned.
     /// </summary>
     internal static bool PrintsSecret(object? value, string? text) =>
-        value is not string && text is not null && !text.StartsWith('"') && SecretMember.IsMatch(text);
+        value is not string && text is not null && !text.StartsWith('"') && RecordBraces.IsMatch(text) && SecretMember.IsMatch(text);
 
     /// <summary>Forgets what was learned about types, after .NET Hot Reload changed them.</summary>
     internal static void ClearCache()
