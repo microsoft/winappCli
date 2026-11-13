@@ -79,8 +79,8 @@ public partial class RealUiAutomationTests
         var action = await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() =>
             svc.FindSingleElementAsync(target, query, requireUnique: true, CancellationToken.None));
 
-        StringAssert.StartsWith(read.Message, $"Selector matched {all.Length} elements:");
-        StringAssert.Contains(read.Message, $"  ... and {all.Length - 5} more");
+        Assert.StartsWith($"Selector matched {all.Length} elements:", read.Message);
+        Assert.Contains($"  ... and {all.Length - 5} more", read.Message);
         var readLines = read.Message.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
         var actionLines = action.Message.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
         Assert.AreEqual(actionLines.Length, readLines.Length, read.Message);
@@ -102,7 +102,7 @@ public partial class RealUiAutomationTests
             svc.FindSingleElementAsync(target, query, CancellationToken.None));
         var action = await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() =>
             svc.FindSingleElementAsync(target, query, requireUnique: true, CancellationToken.None));
-        StringAssert.Contains(read.Message, "  ... and ");
+        Assert.Contains("  ... and ", read.Message);
         Assert.AreEqual(action.Message.Split('\n')[0], read.Message.Split('\n')[0], "reads and actions count the same matches");
 
         // One exact Name match is preferred before any ambiguity is reported.
@@ -130,7 +130,7 @@ public partial class RealUiAutomationTests
         var error = await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() =>
             svc.FindSingleElementAsync(SessionFor(fx), new UiSelector { ControlType = "Button" }, CancellationToken.None));
 
-        StringAssert.StartsWith(error.Message, "Selector matched 2 elements:");
+        Assert.StartsWith("Selector matched 2 elements:", error.Message);
     }
 
     [TestMethod]

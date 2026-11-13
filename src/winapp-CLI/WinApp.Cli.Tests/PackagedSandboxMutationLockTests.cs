@@ -191,7 +191,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         (await harness.Processes.WaitForNextAsync(ct)).Exit(0);
         Assert.AreEqual(0, await task);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { LayoutReconciliation.Exact },
             harness.Msix.LayoutReconciliations,
             "a generated AppX directory is winapp's own, so it is reconciled exactly");
@@ -215,7 +215,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         (await harness.Processes.WaitForNextAsync(ct)).Exit(0);
         Assert.AreEqual(0, await task);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { LayoutReconciliation.Additive },
             harness.Msix.LayoutReconciliations,
             "a directory the user named must never have files removed from it");

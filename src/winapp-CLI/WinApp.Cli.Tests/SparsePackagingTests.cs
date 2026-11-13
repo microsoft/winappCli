@@ -452,7 +452,7 @@ public class SparsePackagingTests : BaseCommandTests
         // Assert
         Assert.AreEqual(1, exitCode, "An unsupported target should fail even without a manifest");
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "Unsupported target");
+        Assert.Contains("Unsupported target", allOutput);
         Assert.IsFalse(allOutput.Contains("AppX manifest not found"), "Should not report a missing manifest for an unsupported target");
     }
 

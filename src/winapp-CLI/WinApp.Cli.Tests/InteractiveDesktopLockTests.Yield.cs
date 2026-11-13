@@ -165,8 +165,8 @@ public partial class InteractiveDesktopLockTests
         Assert.AreEqual("a-waiting-workflow", after.Owner!.Key, "the waiter must take the turn");
         Assert.AreEqual(1, after.OwnerCommands.Count);
         Assert.AreEqual(UiCommandStatus.Running, after.OwnerCommands[0].Status);
-        CollectionAssert.Contains(
-            _signals.Signalled, (WaitingPid, WaitingStart),
+        Assert.Contains(
+            (WaitingPid, WaitingStart), _signals.Signalled,
             "the promoted waiter must be woken rather than left to time out");
     }
 
@@ -310,7 +310,7 @@ public partial class InteractiveDesktopLockTests
         var after = _store.Read().State!;
         Assert.AreEqual("a-waiting-workflow", after.Owner!.Key,
             "yield's normalization must publish the recovery it just performed");
-        CollectionAssert.Contains(_signals.Signalled, (WaitingPid, WaitingStart));
+        Assert.Contains((WaitingPid, WaitingStart), _signals.Signalled);
     }
 
     /// <summary>

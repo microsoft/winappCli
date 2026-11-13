@@ -40,7 +40,7 @@ public class AzureSigningServiceTests
         // The bearer token is attached and the subscriptions endpoint is targeted.
         Assert.AreEqual("Bearer", handler.LastRequest!.Headers.Authorization!.Scheme);
         Assert.AreEqual("token", handler.LastRequest.Headers.Authorization.Parameter);
-        StringAssert.Contains(handler.LastRequestUri!, "https://management.azure.com/subscriptions?api-version=");
+        Assert.Contains("https://management.azure.com/subscriptions?api-version=", handler.LastRequestUri!);
     }
 
     [TestMethod]
@@ -70,7 +70,7 @@ public class AzureSigningServiceTests
         Assert.AreEqual("https://eus.codesigning.azure.net", accounts[0].AccountUri);
 
         // Resource-group-scoped URL is used when a group is supplied.
-        StringAssert.Contains(handler.LastRequestUri!, "/resourceGroups/my-rg/providers/Microsoft.CodeSigning/codeSigningAccounts");
+        Assert.Contains("/resourceGroups/my-rg/providers/Microsoft.CodeSigning/codeSigningAccounts", handler.LastRequestUri!);
     }
 
     [TestMethod]
@@ -82,7 +82,7 @@ public class AzureSigningServiceTests
         var accounts = await service.ListSigningAccountsAsync("token", "sub-1");
 
         Assert.AreEqual(0, accounts.Count);
-        StringAssert.Contains(handler.LastRequestUri!, "/subscriptions/sub-1/providers/Microsoft.CodeSigning/codeSigningAccounts");
+        Assert.Contains("/subscriptions/sub-1/providers/Microsoft.CodeSigning/codeSigningAccounts", handler.LastRequestUri!);
         Assert.IsFalse(handler.LastRequestUri!.Contains("/resourceGroups/"), "Should not include a resource group segment");
     }
 
@@ -105,7 +105,7 @@ public class AzureSigningServiceTests
         Assert.AreEqual("profile-a", profiles[0].Name);
         Assert.AreEqual("PublicTrust", profiles[0].ProfileType);
         Assert.AreEqual("Active", profiles[0].Status);
-        StringAssert.Contains(handler.LastRequestUri!, "/codeSigningAccounts/myaccount/certificateProfiles");
+        Assert.Contains("/codeSigningAccounts/myaccount/certificateProfiles", handler.LastRequestUri!);
     }
 
     [TestMethod]
@@ -120,8 +120,8 @@ public class AzureSigningServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ListSubscriptionsAsync("token"));
 
-        StringAssert.Contains(ex.Message, "AuthorizationFailed");
-        StringAssert.Contains(ex.Message, "The client does not have authorization.");
+        Assert.Contains("AuthorizationFailed", ex.Message);
+        Assert.Contains("The client does not have authorization.", ex.Message);
     }
 
     [TestMethod]
@@ -133,7 +133,7 @@ public class AzureSigningServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ListSubscriptionsAsync("token"));
 
-        StringAssert.Contains(ex.Message, "500");
+        Assert.Contains("500", ex.Message);
     }
 
     [TestMethod]
@@ -161,7 +161,7 @@ public class AzureSigningServiceTests
         Assert.AreEqual("sub-1", subscriptions[0].SubscriptionId);
         Assert.AreEqual("sub-2", subscriptions[1].SubscriptionId);
         Assert.AreEqual(2, handler.RequestUris.Count, "Both the initial URL and the nextLink should be requested");
-        StringAssert.Contains(handler.RequestUris[1], "$skiptoken=page2");
+        Assert.Contains("$skiptoken=page2", handler.RequestUris[1]);
     }
 
     [TestMethod]
@@ -181,7 +181,7 @@ public class AzureSigningServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ListSubscriptionsAsync("token"));
 
-        StringAssert.Contains(ex.Message, "repeated nextLink");
+        Assert.Contains("repeated nextLink", ex.Message);
     }
 
     [TestMethod]
@@ -202,7 +202,7 @@ public class AzureSigningServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ListSubscriptionsAsync("token"));
 
-        StringAssert.Contains(ex.Message, "untrusted");
+        Assert.Contains("untrusted", ex.Message);
         Assert.AreEqual(1, handler.RequestUris.Count, "The untrusted nextLink must not be fetched");
     }
 
@@ -261,7 +261,7 @@ public class AzureSigningServiceTests
         Assert.AreEqual("https://eus.codesigning.azure.net", account.AccountUri);
 
         // Direct GET on the named account — no list segment, so only reader on the resource is needed.
-        StringAssert.Contains(handler.LastRequestUri!, "/resourceGroups/my-rg/providers/Microsoft.CodeSigning/codeSigningAccounts/myaccount?api-version=");
+        Assert.Contains("/resourceGroups/my-rg/providers/Microsoft.CodeSigning/codeSigningAccounts/myaccount?api-version=", handler.LastRequestUri!);
         Assert.AreEqual("token", handler.LastRequest!.Headers.Authorization!.Parameter);
     }
 
@@ -288,7 +288,7 @@ public class AzureSigningServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.GetSigningAccountAsync("token", "sub-1", "my-rg", "myaccount"));
 
-        StringAssert.Contains(ex.Message, "AuthorizationFailed");
+        Assert.Contains("AuthorizationFailed", ex.Message);
     }
 
     [TestMethod]
@@ -312,7 +312,7 @@ public class AzureSigningServiceTests
 
         // Direct GET on the named profile — no certificateProfiles list, so a profile-scoped
         // signer principal that cannot enumerate the collection still validates successfully.
-        StringAssert.Contains(handler.LastRequestUri!, "/codeSigningAccounts/myaccount/certificateProfiles/profile-a?api-version=");
+        Assert.Contains("/codeSigningAccounts/myaccount/certificateProfiles/profile-a?api-version=", handler.LastRequestUri!);
     }
 
     [TestMethod]
@@ -338,7 +338,7 @@ public class AzureSigningServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.GetCertificateProfileAsync("token", "sub-1", "my-rg", "myaccount", "profile-a"));
 
-        StringAssert.Contains(ex.Message, "AuthorizationFailed");
+        Assert.Contains("AuthorizationFailed", ex.Message);
     }
 
     private sealed class StubHttpMessageHandler(HttpStatusCode statusCode, string body) : HttpMessageHandler

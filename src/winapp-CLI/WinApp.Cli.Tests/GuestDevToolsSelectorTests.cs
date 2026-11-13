@@ -28,7 +28,7 @@ public sealed class GuestDevToolsSelectorTests
     {
         var error = Assert.ThrowsExactly<InvalidOperationException>(() =>
             GuestDevToolsSelector.Parse(value, WindowsSandboxTarget.Default));
-        StringAssert.Contains(error.Message, "winapp devtools list --on sandbox");
+        Assert.Contains("winapp devtools list --on sandbox", error.Message);
     }
 
     [TestMethod]

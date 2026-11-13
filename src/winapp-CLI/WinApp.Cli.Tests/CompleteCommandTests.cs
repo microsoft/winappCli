@@ -28,13 +28,13 @@ public class CompleteCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
         Assert.IsTrue(completions.Length > 0, "Should return completions");
-        CollectionAssert.Contains(completions, "init");
-        CollectionAssert.Contains(completions, "cert");
-        CollectionAssert.Contains(completions, "package");
-        CollectionAssert.Contains(completions, "manifest");
-        CollectionAssert.Contains(completions, "sign");
-        CollectionAssert.Contains(completions, "run");
-        CollectionAssert.Contains(completions, "ui");
+        Assert.Contains("init", completions);
+        Assert.Contains("cert", completions);
+        Assert.Contains("package", completions);
+        Assert.Contains("manifest", completions);
+        Assert.Contains("sign", completions);
+        Assert.Contains("run", completions);
+        Assert.Contains("ui", completions);
     }
 
     [TestMethod]
@@ -64,7 +64,7 @@ public class CompleteCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
-        CollectionAssert.DoesNotContain(completions, "complete");
+        Assert.DoesNotContain("complete", completions);
     }
 
     // --- Prefix matching (not substring) ---
@@ -79,10 +79,10 @@ public class CompleteCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
-        CollectionAssert.Contains(completions, "init");
+        Assert.Contains("init", completions);
         // Substring matches should NOT appear -- "sign", "unregister" contain "in" but don't start with it
-        CollectionAssert.DoesNotContain(completions, "sign");
-        CollectionAssert.DoesNotContain(completions, "unregister");
+        Assert.DoesNotContain("sign", completions);
+        Assert.DoesNotContain("unregister", completions);
     }
 
     [TestMethod]
@@ -96,12 +96,12 @@ public class CompleteCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
-        CollectionAssert.Contains(completions, "--cli-schema");
-        CollectionAssert.Contains(completions, "--config-dir");
-        CollectionAssert.Contains(completions, "--config-only");
+        Assert.Contains("--cli-schema", completions);
+        Assert.Contains("--config-dir", completions);
+        Assert.Contains("--config-only", completions);
         // Non-matching options should be absent
-        CollectionAssert.DoesNotContain(completions, "--setup-sdks");
-        CollectionAssert.DoesNotContain(completions, "--verbose");
+        Assert.DoesNotContain("--setup-sdks", completions);
+        Assert.DoesNotContain("--verbose", completions);
     }
 
     [TestMethod]
@@ -141,11 +141,11 @@ public class CompleteCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
         // "pack" is an alias for "package", "run-buildtool" is an alias for "tool"
-        CollectionAssert.DoesNotContain(completions, "pack");
-        CollectionAssert.DoesNotContain(completions, "run-buildtool");
+        Assert.DoesNotContain("pack", completions);
+        Assert.DoesNotContain("run-buildtool", completions);
         // Primary names should be present
-        CollectionAssert.Contains(completions, "package");
-        CollectionAssert.Contains(completions, "tool");
+        Assert.Contains("package", completions);
+        Assert.Contains("tool", completions);
     }
 
     [TestMethod]
@@ -159,10 +159,10 @@ public class CompleteCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
-        CollectionAssert.DoesNotContain(completions, "-h");
-        CollectionAssert.DoesNotContain(completions, "-?");
-        CollectionAssert.DoesNotContain(completions, "/h");
-        CollectionAssert.DoesNotContain(completions, "/?");
+        Assert.DoesNotContain("-h", completions);
+        Assert.DoesNotContain("-?", completions);
+        Assert.DoesNotContain("/h", completions);
+        Assert.DoesNotContain("/?", completions);
     }
 
     // --- Subcommand completions ---
@@ -177,9 +177,9 @@ public class CompleteCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
-        CollectionAssert.Contains(completions, "generate");
-        CollectionAssert.Contains(completions, "install");
-        CollectionAssert.Contains(completions, "info");
+        Assert.Contains("generate", completions);
+        Assert.Contains("install", completions);
+        Assert.Contains("info", completions);
     }
 
     [TestMethod]
@@ -192,9 +192,9 @@ public class CompleteCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
-        CollectionAssert.Contains(completions, "generate");
-        CollectionAssert.Contains(completions, "update-assets");
-        CollectionAssert.Contains(completions, "add-alias");
+        Assert.Contains("generate", completions);
+        Assert.Contains("update-assets", completions);
+        Assert.Contains("add-alias", completions);
     }
 
     // --- Options completions ---
@@ -209,10 +209,10 @@ public class CompleteCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
-        CollectionAssert.Contains(completions, "--setup-sdks");
-        CollectionAssert.Contains(completions, "--config-dir");
-        CollectionAssert.Contains(completions, "--use-defaults");
-        CollectionAssert.Contains(completions, "--no-gitignore");
+        Assert.Contains("--setup-sdks", completions);
+        Assert.Contains("--config-dir", completions);
+        Assert.Contains("--use-defaults", completions);
+        Assert.Contains("--no-gitignore", completions);
     }
 
     [TestMethod]
@@ -245,9 +245,9 @@ public class CompleteCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var completions = GetCompletionLabels();
-        CollectionAssert.Contains(completions, "generate");
-        CollectionAssert.Contains(completions, "install");
-        CollectionAssert.Contains(completions, "info");
+        Assert.Contains("generate", completions);
+        Assert.Contains("install", completions);
+        Assert.Contains("info", completions);
     }
 
     [TestMethod]

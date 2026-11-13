@@ -415,13 +415,13 @@ public class ManifestServiceTests
         var result = ManifestService.FormatXmlAttributes(input);
 
         // Element with 3 attributes is split so each attribute is on its own line.
-        StringAssert.Contains(result, "<a" + Environment.NewLine);
-        StringAssert.Contains(result, "x=\"1\"");
-        StringAssert.Contains(result, "z=\"3\" />");
+        Assert.Contains("<a" + Environment.NewLine, result);
+        Assert.Contains("x=\"1\"", result);
+        Assert.Contains("z=\"3\" />", result);
         // Element with 2 attributes stays on a single line.
-        StringAssert.Contains(result, "<b p=\"1\" q=\"2\" />");
+        Assert.Contains("<b p=\"1\" q=\"2\" />", result);
         // Non-tag lines pass through untouched.
-        StringAssert.Contains(result, "plain text");
+        Assert.Contains("plain text", result);
         // The trailing newline added by the loop is trimmed.
         Assert.IsTrue(result.EndsWith("</root>", StringComparison.Ordinal), "output should not end with an extra newline");
     }
@@ -462,8 +462,8 @@ public class ManifestServiceTests
         Assert.AreEqual("myapp.exe", result.AliasName);
 
         var content = await File.ReadAllTextAsync(manifest.FullName);
-        StringAssert.Contains(content, "uap5:ExecutionAlias");
-        StringAssert.Contains(content, "Alias=\"myapp.exe\"");
+        Assert.Contains("uap5:ExecutionAlias", content);
+        Assert.Contains("Alias=\"myapp.exe\"", content);
 
         // Parse the manifest and assert the actual IgnorableNamespaces attribute value. A plain
         // Contains("uap5") is tautological once the uap5:ExecutionAlias element exists; this
@@ -471,8 +471,8 @@ public class ManifestServiceTests
         var ignorable = XDocument.Parse(content).Root!
             .Attribute("IgnorableNamespaces")!.Value
             .Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        CollectionAssert.Contains(ignorable, "uap5", "uap5 is appended to IgnorableNamespaces");
-        CollectionAssert.Contains(ignorable, "uap10", "the pre-existing IgnorableNamespaces entry is preserved");
+        Assert.Contains("uap5", ignorable, "uap5 is appended to IgnorableNamespaces");
+        Assert.Contains("uap10", ignorable, "the pre-existing IgnorableNamespaces entry is preserved");
     }
 
     [TestMethod]
@@ -634,7 +634,7 @@ public class ManifestServiceTests
         var result = await NewService().AddExecutionAliasAsync(new AddExecutionAliasOptions(manifest, "myapp", null));
 
         Assert.AreEqual(AddExecutionAliasStatus.Added, result.Status);
-        StringAssert.Contains(await File.ReadAllTextAsync(manifest.FullName), "Alias=\"myapp.exe\"");
+        Assert.Contains("Alias=\"myapp.exe\"", await File.ReadAllTextAsync(manifest.FullName));
     }
 
     [TestMethod]
@@ -651,7 +651,7 @@ public class ManifestServiceTests
         var result = await NewService().AddExecutionAliasAsync(new AddExecutionAliasOptions(manifest, "myapp", null));
 
         Assert.AreEqual(AddExecutionAliasStatus.Added, result.Status);
-        StringAssert.Contains(await File.ReadAllTextAsync(manifest.FullName), "uap5:AppExecutionAlias");
+        Assert.Contains("uap5:AppExecutionAlias", await File.ReadAllTextAsync(manifest.FullName));
     }
 
     #endregion

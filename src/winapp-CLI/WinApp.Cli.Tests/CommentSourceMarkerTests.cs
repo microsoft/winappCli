@@ -51,7 +51,7 @@ public class CommentSourceMarkerTests
             Assert.AreEqual("offline", pushed.GetProperty("id").GetString());
         }
         Assert.IsEmpty(warnings.Messages);
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
         Assert.IsNull(store.Load(path).Comments.Single().Anchor.ElementPath);
     }
 
@@ -111,11 +111,11 @@ public class CommentSourceMarkerTests
         Assert.HasCount(reason is null ? 0 : 1, warnings.Messages);
         if (reason is not null)
         {
-            StringAssert.Contains(warnings.Messages[0], reason);
+            Assert.Contains(reason, warnings.Messages[0]);
         }
         using var request = JsonDocument.Parse(agent.ReceivedRequests.Last());
         Assert.AreEqual("", request.RootElement.GetProperty("params").GetProperty("comments")[0].GetProperty("anchor").GetString());
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
     }
 
     [TestMethod]
@@ -138,8 +138,8 @@ public class CommentSourceMarkerTests
             Assert.AreEqual((2, 0), new CommentPusher(store, warnings).Push((uint)agent.Pid, root.FullName, root.FullName));
         }
         Assert.IsEmpty(warnings.Messages);
-        CollectionAssert.AreEqual(new List<string> { "Internal.setComments", "Internal.setComments" }, agent.Received);
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        Assert.AreSequenceEqual(new List<string> { "Internal.setComments", "Internal.setComments" }, agent.Received);
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
     }
 
     [TestMethod]
@@ -154,7 +154,7 @@ public class CommentSourceMarkerTests
         Assert.AreEqual((1, 1), new CommentPusher(store, warnings).Push((uint)agent.Pid, root.FullName, root.FullName));
         Assert.AreEqual(3, agent.Received.Count(method => method == "Internal.elementAnchor"));
         Assert.IsEmpty(warnings.Messages);
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
     }
 
     [TestMethod]
@@ -193,7 +193,7 @@ public class CommentSourceMarkerTests
         await stop.CancelAsync();
         Assert.IsNull(await pushing.WaitAsync(TimeSpan.FromSeconds(2)));
         Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
     }
 
     [TestMethod]
@@ -207,7 +207,7 @@ public class CommentSourceMarkerTests
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("Internal.setComments", """{"total":1,"placed":0}""");
         Assert.AreEqual((1, 0), new CommentPusher(store).Push((uint)agent.Pid, root.FullName, root.FullName));
-        CollectionAssert.AreEqual(new List<string> { "Internal.setComments" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "Internal.setComments" }, agent.Received);
         using var request = JsonDocument.Parse(agent.ReceivedRequests.Single());
         Assert.AreEqual("original-live-anchor", request.RootElement.GetProperty("params").GetProperty("comments")[0].GetProperty("anchor").GetString());
     }

@@ -52,8 +52,8 @@ public class GuestFileServiceTests
                 () => service.Delete(scope, ["app.dll"]));
 
             Assert.AreEqual(ExecutionTargetErrorCodes.TransferInterrupted, failure.Error.Code);
-            StringAssert.Contains(failure.Error.Message, "app.dll");
-            StringAssert.Contains(failure.Error.Message, "running process");
+            Assert.Contains("app.dll", failure.Error.Message);
+            Assert.Contains("running process", failure.Error.Message);
 
             // The raw OS text ("being used by another process", the HRESULT, etc.) must never be
             // the message a caller has to parse to understand what happened.
@@ -77,7 +77,7 @@ public class GuestFileServiceTests
             var failure = Assert.ThrowsExactly<ExecutionTargetException>(() => service.RemoveScope(scope));
 
             Assert.AreEqual(ExecutionTargetErrorCodes.TransferInterrupted, failure.Error.Code);
-            StringAssert.Contains(failure.Error.Message, "running process");
+            Assert.Contains("running process", failure.Error.Message);
             Assert.IsNotNull(failure.Error.UserAction);
         }
 

@@ -57,9 +57,9 @@ public class WinmdsLockfileServiceTests
         var path = _svc.GetLockfilePath(winapp);
         Assert.IsTrue(path.Exists, "Lockfile must be written under .winapp/.");
         var json = await File.ReadAllTextAsync(path.FullName);
-        StringAssert.Contains(json, "\"schema\": 3");
-        StringAssert.Contains(json, "\"generated_at\"");
-        StringAssert.Contains(json, "Microsoft.WindowsAppSDK.AI");
+        Assert.Contains("\"schema\": 3", json);
+        Assert.Contains("\"generated_at\"", json);
+        Assert.Contains("Microsoft.WindowsAppSDK.AI", json);
         Assert.IsFalse(json.Contains("\"category\""),
             "v3 lockfile must NOT emit a `category` field — that classification is owned by the @microsoft/winapp npm wrapper now.");
         Assert.IsTrue(json.Contains('\n'), "Output must be indented (multiple lines).");
@@ -214,7 +214,7 @@ public class WinmdsLockfileServiceTests
             cancellationToken: default);
 
         var entries = winapp.EnumerateFiles().Select(f => f.Name).ToList();
-        CollectionAssert.Contains(entries, "winmds.lock.json", "Final lockfile must exist.");
+        Assert.Contains("winmds.lock.json", entries, "Final lockfile must exist.");
         Assert.IsFalse(
             entries.Any(n => n.StartsWith("winmds.lock.json.tmp", StringComparison.Ordinal)),
             $"No tmp staging file should remain after a successful write. Found: {string.Join(", ", entries)}");

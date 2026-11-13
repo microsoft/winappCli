@@ -68,9 +68,9 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "Notepad"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "Process: Notepad");
-        StringAssert.Contains(TestAnsiConsole.Output, "PID: 4321");
-        StringAssert.Contains(TestAnsiConsole.Output, "HWND: 4660");
+        Assert.Contains("Process: Notepad", TestAnsiConsole.Output);
+        Assert.Contains("PID: 4321", TestAnsiConsole.Output);
+        Assert.Contains("HWND: 4660", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -95,7 +95,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "GetDpiForWindow failed for HWND 123");
+        Assert.Contains("GetDpiForWindow failed for HWND 123", ConsoleStdErr.ToString());
     }
 
     // ---------- focus ----------
@@ -114,7 +114,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiFocusCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["", "-a", "TestApp"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "A selector, --type, or --class-name is required");
+        Assert.Contains("A selector, --type, or --class-name is required", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -187,9 +187,9 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "edit-address-9f");
-        StringAssert.Contains(TestAnsiConsole.Output, "Address bar");
-        StringAssert.Contains(TestAnsiConsole.Output, "https://example.com");
+        Assert.Contains("edit-address-9f", TestAnsiConsole.Output);
+        Assert.Contains("Address bar", TestAnsiConsole.Output);
+        Assert.Contains("https://example.com", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -241,8 +241,8 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         var help = TestAnsiConsole.Output.ReplaceLineEndings(" ");
-        StringAssert.Contains(help, "exact top-level window");
-        StringAssert.Contains(help, "owned popups are excluded");
+        Assert.Contains("exact top-level window", help);
+        Assert.Contains("owned popups are excluded", help);
     }
 
     // ---------- get-property ----------
@@ -287,9 +287,9 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["e0", "-a", "TestApp"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "Name: Body");
-        StringAssert.Contains(TestAnsiConsole.Output, "line1↵line2→tabbed");
-        StringAssert.Contains(TestAnsiConsole.Output, "Empty: (null)");
+        Assert.Contains("Name: Body", TestAnsiConsole.Output);
+        Assert.Contains("line1↵line2→tabbed", TestAnsiConsole.Output);
+        Assert.Contains("Empty: (null)", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -302,7 +302,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["e0", "-a", "TestApp", "--property", "IsEnabled", "--json"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "IsEnabled");
+        Assert.Contains("IsEnabled", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -354,8 +354,8 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["e1", "-a", "TestApp"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "hello");
-        StringAssert.Contains(TestAnsiConsole.Output, "world");
+        Assert.Contains("hello", TestAnsiConsole.Output);
+        Assert.Contains("world", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -563,7 +563,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["txt-label-1", "-a", "TestApp", "--json"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"elementId\": \"btn-submit-9\"");
+        Assert.Contains("\"elementId\": \"btn-submit-9\"", TestAnsiConsole.Output);
     }
 
     [TestMethod]

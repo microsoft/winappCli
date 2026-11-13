@@ -43,7 +43,7 @@ public partial class UiCommandTests
         var exit = await ParseAndInvokeWithCaptureAsync(QueryCommand(command), ["-a", "TestApp", "--root", "MailRow", "--json"]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "A selector, --type, or --class-name is required");
+        Assert.Contains("A selector, --type, or --class-name is required", ConsoleStdErr.ToString());
         Assert.IsEmpty(_fakeUia.Queries);
     }
 
@@ -56,7 +56,7 @@ public partial class UiCommandTests
             ["-a", "TestApp", "--type", "Pane", "--class-name", "CalendarSurface", "--json"]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--type Pane --class-name CalendarSurface");
+        Assert.Contains("--type Pane --class-name CalendarSurface", ConsoleStdErr.ToString());
     }
 
     private Task<int> RunFilterOnlyActionAsync(string name)
@@ -145,7 +145,7 @@ public partial class UiCommandTests
         var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiSetValueCommand>(), [.. args]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "set-value \"\" <value>");
+        Assert.Contains("set-value \"\" <value>", ConsoleStdErr.ToString());
         Assert.IsEmpty(_fakeUia.Queries);
     }
 

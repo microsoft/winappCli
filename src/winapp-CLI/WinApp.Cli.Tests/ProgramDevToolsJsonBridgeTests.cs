@@ -82,7 +82,7 @@ public class ProgramDevToolsJsonBridgeTests : BaseCommandTests
             ["devtools", "comments", "list", "--guest-comments", "invalid", "--help"]);
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(string.Empty, stderr.Trim(), stderr);
-        StringAssert.Contains(stdout, "--source-root");
+        Assert.Contains("--source-root", stdout);
     }
 
     [TestMethod]

@@ -1,4 +1,4 @@
-<Project Sdk="MSTest.Sdk/4.1.0">
+<Project Sdk="MSTest.Sdk/4.5.3">
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
@@ -15,7 +15,7 @@
     
     <!-- Suppress specific warnings -->
     <!-- SYSLIB1045: inline Regex constructions in test assertions are throwaway literals
-         (used by StringAssert.DoesNotMatch); compile-time GeneratedRegex source-gen would
+         (used by Assert.DoesNotMatchRegex); compile-time GeneratedRegex source-gen would
          add zero value here and only bloat the test file. -->
     <NoWarn>CA1852;CA1707;IDE1006;SYSLIB1045</NoWarn>
     

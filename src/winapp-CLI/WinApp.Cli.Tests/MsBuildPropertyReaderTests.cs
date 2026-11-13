@@ -206,8 +206,8 @@ public class MsBuildPropertyReaderTests
 
         string[] expectedProjects = ["A.csproj", "B.csproj"];
         string[] expectedPackages = ["Microsoft.WindowsAppSDK"];
-        CollectionAssert.AreEqual(expectedProjects, result["ProjectReference"].ToList());
-        CollectionAssert.AreEqual(expectedPackages, result["PackageReference"].ToList());
+        Assert.AreSequenceEqual(expectedProjects, result["ProjectReference"].ToList());
+        Assert.AreSequenceEqual(expectedPackages, result["PackageReference"].ToList());
     }
 
     [TestMethod]
@@ -216,7 +216,7 @@ public class MsBuildPropertyReaderTests
         var result = MsBuildPropertyReader.ParseItems("""{ "Items": { "ProjectReference": [ { "Identity": "A.csproj" } ] } }""");
 
         string[] expected = ["A.csproj"];
-        CollectionAssert.AreEqual(expected, result["projectreference"].ToList());
+        Assert.AreSequenceEqual(expected, result["projectreference"].ToList());
     }
 
     [TestMethod]
@@ -229,7 +229,7 @@ public class MsBuildPropertyReaderTests
         var result = MsBuildPropertyReader.ParseItems(stdout);
 
         string[] expected = ["A.csproj"];
-        CollectionAssert.AreEqual(expected, result["ProjectReference"].ToList());
+        Assert.AreSequenceEqual(expected, result["ProjectReference"].ToList());
     }
 
     [TestMethod]

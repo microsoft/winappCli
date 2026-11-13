@@ -217,7 +217,7 @@ public partial class RealUiAutomationTests
         Assert.IsNotNull(replacementModel.Context);
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "stale");
+        Assert.Contains("stale", error.Message);
         Assert.AreEqual(0, svc.SerializedElementResolutionCount);
         Assert.AreEqual(0, fx.OnUiThread(() => replacementClicks));
     }
@@ -302,7 +302,7 @@ public partial class RealUiAutomationTests
         fx.OnUiThread(() => fx.ParentInvokeButton.Name = "btnInvoke");
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "no longer unique");
+        Assert.Contains("no longer unique", error.Message);
         Assert.AreEqual("unclicked", fx.OnUiThread(() => fx.ResultBox.Text));
     }
 
@@ -315,7 +315,7 @@ public partial class RealUiAutomationTests
         var model = new UiElement { Name = "Click Me", Type = "Button" };
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, model, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "cannot identify an exact element");
+        Assert.Contains("cannot identify an exact element", error.Message);
         Assert.AreEqual("unclicked", fx.OnUiThread(() => fx.ResultBox.Text));
     }
 
@@ -419,7 +419,7 @@ public partial class RealUiAutomationTests
 
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, check, UiInvokeAction.ToggleOff, CancellationToken.None));
-        StringAssert.Contains(error.Message, "did not reach");
+        Assert.Contains("did not reach", error.Message);
         Assert.AreEqual(CheckState.Indeterminate, fx.OnUiThread(() => fx.TriCheck.CheckState));
         Assert.AreEqual(1, fx.OnUiThread(() => changes));
     }
@@ -443,7 +443,7 @@ public partial class RealUiAutomationTests
 
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, check, UiInvokeAction.ToggleOn, CancellationToken.None));
-        StringAssert.Contains(error.Message, "after 2 toggle(s)");
+        Assert.Contains("after 2 toggle(s)", error.Message);
         Assert.AreEqual(2, fx.OnUiThread(() => attempts));
         Assert.AreEqual(CheckState.Indeterminate, fx.OnUiThread(() => fx.TriCheck.CheckState));
     }
@@ -508,7 +508,7 @@ public partial class RealUiAutomationTests
         var button = await ResolveAsync(svc, target, "btnInvoke");
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, button, action, CancellationToken.None));
-        StringAssert.Contains(error.Message, pattern);
+        Assert.Contains(pattern, error.Message);
         Assert.AreEqual("unclicked", fx.OnUiThread(() => fx.ResultBox.Text));
     }
 
@@ -527,7 +527,7 @@ public partial class RealUiAutomationTests
 
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, child, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "InvokePattern");
+        Assert.Contains("InvokePattern", error.Message);
         Assert.AreEqual(0, fx.OnUiThread(() => clicks));
     }
 
@@ -556,6 +556,6 @@ public partial class RealUiAutomationTests
         }
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "stale");
+        Assert.Contains("stale", error.Message);
     }
 }

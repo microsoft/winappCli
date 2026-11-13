@@ -102,7 +102,7 @@ public partial class TargetRuntimeServiceTests
 
         // Installed from the staged copy, never from a host path the guest cannot see.
         Assert.AreEqual(1, harness.GuestPackages.InstallPackageCalls.Count);
-        StringAssert.StartsWith(harness.GuestPackages.InstallPackageCalls[0], scope);
+        Assert.StartsWith(scope, harness.GuestPackages.InstallPackageCalls[0]);
 
     }
 
@@ -198,7 +198,7 @@ public partial class TargetRuntimeServiceTests
             () => harness.EnsureAsync(_hostSource, TestContext.CancellationToken));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.RuntimeProvisionFailed, failure.Error.Code);
-        StringAssert.Contains(failure.Error.Message, RuntimePackage);
+        Assert.Contains(RuntimePackage, failure.Error.Message);
     }
 
     [TestMethod]
@@ -250,7 +250,7 @@ public partial class TargetRuntimeServiceTests
         var repaired = await harness.EnsureAsync(_hostSource, TestContext.CancellationToken);
 
         Assert.IsTrue(repaired.Report!.Satisfied);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             await File.ReadAllBytesAsync(payload.File.FullName, TestContext.CancellationToken),
             await File.ReadAllBytesAsync(stale, TestContext.CancellationToken));
     }
@@ -269,8 +269,8 @@ public partial class TargetRuntimeServiceTests
 
         // Naming the unsatisfied constraint is the whole point: the alternative is an app that
         // starts and dies with a dependency error nobody can act on.
-        StringAssert.Contains(failure.Error.Message, "Microsoft.VCLibs.140.00.UWPDesktop", Describe(failure));
-        StringAssert.Contains(failure.Error.Message, "14.0.33728.0");
+        Assert.Contains("Microsoft.VCLibs.140.00.UWPDesktop", failure.Error.Message, Describe(failure));
+        Assert.Contains("14.0.33728.0", failure.Error.Message);
         Assert.AreEqual(0, harness.GuestPackages.InstallPackageCalls.Count);
     }
 
@@ -304,9 +304,10 @@ public partial class TargetRuntimeServiceTests
         Assert.IsTrue(result.Report!.Satisfied);
         Assert.AreEqual(4, result.Report.Items.Count);
 
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             new[] { framework.PackageName, ddlm.PackageName, main.PackageName, singleton.PackageName },
-            result.Report.Items.Select(item => item.Name).ToArray());
+            result.Report.Items.Select(item => item.Name).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -325,7 +326,7 @@ public partial class TargetRuntimeServiceTests
             () => harness.EnsureAsync(_hostSource, TestContext.CancellationToken));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.RuntimeProvisionFailed, failure.Error.Code);
-        StringAssert.Contains(Describe(failure), "x86", Describe(failure));
+        Assert.Contains("x86", Describe(failure), Describe(failure));
     }
 
     [TestMethod]
@@ -407,7 +408,7 @@ public partial class TargetRuntimeServiceTests
             Assert.Contains(phase, recorded);
         }
 
-        CollectionAssert.IsSubsetOf(recorded.Distinct().ToArray(), phases);
+        Assert.ContainsAll(recorded.Distinct().ToArray(), phases);
     }
 
     private static string Describe(ExecutionTargetException failure) =>

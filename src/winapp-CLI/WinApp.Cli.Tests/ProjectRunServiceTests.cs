@@ -228,7 +228,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal", folder);
 
-        StringAssert.Contains(args, $"-p:CsWinRTWindowsMetadata={folder}");
+        Assert.Contains($"-p:CsWinRTWindowsMetadata={folder}", args);
     }
 
     [TestMethod]
@@ -253,7 +253,7 @@ public class ProjectRunServiceTests
 
         var redacted = ProjectRunService.RedactSecretsForDisplay(line);
 
-        StringAssert.Contains(redacted, $"-p:{name}=***");
+        Assert.Contains($"-p:{name}=***", redacted);
         Assert.IsFalse(redacted.Contains(value), $"the secret value should not survive display: {redacted}");
     }
 
@@ -273,7 +273,7 @@ public class ProjectRunServiceTests
         var redacted = ProjectRunService.RedactSecretsForDisplay(line);
 
         Assert.IsFalse(redacted.Contains("COMMAND_SECRET", StringComparison.Ordinal));
-        StringAssert.Contains(redacted, "https://feed.example/v3/index.json?<redacted>");
+        Assert.Contains("https://feed.example/v3/index.json?<redacted>", redacted);
     }
 
     [TestMethod]
@@ -283,9 +283,9 @@ public class ProjectRunServiceTests
 
         var redacted = ProjectRunService.RedactSecretsForDisplay(line);
 
-        StringAssert.Contains(redacted, "A=1");
-        StringAssert.Contains(redacted, "Password=***");
-        StringAssert.Contains(redacted, "B=2");
+        Assert.Contains("A=1", redacted);
+        Assert.Contains("Password=***", redacted);
+        Assert.Contains("B=2", redacted);
         Assert.IsFalse(redacted.Contains("s3cr3t"));
     }
 
@@ -296,7 +296,7 @@ public class ProjectRunServiceTests
 
         var redacted = ProjectRunService.RedactSecretsForDisplay(line);
 
-        StringAssert.Contains(redacted, "A=1,SigningPassword=***,B=2");
+        Assert.Contains("A=1,SigningPassword=***,B=2", redacted);
         Assert.IsFalse(redacted.Contains("s3cr3t"));
     }
 
@@ -309,7 +309,7 @@ public class ProjectRunServiceTests
 
         Assert.IsFalse(redacted.Contains("p@ss"), $"secret prefix should be masked: {redacted}");
         Assert.IsFalse(redacted.Contains("w0rd"), $"secret continuation should be masked: {redacted}");
-        StringAssert.Contains(redacted, "PackageCertificatePassword=***,***,B=2");
+        Assert.Contains("PackageCertificatePassword=***,***,B=2", redacted);
     }
 
     [TestMethod]
@@ -320,7 +320,7 @@ public class ProjectRunServiceTests
         var redacted = ProjectRunService.RedactSecretsForDisplay(line);
 
         Assert.IsFalse(redacted.Contains("pass word"), $"quoted secret should be masked: {redacted}");
-        StringAssert.Contains(redacted, "PackageCertificatePassword=***");
+        Assert.Contains("PackageCertificatePassword=***", redacted);
     }
 
     [TestMethod]
@@ -336,7 +336,7 @@ public class ProjectRunServiceTests
         Assert.IsFalse(redacted.Contains("ab"), $"no fragment of the secret should survive: {redacted}");
         Assert.IsFalse(redacted.Contains("cd"), $"no fragment of the secret should survive: {redacted}");
         Assert.IsFalse(redacted.Contains("ef"), $"no fragment of the secret should survive: {redacted}");
-        StringAssert.Contains(redacted, "PackageCertificatePassword=***");
+        Assert.Contains("PackageCertificatePassword=***", redacted);
     }
 
     [TestMethod]
@@ -347,7 +347,7 @@ public class ProjectRunServiceTests
         var redacted = ProjectRunService.RedactSecretsForDisplay(line);
 
         Assert.IsFalse(redacted.Contains("quoted"), $"secret should be masked: {redacted}");
-        StringAssert.Contains(redacted, "NuGetApiKey=***");
+        Assert.Contains("NuGetApiKey=***", redacted);
     }
 
     [TestMethod]
@@ -391,7 +391,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildEvaluateArguments(csproj, options, folder);
 
-        StringAssert.Contains(args, $"-p:CsWinRTWindowsMetadata={folder}");
+        Assert.Contains($"-p:CsWinRTWindowsMetadata={folder}", args);
     }
 
     [TestMethod]
@@ -402,10 +402,10 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.StartsWith(args, "build ");
-        StringAssert.Contains(args, "-c Debug");
-        StringAssert.Contains(args, "-r win-x64");
-        StringAssert.Contains(args, "-v minimal");
+        Assert.StartsWith("build ", args);
+        Assert.Contains("-c Debug", args);
+        Assert.Contains("-r win-x64", args);
+        Assert.Contains("-v minimal", args);
         // With no resolved Platform (options.Platform is null), the arg builder conveys arch via the RID
         // alone — it must NOT emit a Platform derived from --arch (injection is decided upstream by
         // ResolvePlatformInjection and only for projects whose <Platforms> closure supports the arch).
@@ -427,10 +427,10 @@ public class ProjectRunServiceTests
         var publishArgs = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal", publish: true);
         var buildArgs = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal", publish: false);
 
-        StringAssert.StartsWith(publishArgs, "publish ");
+        Assert.StartsWith("publish ", publishArgs);
         // Native AOT / trimmed publish replaces the managed build output; the package output group must
         // include published items or `winapp pack` packages the wrong (managed-build) payload.
-        StringAssert.Contains(publishArgs, "-p:IncludePublishItemsOutputGroup=true");
+        Assert.Contains("-p:IncludePublishItemsOutputGroup=true", publishArgs);
         // The build pass (winapp run) must not set it — that path packages nothing.
         Assert.IsFalse(buildArgs.Contains("IncludePublishItemsOutputGroup"), "build pass must not set the publish-items flag");
     }
@@ -452,7 +452,7 @@ public class ProjectRunServiceTests
         Assert.IsGreaterThanOrEqualTo(0, index);
         var path = dotnet.StreamingEnvironments[index]![ProjectRunService.CustomAfterDirectoryBuildTargetsVariable].Split(';')[^1];
         Assert.AreEqual(ProjectRunService.PackagingReferenceTargets, File.ReadAllText(path));
-        StringAssert.Contains(dotnet.StreamingCalls[index], "-r win-x64", "the build arguments are unchanged");
+        Assert.Contains("-r win-x64", dotnet.StreamingCalls[index], "the build arguments are unchanged");
         Assert.IsFalse(dotnet.StreamingCalls[index].Contains("CustomAfter", StringComparison.Ordinal), dotnet.StreamingCalls[index]);
         Assert.IsFalse(Directory.EnumerateFiles(_tempDir.FullName, "*.targets", SearchOption.AllDirectories).Any(), "nothing is written into the project");
     }
@@ -528,18 +528,18 @@ public class ProjectRunServiceTests
 
         var args = string.Join(' ', ProjectRunService.BuildNativeMsixPublishArguments(csproj, options, pkgDir, "minimal"));
 
-        StringAssert.StartsWith(args, "publish ");
-        StringAssert.Contains(args, "-r win-arm64");
+        Assert.StartsWith("publish ", args);
+        Assert.Contains("-r win-arm64", args);
         // The SDK produces the package during publish, keeping the native (published) payload...
-        StringAssert.Contains(args, "-p:PublishAppxPackage=true");
-        StringAssert.Contains(args, "-p:IncludePublishItemsOutputGroup=true");
+        Assert.Contains("-p:PublishAppxPackage=true", args);
+        Assert.Contains("-p:IncludePublishItemsOutputGroup=true", args);
         // ...exactly once (no separate build-time package), unsigned, single package, into winapp's scratch dir...
-        StringAssert.Contains(args, "-p:GenerateAppxPackageOnBuild=false");
-        StringAssert.Contains(args, "-p:AppxBundle=Never");
-        StringAssert.Contains(args, "-p:AppxPackageSigningEnabled=false");
-        StringAssert.Contains(args, $"-p:AppxPackageDir={pkgDir.FullName}{Path.DirectorySeparatorChar}");
+        Assert.Contains("-p:GenerateAppxPackageOnBuild=false", args);
+        Assert.Contains("-p:AppxBundle=Never", args);
+        Assert.Contains("-p:AppxPackageSigningEnabled=false", args);
+        Assert.Contains($"-p:AppxPackageDir={pkgDir.FullName}{Path.DirectorySeparatorChar}", args);
         // ...and reports the execution-time artifact path.
-        StringAssert.Contains(args, "--getProperty:AppxPackageOutput");
+        Assert.Contains("--getProperty:AppxPackageOutput", args);
     }
 
     [TestMethod]
@@ -558,7 +558,7 @@ public class ProjectRunServiceTests
 
         var args = string.Join(' ', ProjectRunService.BuildNativeMsixPublishArguments(csproj, options, pkgDir, "minimal"));
 
-        StringAssert.Contains(args, "-p:Platform=ARM64");
+        Assert.Contains("-p:Platform=ARM64", args);
         Assert.IsFalse(args.Contains("-r win-arm64"), "the RID must be omitted when OmitRuntimeIdentifier is set");
         Assert.IsFalse(args.Contains(" -r "), "no bare -r token should be emitted");
     }
@@ -571,8 +571,8 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.Contains(args, "-c Release");
-        StringAssert.Contains(args, "-r win-arm64");
+        Assert.Contains("-c Release", args);
+        Assert.Contains("-r win-arm64", args);
         Assert.IsFalse(args.Contains("-p:Platform="), "no resolved Platform → arch is conveyed by the RID alone");
     }
 
@@ -584,7 +584,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "normal");
 
-        StringAssert.Contains(args, "-v normal");
+        Assert.Contains("-v normal", args);
     }
 
     [TestMethod]
@@ -597,7 +597,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.Contains(args, "-tl:off", "the redirected build pass must pin the terminal logger off");
+        Assert.Contains("-tl:off", args, "the redirected build pass must pin the terminal logger off");
     }
 
     [TestMethod]
@@ -625,7 +625,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.Contains(args, "-p:Platform=ARM64");
+        Assert.Contains("-p:Platform=ARM64", args);
         Assert.IsFalse(args.Contains("-p:Platform=x64"), "winapp must not inject a Platform derived from --arch");
     }
 
@@ -656,7 +656,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.Contains(args, "-p:EnableDynamicPlatformResolution=false");
+        Assert.Contains("-p:EnableDynamicPlatformResolution=false", args);
         Assert.IsFalse(args.Contains("-p:EnableDynamicPlatformResolution=true"),
             "winapp must not append its own EnableDynamicPlatformResolution value");
     }
@@ -669,9 +669,9 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.Contains(args, "-p:WindowsPackageType=None");
-        StringAssert.Contains(args, "-p:Foo=Bar");
-        StringAssert.Contains(args, "--no-restore");
+        Assert.Contains("-p:WindowsPackageType=None", args);
+        Assert.Contains("-p:Foo=Bar", args);
+        Assert.Contains("--no-restore", args);
     }
 
     [TestMethod]
@@ -682,7 +682,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.Contains(args, "-f net10.0-windows10.0.26100.0");
+        Assert.Contains("-f net10.0-windows10.0.26100.0", args);
     }
 
     #endregion
@@ -697,20 +697,20 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildEvaluateArguments(csproj, options);
 
-        StringAssert.StartsWith(args, "msbuild ");
+        Assert.StartsWith("msbuild ", args);
         // dotnet msbuild rejects -c/-r (MSB1001); the evaluate pass must use -p: equivalents and must
         // not build (no -t:Build) — the build pass already produced the output.
         Assert.IsFalse(args.Contains("-t:Build"), "evaluate pass must not build");
         Assert.IsFalse(args.Contains("-c Debug"), "evaluate pass must not pass -c");
         Assert.IsFalse(args.Contains("-r win-x64"), "evaluate pass must not pass -r");
-        StringAssert.Contains(args, "-p:Configuration=Debug");
-        StringAssert.Contains(args, "-p:RuntimeIdentifier=win-x64");
+        Assert.Contains("-p:Configuration=Debug", args);
+        Assert.Contains("-p:RuntimeIdentifier=win-x64", args);
         Assert.IsFalse(args.Contains("-p:Platform="), "no resolved Platform → evaluate pass emits none");
         Assert.IsFalse(args.Contains("EnableDynamicPlatformResolution"), "evaluate pass must not inject EDPR");
-        StringAssert.Contains(args, "--getProperty:TargetDir");
-        StringAssert.Contains(args, "--getProperty:RunCommand");
-        StringAssert.Contains(args, "--getProperty:WindowsPackageType");
-        StringAssert.Contains(args, "--getProperty:OutputType");
+        Assert.Contains("--getProperty:TargetDir", args);
+        Assert.Contains("--getProperty:RunCommand", args);
+        Assert.Contains("--getProperty:WindowsPackageType", args);
+        Assert.Contains("--getProperty:OutputType", args);
     }
 
     [TestMethod]
@@ -725,7 +725,7 @@ public class ProjectRunServiceTests
         };
 
         var withPlatform = ProjectRunService.BuildEvaluateArguments(csproj, options);
-        StringAssert.Contains(withPlatform, "-p:Platform=ARM64", "default evaluate must keep the resolved Platform");
+        Assert.Contains("-p:Platform=ARM64", withPlatform, "default evaluate must keep the resolved Platform");
 
         var withoutPlatform = ProjectRunService.BuildEvaluateArguments(
             csproj, options, includeRuntimeIdentifier: false, includePlatform: false);
@@ -734,8 +734,8 @@ public class ProjectRunServiceTests
             "fallback must be able to drop the injected Platform");
         Assert.IsFalse(withoutPlatform.Contains("-p:RuntimeIdentifier=", StringComparison.Ordinal),
             "fallback must be able to drop the injected RID");
-        StringAssert.Contains(withoutPlatform, "-p:Configuration=Debug");
-        StringAssert.Contains(withoutPlatform, "--getProperty:TargetDir");
+        Assert.Contains("-p:Configuration=Debug", withoutPlatform);
+        Assert.Contains("--getProperty:TargetDir", withoutPlatform);
     }
 
     [TestMethod]
@@ -751,8 +751,8 @@ public class ProjectRunServiceTests
         Assert.IsFalse(args.Contains("-p:RuntimeIdentifier=", StringComparison.Ordinal),
             "no-RID fallback must not pin a RuntimeIdentifier");
         // Configuration and the getProperty queries are still present so TargetDir still resolves.
-        StringAssert.Contains(args, "-p:Configuration=Debug");
-        StringAssert.Contains(args, "--getProperty:TargetDir");
+        Assert.Contains("-p:Configuration=Debug", args);
+        Assert.Contains("--getProperty:TargetDir", args);
     }
 
     [TestMethod]
@@ -763,7 +763,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildEvaluateArguments(csproj, options);
 
-        StringAssert.Contains(args, "-p:TargetFramework=net10.0-windows10.0.26100.0");
+        Assert.Contains("-p:TargetFramework=net10.0-windows10.0.26100.0", args);
     }
 
     [TestMethod]
@@ -782,8 +782,8 @@ public class ProjectRunServiceTests
             "conflicting user -p:Configuration must be dropped, not forwarded");
         Assert.IsFalse(args.Contains("-p:RuntimeIdentifier=win-arm64", StringComparison.Ordinal),
             "conflicting user -p:RuntimeIdentifier must be dropped, not forwarded");
-        StringAssert.Contains(args, "-p:Configuration=Debug");
-        StringAssert.Contains(args, "-p:RuntimeIdentifier=win-x64");
+        Assert.Contains("-p:Configuration=Debug", args);
+        Assert.Contains("-p:RuntimeIdentifier=win-x64", args);
     }
 
     [TestMethod]
@@ -804,7 +804,7 @@ public class ProjectRunServiceTests
             args.Contains("Flavor=Retail", StringComparison.Ordinal),
             "the entire packed token must be dropped when any segment conflicts with a dedicated switch");
         Assert.IsFalse(args.Contains("RuntimeIdentifier=win-arm64", StringComparison.Ordinal));
-        StringAssert.Contains(args, "-p:RuntimeIdentifier=win-x64");
+        Assert.Contains("-p:RuntimeIdentifier=win-x64", args);
     }
 
     [TestMethod]
@@ -836,8 +836,8 @@ public class ProjectRunServiceTests
         Assert.IsFalse(args.Contains("-p:TargetFramework=net10.0-windows10.0.9999.0", StringComparison.Ordinal),
             "conflicting user -p:TargetFramework must be dropped from the build pass");
         // The dedicated -c/-r switches remain authoritative.
-        StringAssert.Contains(args, "-c Debug");
-        StringAssert.Contains(args, "-r win-x64");
+        Assert.Contains("-c Debug", args);
+        Assert.Contains("-r win-x64", args);
     }
 
     [TestMethod]
@@ -850,7 +850,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildEvaluateArguments(csproj, options);
 
-        StringAssert.Contains(args, "-p:Platform=ARM64");
+        Assert.Contains("-p:Platform=ARM64", args);
         Assert.IsFalse(args.Contains("-p:Platform=x64"), "winapp must not inject a Platform derived from --arch");
     }
 
@@ -877,7 +877,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildEvaluateArguments(csproj, options);
 
-        StringAssert.Contains(args, "-p:EnableDynamicPlatformResolution=false");
+        Assert.Contains("-p:EnableDynamicPlatformResolution=false", args);
         Assert.IsFalse(args.Contains("-p:EnableDynamicPlatformResolution=true"),
             "winapp must not append its own EnableDynamicPlatformResolution value");
     }
@@ -894,11 +894,11 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.Contains(args, $"-p:SolutionDir={_tempDir.FullName}\\");
-        StringAssert.Contains(args, $"-p:SolutionPath={solution.FullName}");
-        StringAssert.Contains(args, "-p:SolutionName=MyApp");
-        StringAssert.Contains(args, "-p:SolutionFileName=MyApp.sln");
-        StringAssert.Contains(args, "-p:SolutionExt=.sln");
+        Assert.Contains($"-p:SolutionDir={_tempDir.FullName}\\", args);
+        Assert.Contains($"-p:SolutionPath={solution.FullName}", args);
+        Assert.Contains("-p:SolutionName=MyApp", args);
+        Assert.Contains("-p:SolutionFileName=MyApp.sln", args);
+        Assert.Contains("-p:SolutionExt=.sln", args);
     }
 
     [TestMethod]
@@ -926,11 +926,11 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.Contains(args, "-p:SolutionDir=Z:\\Custom\\");
+        Assert.Contains("-p:SolutionDir=Z:\\Custom\\", args);
         Assert.IsFalse(
             args.Contains($"-p:SolutionDir={_tempDir.FullName}\\"),
             "winapp must not add a second SolutionDir that overrides the user's value");
-        StringAssert.Contains(args, "-p:SolutionName=MyApp");
+        Assert.Contains("-p:SolutionName=MyApp", args);
     }
 
     [TestMethod]
@@ -945,8 +945,8 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal");
 
-        StringAssert.Contains(args, "-p:SolutionDir=C:\\a%3Bb%25c\\", "SolutionDir must be MSBuild-escaped");
-        StringAssert.Contains(args, "-p:SolutionName=MyApp", "SolutionName has no special chars and stays literal");
+        Assert.Contains("-p:SolutionDir=C:\\a%3Bb%25c\\", args, "SolutionDir must be MSBuild-escaped");
+        Assert.Contains("-p:SolutionName=MyApp", args, "SolutionName has no special chars and stays literal");
         Assert.IsFalse(args.Contains("-p:SolutionDir=C:\\a;b%c\\"), "the raw unescaped SolutionDir property value must not be emitted");
     }
 
@@ -961,10 +961,10 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildEvaluateArguments(csproj, options);
 
-        StringAssert.Contains(args, $"-p:SolutionDir={_tempDir.FullName}\\");
-        StringAssert.Contains(args, "-p:SolutionName=MyApp");
-        StringAssert.Contains(args, "-p:SolutionFileName=MyApp.slnx");
-        StringAssert.Contains(args, "-p:SolutionExt=.slnx");
+        Assert.Contains($"-p:SolutionDir={_tempDir.FullName}\\", args);
+        Assert.Contains("-p:SolutionName=MyApp", args);
+        Assert.Contains("-p:SolutionFileName=MyApp.slnx", args);
+        Assert.Contains("-p:SolutionExt=.slnx", args);
     }
 
     #endregion
@@ -979,9 +979,9 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildFrameworkDiscoveryArguments(csproj, options);
 
-        StringAssert.StartsWith(args, "msbuild ");
-        StringAssert.Contains(args, "--getProperty:TargetFrameworks");
-        StringAssert.Contains(args, "-p:Configuration=Debug");
+        Assert.StartsWith("msbuild ", args);
+        Assert.Contains("--getProperty:TargetFrameworks", args);
+        Assert.Contains("-p:Configuration=Debug", args);
         Assert.IsFalse(args.Contains("-t:Build"), "the discovery pass must not build");
         // The whole point is to read the OUTER cross-targeting node, so neither a single TFM nor the RID
         // (which does not select the TFM list) may be pinned.
@@ -1003,8 +1003,8 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildFrameworkDiscoveryArguments(csproj, options);
 
-        StringAssert.Contains(args, "--getProperty:TargetFramework ");
-        StringAssert.Contains(args, "--getProperty:TargetFrameworks");
+        Assert.Contains("--getProperty:TargetFramework ", args);
+        Assert.Contains("--getProperty:TargetFrameworks", args);
         var count = System.Text.RegularExpressions.Regex.Count(args, "--getProperty:");
         Assert.IsTrue(count >= 2, $"discovery must request >=2 properties to force the JSON envelope, but requested {count}");
     }
@@ -1021,8 +1021,8 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildFrameworkDiscoveryArguments(csproj, options);
 
-        StringAssert.Contains(args, $"-p:SolutionDir={_tempDir.FullName}\\");
-        StringAssert.Contains(args, "-p:SolutionName=MyApp");
+        Assert.Contains($"-p:SolutionDir={_tempDir.FullName}\\", args);
+        Assert.Contains("-p:SolutionName=MyApp", args);
     }
 
     [TestMethod]
@@ -1033,7 +1033,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildFrameworkDiscoveryArguments(csproj, options);
 
-        StringAssert.Contains(args, "-p:MyFlavor=Retail");
+        Assert.Contains("-p:MyFlavor=Retail", args);
     }
 
     #endregion
@@ -1394,7 +1394,7 @@ public class ProjectRunServiceTests
         WriteFile("App2.csproj", ExecutableCsproj);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "Multiple runnable app projects");
+        Assert.Contains("Multiple runnable app projects", ex.Message);
     }
 
     [TestMethod]
@@ -1406,9 +1406,9 @@ public class ProjectRunServiceTests
         WriteFile("Beta.csproj", ExecutableCsproj);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "Multiple runnable app projects");
-        StringAssert.Contains(ex.Message, "(Alpha.csproj, Beta.csproj)");
-        StringAssert.Contains(ex.Message, "--project Alpha'");
+        Assert.Contains("Multiple runnable app projects", ex.Message);
+        Assert.Contains("(Alpha.csproj, Beta.csproj)", ex.Message);
+        Assert.Contains("--project Alpha'", ex.Message);
         Assert.IsFalse(ex.Message.Contains("ACoreLib", StringComparison.Ordinal), ex.Message);
     }
 
@@ -1421,8 +1421,8 @@ public class ProjectRunServiceTests
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
         var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), _tempDir.FullName);
-        StringAssert.Contains(ex.Message, $"--project Alpha'");
-        StringAssert.Contains(ex.Message, relative);
+        Assert.Contains($"--project Alpha'", ex.Message);
+        Assert.Contains(relative, ex.Message);
     }
 
     [TestMethod]
@@ -1432,7 +1432,7 @@ public class ProjectRunServiceTests
         WriteFile("Other.csproj", ExecutableCsproj);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "--project \"My App\"'");
+        Assert.Contains("--project \"My App\"'", ex.Message);
     }
 
     [TestMethod]
@@ -1443,8 +1443,8 @@ public class ProjectRunServiceTests
         WriteFile("B.Tests.csproj", TestProjectCsproj);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "Only test projects found");
-        StringAssert.Contains(ex.Message, "(A.Tests.csproj, B.Tests.csproj)");
+        Assert.Contains("Only test projects found", ex.Message);
+        Assert.Contains("(A.Tests.csproj, B.Tests.csproj)", ex.Message);
         Assert.IsFalse(ex.Message.Contains("Lib.csproj", StringComparison.Ordinal), ex.Message);
     }
 
@@ -1471,8 +1471,8 @@ public class ProjectRunServiceTests
         WriteFile("Lib2.csproj", LibraryCsproj);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "No runnable app project found");
-        StringAssert.Contains(ex.Message, "requires an executable project");
+        Assert.Contains("No runnable app project found", ex.Message);
+        Assert.Contains("requires an executable project", ex.Message);
         Assert.IsFalse(ex.Message.Contains("winapp run ", StringComparison.Ordinal), ex.Message);
     }
 
@@ -1495,7 +1495,7 @@ public class ProjectRunServiceTests
         var service = NewServiceWith(dotnet, out _);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "Multiple runnable app projects");
+        Assert.Contains("Multiple runnable app projects", ex.Message);
     }
 
     [TestMethod]
@@ -1597,7 +1597,7 @@ public class ProjectRunServiceTests
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
             service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "No runnable app project found");
+        Assert.Contains("No runnable app project found", ex.Message);
     }
 
     [TestMethod]
@@ -1647,7 +1647,7 @@ public class ProjectRunServiceTests
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
             service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "No runnable app project found");
+        Assert.Contains("No runnable app project found", ex.Message);
     }
 
     [TestMethod]
@@ -1805,7 +1805,7 @@ public class ProjectRunServiceTests
         WriteFile("Two.sln", "");
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "Multiple solution files");
+        Assert.Contains("Multiple solution files", ex.Message);
     }
 
     [TestMethod]
@@ -1825,7 +1825,7 @@ public class ProjectRunServiceTests
         var service = NewServiceWith(dotnet, out _);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.ResolveInputAsync(solution, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "--project");
+        Assert.Contains("--project", ex.Message);
     }
 
     [TestMethod]
@@ -1920,7 +1920,7 @@ public class ProjectRunServiceTests
         var service = NewServiceWith(dotnet, out _);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.ResolveInputAsync(solution, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "No .csproj or .vcxproj projects");
+        Assert.Contains("No .csproj or .vcxproj projects", ex.Message);
     }
 
     [TestMethod]
@@ -2051,7 +2051,7 @@ public class ProjectRunServiceTests
 
         Assert.AreEqual(WinAppRunMode.Project, resolution.Mode);
         Assert.AreEqual(tests.FullName, resolution.Csproj!.FullName);
-        StringAssert.Contains(console.Output, "test project");
+        Assert.Contains("test project", console.Output);
     }
 
     [TestMethod]
@@ -2103,8 +2103,8 @@ public class ProjectRunServiceTests
         var service = NewServiceWith(dotnet, out _);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.ResolveInputAsync(solution, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "only test projects");
-        StringAssert.Contains(ex.Message, "--project");
+        Assert.Contains("only test projects", ex.Message);
+        Assert.Contains("--project", ex.Message);
     }
 
     [TestMethod]
@@ -2140,7 +2140,7 @@ public class ProjectRunServiceTests
         var service = NewServiceWith(dotnet, out _);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.ResolveInputAsync(solution, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "Broken.sln");
+        Assert.Contains("Broken.sln", ex.Message);
     }
 
     #endregion
@@ -2208,10 +2208,10 @@ public class ProjectRunServiceTests
 
         Assert.AreEqual(ProjectAppFramework.Wpf, outcome.Resolution!.DevToolsUnsupportedFramework);
         var command = noBuild ? dotnet.StringInvocations.Last() : dotnet.StreamingCalls.Single();
-        StringAssert.Contains(command, "--getProperty:UseWinUI");
-        StringAssert.Contains(command, "--getProperty:UseWPF");
-        StringAssert.Contains(command, "--getProperty:UseWindowsForms");
-        StringAssert.Contains(command, "--getItem:PackageReference,ProjectReference,Reference");
+        Assert.Contains("--getProperty:UseWinUI", command);
+        Assert.Contains("--getProperty:UseWPF", command);
+        Assert.Contains("--getProperty:UseWindowsForms", command);
+        Assert.Contains("--getItem:PackageReference,ProjectReference,Reference", command);
     }
 
     [TestMethod]
@@ -2326,11 +2326,11 @@ public class ProjectRunServiceTests
         Assert.AreEqual(true, preparation.Signing!.SigningEnabled);
         Assert.IsTrue(preparation.Options.NoRestore);
         var restore = dotnet.StreamingCalls.Single();
-        StringAssert.Contains(restore, "-p:_IsPublishing=true");
-        StringAssert.Contains(restore, "-p:Configuration=Release");
-        StringAssert.Contains(restore, "win-arm64");
-        StringAssert.Contains(restore, "-p:TargetFramework=net10.0");
-        StringAssert.Contains(restore, "-p:Flavor=Retail");
+        Assert.Contains("-p:_IsPublishing=true", restore);
+        Assert.Contains("-p:Configuration=Release", restore);
+        Assert.Contains("win-arm64", restore);
+        Assert.Contains("-p:TargetFramework=net10.0", restore);
+        Assert.Contains("-p:Flavor=Retail", restore);
     }
 
     [TestMethod]
@@ -2373,11 +2373,11 @@ public class ProjectRunServiceTests
             Assert.AreEqual(true, preparation.Signing!.SigningEnabled,
                 "Signing must reflect the selected project's Release graph, not the solution's mapped Debug graph.");
             Assert.HasCount(2, dotnet.StreamingCalls);
-            StringAssert.Contains(dotnet.StreamingCalls[0], ".slnf", "the solution's other projects restore through a solution filter");
-            StringAssert.StartsWith(dotnet.StreamingCalls[1], $"restore {csproj.FullName}");
-            StringAssert.Contains(dotnet.StreamingCalls[1], "-p:Configuration=Release");
-            StringAssert.Contains(dotnet.StreamingCalls[1], "-p:_IsPublishing=true");
-            StringAssert.Contains(dotnet.StreamingCalls[1], "-r win-arm64");
+            Assert.Contains(".slnf", dotnet.StreamingCalls[0], "the solution's other projects restore through a solution filter");
+            Assert.StartsWith($"restore {csproj.FullName}", dotnet.StreamingCalls[1]);
+            Assert.Contains("-p:Configuration=Release", dotnet.StreamingCalls[1]);
+            Assert.Contains("-p:_IsPublishing=true", dotnet.StreamingCalls[1]);
+            Assert.Contains("-r win-arm64", dotnet.StreamingCalls[1]);
             Assert.IsTrue(preparation.Options.NoRestore);
         }
     }
@@ -2432,7 +2432,7 @@ public class ProjectRunServiceTests
 
         Assert.AreEqual(shipping, result.Resolution!.TargetDir);
         var publish = dotnet.ArgumentListInvocations.Single();
-        CollectionAssert.Contains(publish.ToList(), "--getProperty:PublishDir");
+        Assert.Contains("--getProperty:PublishDir", publish.ToList());
         Assert.AreEqual(noBuild, publish.Contains("--no-build"));
         Assert.IsFalse(publish.Contains("-p:PublishAot=true"));
         Assert.IsFalse(publish.Contains("--getProperty:PackageCertificatePassword"));
@@ -2482,8 +2482,8 @@ public class ProjectRunServiceTests
             var result = await service.PublishAndResolveAsync(csproj, preparation, CancellationToken.None);
             Assert.AreEqual(37, result.ExitCode);
             Assert.IsNull(result.Resolution);
-            StringAssert.Contains(console.Output, "error PUBLISH");
-            StringAssert.Contains(console.Output, "stderr diagnostic");
+            Assert.Contains("error PUBLISH", console.Output);
+            Assert.Contains("stderr diagnostic", console.Output);
             Assert.IsFalse(console.Output.Contains("SECRET", StringComparison.Ordinal));
         }
     }
@@ -2603,7 +2603,7 @@ public class ProjectRunServiceTests
 
         Assert.IsNotNull(outcome.Resolution);
         Assert.AreEqual(1, dotnet.StreamingCalls.Count, "exactly one build pass should have run");
-        StringAssert.Contains(dotnet.StreamingCalls[0], $"-p:CsWinRTWindowsMetadata={folder}");
+        Assert.Contains($"-p:CsWinRTWindowsMetadata={folder}", dotnet.StreamingCalls[0]);
         Assert.AreEqual(1, shim.ResolvedMonikers.Count, "the shim should be consulted once");
         Assert.AreEqual("net10.0-windows10.0.26100.0", shim.ResolvedMonikers[0],
             "the shim must be consulted with the project's target framework moniker");
@@ -2678,9 +2678,9 @@ public class ProjectRunServiceTests
             "an explicit restore pass should run before the build when the shim initially resolves null on an SDK-less host");
         Assert.AreEqual(2, shim.ResolvedMonikers.Count, "the shim should be re-consulted after the restore");
         var buildCall = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
-        StringAssert.Contains(buildCall, $"-p:CsWinRTWindowsMetadata={folder}",
+        Assert.Contains($"-p:CsWinRTWindowsMetadata={folder}", buildCall,
             "the re-resolved folder must be injected into the build");
-        StringAssert.Contains(buildCall, "--no-restore",
+        Assert.Contains("--no-restore", buildCall,
             "the build pass should skip its own restore since the explicit restore already ran");
     }
 
@@ -2771,7 +2771,7 @@ public class ProjectRunServiceTests
         Assert.AreEqual(1, discoveryCalls, "the TFM discovery evaluate must run once and be reused by the shim");
         Assert.AreEqual("net9.0-windows10.0.22621.0", shim.ResolvedMonikers[0]);
         var buildCall = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
-        StringAssert.Contains(buildCall, $"-p:CsWinRTWindowsMetadata={folder}");
+        Assert.Contains($"-p:CsWinRTWindowsMetadata={folder}", buildCall);
         Assert.IsFalse(buildCall.Contains(" -f ", StringComparison.Ordinal),
             "a single-targeted project's evaluated TFM must not be pinned into the build");
     }
@@ -2790,7 +2790,7 @@ public class ProjectRunServiceTests
                 if (args.Contains("--getProperty:CsWinRTWindowsMetadata", StringComparison.Ordinal))
                 {
                     probes++;
-                    StringAssert.Contains(args, "-p:Configuration=Debug");
+                    Assert.Contains("-p:Configuration=Debug", args);
                     return (0, """{ "Properties": { "CsWinRTWindowsMetadata": "sdk+", "TargetFramework": "net10.0-windows10.0.26100.0" } }""", string.Empty);
                 }
 
@@ -2954,7 +2954,7 @@ public class ProjectRunServiceTests
                 if (args.Contains("--getProperty:CsWinRTWindowsMetadata", StringComparison.Ordinal))
                 {
                     probes++;
-                    StringAssert.Contains(args, @"-p:WindowsSDKVersion=10.0.19041.0");
+                    Assert.Contains(@"-p:WindowsSDKVersion=10.0.19041.0", args);
                     return (0, """{ "Properties": { "CsWinRTWindowsMetadata": "", "TargetFramework": "net10.0-windows10.0.26100.0" } }""", string.Empty);
                 }
 
@@ -3017,10 +3017,10 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildRestorePassArguments(csproj, options);
 
-        StringAssert.StartsWith(args, "restore ");
-        StringAssert.Contains(args, "-r win-arm64");
-        StringAssert.Contains(args, "-p:Configuration=Debug");
-        StringAssert.Contains(args, "-p:WindowsPackageType=None");
+        Assert.StartsWith("restore ", args);
+        Assert.Contains("-r win-arm64", args);
+        Assert.Contains("-p:Configuration=Debug", args);
+        Assert.Contains("-p:WindowsPackageType=None", args);
         Assert.IsFalse(args.Contains("--no-restore", StringComparison.Ordinal), "restore must not carry --no-restore");
         Assert.IsFalse(args.Contains(" -c ", StringComparison.Ordinal), "restore has no -c switch; configuration flows via -p:Configuration=");
         Assert.IsFalse(args.Contains(" -v ", StringComparison.Ordinal), "default restore must keep dotnet's default minimal verbosity");
@@ -3035,7 +3035,7 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildRestorePassArguments(csproj, options, "quiet");
 
-        StringAssert.Contains(args, "-v quiet");
+        Assert.Contains("-v quiet", args);
     }
 
     [TestMethod]
@@ -3047,7 +3047,7 @@ public class ProjectRunServiceTests
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj"));
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
 
-        StringAssert.Contains(ProjectRunService.BuildRestorePassArguments(csproj, options), "-r win-x64 -p:RuntimeIdentifier=win-x64");
+        Assert.Contains("-r win-x64 -p:RuntimeIdentifier=win-x64", ProjectRunService.BuildRestorePassArguments(csproj, options));
         Assert.IsFalse(ProjectRunService.BuildRestorePassArguments(solution, options).Contains("-p:RuntimeIdentifier=", StringComparison.Ordinal),
             "a solution restore keeps -r alone");
         Assert.IsFalse(ProjectRunService.BuildRestorePassArguments(csproj, options with { OmitRuntimeIdentifier = true }).Contains("RuntimeIdentifier", StringComparison.Ordinal));
@@ -3065,7 +3065,7 @@ public class ProjectRunServiceTests
 
         Assert.IsFalse(args.Contains("-p:Platform=", StringComparison.OrdinalIgnoreCase),
             "a solution restore must not request a solution configuration that a configuration-free .slnx does not declare");
-        StringAssert.Contains(args, "-p:Configuration=Debug");
+        Assert.Contains("-p:Configuration=Debug", args);
     }
 
     [TestMethod]
@@ -3080,7 +3080,7 @@ public class ProjectRunServiceTests
 
         Assert.IsFalse(args.Contains("-p:Platform=", StringComparison.OrdinalIgnoreCase),
             "a user Platform property must not request an undeclared solution configuration");
-        StringAssert.Contains(args, "-p:WindowsPackageType=None",
+        Assert.Contains("-p:WindowsPackageType=None", args,
             "other user properties must continue to flow to solution restore");
     }
 
@@ -3096,9 +3096,9 @@ public class ProjectRunServiceTests
 
         var args = ProjectRunService.BuildRestorePassArguments(csproj, options);
 
-        StringAssert.Contains(args, "-r win-x64");
-        StringAssert.Contains(args, "-p:Configuration=Debug");
-        StringAssert.Contains(args, "-p:WindowsPackageType=None");
+        Assert.Contains("-r win-x64", args);
+        Assert.Contains("-p:Configuration=Debug", args);
+        Assert.Contains("-p:WindowsPackageType=None", args);
         Assert.IsFalse(args.Contains("win-arm64", StringComparison.Ordinal), "conflicting user -p:RuntimeIdentifier must be dropped so -r wins");
         Assert.IsFalse(args.Contains("Configuration=Release", StringComparison.Ordinal), "conflicting user -p:Configuration must be dropped");
         Assert.IsFalse(args.Contains("net8.0", StringComparison.Ordinal), "conflicting user -p:TargetFramework must be dropped");
@@ -3197,7 +3197,7 @@ public class ProjectRunServiceTests
         var options = PlatformOptions("arm64") with { ExactRuntimeIdentifier = "win10-arm64" };
 
         var ex = Assert.Throws<ProjectRunException>(() => ProjectRunService.ResolvePlatformInjection(app, options));
-        StringAssert.Contains(ex.Message, "RuntimeIdentifier");
+        Assert.Contains("RuntimeIdentifier", ex.Message);
     }
 
     [TestMethod]
@@ -3208,7 +3208,7 @@ public class ProjectRunServiceTests
         var resolved = ProjectRunService.ResolvePlatformInjection(app, PlatformOptions("arm64"));
 
         Assert.IsFalse(resolved.OmitRuntimeIdentifier, "without a split the RID must be preserved");
-        StringAssert.Contains(ProjectRunService.BuildBuildPassArguments(app, resolved, "minimal"), "-r win-arm64");
+        Assert.Contains("-r win-arm64", ProjectRunService.BuildBuildPassArguments(app, resolved, "minimal"));
     }
 
     [TestMethod]
@@ -3277,7 +3277,7 @@ public class ProjectRunServiceTests
             app,
             resolved,
             "minimal");
-        CollectionAssert.Contains(arguments.ToList(), "win-arm64");
+        Assert.Contains("win-arm64", arguments.ToList());
         Assert.IsFalse(
             arguments.Contains("-p:Platform=ARM64"));
     }
@@ -3293,7 +3293,7 @@ public class ProjectRunServiceTests
                 PlatformOptions("arm64", "Platform=arm64"),
                 requireConcreteRid: true));
 
-        StringAssert.Contains(error.Message, "Remove -p:Platform");
+        Assert.Contains("Remove -p:Platform", error.Message);
     }
 
     [TestMethod]
@@ -3354,9 +3354,9 @@ public class ProjectRunServiceTests
         var evaluateArgs = ProjectRunService.BuildEvaluateArguments(csproj, resolved);
         var restoreArgs = ProjectRunService.BuildRestorePassArguments(csproj, resolved);
 
-        StringAssert.Contains(buildArgs, "-p:Platform=ARM64");
-        StringAssert.Contains(evaluateArgs, "-p:Platform=ARM64");
-        StringAssert.Contains(restoreArgs, "-p:Platform=ARM64");
+        Assert.Contains("-p:Platform=ARM64", buildArgs);
+        Assert.Contains("-p:Platform=ARM64", evaluateArgs);
+        Assert.Contains("-p:Platform=ARM64", restoreArgs);
     }
 
     [TestMethod]
@@ -3706,7 +3706,7 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        StringAssert.Contains(console.Output, "Building",
+        Assert.Contains("Building", console.Output,
             "non-json mode should print the human-readable build banner");
     }
 
@@ -3810,7 +3810,7 @@ public class ProjectRunServiceTests
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.BuildAndResolveAsync(csproj, options, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "OutputType");
+        Assert.Contains("OutputType", ex.Message);
     }
 
     [TestMethod]
@@ -3825,7 +3825,7 @@ public class ProjectRunServiceTests
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.BuildAndResolveAsync(csproj, options, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "TargetDir");
+        Assert.Contains("TargetDir", ex.Message);
     }
 
     [TestMethod]
@@ -3839,7 +3839,7 @@ public class ProjectRunServiceTests
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.BuildAndResolveAsync(csproj, options, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "unpackaged");
+        Assert.Contains("unpackaged", ex.Message);
     }
 
     [TestMethod]
@@ -3853,7 +3853,7 @@ public class ProjectRunServiceTests
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: true, NoRestore: false, Properties: [], Json: false);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.BuildAndResolveAsync(csproj, options, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "--no-build");
+        Assert.Contains("--no-build", ex.Message);
     }
 
     #endregion
@@ -3992,13 +3992,14 @@ public class ProjectRunServiceTests
         var siblings = plan.ManagedSiblings;
 
         Assert.AreEqual(2, siblings.Count);
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             new[]
             {
                 Path.Combine(_tempDir.FullName, "src", "Vb", "Vb.vbproj"),
                 Path.Combine(_tempDir.FullName, "src", "Fs", "Fs.fsproj"),
             },
-            siblings.Select(s => s.FullName).ToList());
+            siblings.Select(s => s.FullName).ToList(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -4029,8 +4030,8 @@ public class ProjectRunServiceTests
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
 
-        CollectionAssert.AreEqual(new List<string> { "external/Sub/Sub.csproj", "external/Sub/Native.vcxproj" }, plan.MissingProjects.ToList());
-        CollectionAssert.AreEqual(new List<string> { "src/Server/Server.csproj" }, plan.ManagedSiblingEntries.ToList(),
+        Assert.AreSequenceEqual(new List<string> { "external/Sub/Sub.csproj", "external/Sub/Native.vcxproj" }, plan.MissingProjects.ToList());
+        Assert.AreSequenceEqual(new List<string> { "src/Server/Server.csproj" }, plan.ManagedSiblingEntries.ToList(),
             "a solution filter must repeat entries exactly as the solution spells them");
         Assert.AreEqual(1, plan.ManagedSiblings.Count);
     }
@@ -4046,7 +4047,7 @@ public class ProjectRunServiceTests
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
 
-        CollectionAssert.AreEqual(new List<string> { @"src\Server\Server.csproj" }, plan.ManagedSiblingEntries.ToList());
+        Assert.AreSequenceEqual(new List<string> { @"src\Server\Server.csproj" }, plan.ManagedSiblingEntries.ToList());
         Assert.AreEqual(0, plan.MissingProjects.Count, "a rejected entry isn't reported as missing from disk");
     }
 
@@ -4068,7 +4069,7 @@ public class ProjectRunServiceTests
         Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
             "the solution itself is never handed to dotnet restore, so MSBuild can't open entries winapp skipped");
         var filter = dotnet.SolutionFilterContents.Single();
-        StringAssert.Contains(filter, @"Server\\Server.csproj");
+        Assert.Contains(@"Server\\Server.csproj", filter);
         Assert.IsFalse(filter.Contains("attacker.example", StringComparison.Ordinal), "the UNC entry is left out of the filter");
         Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.Contains("attacker.example", StringComparison.Ordinal)));
     }
@@ -4116,7 +4117,7 @@ public class ProjectRunServiceTests
             var root = document.RootElement.GetProperty("solution");
             Assert.AreEqual(".slnf", filter.Extension);
             Assert.AreEqual(solution.FullName, root.GetProperty("path").GetString());
-            CollectionAssert.AreEqual(
+            Assert.AreSequenceEqual(
                 new List<string> { @"src\Server\Server.csproj" },
                 root.GetProperty("projects").EnumerateArray().Select(p => p.GetString()).ToList());
         }
@@ -4140,7 +4141,7 @@ public class ProjectRunServiceTests
 
         var warnings = ProjectRunService.ExtractRestoreWarnings(output);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new List<string> { @"C:\src\Sdk\Sdk.csproj : warning NU1901: Package 'A' 1.0.0 has a known low severity vulnerability" },
             warnings);
     }
@@ -4186,13 +4187,13 @@ public class ProjectRunServiceTests
         Assert.IsNotNull(outcome.Resolution);
         Assert.IsTrue(commandArgs.Any(a => a.StartsWith("restore ", StringComparison.Ordinal) && a.Contains(".slnf", StringComparison.Ordinal)),
             "the solution's other projects should be restored up front for build-dependency parity");
-        StringAssert.Contains(console.Output, "Restoring 1 solution project...",
+        Assert.Contains("Restoring 1 solution project...", console.Output,
             "the restore phase should be announced before dotnet starts");
-        StringAssert.Contains(console.Output, longRestoreLine,
+        Assert.Contains(longRestoreLine, console.Output,
             "restore output should stream live without Spectre wrapping the subprocess line");
-        StringAssert.Contains(
-            console.Output.ReplaceLineEndings("\n"),
+        Assert.Contains(
             $"{longRestoreLine}\n\nAFTER-BLANK",
+            console.Output.ReplaceLineEndings("\n"),
             "the streaming fake should preserve genuine blank subprocess lines without inventing CRLF blanks");
         Assert.IsFalse(dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal)).Contains("--no-restore", StringComparison.Ordinal),
             "a solution-scoped restore can't stand in for the target's own restore");
@@ -4220,8 +4221,8 @@ public class ProjectRunServiceTests
 
         Assert.IsNotNull(outcome.Resolution);
         var targetRestore = dotnet.StreamingCalls.Single(a => a.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal));
-        StringAssert.Contains(targetRestore, "-r win-x64 -p:RuntimeIdentifier=win-x64");
-        StringAssert.Contains(dotnet.InheritedCalls.Single(), "--no-restore");
+        Assert.Contains("-r win-x64 -p:RuntimeIdentifier=win-x64", targetRestore);
+        Assert.Contains("--no-restore", dotnet.InheritedCalls.Single());
     }
 
     [TestMethod]
@@ -4247,7 +4248,7 @@ public class ProjectRunServiceTests
             "a solution-scoped restore must omit Platform to avoid MSB4126");
         var build = dotnet.StreamingCalls.Single(
             args => args.StartsWith($"build {csproj.FullName}", StringComparison.Ordinal));
-        StringAssert.Contains(build, "-p:Platform=x64",
+        Assert.Contains("-p:Platform=x64", build,
             "the selected project build must retain its resolved Platform");
         Assert.IsFalse(build.Contains("--no-restore", StringComparison.Ordinal),
             "the project must restore again because the platform-less solution restore did not cover platform-conditioned assets");
@@ -4277,7 +4278,7 @@ public class ProjectRunServiceTests
             "a solution-scoped restore must omit the user Platform to avoid MSB4126");
         var build = dotnet.StreamingCalls.Single(
             args => args.StartsWith($"build {csproj.FullName}", StringComparison.Ordinal));
-        StringAssert.Contains(build, "-p:Platform=x64",
+        Assert.Contains("-p:Platform=x64", build,
             "the selected project build must retain the user-supplied Platform");
         Assert.IsFalse(build.Contains("--no-restore", StringComparison.Ordinal),
             "the project must restore again because the solution restore did not cover platform-conditioned assets");
@@ -4320,11 +4321,11 @@ public class ProjectRunServiceTests
             dotnet.InheritedCalls.Any(a => a.StartsWith("restore ", StringComparison.Ordinal)),
             "restore output must never bypass winapp's redaction through inherited stdio");
         var build = dotnet.InheritedCalls.Single();
-        StringAssert.StartsWith(build, $"build {csproj.FullName}");
-        StringAssert.Contains(build, "--no-restore", "the native-terminal build must not restore (it can't redact)");
+        Assert.StartsWith($"build {csproj.FullName}", build);
+        Assert.Contains("--no-restore", build, "the native-terminal build must not restore (it can't redact)");
 
         var output = console.Output;
-        StringAssert.Contains(output, "Restored App and 1 solution project with 1 warning(s)");
+        Assert.Contains("Restored App and 1 solution project with 1 warning(s)", output);
         Assert.AreEqual(1, Regex.Count(output, "warning NU1901"), "each restore warning is shown once");
         Assert.IsFalse(output.Contains("Determining projects", StringComparison.Ordinal),
             "a successful restore's progress chatter stays hidden");
@@ -4350,7 +4351,7 @@ public class ProjectRunServiceTests
         var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution);
-        StringAssert.Contains(console.Output, "Restored App[1] in");
+        Assert.Contains("Restored App[1] in", console.Output);
     }
 
     [TestMethod]
@@ -4371,8 +4372,8 @@ public class ProjectRunServiceTests
         var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution);
-        StringAssert.Contains(console.Output, "Restoring App[1]...");
-        StringAssert.Contains(console.Output, $"dotnet build {csproj.FullName}");
+        Assert.Contains("Restoring App[1]...", console.Output);
+        Assert.Contains($"dotnet build {csproj.FullName}", console.Output);
     }
 
     [TestMethod]
@@ -4401,7 +4402,7 @@ public class ProjectRunServiceTests
 
         Assert.AreEqual(0, exit);
         Assert.IsEmpty(dotnet.InheritedCalls, "a build whose arguments carry a credential must not inherit the console");
-        StringAssert.Contains(dotnet.StreamingCalls.Single(), "-tl:off");
+        Assert.Contains("-tl:off", dotnet.StreamingCalls.Single());
         Assert.IsFalse(console.Output.Contains("ARG_SECRET", StringComparison.Ordinal));
     }
 
@@ -4429,8 +4430,8 @@ public class ProjectRunServiceTests
         Assert.IsNotNull(outcome.Resolution);
         Assert.IsEmpty(dotnet.InheritedCalls, "the build must stream through winapp's redaction");
         var build = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
-        StringAssert.Contains(build, "--no-restore", "the separate restore still covers the build");
-        StringAssert.Contains(build, "-tl:off");
+        Assert.Contains("--no-restore", build, "the separate restore still covers the build");
+        Assert.Contains("-tl:off", build);
         Assert.IsFalse(console.Output.Contains("REPLAYED", StringComparison.Ordinal));
     }
 
@@ -4461,7 +4462,7 @@ public class ProjectRunServiceTests
         var restore = dotnet.StreamingCalls.Single(a => a.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal));
         Assert.IsFalse(restore.Contains("TargetFramework", StringComparison.OrdinalIgnoreCase),
             "a pinned framework would flow to the multi-targeted reference's restore");
-        StringAssert.Contains(dotnet.InheritedCalls.Single(), "-f net8.0-windows10.0.19041.0");
+        Assert.Contains("-f net8.0-windows10.0.19041.0", dotnet.InheritedCalls.Single());
     }
 
     [TestMethod]
@@ -4488,7 +4489,7 @@ public class ProjectRunServiceTests
         Assert.IsNotNull(outcome.Resolution);
         Assert.IsEmpty(dotnet.InheritedCalls);
         Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.StartsWith("restore ", StringComparison.Ordinal)));
-        StringAssert.Contains(console.Output, "?<redacted>");
+        Assert.Contains("?<redacted>", console.Output);
         Assert.IsFalse(console.Output.Contains("REPLAYED_SECRET", StringComparison.Ordinal));
     }
 
@@ -4533,15 +4534,15 @@ public class ProjectRunServiceTests
         var ex = await Assert.ThrowsAsync<ProjectRunException>(
             () => service.BuildAndResolveAsync(csproj, options, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Restore failed for 'App.csproj'");
+        Assert.Contains("Restore failed for 'App.csproj'", ex.Message);
         Assert.IsEmpty(dotnet.InheritedCalls, "the build must not run after a failed restore");
         var output = console.Output;
-        StringAssert.Contains(output, "error NU1301");
-        StringAssert.Contains(output, "?<redacted>");
+        Assert.Contains("error NU1301", output);
+        Assert.Contains("?<redacted>", output);
         Assert.IsFalse(output.Contains("FAIL_SECRET", StringComparison.Ordinal));
-        StringAssert.Contains(output, "Command:");
-        StringAssert.Contains(output, "dotnet restore");
-        StringAssert.Contains(output, "NuGetApiKey=***");
+        Assert.Contains("Command:", output);
+        Assert.Contains("dotnet restore", output);
+        Assert.Contains("NuGetApiKey=***", output);
         Assert.IsTrue(output.Split('\n').Any(line => line.Contains("Command: dotnet restore", StringComparison.Ordinal) && line.Contains("NuGetApiKey=***", StringComparison.Ordinal)),
             "the failed command stays on one line so it can be copied and rerun");
         Assert.IsFalse(output.Contains("top-secret", StringComparison.Ordinal));
@@ -4584,11 +4585,11 @@ public class ProjectRunServiceTests
 
         Assert.AreEqual(0, exit);
         Assert.AreEqual(string.Empty, console.Output, "--json must keep stdout clean");
-        StringAssert.Contains(stderr.ToString(), "dotnet restore", "--json must route the invocation to stderr");
-        StringAssert.Contains(stderr.ToString(), "NuGetApiKey=***", "displayed restore commands must redact secrets");
+        Assert.Contains("dotnet restore", stderr.ToString(), "--json must route the invocation to stderr");
+        Assert.Contains("NuGetApiKey=***", stderr.ToString(), "displayed restore commands must redact secrets");
         Assert.IsFalse(stderr.ToString().Contains("top-secret"), "the secret must not be displayed");
-        StringAssert.Contains(stderr.ToString(), "RESTORE-STDOUT", "--json must route child stdout to stderr");
-        StringAssert.Contains(stderr.ToString(), "RESTORE-STDERR", "--json must route child stderr to stderr");
+        Assert.Contains("RESTORE-STDOUT", stderr.ToString(), "--json must route child stdout to stderr");
+        Assert.Contains("RESTORE-STDERR", stderr.ToString(), "--json must route child stderr to stderr");
         Assert.IsFalse(stderr.ToString().Contains("STDOUT_SECRET"), "restore stdout must redact feed credentials");
         Assert.IsFalse(stderr.ToString().Contains("STDERR_SECRET"), "restore stderr must redact feed credentials");
     }
@@ -4629,9 +4630,9 @@ public class ProjectRunServiceTests
         Assert.AreEqual(0, exit);
         Assert.AreEqual(string.Empty, console.Output, "--quiet must keep stdout clean");
         Assert.IsFalse(stderr.ToString().Contains("dotnet restore"), "--quiet must suppress the invocation");
-        StringAssert.Contains(stderr.ToString(), "QUIET-RESTORE-STDOUT", "--quiet must route child stdout to stderr");
-        StringAssert.Contains(stderr.ToString(), "QUIET-RESTORE-STDERR", "--quiet must route child stderr to stderr");
-        StringAssert.Contains(dotnet.StreamingCalls.Single(), "-v quiet",
+        Assert.Contains("QUIET-RESTORE-STDOUT", stderr.ToString(), "--quiet must route child stdout to stderr");
+        Assert.Contains("QUIET-RESTORE-STDERR", stderr.ToString(), "--quiet must route child stderr to stderr");
+        Assert.Contains("-v quiet", dotnet.StreamingCalls.Single(),
             "--quiet must run dotnet restore at quiet verbosity");
     }
 
@@ -4654,7 +4655,7 @@ public class ProjectRunServiceTests
         Assert.IsNotNull(outcome.Resolution);
         var restoreArgs = dotnet.StreamingCalls.Single(
             args => args.StartsWith("restore ", StringComparison.Ordinal) && args.Contains(".slnf", StringComparison.Ordinal));
-        StringAssert.Contains(restoreArgs, "-v quiet",
+        Assert.Contains("-v quiet", restoreArgs,
             "--quiet must apply quiet verbosity to the restore created by the project-run pipeline");
     }
 
@@ -4713,12 +4714,12 @@ public class ProjectRunServiceTests
 
         var restores = dotnet.StreamingCalls.Where(a => a.StartsWith("restore ", StringComparison.Ordinal)).ToList();
         Assert.AreEqual(1, restores.Count, "all managed siblings restore in one invocation");
-        StringAssert.Contains(restores[0], ".slnf");
+        Assert.Contains(".slnf", restores[0]);
         Assert.IsFalse(restores[0].Contains("-p:Platform=", StringComparison.Ordinal),
             "a solution-filter restore is solution-scoped, so it must omit Platform");
         var filter = dotnet.SolutionFilterContents.Single();
-        StringAssert.Contains(filter, "Managed/Managed.csproj");
-        StringAssert.Contains(filter, "Other/Other.csproj");
+        Assert.Contains("Managed/Managed.csproj", filter);
+        Assert.Contains("Other/Other.csproj", filter);
         Assert.IsFalse(filter.Contains("Native.vcxproj", StringComparison.OrdinalIgnoreCase),
             "a native .vcxproj must never be handed to dotnet restore");
         Assert.IsFalse(restores.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
@@ -4749,10 +4750,10 @@ public class ProjectRunServiceTests
 
         var restores = dotnet.StreamingCalls.Where(a => a.StartsWith("restore ", StringComparison.Ordinal)).ToList();
         Assert.AreEqual(1, restores.Count);
-        StringAssert.Contains(dotnet.SolutionFilterContents.Single(), @"Lib\\Lib.csproj");
+        Assert.Contains(@"Lib\\Lib.csproj", dotnet.SolutionFilterContents.Single());
         var note = logger.Entries.Single(e => e.Message.Contains("aren't on disk", StringComparison.Ordinal));
-        StringAssert.Contains(note.Message, "Skipping 2 projects listed in App.sln");
-        StringAssert.Contains(note.Message, @"external\A\A.csproj and 1 more");
+        Assert.Contains("Skipping 2 projects listed in App.sln", note.Message);
+        Assert.Contains(@"external\A\A.csproj and 1 more", note.Message);
     }
 
     [TestMethod]
@@ -4788,8 +4789,8 @@ public class ProjectRunServiceTests
         Assert.IsNotNull(outcome.Resolution, "sibling restores are best-effort; the build decides");
         Assert.AreEqual(1, dotnet.StreamingCalls.Count(a => a.StartsWith("restore ", StringComparison.Ordinal)),
             "a package-only failure must not fan out into one restore per project");
-        StringAssert.Contains(console.Output, "error NU1901", "the real error stays visible");
-        StringAssert.Contains(console.Output, "Command: dotnet restore", "the failed command is shown");
+        Assert.Contains("error NU1901", console.Output, "the real error stays visible");
+        Assert.Contains("Command: dotnet restore", console.Output, "the failed command is shown");
         var filter = WindowsCommandLine.SplitArguments(dotnet.StreamingCalls.Single(a => a.StartsWith("restore ", StringComparison.Ordinal)))[1];
         try
         {
@@ -4829,7 +4830,7 @@ public class ProjectRunServiceTests
         var ex = await Assert.ThrowsAsync<ProjectRunException>(() => service.PreparePackageAsync(csproj, options, CancellationToken.None));
         DeleteKeptSolutionFilters(dotnet);
 
-        StringAssert.Contains(ex.Message, "Publish restore failed");
+        Assert.Contains("Publish restore failed", ex.Message);
         Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal)),
             "the target's publish restore must not run after a failed dependency restore");
     }
@@ -4984,7 +4985,7 @@ public class ProjectRunServiceTests
 
         Assert.IsNotNull(outcome.Resolution);
         Assert.AreEqual(string.Empty, console.Output, "--quiet must keep stdout clean");
-        StringAssert.Contains(stderr.ToString(), "continuing with the build",
+        Assert.Contains("continuing with the build", stderr.ToString(),
             "the best-effort restore failure explanation must remain visible on stderr");
         Assert.IsFalse(logger.Entries.Any(entry => entry.Level == LogLevel.Warning),
             "quiet restore fallback warnings must bypass the stdout-routed logger");
@@ -5055,12 +5056,12 @@ public class ProjectRunServiceTests
 
         Assert.IsNotNull(outcome.Resolution, "the canned packaged build should resolve");
         Assert.AreEqual(1, dotnet.StreamingCalls.Count, "the build pass should stream exactly once");
-        StringAssert.StartsWith(dotnet.StreamingCalls[0], "build ");
+        Assert.StartsWith("build ", dotnet.StreamingCalls[0]);
         Assert.IsFalse(dotnet.StreamingCalls[0].Contains("--getProperty"),
             "the streamed build pass must not request properties");
         Assert.IsNotNull(evalArgs, "the evaluate pass must run");
-        StringAssert.StartsWith(evalArgs!, "msbuild ");
-        StringAssert.Contains(evalArgs!, "--getProperty:TargetDir");
+        Assert.StartsWith("msbuild ", evalArgs!);
+        Assert.Contains("--getProperty:TargetDir", evalArgs!);
     }
 
     [TestMethod]
@@ -5076,7 +5077,7 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-v minimal");
+        Assert.Contains("-v minimal", dotnet.StreamingCalls[0]);
     }
 
     [TestMethod]
@@ -5091,7 +5092,7 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-v normal");
+        Assert.Contains("-v normal", dotnet.StreamingCalls[0]);
     }
 
     [TestMethod]
@@ -5105,7 +5106,7 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-v minimal");
+        Assert.Contains("-v minimal", dotnet.StreamingCalls[0]);
     }
 
     [TestMethod]
@@ -5119,7 +5120,7 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-v quiet");
+        Assert.Contains("-v quiet", dotnet.StreamingCalls[0]);
     }
 
     [TestMethod]
@@ -5177,7 +5178,7 @@ public class ProjectRunServiceTests
         var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution, "a multi-targeted project should resolve after pinning a TFM");
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-f net10.0-windows10.0.26100.0", "the first declared TFM must be pinned into the build pass");
+        Assert.Contains("-f net10.0-windows10.0.26100.0", dotnet.StreamingCalls[0], "the first declared TFM must be pinned into the build pass");
         Assert.IsFalse(dotnet.StreamingCalls[0].Contains("net8.0-windows10.0.26100.0"), "only the first TFM should be pinned");
     }
 
@@ -5207,7 +5208,7 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-f net8.0-windows10.0.26100.0", "an explicit --framework must be honored, not replaced by the first TFM");
+        Assert.Contains("-f net8.0-windows10.0.26100.0", dotnet.StreamingCalls[0], "an explicit --framework must be honored, not replaced by the first TFM");
     }
 
     [TestMethod]
@@ -5223,7 +5224,7 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-f net8.0-windows10.0.26100.0", "a bare -p:TargetFramework must be promoted and honored, not dropped");
+        Assert.Contains("-f net8.0-windows10.0.26100.0", dotnet.StreamingCalls[0], "a bare -p:TargetFramework must be promoted and honored, not dropped");
     }
 
     [TestMethod]
@@ -5238,7 +5239,7 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-f net8.0-windows10.0.26100.0", "an explicit -p:TargetFramework must beat the multi-targeted first-TFM default");
+        Assert.Contains("-f net8.0-windows10.0.26100.0", dotnet.StreamingCalls[0], "an explicit -p:TargetFramework must beat the multi-targeted first-TFM default");
         Assert.IsFalse(dotnet.StreamingCalls[0].Contains("-f net10.0-windows10.0.26100.0"), "the auto-pinned first TFM must not override the user's explicit -p:TargetFramework");
     }
 
@@ -5272,7 +5273,7 @@ public class ProjectRunServiceTests
 
         Assert.IsTrue(discoveryQueried, "the effective TargetFrameworks must be discovered via an MSBuild evaluate");
         Assert.IsNotNull(outcome.Resolution, "the project should resolve after pinning the discovered first TFM");
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-f net10.0-windows10.0.26100.0", "the first discovered TFM must be pinned into the build pass");
+        Assert.Contains("-f net10.0-windows10.0.26100.0", dotnet.StreamingCalls[0], "the first discovered TFM must be pinned into the build pass");
         Assert.IsFalse(dotnet.StreamingCalls[0].Contains("net8.0-windows10.0.26100.0"), "only the first discovered TFM should be pinned");
     }
 
@@ -5296,7 +5297,7 @@ public class ProjectRunServiceTests
         Assert.IsFalse(
             commandArgs.Any(a => a.Contains("--getProperty:TargetFrameworks", StringComparison.Ordinal)),
             "an inline multi-targeted project must be pinned statically, without a discovery evaluate");
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-f net10.0-windows10.0.26100.0", "the first inline TFM must still be pinned into the build pass");
+        Assert.Contains("-f net10.0-windows10.0.26100.0", dotnet.StreamingCalls[0], "the first inline TFM must still be pinned into the build pass");
     }
 
     [TestMethod]
@@ -5315,7 +5316,7 @@ public class ProjectRunServiceTests
                 if (args.Contains("--getProperty:TargetFrameworks", StringComparison.Ordinal))
                 {
                     discoveryQueried = true;
-                    StringAssert.Contains(args, "-p:Configuration=Release", "the discovery evaluate must run under the run's Configuration");
+                    Assert.Contains("-p:Configuration=Release", args, "the discovery evaluate must run under the run's Configuration");
                     // C36: two-property discovery → JSON envelope. The Release-conditional list (net10 first).
                     return (0, """{ "Properties": { "TargetFramework": "", "TargetFrameworks": "net10.0-windows10.0.26100.0;net8.0-windows10.0.26100.0" } }""", string.Empty);
                 }
@@ -5329,7 +5330,7 @@ public class ProjectRunServiceTests
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         Assert.IsTrue(discoveryQueried, "a conditional <TargetFrameworks> must be resolved via the MSBuild evaluate, not the static group");
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-f net10.0-windows10.0.26100.0", "the Release group's first TFM must be pinned");
+        Assert.Contains("-f net10.0-windows10.0.26100.0", dotnet.StreamingCalls[0], "the Release group's first TFM must be pinned");
         Assert.IsFalse(dotnet.StreamingCalls[0].Contains("-f net8.0-windows10.0.26100.0"), "the Debug group's first TFM (net8) must NOT be pinned for a Release run");
     }
 
@@ -5350,8 +5351,8 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        StringAssert.Contains(console.Output, "Building", "the plain build banner should be shown");
-        StringAssert.Contains(console.Output, longBuildLine,
+        Assert.Contains("Building", console.Output, "the plain build banner should be shown");
+        Assert.Contains(longBuildLine, console.Output,
             "streamed build output should remain visible without Spectre wrapping the subprocess line");
     }
 
@@ -5399,13 +5400,13 @@ public class ProjectRunServiceTests
         var exit = await service.RunBuildPassAsync(csproj, options, _tempDir, csWinRTMetadataFolder: null, CancellationToken.None);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(console.Output, "Building", "the build header should be shown");
+        Assert.Contains("Building", console.Output, "the build header should be shown");
         Assert.IsFalse(console.Output.Contains("dotnet build", StringComparison.Ordinal), "a successful build shows its command only with --verbose");
-        StringAssert.Contains(console.Output, "warning CS1998", "success-path warnings must stay visible (not swallowed)");
-        StringAssert.Contains(console.Output, "Built", "a persistent Built line should follow a successful build");
+        Assert.Contains("warning CS1998", console.Output, "success-path warnings must stay visible (not swallowed)");
+        Assert.Contains("Built", console.Output, "a persistent Built line should follow a successful build");
         Assert.AreEqual(1, dotnet.StreamingCalls.Count, "the non-TTY path must use the redirected streaming launcher");
         Assert.AreEqual(0, dotnet.InheritedCalls.Count, "the non-TTY path must NOT use the inherited-stdio launcher");
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-tl:off", "the redirected streaming path must pin -tl:off");
+        Assert.Contains("-tl:off", dotnet.StreamingCalls[0], "the redirected streaming path must pin -tl:off");
     }
 
     [TestMethod]
@@ -5437,9 +5438,9 @@ public class ProjectRunServiceTests
         Assert.AreEqual(1, dotnet.InheritedCalls.Count, "the real-TTY path must use the inherited-stdio launcher");
         Assert.AreEqual(0, dotnet.StreamingCalls.Count, "the real-TTY path must NOT use the redirected streaming launcher");
         Assert.IsFalse(dotnet.InheritedCalls[0].Contains("-tl:"), "the native-terminal build args must omit any -tl token (default auto → on)");
-        StringAssert.Contains(console.Output, "Building", "the build header should still be shown above dotnet's output");
+        Assert.Contains("Building", console.Output, "the build header should still be shown above dotnet's output");
         Assert.IsFalse(console.Output.Contains("dotnet build", StringComparison.Ordinal), "a successful build shows its command only with --verbose");
-        StringAssert.Contains(console.Output, "Built", "a persistent Built line should still follow a successful build");
+        Assert.Contains("Built", console.Output, "a persistent Built line should still follow a successful build");
         Assert.IsFalse(console.Output.Contains("STREAMING-LAUNCHER-WRONGLY-USED"), "the streaming launcher must not be used on a real TTY");
     }
 
@@ -5470,8 +5471,8 @@ public class ProjectRunServiceTests
         Assert.AreEqual(0, dotnet.InheritedCalls.Count,
             "a build that may restore must not bypass feed credential redaction");
         Assert.AreEqual(1, dotnet.StreamingCalls.Count);
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-tl:off");
-        StringAssert.Contains(console.Output, "https://feed.example/v3/index.json?<redacted>");
+        Assert.Contains("-tl:off", dotnet.StreamingCalls[0]);
+        Assert.Contains("https://feed.example/v3/index.json?<redacted>", console.Output);
         Assert.IsFalse(console.Output.Contains("BUILD_RESTORE_SECRET", StringComparison.Ordinal));
     }
 
@@ -5510,9 +5511,9 @@ public class ProjectRunServiceTests
         Assert.AreEqual(0, exit);
         Assert.IsFalse(console.Output.Contains("STDOUT-POISON"), "--json must not write build output to stdout");
         Assert.IsFalse(console.Output.Contains("dotnet build"), "--json must not write the invocation to stdout");
-        StringAssert.Contains(stderr.ToString(), "dotnet build", "--json must route the invocation to stderr");
-        StringAssert.Contains(stderr.ToString(), "STDOUT-POISON", "--json must route build output to stderr");
-        StringAssert.Contains(stderr.ToString(), "STDERR-POISON", "--json must route build stderr to stderr");
+        Assert.Contains("dotnet build", stderr.ToString(), "--json must route the invocation to stderr");
+        Assert.Contains("STDOUT-POISON", stderr.ToString(), "--json must route build output to stderr");
+        Assert.Contains("STDERR-POISON", stderr.ToString(), "--json must route build stderr to stderr");
         Assert.IsFalse(stderr.ToString().Contains("STDOUT_SECRET", StringComparison.Ordinal));
         Assert.IsFalse(stderr.ToString().Contains("STDERR_SECRET", StringComparison.Ordinal));
     }
@@ -5553,8 +5554,8 @@ public class ProjectRunServiceTests
         Assert.IsFalse(console.Output.Contains("QUIET-BUILD-LINE"), "--quiet must not write build output to stdout");
         Assert.IsFalse(console.Output.Contains("dotnet build"), "--quiet must not write the invocation to stdout");
         Assert.IsFalse(stderr.ToString().Contains("dotnet build"), "--quiet must suppress the informational invocation");
-        StringAssert.Contains(stderr.ToString(), "QUIET-BUILD-LINE", "--quiet must route build output to stderr");
-        StringAssert.Contains(stderr.ToString(), "https://feed.example/v3/index.json?<redacted>");
+        Assert.Contains("QUIET-BUILD-LINE", stderr.ToString(), "--quiet must route build output to stderr");
+        Assert.Contains("https://feed.example/v3/index.json?<redacted>", stderr.ToString());
         Assert.IsFalse(stderr.ToString().Contains("QUIET_SECRET", StringComparison.Ordinal));
     }
 
@@ -5578,11 +5579,11 @@ public class ProjectRunServiceTests
         var exit = await service.RunBuildPassAsync(csproj, options, _tempDir, csWinRTMetadataFolder: null, CancellationToken.None);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(console.Output, "error CS9999: the real failure",
+        Assert.Contains("error CS9999: the real failure", console.Output,
             "the live stream must reveal build diagnostics on failure");
         Assert.IsFalse(console.Output.Contains("Built"),
             "a failed build must not print the persistent Built line");
-        StringAssert.Contains(console.Output, "Command: dotnet build",
+        Assert.Contains("Command: dotnet build", console.Output,
             "a failed build must show the exact command so it can be reproduced");
     }
 
@@ -5623,7 +5624,7 @@ public class ProjectRunServiceTests
         var error = await service.CheckSdkAsync(_tempDir, CancellationToken.None);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error!, "not found");
+        Assert.Contains("not found", error!);
     }
 
     [TestMethod]
@@ -5635,7 +5636,7 @@ public class ProjectRunServiceTests
         var error = await service.CheckSdkAsync(_tempDir, CancellationToken.None);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error!, "Could not determine");
+        Assert.Contains("Could not determine", error!);
     }
 
     [TestMethod]
@@ -5648,7 +5649,7 @@ public class ProjectRunServiceTests
         var error = await service.CheckSdkAsync(_tempDir, CancellationToken.None);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error!, "too old");
+        Assert.Contains("too old", error!);
     }
 
     [TestMethod]

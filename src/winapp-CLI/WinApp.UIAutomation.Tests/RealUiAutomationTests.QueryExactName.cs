@@ -39,7 +39,7 @@ public partial class RealUiAutomationTests
         Assert.IsNotNull(found);
         Assert.AreEqual("lblShared", found.AutomationId);
         var listed = await svc.SearchAsync(target, selector, 10, CancellationToken.None);
-        CollectionAssert.AreEquivalent(ExactNameListing, listed.Select(e => e.AutomationId).ToArray(),
+        Assert.AreSequenceEqual(ExactNameListing, listed.Select(e => e.AutomationId).ToArray(), SequenceOrder.InAnyOrder,
             "search keeps listing every substring match.");
     }
 

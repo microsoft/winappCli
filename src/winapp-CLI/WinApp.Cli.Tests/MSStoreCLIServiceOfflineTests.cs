@@ -105,8 +105,8 @@ public class MSStoreCLIServiceOfflineTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, installDir.FullName);
-        StringAssert.Contains(ex.Message, "WINAPP_CLI_CACHE_DIRECTORY");
+        Assert.Contains(installDir.FullName, ex.Message);
+        Assert.Contains("WINAPP_CLI_CACHE_DIRECTORY", ex.Message);
         Assert.AreEqual(0, handler.Requests.Count, "No network work should happen when the install can't succeed.");
     }
 
@@ -119,7 +119,7 @@ public class MSStoreCLIServiceOfflineTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "Could not determine the latest MSStoreCLI version");
+        Assert.Contains("Could not determine the latest MSStoreCLI version", ex.Message);
     }
 
     [TestMethod]
@@ -131,7 +131,7 @@ public class MSStoreCLIServiceOfflineTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "No assets found");
+        Assert.Contains("No assets found", ex.Message);
     }
 
     [TestMethod]
@@ -144,7 +144,7 @@ public class MSStoreCLIServiceOfflineTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "not found");
+        Assert.Contains("not found", ex.Message);
     }
 
     [TestMethod]
@@ -158,7 +158,7 @@ public class MSStoreCLIServiceOfflineTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "Invalid SHA-256 checksum format");
+        Assert.Contains("Invalid SHA-256 checksum format", ex.Message);
     }
 
     [TestMethod]
@@ -175,7 +175,7 @@ public class MSStoreCLIServiceOfflineTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "SHA-256 hash mismatch");
+        Assert.Contains("SHA-256 hash mismatch", ex.Message);
         // The temp zip must still be cleaned up by the finally block even on failure.
         Assert.IsFalse(File.Exists(Path.Combine(installDir.FullName, "MSStoreCLI.zip")));
     }

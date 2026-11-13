@@ -93,8 +93,9 @@ public sealed class CommentAuthoredIdentityTests
         var view = View(comment);
         Assert.IsTrue(view.AnchorConfirmed);
         Assert.AreEqual(redacted, view.Hits.Single().Text);
-        StringAssert.DoesNotMatch(System.Text.Json.JsonSerializer.Serialize(new CommentStoreDocument { Comments = [comment] },
-            CommentsJsonContext.Default.CommentStoreDocument), new System.Text.RegularExpressions.Regex("hunter2"));
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("hunter2"),
+            System.Text.Json.JsonSerializer.Serialize(new CommentStoreDocument { Comments = [comment] },
+                CommentsJsonContext.Default.CommentStoreDocument));
     }
 
     [TestMethod]
@@ -175,8 +176,8 @@ public sealed class CommentAuthoredIdentityTests
         Assert.IsTrue(view.AnchorConfirmed);
         Assert.IsFalse(view.RequiresConfirmation);
         Assert.AreEqual("treePath", view.Hits.Single().Via);
-        StringAssert.Contains(view.Hits[0].Text, "Implemented text");
-        StringAssert.Contains(comment.Anchor.Authored!.Declaration, "Original authored text");
+        Assert.Contains("Implemented text", view.Hits[0].Text);
+        Assert.Contains("Original authored text", comment.Anchor.Authored!.Declaration);
     }
 
     [TestMethod]

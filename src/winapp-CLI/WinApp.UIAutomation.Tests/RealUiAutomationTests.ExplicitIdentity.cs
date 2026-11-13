@@ -95,8 +95,8 @@ public partial class RealUiAutomationTests
         {
             var error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
                 () => svc.FindSingleElementAsync(target, new UiSelector { Query = query }, requireUnique: true, CancellationToken.None));
-            StringAssert.Contains(error.Message, "Selector matched 2 elements");
-            StringAssert.Contains(error.Message, "inspect");
+            Assert.Contains("Selector matched 2 elements", error.Message);
+            Assert.Contains("inspect", error.Message);
             Assert.IsFalse(calls.Contains("invoke"));
         }
         else
@@ -264,7 +264,7 @@ public partial class RealUiAutomationTests
         {
             var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
-            StringAssert.Contains(error.Message, "no longer unique");
+            Assert.Contains("no longer unique", error.Message);
             Assert.IsFalse(calls.Contains("invoke"));
         }
         else
@@ -300,7 +300,7 @@ public partial class RealUiAutomationTests
         {
             var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
-            StringAssert.Contains(error.Message, "could not be read completely");
+            Assert.Contains("could not be read completely", error.Message);
         }
         Assert.IsFalse(calls.Contains("invoke"));
         Assert.IsFalse(calls.Contains("bulk"));
@@ -411,7 +411,7 @@ public partial class RealUiAutomationTests
         });
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, model, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "no longer unique");
+        Assert.Contains("no longer unique", error.Message);
         Assert.AreEqual("unclicked", fx.OnUiThread(() => fx.ResultBox.Text));
         Assert.AreEqual(0, fx.OnUiThread(() => duplicateClicks));
     }

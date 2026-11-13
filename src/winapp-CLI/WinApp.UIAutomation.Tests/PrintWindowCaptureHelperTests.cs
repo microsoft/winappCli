@@ -46,7 +46,7 @@ public class PrintWindowCaptureHelperTests
             if (!full)
             {
                 var failure = Assert.ThrowsExactly<InvalidOperationException>(() => Capture());
-                StringAssert.Contains(failure.Message, "did not paint all pixels");
+                Assert.Contains("did not paint all pixels", failure.Message);
                 Assert.AreEqual(2, attempts);
                 return;
             }
@@ -58,7 +58,7 @@ public class PrintWindowCaptureHelperTests
                 {
                     var value = shade < 0 ? ((x + y) % 2 == 0 ? (byte)0x5A : (byte)0xA5) : (byte)shade;
                     var index = (y * 16 + x) * 4;
-                    CollectionAssert.AreEqual(new byte[] { value, value, value, 255 }, pixels[index..(index + 4)]);
+                    Assert.AreSequenceEqual(new byte[] { value, value, value, 255 }, pixels[index..(index + 4)]);
                 }
             }
             Assert.AreEqual(shade is 0x5A or -1 ? 2 : 1, attempts);
@@ -91,13 +91,13 @@ public class PrintWindowCaptureHelperTests
             if (reportsSuccess)
             {
                 var failure = Assert.ThrowsExactly<InvalidOperationException>(() => Capture());
-                StringAssert.Contains(failure.Message, "did not paint");
+                Assert.Contains("did not paint", failure.Message);
                 Assert.AreEqual(2, attempts);
             }
             else
             {
                 var failure = Assert.ThrowsExactly<Win32Exception>(() => Capture());
-                StringAssert.Contains(failure.Message, "PrintWindow");
+                Assert.Contains("PrintWindow", failure.Message);
                 Assert.AreEqual(1, attempts);
             }
         }

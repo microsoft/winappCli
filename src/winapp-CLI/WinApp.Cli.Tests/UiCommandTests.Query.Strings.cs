@@ -45,7 +45,7 @@ public partial class UiCommandTests
             Assert.AreEqual(1, exit, TestAnsiConsole.Output);
             if (hresult == unchecked((int)0x80040201))
             {
-                StringAssert.Contains(TestAnsiConsole.Output, "\"timedOut\": true");
+                Assert.Contains("\"timedOut\": true", TestAnsiConsole.Output);
                 Assert.IsTrue(reads > 1, "Unavailable getters must retry the complete query.");
             }
             else
@@ -81,8 +81,8 @@ public partial class UiCommandTests
             if (name == "gone") { args.AddRange(["--gone", "--timeout", "150"]); }
             var exit = await ParseAndInvokeWithCaptureAsync(command, args.ToArray());
             Assert.AreEqual(name == "gone" ? 1 : 0, exit, $"{TestAnsiConsole.Output} {ConsoleStdErr}");
-            if (name == "gone") { StringAssert.Contains(TestAnsiConsole.Output, "\"timedOut\": true"); }
-            else { StringAssert.Contains(TestAnsiConsole.Output, "ready"); }
+            if (name == "gone") { Assert.Contains("\"timedOut\": true", TestAnsiConsole.Output); }
+            else { Assert.Contains("ready", TestAnsiConsole.Output); }
         }
         finally { UiAutomationService.ResetNativeSeams(); }
     }

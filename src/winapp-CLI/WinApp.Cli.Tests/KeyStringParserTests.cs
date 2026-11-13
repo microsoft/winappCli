@@ -44,7 +44,7 @@ public class KeyStringParserTests
         var actions = KeyStringParser.Parse("ctrl+shift+a");
         Assert.AreEqual(1, actions.Count);
         var chord = (KeyChord)actions[0];
-        CollectionAssert.AreEqual(new ushort[] { 0x11, 0x10 }, chord.Modifiers.ToArray()); // CONTROL, SHIFT
+        Assert.AreSequenceEqual(new ushort[] { 0x11, 0x10 }, chord.Modifiers.ToArray()); // CONTROL, SHIFT
         Assert.AreEqual(0x41, chord.Vk); // 'A'
     }
 
@@ -53,7 +53,7 @@ public class KeyStringParserTests
     {
         var actions = KeyStringParser.Parse("alt+f4");
         var chord = (KeyChord)actions[0];
-        CollectionAssert.AreEqual(new ushort[] { 0x12 }, chord.Modifiers.ToArray()); // MENU (ALT)
+        Assert.AreSequenceEqual(new ushort[] { 0x12 }, chord.Modifiers.ToArray()); // MENU (ALT)
         Assert.AreEqual(0x73, chord.Vk); // VK_F4
     }
 
@@ -147,7 +147,7 @@ public class KeyStringParserTests
         // Issue #952: the token is modifier-led, so it was meant as a combo. Typing its spelling into the
         // target would be a silent surprise; text= and --verbatim remain the explicit literal escapes.
         var ex = Assert.ThrowsExactly<FormatException>(() => KeyStringParser.Parse(token));
-        StringAssert.Contains(ex.Message, $"text={token}");
+        Assert.Contains($"text={token}", ex.Message);
     }
 
     [TestMethod]
@@ -160,7 +160,7 @@ public class KeyStringParserTests
         var actions = KeyStringParser.Parse(token);
         Assert.AreEqual(1, actions.Count);
         var chord = (KeyChord)actions[0];
-        CollectionAssert.AreEqual(expectedModifiers, chord.Modifiers.ToArray());
+        Assert.AreSequenceEqual(expectedModifiers, chord.Modifiers.ToArray());
         Assert.AreEqual(expectedVk, chord.Vk);
         Assert.IsTrue(KeyStringParser.HoldsScreenReaderKey(actions));
     }
@@ -225,7 +225,7 @@ public class KeyStringParserTests
     public void Parse_CtrlAliases_MapToControlVk(string alias)
     {
         var chord = (KeyChord)KeyStringParser.Parse($"{alias}+a")[0];
-        CollectionAssert.AreEqual(new ushort[] { 0x11 }, chord.Modifiers.ToArray()); // VK_CONTROL
+        Assert.AreSequenceEqual(new ushort[] { 0x11 }, chord.Modifiers.ToArray()); // VK_CONTROL
     }
 
     [TestMethod]
@@ -234,7 +234,7 @@ public class KeyStringParserTests
     public void Parse_AltAliases_MapToMenuVk(string alias)
     {
         var chord = (KeyChord)KeyStringParser.Parse($"{alias}+a")[0];
-        CollectionAssert.AreEqual(new ushort[] { 0x12 }, chord.Modifiers.ToArray()); // VK_MENU
+        Assert.AreSequenceEqual(new ushort[] { 0x12 }, chord.Modifiers.ToArray()); // VK_MENU
     }
 
     [TestMethod]
@@ -245,7 +245,7 @@ public class KeyStringParserTests
     public void Parse_WinAliases_MapToLWinVk(string alias)
     {
         var chord = (KeyChord)KeyStringParser.Parse($"{alias}+a")[0];
-        CollectionAssert.AreEqual(new ushort[] { 0x5B }, chord.Modifiers.ToArray()); // VK_LWIN
+        Assert.AreSequenceEqual(new ushort[] { 0x5B }, chord.Modifiers.ToArray()); // VK_LWIN
     }
 
     [TestMethod]
@@ -322,7 +322,7 @@ public class KeyStringParserTests
     public void Parse_MultipleModifiers_PreserveOrder()
     {
         var chord = (KeyChord)KeyStringParser.Parse("ctrl+alt+shift+del")[0];
-        CollectionAssert.AreEqual(new ushort[] { 0x11, 0x12, 0x10 }, chord.Modifiers.ToArray());
+        Assert.AreSequenceEqual(new ushort[] { 0x11, 0x12, 0x10 }, chord.Modifiers.ToArray());
         Assert.AreEqual(0x2E, chord.Vk); // VK_DELETE
         Assert.IsTrue(chord.Extended);
     }
@@ -331,7 +331,7 @@ public class KeyStringParserTests
     public void Parse_ChordWithRawVkMainKey_Resolves()
     {
         var chord = (KeyChord)KeyStringParser.Parse("ctrl+vk=0x42")[0];
-        CollectionAssert.AreEqual(new ushort[] { 0x11 }, chord.Modifiers.ToArray());
+        Assert.AreSequenceEqual(new ushort[] { 0x11 }, chord.Modifiers.ToArray());
         Assert.AreEqual(0x42, chord.Vk);
     }
 

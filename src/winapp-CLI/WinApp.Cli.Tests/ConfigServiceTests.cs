@@ -228,9 +228,9 @@ public class ConfigServiceTests
 
         Assert.IsTrue(service.Exists(), "Save must produce a file on disk.");
         var written = File.ReadAllText(service.ConfigPath.FullName);
-        StringAssert.Contains(written, "packages:");
-        StringAssert.Contains(written, "- name: Microsoft.WindowsAppSDK");
-        StringAssert.Contains(written, "version: 1.6.0");
+        Assert.Contains("packages:", written);
+        Assert.Contains("- name: Microsoft.WindowsAppSDK", written);
+        Assert.Contains("version: 1.6.0", written);
 
         var reloaded = service.Load();
         Assert.AreEqual(2, reloaded.Packages.Count);

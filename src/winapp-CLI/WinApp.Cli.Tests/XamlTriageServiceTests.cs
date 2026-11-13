@@ -24,9 +24,9 @@ public class XamlTriageServiceTests
         var note = XamlTriageService.DescribeSymbolGap(SymbolGapOutput, useSymbols: true);
 
         Assert.IsNotNull(note);
-        StringAssert.Contains(note, "0xC000027B");
-        StringAssert.Contains(note, "combase.dll");
-        StringAssert.Contains(note, "404");
+        Assert.Contains("0xC000027B", note);
+        Assert.Contains("combase.dll", note);
+        Assert.Contains("404", note);
     }
 
     [TestMethod]
@@ -35,7 +35,7 @@ public class XamlTriageServiceTests
         var note = XamlTriageService.DescribeSymbolGap(SymbolGapOutput, useSymbols: false);
 
         Assert.IsNotNull(note);
-        StringAssert.Contains(note, "--symbols");
+        Assert.Contains("--symbols", note);
     }
 
     [TestMethod]
@@ -93,7 +93,7 @@ public class XamlTriageServiceTests
         var args = XamlTriageService.BuildTriageArgs(@"C:\crash.dmp", binaries, @"C:\ext.js", useSymbols: true);
 
         Assert.AreEqual(XamlTriageRunner.InternalVerb, args[0]);
-        CollectionAssert.Contains(args, "--symbols");
+        Assert.Contains("--symbols", args);
         AssertPairValue(args, "--dump", @"C:\crash.dmp");
         AssertPairValue(args, "--bin", @"C:\dbg");
         AssertPairValue(args, "--jsprovider", @"C:\dbg\winext\JsProvider.dll");
@@ -107,7 +107,7 @@ public class XamlTriageServiceTests
 
         var args = XamlTriageService.BuildTriageArgs(@"C:\crash.dmp", binaries, @"C:\ext.js", useSymbols: true);
 
-        CollectionAssert.DoesNotContain(args, "--symbols");
+        Assert.DoesNotContain("--symbols", args);
     }
 
     [TestMethod]
@@ -117,7 +117,7 @@ public class XamlTriageServiceTests
 
         var args = XamlTriageService.BuildTriageArgs(@"C:\crash.dmp", binaries, @"C:\ext.js", useSymbols: false);
 
-        CollectionAssert.DoesNotContain(args, "--symbols");
+        Assert.DoesNotContain("--symbols", args);
     }
 
     private static void AssertPairValue(List<string> args, string flag, string expected)

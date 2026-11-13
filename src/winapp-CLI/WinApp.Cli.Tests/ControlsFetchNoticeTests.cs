@@ -71,7 +71,7 @@ public class ControlsFetchNoticeTests
             var data = await provider.LoadAsync(onFetchStarting: cold.Add);
             Assert.AreEqual(1, provider.FetchCalls);
             Assert.AreEqual(1, data.Scenarios.Length);
-            CollectionAssert.AreEqual(GalleryOnly, cold);
+            Assert.AreSequenceEqual(GalleryOnly, cold);
 
             // Warm cache (the cold load primed it) → served from disk → no fetch, no notice.
             var warm = new List<string>();
@@ -98,7 +98,7 @@ public class ControlsFetchNoticeTests
             await provider.LoadAsync(forceRefresh: true, onFetchStarting: notices.Add);
 
             Assert.AreEqual(2, provider.FetchCalls, "forceRefresh must re-fetch even with a warm cache");
-            CollectionAssert.AreEqual(GalleryOnly, notices);
+            Assert.AreSequenceEqual(GalleryOnly, notices);
         }
         finally
         {
@@ -120,7 +120,7 @@ public class ControlsFetchNoticeTests
             // First (cold) build: both providers fetch → notice fires for each.
             var cold = new List<string>();
             await service.GetEngineAsync(onFetchStarting: cold.Add);
-            CollectionAssert.AreEquivalent(GalleryAndToolkit, cold);
+            Assert.AreSequenceEqual(GalleryAndToolkit, cold, SequenceOrder.InAnyOrder);
 
             // Second call: complete corpus was memoized → providers aren't reloaded → silent.
             var second = new List<string>();
@@ -155,13 +155,13 @@ public class ControlsFetchNoticeTests
 
             var first = new List<string>();
             await service.GetEngineAsync(onFetchStarting: first.Add);
-            CollectionAssert.AreEquivalent(GalleryAndToolkit, first);
+            Assert.AreSequenceEqual(GalleryAndToolkit, first, SequenceOrder.InAnyOrder);
 
             // Not memoized (partial) → second call reloads. gallery is now warm (silent), but
             // the empty toolkit re-fetches → the notice is raised again for it.
             var second = new List<string>();
             await service.GetEngineAsync(onFetchStarting: second.Add);
-            CollectionAssert.AreEqual(ToolkitOnly, second,
+            Assert.AreSequenceEqual(ToolkitOnly, second,
                 "the still-empty provider must re-fetch and re-raise the notice; the warm one stays silent");
             Assert.AreEqual(1, gallery.FetchCalls, "gallery served from warm cache on the second call");
             Assert.AreEqual(2, toolkit.FetchCalls, "empty toolkit re-fetched on the second call");
@@ -191,7 +191,7 @@ public class ControlsFetchNoticeTests
             var data = await provider.LoadAsync(onFetchStarting: notices.Add);
 
             Assert.AreEqual(0, data.Scenarios.Length, "an offline cold fetch with no floor yields no data");
-            CollectionAssert.AreEqual(GalleryOnly, notices,
+            Assert.AreSequenceEqual(GalleryOnly, notices,
                 "the notice fires even when the fetch itself fails");
         }
         finally

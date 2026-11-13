@@ -36,7 +36,7 @@ public class SandboxAdoptionTests
             harness.Backend.EnsureConnectedAsync(new EnsureTargetOptions(true), TestContext.CancellationToken));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.AgentUpgradeFailed, error.Error.Code);
-        StringAssert.Contains(error.Message, name);
+        Assert.Contains(name, error.Message);
         Assert.IsEmpty(harness.Cli.Operations);
     }
 
@@ -711,7 +711,7 @@ public class SandboxAdoptionTests
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             Array.Empty<string>(),
             harness.Cli.Stopped,
             "A Sandbox winapp did not start must survive whatever winapp fails at.");
@@ -752,7 +752,7 @@ public class SandboxAdoptionTests
         {
             Assert.AreNotEqual(@"C:\WinAppBootstrap", share, "Fixed guest paths can collide with a previous manager.");
             Assert.AreNotEqual(@"C:\WinAppBootstrapResult", share);
-            StringAssert.StartsWith(share, @"C:\WinAppBootstrap", StringComparison.Ordinal);
+            Assert.StartsWith(@"C:\WinAppBootstrap", share, StringComparison.Ordinal);
         }
 
         Assert.AreEqual(2, shares.Distinct(StringComparer.OrdinalIgnoreCase).Count());
@@ -772,7 +772,7 @@ public class SandboxAdoptionTests
         var firstPaths = GuestSharePaths(first);
         var secondPaths = GuestSharePaths(second);
 
-        CollectionAssert.AreNotEqual(
+        Assert.AreNotSequenceEqual(
             firstPaths,
             secondPaths,
             "Each generation must map its own guest paths, so a stale mapping cannot be mistaken for the current one.");
@@ -791,9 +791,9 @@ public class SandboxAdoptionTests
 
         foreach (var share in shares)
         {
-            StringAssert.Contains(
-                launch,
+            Assert.Contains(
                 share,
+                launch,
                 StringComparison.Ordinal,
                 "The agent must be told the folders this generation actually mapped.");
         }
@@ -815,9 +815,9 @@ public class SandboxAdoptionTests
 
         var launch = harness.Cli.Operations.Single(op => op.StartsWith("launch-agent:", StringComparison.Ordinal));
         var executable = launch.Split('"')[1];
-        StringAssert.StartsWith(executable, bootstrapShare + @"\payload-", StringComparison.Ordinal);
-        StringAssert.EndsWith(executable, @"\" + GuestAgentCommandNames.BinaryName, StringComparison.Ordinal);
-        StringAssert.Contains(rule, $"$agent='{executable}'", StringComparison.Ordinal);
+        Assert.StartsWith(bootstrapShare + @"\payload-", executable, StringComparison.Ordinal);
+        Assert.EndsWith(@"\" + GuestAgentCommandNames.BinaryName, executable, StringComparison.Ordinal);
+        Assert.Contains($"$agent='{executable}'", rule, StringComparison.Ordinal);
     }
 
     [TestMethod]
@@ -832,13 +832,13 @@ public class SandboxAdoptionTests
         var material = harness.ReadMaterial();
         var expectedName = $"WinApp-Sandbox-Agent-{WindowsSandboxBackend.EpochToken(new ExecutionTargetEpoch(material.TargetEpoch))}";
 
-        StringAssert.Contains(rule, $"$rule='{expectedName}'");
-        StringAssert.Contains(rule, "Get-NetFirewallApplicationFilter -Program $agent -PolicyStore ActiveStore");
-        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore ActiveStore");
-        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore PersistentStore");
-        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore");
-        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $rule -PolicyStore PersistentStore");
-        StringAssert.Contains(rule, "New-NetFirewallRule -Name $rule");
+        Assert.Contains($"$rule='{expectedName}'", rule);
+        Assert.Contains("Get-NetFirewallApplicationFilter -Program $agent -PolicyStore ActiveStore", rule);
+        Assert.Contains("Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore ActiveStore", rule);
+        Assert.Contains("Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore PersistentStore", rule);
+        Assert.Contains("Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore", rule);
+        Assert.Contains("Remove-NetFirewallRule -Name $rule -PolicyStore PersistentStore", rule);
+        Assert.Contains("New-NetFirewallRule -Name $rule", rule);
         Assert.DoesNotContain("Get-NetFirewallRule -PolicyStore ActiveStore", rule, StringComparison.Ordinal);
         Assert.DoesNotContain("$_ | Get-NetFirewallApplicationFilter", rule, StringComparison.Ordinal);
     }
@@ -857,7 +857,7 @@ public class SandboxAdoptionTests
         var assignment = first[first.IndexOf("$rule=", StringComparison.Ordinal)..];
         assignment = assignment[..assignment.IndexOf(';')];
 
-        StringAssert.Contains(repaired, assignment);
+        Assert.Contains(assignment, repaired);
         Assert.IsLessThan(
             repaired.IndexOf("New-NetFirewallRule", StringComparison.Ordinal),
             repaired.IndexOf("Remove-NetFirewallRule", StringComparison.Ordinal));
@@ -881,8 +881,8 @@ public class SandboxAdoptionTests
         var originalAgent = first[first.IndexOf("$agent=", StringComparison.Ordinal)..first.IndexOf(';')];
         Assert.DoesNotContain(originalAgent, repaired, StringComparison.Ordinal, "A rebuilt bundle must use its own immutable path.");
         var expectedName = $"WinApp-Sandbox-Agent-{WindowsSandboxBackend.EpochToken(new ExecutionTargetEpoch(epoch))}";
-        StringAssert.Contains(repaired, $"$rule='{expectedName}'");
-        StringAssert.Contains(repaired, "Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore");
+        Assert.Contains($"$rule='{expectedName}'", repaired);
+        Assert.Contains("Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore", repaired);
         Assert.IsLessThan(repaired.IndexOf("New-NetFirewallRule", StringComparison.Ordinal),
             repaired.IndexOf("Remove-NetFirewallRule -Name $rule", StringComparison.Ordinal),
             "The previous bundle's generation rule must be removed before reusing its name.");
@@ -1041,7 +1041,7 @@ public class SandboxAdoptionTests
                 new EnsureTargetOptions(true), TestContext.CancellationToken));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, failure.Error.Code);
-        StringAssert.Contains(failure.Error.NextCommand!.Command, "wsb connect", StringComparison.Ordinal);
+        Assert.Contains("wsb connect", failure.Error.NextCommand!.Command, StringComparison.Ordinal);
         Assert.IsTrue(failure.Error.NextCommand.Advisory);
         Assert.AreEqual(
             1,

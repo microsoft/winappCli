@@ -204,7 +204,7 @@ public sealed class TelemetryTests
         Assert.IsFalse(string.IsNullOrEmpty(detail), "Probe event should carry a Detail payload.");
         Assert.IsFalse(detail!.Contains(userProfile, StringComparison.Ordinal),
             "AddWellKnownSensitiveStrings must scrub the raw user-profile path from telemetry payloads; a no-op would leak it.");
-        StringAssert.Contains(detail!, "<UserDirectory>",
+        Assert.Contains("<UserDirectory>", detail!,
             "The scrubbed user-profile path should be replaced with the <UserDirectory> placeholder.");
     }
 

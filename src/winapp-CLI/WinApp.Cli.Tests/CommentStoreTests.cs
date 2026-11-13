@@ -46,7 +46,7 @@ public class CommentStoreTests
         Assert.Throws<CommentStoreCorruptException>(() => NewStore().AddOrReplace(StorePath, NewComment(), out _));
         Assert.Throws<CommentStoreCorruptException>(() => NewStore().Delete(StorePath, "x"));
         Assert.Throws<CommentStoreCorruptException>(() => NewStore().Update(StorePath, "x", c => c.Text = "changed"));
-        CollectionAssert.AreEqual(original, File.ReadAllBytes(StorePath));
+        Assert.AreSequenceEqual(original, File.ReadAllBytes(StorePath));
     }
 
     [TestMethod]
@@ -76,7 +76,7 @@ public class CommentStoreTests
         incoming.Id = old.Id;
         incoming.ProjectRoot = Path.Combine(_dir, "AppB");
         Assert.Throws<InvalidOperationException>(() => store.AddOrReplace(StorePath, incoming, out _));
-        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(StorePath));
+        Assert.AreSequenceEqual(bytes, File.ReadAllBytes(StorePath));
     }
 
     private static Comment NewComment(string text = "note") => new()
@@ -365,7 +365,7 @@ public class CommentStoreTests
         File.Delete(ignore);
         Directory.CreateDirectory(ignore);
         Assert.Throws<UnauthorizedAccessException>(() => NewStore().Add(path, NewComment("not written")));
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
     }
 
     [TestMethod]

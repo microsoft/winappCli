@@ -104,7 +104,7 @@ public class WinAppParserConfigurationTests : BaseCommandTests
         var parseResult = rootCommand.Parse(["ui", "inspect", "-w", "notepad"], WinAppParserConfiguration.Default);
 
         var message = parseResult.Errors.Select(e => e.Message).Single(m => m.Contains("is not a window handle"));
-        StringAssert.Contains(message, "'notepad'");
-        StringAssert.Contains(message, "0x1B0A8E");
+        Assert.Contains("'notepad'", message);
+        Assert.Contains("0x1B0A8E", message);
     }
 }

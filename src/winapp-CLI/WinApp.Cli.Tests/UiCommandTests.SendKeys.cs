@@ -162,7 +162,8 @@ public partial class UiCommandTests
     public void SendKeys_VerbatimOption_DocumentedInDescription()
     {
         // The --verbatim flag must be discoverable via --help / cli-schema and explain it types literally.
-        StringAssert.Contains(UiSendKeysCommand.VerbatimOption.Description, "literal");
+        Assert.IsNotNull(UiSendKeysCommand.VerbatimOption.Description);
+        Assert.Contains("literal", UiSendKeysCommand.VerbatimOption.Description);
     }
 
     [TestMethod]
@@ -278,7 +279,7 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeKeyboard.SendCalls.Count, "no keys should be sent when the foreground guard refuses");
         Assert.AreEqual(1, _fakeForeground.Calls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to --via send-input",
+        Assert.Contains("refusing to --via send-input", ConsoleStdErr.ToString(),
             "the refusal must name the action the command was attempting");
     }
 
@@ -432,7 +433,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeKeyboard.SendCalls.Count, "the warning is advisory — the literal text is still posted");
-        StringAssert.Contains(ambient.Output, "WM_CHAR", "a XAML target must trigger the dropped-WM_CHAR warning");
+        Assert.Contains("WM_CHAR", ambient.Output, "a XAML target must trigger the dropped-WM_CHAR warning");
     }
 
     [TestMethod]
@@ -491,7 +492,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeKeyboard.SendCalls.Count, "the warning is advisory — the key is still posted");
-        StringAssert.Contains(ambient.Output, "windowless",
+        Assert.Contains("windowless", ambient.Output,
             "a named key to a XAML target must trigger the may-not-deliver warning");
     }
 
@@ -511,8 +512,8 @@ public partial class UiCommandTests
         var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(TestAnsiConsole.Output);
         var warnings = result.GetProperty("warnings");
         Assert.AreEqual(1, warnings.GetArrayLength(), "XAML post-message emits exactly the delivery caveat");
-        StringAssert.Contains(warnings[0].GetString(), "post-message");
-        StringAssert.Contains(warnings[0].GetString(), "windowless");
+        Assert.Contains("post-message", warnings[0].GetString()!);
+        Assert.Contains("windowless", warnings[0].GetString()!);
     }
 
     [TestMethod]
@@ -623,7 +624,7 @@ public partial class UiCommandTests
         var warnings = result.GetProperty("warnings");
         Assert.AreEqual(1, warnings.GetArrayLength(),
             "a XAML focused child must raise the delivery caveat even when the top-level target is not XAML");
-        StringAssert.Contains(warnings[0].GetString(), "windowless");
+        Assert.Contains("windowless", warnings[0].GetString()!);
     }
 
     [TestMethod]
@@ -645,7 +646,7 @@ public partial class UiCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeKeyboard.SendCalls.Count, "the warning is advisory — the text is still posted");
         Assert.AreEqual(0x789, _fakeKeyboard.SendCalls[0].Hwnd, "post-message retargets to the focused XAML child");
-        StringAssert.Contains(ambientOutput, "windowless",
+        Assert.Contains("windowless", ambientOutput,
             "a XAML focused child must trigger the may-not-deliver warning on the console");
     }
 
@@ -700,13 +701,13 @@ public partial class UiCommandTests
         var (postExit, postOutput) = await InvokeWithAmbientConsoleCaptureAsync(command,
             ["enter", "-a", "TestApp", "--via", "post-message"]);
         Assert.AreEqual(0, postExit);
-        StringAssert.Contains(postOutput, "Posted", "post-message must report the queued 'Posted' verb");
+        Assert.Contains("Posted", postOutput, "post-message must report the queued 'Posted' verb");
         Assert.IsFalse(postOutput.Contains("Sent"), "post-message must not overstate delivery with 'Sent'");
 
         var (sendExit, sendOutput) = await InvokeWithAmbientConsoleCaptureAsync(command,
             ["enter", "-a", "TestApp", "--via", "send-input"]);
         Assert.AreEqual(0, sendExit);
-        StringAssert.Contains(sendOutput, "Sent", "send-input must report the 'Sent' verb");
+        Assert.Contains("Sent", sendOutput, "send-input must report the 'Sent' verb");
     }
 
     [TestMethod]
@@ -756,8 +757,9 @@ public partial class UiCommandTests
     public void SendKeys_AllowSystemKeysOption_DocumentedInDescription()
     {
         // Discoverable via --help / cli-schema and explains it applies to send-input.
-        StringAssert.Contains(UiSendKeysCommand.AllowSystemKeysOption.Description, "send-input");
-        StringAssert.Contains(UiSendKeysCommand.AllowSystemKeysOption.Description, "system");
+        Assert.IsNotNull(UiSendKeysCommand.AllowSystemKeysOption.Description);
+        Assert.Contains("send-input", UiSendKeysCommand.AllowSystemKeysOption.Description);
+        Assert.Contains("system", UiSendKeysCommand.AllowSystemKeysOption.Description);
     }
 
     // COR-01 — SEC-01: win+l must be refused even when --allow-system-keys is set
@@ -823,8 +825,8 @@ public partial class UiCommandTests
         var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(TestAnsiConsole.Output);
         var warnings = result.GetProperty("warnings");
         Assert.AreEqual(1, warnings.GetArrayLength(), "one no-op warning expected in JSON");
-        StringAssert.Contains(warnings[0].GetString(), "--allow-system-keys");
-        StringAssert.Contains(warnings[0].GetString(), "post-message");
+        Assert.Contains("--allow-system-keys", warnings[0].GetString()!);
+        Assert.Contains("post-message", warnings[0].GetString()!);
     }
 
     // M1: --allow-system-keys + --json + send-input + system combo → audit warning visible in JSON
@@ -842,8 +844,8 @@ public partial class UiCommandTests
         var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(TestAnsiConsole.Output);
         var warnings = result.GetProperty("warnings");
         Assert.AreEqual(1, warnings.GetArrayLength(), "one audit warning expected in JSON");
-        StringAssert.Contains(warnings[0].GetString(), "--allow-system-keys");
-        StringAssert.Contains(warnings[0].GetString(), "win+<key>");
+        Assert.Contains("--allow-system-keys", warnings[0].GetString()!);
+        Assert.Contains("win+<key>", warnings[0].GetString()!);
     }
 
     // M1: no --allow-system-keys flag → warnings array is empty in JSON
@@ -914,9 +916,10 @@ public partial class UiCommandTests
             errorInfo.GetProperty("code").GetString(),
             "JSON error.code must be 'invalid_arguments' for the ctrl+alt+del SAS refusal");
         var message = errorInfo.GetProperty("message").GetString();
-        StringAssert.Contains(message, "ctrl+alt+del",
+        Assert.IsNotNull(message);
+        Assert.Contains("ctrl+alt+del", message,
             "JSON error.message must name the refused combo");
-        StringAssert.Contains(message, "SAS",
+        Assert.Contains("SAS", message,
             "JSON error.message must explain the Secure Attention Sequence block, not just refuse");
     }
 
@@ -933,8 +936,8 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeKeyboard.SendCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "ctrl+alt+del");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "SAS");
+        Assert.Contains("ctrl+alt+del", ConsoleStdErr.ToString());
+        Assert.Contains("SAS", ConsoleStdErr.ToString());
     }
 
     // #656 — post-message is window-scoped, so ctrl+alt+del is not hard-blocked there (it just posts)
@@ -967,11 +970,11 @@ public partial class UiCommandTests
         Assert.AreEqual(0, _fakeKeyboard.SendCalls.Count, "neither hard-blocked combo may reach the transport");
         var stderr = ConsoleStdErr.ToString();
         // Both combo names must appear...
-        StringAssert.Contains(stderr, "ctrl+alt+del", "message must name ctrl+alt+del");
-        StringAssert.Contains(stderr, "win+l", "message must name win+l");
+        Assert.Contains("ctrl+alt+del", stderr, "message must name ctrl+alt+del");
+        Assert.Contains("win+l", stderr, "message must name win+l");
         // ...each stitched to its OWN distinct reason: SAS for ctrl+alt+del, workstation-lock for win+l.
-        StringAssert.Contains(stderr, "SAS", "message must carry the ctrl+alt+del SAS reason");
-        StringAssert.Contains(stderr, "locks the workstation", "message must carry the win+l lock reason");
+        Assert.Contains("SAS", stderr, "message must carry the ctrl+alt+del SAS reason");
+        Assert.Contains("locks the workstation", stderr, "message must carry the win+l lock reason");
     }
     [TestMethod]
     public async Task SendKeys_LoneRWin_ViaSendInput_WithoutAllow_IsBlocked()
@@ -1012,7 +1015,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeKeyboard.SendCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--allow-system-keys");
+        Assert.Contains("--allow-system-keys", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -1027,7 +1030,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeKeyboard.SendCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--via send-input");
+        Assert.Contains("--via send-input", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -1076,7 +1079,7 @@ public partial class UiCommandTests
             Assert.AreEqual(5, _fakeKeyboard.SendCalls.Sum(c => c.Actions.Count), "no action is lost or duplicated by the split");
             var warning = ReadWarnings(TestAnsiConsole.Output).SingleOrDefault(w => w.Contains("Caps Lock", StringComparison.Ordinal));
             Assert.IsNotNull(warning);
-            StringAssert.Contains(warning, "2 time(s)");
+            Assert.Contains("2 time(s)", warning);
         }
         finally
         {
@@ -1101,7 +1104,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeKeyboard.SendCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Unknown modifier");
+        Assert.Contains("Unknown modifier", ConsoleStdErr.ToString());
     }
 
 }

@@ -44,7 +44,7 @@ public class DesktopTargetValidationTests : IDisposable
             _systemQuery, hwnd, expectedPid, NullLogger.Instance, json: true, "click", _errorOut);
 
     private void AssertStaleElementEmitted()
-        => StringAssert.Contains(_errorOut.ToString(), "\"code\":\"stale_element\"");
+        => Assert.Contains("\"code\":\"stale_element\"", _errorOut.ToString());
 
     // ------------------------------------------------------------------ the straightforward cases
 

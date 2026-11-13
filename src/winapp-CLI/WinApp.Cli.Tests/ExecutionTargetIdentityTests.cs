@@ -131,8 +131,8 @@ public class ExecutionTargetIdentityTests
     [TestMethod]
     public void KeyStaysReadable()
     {
-        StringAssert.StartsWith(WindowsSandboxTarget.Default.StateKey, "sandbox-default-");
-        StringAssert.StartsWith(ExecutionTargetRef.Local.StateKey, "local-default-");
+        Assert.StartsWith("sandbox-default-", WindowsSandboxTarget.Default.StateKey);
+        Assert.StartsWith("local-default-", ExecutionTargetRef.Local.StateKey);
     }
 
     /// <summary>The key is a pure function of the pair, so it is stable across processes.</summary>

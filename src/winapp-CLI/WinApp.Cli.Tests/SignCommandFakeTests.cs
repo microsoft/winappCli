@@ -73,7 +73,7 @@ public class SignCommandFakeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_file.FullName, _cert.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "signtool missing");
+        Assert.Contains("signtool missing", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -85,6 +85,6 @@ public class SignCommandFakeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_file.FullName, _cert.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "disk exploded");
+        Assert.Contains("disk exploded", ConsoleStdErr.ToString());
     }
 }

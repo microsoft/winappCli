@@ -91,7 +91,7 @@ public class GuestStandardInputPumpTests
         var received = process.StandardInput.SelectMany(chunk => chunk).ToArray();
 
         Assert.IsGreaterThan(1, process.StandardInput.Count, "The payload must span more than one chunk.");
-        CollectionAssert.AreEqual(payload, received);
+        Assert.AreSequenceEqual(payload, received);
 
         process.Exit(0);
         await execution;
@@ -213,9 +213,9 @@ public class GuestStandardInputPumpTests
             var source = await File.ReadAllTextAsync(
                 Path.Join(commands.FullName, file), TestContext.CancellationToken);
 
-            StringAssert.Contains(
-                source,
+            Assert.Contains(
                 $"{nameof(GuestStandardInputPump)}.{nameof(GuestStandardInputPump.Attach)}",
+                source,
                 $"{file} documents stdin forwarding but does not attach the shared pump.");
         }
     }

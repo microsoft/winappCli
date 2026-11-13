@@ -112,7 +112,7 @@ public class FuzzHarnessTests
             var targetBinaries = target.GetProperty("FuzzingTargetBinaries").EnumerateArray()
                                        .Select(b => b.GetString())
                                        .ToList();
-            CollectionAssert.Contains(targetBinaries, "winapp.dll",
+            Assert.Contains("winapp.dll", targetBinaries,
                 $"FuzzingTargetBinaries must name winapp.dll, or the claim is not attributed to the shipping binary. Found: {string.Join(", ", targetBinaries)}");
             Assert.AreEqual(63509499, entry.GetProperty("SdlWorkItemId").GetInt32());
         }

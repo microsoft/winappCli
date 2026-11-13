@@ -515,7 +515,7 @@ public partial class RealUiAutomationTests
         // "Child" matches 40 buttons by name; all are invokable so it cannot be disambiguated.
         var ex = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
             () => svc.FindSingleElementAsync(uiTarget, new UiSelector { Query = "Child" }, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "matched");
+        Assert.Contains("matched", ex.Message);
     }
 
     // -----------------------------------------------------------------------------

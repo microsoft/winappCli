@@ -107,7 +107,7 @@ public class GuestCommandChannelTests : IDisposable
 
         // Arguments must survive as separate values; joining them into one string is what enables
         // both quoting bugs and injection.
-        CollectionAssert.AreEqual(request.Arguments, sent.Exec!.Arguments);
+        Assert.AreSequenceEqual(request.Arguments, sent.Exec!.Arguments);
         Assert.AreEqual(@"C:\Work", sent.Exec.WorkingDirectory);
         Assert.AreEqual("token", sent.Exec.Environment!["WINAPP_UI_WORKFLOW_ID"]);
 
@@ -166,8 +166,8 @@ public class GuestCommandChannelTests : IDisposable
 
         await pending;
 
-        CollectionAssert.AreEqual(ExpectedStdout, stdout);
-        CollectionAssert.AreEqual(ExpectedStderr, stderr);
+        Assert.AreSequenceEqual(ExpectedStdout, stdout);
+        Assert.AreSequenceEqual(ExpectedStderr, stderr);
     }
 
     [TestMethod]
@@ -193,7 +193,7 @@ public class GuestCommandChannelTests : IDisposable
         PeerReply(new GuestMessage { Type = GuestMessageTypes.ExecCompleted, OperationId = sent.OperationId, ExitCode = 0 });
         await pending;
 
-        CollectionAssert.AreEqual(payload, received.ToArray());
+        Assert.AreSequenceEqual(payload, received.ToArray());
     }
 
     [TestMethod]
@@ -291,7 +291,7 @@ public class GuestCommandChannelTests : IDisposable
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => pending.WaitAsync(TimeSpan.FromSeconds(5)));
 
-        StringAssert.Contains(failure.Error.Message, "did not acknowledge");
+        Assert.Contains("did not acknowledge", failure.Error.Message);
         Assert.IsFalse(transport.IsConnected);
         await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => channel.GetCapabilitiesAsync(CancellationToken.None));
@@ -312,7 +312,7 @@ public class GuestCommandChannelTests : IDisposable
 
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => download.WaitAsync(TimeSpan.FromSeconds(5)));
-        StringAssert.Contains(failure.Error.Message, "disk is full");
+        Assert.Contains("disk is full", failure.Error.Message);
         await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => capabilities.WaitAsync(TimeSpan.FromSeconds(5)));
         await _channel.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
@@ -340,7 +340,7 @@ public class GuestCommandChannelTests : IDisposable
 
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => pending.WaitAsync(TimeSpan.FromSeconds(5)));
-        StringAssert.Contains(failure.Error.Message, "before stopping the operation could be confirmed");
+        Assert.Contains("before stopping the operation could be confirmed", failure.Error.Message);
         Assert.IsFalse(transport.IsConnected);
     }
 
@@ -354,7 +354,7 @@ public class GuestCommandChannelTests : IDisposable
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => channel.ExecuteAsync(SampleRequest, null, CancellationToken.None)
                 .WaitAsync(TimeSpan.FromSeconds(5)));
-        StringAssert.Contains(failure.Error.Message, "delivery could be confirmed");
+        Assert.Contains("delivery could be confirmed", failure.Error.Message);
         Assert.IsFalse(transport.IsConnected);
     }
 
@@ -493,8 +493,8 @@ public class GuestCommandChannelTests : IDisposable
         // Two applications run concurrently in one Sandbox, so their streams must never cross.
         Assert.AreEqual(0, firstResult.ExitCode);
         Assert.AreEqual(1, secondResult.ExitCode);
-        CollectionAssert.AreEqual(ExpectedFirstStream, firstOut);
-        CollectionAssert.AreEqual(ExpectedSecondStream, secondOut);
+        Assert.AreSequenceEqual(ExpectedFirstStream, firstOut);
+        Assert.AreSequenceEqual(ExpectedSecondStream, secondOut);
     }
 
     [TestMethod]
@@ -506,7 +506,7 @@ public class GuestCommandChannelTests : IDisposable
         Assert.IsTrue(GuestPayloadCodec.TryDecodeStream(payload, out var decodedId, out var stream, out var data));
         Assert.AreEqual(operationId, decodedId);
         Assert.AreEqual(GuestStreamId.StandardError, stream);
-        CollectionAssert.AreEqual("data"u8.ToArray(), data.ToArray());
+        Assert.AreSequenceEqual("data"u8.ToArray(), data.ToArray());
     }
 
     [TestMethod]
@@ -561,7 +561,7 @@ public class GuestCommandChannelTests : IDisposable
             OperationId = request.OperationId,
         });
         var actual = await pending.WaitAsync(TimeSpan.FromSeconds(5));
-        CollectionAssert.AreEqual(expected, actual.ToList());
+        Assert.AreSequenceEqual(expected, actual.ToList());
     }
 
     [TestMethod]

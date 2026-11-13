@@ -30,7 +30,7 @@ public class ExplicitUiInvokerTests
     {
         var provider = new Patterns();
         Assert.AreEqual(new UiInvokeActionResult(pattern, operation), Apply(provider, action));
-        CollectionAssert.AreEqual(new[] { operation }, provider.Calls);
+        Assert.AreSequenceEqual(new[] { operation }, provider.Calls);
     }
 
     [TestMethod]
@@ -46,7 +46,7 @@ public class ExplicitUiInvokerTests
         var failure = new InvalidOperationException("Matching pattern unavailable.");
         var provider = new Patterns { FailAt = 1, Failure = failure };
         Assert.AreSame(failure, Assert.ThrowsExactly<InvalidOperationException>(() => Apply(provider, action)));
-        CollectionAssert.AreEqual(new[] { operation }, provider.Calls);
+        Assert.AreSequenceEqual(new[] { operation }, provider.Calls);
     }
 
     [TestMethod]
@@ -62,8 +62,8 @@ public class ExplicitUiInvokerTests
         var provider = new Patterns { FailAt = 1 };
         var error = Assert.ThrowsExactly<InvalidOperationException>(() => Apply(provider, action));
         Assert.AreSame(provider.Failure, error.InnerException);
-        StringAssert.Contains(error.Message, "aid:chosen");
-        StringAssert.Contains(error.Message, ExplicitUiInvoker.Describe(action).Pattern);
+        Assert.Contains("aid:chosen", error.Message);
+        Assert.Contains(ExplicitUiInvoker.Describe(action).Pattern, error.Message);
         Assert.HasCount(1, provider.Calls);
     }
 
@@ -74,7 +74,7 @@ public class ExplicitUiInvokerTests
         {
             var provider = new Patterns(state);
             Assert.AreEqual(new UiInvokeActionResult("TogglePattern", "toggle"), Apply(provider, UiInvokeAction.Toggle));
-            CollectionAssert.AreEqual(ToggleCalls, provider.Calls);
+            Assert.AreSequenceEqual(ToggleCalls, provider.Calls);
             Assert.HasCount(1, provider.States); // State was never read, including indeterminate.
         }
     }
@@ -93,7 +93,7 @@ public class ExplicitUiInvokerTests
                     if (initial == desired)
                     {
                         Assert.AreEqual(new UiInvokeActionResult("TogglePattern", "none"), Apply(provider, action));
-                        CollectionAssert.AreEqual(ReadOnlyCalls, provider.Calls);
+                        Assert.AreSequenceEqual(ReadOnlyCalls, provider.Calls);
                     }
                     else
                     {
@@ -104,9 +104,9 @@ public class ExplicitUiInvokerTests
                         else
                         {
                             var error = Assert.ThrowsExactly<InvalidOperationException>(() => Apply(provider, action));
-                            StringAssert.Contains(error.Message, "after 1 toggle(s)");
+                            Assert.Contains("after 1 toggle(s)", error.Message);
                         }
-                        CollectionAssert.AreEqual(OneToggleCalls, provider.Calls);
+                        Assert.AreSequenceEqual(OneToggleCalls, provider.Calls);
                     }
                 }
             }
@@ -131,9 +131,9 @@ public class ExplicitUiInvokerTests
                     else
                     {
                         var error = Assert.ThrowsExactly<InvalidOperationException>(() => Apply(provider, action));
-                        StringAssert.Contains(error.Message, "after 2 toggle(s)");
+                        Assert.Contains("after 2 toggle(s)", error.Message);
                     }
-                    CollectionAssert.AreEqual(first == desired
+                    Assert.AreSequenceEqual(first == desired
                         ? OneToggleCalls
                         : TwoToggleCalls, provider.Calls);
                 }
@@ -151,7 +151,7 @@ public class ExplicitUiInvokerTests
             var provider = new Patterns(Indeterminate, Indeterminate, Indeterminate) { FailAt = failureAt };
             var error = Assert.ThrowsExactly<InvalidOperationException>(() => Apply(provider, action));
             Assert.AreSame(provider.Failure, error.InnerException);
-            StringAssert.Contains(error.Message, "TogglePattern");
+            Assert.Contains("TogglePattern", error.Message);
             Assert.HasCount(failureAt, provider.Calls);
         }
     }
@@ -192,7 +192,7 @@ public class ExplicitUiInvokerTests
         };
         var error = Assert.ThrowsExactly<InvalidOperationException>(() => Apply(provider, UiInvokeAction.Invoke));
         Assert.AreSame(provider.Failure, error.InnerException);
-        StringAssert.Contains(error.Message, "InvokePattern");
+        Assert.Contains("InvokePattern", error.Message);
         Assert.HasCount(1, provider.Calls);
     }
 
@@ -207,8 +207,8 @@ public class ExplicitUiInvokerTests
         })
         {
             var provider = new Patterns(states);
-            StringAssert.Contains(Assert.ThrowsExactly<InvalidOperationException>(
-                () => Apply(provider, UiInvokeAction.ToggleOn)).Message, "invalid toggle state");
+            Assert.Contains("invalid toggle state", Assert.ThrowsExactly<InvalidOperationException>(
+                () => Apply(provider, UiInvokeAction.ToggleOn)).Message);
             Assert.AreEqual(states.Length - 1, provider.Calls.Count(c => c == "toggle"));
         }
     }
@@ -235,7 +235,7 @@ public class ExplicitUiInvokerTests
         };
         Assert.ThrowsExactly<OperationCanceledException>(
             () => ExplicitUiInvoker.Apply(provider, Element, UiInvokeAction.ToggleOn, cancellation.Token));
-        CollectionAssert.AreEqual(OneToggleCalls, provider.Calls);
+        Assert.AreSequenceEqual(OneToggleCalls, provider.Calls);
         provider.Calls.Clear();
         Assert.ThrowsExactly<OperationCanceledException>(
             () => ExplicitUiInvoker.Apply(provider, Element, UiInvokeAction.Toggle, cancellation.Token));
@@ -247,7 +247,7 @@ public class ExplicitUiInvokerTests
     {
         Assert.IsTrue(typeof(UiInvokeAction).IsPublic);
         Assert.IsTrue(typeof(UiInvokeActionResult).IsPublic);
-        CollectionAssert.AreEqual(ActionNames, Enum.GetNames<UiInvokeAction>());
+        Assert.AreSequenceEqual(ActionNames, Enum.GetNames<UiInvokeAction>());
         var fake = new FakeUiAutomationService();
         IUiAutomation api = fake;
         Func<UiTarget, UiElement, CancellationToken, Task<string>> original = api.InvokeAsync;

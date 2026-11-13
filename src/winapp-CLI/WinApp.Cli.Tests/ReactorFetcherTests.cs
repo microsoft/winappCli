@@ -86,7 +86,7 @@ public class ReactorFetcherTests
         // Carried as data, not prepended: the code is a class-body fragment, so a `using`
         // glued to the front of it lands where C# does not allow one.
         var flex = scenarios.Single(s => s.ControlId == "flex");
-        CollectionAssert.AreEqual(FlexUsings, flex.Usings);
+        Assert.AreSequenceEqual(FlexUsings, flex.Usings);
         Assert.AreEqual("new Flex()", flex.CSharp);
 
         // Controls without usings keep their code verbatim and carry no imports.
@@ -100,8 +100,8 @@ public class ReactorFetcherTests
     {
         var (_, tags) = ReactorFetcher.Parse(SampleIndex);
 
-        CollectionAssert.AreEqual(FlexKeywords, tags["flex"]);
-        CollectionAssert.AreEqual(AcrylicKeywords, tags["acrylic"]);
+        Assert.AreSequenceEqual(FlexKeywords, tags["flex"]);
+        Assert.AreSequenceEqual(AcrylicKeywords, tags["acrylic"]);
     }
 
     [TestMethod]

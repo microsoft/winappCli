@@ -80,7 +80,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         var parsed = GetRequiredService<WinAppRootCommand>().Parse(["devtools", "list", "--on=sandbox", "--json"]);
         Assert.AreEqual(1, await Router(backend).RouteAsync(parsed, TestContext.CancellationToken));
         Assert.AreEqual(1, backend.AttachCalls);
-        StringAssert.Contains(TestAnsiConsole.Output, "No target was provisioned");
+        Assert.Contains("No target was provisioned", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -156,7 +156,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         Assert.IsEmpty(parsed.Errors);
         var running = Router(backend, expected).RouteAsync(parsed, TestContext.CancellationToken);
         var discovery = await backend.Processes.WaitForNextAsync(TestContext.CancellationToken);
-        CollectionAssert.Contains(discovery.Request.Arguments.ToList(), "--guest-discovery");
+        Assert.Contains("--guest-discovery", discovery.Request.Arguments.ToList());
         await discovery.EmitBytesAsync(GuestStreamId.StandardOutput, Encoding.UTF8.GetBytes(
             """{"apps":[{"processId":123,"startTicksUtc":"456","processName":"Daylight","windowTitle":"Today's Tasks","appSelector":"guest:forged"}]}"""));
         discovery.Exit(0);
@@ -194,7 +194,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         discovery.Exit(0);
         Assert.AreEqual(1, await running);
         Assert.IsTrue(backend.Processes.Started.IsEmpty);
-        StringAssert.Contains(TestAnsiConsole.Output, reused ? "changed" : "Multiple guest apps");
+        Assert.Contains(reused ? "changed" : "Multiple guest apps", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -215,7 +215,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         discovery.Exit(0);
         Assert.AreEqual(1, await running);
         Assert.IsTrue(backend.Processes.Started.IsEmpty);
-        StringAssert.Contains(TestAnsiConsole.Output, "No current guest WinUI app");
+        Assert.Contains("No current guest WinUI app", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -237,7 +237,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         if (comments)
         {
             Assert.AreEqual(1, await running);
-            StringAssert.Contains(TestAnsiConsole.Output, "host-owned guest launch");
+            Assert.Contains("host-owned guest launch", TestAnsiConsole.Output);
         }
         else
         {
@@ -314,9 +314,9 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         var parsed = GetRequiredService<WinAppRootCommand>().Parse([.. args]);
         Assert.IsEmpty(parsed.Errors);
         Assert.AreEqual(1, await Router(backend, expected).RouteAsync(parsed, TestContext.CancellationToken));
-        StringAssert.Contains(TestAnsiConsole.Output, "does not own");
+        Assert.Contains("does not own", TestAnsiConsole.Output);
         Assert.IsTrue(backend.Processes.Started.IsEmpty);
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
     }
 
     [TestMethod]
@@ -340,7 +340,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         Assert.AreEqual(1, await Router(backend).RouteAsync(parsed, TestContext.CancellationToken));
         Assert.AreEqual(1, backend.AttachCalls);
         Assert.IsTrue(backend.Processes.Started.IsEmpty);
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
     }
 
     [TestMethod]
@@ -367,7 +367,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         var parsed = root.Parse([.. args]);
         var running = Router(backend, expected).RouteAsync(parsed, TestContext.CancellationToken);
         var invocation = await backend.Processes.WaitForNextAsync(TestContext.CancellationToken);
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path), "Preflight does not perform a duplicate local mutation.");
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path), "Preflight does not perform a duplicate local mutation.");
         var forwarded = root.Parse(invocation.Request.Arguments.ToArray());
         Assert.IsEmpty(forwarded.Errors);
         Assert.AreEqual(verb, forwarded.CommandResult.Command.Name);
@@ -379,7 +379,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         Assert.AreEqual(0, await running);
         using var result = JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.IsTrue(result.RootElement.GetProperty("ok").GetBoolean());
-        StringAssert.Contains(result.RootElement.GetProperty("warning").GetString()!, "were saved");
+        Assert.Contains("were saved", result.RootElement.GetProperty("warning").GetString()!);
         Assert.AreEqual(project.FullName, result.RootElement.GetProperty("comment").GetProperty("projectRoot").GetString());
         Assert.IsTrue(backend.Processes.Started.IsEmpty);
     }

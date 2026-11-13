@@ -60,7 +60,7 @@ public sealed class BindingTemplateSafetyTests
             Assert.AreEqual("evaluated", answer.GetProperty("state").GetString());
             Assert.AreEqual("forward-path-and-type", answer.GetProperty("evaluationScope").GetString());
             Assert.AreEqual("unchecked", answer.GetProperty("reversePropagation").GetString());
-            StringAssert.Contains(answer.GetProperty("reason").GetString()!, "ConvertBack");
+            Assert.Contains("ConvertBack", answer.GetProperty("reason").GetString()!);
             Assert.AreEqual("Ada", answer.GetProperty("sourceValue").GetString());
             Assert.AreEqual("OVERRIDE", answer.GetProperty("targetValue").GetString());
         }
@@ -209,7 +209,7 @@ public sealed class BindingTemplateSafetyTests
             Assert.AreEqual("unchecked", answer.GetProperty("restoreVerification").GetString());
             Assert.AreEqual("owner", answer.GetProperty("restoreScope").GetString());
             Assert.AreEqual(disabled ? initial : "Ada", answer.GetProperty("after").GetString());
-            StringAssert.Contains(answer.GetProperty("reason").GetString()!, "neither restoration nor failure");
+            Assert.Contains("neither restoration nor failure", answer.GetProperty("reason").GetString()!);
         }
         Assert.AreEqual(3, bindings.Calls);
         Assert.AreEqual("Grace", second.Text);
@@ -288,7 +288,7 @@ public sealed class BindingTemplateSafetyTests
             "OneTime", targetType, "Value", () => target));
         Assert.AreEqual("silent", result.RootElement.GetProperty("state").GetString());
         Assert.AreEqual("unchecked", result.RootElement.GetProperty("reversePropagation").GetString());
-        StringAssert.Contains(result.RootElement.GetProperty("reason").GetString()!, "Forward");
+        Assert.Contains("Forward", result.RootElement.GetProperty("reason").GetString()!);
     }
 
     public sealed class ThrowingBindings
@@ -304,7 +304,7 @@ public sealed class BindingTemplateSafetyTests
         Assert.AreEqual("unavailable", result.RootElement.GetProperty("state").GetString());
         Assert.IsFalse(result.RootElement.TryGetProperty("ownerUpdated", out _));
         Assert.AreEqual("False", result.RootElement.GetProperty("nativeFallback").GetString());
-        StringAssert.Contains(result.RootElement.GetProperty("reason").GetString()!, "update rejected");
+        Assert.Contains("update rejected", result.RootElement.GetProperty("reason").GetString()!);
     }
 
     [TestMethod]

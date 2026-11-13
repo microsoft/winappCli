@@ -110,7 +110,8 @@ public class InspectorAliasLauncherTests
         appLauncher.LaunchOverride = () => throw new System.ComponentModel.Win32Exception("start denied");
         var result = await launcher.LaunchAsync(Alias, cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(InspectorAliasLaunchStatus.LaunchFailed, result.Status);
-        StringAssert.Contains(result.Error, "start denied");
+        Assert.IsNotNull(result.Error);
+        Assert.Contains("start denied", result.Error);
     }
 
     [TestMethod]

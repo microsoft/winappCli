@@ -92,7 +92,7 @@ public sealed partial class PerfCaptureDirectoryLeaseTests
 
             var exception = Assert.Throws<IOException>(() =>
                 PerfCaptureDirectoryLease.Open(ancestor ? Path.Join(link, "capture") : link));
-            StringAssert.Contains(exception.Message, "directory links");
+            Assert.Contains("directory links", exception.Message);
             Assert.AreEqual("untouched", File.ReadAllText(Path.Join(target.FullName, "keep.txt")));
             Directory.Delete(link);
             Directory.Move(target.FullName, target.FullName + "-moved");

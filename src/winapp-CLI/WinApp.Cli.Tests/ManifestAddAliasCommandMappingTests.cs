@@ -44,7 +44,7 @@ public class ManifestAddAliasCommandMappingTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--manifest", manifest.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to parse manifest");
+        Assert.Contains("Failed to parse manifest", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -57,7 +57,7 @@ public class ManifestAddAliasCommandMappingTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--manifest", manifest.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "no root element");
+        Assert.Contains("no root element", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -71,7 +71,7 @@ public class ManifestAddAliasCommandMappingTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--manifest", manifest.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Unexpected error");
+        Assert.Contains("Unexpected error", ConsoleStdErr.ToString());
     }
 
     private sealed class FakeAliasManifestService : IManifestService

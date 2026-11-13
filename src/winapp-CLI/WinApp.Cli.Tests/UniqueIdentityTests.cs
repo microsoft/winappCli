@@ -94,7 +94,7 @@ public class UniqueIdentityTests : BaseCommandTests
 
         Assert.AreEqual(name, DevelopmentIdentityHelper.DeriveName(a.ToLowerInvariant() + "\\", "Contoso.App"));
         Assert.AreNotEqual(name, DevelopmentIdentityHelper.DeriveName(b, "Contoso.App"));
-        StringAssert.Matches(name, new System.Text.RegularExpressions.Regex(@"^Contoso\.App\.w[0-9a-f]{24}$"));
+        Assert.MatchesRegex(new System.Text.RegularExpressions.Regex(@"^Contoso\.App\.w[0-9a-f]{24}$"), name);
     }
 
     [TestMethod]
@@ -161,8 +161,8 @@ public class UniqueIdentityTests : BaseCommandTests
         var error = Assert.ThrowsExactly<InvalidOperationException>(() =>
             AppxManifestDocument.Parse(Manifest(extensions: extensions, applications: applications)).ValidateUniqueIdentitySupport());
 
-        StringAssert.Contains(error.Message, reason);
-        StringAssert.Contains(error.Message, "Run without --unique-identity");
+        Assert.Contains(reason, error.Message);
+        Assert.Contains("Run without --unique-identity", error.Message);
     }
 
     [TestMethod]
@@ -193,7 +193,7 @@ public class UniqueIdentityTests : BaseCommandTests
         Assert.AreEqual(result.Identity.Aliases["tool.exe"], staged.GetExecutionAliases().Single());
         Assert.AreEqual(source, File.ReadAllText(manifest.FullName));
         Assert.HasCount(1, _registration.RegisterLooseLayoutCalls);
-        CollectionAssert.AreEqual(new[] { (layout.FullName, expected) }, _pri.ReindexIdentityCalls);
+        Assert.AreSequenceEqual(new[] { (layout.FullName, expected) }, _pri.ReindexIdentityCalls);
     }
 
     [TestMethod]
@@ -337,7 +337,7 @@ public class UniqueIdentityTests : BaseCommandTests
 
         var (tool, arguments) = tools.Invocations.Single();
         Assert.AreEqual("makepri.exe", tool);
-        StringAssert.Contains(arguments, "/in \"Contoso.App.w0123\"");
+        Assert.Contains("/in \"Contoso.App.w0123\"", arguments);
         Assert.AreNotEqual("original", File.ReadAllText(Path.Join(layout.FullName, "resources.pri")));
         Assert.AreEqual(1, layout.GetFileSystemInfos().Length, "Nothing but resources.pri belongs in the layout");
     }
@@ -473,7 +473,7 @@ public class UniqueIdentityTests : BaseCommandTests
 
         var error = Assert.ThrowsExactly<InvalidOperationException>(() => DevelopmentIdentityHelper.Create(document, _tempDirectory.FullName));
 
-        StringAssert.Contains(error.Message, "not a valid package name");
+        Assert.Contains("not a valid package name", error.Message);
     }
 
     [TestMethod]
@@ -497,6 +497,6 @@ public class UniqueIdentityTests : BaseCommandTests
         var exitCode = await UnregisterAsync(file, "--json");
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, ".csproj");
+        Assert.Contains(".csproj", TestAnsiConsole.Output);
     }
 }

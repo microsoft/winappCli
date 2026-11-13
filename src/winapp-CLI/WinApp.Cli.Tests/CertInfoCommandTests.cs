@@ -94,13 +94,13 @@ public class CertInfoCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "cert info should succeed with correct password");
 
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "Subject:");
-        StringAssert.Contains(output, "CertInfoTestPublisher");
-        StringAssert.Contains(output, "Thumbprint:");
-        StringAssert.Contains(output, "Serial Number:");
-        StringAssert.Contains(output, "Not Before:");
-        StringAssert.Contains(output, "Not After:");
-        StringAssert.Contains(output, "Has Private Key: True");
+        Assert.Contains("Subject:", output);
+        Assert.Contains("CertInfoTestPublisher", output);
+        Assert.Contains("Thumbprint:", output);
+        Assert.Contains("Serial Number:", output);
+        Assert.Contains("Not Before:", output);
+        Assert.Contains("Not After:", output);
+        Assert.Contains("Has Private Key: True", output);
     }
 
     [TestMethod]
@@ -121,8 +121,8 @@ public class CertInfoCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "cert info should read a public .cer");
 
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "CertInfoCerPublisher");
-        StringAssert.Contains(output, "Has Private Key: False");
+        Assert.Contains("CertInfoCerPublisher", output);
+        Assert.Contains("Has Private Key: False", output);
     }
 
     // ── Invocation tests: JSON output ───────────────────────────────────
@@ -141,7 +141,7 @@ public class CertInfoCommandTests : BaseCommandTests
         var root = jsonDoc.RootElement;
 
         Assert.IsTrue(root.TryGetProperty("subject", out var subject), "JSON should contain 'subject'");
-        StringAssert.Contains(subject.GetString(), "CertInfoTestPublisher");
+        Assert.Contains("CertInfoTestPublisher", subject.GetString()!);
 
         Assert.IsTrue(root.TryGetProperty("issuer", out _), "JSON should contain 'issuer'");
         Assert.IsTrue(root.TryGetProperty("thumbprint", out _), "JSON should contain 'thumbprint'");
@@ -204,7 +204,7 @@ public class CertInfoCommandTests : BaseCommandTests
         var exitCode = await parseResult.InvokeAsync(parseResult.InvocationConfiguration, TestContext.CancellationToken);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Certificate file not found");
+        Assert.Contains("Certificate file not found", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -225,6 +225,6 @@ public class CertInfoCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
         Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
-        StringAssert.Contains(errorProp.GetString(), "Certificate file not found");
+        Assert.Contains("Certificate file not found", errorProp.GetString()!);
     }
 }

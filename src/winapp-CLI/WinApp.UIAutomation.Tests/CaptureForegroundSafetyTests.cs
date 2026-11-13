@@ -162,7 +162,7 @@ public class CaptureForegroundSafetyTests
                 MaxEdge = 64,
             }, CancellationToken.None));
 
-        StringAssert.Contains(thrown.Message, "should fail before screen capture",
+        Assert.Contains("should fail before screen capture", thrown.Message,
             "the recording reached pixel capture, which means the owned-dialog foreground was accepted");
         Assert.IsNotInstanceOfType<ForegroundLostException>(thrown,
             "an owned modal dialog must not be treated as a lost foreground");

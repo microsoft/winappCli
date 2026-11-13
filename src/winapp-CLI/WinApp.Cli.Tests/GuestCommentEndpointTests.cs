@@ -85,7 +85,7 @@ public class GuestCommentEndpointTests
         host.Dispose();
         await Assert.ThrowsAsync<IOException>(() => serve);
         var error = await Assert.ThrowsAsync<IOException>(() => saving);
-        StringAssert.Contains(error.Message, "Nothing was saved to a disposable guest store");
+        Assert.Contains("Nothing was saved to a disposable guest store", error.Message);
     }
 
     [TestMethod]
@@ -136,7 +136,7 @@ public class GuestCommentEndpointTests
         }, timeout.Token);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => serve);
         var failure = await Assert.ThrowsAsync<IOException>(() => saving);
-        StringAssert.Contains(failure.Message, "Nothing was saved to a disposable guest store");
+        Assert.Contains("Nothing was saved to a disposable guest store", failure.Message);
         Assert.AreEqual(0, requests, $"Rejection {iteration} must precede client request construction.");
         forwarded.Position = 0;
         var ready = JsonSerializer.Deserialize(await GuestCommentFrames.ReadAsync(forwarded, timeout.Token),
@@ -164,7 +164,7 @@ public class GuestCommentEndpointTests
         await GuestCommentFrames.WriteAsync(host, new GuestCommentReply(requestId, Error: "Comment changed on the host. Refresh."),
             GuestCommentsJsonContext.Default.GuestCommentReply, timeout.Token);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => saving);
-        StringAssert.Contains(error.Message, "changed on the host");
+        Assert.Contains("changed on the host", error.Message);
         await timeout.CancelAsync();
         await Assert.ThrowsAsync<OperationCanceledException>(() => serve);
     }

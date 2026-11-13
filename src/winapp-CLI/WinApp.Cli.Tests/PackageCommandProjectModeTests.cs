@@ -227,7 +227,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual("arm64", options.Architecture);
         Assert.AreEqual("net10.0-windows", options.Framework);
         Assert.IsTrue(options.NoRestore);
-        CollectionAssert.Contains(options.Properties.ToList(), "Foo=Bar");
+        Assert.Contains("Foo=Bar", options.Properties.ToList());
     }
 
     [TestMethod]
@@ -350,7 +350,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         var errorText = ConsoleStdErr.ToString();
-        StringAssert.Contains(errorText, "cannot pack multiple properties");
+        Assert.Contains("cannot pack multiple properties", errorText);
         Assert.IsFalse(errorText.Contains("not a supported Windows runtime identifier"),
             "the packing violation must be reported, not a misleading unsupported-RID error");
         Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count);
@@ -590,7 +590,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         // The native publish options must carry the self-contained property so the SDK bundles the runtime.
         var options = _fakeProjectRunService.BuildOptions[^1];
-        CollectionAssert.Contains(options.Properties.ToList(), "WindowsAppSDKSelfContained=true");
+        Assert.Contains("WindowsAppSDKSelfContained=true", options.Properties.ToList());
     }
 
     [TestMethod]
@@ -785,8 +785,8 @@ public class PackageCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
-        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}",
-            "-p Configuration=Debug conflicts with -c Release. Pass only one of them.");
+        Assert.Contains("-p Configuration=Debug conflicts with -c Release. Pass only one of them.",
+            $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}");
     }
 
     [TestMethod]
@@ -1076,7 +1076,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName, "--self-contained"]);
 
         Assert.AreEqual(0, exitCode);
-        CollectionAssert.Contains(_fakeProjectRunService.BuildOptions.Single().Properties.ToList(), "WindowsAppSDKSelfContained=true");
+        Assert.Contains("WindowsAppSDKSelfContained=true", _fakeProjectRunService.BuildOptions.Single().Properties.ToList());
         var args = _fakeMsixService.LastCreatePackageArgs!;
         Assert.IsTrue(args.SelfContained);
         Assert.IsTrue(args.RuntimeAlreadyBundled, "The self-contained build already laid out the runtime; packaging must not inject it again");
@@ -1095,7 +1095,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.DoesNotContain("WindowsAppSDKSelfContained=true", _fakeProjectRunService.BuildOptions.Single().Properties.ToList());
         Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Remove --no-build");
+        Assert.Contains("Remove --no-build", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -1160,7 +1160,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "winapp init");
+        Assert.Contains("winapp init", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -1226,6 +1226,6 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [file]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr + TestAnsiConsole.Output, "is not a supported input");
+        Assert.Contains("is not a supported input", ConsoleStdErr + TestAnsiConsole.Output);
     }
 }

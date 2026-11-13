@@ -96,7 +96,7 @@ public class NugetServiceDownloadTests : BaseCommandTests
 
             // The failure must name the unresolvable dependency (surfacing the gap), proving the incomplete
             // install was reported as an error rather than a silent partial success.
-            StringAssert.Contains(ex.Message, "Install.Child", StringComparison.Ordinal);
+            Assert.Contains("Install.Child", ex.Message, StringComparison.Ordinal);
 
             // The root package WAS still downloaded best-effort before the dependency gap failed the operation.
             Assert.IsTrue(service.GetNuGetPackageDir("Install.Root", "1.0.0").Exists,
@@ -179,7 +179,7 @@ public class NugetServiceDownloadTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.InstallPackageAsync("Winapp.DoesNotExist", "1.0.0", TestTaskContext, TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "Winapp.DoesNotExist", StringComparison.Ordinal);
+            Assert.Contains("Winapp.DoesNotExist", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -373,8 +373,8 @@ public class NugetServiceDownloadTests : BaseCommandTests
 
             // The failure must reference the package and the unauthorized source, proving the anonymous
             // request reached the feed and was rejected (not masked as a plain "package not found").
-            StringAssert.Contains(ex.Message, "Auth.Pkg", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "private", StringComparison.Ordinal);
+            Assert.Contains("Auth.Pkg", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("private", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -680,7 +680,7 @@ public class NugetServiceDownloadTests : BaseCommandTests
 
             // The rejection must name the insecure-HTTP reason (not a generic "package not found"), and the
             // feed must never have been contacted.
-            StringAssert.Contains(ex.Message, "HTTP", StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("HTTP", ex.Message, StringComparison.OrdinalIgnoreCase);
             Assert.IsFalse(feed.ReceivedAuthenticatedRequest, "An insecure HTTP source without allowInsecureConnections must be rejected before any request is sent.");
         }
         finally

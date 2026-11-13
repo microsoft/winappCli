@@ -557,7 +557,7 @@ public class InitCommandTests : BaseCommandTests
         // "run winapp init <path>" hint so the user knows how to reach a project the capped search
         // may have missed.
         Assert.AreEqual(0, exitCode, "Init should succeed after selecting a project when the search limit is reached");
-        StringAssert.Contains(TestAnsiConsole.Output, "path-to-project",
+        Assert.Contains("path-to-project", TestAnsiConsole.Output,
             "The search-limit hint pointing at 'winapp init <path-to-project>' should be shown");
     }
 
@@ -574,7 +574,7 @@ public class InitCommandTests : BaseCommandTests
 
         // Assert
         Assert.AreEqual(1, exitCode, "Sparse init should reject --config-only");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--config-only",
+        Assert.Contains("--config-only", ConsoleStdErr.ToString(),
             "Error should name the rejected option");
     }
 
@@ -590,7 +590,7 @@ public class InitCommandTests : BaseCommandTests
 
         // Assert
         Assert.AreEqual(1, exitCode, "Sparse init should reject --setup-sdks");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--setup-sdks",
+        Assert.Contains("--setup-sdks", ConsoleStdErr.ToString(),
             "Error should name the rejected option");
     }
 
@@ -607,7 +607,7 @@ public class InitCommandTests : BaseCommandTests
 
         // Assert
         Assert.AreEqual(1, exitCode, "Sparse init should reject a positional directory");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--output-dir",
+        Assert.Contains("--output-dir", ConsoleStdErr.ToString(),
             "Error should point users at --output-dir");
     }
 }

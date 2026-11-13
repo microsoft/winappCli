@@ -133,6 +133,6 @@ public sealed class PerfCompositionTests
         var provider = PerfProviders.All.Single(provider => provider.Id == PerfProviders.DirectComposition);
         Assert.IsTrue(provider.Optional);
         Assert.AreEqual("3", provider.Keywords);
-        CollectionAssert.AreEqual(new ushort[] { 2, 3, 4, 5, 10, 11, 25 }, provider.EventIds);
+        Assert.AreSequenceEqual(new ushort[] { 2, 3, 4, 5, 10, 11, 25 }, provider.EventIds);
     }
 }

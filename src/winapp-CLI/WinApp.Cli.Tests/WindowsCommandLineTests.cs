@@ -363,7 +363,7 @@ public class WindowsCommandLineTests
         var (passthrough, invalid) = WindowsCommandLine.SplitPassthroughTokens(
             tokens, ["--flag", "value"]);
 
-        CollectionAssert.AreEqual(new List<string> { "--flag", "value" }, passthrough.ToList());
+        Assert.AreSequenceEqual(new List<string> { "--flag", "value" }, passthrough.ToList());
         Assert.AreEqual(0, invalid.Count);
     }
 
@@ -379,7 +379,7 @@ public class WindowsCommandLineTests
         var (passthrough, invalid) = WindowsCommandLine.SplitPassthroughTokens(
             tokens, ["--", "--flag"]);
 
-        CollectionAssert.AreEqual(new List<string> { "--", "--flag" }, passthrough.ToList());
+        Assert.AreSequenceEqual(new List<string> { "--", "--flag" }, passthrough.ToList());
         Assert.AreEqual(0, invalid.Count);
     }
 
@@ -395,8 +395,8 @@ public class WindowsCommandLineTests
         var (passthrough, invalid) = WindowsCommandLine.SplitPassthroughTokens(
             tokens, ["--bad-opt", "--app-flag"]);
 
-        CollectionAssert.AreEqual(new List<string> { "--app-flag" }, passthrough.ToList());
-        CollectionAssert.AreEqual(new List<string> { "--bad-opt" }, invalid.ToList());
+        Assert.AreSequenceEqual(new List<string> { "--app-flag" }, passthrough.ToList());
+        Assert.AreSequenceEqual(new List<string> { "--bad-opt" }, invalid.ToList());
     }
 
     [TestMethod]
@@ -408,7 +408,7 @@ public class WindowsCommandLineTests
             tokens, ["--bad-opt"]);
 
         Assert.AreEqual(0, passthrough.Count);
-        CollectionAssert.AreEqual(new List<string> { "--bad-opt" }, invalid.ToList());
+        Assert.AreSequenceEqual(new List<string> { "--bad-opt" }, invalid.ToList());
     }
 
     [TestMethod]
@@ -424,8 +424,8 @@ public class WindowsCommandLineTests
         var (passthrough, invalid) = WindowsCommandLine.SplitPassthroughTokens(
             tokens, ["--flag", "--flag"]);
 
-        CollectionAssert.AreEqual(new List<string> { "--flag" }, passthrough.ToList());
-        CollectionAssert.AreEqual(new List<string> { "--flag" }, invalid.ToList());
+        Assert.AreSequenceEqual(new List<string> { "--flag" }, passthrough.ToList());
+        Assert.AreSequenceEqual(new List<string> { "--flag" }, invalid.ToList());
     }
 
     [TestMethod]
@@ -444,7 +444,7 @@ public class WindowsCommandLineTests
         var (passthrough, invalid) = WindowsCommandLine.SplitPassthroughTokens(
             tokens, ["--new-flag"]);  // allAbsorbed only contains the post-dash token
 
-        CollectionAssert.AreEqual(new List<string> { "--new-flag" }, passthrough.ToList());
+        Assert.AreSequenceEqual(new List<string> { "--new-flag" }, passthrough.ToList());
         Assert.AreEqual(0, invalid.Count);
     }
 
@@ -473,7 +473,7 @@ public class WindowsCommandLineTests
         var joined = WindowsCommandLine.JoinArguments(tokens)!;
         var split = WindowsCommandLine.SplitArguments(joined);
 
-        CollectionAssert.AreEqual(tokens, split.ToList());
+        Assert.AreSequenceEqual(tokens, split.ToList());
     }
 
     [TestMethod]
@@ -596,7 +596,7 @@ public class SystemCommandLineDoubleDashBehaviourTests
         Assert.IsEmpty(result.Errors, "Post-'--' tokens should not be parse errors with ZeroOrMore");
         Assert.IsEmpty(result.UnmatchedTokens);
         var captured = result.GetValue(passArg);
-        CollectionAssert.AreEqual(new List<string> { "--app-flag", "value" }, captured,
+        Assert.AreSequenceEqual(new List<string> { "--app-flag", "value" }, captured,
             "ZeroOrMore argument captures exactly the post-'--' tokens");
     }
 
@@ -619,8 +619,8 @@ public class SystemCommandLineDoubleDashBehaviourTests
         var captured = result.GetValue(passArg) ?? [];
         Assert.AreEqual(2, captured.Length,
             "GetValue returns BOTH the pre-dash absorbed token AND the post-dash token");
-        CollectionAssert.Contains(captured, "--bad-opt");
-        CollectionAssert.Contains(captured, "--app-flag");
+        Assert.Contains("--bad-opt", captured);
+        Assert.Contains("--app-flag", captured);
     }
 
     [TestMethod]
@@ -640,7 +640,7 @@ public class SystemCommandLineDoubleDashBehaviourTests
 
         Assert.IsEmpty(result.Errors);
         var captured = result.GetValue(passArg) ?? [];
-        CollectionAssert.AreEqual(new List<string> { "--new-flag" }, captured,
+        Assert.AreSequenceEqual(new List<string> { "--new-flag" }, captured,
             "Only the post-'--' token is in ZeroOrMore; '--existing' is consumed by --args");
         Assert.AreEqual("--existing", result.GetValue(argsOpt));
     }

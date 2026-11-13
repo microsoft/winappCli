@@ -46,8 +46,9 @@ public sealed class BindingCloneControlTests
         var original = new Configuration();
         var fields = typeof(Binding).GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Where(p => p.CanRead && p.CanWrite).ToArray();
-        CollectionAssert.AreEquivalent(typeof(Configuration).GetProperties().Select(p => p.Name).ToArray(),
-            fields.Select(p => p.Name).ToArray(), "Every Binding configuration property needs a copy control.");
+        Assert.AreSequenceEqual(typeof(Configuration).GetProperties().Select(p => p.Name).ToArray(),
+            fields.Select(p => p.Name).ToArray(),
+            SequenceOrder.InAnyOrder, "Every Binding configuration property needs a copy control.");
         foreach (var field in fields)
         {
             var property = typeof(Configuration).GetProperty(field.Name);
@@ -69,7 +70,7 @@ public sealed class BindingCloneControlTests
                 var property = typeof(Configuration).GetProperty(field.Name)!;
                 Assert.AreSame(property.GetValue(original), property.GetValue(restored), field.Name);
             }
-            CollectionAssert.AreEqual(original.SelectorWrites, restored.SelectorWrites);
+            Assert.AreSequenceEqual(original.SelectorWrites, restored.SelectorWrites);
             restored.Converter = new object();
             Assert.AreSame(original.Converter, captured.Converter);
         }

@@ -51,7 +51,8 @@ public partial class ExecutionTargetSelectionTests : BaseCommandTests
             Assert.IsEmpty(parsed.Errors);
             var error = ExecutionTargetSelection.Validate(parsed);
             Assert.IsNotNull(error);
-            StringAssert.Contains(error.UserAction, "--source-root");
+            Assert.IsNotNull(error.UserAction);
+            Assert.Contains("--source-root", error.UserAction);
             Assert.IsFalse(ExecutionTargetDevToolsRouter.ShouldRoute(parsed));
         }
     }
@@ -104,7 +105,7 @@ public partial class ExecutionTargetSelectionTests : BaseCommandTests
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-        CollectionAssert.AreEqual(Expected.OrderBy(name => name, StringComparer.Ordinal).ToArray(), actual);
+        Assert.AreSequenceEqual(Expected.OrderBy(name => name, StringComparer.Ordinal).ToArray(), actual);
     }
 
     /// <summary>
@@ -140,11 +141,11 @@ public partial class ExecutionTargetSelectionTests : BaseCommandTests
 
         foreach (var command in root.Subcommands.OfType<ITargetAwareCommand>().Cast<Command>())
         {
-            CollectionAssert.Contains(command.Options.ToList(), ExecutionTargetSelection.OnOption, command.Name);
+            Assert.Contains(ExecutionTargetSelection.OnOption, command.Options.ToList(), command.Name);
         }
 
         Assert.IsTrue(ExecutionTargetSelection.UnsupportedOnOption.Hidden);
-        CollectionAssert.DoesNotContain(root.Options.ToList(), ExecutionTargetSelection.OnOption);
+        Assert.DoesNotContain(ExecutionTargetSelection.OnOption, root.Options.ToList());
     }
 
     [GeneratedRegex(@"(^|\s)--on(\s|,|$)", RegexOptions.Multiline)]

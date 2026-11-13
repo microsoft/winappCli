@@ -24,7 +24,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--json"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"released\": true");
+        Assert.Contains("\"released\": true", TestAnsiConsole.Output);
         Assert.AreEqual(1, _fakeDesktopLock.YieldCalls.Count);
         Assert.AreEqual(0, _fakeDesktopLock.Runs.Count, "yield must not take a turn of its own");
         Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters, "yield must never take active.lock");
@@ -40,7 +40,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--json"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"released\": false");
+        Assert.Contains("\"released\": false", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -55,7 +55,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode("invalid_arguments");
-        StringAssert.Contains(ConsoleStdErr.ToString(), UiOwnerResolver.WorkflowIdVariable);
+        Assert.Contains(UiOwnerResolver.WorkflowIdVariable, ConsoleStdErr.ToString());
     }
 
     [TestMethod]

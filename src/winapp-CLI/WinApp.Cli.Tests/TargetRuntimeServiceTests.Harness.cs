@@ -432,9 +432,9 @@ public partial class TargetRuntimeServiceTests
         {
             // The agent has already replaced the flagged request with its own winapp binary by this
             // point, which is exactly the guarantee that matters: the host never names the executable.
-            StringAssert.EndsWith(
-                request.Executable,
+            Assert.EndsWith(
                 "winapp.exe",
+                request.Executable,
                 "runtime provisioning must run the guest's own winapp, not a host-named binary");
 
             Assert.AreEqual(TargetRuntimeService.GuestVerb, request.Arguments[0]);

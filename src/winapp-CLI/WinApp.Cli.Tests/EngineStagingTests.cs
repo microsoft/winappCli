@@ -101,10 +101,10 @@ public class EngineStagingTests
         Assert.AreNotEqual(source, staged);
         Assert.AreEqual("WinApp.DevTools.Native.dll", Path.GetFileName(staged));
         Assert.IsTrue(staged.StartsWith(destination + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
-        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(staged));
+        Assert.AreSequenceEqual(bytes, File.ReadAllBytes(staged));
         Assert.AreEqual(staged, EngineStaging.StageTo(source, destination));
         Assert.AreEqual(1, Directory.GetFiles(destination, "*", SearchOption.AllDirectories).Length);
-        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(source));
+        Assert.AreSequenceEqual(bytes, File.ReadAllBytes(source));
         using var identity = WindowsIdentity.GetCurrent();
         var security = new DirectoryInfo(Path.GetDirectoryName(staged)!).GetAccessControl();
         Assert.IsTrue(security.AreAccessRulesProtected);
@@ -122,7 +122,7 @@ public class EngineStagingTests
         var otherRoot = EngineStaging.StageTo(firstSource, Path.Combine(_root, "other-engine"));
         Assert.AreNotEqual(first, second);
         Assert.AreNotEqual(first, otherRoot);
-        CollectionAssert.AreEqual(new byte[] { 2 }, File.ReadAllBytes(second));
+        Assert.AreSequenceEqual(new byte[] { 2 }, File.ReadAllBytes(second));
     }
 
     [TestMethod]
@@ -131,7 +131,7 @@ public class EngineStagingTests
         var source = Source("WinApp.DevTools.Native.dll", [1]);
         var invalidRoot = Source("not-a-directory", [2]);
         Assert.Throws<IOException>(() => EngineStaging.StageTo(source, invalidRoot));
-        CollectionAssert.AreEqual(new byte[] { 1 }, File.ReadAllBytes(source));
+        Assert.AreSequenceEqual(new byte[] { 1 }, File.ReadAllBytes(source));
     }
 
     [TestMethod]
@@ -143,7 +143,7 @@ public class EngineStagingTests
         Assert.AreEqual(1, paths.Distinct().Count());
         foreach (var path in paths)
         {
-            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(path));
+            Assert.AreSequenceEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(path));
         }
     }
 
@@ -165,9 +165,9 @@ public class EngineStagingTests
         try
         {
             Assert.Throws<IOException>(() => EngineStaging.StageTo(source, link));
-            CollectionAssert.AreEqual(originalAcl, target.GetAccessControl().GetSecurityDescriptorBinaryForm());
+            Assert.AreSequenceEqual(originalAcl, target.GetAccessControl().GetSecurityDescriptorBinaryForm());
             Assert.AreEqual(0, target.GetFileSystemInfos().Length);
-            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(source));
+            Assert.AreSequenceEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(source));
         }
         finally { Directory.Delete(link); }
     }
@@ -191,7 +191,7 @@ public class EngineStagingTests
         {
             Assert.Throws<IOException>(() => EngineStaging.StageTo(source, root));
             Assert.IsTrue((File.GetAttributes(staged) & FileAttributes.ReparsePoint) != 0);
-            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(source));
+            Assert.AreSequenceEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(source));
         }
         finally { File.Delete(staged); }
     }
@@ -243,7 +243,7 @@ public class EngineStagingTests
         {
             var source = Source("WinApp.DevTools.Native.dll", [1]);
             var error = Assert.Throws<IOException>(() => EngineStaging.StageTo(source, Path.Combine(junction, "engine")));
-            StringAssert.Contains(error.Message, "redirected");
+            Assert.Contains("redirected", error.Message);
             Assert.AreEqual(0, target.GetFileSystemInfos().Length);
         }
         finally { Directory.Delete(junction); }
@@ -260,7 +260,7 @@ public class EngineStagingTests
         Assert.AreEqual(first, again);
         Assert.AreNotEqual(Path.GetDirectoryName(first), Path.GetDirectoryName(newer));
         Assert.HasCount(2, Directory.GetDirectories(root));
-        CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, File.ReadAllBytes(newer));
+        Assert.AreSequenceEqual(new byte[] { 4, 5, 6 }, File.ReadAllBytes(newer));
     }
 
     [TestMethod]
@@ -273,7 +273,7 @@ public class EngineStagingTests
         var restaged = EngineStaging.StageTo(Source("b\\WinApp.DevTools.Native.dll", [1, 2, 3]), root);
 
         Assert.AreEqual(staged, restaged);
-        CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(restaged));
+        Assert.AreSequenceEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(restaged));
     }
 
     [TestMethod]

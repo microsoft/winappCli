@@ -46,9 +46,10 @@ public partial class RealUiAutomationTests
 
         var elements = await svc.InspectAsync(tree.Target, null, 40, CancellationToken.None);
 
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             tree.AutomationIds,
-            elements.Select(element => element.AutomationId).ToArray());
+            elements.Select(element => element.AutomationId).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]

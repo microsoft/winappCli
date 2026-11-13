@@ -56,7 +56,7 @@ public class GalleryProviderNormalizeTests
         GalleryProvider.NormalizeForPaste(s);
 
         Assert.AreEqual("xmlns:samplepages=\"using:YourApp\"", s.XmlnsImports[0]);
-        StringAssert.Contains(s.Xaml!, "<samplepages:YourPage />");
+        Assert.Contains("<samplepages:YourPage />", s.Xaml!);
     }
 
     [TestMethod]
@@ -66,7 +66,7 @@ public class GalleryProviderNormalizeTests
 
         GalleryProvider.NormalizeForPaste(s);
 
-        StringAssert.Contains(s.Xaml!, "xmlns:cond=\"using:YourApp\"");
+        Assert.Contains("xmlns:cond=\"using:YourApp\"", s.Xaml!);
     }
 
     [TestMethod]
@@ -76,7 +76,7 @@ public class GalleryProviderNormalizeTests
 
         GalleryProvider.NormalizeForPaste(s);
 
-        StringAssert.Contains(s.CSharp!, "YourApp.ControlPages.CustomDataObject.GetDataObjects()");
+        Assert.Contains("YourApp.ControlPages.CustomDataObject.GetDataObjects()", s.CSharp!);
     }
 
     [TestMethod]
@@ -106,7 +106,7 @@ public class GalleryProviderNormalizeTests
 
         GalleryProvider.NormalizeForPaste(s);
 
-        StringAssert.Contains(s.Xaml!, expected);
+        Assert.Contains(expected, s.Xaml!);
     }
 
     [TestMethod]
@@ -130,7 +130,7 @@ public class GalleryProviderNormalizeTests
 
         GalleryProvider.NormalizeForPaste(s);
 
-        StringAssert.Contains(s.Xaml!, "/Assets/YourAsset.wmv");
+        Assert.Contains("/Assets/YourAsset.wmv", s.Xaml!);
     }
 
     [TestMethod]

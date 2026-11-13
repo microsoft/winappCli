@@ -64,7 +64,7 @@ public class SolutionProjectReaderTests
 
             List<string> paths = SolutionProjectReader.ReadProjectPaths(slnxPath);
 
-            CollectionAssert.AreEqual(new[] { Path.Combine(dir, "src", "Real", "Real.csproj") }, paths);
+            Assert.AreSequenceEqual(new[] { Path.Combine(dir, "src", "Real", "Real.csproj") }, paths);
         }
         finally
         {

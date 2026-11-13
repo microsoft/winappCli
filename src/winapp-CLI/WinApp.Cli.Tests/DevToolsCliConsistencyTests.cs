@@ -52,11 +52,11 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
     public void StagingLockNamesTheRunningProcess()
     {
         var denied = new UnauthorizedAccessException("Access to the path is denied.") { HResult = unchecked((int)0x80070005) };
-        StringAssert.Contains(RunFailure.Describe(denied, [8316, 24984]), "still running from this build (PID 8316, 24984)");
-        StringAssert.Contains(RunFailure.Describe(denied, []), "Access was denied");
+        Assert.Contains("still running from this build (PID 8316, 24984)", RunFailure.Describe(denied, [8316, 24984]));
+        Assert.Contains("Access was denied", RunFailure.Describe(denied, []));
         Assert.IsFalse(RunFailure.Describe(new Win32Exception(2), [8316]).Contains("8316", StringComparison.Ordinal),
             "Only a lock failure is blamed on a running process.");
-        CollectionAssert.Contains(RunFailure.ProcessesRunningFrom(Environment.ProcessPath!).ToArray(), Environment.ProcessId);
+        Assert.Contains(Environment.ProcessId, RunFailure.ProcessesRunningFrom(Environment.ProcessPath!).ToArray());
         Assert.AreEqual(0, RunFailure.ProcessesRunningFrom(Path.Combine(Path.GetTempPath(), "winapp-not-running.exe")).Count);
     }
 
@@ -82,7 +82,7 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
                 Path.Combine(layout.FullName, "App.exe"), "-n 30 127.0.0.1") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true })!;
             try
             {
-                CollectionAssert.AreEqual(secondaryApplication ? Array.Empty<int>() : new[] { app.Id },
+                Assert.AreSequenceEqual(secondaryApplication ? Array.Empty<int>() : new[] { app.Id },
                     RunFailure.ProcessesRunningFromLayout(layout).ToArray());
             }
             finally
@@ -107,7 +107,7 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
             DevToolsProtocolJsonContext.Default.DevToolsAttachPayload);
         foreach (var json in new[] { list, attach, DevToolsJson.Result(7, "{}"), DevToolsJson.Error(7, "failed") })
         {
-            StringAssert.Contains(json, "\"processId\": 7");
+            Assert.Contains("\"processId\": 7", json);
             Assert.IsFalse(json.Contains("\"pid\"", StringComparison.Ordinal), json);
         }
     }
@@ -146,7 +146,7 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
         var collapsed = XamlSourceExclusion.Collapse(warnings)!;
         Assert.HasCount(2, collapsed);
         Assert.AreEqual(94, collapsed[0].Count);
-        StringAssert.Contains(collapsed[0].Reason, "Rebuild");
+        Assert.Contains("Rebuild", collapsed[0].Reason);
         Assert.IsNull(collapsed[1].Count);
         Assert.IsNull(XamlSourceExclusion.Collapse([]));
     }

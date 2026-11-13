@@ -123,8 +123,8 @@ public class CertInstallCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "Failed to install certificate");
-        StringAssert.Contains(stderr, "Administrator privileges are required");
+        Assert.Contains("Failed to install certificate", stderr);
+        Assert.Contains("Administrator privileges are required", stderr);
     }
 
     /// <summary>

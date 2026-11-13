@@ -68,7 +68,7 @@ public partial class UiCommandTests
         Assert.HasCount(2, _fakeUia.Queries);
         Assert.IsTrue(_fakeUia.Queries.All(q => q.Root?.Query == "MailRow" && q.ControlType == "Edit"));
         Assert.AreEqual(1, _fakePollDelay.CallCount);
-        StringAssert.Contains(TestAnsiConsole.Output, "txt-new-b234");
+        Assert.Contains("txt-new-b234", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -194,7 +194,7 @@ public partial class UiCommandTests
         var exit = await ParseAndInvokeWithCaptureAsync(QueryCommand("wait-for"),
             ["Welcome", "-a", "TestApp", "--root", "MailRow", "--gone", "--timeout", "150", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"timedOut\": true");
+        Assert.Contains("\"timedOut\": true", TestAnsiConsole.Output);
         Assert.IsTrue(_fakeUia.Queries.Count > 1);
     }
 

@@ -18,11 +18,11 @@ public class UiHelpTests : BaseCommandTests
     public void AllUiCommands_AreInExactlyOneHelpCategory()
     {
         var categorized = UiCommand.HelpCategories.SelectMany(c => c.CommandTypes).ToList();
-        CollectionAssert.AllItemsAreUnique(categorized, "A ui command is listed in more than one help category.");
+        Assert.AreAllDistinct(categorized, "A ui command is listed in more than one help category.");
 
         foreach (var command in UiGroup.Subcommands.Where(c => !c.Hidden))
         {
-            CollectionAssert.Contains(categorized, command.GetType(),
+            Assert.Contains(command.GetType(), categorized,
                 $"'winapp ui {command.Name}' is not in any help category. Add it to UiCommand.HelpCategories.");
         }
     }
@@ -40,7 +40,7 @@ public class UiHelpTests : BaseCommandTests
             foreach (var example in examples)
             {
                 var tokens = Tokenize(example);
-                CollectionAssert.AreEqual(new[] { "winapp", "ui", command.Name }, tokens.Take(3).ToArray(),
+                Assert.AreSequenceEqual(new[] { "winapp", "ui", command.Name }, tokens.Take(3).ToArray(),
                     $"Example '{example}' must start with 'winapp ui {command.Name}'.");
                 foreach (var token in tokens)
                 {
@@ -71,11 +71,11 @@ public class UiHelpTests : BaseCommandTests
             "The golden path must come before the command list.");
         foreach (var (category, _) in UiCommand.HelpCategories)
         {
-            StringAssert.Contains(output, "\n" + category + "\n");
+            Assert.Contains("\n" + category + "\n", output);
         }
 
         Assert.DoesNotContain("--json", output);
-        StringAssert.Contains(output, "--expect-sandbox <guid>");
+        Assert.Contains("--expect-sandbox <guid>", output);
     }
 
     [TestMethod]
@@ -86,9 +86,9 @@ public class UiHelpTests : BaseCommandTests
             var output = CompactHelpRenderer.Render(command).Replace("\r\n", "\n");
 
             Assert.IsTrue(output.StartsWith($"winapp ui {command.Name} - ", StringComparison.Ordinal), output);
-            StringAssert.Contains(output, "\nExamples:\n");
+            Assert.Contains("\nExamples:\n", output);
             Assert.AreEqual(1, Regex.Count(output, "^Global options:", RegexOptions.Multiline), command.Name);
-            StringAssert.Contains(output, "--expect-sandbox <guid>", command.Name);
+            Assert.Contains("--expect-sandbox <guid>", output, command.Name);
             Assert.DoesNotContain("--verbose", output, command.Name);
             Assert.DoesNotContain("--quiet", output, command.Name);
             Assert.DoesNotMatchRegex(new Regex(@"^\s+--cli-schema", RegexOptions.Multiline), output, command.Name);
@@ -97,7 +97,7 @@ public class UiHelpTests : BaseCommandTests
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["ui", "invoke", "--help"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.StartsWith(TestAnsiConsole.Output, "winapp ui invoke - ");
+        Assert.StartsWith("winapp ui invoke - ", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -112,7 +112,7 @@ public class UiHelpTests : BaseCommandTests
         Assert.IsLessThan(output.IndexOf("Set Up & Run", StringComparison.Ordinal), allCommands);
         foreach (var step in CustomHelpAction.QuickStart.SelectMany(g => g.Steps))
         {
-            StringAssert.Contains(output, step.Command);
+            Assert.Contains(step.Command, output);
         }
     }
 
@@ -131,9 +131,9 @@ public class UiHelpTests : BaseCommandTests
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["cert", "--help"]);
         var output = TestAnsiConsole.Output.Replace("\r\n", "\n");
-        StringAssert.StartsWith(output, "winapp cert - ");
-        StringAssert.Contains(output, "\nCommands:\n  generate ");
-        StringAssert.Contains(output, CompactHelpRenderer.LocalGlobalOptionsLine);
+        Assert.StartsWith("winapp cert - ", output);
+        Assert.Contains("\nCommands:\n  generate ", output);
+        Assert.Contains(CompactHelpRenderer.LocalGlobalOptionsLine, output);
     }
 
     [TestMethod]
@@ -154,7 +154,7 @@ public class UiHelpTests : BaseCommandTests
     {
         var suggestions = UnknownGroupCommand.Suggest(token, UiGroup);
         Assert.IsLessThanOrEqualTo(2, suggestions.Length);
-        CollectionAssert.AreEqual(expected, suggestions.Take(expected.Length).ToArray());
+        Assert.AreSequenceEqual(expected, suggestions.Take(expected.Length).ToArray());
         if (expected.Length == 0)
         {
             Assert.IsEmpty(suggestions);
@@ -169,8 +169,8 @@ public class UiHelpTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.IsTrue(string.IsNullOrWhiteSpace(stdout), stdout);
-        StringAssert.StartsWith(stderr, "Unknown command 'dump'. Did you mean 'inspect'?");
-        StringAssert.Contains(stderr, "Run 'winapp ui --help' for the full list.");
+        Assert.StartsWith("Unknown command 'dump'. Did you mean 'inspect'?", stderr);
+        Assert.Contains("Run 'winapp ui --help' for the full list.", stderr);
         Assert.DoesNotContain("Commands:", stderr, "A suggestion replaces the command list.");
         Assert.DoesNotContain("Discover", stderr, "The full help must not be printed.");
     }
@@ -182,8 +182,8 @@ public class UiHelpTests : BaseCommandTests
         UnknownGroupCommand.WriteText(writer, "x\u001b]0;owned\u0007", [], GetRequiredService<UiCommand>());
 
         var text = writer.ToString();
-        StringAssert.StartsWith(text, "Unknown command 'x\\u001b]0;owned\\u0007'.");
-        StringAssert.Contains(text, "Commands: ");
+        Assert.StartsWith("Unknown command 'x\\u001b]0;owned\\u0007'.", text);
+        Assert.Contains("Commands: ", text);
         Assert.IsFalse(text.Any(c => c is '\u001b' or '\u0007'), "Control characters must not reach the terminal.");
     }
 
@@ -211,7 +211,7 @@ public class UiHelpTests : BaseCommandTests
         var (_, stderr, exitCode) = await InvokeProgramAsync(["ui", "dump", "--json=false"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.StartsWith(stderr, "Unknown command 'dump'.");
+        Assert.StartsWith("Unknown command 'dump'.", stderr);
     }
 
     [TestMethod]
@@ -231,8 +231,8 @@ public class UiHelpTests : BaseCommandTests
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(["ui", "invoke", "Cancel", "-w"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(stderr, "'-w'");
-        StringAssert.Contains(stderr, "Run 'winapp ui invoke --help' for usage.");
+        Assert.Contains("'-w'", stderr);
+        Assert.Contains("Run 'winapp ui invoke --help' for usage.", stderr);
         Assert.DoesNotContain("Examples:", stdout + stderr);
     }
 
@@ -243,8 +243,8 @@ public class UiHelpTests : BaseCommandTests
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(["devtools", "comments", "add", "-a", "1"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(stderr, "'--text'");
-        StringAssert.Contains(stderr, "Run 'winapp devtools comments add --help' for usage.");
+        Assert.Contains("'--text'", stderr);
+        Assert.Contains("Run 'winapp devtools comments add --help' for usage.", stderr);
         Assert.DoesNotContain("Usage:", stdout + stderr);
     }
 
@@ -255,7 +255,7 @@ public class UiHelpTests : BaseCommandTests
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(["ui"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(stdout + stderr, "Discover");
+        Assert.Contains("Discover", stdout + stderr);
         Assert.DoesNotContain("Unknown command", stderr);
     }
 

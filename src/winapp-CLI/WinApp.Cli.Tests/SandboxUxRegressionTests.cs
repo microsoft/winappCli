@@ -90,10 +90,10 @@ public class SandboxUxRegressionTests
 
         var rule = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
 
-        StringAssert.Contains(rule, $"-LocalPort {material.Port}");
-        StringAssert.Contains(rule, "-Program $agent");
-        StringAssert.Contains(rule, "-Direction Inbound");
-        StringAssert.Contains(rule, "-Protocol TCP");
+        Assert.Contains($"-LocalPort {material.Port}", rule);
+        Assert.Contains("-Program $agent", rule);
+        Assert.Contains("-Direction Inbound", rule);
+        Assert.Contains("-Protocol TCP", rule);
     }
 
     /// <summary>The assigned port stays inside the dynamic range.</summary>
@@ -393,7 +393,7 @@ public class SandboxUxRegressionTests
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
-        CollectionAssert.AreEqual(ColdPreparationPhases, progress.Messages);
+        Assert.AreSequenceEqual(ColdPreparationPhases, progress.Messages);
     }
 
     [TestMethod]
@@ -402,7 +402,7 @@ public class SandboxUxRegressionTests
         var logger = new CapturingLogger<LoggerTargetProgress>();
         using var error = new StringWriter();
         new LoggerTargetProgress(logger, () => error).Report("Starting Windows Sandbox...");
-        StringAssert.Contains(error.ToString(), "Starting Windows Sandbox...");
+        Assert.Contains("Starting Windows Sandbox...", error.ToString());
     }
 
     [TestMethod]
@@ -445,14 +445,14 @@ public class SandboxUxRegressionTests
                 "src", "winapp-CLI", "WinApp.Cli", "Commands", "ExecutionTargetUiRouter.cs"),
             TestContext.CancellationToken);
 
-        StringAssert.Contains(
-            source,
+        Assert.Contains(
             "requirements.RequiresRealInput",
+            source,
             "The guest request must carry the verb's own input requirement, not a constant.");
 
-        StringAssert.Contains(
-            source,
+        Assert.Contains(
             "PrepareTargetOptions.ReadOnly",
+            source,
             "A read-only verb must be able to prepare the target without an interactive desktop.");
 
         Assert.IsFalse(
@@ -473,9 +473,9 @@ public class SandboxUxRegressionTests
                 "src", "winapp-CLI", "WinApp.Cli", "Commands", "ExecutionTargetUiRouter.cs"),
             TestContext.CancellationToken);
 
-        StringAssert.Contains(
-            source,
+        Assert.Contains(
             "catch (OperationCanceledException) when (!interrupt.IsCancellationRequested)",
+            source,
             "An internal timeout must be distinguished from the user pressing Ctrl+C.");
     }
 

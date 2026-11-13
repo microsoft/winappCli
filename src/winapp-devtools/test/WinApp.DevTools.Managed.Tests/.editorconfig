@@ -1,0 +1,6 @@
+[*.cs]
+# MSTEST0046/MSTEST0068: Use Assert instead of StringAssert/CollectionAssert.
+# MSTest only warns about these in its Recommended mode (MSTestAnalysisMode), and this
+# project does not treat warnings as errors, so report them as errors here.
+dotnet_diagnostic.MSTEST0046.severity = error
+dotnet_diagnostic.MSTEST0068.severity = error

@@ -75,7 +75,7 @@ public partial class UiCommandTests
             ["document", "-a", "TestApp", "--property", name, "--json"]));
         AssertJsonErrorCode("invalid_arguments");
         Assert.AreEqual("", TestAnsiConsole.Output);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Omit --property");
+        Assert.Contains("Omit --property", ConsoleStdErr.ToString());
     }
 
     [TestMethod]

@@ -73,7 +73,7 @@ public partial class GuestProcessHostTests
             var exitCode = await host.WaitForExitAsync(TestContext.CancellationTokenSource.Token);
 
             Assert.AreEqual(7, exitCode, "The application's exit code must survive intact.");
-            StringAssert.Contains(output.StandardOutput.ToString(), "hello", StringComparison.Ordinal);
+            Assert.Contains("hello", output.StandardOutput.ToString(), StringComparison.Ordinal);
             Assert.IsTrue(host.ProcessId > 0);
         }
     }
@@ -128,9 +128,9 @@ public partial class GuestProcessHostTests
             Assert.AreEqual(7, await host.WaitForExitAsync(TestContext.CancellationToken));
             var prefix = string.Join('\n', arguments.Select(a => Convert.ToBase64String(Encoding.UTF8.GetBytes(a)))) +
                 $"\n{directory}\nunicode-😀\n1\n";
-            CollectionAssert.AreEqual(Encoding.UTF8.GetBytes(prefix).Concat(input).ToArray(), stdout.ToArray());
+            Assert.AreSequenceEqual(Encoding.UTF8.GetBytes(prefix).Concat(input).ToArray(), stdout.ToArray());
             byte[] expectedError = [0, 255, 10, 128];
-            CollectionAssert.AreEqual(expectedError, stderr.ToArray());
+            Assert.AreSequenceEqual(expectedError, stderr.ToArray());
         }
         finally
         {
@@ -147,8 +147,8 @@ public partial class GuestProcessHostTests
         {
             await host.WaitForExitAsync(TestContext.CancellationTokenSource.Token);
 
-            StringAssert.Contains(output.StandardOutput.ToString(), "out", StringComparison.Ordinal);
-            StringAssert.Contains(output.StandardError.ToString(), "err", StringComparison.Ordinal);
+            Assert.Contains("out", output.StandardOutput.ToString(), StringComparison.Ordinal);
+            Assert.Contains("err", output.StandardError.ToString(), StringComparison.Ordinal);
 
             // Mixing the streams would make a --json payload unparseable, since diagnostics must
             // never land on the machine-readable channel.
@@ -180,14 +180,14 @@ public partial class GuestProcessHostTests
                 await host.WaitForExitAsync(TestContext.CancellationTokenSource.Token);
 
                 var text = output.StandardOutput.ToString();
-                StringAssert.Contains(text, "first=[a b]", StringComparison.Ordinal);
+                Assert.Contains("first=[a b]", text, StringComparison.Ordinal);
 
                 // A second argument with spaces confirms boundaries hold across multiple values.
                 // Shell metacharacters are deliberately not tested through cmd.exe: cmd re-parses
                 // its command line with rules that differ from the standard C runtime quoting
                 // ArgumentList applies, so a failure there would measure cmd, not this code. The
                 // real guest target is winapp.exe, an ordinary executable.
-                StringAssert.Contains(text, "second=[c d e]", StringComparison.Ordinal);
+                Assert.Contains("second=[c d e]", text, StringComparison.Ordinal);
             }
         }
         finally
@@ -222,7 +222,7 @@ public partial class GuestProcessHostTests
         {
             await host.WaitForExitAsync(TestContext.CancellationTokenSource.Token);
 
-            StringAssert.Contains(output.ToString(), "workflow=token-123", StringComparison.Ordinal);
+            Assert.Contains("workflow=token-123", output.ToString(), StringComparison.Ordinal);
         }
     }
     [TestMethod]
@@ -236,7 +236,7 @@ public partial class GuestProcessHostTests
         {
             await host.WaitForExitAsync(TestContext.CancellationTokenSource.Token);
 
-            StringAssert.Contains(output.StandardOutput.ToString(), "line-400", StringComparison.Ordinal);
+            Assert.Contains("line-400", output.StandardOutput.ToString(), StringComparison.Ordinal);
         }
     }
 
@@ -276,7 +276,7 @@ public partial class GuestProcessHostTests
         // Only a hang safety net: draining 10,000 lines takes over 10s on the 2-vCPU release agent
         // under coverage with parallel tests.
         await completion.WaitAsync(TimeSpan.FromSeconds(60));
-        StringAssert.Contains(output.ToString(), "line-10000");
+        Assert.Contains("line-10000", output.ToString());
     }
 
     [TestMethod]
@@ -314,7 +314,7 @@ public partial class GuestProcessHostTests
 
             await host.WaitForExitAsync(TestContext.CancellationTokenSource.Token);
 
-            StringAssert.Contains(output.ToString(), "typed-line", StringComparison.Ordinal);
+            Assert.Contains("typed-line", output.ToString(), StringComparison.Ordinal);
         }
     }
 
@@ -540,7 +540,7 @@ public partial class GuestProcessHostTests
         if (Win32ErrorIsReliable)
         {
             Assert.AreEqual("2", failure.Error.Context!["win32Error"]);
-            StringAssert.Contains(failure.Error.Message, new System.ComponentModel.Win32Exception(2).Message);
+            Assert.Contains(new System.ComponentModel.Win32Exception(2).Message, failure.Error.Message);
         }
     }
 
@@ -558,7 +558,7 @@ public partial class GuestProcessHostTests
         if (Win32ErrorIsReliable)
         {
             Assert.AreEqual("267", failure.Error.Context!["win32Error"]);
-            StringAssert.Contains(failure.Error.Message, new System.ComponentModel.Win32Exception(267).Message);
+            Assert.Contains(new System.ComponentModel.Win32Exception(267).Message, failure.Error.Message);
         }
     }
 
@@ -577,11 +577,11 @@ public partial class GuestProcessHostTests
                 }, (_, _) => Task.CompletedTask));
 
             Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, failure.Error.Code);
-            StringAssert.Contains(failure.Error.Message, executable);
+            Assert.Contains(executable, failure.Error.Message);
             if (Win32ErrorIsReliable)
             {
                 Assert.AreEqual("193", failure.Error.Context!["win32Error"]);
-                StringAssert.Contains(failure.Error.Message, new System.ComponentModel.Win32Exception(193).Message);
+                Assert.Contains(new System.ComponentModel.Win32Exception(193).Message, failure.Error.Message);
             }
         }
         finally
@@ -616,7 +616,7 @@ public partial class GuestProcessHostTests
             });
 
             Assert.AreEqual(23, await host.WaitForExitAsync(TestContext.CancellationToken));
-            StringAssert.Contains(output.ToString(), "resolved");
+            Assert.Contains("resolved", output.ToString());
         }
         finally
         {
@@ -734,7 +734,7 @@ public partial class GuestProcessHostTests
                 while (IsStillRunning(host.ProcessId)) { await Task.Delay(10, timeout.Token); }
                 await host.StopAsync(TimeSpan.FromSeconds(5), TestContext.CancellationToken)
                     .WaitAsync(TimeSpan.FromSeconds(10));
-                StringAssert.Contains(output.StandardOutput.ToString(), "final-line");
+                Assert.Contains("final-line", output.StandardOutput.ToString());
             }
         }
         finally

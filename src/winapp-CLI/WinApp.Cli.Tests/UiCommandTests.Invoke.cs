@@ -120,7 +120,7 @@ public partial class UiCommandTests
             ["ui", "invoke", "Save", "-a", "TestApp", "--on", "sandbox", "--action", "selekt", "--json"]);
 
         Assert.IsNotEmpty(parsed.Errors, "Remote UI routing runs before handler preflight; invalid actions must fail parsing.");
-        StringAssert.Contains(string.Join(" ", parsed.Errors.Select(error => error.Message)), "--action");
+        Assert.Contains("--action", string.Join(" ", parsed.Errors.Select(error => error.Message)));
     }
 
     [TestMethod]
@@ -204,7 +204,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode(UiJsonError.CodeInternalError);
-        StringAssert.Contains(ConsoleStdErr.ToString(), failure.Message);
+        Assert.Contains(failure.Message, ConsoleStdErr.ToString());
         Assert.AreEqual(0, _fakeUia.AutomaticInvokeCalls);
     }
 
@@ -295,8 +295,8 @@ public partial class UiCommandTests
             ["check", "-a", "TestApp", "--action", "toggle-on"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(output, "toggle-on");
-        StringAssert.Contains(output, "none");
+        Assert.Contains("toggle-on", output);
+        Assert.Contains("none", output);
     }
 
     [TestMethod]

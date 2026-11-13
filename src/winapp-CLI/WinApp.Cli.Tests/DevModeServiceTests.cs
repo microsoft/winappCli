@@ -90,14 +90,14 @@ public class DevModeServiceTests
         Assert.AreEqual(0, exit);
         Assert.AreEqual(1, captured.Count, "Only the PowerShell attempt should run when it succeeds.");
         var psi = captured[0];
-        StringAssert.EndsWith(psi.FileName, "powershell.exe");
+        Assert.EndsWith("powershell.exe", psi.FileName);
         Assert.AreEqual("runas", psi.Verb);
 
         // The script is passed as base64 UTF-16LE via -EncodedCommand, so assert on the decoded form.
         var match = Regex.Match(psi.Arguments, @"-EncodedCommand\s+(?<b64>[A-Za-z0-9+/=]+)");
         Assert.IsTrue(match.Success, $"Expected an -EncodedCommand payload. Got: {psi.Arguments}");
         var script = Encoding.Unicode.GetString(Convert.FromBase64String(match.Groups["b64"].Value));
-        StringAssert.Contains(script, "AppModelUnlock");
+        Assert.Contains("AppModelUnlock", script);
     }
 
     [TestMethod]
@@ -138,8 +138,8 @@ public class DevModeServiceTests
 
         Assert.AreEqual(0, exit);
         Assert.AreEqual(2, captured.Count, "PowerShell failure must trigger the reg.exe fallback.");
-        StringAssert.EndsWith(captured[1].FileName, "cmd.exe");
-        StringAssert.Contains(captured[1].Arguments, "reg add");
+        Assert.EndsWith("cmd.exe", captured[1].FileName);
+        Assert.Contains("reg add", captured[1].Arguments);
     }
 
     [TestMethod]
