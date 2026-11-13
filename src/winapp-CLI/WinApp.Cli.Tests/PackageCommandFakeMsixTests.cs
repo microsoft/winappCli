@@ -36,7 +36,7 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
 
         // Assert — error reported, and the MSIX service was never invoked.
         Assert.AreEqual(1, exitCode, "Packaging a non-existent input folder should fail");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Input folder(s) not found");
+        Assert.Contains("Input folder(s) not found", ConsoleStdErr.ToString());
         Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count, "Package creation should not run when input is missing");
     }
 
@@ -53,7 +53,7 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
         // Assert
         Assert.AreEqual(0, exitCode, "Signed single-package creation should succeed");
         Assert.AreEqual(1, _fakeMsixService.CreatePackageCalls.Count, "The MSIX package service should be invoked once");
-        StringAssert.Contains(TestAnsiConsole.Output, "Package has been signed",
+        Assert.Contains("Package has been signed", TestAnsiConsole.Output,
             "The signed-package confirmation message should be shown to the user");
     }
 
@@ -68,7 +68,7 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode, "a project-only option must be rejected for a folder input");
         Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count, "no packaging must run when a project-only option is used with a folder");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "require a .csproj or .vcxproj input");
+        Assert.Contains("require a .csproj or .vcxproj input", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -84,7 +84,7 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode, "--no-sign combined with --cert must be rejected");
         Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count, "no packaging must run when the signing options conflict");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--no-sign cannot be combined with --cert");
+        Assert.Contains("--no-sign cannot be combined with --cert", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -99,7 +99,7 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode, "--no-sign combined with --generate-cert must be rejected");
         Assert.AreEqual(0, _fakeMsixService.CreateBundleCalls.Count, "no bundling must run when the signing options conflict");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--no-sign cannot be combined with --cert or --generate-cert");
+        Assert.Contains("--no-sign cannot be combined with --cert or --generate-cert", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -114,8 +114,8 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
 
         // Assert — the catch block converts the exception into a friendly error + exit 1.
         Assert.AreEqual(1, exitCode, "A packaging exception should produce a non-zero exit code");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to create MSIX package");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "makeappx exploded");
+        Assert.Contains("Failed to create MSIX package", ConsoleStdErr.ToString());
+        Assert.Contains("makeappx exploded", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -134,7 +134,7 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Signed bundle creation should succeed");
         Assert.AreEqual(1, _fakeMsixService.CreateBundleCalls.Count, "The MSIX bundle service should be invoked once");
         Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count, "Single-package path should not run for multiple folders");
-        StringAssert.Contains(TestAnsiConsole.Output, "Bundle has been signed",
+        Assert.Contains("Bundle has been signed", TestAnsiConsole.Output,
             "The signed-bundle confirmation message should be shown to the user");
     }
 
@@ -154,8 +154,8 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Unsigned bundle creation should still succeed");
         Assert.AreEqual(1, _fakeMsixService.CreateBundleCalls.Count, "The MSIX bundle service should be invoked once");
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "unsigned", "The unsigned-bundle guidance should be shown to the user");
-        StringAssert.Contains(output, "sideload", "The unsigned-bundle guidance should explain the sideload signing step");
+        Assert.Contains("unsigned", output, "The unsigned-bundle guidance should be shown to the user");
+        Assert.Contains("sideload", output, "The unsigned-bundle guidance should explain the sideload signing step");
     }
 
     [TestMethod]
@@ -172,7 +172,7 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
 
         // Assert — the bundle catch block reports the failure.
         Assert.AreEqual(1, exitCode, "A bundle exception should produce a non-zero exit code");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to create MSIX bundle");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "bundle merge failed");
+        Assert.Contains("Failed to create MSIX bundle", ConsoleStdErr.ToString());
+        Assert.Contains("bundle merge failed", ConsoleStdErr.ToString());
     }
 }

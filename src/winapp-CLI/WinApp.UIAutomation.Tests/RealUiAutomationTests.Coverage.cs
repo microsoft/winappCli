@@ -37,7 +37,7 @@ public partial class RealUiAutomationTests
             await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => svc.ScrollContainerAsync(uiTarget, element, "down", null, CancellationToken.None)),
         })
         {
-            StringAssert.Contains(ex.Message, "stale");
+            Assert.Contains("stale", ex.Message);
         }
     }
 
@@ -76,7 +76,7 @@ public partial class RealUiAutomationTests
             0,
             svc.SerializedElementResolutionCount,
             "Slug-scoped inspect and ancestor inspection must reuse the provider element found by slug resolution.");
-        StringAssert.Contains(ex.Message, "RuntimeId hash");
+        Assert.Contains("RuntimeId hash", ex.Message);
     }
 
     [TestMethod]
@@ -192,7 +192,7 @@ public partial class RealUiAutomationTests
         Assert.AreEqual(2, results.Length);
         Assert.IsTrue(results.All(result => result.Name == "Repeated"));
         string[] expectedIds = ["btnInvoke", "lblText"];
-        CollectionAssert.AreEquivalent(expectedIds, results.Select(result => result.AutomationId).ToArray());
+        Assert.AreSequenceEqual(expectedIds, results.Select(result => result.AutomationId).ToArray(), SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -491,7 +491,7 @@ public partial class RealUiAutomationTests
 
         Assert.AreEqual("btnOwnedShared", found.AutomationId);
         Assert.AreNotEqual(fx.Hwnd, (nint)found.WindowHandle!.Value);
-        StringAssert.StartsWith(title, "Owned_");
+        Assert.StartsWith("Owned_", title);
     }
 
     [TestMethod]
@@ -542,9 +542,9 @@ public partial class RealUiAutomationTests
         var leftEx = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.ScrollContainerAsync(uiTarget, vertical, "left", null, CancellationToken.None));
 
-        StringAssert.Contains(toEx.Message, "cannot scroll vertically");
-        StringAssert.Contains(rightEx.Message, "cannot scroll horizontally");
-        StringAssert.Contains(leftEx.Message, "try --direction up");
+        Assert.Contains("cannot scroll vertically", toEx.Message);
+        Assert.Contains("cannot scroll horizontally", rightEx.Message);
+        Assert.Contains("try --direction up", leftEx.Message);
     }
 
     [TestMethod]
@@ -628,7 +628,7 @@ public partial class RealUiAutomationTests
         var container = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.ScrollContainerAsync(uiTarget, label, "down", null, CancellationToken.None));
 
-        StringAssert.Contains(container.Message, "ancestors do not support ScrollPattern");
+        Assert.Contains("ancestors do not support ScrollPattern", container.Message);
     }
 
     [TestMethod]
@@ -734,7 +734,7 @@ public partial class RealUiAutomationTests
         var independentButton = elements.Single(element => element.AutomationId == "btnOwned");
         Assert.AreNotEqual("btnOwned", independentButton.Selector,
             "an independent-window AutomationId must keep a slug for precise unscoped resolution");
-        StringAssert.StartsWith(independentButton.Selector, "btn-btnowned-");
+        Assert.StartsWith("btn-btnowned-", independentButton.Selector);
     }
 
     [TestMethod]
@@ -895,7 +895,7 @@ public partial class RealUiAutomationTests
         Assert.AreEqual("btnOwnedOnly", bySearch.AutomationId);
         Assert.IsTrue(bySearch.WindowHandle.GetValueOrDefault() != 0);
         Assert.IsNull(missingSlug);
-        StringAssert.StartsWith(title, "OwnedOnly_");
+        Assert.StartsWith("OwnedOnly_", title);
     }
 
     [TestMethod]
@@ -942,7 +942,7 @@ public partial class RealUiAutomationTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.GetTextAsync(uiTarget, malformed, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "stale");
+        Assert.Contains("stale", ex.Message);
     }
 
     [TestMethod]
@@ -998,7 +998,7 @@ public partial class RealUiAutomationTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.ScrollIntoViewAsync(uiTarget, model, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "does not support ScrollItemPattern and no scrollable ancestor found");
+        Assert.Contains("does not support ScrollItemPattern and no scrollable ancestor found", ex.Message);
     }
 
     [TestMethod]
@@ -1142,7 +1142,7 @@ public partial class RealUiAutomationTests
         var ex = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
             () => svc.FindSingleElementAsync(uiTarget, new UiSelector { Query = "Ambiguous" }, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "lbl[0]");
+        Assert.Contains("lbl[0]", ex.Message);
         Assert.AreEqual(1, findAllCalls, "An exact FindFirst miss should flow directly into the completed substring query.");
     }
 
@@ -1448,7 +1448,7 @@ public partial class RealUiAutomationTests
         var otherWindowElement = new UiElement { Id = "other", Type = "Button", WindowHandle = 999, AutomationId = "missing" };
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.GetTextAsync(uiTarget, otherWindowElement, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "stale");
+        Assert.Contains("stale", ex.Message);
         Assert.IsTrue(logger.Has(Microsoft.Extensions.Logging.LogLevel.Debug, "ElementFromHandle found"));
     }
 
@@ -1537,7 +1537,7 @@ public partial class RealUiAutomationTests
         current = MakeTarget(id => id == UIA_PATTERN_ID.UIA_ScrollPatternId ? scrollPattern : ThrowCom());
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.ScrollContainerAsync(uiTarget, model, "up", null, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "try --direction left");
+        Assert.Contains("try --direction left", ex.Message);
     }
 
     [TestMethod]
@@ -1703,7 +1703,7 @@ public partial class RealUiAutomationTests
         var ex = await Assert.ThrowsExactlyAsync<UiValueSetException>(
             () => svc.SetValueAsync(uiTarget, model, "hello", CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "could not be set via ValuePattern");
+        Assert.Contains("could not be set via ValuePattern", ex.Message);
         Assert.IsTrue(logger.Has(Microsoft.Extensions.Logging.LogLevel.Debug, "LegacyIAccessible.SetValue failed"));
     }
 

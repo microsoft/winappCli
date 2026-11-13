@@ -522,9 +522,9 @@ public class WinmdServiceTests : BaseCommandTests
         var components = _winmdService.DiscoverWinRTComponents(_tempDir, packages, "x64");
 
         var dlls = components.Select(c => c.ImplementationDll).ToList();
-        CollectionAssert.Contains(dlls, "Fake.Meta.dll", "Winmd under metadata/ should be discovered.");
-        CollectionAssert.Contains(dlls, "Fake.Versioned.dll", "Winmd under metadata/10.0.18362.0/ should be discovered.");
-        CollectionAssert.Contains(dlls, "Fake.Ref.dll", "Winmd under References/ should be discovered.");
+        Assert.Contains("Fake.Meta.dll", dlls, "Winmd under metadata/ should be discovered.");
+        Assert.Contains("Fake.Versioned.dll", dlls, "Winmd under metadata/10.0.18362.0/ should be discovered.");
+        Assert.Contains("Fake.Ref.dll", dlls, "Winmd under References/ should be discovered.");
     }
 
     [TestMethod]

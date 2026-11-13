@@ -191,8 +191,8 @@ public class FindUiSearchTests
         var engine = BuildEngine();
         var (formatted, found, _) = engine.GetPattern("reactor-flex-1");
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "[Reactor]");
-        StringAssert.Contains(formatted, "**Setup:** NuGet `Microsoft.UI.Reactor`");
+        Assert.Contains("[Reactor]", formatted);
+        Assert.Contains("**Setup:** NuGet `Microsoft.UI.Reactor`", formatted);
         // Reactor's apiNamespace is uniform across all its controls, so it is never emitted.
         // A reactor control that publishes its own `usings` still gets a **Namespace:** line
         // (see GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine); this one has none.
@@ -211,8 +211,8 @@ public class FindUiSearchTests
         var (formatted, found, _) = engine.GetPattern("gallery-scrollview-3");
 
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"", "the event is the point of the sample");
-        StringAssert.Contains(formatted, "**Undefined handlers:** `ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"`");
+        Assert.Contains("ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"", formatted, "the event is the point of the sample");
+        Assert.Contains("**Undefined handlers:** `ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"`", formatted);
     }
 
     [TestMethod]
@@ -269,7 +269,7 @@ public class FindUiSearchTests
     {
         var found = ControlSnippetText.FindUndefinedEventHandlers($"<Grid {evt}=\"{method}\" />", null);
 
-        CollectionAssert.AreEqual(new[] { $"{evt}=\"{method}\"" }, found);
+        Assert.AreSequenceEqual(new[] { $"{evt}=\"{method}\"" }, found);
     }
 
     [TestMethod]
@@ -334,7 +334,7 @@ public class FindUiSearchTests
         var (formatted, found, _) = engine.GetPattern("reactor-flex-1");
 
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Reactor.Flex`");
+        Assert.Contains("**Namespace:** `Microsoft.UI.Reactor.Flex`", formatted);
         // Ambient namespaces are filtered: a stock WinUI project already resolves this one.
         Assert.IsFalse(formatted.Contains("Microsoft.UI.Xaml.Controls"), "ambient namespaces are noise");
     }
@@ -350,10 +350,10 @@ public class FindUiSearchTests
 
         Assert.IsFalse(found);
         Assert.IsNull(canonicalId);
-        StringAssert.Contains(formatted, "not found.");
-        StringAssert.Contains(formatted, "winapp find-ui colorpickerbutton",
+        Assert.Contains("not found.", formatted);
+        Assert.Contains("winapp find-ui colorpickerbutton", formatted,
             "the suggested search drops the scenario number, which is the part that changed");
-        StringAssert.Contains(formatted, "--list");
+        Assert.Contains("--list", formatted);
     }
 
     [TestMethod]
@@ -368,7 +368,7 @@ public class FindUiSearchTests
 
         Assert.IsFalse(found);
         Assert.IsNull(canonicalId);
-        StringAssert.Contains(formatted, "winapp find-ui flexpanel --source reactor");
+        Assert.Contains("winapp find-ui flexpanel --source reactor", formatted);
         Assert.IsFalse(formatted.Contains("--list", StringComparison.Ordinal),
             "--list excludes Reactor and cannot be narrowed with --source, so it can't recover a reactor id");
     }
@@ -401,7 +401,7 @@ public class FindUiSearchTests
         var (formatted, found, _) = engine.GetPattern("gallery-appwindow-1");
 
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Windowing`");
+        Assert.Contains("**Namespace:** `Microsoft.UI.Windowing`", formatted);
     }
 
     [TestMethod]
@@ -418,7 +418,7 @@ public class FindUiSearchTests
         var engine = BuildEngine();
         var (formatted, found, canonicalId) = engine.GetPattern("gallery-tabview-1");
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "TabView");
+        Assert.Contains("TabView", formatted);
         Assert.AreEqual("gallery-tabview-1", canonicalId, "an exact id resolves to itself");
     }
 
@@ -444,8 +444,8 @@ public class FindUiSearchTests
         var (toolkit, tFound, tId) = engine.GetPattern("toolkit-colorpicker-1");
         Assert.IsTrue(gFound);
         Assert.IsTrue(tFound);
-        StringAssert.Contains(gallery, "ColorPicker properties");
-        StringAssert.Contains(toolkit, "Basic usage");
+        Assert.Contains("ColorPicker properties", gallery);
+        Assert.Contains("Basic usage", toolkit);
         Assert.AreEqual("gallery-colorpicker-1", gId);
         Assert.AreEqual("toolkit-colorpicker-1", tId);
     }
@@ -460,7 +460,7 @@ public class FindUiSearchTests
 
         var (upper, upperFound, upperId) = engine.GetPattern("GALLERY-TABVIEW-1");
         Assert.IsTrue(upperFound, "an uppercase exact id must resolve");
-        StringAssert.Contains(upper, "TabView");
+        Assert.Contains("TabView", upper);
         Assert.AreEqual("gallery-tabview-1", upperId, "canonical id must be the lowercase form, not the caller's casing");
 
         var (_, bareFound, bareId) = engine.GetPattern("Gallery-TabView");
@@ -486,9 +486,9 @@ public class FindUiSearchTests
     {
         var engine = BuildEngine();
         var ids = engine.ListAll().Select(x => x.id).ToList();
-        CollectionAssert.Contains(ids, "gallery-tabview-1");
-        CollectionAssert.Contains(ids, "toolkit-datagrid-1");
-        CollectionAssert.Contains(ids, "reactor-flex-1");
+        Assert.Contains("gallery-tabview-1", ids);
+        Assert.Contains("toolkit-datagrid-1", ids);
+        Assert.Contains("reactor-flex-1", ids);
         Assert.AreEqual(5, ids.Count);
     }
 
@@ -508,7 +508,7 @@ public class FindUiSearchTests
     {
         var providers = ProviderRegistry.CreateProviders(Path.Combine(Path.GetTempPath(), "find-ui-test-cache"));
         var ids = providers.Select(p => p.Id).ToList();
-        CollectionAssert.AreEqual(ExpectedProviderIds, ids,
+        Assert.AreSequenceEqual(ExpectedProviderIds, ids,
             "the live provider factory must wire gallery, toolkit, and reactor in display order");
         Assert.IsInstanceOfType<ReactorProvider>(providers.Single(p => p.Id == "reactor"));
     }
@@ -582,11 +582,11 @@ public class FindUiSearchTests
     public void Stem_AbleAndIbleSuffixes_YieldVerbBase()
     {
         // Agents phrase intent adjectivally while the corpus indexes the verb.
-        CollectionAssert.Contains(Synonyms.Stem("swipeable").ToList(), "swipe");
-        CollectionAssert.Contains(Synonyms.Stem("scrollable").ToList(), "scroll");
-        CollectionAssert.Contains(Synonyms.Stem("resizable").ToList(), "resize");
-        CollectionAssert.Contains(Synonyms.Stem("collapsible").ToList(), "collapse");
-        CollectionAssert.Contains(Synonyms.Stem("draggable").ToList(), "drag");
+        Assert.Contains("swipe", Synonyms.Stem("swipeable").ToList());
+        Assert.Contains("scroll", Synonyms.Stem("scrollable").ToList());
+        Assert.Contains("resize", Synonyms.Stem("resizable").ToList());
+        Assert.Contains("collapse", Synonyms.Stem("collapsible").ToList());
+        Assert.Contains("drag", Synonyms.Stem("draggable").ToList());
     }
 
     [TestMethod]
@@ -613,7 +613,7 @@ public class FindUiSearchTests
 
         foreach (var control in new[] { "itemsrepeater", "gridview", "itemsview" })
         {
-            CollectionAssert.Contains(expanded, control, $"'image grid' must reach {control}");
+            Assert.Contains(control, expanded, $"'image grid' must reach {control}");
         }
     }
 
@@ -634,8 +634,8 @@ public class FindUiSearchTests
     {
         var tokens = BM25.Tokenize(Synonyms.Preprocess("sign in page"));
 
-        CollectionAssert.Contains(tokens, "login");
-        CollectionAssert.DoesNotContain(tokens, "sign", "a replace phrase must drop its original words");
+        Assert.Contains("login", tokens);
+        Assert.DoesNotContain("sign", tokens, "a replace phrase must drop its original words");
     }
 
     [TestMethod]
@@ -645,23 +645,23 @@ public class FindUiSearchTests
 
         foreach (var expected in new[] { "data", "grid", "datagrid" })
         {
-            CollectionAssert.Contains(tokens, expected);
+            Assert.Contains(expected, tokens);
         }
     }
 
     [TestMethod]
     public void Expand_SiteGroups_DoNotAddUnrelatedControlNames()
     {
-        CollectionAssert.DoesNotContain(Synonyms.Expand(["audio"]).ToList(), "sound");
-        CollectionAssert.DoesNotContain(Synonyms.Expand(["picture"]).ToList(), "photo");
-        CollectionAssert.DoesNotContain(Synonyms.Expand(["camera"]).ToList(), "webcam");
+        Assert.DoesNotContain("sound", Synonyms.Expand(["audio"]).ToList());
+        Assert.DoesNotContain("photo", Synonyms.Expand(["picture"]).ToList());
+        Assert.DoesNotContain("webcam", Synonyms.Expand(["camera"]).ToList());
     }
 
     [TestMethod]
     public void Expand_Expansion_IsOneWay()
     {
-        CollectionAssert.Contains(Synonyms.Expand(["modal"]).ToList(), "contentdialog");
-        CollectionAssert.DoesNotContain(Synonyms.Expand(["contentdialog"]).ToList(), "modal");
+        Assert.Contains("contentdialog", Synonyms.Expand(["modal"]).ToList());
+        Assert.DoesNotContain("modal", Synonyms.Expand(["contentdialog"]).ToList());
     }
 
     /// <summary>Common ways people describe a control without naming it must reach that control.</summary>
@@ -688,7 +688,7 @@ public class FindUiSearchTests
     public void Expand_DescriptivePhrase_ReachesControl(string query, string control)
     {
         var expanded = Synonyms.Expand(BM25.Tokenize(Synonyms.Preprocess(query))).ToList();
-        CollectionAssert.Contains(expanded, control, $"'{query}' must reach {control}");
+        Assert.Contains(control, expanded, $"'{query}' must reach {control}");
     }
 
     private static SearchEngine BuildEmbeddedEngine()

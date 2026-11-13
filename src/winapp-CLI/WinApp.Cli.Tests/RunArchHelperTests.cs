@@ -77,13 +77,13 @@ public class RunArchHelperTests
     [TestMethod]
     public void SupportedArchitectures_ContainsExpected()
     {
-        CollectionAssert.AreEquivalent(ExpectedArchitectures, RunArchHelper.SupportedArchitectures.ToArray());
+        Assert.AreSequenceEqual(ExpectedArchitectures, RunArchHelper.SupportedArchitectures.ToArray(), SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
     public void DefaultArchitecture_IsSupported()
     {
         // The default is the current process arch; on any supported host it must be a known value.
-        CollectionAssert.Contains(RunArchHelper.SupportedArchitectures.ToArray(), RunArchHelper.DefaultArchitecture());
+        Assert.Contains(RunArchHelper.DefaultArchitecture(), RunArchHelper.SupportedArchitectures.ToArray());
     }
 }

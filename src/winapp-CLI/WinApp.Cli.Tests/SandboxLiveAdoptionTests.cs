@@ -156,9 +156,9 @@ public class SandboxLiveAdoptionTests
         var manualId = await StartWithWsbAsync(timeout.Token);
         _startedByThisTest = manualId;
 
-        CollectionAssert.Contains(
-            (await cli.ListAsync(timeout.Token)).ToArray(),
+        Assert.Contains(
             manualId,
+            (await cli.ListAsync(timeout.Token)).ToArray(),
             "The instance the test started must be listed under the ID it asked for.");
 
         await WaitUntilResolvableAsync(cli, manualId, timeout.Token);
@@ -217,9 +217,10 @@ public class SandboxLiveAdoptionTests
         // The measured reason adoption stays conservative: `wsb connect` against an instance that
         // already has a client starts a second WindowsSandboxRemoteSession, and that extra client
         // outlives `wsb stop`. A guest winapp did not start must never be given one.
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             clientsBeforeAdoption.ToArray(),
             SandboxLiveE2ETests.CurrentClientProcessIds().ToArray(),
+            SequenceOrder.InAnyOrder,
             "Adopting a Sandbox whose client is already attached must not start a second one.");
 
         // The whole point: the guest still has what it had before winapp arrived.
@@ -244,9 +245,9 @@ public class SandboxLiveAdoptionTests
                 timeout.Token),
             "Taking over a Sandbox must not stop processes that were already running in it.");
 
-        CollectionAssert.Contains(
-            (await cli.ListAsync(timeout.Token)).ToArray(),
+        Assert.Contains(
             manualId,
+            (await cli.ListAsync(timeout.Token)).ToArray(),
             "winapp must never stop a Sandbox it took over.");
 
         // A second process -- a fresh backend over the same state root -- must now find an instance

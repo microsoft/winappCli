@@ -87,10 +87,11 @@ public class WindowsSandboxCliTests
             _cli.ShareFolderAsync("sandbox-1", HostPath, @"C:\WinAppBootstrap-0123", allowWrite: false, CancellationToken.None));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, error.Error.Code);
-        StringAssert.Contains(error.Error.Message, HostPath);
-        StringAssert.Contains(error.Error.UserAction, "SYSTEM");
-        StringAssert.Contains(error.Error.UserAction, HostPath);
-        StringAssert.Contains(error.Error.UserAction, $"icacls \"{HostPath}\" /grant \"*S-1-5-18:(OI)(CI)F\"", "The message must show how to grant SYSTEM access.");
+        Assert.Contains(HostPath, error.Error.Message);
+        Assert.IsNotNull(error.Error.UserAction);
+        Assert.Contains("SYSTEM", error.Error.UserAction);
+        Assert.Contains(HostPath, error.Error.UserAction);
+        Assert.Contains($"icacls \"{HostPath}\" /grant \"*S-1-5-18:(OI)(CI)F\"", error.Error.UserAction, "The message must show how to grant SYSTEM access.");
         Assert.DoesNotContain("restart the host", error.Error.UserAction!, StringComparison.OrdinalIgnoreCase);
         Assert.AreEqual("0x80070005", error.Error.Context![WsbHResult.ContextKey]);
         Assert.AreEqual(HostPath, error.Error.Context["hostPath"]);
@@ -169,9 +170,9 @@ public class WindowsSandboxCliTests
                 Assert.IsFalse(
                     resolved.StartsWith(decoyDirectory.FullName, StringComparison.OrdinalIgnoreCase),
                     "Resolution must not come from any PATH entry.");
-                StringAssert.Contains(
-                    resolved,
+                Assert.Contains(
                     @"\Microsoft\WindowsApps\",
+                    resolved,
                     StringComparison.OrdinalIgnoreCase,
                     "Only the known WindowsApps alias may be used.");
             }
@@ -302,9 +303,9 @@ public class WindowsSandboxCliTests
         var arguments = _runner.Requests.Single().Arguments;
 
         // Values travel as their own list entries, so a path can never be smuggled in as an option.
-        CollectionAssert.Contains(arguments.ToList(), "System");
-        CollectionAssert.Contains(arguments.ToList(), @"C:\Work");
-        CollectionAssert.Contains(arguments.ToList(), "cmd /c exit 0");
+        Assert.Contains("System", arguments.ToList());
+        Assert.Contains(@"C:\Work", arguments.ToList());
+        Assert.Contains("cmd /c exit 0", arguments.ToList());
     }
 
     [TestMethod]
@@ -332,7 +333,7 @@ public class WindowsSandboxCliTests
         Assert.IsFalse(captured.RedirectStandardInput);
         Assert.IsFalse(captured.RedirectStandardOutput);
         Assert.IsFalse(captured.RedirectStandardError);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             ConnectArguments,
             captured.ArgumentList.ToArray());
     }
@@ -501,8 +502,8 @@ public class WindowsSandboxCliTests
             TestContext.CancellationTokenSource.Token);
 
         var request = _runner.Requests.Single();
-        CollectionAssert.Contains(request.Arguments.ToList(), "ExistingLogin");
-        CollectionAssert.Contains(request.Arguments.ToList(), @"""C:\WinAppBootstrap\winapp.exe"" guest-agent");
+        Assert.Contains("ExistingLogin", request.Arguments.ToList());
+        Assert.Contains(@"""C:\WinAppBootstrap\winapp.exe"" guest-agent", request.Arguments.ToList());
     }
 
     /// <summary>MSTest injects this; used for per-test cancellation.</summary>

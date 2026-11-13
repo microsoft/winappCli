@@ -102,8 +102,8 @@ public class CommentStoreLocatorTests
         var withSourceRoot = CommentStoreLocator.Resolve(Project);
 
         Assert.AreNotEqual(withSourceRoot.StorePath, fromAbove.StorePath);
-        StringAssert.Contains(fromAbove.Explain(), Repo);
-        StringAssert.Contains(fromAbove.Explain(), "not inside a git working tree");
+        Assert.Contains(Repo, fromAbove.Explain());
+        Assert.Contains("not inside a git working tree", fromAbove.Explain());
         Assert.AreEqual(Path.Combine(Project, ".winapp", "ui-comments.json"), withSourceRoot.StorePath,
             "--source-root is the escape hatch for exactly this case");
     }
@@ -115,8 +115,8 @@ public class CommentStoreLocatorTests
 
         var explanation = CommentStoreLocator.Resolve(Project).Explain();
 
-        StringAssert.Contains(explanation, Path.Combine(Repo, ".winapp", "ui-comments.json"));
-        StringAssert.Contains(explanation, "git repository root");
-        StringAssert.Contains(explanation, Project);
+        Assert.Contains(Path.Combine(Repo, ".winapp", "ui-comments.json"), explanation);
+        Assert.Contains("git repository root", explanation);
+        Assert.Contains(Project, explanation);
     }
 }

@@ -46,7 +46,7 @@ public class CppWinrtSignatureVerificationTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<BuildToolSignatureException>(
                 () => service.RunWithRspAsync(exe, [winmd], output, _tempDirectory, TestTaskContext, TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, exe.Name, StringComparison.Ordinal);
+            Assert.Contains(exe.Name, ex.Message, StringComparison.Ordinal);
             // The gate must run before the response file is written, so nothing is handed to the tool.
             Assert.IsFalse(
                 File.Exists(Path.Join(output.FullName, ".cppwinrt.rsp")),

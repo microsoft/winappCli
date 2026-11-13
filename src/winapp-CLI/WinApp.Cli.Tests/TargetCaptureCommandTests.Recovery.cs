@@ -37,7 +37,7 @@ public partial class TargetCaptureCommandTests
         Assert.AreEqual("__guest-desktop", request.Arguments[0]);
         Assert.AreEqual(verb, request.Arguments[1]);
         Assert.AreEqual("--", request.Arguments[^1]);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { "--target-kind", target.Kind, "--target-name", target.Id, "--target-epoch", Epoch.Value },
             request.Arguments.Skip(request.Arguments.Count - 7).Take(6).ToArray());
         Assert.IsFalse(request.Arguments.Contains("--on"), "Scope metadata must not re-route the guest command.");
@@ -72,7 +72,7 @@ public partial class TargetCaptureCommandTests
             Assert.AreEqual(7, exitCode, "The guest's exit code is unchanged.");
             Assert.AreEqual(1, harness.Backend.Requests.Count);
             var request = harness.Backend.Requests[0];
-            CollectionAssert.AreEqual(
+            Assert.AreSequenceEqual(
                 json ? RecoveryInspectJsonArguments : RecoveryInspectArguments,
                 request.Arguments.ToArray());
             Assert.IsNotNull(request.Environment);

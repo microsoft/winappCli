@@ -285,8 +285,8 @@ public sealed class FindApiCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exit);
         Assert.IsFalse(_fake.SearchCalled);
-        StringAssert.Contains(TestAnsiConsole.Output, "Usage");
-        StringAssert.Contains(TestAnsiConsole.Output, "check-property");
+        Assert.Contains("Usage", TestAnsiConsole.Output);
+        Assert.Contains("check-property", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -320,7 +320,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
         int exit = await ParseAndInvokeWithCaptureAsync(Command, [FakeApiMetadataService.NoProjectQuery]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "No indexed API metadata");
+        Assert.Contains("No indexed API metadata", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -392,8 +392,8 @@ public sealed class FindApiCommandTests : BaseCommandTests
         int exit = await ParseAndInvokeWithCaptureAsync(Command, ["NavigationView", "--json"]);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"query\"");
-        StringAssert.Contains(TestAnsiConsole.Output, "NavigationView");
+        Assert.Contains("\"query\"", TestAnsiConsole.Output);
+        Assert.Contains("NavigationView", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -433,8 +433,8 @@ public sealed class FindApiCommandTests : BaseCommandTests
         int exit = await ParseAndInvokeWithCaptureAsync(Command, ["packages"]);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "7 types, 42 members");
-        StringAssert.Contains(TestAnsiConsole.Output, "partial");
+        Assert.Contains("7 types, 42 members", TestAnsiConsole.Output);
+        Assert.Contains("partial", TestAnsiConsole.Output);
         Assert.IsFalse(
             TestAnsiConsole.Output.Contains("cache missing", StringComparison.Ordinal),
             "an indexed-but-partial package is not a missing cache");
@@ -470,7 +470,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
         int exit = await ParseAndInvokeWithCaptureAsync(Command, ["NavigationView", "TeachingTip", "InfoBar"]);
 
         Assert.AreEqual(0, exit);
-        CollectionAssert.AreEqual(ThreeSearchSubjects, _fake.SearchQueries);
+        Assert.AreSequenceEqual(ThreeSearchSubjects, _fake.SearchQueries);
     }
 
     [TestMethod]
@@ -479,8 +479,8 @@ public sealed class FindApiCommandTests : BaseCommandTests
         int exit = await ParseAndInvokeWithCaptureAsync(Command, ["NavigationView", "TeachingTip", "--json"]);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"count\"");
-        StringAssert.Contains(TestAnsiConsole.Output, "\"results\"");
+        Assert.Contains("\"count\"", TestAnsiConsole.Output);
+        Assert.Contains("\"results\"", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -507,7 +507,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
         int exit = await ParseAndInvokeWithCaptureAsync(Command, ["members", "InfoBar", "TeachingTip"]);
 
         Assert.AreEqual(0, exit);
-        CollectionAssert.AreEqual(TwoMemberTypes, _fake.MembersTypes);
+        Assert.AreSequenceEqual(TwoMemberTypes, _fake.MembersTypes);
     }
 
     [TestMethod]
@@ -527,7 +527,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exit);
         Assert.AreEqual(2, _fake.MembersTypes.Count);
-        StringAssert.Contains(TestAnsiConsole.Output, "Color");
+        Assert.Contains("Color", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -536,7 +536,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
         int exit = await ParseAndInvokeWithCaptureAsync(Command, ["enums", "Symbol", "Visibility"]);
 
         Assert.AreEqual(0, exit);
-        CollectionAssert.AreEqual(TwoEnumTypes, _fake.EnumsTypes);
+        Assert.AreSequenceEqual(TwoEnumTypes, _fake.EnumsTypes);
     }
 
     [TestMethod]
@@ -546,7 +546,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exit);
         Assert.AreEqual("InfoBar", _fake.LastCheckType);
-        CollectionAssert.AreEqual(ThreeCheckedProperties, _fake.CheckedProperties);
+        Assert.AreSequenceEqual(ThreeCheckedProperties, _fake.CheckedProperties);
     }
 
     [TestMethod]
@@ -580,8 +580,8 @@ public sealed class FindApiCommandTests : BaseCommandTests
             ["check-property", "InfoBar", "Severity", FakeApiMetadataService.MissingProperty, "--json"]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"missingCount\"");
-        StringAssert.Contains(TestAnsiConsole.Output, "\"count\"");
+        Assert.Contains("\"missingCount\"", TestAnsiConsole.Output);
+        Assert.Contains("\"count\"", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -594,7 +594,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
             Command, ["check-property", "Gadget", FakeApiMetadataService.AttachedReadOnlyProperty, "Severity"]);
 
         Assert.AreEqual(0, exit, "a read-only property still exists");
-        StringAssert.Contains(TestAnsiConsole.Output, "read-only");
+        Assert.Contains("read-only", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -606,7 +606,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
             Command, ["check-property", "Gadget", FakeApiMetadataService.AttachedReadOnlyProperty]);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\u26a0");
+        Assert.Contains("\u26a0", TestAnsiConsole.Output);
         Assert.IsFalse(
             TestAnsiConsole.Output.Contains('\u2705'),
             "a property that cannot be assigned must not be confirmed like one that can");
@@ -621,7 +621,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
             Command, ["check-property", "Gadget", FakeApiMetadataService.AttachedReadOnlyProperty, "--json"]);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"writable\": false");
+        Assert.Contains("\"writable\": false", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -652,9 +652,9 @@ public sealed class FindApiCommandTests : BaseCommandTests
             .Select(c => c.Name)
             .ToList();
 
-        CollectionAssert.Contains(hidden, "types");
-        CollectionAssert.Contains(hidden, "namespaces");
-        CollectionAssert.Contains(hidden, "projects");
+        Assert.Contains("types", hidden);
+        Assert.Contains("namespaces", hidden);
+        Assert.Contains("projects", hidden);
     }
 
     [TestMethod]
@@ -675,7 +675,7 @@ public sealed class FindApiCommandTests : BaseCommandTests
         Assert.AreEqual(0, exit);
         // The on-disk cache path is a debugging aid. At default verbosity it was up to
         // ~40% of the response, crowding out the API facts the caller asked for.
-        StringAssert.Contains(TestAnsiConsole.Output, "Test.Ns");
+        Assert.Contains("Test.Ns", TestAnsiConsole.Output);
         Assert.IsFalse(
             TestAnsiConsole.Output.Contains(FakeApiMetadataService.CacheFilePath, StringComparison.Ordinal),
             "search output must not print the internal cache path at default verbosity");
@@ -687,6 +687,6 @@ public sealed class FindApiCommandTests : BaseCommandTests
         int exit = await ParseAndInvokeWithCaptureAsync(Command, ["NavigationView", "--verbose"]);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, FakeApiMetadataService.CacheFilePath);
+        Assert.Contains(FakeApiMetadataService.CacheFilePath, TestAnsiConsole.Output);
     }
 }

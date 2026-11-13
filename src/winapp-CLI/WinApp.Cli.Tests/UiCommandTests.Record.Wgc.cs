@@ -49,7 +49,7 @@ public partial class UiCommandTests
         }
         catch (InvalidOperationException ex)
         {
-            StringAssert.Contains(ex.Message, "--capture-screen",
+            Assert.Contains("--capture-screen", ex.Message,
                 "error must mention --capture-screen so users know how to opt in to screen capture");
         }
     }

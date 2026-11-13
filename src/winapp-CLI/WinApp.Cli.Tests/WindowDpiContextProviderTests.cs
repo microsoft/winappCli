@@ -31,7 +31,7 @@ public class WindowDpiContextProviderTests
         var exception = Assert.ThrowsExactly<InvalidOperationException>(
             () => provider.GetForWindow(0));
 
-        StringAssert.Contains(exception.Message, "HWND is zero");
+        Assert.Contains("HWND is zero", exception.Message);
     }
 
     [TestMethod]
@@ -42,8 +42,8 @@ public class WindowDpiContextProviderTests
         var exception = Assert.ThrowsExactly<InvalidOperationException>(
             () => provider.GetForWindow(123));
 
-        StringAssert.Contains(exception.Message, "GetDpiForWindow failed");
-        StringAssert.Contains(exception.Message, "123");
+        Assert.Contains("GetDpiForWindow failed", exception.Message);
+        Assert.Contains("123", exception.Message);
     }
 
     [TestMethod]
@@ -54,7 +54,7 @@ public class WindowDpiContextProviderTests
         var exception = Assert.ThrowsExactly<InvalidOperationException>(
             () => provider.GetForWindow(123));
 
-        StringAssert.Contains(exception.Message, "invalid value (-1)");
-        StringAssert.Contains(exception.Message, "123");
+        Assert.Contains("invalid value (-1)", exception.Message);
+        Assert.Contains("123", exception.Message);
     }
 }

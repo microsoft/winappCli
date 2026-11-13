@@ -97,9 +97,9 @@ public class DevToolsTargetResolverTests
         var target = await resolver.ResolveAsync("notwinui", null, CancellationToken.None, attachIfNeeded: true);
 
         Assert.IsFalse(target.Ok);
-        StringAssert.Contains(target.Error!, "notwinui (PID 4242)");
-        StringAssert.Contains(target.Error!, "the agent did not come up");
-        StringAssert.Contains(target.Error!, "WinUI 3", "The most likely cause is worth naming.");
+        Assert.Contains("notwinui (PID 4242)", target.Error!);
+        Assert.Contains("the agent did not come up", target.Error!);
+        Assert.Contains("WinUI 3", target.Error!, "The most likely cause is worth naming.");
     }
 
     [TestMethod]
@@ -137,9 +137,9 @@ public class DevToolsTargetResolverTests
         var target = await resolver.ResolveAsync(null, null, CancellationToken.None);
 
         Assert.IsFalse(target.Ok);
-        StringAssert.Contains(target.Error!, "run --devtools on");
-        StringAssert.Contains(target.Error!, "--app/-a");
-        StringAssert.Contains(target.Error!, "list --include-available");
+        Assert.Contains("run --devtools on", target.Error!);
+        Assert.Contains("--app/-a", target.Error!);
+        Assert.Contains("list --include-available", target.Error!);
         Assert.IsFalse(target.Error!.Contains("--window", StringComparison.Ordinal));
     }
 
@@ -152,10 +152,10 @@ public class DevToolsTargetResolverTests
         var target = await resolver.ResolveAsync(null, null, CancellationToken.None);
 
         Assert.IsFalse(target.Ok);
-        StringAssert.Contains(target.Error!, "3 apps have DevTools attached");
+        Assert.Contains("3 apps have DevTools attached", target.Error!);
         foreach (var pid in new[] { "111", "222", "333" })
         {
-            StringAssert.Contains(target.Error!, pid, "Every candidate must be named so the next command is copy-paste.");
+            Assert.Contains(pid, target.Error!, "Every candidate must be named so the next command is copy-paste.");
         }
     }
 
@@ -185,9 +185,9 @@ public class DevToolsTargetResolverTests
         var target = await resolver.ResolveAsync("notepad", null, CancellationToken.None, attachIfNeeded: false);
 
         Assert.AreEqual(4242, target.Pid, "The error is attributed to the target, not to pid 0.");
-        StringAssert.Contains(target.Error!, "notepad (PID 4242)");
-        StringAssert.Contains(target.Error!, "--attach", "The way forward must be named.");
-        StringAssert.Contains(target.Error!, "Nothing was loaded", "Say plainly that the process was left alone.");
+        Assert.Contains("notepad (PID 4242)", target.Error!);
+        Assert.Contains("--attach", target.Error!, "The way forward must be named.");
+        Assert.Contains("Nothing was loaded", target.Error!, "Say plainly that the process was left alone.");
     }
 
     [TestMethod]
@@ -276,8 +276,8 @@ public class DevToolsTargetResolverTests
         var target = await resolver.ResolveAsync("explorer", null, CancellationToken.None, attachIfNeeded: true);
 
         Assert.IsFalse(target.Ok);
-        StringAssert.Contains(target.Error!, "is part of Windows");
-        StringAssert.Contains(target.Error!, "Nothing was loaded into that process.");
+        Assert.Contains("is part of Windows", target.Error!);
+        Assert.Contains("Nothing was loaded into that process.", target.Error!);
         Assert.IsFalse(attach.WasCalled);
     }
 

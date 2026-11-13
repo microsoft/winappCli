@@ -117,7 +117,7 @@ public class VcLibsPayloadAcquirerTests
 
         Assert.IsNotNull(second);
         Assert.AreEqual(1, _requested.Count, "the second run must resolve from the host cache");
-        StringAssert.StartsWith(second.File.FullName, _root);
+        Assert.StartsWith(_root, second.File.FullName);
     }
 
     [TestMethod]
@@ -261,7 +261,7 @@ public class VcLibsPayloadAcquirerTests
             payload.File.FullName,
             verified,
             "verification must happen on the staged file, not after it is published");
-        StringAssert.EndsWith(verified, ".tmp");
+        Assert.EndsWith(".tmp", verified);
     }
 
     /// <summary>

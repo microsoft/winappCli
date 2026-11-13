@@ -257,8 +257,8 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
         AssertJsonErrorCode(UiJsonError.CodeInvalidArguments);
-        StringAssert.Contains(ConsoleStdErr.ToString(), option);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "60000");
+        Assert.Contains(option, ConsoleStdErr.ToString());
+        Assert.Contains("60000", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -303,8 +303,8 @@ public partial class UiCommandTests
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
         AssertJsonErrorCode(UiJsonError.CodeInvalidArguments);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, option);
-        StringAssert.Contains(stderr, gesture);
+        Assert.Contains(option, stderr);
+        Assert.Contains(gesture, stderr);
     }
 
     [TestMethod]
@@ -377,7 +377,7 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
         AssertJsonErrorCode(UiJsonError.CodeInvalidArguments);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--angle must be between 0 and 359");
+        Assert.Contains("--angle must be between 0 and 359", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -403,7 +403,7 @@ public partial class UiCommandTests
         Assert.IsTrue(result.TryGetProperty("warnings", out var warnings),
             "Out-of-window injection must surface a warnings[] advisory");
         Assert.AreEqual(1, warnings.GetArrayLength());
-        StringAssert.Contains(warnings[0].GetString(), "outside the target window",
+        Assert.Contains("outside the target window", warnings[0].GetString()!,
             "Warning must name the out-of-window condition");
     }
 
@@ -428,8 +428,8 @@ public partial class UiCommandTests
         Assert.AreEqual(2, warnings.GetArrayLength(),
             "Both the out-of-window and remote-delivery advisories must be present");
         var joined = warnings[0].GetString() + " | " + warnings[1].GetString();
-        StringAssert.Contains(joined, "outside the target window");
-        StringAssert.Contains(joined, "remote");
+        Assert.Contains("outside the target window", joined);
+        Assert.Contains("remote", joined);
     }
 
     [TestMethod]
@@ -457,9 +457,9 @@ public partial class UiCommandTests
         Assert.AreEqual(1, warnings.GetArrayLength());
         // The advisory must name the out-of-bounds WAYPOINT (5400,300), not the in-bounds start (400,300),
         // proving FirstOutOfBounds walked past the anchor into the generated path.
-        StringAssert.Contains(warnings[0].GetString(), "(5400,300)",
+        Assert.Contains("(5400,300)", warnings[0].GetString()!,
             "Warning must name the out-of-bounds waypoint, not the in-bounds start");
-        StringAssert.Contains(warnings[0].GetString(), "outside the target window");
+        Assert.Contains("outside the target window", warnings[0].GetString()!);
     }
 
     [TestMethod]
@@ -490,7 +490,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode, "Out-of-window point is advisory, not fatal — injection proceeds");
         Assert.AreEqual(1, _fakePointer.TouchCalls.Count, "Injection must still happen");
-        StringAssert.Contains(ambient.Output, "outside the target window",
+        Assert.Contains("outside the target window", ambient.Output,
             "Text mode must log the out-of-window advisory, not only emit it in the --json warnings[] envelope");
         Assert.IsFalse(ConsoleStdErr.ToString().Contains("outside the target window"),
             "The advisory is a non-error warning — it must route to stdout, not stderr");
@@ -663,7 +663,7 @@ public partial class UiCommandTests
         Assert.IsTrue(result.TryGetProperty("warnings", out var warnings),
             "Remote session must surface a warnings[] advisory");
         Assert.AreEqual(1, warnings.GetArrayLength());
-        StringAssert.Contains(warnings[0].GetString(), "remote",
+        Assert.Contains("remote", warnings[0].GetString()!,
             "Warning must name the remote/RDP delivery caveat");
     }
 
@@ -690,8 +690,8 @@ public partial class UiCommandTests
             "No warning on a local session");
         var msg = ForegroundGuard.RemoteInjectionWarning(true, "touch");
         Assert.IsNotNull(msg);
-        StringAssert.Contains(msg, "touch", "Warning must name the input kind");
-        StringAssert.Contains(msg, "remote", "Warning must name the remote caveat");
+        Assert.Contains("touch", msg, "Warning must name the input kind");
+        Assert.Contains("remote", msg, "Warning must name the remote caveat");
     }
 
     // -------------------------------------------------------------------------
@@ -709,7 +709,7 @@ public partial class UiCommandTests
     {
         var description = GetRequiredService<UiTouchCommand>().ShortDescription;
         Assert.IsFalse(string.IsNullOrWhiteSpace(description));
-        StringAssert.Contains(description, "touch");
+        Assert.Contains("touch", description);
     }
 
     [TestMethod]
@@ -724,7 +724,7 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
         Assert.AreEqual(0, _fakeUia.WindowRectCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--fingers");
+        Assert.Contains("--fingers", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -738,7 +738,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--direction");
+        Assert.Contains("--direction", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -750,7 +750,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--at");
+        Assert.Contains("--at", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -764,7 +764,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--to-point");
+        Assert.Contains("--to-point", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -776,7 +776,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Provide a target");
+        Assert.Contains("Provide a target", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -790,7 +790,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "distance");
+        Assert.Contains("distance", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -804,7 +804,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "swipe requires");
+        Assert.Contains("swipe requires", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -817,7 +817,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Target app required");
+        Assert.Contains("Target app required", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -833,7 +833,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "No element found");
+        Assert.Contains("No element found", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -851,7 +851,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "zero size");
+        Assert.Contains("zero size", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -871,7 +871,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "could not be re-resolved");
+        Assert.Contains("could not be re-resolved", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -889,7 +889,7 @@ public partial class UiCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakePointer.TouchCalls.Count);
         Assert.IsFalse(TestAnsiConsole.Output.Contains('{'), "Non-JSON path must not emit a JSON envelope");
-        StringAssert.Contains(ambientOutput, "tap", "Success line must name the gesture");
+        Assert.Contains("tap", ambientOutput, "Success line must name the gesture");
         Assert.IsFalse(ambientOutput.Contains("remote", StringComparison.OrdinalIgnoreCase),
             "A local session must not emit the remote-delivery warning");
     }
@@ -908,7 +908,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode, "The remote warning is advisory; injection still succeeds");
         Assert.AreEqual(1, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ambientOutput, "remote", "Remote session must surface the delivery-uncertainty warning");
+        Assert.Contains("remote", ambientOutput, "Remote session must surface the delivery-uncertainty warning");
     }
 
     [TestMethod]
@@ -923,7 +923,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "no longer accessible");
+        Assert.Contains("no longer accessible", ConsoleStdErr.ToString());
         AssertJsonErrorCode(UiJsonError.CodeStaleElement);
     }
 
@@ -939,7 +939,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "boom (test)");
+        Assert.Contains("boom (test)", ConsoleStdErr.ToString());
         AssertJsonErrorCode(UiJsonError.CodeInternalError);
     }
 }

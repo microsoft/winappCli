@@ -20,7 +20,7 @@ public sealed class BindingCompletionTests
         var result = BindingDiagnosis.RunOnUiThread(action => { queued = action; return true; },
             () => { ran = true; return "completed"; });
         elapsed.Stop();
-        StringAssert.Contains(result, "the app UI thread did not respond");
+        Assert.Contains("the app UI thread did not respond", result);
         Assert.IsTrue(elapsed.Elapsed >= TimeSpan.FromSeconds(9.5) && elapsed.Elapsed < TimeSpan.FromSeconds(12),
             $"Actual timeout was {elapsed.Elapsed.TotalMilliseconds:F0} ms.");
         Assert.IsFalse(ran);
@@ -43,7 +43,7 @@ public sealed class BindingCompletionTests
         var owner = BindingTarget.Consume(fixture.Publish());
         fixture.Revoke();
         var result = BindingDiagnosis.RunOnUiThread(_ => false, () => throw new AssertFailedException("Must not run"));
-        StringAssert.Contains(result, "not accepting work");
+        Assert.Contains("not accepting work", result);
         result = BindingDiagnosis.RunOnUiThread(_ => false, () => "not run", owner);
         Assert.IsTrue(owner.IsClosed);
         fixture.AssertBaseline();
@@ -54,8 +54,8 @@ public sealed class BindingCompletionTests
     {
         var result = BindingDiagnosis.RunOnUiThread(action => { action(); return true; },
             () => throw new InvalidOperationException("controlled failure"));
-        StringAssert.Contains(result, "\"state\":\"unavailable\"");
-        StringAssert.Contains(result, "controlled failure");
+        Assert.Contains("\"state\":\"unavailable\"", result);
+        Assert.Contains("controlled failure", result);
     }
 
     [TestMethod]
@@ -67,7 +67,7 @@ public sealed class BindingCompletionTests
         var owner = BindingTarget.Consume(packet);
         fixture.Revoke();
         Assert.ThrowsExactly<COMException>(() => BindingTarget.Consume(packet));
-        StringAssert.Contains(BindingDiagnosis.Run(owner, "diagnose", "Text", ""), "not a FrameworkElement");
+        Assert.Contains("not a FrameworkElement", BindingDiagnosis.Run(owner, "diagnose", "Text", ""));
         Assert.IsTrue(owner.IsClosed);
         // Generic RCW cleanup is normal GC, not explicit transport ownership.
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
@@ -89,7 +89,7 @@ public sealed class BindingCompletionTests
             callback = Task.Run(action);
             return true;
         }, () => { entered.Set(); if (!finish.Wait(15000)) throw new TimeoutException(); return "finished"; }, owner)).GetAwaiter().GetResult();
-        StringAssert.Contains(result, "did not respond");
+        Assert.Contains("did not respond", result);
         Assert.IsTrue(entered.IsSet);
         Assert.IsFalse(owner.IsClosed);
         finish.Set();
@@ -109,7 +109,7 @@ public sealed class BindingCompletionTests
         Action? queued = null;
         var response = BindingDiagnosis.RunOnUiThread(action => { queued = action; return true; },
             () => throw new AssertFailedException("Cancelled work ran"), owner);
-        StringAssert.Contains(response, "did not respond");
+        Assert.Contains("did not respond", response);
         Assert.IsTrue(owner.IsClosed);
         queued!();
         fixture.AssertBaseline();
@@ -153,14 +153,14 @@ public sealed class BindingCompletionTests
                 if (enqueueFailure) throw new InvalidOperationException("queue fault");
                 action(); return true;
             }, () => throw new InvalidOperationException("projection fault"), owner);
-            StringAssert.Contains(result, enqueueFailure ? "queue fault" : "projection fault");
+            Assert.Contains(enqueueFailure ? "queue fault" : "projection fault", result);
             Assert.IsTrue(owner.IsClosed);
             fixture.AssertBaseline();
         }
         var disposed = BindingTarget.Consume(fixture.Publish());
         fixture.Revoke();
         disposed.Dispose();
-        StringAssert.Contains(BindingDiagnosis.Run(disposed, "diagnose", "Text", ""), "unavailable");
+        Assert.Contains("unavailable", BindingDiagnosis.Run(disposed, "diagnose", "Text", ""));
         fixture.AssertBaseline();
     }
 

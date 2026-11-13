@@ -56,7 +56,7 @@ public class ReactorPerfTests
             Assert.AreEqual(phase, e.Phase);
             Assert.AreEqual("reactor", e.Family);
             Assert.IsNull(e.ObjectId, "Component IDs are not WinUI element addresses.");
-            CollectionAssert.AreEquivalent(fields.ToArray(), e.Fields.ToArray());
+            Assert.AreSequenceEqual(fields.ToArray(), e.Fields.ToArray(), SequenceOrder.InAnyOrder);
         }
     }
 
@@ -76,7 +76,7 @@ public class ReactorPerfTests
             Assert.AreEqual("unknown", e.Phase, "An undecodable event must never open or close a span.");
             Assert.IsEmpty(e.Fields);
         }
-        StringAssert.Contains(missingField.DecodeError!, "reason");
+        Assert.Contains("reason", missingField.DecodeError!);
         Assert.AreEqual("TDH failed", tdh.DecodeError);
     }
 

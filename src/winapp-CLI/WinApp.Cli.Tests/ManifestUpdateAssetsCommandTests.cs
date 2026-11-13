@@ -469,7 +469,7 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_testImagePath]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Could not find Package.appxmanifest");
+        Assert.Contains("Could not find Package.appxmanifest", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -484,6 +484,6 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [badImage, "--manifest", _testManifestPath]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Error updating assets");
+        Assert.Contains("Error updating assets", ConsoleStdErr.ToString());
     }
 }

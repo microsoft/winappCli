@@ -193,7 +193,7 @@ public class WorkspaceSetupServiceNativePathTests : BaseCommandTests
 
         Assert.AreEqual(0, result);
         var gitignoreText = await File.ReadAllTextAsync(gitignorePath, TestContext.CancellationToken);
-        StringAssert.Contains(gitignoreText, ".winapp");
+        Assert.Contains(".winapp", gitignoreText);
     }
 
     [TestMethod]
@@ -315,9 +315,10 @@ public class WorkspaceSetupServiceNativePathTests : BaseCommandTests
         var result = await service.SetupWorkspaceAsync(RestoreOptions(), TestContext.CancellationToken);
 
         Assert.AreEqual(0, result);
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             new[] { BuildToolsService.WINAPP_SDK_PACKAGE, BuildToolsService.CPP_SDK_PACKAGE },
             _install.LastRequestedPackages,
+            SequenceOrder.InAnyOrder,
             "Restore should install exactly the packages declared in winapp.yaml.");
         // No BUILD_TOOLS pin in winapp.yaml -> the build-tools setup must force the latest version.
         Assert.IsTrue(

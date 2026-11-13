@@ -140,8 +140,8 @@ public sealed class BootstrapPayloadTests
                 WindowsSandboxBackend.StageBootstrapPayloadAsync(binary, bootstrap.FullName, TestContext.CancellationToken));
 
             Assert.AreEqual(ExecutionTargetErrorCodes.AgentUpgradeFailed, error.Error.Code);
-            StringAssert.Contains(error.Message, name);
-            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(prior));
+            Assert.Contains(name, error.Message);
+            Assert.AreSequenceEqual(bytes, File.ReadAllBytes(prior));
             Assert.HasCount(1, bootstrap.GetDirectories(), "Missing input must not create a partial replacement bundle.");
         }
         finally

@@ -177,7 +177,7 @@ public sealed class RecordCursorTests
         var result = await RecordDesktopAsync(cursor: true, clickHighlight: true);
 
         Assert.AreEqual(1, result.Frames);
-        StringAssert.Contains(result.Warnings!.Single(), "Mouse clicks could not be tracked");
+        Assert.Contains("Mouse clicks could not be tracked", result.Warnings!.Single());
     }
 
     [TestMethod]

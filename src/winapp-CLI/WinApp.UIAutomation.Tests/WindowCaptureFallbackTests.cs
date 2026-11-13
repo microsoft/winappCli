@@ -24,7 +24,7 @@ public class WindowCaptureFallbackTests
             {
                 var failure = Assert.ThrowsExactly<InvalidOperationException>(() =>
                     WindowCaptureFallback.EnsureCaptureAllowed(child));
-                StringAssert.Contains(failure.Message, "protected from capture");
+                Assert.Contains("protected from capture", failure.Message);
             }
             finally
             {
@@ -170,7 +170,7 @@ public class WindowCaptureFallbackTests
                 Assert.IsTrue(ClientToScreen(new HWND(handle), ref clientOrigin));
                 var offset = ((clientOrigin.Y - bounds.Top + 10) * frame.Width +
                     clientOrigin.X - bounds.Left + 10) * 4;
-                CollectionAssert.AreEqual(new byte[] { 0, 255, 0, 255 }, frame.Pixels[offset..(offset + 4)],
+                Assert.AreSequenceEqual(new byte[] { 0, 255, 0, 255 }, frame.Pixels[offset..(offset + 4)],
                     $"bounds={bounds}, client={clientOrigin}, size={frame.Width}x{frame.Height}");
             }
             finally

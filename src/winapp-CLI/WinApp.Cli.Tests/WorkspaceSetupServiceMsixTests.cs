@@ -159,7 +159,7 @@ public class WorkspaceSetupServiceMsixTests : BaseCommandTests
         var arch = WorkspaceSetupService.GetSystemArchitecture();
 
         var valid = new[] { "x64", "arm64", "x86" };
-        CollectionAssert.Contains(valid, arch);
+        Assert.Contains(arch, valid);
     }
 
     #endregion

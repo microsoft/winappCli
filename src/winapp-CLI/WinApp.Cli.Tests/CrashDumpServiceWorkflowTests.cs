@@ -283,7 +283,7 @@ public sealed class CrashDumpServiceWorkflowTests
                 return;
             }
 
-            StringAssert.Contains(result.Details, "Native Stack (DbgEng)");
+            Assert.Contains("Native Stack (DbgEng)", result.Details);
             Assert.IsFalse(string.IsNullOrWhiteSpace(result.Summary), "A valid native dump should yield a stack summary.");
         }
         finally
@@ -347,7 +347,7 @@ public sealed class CrashDumpServiceWorkflowTests
                 return;
             }
 
-            StringAssert.Contains(result.Details, "Native Stack (DbgEng)");
+            Assert.Contains("Native Stack (DbgEng)", result.Details);
             if (requestedUrls.Count == 0)
             {
                 // No stack module produced a resolvable on-disk DLL with a CodeView entry in this
@@ -392,7 +392,7 @@ public sealed class CrashDumpServiceWorkflowTests
                 return;
             }
 
-            StringAssert.Contains(_console.Output, "CRASH DETECTED");
+            Assert.Contains("CRASH DETECTED", _console.Output);
             Assert.IsTrue(File.Exists(logPath), "A crash-analysis log should be written for a valid dump.");
         }
         finally
@@ -433,8 +433,8 @@ public sealed class CrashDumpServiceWorkflowTests
             }
 
             var log = await File.ReadAllTextAsync(logPath);
-            StringAssert.Contains(log, "CLR Version");
-            StringAssert.Contains(log, "All Threads");
+            Assert.Contains("CLR Version", log);
+            Assert.Contains("All Threads", log);
         }
         finally
         {
@@ -473,8 +473,8 @@ public sealed class CrashDumpServiceWorkflowTests
 
             // The in-flight exception is reported via ClrThread.CurrentException, so its type/message
             // must appear in the crash summary.
-            StringAssert.Contains(_console.Output, "InvalidOperationException");
-            StringAssert.Contains(_console.Output, "INFLIGHT_BOOM");
+            Assert.Contains("InvalidOperationException", _console.Output);
+            Assert.Contains("INFLIGHT_BOOM", _console.Output);
         }
         finally
         {
@@ -512,18 +512,18 @@ public sealed class CrashDumpServiceWorkflowTests
             }
 
             // A crash analysis summary was produced by the exception formatter.
-            StringAssert.Contains(_console.Output, "Exception:");
+            Assert.Contains("Exception:", _console.Output);
             Assert.IsTrue(File.Exists(logPath), "A managed crash-analysis log should be written.");
             var log = await File.ReadAllTextAsync(logPath);
-            StringAssert.Contains(log, "Exception Type:");
+            Assert.Contains("Exception Type:", log);
 
             // The heap scan keeps the most-recently-thrown exception; when that is ours, assert its
             // outer/inner markers. Otherwise the formatter still ran (coverage achieved) but a different
             // heap exception was chosen, so we do not hard-fail on the markers.
             if (log.Contains("HEAP_BOOM_OUTER", StringComparison.Ordinal))
             {
-                StringAssert.Contains(log, "HEAP_BOOM_INNER");
-                StringAssert.Contains(log, "Inner Exception");
+                Assert.Contains("HEAP_BOOM_INNER", log);
+                Assert.Contains("Inner Exception", log);
             }
         }
         finally
@@ -562,7 +562,7 @@ public sealed class CrashDumpServiceWorkflowTests
             }
 
             // A thread with hundreds of managed frames is reported as a (deep-recursion) stack overflow.
-            StringAssert.Contains(_console.Output, "Stack Overflow (deep recursion detected)");
+            Assert.Contains("Stack Overflow (deep recursion detected)", _console.Output);
         }
         finally
         {
@@ -609,9 +609,9 @@ public sealed class CrashDumpServiceWorkflowTests
             var log = await File.ReadAllTextAsync(logPath);
             // The recursive method and its source file/line, resolved from the portable PDB, must appear
             // in the analysis — proving the resolver loaded the PDB and walked its sequence points.
-            StringAssert.Contains(log, "Deep");
-            StringAssert.Contains(log, "Program.cs");
-            StringAssert.Contains(log, " in Program.cs:");
+            Assert.Contains("Deep", log);
+            Assert.Contains("Program.cs", log);
+            Assert.Contains(" in Program.cs:", log);
         }
         finally
         {

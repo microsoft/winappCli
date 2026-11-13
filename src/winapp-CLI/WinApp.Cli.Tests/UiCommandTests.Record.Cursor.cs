@@ -41,7 +41,7 @@ public partial class UiCommandTests
             ["-a", "TestApp", "--duration-sec", "1", "--no-click-highlight", "-o", output, "--json"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--no-click-highlight only applies with --cursor");
+        Assert.Contains("--no-click-highlight only applies with --cursor", ConsoleStdErr.ToString());
         Assert.IsNull(_fakeRecording.LastRecordOptions);
         Assert.IsFalse(File.Exists(output));
     }

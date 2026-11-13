@@ -725,7 +725,7 @@ public class HostSourceWalkerTests
 
             // The exact guest listing is the assertion: a path that merely *contains* the name
             // would still be satisfied by the buggy nested form.
-            CollectionAssert.AreEqual(
+            Assert.AreSequenceEqual(
                 (string[])[expected],
                 guestFiles.Select(f => f.RelativePath).ToArray());
         }
@@ -767,9 +767,10 @@ public class HostSourceWalkerTests
             var guestFiles = await harness.Channel.ListFilesAsync(
                 new GuestPathScope(GuestRootNames.Work, Scope: null), TestContext.CancellationToken);
 
-            CollectionAssert.AreEquivalent(
+            Assert.AreSequenceEqual(
                 (string[])[@"Payload\a.txt", @"Payload\nested\b.txt"],
-                guestFiles.Select(f => f.RelativePath).ToArray());
+                guestFiles.Select(f => f.RelativePath).ToArray(),
+                SequenceOrder.InAnyOrder);
         }
         finally
         {
@@ -806,7 +807,7 @@ public class HostSourceWalkerTests
                 new GuestPathScope(GuestRootNames.Work, Scope: null), TestContext.CancellationToken);
 
             // Still exactly one file: a second copy must not nest another level.
-            CollectionAssert.AreEqual(
+            Assert.AreSequenceEqual(
                 (string[])[@"Setup\setup.ps1"],
                 guestFiles.Select(f => f.RelativePath).ToArray());
         }

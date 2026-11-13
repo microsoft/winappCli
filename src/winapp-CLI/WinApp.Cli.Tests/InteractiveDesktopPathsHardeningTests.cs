@@ -143,7 +143,7 @@ public class InteractiveDesktopPathsHardeningTests
         var ex = Assert.ThrowsExactly<UiCoordinationException>(() => paths.EnsureDirectories());
 
         Assert.AreEqual(UiCoordinationErrorCodes.Unavailable, ex.Code);
-        StringAssert.Contains(ex.Message, "could not be removed");
+        Assert.Contains("could not be removed", ex.Message);
         Assert.IsNotNull(ex.RecoveryHint, "a fail-closed error has to say what to do next");
     }
 
@@ -263,7 +263,7 @@ public class InteractiveDesktopPathsHardeningTests
             () => new InteractiveDesktopPaths(new ProcessInspector()).EnsureDirectories());
 
         Assert.AreEqual(UiCoordinationErrorCodes.Unavailable, ex.Code);
-        StringAssert.Contains(ex.Message, "reachable by another user");
+        Assert.Contains("reachable by another user", ex.Message);
     }
 
     [TestMethod]

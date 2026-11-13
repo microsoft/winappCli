@@ -138,7 +138,7 @@ public class RuntimeRequirementDiscoveryTests
         await WriteRuntimeConfigAsync("App", Framework("Microsoft.NETCore.App", "8.0.0"));
         var error = Assert.ThrowsExactly<ExecutionTargetException>(() =>
             RuntimeRequirementDiscovery.Discover(new DirectoryInfo(_root), null));
-        StringAssert.Contains(error.Message, "architecture could not be determined");
+        Assert.Contains("architecture could not be determined", error.Message);
     }
 
     [TestMethod]
@@ -160,7 +160,7 @@ public class RuntimeRequirementDiscoveryTests
 
         var requirements = RuntimeRequirementDiscovery.Discover(new DirectoryInfo(_root), "x64");
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             ExpectedFrameworks,
             requirements.Frameworks.Select(framework => framework.Name).ToArray());
     }
@@ -288,7 +288,7 @@ public class RuntimeRequirementDiscoveryTests
         var error = Assert.ThrowsExactly<ExecutionTargetException>(() =>
             RuntimeRequirementDiscovery.Discover(new DirectoryInfo(_root), "x64"));
 
-        StringAssert.Contains(error.Message, "App.runtimeconfig.json");
+        Assert.Contains("App.runtimeconfig.json", error.Message);
         Assert.AreEqual(ExecutionTargetErrorCodes.RuntimeProvisionFailed, error.Error.Code);
     }
 
@@ -352,7 +352,7 @@ public class RuntimeRequirementDiscoveryTests
 
         var error = Assert.ThrowsExactly<ExecutionTargetException>(() =>
             RuntimeRequirementDiscovery.Discover(new DirectoryInfo(_root), "x64"));
-        StringAssert.Contains(error.Message, "stable major.minor.patch");
+        Assert.Contains("stable major.minor.patch", error.Message);
     }
 
     [TestMethod]

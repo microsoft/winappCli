@@ -263,14 +263,14 @@ public sealed class StartupHookTests
     {
         await WithHost(async child =>
         {
-            StringAssert.Contains((await SendFromHost(child, BindingFrame("diagnose")))!,
-                "\"state\":\"unavailable\"", "Wait for the asynchronous startup hook through a real request.");
+            Assert.Contains("\"state\":\"unavailable\"",
+                (await SendFromHost(child, BindingFrame("diagnose")))!, "Wait for the asynchronous startup hook through a real request.");
             foreach (string op in new[] { "diagnose", "capture", "restore", "clear", "writesource" })
             {
                 await child.StandardInput.WriteLineAsync("native:" + op);
                 string? response = await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(20));
                 Assert.IsNotNull(response);
-                StringAssert.Contains(response, "the selected object is not a FrameworkElement",
+                Assert.Contains("the selected object is not a FrameworkElement", response,
                     "A real native COM packet must reach actual projection and consumer, not fail authentication/parsing.");
             }
         });
@@ -281,14 +281,14 @@ public sealed class StartupHookTests
     {
         await WithHost(async child =>
         {
-            StringAssert.Contains((await SendFromHost(child, Encoding.ASCII.GetBytes("BINDING\n")))!,
-                "incompatible binding protocol");
+            Assert.Contains("incompatible binding protocol",
+                (await SendFromHost(child, Encoding.ASCII.GetBytes("BINDING\n")))!);
             foreach (int length in new[] { -1, 0, 65537, int.MaxValue })
             {
                 using var frame = new MemoryStream();
                 frame.Write(Encoding.ASCII.GetBytes("BINDING2\n"));
                 frame.Write(BitConverter.GetBytes(length));
-                StringAssert.Contains((await SendFromHost(child, frame.ToArray()))!, "invalid binding frame");
+                Assert.Contains("invalid binding frame", (await SendFromHost(child, frame.ToArray()))!);
             }
         });
     }

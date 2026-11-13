@@ -32,7 +32,7 @@ public class GetWinappPathCommandErrorTests : BaseCommandTests
 
         // Assert — the exception is caught and surfaced as a failure (not an unhandled crash).
         Assert.AreEqual(1, exitCode, "A failure resolving the directory should return exit code 1.");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Error getting local winapp directory",
+        Assert.Contains("Error getting local winapp directory", ConsoleStdErr.ToString(),
             "The catch handler should log a descriptive error to stderr.");
     }
 
@@ -47,7 +47,7 @@ public class GetWinappPathCommandErrorTests : BaseCommandTests
 
         // Assert
         Assert.AreEqual(1, exitCode, "A failure resolving the global directory should return exit code 1.");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Error getting global winapp directory",
+        Assert.Contains("Error getting global winapp directory", ConsoleStdErr.ToString(),
             "The catch handler should name the global directory in its error message.");
     }
 

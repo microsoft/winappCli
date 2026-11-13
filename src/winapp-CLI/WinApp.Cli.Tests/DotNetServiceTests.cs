@@ -546,7 +546,7 @@ public class DotNetServiceTests : BaseCommandTests
 
         // Assert
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>");
+        Assert.Contains("<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>", content);
         Assert.IsFalse(content.Contains("net6.0", StringComparison.Ordinal), "Old TFM should be removed");
     }
 
@@ -566,7 +566,7 @@ public class DotNetServiceTests : BaseCommandTests
 
         // Assert
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>");
+        Assert.Contains("<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>", content);
     }
 
     [TestMethod]
@@ -587,9 +587,9 @@ public class DotNetServiceTests : BaseCommandTests
 
         // Assert
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<OutputType>Exe</OutputType>");
-        StringAssert.Contains(content, "<Nullable>enable</Nullable>");
-        StringAssert.Contains(content, "<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>");
+        Assert.Contains("<OutputType>Exe</OutputType>", content);
+        Assert.Contains("<Nullable>enable</Nullable>", content);
+        Assert.Contains("<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>", content);
     }
 
     [TestMethod]
@@ -611,8 +611,8 @@ public class DotNetServiceTests : BaseCommandTests
 
         // Assert
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>");
-        StringAssert.Contains(content, "<DefineConstants>DEBUG</DefineConstants>");
+        Assert.Contains("<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>", content);
+        Assert.Contains("<DefineConstants>DEBUG</DefineConstants>", content);
     }
 
     [TestMethod]
@@ -632,7 +632,7 @@ public class DotNetServiceTests : BaseCommandTests
 
         // Assert
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>");
+        Assert.Contains("<TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>", content);
         Assert.IsFalse(content.Contains("net8.0", StringComparison.Ordinal));
     }
 
@@ -691,7 +691,7 @@ public class DotNetServiceTests : BaseCommandTests
 
         // Assert - verify the package was added
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "Newtonsoft.Json");
+        Assert.Contains("Newtonsoft.Json", content);
     }
 
     [TestMethod]
@@ -736,7 +736,7 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result, "Should return true when RuntimeIdentifier was inserted");
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<RuntimeIdentifier Condition=");
+        Assert.Contains("<RuntimeIdentifier Condition=", content);
     }
 
     [TestMethod]
@@ -778,7 +778,7 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result, "Should insert RuntimeIdentifier even when RuntimeIdentifiers (plural) exists");
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<RuntimeIdentifier Condition=");
+        Assert.Contains("<RuntimeIdentifier Condition=", content);
         // Verify it's inserted right after </RuntimeIdentifiers>
         var ridsEnd = content.IndexOf("</RuntimeIdentifiers>", StringComparison.Ordinal);
         var ridStart = content.IndexOf("<RuntimeIdentifier Condition=", StringComparison.Ordinal);
@@ -828,7 +828,7 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result, "Should insert RuntimeIdentifier even when RuntimeIdentifiers (plural) with attributes exists");
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<RuntimeIdentifier Condition=");
+        Assert.Contains("<RuntimeIdentifier Condition=", content);
         // Verify it's inserted right after </RuntimeIdentifiers>
         var ridsEnd = content.IndexOf("</RuntimeIdentifiers>", StringComparison.Ordinal);
         var ridStart = content.IndexOf("<RuntimeIdentifier Condition=", StringComparison.Ordinal);
@@ -1169,8 +1169,8 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result, "Should return true when the PublishProfile was rewritten");
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content,
-            @"<PublishProfile Condition=""Exists('Properties\PublishProfiles\win-$(Platform).pubxml')"">win-$(Platform).pubxml</PublishProfile>");
+        Assert.Contains(@"<PublishProfile Condition=""Exists('Properties\PublishProfiles\win-$(Platform).pubxml')"">win-$(Platform).pubxml</PublishProfile>",
+            content);
     }
 
     [TestMethod]
@@ -1250,8 +1250,8 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result, "Should return true when flipping false to true");
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<EnableMsixTooling>true</EnableMsixTooling>");
-        StringAssert.Contains(content, "Enables targets that generate package layout");
+        Assert.Contains("<EnableMsixTooling>true</EnableMsixTooling>", content);
+        Assert.Contains("Enables targets that generate package layout", content);
         Assert.IsFalse(content.Contains("<EnableMsixTooling>false"), "Old false value should be gone");
     }
 
@@ -1274,8 +1274,8 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result, "Should return true when flipping false to true");
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<EnableMsixTooling>true</EnableMsixTooling>");
-        StringAssert.Contains(content, "<!-- existing note -->");
+        Assert.Contains("<EnableMsixTooling>true</EnableMsixTooling>", content);
+        Assert.Contains("<!-- existing note -->", content);
         Assert.IsFalse(content.Contains("Enables targets that generate package layout"),
             "Should not inject a second comment when one already exists");
     }
@@ -1320,7 +1320,7 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result);
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<EnableMsixTooling>true</EnableMsixTooling>");
+        Assert.Contains("<EnableMsixTooling>true</EnableMsixTooling>", content);
         // Should be inserted after the RuntimeIdentifier element
         var ridIdx = content.IndexOf("</RuntimeIdentifier>", StringComparison.Ordinal);
         var msixIdx = content.IndexOf("<EnableMsixTooling>true", StringComparison.Ordinal);
@@ -1345,7 +1345,7 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result);
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<EnableMsixTooling>true</EnableMsixTooling>");
+        Assert.Contains("<EnableMsixTooling>true</EnableMsixTooling>", content);
         var tfmIdx = content.IndexOf("</TargetFramework>", StringComparison.Ordinal);
         var msixIdx = content.IndexOf("<EnableMsixTooling>true", StringComparison.Ordinal);
         Assert.IsTrue(tfmIdx >= 0 && msixIdx > tfmIdx, "EnableMsixTooling should follow TargetFramework");
@@ -1369,7 +1369,7 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result);
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<EnableMsixTooling>true</EnableMsixTooling>");
+        Assert.Contains("<EnableMsixTooling>true</EnableMsixTooling>", content);
         var pgIdx = content.IndexOf("<PropertyGroup>", StringComparison.Ordinal);
         var msixIdx = content.IndexOf("<EnableMsixTooling>true", StringComparison.Ordinal);
         Assert.IsTrue(pgIdx >= 0 && msixIdx > pgIdx, "EnableMsixTooling should be inserted inside the PropertyGroup");
@@ -1432,7 +1432,7 @@ public class DotNetServiceTests : BaseCommandTests
         Assert.IsTrue(result, "Should return true when the element was removed");
         var content = File.ReadAllText(csprojPath);
         Assert.IsFalse(content.Contains("WindowsPackageType"), "WindowsPackageType element should be gone");
-        StringAssert.Contains(content, "<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>");
+        Assert.Contains("<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>", content);
     }
 
     [TestMethod]
@@ -1494,7 +1494,7 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result, "Should return true when a comment was inserted");
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<!-- Windows App SDK runtime -->");
+        Assert.Contains("<!-- Windows App SDK runtime -->", content);
         var commentIdx = content.IndexOf("<!-- Windows App SDK runtime -->", StringComparison.Ordinal);
         var pkgIdx = content.IndexOf("<PackageReference Include=\"Microsoft.WindowsAppSDK\"", StringComparison.Ordinal);
         Assert.IsTrue(commentIdx >= 0 && commentIdx < pkgIdx, "Comment should appear above the PackageReference");
@@ -1575,8 +1575,8 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result);
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<!-- SDK runtime -->");
-        StringAssert.Contains(content, "<!-- Build tools -->");
+        Assert.Contains("<!-- SDK runtime -->", content);
+        Assert.Contains("<!-- Build tools -->", content);
     }
 
     [TestMethod]
@@ -1662,7 +1662,7 @@ public class DotNetServiceTests : BaseCommandTests
         // Assert
         Assert.IsTrue(result, "Should insert a RuntimeIdentifier at the start of the PropertyGroup");
         var content = File.ReadAllText(csprojPath);
-        StringAssert.Contains(content, "<RuntimeIdentifier Condition=");
+        Assert.Contains("<RuntimeIdentifier Condition=", content);
         var pgIdx = content.IndexOf("<PropertyGroup>", StringComparison.Ordinal);
         var ridIdx = content.IndexOf("<RuntimeIdentifier Condition=", StringComparison.Ordinal);
         var outputIdx = content.IndexOf("<OutputType>", StringComparison.Ordinal);
@@ -1862,13 +1862,13 @@ public class DotNetServiceTests : BaseCommandTests
             var (exitCode, output, error) = await runTask.WaitAsync(TimeSpan.FromSeconds(30), TestContext.CancellationToken);
 
             Assert.AreEqual(0, exitCode, $"Child should exit 0. stderr was: {error}");
-            StringAssert.Contains(
-                output,
+            Assert.Contains(
                 streamedStdout,
+                output,
                 "The exact stdout line streamed live must also remain in the returned Output buffer.");
-            StringAssert.Contains(
-                error,
+            Assert.Contains(
                 streamedStderr,
+                error,
                 "The exact stderr line streamed live must also remain in the returned Error buffer.");
         }
         finally
@@ -2116,8 +2116,8 @@ public class DotNetServiceTests : BaseCommandTests
             async () => await WaitForPidFileAsync(pidFile, TimeSpan.FromSeconds(30), TestContext.CancellationToken, rootTask));
         sw.Stop();
 
-        StringAssert.Contains(ex.Message, "exited with code 1");
-        StringAssert.Contains(ex.Message, "cannot find the file", "The root's stderr is the whole point of the diagnostic.");
+        Assert.Contains("exited with code 1", ex.Message);
+        Assert.Contains("cannot find the file", ex.Message, "The root's stderr is the whole point of the diagnostic.");
         Assert.IsLessThan(TimeSpan.FromSeconds(5), sw.Elapsed,
             "A dead root must fail fast rather than wait out the full timeout.");
     }
@@ -2133,7 +2133,7 @@ public class DotNetServiceTests : BaseCommandTests
         var ex = await Assert.ThrowsAsync<TimeoutException>(
             async () => await WaitForPidFileAsync(pidFile, TimeSpan.FromMilliseconds(200), TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "never created");
+        Assert.Contains("never created", ex.Message);
     }
 
     [TestMethod]
@@ -2147,7 +2147,7 @@ public class DotNetServiceTests : BaseCommandTests
         var ex = await Assert.ThrowsAsync<TimeoutException>(
             async () => await WaitForPidFileAsync(pidFile, TimeSpan.FromMilliseconds(200), TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "never contained a parsable PID");
+        Assert.Contains("never contained a parsable PID", ex.Message);
     }
 
     #endregion

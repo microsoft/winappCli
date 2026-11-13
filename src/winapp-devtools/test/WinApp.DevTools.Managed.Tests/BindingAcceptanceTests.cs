@@ -37,7 +37,7 @@ public sealed class BindingAcceptanceTests
     {
         using var result = JsonDocument.Parse(BindingDiagnosis.DiagnoseWithoutRuntimeBinding(authored));
         Assert.AreEqual("unavailable", result.RootElement.GetProperty("state").GetString());
-        StringAssert.Contains(result.RootElement.GetProperty("reason").GetString()!, "cannot be ruled out");
+        Assert.Contains("cannot be ruled out", result.RootElement.GetProperty("reason").GetString()!);
     }
 
     [TestMethod]
@@ -82,7 +82,7 @@ public sealed class BindingAcceptanceTests
         Assert.AreEqual("confirmation-required", preview.RootElement.GetProperty("state").GetString());
         Assert.AreEqual("owner", preview.RootElement.GetProperty("restoreScope").GetString());
         Assert.AreEqual(nameof(CompiledOwner), preview.RootElement.GetProperty("restoreOwner").GetString());
-        StringAssert.Contains(preview.RootElement.GetProperty("warning").GetString()!, "other live edits");
+        Assert.Contains("other live edits", preview.RootElement.GetProperty("warning").GetString()!);
         Assert.AreEqual(0, owner.Bindings.Calls);
         Assert.AreEqual("first-edit", owner.Bindings.First);
         Assert.AreEqual("other-edit", owner.Bindings.Other);

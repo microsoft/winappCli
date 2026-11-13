@@ -99,7 +99,7 @@ public class NugetServiceCoverageTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.InstallPackageAsync("Corrupt.Pkg", "1.0.0", TestTaskContext, TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "dependency", StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("dependency", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -206,8 +206,8 @@ public class NugetServiceCoverageTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Preview, TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "Preview", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "none matched", StringComparison.Ordinal);
+            Assert.Contains("Preview", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("none matched", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -235,7 +235,7 @@ public class NugetServiceCoverageTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.GetLatestVersionAsync("Absent.Pkg", SdkInstallMode.Stable, TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "no versions were returned", StringComparison.Ordinal);
+            Assert.Contains("no versions were returned", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -271,9 +271,9 @@ public class NugetServiceCoverageTests : BaseCommandTests
 
             // The user is told why they got the older release.
             var note = logger.Entries.Single(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Information).Message;
-            StringAssert.Contains(note, "Microsoft.WindowsAppSDK 1.7.0 is still being published", StringComparison.Ordinal);
-            StringAssert.Contains(note, "Microsoft.WindowsAppSDK.Runtime", StringComparison.Ordinal);
-            StringAssert.Contains(note, "using 1.6.0", StringComparison.Ordinal);
+            Assert.Contains("Microsoft.WindowsAppSDK 1.7.0 is still being published", note, StringComparison.Ordinal);
+            Assert.Contains("Microsoft.WindowsAppSDK.Runtime", note, StringComparison.Ordinal);
+            Assert.Contains("using 1.6.0", note, StringComparison.Ordinal);
         }
         finally
         {
@@ -502,8 +502,8 @@ public class NugetServiceCoverageTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.GetPackageDependenciesAsync("Any.Pkg", "1.0.0", TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "Failed to resolve dependencies", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "broken", StringComparison.Ordinal);
+            Assert.Contains("Failed to resolve dependencies", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("broken", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -539,7 +539,7 @@ public class NugetServiceCoverageTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.GetLatestVersionAsync("Any.Pkg", SdkInstallMode.Stable, TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "no enabled NuGet sources are configured", StringComparison.Ordinal);
+            Assert.Contains("no enabled NuGet sources are configured", ex.Message, StringComparison.Ordinal);
         }
         finally
         {

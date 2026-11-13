@@ -81,7 +81,7 @@ public class Mp4SinkWriterEncoderTests
             var shortFrame = new byte[63 * 64 * 4];
             var ex = Assert.ThrowsExactly<ArgumentException>(
                 () => encoder.WriteFrame(shortFrame, 0, 10_000_000));
-            StringAssert.Contains(ex.Message, "expected 16384");
+            Assert.Contains("expected 16384", ex.Message);
 
             WritePastEncoderLookahead(encoder, Enumerable.Repeat((byte)0x22, 64 * 64 * 4).ToArray());
             encoder.Complete();

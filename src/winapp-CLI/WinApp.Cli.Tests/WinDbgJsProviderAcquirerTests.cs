@@ -90,7 +90,7 @@ public class WinDbgJsProviderAcquirerTests
         Assert.IsTrue(acquired, "A valid bundle with passing verifiers must publish the provider.");
         var published = Path.Combine(_tempDir, "JsProvider.dll");
         Assert.IsTrue(File.Exists(published), "JsProvider.dll must be published into the destination directory.");
-        CollectionAssert.AreEqual(expected, await File.ReadAllBytesAsync(published),
+        Assert.AreSequenceEqual(expected, await File.ReadAllBytesAsync(published),
             "Published bytes must match the extracted provider.");
     }
 
@@ -225,7 +225,7 @@ public class WinDbgJsProviderAcquirerTests
 
         var bytes = await reader.ReadAsync(100, payload.Length, CancellationToken.None);
 
-        CollectionAssert.AreEqual(payload, bytes);
+        Assert.AreSequenceEqual(payload, bytes);
     }
 
     [TestMethod]
@@ -240,7 +240,7 @@ public class WinDbgJsProviderAcquirerTests
 
         var bytes = await reader.ReadAsync(0, payload.Length, CancellationToken.None);
 
-        CollectionAssert.AreEqual(payload, bytes);
+        Assert.AreSequenceEqual(payload, bytes);
         Assert.AreEqual(2, handler.CallCount, "A non-206 response must trigger exactly one retry here.");
     }
 

@@ -64,7 +64,7 @@ public class WorkspaceSetupServiceInventoryTests
         Assert.IsNotNull(entries);
         Assert.AreEqual(1, entries!.Count);
         Assert.AreEqual("runtime.arm64.msix", entries[0].FileName);
-        StringAssert.Contains(entries[0].PackageIdentity, "arm64");
+        Assert.Contains("arm64", entries[0].PackageIdentity);
     }
 
     [TestMethod]

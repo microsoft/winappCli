@@ -81,7 +81,7 @@ public sealed class TelemetryEventsTests
     {
         var context = CommandInvokedEvent.CreateContext(ThrowingChildren());
 
-        StringAssert.StartsWith(context, "[error parsing context]:");
+        Assert.StartsWith("[error parsing context]:", context);
 
         static IEnumerable<SymbolResult> ThrowingChildren()
         {
@@ -117,8 +117,8 @@ public sealed class TelemetryEventsTests
         CommandCompletedEvent.Log(commandResult, 12);
 
         var names = listener.WaitForEventNames(2);
-        CollectionAssert.Contains(names, "CommandInvoked_Event");
-        CollectionAssert.Contains(names, "CommandCompleted_Event");
+        Assert.Contains("CommandInvoked_Event", names);
+        Assert.Contains("CommandCompleted_Event", names);
     }
 
     [TestMethod]
@@ -173,8 +173,8 @@ public sealed class TelemetryEventsTests
         Assert.AreEqual(nameof(ArgumentException), telemetryEvent.InnerName);
         Assert.AreEqual("outer <s>", telemetryEvent.Message);
         Assert.AreEqual("inner <s>", telemetryEvent.InnerMessage);
-        StringAssert.Contains(telemetryEvent.StackTrace!, nameof(CaptureException));
-        StringAssert.Contains(telemetryEvent.InnerStackTrace, nameof(ThrowInner));
+        Assert.Contains(nameof(CaptureException), telemetryEvent.StackTrace!);
+        Assert.Contains(nameof(ThrowInner), telemetryEvent.InnerStackTrace);
         Assert.AreEqual(PartA_PrivTags.ProductAndServicePerformance, telemetryEvent.PartA_PrivTags);
     }
 

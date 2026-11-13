@@ -146,7 +146,7 @@ public class RuntimePayloadResolverTests
         Assert.AreEqual(4, resolved.Count);
         Assert.IsTrue(resolved.All(entry => entry.Payload is not null));
 
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             new[]
             {
                 PackageName,
@@ -154,7 +154,8 @@ public class RuntimePayloadResolverTests
                 "MicrosoftCorporationII.WinAppRuntime.Main.1.8",
                 "MicrosoftCorporationII.WinAppRuntime.Singleton",
             },
-            resolved.Select(entry => entry.Requirement.Name).ToArray());
+            resolved.Select(entry => entry.Requirement.Name).ToArray(),
+            SequenceOrder.InAnyOrder);
 
         // Every sibling is a requirement in its own right, at its own identity, so the guest
         // verifies it rather than installing it hopefully.

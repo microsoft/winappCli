@@ -158,7 +158,7 @@ public class WinMdParserNestedTypeTests
             .Select(t => t.FullName)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
-        CollectionAssert.AreEqual(ExpectedAnonymousUnionNames, fullNames);
+        Assert.AreSequenceEqual(ExpectedAnonymousUnionNames, fullNames);
     }
 
     [TestMethod]
@@ -181,9 +181,9 @@ public class WinMdParserNestedTypeTests
 
         Assert.IsNull(result.Error);
         var names = result.Types.Select(t => t.FullName).ToList();
-        CollectionAssert.DoesNotContain(names, "My.Space.Hidden.Visible", "a type nested in an internal type is not externally visible");
-        CollectionAssert.DoesNotContain(names, "My.Space.Hidden");
-        CollectionAssert.Contains(names, "My.Space.Shown.AlsoVisible", "a public type nested in a public type is still indexed");
+        Assert.DoesNotContain("My.Space.Hidden.Visible", names, "a type nested in an internal type is not externally visible");
+        Assert.DoesNotContain("My.Space.Hidden", names);
+        Assert.Contains("My.Space.Shown.AlsoVisible", names, "a public type nested in a public type is still indexed");
     }
 
     [TestMethod]

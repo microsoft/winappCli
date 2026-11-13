@@ -116,7 +116,7 @@ public sealed class XamlTriageRunnerTests
             [XamlTriageRunner.InternalVerb, "--dump", dump, "--bin", bin, "--ext", ext, "--jsprovider", jsProvider]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(stderr, "must be Microsoft-signed debugger files");
+        Assert.Contains("must be Microsoft-signed debugger files", stderr);
     }
 
     [TestMethod]
@@ -130,7 +130,7 @@ public sealed class XamlTriageRunnerTests
         var ex = Assert.ThrowsExactly<InvalidOperationException>(
             () => XamlTriageRunner.VerifyInputsForLoad(_tempDir, binaries.JsProviderPath, ext, (_, _) => binaries));
 
-        StringAssert.Contains(ex.Message, "not the pinned WinUI debugger extension");
+        Assert.Contains("not the pinned WinUI debugger extension", ex.Message);
         Assert.IsTrue(binariesHold.Disposed, "the refused run must not keep the debugger files held");
     }
 
@@ -147,8 +147,8 @@ public sealed class XamlTriageRunnerTests
         var (exit, _, stderr) = RunCaptured([XamlTriageRunner.InternalVerb]);
 
         Assert.AreEqual(2, exit);
-        StringAssert.Contains(stderr, "--dump");
-        StringAssert.Contains(stderr, "required");
+        Assert.Contains("--dump", stderr);
+        Assert.Contains("required", stderr);
     }
 
     [TestMethod]
@@ -175,7 +175,7 @@ public sealed class XamlTriageRunnerTests
         var (exit, _, stderr) = RunCaptured([XamlTriageRunner.InternalVerb, "--dump", @"C:\x.dmp", "--bin", @"C:\bin", "--ext", @"C:\e.js"]);
 
         Assert.AreEqual(2, exit);
-        StringAssert.Contains(stderr, "--jsprovider");
+        Assert.Contains("--jsprovider", stderr);
     }
 
     [TestMethod]
@@ -211,7 +211,7 @@ public sealed class XamlTriageRunnerTests
         }
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(stderr, "xaml-triage failed");
+        Assert.Contains("xaml-triage failed", stderr);
     }
 
     [TestMethod]
@@ -237,7 +237,7 @@ public sealed class XamlTriageRunnerTests
             return;
         }
 
-        StringAssert.Contains(result, "DbgEng failed to open dump");
+        Assert.Contains("DbgEng failed to open dump", result);
     }
 
     [TestMethod]
@@ -288,10 +288,10 @@ public sealed class XamlTriageRunnerTests
 
             // Proves the extension commands ran against an opened dump (the extension exports are absent
             // because the real JsProvider.dll is not present, which is expected in a hermetic test).
-            StringAssert.Contains(result, "xamlstowed");
+            Assert.Contains("xamlstowed", result);
             // Each command is announced on the progress stream before it runs, so a parent can name the
             // command that was running if the process dies.
-            StringAssert.Contains(progress.ToString(), XamlTriageRunner.StepMarker + "!xamltriage");
+            Assert.Contains(XamlTriageRunner.StepMarker + "!xamltriage", progress.ToString());
         }
         finally
         {
@@ -338,7 +338,7 @@ public sealed class XamlTriageRunnerTests
                 return;
             }
 
-            StringAssert.Contains(stdout, "xamlstowed");
+            Assert.Contains("xamlstowed", stdout);
         }
         finally
         {
@@ -385,7 +385,7 @@ public sealed class XamlTriageRunnerTests
                 return;
             }
 
-            StringAssert.Contains(result, "could not load the JavaScript provider");
+            Assert.Contains("could not load the JavaScript provider", result);
         }
         finally
         {
@@ -422,7 +422,7 @@ public sealed class XamlTriageRunnerTests
             "!xamlstowed",
             "!xamltriage",
         };
-        CollectionAssert.AreEqual(expected, commands);
+        Assert.AreSequenceEqual(expected, commands);
         Assert.AreEqual("", output.ToString(), "Engine output arrives through the engine callback; the sequence itself writes nothing on success.");
     }
 
@@ -439,7 +439,7 @@ public sealed class XamlTriageRunnerTests
             output);
 
         Assert.IsTrue(commands[0].StartsWith(".sympath srv*", StringComparison.Ordinal));
-        StringAssert.Contains(commands[0], "https://msdl.microsoft.com/download/symbols");
+        Assert.Contains("https://msdl.microsoft.com/download/symbols", commands[0]);
         Assert.AreEqual(".reload /f combase.dll", commands[1]);
         Assert.AreEqual(".reload /f Microsoft.UI.Xaml.dll", commands[2]);
         // Symbol configuration must precede the exception-context switch and provider load.
@@ -467,10 +467,10 @@ public sealed class XamlTriageRunnerTests
             output);
 
         var result = output.ToString();
-        StringAssert.Contains(result, "could not load the JavaScript provider");
-        StringAssert.Contains(result, @"C:\bin\JsProvider.dll"); // original (un-slashed) path in the message
-        StringAssert.Contains(result, "0x80004005");
-        StringAssert.StartsWith(result, "PARTIAL-OUTPUT"); // earlier engine output is kept ahead of the message
+        Assert.Contains("could not load the JavaScript provider", result);
+        Assert.Contains(@"C:\bin\JsProvider.dll", result); // original (un-slashed) path in the message
+        Assert.Contains("0x80004005", result);
+        Assert.StartsWith("PARTIAL-OUTPUT", result); // earlier engine output is kept ahead of the message
         // The triage commands after the failed .load must NOT run.
         Assert.IsFalse(commands.Any(c => c.StartsWith(".scriptload", StringComparison.Ordinal)));
         Assert.IsFalse(commands.Contains("!xamlstowed"));

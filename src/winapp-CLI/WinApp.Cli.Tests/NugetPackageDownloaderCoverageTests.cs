@@ -64,8 +64,8 @@ public class NugetPackageDownloaderCoverageTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await downloader.DownloadPackageAsync(identity, globalPackagesFolder, cacheContext, TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "Broken.Content.Pkg", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "Last error from source 'broken-content'", StringComparison.Ordinal);
+            Assert.Contains("Broken.Content.Pkg", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("Last error from source 'broken-content'", ex.Message, StringComparison.Ordinal);
             Assert.IsFalse(
                 ex.Message.Contains("was not found on any configured source", StringComparison.Ordinal),
                 "A content-endpoint failure must surface the underlying source error, not the generic not-found fallback.");

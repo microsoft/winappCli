@@ -75,7 +75,7 @@ public class TargetStateStoreTests
         // Readable enough to identify the target from the folder name, and unique enough that a
         // second target can never land in the same one. ExecutionTargetIdentityTests owns the
         // uniqueness rules; this only pins that the store actually uses the key.
-        StringAssert.StartsWith(_target.StateKey, "sandbox-default-");
+        Assert.StartsWith("sandbox-default-", _target.StateKey);
         Assert.IsTrue(File.Exists(StateFilePath), $"Expected state at {StateFilePath}.");
     }
 
@@ -178,7 +178,7 @@ public class TargetStateStoreTests
         var exception = Assert.ThrowsExactly<ExecutionTargetException>(() => _store.Read(_target));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, exception.Error.Code);
-        StringAssert.Contains(exception.Error.UserAction!, "winapp installation", StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("winapp installation", exception.Error.UserAction!, StringComparison.OrdinalIgnoreCase);
         Assert.IsNull(exception.Error.NextCommand, "Project SDK updates do not upgrade the CLI installation.");
     }
 
@@ -208,12 +208,12 @@ public class TargetStateStoreTests
     [TestMethod]
     public void StateKey_SanitizesSeparatorsForFilesystemAndKernelNames()
     {
-        StringAssert.StartsWith(
-            new ExecutionTargetRef("hyperv", "hyperv:winui/test").StateKey, "hyperv-hyperv-winui-test-");
+        Assert.StartsWith(
+            "hyperv-hyperv-winui-test-", new ExecutionTargetRef("hyperv", "hyperv:winui/test").StateKey);
 
         // Nothing survives sanitising here, so the readable half falls back to a placeholder and
         // the hash carries the whole identity.
-        StringAssert.StartsWith(new ExecutionTargetRef("odd", ":::").StateKey, "odd-");
+        Assert.StartsWith("odd-", new ExecutionTargetRef("odd", ":::").StateKey);
     }
 
     /// <summary>

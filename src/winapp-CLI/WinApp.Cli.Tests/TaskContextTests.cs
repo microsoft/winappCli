@@ -47,7 +47,7 @@ public sealed class TaskContextTests
         var sm = SingleStatusMessage(parent);
         Assert.IsTrue(sm.CompletedMessage!.StartsWith(UiSymbols.Info, StringComparison.Ordinal),
             $"Plain status text must be prefixed with the info symbol; got '{sm.CompletedMessage}'.");
-        StringAssert.Contains(sm.CompletedMessage, "Restored packages");
+        Assert.Contains("Restored packages", sm.CompletedMessage);
         Assert.AreEqual(1, updates.Count, "Adding a status message must trigger a single render update.");
     }
 
@@ -124,7 +124,7 @@ public sealed class TaskContextTests
         var sm = SingleStatusMessage(parent);
         Assert.IsTrue(sm.CompletedMessage!.StartsWith(UiSymbols.Verbose, StringComparison.Ordinal),
             $"Verbose debug text must be prefixed with the verbose symbol; got '{sm.CompletedMessage}'.");
-        StringAssert.Contains(sm.CompletedMessage, "resolved 5 assets");
+        Assert.Contains("resolved 5 assets", sm.CompletedMessage);
         Assert.AreEqual(1, updates.Count);
     }
 
@@ -161,7 +161,7 @@ public sealed class TaskContextTests
 
         var sub = parent.SubTasks.Single();
         var inner = (StatusMessageTask)sub.SubTasks.Single();
-        StringAssert.Contains(inner.CompletedMessage!, "inner progress");
+        Assert.Contains("inner progress", inner.CompletedMessage!);
     }
 
     [TestMethod]

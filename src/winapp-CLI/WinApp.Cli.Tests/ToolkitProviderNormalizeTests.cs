@@ -35,7 +35,8 @@ public class ToolkitProviderNormalizeTests
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        StringAssert.Contains(scenario.CSharp, "public YourPage()",
+        Assert.IsNotNull(scenario.CSharp);
+        Assert.Contains("public YourPage()", scenario.CSharp,
             "a constructor still named after the sample class does not compile in the user's page");
         Assert.IsFalse(scenario.CSharp!.Contains("AdvancedCollectionViewSample"),
             "the sample class name should not survive anywhere in the pasted code");
@@ -62,9 +63,10 @@ public class ToolkitProviderNormalizeTests
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        StringAssert.Contains(scenario.CSharp, "public class Employee",
+        Assert.IsNotNull(scenario.CSharp);
+        Assert.Contains("public class Employee", scenario.CSharp,
             "a helper type the sample declares is part of the sample, not scaffolding to rename");
-        StringAssert.Contains(scenario.CSharp, "public YourPage()",
+        Assert.Contains("public YourPage()", scenario.CSharp,
             "the sample's own constructor is still the thing that needs renaming");
     }
 
@@ -82,8 +84,9 @@ public class ToolkitProviderNormalizeTests
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        StringAssert.Contains(scenario.CSharp, "class YourPage");
-        StringAssert.Contains(scenario.CSharp, "public YourPage()");
+        Assert.IsNotNull(scenario.CSharp);
+        Assert.Contains("class YourPage", scenario.CSharp);
+        Assert.Contains("public YourPage()", scenario.CSharp);
     }
 
     [TestMethod]
@@ -107,7 +110,7 @@ public class ToolkitProviderNormalizeTests
 
         Assert.IsFalse(scenario.CSharp!.Contains("ToolkitSample"), "build-time sample metadata must not ship");
         Assert.IsFalse(scenario.CSharp.Contains(".NET Foundation"), "upstream's license header is not part of the snippet");
-        StringAssert.Contains(scenario.CSharp, "namespace YourApp;",
+        Assert.Contains("namespace YourApp;", scenario.CSharp,
             "the sample must land in the user's app, not upstream's namespace");
     }
 
@@ -120,7 +123,8 @@ public class ToolkitProviderNormalizeTests
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        StringAssert.Contains(scenario.Xaml, "Click=\"Move_Click\"",
+        Assert.IsNotNull(scenario.Xaml);
+        Assert.Contains("Click=\"Move_Click\"", scenario.Xaml,
             "the event is what the sample teaches; deleting it is not normalization");
     }
 
@@ -133,7 +137,8 @@ public class ToolkitProviderNormalizeTests
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        StringAssert.Contains(scenario.Xaml, "Click=\"Move_Click\"",
+        Assert.IsNotNull(scenario.Xaml);
+        Assert.Contains("Click=\"Move_Click\"", scenario.Xaml,
             "a handler the snippet declares is exactly what the sample is teaching");
     }
 
@@ -198,7 +203,8 @@ public class ToolkitProviderNormalizeTests
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        StringAssert.Contains(scenario.CSharp, "ms-appx:///Assets/YourImage.jpg",
+        Assert.IsNotNull(scenario.CSharp);
+        Assert.Contains("ms-appx:///Assets/YourImage.jpg", scenario.CSharp,
             "the placeholder should keep the URI form and the extension so the failure is visible");
         Assert.IsFalse(scenario.CSharp!.Contains("Owl.jpg"),
             "a path into the Toolkit's own package should not survive into the user's app");
@@ -216,7 +222,8 @@ public class ToolkitProviderNormalizeTests
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        StringAssert.Contains(scenario.Xaml, "{ui:BitmapIcon Source=ms-appx:///Assets/YourImage.png}",
+        Assert.IsNotNull(scenario.Xaml);
+        Assert.Contains("{ui:BitmapIcon Source=ms-appx:///Assets/YourImage.png}", scenario.Xaml,
             "the markup extension must still be terminated after the path is replaced");
     }
 
@@ -229,7 +236,8 @@ public class ToolkitProviderNormalizeTests
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        StringAssert.Contains(scenario.Xaml, "Assets/YourAsset.mp3");
+        Assert.IsNotNull(scenario.Xaml);
+        Assert.Contains("Assets/YourAsset.mp3", scenario.Xaml);
     }
 
     [TestMethod]
@@ -246,8 +254,9 @@ public class ToolkitProviderNormalizeTests
 
         ToolkitProvider.NormalizeForPaste(scenario);
 
-        StringAssert.Contains(scenario.Xaml, "ms-appx:///Assets/YourImage.png");
-        StringAssert.Contains(scenario.Xaml, "\"/Assets/YourImage.png\"");
+        Assert.IsNotNull(scenario.Xaml);
+        Assert.Contains("ms-appx:///Assets/YourImage.png", scenario.Xaml);
+        Assert.Contains("\"/Assets/YourImage.png\"", scenario.Xaml);
         Assert.IsFalse(scenario.Xaml!.Contains("BrushAssets"),
             "the placeholder should not sit in a subfolder the user is not told to create");
     }

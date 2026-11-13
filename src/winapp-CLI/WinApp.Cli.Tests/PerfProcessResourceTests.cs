@@ -89,7 +89,7 @@ public sealed class PerfProcessResourceTests
         capture.ProcessResources.LastError = "Access denied";
         var result = PerfQuery.ExecuteResources(capture, new(View: "resources"));
         Assert.IsFalse(result.Coverage.Complete);
-        StringAssert.Contains(result.Coverage.Reasons.Single(), "Access denied");
+        Assert.Contains("Access denied", result.Coverage.Reasons.Single());
         Assert.AreEqual(4, result.Returned);
     }
 
@@ -168,9 +168,9 @@ public sealed class PerfProcessResourceTests
             Assert.AreEqual(capture.ProcessResources!.Samples[1], loaded.ProcessResources!.Samples[1]);
             using var console = new Spectre.Console.Testing.TestConsole();
             PerfCommand.PrintResources(console, PerfResourceSummary.Create(loaded, new(0, 3000)));
-            StringAssert.Contains(console.Output, "CPU: 115");
-            StringAssert.Contains(console.Output, "Observed max");
-            StringAssert.Contains(console.Output, "not the entire startup");
+            Assert.Contains("CPU: 115", console.Output);
+            Assert.Contains("Observed max", console.Output);
+            Assert.Contains("not the entire startup", console.Output);
         }
         finally
         {

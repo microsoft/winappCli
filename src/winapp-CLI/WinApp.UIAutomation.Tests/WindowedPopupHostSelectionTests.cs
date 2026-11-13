@@ -82,7 +82,7 @@ public class WindowedPopupHostSelectionTests
         desktop.Add(200, Owner, pid: AppPid + 1, hosts: true);
 
         Assert.AreEqual(0, desktop.Select());
-        CollectionAssert.DoesNotContain(desktop.HostQueries, (nint)200);
+        Assert.DoesNotContain((nint)200, desktop.HostQueries);
     }
 
     [TestMethod]

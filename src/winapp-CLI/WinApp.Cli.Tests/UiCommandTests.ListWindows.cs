@@ -29,9 +29,9 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, []);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "Alpha Window");
-        StringAssert.Contains(TestAnsiConsole.Output, "Beta Window");
-        StringAssert.Contains(TestAnsiConsole.Output, "HWND");
+        Assert.Contains("Alpha Window", TestAnsiConsole.Output);
+        Assert.Contains("Beta Window", TestAnsiConsole.Output);
+        Assert.Contains("HWND", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -43,7 +43,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "4242"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "By PID");
+        Assert.Contains("By PID", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -86,7 +86,7 @@ public partial class UiCommandTests
             ["-a", "zz-no-such-process-name-zz-9x8y7z"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "Title Match");
+        Assert.Contains("Title Match", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -109,7 +109,7 @@ public partial class UiCommandTests
                 ["-a", byPid ? me.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) : me.ProcessName]);
 
             Assert.AreEqual(0, exitCode);
-            StringAssert.Contains(TestAnsiConsole.Output, "Hosting Frame");
+            Assert.Contains("Hosting Frame", TestAnsiConsole.Output);
             Assert.IsFalse(TestAnsiConsole.Output.Contains("Editor Match"), "Title matches belong to another app.");
         }
         finally

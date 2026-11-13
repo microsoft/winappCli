@@ -86,7 +86,7 @@ public class GuestOwnerContextTests
 
         // The raw explicit owner must never reach state, output, logs, protocol events, or
         // telemetry — and the token is the only thing that ever leaves the host.
-        StringAssert.StartsWith(token, "gt1_");
+        Assert.StartsWith("gt1_", token);
         Assert.IsFalse(token.Contains(Secret, StringComparison.OrdinalIgnoreCase));
     }
 

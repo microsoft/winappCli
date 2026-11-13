@@ -96,7 +96,7 @@ public class CommentUnlinkedTests
         var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(
             ["2", "--from-element", "2", "--app", agent.Pid.ToString(), "--text", "note"]));
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(console.Output, "Pass the element once");
+        Assert.Contains("Pass the element once", console.Output);
     }
 
     [TestMethod]
@@ -161,12 +161,12 @@ public class CommentUnlinkedTests
             Assert.AreEqual(valid, payload.Ok);
             if (!valid)
             {
-                StringAssert.Contains(payload.Error!, option);
-                StringAssert.Contains(payload.Error!, "conflicts with the captured element");
+                Assert.Contains(option, payload.Error!);
+                Assert.Contains("conflicts with the captured element", payload.Error!);
                 Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
                 if (before is not null)
                 {
-                    CollectionAssert.AreEqual(before, File.ReadAllBytes(path), "A conflicting capture must not replace an existing comment.");
+                    Assert.AreSequenceEqual(before, File.ReadAllBytes(path), "A conflicting capture must not replace an existing comment.");
                 }
                 else
                 {
@@ -242,7 +242,7 @@ public class CommentUnlinkedTests
         var (exit, console) = await AddAsync(agent, store, _root.FullName);
 
         Assert.AreEqual(1, exit, console);
-        StringAssert.Contains(console, "--source-root");
+        Assert.Contains("--source-root", console);
         Assert.IsFalse(File.Exists(store.GetStorePath(_root)), "nothing is saved into whatever folder the command ran from");
     }
 
@@ -260,7 +260,7 @@ public class CommentUnlinkedTests
         var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(["--name", "CounterButton", "--text", "x"]));
 
         Assert.AreEqual(1, exit, console.Output);
-        StringAssert.Contains(console.Output, "winapp's own folder");
+        Assert.Contains("winapp's own folder", console.Output);
         Assert.IsFalse(File.Exists(store.GetStorePath(_root)));
     }
 
@@ -279,7 +279,7 @@ public class CommentUnlinkedTests
         var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(["--name", "CounterButton", "--text", "x"]));
 
         Assert.AreEqual(1, exit, console.Output);
-        StringAssert.Contains(console.Output, "winapp's own folder");
+        Assert.Contains("winapp's own folder", console.Output);
         Assert.IsFalse(File.Exists(store.GetStorePath(global)));
     }
 
@@ -295,8 +295,8 @@ public class CommentUnlinkedTests
         var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(["--name", "CounterButton", "--text", "x"]));
 
         Assert.AreEqual(0, exit, console.Output);
-        StringAssert.Contains(console.Output, "Added");
-        StringAssert.Contains(System.Text.RegularExpressions.Regex.Replace(console.Output, @"\s+", " "), "not linked to source");
+        Assert.Contains("Added", console.Output);
+        Assert.Contains("not linked to source", System.Text.RegularExpressions.Regex.Replace(console.Output, @"\s+", " "));
     }
 
     [TestMethod]
@@ -310,7 +310,7 @@ public class CommentUnlinkedTests
     [TestMethod]
     public void Ancestors_AreNearestFirst()
     {
-        CollectionAssert.AreEqual(NearestFirst, CommentSelectionCapture.AncestorsOf(Tree, "2").ToArray());
+        Assert.AreSequenceEqual(NearestFirst, CommentSelectionCapture.AncestorsOf(Tree, "2").ToArray());
         Assert.AreEqual(0, CommentSelectionCapture.AncestorsOf(Tree, "404").Count);
     }
 

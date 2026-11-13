@@ -278,7 +278,7 @@ public partial class UiCommandTests
             Assert.IsTrue(File.Exists(outputPath));
             Assert.IsTrue(File.Exists(Path.Combine(framesDirectory, "manifest.json")));
             Assert.IsTrue(File.Exists(Path.Combine(framesDirectory, "frames.ndjson")));
-            StringAssert.Contains(TestAnsiConsole.Output, "\"stopReason\": \"cancelled\"");
+            Assert.Contains("\"stopReason\": \"cancelled\"", TestAnsiConsole.Output);
         }
         finally
         {

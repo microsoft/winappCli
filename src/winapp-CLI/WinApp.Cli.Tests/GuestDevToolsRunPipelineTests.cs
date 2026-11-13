@@ -402,12 +402,12 @@ public sealed class GuestDevToolsRunPipelineTests() : BaseCommandTests(logLevel:
             relay.Exit(1);
         }
         var error = await Assert.ThrowsAsync<IOException>(() => starting);
-        StringAssert.Contains(error.Message, "negotiation failed");
-        StringAssert.Contains(error.Message, "diagnostics.log");
+        Assert.Contains("negotiation failed", error.Message);
+        Assert.Contains("diagnostics.log", error.Message);
         Assert.AreEqual(1, await helper!);
         var failed = host.ReadState(_backend.Target, id);
         Assert.AreEqual("failed", failed.Phase);
-        StringAssert.Contains(failed.Error!, "negotiation failed");
+        Assert.Contains("negotiation failed", failed.Error!);
         Assert.AreEqual(new GuestProcessStart(123, 456), failed.App!.Process);
         Assert.IsNull(failed.BindingId);
         Assert.IsFalse(ready);

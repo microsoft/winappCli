@@ -203,7 +203,7 @@ public class PackageLayoutServiceTests
 
         var names = libOut.GetFiles().Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         string[] expected = ["direct.lib", "native.lib", "win.lib", "win10.lib", "nativewin10.lib"];
-        CollectionAssert.AreEquivalent(expected, names.ToArray());
+        Assert.AreSequenceEqual(expected, names.ToArray(), SequenceOrder.InAnyOrder);
         Assert.IsFalse(names.Contains("ignore.txt"));
     }
 
@@ -250,7 +250,7 @@ public class PackageLayoutServiceTests
 
         var names = results.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         string[] expected = ["Meta.winmd", "Versioned.winmd", "Lib.winmd", "Uap.winmd", "UapVersioned.winmd", "Ref.winmd"];
-        CollectionAssert.AreEquivalent(expected, names.ToArray());
+        Assert.AreSequenceEqual(expected, names.ToArray(), SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]

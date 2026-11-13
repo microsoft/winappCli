@@ -64,7 +64,7 @@ public class BuildToolsSignatureVerificationTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<BuildToolSignatureException>(
             async () => await service.EnsureBuildToolAvailableAsync("mt.exe", TestTaskContext, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "not validly signed by Microsoft");
+        Assert.Contains("not validly signed by Microsoft", ex.Message);
     }
 
     [TestMethod]
@@ -76,8 +76,8 @@ public class BuildToolsSignatureVerificationTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<BuildToolSignatureException>(
             async () => await service.EnsureBuildToolAvailableAsync("mt.exe", TestTaskContext, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "mt.exe");
-        StringAssert.Contains(ex.Message, "NuGet cache");
+        Assert.Contains("mt.exe", ex.Message);
+        Assert.Contains("NuGet cache", ex.Message);
     }
 
     [TestMethod]

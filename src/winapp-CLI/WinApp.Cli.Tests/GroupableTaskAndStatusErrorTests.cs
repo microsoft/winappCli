@@ -50,7 +50,7 @@ public class GroupableTaskErrorReportingTests
         var result = await task.ExecuteAsync(null, CancellationToken.None);
 
         Assert.AreEqual(1, result.ReturnCode);
-        StringAssert.Contains(result.CompletedMessage, nameof(InvalidOperationException));
+        Assert.Contains(nameof(InvalidOperationException), result.CompletedMessage);
     }
 
     [TestMethod]
@@ -69,7 +69,7 @@ public class GroupableTaskErrorReportingTests
             (_, _) => throw new InvalidOperationException("boom"),
             new MinLevelLogger(LogLevel.Debug));
         var debugResult = await debugTask.ExecuteAsync(null, CancellationToken.None);
-        StringAssert.StartsWith(debugResult.CompletedMessage, "boom");
+        Assert.StartsWith("boom", debugResult.CompletedMessage);
         Assert.IsTrue(debugResult.CompletedMessage.Length > "boom".Length,
             "Debug-level should include stack trace text");
     }
@@ -253,8 +253,8 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root);
 
-        StringAssert.Contains(output, "Build succeeded");
-        StringAssert.Contains(output, Emoji.Known.CheckMarkButton);
+        Assert.Contains("Build succeeded", output);
+        Assert.Contains(Emoji.Known.CheckMarkButton, output);
     }
 
     [TestMethod]
@@ -265,8 +265,8 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root);
 
-        StringAssert.Contains(output, "Packaged app.msix");
-        StringAssert.Contains(output, Emoji.Known.CheckMarkButton);
+        Assert.Contains("Packaged app.msix", output);
+        Assert.Contains(Emoji.Known.CheckMarkButton, output);
     }
 
     [TestMethod]
@@ -277,7 +277,7 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root);
 
-        StringAssert.Contains(output, "Signed package");
+        Assert.Contains("Signed package", output);
     }
 
     [TestMethod]
@@ -300,7 +300,7 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root);
 
-        StringAssert.Contains(output, "Downloading SDK (42%)");
+        Assert.Contains("Downloading SDK (42%)", output);
     }
 
     [TestMethod]
@@ -310,7 +310,7 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root);
 
-        StringAssert.Contains(output, "Building [Debug|AnyCPU]",
+        Assert.Contains("Building [Debug|AnyCPU]", output,
             "EscapeInProgressMessage must neutralize Spectre markup so literal brackets render verbatim.");
     }
 
@@ -322,7 +322,7 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root);
 
-        StringAssert.Contains(output, "ready",
+        Assert.Contains("ready", output,
             "With escaping disabled the caller-supplied markup is interpreted, so the styled text still surfaces.");
         Assert.IsFalse(output.Contains("[green]"),
             "Interpreted markup must not leak its raw tags into the output.");
@@ -337,7 +337,7 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root);
 
-        StringAssert.Contains(output, "Cleanup complete",
+        Assert.Contains("Cleanup complete", output,
             "A plain (non-generic) completed sub-task renders its in-progress message as the completed line.");
     }
 
@@ -350,7 +350,7 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root);
 
-        StringAssert.Contains(output, "Restored 12 packages");
+        Assert.Contains("Restored 12 packages", output);
     }
 
     [TestMethod]
@@ -361,7 +361,7 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root, lastRender: true);
 
-        StringAssert.Contains(output, "Launched");
+        Assert.Contains("Launched", output);
         Assert.IsFalse(output.Contains(Emoji.Known.CheckMarkButton),
             "A completion message that already begins with an emoji must not receive a duplicate checkmark prefix.");
     }
@@ -377,7 +377,7 @@ public class GroupableTaskRenderingTests
         Assert.IsFalse(root.SuccessfullyCompleted!.Value, "A thrown body must mark the task as not successfully completed.");
 
         var output = RenderToText(root, lastRender: true);
-        StringAssert.Contains(output, Emoji.Known.CrossMark,
+        Assert.Contains(Emoji.Known.CrossMark, output,
             "A failed non-tuple task must render the red cross marker.");
     }
 
@@ -393,7 +393,7 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root, lastRender: true);
 
-        StringAssert.Contains(output, "grandchild-marker",
+        Assert.Contains("grandchild-marker", output,
             "A Debug-enabled (verbose) logger expands the full task tree, including deeply nested completed tasks.");
     }
 
@@ -408,7 +408,7 @@ public class GroupableTaskRenderingTests
 
         var output = RenderToText(root, lastRender: true);
 
-        StringAssert.Contains(output, "child level", "Depth-1 completed children are always shown.");
+        Assert.Contains("child level", output, "Depth-1 completed children are always shown.");
         Assert.IsFalse(output.Contains("grandchild-marker"),
             "Without verbose logging, completed tasks deeper than depth 1 are collapsed to keep the tree concise.");
     }

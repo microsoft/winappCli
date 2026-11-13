@@ -36,7 +36,7 @@ public partial class RealUiAutomationTests
         {
             var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
-            StringAssert.Contains(error.Message, "stale");
+            Assert.Contains("stale", error.Message);
         }
         else
         {
@@ -45,7 +45,7 @@ public partial class RealUiAutomationTests
             Assert.AreSame(failure, error);
         }
 
-        CollectionAssert.AreEqual(new[] { (nint)(sourceHwnd is null or 0 ? 123 : sourceHwnd.Value) }, boundHandles.ToArray());
+        Assert.AreSequenceEqual(new[] { (nint)(sourceHwnd is null or 0 ? 123 : sourceHwnd.Value) }, boundHandles.ToArray());
         Assert.IsFalse(calls.Contains("invoke"));
         Assert.IsFalse(calls.Contains("pattern"));
     }
@@ -92,8 +92,8 @@ public partial class RealUiAutomationTests
             }
         });
 
-        StringAssert.Contains(error.Message, "stale");
-        CollectionAssert.AreEqual(
+        Assert.Contains("stale", error.Message);
+        Assert.AreSequenceEqual(
             expectedBoundHwnd == 0 ? Array.Empty<nint>() : new[] { (nint)expectedBoundHwnd },
             boundHandles.ToArray());
         Assert.AreEqual(expectedBoundHwnd == 0 ? 1 : 0, recoveryCalls);
@@ -131,7 +131,7 @@ public partial class RealUiAutomationTests
         var selector = new UiSelector { Query = query };
         var error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
             () => svc.FindSingleElementAsync(fx.AppTarget, selector, requireUnique: true, CancellationToken.None));
-        StringAssert.Contains(error.Message, "Selector matched 2 elements");
+        Assert.Contains("Selector matched 2 elements", error.Message);
         Assert.AreEqual(0, fx.ClickCount);
 
         var selected = await svc.FindSingleElementAsync(fx.Target, selector, requireUnique: true, CancellationToken.None);
@@ -150,8 +150,8 @@ public partial class RealUiAutomationTests
         var svc = NewService();
         var error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
             () => svc.FindSingleElementAsync(fx.Target, new UiSelector { Query = "save" }, requireUnique: true, CancellationToken.None));
-        StringAssert.Contains(error.Message, "Selector matched 2 elements");
-        StringAssert.Contains(error.Message, "btn-");
+        Assert.Contains("Selector matched 2 elements", error.Message);
+        Assert.Contains("btn-", error.Message);
         Assert.AreEqual(0, fx.ClickCount);
     }
 
@@ -265,7 +265,7 @@ public partial class RealUiAutomationTests
 
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(fx.Target, selected, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "stale");
+        Assert.Contains("stale", error.Message);
         Assert.AreEqual(0, fx.ClickCount);
     }
 
@@ -281,7 +281,7 @@ public partial class RealUiAutomationTests
 
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(fx.AppTarget, element, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "no longer unique");
+        Assert.Contains("no longer unique", error.Message);
         Assert.AreEqual(0, fx.ClickCount);
     }
 
@@ -362,7 +362,7 @@ public partial class RealUiAutomationTests
 
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(fx.AppTarget, element, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "stale");
+        Assert.Contains("stale", error.Message);
         Assert.AreEqual(0, fx.ClickCount);
     }
 

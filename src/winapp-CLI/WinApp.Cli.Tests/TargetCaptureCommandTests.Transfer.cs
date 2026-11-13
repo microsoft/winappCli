@@ -66,7 +66,7 @@ public partial class TargetCaptureCommandTests
         }
         else
         {
-            StringAssert.Contains(console.Output, $"to {destination} on sandbox.");
+            Assert.Contains($"to {destination} on sandbox.", console.Output);
         }
     }
 
@@ -122,8 +122,9 @@ public partial class TargetCaptureCommandTests
         var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>
             TargetFileTransferService.NormalizeTargetRelative(@"D:\Managed\work\probe.txt"));
 
-        StringAssert.Contains(failure.Error.Message, "managed work area");
-        StringAssert.Contains(failure.Error.UserAction, "target snapshot");
+        Assert.Contains("managed work area", failure.Error.Message);
+        Assert.IsNotNull(failure.Error.UserAction);
+        Assert.Contains("target snapshot", failure.Error.UserAction);
         Assert.IsFalse(failure.Error.Message.Contains(@"C:\WinApp", StringComparison.Ordinal));
         Assert.IsFalse(failure.Error.UserAction!.Contains(@"C:\WinApp", StringComparison.Ordinal));
     }

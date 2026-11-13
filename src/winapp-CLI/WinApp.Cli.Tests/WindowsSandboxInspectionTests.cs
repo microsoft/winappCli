@@ -154,7 +154,7 @@ public class WindowsSandboxInspectionTests
 
         Assert.IsTrue(first.Adopted);
         Assert.IsTrue(second.Adopted);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { staleClient, staleClient },
             controller.RememberedClients);
 
@@ -163,7 +163,7 @@ public class WindowsSandboxInspectionTests
             () => backend.ResolveDesktopSurface(TargetDesktopUse.PixelCapture));
 
         Assert.AreEqual(0, controller.ParkCount);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { staleClient, staleClient, staleClient },
             controller.RememberedClients);
         var after = _stateStore.Read(WindowsSandboxTarget.Default)!;

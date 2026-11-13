@@ -87,9 +87,9 @@ public class CppWinrtServiceTests : BaseCommandTests
         Assert.IsTrue(File.Exists(rspPath), "Response file should be written.");
 
         var rsp = await File.ReadAllTextAsync(rspPath);
-        StringAssert.Contains(rsp, $"-input \"{winmd.FullName}\"");
-        StringAssert.Contains(rsp, "-optimize");
-        StringAssert.Contains(rsp, $"-output \"{outputDir.FullName}\"");
+        Assert.Contains($"-input \"{winmd.FullName}\"", rsp);
+        Assert.Contains("-optimize", rsp);
+        Assert.Contains($"-output \"{outputDir.FullName}\"", rsp);
     }
 
     [TestMethod]
@@ -104,8 +104,8 @@ public class CppWinrtServiceTests : BaseCommandTests
         await service.RunWithRspAsync(exe, new[] { winmdA, winmdB }, outputDir, _tempDirectory, TestTaskContext, TestContext.CancellationToken);
 
         var rsp = await File.ReadAllTextAsync(Path.Combine(outputDir.FullName, ".cppwinrt.rsp"));
-        StringAssert.Contains(rsp, $"-input \"{winmdA.FullName}\"");
-        StringAssert.Contains(rsp, $"-input \"{winmdB.FullName}\"");
+        Assert.Contains($"-input \"{winmdA.FullName}\"", rsp);
+        Assert.Contains($"-input \"{winmdB.FullName}\"", rsp);
     }
 
     [TestMethod]
@@ -119,7 +119,7 @@ public class CppWinrtServiceTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
             await service.RunWithRspAsync(exe, new[] { winmd }, outputDir, _tempDirectory, TestTaskContext, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "cppwinrt");
+        Assert.Contains("cppwinrt", ex.Message);
     }
 
     [TestMethod]
@@ -134,7 +134,7 @@ public class CppWinrtServiceTests : BaseCommandTests
         await service.RunWithRspAsync(exe, new[] { winmd }, outputDir, _tempDirectory, TestTaskContext, TestContext.CancellationToken);
 
         var rsp = await File.ReadAllTextAsync(Path.Combine(outputDir.FullName, ".cppwinrt.rsp"));
-        StringAssert.Contains(rsp, "-verbose");
+        Assert.Contains("-verbose", rsp);
     }
 
     [TestMethod]

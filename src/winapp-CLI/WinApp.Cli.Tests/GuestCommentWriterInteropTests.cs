@@ -127,7 +127,7 @@ public sealed class GuestCommentWriterInteropTests
                 Assert.AreEqual(authoredState == "ack-missing", File.Exists(binding.StorePath),
                     "A missing acknowledgement must not claim that persistence did or did not happen.");
                 var status = await RunNativeAsync(["--writer-failure", exit.ToString(CultureInfo.InvariantCulture)], timeout.Token);
-                StringAssert.Contains(status, expectedExit switch
+                Assert.Contains(expectedExit switch
                 {
                     2 => "arguments",
                     GuestCommentContext.ContextFailureExitCode => "context",
@@ -135,8 +135,8 @@ public sealed class GuestCommentWriterInteropTests
                     GuestCommentContext.HostReadFailureExitCode => "host-read",
                     GuestCommentContext.MissingAcknowledgementExitCode => "host-acknowledgement",
                     _ => "host-write",
-                });
-                StringAssert.Contains(status, "Draft retained");
+                }, status);
+                Assert.Contains("Draft retained", status);
                 Assert.IsFalse(status.Contains("private-error-marker") || status.Contains(text) ||
                     status.Contains(token) || status.Contains(binding.Epoch) || status.Contains(binding.Id));
             }
@@ -200,13 +200,13 @@ public sealed class GuestCommentWriterInteropTests
         var args = result.RootElement.GetProperty("args").EnumerateArray().Select(row => row.GetString()!).ToArray();
         if (local)
         {
-            CollectionAssert.Contains(args, "--from-element");
+            Assert.Contains("--from-element", args);
             Assert.AreEqual(result.RootElement.GetProperty("initialWire").GetString(),
                 args[Array.IndexOf(args, "--from-element") + 1], "The writer must retain the editor's exact element.");
             Assert.AreNotEqual(result.RootElement.GetProperty("raw").GetString(),
                 result.RootElement.GetProperty("initialWire").GetString());
-            CollectionAssert.DoesNotContain(args, "--from-selection");
-            CollectionAssert.DoesNotContain(args, "--guest-comments");
+            Assert.DoesNotContain("--from-selection", args);
+            Assert.DoesNotContain("--guest-comments", args);
         }
         else
         {

@@ -111,7 +111,7 @@ public sealed class GuestDevToolsHostTests
             host.WritePlan(Target, id, Plan);
             var read = host.ReadPlan(Target, id);
             Assert.AreEqual(Plan.Epoch, read.Epoch);
-            CollectionAssert.AreEqual(Plan.Request.Arguments.ToArray(), read.Request.Arguments.ToArray());
+            Assert.AreSequenceEqual(Plan.Request.Arguments.ToArray(), read.Request.Arguments.ToArray());
             Assert.AreEqual("Main.xaml", read.Sources.Files.Single().RelativePath);
             var file = new FileInfo(Path.Combine(directory.FullName, "launch.json"));
             var acl = file.GetAccessControl();

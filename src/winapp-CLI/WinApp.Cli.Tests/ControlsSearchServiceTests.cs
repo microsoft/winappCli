@@ -119,8 +119,8 @@ public class ControlsSearchServiceTests
         var engine = await sut.GetEngineAsync();
         var ids = engine.ListAll().Select(x => x.id).ToList();
 
-        CollectionAssert.Contains(ids, "gallery-colorpicker-1", "gallery colorpicker must survive the merge");
-        CollectionAssert.Contains(ids, "toolkit-colorpicker-1", "toolkit colorpicker must survive the merge");
+        Assert.Contains("gallery-colorpicker-1", ids, "gallery colorpicker must survive the merge");
+        Assert.Contains("toolkit-colorpicker-1", ids, "toolkit colorpicker must survive the merge");
     }
 
     [TestMethod]

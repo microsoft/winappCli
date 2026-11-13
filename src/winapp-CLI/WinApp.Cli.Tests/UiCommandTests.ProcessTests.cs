@@ -17,14 +17,14 @@ public partial class UiCommandTests
             ["/d", "/c", "echo timeout-stdout-ready & echo timeout-stderr-ready 1>&2 & ping -n 30 127.0.0.1 >nul"],
             TimeSpan.FromSeconds(2)));
 
-        StringAssert.Contains(failure.Message, "stdout (captured, may be partial):\ntimeout-stdout-ready");
-        StringAssert.Contains(failure.Message, "stderr (captured, may be partial):\ntimeout-stderr-ready");
-        StringAssert.Contains(failure.Message, "deadlineMs=2000");
-        StringAssert.Contains(failure.Message, "elapsedMs=");
-        StringAssert.Contains(failure.Message, "pid=");
-        StringAssert.Contains(failure.Message, "exitedAtDeadline=False");
-        StringAssert.Contains(failure.Message, "exitedAfterCleanup=True");
-        StringAssert.Contains(failure.Message, "outputDrain=stopped");
+        Assert.Contains("stdout (captured, may be partial):\ntimeout-stdout-ready", failure.Message);
+        Assert.Contains("stderr (captured, may be partial):\ntimeout-stderr-ready", failure.Message);
+        Assert.Contains("deadlineMs=2000", failure.Message);
+        Assert.Contains("elapsedMs=", failure.Message);
+        Assert.Contains("pid=", failure.Message);
+        Assert.Contains("exitedAtDeadline=False", failure.Message);
+        Assert.Contains("exitedAfterCleanup=True", failure.Message);
+        Assert.Contains("outputDrain=stopped", failure.Message);
         Assert.IsTrue(elapsed.Elapsed >= TimeSpan.FromSeconds(2), "The requested deadline must not be shortened.");
         Assert.IsTrue(elapsed.Elapsed < TimeSpan.FromSeconds(15), "Cleanup and output draining must remain bounded.");
     }
@@ -36,8 +36,8 @@ public partial class UiCommandTests
             ["/d", "/c", "echo normal-stdout & echo normal-stderr 1>&2 & exit /b 3"], TimeSpan.FromSeconds(20));
 
         Assert.AreEqual(3, result.ExitCode);
-        StringAssert.Contains(result.Stdout, "normal-stdout");
-        StringAssert.Contains(result.Stderr, "normal-stderr");
+        Assert.Contains("normal-stdout", result.Stdout);
+        Assert.Contains("normal-stderr", result.Stderr);
     }
 
     [TestMethod]
@@ -46,8 +46,8 @@ public partial class UiCommandTests
         var output = new StringBuilder(new string('x', 12000)).Append("latest-marker");
         var diagnostic = ProcessOutputSnapshot(output, 8192);
 
-        StringAssert.StartsWith(diagnostic, "[truncated ");
-        StringAssert.EndsWith(diagnostic, "latest-marker");
+        Assert.StartsWith("[truncated ", diagnostic);
+        Assert.EndsWith("latest-marker", diagnostic);
         Assert.IsTrue(diagnostic.Length < 8300);
         Assert.AreEqual(output.ToString(), ProcessOutputSnapshot(output));
     }

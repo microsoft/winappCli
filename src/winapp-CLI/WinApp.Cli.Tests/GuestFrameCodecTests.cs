@@ -51,7 +51,7 @@ public class GuestFrameCodecTests
         var destination = new byte[plaintext.Length];
         Assert.IsTrue(codec.TryDecode(frame, 7, destination, out var written, out var error));
         Assert.AreEqual(GuestFrameError.None, error);
-        CollectionAssert.AreEqual(plaintext, destination[..written]);
+        Assert.AreSequenceEqual(plaintext, destination[..written]);
     }
 
     [TestMethod]
@@ -222,7 +222,7 @@ public class GuestFrameCodecTests
             {
                 // The only mutation that can still authenticate is one that produced an identical
                 // frame, which means the plaintext must be identical too.
-                CollectionAssert.AreEqual(plaintext, destination[..written]);
+                Assert.AreSequenceEqual(plaintext, destination[..written]);
             }
         }
     }

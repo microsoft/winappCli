@@ -356,7 +356,7 @@ public class PathSafetyTests
 
             Assert.IsTrue(refused, "The intermediate target link must be inspected before its child.");
             string[] expected = [@"\\?\" + first, @"\\?\" + middle];
-            CollectionAssert.AreEqual(expected, inspected);
+            Assert.AreSequenceEqual(expected, inspected);
         }
         finally
         {
@@ -463,7 +463,7 @@ public class PathSafetyTests
 
             Assert.IsFalse(refused, "Local chains and a missing final file are allowed.");
             string[] expected = [@"\\?\" + first, @"\\?\" + second, @"\\?\" + Path.Combine(child, "nested")];
-            CollectionAssert.AreEqual(expected, inspected);
+            Assert.AreSequenceEqual(expected, inspected);
         }
         finally
         {

@@ -172,7 +172,7 @@ public sealed class ApiQueryEngineTests
         var result = ApiQueryEngine.Enums("My.Ns.Mood", null, _cacheDir, _manifest);
 
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
-        CollectionAssert.AreEqual(MoodValues, result.Data!.Values);
+        Assert.AreSequenceEqual(MoodValues, result.Data!.Values);
     }
 
     [TestMethod]
@@ -209,7 +209,7 @@ public sealed class ApiQueryEngineTests
         var result = ApiQueryEngine.Enums("My.Ns.Mood", "hap", _cacheDir, _manifest);
 
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
-        CollectionAssert.AreEqual(HappyOnly, result.Data!.Values);
+        Assert.AreSequenceEqual(HappyOnly, result.Data!.Values);
         Assert.AreEqual("hap", result.Data.Filter);
         // The pre-filter total must survive so a caller can tell a narrow view
         // from a genuinely small enum.
@@ -221,7 +221,7 @@ public sealed class ApiQueryEngineTests
     {
         var result = ApiQueryEngine.Enums("My.Ns.Mood", "AP", _cacheDir, _manifest);
 
-        CollectionAssert.AreEqual(HappyOnly, result.Data!.Values);
+        Assert.AreSequenceEqual(HappyOnly, result.Data!.Values);
     }
 
     [TestMethod]
@@ -242,7 +242,7 @@ public sealed class ApiQueryEngineTests
         var result = ApiQueryEngine.Members("My.Ns.Widget", "col", _cacheDir, _manifest);
 
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
-        CollectionAssert.AreEqual(ColorOnly, result.Data!.Properties.Select(p => p.Name).ToArray());
+        Assert.AreSequenceEqual(ColorOnly, result.Data!.Properties.Select(p => p.Name).ToArray());
         Assert.AreEqual(0, result.Data.Methods.Count);
         Assert.AreEqual("col", result.Data.Filter);
         Assert.AreEqual(1, result.Data.TotalProperties);
@@ -256,12 +256,12 @@ public sealed class ApiQueryEngineTests
 
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
         var names = result.Data!.Properties.Select(p => p.Name).ToList();
-        CollectionAssert.Contains(names, "Background");
-        CollectionAssert.DoesNotContain(names, "BackgroundProperty");
+        Assert.Contains("Background", names);
+        Assert.DoesNotContain("BackgroundProperty", names);
 
         // A member ending in "Property" that is not typed DependencyProperty is a real
         // API and must survive the trim.
-        CollectionAssert.Contains(names, "NameProperty");
+        Assert.Contains("NameProperty", names);
 
         Assert.AreEqual(1, result.Data.HiddenDependencyProperties);
         Assert.AreEqual(3, result.Data.TotalProperties, "totals must describe the type, not the trimmed view");
@@ -284,7 +284,7 @@ public sealed class ApiQueryEngineTests
         var result = ApiQueryEngine.Members("My.Ns.Ctl", null, _cacheDir, _manifest, includeAll: true);
 
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
-        CollectionAssert.Contains(result.Data!.Properties.Select(p => p.Name).ToList(), "BackgroundProperty");
+        Assert.Contains("BackgroundProperty", result.Data!.Properties.Select(p => p.Name).ToList());
         Assert.AreEqual("The background brush.", result.Data.Properties.Single(p => p.Name == "Background").Description);
         Assert.IsNull(result.Data.HiddenDependencyProperties);
         Assert.IsNull(result.Data.DescriptionsOmitted);
@@ -336,9 +336,9 @@ public sealed class ApiQueryEngineTests
 
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
         var names = result.Data!.Types.Select(t => t.FullName).ToList();
-        CollectionAssert.Contains(names, "My.Ns.Widget");
-        CollectionAssert.Contains(names, "My.Ns.Mood");
-        CollectionAssert.Contains(names, "My.Ns.Gadget");
+        Assert.Contains("My.Ns.Widget", names);
+        Assert.Contains("My.Ns.Mood", names);
+        Assert.Contains("My.Ns.Gadget", names);
     }
 
     [TestMethod]
@@ -347,7 +347,7 @@ public sealed class ApiQueryEngineTests
         var result = ApiQueryEngine.Namespaces("My", _cacheDir, _manifest);
 
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
-        CollectionAssert.Contains(result.Data!.Namespaces, "My.Ns");
+        Assert.Contains("My.Ns", result.Data!.Namespaces);
     }
 
     [TestMethod]
@@ -438,7 +438,7 @@ public sealed class ApiQueryEngineTests
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
         Assert.AreEqual(0, result.Data!.Results.Count);
         Assert.IsNotNull(result.Data.Note, "an empty search against a partial index must be qualified");
-        StringAssert.Contains(result.Data.Note, "Test.Pkg");
+        Assert.Contains("Test.Pkg", result.Data.Note);
     }
 
     [TestMethod]
@@ -476,7 +476,7 @@ public sealed class ApiQueryEngineTests
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
         Assert.IsFalse(result.Data!.Found);
         Assert.IsNotNull(result.Data.Warning, "a miss from a partial index must be qualified");
-        StringAssert.Contains(result.Data.Warning, "Test.Pkg");
+        Assert.Contains("Test.Pkg", result.Data.Warning);
     }
 
     [TestMethod]
@@ -716,9 +716,10 @@ public sealed class ApiQueryEngineTests
 
             Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
             ApiAmbiguityGroup group = result.Data!.Ambiguous!.Single(g => g.Name == "Alpha");
-            CollectionAssert.AreEquivalent(
+            Assert.AreSequenceEqual(
                 ExpectedAlphaCandidates,
                 group.Candidates.Select(c => c.FullName).ToList(),
+                SequenceOrder.InAnyOrder,
                 "Both packages ship both types, but each fully-qualified name must appear once.");
         }
         finally
@@ -742,7 +743,7 @@ public sealed class ApiQueryEngineTests
             Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
             ApiNamespaceHit hit = result.Data!.Results.Single(r => r.Namespace == "Dup.Ns");
             var displays = hit.Matches.Select(m => m.Display).ToList();
-            CollectionAssert.AllItemsAreUnique(displays, "A capped match list must not spend slots on duplicates.");
+            Assert.AreAllDistinct(displays, "A capped match list must not spend slots on duplicates.");
         }
         finally
         {
@@ -832,7 +833,8 @@ public sealed class ApiQueryEngineTests
             var result = ApiQueryEngine.Members("Widget", filter: null, cacheDir, manifest);
 
             Assert.AreEqual(ApiQueryOutcome.InvalidInput, result.Outcome);
-            StringAssert.Contains(result.Message, "Contoso.Controls.Widget");
+            Assert.IsNotNull(result.Message);
+            Assert.Contains("Contoso.Controls.Widget", result.Message);
         }
         finally
         {
@@ -880,7 +882,7 @@ public sealed class ApiQueryEngineTests
             var result = ApiQueryEngine.Members("Twin", filter: null, cacheDir, manifest);
 
             Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
-            CollectionAssert.AreEqual(UwpTwinFullName, result.Data!.AlsoMatched);
+            Assert.AreSequenceEqual(UwpTwinFullName, result.Data!.AlsoMatched);
         }
         finally
         {
@@ -922,7 +924,7 @@ public sealed class ApiQueryEngineTests
             var result = ApiQueryEngine.CheckProperty("Twin", "Missing", cacheDir, manifest);
 
             Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
-            CollectionAssert.AreEqual(UwpTwinFullName, result.Data!.AlsoMatched);
+            Assert.AreSequenceEqual(UwpTwinFullName, result.Data!.AlsoMatched);
         }
         finally
         {
@@ -944,8 +946,9 @@ public sealed class ApiQueryEngineTests
             var result = ApiQueryEngine.Members("Alpha", filter: null, cacheDir, manifest);
 
             Assert.AreEqual(ApiQueryOutcome.InvalidInput, result.Outcome);
-            StringAssert.Contains(result.Message, "Dup.Ns.Alpha");
-            StringAssert.Contains(result.Message, "Other.Ns.Alpha");
+            Assert.IsNotNull(result.Message);
+            Assert.Contains("Dup.Ns.Alpha", result.Message);
+            Assert.Contains("Other.Ns.Alpha", result.Message);
             Assert.IsFalse(
                 result.Message!.Contains("ABI.", StringComparison.Ordinal),
                 "An ABI twin is the same type, not a competing candidate.");
@@ -990,7 +993,8 @@ public sealed class ApiQueryEngineTests
             var result = ApiQueryEngine.CheckProperty("Alpha", "Anything", cacheDir, manifest);
 
             Assert.AreEqual(ApiQueryOutcome.InvalidInput, result.Outcome);
-            StringAssert.Contains(result.Message, "ambiguous");
+            Assert.IsNotNull(result.Message);
+            Assert.Contains("ambiguous", result.Message);
         }
         finally
         {
@@ -1083,15 +1087,15 @@ public sealed class ApiQueryEngineTests
 
             // Declared members stay inline, with their signatures.
             Assert.AreEqual("Own", result.Data!.Properties.Single().Name);
-            StringAssert.Contains(result.Data.Properties.Single().Signature, "Own");
+            Assert.Contains("Own", result.Data.Properties.Single().Signature);
 
             // Inherited members are summarized by the type that declares them.
             Assert.IsNotNull(result.Data.Inherited);
             var middle = result.Data.Inherited!.Single(g => g.DeclaringType == "Inh.Ns.Middle");
             var root = result.Data.Inherited!.Single(g => g.DeclaringType == "Inh.Ns.Root");
-            CollectionAssert.AreEqual(ExpectedMiddleProperties, middle.Properties!.ToArray());
-            CollectionAssert.AreEqual(ExpectedMiddleEvents, middle.Events!.ToArray());
-            CollectionAssert.AreEqual(ExpectedRootProperties, root.Properties!.ToArray());
+            Assert.AreSequenceEqual(ExpectedMiddleProperties, middle.Properties!.ToArray());
+            Assert.AreSequenceEqual(ExpectedMiddleEvents, middle.Events!.ToArray());
+            Assert.AreSequenceEqual(ExpectedRootProperties, root.Properties!.ToArray());
 
             // A group with no members of a kind carries no empty array.
             Assert.IsNull(middle.Methods);
@@ -1122,9 +1126,9 @@ public sealed class ApiQueryEngineTests
             Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
             Assert.IsNull(result.Data!.Inherited, "--all inlines inherited members instead of summarizing them");
             var names = result.Data.Properties.Select(p => p.Name).ToList();
-            CollectionAssert.Contains(names, "Own");
-            CollectionAssert.Contains(names, "FromMiddle");
-            CollectionAssert.Contains(names, "FromRoot");
+            Assert.Contains("Own", names);
+            Assert.Contains("FromMiddle", names);
+            Assert.Contains("FromRoot", names);
 
             var fromRoot = result.Data.Properties.Single(p => p.Name == "FromRoot");
             Assert.AreEqual("Inh.Ns.Root", fromRoot.DeclaringType);
@@ -1930,8 +1934,10 @@ public sealed class ApiQueryEngineTests
             ApiTypeHit hit = result.Data!.Results
                 .SelectMany(r => r.Matches)
                 .Single(m => m.Display.Contains("LanguageModel", StringComparison.Ordinal));
-            StringAssert.Contains(hit.Description, "text generation");
-            StringAssert.Contains(hit.Package, "Desc.Pkg");
+            Assert.IsNotNull(hit.Description);
+            Assert.Contains("text generation", hit.Description);
+            Assert.IsNotNull(hit.Package);
+            Assert.Contains("Desc.Pkg", hit.Package);
         }
         finally
         {
@@ -1953,9 +1959,10 @@ public sealed class ApiQueryEngineTests
 
             Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
             Assert.IsNotNull(result.Data!.Fields, "a field-only struct must report its fields");
-            CollectionAssert.AreEquivalent(
+            Assert.AreSequenceEqual(
                 ExpectedPackageVersionFields,
-                result.Data.Fields!.ConvertAll(f => f.Name));
+                result.Data.Fields!.ConvertAll(f => f.Name),
+                SequenceOrder.InAnyOrder);
         }
         finally
         {
@@ -2023,7 +2030,7 @@ public sealed class ApiQueryEngineTests
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
         Assert.IsFalse(result.Data!.Found, "a case-only difference is not the same property");
         Assert.IsNotNull(result.Data.SimilarOnType, "the correct spelling must still be offered");
-        CollectionAssert.Contains(result.Data.SimilarOnType!.ConvertAll(m => m.Name), "Color");
+        Assert.Contains("Color", result.Data.SimilarOnType!.ConvertAll(m => m.Name));
     }
 
     [TestMethod]
@@ -2036,7 +2043,7 @@ public sealed class ApiQueryEngineTests
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
         Assert.IsTrue(result.Data!.Found, "an attached property is a real property");
         Assert.IsTrue(result.Data.Attached);
-        StringAssert.Contains(result.Data.AttachedInfo ?? string.Empty, "Gadget.GetRow()");
+        Assert.Contains("Gadget.GetRow()", result.Data.AttachedInfo ?? string.Empty);
         Assert.AreEqual(true, result.Data.Writable, "a Get/Set pair can be assigned");
     }
 
@@ -2090,7 +2097,7 @@ public sealed class ApiQueryEngineTests
         var results = ApiQueryEngine.CheckProperties(
             "My.Ns.Widget", ThreeCheckedPropertyNames, _cacheDir, _manifest);
 
-        CollectionAssert.AreEqual(ThreeCheckedPropertyNames, results.ConvertAll(r => r.Property));
+        Assert.AreSequenceEqual(ThreeCheckedPropertyNames, results.ConvertAll(r => r.Property));
         Assert.IsTrue(results[0].Result.Data!.Found);
         Assert.IsFalse(results[1].Result.Data!.Found);
         Assert.IsFalse(results[2].Result.Data!.Found, "a method of the same name is not a property");
@@ -2246,8 +2253,9 @@ public sealed class ApiQueryEngineTests
             var result = ApiQueryEngine.Members("Pair", filter: null, cacheDir, manifest);
 
             Assert.AreEqual(ApiQueryOutcome.InvalidInput, result.Outcome);
-            StringAssert.Contains(result.Message, "Gen.Ns.Pair`1");
-            StringAssert.Contains(result.Message, "Gen.Ns.Pair`2");
+            Assert.IsNotNull(result.Message);
+            Assert.Contains("Gen.Ns.Pair`1", result.Message);
+            Assert.Contains("Gen.Ns.Pair`2", result.Message);
         }
         finally
         {

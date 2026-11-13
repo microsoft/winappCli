@@ -382,7 +382,7 @@ public partial class UiCommandTests
             command, ["-a", "TestApp", "btn-offscreen-a1b2", "-o", outputPath, "--json"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "offscreen",
+        Assert.Contains("offscreen", ConsoleStdErr.ToString(),
             "error message must contain 'offscreen' to guide the user");
         Assert.IsFalse(File.Exists(outputPath),
             "no output file should be written when element is offscreen");

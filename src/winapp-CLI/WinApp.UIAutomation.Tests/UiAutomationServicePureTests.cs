@@ -72,7 +72,7 @@ public class UiAutomationServicePureTests
         var result = (List<IUIAutomationElement>)method.Invoke(service,
             [first, null, 2, manualSearch, null, false, true, CancellationToken.None])!;
 
-        CollectionAssert.AreEqual(new[] { first, second }, result);
+        Assert.AreSequenceEqual(new[] { first, second }, result);
         Assert.AreEqual(source is "manual" or "combined" ? 1 : 0, manualCalls,
             "The cap counts distinct providers, not duplicate bulk entries.");
     }
@@ -108,7 +108,7 @@ public class UiAutomationServicePureTests
         UiAutomationService.DeduplicateInspectedElements(elements,
             new Dictionary<UiElement, string> { [deep] = "shared-runtime-id", [shallow] = "shared-runtime-id" });
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new List<UiElement> { mainHeader, main, container, popupHeader, popup, shallow, child }, elements);
         Assert.IsFalse(elements.Any(element => element.HasMoreChildren == true));
         Assert.AreEqual(shallow.WindowHandle, child.WindowHandle);
@@ -141,7 +141,7 @@ public class UiAutomationServicePureTests
 
         UiAutomationService.DeduplicateInspectedElements(elements,
             new Dictionary<UiElement, string> { [first] = "same", [second] = "same" });
-        CollectionAssert.AreEqual(new List<UiElement> { firstHeader, first }, elements);
+        Assert.AreSequenceEqual(new List<UiElement> { firstHeader, first }, elements);
     }
 
     // Note: UIA_CONTROLTYPE_ID is an internal (CsWin32-generated) enum, so it cannot appear in a
@@ -344,7 +344,7 @@ public class UiAutomationServicePureTests
 
         Assert.AreEqual(2, calls, "blank first capture must trigger one retry");
         Assert.IsTrue(foregrounded, "blank retry must foreground the target window");
-        CollectionAssert.AreEqual(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, pixels);
+        Assert.AreSequenceEqual(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, pixels);
     }
 
     [TestMethod]
@@ -440,7 +440,7 @@ public class UiAutomationServicePureTests
 
         var ex = Assert.ThrowsExactly<System.Runtime.InteropServices.COMException>(
             () => unchecked((int)0x80004005).ThrowIfFailed("CopyFrame"));
-        StringAssert.Contains(ex.Message, "CopyFrame failed");
+        Assert.Contains("CopyFrame failed", ex.Message);
         Assert.AreEqual(unchecked((int)0x80004005), ex.HResult);
     }
 

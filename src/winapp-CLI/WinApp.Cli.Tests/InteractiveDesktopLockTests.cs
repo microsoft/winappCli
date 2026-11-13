@@ -161,7 +161,7 @@ public partial class InteractiveDesktopLockTests
         Assert.AreEqual(UiCoordinationOutcome.Completed, summary.Outcome);
 
         // Buckets only — an exact wait duration could correlate a user's workflow timing across events.
-        StringAssert.Matches(summary.WaitBucket, new System.Text.RegularExpressions.Regex(@"^\d+(-\d+|\+)?$"));
+        Assert.MatchesRegex(new System.Text.RegularExpressions.Regex(@"^\d+(-\d+|\+)?$"), summary.WaitBucket);
     }
 
     [TestMethod]
@@ -273,8 +273,8 @@ public partial class InteractiveDesktopLockTests
 
         Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, exitCode,
             "a cancelled command reports 130, not an internal error");
-        StringAssert.Contains(errorWriter.ToString(), "\"code\":\"cancelled\"");
-        StringAssert.Contains(errorWriter.ToString(), "cancelled after it acquired the desktop");
+        Assert.Contains("\"code\":\"cancelled\"", errorWriter.ToString());
+        Assert.Contains("cancelled after it acquired the desktop", errorWriter.ToString());
         Assert.AreEqual(0, ReadOwnerDeadline(),
             "a command that produced nothing must not renew the owner's idle grace");
     }
@@ -568,8 +568,8 @@ public partial class InteractiveDesktopLockTests
         Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, await queued);
 
         var payload = errorWriter.ToString();
-        StringAssert.Contains(payload, "\"code\":\"cancelled\"");
-        StringAssert.Contains(payload, "\"waitedMs\"");
+        Assert.Contains("\"code\":\"cancelled\"", payload);
+        Assert.Contains("\"waitedMs\"", payload);
         // Owner identity must never surface, in raw or hashed form.
         Assert.IsFalse(payload.Contains("some-other-workflow", StringComparison.Ordinal));
         Assert.IsFalse(payload.Contains("interactive-desktop-lock-tests", StringComparison.Ordinal));
@@ -632,9 +632,9 @@ public partial class InteractiveDesktopLockTests
         Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, await queued);
 
         var notice = _statusOut.ToString();
-        StringAssert.Contains(notice, "another workflow is using the desktop ('ui record')");
-        StringAssert.Contains(notice, "has held it for 2m");
-        StringAssert.Contains(notice, "WINAPP_UI_WORKFLOW_ID");
+        Assert.Contains("another workflow is using the desktop ('ui record')", notice);
+        Assert.Contains("has held it for 2m", notice);
+        Assert.Contains("WINAPP_UI_WORKFLOW_ID", notice);
         Assert.IsFalse(notice.Contains("some-other-workflow", StringComparison.Ordinal),
             "the notice must never identify the other workflow");
         Assert.IsFalse(notice.Contains("424242", StringComparison.Ordinal),
@@ -687,7 +687,7 @@ public partial class InteractiveDesktopLockTests
 
         await cts.CancelAsync();
         Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, await queued);
-        StringAssert.Contains(_statusOut.ToString(), "an earlier 'ui screenshot' in this workflow must finish first.");
+        Assert.Contains("an earlier 'ui screenshot' in this workflow must finish first.", _statusOut.ToString());
     }
 
     [TestMethod]

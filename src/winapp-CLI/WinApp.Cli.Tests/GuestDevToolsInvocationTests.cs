@@ -36,7 +36,7 @@ public sealed class GuestDevToolsInvocationTests : BaseCommandTests
         var result = await InvokeProgramAsync(["--json", helper, "--help"], coldCache: true);
         Assert.AreEqual(1, result.ExitCode);
         Assert.AreEqual(string.Empty, result.Stdout);
-        StringAssert.Contains(result.Stderr, "must be the first argument");
+        Assert.Contains("must be the first argument", result.Stderr);
     }
 
     [TestMethod]
@@ -50,7 +50,7 @@ public sealed class GuestDevToolsInvocationTests : BaseCommandTests
         Assert.AreEqual(1, result.ExitCode);
         using var payload = JsonDocument.Parse(result.Stdout);
         Assert.IsFalse(payload.RootElement.GetProperty("ok").GetBoolean());
-        StringAssert.Contains(result.Stdout, "lifetime expired");
+        Assert.Contains("lifetime expired", result.Stdout);
     }
 
     [TestMethod]
@@ -80,6 +80,6 @@ public sealed class GuestDevToolsInvocationTests : BaseCommandTests
         Assert.AreEqual(1, result.ExitCode);
         using var payload = JsonDocument.Parse(result.Stdout);
         Assert.IsFalse(payload.RootElement.GetProperty("ok").GetBoolean());
-        StringAssert.Contains(result.Stdout, "Supply --app");
+        Assert.Contains("Supply --app", result.Stdout);
     }
 }

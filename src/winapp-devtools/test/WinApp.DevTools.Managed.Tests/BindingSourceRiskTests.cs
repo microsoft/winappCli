@@ -77,9 +77,9 @@ public sealed class BindingSourceRiskTests
         if (writes != "False")
         {
             string warning = result.RootElement.GetProperty("editWarning").GetString()!;
-            StringAssert.Contains(warning, "source model");
-            StringAssert.Contains(warning, "does not undo");
-            if (trigger == "PropertyChanged") StringAssert.Contains(warning, "immediately");
+            Assert.Contains("source model", warning);
+            Assert.Contains("does not undo", warning);
+            if (trigger == "PropertyChanged") Assert.Contains("immediately", warning);
         }
     }
 
@@ -108,7 +108,7 @@ public sealed class BindingSourceRiskTests
         var model = new Model { Value = "DEVTOOLS-LITERAL" };
         var owner = new CompiledOwner(model);
         using var preview = JsonDocument.Parse(BindingDiagnosis.RebindOwner(owner, false)!);
-        StringAssert.Contains(preview.RootElement.GetProperty("restoreDisclosure").GetString()!, "not undone");
+        Assert.Contains("not undone", preview.RootElement.GetProperty("restoreDisclosure").GetString()!);
         Assert.AreEqual(0, owner.Bindings.Calls);
         Assert.IsNull(BindingDiagnosis.RebindOwner(owner, true));
         Assert.AreEqual(1, owner.Bindings.Calls);

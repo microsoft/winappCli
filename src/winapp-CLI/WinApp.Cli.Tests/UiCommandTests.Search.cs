@@ -57,11 +57,11 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["e", "-a", "TestApp", "--max", "2"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "txt-label-1");
-        StringAssert.Contains(TestAnsiConsole.Output, "invoke via");
-        StringAssert.Contains(TestAnsiConsole.Output, "btn-submit-9");
-        StringAssert.Contains(TestAnsiConsole.Output, "chk-enabled-2");
-        StringAssert.Contains(TestAnsiConsole.Output, "checked");
+        Assert.Contains("txt-label-1", TestAnsiConsole.Output);
+        Assert.Contains("invoke via", TestAnsiConsole.Output);
+        Assert.Contains("btn-submit-9", TestAnsiConsole.Output);
+        Assert.Contains("chk-enabled-2", TestAnsiConsole.Output);
+        Assert.Contains("checked", TestAnsiConsole.Output);
         // The third match is truncated away.
         Assert.IsFalse(TestAnsiConsole.Output.Contains("btn-extra-3"));
     }

@@ -38,9 +38,9 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
     {
         var (exitCode, output) = await Run("list");
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(output, "run.devtools = on (default)");
-        StringAssert.Contains(output, "on, off or headless");
-        StringAssert.Contains(output, "per-user winapp settings, separate from a project's winapp.yaml");
+        Assert.Contains("run.devtools = on (default)", output);
+        Assert.Contains("on, off or headless", output);
+        Assert.Contains("per-user winapp settings, separate from a project's winapp.yaml", output);
     }
 
     [TestMethod]
@@ -53,10 +53,10 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
         Assert.AreEqual("on", setting.GetProperty("value").GetString());
         Assert.AreEqual("default", setting.GetProperty("source").GetString());
         Assert.AreEqual("on", setting.GetProperty("default").GetString());
-        CollectionAssert.AreEqual(new List<string> { "on", "off", "headless" }, UserSettings.RunDevTools.Values.ToList());
-        CollectionAssert.AreEqual(UserSettings.RunDevTools.Values.ToArray(),
+        Assert.AreSequenceEqual(new List<string> { "on", "off", "headless" }, UserSettings.RunDevTools.Values.ToList());
+        Assert.AreSequenceEqual(UserSettings.RunDevTools.Values.ToArray(),
             setting.GetProperty("values").EnumerateArray().Select(value => value.GetString()).ToArray());
-        StringAssert.Contains(output, "isn't given", "JSON keeps apostrophes readable");
+        Assert.Contains("isn't given", output, "JSON keeps apostrophes readable");
     }
 
     [TestMethod]
@@ -77,7 +77,7 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
 
         (exitCode, output) = await Run("unset", "run.devtools");
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(output, "run.devtools = on (default)");
+        Assert.Contains("run.devtools = on (default)", output);
         Assert.IsFalse(File.Exists(ToolbarFile));
         Assert.AreEqual(0, (await Run("unset", "run.devtools")).ExitCode, "unsetting twice is fine");
     }
@@ -88,7 +88,7 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
         _settings.StateDirectory = Path.Combine(_tempDirectory.FullName, "fresh-profile", "state");
         var (exitCode, output) = await Run("unset", "run.devtools");
         Assert.AreEqual(0, exitCode, output);
-        StringAssert.Contains(output, "run.devtools = on (default)");
+        Assert.Contains("run.devtools = on (default)", output);
     }
     [TestMethod]
     [DataRow("off", "off")]
@@ -96,7 +96,7 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
     public async Task Get_ReadsWhatTheToolbarWrote(string written, string expected)
     {
         File.WriteAllText(ToolbarFile, written);
-        StringAssert.Contains((await Run("get", "run.devtools")).Output, $"run.devtools = {expected} (setting)");
+        Assert.Contains($"run.devtools = {expected} (setting)", (await Run("get", "run.devtools")).Output);
         Assert.AreEqual(Enum.Parse<DevToolsMode>(expected, ignoreCase: true), _settings.ReadDevToolsMode(),
             "winapp run reads the same value");
     }
@@ -105,7 +105,7 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
     public async Task Get_IgnoresAFileThatHoldsNoValidValue()
     {
         File.WriteAllText(ToolbarFile, "sometimes");
-        StringAssert.Contains((await Run("get", "run.devtools")).Output, "run.devtools = on (default)");
+        Assert.Contains("run.devtools = on (default)", (await Run("get", "run.devtools")).Output);
         Assert.IsNull(_settings.ReadDevToolsMode());
     }
 
@@ -114,10 +114,10 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", ".."));
         var native = Path.Combine(root, "src", "winapp-devtools", "native", "WinApp.DevTools.Native");
-        StringAssert.Contains(File.ReadAllText(Path.Combine(native, "DevToolsSettings.h")),
-            "return dir + L\"\\\\devtools-\" + name + L\".setting\";");
-        StringAssert.Contains(File.ReadAllText(Path.Combine(native, "DevToolsOverlay.Toolbar.inc")),
-            "DevToolsSettingsGetText(L\"DefaultMode\")");
+        Assert.Contains("return dir + L\"\\\\devtools-\" + name + L\".setting\";",
+            File.ReadAllText(Path.Combine(native, "DevToolsSettings.h")));
+        Assert.Contains("DevToolsSettingsGetText(L\"DefaultMode\")",
+            File.ReadAllText(Path.Combine(native, "DevToolsOverlay.Toolbar.inc")));
         Assert.AreEqual("devtools-DefaultMode.setting", UserSettings.RunDevTools.FileName);
     }
 
@@ -149,7 +149,7 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
     {
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(["config", verb, "--help"]);
         Assert.AreEqual(0, exitCode, stderr);
-        StringAssert.Contains(stdout, "Usage:");
+        Assert.Contains("Usage:", stdout);
     }
     [TestMethod]
     [DoNotParallelize]
@@ -157,7 +157,7 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
     {
         var (_, stderr, exitCode) = await InvokeProgramAsync(["config", "set", "run.devtools", "off", "--on", "sandbox"]);
         Assert.AreNotEqual(0, exitCode);
-        StringAssert.Contains(stderr, "does not accept --on");
+        Assert.Contains("does not accept --on", stderr);
     }
 
     [TestMethod]
@@ -167,10 +167,10 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
             GetRequiredService<WinAppRootCommand>().Parse(args, WinAppParserConfiguration.Default).CommandResult, DateTime.UnixEpoch).Context;
 
         var set = Context("config", "set", "run.devtools", "HEADLESS");
-        StringAssert.Contains(set, "\"key\":\"run.devtools\"");
-        StringAssert.Contains(set, "\"value\":\"headless\"");
+        Assert.Contains("\"key\":\"run.devtools\"", set);
+        Assert.Contains("\"value\":\"headless\"", set);
         Assert.DoesNotContain("[string]", set);
-        StringAssert.Contains(Context("config", "get", "run.devtools"), "\"key\":\"run.devtools\"");
+        Assert.Contains("\"key\":\"run.devtools\"", Context("config", "get", "run.devtools"));
         // Free text the user typed never reaches telemetry: an unknown key or value is recorded as an error.
         var bad = Context("config", "set", "my-secret-key", "my-secret-value");
         Assert.DoesNotContain("my-secret", bad);

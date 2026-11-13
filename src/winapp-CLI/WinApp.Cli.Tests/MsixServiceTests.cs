@@ -887,7 +887,7 @@ public class MsixServiceTests
         var (content, arch) = MsixService.EnsureProcessorArchitecture(ManifestWithoutArch, "arm64", taskContext);
 
         Assert.AreEqual("arm64", arch);
-        StringAssert.Contains(content, "ProcessorArchitecture=\"arm64\"");
+        Assert.Contains("ProcessorArchitecture=\"arm64\"", content);
     }
 
     [TestMethod]
@@ -899,7 +899,7 @@ public class MsixServiceTests
         var (content, arch) = MsixService.EnsureProcessorArchitecture(ManifestWithX86Arch, "arm64", taskContext);
 
         Assert.AreEqual("x86", arch);
-        StringAssert.Contains(content, "ProcessorArchitecture=\"x86\"");
+        Assert.Contains("ProcessorArchitecture=\"x86\"", content);
         Assert.IsFalse(content.Contains("arm64"), "an explicit manifest architecture must not be overwritten");
     }
 
@@ -928,7 +928,7 @@ public class MsixServiceTests
 
         // Assert
         Assert.AreEqual("x64", arch);
-        StringAssert.Contains(content, "ProcessorArchitecture=\"x64\"");
+        Assert.Contains("ProcessorArchitecture=\"x64\"", content);
     }
 
     [TestMethod]
@@ -944,7 +944,7 @@ public class MsixServiceTests
 
         // Assert
         Assert.AreEqual("arm64", arch);
-        StringAssert.Contains(content, "ProcessorArchitecture=\"arm64\"");
+        Assert.Contains("ProcessorArchitecture=\"arm64\"", content);
     }
 
     [TestMethod]
@@ -1171,7 +1171,7 @@ public class MsixServiceTests
         var result = await InvokeUpdateAppxManifestContentAsync(service, manifest);
 
         // Assert
-        StringAssert.Contains(result, "<uap:VisualElements DisplayName=\"Test App\" Square150x150Logo=\"Assets\\\\Logo.png\" AppListEntry=\"none\">");
+        Assert.Contains("<uap:VisualElements DisplayName=\"Test App\" Square150x150Logo=\"Assets\\\\Logo.png\" AppListEntry=\"none\">", result);
     }
 
     [TestMethod]
@@ -1203,7 +1203,7 @@ public class MsixServiceTests
         var result = await InvokeUpdateAppxManifestContentAsync(service, manifest);
 
         // Assert
-        StringAssert.Contains(result, "<uap:VisualElements DisplayName=\"Test App\" Square150x150Logo=\"Assets\\\\Logo.png\" AppListEntry=\"none\" />");
+        Assert.Contains("<uap:VisualElements DisplayName=\"Test App\" Square150x150Logo=\"Assets\\\\Logo.png\" AppListEntry=\"none\" />", result);
     }
 
     [TestMethod]
@@ -1239,9 +1239,9 @@ public class MsixServiceTests
         var result = await InvokeUpdateAppxManifestContentAsync(service, manifest, entryPointPath: null, sparse: true);
 
         // Assert — the sparse rewrite was applied using the manifest's own executable.
-        StringAssert.Contains(result, "uap10:RuntimeBehavior=\"win32App\"");
+        Assert.Contains("uap10:RuntimeBehavior=\"win32App\"", result);
         Assert.IsFalse(result.Contains("packagedClassicApp"), "Pre-existing packagedClassicApp must be corrected to win32App for folder inputs");
-        StringAssert.Contains(result, "uap10:TrustLevel=\"mediumIL\"");
+        Assert.Contains("uap10:TrustLevel=\"mediumIL\"", result);
     }
 
     [TestMethod]
@@ -1274,9 +1274,9 @@ public class MsixServiceTests
         var result = await InvokeUpdateAppxManifestContentAsync(service, manifest, "TestApp.exe", sparse: true);
 
         // Assert
-        StringAssert.Contains(result, "uap10:RuntimeBehavior=\"win32App\"");
+        Assert.Contains("uap10:RuntimeBehavior=\"win32App\"", result);
         Assert.IsFalse(result.Contains("packagedClassicApp"), "Pre-existing packagedClassicApp must be corrected to win32App");
-        StringAssert.Contains(result, "uap10:TrustLevel=\"mediumIL\"");
+        Assert.Contains("uap10:TrustLevel=\"mediumIL\"", result);
     }
 
     [TestMethod]
@@ -1306,7 +1306,7 @@ public class MsixServiceTests
 
         var result = await InvokeUpdateAppxManifestContentAsync(service, manifest, entryPointPath: null, sparse: true);
 
-        StringAssert.Contains(result, "MinVersion=\"10.0.19041.0\"");
+        Assert.Contains("MinVersion=\"10.0.19041.0\"", result);
         Assert.IsFalse(result.Contains("MinVersion=\"10.0.18362.0\""), "MinVersion below the AllowExternalContent floor must be raised for folder inputs");
     }
 
@@ -1677,8 +1677,8 @@ public class MsixServiceTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => svc.UnregisterExistingPackageAsync("MyApp", CreateTestTaskContext()));
 
-        StringAssert.Contains(ex.Message, "MyApp_2.0.0.0_x64__store");
-        StringAssert.Contains(ex.Message, "Get-AppxPackage MyApp | Remove-AppxPackage");
+        Assert.Contains("MyApp_2.0.0.0_x64__store", ex.Message);
+        Assert.Contains("Get-AppxPackage MyApp | Remove-AppxPackage", ex.Message);
         Assert.AreEqual(0, fake.UnregisterByFullNameCalls.Count, "Must not remove anything when refusing");
     }
 
@@ -2199,7 +2199,7 @@ public class MsixServiceTests
 
         // Assert — app's PRI is preserved
         var resultPri = File.ReadAllBytes(Path.Combine(stagingDir.FullName, "resources.pri"));
-        CollectionAssert.AreEqual(appPriContent, resultPri,
+        Assert.AreSequenceEqual(appPriContent, resultPri,
             "App's resources.pri must not be overwritten by the runtime's");
     }
 
@@ -2222,7 +2222,7 @@ public class MsixServiceTests
 
         // Assert — app's asset is preserved
         var resultLogo = File.ReadAllBytes(Path.Combine(assetsDir.FullName, "StoreLogo.png"));
-        CollectionAssert.AreEqual(appLogoContent, resultLogo,
+        Assert.AreSequenceEqual(appLogoContent, resultLogo,
             "App's Assets\\StoreLogo.png must not be overwritten by the runtime's");
     }
 

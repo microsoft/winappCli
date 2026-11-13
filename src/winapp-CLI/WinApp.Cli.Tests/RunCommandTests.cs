@@ -200,7 +200,7 @@ public class RunCommandTests : BaseCommandTests
             "'.' should bind to the input-folder argument");
         var passthrough = parseResult.GetValue(RunCommand.PassthroughArgument);
         var expectedPassthrough = new[] { "--appflag", "value" };
-        CollectionAssert.AreEqual(expectedPassthrough, passthrough,
+        Assert.AreSequenceEqual(expectedPassthrough, passthrough,
             "The post-'--' tokens should be captured by the passthrough argument");
     }
 
@@ -287,8 +287,8 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.IsFalse(RunCommand.TryResolveLayoutOutput(parseResult, out _, out var error));
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, "--output-appx-directory", StringComparison.Ordinal);
-        StringAssert.Contains(error, "--managed-appx-directory", StringComparison.Ordinal);
+        Assert.Contains("--output-appx-directory", error, StringComparison.Ordinal);
+        Assert.Contains("--managed-appx-directory", error, StringComparison.Ordinal);
     }
 
     /// <summary>The internal option stays out of help and the generated schema.</summary>
@@ -410,7 +410,7 @@ public class RunCommandTests : BaseCommandTests
         // Assert
         Assert.AreEqual(0, exitCode, "Command should succeed");
         Assert.AreEqual(1, _fakeMsixService.AddLooseLayoutCalls.Count, "Debug identity should be created");
-        StringAssert.Contains(_fakeMsixService.AddLooseLayoutCalls[0].ManifestPath, subFolder.FullName,
+        Assert.Contains(subFolder.FullName, _fakeMsixService.AddLooseLayoutCalls[0].ManifestPath,
             "Manifest should be resolved from the input folder");
     }
 
@@ -428,7 +428,7 @@ public class RunCommandTests : BaseCommandTests
         // Assert
         Assert.AreEqual(0, exitCode, "Command should succeed");
         Assert.AreEqual(1, _fakeMsixService.AddLooseLayoutCalls.Count, "Debug identity should be created");
-        StringAssert.Contains(_fakeMsixService.AddLooseLayoutCalls[0].ManifestPath, manifest.FullName,
+        Assert.Contains(manifest.FullName, _fakeMsixService.AddLooseLayoutCalls[0].ManifestPath,
             "Explicit --manifest should take priority");
     }
 
@@ -472,7 +472,8 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         var error = ParseJsonOutput().GetProperty("Error").GetString();
-        StringAssert.Contains(error, fullName == "lookup-failed" ? "Package lookup failed." : "--profile-mode attach");
+        Assert.IsNotNull(error);
+        Assert.Contains(fullName == "lookup-failed" ? "Package lookup failed." : "--profile-mode attach", error);
         Assert.IsFalse(Directory.Exists(output));
         Assert.IsEmpty(_fakeAppLauncherService.LaunchCalls);
         Assert.IsEmpty(_fakeAppLauncherService.LaunchExecutableCalls);
@@ -513,8 +514,8 @@ public class RunCommandTests : BaseCommandTests
         var code = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(), args.ToArray());
         Assert.AreEqual(1, code);
         var message = json ? ParseJsonOutput().GetProperty("Error").GetString()! : ConsoleStdErr.ToString();
-        StringAssert.Contains(message, "Access was denied");
-        StringAssert.Contains(message, "Win32 5");
+        Assert.Contains("Access was denied", message);
+        Assert.Contains("Win32 5", message);
         Assert.IsFalse(message.Contains("UnauthorizedAccess_IODenied_NoPathName", StringComparison.Ordinal));
         Assert.IsFalse(message.Contains("is locked by", StringComparison.Ordinal));
     }
@@ -689,7 +690,7 @@ public class RunCommandTests : BaseCommandTests
         var root = JsonDocument.Parse(output).RootElement;
         var error = root.GetProperty("Error").GetString();
         Assert.IsNotNull(error, "The JSON error object must carry an Error field");
-        StringAssert.Contains(error, "does not exist",
+        Assert.Contains("does not exist", error,
             "The existence error should be surfaced in the JSON Error field");
         Assert.IsFalse(root.TryGetProperty("AUMID", out _), "AUMID should not be present on a validation error");
     }
@@ -712,7 +713,7 @@ public class RunCommandTests : BaseCommandTests
         Assert.AreNotEqual(0, exitCode, "A layout winapp will not build must fail the run");
 
         var json = ParseJsonOutput();
-        StringAssert.Contains(json.GetProperty("Error").GetString(), linkPath, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(linkPath, json.GetProperty("Error").GetString()!, StringComparison.OrdinalIgnoreCase);
         Assert.IsFalse(json.TryGetProperty("AUMID", out _),
             "nothing may be registered when the layout was refused");
     }
@@ -730,7 +731,7 @@ public class RunCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--no-launch", "--quiet"]);
 
         Assert.AreNotEqual(0, exitCode, "A layout winapp will not build must fail the run");
-        StringAssert.Contains(ConsoleStdErr.ToString(), linkPath, StringComparison.OrdinalIgnoreCase,
+        Assert.Contains(linkPath, ConsoleStdErr.ToString(), StringComparison.OrdinalIgnoreCase,
             "quiet suppresses progress, not the reason the run produced no app");
         Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count,
             "nothing may be launched when the layout was refused");
@@ -979,7 +980,7 @@ public class RunCommandTests : BaseCommandTests
         var json = ParseJsonOutput();
         Assert.IsTrue(json.TryGetProperty("Error", out var error),
             "JSON output should contain an Error property when --json and --debug-output are combined");
-        StringAssert.Contains(error.GetString(), "--json and --debug-output cannot be used together",
+        Assert.Contains("--json and --debug-output cannot be used together", error.GetString()!,
             "The structured error should explain the mutually exclusive options");
     }
 
@@ -1014,7 +1015,7 @@ public class RunCommandTests : BaseCommandTests
         Assert.AreEqual(0, _fakeDebugOutputService.AttachCalls.Count,
             "No debug loop should run without --debug-output");
 
-        StringAssert.Contains(ambient.Output, "--symbols has no effect without --debug-output",
+        Assert.Contains("--symbols has no effect without --debug-output", ambient.Output,
             "A warning should tell the user --symbols was ignored");
     }
 
@@ -1310,9 +1311,9 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode, "Forwarding is not an error");
         var output = $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}";
-        StringAssert.Contains(output, "'--detach' was passed to your application",
+        Assert.Contains("'--detach' was passed to your application", output,
             "The notice should name the token that changed meaning");
-        StringAssert.Contains(output, "WinAppRunDetach=true",
+        Assert.Contains("WinAppRunDetach=true", output,
             "The notice should name the property that replaces it");
         Assert.AreEqual("--detach", _fakeAppLauncherService.LaunchCalls[0].Arguments,
             "The token must still reach the app");
@@ -1387,7 +1388,7 @@ public class RunCommandTests : BaseCommandTests
             ["run", _tempDirectory.FullName, "--caller", "nuget-package", "--", "--devtools"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", "-p:WinAppRunDevTools=<on|off|headless>");
+        Assert.Contains("-p:WinAppRunDevTools=<on|off|headless>", $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}");
     }
 
     [TestMethod]
@@ -1404,9 +1405,9 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var output = $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}";
-        StringAssert.Contains(output, "'--executable=foo.exe' was passed to your application",
+        Assert.Contains("'--executable=foo.exe' was passed to your application", output,
             "The notice should quote the token exactly as the user typed it");
-        StringAssert.Contains(output, "WinAppRunExecutable=<path>",
+        Assert.Contains("WinAppRunExecutable=<path>", output,
             "The property lookup should use the option name, not the attached-value token");
     }
 
@@ -1682,7 +1683,7 @@ public class RunCommandTests : BaseCommandTests
         var json = ParseJsonOutput();
         var error = json.GetProperty("Error").GetString();
         Assert.IsNotNull(error, "JSON output must contain an Error field in --json mode");
-        StringAssert.Contains(error, "--badtoken", "Error message should name the offending token");
+        Assert.Contains("--badtoken", error, "Error message should name the offending token");
     }
 
     [TestMethod]
@@ -1779,7 +1780,7 @@ public class RunCommandTests : BaseCommandTests
         var json = ParseJsonOutput();
         Assert.IsTrue(json.TryGetProperty("Error", out var error),
             "JSON output should contain an Error property when a token is unrecognized");
-        StringAssert.Contains(error.GetString(), "Unrecognized argument",
+        Assert.Contains("Unrecognized argument", error.GetString()!,
             "The structured error should explain the unrecognized argument");
         Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count, "No application should be launched");
     }
@@ -1948,7 +1949,7 @@ public class RunCommandTests : BaseCommandTests
         Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "Removal is still attempted");
         var output = System.Text.RegularExpressions.Regex.Replace(
             $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
-        StringAssert.Contains(output, "still registered", "A refused removal has to be reported");
+        Assert.Contains("still registered", output, "A refused removal has to be reported");
     }
 
     [TestMethod]
@@ -1978,8 +1979,8 @@ public class RunCommandTests : BaseCommandTests
         // Collapse whitespace: the console wraps at ~80 columns and would otherwise split the phrase.
         var output = System.Text.RegularExpressions.Regex.Replace(
             $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
-        StringAssert.Contains(output, "left registered", "The broken promise has to be reported");
-        StringAssert.Contains(output, "winapp unregister", "and the user told how to clean up");
+        Assert.Contains("left registered", output, "The broken promise has to be reported");
+        Assert.Contains("winapp unregister", output, "and the user told how to clean up");
     }
 
     [TestMethod]
@@ -2074,7 +2075,7 @@ public class RunCommandTests : BaseCommandTests
             [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Processed manifest not found");
+        Assert.Contains("Processed manifest not found", ConsoleStdErr.ToString());
         Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count, "AUMID launch must not be used with --with-alias");
     }
 
@@ -2090,7 +2091,7 @@ public class RunCommandTests : BaseCommandTests
             [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "No execution alias found");
+        Assert.Contains("No execution alias found", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -2105,7 +2106,7 @@ public class RunCommandTests : BaseCommandTests
             [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "is not a valid bare");
+        Assert.Contains("is not a valid bare", ConsoleStdErr.ToString());
         Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count);
     }
 
@@ -2122,7 +2123,7 @@ public class RunCommandTests : BaseCommandTests
             [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "was not found");
+        Assert.Contains("was not found", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -2141,7 +2142,7 @@ public class RunCommandTests : BaseCommandTests
             [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "was not found");
+        Assert.Contains("was not found", ConsoleStdErr.ToString());
         Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count, "The command must not fall back to an AUMID launch");
     }
 
@@ -2166,7 +2167,7 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.IsFalse(started, "An alias whose owner cannot be read must never be launched");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Could not read which package owns");
+        Assert.Contains("Could not read which package owns", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -2189,7 +2190,7 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.IsFalse(started, "Launching would have started the other package's app");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "already belongs to package");
+        Assert.Contains("already belongs to package", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -2253,7 +2254,7 @@ public class RunCommandTests : BaseCommandTests
             [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to launch via execution alias");
+        Assert.Contains("Failed to launch via execution alias", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -2320,7 +2321,7 @@ public class RunCommandTests : BaseCommandTests
             [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to launch via execution alias");
+        Assert.Contains("Failed to launch via execution alias", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -2412,7 +2413,7 @@ public class RunCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         var json = ParseJsonOutput();
         Assert.IsTrue(json.TryGetProperty("Error", out var error));
-        StringAssert.Contains(error.GetString(), "Unrecognized arguments:", "Multiple bad tokens should use the plural form");
+        Assert.Contains("Unrecognized arguments:", error.GetString()!, "Multiple bad tokens should use the plural form");
     }
 
     #endregion
@@ -2608,7 +2609,7 @@ public class RunCommandTests : BaseCommandTests
         Assert.IsEmpty(parseResult.Errors);
         var properties = parseResult.GetValue(RunCommand.PropertyOption);
         Assert.IsNotNull(properties);
-        CollectionAssert.AreEquivalent(ForcedUnpackagedProperties, properties);
+        Assert.AreSequenceEqual(ForcedUnpackagedProperties, properties, SequenceOrder.InAnyOrder);
     }
 
     #endregion
@@ -2622,7 +2623,7 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.IsTrue(ok);
         Assert.IsNull(error);
-        CollectionAssert.Contains(SupportedArchitectures, arch);
+        Assert.Contains(arch, SupportedArchitectures);
     }
 
     [TestMethod]
@@ -2671,7 +2672,7 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.IsFalse(ok);
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, "sparc");
+        Assert.Contains("sparc", error);
     }
 
     [TestMethod]
@@ -2681,7 +2682,7 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.IsFalse(ok);
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, "win-loongarch64");
+        Assert.Contains("win-loongarch64", error);
     }
 
     [TestMethod]
@@ -2695,7 +2696,7 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.IsFalse(ok);
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, runtime);
+        Assert.Contains(runtime, error);
     }
 
     #endregion
@@ -2773,9 +2774,9 @@ public class RunCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(
-            TestAnsiConsole.Output,
+        Assert.Contains(
             "No .csproj/.vcxproj/.sln/.slnx with a runnable app found",
+            TestAnsiConsole.Output,
             "Debug/verbose output should explain why a directory fell back to build-output folder mode.");
     }
 

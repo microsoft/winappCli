@@ -205,7 +205,7 @@ public partial class TargetRuntimeServiceTests
         // .NET rolls forward across patches and minors, never across majors. Accepting 10.0.5 for an
         // app built against 8.0 would report a graph the apphost then refuses to resolve.
         Assert.AreEqual(ExecutionTargetErrorCodes.RuntimeProvisionFailed, failure.Error.Code);
-        StringAssert.Contains(failure.Error.Message, "Microsoft.NETCore.App");
+        Assert.Contains("Microsoft.NETCore.App", failure.Error.Message);
     }
 
     [TestMethod]
@@ -258,7 +258,7 @@ public partial class TargetRuntimeServiceTests
         // Pinning the launch to a root with only half the graph in it would produce a startup
         // failure naming a framework this pass reported as present.
         Assert.AreEqual(ExecutionTargetErrorCodes.RuntimeProvisionFailed, failure.Error.Code);
-        StringAssert.Contains(failure.Error.Message, "Microsoft.NETCore.App");
+        Assert.Contains("Microsoft.NETCore.App", failure.Error.Message);
 
         // And the guest must not have recorded a per-user root that cannot resolve the graph: doing
         // so would break apps started by hand that the machine-wide installation could serve.
@@ -277,6 +277,6 @@ public partial class TargetRuntimeServiceTests
             () => harness.EnsureAsync(_hostSource, TestContext.CancellationToken));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.RuntimeProvisionFailed, failure.Error.Code);
-        StringAssert.Contains(failure.Error.Message, "Microsoft.WindowsDesktop.App");
+        Assert.Contains("Microsoft.WindowsDesktop.App", failure.Error.Message);
     }
 }

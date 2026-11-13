@@ -191,14 +191,16 @@ public partial class SandboxLiveE2ETests
 
             // The deterministic half of that same claim, so a timing flake on slow hardware can never
             // be "fixed" by loosening the bound above and silently deleting the only real check.
-            CollectionAssert.AreEquivalent(
+            Assert.AreSequenceEqual(
                 materialAfterColdStart.ToArray(),
                 ReadBootstrapMaterial(provider).ToArray(),
+                SequenceOrder.InAnyOrder,
                 "Reuse must reconnect with the material the cold start staged rather than write new material.");
 
-            CollectionAssert.AreEquivalent(
+            Assert.AreSequenceEqual(
                 clientsAfterColdStart.ToArray(),
                 CurrentClientProcessIds().ToArray(),
+                SequenceOrder.InAnyOrder,
                 "Reusing a Sandbox must not start a second interactive client.");
 
             AssertSandboxDoesNotOwnForeground(
@@ -257,7 +259,7 @@ public partial class SandboxLiveE2ETests
                 await target.Operations.GetFileAsync(scope, "roundtrip.bin", stream, timeout.Token);
             }
 
-            CollectionAssert.AreEqual(content, await File.ReadAllBytesAsync(returned, timeout.Token));
+            Assert.AreSequenceEqual(content, await File.ReadAllBytesAsync(returned, timeout.Token));
 
             await target.Operations.DeleteFilesAsync(scope, ["roundtrip.bin"], timeout.Token);
         }
@@ -297,13 +299,13 @@ public partial class SandboxLiveE2ETests
                 ],
                 timeout.Token);
             AssertCommandSucceeded(launched, "packaged WinUI launch");
-            StringAssert.Contains(launched.StandardOutput, "\"Sandbox\": true");
+            Assert.Contains("\"Sandbox\": true", launched.StandardOutput);
 
             var inspect = await RunCliAsync(
                 ["ui", "inspect", "--on", "sandbox", "-a", "winui-app", "--interactive"],
                 timeout.Token);
             AssertCommandSucceeded(inspect, "guest UI inspection");
-            StringAssert.Contains(inspect.StandardOutput, "CounterButton");
+            Assert.Contains("CounterButton", inspect.StandardOutput);
 
             AssertCommandSucceeded(
                 await RunCliAsync(
@@ -379,7 +381,7 @@ public partial class SandboxLiveE2ETests
                 environment: workflowEnvironmentB)
                 .WaitAsync(TimeSpan.FromSeconds(5), timeout.Token);
             AssertCommandSucceeded(observedDuringRecording, "read-only command while another workflow owns the turn");
-            StringAssert.Contains(observedDuringRecording.StandardOutput, "Workflow A");
+            Assert.Contains("Workflow A", observedDuringRecording.StandardOutput);
             Assert.IsFalse(coordinatedRecording.IsCompleted,
                 "Observation must complete before the recording releases the guest turn.");
 
@@ -400,7 +402,7 @@ public partial class SandboxLiveE2ETests
                 ["ui", "get-value", "--on", "sandbox", "TextInput", "-a", "winui-app"],
                 timeout.Token);
             AssertCommandSucceeded(finalValue, "guest coordination postcondition");
-            StringAssert.Contains(finalValue.StandardOutput, "Workflow B");
+            Assert.Contains("Workflow B", finalValue.StandardOutput);
 
             AssertCommandSucceeded(
                 await RunCliAsync(
@@ -412,7 +414,7 @@ public partial class SandboxLiveE2ETests
                 ["ui", "yield", "--on", "sandbox", "--json"], timeout.Token);
             Assert.AreEqual(1, anonymousYield.ExitCode,
                 "An anonymous command must not acquire an invented explicit guest workflow.");
-            StringAssert.Contains(anonymousYield.StandardError, $"requires {GuestOwnerContext.WorkflowVariable}");
+            Assert.Contains($"requires {GuestOwnerContext.WorkflowVariable}", anonymousYield.StandardError);
 
             var captured = await RunCliAsync(
                 ["ui", "screenshot", "--on", "sandbox", "-a", "winui-app", "-o", screenshot, "--json"],
@@ -420,7 +422,7 @@ public partial class SandboxLiveE2ETests
             AssertCommandSucceeded(captured, "guest screenshot");
             Assert.IsTrue(File.Exists(screenshot));
             Assert.IsGreaterThan(1024L, new FileInfo(screenshot).Length);
-            StringAssert.Contains(captured.StandardOutput, screenshot.Replace(@"\", @"\\"));
+            Assert.Contains(screenshot.Replace(@"\", @"\\"), captured.StandardOutput);
 
             var defaultScreenshot = await RunCliAsync(
                 ["ui", "screenshot", "--on", "sandbox", "-a", "winui-app", "--json"],
@@ -428,7 +430,7 @@ public partial class SandboxLiveE2ETests
                 workingDirectory: artifacts);
             AssertCommandSucceeded(defaultScreenshot, "guest screenshot with host-default output");
             Assert.HasCount(2, Directory.GetFiles(artifacts, "*.png"));
-            StringAssert.Contains(defaultScreenshot.StandardOutput, artifacts.Replace(@"\", @"\\"));
+            Assert.Contains(artifacts.Replace(@"\", @"\\"), defaultScreenshot.StandardOutput);
 
             var recorded = await RunCliAsync(
                 [
@@ -443,7 +445,7 @@ public partial class SandboxLiveE2ETests
             Assert.IsTrue(File.Exists(Path.Join(framesDirectory, "frames.ndjson")));
             Assert.IsTrue(File.Exists(Path.Join(framesDirectory, "manifest.json")));
             Assert.IsTrue(Directory.EnumerateFiles(framesDirectory, "*.jpg", SearchOption.AllDirectories).Any());
-            StringAssert.Contains(recorded.StandardOutput, framesDirectory.Replace(@"\", @"\\"));
+            Assert.Contains(framesDirectory.Replace(@"\", @"\\"), recorded.StandardOutput);
             var originalVideoHash = Sha256(await File.ReadAllBytesAsync(recording, timeout.Token));
 
             var collision = await RunCliAsync(
@@ -467,7 +469,7 @@ public partial class SandboxLiveE2ETests
                 timeout.Token, workingDirectory: artifacts);
             AssertCommandSucceeded(defaultRecording, "guest recording with host-default output");
             Assert.AreEqual(recordingsBeforeDefault + 1, Directory.GetFiles(artifacts, "*.mp4").Length);
-            StringAssert.Contains(defaultRecording.StandardOutput, artifacts.Replace(@"\", @"\\"));
+            Assert.Contains(artifacts.Replace(@"\", @"\\"), defaultRecording.StandardOutput);
 
             var stoppedOutput = Path.Join(artifacts, "stopped.mp4");
             var stoppedRecording = await RunCliAsync(
@@ -478,7 +480,7 @@ public partial class SandboxLiveE2ETests
             Assert.IsTrue(File.Exists(stoppedOutput));
             Assert.IsGreaterThan(1024L, new FileInfo(stoppedOutput).Length);
             Assert.IsTrue(File.Exists(Path.Join(Path.ChangeExtension(stoppedOutput, ".frames"), "manifest.json")));
-            StringAssert.Contains(stoppedRecording.StandardOutput, "cancelled");
+            Assert.Contains("cancelled", stoppedRecording.StandardOutput);
 
             var desktopOutput = Path.Join(artifacts, "desktop.mp4");
             var desktopRecording = await RunCliAsync(
@@ -522,7 +524,7 @@ public partial class SandboxLiveE2ETests
                 ["target", "exec", "sandbox", "--", "cmd.exe", "/c", "echo", "recovered-after-stop"],
                 timeout.Token);
             AssertCommandSucceeded(recovered, "external-stop recovery");
-            StringAssert.Contains(recovered.StandardOutput, "recovered-after-stop");
+            Assert.Contains("recovered-after-stop", recovered.StandardOutput);
 
             var replacement = store.Read(WindowsSandboxTarget.Default)!;
             Assert.AreNotEqual(previous.InstanceId, replacement.InstanceId);
@@ -564,7 +566,7 @@ public partial class SandboxLiveE2ETests
                 standardInput: marker + Environment.NewLine);
 
             AssertCommandSucceeded(result, "sandbox exec with piped standard input");
-            StringAssert.Contains(result.StandardOutput, marker);
+            Assert.Contains(marker, result.StandardOutput);
         }
         finally
         {

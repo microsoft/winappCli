@@ -164,9 +164,9 @@ public class MouseInputTests
         Assert.AreEqual(2, flags.Count);
         Assert.AreEqual(MOUSE_EVENT_FLAGS.MOUSEEVENTF_LEFTDOWN, flags[0]);
         Assert.AreEqual(MOUSE_EVENT_FLAGS.MOUSEEVENTF_LEFTUP, flags[1]);
-        CollectionAssert.Contains(sleeps, 9);
-        CollectionAssert.Contains(sleeps, 7);
-        CollectionAssert.Contains(sleeps, 8);
+        Assert.Contains(9, sleeps);
+        Assert.Contains(7, sleeps);
+        Assert.Contains(8, sleeps);
     }
 
     [TestMethod]
@@ -261,7 +261,7 @@ public class MouseInputTests
 
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() => MouseInput.ScrollWheel(1, 1, 120, settleMs: 0));
 
-        StringAssert.Contains(ex.Message, expected);
+        Assert.Contains(expected, ex.Message);
     }
 
     [TestMethod]
@@ -271,7 +271,7 @@ public class MouseInputTests
 
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() => MouseInput.Click(1, 1, settleMs: 0));
 
-        StringAssert.Contains(ex.Message, "partially applied");
+        Assert.Contains("partially applied", ex.Message);
     }
 
     [TestMethod]
@@ -290,8 +290,8 @@ public class MouseInputTests
         real.ScrollWheel(11, 12, 120, settleMs: 0);
         real.ScrollWheelHorizontal(13, 14, -120, settleMs: 0);
 
-        CollectionAssert.Contains(cursorPositions, (1, 2));
-        CollectionAssert.Contains(cursorPositions, (5, 6));
+        Assert.Contains((1, 2), cursorPositions);
+        Assert.Contains((5, 6), cursorPositions);
         Assert.IsTrue(sent.Any(batch => batch[0].Anonymous.mi.dwFlags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_RIGHTDOWN));
         Assert.IsTrue(sent.Any(batch => batch[0].Anonymous.mi.dwFlags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_WHEEL));
         Assert.IsTrue(sent.Any(batch => batch[0].Anonymous.mi.dwFlags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_HWHEEL

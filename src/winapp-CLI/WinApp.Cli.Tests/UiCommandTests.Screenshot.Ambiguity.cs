@@ -72,8 +72,8 @@ public partial class UiCommandTests
             command, ["-a", App, "--capture-screen", "--json", "-o", ShotPath()]);
 
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "list-windows");
-        StringAssert.Contains(stderr, "-w <hwnd>");
+        Assert.Contains("list-windows", stderr);
+        Assert.Contains("-w <hwnd>", stderr);
     }
 
     [TestMethod]
@@ -156,7 +156,7 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode("invalid_arguments");
         Assert.AreEqual(0, _fakeUia.ScreenshotCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "-w <hwnd>");
+        Assert.Contains("-w <hwnd>", ConsoleStdErr.ToString());
     }
 
     [TestMethod]

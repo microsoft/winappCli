@@ -25,8 +25,8 @@ public sealed class PromptConfirmationTaskTests
         Assert.AreEqual(PromptState.Confirmed, task.State);
         Assert.AreEqual(true, task.CompletedMessage);
         Assert.AreEqual(true, task.SuccessfullyCompleted);
-        StringAssert.Contains(task.InProgressMessage, "Install package?");
-        StringAssert.Contains(task.InProgressMessage, "Yes");
+        Assert.Contains("Install package?", task.InProgressMessage);
+        Assert.Contains("Yes", task.InProgressMessage);
         Assert.IsTrue(updates.Any(message => message.Contains("[green](y)[/]: Y", StringComparison.Ordinal)), string.Join("|", updates));
     }
 
@@ -43,8 +43,8 @@ public sealed class PromptConfirmationTaskTests
         Assert.AreEqual(PromptState.Declined, task.State);
         Assert.AreEqual(false, task.CompletedMessage);
         Assert.AreEqual(true, task.SuccessfullyCompleted);
-        StringAssert.Contains(task.InProgressMessage, "Continue?");
-        StringAssert.Contains(task.InProgressMessage, "No");
+        Assert.Contains("Continue?", task.InProgressMessage);
+        Assert.Contains("No", task.InProgressMessage);
         Assert.IsTrue(updates.Any(message => message.Contains("[green](y)[/]: N", StringComparison.Ordinal)), string.Join("|", updates));
     }
 
@@ -59,7 +59,7 @@ public sealed class PromptConfirmationTaskTests
         Assert.IsTrue(result);
         Assert.AreEqual(PromptState.Confirmed, task.State);
         Assert.IsTrue(updates.First().Contains("Use defaults? [blue][[Y/n]][/] [green](y)[/]: ", StringComparison.Ordinal));
-        StringAssert.Contains(task.InProgressMessage, "Yes");
+        Assert.Contains("Yes", task.InProgressMessage);
     }
 
     [TestMethod]
@@ -92,7 +92,7 @@ public sealed class PromptConfirmationTaskTests
         Assert.AreEqual(PromptState.Confirmed, task.State);
         Assert.IsTrue(updates.Any(message => message.EndsWith(": N", StringComparison.Ordinal)), string.Join("|", updates));
         Assert.IsTrue(updates.Any(message => message.EndsWith(": ", StringComparison.Ordinal)), string.Join("|", updates));
-        StringAssert.Contains(task.InProgressMessage, "Yes");
+        Assert.Contains("Yes", task.InProgressMessage);
     }
 
     [TestMethod]
@@ -107,7 +107,7 @@ public sealed class PromptConfirmationTaskTests
 
         Assert.IsFalse(result);
         Assert.AreEqual(PromptState.Declined, task.State);
-        StringAssert.Contains(task.InProgressMessage, "No");
+        Assert.Contains("No", task.InProgressMessage);
     }
 
     [TestMethod]
@@ -122,8 +122,8 @@ public sealed class PromptConfirmationTaskTests
         Assert.IsFalse(result);
         Assert.AreEqual(PromptState.Cancelled, task.State);
         Assert.AreEqual(false, task.CompletedMessage);
-        StringAssert.Contains(task.InProgressMessage, "Wait forever?");
-        StringAssert.Contains(task.InProgressMessage, "(cancelled)");
+        Assert.Contains("Wait forever?", task.InProgressMessage);
+        Assert.Contains("(cancelled)", task.InProgressMessage);
         Assert.IsTrue(updates.Last().Contains("(cancelled)", StringComparison.Ordinal), string.Join("|", updates));
     }
 

@@ -49,7 +49,7 @@ public class ExecutionTargetErrorTests
     [TestMethod]
     public void AllCodes_MatchTheSnapshot()
     {
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             ExpectedCodes,
             ExecutionTargetErrorCodes.All.ToArray(),
             "Execution-target error codes must match the expected public contract.");

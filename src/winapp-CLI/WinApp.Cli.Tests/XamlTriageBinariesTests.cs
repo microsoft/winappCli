@@ -174,8 +174,8 @@ public class XamlTriageBinariesTests
         var gap = XamlTriageBinaries.DescribeOverrideGap();
 
         Assert.IsNotNull(gap);
-        StringAssert.Contains(gap, "does not exist");
-        StringAssert.Contains(gap, missing);
+        Assert.Contains("does not exist", gap);
+        Assert.Contains(missing, gap);
     }
 
     [TestMethod]
@@ -188,8 +188,8 @@ public class XamlTriageBinariesTests
         var gap = XamlTriageBinaries.DescribeOverrideGap();
 
         Assert.IsNotNull(gap);
-        StringAssert.Contains(gap, "dbgeng.dll");
-        StringAssert.Contains(gap, "JsProvider.dll");
+        Assert.Contains("dbgeng.dll", gap);
+        Assert.Contains("JsProvider.dll", gap);
     }
 
     [TestMethod]
@@ -203,7 +203,7 @@ public class XamlTriageBinariesTests
         var gap = XamlTriageBinaries.DescribeOverrideGap();
 
         Assert.IsNotNull(gap);
-        StringAssert.Contains(gap, "JsProvider.dll");
+        Assert.Contains("JsProvider.dll", gap);
         Assert.IsFalse(gap.Contains("dbgeng.dll"), "dbgeng.dll is present, so it must not be listed as missing.");
     }
 
@@ -303,9 +303,9 @@ public class XamlTriageBinariesTests
         using var resolved = Resolve(new DirectoryInfo(_tempDir), signed: path => { checkedPaths.Add(path); return true; });
 
         Assert.IsNotNull(resolved);
-        CollectionAssert.AreEquivalent(files.Select(RealPath).ToList(), checkedPaths,
+        Assert.AreSequenceEqual(files.Select(RealPath).ToList(), checkedPaths, SequenceOrder.InAnyOrder,
             "Every engine DLL and JsProvider.dll must pass the signature check, each by its resolved path.");
-        CollectionAssert.Contains(checkedPaths, resolved.JsProviderPath);
+        Assert.Contains(resolved.JsProviderPath, checkedPaths);
         Assert.IsTrue(checkedPaths.All(p => p == resolved.JsProviderPath || Path.GetDirectoryName(p) == resolved.BinDir),
             "The engine files that were checked must be the ones the child loads from BinDir.");
     }
@@ -670,8 +670,8 @@ public class XamlTriageBinariesTests
 
         Assert.IsNotNull(resolved,
             "After rejecting/exhausting the installed roots, the candidate walk must fall back to the seeded cache.");
-        StringAssert.StartsWith(resolved.JsProviderPath, realCache);
-        StringAssert.EndsWith(resolved.JsProviderPath, "JsProvider.dll");
+        Assert.StartsWith(realCache, resolved.JsProviderPath);
+        Assert.EndsWith("JsProvider.dll", resolved.JsProviderPath);
     }
 
     [TestMethod]

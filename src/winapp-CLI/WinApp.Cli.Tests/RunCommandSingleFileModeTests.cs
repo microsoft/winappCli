@@ -135,7 +135,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         var options = _fakeProjectRunService.SingleFileBuildOptions.Single();
         Assert.AreEqual("Release", options.Configuration);
         Assert.IsTrue(options.NoRestore);
-        CollectionAssert.Contains(options.Properties.ToList(), "Foo=Bar");
+        Assert.Contains("Foo=Bar", options.Properties.ToList());
     }
 
     [TestMethod]
@@ -222,7 +222,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, option]);
 
         Assert.AreEqual(1, exitCode, $"{option} must be rejected for an unpackaged app");
-        StringAssert.Contains(ConsoleStdErr.ToString(), option);
+        Assert.Contains(option, ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -314,8 +314,9 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         var stdout = TestAnsiConsole.Output.Trim();
         using var document = JsonDocument.Parse(stdout);
         var error = document.RootElement.GetProperty("Error").GetString();
-        StringAssert.Contains(error, "--framework", "The JSON error should name the rejected option");
-        StringAssert.Contains(error, "#:property TargetFramework", "The JSON error should point at the replacement directive");
+        Assert.IsNotNull(error);
+        Assert.Contains("--framework", error, "The JSON error should name the rejected option");
+        Assert.Contains("#:property TargetFramework", error, "The JSON error should point at the replacement directive");
     }
 
     [TestMethod]
@@ -378,7 +379,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
         var capabilities = LoadGeneratedManifest(outputDir).Root!.Element(Ns + "Capabilities")!;
         var names = capabilities.Elements().Select(e => e.Attribute("Name")!.Value).ToList();
-        CollectionAssert.AreEqual(new List<string> { "runFullTrust" }, names);
+        Assert.AreSequenceEqual(new List<string> { "runFullTrust" }, names);
     }
 
     [TestMethod]
@@ -680,9 +681,9 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         var alias = root.Descendants(uap5 + "ExecutionAlias").SingleOrDefault();
         Assert.IsNotNull(alias, "Alias launch must produce a uap5:ExecutionAlias in the generated manifest");
         var aliasValue = alias.Attribute("Alias")!.Value;
-        StringAssert.StartsWith(aliasValue, "winapp-counter-",
+        Assert.StartsWith("winapp-counter-", aliasValue,
             "The alias is derived from the package family name and prefixed, so it cannot collide with a real tool on PATH or with another publisher's same-named app");
-        StringAssert.EndsWith(aliasValue, ".exe");
+        Assert.EndsWith(".exe", aliasValue);
     }
 
     [TestMethod]
@@ -701,7 +702,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         // Spectre wraps at the profile width and can break a long alias mid-token, so compare with
         // whitespace collapsed rather than asserting on the raw output.
         var output = Regex.Replace(TestAnsiConsole.Output + ConsoleStdOut, @"\s+", "");
-        StringAssert.Contains(output, "(alias:winapp-counter-",
+        Assert.Contains("(alias:winapp-counter-", output,
             $"The registered alias must be named. Output was: {TestAnsiConsole.Output}");
     }
 
@@ -778,7 +779,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         XNamespace uap5 = "http://schemas.microsoft.com/appx/manifest/uap/windows10/5";
         Assert.AreEqual(0, LoadGeneratedManifest(outputDir).Root!.Descendants(uap5 + "ExecutionAlias").Count(),
             "--without-alias must not add an alias");
-        StringAssert.Contains(TestAnsiConsole.Output, "will not print here",
+        Assert.Contains("will not print here", TestAnsiConsole.Output,
             "The user should be told their console app produces no output this way");
     }
 
@@ -853,7 +854,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         Assert.IsNotNull(
             LoadGeneratedManifest(outputDir).Root!.Descendants(uap5 + "ExecutionAlias").SingleOrDefault(),
             "The console default must still apply when the property cannot be read");
-        StringAssert.Contains(ambientOutput, "WinAppRunUseExecutionAlias",
+        Assert.Contains("WinAppRunUseExecutionAlias", ambientOutput,
             "A typo that quietly does nothing is invisible; it has to be reported");
     }
 
@@ -885,7 +886,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--with-alias", "--without-alias"]);
 
         Assert.AreNotEqual(0, exitCode, "Asking for both launch mechanisms at once is a contradiction");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "cannot be used together",
+        Assert.Contains("cannot be used together", ConsoleStdErr.ToString(),
             "The conflict must be reported, not silently resolved in favor of one of them");
     }
 
@@ -914,11 +915,11 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--detach"]);
 
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "stays registered");
+        Assert.Contains("stays registered", output);
 
         // The FULL path, not the bare name: the note is read after the run, from wherever the user happens
         // to be, and `winapp unregister counter.cs` only resolves inside the file's own directory.
-        StringAssert.Contains(output, $"winapp unregister {singleFile.FullName}");
+        Assert.Contains($"winapp unregister {singleFile.FullName}", output);
     }
 
     [TestMethod]
@@ -938,7 +939,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
         await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--detach"]);
 
-        StringAssert.Contains(TestAnsiConsole.Output, $"winapp unregister \"{singleFile.FullName}\"");
+        Assert.Contains($"winapp unregister \"{singleFile.FullName}\"", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -957,8 +958,8 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
             [singleFile.FullName, "--detach", "-c", "Release", "-p", "WinAppPackageName=com.contoso.counter"]);
 
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "-c Release");
-        StringAssert.Contains(output, "-p WinAppPackageName=com.contoso.counter");
+        Assert.Contains("-c Release", output);
+        Assert.Contains("-p WinAppPackageName=com.contoso.counter", output);
     }
 
     [TestMethod]
@@ -985,7 +986,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
             [singleFile.FullName, "--detach", "--manifest", manifest.FullName]);
 
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, $"winapp unregister --manifest {manifest.FullName}");
+        Assert.Contains($"winapp unregister --manifest {manifest.FullName}", output);
         Assert.IsFalse(
             output.Contains($"unregister {singleFile.FullName}", StringComparison.Ordinal),
             "An input alongside --manifest is rejected by unregister");
@@ -1022,9 +1023,9 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
         await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--detach"]);
 
-        StringAssert.Contains(
-            TestAnsiConsole.Output,
-            $"--output-appx-directory {Path.Join(outputDir.FullName, "AppX")}");
+        Assert.Contains(
+            $"--output-appx-directory {Path.Join(outputDir.FullName, "AppX")}",
+            TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1051,9 +1052,9 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
             command,
             [singleFile.FullName, "--detach", "--manifest", manifest.FullName]);
 
-        StringAssert.Contains(
-            TestAnsiConsole.Output,
-            $"--output-appx-directory {Path.Join(outputDir.FullName, "AppX")}");
+        Assert.Contains(
+            $"--output-appx-directory {Path.Join(outputDir.FullName, "AppX")}",
+            TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1073,7 +1074,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         var output = TestAnsiConsole.Output;
         Assert.IsFalse(output.Contains("super-secret", StringComparison.Ordinal),
             "A secret-looking property value must not reach the console");
-        StringAssert.Contains(output, "ApiKey=***");
+        Assert.Contains("ApiKey=***", output);
     }
 
     [TestMethod]
@@ -1096,7 +1097,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
         await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--detach"]);
 
-        StringAssert.Contains(TestAnsiConsole.Output, "stays registered");
+        Assert.Contains("stays registered", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1151,7 +1152,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
         var (_, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [singleFile.FullName, "--detach"]);
 
-        StringAssert.Contains(ambientOutput, "Replacing the existing registration");
+        Assert.Contains("Replacing the existing registration", ambientOutput);
         Assert.IsFalse(TestAnsiConsole.Output.Contains("stays registered", StringComparison.Ordinal),
             "The replacement warning already covers this run; a persistence note as well would be noise");
     }
@@ -1216,7 +1217,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         var root = LoadGeneratedManifest(outputDir).Root!;
 
         Assert.AreEqual(SystemAiNs.NamespaceName, root.Attribute(XNamespace.Xmlns + "systemai")?.Value);
-        StringAssert.Contains(root.Attribute("IgnorableNamespaces")!.Value, "systemai");
+        Assert.Contains("systemai", root.Attribute("IgnorableNamespaces")!.Value);
 
         var family = root.Element(Ns + "Dependencies")!.Element(Ns + "TargetDeviceFamily")!;
         Assert.IsTrue(Version.Parse(family.Attribute("MaxVersionTested")!.Value) >= Version.Parse("10.0.26226.0"));

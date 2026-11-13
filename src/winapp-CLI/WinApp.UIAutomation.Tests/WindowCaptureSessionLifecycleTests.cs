@@ -30,16 +30,16 @@ public class WindowCaptureSessionLifecycleTests
         root.Pixels = [255, 0, 0, 255];
         root.Version++;
         var updated = composite.TryGetLatest()!.Value;
-        CollectionAssert.AreEqual(root.Pixels, updated.Pixels, "The window keeps updating while the popup has nothing to draw.");
+        Assert.AreSequenceEqual(root.Pixels, updated.Pixels, "The window keeps updating while the popup has nothing to draw.");
         Assert.AreEqual(healthy.Version + 1, updated.Version);
 
         secondaryCapture.HasFrame = true;
         secondaryCapture.Pixels = [0, 255, 0, 255];
         secondaryCapture.Version++;
-        CollectionAssert.AreEqual(secondaryCapture.Pixels, composite.TryGetLatest()!.Value.Pixels);
+        Assert.AreSequenceEqual(secondaryCapture.Pixels, composite.TryGetLatest()!.Value.Pixels);
 
         popups.Clear();
-        CollectionAssert.AreEqual(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
+        Assert.AreSequenceEqual(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
         Assert.IsTrue(secondaryCapture.Disposed);
         composite.Dispose();
         Assert.IsTrue(root.Disposed);
@@ -52,16 +52,16 @@ public class WindowCaptureSessionLifecycleTests
         using var composite = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
             () => [new(42, new(0, 0, 1, 1))], _ => secondaryCapture);
         var healthy = composite.TryGetLatest()!.Value;
-        CollectionAssert.AreEqual(new byte[] { 0, 255, 0, 255 }, healthy.Pixels);
+        Assert.AreSequenceEqual(new byte[] { 0, 255, 0, 255 }, healthy.Pixels);
         secondaryCapture.Pixels = new byte[4];
         secondaryCapture.Version++;
         var transparent = composite.TryGetLatest()!.Value;
-        CollectionAssert.AreEqual(root.Pixels, transparent.Pixels);
+        Assert.AreSequenceEqual(root.Pixels, transparent.Pixels);
         Assert.AreEqual(healthy.Version + 1, transparent.Version);
         secondaryCapture.Pixels = [0, 0, 0, 255];
         secondaryCapture.Version++;
         var painted = composite.TryGetLatest()!.Value;
-        CollectionAssert.AreEqual(secondaryCapture.Pixels, painted.Pixels);
+        Assert.AreSequenceEqual(secondaryCapture.Pixels, painted.Pixels);
         Assert.AreEqual(transparent.Version + 1, painted.Version);
     }
 
@@ -110,7 +110,7 @@ public class WindowCaptureSessionLifecycleTests
         Assert.AreSame(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
         Assert.AreEqual(1, starts, "A popup that failed to start is not retried every frame.");
         Assert.HasCount(1, composite.Warnings);
-        StringAssert.Contains(composite.Warnings.Single(), "HWND 42");
+        Assert.Contains("HWND 42", composite.Warnings.Single());
     }
 
     [TestMethod]
@@ -132,7 +132,7 @@ public class WindowCaptureSessionLifecycleTests
             () => visible ? [new(42, new(0, 0, 1, 1))] : [],
             _ => popup);
         Assert.IsNull(composite.TryGetLatest());
-        CollectionAssert.AreEqual(new byte[] { 0, 0, 255, 255 }, composite.TryGetLatest()!.Value.Pixels);
+        Assert.AreSequenceEqual(new byte[] { 0, 0, 255, 255 }, composite.TryGetLatest()!.Value.Pixels);
         Assert.IsTrue(popup.Disposed);
     }
 
@@ -368,7 +368,7 @@ public class WindowCaptureSessionLifecycleTests
         using var composite = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
             () => [new(42, new(0, 0, 1, 1))], _ => new Grabber { HasFrame = false });
         var frame = await composite.GetFrameAsync(TimeSpan.Zero, CancellationToken.None);
-        CollectionAssert.AreEqual(root.Pixels, frame!.Value.Pixels);
+        Assert.AreSequenceEqual(root.Pixels, frame!.Value.Pixels);
 
         using var missingRoot = new WindowCaptureSession(new Grabber { HasFrame = false },
             () => new(0, 0, 1, 1), () => [], _ => throw new AssertFailedException());
@@ -440,7 +440,7 @@ public class WindowCaptureSessionLifecycleTests
             var changed = await WaitForColor(255, 0, 0, frame.Version);
             Assert.IsTrue(changed.Version > frame.Version);
             visible = false;
-            CollectionAssert.AreEqual(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
+            Assert.AreSequenceEqual(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
 
             async Task<(byte[] Pixels, int Width, int Height, long Version)> WaitForColor(byte b, byte g, byte r, long after)
             {
@@ -458,7 +458,7 @@ public class WindowCaptureSessionLifecycleTests
                     }
                     await Task.Delay(20);
                 } while (Environment.TickCount64 < deadline);
-                CollectionAssert.AreEqual(new byte[] { b, g, r, 255 }, result.Pixels[offset..(offset + 4)]);
+                Assert.AreSequenceEqual(new byte[] { b, g, r, 255 }, result.Pixels[offset..(offset + 4)]);
                 Assert.IsTrue(InteriorMatches(result.Pixels), "The central 8x8 physical popup pixels must all match the expected opaque color.");
                 Assert.Fail("Popup frame version did not advance.");
                 return result;

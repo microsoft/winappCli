@@ -120,7 +120,7 @@ public class SystemKeyGuardTests
         var hits = SystemKeyGuard.FindNeverBypassableCombos(KeyStringParser.Parse(keys));
         Assert.AreEqual(1, hits.Count);
         Assert.AreEqual("win+l", hits[0].Name);
-        StringAssert.Contains(hits[0].Reason, "locks the workstation");
+        Assert.Contains("locks the workstation", hits[0].Reason);
     }
 
     [TestMethod]
@@ -134,7 +134,7 @@ public class SystemKeyGuardTests
         var hits = SystemKeyGuard.FindNeverBypassableCombos(KeyStringParser.Parse(keys));
         Assert.AreEqual(1, hits.Count);
         Assert.AreEqual("ctrl+alt+del", hits[0].Name);
-        StringAssert.Contains(hits[0].Reason, "SAS");
+        Assert.Contains("SAS", hits[0].Reason);
     }
 
     [TestMethod]

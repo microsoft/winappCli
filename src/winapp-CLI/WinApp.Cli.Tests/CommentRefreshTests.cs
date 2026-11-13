@@ -69,7 +69,7 @@ public class CommentRefreshTests
 
         var (refreshed, failed) = pusher.PushStore(storePath, skipPid: 14);
 
-        CollectionAssert.AreEqual(new uint[] { 11, 12, 13 }, asked, "The app already refreshed by --app is not asked again.");
+        Assert.AreSequenceEqual(new uint[] { 11, 12, 13 }, asked, "The app already refreshed by --app is not asked again.");
         // Only 11 shares the store. No tap listens on that fake PID, so it counts as a view that could not refresh.
         Assert.AreEqual((0, 1), (refreshed, failed));
     }
