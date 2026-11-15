@@ -26,9 +26,10 @@
     "accessibility"
   ],
   "skills": "./agent-plugin/skills/",
+  "requires_local_executor": true,
   "interface": {
     "displayName": "WinUI",
-    "shortDescription": "Build, package, and ship WinUI 3 desktop apps.",
+    "shortDescription": "Build and ship WinUI 3 apps",
     "longDescription": "End-to-end WinUI 3 development for AI agents — scaffold projects, design XAML with Fluent UI and accessibility, build and diagnose with a real toolchain, automate UI tests, run code reviews, migrate from WPF, and package signed MSIX installers. Each skill is paired with purpose-built tools so the agent fetches just what it needs.",
     "developerName": "Microsoft",
     "category": "Developer Tools",
@@ -36,7 +37,6 @@
     "websiteURL": "https://aka.ms/winui-skills",
     "defaultPrompt": [
       "Create a new WinUI 3 app with MVVM.",
-      "Build and run the WinUI 3 project in this folder and fix any errors.",
       "Migrate this WPF app to WinUI 3.",
       "Package this WinUI 3 app as a signed MSIX."
     ],
