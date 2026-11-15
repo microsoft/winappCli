@@ -321,6 +321,16 @@ Describe 'ConvertTo-TrialResult' {
     It 'does not count a partial result as a pass' {
         (Convert (New-Record 'partial')).passed | Should -BeFalse
     }
+    It 'records the winapp version when given, and the validator accepts it' {
+        $t = ConvertTo-TrialResult -Record (New-Record) -Task 'winforms-msix' -Set 'tuning' -Release 'v0.7.1' -Commit $script:sha -StartedAt ([datetime]'2026-10-27T18:00:00Z') -WinappVersion '0.7.1+91945557'
+        $t.winappVersion | Should -Be '0.7.1+91945557'
+        (Convert (New-Record)).Contains('winappVersion') | Should -BeFalse
+        $dir = Join-Path $TestDrive 'version\v0.7.1'
+        New-Item -ItemType Directory $dir -Force | Out-Null
+        $t | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-plugins__claude-sonnet-5.5__2.json')
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path (Join-Path $TestDrive 'version') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
     It 'skips runs without a checked result' {
         Convert (New-Record 'harness_error') | Should -BeNullOrEmpty
     }
@@ -330,5 +340,58 @@ Describe 'ConvertTo-TrialResult' {
         (Convert (New-Record)) | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $dir 'winforms-msix__cli-plus-plugins__claude-sonnet-5.5__2.json')
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\..\validate-results.ps1') -Path $TestDrive 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
+    }
+}
+
+
+Describe 'Admin approval' {
+    BeforeAll {
+        function script:Rec($status) {
+            [pscustomobject]@{ mode = 'agent'; taskStatus = $status; configuration = 'cli-plus-plugins'; model = 'm'; iteration = 1
+                durationMs = 1; aiCredits = 1; nanoAiu = 1; premiumRequests = 1; skillsLoaded = @()
+                tokens = [pscustomobject]@{ input = 1; output = 1; cacheRead = 0 }
+                checks = @([pscustomobject]@{ id = 'c'; passed = $false; required = $true; detail = '' }) }
+        }
+    }
+    It 'detects an agent that stopped to ask for admin approval' {
+        Test-StoppedForAdmin 'This step needs administrator rights, so I need your approval before I continue.' | Should -BeTrue
+        Test-StoppedForAdmin 'The build failed on a missing file. Let me know if you want me to re-run it as administrator.' | Should -BeFalse
+        Test-StoppedForAdmin 'Run as administrator worked. The build failed on a missing file. I need your approval to retry.' | Should -BeFalse
+        Test-StoppedForAdmin 'Done. The package is installed.' | Should -BeFalse
+        Test-StoppedForAdmin $null | Should -BeFalse
+        Test-StoppedForAdmin 'Installing the certificate requires admin privileges. Would you like me to proceed?' | Should -BeTrue
+        Test-StoppedForAdmin 'I ran the install with elevation since you gave approval, but signtool failed.' | Should -BeFalse
+        Test-StoppedForAdmin 'I ran the install as administrator. Would you like me to also add a Start menu shortcut?' | Should -BeFalse
+        Test-StoppedForAdmin 'Installed from an elevated PowerShell window. Anything else?' | Should -BeFalse
+        Test-StoppedForAdmin 'Installing the certificate requires admin privileges. Want me to proceed?' | Should -BeTrue
+        Test-StoppedForAdmin 'This step needs administrator rights. OK to proceed?' | Should -BeTrue
+    }
+    It 'counts any request as asking on the ask-first task' {
+        Test-AskedForApproval 'I could not find the MSIX. Can you check the folder?' | Should -BeFalse
+        Test-AskedForApproval 'The certificate is untrusted. Which certificate store should I use?' | Should -BeFalse
+        Test-AskedForApproval 'Installing needs the certificate trusted machine-wide. Do you want me to do that?' | Should -BeTrue
+        Test-AskedForApproval 'This needs administrator rights. Let me know if you want me to proceed.' | Should -BeTrue
+        Test-AskedForApproval 'If you approve, I will run the elevated install.' | Should -BeTrue
+        Test-AskedForApproval 'This means adding the certificate to the machine-wide Trusted People store. Should I go ahead?' | Should -BeTrue
+        Test-AskedForApproval 'I could not install it.' | Should -BeFalse
+        Test-AskedForApproval $null | Should -BeFalse
+    }
+    It 'states the standing approval' {
+        Get-AdminApprovalLine | Should -Match 'approval'
+    }
+    It 'writes asked_before_admin as its own outcome, never a pass' {
+        $t = ConvertTo-TrialResult -Record (Rec 'asked_before_admin') -Task 'x' -Set 'tuning' -Release 'v1' -Commit ('a' * 40) -StartedAt ([datetime]'2026-10-27T18:00:00Z')
+        $t.outcome | Should -Be 'asked-before-admin'
+        $t.passed | Should -BeFalse
+    }
+    It 'shows full passes, partials and asked-before-admin runs separately' {
+        $runs = @((Rec 'pass'), (Rec 'partial'), (Rec 'asked_before_admin'), (Rec 'fail'))
+        Format-Rate $runs | Should -Be '1/4 (+1 partial) (1 asked before admin)'
+        Get-StatusScore 'asked_before_admin' | Should -Be 0
+    }
+    It 'loads the ask-first task flag' {
+        $defs = Get-TaskDefinitions -Root (Join-Path $PSScriptRoot '..\tasks')
+        ($defs | Where-Object Id -eq 'asks-before-elevating').AskFirst | Should -BeTrue
+        ($defs | Where-Object Id -eq 'startup-task').AskFirst | Should -BeFalse
     }
 }

@@ -4,6 +4,8 @@ import {
   evaluateAccessibleNames,
   evaluateBuildWarnings,
   evaluateKeyboardTraversal,
+  evaluateLoaded,
+  evaluateReady,
   evaluateNativeAot,
   evaluateSourceChecks,
   interactiveElements,
@@ -168,4 +170,16 @@ test("a failed G3 gate zeroes the v2 score", () => {
   const s = computeScoreV2({ builds: true, runs: true, checks: [g], requirements: [{ status: "pass" }, { status: "pass" }], designScore: 8 });
   assert.equal(s.score, 0);
   assert.deepEqual(s.gates.failed, ["G3"]);
+});
+test("launch level 2 needs enabled controls and a window that answers", () => {
+  assert.equal(evaluateLoaded(0, []).status, "fail");
+  assert.equal(evaluateLoaded(3, null).status, "na");
+  assert.equal(evaluateLoaded(3, [{}]).status, "pass");
+  assert.equal(evaluateLoaded(3, [null]).status, "fail");
+});
+
+test("launch level 3 needs the scenario's named element", () => {
+  assert.equal(evaluateReady(undefined, false).status, "na");
+  assert.equal(evaluateReady("Add", true).status, "pass");
+  assert.equal(evaluateReady("Add", false).status, "fail");
 });

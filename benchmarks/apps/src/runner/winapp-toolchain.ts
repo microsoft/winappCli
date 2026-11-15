@@ -29,6 +29,8 @@ export interface WinAppToolchain {
   executable: string;
   dotnetExecutable: string;
   version: string;
+  /** Full `winapp --version` output, including the +commit build metadata. */
+  fullVersion: string;
   schemaVersion: string;
   uiCommands: Set<string>;
 }
@@ -134,6 +136,7 @@ export function resolveWinAppToolchain(): WinAppToolchain {
     executable,
     dotnetExecutable,
     version,
+    fullVersion: versionOutput.trim().split(/\r?\n/).pop() || version,
     schemaVersion: String(uiSchema.schemaVersion || "unknown"),
     uiCommands,
   };

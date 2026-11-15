@@ -44,6 +44,11 @@ expected folder; if not, it fails without spending credits.
 - **Machine:** Windows 10 1903+ with Developer Mode and long paths enabled (`LongPathsEnabled=1`), Node.js 20+, .NET SDK 10+, the WinApp CLI,
   and GitHub Copilot CLI signed in (`copilot login`). Use a **dedicated machine or VM**: trials
   launch apps, take focus for UI automation, and run for hours.
+- **An unlocked desktop.** The UI checks send keyboard input, which Windows blocks while the
+  session is locked. Turn off the lock screen timeout for the run. Before the UI checks, a trial
+  waits up to 10 minutes for the desktop to unlock; if it stays locked, the trial is a harness
+  error (`Desktop locked: UI could not be driven`). After 3 such trials in a row the run stops;
+  unlock the session and continue with `--resume-run runN`.
 - **Cost:** a trial is one build session plus one judge session. Rough averages from a
   270-trial run: Sonnet 5.5 ~70–100 credits, GPT-6.1 Sol ~100–160, Opus 5.5 ~375–420 per trial;
   5–25 minutes each.
@@ -92,7 +97,7 @@ npm run scorecard -- run3 --markdown scorecard.md
 | `--judge-model m` | `judge.model` in `common/config.json` | Fixed grader for every trial |
 | `--skip-validation` | off | Build + launch only, no judge |
 | `--run-meta file.json` | | Explicit task list (mix models, setups, refs) |
-| `--resume-run runN` | | Run queued/interrupted trials of a run |
+| `--resume-run runN` | | Run queued, interrupted and harness-error trials of a run |
 | `--revalidate-run runN --revalidate-trial <folder>` | | Rebuild, relaunch and re-judge an existing app; no new build session |
 | `--dry-run` | | Print the task list |
 
@@ -109,7 +114,9 @@ Rescore a trial offline after a scoring change: `npx tsx src/rescore.ts --run ru
 2. **Build session.** The agent works in `results\runN\<trial>\app`. Events stream to
    `session-logs-dir\build-events.jsonl`. The session ends when the agent stops, goes silent, or
    hits the wall-clock limit.
-3. **Harness build and gates.** `dotnet build` (Debug), then:
+3. **Harness build and gates.** `dotnet build` (Debug). If it fails and Visual Studio is
+   installed, the harness retries once with Visual Studio MSBuild (`/restore`), because some
+   WinUI projects build only there; `build-output.txt` and the trial log say which builder was used. Then:
    - **G0**, the right framework;
    - **G3**, Native AOT, for scenarios with `gates: [native_aot]`: a harness-run
      `winapp run --aot -c Release` must publish without trim/AOT warnings and show a window;
@@ -122,16 +129,16 @@ Rescore a trial offline after a scoring change: `npx tsx src/rescore.ts --run ru
    PATH, unregisters development packages the trial registered, and records a `machine` block
    in `results.json`.
 
-## Scoring (v2)
+## Scoring (v3)
 
-A failed gate (build, launch, G0, G3) scores **0** and skips the judge. Otherwise:
+A failed gate (build, launch, G0, G3) scores **0** and skips the judge. A trial where our tooling fails (the judge produced no result, ruled on none of the requirements or skipped a required one, or the desktop was locked during the UI checks) has outcome `harness-error`, no score, and is left out of averages. Otherwise:
 
 **score = 60 × requirements + 30 × quality checks + 10 × design** (each part is its pass rate;
 parts that don't apply are dropped and the rest renormalized).
 
 | Part | Checked by | Details |
 |---|---|---|
-| Requirements (60) | Judge | Each scenario requirement, tested with a UI script and screenshots. Unreported requirements fail. |
+| Requirements (60) | Judge | Each scenario requirement, tested with a UI script and screenshots. Requirements the judge didn't report are not counted as failures; each trial shows "judge scored n of x". |
 | Quality checks (30) | Harness | P2 manifest · P3 packaged · P6 no WPF/WinForms/UWP leftovers · V1 custom title bar · V2 Mica/Acrylic · V3 typography via styles · V5 no hard-coded hex colors in pages · V9 no legacy Win32/WinForms UI · Q3 `x:Bind` over `{Binding}` · Q4 no build warnings (C#, XAML, WinUI analyzer, trim/AOT) · Q0 accessible names (UIA) · Q1 Tab moves focus (UIA) |
 | | Judge | Q5 usable empty/loading/error states |
 | Design (10) | Judge | 0–10 relative to an unmodified template |
@@ -157,9 +164,19 @@ resolve roughly ±8 points and 90 pairs (3 models) about ±4.
 | `framework` | Expected UI framework (default `winui`); drives G0 |
 | `gates` | Extra gates, e.g. `[native_aot]` |
 | `requirements` | Checked by the judge. Write what the prompt states or implies, or what anyone would expect; no hidden specifics; don't restate the default quality checks |
+| `ready_element` | Optional. The visible label or AutomationId of one element the app shows once it has loaded (launch level 3). Leave it out if no label is guaranteed |
 | `test_notes` | Notes for the judge only |
 | `test_assets` | Files for testing; `include_in_build: true` also shares them with the builder. Paths may use `{scenario_dir}`, `{repo_root}` and `%ENV%` |
 | `original_app` | Source app for convert/improve scenarios |
+
+### Add a scenario
+
+1. Create `scenarios/<name>/scenario.md` with the frontmatter above. Write the body as a natural request a developer would type; don't name controls or files.
+2. Write 3-6 `requirements`. Each must be something the prompt states or implies, and must be observable through the UI (for example "dividing by zero shows a message"). Put a concrete example in each so the judge tests the same thing every time.
+3. Optionally set `ready_element`. Pick a label the prompt or a requirement makes certain, such as a button the request names. Confirm it against a built app with `winapp ui wait-for "<label>" -a <app>` before committing; a wrong label makes every trial fail level 3.
+4. Preview with `npm run bench -- --scenario <name> --agent none --dry-run`, then run one trial and read the judge's evidence for each requirement.
+
+Where a requirement can be checked by a script instead of the judge, prefer the script.
 
 Some scenarios need extra setup:
 - `local-llm-chat` expects a Foundry Local model under `%USERPROFILE%\.foundry`.
