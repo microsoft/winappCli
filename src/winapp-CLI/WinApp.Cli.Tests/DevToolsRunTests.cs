@@ -55,6 +55,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         File.WriteAllText(manifest, RunCommandTests.TestManifestContent);
         var exe = Path.Combine(output, "TestApp.exe");
         File.WriteAllText(exe, "MZ");
+        File.WriteAllText(Path.Combine(output, "Microsoft.WinUI.dll"), "");
         string input;
         string? source = null;
         if (mode == "folder")
@@ -818,6 +819,76 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
+    [DataRow("on", false)]
+    [DataRow("on", true)]
+    [DataRow("headless", false)]
+    [DataRow("headless", true)]
+    public async Task Explicit_NonWinUIFolder_FailsBeforeEngineRegistrationOrLaunch(string mode, bool json)
+    {
+        var app = Prepare("folder", true);
+        File.Delete(Path.Combine(app.Output, "Microsoft.WinUI.dll"));
+        var staging = Directory.CreateDirectory(Path.Combine(app.Output, "AppX"));
+        File.WriteAllText(Path.Combine(staging.FullName, "resources.pri"), "");
+        var closed = new List<int>();
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ProcessesRunningFromLayout = _ => [4242];
+        handler.CloseRunningProcess = pid => { closed.Add(pid); return true; };
+        string[] format = json ? ["--json"] : [];
+
+        Assert.AreEqual(1, await Run(app.Input, ["--devtools", mode, "--detach", .. format]));
+        using var document = json ? JsonDocument.Parse(TestAnsiConsole.Output) : null;
+        var message = document is not null
+            ? document.RootElement.GetProperty("Error").GetString()
+            : ConsoleStdErr.ToString();
+        StringAssert.Contains(message!, "DevTools requires WinUI 3");
+        StringAssert.Contains(message!, $"'{app.Output}' does not contain a WinUI 3 app");
+        StringAssert.Contains(message!, "--devtools off");
+        Assert.IsEmpty(_environments);
+        Assert.IsEmpty(closed);
+        Assert.IsEmpty(_msix.AddLooseLayoutCalls);
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+        Assert.IsEmpty(_launcher.LaunchCalls);
+        Assert.IsEmpty(_attach.Calls);
+        if (document is not null)
+        {
+            Assert.IsFalse(document.RootElement.TryGetProperty("ProcessId", out _));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("off")]
+    [DataRow("default")]
+    public async Task NonWinUIFolder_OffAndDefaultStillLaunch(string mode)
+    {
+        var app = Prepare("folder", true);
+        File.Delete(Path.Combine(app.Output, "Microsoft.WinUI.dll"));
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ReadCiVariable = () => null;
+        handler.ReadDefaultMode = () => DevToolsMode.On;
+        string[] requested = mode == "default" ? [] : ["--devtools", mode];
+
+        Assert.AreEqual(0, await Run(app.Input, [.. requested, "--detach"]), TestAnsiConsole.Output);
+        Assert.IsEmpty(_environments);
+        Assert.IsEmpty(_attach.Calls);
+        Assert.AreEqual(1, _launcher.LaunchCalls.Count + _launcher.LaunchExecutableCalls.Count);
+    }
+
+    [TestMethod]
+    [DataRow("App.build.appxrecipe")]
+    [DataRow("resources.pri")]
+    public async Task Explicit_PossibleWinUIFolder_StillLaunches(string marker)
+    {
+        var app = Prepare("folder", true);
+        File.Delete(Path.Combine(app.Output, "Microsoft.WinUI.dll"));
+        File.WriteAllText(Path.Combine(app.Output, marker), "");
+
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach"), TestAnsiConsole.Output);
+        Assert.HasCount(1, _environments);
+        Assert.HasCount(1, _launcher.LaunchExecutableCalls);
+        Assert.HasCount(1, _attach.Calls);
+    }
+
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public async Task Explicit_WpfWithPossibleWinUIHostOrUnknownMetadata_StillLaunches(bool packaged)
@@ -1371,6 +1442,17 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     private Task<int> DotnetRun(string output, string framework, string sources, params string[] options) =>
         ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(),
             ["run", output, .. options, "--devtools-sources", sources, "--project-framework", framework, "--caller", "nuget-package"]);
+
+    [TestMethod]
+    public async Task NuGetWinUIRun_ExplicitWithoutLocalWinUIFiles_StillLaunches()
+    {
+        var run = NuGetWinUIRun();
+        File.Delete(Path.Combine(run.Output, "Microsoft.WinUI.dll"));
+
+        Assert.AreEqual(0, await DotnetRun(run.Output, "winui", run.SourcesFile, "--devtools", "on", "--detach"), TestAnsiConsole.Output);
+        Assert.HasCount(1, _attach.Calls);
+        Assert.HasCount(1, _launcher.LaunchExecutableCalls);
+    }
 
     [TestMethod]
     public async Task NuGetWinUIRun_IsOnByDefault_AndInspectsTheProjectSources()

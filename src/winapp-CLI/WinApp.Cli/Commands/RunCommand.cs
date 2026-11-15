@@ -666,6 +666,13 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 ? projectContextDetector.DetectProject(inputResolution.Csproj!).Framework == ProjectAppFramework.WinUI
                 : dotnetRun && inputResolution.Mode == WinAppRunMode.Folder &&
                     string.Equals(parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption), "winui", StringComparison.OrdinalIgnoreCase);
+            if (explicitDevTools && inputResolution.Mode == WinAppRunMode.Folder && !winUIProject &&
+                !WinUIOutputDetector.MayContainWinUI3(inputResolution.ProjectDirectory))
+            {
+                return Fail($"DevTools requires WinUI 3; '{inputResolution.ProjectDirectory.FullName}' does not contain a WinUI 3 app. " +
+                    "Run with --devtools off to start the app without DevTools.", isJson);
+            }
+
             devToolsRun = DevToolsResolution.Resolve(requestedDevTools,
                 DevToolsResolution.IsCi(ReadCiVariable()),
                 noLaunch || withoutAlias || profiling || !executionTarget.IsLocal || guestInspectorApplication is not null,
