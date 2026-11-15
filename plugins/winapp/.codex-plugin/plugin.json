@@ -26,9 +26,10 @@
     "tauri"
   ],
   "skills": "./skills/",
+  "requires_local_executor": true,
   "interface": {
     "displayName": "WinApp CLI",
-    "shortDescription": "Package, sign, and add Windows features to your app with the winapp CLI.",
+    "shortDescription": "Package and sign Windows apps",
     "longDescription": "Skills for the winapp CLI: set up the Windows SDK and Windows App SDK, add package identity, build and sign MSIX packages, author appxmanifest files, and prepare apps for the Microsoft Store. Works with Electron, .NET, C++, Rust, Flutter, and Tauri apps.",
     "developerName": "Microsoft",
     "category": "Developer Tools",
