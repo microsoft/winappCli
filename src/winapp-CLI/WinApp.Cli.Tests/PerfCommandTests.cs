@@ -831,6 +831,38 @@ public class PerfCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("pid", false)]
+    [DataRow("name", false)]
+    [DataRow("pid", true)]
+    [DataRow("name", true)]
+    public async Task PerfStartHostedAppKeepsAppProcess(string kind, bool minimized)
+    {
+        using var process = Process.GetCurrentProcess();
+        var info = new UiProcessInfo(process.Id, "Microsoft.Media.Player", 0, "");
+        systemQuery.ProcessesById[process.Id] = info;
+        systemQuery.ByNameResult = [info];
+        systemQuery.HostedFramesByPid[process.Id] = [42];
+        systemQuery.ProcessIdByHwnd[42] = int.MaxValue;
+        systemQuery.WindowTextByHwnd[42] = "Media Player";
+        systemQuery.ProcessesById[int.MaxValue] = new UiProcessInfo(int.MaxValue, "ApplicationFrameHost", 42, "Media Player");
+        if (minimized)
+        {
+            uiAutomation.WindowsByPidResult = [((nint)43, process.Id, "Media Player")];
+            systemQuery.WindowClassNameByHwnd[43] = "Windows.UI.Core.CoreWindow";
+        }
+
+        // Only the app PID exists: remapping to the fake host fails before capture preparation.
+        var output = _tempDirectory.CreateSubdirectory("capture");
+        File.WriteAllText(Path.Join(output.FullName, "keep.txt"), "keep");
+        var selector = kind == "pid" ? process.Id.ToString() : info.ProcessName;
+        var (code, error) = await InvokePerfStartErrorAsync(selector, output.FullName);
+
+        Assert.AreEqual(1, code);
+        StringAssert.Contains(error, "The capture output directory must be empty.");
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "capture.json")));
+    }
+
+    [TestMethod]
     public async Task PerfStartMissingAppReturnsStructuredErrorWithoutCreatingCapture()
     {
         var output = Path.Join(_tempDirectory.FullName, "capture");
