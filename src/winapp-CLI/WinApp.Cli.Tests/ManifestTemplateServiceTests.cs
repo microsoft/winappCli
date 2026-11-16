@@ -211,7 +211,7 @@ public class ManifestTemplateServiceTests
     [DataRow("my-SDK-tool", "mySDKTool")]
     public async Task GenerateCompleteManifest_DerivesApplicationIdKeepingPackageNameCasing(string packageName, string expectedId)
     {
-        var outDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "derived-id-" + expectedId));
+        var outDir = new DirectoryInfo(Path.Join(_tempDir.FullName, "derived-id-" + expectedId));
 
         await new ManifestTemplateService().GenerateCompleteManifestAsync(
             outDir,
