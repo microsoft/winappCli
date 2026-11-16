@@ -188,7 +188,8 @@ winapp devtools inspect DynamicPanel --depth 1 --all -a <pid> --json
 ```
 
 The first command can show no children and `childCount: 0`; the second includes the
-Buttons.
+Buttons. In a [Microsoft.UI.Reactor app](devtools-reactor.md), the default view shows the
+elements your C# creates instead.
 
 In `--json` output, `childCount` counts children in the view you asked for, so it can
 differ between the default view and `--all`. `hiddenByFilter` counts only elements
