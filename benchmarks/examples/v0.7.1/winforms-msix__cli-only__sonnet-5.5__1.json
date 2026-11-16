@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "release": "v0.7.1",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "benchmark": "tasks",
+  "scenario": "winforms-msix",
+  "set": "tuning",
+  "arm": "cli-only",
+  "model": "sonnet-5.5",
+  "trial": 1,
+  "startedAt": "2026-10-27T18:00:00Z",
+  "outcome": "valid",
+  "passed": true,
+  "improvements": { "met": 1, "total": 2 },
+  "checks": [
+    { "id": "msix-built", "kind": "required", "passed": true, "source": "harness", "detail": "TaskBoard.msix" },
+    { "id": "installed", "kind": "required", "passed": true, "source": "harness" },
+    { "id": "launches", "kind": "required", "passed": true, "source": "harness" },
+    { "id": "msix-trusted", "kind": "improvement", "passed": true, "source": "harness" },
+    { "id": "installed-matches-msix", "kind": "improvement", "passed": false, "source": "harness", "detail": "identity differs" }
+  ],
+  "usage": {
+    "tokens": { "input": 412000, "output": 18500, "cacheRead": 380000 },
+    "subAgentTokens": null,
+    "nanoAiu": 5230000000,
+    "premiumRequests": 1,
+    "wallClockMs": 612000
+  }
+}

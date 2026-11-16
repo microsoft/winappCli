@@ -41,14 +41,18 @@ import {
   evaluateAccessibleNames,
   evaluateBuildWarnings,
   evaluateKeyboardTraversal,
+  evaluateLoaded,
   evaluateNativeAot,
+  evaluateReady,
   evaluateSourceChecks,
   interactiveElements,
   judgeChecks,
   projectDirFor,
   type QualityCheck,
 } from "./quality-checks.js";
-import { computeScoreV2, formatBreakdown, type ScoreBreakdown } from "./scoring.js";
+import { computeScoreV2, formatBreakdown, incompleteJudging, SCORING_VERSION, type ScoreBreakdown } from "./scoring.js";
+import { toTrialResult } from "./trial-result.js";
+import { summarizeActivity } from "./activity.js";
 import { pinRef, readPin } from "./upstream-pins.js";
 import { findAncestorProjectFiles, hideToolsFromPath } from "./trial-env.js";
 import {
@@ -71,6 +75,8 @@ import { appendBounded, PROCESS_OUTPUT_MAX_CHARS } from "./live-output.js";
 import { runUntilSdkCompletion, type SdkCompletionReason } from "./sdk-lifecycle.js";
 import { compareVersionCore, resolveWinAppToolchain } from "./winapp-toolchain.js";
 import { readLinesSync } from "./jsonl-stream.js";
+import { DESKTOP_LOCKED_ERROR, probeInteractiveDesktop, uiBlockedByLockedDesktop, waitForInteractiveDesktop } from "./desktop-lock.js";
+import { findVsMsBuild, msbuildRetryArgs } from "./vs-msbuild.js";
 import { evaluateConcurrentProcessCommand, extractCommand } from "./process-safety.js";
 import type { RunEntry, ScenarioConfig, AgentSetupConfig, GlobalConfig } from "../types.js";
 import { parse as parseYaml } from "yaml";
@@ -1964,7 +1970,7 @@ function formatDurationMs(ms: number): string {
  * Returns the AIU total (rounded to 2 decimals) or undefined when the stream
  * carries no usage events.
  */
-function sumSessionCredits(eventsFile: string): number | undefined {
+function sumSessionNanoAiu(eventsFile: string): number | undefined {
   if (!existsSync(eventsFile)) return undefined;
   let nanoAiu = 0;
   let found = false;
@@ -1983,7 +1989,12 @@ function sumSessionCredits(eventsFile: string): number | undefined {
   } catch {
     return undefined;
   }
-  return found ? Math.round((nanoAiu / 1e9) * 100) / 100 : undefined;
+  return found ? nanoAiu : undefined;
+}
+
+function sumSessionCredits(eventsFile: string): number | undefined {
+  const nano = sumSessionNanoAiu(eventsFile);
+  return nano === undefined ? undefined : Math.round((nano / 1e9) * 100) / 100;
 }
 
 function aggregateSessionUsage(
@@ -2135,6 +2146,15 @@ function aggregateSessionUsage(
   if (totalAdded || totalRemoved) {
     usage.code_changes = `+${totalAdded} -${totalRemoved}`;
   }
+  // Exact integers for the trial file (the formatted strings above are rounded).
+  const sumTotals = (t: Record<string, { input: number; output: number; cached: number }>) =>
+    Object.values(t).reduce((a, m) => ({ input: a.input + m.input, output: a.output + m.output, cacheRead: a.cacheRead + m.cached }), { input: 0, output: 0, cacheRead: 0 });
+  usage.exact = {
+    tokens: sumTotals(mainModelTotals),
+    subAgentTokens: Object.keys(subModelTotals).length ? sumTotals(subModelTotals) : null,
+    premiumRequests: totalPremium,
+    wallClockMs: sessionDurationMs,
+  };
   for (const [model, totals] of Object.entries(mainModelTotals)) {
     usage.models[model] = {
       input: formatTokenCount(totals.input),
@@ -2231,6 +2251,24 @@ async function defaultDotnetBuild(
       undefined,
       false
     );
+    if (result.exitCode !== 0) {
+      // Some WinUI projects build only with Visual Studio's MSBuild (e.g. MSB4062 for the PRI tasks).
+      const msbuild = findVsMsBuild();
+      if (msbuild) {
+        const retryArgs = msbuildRetryArgs(csproj, buildPlatform);
+        log(`  dotnet build failed; retrying once with Visual Studio MSBuild: "${msbuild}" ${retryArgs.join(" ")}`);
+        const retry = await runProcess(msbuild, retryArgs, workDir, callbacks.onOutput, undefined, false);
+        log(`  Build gate builder: Visual Studio MSBuild (${retry.exitCode === 0 ? "succeeded" : "also failed"})`);
+        result = {
+          ...retry,
+          output: `${result.output}\n\n=== dotnet build failed; retried with Visual Studio MSBuild: ${msbuild} ${retryArgs.join(" ")} ===\n\n${retry.output}`,
+        };
+      } else {
+        log("  dotnet build failed; Visual Studio MSBuild not found, so no retry.");
+      }
+    } else {
+      log("  Build gate builder: dotnet build");
+    }
   } else {
     // Non-Windows only; Windows always builds for the host architecture above.
     const buildCommand = (globalConfig.build?.fallback_command || globalConfig.build?.command || "dotnet build {csproj} -c Debug")
@@ -2767,13 +2805,19 @@ export function parseValidationJson(output: string): any | null {
     return null;
   };
 
-  // Try ```json blocks (closed with ```) — iterate ALL matches, skipping templates
+  // Try ```json blocks (closed with ```) — iterate ALL matches, skipping templates.
+  // The judge may print a draft and then a corrected result, so the last scored block wins.
   const jsonBlockRegex = /```json\s*([\s\S]+?)\s*```/g;
   let jsonBlockMatch: RegExpExecArray | null;
+  let lastBlock: any = null;
+  let lastScored: any = null;
   while ((jsonBlockMatch = jsonBlockRegex.exec(clean)) !== null) {
     const result = tryParseBlock(jsonBlockMatch[1].trim());
-    if (result) return result;
+    if (!result) continue;
+    lastBlock = result;
+    if (result.project_score !== undefined || result.ui_score !== undefined || result.design_score !== undefined || result.requirements !== undefined) lastScored = result;
   }
+  if (lastScored ?? lastBlock) return lastScored ?? lastBlock;
 
   // Fallback: unclosed ```json block (copilot output sometimes omits closing fence)
   const unclosedMatch = clean.match(/```json\s*([\s\S]+)$/);
@@ -2802,7 +2846,7 @@ export function parseValidationJson(output: string): any | null {
 interface StructuredReqResult {
   id: number;
   text: string;
-  status: "pass" | "fail";
+  status: "pass" | "fail" | "not-run";
   reason: string;
 }
 
@@ -2823,7 +2867,8 @@ export function extractRequirementResults(
       const id = parseInt(key, 10);
       if (isNaN(id)) continue;
       const v = val as Record<string, any>;
-      const status = v.status === "pass" ? "pass" : "fail";
+      // The judge is asked for exactly pass or fail; anything else it wrote is not a pass.
+      const status = v.status === "pass" ? "pass" : v.status === "not-run" ? "not-run" : "fail";
       const reason = v.reason || "";
       const text = (id >= 1 && id <= scenarioRequirements.length)
         ? scenarioRequirements[id - 1]
@@ -2913,6 +2958,8 @@ export async function runBenchmark(
   opts: { maxBuildMinutes: number; concurrency?: number },
   callbacks: BenchmarkCallbacks
 ): Promise<void> {
+  // A rerun or resume of a harness-error trial must not inherit the previous attempt's error.
+  entry.harnessError = undefined;
   const cfg = loadAgentConfig(entry.pluginPath);
   const ctx = createTrialEnv(runDir, entry.trialName, cfg);
   ctx.uiWorkflowId = uiWorkflowIdFor(runDir, entry.id);
@@ -2961,6 +3008,8 @@ async function runBenchmarkImpl(
   const logsDir = join(trialDir, "session-logs-dir");
   mkdirSync(workDir, { recursive: true });
   mkdirSync(logsDir, { recursive: true });
+  // A new attempt must not leave an earlier export behind if it ends early.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
 
   // Keep SDK SQLite/session state on a short physical path. Deep benchmark
   // trial names can push SQLite paths beyond Windows' practical path limit.
@@ -4028,6 +4077,7 @@ async function runBenchmarkImpl(
     if (sessionUsage) {
       usage.sub_agent_count = sessionUsage.sub_agent_count;
       usage.sub_agent_models = sessionUsage.sub_agent_models;
+      usage.exact = sessionUsage.exact;
       if (usage.credits == null && sessionUsage.credits != null) usage.credits = sessionUsage.credits;
     }
   }
@@ -4038,6 +4088,8 @@ async function runBenchmarkImpl(
   // estimate when available.
   const buildCredits = sumSessionCredits(join(logsDir, "build-events.jsonl"));
   if (buildCredits != null) usage.credits = buildCredits;
+  const buildNanoAiu = sumSessionNanoAiu(join(logsDir, "build-events.jsonl"));
+  if (usage.exact) usage.exact = { ...usage.exact, nanoAiu: buildNanoAiu ?? null };
 
   entry.sessionTime = usage.session_time;
   entry.apiTime = usage.api_time;
@@ -4221,11 +4273,16 @@ async function runBenchmarkImpl(
       entry.score = 0;
       banner("App didn't run — skipping validation", "⏭️", "yellow");
     } else if (appPid) {
-      const uiChecks = await runUiQualityChecks(String(appPid), workDir, log);
+      const { checks: uiChecks, locked } = await runUiChecksWhenUnlocked(String(appPid), workDir, log, scenarioConfig.ready_element);
       if (uiChecks.length) {
         log("  Quality checks (UI):");
         logQualityChecks(uiChecks, log);
         (entry as any)._qualityChecks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...uiChecks];
+      }
+      if (locked) {
+        entry.harnessError = DESKTOP_LOCKED_ERROR;
+        entry.failReason = DESKTOP_LOCKED_ERROR;
+        entry.score = undefined;
       }
     }
   }
@@ -4238,8 +4295,9 @@ async function runBenchmarkImpl(
   // still gets builds/runs metrics, but no `score` and no `validation` block
   // in results.json — used by sweeps (and advanced flat runs that do their own
   // scoring as separate tasks) that only care whether the code compiles +
-  // launches.
-  if (entry.runs && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
+  // launches. A locked desktop already made the trial a harness error, so the
+  // judge is not run either.
+  if (entry.runs && !entry.harnessError && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
     setStatus("validating");
     banner("VALIDATION", "🔍", "magenta");
 
@@ -4363,7 +4421,8 @@ async function runBenchmarkImpl(
       log("  ERROR: Validation completed without scoring JSON");
       entry.failReason = "Validation produced no score";
     }
-    entry.score = 0;
+    entry.harnessError = entry.failReason ?? "Validation failed";
+    entry.score = undefined;
   }
   } // end if (entry.runs) for validation
 
@@ -4510,7 +4569,7 @@ async function runArtifactGates(
  * `winapp ui`. Runs under the trial's cooperative UI workflow (runProcess
  * passes WINAPP_UI_WORKFLOW_ID) and yields the desktop when done.
  */
-export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg: string) => void): Promise<QualityCheck[]> {
+export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg: string) => void, readyElement?: string): Promise<QualityCheck[]> {
   if (!isWindows || !appPid) return [];
   const tc = resolveWinAppToolchain();
   const ui = (args: string[], timeout = 20000) => runProcess(tc.executable, ["ui", ...args], cwd, () => {}, timeout, false);
@@ -4529,6 +4588,8 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
       return [
         na("Q0", "Accessible names on interactive controls", "Main window not found"),
         na("Q1", "Keyboard navigation (Tab moves focus through controls)", "Main window not found"),
+        evaluateLoaded(0, null),
+        evaluateReady(readyElement, false),
       ];
     }
     const inspect = parse((await ui(["inspect", "-w", String(hwnd), "--interactive", "--json"], 30000)).output);
@@ -4542,6 +4603,8 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
     const focusable = enabled.filter((e) =>
       !caption.test((e.name ?? "").trim()) && !caption.test((e.automationId ?? "").trim()) && !/^(Edit|Document)$/.test(String(e.type)));
     let q1: QualityCheck;
+    let inputSamples: any[] | null = null;
+    let desktopLocked = false;
     if (enabled.length === 0) {
       q1 = evaluateKeyboardTraversal([], 0);
     } else {
@@ -4557,24 +4620,58 @@ export async function runUiQualityChecks(appPid: string, cwd: string, log: (msg:
       }
       if (!focusedOk) focusedOk = !!parse((await ui(["get-focused", "-w", String(hwnd), "--json"])).output)?.hasFocus;
       if (!focusedOk) {
+        desktopLocked = /no interactive desktop/i.test(focusError);
         q1 = na("Q1", "Keyboard navigation (Tab moves focus through controls)",
           `Could not focus a control (desktop busy or activation refused)${focusError ? `: ${focusError}` : ""}`);
       } else {
         const samples: any[] = [];
+        let inputError = "";
         for (let i = 0; i < 12; i++) {
           samples.push(parse((await ui(["get-focused", "-w", String(hwnd), "--json"])).output));
-          await ui(["send-keys", "tab", "--via", "send-input", "-w", String(hwnd)]);
+          const sent = await ui(["send-keys", "tab", "--via", "send-input", "-w", String(hwnd)]);
+          if (sent.exitCode !== 0 && !inputError) inputError = sent.output.trim().split(/\r?\n/).pop()?.slice(0, 160) || "send-keys failed";
         }
         q1 = evaluateKeyboardTraversal(samples, enabled.length);
+        // Level 2 needs answers after input was delivered: drop the pre-input sample, and leave it
+        // unmeasured when any key could not be sent (a lock is then detected by the caller's probe).
+        if (inputError) desktopLocked = /no interactive desktop/i.test(inputError);
+        else inputSamples = samples.slice(1);
       }
     }
-    return [q0, q1];
+    let ready: QualityCheck;
+    if (readyElement) {
+      const waited = await ui(["wait-for", readyElement, "-w", String(hwnd), "--timeout", "10000"], 20000);
+      ready = evaluateReady(readyElement, waited.exitCode === 0);
+    } else {
+      ready = evaluateReady(undefined, false);
+    }
+    return [q0, q1, evaluateLoaded(enabled.length, inputSamples, desktopLocked), ready];
   } catch (err) {
     log(`  ⚠️ UI quality checks failed: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   } finally {
     await ui(["yield"], 5000).catch(() => undefined);
   }
+}
+
+/**
+ * Runs the UI checks once the desktop is unlocked. Returns `locked` when the
+ * desktop stayed locked or input was refused because of a lock, so the caller
+ * records a harness error instead of scoring checks that measured nothing.
+ */
+async function runUiChecksWhenUnlocked(
+  appPid: string, cwd: string, log: (msg: string) => void, readyElement?: string,
+): Promise<{ checks: QualityCheck[]; locked: boolean }> {
+  if (!isWindows) return { checks: await runUiQualityChecks(appPid, cwd, log, readyElement), locked: false };
+  if (!(await waitForInteractiveDesktop(probeInteractiveDesktop, { log }))) {
+    log(`  ❌ ${DESKTOP_LOCKED_ERROR}. The desktop stayed locked; this trial gets no score.`);
+    return { checks: [], locked: true };
+  }
+  const checks = await runUiQualityChecks(appPid, cwd, log, readyElement);
+  const l2 = checks.find((c) => c.id === "L2");
+  const locked = uiBlockedByLockedDesktop(checks, l2?.status === "na" ? probeInteractiveDesktop() : true);
+  if (locked) log(`  ❌ ${DESKTOP_LOCKED_ERROR}. Input was refused because the desktop is locked; this trial gets no score.`);
+  return { checks, locked };
 }
 
 function logQualityChecks(checks: QualityCheck[], log: (msg: string) => void): void {
@@ -4599,7 +4696,7 @@ function applyValidationScore(
   const reported = extractRequirementResults(validation, scenarioReqs);
   const byId = new Map(reported.map((r) => [r.id, r]));
   const reqResults: StructuredReqResult[] = scenarioReqs.length
-    ? scenarioReqs.map((text, i) => byId.get(i + 1) ?? { id: i + 1, text, status: "fail", reason: "Not reported by the judge" })
+    ? scenarioReqs.map((text, i) => byId.get(i + 1) ?? { id: i + 1, text, status: "not-run" as const, reason: "The judge did not rule on this requirement" })
     : reported;
   const checks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...judgeChecks(validation.quality)];
   const designScore = typeof validation.design_score === "number" ? validation.design_score : null;
@@ -4619,14 +4716,23 @@ function applyValidationScore(
     } : {}),
   };
   const q = breakdown.quality;
-  log(`  Score: ${breakdown.score}/100 (Reqs ${breakdown.requirements.passed}/${breakdown.requirements.total} · Quality ${q.passed}/${q.passed + q.failed} · Design ${breakdown.design ?? "–"})`);
+  log(`  Score: ${breakdown.score}/100 (Reqs ${breakdown.requirements.passed}/${breakdown.requirements.scored} scored of ${breakdown.requirements.total} · Quality ${q.passed}/${q.passed + q.failed} · Design ${breakdown.design ?? "–"})`);
+  const incomplete = incompleteJudging(reqResults, scenarioConfig.required_requirements);
+  if (incomplete) {
+    entry.failReason = incomplete;
+    entry.harnessError = entry.failReason;
+    entry.score = undefined;
+    log(`  ERROR: ${entry.failReason}`);
+  }
 }
 
 function saveResults(
   trialDir: string,
   entry: RunEntry,
   config: ScenarioConfig,
-  usage: Record<string, any>
+  usage: Record<string, any>,
+  /** Revalidation passes the original attempt's identity, or null when it is unknown. */
+  original?: { release: string; commit: string; startedAt: string } | null
 ) {
   // Extract structured validation data if available
   const valData = (entry as any)._validationData as {
@@ -4670,6 +4776,7 @@ function saveResults(
       build: entry.buildSessionId || null,
       validation: entry.validationSessionId || null,
     },
+    scoring_version: SCORING_VERSION,
     completion_reason: entry.completionReason,
     metrics: {
       score: entry.score,
@@ -4684,6 +4791,7 @@ function saveResults(
       ...(qualityChecks?.length ? { quality_checks: qualityChecks } : {}),
     },
     ...(entry.failReason ? { fail_reason: entry.failReason } : {}),
+    ...(entry.harnessError ? { harness_error: entry.harnessError } : {}),
     ...(buildErrors ? { build_errors: buildErrors } : {}),
   };
   if ((entry as any)._setupScriptResults) {
@@ -4705,7 +4813,63 @@ function saveResults(
   if (isWindows) {
     try { results.toolchain = { winapp: resolveWinAppToolchain().version }; } catch { /* recorded elsewhere as a launch failure */ }
   }
+  // Revalidation rebuilds with today's CLI, which may not be the one the agent used, so only a fresh run records it.
+  let winappVersion: string | undefined;
+  if (isWindows && original === undefined) {
+    try { winappVersion = resolveWinAppToolchain().fullVersion; } catch { /* no CLI */ }
+  }
+  const release = original?.release ?? (process.env.BENCH_RELEASE || "dev");
+  const commit = original?.commit ?? currentCommit();
+  const startedAt = original?.startedAt ?? entry.startedAt;
+  // Kept here, not only in trial-result.json, so a failed judge can be retried without rerunning the agent.
+  if (original !== null && startedAt) results.attempt = { release, commit, started_at: new Date(startedAt).toISOString() };
   writeTextAtomic(join(trialDir, "results.json"), JSON.stringify(results, null, 2));
+
+  // Trial file for the benchmark-data format (benchmarks/RESULTS-FORMAT.md).
+  const exact = usage?.exact;
+  // Never leave an earlier result behind when this evaluation can't be exported.
+  rmSync(join(trialDir, "trial-result.json"), { force: true });
+  // A release result names one commit, so plugins from another commit would mislabel it.
+  const pluginSha = entry.agentSource?.sha;
+  const pluginMismatch = release !== "dev" && !!entry.agentSource &&
+    (pluginSha !== commit || !!entry.agentSource.dirty);
+  if (pluginMismatch) console.warn(`  No trial-result.json written: plugins came from ${pluginSha?.slice(0, 8)}${entry.agentSource?.dirty ? " (uncommitted changes)" : ""} but the release commit is ${commit.slice(0, 8)}.`);
+  if (exact && startedAt && original !== null && !pluginMismatch) {
+    const trial = toTrialResult({
+      release,
+      commit,
+      winappVersion,
+      scenario: entry.scenarioConfigName,
+      set: config.set,
+      condition: entry.condition,
+      model: entry.model,
+      iteration: entry.iteration,
+      startedAt: new Date(startedAt),
+      builds: !!entry.builds,
+      runs: !!entry.runs,
+      checks: qualityChecks ?? [],
+      requirements: valData?.requirements ?? [],
+      requiredRequirements: config.required_requirements,
+      designScore: valData?.scoreBreakdown?.design ?? null,
+      judgeModel: (entry as any)._judgeModel,
+      usage: exact,
+      activity: summarizeActivity(join(trialDir, "session-logs-dir", "build-events.jsonl")),
+      harnessError: entry.harnessError,
+      timedOut: entry.completionReason === "hard_timeout",
+    });
+    if (trial) writeTextAtomic(join(trialDir, "trial-result.json"), JSON.stringify(trial, null, 2));
+  }
+}
+
+let cachedCommit: string | undefined;
+/** Full SHA of the winappCli checkout this harness runs from; all zeros outside a git checkout. */
+function currentCommit(): string {
+  if (cachedCommit === undefined) {
+    const r = spawnSync("git", ["rev-parse", "HEAD"], { cwd: dirname(fileURLToPath(import.meta.url)), encoding: "utf-8" });
+    const sha = r.status === 0 ? r.stdout.trim() : "";
+    cachedCommit = /^[0-9a-f]{40}$/.test(sha) ? sha : "0".repeat(40);
+  }
+  return cachedCommit;
 }
 
 function saveRevalidationResults(
@@ -4735,7 +4899,13 @@ function saveRevalidationResults(
       if (!entry.agentSource && old.agent_source) entry.agentSource = old.agent_source;
     } catch {}
   }
-  saveResults(trialDir, entry, scenarioConfig, usage);
+  // Keep the original attempt's release, commit and start time; without them it can't be exported.
+  let original: { release: string; commit: string; startedAt: string } | null = null;
+  try {
+    const a = JSON.parse(readFileSync(existingResults, "utf-8")).attempt;
+    if (a?.release && a.commit && a.started_at) original = { release: a.release, commit: a.commit, startedAt: a.started_at };
+  } catch {}
+  saveResults(trialDir, entry, scenarioConfig, usage, original);
 }
 
 
@@ -4748,6 +4918,7 @@ export async function revalidateBenchmark(
   runDir: string,
   callbacks: BenchmarkCallbacks
 ): Promise<void> {
+  entry.harnessError = undefined;
   const trialDir = join(runDir, entry.trialName);
   const archiveDir = join(
     runDir,
@@ -4786,8 +4957,9 @@ export async function revalidateBenchmark(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     entry.status = "failed";
-    entry.score = 0;
+    entry.score = undefined;
     entry.failReason = `Revalidation failed: ${detail}`;
+    entry.harnessError = entry.failReason;
     entry.finishedAt = new Date();
     callbacks.onOutput(`\nERROR: ${entry.failReason}\n`);
     callbacks.onStatusChange(entry);
@@ -4980,16 +5152,21 @@ async function revalidateBenchmarkImpl(
   if (!entry.runs) {
     entry.score = 0;
   } else if (appPid) {
-    const uiChecks = await runUiQualityChecks(String(appPid), workDir, log);
+    const { checks: uiChecks, locked } = await runUiChecksWhenUnlocked(String(appPid), workDir, log, scenarioConfig.ready_element);
     if (uiChecks.length) {
       log("  Quality checks (UI):");
       logQualityChecks(uiChecks, log);
       (entry as any)._qualityChecks = [...(((entry as any)._qualityChecks as QualityCheck[]) || []), ...uiChecks];
     }
+    if (locked) {
+      entry.harnessError = DESKTOP_LOCKED_ERROR;
+      entry.failReason = DESKTOP_LOCKED_ERROR;
+      entry.score = undefined;
+    }
   }
 
   // ─── VALIDATION ─── (per-task skipValidation OR global SKIP_VALIDATION env)
-  if (entry.runs && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
+  if (entry.runs && !entry.harnessError && !(entry.skipValidation || process.env.SKIP_VALIDATION)) {
     setStatus("validating");
     banner("VALIDATION", "🔍", "magenta");
 
@@ -5097,7 +5274,8 @@ async function revalidateBenchmarkImpl(
         log("  ERROR: Validation completed without scoring JSON");
         entry.failReason = "Validation produced no score";
       }
-      entry.score = 0;
+      entry.harnessError = entry.failReason ?? "Validation failed";
+      entry.score = undefined;
     }
   }
 
