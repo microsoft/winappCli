@@ -114,8 +114,8 @@ internal partial class ManifestTemplateService : IManifestTemplateService
         string? displayName,
         string? applicationId)
     {
-        // Both overrides default to the pre-existing derivation, so callers that don't supply them
-        // (manifest generate, init, sparse identity) produce byte-identical output to before.
+        // Both overrides default to values derived from the package name, so callers that don't
+        // supply them (manifest generate, init, sparse identity) need no extra input.
         var resolvedApplicationId = string.IsNullOrWhiteSpace(applicationId)
             ? FixAsciiWindowsId(JoinWords(packageName))
             : FixAsciiWindowsId(applicationId);
