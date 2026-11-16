@@ -214,12 +214,9 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
 
         var startInfo = new ProcessStartInfo
         {
-            // Load-bearing, not incidental. This child can outlive winapp, so it must not inherit
-            // the caller's standard handles: a caller capturing winapp's output would otherwise not
-            // reach end of stream until the whole Sandbox went away. The suppression scope below
-            // provides that guarantee while CreateProcess-style startup keeps the transient app
-            // execution alias console hidden. Redirecting the child's own streams instead is NOT
-            // sufficient and must not be substituted -- doing so reproduces the pipe deadlock.
+            // This child can outlive winapp, so it is started through OutlivingProcess and inherits
+            // no handles; CreateProcess-style startup keeps the transient app execution alias
+            // console hidden.
             UseShellExecute = false,
             FileName = executable,
             CreateNoWindow = true,
@@ -310,12 +307,7 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
         Func<int, ExecutionTargetException> failedExit,
         CancellationToken cancellationToken)
     {
-        Process? client;
-
-        using (StandardHandleInheritance.Suppress())
-        {
-            client = ConnectLauncher(startInfo);
-        }
+        var client = ConnectLauncher(startInfo);
 
         if (client is null)
         {
@@ -394,9 +386,12 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
     /// </remarks>
     internal static readonly TimeSpan ConnectFailureWindow = TimeSpan.FromSeconds(2);
 
+    /// <summary>
+    /// Starts the client without any inherited handle, so it cannot keep a caller's captured output
+    /// open for the life of the Sandbox.
+    /// </summary>
     private static Process? LaunchConnectedClient(ProcessStartInfo startInfo) =>
-        Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Failed to start the Windows Sandbox client.");
+        OutlivingProcess.Start(startInfo);
 
     /// <inheritdoc/>
     public async Task<int> ExecuteAsync(
@@ -549,7 +544,7 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
         cancellationToken.ThrowIfCancellationRequested();
 
         // `wsb exec` hosting the persistent guest agent runs for the life of the Sandbox, which is
-        // far longer than this command. It must therefore not inherit the caller's standard handles:
+        // far longer than this command. It must therefore not inherit any of the caller's handles:
         // a caller capturing winapp's output would otherwise wait for end of stream until the whole
         // Sandbox went away.
         var launch = RunAsync(

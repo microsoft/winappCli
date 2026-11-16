@@ -14,14 +14,13 @@ internal sealed record ProcessRunRequest(
     IReadOnlyDictionary<string, string>? Environment = null)
 {
     /// <summary>
-    /// Whether the child must not inherit this process's standard handles.
+    /// Whether the child must inherit only its own redirected pipes.
     /// </summary>
     /// <remarks>
     /// Set for a child that is expected to outlive winapp. Such a child would otherwise hold a
-    /// duplicate of the caller's captured stdout/stderr pipe, and the caller would not reach end of
-    /// stream until that child exited — long after the command it ran had finished. See
-    /// <see cref="Helpers.StandardHandleInheritance"/> for why redirecting the child's own streams
-    /// is not sufficient on its own.
+    /// duplicate of the caller's captured output pipe, and the caller would not reach end of stream
+    /// until that child exited — long after the command it ran had finished. See
+    /// <see cref="Helpers.OutlivingProcess"/>.
     /// </remarks>
     public bool OutlivesCaller { get; init; }
 }
