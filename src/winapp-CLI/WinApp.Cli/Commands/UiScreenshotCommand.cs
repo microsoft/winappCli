@@ -216,7 +216,9 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
                     return earlyExit;
                 }
 
-                return await PublishAsync(pass, output, json, cancellationToken).ConfigureAwait(false);
+                return await PublishAsync(
+                    pass, output, json, captureScreen,
+                    parseResult.InvocationConfiguration.Error, cancellationToken).ConfigureAwait(false);
             }
             catch (ForegroundLostException foregroundEx)
             {
@@ -621,7 +623,8 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
         /// <summary>
         /// Encodes and writes what the pass captured. Runs after the active section has been released.
         /// </summary>
-        private async Task<int> PublishAsync(CapturePass pass, string? output, bool json, CancellationToken ct)
+        private async Task<int> PublishAsync(
+            CapturePass pass, string? output, bool json, bool captureScreen, TextWriter errorOut, CancellationToken ct)
         {
             var filePath = output ?? DefaultOutputFileName;
             var captures = pass.Captures;
@@ -638,6 +641,20 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
 
             await File.WriteAllBytesAsync(filePath, pngBytes, ct).ConfigureAwait(false);
             var absolutePath = Path.GetFullPath(filePath);
+
+            foreach (var capture in captures)
+            {
+                if (IsBlackCapture(capture.Pixels))
+                {
+                    var warning = $"Warning: The captured image for HWND {capture.Hwnd} is entirely black.";
+                    if (!captureScreen)
+                    {
+                        warning += $" If the window has visible content, retry with '{UiCommandAdvice.Command($"screenshot -w {capture.Hwnd} --capture-screen")}'. " +
+                            "This activates the window and captures its screen region, including visible overlays.";
+                    }
+                    errorOut.WriteLine(warning);
+                }
+            }
 
             var width = pass.IsComposite
                 ? captures.Sum(c => c.Width) + WindowGap * (captures.Count - 1)
@@ -678,6 +695,18 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
             }
 
             return 0;
+        }
+
+        private static bool IsBlackCapture(byte[] pixels)
+        {
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                if (pixels[i] != 0 || pixels[i + 1] != 0 || pixels[i + 2] != 0)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private const int LabelBarHeight = 28;
