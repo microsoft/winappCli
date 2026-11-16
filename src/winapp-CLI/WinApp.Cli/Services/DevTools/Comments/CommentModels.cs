@@ -145,6 +145,12 @@ internal sealed class CommentCSharpAnchor
     /// <summary>The factory the call site invokes (<c>Button</c>), read from the source at the column.</summary>
     public string? Factory { get; set; }
 
+    /// <summary>
+    /// Which call to <see cref="Factory"/> on the line this is (0 for the first), so a line with several, such as
+    /// <c>HStack(Button("A"), Button("B"))</c>, still names the same one after it is re-indented. Null when unknown.
+    /// </summary>
+    public int? FactoryIndex { get; set; }
+
     /// <summary>The Reactor element kind (<c>Button</c>, <c>Stack</c>, <c>Component</c>).</summary>
     public string? Element { get; set; }
 

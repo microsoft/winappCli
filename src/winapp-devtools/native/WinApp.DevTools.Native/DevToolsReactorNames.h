@@ -165,16 +165,26 @@ inline bool CallSiteHolds(const std::vector<std::wstring>& lines, unsigned int l
     return false;
 }
 
-// How a call site reads in the file on disk: L"" when it still holds the call; L"stale" when the file was written after
-// the app was built (`changedSinceBuild`) and the call is not there (an edit moved it); L"pastEnd" when the file, not
-// changed since, has no such line (a #line directive maps the call to a line of another file). A file not changed since
-// the build is trusted even when the text check misses: factory and element names can differ.
+// How a call site reads in the file on disk: L"stale" when the file was written after the code the app runs
+// (`changedSinceBuild`), even if the same factory is still at the call's position, since its arguments may differ;
+// L"pastEnd" when the file, not changed since, has no such line (a #line directive maps the call to a line of another
+// file); else L"". A file not changed since the build is trusted even when the text check misses: factory and element
+// names can differ.
 inline const wchar_t* SiteState(const std::vector<std::wstring>& lines, unsigned int line, unsigned int column,
                                 const std::wstring& kind, bool changedSinceBuild)
 {
-    if (CallSiteHolds(lines, line, column, kind)) return L"";
     if (changedSinceBuild) return L"stale";
+    if (CallSiteHolds(lines, line, column, kind)) return L"";
     return line > lines.size() ? L"pastEnd" : L"";
+}
+
+// Whether a file written at `written` is newer than the code the app runs: built at `built`, and changed by .NET Hot
+// Reload at `hotReloaded` (0 when never). Unix seconds; 0 for `written` or `built` when unknown. 2s of slack covers
+// file-system timestamp granularity, as for XAML.
+inline bool ChangedSinceRunning(unsigned long long written, unsigned long long built, unsigned long long hotReloaded)
+{
+    if (written == 0 || built == 0) return false;
+    return written > (built > hotReloaded ? built : hotReloaded) + 2;
 }
 
 // The name the call at `column` (1-based; 0 when unknown) on `line` is assigned to. `previous` is the line above, for

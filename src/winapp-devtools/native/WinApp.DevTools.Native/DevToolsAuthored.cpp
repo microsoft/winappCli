@@ -28,6 +28,7 @@ namespace {
 
 std::wstring g_sourceRoot;
 unsigned long long g_buildTimeUnix = 0;
+std::atomic<unsigned long long> g_hotReloadedUnix{0};
 std::wstring g_coordinateError;
 std::map<std::wstring, std::wstring> g_coordinateExclusions;
 std::set<std::wstring> g_excludedSourcePaths;
@@ -516,6 +517,11 @@ void DevToolsAuthored_Init(const std::wstring& sourceRoot, unsigned long long bu
     ReleaseSRWLockExclusive(&g_indexLock);
 }
 
+void DevToolsAuthored_SetHotReloaded(unsigned long long unixTime)
+{
+    g_hotReloadedUnix.store(unixTime);
+}
+
 bool DevToolsAuthored_HasSourceRoot()
 {
     AcquireSRWLockShared(&g_lock);
@@ -545,8 +551,8 @@ bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, un
         const unsigned long long built = g_buildTimeUnix;
         ReleaseSRWLockShared(&g_lock);
         const unsigned long long written = built ? LastWriteUnix(path) : 0;
-        // 2s slack for filesystem timestamp granularity, as for XAML.
-        *site = DevToolsReactorNames::SiteState(lines, line, column, kind, written != 0 && written > built + 2);
+        *site = DevToolsReactorNames::SiteState(lines, line, column, kind,
+            DevToolsReactorNames::ChangedSinceRunning(written, built, g_hotReloadedUnix.load()));
     }
     *out = DevToolsCSharpSource::Statement(lines, line, column);
     DevToolsCSharpSource::Redact(*out);

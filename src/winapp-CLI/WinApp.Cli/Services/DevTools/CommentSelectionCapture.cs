@@ -329,6 +329,7 @@ internal static class CommentSelectionCapture
             LineHash = CSharpSourceText.LineHash(text),
             LineText = CSharpSourceText.StoredText(text),
             Factory = factory,
+            FactoryIndex = factory is null || source.Column <= 0 ? null : CSharpAnchorResolver.FactoryIndex(sites, factory, source.Column),
             Element = source.Element,
             Component = source.Component,
             Key = source.Key,

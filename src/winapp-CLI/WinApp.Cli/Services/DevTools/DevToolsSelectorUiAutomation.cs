@@ -77,12 +77,20 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
     }
 
     internal const string AbsentKey = "winapp.devtools.absent";
+    internal const string IncompleteKey = "winapp.devtools.incomplete";
+    internal const string DevToolsKey = "winapp.devtools.selector";
 
     /// <summary>
     /// Whether DevTools looked at the whole app and no element has the selector's name yet. The error still lists
     /// similar names for the other commands; <c>ui wait-for</c> keeps waiting.
     /// </summary>
     internal static bool IsAbsent(Exception ex) => ex.Data.Contains(AbsentKey);
+
+    /// <summary>Whether DevTools could not see every window, so it cannot say whether or which element matches.</summary>
+    internal static bool IsIncomplete(Exception ex) => ex.Data.Contains(IncompleteKey);
+
+    /// <summary>Whether DevTools resolved the selector and failed for a reason of its own (ambiguous, unreadable).</summary>
+    internal static bool IsDevToolsFailure(Exception ex) => ex.Data.Contains(DevToolsKey) || ex.Data.Contains(IncompleteKey);
 
     public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct) => inner.IsSameElement(selected, current, ct);
 
@@ -114,7 +122,10 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
         var root = selector.Root is { } r ? await TranslateAsync(target, r, ct) : null;
         if (selector.Query is { } query && await TranslateTextAsync(target, query, ct) is { } resolved)
         {
-            return selector with { Query = null, Slug = resolved.Slug, Root = root };
+            // UI Automation shows a unique AutomationId as the selector (`inc`); it is searched, not read as a slug.
+            return resolved.AutomationId
+                ? selector with { Query = resolved.Slug, Slug = null, Root = root }
+                : selector with { Query = null, Slug = resolved.Slug, Root = root };
         }
         return root == selector.Root ? selector : selector with { Root = root };
     }
@@ -140,8 +151,15 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
             }, resolved.Slug);
     }
 
-    /// <summary>The UI Automation slug of a DevTools element, and the window UI Automation found it in.</summary>
-    private readonly record struct Resolved(string Slug, nint Window);
+    /// <summary>
+    /// The UI Automation selector of a DevTools element (its slug, or its AutomationId when UI Automation shows that
+    /// instead), and the window UI Automation found it in.
+    /// </summary>
+    private readonly record struct Resolved(string Slug, nint Window, bool AutomationId = false)
+    {
+        public static Resolved Of(UiElement element, nint window) =>
+            new(element.Selector!, window, !string.IsNullOrEmpty(element.AutomationId) && element.Selector == element.AutomationId);
+    }
 
     private async Task<Resolved?> TranslateTextAsync(UiTarget target, string text, CancellationToken ct) =>
         IsDevToolsSelector(text) ? await ResolveSlugAsync(target, text.Trim(), csharpNameOnly: false, ct)
@@ -178,13 +196,23 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
                 var message = resolved.RemoteError?.Message ?? resolved.Error ?? $"'{selector}' matched no element.";
                 Exception failure = resolved.Candidates.Length > 0
                     ? Ambiguous(message, resolved.Candidates)
+                    : resolved.Incomplete ? new InvalidOperationException(message)
                     : new UiElementNotFoundException(selector);
                 // A name nothing has yet still lists the similar ones it found, but `ui wait-for` keeps waiting for it.
                 if (resolved.Absent)
                 {
                     failure.Data[AbsentKey] = true;
                 }
+                failure.Data[resolved.Incomplete ? IncompleteKey : DevToolsKey] = true;
                 throw failure;
+            }
+            // One match from a search that could not see every window may not be the element the selector means.
+            if (resolved.Warning is not null)
+            {
+                var uncertain = new InvalidOperationException(resolved.Warning +
+                    " Run the command again, or pass the element's slug from `winapp ui search` or `winapp devtools inspect`.");
+                uncertain.Data[IncompleteKey] = true;
+                throw uncertain;
             }
             handle = resolved.Handle!;
         }
@@ -224,15 +252,15 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
             }
             var all = perWindow.SelectMany(w => w.Elements).Where(e => e.Selector is not null)
                 .DistinctBy(e => e.Selector, StringComparer.Ordinal).ToList();
-            if (Match(all, automationId, null, null) is { Selector: { } byId } identified)
+            if (Match(all, automationId, null, null) is { Selector: not null } identified)
             {
-                return new Resolved(byId, perWindow.First(w => w.Elements.Contains(identified)).Hwnd);
+                return Resolved.Of(identified, perWindow.First(w => w.Elements.Contains(identified)).Hwnd);
             }
             var shown = perWindow.Select(window => (window.Hwnd, Match: Match(window.Elements, automationId, name, window.Expected)))
                 .FirstOrDefault(window => window.Match?.Selector is not null);
-            if (shown.Match?.Selector is { } slug)
+            if (shown.Match is { } match)
             {
-                return new Resolved(slug, shown.Hwnd);
+                return Resolved.Of(match, shown.Hwnd);
             }
         }
         throw new UiElementNotFoundException(selector);

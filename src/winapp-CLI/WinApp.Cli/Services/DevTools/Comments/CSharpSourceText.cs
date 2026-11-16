@@ -363,62 +363,118 @@ internal static class CSharpSourceText
             }
             if (c == '"' || ((c == '@' || c == '$') && i + 1 < n && code[i + 1] is '"' or '@' or '$'))
             {
-                var j = i;
-                var verbatim = false;
-                while (j < n && code[j] is '@' or '$') { if (code[j] == '@') { verbatim = true; } j++; }
-                var quotes = 0;
-                while (j + quotes < n && code[j + quotes] == '"') { quotes++; }
-                if (quotes == 2 && !verbatim)
+                if (!ScanLiteral(code, i, out var valueStart, out var close, out var open))
                 {
-                    output.Append(code, i, j + 2 - i);
-                    i = j + 2;
+                    output.Append(code, i, close + 1 - i);
+                    i = close + 1;
                     continue;
                 }
-                var open = quotes >= 3 && !verbatim ? quotes : 1;
-                var k = j + open;
-                if (open >= 3)
-                {
-                    var end = code.IndexOf(new string('"', open), k, StringComparison.Ordinal);
-                    k = end < 0 ? n : end;
-                }
-                else
-                {
-                    while (k < n)
-                    {
-                        if (code[k] == '"')
-                        {
-                            if (verbatim && k + 1 < n && code[k + 1] == '"') { k += 2; continue; }
-                            break;
-                        }
-                        if (!verbatim && code[k] == '\n') { break; }
-                        if (!verbatim && code[k] == '\\') { k++; }
-                        k++;
-                    }
-                }
+                var closed = close < n && code[close] == '"';
+                var stop = closed ? Math.Min(n, close + open) : close;
                 if (!redact(i))
                 {
-                    var stop = k < n ? Math.Min(n, k + open) : n;
                     output.Append(code, i, stop - i);
                     i = stop;
                     continue;
                 }
-                output.Append(code, i, j + open - i);
+                output.Append(code, i, valueStart - i);
                 output.Append(Redacted);
-                if (k < n && code[k] == '"')
-                {
-                    output.Append(code, k, Math.Min(open, n - k));
-                    i = k + open;
-                }
-                else
-                {
-                    i = k;
-                }
+                output.Append(code, close, stop - close);
+                i = stop;
                 continue;
             }
             output.Append(c);
             i++;
         }
         return output.ToString();
+    }
+
+    // Scans the string literal whose prefix ($, @) or opening quote is at `i`: its value starts at `valueStart`, and its
+    // closing quotes (`open` of them) at `close`; `close` is the line's end or the code's end when it is not closed. An
+    // interpolation's expression is part of the value, strings inside it too (`$"{ "hunter2" }"`). False for "".
+    private static bool ScanLiteral(string code, int i, out int valueStart, out int close, out int open)
+    {
+        var n = code.Length;
+        var j = i;
+        var verbatim = false;
+        var interpolated = false;
+        while (j < n && code[j] is '@' or '$')
+        {
+            if (code[j] == '@') { verbatim = true; } else { interpolated = true; }
+            j++;
+        }
+        var quotes = 0;
+        while (j + quotes < n && code[j + quotes] == '"') { quotes++; }
+        if (quotes == 2 && !verbatim)
+        {
+            valueStart = close = j + 1;
+            open = 1;
+            return false;
+        }
+        open = quotes >= 3 && !verbatim ? quotes : 1;
+        var k = j + open;
+        valueStart = k;
+        if (open >= 3)
+        {
+            var end = code.IndexOf(new string('"', open), k, StringComparison.Ordinal);
+            close = end < 0 ? n : end;
+            return true;
+        }
+        while (k < n)
+        {
+            if (code[k] == '"')
+            {
+                if (verbatim && k + 1 < n && code[k + 1] == '"') { k += 2; continue; }
+                break;
+            }
+            if (interpolated && code[k] == '{')
+            {
+                k = k + 1 < n && code[k + 1] == '{' ? k + 2 : InterpolationEnd(code, k + 1);
+                continue;
+            }
+            if (!verbatim && code[k] == '\n') { break; }
+            if (!verbatim && code[k] == '\\') { k++; }
+            k++;
+        }
+        close = Math.Min(k, n);
+        return true;
+    }
+
+    // The index after the '}' that closes the interpolation whose expression starts at `k`, stepping over the braces,
+    // strings and characters inside it (`{ new { A = 1 } }`, `{ "}" }`).
+    private static int InterpolationEnd(string code, int k)
+    {
+        var depth = 0;
+        while (k < code.Length)
+        {
+            var c = code[k];
+            if (c == '}')
+            {
+                if (depth == 0) { return k + 1; }
+                depth--;
+            }
+            else if (c == '{')
+            {
+                depth++;
+            }
+            else if (c == '\'' && CharLiteralEnd(code, k) is var charEnd and > 0)
+            {
+                k = charEnd;
+                continue;
+            }
+            else if (c == '"' || ((c == '@' || c == '$') && k + 1 < code.Length && code[k + 1] is '"' or '@' or '$'))
+            {
+                if (!ScanLiteral(code, k, out _, out var close, out var open))
+                {
+                    k = close + 1;
+                    continue;
+                }
+                k = close < code.Length && code[close] == '"' ? close + open : close;
+                continue;
+            }
+            k++;
+        }
+        return k;
     }
 
     /// <summary>

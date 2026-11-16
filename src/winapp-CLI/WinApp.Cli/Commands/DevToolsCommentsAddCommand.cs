@@ -519,6 +519,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                 LineHash = CSharpSourceText.LineHash(text),
                 LineText = CSharpSourceText.StoredText(text),
                 Factory = site.Name,
+                FactoryIndex = CSharpAnchorResolver.FactoryIndex(sites, site.Name, site.Column),
                 Element = site.Name,
                 Component = CSharpSourceText.EnclosingType(masked, line),
                 Exact = true,

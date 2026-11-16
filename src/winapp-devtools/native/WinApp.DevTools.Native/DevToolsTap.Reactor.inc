@@ -61,6 +61,9 @@ static TapReactorStatus TapReactorStatusNow()
         status.reason = answer.GetString(L"reason");
         if (const DevToolsJson* sourceMap = answer.Find(L"sourceMap"); sourceMap && sourceMap->type == DevToolsJsonType::Bool)
             status.sourceMap = sourceMap->b ? 1 : 0;
+        if (const DevToolsJson* reloaded = answer.Find(L"hotReloadedAt"); reloaded && reloaded->type == DevToolsJsonType::Number &&
+            reloaded->num > 0)
+            DevToolsAuthored_SetHotReloaded(static_cast<unsigned long long>(reloaded->num));
         status.present = state == L"ok" || state == L"unavailable";
         status.agent = state == L"unavailable" ? L"unavailable" : L"ok";
         if (status.agent == L"ok") status.annotations = L"agent";

@@ -22,6 +22,10 @@ const wchar_t* DevToolsAuthored_StateToken(DevToolsAuthoredState s);
 
 void DevToolsAuthored_Init(const std::wstring& sourceRoot, unsigned long long buildTimeUnix);
 
+// When .NET Hot Reload last applied an edit to the app (Unix seconds): a C# file written before then matches the
+// running code even though it is newer than the build.
+void DevToolsAuthored_SetHotReloaded(unsigned long long unixTime);
+
 // True when the launch bound a source root; then IsProjectSource answers whether an element's source URI is one
 // of the developer's files under it (framework and library templates never are).
 bool DevToolsAuthored_HasSourceRoot();

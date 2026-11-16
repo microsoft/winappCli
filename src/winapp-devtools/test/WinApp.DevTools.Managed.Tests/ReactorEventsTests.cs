@@ -126,9 +126,11 @@ public sealed class ReactorEventsTests
     [TestMethod]
     public void HotReload_IsReportedAsALogEntry()
     {
+        var before = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         ReactorEvents.UpdateApplication([typeof(string)]);
         var (entries, _) = ReactorEvents.Snapshot();
         StringAssert.Contains(entries.Single(), "\"metadataUpdate\"");
+        Assert.IsTrue(ReactorEvents.HotReloadedAt >= before, "the time is kept, so files written before it match the running code");
     }
 
     [TestMethod]

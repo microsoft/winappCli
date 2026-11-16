@@ -337,6 +337,15 @@ int RunSourcePathTests()
         std::wstring multiline = L"PasswordBox(@\"first\nhunter2\")";
         DevToolsCSharpSource::Redact(multiline);
         Check(multiline == L"PasswordBox(@\"<redacted>\")", "a verbatim string that spans lines is redacted to its end");
+        std::wstring interpolated = L"PasswordBox($\"{ \"hunter2\" }\")";
+        DevToolsCSharpSource::Redact(interpolated);
+        Check(interpolated == L"PasswordBox($\"<redacted>\")", "a string inside an interpolation is part of the redacted value");
+        std::wstring nested = L"PasswordBox($\"a{ new { P = \"}\" }.P }b\", \"x\")";
+        DevToolsCSharpSource::Redact(nested);
+        Check(nested == L"PasswordBox($\"<redacted>\", \"<redacted>\")", "braces and a quoted brace inside an interpolation");
+        std::wstring escaped = L"PasswordBox($\"{{ \\\"x\\\" }}\", \"y\")";
+        DevToolsCSharpSource::Redact(escaped);
+        Check(escaped == L"PasswordBox($\"<redacted>\", \"<redacted>\")", "escaped braces open no interpolation");
     }
 
     DeleteFileW((pages + L"\\MainPage.xaml").c_str());

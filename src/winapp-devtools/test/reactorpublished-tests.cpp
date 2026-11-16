@@ -182,11 +182,19 @@ void Test_SiteState()
     // A line inserted above line 1 moved the call: line 1 now holds a comment.
     const std::vector<std::wstring> edited = { L"        // a new line", built[0], built[1], built[2], built[3] };
     Check(std::wstring(SiteState(edited, 1, 21, L"TextBlock", true)) == L"stale", "edited since the build: the call moved");
-    Check(std::wstring(SiteState(edited, 2, 21, L"TextBlock", true)).empty(), "a Hot Reload edit keeps the line current");
+    Check(std::wstring(SiteState(edited, 2, 21, L"TextBlock", true)) == L"stale",
+        "edited since the running code: the same factory may now have other arguments");
     Check(std::wstring(SiteState(edited, 1, 21, L"TextBlock", false)).empty(),
         "a file not changed since the build is trusted (the text check is loose)");
     Check(std::wstring(SiteState(built, 500, 0, L"Button", false)) == L"pastEnd", "#line maps the call past the end");
     Check(std::wstring(SiteState(built, 500, 0, L"Button", true)) == L"stale", "an edited file that lost the line");
+
+    using DevToolsReactorNames::ChangedSinceRunning;
+    Check(!ChangedSinceRunning(1000, 1000, 0) && !ChangedSinceRunning(1002, 1000, 0), "written with the build");
+    Check(ChangedSinceRunning(1010, 1000, 0), "written after the build");
+    Check(!ChangedSinceRunning(1010, 1000, 1011), "a Hot Reload applied after the write keeps the file current");
+    Check(ChangedSinceRunning(1020, 1000, 1011), "written after the last Hot Reload");
+    Check(!ChangedSinceRunning(0, 1000, 0) && !ChangedSinceRunning(1010, 0, 0), "unknown times are trusted");
 }
 
 // With the managed agent loaded, the published value still describes the menu and command-bar items the agent cannot

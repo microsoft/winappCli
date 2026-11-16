@@ -193,16 +193,22 @@ public class DevToolsSelectorUiAutomationTests
     }
 
     [TestMethod]
-    public async Task ReactorSelector_TheAppCouldNotFullyAnswer_StillFails_SoGoneIsNotReported()
+    [DataRow("\"nodes\":[],\"truncated\":false,\"complete\":false")]
+    [DataRow("\"nodes\":[],\"truncated\":true")]
+    [DataRow("\"nodes\":[{\"handle\":\"42\",\"element\":\"Button\",\"key\":\"save\",\"file\":0,\"line\":9}],\"truncated\":false,\"complete\":false")]
+    [DataRow("\"nodes\":[{\"handle\":\"42\",\"element\":\"Button\",\"key\":\"save\",\"file\":0,\"line\":9}],\"truncated\":true")]
+    public async Task ReactorSelector_TheAppCouldNotFullyAnswer_IsRefused_SoNothingActsOrReportsGone(string answer)
     {
         using var agent = new FakeDevToolsProtocolAgent()
-            .Answer("Reactor.describe", """{"state":"ok","nodes":[],"files":[],"unmapped":0,"truncated":false,"complete":false}""");
+            .Answer("Reactor.describe", $$"""{"state":"ok",{{answer}},"files":["C:\\src\\App.cs"],"unmapped":0}""");
         var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
         var bridge = new DevToolsSelectorUiAutomation(inner);
         var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
 
-        await Assert.ThrowsExactlyAsync<UiElementNotFoundException>(() =>
-            bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=loading", ControlType = "Button" }, CancellationToken.None));
+        var failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=save", ControlType = "Button" }, CancellationToken.None));
+        Assert.IsTrue(DevToolsSelectorUiAutomation.IsIncomplete(failure));
+        Assert.IsFalse(DevToolsSelectorUiAutomation.IsAbsent(failure));
     }
 
     [TestMethod]
@@ -244,6 +250,31 @@ public class DevToolsSelectorUiAutomationTests
 
         Assert.AreEqual("btn-inc-2222", found?.Selector);
         Assert.IsNull(searched?.Query);
+    }
+
+    [TestMethod]
+    public async Task AnAutomationIdUiAutomationShowsAsTheSelector_IsSearchedNotReadAsASlug()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", """{"matches":[{"handle":"42","name":"","type":"Microsoft.UI.Xaml.Controls.Button","reactor":{"element":"Button","name":"incrementButton"}}]}""")
+            .Answer("Layout.get", """{"handle":"42","render":{"w":56,"h":32},"offset":{"x":16,"y":42},"screen":{"x":615,"y":489,"w":84,"h":48}}""")
+            .Answer("Property.get", """{"handle":"42","props":[{"name":"AutomationProperties.AutomationId","value":"inc","valueType":"String"}]}""");
+        UiSelector? searched = null;
+        var inner = Proxy((method, args) => method.Name switch
+        {
+            nameof(IUiAutomation.FindWindowsByPid) => new List<(nint, int, string)> { (4242, Environment.ProcessId, "Form") },
+            nameof(IUiAutomation.SearchAsync) => Task.FromResult(new[] { new UiElement { Selector = "inc", AutomationId = "inc", X = 615, Y = 489, Width = 84, Height = 48 } }),
+            nameof(IUiAutomation.FindSingleElementAsync) => Task.FromResult<UiElement?>(new UiElement { Selector = (searched = (UiSelector)args![1]!).Query }),
+            _ => throw new NotSupportedException(method.Name),
+        });
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        var found = await bridge.FindSingleElementAsync(target, new UiSelector { Query = "incrementButton" }, CancellationToken.None);
+
+        Assert.AreEqual("inc", found?.Selector);
+        Assert.AreEqual("inc", searched?.Query);
+        Assert.IsNull(searched?.Slug, "an AutomationId is not a generated slug");
     }
 
     [TestMethod]

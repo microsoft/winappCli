@@ -52,10 +52,18 @@ internal static class ReactorEvents
         }
     }
 
+    /// <summary>When .NET Hot Reload last applied an edit to this app, in Unix seconds; 0 when it never has.</summary>
+    internal static long HotReloadedAt => Interlocked.Read(ref _hotReloadedAt);
+
+    private static long _hotReloadedAt;
+
     /// <summary>Called by .NET Hot Reload after it applied an edit: report it like Reactor's own hot-reload event.</summary>
-    internal static void UpdateApplication(Type[]? types) =>
+    internal static void UpdateApplication(Type[]? types)
+    {
+        Interlocked.Exchange(ref _hotReloadedAt, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         Publish(new ReactorEventRecord("hotReload", "info", "MetadataUpdate", true,
             [("source", "metadataUpdate"), ("types", types?.Length ?? 0)]));
+    }
 
     internal static void ClearCache(Type[]? types) => DevToolsSecrets.ClearCache();
 

@@ -159,6 +159,71 @@ inline size_t CharLiteralEnd(const std::wstring& code, size_t at)
     return 0;
 }
 
+inline size_t InterpolationEnd(const std::wstring& code, size_t k);
+
+// Scans the string literal whose prefix ($, @) or opening quote is at `i`: its value starts at `valueStart`, and its
+// closing quotes (`open` of them) at `close`; `close` is the line's end or the code's end when it is not closed. An
+// interpolation's expression is part of the value, strings inside it too (`$"{ "hunter2" }"`). False for "".
+inline bool ScanLiteral(const std::wstring& code, size_t i, size_t* valueStart, size_t* close, size_t* open)
+{
+    const size_t n = code.size();
+    size_t j = i;
+    bool verbatim = false, interpolated = false;
+    while (j < n && (code[j] == L'@' || code[j] == L'$')) { (code[j] == L'@' ? verbatim : interpolated) = true; ++j; }
+    size_t quotes = 0;
+    while (j + quotes < n && code[j + quotes] == L'"') ++quotes;
+    if (quotes == 2 && !verbatim) { *valueStart = *close = j + 1; *open = 1; return false; }
+    *open = quotes >= 3 && !verbatim ? quotes : 1;
+    size_t k = j + *open;
+    *valueStart = k;
+    if (*open >= 3) {
+        const size_t end = code.find(std::wstring(*open, L'"'), k);
+        *close = end == std::wstring::npos ? n : end;
+        return true;
+    }
+    while (k < n && (verbatim || code[k] != L'\n')) {
+        if (code[k] == L'"') {
+            if (verbatim && k + 1 < n && code[k + 1] == L'"') { k += 2; continue; }
+            break;
+        }
+        if (interpolated && code[k] == L'{') {
+            k = k + 1 < n && code[k + 1] == L'{' ? k + 2 : InterpolationEnd(code, k + 1);
+            continue;
+        }
+        if (!verbatim && code[k] == L'\\') ++k;
+        ++k;
+    }
+    *close = (std::min)(k, n);
+    return true;
+}
+
+// The index after the '}' that closes the interpolation whose expression starts at `k`, stepping over the braces,
+// strings and characters inside it (`{ new { A = 1 } }`, `{ "}" }`).
+inline size_t InterpolationEnd(const std::wstring& code, size_t k)
+{
+    size_t depth = 0;
+    while (k < code.size()) {
+        const wchar_t c = code[k];
+        if (c == L'}') {
+            if (depth == 0) return k + 1;
+            --depth;
+        } else if (c == L'{') {
+            ++depth;
+        } else if (const size_t stop = c == L'\'' ? CharLiteralEnd(code, k) : 0) {
+            k = stop;
+            continue;
+        } else if (c == L'"' || ((c == L'@' || c == L'$') && k + 1 < code.size() &&
+                                 (code[k + 1] == L'"' || code[k + 1] == L'@' || code[k + 1] == L'$'))) {
+            size_t valueStart = 0, close = 0, open = 1;
+            if (!ScanLiteral(code, k, &valueStart, &close, &open)) { k = close + 1; continue; }
+            k = close < code.size() && code[close] == L'"' ? close + open : close;
+            continue;
+        }
+        ++k;
+    }
+    return k;
+}
+
 // Replaces the value of each string literal whose opening quote (its index in `code`) `redact` selects with
 // <redacted>. A literal ends at its line's end unless it is a raw or verbatim literal. Comments and character literals ('"') are
 // copied as they are.
@@ -191,33 +256,18 @@ inline void RedactLiterals(std::wstring& code, Predicate redact)
             continue;
         }
         if (c == L'"' || ((c == L'@' || c == L'$') && i + 1 < n && (code[i + 1] == L'"' || code[i + 1] == L'@' || code[i + 1] == L'$'))) {
-            size_t j = i;
-            bool verbatim = false;
-            while (j < n && (code[j] == L'@' || code[j] == L'$')) { if (code[j] == L'@') verbatim = true; ++j; }
-            size_t quotes = 0;
-            while (j + quotes < n && code[j + quotes] == L'"') ++quotes;
-            if (quotes == 2 && !verbatim) { out.append(code, i, j + 2 - i); i = j + 2; continue; }  // ""
-            const size_t open = quotes >= 3 && !verbatim ? quotes : 1;
-            size_t k = j + open;
-            if (open >= 3) {
-                const size_t end = code.find(std::wstring(open, L'"'), k);
-                k = end == std::wstring::npos ? n : end;
-            } else {
-                while (k < n && (verbatim || code[k] != L'\n')) {
-                    if (code[k] == L'"') {
-                        if (verbatim && k + 1 < n && code[k + 1] == L'"') { k += 2; continue; }
-                        break;
-                    }
-                    if (!verbatim && code[k] == L'\\') ++k;
-                    ++k;
-                }
+            size_t valueStart = 0, close = 0, open = 1;
+            if (!ScanLiteral(code, i, &valueStart, &close, &open)) {  // ""
+                out.append(code, i, close + 1 - i);
+                i = close + 1;
+                continue;
             }
-            const size_t close = k < n ? (std::min)(n, k + (open >= 3 ? open : 1)) : n;
-            if (!redact(i)) { out.append(code, i, close - i); i = close; continue; }
-            out.append(code, i, j + open - i);
+            const size_t stop = close < n && code[close] == L'"' ? (std::min)(n, close + open) : close;
+            if (!redact(i)) { out.append(code, i, stop - i); i = stop; continue; }
+            out.append(code, i, valueStart - i);
             out += kRedacted;
-            if (k < n) out.append(code, k, close - k);
-            i = close;
+            out.append(code, close, stop - close);
+            i = stop;
             continue;
         }
         out += c;

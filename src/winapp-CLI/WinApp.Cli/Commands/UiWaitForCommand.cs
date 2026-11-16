@@ -155,7 +155,14 @@ internal class UiWaitForCommand : Command, IShortDescription, IHelpExamples
                         // No element has this DevTools name yet (similar names don't count): keep waiting for it.
                         element = null;
                     }
-                    catch (Exception ex) when (!selector.HasConstraints && !UiCoordinatedAction.IsCoordinationFault(ex))
+                    catch (Exception ex) when (Services.DevTools.DevToolsSelectorUiAutomation.IsIncomplete(ex))
+                    {
+                        // Not every window answered DevTools, so the element may or may not be there: look again.
+                        await pollDelay.DelayAsync(100, cancellationToken);
+                        continue;
+                    }
+                    catch (Exception ex) when (!selector.HasConstraints && !UiCoordinatedAction.IsCoordinationFault(ex) &&
+                        !(gone && Services.DevTools.DevToolsSelectorUiAutomation.IsDevToolsFailure(ex)))
                     {
                         // Preserve unscoped polling behavior. Constrained queries return null for
                         // absence; their errors must not make --gone report a successful disappearance.

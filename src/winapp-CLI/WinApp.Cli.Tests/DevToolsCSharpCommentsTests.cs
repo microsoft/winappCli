@@ -21,7 +21,6 @@ public class DevToolsCSharpCommentsTests
 {
     private static readonly string AppSource = AppSourceText.ReplaceLineEndings("\n");
     private static readonly string[] DuplicatedLineCandidates = ["App.cs:11:13", "App.cs:12:13"];
-    private static readonly int[] ReindentedButtonColumns = [31, 44];
 
     private const string AppSourceText = """
         using Microsoft.UI.Reactor;
@@ -115,6 +114,9 @@ public class DevToolsCSharpCommentsTests
     [DataRow("Don't reuse the password \"hunter2\"", "Don't reuse the password \"<redacted>\"")]
     [DataRow("it's \"hunter2\", the password, isn't it", "it's \"<redacted>\", the password, isn't it")]
     [DataRow("PasswordBox(c == '\\'' ? \"hunter2\" : \"y\")", "PasswordBox(c == '\\'' ? \"<redacted>\" : \"<redacted>\")")]
+    [DataRow("PasswordBox($\"{ \"hunter2\" }\")", "PasswordBox($\"<redacted>\")")]
+    [DataRow("PasswordBox($\"a{ new { P = \"}\" }.P }b\", \"x\")", "PasswordBox($\"<redacted>\", \"<redacted>\")")]
+    [DataRow("PasswordBox($\"{{ \\\"x\\\" }}\", \"y\")", "PasswordBox($\"<redacted>\", \"<redacted>\")")]
     public void Redact_AQuoteInACharacterLiteralOrComment_DoesNotHideThePassword(string code, string expected)
     {
         Assert.AreEqual(expected, CSharpSourceText.Redact(code));
@@ -314,19 +316,29 @@ public class DevToolsCSharpCommentsTests
     }
 
     [TestMethod]
-    public void Resolver_ReindentedLineWithTwoCallsToTheFactory_NeedsConfirmation()
+    [DataRow(8)]
+    [DataRow(13)]
+    public void Resolver_ReindentedLineWithTwoCallsToTheFactory_StaysOnTheSameCall(int added)
     {
         File.WriteAllText(AppFile, "class App : Component\n{\n    public override Element Render()\n    {\n" +
             "        return HStack(Button(\"A\"), Button(\"B\"));\n    }\n}\n");
         Add("--text", "x", "--file", "App.cs", "--line", "5", "--column", "36");
         var stored = new CommentStore().Load(StorePath).Comments.Single();
         Assert.AreEqual(36, stored.Anchor.CSharp!.Column, "the second Button");
+        Assert.AreEqual(1, stored.Anchor.CSharp.FactoryIndex);
 
-        File.WriteAllText(AppFile, File.ReadAllText(AppFile).Replace("        return HStack", "                return HStack", StringComparison.Ordinal));
+        // With 13 more spaces the first Button moves into the stored column 36; the comment stays on the second.
+        File.WriteAllText(AppFile, File.ReadAllText(AppFile).Replace("        return HStack", new string(' ', 8 + added) + "return HStack", StringComparison.Ordinal));
         var view = View(stored);
-        Assert.IsFalse(view.AnchorConfirmed, string.Join(";", view.Hits.Select(hit => $"{hit.Line}:{hit.Column} {hit.Via} {hit.Confidence}")));
+        Assert.IsTrue(view.AnchorConfirmed, string.Join(";", view.Hits.Select(hit => $"{hit.Line}:{hit.Column} {hit.Via} {hit.Confidence}")));
+        Assert.AreEqual(36 + added, view.Hits.Single().Column);
+
+        // Without knowing which call it was, a line with several gives candidates to confirm.
+        stored.Anchor.CSharp.FactoryIndex = null;
+        view = View(stored);
+        Assert.IsFalse(view.AnchorConfirmed);
         Assert.IsTrue(view.RequiresConfirmation);
-        CollectionAssert.AreEquivalent(ReindentedButtonColumns, view.Hits.Select(hit => hit.Column).ToArray());
+        CollectionAssert.AreEquivalent(new[] { 23 + added, 36 + added }, view.Hits.Select(hit => hit.Column).ToArray());
     }
 
     // ---- live capture ----

@@ -143,8 +143,9 @@ internal static class CSharpAnchorResolver
     };
 
     /// <summary>
-    /// The columns of the call this anchor names on a masked line: the factory at the stored column, else the only
-    /// call to that factory, else every call to it, nearest first, since reformatting can shift which one is nearest.
+    /// The columns of the call this anchor names on a masked line: the only call to its factory, or the one at its
+    /// <see cref="CommentCSharpAnchor.FactoryIndex"/>, else every call to it, nearest the stored column first. The stored
+    /// column alone does not identify one of several calls: re-indenting the line can move another call into it.
     /// Empty when the line makes no such call.
     /// </summary>
     internal static IReadOnlyList<int> FactoryColumns(string maskedLine, CommentCSharpAnchor cs)
@@ -156,9 +157,20 @@ internal static class CSharpAnchorResolver
             return sites.Count == 1 ? [sites[0].Column] : [];
         }
         var matching = sites.Where(site => site.Name == name).ToList();
-        return matching.Any(site => site.Column == cs.Column)
-            ? [cs.Column]
+        if (matching.Count == 1)
+        {
+            return [matching[0].Column];
+        }
+        return cs.FactoryIndex is int index && index >= 0 && index < matching.Count
+            ? [matching[index].Column]
             : [.. matching.OrderBy(site => Math.Abs(site.Column - cs.Column)).Select(site => site.Column)];
+    }
+
+    /// <summary>Which call to <paramref name="factory"/> among a line's call sites is at <paramref name="column"/>; null when none is.</summary>
+    internal static int? FactoryIndex(IReadOnlyList<CSharpCallSite> sites, string factory, int column)
+    {
+        var index = sites.Where(site => site.Name == factory).ToList().FindIndex(site => site.Column == column);
+        return index < 0 ? null : index;
     }
 
     /// <summary>How much of the captured line survives in a candidate, 0-99, by shared tokens.</summary>

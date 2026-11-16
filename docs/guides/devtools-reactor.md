@@ -109,10 +109,10 @@ code (`"authoredState": "ambiguous"` with `--json`). Open the one in the project
 defines the component. After `winapp devtools attach`, run `get-source` from your app's
 project folder so DevTools knows the projects.
 
-If you edit a file after building, the recorded line may now hold other code.
-`get-source` says the file changed since the app was built (`"authoredState": "stale"`
-with `--json`); rebuild and run the app, or apply the edit with Hot Reload, to see the
-call site again. A `#line` directive can point a call site past the end of its file;
+If you save a file after building and Hot Reload hasn't applied the edit, the running app
+no longer matches it, even when the call is still on its line. `get-source` says the
+file changed since the app was built (`"authoredState": "stale"` with `--json`); rebuild
+and run the app, or apply the edit with Hot Reload, to see the call site again. A `#line` directive can point a call site past the end of its file;
 `get-source` says so instead of showing nothing. Code a source generator produced is
 not on disk unless you set `<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>`
 in the project and rebuild.
@@ -281,8 +281,8 @@ the file is in the same repository: pass its path from your project
 (`--file ..\MyLibrary\Panels\Footer.cs --line 6`) or its full path. When DevTools cannot
 link a comment to source, for example for an element with no C# call site, `comments add`
 still saves it and says why, with how to link it (`"unanchored"` with `--json`). If the
-element's C# file changed since the app was built, `comments add` refuses to capture it,
-because the recorded line may now hold other code; rebuild and run the app first.
+element's C# file changed since the app was built and Hot Reload hasn't applied the edit,
+`comments add` refuses to capture it; rebuild and run the app first.
 To move an existing comment to the element picked in the app, keep its text:
 
 ```powershell
@@ -291,10 +291,10 @@ winapp devtools comments add --id cmt_example --from-selection -a TaskBoard
 
 `comments list` and `get` find the call site again in the current source. The stored
 line still making the same call, or the same line moved elsewhere in the component
-that rendered it, is confirmed. An edited or duplicated line, or a renamed file,
-gives ranked candidates with `requiresConfirmation`; so does a line with several calls
-to the same factory, such as two `Button` calls, after its indentation changed.
-Confirm the intended one before editing. An element with no call site of its own, such as the text inside a
+that rendered it, is confirmed, even after you re-indent it: on a line with several calls
+to the same factory, such as `HStack(Button("A"), Button("B"))`, the comment stays on its
+own call. An edited or duplicated line, or a renamed file, gives ranked candidates with
+`requiresConfirmation`. Confirm the intended one before editing. An element with no call site of its own, such as the text inside a
 `Button`, uses the nearest Reactor element's call site, which you confirm with
 `--confirm-likely-source` (or the **Use this likely source for my comment** box in
 the app).

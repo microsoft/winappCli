@@ -76,6 +76,11 @@ internal static class ReactorProvider
                 {
                     w.WriteBoolean("sourceMap", enabled);
                 }
+                // A file written before this still matches the running code, so its call sites are current.
+                if (ReactorEvents.HotReloadedAt is > 0 and var reloaded)
+                {
+                    w.WriteNumber("hotReloadedAt", reloaded);
+                }
                 w.WriteEndObject();
             }
             return System.Text.Encoding.UTF8.GetString(stream.ToArray());

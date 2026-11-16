@@ -16,6 +16,12 @@ internal static class DevToolsSelector
         /// <summary>True when the app answered completely and nothing matched: the element is not there now.</summary>
         public bool Absent { get; init; }
 
+        /// <summary>
+        /// True when the search could not see the whole app (a window did not answer, or the list was cut short), so
+        /// neither one match nor none proves what is there. A <see cref="Warning"/> says the same for one match.
+        /// </summary>
+        public bool Incomplete { get; init; }
+
         public static Resolution Found(string handle, string? warning = null) => new(handle, null, [], warning);
 
         public static Resolution Fail(string error, VisualTreeMatch[]? candidates = null) =>
@@ -163,19 +169,21 @@ internal static class DevToolsSelector
         }
 
         var matches = parsed.Match(reactor);
+        var whole = reactor.Complete && !reactor.Truncated;
         if (matches.Count == 1)
         {
             // One match from a search that missed a window or was cut short does not prove there is only one.
-            return reactor.Complete && !reactor.Truncated
+            return whole
                 ? Resolution.Found(matches[0].Handle)
                 : Resolution.Found(matches[0].Handle,
-                    $"{selector} matched one rendered element, but not every window answered or the list was cut short, so another may match.");
+                    $"{selector} matched one rendered element, but not every window answered or the list was cut short, so another may match.")
+                    with { Incomplete = true };
         }
         if (matches.Count == 0)
         {
-            return reactor.Complete
+            return whole
                 ? Resolution.Fail($"No rendered Reactor element matches {selector}. Run `winapp devtools inspect` to list the components and elements that are rendered now.") with { Absent = true }
-                : Resolution.Fail($"No rendered Reactor element matches {selector}, but the app was still changing and not every window answered. Run the command again.");
+                : Resolution.Fail($"No rendered Reactor element matches {selector}, but not every window answered or the list was cut short. Run the command again.") with { Incomplete = true };
         }
 
         var candidates = ReactorCandidates(tap, reactor, matches, cancellationToken);
