@@ -12,16 +12,17 @@ namespace WinApp.Cli.Services;
 /// </summary>
 internal sealed class ProcessRunner : IProcessRunner
 {
-    /// <summary>Starts the child, optionally detached from this process's standard handles.</summary>
-    private static Process? StartProcess(ProcessStartInfo psi, bool outlivesCaller)
+    /// <summary>Starts the child, isolated from every handle this process inherited when it outlives us.</summary>
+    private static Helpers.RedirectedProcess StartProcess(ProcessStartInfo psi, bool outlivesCaller)
     {
-        if (!outlivesCaller)
+        if (outlivesCaller)
         {
-            return Process.Start(psi);
+            return Helpers.OutlivingProcess.StartRedirected(psi);
         }
 
-        using var _ = Helpers.StandardHandleInheritance.Suppress();
-        return Process.Start(psi);
+        var process = Process.Start(psi)
+            ?? throw new InvalidOperationException($"Failed to start process '{psi.FileName}'.");
+        return new Helpers.RedirectedProcess(process, process.StandardOutput, process.StandardError);
     }
 
     public async Task<ProcessRunResult> RunAsync(
@@ -54,17 +55,16 @@ internal sealed class ProcessRunner : IProcessRunner
             }
         }
 
-        // Started inside the suppression scope when the child will outlive this process, so it
-        // cannot take a duplicate of the caller's captured stdout/stderr pipe with it. The child's
-        // own redirected pipes are created inheritable by .NET and are unaffected.
-        using var process = StartProcess(psi, request.OutlivesCaller)
-            ?? throw new InvalidOperationException($"Failed to start process '{request.FileName}'.");
+        // A child that outlives this process must not take a copy of any pipe our caller is
+        // reading, or the caller would not see end of stream until that child exited.
+        using var started = StartProcess(psi, request.OutlivesCaller);
+        var process = started.Process;
 
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
 
-        var stdoutTask = DrainAsync(process.StandardOutput, stdout, onOutputLine, cancellationToken);
-        var stderrTask = DrainAsync(process.StandardError, stderr, onErrorLine, cancellationToken);
+        var stdoutTask = DrainAsync(started.StandardOutput, stdout, onOutputLine, cancellationToken);
+        var stderrTask = DrainAsync(started.StandardError, stderr, onErrorLine, cancellationToken);
 
         try
         {
