@@ -30,11 +30,10 @@ internal partial class ManifestTemplateService : IManifestTemplateService
     }
 
     /// <summary>
-    /// Converts a string to camelCase format
+    /// Removes word separators, capitalizing the first letter of each word after the first
+    /// and otherwise keeping the input's casing ("my-app" → "myApp", "MSIXAnalysis" → "MSIXAnalysis").
     /// </summary>
-    /// <param name="input">Input string to convert</param>
-    /// <returns>camelCase formatted string</returns>
-    private static string ToCamelCase(string input)
+    private static string JoinWords(string input)
     {
         if (string.IsNullOrEmpty(input))
         {
@@ -49,11 +48,11 @@ internal partial class ManifestTemplateService : IManifestTemplateService
             var word = words[i];
             if (i == 0)
             {
-                result.Append(char.ToLowerInvariant(word[0]) + word[1..]);
+                result.Append(word);
             }
             else
             {
-                result.Append(char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant());
+                result.Append(char.ToUpperInvariant(word[0])).Append(word, 1, word.Length - 1);
             }
         }
 
@@ -118,7 +117,7 @@ internal partial class ManifestTemplateService : IManifestTemplateService
         // Both overrides default to the pre-existing derivation, so callers that don't supply them
         // (manifest generate, init, sparse identity) produce byte-identical output to before.
         var resolvedApplicationId = string.IsNullOrWhiteSpace(applicationId)
-            ? FixAsciiWindowsId(ToCamelCase(packageName))
+            ? FixAsciiWindowsId(JoinWords(packageName))
             : FixAsciiWindowsId(applicationId);
 
         var resolvedDisplayName = string.IsNullOrWhiteSpace(displayName) ? packageName : displayName;
