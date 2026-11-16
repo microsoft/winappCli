@@ -1,42 +1,29 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
-using System.Diagnostics;
-using System.Runtime.InteropServices;
+using System.IO.Pipes;
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
-using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
 
 /// <summary>
-/// A child that outlives winapp must not hold the caller's captured output open (SBX-001).
+/// A child that outlives winapp must not hold its caller's captured output open.
 /// </summary>
 /// <remarks>
-/// <para>
-/// When a script or SDK captures winapp's output, winapp's stdout and stderr are pipe handles owned
-/// by that caller. The caller reads to end of stream, and end of stream arrives only when the last
-/// handle to the write end closes. A Sandbox run deliberately leaves processes running afterwards —
-/// the client window, and the <c>wsb exec</c> hosting the persistent guest agent — so if either
-/// inherits those handles the caller blocks long after the command finished. Observed as: winapp
-/// exits 0 in ~20s, the caller's <c>ReadToEndAsync</c> still pending 30s later, and killing
-/// <c>wsb.exe</c> releasing it.
-/// </para>
-/// <para>
-/// The non-obvious part, and the reason a plausible fix is wrong: redirecting the child's own
-/// streams does <b>not</b> prevent this. .NET calls <c>CreateProcess</c> with
-/// <c>bInheritHandles: true</c> whenever it redirects anything, so every inheritable handle is
-/// duplicated into the child no matter what <c>STARTF_USESTDHANDLES</c> points at. Measured on this
-/// machine: an unredirected child leaks, a fully redirected child leaks identically, and only
-/// clearing <c>HANDLE_FLAG_INHERIT</c> around the launch closes the caller's stream promptly.
-/// </para>
+/// When a script captures winapp's output, the script reads until end of stream, which arrives only
+/// when every handle to the pipe's write end has closed. The first Sandbox command starts a
+/// <c>wsb exec</c> that hosts the guest agent for the life of the Sandbox. Callers such as a nested
+/// PowerShell pipeline leave inheritable copies of their pipes in winapp beyond its three standard
+/// handles, so if the agent launch lets the child inherit them, the caller waits until the Sandbox
+/// stops even though winapp exited long before.
 /// </remarks>
 [TestClass]
 [DoNotParallelize]
-public partial class SandboxHandleInheritanceTests
+public class SandboxHandleInheritanceTests
 {
-    private const int StdOutputHandle = -11;
-    private const uint HandleFlagInherit = 0x00000001;
+    private static readonly string CmdExe = Path.Join(Environment.SystemDirectory, "cmd.exe");
+    private static readonly string PingExe = Path.Join(Environment.SystemDirectory, "PING.EXE");
 
     public TestContext TestContext { get; set; } = null!;
 
@@ -62,16 +49,10 @@ public partial class SandboxHandleInheritanceTests
 
         Assert.IsTrue(
             request.OutlivesCaller,
-            "The persistent guest-agent launch must not inherit the caller's standard handles.");
+            "The persistent guest-agent launch must not inherit the caller's handles.");
     }
 
-    /// <summary>Short-lived Sandbox commands keep ordinary inheritance.</summary>
-    /// <remarks>
-    /// The suppression is deliberately scoped to launches that outlive winapp. Applying it
-    /// everywhere would be a broader change than the defect needs, and standard handles must stay
-    /// inheritable for pass-through children such as <c>winapp tool</c> and the MSBuild steps that
-    /// write straight to winapp's console.
-    /// </remarks>
+    /// <summary>Short-lived Sandbox commands keep ordinary process startup.</summary>
     [TestMethod]
     public async Task ShortLivedCommands_KeepOrdinaryInheritance()
     {
@@ -88,71 +69,75 @@ public partial class SandboxHandleInheritanceTests
 
         Assert.IsFalse(
             runner.Requests.Single().OutlivesCaller,
-            "A command winapp waits for cannot outlive it, so it needs no suppression.");
+            "A command winapp waits for cannot outlive it, so it needs no isolation.");
     }
 
     /// <summary>
-    /// The suppression scope actually clears, and then restores, inheritance on a standard handle.
+    /// A caller's pipe that is inheritable but is not one of winapp's standard handles reaches end of
+    /// stream while an outliving child is still running, and a later ordinary command still works.
     /// </summary>
     /// <remarks>
-    /// Asserted against the real Win32 handle state rather than a flag on an object, because the
-    /// whole defect is that the flag on the object was never the thing that mattered. Restoration is
-    /// as load-bearing as suppression: leaving standard handles non-inheritable would break every
-    /// later pass-through child.
+    /// The extra inheritable pipe is exactly what a nested PowerShell pipeline leaves in winapp.
+    /// Before the fix, the outliving child inherited it and the read below never completed.
     /// </remarks>
     [TestMethod]
-    public void SuppressionScope_ClearsInheritanceAndRestoresIt()
+    public async Task OutlivingChild_DoesNotKeepCallersOtherPipesOpen()
     {
-        var handle = GetStdHandle(StdOutputHandle);
+        var runner = new ProcessRunner();
+        using var callerPipe = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+        using var stopChild = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
 
-        if (handle == 0 || handle == -1 || !GetHandleInformation(handle, out var before))
+        var outliving = runner.RunAsync(
+            new ProcessRunRequest(PingExe, ["-n", "60", "127.0.0.1"]) { OutlivesCaller = true },
+            cancellationToken: stopChild.Token);
+
+        try
         {
-            Assert.Inconclusive("This test host has no inspectable standard output handle.");
-            return;
+            // The child has been created by the time RunAsync returns. Closing our own copy of the
+            // write end leaves the child's copy, if it inherited one, as the only thing keeping the
+            // pipe open.
+            callerPipe.DisposeLocalCopyOfClientHandle();
+
+            var read = callerPipe.ReadAsync(new byte[1], TestContext.CancellationToken).AsTask();
+            var completed = await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(5), TestContext.CancellationToken));
+
+            Assert.AreSame(read, completed, "The caller's pipe must reach end of stream while the outliving child runs.");
+            Assert.AreEqual(0, await read, "End of stream reads zero bytes.");
+            Assert.IsFalse(outliving.IsCompleted, "The outliving child must still be running.");
+
+            var ordinary = await runner.RunAsync(
+                new ProcessRunRequest(CmdExe, ["/c", "echo", "after-outliving"]),
+                cancellationToken: TestContext.CancellationToken);
+
+            Assert.AreEqual(0, ordinary.ExitCode);
+            StringAssert.Contains(ordinary.StandardOutput, "after-outliving");
+        }
+        finally
+        {
+            await stopChild.CancelAsync();
         }
 
-        if ((before & HandleFlagInherit) == 0)
-        {
-            Assert.Inconclusive("Standard output is already non-inheritable in this test host.");
-            return;
-        }
-
-        using (StandardHandleInheritance.Suppress())
-        {
-            Assert.IsTrue(GetHandleInformation(handle, out var during));
-            Assert.AreEqual(
-                0u,
-                during & HandleFlagInherit,
-                "A child started inside the scope must not be able to inherit the caller's pipe.");
-        }
-
-        Assert.IsTrue(GetHandleInformation(handle, out var after));
-        Assert.AreEqual(
-            HandleFlagInherit,
-            after & HandleFlagInherit,
-            "Inheritance must be restored, or later pass-through children lose their output.");
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => outliving,
+            "Cancellation must stop the outliving child.");
     }
 
-    /// <summary>Nesting and double disposal leave the handle in its original state.</summary>
+    /// <summary>
+    /// An outliving launch that fails at once still reports its exit code and both output streams,
+    /// which is how a Sandbox that cannot run the agent yet is diagnosed.
+    /// </summary>
     [TestMethod]
-    public void SuppressionScope_IsSafeToDisposeTwice()
+    public async Task OutlivingChild_ThatFailsImmediately_ReportsExitCodeAndOutput()
     {
-        var handle = GetStdHandle(StdOutputHandle);
+        var runner = new ProcessRunner();
 
-        if (handle == 0 || handle == -1 ||
-            !GetHandleInformation(handle, out var before) ||
-            (before & HandleFlagInherit) == 0)
-        {
-            Assert.Inconclusive("This test host has no inheritable standard output handle.");
-            return;
-        }
+        var result = await runner.RunAsync(
+            new ProcessRunRequest(CmdExe, ["/c", "echo out-line& echo err-line 1>&2& exit /b 3"]) { OutlivesCaller = true },
+            cancellationToken: TestContext.CancellationToken);
 
-        var scope = StandardHandleInheritance.Suppress();
-        scope.Dispose();
-        scope.Dispose();
-
-        Assert.IsTrue(GetHandleInformation(handle, out var after));
-        Assert.AreEqual(HandleFlagInherit, after & HandleFlagInherit);
+        Assert.AreEqual(3, result.ExitCode);
+        Assert.AreEqual("out-line", result.StandardOutput.Trim());
+        Assert.AreEqual("err-line", result.StandardError.Trim());
     }
 
     /// <summary>Records the requests production built, without starting anything.</summary>
@@ -170,18 +155,4 @@ public partial class SandboxHandleInheritanceTests
             return Task.FromResult(new ProcessRunResult(0, "{}", string.Empty));
         }
     }
-
-    // Deliberately its own P/Invoke declarations rather than a call through
-    // StandardHandleInheritance (the production type under test, just above): these two tests exist
-    // to verify what that type's Suppress() scope actually does to the real Win32 handle state, so
-    // reading that state back through the same type being verified would make the assertions
-    // tautological -- a regression in StandardHandleInheritance's own handle-flag logic could no
-    // longer be caught. Source-generated (LibraryImport) rather than classic DllImport, matching
-    // StandardHandleInheritance's own declarations, with the same SetLastError and BOOL marshalling.
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial nint GetStdHandle(int nStdHandle);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetHandleInformation(nint hObject, out uint lpdwFlags);
 }
