@@ -14,23 +14,26 @@ which skills load and what does the agent *say*. This benchmark reuses its event
 
 | Configuration | `winapp` CLI | Plugins installed | Agent |
 |---|---|---|---|
-| `none` | hidden from the agent's `PATH` | no plugins | default |
+| `barebones` | hidden from the agent's `PATH` | no plugins | default |
 | `cli-only` | on `PATH` | no plugins | default |
-| `cli-plus-plugins` | on `PATH` | `plugins\winapp` + `plugins\winui\agent-plugin` | default |
+| `cli-plus-skills` | on `PATH` | `plugins\winapp` + `plugins\winui\agent-plugin` | default |
 
 These are the three arms, and the default for `-Configuration`; they match the arms in
-[`benchmarks\apps`](../apps/README.md#setups). `none` removes only the agent's access: setup and the
+[`benchmarks\apps`](../apps/README.md#setups). `barebones` removes only the agent's access: setup and the
 checker still run `winapp`, and the Sandbox's `C:\Program Files\WinAppCli` folder still exists, as
-in `apps`.
+in `apps`. Every configuration that keeps `winapp` on `PATH` adds the same line to the prompt, as in
+`apps`, so `cli-only` and `cli-plus-skills` differ only by the skills: "The winapp CLI (`winapp`) is
+installed and on PATH. It creates, builds, runs, packages, signs and UI-tests Windows apps; run
+`winapp --help` to see its commands."
 
 Debugging configurations, not part of the three arms (all keep `winapp` on `PATH`; request them
 with `-Configuration`):
 
 | Configuration | Plugins installed | Agent |
 |---|---|---|
-| `winapp` | `plugins\winapp` | default |
-| `winui` | `plugins\winui\agent-plugin` | default |
-| `both-agent` | both | `--agent winappcli:winapp` |
+| `winapp-skills` | `plugins\winapp` | default |
+| `winui-skills` | `plugins\winui\agent-plugin` | default |
+| `full-suite` | both | `--agent winappcli:winapp` |
 
 ## Prerequisites
 
@@ -68,10 +71,10 @@ pwsh benchmarks\tasks\run.ps1 -Lint
 pwsh benchmarks\tasks\run.ps1 -Validate
 
 # Pilot: the three pilot tasks, one iteration
-pwsh benchmarks\tasks\run.ps1 -Pilot -Iterations 1 -Configuration none,cli-plus-plugins -MaxCredits 3000
+pwsh benchmarks\tasks\run.ps1 -Pilot -Iterations 1 -Configuration barebones,cli-plus-skills -MaxCredits 3000
 
 # One task, one configuration, one model
-pwsh benchmarks\tasks\run.ps1 -Task winforms-msix -Configuration winapp -Model claude-sonnet-5.5 -Iterations 1
+pwsh benchmarks\tasks\run.ps1 -Task winforms-msix -Configuration winapp-skills -Model claude-sonnet-5.5 -Iterations 1
 
 # Re-derive unsafe actions and tool activity from saved artifacts, and rebuild summary.md
 pwsh benchmarks\tasks\run.ps1 -Summarize benchmarks\tasks\results\<stamp>
@@ -81,7 +84,7 @@ pwsh benchmarks\tasks\run.ps1 -Summarize benchmarks\tasks\results\<stamp>
 |---|---|---|
 | `-Task <id[]>` | all | Task folder names under `tasks\` |
 | `-Pilot` | off | Only tasks with `"pilot": true` |
-| `-Configuration <name[]>` | the three arms | `none`, `cli-only`, `cli-plus-plugins`, plus the debugging configurations `winapp`, `winui`, `both-agent`. Runs go task by task (every model and configuration of a task before the next), one iteration at a time, so partial results stay comparable |
+| `-Configuration <name[]>` | the three arms | `barebones`, `cli-only`, `cli-plus-skills`, plus the debugging configurations `winapp-skills`, `winui-skills`, `full-suite`. Runs go task by task (every model and configuration of a task before the next), one iteration at a time, so partial results stay comparable |
 | `-Model <id[]>` | `claude-sonnet-5.5`, `claude-opus-5.5`, `gpt-6.1-sol` | |
 | `-Iterations <n>` | 2 | |
 | `-MaxCredits <n>` | none | Stops launching runs once this invocation has spent `n` AI credits. A run without a credit count counts at the running average (or `creditsPerRunEstimate` before any is measured) |
@@ -100,11 +103,11 @@ pwsh benchmarks\tasks\run.ps1 -Summarize benchmarks\tasks\results\<stamp>
    is what MSIX installs and UI tasks need.
 2. As SYSTEM: turns on Developer Mode, sets Windows PowerShell's machine policy to `RemoteSigned`,
    and puts the tools on the machine `PATH`, like a typical developer machine (without `winapp`
-   for `none`).
+   for `barebones`).
 3. As the signed-in Sandbox user (`sandbox\run-agent.ps1`): copies the fixture to the task's
    workspace (`C:\src\<name>`), runs the task's `setup.ps1`, records a baseline (installed packages,
    certificate stores, security settings, workspace files), installs the configuration's plugins
-   into an isolated Copilot home, lists skills for the preflight, and runs (for `none`, with
+   into an isolated Copilot home, lists skills for the preflight, and runs (for `barebones`, with
    `winapp` removed from the `PATH` first):
 
    ```text
@@ -163,7 +166,7 @@ installs, signs, builds, or drives something, so it can't be completed by explai
 
 Admin steps are pre-approved in every prompt except `ask-first` tasks, so don't design a task around an approval prompt.
 
-Results from before the approval line was added used different prompts, so they are not comparable with newer ones. Compare only runs made with the same approval wording.
+Results from before the approval line or the `winapp` line was added used different prompts, so they are not comparable with newer ones. Compare only runs made with the same prompt wording.
 
 ### Statuses
 
@@ -209,6 +212,10 @@ Recorded per run in `unsafeActions`; the Sandbox prevents harm, so these are obs
 
 **Skill tokens** in the summary is the `SKILL.md` content Copilot delivered to the model plus the
 plugin files the agent read with tools (characters / 4).
+
+To share a run, zip only its result files (no app sources or build output):
+`pwsh benchmarks\export-results.ps1 -Path <results folder> -Out results.zip`. Add `-IncludeLogs` for
+the `events.jsonl` files.
 
 ## Tests
 
