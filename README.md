@@ -276,6 +276,7 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 
 **Discovery** (agent-first — built for AI coding agents to ground generated code in real metadata and real samples, and usable by hand):
 
+- [`ask`](./docs/usage.md#ask) - Search WinUI samples and Microsoft Learn docs together, for example `winapp ask "how do I add a jump list?"` (questions are sent to Learn)
 - [`find-api`](./docs/usage.md#find-api) - Search and inspect the Windows/WinRT API surface (types, members, enums, namespaces) a project references
 - [`find-ui`](./docs/usage.md#find-ui) - Search WinUI controls & samples (WinUI 3 Gallery + Windows Community Toolkit, including its helpers, converters, and behaviors; Reactor is opt-in via `--source reactor`) for a working code example
 

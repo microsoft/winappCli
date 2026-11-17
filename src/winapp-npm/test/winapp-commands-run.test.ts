@@ -10,6 +10,7 @@ import { EventEmitter } from 'node:events';
 import childProcess = require('child_process');
 
 import {
+  ask,
   run, devtoolsSetProperty, uiInvoke, uiSearch, uiGetProperty, uiGetValue, uiWaitFor,
   perfStart, perfStatus, perfMark, perfStop, perfAnalyze,
   devtoolsCommentsList, devtoolsCommentsGet, devtoolsCommentsUpdate,
@@ -52,6 +53,21 @@ function captureSpawnArgs(exitCode: number | null = 0, stdout = '', stderr = '')
 
 afterEach(() => {
   mock.restoreAll();
+});
+
+test('ask forwards one question and preserves separate sample and docs JSON', async () => {
+  const output = JSON.stringify({
+    query: 'how do I add a jump list?',
+    matches: [{ source: 'core', control: '', score: 1, scenarios: [{ id: 'core-jumplist', header: 'Jump list' }] }],
+    docs: [],
+    docsError: 'Docs unavailable',
+  });
+  const state = captureSpawnArgs(0, output);
+  const result = await ask({ question: 'how do I add a jump list?', json: true });
+  assert.equal(state.calls[0][0], 'ask');
+  assert.ok(state.calls[0].includes('how do I add a jump list?'));
+  assert.ok(state.calls[0].includes('--json'));
+  assert.equal(result.stdout, output);
 });
 
 test('saved comment reads expose no target and forward the app only when asked', async () => {

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using System.CommandLine;
 using System.CommandLine.Invocation;
@@ -17,6 +18,7 @@ using WinApp.Cli.Services.Controls;
 using WinApp.Cli.Services.DevTools;
 using WinApp.Cli.Services.DevTools.Comments;
 using WinApp.Cli.Services.InteractiveDesktop;
+using WinApp.Cli.Services.Learn;
 
 namespace WinApp.Cli.Helpers;
 
@@ -101,6 +103,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IDesktopForegroundService, DesktopForegroundService>()
             .AddSingleton<IWindowDpiContextProvider, WindowDpiContextProvider>()
             .AddSingleton<IControlsSearchService, ControlsSearchService>()
+            .AddSingleton<ILearnSearchClient>(sp => new LearnSearchClient(sp.GetRequiredService<ILogger<LearnSearchClient>>()))
             // Execution targets (Windows Sandbox and any future target)
             .AddSingleton<ITargetStateDirectoryProvider>(_ => new TargetStateDirectoryProvider())
             .AddSingleton<ITargetProgress, LoggerTargetProgress>()
@@ -183,6 +186,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<ConfigSetCommand, ConfigSetCommand.Handler>()
                 .UseCommandHandler<ConfigUnsetCommand, ConfigUnsetCommand.Handler>()
                 .UseCommandHandler<FindUiCommand, FindUiCommand.Handler>()
+                .UseCommandHandler<AskCommand, AskCommand.Handler>()
                 .ConfigureCommand<CertCommand>()
                 .UseCommandHandler<CertGenerateCommand, CertGenerateCommand.Handler>()
                 .UseCommandHandler<CertInstallCommand, CertInstallCommand.Handler>()
