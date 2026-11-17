@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using System.Linq;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using SkiaSharp;
@@ -642,18 +643,15 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
             await File.WriteAllBytesAsync(filePath, pngBytes, ct).ConfigureAwait(false);
             var absolutePath = Path.GetFullPath(filePath);
 
-            foreach (var capture in captures)
+            foreach (var capture in captures.Where(capture => IsBlackCapture(capture.Pixels)))
             {
-                if (IsBlackCapture(capture.Pixels))
+                var warning = $"Warning: The captured image for HWND {capture.Hwnd} is entirely black.";
+                if (!captureScreen)
                 {
-                    var warning = $"Warning: The captured image for HWND {capture.Hwnd} is entirely black.";
-                    if (!captureScreen)
-                    {
-                        warning += $" If the window has visible content, retry with '{UiCommandAdvice.Command($"screenshot -w {capture.Hwnd} --capture-screen")}'. " +
-                            "This activates the window and captures its screen region, including visible overlays.";
-                    }
-                    errorOut.WriteLine(warning);
+                    warning += $" If the window has visible content, retry with '{UiCommandAdvice.Command($"screenshot -w {capture.Hwnd} --capture-screen")}'. " +
+                        "This activates the window and captures its screen region, including visible overlays.";
                 }
+                errorOut.WriteLine(warning);
             }
 
             var width = pass.IsComposite
