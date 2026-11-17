@@ -858,7 +858,7 @@ public class PerfCommandTests : BaseCommandTests
         var (code, error) = await InvokePerfStartErrorAsync(selector, output.FullName);
 
         Assert.AreEqual(1, code);
-        StringAssert.Contains(error, "The capture output directory must be empty.");
+        Assert.Contains("The capture output directory must be empty.", error);
         Assert.IsFalse(File.Exists(Path.Join(output.FullName, "capture.json")));
     }
 
