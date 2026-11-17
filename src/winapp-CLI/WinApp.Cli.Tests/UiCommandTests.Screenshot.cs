@@ -38,6 +38,108 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    [DataRow(0, false, false)]
+    [DataRow(255, false, false)]
+    [DataRow(0, true, false)]
+    [DataRow(127, true, false)]
+    [DataRow(255, true, false)]
+    [DataRow(255, true, true)]
+    public async Task Screenshot_BlackCapture_WarnsOnStderrAndPreservesSuccess(int alpha, bool json, bool captureScreen)
+    {
+        var pixels = new byte[16];
+        for (var i = 3; i < pixels.Length; i += 4)
+        {
+            pixels[i] = (byte)alpha;
+        }
+        _fakeUia.ScreenshotResult = (pixels, 2, 2);
+        var command = CreateScreenshotCommand(NullLogger<UiScreenshotCommand>.Instance);
+        string[] args = ["-a", "TestApp", "-o", ShotPath()];
+        if (json)
+        {
+            args = [.. args, "--json"];
+        }
+        if (captureScreen)
+        {
+            args = [.. args, "--capture-screen"];
+        }
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+
+        Assert.AreEqual(0, exitCode);
+        CollectionAssert.AreEqual(PngImage.Encode(pixels, 2, 2), await File.ReadAllBytesAsync(ShotPath(), TestContext.CancellationToken));
+        var warning = ConsoleStdErr.ToString();
+        StringAssert.Contains(warning, $"Warning: The captured image for HWND {_fakeTargetResolver.TargetResult.WindowHandle} is entirely black.");
+        if (captureScreen)
+        {
+            Assert.IsFalse(warning.Contains("--capture-screen", StringComparison.Ordinal),
+                "Do not suggest retrying the screen-capture mode that was already used.");
+        }
+        else
+        {
+            StringAssert.Contains(warning, $"winapp ui screenshot -w {_fakeTargetResolver.TargetResult.WindowHandle} --capture-screen");
+            StringAssert.Contains(warning, "This activates the window");
+        }
+        var call = _fakeUia.ScreenshotCalls.Single();
+        Assert.AreEqual(captureScreen, call.CaptureScreen, "The warning must not switch capture modes or retry.");
+        if (json)
+        {
+            using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+            Assert.AreEqual(ShotPath(), document.RootElement.GetProperty("filePath").GetString());
+            Assert.AreEqual(2, document.RootElement.GetProperty("width").GetInt32());
+            Assert.AreEqual(2, document.RootElement.GetProperty("height").GetInt32());
+            Assert.IsFalse(document.RootElement.TryGetProperty("warnings", out _));
+        }
+        else
+        {
+            Assert.AreEqual("", TestAnsiConsole.Output, "Warnings remain visible even with logging disabled, without writing to stdout.");
+        }
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public async Task Screenshot_RenderedCapture_DoesNotWarn(int channel)
+    {
+        var pixels = new byte[16];
+        pixels[12 + channel] = 1;
+        _fakeUia.ScreenshotResult = (pixels, 2, 2);
+        var command = CreateScreenshotCommand(NullLogger<UiScreenshotCommand>.Instance);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json", "-o", ShotPath()]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("", ConsoleStdErr.ToString(), "Even one nonblack pixel must prevent the warning.");
+        Assert.IsTrue(File.Exists(ShotPath()));
+    }
+
+    [TestMethod]
+    public async Task Screenshot_BlackComposite_WarnsForEachWindowBeforeLabels()
+    {
+        _fakeUia.WindowsByPidResult = [((nint)11, 4321, "Main"), ((nint)12, 4321, "Dialog")];
+        _fakeSystemQuery.ProcessIdByHwnd[11] = 4321;
+        _fakeSystemQuery.ProcessIdByHwnd[12] = 4321;
+        _fakeUia.ScreenshotResult = ([0, 0, 0, 255], 1, 1);
+        var command = CreateScreenshotCommand(NullLogger<UiScreenshotCommand>.Instance);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "4321", "--json", "-o", ShotPath()]);
+
+        Assert.AreEqual(0, exitCode);
+        var warnings = ConsoleStdErr.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        Assert.HasCount(2, warnings);
+        StringAssert.Contains(warnings[0], "HWND 11 is entirely black");
+        StringAssert.Contains(warnings[0], "screenshot -w 11 --capture-screen");
+        StringAssert.Contains(warnings[1], "HWND 12 is entirely black");
+        StringAssert.Contains(warnings[1], "screenshot -w 12 --capture-screen");
+        using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual(2, document.RootElement.GetProperty("windows").GetArrayLength());
+        using var image = SKBitmap.Decode(ShotPath());
+        Assert.IsNotNull(image);
+        Assert.AreEqual(10, image.Width);
+        Assert.AreEqual(29, image.Height);
+    }
+
+    [TestMethod]
     [DataRow(40, false, false, false)]
     [DataRow(80, false, false, false)]
     [DataRow(120, false, false, false)]
