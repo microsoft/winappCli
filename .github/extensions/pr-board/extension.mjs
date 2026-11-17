@@ -322,13 +322,13 @@ const tools = [
     },
     {
         name: "pr_board_set_status",
-        description: "Set the agent status line on a PR board card. running = agent working; waiting = session needs the user's input; posted = the draft review was posted to GitHub; done = finished (e.g. queued for merge); failed = gave up (reason in outcome); clear = remove the status.",
+        description: "Set the agent status line on a PR board card. running = agent working; waiting = the session needs the user's input; waiting_on_others = blocked on someone other than the user, e.g. another approver or the author (put who and what in outcome, e.g. 'needs a second approval from a maintainer'); posted = the draft review was posted to GitHub; done = finished (e.g. queued for merge); failed = gave up (reason in outcome); clear = remove the status.",
         parameters: {
             type: "object",
             properties: {
                 repo: repoProp,
                 pr: prProp,
-                status: { type: "string", enum: ["running", "waiting", "posted", "done", "failed", "clear"] },
+                status: { type: "string", enum: ["running", "waiting", "waiting_on_others", "posted", "done", "failed", "clear"] },
                 outcome: { type: "string", description: "One short plain-words line shown on the card, e.g. 'Queued for merge' or 'Blocked: build failing'." },
             },
             required: ["pr", "status"],

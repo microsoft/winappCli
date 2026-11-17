@@ -111,7 +111,7 @@ export const LANES = [
     { id: "waiting", title: "Waiting on author / others", hint: "The next step belongs to someone else." },
     { id: "approved", title: "Approved", hint: "Approved; waiting on CI, or ready to ship." },
     { id: "queue", title: "In merge queue", hint: "Queued for merge on GitHub." },
-    { id: "merged", title: "Merged recently", hint: "Merged in the last few days." },
+    { id: "merged", title: "Merged recently", hint: "Merged in the last 24 hours." },
 ];
 
 // Decide a card's lane and a plain-words "waiting on" line.
@@ -135,7 +135,8 @@ export function classify(pr, ctx, local) {
         return { lane: "agent-reviewing", waitingOn: "Agent: working on it", who: "agent", ci };
     }
     if (draft) return { lane: "draft-ready", waitingOn: "You: read the draft review, then post it", who: "you", ci };
-    if (agent?.status === "waiting") return { lane: "agent-reviewing", waitingOn: "You: the agent session needs your input", who: "you", ci };
+    if (agent?.status === "waiting") return { lane: "agent-reviewing", waitingOn: `You: ${agent.outcome || "the agent session needs your input"}`, who: "you", ci };
+    if (agent?.status === "waiting_on_others") return { lane: "waiting", waitingOn: `Someone else: ${agent.outcome || "the agent is waiting on another person"}`, who: "others", ci };
 
     if (pr.isDraft) return { lane: "waiting", waitingOn: `${author}: PR is still a draft`, who: authorWho, ci };
     if (pr.reviewDecision === "CHANGES_REQUESTED") {
@@ -187,7 +188,10 @@ export function buildCards(data, localPrs) {
     }
     for (const pr of [...data.merged].sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))) {
         const ageDays = (Date.now() - new Date(pr.mergedAt).getTime()) / 86400000;
-        if (ageDays > 3) continue;
+        if (ageDays > 1) continue;
+        const local = { ...(localPrs[String(pr.number)] || {}) };
+        // A merged PR needs nothing more; don't keep showing a stale "running" or "waiting" line.
+        if (local.agent && local.agent.status !== "done") local.agent = { ...local.agent, status: "done", outcome: "PR merged" };
         cards.push({
             number: pr.number,
             title: pr.title,
@@ -198,7 +202,7 @@ export function buildCards(data, localPrs) {
             waitingOn: `Merged ${new Date(pr.mergedAt).toLocaleString()}`,
             who: "done",
             mergedAt: pr.mergedAt,
-            local: localPrs[String(pr.number)] || {},
+            local,
         });
     }
     return cards;

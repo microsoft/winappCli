@@ -27,7 +27,10 @@ Needs review │ Agent reviewing │ Draft ready │ Waiting on author / others 
 | Waiting on author / others | It's a draft PR, has changes requested, has conflicts, its author's agent is still preparing it (`agent-preparing` / `agent-blocked` labels), or it needs someone else's approval |
 | Approved | It's approved; CI is still running, or it's ready to ship |
 | In merge queue | It's in GitHub's merge queue; the card shows its position |
-| Merged recently | Merged in the last 3 days |
+| Merged recently | Merged in the last 24 hours. Collapsed by default; click it to expand |
+
+The header shows the split, for example `17 open · 8 merged in the last 24h`.
+A merged PR's agent status is shown as `Done: PR merged`.
 
 Each card shows the PR number and title, author, size (XS–XL, from lines
 changed), CI state, human reviewers and their verdicts, the merge-queue
@@ -63,7 +66,7 @@ tells it which ones to call.
 | Tool | Use |
 |------|-----|
 | `pr_board_link_session` | Link a session to a PR card |
-| `pr_board_set_status` | Set the card's agent status: `running`, `waiting`, `posted`, `done`, `failed`, or `clear`, with a one-line outcome |
+| `pr_board_set_status` | Set the card's agent status with a one-line outcome: `running`, `waiting` (needs you), `waiting_on_others` (blocked on another approver or the author; the outcome becomes the card's ⏭ line), `posted`, `done`, `failed`, or `clear` |
 | `pr_board_attach_draft` | Attach the draft review file and its recommendation; moves the card to Draft ready |
 | `pr_board_get_state` | Read the board, or one card |
 

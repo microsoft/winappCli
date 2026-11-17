@@ -54,6 +54,11 @@ header .spacer { flex: 1; }
 .toast.show { opacity: .95; }
 main { flex: 1; display: flex; gap: 10px; padding: 12px 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
 .lane { flex: 0 0 290px; display: flex; flex-direction: column; background: var(--lane-bg); border-radius: 8px; border: 1px solid var(--border); min-height: 0; }
+.lane.done { opacity: .75; }
+.lane.collapsed { flex: 0 0 40px; opacity: .75; cursor: pointer; align-items: center; }
+.lane.collapsed > h2 { writing-mode: vertical-rl; padding: 10px 0; white-space: nowrap; }
+.lane.collapsed:hover { opacity: 1; }
+button.link { border: 0; padding: 0 4px; background: none; color: var(--muted); }
 .lane > h2 { margin: 0; padding: 8px 10px 2px; font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
 .lane > h2 .count { color: var(--muted); font-weight: 400; }
 .lane > .hint { padding: 0 10px 6px; color: var(--muted); font-size: 12px; }
@@ -128,6 +133,7 @@ const $ = (id) => document.getElementById(id);
 const expanded = new Set();
 const drafts = new Map();
 let snap = null;
+let showMerged = localStorage.getItem("prb-show-merged") === "1";
 let openMenu = null;
 let armed = null; // { key, timer } for click-again-to-confirm buttons
 
@@ -171,6 +177,7 @@ const REVIEW_ICON = { APPROVED: ["green", "✓"], CHANGES_REQUESTED: ["red", "�
 const AGENT = {
   running: ["purple", "Agent working"],
   waiting: ["orange", "Needs your input"],
+  waiting_on_others: ["", "Waiting on others"],
   draft_ready: ["orange", "Draft ready"],
   done: ["green", "Done"],
   failed: ["red", "Failed"],
@@ -275,12 +282,19 @@ function render() {
   const mine = cards.filter((c) => c.who === "you").length;
   $("youCount").hidden = !mine;
   $("youCount").textContent = mine + " waiting on you";
-  $("meta").textContent = snap.loading ? "Refreshing…" : snap.fetchedAt ? `Updated ${ago(snap.fetchedAt)} · ${cards.filter((c) => c.lane !== "merged").length} open` + (snap.viewer ? ` · you are @${snap.viewer}` : "") : "Loading…";
+  const open = cards.filter((c) => c.lane !== "merged").length;
+  const merged = cards.length - open;
+  $("meta").textContent = snap.loading ? "Refreshing…" : snap.fetchedAt ? `${open} open · ${merged} merged in the last 24h · updated ${ago(snap.fetchedAt)}` + (snap.viewer ? ` · you are @${snap.viewer}` : "") : "Loading…";
   const scroll = new Map([...document.querySelectorAll(".lane .cards")].map((el) => [el.dataset.lane, el.scrollTop]));
   $("board").innerHTML = snap.lanes.map((lane) => {
     const inLane = cards.filter((c) => c.lane === lane.id);
-    return `<section class="lane" aria-label="${esc(lane.title)}">
-      <h2>${esc(lane.title)} <span class="count">${inLane.length}</span></h2>
+    if (lane.id === "merged" && !showMerged) {
+      return `<section class="lane collapsed" data-act="toggle-merged" role="button" tabindex="0" title="Show recently merged PRs" aria-label="${esc(lane.title)}, ${inLane.length}, collapsed">
+        <h2>▸ ${esc(lane.title)} <span class="count">${inLane.length}</span></h2>
+      </section>`;
+    }
+    return `<section class="lane${lane.id === "merged" ? " done" : ""}" aria-label="${esc(lane.title)}">
+      <h2>${lane.id === "merged" ? `<button class="link" data-act="toggle-merged" title="Hide recently merged PRs">◂</button> ` : ""}${esc(lane.title)} <span class="count">${inLane.length}</span></h2>
       <div class="hint">${esc(lane.hint)}</div>
       <div class="cards" data-lane="${lane.id}">${inLane.map(cardHtml).join("") || `<div class="empty">Nothing here</div>`}</div>
     </section>`;
@@ -302,6 +316,11 @@ document.addEventListener("click", async (e) => {
   }
   const pr = Number(el.dataset.pr);
   const a = el.dataset.act;
+  if (a === "toggle-merged") {
+    showMerged = !showMerged;
+    try { localStorage.setItem("prb-show-merged", showMerged ? "1" : "0"); } catch {}
+    return render();
+  }
   if (a === "toggle") {
     expanded.has(pr) ? expanded.delete(pr) : expanded.add(pr);
     return render();
@@ -332,6 +351,10 @@ document.addEventListener("click", async (e) => {
     return arm(`${pr}:ship`, "ship");
   }
   return act(pr, a);
+});
+
+document.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches?.('section[data-act="toggle-merged"]')) { e.preventDefault(); e.target.click(); }
 });
 
 $("refresh").addEventListener("click", async () => {
