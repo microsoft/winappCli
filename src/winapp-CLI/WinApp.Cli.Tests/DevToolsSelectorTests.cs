@@ -410,9 +410,9 @@ public class DevToolsSelectorTests
         Assert.AreEqual(0, exit);
         Assert.IsTrue(agent.ReceivedRequests.Any(IsAuthoredRequest),
             "The default view must ask the tap for the authored projection, not filter a raw tree afterwards.");
-        StringAssert.Contains(output, "SubmitButton",
+        Assert.Contains("SubmitButton", output,
             "An app-authored Button must be visible at the DEFAULT depth, which is the bug this fixes.");
-        StringAssert.Contains(output, "your XAML", "The footer must say which view this is.");
+        Assert.Contains("your XAML", output, "The footer must say which view this is.");
     }
 
     /// <summary>
@@ -453,8 +453,8 @@ public class DevToolsSelectorTests
         Assert.AreEqual(0, exit);
         Assert.IsFalse(agent.ReceivedRequests.Any(IsAuthoredRequest),
             "--all must not ask for a projection; raw depth semantics are the whole point of the flag.");
-        StringAssert.Contains(output, "ContentPresenter", "--all exposes the control-template internals.");
-        StringAssert.Contains(output, "all elements");
+        Assert.Contains("ContentPresenter", output, "--all exposes the control-template internals.");
+        Assert.Contains("all elements", output);
     }
 
     /// <summary>
@@ -473,9 +473,9 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, []);
 
         Assert.AreEqual(0, exit, "A fallback is still a successful read of the tree.");
-        StringAssert.Contains(output, "no XAML source information");
-        StringAssert.Contains(output, "winapp run --devtools on", "The message must say how to enable the authored view.");
-        StringAssert.Contains(output, "ContentPresenter", "The raw tree is shown rather than nothing.");
+        Assert.Contains("no XAML source information", output);
+        Assert.Contains("winapp run --devtools on", output, "The message must say how to enable the authored view.");
+        Assert.Contains("ContentPresenter", output, "The raw tree is shown rather than nothing.");
     }
 
     /// <summary>The fallback has to be machine-readable too, or a --json caller silently believes it saw the app's XAML.</summary>
@@ -493,9 +493,9 @@ public class DevToolsSelectorTests
         Assert.IsFalse(doc.RootElement.GetProperty("appAuthored").GetBoolean(),
             "The payload must not claim an authored view it did not get.");
         Assert.IsTrue(doc.RootElement.GetProperty("fallback").GetBoolean());
-        StringAssert.Contains(
-            doc.RootElement.GetProperty("fallbackReason").GetString(),
-            "no XAML source information");
+        Assert.Contains(
+            "no XAML source information",
+            doc.RootElement.GetProperty("fallbackReason").GetString()!);
     }
 
     /// <summary>
@@ -511,7 +511,7 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, []);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "Error:");
+        Assert.Contains("Error:", output);
         Assert.AreEqual(1, agent.ReceivedRequests.Count(r => r.Contains("VisualTree.enumerate", StringComparison.Ordinal)),
             "A real failure must not trigger a second, quieter attempt.");
     }
@@ -656,7 +656,8 @@ public class DevToolsSelectorTests
         Assert.AreEqual(expected, resolved.Handle, resolved.Error);
         if (expected is null)
         {
-            StringAssert.Contains(resolved.Error, "2 elements have AutomationId 'StartButton'");
+            Assert.IsNotNull(resolved.Error);
+            Assert.Contains("2 elements have AutomationId 'StartButton'", resolved.Error);
             Assert.HasCount(2, resolved.Candidates);
         }
     }
@@ -681,9 +682,11 @@ public class DevToolsSelectorTests
         if (expected is null)
         {
             Assert.HasCount(2, resolved.Candidates);
-            StringAssert.Contains(resolved.Error, "x:Name or AutomationId");
-            CollectionAssert.AreEquivalent(CollisionSelectors,
-                resolved.Candidates.Select(candidate => candidate.Selector).ToArray());
+            Assert.IsNotNull(resolved.Error);
+            Assert.Contains("x:Name or AutomationId", resolved.Error);
+            Assert.AreSequenceEqual(CollisionSelectors,
+                resolved.Candidates.Select(candidate => candidate.Selector).ToArray(),
+                SequenceOrder.InAnyOrder);
         }
         using var request = JsonDocument.Parse(agent.ReceivedRequests.Last());
         Assert.AreEqual(2, request.RootElement.GetProperty("params").GetProperty("handles").GetArrayLength());
@@ -705,7 +708,7 @@ public class DevToolsSelectorTests
         using var document = JsonDocument.Parse(output);
         Assert.AreEqual("selector", document.RootElement.GetProperty("error").GetProperty("token").GetString());
         Assert.AreEqual(2, document.RootElement.GetProperty("candidates").GetArrayLength());
-        CollectionAssert.AreEqual(IdentityRequests, agent.Received.ToArray());
+        Assert.AreSequenceEqual(IdentityRequests, agent.Received.ToArray());
     }
 
     private static readonly string[] CollisionSelectors = ["button-submitbutton-bbbbbbbbbb", "button-otherbutton-cccccccccc"];
@@ -743,7 +746,7 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, ["SubmitButton", "Content", "Updated", "--json"]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "Could not read identities");
+        Assert.Contains("Could not read identities", output);
         Assert.IsFalse(agent.Received.Contains("HotReload.setProperty"));
     }
 
@@ -761,8 +764,8 @@ public class DevToolsSelectorTests
         var (_, human) = await RunAsync(new DevToolsInspectCommand(), agent, []);
         var (_, json) = await RunAsync(new DevToolsInspectCommand(), agent, ["--json"]);
 
-        StringAssert.Contains(human, "[button-submitbutton-bbbbbbbbbb] Button x:Name=\"SubmitButton\" Views/MainWindow.xaml:24 aid=SubmitAid");
-        StringAssert.Contains(human, "[grid-root-aaaaaaaaaa] Grid x:Name=\"Root\" MainWindow.xaml" + Environment.NewLine,
+        Assert.Contains("[button-submitbutton-bbbbbbbbbb] Button x:Name=\"SubmitButton\" Views/MainWindow.xaml:24 aid=SubmitAid", human);
+        Assert.Contains("[grid-root-aaaaaaaaaa] Grid x:Name=\"Root\" MainWindow.xaml" + Environment.NewLine, human,
             "An unconfirmed element shows its file only.");
         using var document = JsonDocument.Parse(json);
         var button = document.RootElement.GetProperty("elements")[0].GetProperty("children")[0];
@@ -787,8 +790,9 @@ public class DevToolsSelectorTests
         var resolved = DevToolsSelector.Resolve(tap, "button-submitbutton-0000000000");
 
         Assert.IsFalse(resolved.Ok, "A tampered/stale identity must never resolve.");
-        StringAssert.Contains(resolved.Error, "stale");
-        StringAssert.Contains(resolved.Error, "inspect", "The refusal must say how to get a current selector.");
+        Assert.IsNotNull(resolved.Error);
+        Assert.Contains("stale", resolved.Error);
+        Assert.Contains("inspect", resolved.Error, "The refusal must say how to get a current selector.");
         Assert.AreEqual(1, resolved.Candidates.Length, "The near miss is offered as a candidate, not silently used.");
         Assert.AreEqual("button-submitbutton-bbbbbbbbbb", resolved.Candidates[0].Selector);
     }
@@ -854,7 +858,8 @@ public class DevToolsSelectorTests
         var resolved = DevToolsSelector.Resolve(tap, "checkbox-missing-9999999999");
 
         Assert.IsFalse(resolved.Ok);
-        StringAssert.Contains(resolved.Error, "re-run");
+        Assert.IsNotNull(resolved.Error);
+        Assert.Contains("re-run", resolved.Error);
         Assert.IsFalse(resolved.Error!.Contains("stale", StringComparison.OrdinalIgnoreCase),
             "Nothing of that type and name is live, so calling it stale would be a guess.");
     }
@@ -943,10 +948,12 @@ public class DevToolsSelectorTests
         var resolved = DevToolsSelector.Resolve(tap, "DeleteButton");
 
         Assert.IsFalse(resolved.Ok);
-        StringAssert.Contains(resolved.Error, "2 elements are named");
-        CollectionAssert.AreEquivalent(
+        Assert.IsNotNull(resolved.Error);
+        Assert.Contains("2 elements are named", resolved.Error);
+        Assert.AreSequenceEqual(
             DuplicateRowSelectors,
             resolved.Candidates.Select(c => c.Selector).ToArray(),
+            SequenceOrder.InAnyOrder,
             "Candidates must be offered as SELECTORS, not as decimals the reader has to trust blindly.");
     }
 
@@ -978,7 +985,7 @@ public class DevToolsSelectorTests
 
         Assert.IsTrue(resolved.Ok, resolved.Error);
         Assert.AreEqual("70", resolved.Handle);
-        CollectionAssert.Contains(agent.Received, "VisualTree.enumerate",
+        Assert.Contains("VisualTree.enumerate", agent.Received,
             "A miss in the narrowed search must be re-checked against the whole tree, not reported as absent.");
     }
 
@@ -1022,7 +1029,7 @@ public class DevToolsSelectorTests
 
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, []);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "not finished classifying");
+        Assert.Contains("not finished classifying", output);
 
         var (_, jsonOut) = await RunAsync(new DevToolsInspectCommand(), agent, ["--json"]);
         using var doc = JsonDocument.Parse(jsonOut);
@@ -1055,9 +1062,9 @@ public class DevToolsSelectorTests
 
         var (_, output) = await RunAsync(new DevToolsInspectCommand(), agent, []);
 
-        CollectionAssert.DoesNotContain(agent.Received, "VisualTree.getAppAuthored",
+        Assert.DoesNotContain("VisualTree.getAppAuthored", agent.Received,
             "The tree's own reply carries its classification state; a second pass describes a different tree.");
-        StringAssert.Contains(output, "not finished classifying",
+        Assert.Contains("not finished classifying", output,
             "The warning must follow the pass that produced these nodes, not a later, luckier one.");
     }
 
@@ -1082,7 +1089,8 @@ public class DevToolsSelectorTests
         using var doc = JsonDocument.Parse(output);
         Assert.IsTrue(doc.RootElement.GetProperty("fallback").GetBoolean());
         var reason = doc.RootElement.GetProperty("fallbackReason").GetString();
-        StringAssert.Contains(reason, "not finished classifying");
+        Assert.IsNotNull(reason);
+        Assert.Contains("not finished classifying", reason);
         Assert.IsFalse(reason!.Contains("classified no live element", StringComparison.Ordinal),
             "'Still working' must never be reported as 'your XAML contributed nothing'.");
     }
@@ -1107,8 +1115,8 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, []);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "no XAML source information");
-        StringAssert.Contains(output, "winapp run --devtools on", "The actionable next step is a relaunch.");
+        Assert.Contains("no XAML source information", output);
+        Assert.Contains("winapp run --devtools on", output, "The actionable next step is a relaunch.");
         Assert.IsFalse(output.Contains("cannot yet say which elements are yours", StringComparison.Ordinal),
             "Waiting is the wrong advice for an app that will never report source info.");
     }
@@ -1124,7 +1132,7 @@ public class DevToolsSelectorTests
         var (_, output) = await RunAsync(new DevToolsInspectCommand(), agent, ["--json"]);
 
         using var doc = JsonDocument.Parse(output);
-        StringAssert.Contains(doc.RootElement.GetProperty("fallbackReason").GetString(), "classified no live element");
+        Assert.Contains("classified no live element", doc.RootElement.GetProperty("fallbackReason").GetString()!);
     }
 
     /// <summary>
@@ -1145,13 +1153,13 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(
             new DevToolsInspectCommand(), agent, ["--filter", "__definitely_missing__"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "not finished classifying");
+        Assert.Contains("not finished classifying", output);
 
         var (_, jsonOut) = await RunAsync(
             new DevToolsInspectCommand(), agent, ["--filter", "__definitely_missing__", "--json"]);
         using var doc = JsonDocument.Parse(jsonOut);
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(),
-            "not finished classifying");
+        Assert.Contains("not finished classifying",
+            doc.RootElement.GetProperty("error").GetProperty("message").GetString()!);
     }
 
     /// <summary>The same hole in search: an empty match list is where the reason matters most.</summary>
@@ -1167,12 +1175,12 @@ public class DevToolsSelectorTests
 
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Submit"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "not finished classifying");
+        Assert.Contains("not finished classifying", output);
 
         var (_, jsonOut) = await RunAsync(new DevToolsSearchCommand(), agent, ["Submit", "--json"]);
         using var doc = JsonDocument.Parse(jsonOut);
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(),
-            "not finished classifying");
+        Assert.Contains("not finished classifying",
+            doc.RootElement.GetProperty("error").GetProperty("message").GetString()!);
     }
 
     /// <summary>Items created from data have no XAML source; a search for their text must still find them.</summary>
@@ -1188,8 +1196,8 @@ public class DevToolsSelectorTests
 
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium"]);
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "NavigationViewItem");
-        StringAssert.Contains(output, "Nothing in your XAML matches");
+        Assert.Contains("NavigationViewItem", output);
+        Assert.Contains("Nothing in your XAML matches", output);
 
         var (_, jsonOut) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium", "--json"]);
         using var doc = JsonDocument.Parse(jsonOut);
@@ -1204,7 +1212,7 @@ public class DevToolsSelectorTests
             """{"matches":[],"query":"x","appAuthoredOnly":false,"searchedNodes":2,"censusNodes":2,"truncated":false,"sourceInstrumented":true,"classificationTruncated":false}""");
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["__missing__"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "displayed text");
+        Assert.Contains("displayed text", output);
         Assert.IsFalse(output.Contains("not an element's rendered text", StringComparison.Ordinal));
     }
 
@@ -1230,9 +1238,10 @@ public class DevToolsSelectorTests
 
         var candidates = doc.RootElement.GetProperty("candidates").EnumerateArray().ToArray();
         Assert.AreEqual(2, candidates.Length, "Both live elements must be offered.");
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             DuplicateRowSelectors,
             candidates.Select(c => c.GetProperty("selector").GetString()).ToArray(),
+            SequenceOrder.InAnyOrder,
             "A caller must be able to retry with a selector, not re-derive one from prose.");
         foreach (var candidate in candidates)
         {
@@ -1291,8 +1300,8 @@ public class DevToolsSelectorTests
 
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Submit"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "Source detection is incomplete");
-        StringAssert.Contains(output, "--all");
+        Assert.Contains("Source detection is incomplete", output);
+        Assert.Contains("--all", output);
         Assert.IsFalse(output.Contains("node limit truncated the search", StringComparison.Ordinal),
             "The node cap was not hit; only the classification is incomplete.");
 
@@ -1348,7 +1357,7 @@ public class DevToolsSelectorTests
 
         var (_, output) = await RunAsync(new DevToolsInspectCommand(), agent, []);
 
-        StringAssert.Contains(output, "[button-submitbutton-bbbbbbbbbb] Button x:Name=\"SubmitButton\"");
+        Assert.Contains("[button-submitbutton-bbbbbbbbbb] Button x:Name=\"SubmitButton\"", output);
     }
 
     /// <summary>Search speaks the same vocabulary, so a selector copied from a search result works verbatim.</summary>

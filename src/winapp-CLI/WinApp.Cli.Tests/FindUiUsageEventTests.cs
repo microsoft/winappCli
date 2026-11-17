@@ -121,7 +121,7 @@ public sealed class FindUiUsageEventTests
         // parallel and now emit this same event through the real handler — so assert
         // the Log->provider path fired (presence), not an exact count.
         var names = listener.WaitForEvent("FindUiUsage_Event");
-        CollectionAssert.Contains(names, "FindUiUsage_Event", "the static Log methods must emit through the WinAppDevCLI provider");
+        Assert.Contains("FindUiUsage_Event", names, "the static Log methods must emit through the WinAppDevCLI provider");
     }
 
     private sealed class NameCapturingListener : EventListener

@@ -118,8 +118,8 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
                 skipPri: true,
                 cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "no executable found");
-        StringAssert.Contains(ex.Message, folder.FullName);
+        Assert.Contains("no executable found", ex.Message);
+        Assert.Contains(folder.FullName, ex.Message);
     }
 
     [TestMethod]
@@ -138,7 +138,7 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
                 skipPri: true,
                 cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "Manifest file not found");
+        Assert.Contains("Manifest file not found", ex.Message);
     }
 
     [TestMethod]
@@ -211,7 +211,7 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
                 skipPri: true,
                 cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "no executable found");
+        Assert.Contains("no executable found", ex.Message);
     }
 
     [TestMethod]
@@ -242,10 +242,10 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
                 cancellationToken: TestContext.CancellationToken));
 
         // Assert
-        StringAssert.Contains(ex.Message, "Bundle validation failed. The following inconsistencies were found across slices:");
-        StringAssert.Contains(ex.Message, "Identity/@Version: Identity/@Version differs across slices. All slices in a bundle must have the same Identity/@Version.");
-        StringAssert.Contains(ex.Message, $"• {x64Folder.Name}: \"1.0.0.0\"");
-        StringAssert.Contains(ex.Message, $"• {arm64Folder.Name}: \"2.0.0.0\"");
+        Assert.Contains("Bundle validation failed. The following inconsistencies were found across slices:", ex.Message);
+        Assert.Contains("Identity/@Version: Identity/@Version differs across slices. All slices in a bundle must have the same Identity/@Version.", ex.Message);
+        Assert.Contains($"• {x64Folder.Name}: \"1.0.0.0\"", ex.Message);
+        Assert.Contains($"• {arm64Folder.Name}: \"2.0.0.0\"", ex.Message);
         Assert.AreEqual(1, _fakeBundleValidationService.CallCount);
         Assert.AreEqual(0, _fakeBundleService.CallCount);
         Assert.AreEqual(0, _fakeBuildToolsService.Invocations.Count);
@@ -268,10 +268,10 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
 
         // Assert
         Assert.AreEqual(1, _fakeBundleValidationService.CallCount);
-        CollectionAssert.AreEqual(ExpectedArchitectures, _fakeBundleValidationService.LastDetectedArchitectures!.ToArray());
-        CollectionAssert.AreEqual(new[] { x64Folder.FullName, arm64Folder.FullName }, _fakeBundleValidationService.LastInputFolders!.Select(folder => folder.FullName).ToArray());
-        CollectionAssert.AreEqual(ExpectedArchitectures, _fakeBundleValidationService.LastSliceManifests!.Select(manifest => manifest.IdentityProcessorArchitecture).ToArray());
-        CollectionAssert.AreEqual(ExpectedPackageNames, _fakeBundleValidationService.LastSliceManifests!.Select(manifest => manifest.IdentityName).ToArray());
+        Assert.AreSequenceEqual(ExpectedArchitectures, _fakeBundleValidationService.LastDetectedArchitectures!.ToArray());
+        Assert.AreSequenceEqual(new[] { x64Folder.FullName, arm64Folder.FullName }, _fakeBundleValidationService.LastInputFolders!.Select(folder => folder.FullName).ToArray());
+        Assert.AreSequenceEqual(ExpectedArchitectures, _fakeBundleValidationService.LastSliceManifests!.Select(manifest => manifest.IdentityProcessorArchitecture).ToArray());
+        Assert.AreSequenceEqual(ExpectedPackageNames, _fakeBundleValidationService.LastSliceManifests!.Select(manifest => manifest.IdentityName).ToArray());
         Assert.AreEqual(2, result.Slices.Count);
         Assert.AreEqual(2, _fakeBuildToolsService.Invocations.Count);
         Assert.AreEqual(1, _fakeBundleService.CallCount);
@@ -341,7 +341,7 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
                 skipPri: true,
                 cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "not a canonical four-part MSIX version");
+        Assert.Contains("not a canonical four-part MSIX version", ex.Message);
         Assert.AreEqual(0, _fakeBundleService.CallCount, "Bundle service must not be called when the version is invalid.");
         Assert.AreEqual(0, _fakeBuildToolsService.Invocations.Count, "makeappx must not be invoked when the version is invalid.");
     }
@@ -380,7 +380,7 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
         // Assert
         Assert.AreNotEqual(0, exitCode, "Should fail for duplicate input folders");
         var output = ConsoleStdErr!.ToString();
-        StringAssert.Contains(output, "Duplicate input folder");
+        Assert.Contains("Duplicate input folder", output);
     }
 
     [TestMethod]
@@ -399,7 +399,7 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
         // Assert
         Assert.AreNotEqual(0, exitCode, "Should fail for .msix extension with bundle");
         var output = ConsoleStdErr!.ToString();
-        StringAssert.Contains(output, "Cannot use .msix extension");
+        Assert.Contains("Cannot use .msix extension", output);
     }
 
     [TestMethod]
@@ -417,7 +417,7 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
         // Assert
         Assert.AreNotEqual(0, exitCode, "Should fail for .msixbundle extension with single package");
         var output = ConsoleStdErr!.ToString();
-        StringAssert.Contains(output, "Cannot use .msixbundle extension");
+        Assert.Contains("Cannot use .msixbundle extension", output);
     }
 
     private DirectoryInfo CreateSliceFolder(string folderName, ushort machineType, string manifestArchitecture)
@@ -493,7 +493,7 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
                 selfContained: true,
                 cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "Cannot use --self-contained with architecture-neutral slices");
+        Assert.Contains("Cannot use --self-contained with architecture-neutral slices", ex.Message);
     }
 
     [TestMethod]
@@ -572,7 +572,7 @@ public class MsixServiceBundleOrchestrationTests : BaseCommandTests
                 skipPri: true,
                 cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "unrecognized PE format");
+        Assert.Contains("unrecognized PE format", ex.Message);
     }
 
     [TestMethod]

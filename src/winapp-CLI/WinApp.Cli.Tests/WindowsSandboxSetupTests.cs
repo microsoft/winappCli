@@ -35,8 +35,8 @@ public class WindowsSandboxSetupTests
             "dism.exe /Online /Enable-Feature /FeatureName:Containers-DisposableClientVM /All /NoRestart",
             error.Error.NextCommand!.Command);
         Assert.IsTrue(error.Error.NextCommand.Advisory);
-        StringAssert.Contains(error.Error.UserAction!, "administrator terminal");
-        StringAssert.Contains(error.Error.UserAction!, "restart Windows when ready");
+        Assert.Contains("administrator terminal", error.Error.UserAction!);
+        Assert.Contains("restart Windows when ready", error.Error.UserAction!);
         Assert.AreEqual(1, probe.Calls, "A missing prerequisite must fail promptly, not poll an installer.");
         using var json = JsonDocument.Parse(ExecutionTargetErrorSerializer.Serialize(error.Error));
         Assert.IsTrue(json.RootElement.GetProperty("error").GetProperty("nextCommand").GetProperty("advisory").GetBoolean());
@@ -54,8 +54,8 @@ public class WindowsSandboxSetupTests
         Assert.AreEqual(ExecutionTargetErrorCodes.SetupRequiresRestart, error.Error.Code);
         Assert.IsNull(error.Error.NextCommand, "Restart timing belongs to the user, not an automatically offered command.");
         Assert.AreEqual("true", error.Error.Context!["restartPending"]);
-        StringAssert.Contains(error.Error.UserAction!, "Save your work");
-        StringAssert.Contains(error.Error.UserAction!, "when you are ready");
+        Assert.Contains("Save your work", error.Error.UserAction!);
+        Assert.Contains("when you are ready", error.Error.UserAction!);
         Assert.AreEqual(1, probe.Calls);
     }
 
@@ -83,7 +83,8 @@ public class WindowsSandboxSetupTests
             new WindowsSandboxSetup(probe) { SupportsSandboxCli = () => true }
                 .EnsureReadyAsync(TestContext.CancellationToken));
         Assert.AreEqual(ExecutionTargetErrorCodes.SetupIncomplete, error.Error.Code);
-        StringAssert.Contains(error.Error.UserAction!, "Start menu");
+        Assert.IsNotNull(error.Error.UserAction);
+        Assert.Contains("Start menu", error.Error.UserAction);
         Assert.IsNull(error.Error.NextCommand);
         Assert.IsFalse(error.Error.UserAction.Contains("Enable-Feature", StringComparison.Ordinal));
         Assert.AreEqual(1, probe.Calls);
@@ -143,7 +144,7 @@ public class WindowsSandboxSetupTests
         var host = await setup.DescribeHostAsync(TestContext.CancellationToken);
 
         Assert.IsFalse(host.Ready);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             AllCheckNames,
             host.Checks.Select(c => c.Name).ToArray());
         Assert.AreEqual(TargetHostCheckStatus.Passed, Check(host, "osVersion").Status);
@@ -173,11 +174,11 @@ public class WindowsSandboxSetupTests
         Assert.AreEqual(TargetHostCheckStatus.Passed, Check(host, "sandboxFeature").Status);
         var client = Check(host, "sandboxClient");
         Assert.AreEqual(TargetHostCheckStatus.Failed, client.Status);
-        StringAssert.Contains(client.Fix!, "Start menu");
+        Assert.Contains("Start menu", client.Fix!);
         Assert.IsNull(client.NextCommand, "The client cannot be installed by a command winapp offers.");
         var wsb = Check(host, "wsb");
         Assert.AreEqual(TargetHostCheckStatus.Failed, wsb.Status);
-        StringAssert.Contains(wsb.Detail!, "not found");
+        Assert.Contains("not found", wsb.Detail!);
         Assert.AreEqual(TargetHostCheckStatus.NotChecked, Check(host, "restartPending").Status);
 
         var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
@@ -200,8 +201,8 @@ public class WindowsSandboxSetupTests
 
         var client = Check(host, "sandboxClient");
         Assert.AreEqual(TargetHostCheckStatus.Failed, client.Status);
-        StringAssert.Contains(client.Detail!, "Servicing");
-        StringAssert.Contains(Check(host, "wsb").Detail!, "did not answer");
+        Assert.Contains("Servicing", client.Detail!);
+        Assert.Contains("did not answer", Check(host, "wsb").Detail!);
     }
 
     [TestMethod]
@@ -213,7 +214,7 @@ public class WindowsSandboxSetupTests
 
         var client = Check(host, "sandboxClient");
         Assert.AreEqual(TargetHostCheckStatus.NotChecked, client.Status);
-        StringAssert.Contains(client.Detail!, "boom");
+        Assert.Contains("boom", client.Detail!);
         Assert.IsNull(client.Fix);
     }
 
@@ -233,7 +234,7 @@ public class WindowsSandboxSetupTests
 
         Assert.IsTrue(host.Ready);
         Assert.IsTrue(host.Checks.Take(4).All(c => c.Status == TargetHostCheckStatus.Passed));
-        StringAssert.Contains(Check(host, "wsb").Detail!, "0.8.107.0");
+        Assert.Contains("0.8.107.0", Check(host, "wsb").Detail!);
         Assert.AreEqual(TargetHostCheckStatus.NotChecked, Check(host, "restartPending").Status);
         Assert.IsTrue(host.Checks.All(c => c.Fix is null));
     }
@@ -305,8 +306,8 @@ public class WindowsSandboxSetupTests
 
         var os = Check(host, "osVersion");
         Assert.AreEqual(TargetHostCheckStatus.Failed, os.Status);
-        StringAssert.Contains(os.Detail!, "10.0.22631.0");
-        StringAssert.Contains(os.Detail!, "24H2");
+        Assert.Contains("10.0.22631.0", os.Detail!);
+        Assert.Contains("24H2", os.Detail!);
 
         foreach (var name in new[] { "sandboxFeature", "sandboxClient", "wsb", "restartPending" })
         {

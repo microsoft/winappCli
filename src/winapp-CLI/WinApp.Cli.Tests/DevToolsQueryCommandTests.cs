@@ -56,7 +56,7 @@ public class DevToolsQueryCommandTests
         using var result = JsonDocument.Parse(output);
         Assert.AreEqual("42", result.RootElement.GetProperty("matches")[0].GetProperty("selector").GetString());
         Assert.AreEqual("", result.RootElement.GetProperty("matches")[0].GetProperty("fields")[0].GetProperty("value").GetString());
-        StringAssert.Contains(result.RootElement.GetProperty("warnings")[0].GetString(), "Missing");
+        Assert.Contains("Missing", result.RootElement.GetProperty("warnings")[0].GetString()!);
     }
 
     [TestMethod]
@@ -66,11 +66,11 @@ public class DevToolsQueryCommandTests
         var (exit, output) = await Run(new DevToolsSearchCommand(), agent,
             ["--of-type", "TextBox", "--fields", "Text,PlaceholderText,AutomationProperties.Name,Missing"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "Text=\"\"");
-        StringAssert.Contains(output, "PlaceholderText=\"Search tasks\"");
-        StringAssert.Contains(output, "AutomationProperties.Name=\"Search tasks\"");
-        StringAssert.Contains(output, "Missing=<n/a>");
-        StringAssert.Contains(output, "complete within requested scope");
+        Assert.Contains("Text=\"\"", output);
+        Assert.Contains("PlaceholderText=\"Search tasks\"", output);
+        Assert.Contains("AutomationProperties.Name=\"Search tasks\"", output);
+        Assert.Contains("Missing=<n/a>", output);
+        Assert.Contains("complete within requested scope", output);
     }
 
     [TestMethod]
@@ -84,7 +84,7 @@ public class DevToolsQueryCommandTests
         var (exit, output) = await Run(inspect ? new DevToolsInspectCommand() : new DevToolsSearchCommand(), agent,
             ["--of-type", "TextBox", "--fields", "PlaceholderText"], width: 80);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, $"PlaceholderText=\"{value}\"");
+        Assert.Contains($"PlaceholderText=\"{value}\"", output);
     }
 
     [TestMethod]
@@ -233,18 +233,18 @@ public class DevToolsQueryCommandTests
             Assert.AreEqual("invalid-value", result.GetProperty("error").GetProperty("token").GetString());
             Assert.AreEqual(0, result.GetProperty("error").GetProperty("code").GetInt32());
             message = result.GetProperty("error").GetProperty("message").GetString()!;
-            StringAssert.StartsWith(message, "devtools set-property does not support");
+            Assert.StartsWith("devtools set-property does not support", message);
         }
         else
         {
-            StringAssert.Contains(output, "Write status: indeterminate");
-            StringAssert.Contains(output, "Error: devtools set-property does not support");
+            Assert.Contains("Write status: indeterminate", output);
+            Assert.Contains("Error: devtools set-property does not support", output);
             Assert.IsFalse(output.Contains("invalid-value|", StringComparison.Ordinal), output);
         }
-        StringAssert.Contains(message, "does not support {ThemeResource key} or {StaticResource key}");
-        StringAssert.Contains(message, "Use a literal value instead");
-        StringAssert.Contains(message, "#FF0067C0");
-        StringAssert.Contains(message, "XAML and rebuild");
+        Assert.Contains("does not support {ThemeResource key} or {StaticResource key}", message);
+        Assert.Contains("Use a literal value instead", message);
+        Assert.Contains("#FF0067C0", message);
+        Assert.Contains("XAML and rebuild", message);
         Assert.IsFalse(message.Contains("0x8000FFFF", StringComparison.Ordinal), message);
         Assert.AreEqual("Property.setQuery", agent.Received.Single());
     }
@@ -264,7 +264,7 @@ public class DevToolsQueryCommandTests
         var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent, args.ToArray());
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "does not support {ThemeResource key} or {StaticResource key}");
+        Assert.Contains("does not support {ThemeResource key} or {StaticResource key}", output);
         Assert.IsFalse(output.Contains("0x8000FFFF", StringComparison.Ordinal), output);
         if (json)
         {
@@ -308,7 +308,7 @@ public class DevToolsQueryCommandTests
             }
             else
             {
-                StringAssert.Contains(output, "Write status: applied");
+                Assert.Contains("Write status: applied", output);
             }
         }
     }
@@ -436,7 +436,7 @@ public class DevToolsQueryCommandTests
         using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.query", reply);
         var (exit, output) = await Run(new DevToolsSearchCommand(), agent, ["--of-type", "TextBox", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "invalid-response");
+        Assert.Contains("invalid-response", output);
     }
 
     [TestMethod]
@@ -445,7 +445,7 @@ public class DevToolsQueryCommandTests
         using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.query", Result());
         var (exit, output) = await Run(new DevToolsSearchCommand(), agent, ["--of-type", "TextBox", "--fields", "Unreported", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "invalid-response");
+        Assert.Contains("invalid-response", output);
     }
 
     [TestMethod]
@@ -530,11 +530,11 @@ public class DevToolsQueryCommandTests
         }
         else
         {
-            StringAssert.Contains(output, "[42] census name=");
-            StringAssert.Contains(output, $"{phase}: null");
-            StringAssert.Contains(output, "AutomationProperties.AutomationId ==: true");
-            StringAssert.Contains(output, "Content ==: unknown; state=null");
-            StringAssert.Contains(output, "3 omitted. Query completeness is unchanged.");
+            Assert.Contains("[42] census name=", output);
+            Assert.Contains($"{phase}: null", output);
+            Assert.Contains("AutomationProperties.AutomationId ==: true", output);
+            Assert.Contains("Content ==: unknown; state=null", output);
+            Assert.Contains("3 omitted. Query completeness is unchanged.", output);
         }
     }
 
@@ -578,7 +578,7 @@ public class DevToolsQueryCommandTests
             ["--of-type", "Button", "--property", "Content", "--value", "New", "--json"]);
         Assert.AreEqual(1, exit);
         Assert.HasCount(1, agent.Received);
-        StringAssert.Contains(output, "indeterminate");
+        Assert.Contains("indeterminate", output);
     }
 
     [TestMethod]
@@ -612,7 +612,7 @@ public class DevToolsQueryCommandTests
             ["--of-type", "TextBlock", "--property", "Text", "--value", "New", "--json"]);
         Assert.AreEqual(1, exit);
         Assert.AreEqual("Property.setQuery", agent.Received.Single());
-        StringAssert.Contains(output, "indeterminate");
+        Assert.Contains("indeterminate", output);
     }
 
     [TestMethod]
@@ -668,7 +668,7 @@ public class DevToolsQueryCommandTests
         var (exit, output) = await Run(new DevToolsSearchCommand(), agent, ["--of-type", "TextBox", option, value, "--json"]);
         Assert.AreEqual(1, exit);
         Assert.AreEqual(0, agent.Received.Count);
-        StringAssert.Contains(output, "bad-args");
+        Assert.Contains("bad-args", output);
     }
 
     [TestMethod]
@@ -749,10 +749,10 @@ public class DevToolsQueryCommandTests
             new("Header", "Very long", "value", "String", true),
             new("Content", "", "object", "StackPanel", false),
         ]);
-        StringAssert.Contains(text, "PlaceholderText=");
-        StringAssert.Contains(text, "AutomationProperties.Name=");
-        StringAssert.Contains(text, "Header=\"Very long\"...");
-        StringAssert.Contains(text, "Content=<StackPanel>");
+        Assert.Contains("PlaceholderText=", text);
+        Assert.Contains("AutomationProperties.Name=", text);
+        Assert.Contains("Header=\"Very long\"...", text);
+        Assert.Contains("Content=<StackPanel>", text);
     }
 
     [TestMethod]
@@ -762,7 +762,8 @@ public class DevToolsQueryCommandTests
         var (roots, error) = DevToolsPreviews.Read(new VisualTreeTap((uint)agent.Pid),
             [new("42", "SearchBox", "TextBox", null, null, true, 0, [], 0)], CancellationToken.None);
         Assert.HasCount(1, roots);
-        StringAssert.Contains(error, "truncated");
+        Assert.IsNotNull(error);
+        Assert.Contains("truncated", error);
         Assert.AreEqual("VisualTree.getPreviews", agent.Received.Single());
     }
 

@@ -220,7 +220,7 @@ public partial class UiCommandTests
             "the foreground request and the click must run inside one desktop section");
         Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections,
             "the section must be released before the result is formatted");
-        CollectionAssert.Contains(_fakeDesktopForeground.ForegroundRequests, 4242L);
+        Assert.Contains(4242L, _fakeDesktopForeground.ForegroundRequests);
     }
 
     [TestMethod]
@@ -247,8 +247,8 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["btn", "-a", "TestApp", "--json"]);
 
         Assert.AreEqual(0, exitCode);
-        CollectionAssert.Contains(_fakeDesktopForeground.ForegroundRequests, 2222L);
-        CollectionAssert.DoesNotContain(_fakeDesktopForeground.ForegroundRequests, 1111L,
+        Assert.Contains(2222L, _fakeDesktopForeground.ForegroundRequests);
+        Assert.DoesNotContain(1111L, _fakeDesktopForeground.ForegroundRequests,
             "the pre-wait window handle must never be foregrounded");
     }
 
@@ -483,7 +483,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "encoder blew up");
+        Assert.Contains("encoder blew up", stderr);
         Assert.IsFalse(stderr.Contains(UiCoordinationErrorCodes.Unavailable, StringComparison.Ordinal),
             $"an ordinary failure must not be reported as a coordination error; got: {stderr}");
     }
@@ -505,7 +505,7 @@ public partial class UiCommandTests
         var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, ["-a", "TestApp"]);
 
         Assert.AreEqual(0, exitCode, $"stderr: {ConsoleStdErr}");
-        StringAssert.Contains(ambientOutput, "can't access its UI coordination folder");
+        Assert.Contains("can't access its UI coordination folder", ambientOutput);
     }
 
     [TestMethod]

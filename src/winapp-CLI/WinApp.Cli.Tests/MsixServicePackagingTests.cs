@@ -63,7 +63,7 @@ public class MsixServicePackagingTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<FileNotFoundException>(
             () => MsixService.ParseAppxManifestFromPathAsync(missing, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "AppX manifest not found");
+        Assert.Contains("AppX manifest not found", ex.Message);
     }
 
     [TestMethod]
@@ -99,7 +99,7 @@ public class MsixServicePackagingTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<FileNotFoundException>(
             () => MsixService.ExtractPublisherFromPathAsync(missing, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "AppX manifest not found");
+        Assert.Contains("AppX manifest not found", ex.Message);
     }
 
     [TestMethod]
@@ -139,7 +139,7 @@ public class MsixServicePackagingTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => MsixService.ExtractPublisherFromPathAsync(manifestPath, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "Publisher");
+        Assert.Contains("Publisher", ex.Message);
     }
 
     [TestMethod]
@@ -160,7 +160,7 @@ public class MsixServicePackagingTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => MsixService.ExtractPublisherFromPathAsync(manifestPath, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "Publisher");
+        Assert.Contains("Publisher", ex.Message);
     }
 
     // ---- CopyManifestReferencedFiles ----------------------------------------------
@@ -355,7 +355,7 @@ public class MsixServicePackagingTests : BaseCommandTests
                 manifestPath: missingManifest,
                 cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "Manifest file not found");
+        Assert.Contains("Manifest file not found", ex.Message);
     }
 
     // ---- ResolveResourceLanguageXGenerateAsync ------------------------------------
@@ -401,8 +401,8 @@ public class MsixServicePackagingTests : BaseCommandTests
         var result = await InvokeResolveResourceLanguageXGenerateAsync(manifest, inputFolder);
 
         Assert.AreEqual(1, _fakePri.ExtractLanguagesCallCount, "Existing resources.pri should be inspected for languages");
-        StringAssert.Contains(result, "en-US");
-        StringAssert.Contains(result, "fr-FR");
+        Assert.Contains("en-US", result);
+        Assert.Contains("fr-FR", result);
         Assert.IsFalse(result.Contains("x-generate"), "x-generate should be replaced with concrete languages");
     }
 
@@ -425,7 +425,7 @@ public class MsixServicePackagingTests : BaseCommandTests
         var result = await InvokeResolveResourceLanguageXGenerateAsync(manifest, inputFolder);
 
         Assert.AreEqual(0, _fakePri.ExtractLanguagesCallCount, "No PRI means no language extraction");
-        StringAssert.Contains(result, "en-US");
+        Assert.Contains("en-US", result);
         Assert.IsFalse(result.Contains("x-generate"), "x-generate should fall back to en-US");
     }
 

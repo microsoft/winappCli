@@ -42,7 +42,7 @@ public partial class UiCommandTests
             command,
             ["-a", "TestApp", "--frames", "--fps", "31", "--output", outputPath, "--json"]);
         Assert.AreEqual(1, fpsExitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "1 through 30");
+        Assert.Contains("1 through 30", ConsoleStdErr.ToString());
 
         foreach (var maxEdge in new[] { "0", "32", "4097" })
         {
@@ -51,7 +51,7 @@ public partial class UiCommandTests
                 command,
                 ["-a", "TestApp", "--frames", "--max-edge", maxEdge, "--output", outputPath, "--json"]);
             Assert.AreEqual(1, exitCode);
-            StringAssert.Contains(ConsoleStdErr.ToString(), "64 through 4096");
+            Assert.Contains("64 through 4096", ConsoleStdErr.ToString());
         }
     }
 
@@ -70,7 +70,7 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual("video sentinel", await File.ReadAllTextAsync(outputPath));
         Assert.IsFalse(Directory.Exists(framesDirectory));
-        StringAssert.Contains(ConsoleStdErr.ToString(), "output_exists");
+        Assert.Contains("output_exists", ConsoleStdErr.ToString());
 
         File.Delete(outputPath);
         ConsoleStdErr.GetStringBuilder().Clear();
@@ -86,7 +86,7 @@ public partial class UiCommandTests
         Assert.AreEqual(
             "frame sentinel",
             await File.ReadAllTextAsync(Path.Join(framesDirectory, "sentinel.txt")));
-        StringAssert.Contains(ConsoleStdErr.ToString(), "output_exists");
+        Assert.Contains("output_exists", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -158,8 +158,8 @@ public partial class UiCommandTests
         Assert.AreEqual(framesDirectory, result.GetProperty("frameArtifacts").GetProperty("directory").GetString());
 
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "\"recording-started\"");
-        StringAssert.Contains(stderr, framesDirectory.Replace("\\", "\\\\"));
+        Assert.Contains("\"recording-started\"", stderr);
+        Assert.Contains(framesDirectory.Replace("\\", "\\\\"), stderr);
         Assert.IsFalse(stderr.Contains("\"recording-progress\"", StringComparison.Ordinal));
     }
 
@@ -262,7 +262,7 @@ public partial class UiCommandTests
         using var document = JsonDocument.ParseValue(ref reader);
         var error = document.RootElement.GetProperty("error");
         Assert.AreEqual("frame_output_failed", error.GetProperty("code").GetString());
-        StringAssert.Contains(error.GetProperty("recoveryHint").GetString(), "new --output path");
+        Assert.Contains("new --output path", error.GetProperty("recoveryHint").GetString()!);
         Assert.IsFalse(stderr.Contains("   at ", StringComparison.Ordinal));
     }
 
@@ -287,8 +287,8 @@ public partial class UiCommandTests
 
             Assert.IsNotNull(coordinator.Failure);
             var error = stderr.ToString();
-            StringAssert.Contains(error, "Could not initialize frame artifact output");
-            StringAssert.Contains(error, "Access to the frame parent was denied.");
+            Assert.Contains("Could not initialize frame artifact output", error);
+            Assert.Contains("Access to the frame parent was denied.", error);
             Assert.IsFalse(error.Contains("UnauthorizedAccessException", StringComparison.Ordinal));
             Assert.IsFalse(error.Contains("   at ", StringComparison.Ordinal));
         }
@@ -387,7 +387,7 @@ public partial class UiCommandTests
             var publishedFiles = Directory.GetFiles(Path.Join(finalDirectory, "frames"), "*.jpg")
                 .Select(path => $"frames/{Path.GetFileName(path)}")
                 .ToHashSet(StringComparer.Ordinal);
-            CollectionAssert.AreEquivalent(indexedFiles.ToArray(), publishedFiles.ToArray());
+            Assert.AreSequenceEqual(indexedFiles.ToArray(), publishedFiles.ToArray(), SequenceOrder.InAnyOrder);
 
             var manifest = JsonSerializer.Deserialize<JsonElement>(
                 await File.ReadAllTextAsync(Path.Join(finalDirectory, "manifest.json")));

@@ -27,7 +27,7 @@ public partial class TargetUiRoutingTests
         }
         else
         {
-            StringAssert.StartsWith(Path.GetFileName(routed.Artifact.HostDestination), "recording-");
+            Assert.StartsWith("recording-", Path.GetFileName(routed.Artifact.HostDestination));
             Assert.IsFalse(routed.Artifact.Overwrite);
         }
         Assert.AreEqual(routed.Artifact.GuestFullPath,
@@ -135,8 +135,8 @@ public partial class TargetUiRoutingTests
         Assert.AreEqual("previous video", await File.ReadAllTextAsync(artifact.HostDestination, TestContext.CancellationToken));
         Assert.IsTrue(File.Exists(Path.Join(error.Error.Context!["hostRecoveryPath"], "take.mp4")));
         Assert.IsTrue(File.Exists(Path.Join(_guestManaged, "artifacts", scope.Scope!, "take.mp4")));
-        StringAssert.Contains(error.Error.UserAction!, "winapp target exec");
-        StringAssert.Contains(error.Error.UserAction!, "relative to that folder");
+        Assert.Contains("winapp target exec", error.Error.UserAction!);
+        Assert.Contains("relative to that folder", error.Error.UserAction!);
     }
 
     [TestMethod]

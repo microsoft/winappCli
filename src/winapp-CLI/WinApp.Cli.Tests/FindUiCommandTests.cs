@@ -79,9 +79,9 @@ public class FindUiCommandTests : BaseCommandTests
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["--id", "gallery-tabview-1"]);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "items[0]", "C# code must survive verbatim");
-        StringAssert.Contains(TestAnsiConsole.Output, "[binding]", "XAML brackets must survive verbatim");
-        StringAssert.Contains(TestAnsiConsole.Output, "Brackets [test]", "heading brackets must survive verbatim");
+        Assert.Contains("items[0]", TestAnsiConsole.Output, "C# code must survive verbatim");
+        Assert.Contains("[binding]", TestAnsiConsole.Output, "XAML brackets must survive verbatim");
+        Assert.Contains("Brackets [test]", TestAnsiConsole.Output, "heading brackets must survive verbatim");
     }
 
     [TestMethod]
@@ -126,8 +126,8 @@ public class FindUiCommandTests : BaseCommandTests
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["--id", "reactor-flex-1"]);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "**Setup:**", "the metadata label must survive");
-        StringAssert.Contains(TestAnsiConsole.Output, "NuGet `Microsoft.UI.Reactor`", "backticked trailing content must render verbatim");
+        Assert.Contains("**Setup:**", TestAnsiConsole.Output, "the metadata label must survive");
+        Assert.Contains("NuGet `Microsoft.UI.Reactor`", TestAnsiConsole.Output, "backticked trailing content must render verbatim");
     }
 
     [TestMethod]
@@ -166,7 +166,7 @@ public class FindUiCommandTests : BaseCommandTests
         Assert.AreEqual(0, exit);
 
         // Direct proof: the full wide line appears intact, never split across a wrap.
-        StringAssert.Contains(TestAnsiConsole.Output, longXaml,
+        Assert.Contains(longXaml, TestAnsiConsole.Output,
             "a code line wider than the console must not be word-wrapped");
 
         // Width-independent invariant (Nikola's suggestion): the plain render has exactly the
@@ -366,7 +366,7 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["tabview", "--source", "wpf", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "--source must be one of");
+        Assert.Contains("--source must be one of", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -383,7 +383,7 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["--list", "--source", "toolkit", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "--source only applies to search");
+        Assert.Contains("--source only applies to search", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -392,7 +392,7 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["tabview"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "gallery-tabview-1");
+        Assert.Contains("gallery-tabview-1", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -409,8 +409,8 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["tabview", "--json"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"matchCount\"");
-        StringAssert.Contains(TestAnsiConsole.Output, "gallery-tabview-1");
+        Assert.Contains("\"matchCount\"", TestAnsiConsole.Output);
+        Assert.Contains("gallery-tabview-1", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -426,7 +426,7 @@ public class FindUiCommandTests : BaseCommandTests
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["system tray", "--source", "core", "--json"]);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"corpus\": \"embedded\"");
+        Assert.Contains("\"corpus\": \"embedded\"", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -471,7 +471,7 @@ public class FindUiCommandTests : BaseCommandTests
         }
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(stderr.ToString(), "built into the CLI",
+        Assert.Contains("built into the CLI", stderr.ToString(),
             "an embedded Gallery/Toolkit/Reactor result must warn that it may lag upstream");
     }
 
@@ -510,7 +510,7 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["--id", "gallery-tabview-1"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "TabView");
+        Assert.Contains("TabView", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -527,7 +527,7 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["--list"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "toolkit-datagrid-1");
+        Assert.Contains("toolkit-datagrid-1", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -536,7 +536,7 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.Unavailable();
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["tabview", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "No WinUI control data is available");
+        Assert.Contains("No WinUI control data is available", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -545,7 +545,7 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["tabview", "--list", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "Choose one of");
+        Assert.Contains("Choose one of", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -554,8 +554,8 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["--id", "gallery-tabview-1", "--id", "toolkit-datagrid-1"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "TabView");
-        StringAssert.Contains(TestAnsiConsole.Output, "DataGrid");
+        Assert.Contains("TabView", TestAnsiConsole.Output);
+        Assert.Contains("DataGrid", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -587,9 +587,9 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["flex layout", "--source", "reactor", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "control data could be loaded",
+        Assert.Contains("control data could be loaded", TestAnsiConsole.Output,
             "a --source whose corpus never loaded must surface the friendly error, not a false 'no match'");
-        StringAssert.Contains(TestAnsiConsole.Output, "reactor", "the error must name the unavailable source");
+        Assert.Contains("reactor", TestAnsiConsole.Output, "the error must name the unavailable source");
     }
 
     [TestMethod]
@@ -598,9 +598,9 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["--id", "reactor-flex-1", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "control data could be loaded",
+        Assert.Contains("control data could be loaded", TestAnsiConsole.Output,
             "a --id whose source never loaded must surface the friendly error, not 'Pattern not found'");
-        StringAssert.Contains(TestAnsiConsole.Output, "reactor", "the error must name the unavailable source");
+        Assert.Contains("reactor", TestAnsiConsole.Output, "the error must name the unavailable source");
     }
 
     [TestMethod]
@@ -610,6 +610,6 @@ public class FindUiCommandTests : BaseCommandTests
         _fakeService = FakeControlsSearchService.WithEngine(BuildEngine());
         var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["tabview", "--source", "gallery"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "gallery-tabview-1");
+        Assert.Contains("gallery-tabview-1", TestAnsiConsole.Output);
     }
 }

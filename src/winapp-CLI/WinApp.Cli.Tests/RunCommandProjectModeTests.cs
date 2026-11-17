@@ -105,12 +105,12 @@ public class RunCommandProjectModeTests : BaseCommandTests
         if (json)
         {
             using var result = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
-            StringAssert.Contains(result.RootElement.GetProperty("Error").GetString(),
-                "--profile only records on this machine");
+            Assert.Contains("--profile only records on this machine",
+                result.RootElement.GetProperty("Error").GetString()!);
         }
         else
         {
-            StringAssert.Contains(ConsoleStdErr.ToString(), "--profile only records on this machine");
+            Assert.Contains("--profile only records on this machine", ConsoleStdErr.ToString());
         }
         Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
         Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count);
@@ -201,7 +201,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeAppLauncherService.LaunchExecutableCalls.Count, "Unpackaged app should launch via LaunchExecutable");
-        StringAssert.Contains(_fakeAppLauncherService.LaunchExecutableCalls[0].ExePath, "App.exe");
+        Assert.Contains("App.exe", _fakeAppLauncherService.LaunchExecutableCalls[0].ExePath);
         // Launch with the caller's cwd (like `dotnet run`), NOT the build-output directory, so apps
         // resolving config/data via relative paths behave the same as under `dotnet run`.
         var cwd = GetRequiredService<ICurrentDirectoryProvider>().GetCurrentDirectory();
@@ -265,7 +265,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(packageDir, _fakeMsixService.EnsureRuntimeInstalledPackageDirCalls.Single(),
             "the runtime must come from the Windows App SDK the C++ build imported");
-        StringAssert.Contains(TestAnsiConsole.Output, "Windows App Runtime ready");
+        Assert.Contains("Windows App Runtime ready", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -320,7 +320,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
 
         Assert.AreEqual(appExitCode, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, $"App exited with code {expectedCode}. Rerun with --debug-output for exception details.");
+        Assert.Contains($"App exited with code {expectedCode}. Rerun with --debug-output for exception details.", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -487,7 +487,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeAppLauncherService.LaunchExecutableCalls.Count);
-        CollectionAssert.Contains(_fakeProjectRunService.BuildOptions[0].Properties.ToArray(), "WindowsPackageType=None",
+        Assert.Contains("WindowsPackageType=None", _fakeProjectRunService.BuildOptions[0].Properties.ToArray(),
             "User -p property must be forwarded to the build options");
     }
 
@@ -667,7 +667,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "An inferred alias that cannot be used must not fail the run");
         var output = System.Text.RegularExpressions.Regex.Replace(
             $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
-        StringAssert.Contains(output, "not print to this terminal",
+        Assert.Contains("not print to this terminal", output,
             "The user has to be told why the console output is missing");
     }
 
@@ -814,7 +814,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
         var output = $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}";
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(output, "LibA.vcxproj in");
+        Assert.Contains("LibA.vcxproj in", output);
         Assert.IsFalse(output.Contains("LibB.vcxproj in", StringComparison.Ordinal),
             "with --manifest, folder mode runs as before instead of reporting the library");
     }
@@ -854,7 +854,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "an app this machine can't run must not be built first");
-        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", $"({suggestion})",
+        Assert.Contains($"({suggestion})", $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}",
             "suggest changing the input that chose the architecture");
     }
 
@@ -891,7 +891,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual("Release", _fakeProjectRunService.BuildOptions[0].Configuration,
             "-p Configuration=Release must select Release instead of the Debug default");
-        StringAssert.Contains(TestAnsiConsole.Output, "Release | arm64");
+        Assert.Contains("Release | arm64", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -906,8 +906,8 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "a conflicting configuration must fail before building");
-        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}",
-            "-p Configuration=Release conflicts with -c Debug. Pass only one of them.");
+        Assert.Contains("-p Configuration=Release conflicts with -c Debug. Pass only one of them.",
+            $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}");
     }
 
     [TestMethod]
@@ -938,8 +938,8 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "a conflicting configuration must fail before building");
-        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}",
-            "-p Configuration=Release conflicts with -c Debug. Pass only one of them.");
+        Assert.Contains("-p Configuration=Release conflicts with -c Debug. Pass only one of them.",
+            $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}");
     }
 
     [TestMethod]
@@ -953,7 +953,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--detach", "--json"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", "requires administrator rights");
+        Assert.Contains("requires administrator rights", $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}");
     }
 
     [TestMethod]
@@ -1110,7 +1110,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.IsTrue(jsonStart >= 0 && jsonEnd > jsonStart, "Output should contain a JSON object");
         var doc = System.Text.Json.JsonDocument.Parse(output[jsonStart..(jsonEnd + 1)]);
         Assert.IsTrue(doc.RootElement.TryGetProperty("Error", out var error), "JSON must carry an 'Error' field");
-        StringAssert.Contains(error.GetString(), "without a value", "Error must explain the valueless -p");
+        Assert.Contains("without a value", error.GetString()!, "Error must explain the valueless -p");
     }
 
     [TestMethod]
@@ -1152,7 +1152,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.IsTrue(jsonStart >= 0 && jsonEnd > jsonStart, "Output should contain a JSON object");
         var doc = System.Text.Json.JsonDocument.Parse(output[jsonStart..(jsonEnd + 1)]);
         Assert.IsTrue(doc.RootElement.TryGetProperty("Error", out var error), "JSON must carry an 'Error' field");
-        StringAssert.Contains(error.GetString(), "';'", "Error must explain the ';' packing is not allowed");
+        Assert.Contains("';'", error.GetString()!, "Error must explain the ';' packing is not allowed");
     }
 
     [TestMethod]
@@ -1173,7 +1173,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
             TestAnsiConsole.Output.Contains("p@ss", StringComparison.Ordinal)
             || TestAnsiConsole.Output.Contains("w0rd", StringComparison.Ordinal),
             "the validation error must not echo any part of a possible secret value");
-        StringAssert.Contains(TestAnsiConsole.Output, "cannot pack multiple properties");
+        Assert.Contains("cannot pack multiple properties", TestAnsiConsole.Output);
     }
 
     #endregion
@@ -1245,7 +1245,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(0, _fakeMsixService.AddLooseLayoutCalls.Count);
         Assert.AreEqual(0, _fakeAppLauncherService.LaunchExecutableCalls.Count);
         using var output = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
-        StringAssert.Contains(output.RootElement.GetProperty("Error").GetString(), "don't apply to unpackaged apps");
+        Assert.Contains("don't apply to unpackaged apps", output.RootElement.GetProperty("Error").GetString()!);
     }
 
     [TestMethod]
@@ -1306,7 +1306,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual("arm64", options.Architecture);
         Assert.AreEqual("net10.0-windows10.0.26100.0", options.Framework);
         Assert.IsTrue(options.NoRestore);
-        CollectionAssert.Contains(options.Properties.ToList(), "PublishAot=true");
+        Assert.Contains("PublishAot=true", options.Properties.ToList());
         Assert.AreEqual(exe, _fakeAppLauncherService.LaunchExecutableCalls.Single().ExePath);
     }
 

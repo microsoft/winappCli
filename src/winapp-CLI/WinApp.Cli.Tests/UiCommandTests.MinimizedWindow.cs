@@ -37,9 +37,9 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode("element_not_found");
         var error = ConsoleStdErr.ToString();
-        StringAssert.Contains(error, "\"recoveryHint\"");
-        StringAssert.Contains(error, "is minimized");
-        StringAssert.Contains(error, "focus -w 4242");
+        Assert.Contains("\"recoveryHint\"", error);
+        Assert.Contains("is minimized", error);
+        Assert.Contains("focus -w 4242", error);
         Assert.IsEmpty(_fakeDesktopForeground.RestoreRequests, "A failed lookup must not restore the window itself.");
     }
 
@@ -71,8 +71,8 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         var error = errCapture.ToString();
         AssertJsonErrorCodeIn(error, "element_not_found");
-        StringAssert.Contains(error, "\"recoveryHint\"");
-        StringAssert.Contains(error, "focus -w 4242");
+        Assert.Contains("\"recoveryHint\"", error);
+        Assert.Contains("focus -w 4242", error);
         Assert.IsEmpty(_fakeDesktopForeground.RestoreRequests, "A failed lookup must not restore the window itself.");
     }
 
@@ -107,7 +107,7 @@ public partial class UiCommandTests
         }
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ambient.Output, "\"Calculator\" (HWND 4242) is minimized");
-        StringAssert.Contains(ambient.Output, "focus -w 4242");
+        Assert.Contains("\"Calculator\" (HWND 4242) is minimized", ambient.Output);
+        Assert.Contains("focus -w 4242", ambient.Output);
     }
 }

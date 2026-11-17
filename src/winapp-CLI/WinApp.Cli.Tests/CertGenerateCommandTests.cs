@@ -40,7 +40,7 @@ public class CertGenerateCommandTests : BaseCommandTests
             command, ["--publisher", "CN=EmptyPwTest", "--output", pfxPath, "--password", ""]);
 
         Assert.AreEqual(1, exitCode, "An explicitly empty --password must be rejected before generating a PFX.");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "password cannot be empty");
+        Assert.Contains("password cannot be empty", ConsoleStdErr.ToString());
         Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for an empty password.");
     }
 
@@ -65,7 +65,7 @@ public class CertGenerateCommandTests : BaseCommandTests
             command, ["--manifest", manifestPath, "--output", pfxPath, "--password", "testpw"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Could not extract the publisher from the manifest");
+        Assert.Contains("Could not extract the publisher from the manifest", ConsoleStdErr.ToString());
         Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created when the manifest has no publisher.");
     }
 
@@ -90,7 +90,7 @@ public class CertGenerateCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "A manifest with a valid publisher but no Applications element must still succeed.");
         Assert.IsTrue(File.Exists(pfxPath), "The certificate should be created.");
         using var cert = System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12FromFile(pfxPath, "testpw");
-        StringAssert.Contains(cert.Subject, "FlowHarnessPublisher");
+        Assert.Contains("FlowHarnessPublisher", cert.Subject);
     }
 
     [TestMethod]
@@ -115,7 +115,7 @@ public class CertGenerateCommandTests : BaseCommandTests
             command, ["--manifest", manifestPath, "--output", pfxPath, "--password", "testpw"], cts.Token);
 
         Assert.AreNotEqual(0, exitCode, "A canceled operation must not report success.");
-        StringAssert.DoesNotMatch(ConsoleStdErr.ToString(), new System.Text.RegularExpressions.Regex("Could not extract the publisher from the manifest"),
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("Could not extract the publisher from the manifest"), ConsoleStdErr.ToString(),
             "Cancellation must not be misreported as a manifest extraction error.");
         Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created when the operation is canceled.");
     }
@@ -133,7 +133,7 @@ public class CertGenerateCommandTests : BaseCommandTests
             command, ["--publisher", publisher, "--output", pfxPath, "--password", "testpw"]);
 
         Assert.AreEqual(1, exitCode, "A malformed --publisher must be rejected before generating a PFX.");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Publisher");
+        Assert.Contains("Publisher", ConsoleStdErr.ToString());
         Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for a malformed publisher.");
     }
 
@@ -151,7 +151,7 @@ public class CertGenerateCommandTests : BaseCommandTests
             command, ["--publisher", publisher, "--output", pfxPath, "--password", "testpw"]);
 
         Assert.AreEqual(1, exitCode, "An explicitly empty --publisher must be rejected.");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Publisher name cannot be empty");
+        Assert.Contains("Publisher name cannot be empty", ConsoleStdErr.ToString());
         Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for an empty publisher.");
     }
 
@@ -174,7 +174,7 @@ public class CertGenerateCommandTests : BaseCommandTests
             ["--manifest", manifestPath, "--publisher", publisher, "--output", pfxPath, "--password", "testpw"]);
 
         Assert.AreEqual(1, exitCode, "An explicitly empty --publisher must not be replaced by the manifest publisher.");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Publisher name cannot be empty");
+        Assert.Contains("Publisher name cannot be empty", ConsoleStdErr.ToString());
         Assert.IsFalse(File.Exists(pfxPath));
     }
 
@@ -393,7 +393,7 @@ public class CertGenerateCommandTests : BaseCommandTests
             command, ["--publisher", "CN=ExistsTest", "--output", pfxPath, "--password", "testpw"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "already exists");
+        Assert.Contains("already exists", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -455,7 +455,7 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         var root = jsonDoc.RootElement;
 
         Assert.IsTrue(root.TryGetProperty("certificatePath", out var certPathProp), "JSON should contain 'certificatePath'");
-        StringAssert.EndsWith(certPathProp.GetString()!, ".pfx");
+        Assert.EndsWith(".pfx", certPathProp.GetString()!);
         Assert.IsTrue(File.Exists(certPathProp.GetString()!), "certificatePath should point to an existing file");
 
         Assert.IsTrue(root.TryGetProperty("password", out var passwordProp), "JSON should contain 'password'");
@@ -515,7 +515,7 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         Assert.IsTrue(root.TryGetProperty("warnings", out var warningsProp),
             "JSON should carry the disclosure that --json otherwise suppresses as a status message");
         var warnings = warningsProp.EnumerateArray().Select(w => w.GetString()).ToList();
-        CollectionAssert.Contains(warnings, CertificateService.DefaultPasswordDisclosure,
+        Assert.Contains(CertificateService.DefaultPasswordDisclosure, warnings,
             "The JSON disclosure must be the same text the interactive run prints");
     }
 
@@ -591,7 +591,7 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
 
         Assert.IsTrue(root.TryGetProperty("publicCertificatePath", out var cerPathProp),
             "JSON should contain 'publicCertificatePath' when --export-cer is used");
-        StringAssert.EndsWith(cerPathProp.GetString()!, ".cer");
+        Assert.EndsWith(".cer", cerPathProp.GetString()!);
         Assert.IsTrue(File.Exists(cerPathProp.GetString()!), "publicCertificatePath should point to an existing .cer file");
     }
 
@@ -645,7 +645,7 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         var root = jsonDoc.RootElement;
 
         Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
-        StringAssert.Contains(errorProp.GetString(), "already exists");
+        Assert.Contains("already exists", errorProp.GetString()!);
     }
 
     [TestMethod]
@@ -660,7 +660,7 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         Assert.AreEqual(1, exitCode);
         var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
         Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
-        StringAssert.Contains(errorProp.GetString(), "password cannot be empty");
+        Assert.Contains("password cannot be empty", errorProp.GetString()!);
         Assert.IsFalse(File.Exists(pfxPath));
     }
 
@@ -676,7 +676,7 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         Assert.AreEqual(1, exitCode);
         var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
         Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
-        StringAssert.Contains(errorProp.GetString(), "distinguished name");
+        Assert.Contains("distinguished name", errorProp.GetString()!);
         Assert.IsFalse(File.Exists(pfxPath));
     }
 
@@ -702,7 +702,7 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         Assert.AreEqual(1, exitCode);
         var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
         Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
-        StringAssert.Contains(errorProp.GetString(), "Could not extract the publisher from the manifest");
+        Assert.Contains("Could not extract the publisher from the manifest", errorProp.GetString()!);
         Assert.IsFalse(File.Exists(pfxPath));
     }
 }

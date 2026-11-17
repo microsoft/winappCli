@@ -46,7 +46,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiWaitForCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["#el", "-a", "TestApp", "--gone", "--json", "--timeout", "1000"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"found\": false");
+        Assert.Contains("\"found\": false", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -98,7 +98,7 @@ public partial class UiCommandTests
             ["doc-1", "-a", "TestApp", "--value", "ELLO", "--contains", "--json", "--timeout", "1000"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"found\": true");
+        Assert.Contains("\"found\": true", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -131,7 +131,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiWaitForCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["#el", "-a", "TestApp", "--json", "--timeout", "150"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"timedOut\": true");
+        Assert.Contains("\"timedOut\": true", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -221,7 +221,7 @@ public partial class UiCommandTests
             ["edit-1", "-a", "TestApp", "--value", "target", "--json", "--timeout", "2000"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"found\": true");
+        Assert.Contains("\"found\": true", TestAnsiConsole.Output);
         Assert.IsTrue(_fakePollDelay.CallCount >= 1,
             "the value-not-yet-matched poll must drive a keep-polling continuation");
     }

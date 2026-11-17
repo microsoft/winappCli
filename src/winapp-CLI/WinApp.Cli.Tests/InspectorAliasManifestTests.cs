@@ -41,8 +41,8 @@ public class InspectorAliasManifestTests
             .Select(e => e.ToString()).ToArray();
         Assert.AreEqual(AddExecutionAliasStatus.Added,
             doc.AddExecutionAlias("inspector.exe", "Second", ExecutionAliasConflictPolicy.Coexist).Status);
-        CollectionAssert.AreEqual(CoexistingAliases, doc.GetExecutionAliases("Second").ToArray());
-        CollectionAssert.AreEqual(originalLeaves, doc.Document.Descendants()
+        Assert.AreSequenceEqual(CoexistingAliases, doc.GetExecutionAliases("Second").ToArray());
+        Assert.AreSequenceEqual(originalLeaves, doc.Document.Descendants()
             .Where(e => e.Name.LocalName == "ExecutionAlias").Take(2).Select(e => e.ToString()).ToArray());
         var once = doc.ToXml();
         Assert.AreEqual(AddExecutionAliasStatus.AlreadyExists,
@@ -59,9 +59,9 @@ public class InspectorAliasManifestTests
     {
         var doc = Manifest(container, leaf);
         doc.AddExecutionAlias("first.exe", "First");
-        CollectionAssert.AreEqual(AllApplicationAliases,
+        Assert.AreSequenceEqual(AllApplicationAliases,
             MsixService.ExtractExecutionAliases(doc.ToXml()));
-        CollectionAssert.AreEqual(FirstApplicationAliases, doc.GetExecutionAliases().ToArray());
+        Assert.AreSequenceEqual(FirstApplicationAliases, doc.GetExecutionAliases().ToArray());
     }
 
     [TestMethod]
@@ -71,7 +71,7 @@ public class InspectorAliasManifestTests
         var aliases = doc.Document.Descendants().Where(e => e.Name.LocalName == "ExecutionAlias").ToArray();
         aliases[0].SetAttributeValue("Alias", "");
         aliases[1].Attribute("Alias")!.Remove();
-        CollectionAssert.AreEqual(EmptyAlias, MsixService.ExtractExecutionAliases(doc.ToXml()));
+        Assert.AreSequenceEqual(EmptyAlias, MsixService.ExtractExecutionAliases(doc.ToXml()));
         Assert.IsEmpty(doc.GetExecutionAliases("Second"));
     }
 
@@ -85,8 +85,8 @@ public class InspectorAliasManifestTests
         var metadata = extension.Attributes().Select(a => a.ToString()).ToArray();
         var result = doc.AddExecutionAlias("inspector.exe", "Second", ExecutionAliasConflictPolicy.Coexist);
         Assert.AreEqual(AddExecutionAliasStatus.Added, result.Status);
-        CollectionAssert.AreEqual(metadata, extension.Attributes().Select(a => a.ToString()).ToArray());
-        CollectionAssert.AreEqual(CoexistingAliases, doc.GetExecutionAliases("Second").ToArray());
+        Assert.AreSequenceEqual(metadata, extension.Attributes().Select(a => a.ToString()).ToArray());
+        Assert.AreSequenceEqual(CoexistingAliases, doc.GetExecutionAliases("Second").ToArray());
         Assert.IsEmpty(doc.GetExecutionAliases("First"));
         Assert.AreEqual(1, doc.Document.Descendants().Count(e => e.Name.LocalName == "Extension"));
         var leafNamespace = prefix == "uap3" ? AppxManifestDocument.DesktopNs : AppxManifestDocument.Uap5Ns;
@@ -131,7 +131,8 @@ public class InspectorAliasManifestTests
         var before = doc.ToXml();
         var result = doc.AddExecutionAlias("AUTHORED.exe", "First", (ExecutionAliasConflictPolicy)policy);
         Assert.AreEqual(AddExecutionAliasStatus.ConflictingAliasExists, result.Status);
-        StringAssert.Contains(result.ErrorMessage, "another application");
+        Assert.IsNotNull(result.ErrorMessage);
+        Assert.Contains("another application", result.ErrorMessage);
         Assert.AreEqual(before, doc.ToXml());
     }
 
@@ -184,7 +185,7 @@ public class InspectorAliasManifestTests
     {
         var target = Manifest("uap5").GetExecutionAliasTarget(@"C:\staged", "Second");
         Assert.AreEqual(@"C:\staged\second.exe", target.TargetExecutable);
-        StringAssert.EndsWith(target.ApplicationUserModelId, "!Second");
+        Assert.EndsWith("!Second", target.ApplicationUserModelId);
         Assert.AreEqual(AppLauncherService.ComputeFamilyName("Contoso", "CN=Test"), target.PackageFamilyName);
     }
 

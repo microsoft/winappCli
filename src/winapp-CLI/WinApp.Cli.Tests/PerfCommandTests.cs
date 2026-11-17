@@ -64,9 +64,9 @@ public class PerfCommandTests : BaseCommandTests
 
         PerfCommand.PrintCapture(capture, false, TestAnsiConsole, "stop");
 
-        StringAssert.Contains(TestAnsiConsole.Output, "Recording stopped.");
-        StringAssert.Contains(TestAnsiConsole.Output, "Final loss counters unavailable.");
-        StringAssert.Contains(TestAnsiConsole.Output, "Denied.");
+        Assert.Contains("Recording stopped.", TestAnsiConsole.Output);
+        Assert.Contains("Final loss counters unavailable.", TestAnsiConsole.Output);
+        Assert.Contains("Denied.", TestAnsiConsole.Output);
         Assert.IsFalse(TestAnsiConsole.Output.Contains(capture.Id, StringComparison.Ordinal));
         Assert.IsFalse(TestAnsiConsole.Output.Contains(capture.Directory, StringComparison.Ordinal));
     }
@@ -225,7 +225,7 @@ public class PerfCommandTests : BaseCommandTests
             }
             var diagnostic = PerfAnalysisStore.Read(analysis, "events.ndjson", PerfJsonContext.Default.PerfEvent)
                 .Single(e => e.Name == "FallbackError");
-            StringAssert.Contains(diagnostic.DecodeError!, "Unsupported structured or variable-length TDH property");
+            Assert.Contains("Unsupported structured or variable-length TDH property", diagnostic.DecodeError!);
             Assert.AreEqual("diagnostics", diagnostic.Family);
 
             var evidence = await InvokeProgramAsync(
@@ -233,8 +233,8 @@ public class PerfCommandTests : BaseCommandTests
             Assert.AreEqual(1, evidence.ExitCode, "The requested diagnostic payload is still incomplete.");
             using var events = JsonDocument.Parse(evidence.Stdout);
             Assert.AreEqual(1, events.RootElement.GetProperty("rows").GetArrayLength());
-            StringAssert.Contains(events.RootElement.GetProperty("rows")[0].GetProperty("event")
-                .GetProperty("decodeError").GetString()!, "Unsupported structured");
+            Assert.Contains("Unsupported structured", events.RootElement.GetProperty("rows")[0].GetProperty("event")
+                .GetProperty("decodeError").GetString()!);
         }
         finally
         {
@@ -357,8 +357,8 @@ public class PerfCommandTests : BaseCommandTests
             Assert.AreEqual(1, code);
             Assert.AreEqual("", stdout);
             using var error = JsonDocument.Parse(stderr);
-            StringAssert.Contains(error.RootElement.GetProperty("message").GetString()!,
-                "No usable requested performance evidence was recorded");
+            Assert.Contains("No usable requested performance evidence was recorded",
+                error.RootElement.GetProperty("message").GetString()!);
         }
         finally
         {
@@ -394,9 +394,9 @@ public class PerfCommandTests : BaseCommandTests
             }
             Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
                 ["analyze", directory.FullName, "--view", "resources"]));
-            StringAssert.Contains(TestAnsiConsole.Output, "Private MiB");
-            StringAssert.Contains(TestAnsiConsole.Output, "User CPU ms");
-            StringAssert.Contains(TestAnsiConsole.Output, "CPU: 40");
+            Assert.Contains("Private MiB", TestAnsiConsole.Output);
+            Assert.Contains("User CPU ms", TestAnsiConsole.Output);
+            Assert.Contains("CPU: 40", TestAnsiConsole.Output);
             capture.ProcessResources.FailedSamples = 1;
             capture.ProcessResources.LastError = "Counter unavailable";
             capture.Save();
@@ -446,9 +446,9 @@ public class PerfCommandTests : BaseCommandTests
             }
             Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
                 ["analyze", directory.FullName]));
-            StringAssert.Contains(TestAnsiConsole.Output, "Composition submission");
-            StringAssert.Contains(TestAnsiConsole.Output, "CommitMainDevice");
-            StringAssert.Contains(TestAnsiConsole.Output, "DirectComposition provider: enabled");
+            Assert.Contains("Composition submission", TestAnsiConsole.Output);
+            Assert.Contains("CommitMainDevice", TestAnsiConsole.Output);
+            Assert.Contains("DirectComposition provider: enabled", TestAnsiConsole.Output);
         }
         finally
         {
@@ -529,8 +529,8 @@ public class PerfCommandTests : BaseCommandTests
             var parsing = output.IndexOf("Parsing by resource", StringComparison.Ordinal);
             var details = output.IndexOf("Detailed summary", StringComparison.Ordinal);
             Assert.IsTrue(activity >= 0 && parsing > activity && details > parsing);
-            StringAssert.Contains(output, "Views/[MainPage].xaml");
-            StringAssert.Contains(output, "primary UI thread 7");
+            Assert.Contains("Views/[MainPage].xaml", output);
+            Assert.Contains("primary UI thread 7", output);
             var sectionLines = output.Split('\n').Where(line =>
                 line.Contains("Observed UI-thread activity", StringComparison.Ordinal) ||
                 line.Contains("Parsing by resource", StringComparison.Ordinal) ||
@@ -595,7 +595,7 @@ public class PerfCommandTests : BaseCommandTests
                         .Select(row => row.GetProperty("resource").GetString()).ToArray()
                     : result.RootElement.GetProperty("rows").EnumerateArray()
                         .Select(row => row.GetProperty("name").GetString()).ToArray();
-                CollectionAssert.AreEquivalent(resources.Select(resource => resource.Resource).ToArray(), actual);
+                Assert.AreSequenceEqual(resources.Select(resource => resource.Resource).ToArray(), actual, SequenceOrder.InAnyOrder);
             }
             else
             {
@@ -604,7 +604,7 @@ public class PerfCommandTests : BaseCommandTests
                 foreach (var resource in resources)
                 {
                     Assert.IsTrue(resource.Label.Length <= 42);
-                    StringAssert.Contains(TestAnsiConsole.Output, $"{resource.Label,-42} {1d,11:F3} {1,7}");
+                    Assert.Contains($"{resource.Label,-42} {1d,11:F3} {1,7}", TestAnsiConsole.Output);
                 }
             }
         }
@@ -626,8 +626,8 @@ public class PerfCommandTests : BaseCommandTests
                 ["analyze", directory.FullName]);
 
             Assert.AreEqual(0, exit);
-            StringAssert.Contains(TestAnsiConsole.Output, "Observed UI-thread activity");
-            StringAssert.Contains(TestAnsiConsole.Output, "Detailed summary");
+            Assert.Contains("Observed UI-thread activity", TestAnsiConsole.Output);
+            Assert.Contains("Detailed summary", TestAnsiConsole.Output);
             Assert.IsFalse(TestAnsiConsole.Output.Contains("Parsing by resource", StringComparison.Ordinal));
         }
         finally
@@ -651,7 +651,7 @@ public class PerfCommandTests : BaseCommandTests
                     "--from-ms", "0", "--to-ms", "20", "--sort", "count", "--limit", "10", "--offset", "10"]);
             Assert.AreEqual(0, exit);
             var output = TestAnsiConsole.Output;
-            StringAssert.Contains(output, "Returned 10/25");
+            Assert.Contains("Returned 10/25", output);
             var next = output[output.IndexOf("Next page: winapp ", StringComparison.Ordinal)..]
                 .Replace("Next page: winapp ", "", StringComparison.Ordinal).Replace("\r", "").Replace("\n", "");
             var parse = command.Parse(next["perf ".Length..]);
@@ -706,11 +706,11 @@ public class PerfCommandTests : BaseCommandTests
                 Console.SetError(stderr);
                 var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(), args);
                 Assert.AreEqual(1, exit);
-                StringAssert.Contains(TestAnsiConsole.Output, "Returned");
+                Assert.Contains("Returned", TestAnsiConsole.Output);
                 error = stderr.ToString();
-                StringAssert.Contains(error, "Results may be incomplete:");
-                StringAssert.Contains(error, "- The selected time range extends beyond the recording.");
-                StringAssert.Contains(error, "- Some events in the selected time range could not be decoded");
+                Assert.Contains("Results may be incomplete:", error);
+                Assert.Contains("- The selected time range extends beyond the recording.", error);
+                Assert.Contains("- Some events in the selected time range could not be decoded", error);
                 Assert.IsFalse(error.Contains("coverage.reasons", StringComparison.Ordinal));
                 Assert.IsFalse(error.Contains("manifests", StringComparison.Ordinal));
                 Assert.IsFalse(TestAnsiConsole.Output.Contains("Coverage:", StringComparison.Ordinal));
@@ -743,7 +743,7 @@ public class PerfCommandTests : BaseCommandTests
             var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(), args);
             Assert.AreEqual(0, exit);
             var output = TestAnsiConsole.Output;
-            StringAssert.Contains(output, "Returned");
+            Assert.Contains("Returned", output);
 
             var (stdout, stderr, code) = await InvokeProgramAsync(["perf", .. args, "--json"]);
             Assert.AreEqual(0, code, stderr);
@@ -826,7 +826,7 @@ public class PerfCommandTests : BaseCommandTests
         File.WriteAllText(Path.Join(output.FullName, "keep.txt"), "keep");
         var (code, error) = await InvokePerfStartErrorAsync(selector, output.FullName);
         Assert.AreEqual(1, code);
-        StringAssert.Contains(error, "The capture output directory must be empty.");
+        Assert.Contains("The capture output directory must be empty.", error);
         Assert.IsFalse(File.Exists(Path.Join(output.FullName, "capture.json")));
     }
 
@@ -836,7 +836,7 @@ public class PerfCommandTests : BaseCommandTests
         var output = Path.Join(_tempDirectory.FullName, "capture");
         var (code, error) = await InvokePerfStartErrorAsync("MissingApp", output);
         Assert.AreEqual(1, code);
-        StringAssert.Contains(error, "No running app found matching 'MissingApp'.");
+        Assert.Contains("No running app found matching 'MissingApp'.", error);
         Assert.IsFalse(Directory.Exists(output));
     }
 
@@ -851,9 +851,9 @@ public class PerfCommandTests : BaseCommandTests
         var output = Path.Join(_tempDirectory.FullName, "capture");
         var (code, error) = await InvokePerfStartErrorAsync("MyApp", output);
         Assert.AreEqual(1, code);
-        StringAssert.Contains(error, "PID 101");
-        StringAssert.Contains(error, "PID 102");
-        StringAssert.Contains(error, "Use --app with a PID or a more specific window title.");
+        Assert.Contains("PID 101", error);
+        Assert.Contains("PID 102", error);
+        Assert.Contains("Use --app with a PID or a more specific window title.", error);
         Assert.IsFalse(Directory.Exists(output));
     }
 
@@ -892,7 +892,7 @@ public class PerfCommandTests : BaseCommandTests
         var (stdout, _, code) = await InvokeProgramAsync(["run", ".", "--profile", "unused", "--profile-mode", "kernel", "--json"]);
         Assert.AreEqual(1, code);
         using var error = JsonDocument.Parse(stdout);
-        StringAssert.Contains(error.RootElement.GetProperty("Error").GetString(), "kernel");
+        Assert.Contains("kernel", error.RootElement.GetProperty("Error").GetString()!);
     }
 
     [TestMethod]
@@ -905,7 +905,7 @@ public class PerfCommandTests : BaseCommandTests
         var exit = await ParseAndInvokeWithCaptureAsync(command, [".", option, value, "--json"]);
         Assert.AreEqual(1, exit);
         using var error = JsonDocument.Parse(TestAnsiConsole.Output);
-        StringAssert.Contains(error.RootElement.GetProperty("Error").GetString(), "require --profile");
+        Assert.Contains("require --profile", error.RootElement.GetProperty("Error").GetString()!);
     }
 
     [TestMethod]
@@ -923,13 +923,13 @@ public class PerfCommandTests : BaseCommandTests
                 ["analyze", directory.FullName, "--view", view, "--from-ms", "5", "--to-ms", "35"]);
 
             Assert.AreEqual(0, exitCode);
-            StringAssert.Contains(TestAnsiConsole.Output, "boundary");
-            StringAssert.Contains(TestAnsiConsole.Output, "30.000");
+            Assert.Contains("boundary", TestAnsiConsole.Output);
+            Assert.Contains("30.000", TestAnsiConsole.Output);
             if (view == "elements")
             {
                 foreach (var detail in new[] { "evidence:", "count=", "mean=", "max=", "p95=" })
                 {
-                    StringAssert.Contains(TestAnsiConsole.Output, detail);
+                    Assert.Contains(detail, TestAnsiConsole.Output);
                 }
             }
         }
@@ -951,9 +951,9 @@ public class PerfCommandTests : BaseCommandTests
                 ["analyze", directory.FullName, "--view", "events", "--event", "v1"]);
 
             Assert.AreEqual(0, exitCode);
-            StringAssert.Contains(TestAnsiConsole.Output, "10.000");
-            StringAssert.Contains(TestAnsiConsole.Output, "begin");
-            StringAssert.Contains(TestAnsiConsole.Output, "Width=42");
+            Assert.Contains("10.000", TestAnsiConsole.Output);
+            Assert.Contains("begin", TestAnsiConsole.Output);
+            Assert.Contains("Width=42", TestAnsiConsole.Output);
         }
         finally
         {
@@ -969,8 +969,8 @@ public class PerfCommandTests : BaseCommandTests
         var initialQuery = source.Split('\n').Single(line =>
             line.Contains("winapp perf analyze <directory> --from-marker scenario-start"));
 
-        StringAssert.Contains(initialQuery, "--from-marker");
-        StringAssert.Contains(initialQuery, "--to-marker");
+        Assert.Contains("--from-marker", initialQuery);
+        Assert.Contains("--to-marker", initialQuery);
         Assert.IsFalse(initialQuery.Contains("--view", StringComparison.Ordinal));
     }
 

@@ -74,7 +74,7 @@ public sealed class PerfEtwTests
         Assert.AreEqual(0x801u, api.StartedLogFileMode);
         Assert.AreEqual(1u, api.StartedFilterCount);
         trace.Enable(Guid.NewGuid(), ulong.MaxValue, eventIds: [1, 2]);
-        CollectionAssert.AreEqual(PidAndEventIdFilters, api.EnabledFilterTypes.Single());
+        Assert.AreSequenceEqual(PidAndEventIdFilters, api.EnabledFilterTypes.Single());
     }
 
     [TestMethod]
@@ -86,7 +86,7 @@ public sealed class PerfEtwTests
         Assert.AreEqual(1u, api.StartedLogFileMode);
         Assert.AreEqual(0u, api.StartedFilterCount);
         trace.Enable(Guid.NewGuid(), ulong.MaxValue, eventIds: [1]);
-        CollectionAssert.AreEqual(PackageAndEventIdFilters, api.EnabledFilterTypes.Single());
+        Assert.AreSequenceEqual(PackageAndEventIdFilters, api.EnabledFilterTypes.Single());
         Assert.AreEqual("Contoso.App_1.0.0.0_x64__abc", api.EnabledScopeName);
     }
 
@@ -98,7 +98,7 @@ public sealed class PerfEtwTests
             new PerfEtwScope(ExecutableName: "app.exe"), @"C:\trace.etl", 1, api);
         Assert.IsFalse(trace.Enable(Guid.NewGuid(), ulong.MaxValue, eventIds: [1]));
         Assert.AreEqual(2, api.EnableCalls);
-        CollectionAssert.AreEqual(ExecutableFilterOnly, api.EnabledFilterTypes[1]);
+        Assert.AreSequenceEqual(ExecutableFilterOnly, api.EnabledFilterTypes[1]);
         Assert.AreEqual("app.exe", api.EnabledScopeName);
     }
 
@@ -123,7 +123,7 @@ public sealed class PerfEtwTests
             var output = Path.Join(root.FullName, "capture");
             var run = new PerfRunCapture(service, output, 30, 128, PerfProfileModes.Elevated, false);
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => run.PrepareAsync(scope, CancellationToken.None));
-            StringAssert.Contains(error.Message, "--profile-mode attach");
+            Assert.Contains("--profile-mode attach", error.Message);
             Assert.IsFalse(Directory.Exists(output));
         }
         finally
@@ -167,7 +167,7 @@ public sealed class PerfEtwTests
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 PerfCaptureService.ArmAsync(registration, new PerfEtwScope(), CancellationToken.None));
 
-            StringAssert.Contains(error.Message, "requires a process ID, executable name, or package full name");
+            Assert.Contains("requires a process ID, executable name, or package full name", error.Message);
             Assert.AreEqual(1, await worker.WaitAsync(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(0, api.StartCalls);
             Assert.AreEqual(0, api.EnableCalls);
@@ -238,7 +238,7 @@ public sealed class PerfEtwTests
             }
             var marked = await PerfControlChannel.SendAsync(registration,
                 new(registration.Credential, "mark", Name: "paths-still-owned"), CancellationToken.None);
-            StringAssert.Contains(marked.LastControlError!, "size limit");
+            Assert.Contains("size limit", marked.LastControlError!);
             Assert.AreEqual("paths-still-owned", PerfCaptureDocument.Load(directory.FullName).Markers.Single().Name);
             AssertPathsPinned();
 
@@ -408,8 +408,9 @@ public sealed class PerfEtwTests
                 ],
             };
             var warning = PerfCaptureWorker.UnfilteredProvidersWarning(capture);
-            StringAssert.Contains(warning, "Microsoft-Windows-XAML-Diagnostics");
-            StringAssert.Contains(warning, "--max-size-mib");
+            Assert.IsNotNull(warning);
+            Assert.Contains("Microsoft-Windows-XAML-Diagnostics", warning);
+            Assert.Contains("--max-size-mib", warning);
             Assert.IsFalse(warning!.Contains("DotNETRuntime"));
 
             capture.ProviderStates = [new(PerfProviders.Diagnostics, "enabled", true)];
@@ -502,7 +503,7 @@ public sealed class PerfEtwTests
                 $"events: {string.Join("; ", events.Select(e => $"{e.EventId}/{e.TraceLogging}/{e.EventName}/{e.DecodeError}"))}");
             var probe = events.Single(e => e.EventId == 42);
             Assert.IsNull(probe.DecodeError);
-            CollectionAssert.AreEqual(new byte[] { 42, 0, 0, 0 }, probe.Payload);
+            Assert.AreSequenceEqual(new byte[] { 42, 0, 0, 0 }, probe.Payload);
             Assert.IsFalse(probe.TraceLogging);
         }
         finally
