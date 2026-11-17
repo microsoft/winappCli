@@ -373,7 +373,7 @@ public class PerfCallQueryTests
         Assert.AreEqual(2, tree.Returned);
         var childRow = tree.Rows.Single(r => r.Id == child.Id);
         Assert.AreEqual(1, childRow.Depth);
-        CollectionAssert.AreEqual(new[] { frame.Id }, childRow.AncestorIds);
+        Assert.AreSequenceEqual(new[] { frame.Id }, childRow.AncestorIds);
         Assert.IsNull(tree.Rows.Single(r => r.Id == frame.Id).ExclusiveMs);
         var hotspot = fixture.Query(new(View: "hotspots")).Rows.Single();
         Assert.AreEqual(child.Id, hotspot.DominantOperations!.Single().Id);
@@ -879,10 +879,10 @@ public class PerfCallQueryTests
     {
         using var fixture = new Fixture([Call("c1", 0, 10)]);
         var error = Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: "components")));
-        StringAssert.Contains(error.Message, "Microsoft-UI-Reactor-Perf");
+        Assert.Contains("Microsoft-UI-Reactor-Perf", error.Message);
         fixture.Capture.Providers = fixture.Capture.Providers.Where(p => p.Id != PerfProviders.Reactor).ToArray();
         error = Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: "components")));
-        StringAssert.Contains(error.Message, "Record it again");
+        Assert.Contains("Record it again", error.Message);
     }
 
     [TestMethod]

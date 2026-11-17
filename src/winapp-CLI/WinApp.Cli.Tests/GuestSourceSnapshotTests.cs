@@ -39,7 +39,7 @@ public class GuestSourceSnapshotTests
         File.WriteAllText(Path.Combine(_root, "App.cs"), "not copied");
         var destination = new DirectoryInfo(Path.Combine(_root, "snapshot"));
         var manifest = await GuestSourceSnapshot.CreateAsync(_project, ["Main.xaml"], destination, TestContext.CancellationToken);
-        CollectionAssert.AreEqual(MainOnly, Directory.GetFiles(destination.FullName).Select(Path.GetFileName).ToArray());
+        Assert.AreSequenceEqual(MainOnly, Directory.GetFiles(destination.FullName).Select(Path.GetFileName).ToArray());
         Assert.HasCount(1, manifest.Files);
         Assert.AreEqual(File.ReadAllText(Path.Combine(_root, "Main.xaml")), File.ReadAllText(Path.Combine(destination.FullName, "Main.xaml")));
         Assert.AreEqual(64, manifest.Files[0].Sha256.Length);
@@ -60,7 +60,7 @@ public class GuestSourceSnapshotTests
         Assert.AreEqual(timestamp, File.GetLastWriteTimeUtc(original));
         Assert.AreEqual(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(original))),
             manifest.Files.Single().Sha256);
-        CollectionAssert.AreEqual(File.ReadAllBytes(original), File.ReadAllBytes(copy));
+        Assert.AreSequenceEqual(File.ReadAllBytes(original), File.ReadAllBytes(copy));
     }
 
     [TestMethod]
@@ -70,7 +70,7 @@ public class GuestSourceSnapshotTests
         var copied = await GuestSourceSnapshot.CreateAsync(_project, MainOnly, new(Path.Combine(_root, "snapshot")), TestContext.CancellationToken);
         Directory.Delete(Path.Combine(_root, "snapshot"), recursive: true);
         var local = await GuestSourceSnapshot.CreateAsync(_project, MainOnly, null, TestContext.CancellationToken);
-        CollectionAssert.AreEqual(before, Directory.GetFileSystemEntries(_root, "*", SearchOption.AllDirectories));
+        Assert.AreSequenceEqual(before, Directory.GetFileSystemEntries(_root, "*", SearchOption.AllDirectories));
         Assert.AreEqual(copied.Files.Single(), local.Files.Single());
     }
 
@@ -131,12 +131,12 @@ public class GuestSourceSnapshotTests
     {
         var options = new ProjectRunOptions("Release", "arm64", "net10.0-windows", true, true, []);
         Assert.IsFalse(ProjectRunService.BuildEvaluateArguments(_project, options).Contains("--getItem:"));
-        StringAssert.Contains(ProjectRunService.BuildEvaluateArguments(_project, options with { CaptureDevToolsSources = true }),
-            "--getItem:Page,ApplicationDefinition");
+        Assert.Contains("--getItem:Page,ApplicationDefinition",
+            ProjectRunService.BuildEvaluateArguments(_project, options with { CaptureDevToolsSources = true }));
         var files = ProjectRunService.ReadDevToolsSources("""
             {"Properties":{"TargetDir":"ignored"},"Items":{"Page":[{"Identity":"Main.xaml"},{"Identity":"Main.xaml"}],"ApplicationDefinition":[{"Identity":"App.xaml"}]}}
             """);
-        CollectionAssert.AreEqual(BothSources, files.ToArray());
+        Assert.AreSequenceEqual(BothSources, files.ToArray());
         Assert.ThrowsExactly<ProjectRunException>(() => ProjectRunService.ReadDevToolsSources("""{"Properties":{}}"""));
     }
 }

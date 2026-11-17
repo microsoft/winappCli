@@ -85,7 +85,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var exception = await Assert.ThrowsExactlyAsync<ProjectRunException>(async () =>
             await _service.ResolveInputAsync(singleFile, TestContext.CancellationToken, projectSelector: "MyApp"));
 
-        StringAssert.Contains(exception.Message, "--project");
+        Assert.Contains("--project", exception.Message);
     }
 
     [TestMethod]
@@ -110,7 +110,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var exception = await Assert.ThrowsExactlyAsync<ProjectRunException>(async () =>
             await _service.ResolveInputAsync(new FileInfo(path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, ".cs file-based app");
+        Assert.Contains(".cs file-based app", exception.Message);
     }
 
     #endregion
@@ -275,7 +275,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var output = await ResolveNoBuildOutputAsync(architectureIsExplicit: false);
 
         Assert.IsNotNull(output, "--no-build should find the plain build output");
-        StringAssert.EndsWith(output.TrimEnd(Path.DirectorySeparatorChar), "debug");
+        Assert.EndsWith("debug", output.TrimEnd(Path.DirectorySeparatorChar));
     }
 
     [TestMethod]
@@ -333,8 +333,8 @@ public class ProjectRunServiceSingleFileTests : IDisposable
             "the restore must stream through winapp");
         Assert.IsFalse(dotnet.InheritedCalls.Any(a => a.StartsWith("restore ", StringComparison.Ordinal)));
         var build = dotnet.InheritedCalls.Single();
-        StringAssert.StartsWith(build, $"build {singleFile.FullName}");
-        StringAssert.Contains(build, "--no-restore", "only a build that can't restore may inherit the console");
+        Assert.StartsWith($"build {singleFile.FullName}", build);
+        Assert.Contains("--no-restore", build, "only a build that can't restore may inherit the console");
     }
 
     [TestMethod]
@@ -352,8 +352,8 @@ public class ProjectRunServiceSingleFileTests : IDisposable
 
         Assert.IsEmpty(dotnet.InheritedCalls);
         var build = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal) && !a.Contains("--getProperty", StringComparison.Ordinal));
-        StringAssert.Contains(build, "--no-restore");
-        StringAssert.Contains(build, "-tl:off");
+        Assert.Contains("--no-restore", build);
+        Assert.Contains("-tl:off", build);
         Assert.IsFalse(_testConsole.Output.Contains("SF_REPLAYED", StringComparison.Ordinal));
     }
 
@@ -397,7 +397,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
             Console.SetError(originalError);
         }
 
-        StringAssert.Contains(stderr.ToString(), "?<redacted>");
+        Assert.Contains("?<redacted>", stderr.ToString());
         Assert.IsFalse(stderr.ToString().Contains("SF_JSON_SECRET", StringComparison.Ordinal));
     }
 
@@ -415,10 +415,10 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var args = ProjectRunService.BuildSingleFileRestoreArguments(
             singleFile, Options(configuration: "Release", injectedRid: "win-x64", properties: ["Foo=Bar", "RuntimeIdentifier=win-arm64"]));
 
-        StringAssert.StartsWith(args, $"restore {singleFile.FullName}");
-        StringAssert.Contains(args, "-r win-x64 -p:RuntimeIdentifier=win-x64");
-        StringAssert.Contains(args, "-p:Configuration=Release");
-        StringAssert.Contains(args, "-p:Foo=Bar");
+        Assert.StartsWith($"restore {singleFile.FullName}", args);
+        Assert.Contains("-r win-x64 -p:RuntimeIdentifier=win-x64", args);
+        Assert.Contains("-p:Configuration=Release", args);
+        Assert.Contains("-p:Foo=Bar", args);
         Assert.IsFalse(args.Contains("win-arm64", StringComparison.Ordinal));
     }
 
@@ -444,7 +444,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var args = ProjectRunService.BuildSingleFileBuildPassArguments(
             singleFile, Options(injectedRid: "win-x64", properties: "RuntimeIdentifier=win-arm64"), "minimal");
 
-        StringAssert.Contains(args, "-r win-x64");
+        Assert.Contains("-r win-x64", args);
         Assert.IsFalse(args.Contains("win-arm64", StringComparison.OrdinalIgnoreCase),
             "A conflicting -p:RuntimeIdentifier must not survive alongside the injected RID");
     }
@@ -458,7 +458,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var args = ProjectRunService.BuildSingleFileEvaluateArguments(
             singleFile, Options(injectedRid: "win-x64", properties: "RuntimeIdentifier=win-arm64"));
 
-        StringAssert.Contains(args, "-r win-x64");
+        Assert.Contains("-r win-x64", args);
         Assert.IsFalse(args.Contains("win-arm64", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -472,7 +472,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var args = ProjectRunService.BuildSingleFileBuildPassArguments(
             singleFile, Options(properties: "RuntimeIdentifier=win-arm64"), "minimal");
 
-        StringAssert.Contains(args, "RuntimeIdentifier=win-arm64");
+        Assert.Contains("RuntimeIdentifier=win-arm64", args);
         Assert.IsFalse(args.Contains("-r ", StringComparison.Ordinal));
     }
 
@@ -486,7 +486,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var args = ProjectRunService.BuildSingleFileProbeArguments(
             singleFile, Options(injectedRid: "win-x64", properties: "RuntimeIdentifier=win-arm64"), "RuntimeIdentifier");
 
-        StringAssert.Contains(args, "RuntimeIdentifier=win-arm64");
+        Assert.Contains("RuntimeIdentifier=win-arm64", args);
         Assert.IsFalse(args.Contains("-r ", StringComparison.Ordinal));
     }
 
@@ -497,10 +497,10 @@ public class ProjectRunServiceSingleFileTests : IDisposable
 
         var args = ProjectRunService.BuildSingleFileBuildPassArguments(singleFile, Options(), "minimal");
 
-        StringAssert.StartsWith(args, "build ");
-        StringAssert.Contains(args, singleFile.FullName);
-        StringAssert.Contains(args, "-c Debug");
-        StringAssert.Contains(args, "-tl:off");
+        Assert.StartsWith("build ", args);
+        Assert.Contains(singleFile.FullName, args);
+        Assert.Contains("-c Debug", args);
+        Assert.Contains("-tl:off", args);
     }
 
     [TestMethod]
@@ -534,7 +534,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
 
         var args = ProjectRunService.BuildSingleFileBuildPassArguments(singleFile, Options(noRestore: true), "minimal");
 
-        StringAssert.Contains(args, "--no-restore");
+        Assert.Contains("--no-restore", args);
     }
 
     [TestMethod]
@@ -546,7 +546,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
 
         var args = ProjectRunService.BuildSingleFileEvaluateArguments(singleFile, Options());
 
-        StringAssert.StartsWith(args, "build ");
+        Assert.StartsWith("build ", args);
         Assert.IsFalse(args.StartsWith("msbuild", StringComparison.Ordinal));
     }
 
@@ -559,12 +559,12 @@ public class ProjectRunServiceSingleFileTests : IDisposable
 
         foreach (var property in ProjectRunService.SingleFileRequestedProperties)
         {
-            StringAssert.Contains(args, $"--getProperty:{property}");
+            Assert.Contains($"--getProperty:{property}", args);
         }
 
         // $(Version) is what the version inference reads; $(VersionPrefix) is empty once Version is set.
-        StringAssert.Contains(args, "--getProperty:Version");
-        StringAssert.Contains(args, "--getProperty:WinAppManifestPath");
+        Assert.Contains("--getProperty:Version", args);
+        Assert.Contains("--getProperty:WinAppManifestPath", args);
     }
 
     [TestMethod]
@@ -578,7 +578,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var args = ProjectRunService.BuildSingleFileEvaluateArguments(singleFile, Options());
 
         Assert.IsFalse(args.Contains("--getProperty:Platform", StringComparison.Ordinal), $"Unexpected in: {args}");
-        StringAssert.Contains(args, "--getProperty:RuntimeIdentifier");
+        Assert.Contains("--getProperty:RuntimeIdentifier", args);
     }
 
     [TestMethod]
@@ -592,10 +592,10 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var buildArgs = ProjectRunService.BuildSingleFileBuildPassArguments(singleFile, options, "minimal");
         var evaluateArgs = ProjectRunService.BuildSingleFileEvaluateArguments(singleFile, options);
 
-        StringAssert.Contains(buildArgs, "-c Release");
-        StringAssert.Contains(evaluateArgs, "-c Release");
-        StringAssert.Contains(buildArgs, "-p:Foo=Bar");
-        StringAssert.Contains(evaluateArgs, "-p:Foo=Bar");
+        Assert.Contains("-c Release", buildArgs);
+        Assert.Contains("-c Release", evaluateArgs);
+        Assert.Contains("-p:Foo=Bar", buildArgs);
+        Assert.Contains("-p:Foo=Bar", evaluateArgs);
     }
 
     [TestMethod]
@@ -608,7 +608,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var args = ProjectRunService.BuildSingleFileEvaluateArguments(singleFile, options);
 
         Assert.IsFalse(args.Contains("-p:Configuration=Release", StringComparison.Ordinal), $"Unexpected in: {args}");
-        StringAssert.Contains(args, "-c Debug");
+        Assert.Contains("-c Debug", args);
     }
 
     [TestMethod]
@@ -626,8 +626,8 @@ public class ProjectRunServiceSingleFileTests : IDisposable
         var buildArgs = ProjectRunService.BuildSingleFileBuildPassArguments(singleFile, options, "minimal");
         var evaluateArgs = ProjectRunService.BuildSingleFileEvaluateArguments(singleFile, options);
 
-        StringAssert.Contains(buildArgs, $"-p:{property}");
-        StringAssert.Contains(evaluateArgs, $"-p:{property}");
+        Assert.Contains($"-p:{property}", buildArgs);
+        Assert.Contains($"-p:{property}", evaluateArgs);
     }
 
     #endregion

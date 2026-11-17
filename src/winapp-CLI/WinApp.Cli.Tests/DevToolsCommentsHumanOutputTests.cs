@@ -98,13 +98,13 @@ public class DevToolsCommentsHumanOutputTests
         var human = Success("get", "authored-note");
         Assert.IsFalse(human.Contains("Created at (historical)", StringComparison.Ordinal),
             "A confirmed anchor has one location; the stale creation line would contradict it.");
-        StringAssert.Contains(human, "Current match: MainWindow.xaml:8");
-        StringAssert.Contains(human, "Captured declaration:");
-        StringAssert.Contains(human, "Content=\"Save\"");
-        StringAssert.Contains(human, "Content=\"Save changes\"");
-        StringAssert.Contains(human, "Captured runtime text (context): Saved 12 rows");
+        Assert.Contains("Current match: MainWindow.xaml:8", human);
+        Assert.Contains("Captured declaration:", human);
+        Assert.Contains("Content=\"Save\"", human);
+        Assert.Contains("Content=\"Save changes\"", human);
+        Assert.Contains("Captured runtime text (context): Saved 12 rows", human);
         var getJson = Success("get", "authored-note", "--json");
-        StringAssert.Contains(getJson, "<Button x:Name=\\\"SaveButton\\\"", "captured XAML is not \\u003C-escaped");
+        Assert.Contains("<Button x:Name=\\\"SaveButton\\\"", getJson, "captured XAML is not \\u003C-escaped");
         var payload = JsonSerializer.Deserialize(getJson, CommentsJsonContext.Default.CommentResultPayload)!;
         Assert.IsTrue(payload.Comment!.AnchorConfirmed);
         Assert.IsFalse(payload.Comment.RequiresConfirmation);
@@ -122,8 +122,8 @@ public class DevToolsCommentsHumanOutputTests
             Context = new() { WindowTitle = "Orders" },
         });
         var human = Success("get", "cmt_identity0001");
-        StringAssert.Contains(human, "Border ShippedPill AutomationId=ShippedStatus");
-        StringAssert.Contains(human, "Window: Orders");
+        Assert.Contains("Border ShippedPill AutomationId=ShippedStatus", human);
+        Assert.Contains("Window: Orders", human);
         using var json = JsonDocument.Parse(Success("get", "cmt_identity0001", "--json"));
         var comment = json.RootElement.GetProperty("comment");
         Assert.AreEqual("ShippedStatus", comment.GetProperty("anchor").GetProperty("identity").GetProperty("automationId").GetString());
@@ -142,9 +142,9 @@ public class DevToolsCommentsHumanOutputTests
         }
         _appRoot = appA;
         var listed = Success("list", "-a", "4321");
-        StringAssert.Contains(listed, "cmt_aaaaaaaaaaaa");
+        Assert.Contains("cmt_aaaaaaaaaaaa", listed);
         Assert.IsFalse(listed.Contains("cmt_bbbbbbbbbbbb", StringComparison.Ordinal), "-a lists only that app's project.");
-        StringAssert.Contains(Success("get", "cmt_aaaaaaaaaaaa", "-a", "4321"), "Wider");
+        Assert.Contains("Wider", Success("get", "cmt_aaaaaaaaaaaa", "-a", "4321"));
     }
 
     [TestMethod]
@@ -158,7 +158,7 @@ public class DevToolsCommentsHumanOutputTests
         Assert.AreEqual(6, added.Comment.Anchor.Line);
         Assert.AreEqual("strong", added.Comment.Hits.Single().Confidence);
         var human = Success("get", "cmt_named0000001");
-        StringAssert.Contains(human, "MainWindow.xaml:6");
+        Assert.Contains("MainWindow.xaml:6", human);
         Assert.IsFalse(human.Contains("historical", StringComparison.Ordinal), human);
     }
 
@@ -183,7 +183,7 @@ public class DevToolsCommentsHumanOutputTests
         Assert.IsTrue(added.Comment!.Anchor.Weak);
         Assert.IsTrue(added.Comment.RequiresConfirmation);
         Assert.IsFalse(added.Comment.AnchorConfirmed);
-        StringAssert.Contains(Success("list"), "not linked to source");
+        Assert.Contains("not linked to source", Success("list"));
     }
 
     [TestMethod]
@@ -209,10 +209,10 @@ public class DevToolsCommentsHumanOutputTests
         }
 
         var human = Success("list");
-        StringAssert.Contains(human, $"Project root: {appA}");
-        StringAssert.Contains(human, $"Project root: {appB}");
-        StringAssert.Contains(human, $"MainWindow.xaml:{(drift ? 9 : 6)}");
-        StringAssert.Contains(human, "MainWindow.xaml:6");
+        Assert.Contains($"Project root: {appA}", human);
+        Assert.Contains($"Project root: {appB}", human);
+        Assert.Contains($"MainWindow.xaml:{(drift ? 9 : 6)}", human);
+        Assert.Contains("MainWindow.xaml:6", human);
 
         var payload = JsonSerializer.Deserialize(Success("list", "--json"), CommentsJsonContext.Default.CommentsListPayload)!;
         Assert.AreEqual(2, payload.Comments.Count);
@@ -246,10 +246,10 @@ public class DevToolsCommentsHumanOutputTests
             Assert.AreEqual(CommentStatus.Stale, payload.Comments[0].Status);
             Assert.AreEqual(DeferralNote, payload.Comments[0].Resolution?.Note);
         }
-        StringAssert.Contains(output, "Check spacing again.");
-        StringAssert.Contains(output, "stale");
-        StringAssert.Contains(output, DeferralNote);
-        StringAssert.Contains(Success("get", "one"), DeferralNote);
+        Assert.Contains("Check spacing again.", output);
+        Assert.Contains("stale", output);
+        Assert.Contains(DeferralNote, output);
+        Assert.Contains(DeferralNote, Success("get", "one"));
     }
 
     [TestMethod]
@@ -285,8 +285,8 @@ public class DevToolsCommentsHumanOutputTests
 
         var output = Success("list", json ? ["--status", "all", "--json"] : ["--status", "all"]);
 
-        StringAssert.Contains(output, "Still open.");
-        StringAssert.Contains(output, "Already fixed.");
+        Assert.Contains("Still open.", output);
+        Assert.Contains("Already fixed.", output);
         Assert.AreEqual(Success("list", json ? ["--all", "--json"] : ["--all"]), output);
     }
 
@@ -310,7 +310,7 @@ public class DevToolsCommentsHumanOutputTests
             }
             else
             {
-                StringAssert.Contains(output, id);
+                Assert.Contains(id, output);
             }
             return output;
         }
@@ -345,9 +345,9 @@ public class DevToolsCommentsHumanOutputTests
         var (exit, output) = Run(verb, verb == "update"
             ? ["review[1]", "--status", "stale"] : ["review[1]"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "review[1]");
-        StringAssert.Contains(output, "not found");
-        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(StorePath));
+        Assert.Contains("review[1]", output);
+        Assert.Contains("not found", output);
+        Assert.AreSequenceEqual(bytes, File.ReadAllBytes(StorePath));
     }
 
     [TestMethod]
@@ -360,10 +360,10 @@ public class DevToolsCommentsHumanOutputTests
         Success("add", "--id", "hidden-note", "--text", "handled request");
         Success("update", "hidden-note", "--status", hiddenStatus, "--note", "Verified");
         var human = Success("list");
-        StringAssert.Contains(human, "open-note");
+        Assert.Contains("open-note", human);
         Assert.IsFalse(human.Contains("hidden-note", StringComparison.Ordinal));
-        StringAssert.Contains(human, $"1 {hiddenStatus}");
-        StringAssert.Contains(Success("list", "--all"), "hidden-note");
+        Assert.Contains($"1 {hiddenStatus}", human);
+        Assert.Contains("hidden-note", Success("list", "--all"));
         var all = JsonSerializer.Deserialize(Success("list", "--json"), CommentsJsonContext.Default.CommentsListPayload)!;
         Assert.HasCount(2, all.Comments);
         Assert.IsTrue(all.Comments.Exists(c => c.Id == "hidden-note" && c.Status == hiddenStatus));
@@ -376,10 +376,10 @@ public class DevToolsCommentsHumanOutputTests
     {
         Success("add", "--id", "reopened", "--text", "tighten spacing", "--file", "MainWindow.xaml");
         Success("update", "reopened", "--status", CommentStatus.Resolved, "--note", "fixed padding");
-        StringAssert.Contains(Success("list", "--all"), "Resolution note: fixed padding");
+        Assert.Contains("Resolution note: fixed padding", Success("list", "--all"));
         Success("update", "reopened", "--status", CommentStatus.Open);
         var listed = Success("list");
-        StringAssert.Contains(listed, "Previous status note: fixed padding");
+        Assert.Contains("Previous status note: fixed padding", listed);
         Assert.IsFalse(listed.Contains("Resolution note", StringComparison.Ordinal), listed);
         Assert.IsFalse(Success("get", "reopened").Contains("Resolution note", StringComparison.Ordinal));
     }
@@ -434,8 +434,8 @@ public class DevToolsCommentsHumanOutputTests
             ? ["unchanged", "--status", "unknown", "--json"]
             : ["unchanged", "--status", "unknown"]);
         Assert.AreEqual(1, result.Exit);
-        StringAssert.Contains(result.Output, "Invalid --status");
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(StorePath));
+        Assert.Contains("Invalid --status", result.Output);
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(StorePath));
     }
 
     [TestMethod]
@@ -465,7 +465,7 @@ public class DevToolsCommentsHumanOutputTests
             using var readBack = JsonDocument.Parse(Success("get", id, "--json"));
             Assert.AreEqual(submitted, readBack.RootElement.GetProperty("comment").GetProperty("text").GetString());
             Assert.AreEqual(updatedAt, _store.Load(StorePath).Comments.Single().UpdatedAt);
-            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(StorePath), "Reading a saved draft must not normalize it.");
+            Assert.AreSequenceEqual(bytes, File.ReadAllBytes(StorePath), "Reading a saved draft must not normalize it.");
         }
     }
 
@@ -477,7 +477,7 @@ public class DevToolsCommentsHumanOutputTests
         Success("add", "--id", "blank", "--text", "  original\n");
         var before = File.ReadAllBytes(StorePath);
         Assert.AreEqual(1, Run("add", "--id", "blank", "--text", "\n  ").Exit);
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(StorePath));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(StorePath));
     }
 
     [TestMethod]
@@ -491,9 +491,9 @@ public class DevToolsCommentsHumanOutputTests
         parse.InvocationConfiguration.Error = output;
         Assert.AreEqual(0, await parse.InvokeAsync(parse.InvocationConfiguration));
         var help = System.Text.RegularExpressions.Regex.Replace(output.ToString(), @"\s+", " ");
-        StringAssert.Contains(help, "--status <status>");
-        StringAssert.Contains(help, "open | resolved | stale | dismissed");
-        StringAssert.Contains(help, "default: open for human output; all statuses with --json");
+        Assert.Contains("--status <status>", help);
+        Assert.Contains("open | resolved | stale | dismissed", help);
+        Assert.Contains("default: open for human output; all statuses with --json", help);
     }
 
     private sealed class FixedDirectory(string path) : ICurrentDirectoryProvider

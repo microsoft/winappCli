@@ -49,7 +49,7 @@ public class UiInjectionReportingTests
         Assert.IsFalse(new StubGuard(ForegroundCheck.NoInteractiveDesktop).TryEnsureForeground(10, logger, json: false, action: "drag"));
 
         Assert.AreEqual(LogLevel.Error, logger.Messages.Single().Level);
-        StringAssert.Contains(logger.Messages.Single().Message, "No interactive desktop");
+        Assert.Contains("No interactive desktop", logger.Messages.Single().Message);
     }
 
     [TestMethod]
@@ -60,7 +60,7 @@ public class UiInjectionReportingTests
         Assert.IsFalse(new StubGuard(ForegroundCheck.ForegroundNotTarget).TryEnsureForeground(10, logger, json: false, action: "scroll --wheel"));
 
         Assert.AreEqual(LogLevel.Error, logger.Messages.Single().Level);
-        StringAssert.Contains(logger.Messages.Single().Message, "refusing to scroll --wheel");
+        Assert.Contains("refusing to scroll --wheel", logger.Messages.Single().Message);
     }
 
     [TestMethod]
@@ -86,7 +86,7 @@ public class UiInjectionReportingTests
             new StableTarget((TargetStatus)statusValue, Element(), 5, 5), logger, json: false, selector: "btn", action: "drag");
 
         Assert.IsFalse(result);
-        StringAssert.Contains(logger.Messages.Single().Message, expectedMessage);
-        StringAssert.Contains(logger.Messages.Single().Message, "drag");
+        Assert.Contains(expectedMessage, logger.Messages.Single().Message);
+        Assert.Contains("drag", logger.Messages.Single().Message);
     }
 }

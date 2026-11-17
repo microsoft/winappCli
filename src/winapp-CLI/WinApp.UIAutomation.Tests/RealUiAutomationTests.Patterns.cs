@@ -323,7 +323,7 @@ public partial class RealUiAutomationTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.ScrollContainerAsync(uiTarget, panel, "down", null, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "horizontally");
+        Assert.Contains("horizontally", ex.Message);
     }
 
     [TestMethod]
@@ -337,7 +337,7 @@ public partial class RealUiAutomationTests
         // A --to value other than top/bottom hits the switch default and is rejected.
         var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(
             () => svc.ScrollContainerAsync(uiTarget, panel, null, "middle", CancellationToken.None));
-        StringAssert.Contains(ex.Message, "middle");
+        Assert.Contains("middle", ex.Message);
     }
 
     // -----------------------------------------------------------------------------

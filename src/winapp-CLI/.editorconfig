@@ -106,6 +106,11 @@ dotnet_diagnostic.CA1305.severity = suggestion
 # CA2211: Non-constant fields should not be visible
 dotnet_diagnostic.CA2211.severity = warning
 
+# MSTEST0046/MSTEST0068: Use Assert instead of StringAssert/CollectionAssert.
+# MSTest only warns about these in its Recommended mode (MSTestAnalysisMode), so opt in here.
+dotnet_diagnostic.MSTEST0046.severity = warning
+dotnet_diagnostic.MSTEST0068.severity = warning
+
 # Custom rules for async/cancellation
 # These are custom analyzer rules that you can implement
 

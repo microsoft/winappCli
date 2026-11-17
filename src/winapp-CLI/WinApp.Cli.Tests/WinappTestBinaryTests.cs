@@ -55,7 +55,7 @@ public class WinappTestBinaryTests
         var rid = WinappTestBinary.CurrentRid;
 
         Assert.AreEqual(WinappTestBinary.RidFor(RuntimeInformation.OSArchitecture), rid);
-        CollectionAssert.Contains(SupportedRids, rid);
+        Assert.Contains(rid, SupportedRids);
     }
 
     [TestMethod]

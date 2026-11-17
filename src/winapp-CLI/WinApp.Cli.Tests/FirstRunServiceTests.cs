@@ -101,8 +101,8 @@ public class FirstRunServiceTests
         var result = service.CheckAndDisplayFirstRunNotice();
 
         Assert.IsFalse(result, "The banner was not shown, so the no-args path still shows it.");
-        StringAssert.Contains(stderr.ToString(), "anonymous usage data");
-        StringAssert.Contains(stderr.ToString(), "WINAPP_CLI_TELEMETRY_OPTOUT=1");
+        Assert.Contains("anonymous usage data", stderr.ToString());
+        Assert.Contains("WINAPP_CLI_TELEMETRY_OPTOUT=1", stderr.ToString());
         Assert.IsFalse(
             logger.Has(LogLevel.Information, "anonymous usage data"),
             "The full notice goes to stdout via the logger; it must not be shown when the marker can't be saved.");
@@ -112,6 +112,6 @@ public class FirstRunServiceTests
         var secondStderr = new StringWriter();
         service.UnsavedNoticeWriter = secondStderr;
         Assert.IsFalse(service.CheckAndDisplayFirstRunNotice());
-        StringAssert.Contains(secondStderr.ToString(), "anonymous usage data");
+        Assert.Contains("anonymous usage data", secondStderr.ToString());
     }
 }

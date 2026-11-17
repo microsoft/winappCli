@@ -60,7 +60,7 @@ public class GuestInspectedAppLifetimeTests
             else if (frame.Phase == "failed")
             {
                 Assert.IsTrue(failInjection);
-                StringAssert.Contains(frame.Error!, "controlled injection failure");
+                Assert.Contains("controlled injection failure", frame.Error!);
             }
             else
             {
@@ -80,14 +80,15 @@ public class GuestInspectedAppLifetimeTests
             await Task.WhenAll(receiving, running);
             Assert.AreEqual(relay ? 0 : failInjection ? 1 : 7, await running);
             string[] expectedPhases = relay ? ["ready"] : failInjection ? ["started", "failed"] : ["started", "ready"];
-            CollectionAssert.AreEqual(expectedPhases, phases);
+            Assert.AreSequenceEqual(expectedPhases, phases);
             Assert.AreEqual(0, notices.FirstRunCalls);
             Assert.AreEqual(0, notices.UpdateCalls);
-            StringAssert.Contains(stderr.ToString(), relay ? "relay diagnostic" : failInjection
-                ? "controlled injection failure" : "DevTools injection succeeded on attempt 2");
-            StringAssert.Contains(stderr.ToString(), "warning diagnostic");
-            StringAssert.Contains(stderr.ToString(), "console diagnostic");
-            StringAssert.Contains(stderr.ToString(), "ansi diagnostic");
+            Assert.Contains(
+                relay ? "relay diagnostic" : failInjection ? "controlled injection failure" : "DevTools injection succeeded on attempt 2",
+                stderr.ToString());
+            Assert.Contains("warning diagnostic", stderr.ToString());
+            Assert.Contains("console diagnostic", stderr.ToString());
+            Assert.Contains("ansi diagnostic", stderr.ToString());
             if (!relay)
             {
                 Assert.AreEqual(failInjection, app.Killed);
@@ -224,11 +225,11 @@ public class GuestInspectedAppLifetimeTests
         await GuestCommentFrames.WriteAsync(host, new GuestInspectedAppControl("owner-ready"),
             GuestCommentsJsonContext.Default.GuestInspectedAppControl, cancellation.Token);
         var error = await Assert.ThrowsAsync<IOException>(() => lifetime);
-        StringAssert.Contains(error.Message, "host snapshot refused");
+        Assert.Contains("host snapshot refused", error.Message);
         Assert.IsFalse(service.Called);
         Assert.IsTrue(app.Killed);
         var failure = await ReadAsync(host, cancellation.Token);
-        StringAssert.Contains(failure.Error!, "comment binding");
+        Assert.Contains("comment binding", failure.Error!);
         Assert.DoesNotContain("host snapshot refused", failure.Error!, "Arbitrary exception text is not copied into structured public failure.");
     }
 
@@ -274,17 +275,17 @@ public class GuestInspectedAppLifetimeTests
             GuestCommentsJsonContext.Default.GuestInspectedAppControl, cancellation.Token);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => lifetime);
         var reason = overlayFailure ? "Cannot find AcrylicBackgroundFillColorDefaultBrush" : "not injected";
-        StringAssert.Contains(error.Message, reason);
+        Assert.Contains(reason, error.Message);
         Assert.IsTrue(app.Killed);
         var failure = await ReadAsync(host, cancellation.Token);
         Assert.AreEqual("failed", failure.Phase);
         Assert.AreEqual(new GuestProcessStart(123, 456), failure.Process);
-        StringAssert.Contains(failure.Error!, reason);
+        Assert.Contains(reason, failure.Error!);
         if (overlayFailure)
         {
-            StringAssert.Contains(failure.Error!, "Protocol attached");
-            StringAssert.Contains(failure.Error!, "overlay startup");
-            StringAssert.Contains(failure.Error!, "--devtools headless");
+            Assert.Contains("Protocol attached", failure.Error!);
+            Assert.Contains("overlay startup", failure.Error!);
+            Assert.Contains("--devtools headless", failure.Error!);
         }
     }
 
@@ -302,7 +303,7 @@ public class GuestInspectedAppLifetimeTests
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             GuestInspectedAppLifetime.RunAsync(app, new(123, 457), new InspectionService(),
                 input, output, false, CancellationToken.None, ownedIdentity: owned));
-        StringAssert.Contains(error.Message, "identity");
+        Assert.Contains("identity", error.Message);
         Assert.AreEqual("close,root-kill", string.Join(",", app.CleanupCalls));
         Assert.IsTrue(app.HasExited);
     }
@@ -322,9 +323,9 @@ public class GuestInspectedAppLifetimeTests
             var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
                 GuestInspectedAppLifetime.RunAsync(app, new(123, 457), new InspectionService(),
                     input, output, false, CancellationToken.None));
-            StringAssert.Contains(error.Message, "identity");
-            StringAssert.Contains(errors.ToString(), "cleanup also failed");
-            StringAssert.Contains(errors.ToString(), "Win32Exception");
+            Assert.Contains("identity", error.Message);
+            Assert.Contains("cleanup also failed", errors.ToString());
+            Assert.Contains("Win32Exception", errors.ToString());
             Assert.IsFalse(app.HasExited);
         }
         finally

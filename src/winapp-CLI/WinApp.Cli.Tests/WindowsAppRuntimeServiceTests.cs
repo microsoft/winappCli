@@ -70,7 +70,7 @@ public class WindowsAppRuntimeServiceTests
 
         // Legacy/packaged behavior: the general scan happily returns the unrelated cached runtime.
         Assert.IsNotNull(result, "default (tolerant) scan should fall back to any cached runtime");
-        StringAssert.Contains(result!.FullName, "9.9.9-unrelated");
+        Assert.Contains("9.9.9-unrelated", result!.FullName);
     }
 
     [TestMethod]
@@ -103,7 +103,7 @@ public class WindowsAppRuntimeServiceTests
         var result = _service.FindWindowsAppSdkMsixDirectory(usedVersions, requireExactVersion: true);
 
         Assert.IsNotNull(result, "requireExactVersion must still return the exact match when it is cached");
-        StringAssert.Contains(result!.FullName, "1.6.240701");
+        Assert.Contains("1.6.240701", result!.FullName);
     }
 
     private static TaskContext NewTaskContext() =>
@@ -139,13 +139,13 @@ public class WindowsAppRuntimeServiceTests
         Assert.AreEqual(0, errorCount);
         Assert.AreEqual(1, installedCount, "cross-arch runtime must install even though a host-arch package with the same name is registered");
         Assert.AreEqual(1, _fakeRegistration.InstallPackageCalls.Count);
-        CollectionAssert.Contains(
-            _fakeRegistration.GetInstalledVersionCalls,
+        Assert.Contains(
             ("Microsoft.WindowsAppRuntime.1.6", (string?)"arm64"),
-            "project mode must query the installed version for the resolved target arch");
-        CollectionAssert.DoesNotContain(
             _fakeRegistration.GetInstalledVersionCalls,
+            "project mode must query the installed version for the resolved target arch");
+        Assert.DoesNotContain(
             ("Microsoft.WindowsAppRuntime.1.6", (string?)null),
+            _fakeRegistration.GetInstalledVersionCalls,
             "project mode must not fall back to the arch-agnostic (null) installed-version check");
     }
 
@@ -164,9 +164,9 @@ public class WindowsAppRuntimeServiceTests
         Assert.AreEqual(0, errorCount);
         Assert.AreEqual(0, installedCount, "a registered same-or-newer package must skip the install in folder mode");
         Assert.AreEqual(0, _fakeRegistration.InstallPackageCalls.Count);
-        CollectionAssert.Contains(
-            _fakeRegistration.GetInstalledVersionCalls,
+        Assert.Contains(
             ("Microsoft.WindowsAppRuntime.1.6", (string?)null),
+            _fakeRegistration.GetInstalledVersionCalls,
             "folder mode must keep the arch-agnostic (null) installed-version check");
     }
 }
