@@ -95,7 +95,7 @@ public sealed class BindingDiagnosisTests
         using var result = JsonDocument.Parse(Walk(null, "", null, path, kind: kind));
         Assert.AreEqual("unavailable", result.RootElement.GetProperty("state").GetString());
         Assert.AreEqual(path, result.RootElement.GetProperty("path").GetString());
-        StringAssert.Contains(result.RootElement.GetProperty("reason").GetString()!, "syntax");
+        Assert.Contains("syntax", result.RootElement.GetProperty("reason").GetString()!);
     }
 
     [TestMethod]
@@ -119,7 +119,7 @@ public sealed class BindingDiagnosisTests
         Assert.AreEqual("evaluated", answer.GetProperty("state").GetString());
         Assert.AreEqual("NEW-NOT-NOTIFIED", answer.GetProperty("sourceValue").GetString());
         Assert.AreEqual("healthy", answer.GetProperty("targetValue").GetString());
-        StringAssert.Contains(answer.GetProperty("reason").GetString()!, "not checked");
+        Assert.Contains("not checked", answer.GetProperty("reason").GetString()!);
     }
 
     [TestMethod]
@@ -147,7 +147,7 @@ public sealed class BindingDiagnosisTests
         Assert.AreEqual("private", compiled.RootElement.GetProperty("sourceValue").GetString());
         using var runtime = JsonDocument.Parse(Walk(null, "", null, "cachedModels", new PrivateSource()));
         Assert.AreEqual("bad-segment", runtime.RootElement.GetProperty("state").GetString());
-        StringAssert.Contains(runtime.RootElement.GetProperty("reason").GetString()!, "no public property or field");
+        Assert.Contains("no public property or field", runtime.RootElement.GetProperty("reason").GetString()!);
     }
 
     private sealed class FormattingConverter : IValueConverter
@@ -193,7 +193,7 @@ public sealed class BindingDiagnosisTests
         using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate("Value", new Source(), "Source", "{Binding}", "OneWay",
             typeof(string), "Text", () => throw new InvalidOperationException("target unavailable")));
         Assert.AreEqual("evaluated", result.RootElement.GetProperty("state").GetString());
-        StringAssert.Contains(result.RootElement.GetProperty("targetUnavailable").GetString()!, "target unavailable");
+        Assert.Contains("target unavailable", result.RootElement.GetProperty("targetUnavailable").GetString()!);
         Assert.IsFalse(result.RootElement.TryGetProperty("targetValue", out _));
     }
 

@@ -61,8 +61,8 @@ public class UiSessionServiceTests
         sys.ForegroundWindowResult = 200;
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             service.ResolveProcessAsync("Shared", CancellationToken.None));
-        StringAssert.Contains(error.Message, "500, 600");
-        StringAssert.Contains(error.Message, "--app with a PID");
+        Assert.Contains("500, 600", error.Message);
+        Assert.Contains("--app with a PID", error.Message);
         Assert.IsFalse(error.Message.Contains("--window", StringComparison.Ordinal));
     }
 
@@ -84,7 +84,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
             () => service.ResolveAsync(app: null, hwnd: 0x9999, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "not found or not accessible");
+        Assert.Contains("not found or not accessible", ex.Message);
     }
 
     [TestMethod]
@@ -130,7 +130,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ResolveAsync(app: null, hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Specify --app");
+        Assert.Contains("Specify --app", ex.Message);
     }
 
     [TestMethod]
@@ -153,7 +153,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
             () => service.ResolveAsync(app: "999999", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "No process found with PID 999999");
+        Assert.Contains("No process found with PID 999999", ex.Message);
     }
 
     [TestMethod]
@@ -251,9 +251,9 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ResolveAsync(app: "CalculatorApp", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Multiple 'CalculatorApp' windows found");
-        StringAssert.Contains(ex.Message, "PID 880: \"Calculatrice\"");
-        StringAssert.Contains(ex.Message, "PID 881: \"Calculatrice\"");
+        Assert.Contains("Multiple 'CalculatorApp' windows found", ex.Message);
+        Assert.Contains("PID 880: \"Calculatrice\"", ex.Message);
+        Assert.Contains("PID 881: \"Calculatrice\"", ex.Message);
     }
 
     [TestMethod]
@@ -307,8 +307,8 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<AmbiguousHostedAppFrameException>(
             () => service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "HWND 770, HWND 772");
-        StringAssert.Contains(ex.Message, "--window <HWND>");
+        Assert.Contains("HWND 770, HWND 772", ex.Message);
+        Assert.Contains("--window <HWND>", ex.Message);
     }
 
     [TestMethod]
@@ -486,9 +486,9 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ResolveAsync(app: "ambig", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Multiple 'ambig' windows found");
-        StringAssert.Contains(ex.Message, "PID 820");
-        StringAssert.Contains(ex.Message, "PID 821");
+        Assert.Contains("Multiple 'ambig' windows found", ex.Message);
+        Assert.Contains("PID 820", ex.Message);
+        Assert.Contains("PID 821", ex.Message);
     }
 
     [TestMethod]
@@ -543,9 +543,9 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ResolveAsync(app: "mp", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Multiple processes matching 'mp' found");
-        StringAssert.Contains(ex.Message, "PID 860 (mpa)");
-        StringAssert.Contains(ex.Message, "PID 861 (mpb)");
+        Assert.Contains("Multiple processes matching 'mp' found", ex.Message);
+        Assert.Contains("PID 860 (mpa)", ex.Message);
+        Assert.Contains("PID 861 (mpb)", ex.Message);
     }
 
     [TestMethod]
@@ -562,7 +562,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
             () => service.ResolveAsync(app: "pw", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "No running app found matching 'pw'");
+        Assert.Contains("No running app found matching 'pw'", ex.Message);
     }
 
     // ---- Title-search fallback ------------------------------------------
@@ -576,7 +576,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
             () => service.ResolveAsync(app: "ghost", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "No running app found matching 'ghost'");
+        Assert.Contains("No running app found matching 'ghost'", ex.Message);
     }
 
     [TestMethod]

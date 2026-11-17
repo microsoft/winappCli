@@ -15,7 +15,7 @@ public partial class UiCommandTests
     public void Record_ShortDescription_IsUserFacing()
     {
         var command = GetRequiredService<UiRecordCommand>();
-        StringAssert.Contains(command.ShortDescription, "MP4");
+        Assert.Contains("MP4", command.ShortDescription);
     }
 
     [TestMethod]
@@ -43,7 +43,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--fps", "0", "--json"]);
         Assert.AreEqual(1, exitCode);
         // Check logger message (in ConsoleStdErr) confirms the right validation fired.
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--fps must be at least 1");
+        Assert.Contains("--fps must be at least 1", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -60,7 +60,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--max-edge=-1", "--json"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--max-edge must be 0");
+        Assert.Contains("--max-edge must be 0", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -77,7 +77,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--duration-sec=-1", "--json"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--duration-sec must be 0 or greater");
+        Assert.Contains("--duration-sec must be 0 or greater", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -87,7 +87,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--duration-sec=86401", "--json"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "86400");
+        Assert.Contains("86400", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -196,7 +196,7 @@ public partial class UiCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
         Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections);
-        StringAssert.Contains(ambientOutput, "PrintWindow");
+        Assert.Contains("PrintWindow", ambientOutput);
 
         _fakeDesktopLock.Runs.Clear();
         _fakeWindowCapture.Supported = false;
@@ -205,7 +205,7 @@ public partial class UiCommandTests
         exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath, "--json"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "PrintWindow");
+        Assert.Contains("PrintWindow", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -219,7 +219,7 @@ public partial class UiCommandTests
         var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(ambientOutput, "coordination planned for 'printwindow'");
+        Assert.Contains("coordination planned for 'printwindow'", ambientOutput);
     }
 
     [TestMethod]
@@ -298,7 +298,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         // Logger message (in ConsoleStdErr) confirms element-not-found path: contains the selector name.
-        StringAssert.Contains(ConsoleStdErr.ToString(), "btn-missing-a1b2");
+        Assert.Contains("btn-missing-a1b2", ConsoleStdErr.ToString());
         // Output file must NOT exist (no recording was made).
         Assert.IsFalse(File.Exists(outputPath), "no output file should be written when the element is not found");
     }
@@ -318,7 +318,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         // Logger message (in ConsoleStdErr) confirms the path error was handled cleanly.
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Invalid output path");
+        Assert.Contains("Invalid output path", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -353,7 +353,7 @@ public partial class UiCommandTests
             command, ["-a", "TestApp", "-o", outputPath, "--json"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "simulated UIA COM failure");
+        Assert.Contains("simulated UIA COM failure", ConsoleStdErr.ToString());
         Assert.IsFalse(File.Exists(outputPath));
     }
 }

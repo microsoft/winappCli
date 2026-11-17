@@ -73,8 +73,8 @@ public class WorkspaceSetupServiceConfigRootTests : BaseCommandTests
             .Select(r => r.PackageSource.Name)
             .ToList();
 
-        CollectionAssert.Contains(sources, "configdir-only-feed", "NuGet settings must be resolved from the selected ConfigDir.");
-        CollectionAssert.DoesNotContain(sources, "working-only-feed", "NuGet settings must NOT be resolved from the process working directory when an explicit ConfigDir is provided.");
+        Assert.Contains("configdir-only-feed", sources, "NuGet settings must be resolved from the selected ConfigDir.");
+        Assert.DoesNotContain("working-only-feed", sources, "NuGet settings must NOT be resolved from the process working directory when an explicit ConfigDir is provided.");
     }
 
     /// <summary>
@@ -141,8 +141,8 @@ public class WorkspaceSetupServiceConfigRootTests : BaseCommandTests
             .Select(r => r.PackageSource.Name)
             .ToList();
 
-        CollectionAssert.Contains(sources, "project-only-feed", "A .NET project's sources must come from the hierarchy dotnet itself will use.");
-        CollectionAssert.DoesNotContain(sources, "configdir-only-feed", "A config directory outside the project is invisible to 'dotnet add package', so selecting versions from it produces references that cannot be restored.");
+        Assert.Contains("project-only-feed", sources, "A .NET project's sources must come from the hierarchy dotnet itself will use.");
+        Assert.DoesNotContain("configdir-only-feed", sources, "A config directory outside the project is invisible to 'dotnet add package', so selecting versions from it produces references that cannot be restored.");
     }
 
     /// <summary>
@@ -206,7 +206,7 @@ public class WorkspaceSetupServiceConfigRootTests : BaseCommandTests
             .Select(r => r.PackageSource.Name)
             .ToList();
 
-        CollectionAssert.Contains(sources, "project-feed", "A config directory above the project must not hide the project's own nuget.config, which dotnet would use.");
-        CollectionAssert.Contains(sources, "ancestor-feed", "Rooting at the project still inherits everything above it, so an ancestor config directory loses nothing.");
+        Assert.Contains("project-feed", sources, "A config directory above the project must not hide the project's own nuget.config, which dotnet would use.");
+        Assert.Contains("ancestor-feed", sources, "Rooting at the project still inherits everything above it, so an ancestor config directory loses nothing.");
     }
 }

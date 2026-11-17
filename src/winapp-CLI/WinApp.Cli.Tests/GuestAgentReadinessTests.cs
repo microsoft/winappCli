@@ -115,9 +115,9 @@ public class GuestAgentReadinessTests
 
             var code = GuestAgentReadiness.ToErrorCode(failure);
 
-            CollectionAssert.Contains(
-                ExecutionTargetErrorCodes.All.ToArray(),
+            Assert.Contains(
                 code,
+                ExecutionTargetErrorCodes.All.ToArray(),
                 $"{failure} maps to '{code}', which is not a released code.");
         }
     }

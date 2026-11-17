@@ -284,7 +284,7 @@ public partial class UiCommandTests
         Assert.AreEqual(0, _fakeMouse.DragCalls.Count, "no drag should be injected when the foreground guard refuses");
         Assert.AreEqual(0, _fakeMouse.MoveCursorCalls.Count, "the gate denies before the cursor is positioned");
         Assert.AreEqual(1, _fakeForeground.Calls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to drag",
+        Assert.Contains("refusing to drag", ConsoleStdErr.ToString(),
             "the refusal must name the action the command was attempting");
     }
 
@@ -414,7 +414,7 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeMouse.ScrollWheelCalls.Count, "no wheel should be injected when the foreground guard refuses");
         Assert.AreEqual(1, _fakeForeground.Calls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to scroll --wheel",
+        Assert.Contains("refusing to scroll --wheel", ConsoleStdErr.ToString(),
             "the refusal must name the action the command was attempting");
     }
 
@@ -481,7 +481,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeMouse.ScrollWheelCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to scroll --wheel-horizontal");
+        Assert.Contains("refusing to scroll --wheel-horizontal", ConsoleStdErr.ToString());
     }
 
     // ---------------------------------------------------------------------
@@ -508,7 +508,7 @@ public partial class UiCommandTests
         Assert.AreEqual(250, click.ScreenY);
         Assert.AreEqual(expectDouble, click.DoubleClick);
         Assert.AreEqual(expectRight, click.RightClick);
-        CollectionAssert.Contains(_fakeDesktopForeground.ForegroundRequests, 4242L,
+        Assert.Contains(4242L, _fakeDesktopForeground.ForegroundRequests,
             "the session window is brought to the foreground before the click");
         Assert.AreEqual(2, _fakeForeground.Calls.Count, "the foreground guard runs before and after the cursor settles");
         Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters, "the click runs inside a desktop section");
@@ -572,7 +572,7 @@ public partial class UiCommandTests
         Assert.AreEqual(1, _fakeMouse.ClickCalls.Count + _fakeMouse.HoverCalls.Count);
         var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(TestAnsiConsole.Output);
         Assert.IsTrue(result.TryGetProperty("warnings", out var warnings));
-        StringAssert.Contains(warnings[0].GetString(), "outside the target window");
+        Assert.Contains("outside the target window", warnings[0].GetString()!);
     }
 
     [TestMethod]
@@ -637,7 +637,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode("invalid_arguments");
-        StringAssert.Contains(ConsoleStdErr.ToString(), expected);
+        Assert.Contains(expected, ConsoleStdErr.ToString());
         Assert.AreEqual(0, _fakeMouse.ClickCalls.Count + _fakeMouse.HoverCalls.Count);
         Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters, "validation fails before taking the desktop");
     }
@@ -653,7 +653,7 @@ public partial class UiCommandTests
         AssertJsonErrorCode("missing_selector");
         foreach (var target in new[] { "--at", "--type", "--class-name" })
         {
-            StringAssert.Contains(ConsoleStdErr.ToString(), target);
+            Assert.Contains(target, ConsoleStdErr.ToString());
         }
     }
 

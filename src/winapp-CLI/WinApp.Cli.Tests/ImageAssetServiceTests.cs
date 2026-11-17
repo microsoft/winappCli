@@ -81,8 +81,8 @@ public class ImageAssetServiceTests
 
         Assert.IsTrue(source.IsSvg, "an SVG source reports IsSvg");
         Assert.AreEqual(2f, source.AspectRatio, 0.01);
-        StringAssert.Contains(source.DimensionsLabel, "(SVG)");
-        StringAssert.Contains(source.DimensionsLabel, "200x100");
+        Assert.Contains("(SVG)", source.DimensionsLabel);
+        Assert.Contains("200x100", source.DimensionsLabel);
     }
 
     [TestMethod]
@@ -143,7 +143,7 @@ public class ImageAssetServiceTests
 
         Assert.IsTrue(source.IsSvg);
         Assert.AreEqual(2f, source.AspectRatio, 0.01);
-        StringAssert.Contains(source.DimensionsLabel, "48x24");
+        Assert.Contains("48x24", source.DimensionsLabel);
     }
 
     #endregion

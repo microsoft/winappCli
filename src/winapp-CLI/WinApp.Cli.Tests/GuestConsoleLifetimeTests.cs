@@ -319,7 +319,7 @@ public sealed class GuestConsoleLifetimeTests
                     Assert.IsFalse(app.HasExited, "Relay EOF/error must occur while the actual application is still alive.");
                     relayClose.Set();
                     var error = await Assert.ThrowsAsync<IOException>(() => running.WaitAsync(timeout.Token));
-                    StringAssert.Contains(error.Message, "relay disconnected");
+                    Assert.Contains("relay disconnected", error.Message);
                     await app.WaitForExitAsync(timeout.Token);
                 }
                 Assert.IsFalse(other.IsCompleted, "Normal-close cleanup must not terminate another operation's job.");

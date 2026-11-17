@@ -261,7 +261,7 @@ public class GuestConnectionConcurrencyTests
         var rightProcess = await agent.Processes.WaitForNextAsync(TestContext.CancellationToken);
 
         Assert.AreNotSame(leftProcess, rightProcess);
-        CollectionAssert.AreEqual(RightArguments, rightProcess.Request.Arguments);
+        Assert.AreSequenceEqual(RightArguments, rightProcess.Request.Arguments);
 
         // Standard input for the shared identity reaches only the channel that sent it.
         await left.SendStandardInputAsync(shared, Encoding.UTF8.GetBytes("to-left"), TestContext.CancellationToken);

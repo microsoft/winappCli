@@ -47,7 +47,7 @@ public class ProcessRunnerTests
         var result = await runner.RunAsync(new ProcessRunRequest(CmdExe, ["/c", "echo", "hello-world"]));
 
         Assert.AreEqual(0, result.ExitCode);
-        StringAssert.Contains(result.StandardOutput, "hello-world");
+        Assert.Contains("hello-world", result.StandardOutput);
     }
 
     [TestMethod]
@@ -61,7 +61,7 @@ public class ProcessRunnerTests
             onOutputLine: lines.Add);
 
         Assert.AreEqual(0, result.ExitCode);
-        CollectionAssert.Contains(lines, "line-from-callback");
+        Assert.Contains("line-from-callback", lines);
     }
 
     [TestMethod]
@@ -85,7 +85,7 @@ public class ProcessRunnerTests
             Environment: new Dictionary<string, string> { ["WINAPP_TEST_VAR"] = "injected-value" }));
 
         Assert.AreEqual(0, result.ExitCode);
-        StringAssert.Contains(result.StandardOutput, "injected-value");
+        Assert.Contains("injected-value", result.StandardOutput);
     }
 
     [TestMethod]
@@ -151,8 +151,8 @@ public class ProcessRunnerTests
             cancellationToken: TestContext.CancellationToken);
 
         Assert.AreEqual(0, result.ExitCode, "A .cmd target must execute successfully via ProcessRunner");
-        StringAssert.Contains(result.StandardOutput, "batch-ran");
-        StringAssert.Contains(result.StandardOutput, "forwarded-arg",
+        Assert.Contains("batch-ran", result.StandardOutput);
+        Assert.Contains("forwarded-arg", result.StandardOutput,
             "Arguments must be forwarded to the batch file");
     }
 }

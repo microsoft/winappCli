@@ -57,7 +57,7 @@ public class BuildToolsServiceTests : BaseCommandTests
             environment: new Dictionary<string, string> { ["WINAPP_OVERRIDE_TEST"] = "override-and-env-work" },
             cancellationToken: TestContext.CancellationToken);
 
-        StringAssert.Contains(stdout, "override-and-env-work");
+        Assert.Contains("override-and-env-work", stdout);
     }
 
     [TestMethod]
@@ -96,8 +96,8 @@ public class BuildToolsServiceTests : BaseCommandTests
             throw; // unreachable — Assert.Fail always throws — but satisfies definite assignment.
         }
 
-        StringAssert.Contains(stdout, "OUT-8000-");
-        StringAssert.Contains(stderr, "ERR-8000-");
+        Assert.Contains("OUT-8000-", stdout);
+        Assert.Contains("ERR-8000-", stderr);
     }
 
     [TestMethod]

@@ -97,7 +97,7 @@ public class GuestCommandServerTests
                 launch.Exit(1);
             }
             var failure = await Assert.ThrowsAsync<IOException>(() => running.WaitAsync(harness.Token));
-            StringAssert.Contains(failure.Message, "negotiation failed");
+            Assert.Contains("negotiation failed", failure.Message);
             Assert.IsTrue(launch.Disposed);
             Assert.IsTrue(relay.Disposed);
             Assert.IsTrue(relay.StopRequested);
@@ -154,7 +154,7 @@ public class GuestCommandServerTests
             if (competingCommit)
             {
                 var failure = await Assert.ThrowsAsync<IOException>(() => running.WaitAsync(harness.Token));
-                StringAssert.Contains(failure.Message, "deployment ownership");
+                Assert.Contains("deployment ownership", failure.Message);
                 Assert.IsFalse(published.Task.IsCompleted);
                 Assert.IsTrue(launch.StopRequested);
                 Assert.IsTrue(launch.Disposed);
@@ -285,7 +285,7 @@ public class GuestCommandServerTests
             else if (state is "started" or "failed")
             {
                 var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => resolving);
-                StringAssert.Contains(failure.Message, "no longer ready");
+                Assert.Contains("no longer ready", failure.Message);
                 Assert.AreEqual(0, queries);
                 Assert.AreEqual(GuestDevToolsSelector.ForProcess(target.Reference, Epoch, new(123, 456)),
                     host.FindSelector(target, new(123, 456)));
@@ -293,7 +293,7 @@ public class GuestCommandServerTests
             else
             {
                 var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => resolving);
-                StringAssert.Contains(failure.Message, "old selector and its element handles");
+                Assert.Contains("old selector and its element handles", failure.Message);
                 Assert.AreEqual(state == "pid-reused" ? 1 : 0, queries);
             }
             Assert.IsTrue(harness.Processes.Started.IsEmpty, "Scope validation must not inject, launch or fall back to a host process.");
@@ -416,7 +416,7 @@ public class GuestCommandServerTests
             var running = relay.RunAsync(bytes => diagnostics.Append(Encoding.UTF8.GetString(bytes.Span)), harness.Token);
             var process = await harness.Processes.WaitForNextAsync(harness.Token);
             Assert.AreEqual(@"C:\WinApp\winapp.exe", process.Request.Executable);
-            CollectionAssert.Contains(process.Request.Arguments, binding.Id);
+            Assert.Contains(binding.Id, process.Request.Arguments);
             Assert.AreEqual("guest-comment-relay", process.Request.Arguments[0]);
             Assert.AreEqual("1", process.Request.Environment!["WINAPP_CLI_TELEMETRY_OPTOUT"]);
             var replies = System.Threading.Channels.Channel.CreateUnbounded<GuestCommentReply>();
@@ -705,7 +705,7 @@ public class GuestCommandServerTests
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() => query);
 
         Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, failure.Error.Code);
-        StringAssert.Contains(failure.Error.Message, "incomplete package registration response");
+        Assert.Contains("incomplete package registration response", failure.Error.Message);
     }
 
     [TestMethod]
@@ -775,7 +775,7 @@ public class GuestCommandServerTests
         var processId = await started.Task.WaitAsync(harness.Token);
 
         Assert.AreEqual(process.ProcessId, processId);
-        CollectionAssert.AreEqual(InspectArguments, process.Request.Arguments);
+        Assert.AreSequenceEqual(InspectArguments, process.Request.Arguments);
 
         await process.EmitAsync(GuestStreamId.StandardOutput, "first ");
         await process.EmitAsync(GuestStreamId.StandardOutput, "second");
@@ -865,7 +865,7 @@ public class GuestCommandServerTests
         Assert.HasCount(32, output);
         for (var i = 0; i < output.Count; i++)
         {
-            StringAssert.StartsWith(output[i], $"{i:D2}:");
+            Assert.StartsWith($"{i:D2}:", output[i]);
             Assert.AreEqual(64 * 1024 + 3, output[i].Length);
         }
     }
@@ -973,7 +973,7 @@ public class GuestCommandServerTests
             await operationId.Task.WaitAsync(harness.Token), new byte[5 * 1024 * 1024], harness.Token);
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => execution.WaitAsync(TimeSpan.FromSeconds(5)));
-        StringAssert.Contains(failure.Error.Message, "input buffer is full");
+        Assert.Contains("input buffer is full", failure.Error.Message);
         Assert.IsTrue(process.StopRequested);
         Assert.IsTrue(inputEnded.Task.IsCompleted);
         await WaitUntilAsync(() => process.Disposed, harness.Token);
@@ -1054,7 +1054,7 @@ public class GuestCommandServerTests
             harness.Token);
 
         var process = await harness.Processes.WaitForNextAsync(harness.Token);
-        CollectionAssert.AreEqual(arguments, process.Request.Arguments);
+        Assert.AreSequenceEqual(arguments, process.Request.Arguments);
 
         process.Exit(0);
         Assert.AreEqual(0, (await execution).ExitCode);
@@ -1185,7 +1185,7 @@ public class GuestCommandServerTests
                 callbacks: null,
                 harness.Token));
 
-        StringAssert.Contains(failure.Error.Message, missing);
+        Assert.Contains(missing, failure.Error.Message);
         Assert.IsTrue(harness.Processes.Started.IsEmpty, "A missing --cwd must be refused before anything starts.");
     }
 
@@ -1208,7 +1208,7 @@ public class GuestCommandServerTests
 
         await harness.Channel.StopPackageProcessesAsync("Contoso.MyApp_abc", FakeLayout, harness.Token);
 
-        CollectionAssert.AreEqual(ExpectedStoppedFullNames, launcher.StopPackageCalls);
+        Assert.AreSequenceEqual(ExpectedStoppedFullNames, launcher.StopPackageCalls);
     }
 
     [TestMethod]
@@ -1311,7 +1311,7 @@ public class GuestCommandServerTests
             () => harness.Channel.StopPackageProcessesAsync("Contoso.MyApp_abc", FakeLayout, harness.Token));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.StaleHandle, failure.Error.Code);
-        StringAssert.Contains(failure.Error.Message, "Contoso.MyApp_abc");
+        Assert.Contains("Contoso.MyApp_abc", failure.Error.Message);
     }
 
     [TestMethod]
@@ -1347,7 +1347,7 @@ public class GuestCommandServerTests
                 "Contoso.MyApp_abc", @"C:\WinApp\deployments\dep-B-layout", harness.Token));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.StaleHandle, failure.Error.Code);
-        StringAssert.Contains(failure.Error.Message, "not the one this deployment registered");
+        Assert.Contains("not the one this deployment registered", failure.Error.Message);
         Assert.AreEqual(0, launcher.StopPackageCalls.Count, "dep-A's legitimate registration must never be terminated.");
     }
 
@@ -1370,7 +1370,7 @@ public class GuestCommandServerTests
         await harness.Channel.StopPackageProcessesAsync(
             "Contoso.MyApp_abc", @"c:\winapp\deployments\dep-1-layout", harness.Token);
 
-        CollectionAssert.AreEqual(ExpectedStoppedFullNames, launcher.StopPackageCalls);
+        Assert.AreSequenceEqual(ExpectedStoppedFullNames, launcher.StopPackageCalls);
     }
 
     [TestMethod]
@@ -1413,7 +1413,7 @@ public class GuestCommandServerTests
         // Must not throw, even though nothing exists at this path.
         await harness.Channel.StopPackageProcessesAsync("Contoso.MyApp_abc", deletedLayout, harness.Token);
 
-        CollectionAssert.AreEqual(ExpectedStoppedFullNames, launcher.StopPackageCalls);
+        Assert.AreSequenceEqual(ExpectedStoppedFullNames, launcher.StopPackageCalls);
     }
 
     /// <summary>
@@ -1474,7 +1474,7 @@ public class GuestCommandServerTests
             () => harness.Channel.StopTrackedProcessAsync(4242, 555L, harness.Token));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.StaleHandle, failure.Error.Code);
-        StringAssert.Contains(failure.Error.Message, "4242");
+        Assert.Contains("4242", failure.Error.Message);
     }
 
     /// <summary>
@@ -1498,7 +1498,7 @@ public class GuestCommandServerTests
             () => harness.Channel.StopTrackedProcessAsync(4242, 555L, harness.Token));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.StaleHandle, failure.Error.Code);
-        StringAssert.Contains(failure.Error.Message, "4242");
+        Assert.Contains("4242", failure.Error.Message);
 
         // The connection survives: a second, unrelated operation on the same channel still
         // completes normally rather than the whole server having gone down with the first.
