@@ -152,6 +152,7 @@ public partial class UiCommandTests
             Assert.AreEqual("element_not_found", info.GetProperty("code").GetString());
             Assert.AreEqual("Seven", info.GetProperty("selector").GetString());
             var hint = info.GetProperty("recoveryHint").GetString();
+            Assert.IsNotNull(hint);
             Assert.Contains("is minimized", hint);
             Assert.Contains("focus -w 4242", hint);
         }
