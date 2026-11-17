@@ -111,6 +111,7 @@ struct CommentBoxSaved {
 static std::map<InstanceHandle, std::wstring> g_commentDrafts; // unsaved text, per element
 static winrt::weak_ref<DevToolsXC::TextBox> g_commentBox;
 static std::shared_ptr<CommentBoxSaved> g_commentBoxSaved; // what the live box last loaded or saved
+static std::function<void(bool)> g_presentCommentBox;
 
 // Each property is its own named row so filtering, virtualization, and per-row actions can target one element.
 static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstring& name,
@@ -384,6 +385,7 @@ static void StashCommentDraft()
 {
     auto box = g_commentBox.get();
     g_commentBox = nullptr;
+    g_presentCommentBox = nullptr;
     if (!box || !g_selWire) return;
     try {
         // A read-only box is mid-save: the writer already has this text, so it is not an unsaved draft.

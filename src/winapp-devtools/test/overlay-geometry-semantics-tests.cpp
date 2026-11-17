@@ -2021,20 +2021,25 @@ int main()
                 [&](int result) { completed = result; }), "guest resolve", "actual asynchronous resolve starts owned writer");
             check(completed == -1 && commentCommand.find(L"comments update --status resolved") != std::wstring::npos &&
                 commentCommand.find(revision) != std::wstring::npos, "guest resolve", "spawn retains original revision without reporting persistence");
+            g_selGen += 2;
             commentExitCode = outcome; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
-            check(completed == static_cast<int>(outcome), "guest resolve", "completion reports acknowledgement or failure exactly");
+            check(completed == static_cast<int>(outcome), "guest resolve", "completion reports acknowledgement or failure despite changing element selection");
             check(GuestCommentCanEdit(99), "guest resolve", "failed resolution without a prose draft does not lock unrelated editing");
         }
-        {
+        for (const bool changedAuthority : {false, true}) {
             g_guestCommentWrite = {};
             int completed = -1;
             DevToolsOverlay_ResolveComment(L"old-window-note", std::wstring(64, L'A'),
                 [&](int result) { completed = result; });
-            ++g_selGen;
+            if (changedAuthority) g_guestCommentAuthority.store(nullptr);
+            else g_pickRoot = 20;
             commentExitCode = 0; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
-            check(completed == -1, "guest resolve", "selection or surface generation change suppresses stale completion");
+            check(completed == -1 && !g_guestCommentWrite.completed,
+                "guest resolve", "changed authority or surface suppresses and releases stale completion");
+            g_guestCommentAuthority.store(&authority);
+            g_pickRoot = 10;
         }
         g_guestCommentWrite = {};
         g_guestCommentAuthority.store(nullptr);
@@ -2055,11 +2060,12 @@ int main()
                     "local resolve", "starting the child does not acknowledge resolution");
                 GuestCommentTimerProc(nullptr, 0, 0, 0);
                 check(calls == 0, "local resolve", "pending child is polled without an early callback");
+                g_selGen += 2;
                 commentExitCode = outcome; SetEvent(commentProcess);
                 GuestCommentTimerProc(nullptr, 0, 0, 0);
                 GuestCommentTimerProc(nullptr, 0, 0, 0);
                 check(calls == 1 && completed == static_cast<int>(outcome),
-                    "local resolve", "actual child outcome is delivered once, including nonzero exits");
+                    "local resolve", "actual child outcome is delivered once after selection changes, including nonzero exits");
                 check(!g_guestCommentWrite.process && !g_guestCommentWrite.completed,
                     "local resolve", "completion releases the callback and writer state");
                 check(authoritative || (g_pins.empty() == (outcome == 0)),
@@ -2072,11 +2078,12 @@ int main()
             unsigned calls = 0;
             check(DevToolsOverlay_ResolveComment(L"old-local-card", L"", [&](int) { ++calls; }),
                 "local resolve", "local lifetime regression starts the writer");
-            ++g_selGen;
+            g_pickRoot = 20;
             commentExitCode = 0; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
             check(calls == 0 && !g_guestCommentWrite.completed,
-                "local resolve", "changed selection suppresses and releases the old card's callback");
+                "local resolve", "changed surface suppresses and releases the old card's callback");
+            g_pickRoot = 10;
         }
         guestWriterTest = false;
         g_cliExe.store(nullptr); g_cardReadInput = nullptr; g_anchorOf = nullptr; g_wireOf = nullptr;
