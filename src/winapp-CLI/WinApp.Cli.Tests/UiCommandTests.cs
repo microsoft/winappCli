@@ -89,7 +89,7 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(1.5, root.GetProperty("scale").GetDouble());
         Assert.AreEqual("per-monitor-aware", root.GetProperty("dpiAwareness").GetString());
         Assert.AreEqual("physical-screen-pixels", root.GetProperty("coordinateSpace").GetString());
-        CollectionAssert.AreEqual(new long[] { 123 }, _fakeWindowDpiContextProvider.RequestedHwnds);
+        Assert.AreSequenceEqual(new long[] { 123 }, _fakeWindowDpiContextProvider.RequestedHwnds);
     }
 
     [TestMethod]
@@ -134,11 +134,11 @@ public partial class UiCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
         // New nested-tree shape: top-level "windows" array, each with nested "elements" -> "children".
-        StringAssert.Contains(TestAnsiConsole.Output, "\"windows\":");
-        StringAssert.Contains(TestAnsiConsole.Output, "\"elements\":");
-        StringAssert.Contains(TestAnsiConsole.Output, "\"children\":");
-        StringAssert.Contains(TestAnsiConsole.Output, "\"type\": \"Window\"");
-        StringAssert.Contains(TestAnsiConsole.Output, "\"type\": \"Button\"");
+        Assert.Contains("\"windows\":", TestAnsiConsole.Output);
+        Assert.Contains("\"elements\":", TestAnsiConsole.Output);
+        Assert.Contains("\"children\":", TestAnsiConsole.Output);
+        Assert.Contains("\"type\": \"Window\"", TestAnsiConsole.Output);
+        Assert.Contains("\"type\": \"Button\"", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -173,7 +173,7 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(1.25, popup.GetProperty("scale").GetDouble());
         Assert.AreEqual("per-monitor-aware", popup.GetProperty("dpiAwareness").GetString());
         Assert.AreEqual("physical-screen-pixels", popup.GetProperty("coordinateSpace").GetString());
-        CollectionAssert.AreEqual(new long[] { 100, 200 }, _fakeWindowDpiContextProvider.RequestedHwnds);
+        Assert.AreSequenceEqual(new long[] { 100, 200 }, _fakeWindowDpiContextProvider.RequestedHwnds);
     }
 
     [TestMethod]
@@ -192,9 +192,9 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
         // No "id" property anywhere (top-level envelope has no id either).
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"id\"\\s*:"));
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"id\"\\s*:"), output);
         // Element-level redundant fields stripped.
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"parentSelector\"\\s*:"));
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"parentSelector\"\\s*:"), output);
         // windowHandle moved up to the window envelope ("hwnd"); element's windowHandle: 42 must be gone.
         Assert.IsFalse(output.Contains("\"windowHandle\""), "windowHandle should be stripped from elements");
     }
@@ -215,16 +215,16 @@ public partial class UiCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--interactive", "--json"]);
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"type\": \"Button\"");
+        Assert.Contains("\"type\": \"Button\"", output);
         // Window/Pane/Group are non-interactive — they should be dropped from the tree...
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"type\"\\s*:\\s*\"Window\""));
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"type\"\\s*:\\s*\"Pane\""));
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"type\"\\s*:\\s*\"Group\""));
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"type\"\\s*:\\s*\"Window\""), output);
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"type\"\\s*:\\s*\"Pane\""), output);
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"type\"\\s*:\\s*\"Group\""), output);
         // ...but their types should appear in ancestorPath on Button.
-        StringAssert.Contains(output, "\"ancestorPath\":");
-        StringAssert.Contains(output, "\"Window\"");
-        StringAssert.Contains(output, "\"Pane\"");
-        StringAssert.Contains(output, "\"Group\"");
+        Assert.Contains("\"ancestorPath\":", output);
+        Assert.Contains("\"Window\"", output);
+        Assert.Contains("\"Pane\"", output);
+        Assert.Contains("\"Group\"", output);
     }
 
     [TestMethod]
@@ -245,8 +245,8 @@ public partial class UiCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "doc-texteditor-1");
-        StringAssert.Contains(output, "custom-amount-2");
+        Assert.Contains("doc-texteditor-1", output);
+        Assert.Contains("custom-amount-2", output);
         Assert.IsFalse(output.Contains("txt-label-3"), "Static text is not interactive.");
         Assert.IsFalse(output.Contains("doc-preview-4"), "A read-only Document is not interactive.");
     }
@@ -278,7 +278,7 @@ public partial class UiCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--interactive"]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output.Replace("\r\n", " ").Replace("\n", " "), expected);
+        Assert.Contains(expected, TestAnsiConsole.Output.Replace("\r\n", " ").Replace("\n", " "));
     }
 
     [TestMethod]
@@ -293,7 +293,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiInspectCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"hasMoreChildren\": true");
+        Assert.Contains("\"hasMoreChildren\": true", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -307,7 +307,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiSearchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["Button", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"matchCount\": 2");
+        Assert.Contains("\"matchCount\": 2", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -321,8 +321,8 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiSearchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["Button", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.DoesNotMatch(TestAnsiConsole.Output, new System.Text.RegularExpressions.Regex("\"id\"\\s*:"));
-        StringAssert.Contains(TestAnsiConsole.Output, "\"selector\": \"btn-ok-a1b2\"");
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"id\"\\s*:"), TestAnsiConsole.Output);
+        Assert.Contains("\"selector\": \"btn-ok-a1b2\"", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -342,7 +342,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiInvokeCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["#Submit", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"pattern\": \"InvokePattern\"");
+        Assert.Contains("\"pattern\": \"InvokePattern\"", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -417,8 +417,8 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiScreenshotCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"filePath\":");
-        StringAssert.Contains(TestAnsiConsole.Output, "\"width\": 1");
+        Assert.Contains("\"filePath\":", TestAnsiConsole.Output);
+        Assert.Contains("\"width\": 1", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -459,7 +459,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiGetValueCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["doc-texteditor-53ad", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"text\":");
+        Assert.Contains("\"text\":", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -489,9 +489,9 @@ public partial class UiCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["Button", "-a", "TestApp", "--timeout", "1000", "--json"]);
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"found\": true");
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"id\"\\s*:"));
-        StringAssert.Contains(output, "\"selector\": \"btn-submit-a1b2\"");
+        Assert.Contains("\"found\": true", output);
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"id\"\\s*:"), output);
+        Assert.Contains("\"selector\": \"btn-submit-a1b2\"", output);
     }
 
     [TestMethod]
@@ -506,7 +506,7 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output.Trim();
         Assert.AreNotEqual("null", output, "Bare null is unhelpful — should be an envelope object.");
-        StringAssert.Contains(output, "\"hasFocus\": false");
+        Assert.Contains("\"hasFocus\": false", output);
     }
 
     [TestMethod]
@@ -518,11 +518,11 @@ public partial class UiCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"hasFocus\": true");
-        StringAssert.Contains(output, "\"element\":");
-        StringAssert.Contains(output, "\"selector\": \"edit-textbox-a1b2\"");
+        Assert.Contains("\"hasFocus\": true", output);
+        Assert.Contains("\"element\":", output);
+        Assert.Contains("\"selector\": \"edit-textbox-a1b2\"", output);
         // Internal id should not leak into the focused envelope either.
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"id\"\\s*:"));
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"id\"\\s*:"), output);
     }
 
     [TestMethod]
@@ -546,7 +546,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiListWindowsCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"hwnd\": 1001");
+        Assert.Contains("\"hwnd\": 1001", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -560,7 +560,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiListWindowsCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"hwnd\": 1001");
+        Assert.Contains("\"hwnd\": 1001", TestAnsiConsole.Output);
         Assert.IsFalse(TestAnsiConsole.Output.Contains("\"hwnd\": 1002"), "Untitled zero-size window should be excluded");
     }
 
@@ -575,8 +575,8 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiListWindowsCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--show-hidden", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"hwnd\": 1001");
-        StringAssert.Contains(TestAnsiConsole.Output, "\"hwnd\": 1002");
+        Assert.Contains("\"hwnd\": 1001", TestAnsiConsole.Output);
+        Assert.Contains("\"hwnd\": 1002", TestAnsiConsole.Output);
     }
 
     // ---------------------------------------------------------------------
@@ -634,10 +634,10 @@ public partial class UiCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"hwnd\": 100");
-        StringAssert.Contains(output, "\"hwnd\": 200");
-        StringAssert.Contains(output, "\"title\": \"Window A\"");
-        StringAssert.Contains(output, "\"title\": \"Window B\"");
+        Assert.Contains("\"hwnd\": 100", output);
+        Assert.Contains("\"hwnd\": 200", output);
+        Assert.Contains("\"title\": \"Window A\"", output);
+        Assert.Contains("\"title\": \"Window B\"", output);
     }
 
     [TestMethod]
@@ -654,9 +654,9 @@ public partial class UiCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"type\": \"Window\"");
-        StringAssert.Contains(output, "\"type\": \"Button\"");
-        StringAssert.Contains(output, "\"children\":");
+        Assert.Contains("\"type\": \"Window\"", output);
+        Assert.Contains("\"type\": \"Button\"", output);
+        Assert.Contains("\"children\":", output);
     }
 
     [TestMethod]
@@ -679,12 +679,12 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
         // Did not throw on serialization. InvokableAncestor still present as a hint…
-        StringAssert.Contains(output, "\"invokableAncestor\":");
-        StringAssert.Contains(output, "\"selector\": \"grp-bar-aaaa\"");
+        Assert.Contains("\"invokableAncestor\":", output);
+        Assert.Contains("\"selector\": \"grp-bar-aaaa\"", output);
         // …but flattened — no nested children/invokableAncestor inside it.
         // (Children still appears in the outer Button node, but the ancestor hint object should not contain a "children" key.)
         // We assert a structural property that proves the projection: the hint copy has no AutomationId on this fixture.
-        StringAssert.Contains(output, "\"isInvokable\": true");
+        Assert.Contains("\"isInvokable\": true", output);
         AssertAncestorHint(output, "grp-bar-aaaa", isEnabled: true, x: 5, y: 6, width: 70, height: 80);
     }
 
@@ -752,13 +752,13 @@ public partial class UiCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["Open", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"selector\": \"mi-open-abcd\"");
-        StringAssert.Contains(output, "\"invokableAncestor\":");
-        StringAssert.Contains(output, "\"selector\": \"grp-toolbar-1234\"");
+        Assert.Contains("\"selector\": \"mi-open-abcd\"", output);
+        Assert.Contains("\"invokableAncestor\":", output);
+        Assert.Contains("\"selector\": \"grp-toolbar-1234\"", output);
         // Internal/redundant fields stripped at every level (top-level + nested ancestor).
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"id\"\\s*:"));
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"parentSelector\"\\s*:"));
-        StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"windowHandle\"\\s*:"));
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"id\"\\s*:"), output);
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"parentSelector\"\\s*:"), output);
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("\"windowHandle\"\\s*:"), output);
         AssertAncestorHint(output, "grp-toolbar-1234", isEnabled: true, x: 100, y: 200, width: 50, height: 25);
     }
 
@@ -781,12 +781,12 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
         // All four types present...
-        StringAssert.Contains(output, "\"selector\": \"wnd-app-aaaa\"");
-        StringAssert.Contains(output, "\"selector\": \"btn-ok-dddd\"");
+        Assert.Contains("\"selector\": \"wnd-app-aaaa\"", output);
+        Assert.Contains("\"selector\": \"btn-ok-dddd\"", output);
         // ...and the chain is nested (the Window has at least one child layer of nesting).
-        StringAssert.Contains(output, "\"children\":");
+        Assert.Contains("\"children\":", output);
         // elementCount should reflect all 4 elements when properly nested.
-        StringAssert.Contains(output, "\"elementCount\": 4");
+        Assert.Contains("\"elementCount\": 4", output);
     }
 
     [TestMethod]
@@ -805,7 +805,7 @@ public partial class UiCommandTests : BaseCommandTests
             ["btn-target", "-a", "TestApp", "--ancestors", "--json"]);
 
         Assert.AreEqual(0, exitCode);
-        CollectionAssert.AreEqual(new long[] { 321 }, _fakeWindowDpiContextProvider.RequestedHwnds);
+        Assert.AreSequenceEqual(new long[] { 321 }, _fakeWindowDpiContextProvider.RequestedHwnds);
         using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.AreEqual(321, document.RootElement.GetProperty("windows")[0].GetProperty("hwnd").GetInt64());
     }
@@ -824,7 +824,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiClickCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["btn-go-1234", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"clickType\":");
+        Assert.Contains("\"clickType\":", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1039,7 +1039,7 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeMouse.ClickCalls.Count, "no click should be injected when the foreground guard refuses");
         Assert.AreEqual(1, _fakeForeground.Calls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to click",
+        Assert.Contains("refusing to click", ConsoleStdErr.ToString(),
             "the refusal must name the action the command was attempting");
     }
 
@@ -1056,7 +1056,7 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeMouse.HoverCalls.Count, "no hover should be injected when the foreground guard refuses");
         Assert.AreEqual(1, _fakeForeground.Calls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to hover",
+        Assert.Contains("refusing to hover", ConsoleStdErr.ToString(),
             "the refusal must name the action the command was attempting");
     }
 
@@ -1082,7 +1082,8 @@ public partial class UiCommandTests : BaseCommandTests
     public void SendKeys_KeysArgument_DocumentsTextEscape()
     {
         // F2: the text=<literal> escape must be discoverable via --help / cli-schema, not only the guide.
-        StringAssert.Contains(UiSendKeysCommand.KeysArgument.Description, "text=");
+        Assert.IsNotNull(UiSendKeysCommand.KeysArgument.Description);
+        Assert.Contains("text=", UiSendKeysCommand.KeysArgument.Description);
     }
 
     [TestMethod]
@@ -1113,7 +1114,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiFocusCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["edit-name-1234", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"elementId\":");
+        Assert.Contains("\"elementId\":", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1124,7 +1125,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiSetValueCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["edit-name-1234", "Hello", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"elementId\":");
+        Assert.Contains("\"elementId\":", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1135,7 +1136,7 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiScrollCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "--direction", "down", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"direction\":");
+        Assert.Contains("\"direction\":", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1146,6 +1147,6 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiScrollIntoViewCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["li-row42-1234", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"elementId\":");
+        Assert.Contains("\"elementId\":", TestAnsiConsole.Output);
     }
 }

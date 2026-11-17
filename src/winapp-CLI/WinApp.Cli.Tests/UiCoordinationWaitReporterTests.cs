@@ -81,10 +81,10 @@ public class UiCoordinationWaitReporterTests
         reporter.ReportIfDue(3_000, OtherWorkflow());
 
         var line = output.ToString();
-        StringAssert.Contains(line, "'ui click' has waited 3s for the desktop");
-        StringAssert.Contains(line, "another workflow is using the desktop ('ui record') and has held it for 2m 14s.");
-        StringAssert.Contains(line, UiCoordinationWaitReporter.SharingAdvice);
-        StringAssert.Contains(line, "Ctrl+C");
+        Assert.Contains("'ui click' has waited 3s for the desktop", line);
+        Assert.Contains("another workflow is using the desktop ('ui record') and has held it for 2m 14s.", line);
+        Assert.Contains(UiCoordinationWaitReporter.SharingAdvice, line);
+        Assert.Contains("Ctrl+C", line);
         Assert.IsFalse(line.Contains("424242", StringComparison.Ordinal), "the PID is verbose-only");
     }
 
@@ -96,8 +96,8 @@ public class UiCoordinationWaitReporterTests
 
         reporter.ReportIfDue(3_000, OtherWorkflow());
 
-        StringAssert.Contains(output.ToString(), "held by winapp PID 424242");
-        StringAssert.Contains(output.ToString(), "queue depth 1, 1 must finish first]");
+        Assert.Contains("held by winapp PID 424242", output.ToString());
+        Assert.Contains("queue depth 1, 1 must finish first]", output.ToString());
     }
 
     [TestMethod]
@@ -108,7 +108,7 @@ public class UiCoordinationWaitReporterTests
         var line = reporter.BuildLine(1_500, new UiWaitDiagnostics(
             1, 0, null, null, UiWaitReason.OtherWorkflowGrace, GraceRemainingMs: 2_500));
 
-        StringAssert.Contains(line, "keeps the desktop for up to 3s more in case it continues");
+        Assert.Contains("keeps the desktop for up to 3s more in case it continues", line);
         Assert.IsFalse(line.Contains("WINAPP_UI_WORKFLOW_ID", StringComparison.Ordinal));
     }
 
@@ -120,7 +120,7 @@ public class UiCoordinationWaitReporterTests
         var line = reporter.BuildLine(1_500, new UiWaitDiagnostics(
             0, 1, null, "ui screenshot", UiWaitReason.OwnWorkflow, WaitersAhead: 3));
 
-        StringAssert.Contains(line, "an earlier 'ui screenshot' in this workflow must finish first.");
+        Assert.Contains("an earlier 'ui screenshot' in this workflow must finish first.", line);
         Assert.IsFalse(line.Contains("WINAPP_UI_WORKFLOW_ID", StringComparison.Ordinal));
         Assert.IsFalse(line.Contains("queued ahead", StringComparison.Ordinal));
     }
@@ -132,7 +132,7 @@ public class UiCoordinationWaitReporterTests
 
         var line = reporter.BuildLine(1_500, OtherWorkflow() with { WaitersAhead = 2 });
 
-        StringAssert.Contains(line, "2 commands are queued ahead of this one.");
+        Assert.Contains("2 commands are queued ahead of this one.", line);
     }
 
     [TestMethod]

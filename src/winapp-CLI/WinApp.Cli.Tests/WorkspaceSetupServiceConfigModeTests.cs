@@ -110,8 +110,8 @@ public class WorkspaceSetupServiceConfigModeTests : BaseCommandTests
         // A zero exit code alone would also be produced by the "nothing to restore" no-op branch, so assert the
         // delegation itself: exactly one dotnet restore, naming this project.
         Assert.HasCount(1, _dotnet.StreamingCalls);
-        StringAssert.Contains(_dotnet.StreamingCalls[0], "restore", StringComparison.Ordinal);
-        StringAssert.Contains(_dotnet.StreamingCalls[0], csproj.FullName, StringComparison.Ordinal);
+        Assert.Contains("restore", _dotnet.StreamingCalls[0], StringComparison.Ordinal);
+        Assert.Contains(csproj.FullName, _dotnet.StreamingCalls[0], StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -140,9 +140,9 @@ public class WorkspaceSetupServiceConfigModeTests : BaseCommandTests
         Assert.IsEmpty(_dotnet.StreamingCalls, "Nothing may be restored when the target project is ambiguous.");
 
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "AppOne.csproj", StringComparison.Ordinal);
-        StringAssert.Contains(stderr, "AppTwo.csproj", StringComparison.Ordinal);
-        StringAssert.Contains(stderr, "dotnet restore", StringComparison.Ordinal);
+        Assert.Contains("AppOne.csproj", stderr, StringComparison.Ordinal);
+        Assert.Contains("AppTwo.csproj", stderr, StringComparison.Ordinal);
+        Assert.Contains("dotnet restore", stderr, StringComparison.Ordinal);
     }
 
     /// <summary>

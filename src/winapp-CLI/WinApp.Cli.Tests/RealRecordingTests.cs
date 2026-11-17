@@ -66,7 +66,8 @@ public partial class RealRecordingTests
                 MaxEdge = maxEdge,
             }, CancellationToken.None));
 
-        StringAssert.Contains(exception.ParamName, expectedParameter);
+        Assert.IsNotNull(exception.ParamName);
+        Assert.Contains(expectedParameter, exception.ParamName);
         Assert.IsFalse(File.Exists(output), "Validation must run before any output file is created.");
     }
 
@@ -173,7 +174,7 @@ public partial class RealRecordingTests
             MaxEdge = 64,
         }, CancellationToken.None);
 
-        CollectionAssert.AreEqual(new nint[] { fx.Hwnd, popup.Hwnd }, started);
+        Assert.AreSequenceEqual(new nint[] { fx.Hwnd, popup.Hwnd }, started);
         Assert.AreEqual(expectedMode, result.Mode);
         Assert.AreEqual(1, result.Frames);
     }
@@ -200,8 +201,8 @@ public partial class RealRecordingTests
         Assert.AreEqual(1, result.Frames);
         Assert.IsNotNull(result.Warnings);
         Assert.HasCount(1, result.Warnings);
-        StringAssert.Contains(result.Warnings[0], "HWND 42");
-        StringAssert.Contains(result.Warnings[0], "missing from the recording");
+        Assert.Contains("HWND 42", result.Warnings[0]);
+        Assert.Contains("missing from the recording", result.Warnings[0]);
     }
 
     [TestMethod]
@@ -247,7 +248,7 @@ public partial class RealRecordingTests
                 MaxEdge = 64,
             }, CancellationToken.None);
 
-        CollectionAssert.AreEqual(retarget ? new nint[] { fx.Hwnd, popup.Hwnd } : [fx.Hwnd], started);
+        Assert.AreSequenceEqual(retarget ? new nint[] { fx.Hwnd, popup.Hwnd } : [fx.Hwnd], started);
         Assert.AreEqual("wgc", result.Mode);
         Assert.AreEqual(1, result.Frames);
         Assert.IsTrue(racingGrabber.Reads >= 3);
@@ -507,7 +508,7 @@ public partial class RealRecordingTests
             }, CancellationToken.None));
 
         Assert.IsNotNull(exception.FramesDirectory);
-        StringAssert.StartsWith(exception.FramesDirectory, framesDirectory + ".partial-", exception.RecoveryHint);
+        Assert.StartsWith(framesDirectory + ".partial-", exception.FramesDirectory, exception.RecoveryHint);
         var partialDirectory = exception.FramesDirectory;
         var manifest = JsonSerializer.Deserialize<JsonElement>(
             await File.ReadAllTextAsync(Path.Join(partialDirectory, "manifest.json")));
@@ -557,7 +558,7 @@ public partial class RealRecordingTests
         Assert.AreEqual("winning recording", await File.ReadAllTextAsync(output));
         Assert.IsFalse(Directory.Exists(framesDirectory));
         Assert.IsNotNull(exception.FramesDirectory);
-        StringAssert.StartsWith(exception.FramesDirectory, framesDirectory + ".partial-", exception.RecoveryHint);
+        Assert.StartsWith(framesDirectory + ".partial-", exception.FramesDirectory, exception.RecoveryHint);
         Assert.IsTrue(Directory.Exists(exception.FramesDirectory));
     }
 
@@ -597,7 +598,7 @@ public partial class RealRecordingTests
                 MaxEdge = 64,
             }, CancellationToken.None));
 
-        StringAssert.Contains(exception.InnerException!.Message, "frame failure");
+        Assert.Contains("frame failure", exception.InnerException!.Message);
         Assert.IsFalse(Directory.EnumerateFileSystemEntries(root).Any());
     }
 

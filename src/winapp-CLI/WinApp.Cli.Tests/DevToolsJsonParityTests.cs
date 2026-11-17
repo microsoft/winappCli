@@ -42,7 +42,7 @@ public class DevToolsJsonParityTests
         using var doc = JsonDocument.Parse(output);
         Assert.AreEqual(-32011, doc.RootElement.GetProperty("error").GetProperty("code").GetInt32());
         Assert.AreEqual("no-tree", doc.RootElement.GetProperty("error").GetProperty("token").GetString());
-        CollectionAssert.AreEqual(new List<string> { "VisualTree.find", "VisualTree.enumerate" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "VisualTree.find", "VisualTree.enumerate" }, agent.Received);
     }
 
     [TestMethod]
@@ -60,7 +60,7 @@ public class DevToolsJsonParityTests
             await handler.InvokeAsync(new DevToolsSetPropertyCommand().Parse(["button-cafebabe01", "after", "-p", "Text"]), cancel.Token);
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-        CollectionAssert.AreEqual(preCancelled ? new List<string>() : new List<string> { "VisualTree.find" }, agent.Received);
+        Assert.AreSequenceEqual(preCancelled ? new List<string>() : new List<string> { "VisualTree.find" }, agent.Received);
     }
 
     [TestMethod]
@@ -73,7 +73,7 @@ public class DevToolsJsonParityTests
         var args = withType ? new[] { "42", "Password", "x", "--type", "String", "--json" } : ["42", "Password", "x", "--json"];
         var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "holds a secret");
+        Assert.Contains("holds a secret", output);
         Assert.IsFalse(output.Contains("--type", StringComparison.Ordinal), output);
         Assert.IsFalse(agent.Received.Contains("HotReload.setProperty"), "A secret is never sent to the app.");
     }
@@ -107,8 +107,8 @@ public class DevToolsJsonParityTests
             await handler.InvokeAsync(new DevToolsSetPropertyCommand().Parse(["42", "after", "-p", "Text", "--json"]), cancel.Token);
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-        CollectionAssert.DoesNotContain(agent.Received, "HotReload.setProperty");
-        CollectionAssert.AreEqual(new List<string> { "Property.get" }, agent.Received);
+        Assert.DoesNotContain("HotReload.setProperty", agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "Property.get" }, agent.Received);
     }
 
     [TestMethod]
@@ -169,12 +169,12 @@ public class DevToolsJsonParityTests
             Assert.AreEqual("invalid-value", error.GetProperty("token").GetString());
             message = error.GetProperty("message").GetString()!;
         }
-        StringAssert.Contains(message, "does not support {ThemeResource key} or {StaticResource key}");
-        StringAssert.Contains(message, "Use a literal value instead");
-        StringAssert.Contains(message, "#FF0067C0");
-        StringAssert.Contains(message, "XAML and rebuild");
+        Assert.Contains("does not support {ThemeResource key} or {StaticResource key}", message);
+        Assert.Contains("Use a literal value instead", message);
+        Assert.Contains("#FF0067C0", message);
+        Assert.Contains("XAML and rebuild", message);
         Assert.IsFalse(message.Contains("0x8000FFFF", StringComparison.Ordinal), message);
-        CollectionAssert.AreEqual(new List<string> { "Property.get", "HotReload.setProperty" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "Property.get", "HotReload.setProperty" }, agent.Received);
     }
 
     [TestMethod]
@@ -208,7 +208,7 @@ public class DevToolsJsonParityTests
             }
             else
             {
-                StringAssert.Contains(output, requested);
+                Assert.Contains(requested, output);
             }
         }
     }
@@ -277,7 +277,7 @@ public class DevToolsJsonParityTests
             }
             else
             {
-                StringAssert.Contains(output, changed ? "->" : $"already {observed}, unchanged.");
+                Assert.Contains(changed ? "->" : $"already {observed}, unchanged.", output);
                 Assert.IsFalse(output.Contains("normalized", StringComparison.Ordinal), output);
             }
         }
@@ -325,7 +325,7 @@ public class DevToolsJsonParityTests
         using var doc = JsonDocument.Parse(jsonOut);
         Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean(), "ok:true with matchCount:0 is the bug.");
         Assert.AreEqual(0, doc.RootElement.GetProperty("matchCount").GetInt32());
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString()!, "__missing__",
+        Assert.Contains("__missing__", doc.RootElement.GetProperty("error").GetProperty("message").GetString()!,
             "The JSON payload must say WHY, not leave the caller to infer it from an empty array.");
     }
 
@@ -358,7 +358,7 @@ public class DevToolsJsonParityTests
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, ["--filter", "DeepLabel", "--depth", "1"]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "within --depth 1; deeper elements were not searched");
+        Assert.Contains("within --depth 1; deeper elements were not searched", output);
         Assert.IsFalse(output.Contains("No elements matched.", StringComparison.Ordinal), output);
     }
 
@@ -400,7 +400,7 @@ public class DevToolsJsonParityTests
         Assert.AreEqual("source-unavailable", error.GetProperty("token").GetString());
         const string message = "No XAML source is recorded for this element. Framework, template or generated elements may have no app-authored declaration.";
         Assert.AreEqual(message, error.GetProperty("message").GetString());
-        StringAssert.Contains(humanOut.Replace("\r", "").Replace("\n", " "), message);
+        Assert.Contains(message, humanOut.Replace("\r", "").Replace("\n", " "));
     }
 
     // After a late attach no element has a source, so blaming framework XAML sends the developer the wrong way.
@@ -418,8 +418,8 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(1, jsonExit);
         using var doc = JsonDocument.Parse(jsonOut);
         var message = doc.RootElement.GetProperty("error").GetProperty("message").GetString()!;
-        StringAssert.Contains(message, "this app reports no XAML source information");
-        StringAssert.Contains(message, "winapp run --devtools on");
+        Assert.Contains("this app reports no XAML source information", message);
+        Assert.Contains("winapp run --devtools on", message);
         Assert.IsFalse(message.Contains("Framework", StringComparison.Ordinal));
     }
 
@@ -458,7 +458,7 @@ public class DevToolsJsonParityTests
         var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
         Assert.AreEqual(0, humanExit);
         Assert.AreEqual(0, jsonExit);
-        StringAssert.Contains(humanOut, location + Environment.NewLine);
+        Assert.Contains(location + Environment.NewLine, humanOut);
         Assert.IsFalse(humanOut.Contains(":128", StringComparison.Ordinal), "The runtime end-of-tag position is not shown.");
         Assert.IsFalse(humanOut.Contains("hot reload", StringComparison.Ordinal), "An unchanged file needs no rebuild caveat.");
         using var document = JsonDocument.Parse(jsonOut);
@@ -478,7 +478,7 @@ public class DevToolsJsonParityTests
             .Answer("Source.get", """{"handle":"42","fileName":"ms-appx:///MainPage.xaml","lineNumber":20,"columnNumber":40,"authoredState":"stale"}""");
         var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "MainPage.xaml: Not confirmed: MainPage.xaml changed since the app was built");
+        Assert.Contains("MainPage.xaml: Not confirmed: MainPage.xaml changed since the app was built", output);
     }
 
     [TestMethod]
@@ -496,9 +496,9 @@ public class DevToolsJsonParityTests
         var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
         Assert.AreEqual(0, humanExit);
         Assert.AreEqual(0, jsonExit);
-        StringAssert.Contains(humanOut, "likely");
-        StringAssert.Contains(humanOut, "Compiler line preservation is unverified.");
-        StringAssert.Contains(humanOut, "MainPage.xaml:48");
+        Assert.Contains("likely", humanOut);
+        Assert.Contains("Compiler line preservation is unverified.", humanOut);
+        Assert.Contains("MainPage.xaml:48", humanOut);
         using var document = JsonDocument.Parse(jsonOut);
         Assert.AreEqual("likely", document.RootElement.GetProperty("authoredState").GetString());
         Assert.AreEqual("likely", document.RootElement.GetProperty("provenance").GetString());
@@ -519,8 +519,8 @@ public class DevToolsJsonParityTests
         using var document = JsonDocument.Parse(output);
         Assert.AreEqual("unverifiedBuild", document.RootElement.GetProperty("authoredState").GetString());
         Assert.IsFalse(document.RootElement.TryGetProperty("xaml", out _));
-        StringAssert.Contains(document.RootElement.GetProperty("xamlUnavailable").GetString()!, "could not confirm that MainPage.xaml matches the running build");
-        StringAssert.Contains(document.RootElement.GetProperty("xamlUnavailable").GetString()!, "Rebuild and run again (without --no-build)");
+        Assert.Contains("could not confirm that MainPage.xaml matches the running build", document.RootElement.GetProperty("xamlUnavailable").GetString()!);
+        Assert.Contains("Rebuild and run again (without --no-build)", document.RootElement.GetProperty("xamlUnavailable").GetString()!);
     }
 
     [TestMethod]
@@ -538,7 +538,7 @@ public class DevToolsJsonParityTests
             "ok:true for state:unavailable is the reading most likely to make an agent call a broken binding fine.");
         using var doc = JsonDocument.Parse(jsonOut);
         Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean());
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString()!, "managed DevTools agent",
+        Assert.Contains("managed DevTools agent", doc.RootElement.GetProperty("error").GetProperty("message").GetString()!,
             "The agent's own reason must reach the caller.");
     }
 
@@ -550,7 +550,7 @@ public class DevToolsJsonParityTests
             .Answer("Binding.diagnose", """{"state":"none"}""");
         var (exit, output) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "IsEnabled"]);
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "No binding: the XAML sets this property to a literal value.");
+        Assert.Contains("No binding: the XAML sets this property to a literal value.", output);
     }
 
     [TestMethod]
@@ -580,14 +580,14 @@ public class DevToolsJsonParityTests
             var (_, human) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "IsEnabled"]);
             var (_, json) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "IsEnabled", "--json"]);
             Assert.IsFalse(human.Contains("Forward path", StringComparison.Ordinal), human);
-            StringAssert.Contains(json, "Forward path and CLR type evaluated only");
+            Assert.Contains("Forward path and CLR type evaluated only", json);
         }
 
         using var broken = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
             .Answer("Binding.diagnose", """{"state":"bad-segment","path":"Missing","reason":"no property or field 'Missing'"}""");
-        StringAssert.Contains((await RunAsync(new DevToolsDiagnoseBindingCommand(), broken, ["42", "IsEnabled"])).Output,
-            "reason: no property or field 'Missing'");
+        Assert.Contains("reason: no property or field 'Missing'",
+            (await RunAsync(new DevToolsDiagnoseBindingCommand(), broken, ["42", "IsEnabled"])).Output);
     }
 
     [TestMethod]
@@ -598,9 +598,9 @@ public class DevToolsJsonParityTests
             .Answer("Binding.diagnose", """{"state":"evaluated","path":"Age","sourceValue":"36","converterEvaluation":"executed","resolvedValue":"36 years","targetValue":"36 years"}""");
         var (exit, output) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "Text"]);
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "source value: 36");
-        StringAssert.Contains(output, "converter: executed");
-        StringAssert.Contains(output, "target value: 36 years");
+        Assert.Contains("source value: 36", output);
+        Assert.Contains("converter: executed", output);
+        Assert.Contains("target value: 36 years", output);
     }
 
     [TestMethod]
@@ -611,7 +611,7 @@ public class DevToolsJsonParityTests
             .Answer("Property.get", """{"props":[{"name":"Text","value":"a","valueType":"String"},{"name":"Width","value":"1","valueType":"Double"}]}""");
         var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent, ["42", "Missing"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "among the 2 properties");
+        Assert.Contains("among the 2 properties", output);
         Assert.IsFalse(output.Contains("(ies)", StringComparison.Ordinal));
     }
 
@@ -689,8 +689,8 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(1, exit);
         using var doc = JsonDocument.Parse(output);
         Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean());
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString()!, "Refusing to write");
-        CollectionAssert.DoesNotContain(agent.Received, "HotReload.setProperty",
+        Assert.Contains("Refusing to write", doc.RootElement.GetProperty("error").GetProperty("message").GetString()!);
+        Assert.DoesNotContain("HotReload.setProperty", agent.Received,
             "The write must not reach the app at all when the name could not be shown to be unique.");
     }
 
@@ -710,8 +710,8 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(0, exit);
         using var doc = JsonDocument.Parse(output);
         Assert.IsTrue(doc.RootElement.GetProperty("ok").GetBoolean());
-        CollectionAssert.Contains(agent.Received, "HotReload.setProperty");
-        CollectionAssert.DoesNotContain(agent.Received, "VisualTree.find",
+        Assert.Contains("HotReload.setProperty", agent.Received);
+        Assert.DoesNotContain("VisualTree.find", agent.Received,
             "A handle needs no name lookup at all.");
     }
 
@@ -729,7 +729,7 @@ public class DevToolsJsonParityTests
 
         Assert.AreEqual(0, exit, "A read is still useful; it just cannot promise the name was unique.");
         using var doc = JsonDocument.Parse(output);
-        StringAssert.Contains(doc.RootElement.GetProperty("warning").GetString()!, "node limit");
+        Assert.Contains("node limit", doc.RootElement.GetProperty("warning").GetString()!);
     }
 
     /// <summary>
@@ -750,7 +750,7 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(0, exit);
         using var doc = JsonDocument.Parse(output);
         Assert.IsTrue(doc.RootElement.TryGetProperty("warning", out var warning), $"No warning in: {output}");
-        StringAssert.Contains(warning.GetString()!, "node limit");
+        Assert.Contains("node limit", warning.GetString()!);
     }
 
     [TestMethod]
@@ -766,7 +766,7 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(0, exit);
         using var doc = JsonDocument.Parse(output);
         Assert.IsTrue(doc.RootElement.TryGetProperty("warning", out var warning), $"No warning in: {output}");
-        StringAssert.Contains(warning.GetString()!, "node limit");
+        Assert.Contains("node limit", warning.GetString()!);
     }
 
     [TestMethod]
@@ -1047,8 +1047,8 @@ public class DevToolsJsonParityTests
             }
             else
             {
-                StringAssert.Contains(output, warning);
-                StringAssert.Contains(output, "Restart the app to restore the binding.");
+                Assert.Contains(warning, output);
+                Assert.Contains("Restart the app to restore the binding.", output);
             }
         }
     }
@@ -1069,7 +1069,7 @@ public class DevToolsJsonParityTests
             new DevToolsSetPropertyCommand(), agent, ["42", "requested", "-p", "Text"]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "Its effective value comes from Local.");
+        Assert.Contains("Its effective value comes from Local.", output);
         Assert.IsFalse(output.Contains("OldTitle", StringComparison.Ordinal));
     }
 

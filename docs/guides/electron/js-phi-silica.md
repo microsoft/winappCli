@@ -6,9 +6,9 @@ This guide shows how to call the Windows App SDK Phi Silica text summarization A
 
 ## Prerequisites
 
-Before starting this guide, make sure you've:
+Before starting this guide, make sure you have:
 - Completed the [development environment setup](setup.md).
-- Tested on a Copilot+ PC. Phi Silica requires hardware that supports the local language model.
+- A device that meets the [Phi Silica hardware and software requirements](https://learn.microsoft.com/windows/ai/apis/phi-silica#supported-hardware), either a Copilot+ PC with an NPU or an eligible GPU device.
 
 ## Step 1: Add the AI capability
 
@@ -93,7 +93,7 @@ npm start
 
 Check the console output — you should see the Phi Silica summary printed!
 
-If the model is unavailable on the device, the function logs `"Summary: Model is not available"`. Make sure you're running on supported hardware (Copilot+ PC) and that the manifest includes `systemAIModels`.
+If the model can't run on the device, the function logs `"Summary: Model is not available"`. If the model is supported but isn't ready, the function calls `ensureReadyAsync()` to download or initialize it. Check the [current Phi Silica requirements](https://learn.microsoft.com/windows/ai/apis/phi-silica#supported-hardware) for supported NPU or GPU hardware, Windows and Windows App SDK versions, and GPU drivers. Also make sure the manifest includes `systemAIModels` and the model isn't disabled by the user.
 
 From here, you can integrate the summarizer into your app however you'd like — exposing it through a preload script to the renderer, wiring it to IPC handlers, or calling it directly in the main process.
 

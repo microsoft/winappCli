@@ -130,7 +130,7 @@ public class CertificateServiceTests : BaseCommandTests
         Assert.IsNotNull(result.PublicCertificatePath);
         Assert.IsTrue(File.Exists(result.PublicCertificatePath!.FullName), "CER should be written");
         Assert.AreEqual("pw", result.Password);
-        StringAssert.Contains(result.SubjectName, "GenDirectTest");
+        Assert.Contains("GenDirectTest", result.SubjectName);
         Assert.IsFalse(result.UpdatedGitignore);
 
         using var generated = X509CertificateLoader.LoadPkcs12FromFile(pfx.FullName, "pw", X509KeyStorageFlags.EphemeralKeySet);
@@ -181,7 +181,7 @@ public class CertificateServiceTests : BaseCommandTests
                 svc.GenerateDevCertificateAsync($"CN={subject}", outputAsFile, TestTaskContext,
                     cancellationToken: TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "Failed to generate development certificate");
+            Assert.Contains("Failed to generate development certificate", ex.Message);
             Assert.IsEmpty(
                 FindInCurrentUserStore(X509FindType.FindBySubjectName, subject),
                 "A failed generation must not leave a certificate in CurrentUser\\My");
@@ -220,9 +220,9 @@ public class CertificateServiceTests : BaseCommandTests
                         cancellationToken: TestContext.CancellationToken));
             }
 
-            CollectionAssert.AreEqual(originalPfx, await File.ReadAllBytesAsync(pfx.FullName, TestContext.CancellationToken),
+            Assert.AreSequenceEqual(originalPfx, await File.ReadAllBytesAsync(pfx.FullName, TestContext.CancellationToken),
                 "A failed generation must restore the user's existing PFX");
-            CollectionAssert.AreEqual(originalCer, await File.ReadAllBytesAsync(cer, TestContext.CancellationToken),
+            Assert.AreSequenceEqual(originalCer, await File.ReadAllBytesAsync(cer, TestContext.CancellationToken),
                 "A failed generation must leave the user's existing CER untouched");
             Assert.IsEmpty(dir.GetFiles("*.tmp"), "Staged and backup files must be cleaned up");
             Assert.IsEmpty(
@@ -261,7 +261,7 @@ public class CertificateServiceTests : BaseCommandTests
         Assert.AreEqual(expected, pfx.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access),
             "Overwriting must keep the existing PFX's access control list");
         using var generated = X509CertificateLoader.LoadPkcs12FromFile(pfx.FullName, "pw", X509KeyStorageFlags.EphemeralKeySet);
-        StringAssert.Contains(generated.Subject, "AclTest");
+        Assert.Contains("AclTest", generated.Subject);
         Assert.IsEmpty(dir.GetFiles("*.tmp"), "Backup files must be cleaned up");
     }
 
@@ -352,7 +352,7 @@ public class CertificateServiceTests : BaseCommandTests
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             svc.InstallCertificate(pfx, "wrong-pw", force: true, TestTaskContext));
 
-        StringAssert.Contains(ex.Message, "password");
+        Assert.Contains("password", ex.Message);
     }
 
     [TestMethod]
@@ -394,7 +394,7 @@ public class CertificateServiceTests : BaseCommandTests
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             svc.InstallCertificate(pfx, "pw", force: false, TestTaskContext));
 
-        StringAssert.Contains(ex.Message, "Administrator");
+        Assert.Contains("Administrator", ex.Message);
     }
 
     // NOTE: There is deliberately no un-seamed "real default" install test. The admin-error
@@ -421,9 +421,9 @@ public class CertificateServiceTests : BaseCommandTests
 
         Assert.HasCount(1, bt.Invocations);
         Assert.AreEqual("signtool.exe", bt.Invocations[0].Tool);
-        StringAssert.Contains(bt.Invocations[0].Arguments, "sign /f");
-        StringAssert.Contains(bt.Invocations[0].Arguments, ".sst");
-        StringAssert.Contains(bt.Invocations[0].Arguments, "/fd SHA256");
+        Assert.Contains("sign /f", bt.Invocations[0].Arguments);
+        Assert.Contains(".sst", bt.Invocations[0].Arguments);
+        Assert.Contains("/fd SHA256", bt.Invocations[0].Arguments);
         Assert.DoesNotContain("/p ", bt.Invocations[0].Arguments, "the PFX password must not be passed to signtool");
         Assert.DoesNotContain(cert.FullName, bt.Invocations[0].Arguments, "signtool must not import the PFX itself");
     }
@@ -439,7 +439,7 @@ public class CertificateServiceTests : BaseCommandTests
         await svc.SignFileAsync(package, cert, TestTaskContext, password: "pw",
             cancellationToken: TestContext.CancellationToken);
 
-        StringAssert.Contains(bt.Invocations[0].Arguments, "/fd SHA384");
+        Assert.Contains("/fd SHA384", bt.Invocations[0].Arguments);
     }
 
     [TestMethod]
@@ -558,8 +558,8 @@ public class CertificateServiceTests : BaseCommandTests
             timestampUrl: "http://timestamp.example/rfc3161",
             cancellationToken: TestContext.CancellationToken);
 
-        StringAssert.Contains(bt.Invocations[0].Arguments, "/tr http://timestamp.example/rfc3161");
-        StringAssert.Contains(bt.Invocations[0].Arguments, "/td SHA256");
+        Assert.Contains("/tr http://timestamp.example/rfc3161", bt.Invocations[0].Arguments);
+        Assert.Contains("/td SHA256", bt.Invocations[0].Arguments);
     }
 
     [TestMethod]
@@ -603,7 +603,7 @@ public class CertificateServiceTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() =>
             svc.SignFileAsync(missing, cert, TestTaskContext, cancellationToken: TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "File not found");
+        Assert.Contains("File not found", ex.Message);
     }
 
     [TestMethod]
@@ -616,7 +616,7 @@ public class CertificateServiceTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<FileNotFoundException>(() =>
             svc.SignFileAsync(file, missingCert, TestTaskContext, cancellationToken: TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "Certificate file not found");
+        Assert.Contains("Certificate file not found", ex.Message);
     }
 
     [TestMethod]
@@ -633,7 +633,7 @@ public class CertificateServiceTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.SignFileAsync(file, cert, TestTaskContext, password: "pw", cancellationToken: TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "Failed to sign file");
+        Assert.Contains("Failed to sign file", ex.Message);
     }
 
     [TestMethod]
@@ -653,7 +653,7 @@ public class CertificateServiceTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.SignFileAsync(file, cert, ctx, password: "pw", cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "certificate publisher mismatch");
+        Assert.Contains("certificate publisher mismatch", ex.Message);
         Assert.IsFalse(ex.Message.Contains("0x80080204"), "non-verbose output should strip the raw error code");
     }
 
@@ -674,7 +674,7 @@ public class CertificateServiceTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.SignFileAsync(file, cert, ctx, password: "pw", cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "0x80080204");
+        Assert.Contains("0x80080204", ex.Message);
     }
 
     [TestMethod]
@@ -724,7 +724,7 @@ public class CertificateServiceTests : BaseCommandTests
             pfx, TestTaskContext, explicitPublisher: "CN=ExplicitPub", password: "custompw",
             cancellationToken: TestContext.CancellationToken);
 
-        StringAssert.Contains(result.SubjectName, "ExplicitPub");
+        Assert.Contains("ExplicitPub", result.SubjectName);
         Assert.IsTrue(result.UpdatedGitignore, "gitignore should have been updated");
         Assert.HasCount(1, gi.CertificateRequests);
     }
@@ -817,7 +817,7 @@ public class CertificateServiceTests : BaseCommandTests
             pfx, TestTaskContext, manifestPath: manifest, updateGitignore: false,
             cancellationToken: TestContext.CancellationToken);
 
-        StringAssert.Contains(result.SubjectName, "ManifestPub");
+        Assert.Contains("ManifestPub", result.SubjectName);
     }
 
     [TestMethod]
@@ -851,7 +851,7 @@ public class CertificateServiceTests : BaseCommandTests
             pfx, TestTaskContext, updateGitignore: false,
             cancellationToken: TestContext.CancellationToken);
 
-        StringAssert.Contains(result.SubjectName, "ProjPub");
+        Assert.Contains("ProjPub", result.SubjectName);
     }
 
     [TestMethod]
@@ -879,7 +879,7 @@ public class CertificateServiceTests : BaseCommandTests
 
         var subject = CertificateService.ExtractPublisherFromCertificate(pfx, "pw");
 
-        StringAssert.Contains(subject, "CN=ExtractMe");
+        Assert.Contains("CN=ExtractMe", subject);
     }
 
     [TestMethod]
@@ -898,7 +898,7 @@ public class CertificateServiceTests : BaseCommandTests
 
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             CertificateService.ExtractPublisherFromCertificate(pfx, "not-the-password"));
-        StringAssert.Contains(ex.Message, "Failed to extract publisher");
+        Assert.Contains("Failed to extract publisher", ex.Message);
     }
 
     [TestMethod]
@@ -914,7 +914,7 @@ public class CertificateServiceTests : BaseCommandTests
 
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             CertificateService.ExtractPublisherFromCertificate(new FileInfo(path), "pw"));
-        StringAssert.Contains(ex.Message, "no subject");
+        Assert.Contains("no subject", ex.Message);
     }
 
     // ── ValidatePublisherMatchAsync (static) ────────────────────────────
@@ -936,7 +936,7 @@ public class CertificateServiceTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             CertificateService.ValidatePublisherMatchAsync(pfx, "pw", manifest, TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "does not match");
+        Assert.Contains("does not match", ex.Message);
     }
 
     [TestMethod]
@@ -947,6 +947,6 @@ public class CertificateServiceTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             CertificateService.ValidatePublisherMatchAsync(missingCert, "pw", manifest, TestContext.CancellationToken));
-        StringAssert.Contains(ex.Message, "Failed to validate publisher match");
+        Assert.Contains("Failed to validate publisher match", ex.Message);
     }
 }

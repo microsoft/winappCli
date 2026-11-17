@@ -86,9 +86,10 @@ public class InteractiveDesktopSignalSchedulingTests
         _scheduler.CompleteCommand(state, _probe, barrier, OwnerA, renewGrace: true);
 
         var newlyRunnable = InteractiveDesktopScheduler.RunnableParticipants(state).Except(before).ToList();
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             new[] { (201, 201L), (202, 202L) },
             newlyRunnable,
+            SequenceOrder.InAnyOrder,
             "every command the barrier released must be woken, not just the first");
     }
 
