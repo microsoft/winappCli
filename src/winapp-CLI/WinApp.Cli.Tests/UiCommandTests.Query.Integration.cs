@@ -65,7 +65,7 @@ public partial class UiCommandTests
             Assert.AreEqual(1, _fakePollDelay.CallCount);
             Assert.AreEqual(0, svc.SerializedElementResolutionCount);
             Assert.IsFalse(TestAnsiConsole.Output.Contains(original.Selector!, StringComparison.Ordinal));
-            StringAssert.Contains(TestAnsiConsole.Output, "ready");
+            Assert.Contains("ready", TestAnsiConsole.Output);
         }
         finally { UiAutomationService.ResetNativeSeams(); }
     }
@@ -93,7 +93,7 @@ public partial class UiCommandTests
         var scoped = await RunQueryProcessAsync(
             ["ui", "search", "Inside", "-w", hwnd, "--root", slug, "--type", "Text", "--json"]);
         Assert.AreEqual(0, scoped.ExitCode, scoped.Stderr);
-        StringAssert.Contains(scoped.Stdout, "Inside selected window");
+        Assert.Contains("Inside selected window", scoped.Stdout);
 
         var args = new List<string>
         {
@@ -167,7 +167,7 @@ public partial class UiCommandTests
         var invalid = await RunQueryProcessAsync(
             ["ui", "search", "delayedValue", "-w", hwnd, "--type", "NotAType", "--json"]);
         Assert.AreEqual(1, invalid.ExitCode);
-        StringAssert.Contains(invalid.Stderr, "invalid_arguments");
+        Assert.Contains("invalid_arguments", invalid.Stderr);
 
         var replacementWait = RunQueryProcessAsync(
             ["ui", "wait-for", "delayedValue", "-w", hwnd, "--root", "delayedRoot",

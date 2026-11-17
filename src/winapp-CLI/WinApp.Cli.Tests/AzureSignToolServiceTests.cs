@@ -80,7 +80,7 @@ public class AzureSignToolServiceTests : BaseCommandTests
         Assert.AreEqual(1, _installer.EnsureCallCount, "Should attempt to install the signing client package");
         Assert.AreEqual(DlibDllName, result.Name);
         Assert.IsTrue(result.Exists);
-        StringAssert.Contains(result.FullName, AzureSignToolService.ArtifactSigningClientVersion);
+        Assert.Contains(AzureSignToolService.ArtifactSigningClientVersion, result.FullName);
     }
 
     [TestMethod]
@@ -92,7 +92,7 @@ public class AzureSignToolServiceTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => _service.EnsureTrustedSigningDlibAsync(TestTaskContext, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "Could not find the Trusted Signing client library");
+        Assert.Contains("Could not find the Trusted Signing client library", ex.Message);
         Assert.AreEqual(1, _installer.EnsureCallCount);
     }
 
@@ -126,7 +126,7 @@ public class AzureSignToolServiceTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => _service.EnsureTrustedSigningDlibAsync(TestTaskContext, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "failed integrity verification");
+        Assert.Contains("failed integrity verification", ex.Message);
     }
 
     [TestMethod]
@@ -144,7 +144,7 @@ public class AzureSignToolServiceTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.EnsureTrustedSigningDlibAsync(TestTaskContext, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "failed integrity verification");
+        Assert.Contains("failed integrity verification", ex.Message);
     }
 
     [TestMethod]
@@ -155,7 +155,7 @@ public class AzureSignToolServiceTests : BaseCommandTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => _service.EnsureTrustedSigningDlibAsync(TestTaskContext, TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "Could not find the Trusted Signing client library");
+        Assert.Contains("Could not find the Trusted Signing client library", ex.Message);
     }
 
     [TestMethod]
@@ -198,9 +198,9 @@ public class AzureSignToolServiceTests : BaseCommandTests
         Assert.AreEqual(signtool.FullName, recording.CapturedToolPathOverride!.FullName);
 
         // signtool arguments reference the dlib, the metadata file, and the target file.
-        StringAssert.Contains(recording.CapturedArguments!, dlib.FullName);
-        StringAssert.Contains(recording.CapturedArguments!, metadata.FullName);
-        StringAssert.Contains(recording.CapturedArguments!, fileToSign.FullName);
+        Assert.Contains(dlib.FullName, recording.CapturedArguments!);
+        Assert.Contains(metadata.FullName, recording.CapturedArguments!);
+        Assert.Contains(fileToSign.FullName, recording.CapturedArguments!);
 
         // The tenant id is forwarded to the dlib via AZURE_TENANT_ID.
         Assert.IsNotNull(recording.CapturedEnvironment);
@@ -255,7 +255,7 @@ public class AzureSignToolServiceTests : BaseCommandTests
 
         await service.SignAsync(package, metadata, tenantId: null, TestTaskContext, TestContext.CancellationToken);
 
-        StringAssert.Contains(recording.CapturedArguments!, "/fd SHA384");
+        Assert.Contains("/fd SHA384", recording.CapturedArguments!);
     }
 
     [TestMethod]
@@ -284,14 +284,14 @@ public class AzureSignToolServiceTests : BaseCommandTests
 
         // The trusted Azure CLI directory is prepended so the dlib's AzureCliCredential resolves the
         // legitimate az.cmd before any 'az.cmd' injected elsewhere on PATH.
-        StringAssert.StartsWith(path, trustedDir + Path.PathSeparator,
+        Assert.StartsWith(trustedDir + Path.PathSeparator, path,
             "The trusted Azure CLI directory must be prepended to PATH");
 
         // Prepending is additive: the caller's existing PATH entries are preserved after the prefix.
         var currentPath = Environment.GetEnvironmentVariable("PATH");
         if (!string.IsNullOrEmpty(currentPath))
         {
-            StringAssert.Contains(path, currentPath);
+            Assert.Contains(currentPath, path);
         }
     }
 

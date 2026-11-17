@@ -120,8 +120,8 @@ public class SampleIndexTests
             Assert.AreEqual(before.Description, after.Description, "Description (long-form)");
             Assert.AreEqual(before.ControlDescription, after.ControlDescription, "ControlDescription (one-line)");
             Assert.AreEqual(before.ApiNamespace, after.ApiNamespace, "ApiNamespace");
-            CollectionAssert.AreEqual(before.RelatedControls, after.RelatedControls, "RelatedControls");
-            CollectionAssert.AreEqual(before.XmlnsImports, after.XmlnsImports, "XmlnsImports");
+            Assert.AreSequenceEqual(before.RelatedControls, after.RelatedControls, "RelatedControls");
+            Assert.AreSequenceEqual(before.XmlnsImports, after.XmlnsImports, "XmlnsImports");
 
             Assert.AreEqual(before.Docs.Length, after.Docs.Length, "Docs length");
             for (int d = 0; d < before.Docs.Length; d++)
@@ -212,8 +212,8 @@ public class SampleIndexTests
         var json = SampleIndexWriter.Write(FullyPopulatedScenarios(), tags, curated, "gallery");
         var (_, roundTrippedTags, roundTrippedCurated) = SampleIndexParser.Parse(json, "gallery");
 
-        CollectionAssert.AreEqual(supplementary, roundTrippedTags["button"], "supplementary terms");
-        CollectionAssert.AreEqual(authorWritten, roundTrippedCurated["button"], "author-written terms");
+        Assert.AreSequenceEqual(supplementary, roundTrippedTags["button"], "supplementary terms");
+        Assert.AreSequenceEqual(authorWritten, roundTrippedCurated["button"], "author-written terms");
     }
 
     /// <summary>
@@ -240,7 +240,7 @@ public class SampleIndexTests
 
         var (_, tags, curated) = SampleIndexParser.Parse(json, "reactor");
 
-        CollectionAssert.AreEqual(FlexKeywords, tags["flex"]);
+        Assert.AreSequenceEqual(FlexKeywords, tags["flex"]);
         Assert.AreEqual(0, curated.Count, "an absent curatedKeywords must not be back-filled from keywords");
     }
 
@@ -254,7 +254,7 @@ public class SampleIndexTests
         var json = SampleIndexWriter.Write(FullyPopulatedScenarios(), tags, source: "gallery");
         var (_, roundTripped, _) = SampleIndexParser.Parse(json, "gallery");
 
-        CollectionAssert.AreEqual(ButtonKeywords, roundTripped["button"]);
+        Assert.AreSequenceEqual(ButtonKeywords, roundTripped["button"]);
     }
 
     /// <summary>
@@ -299,11 +299,11 @@ public class SampleIndexTests
     public void Write_OmitsGeneratedTimestampUnlessRequested()
     {
         var withoutStamp = SampleIndexWriter.Write(FullyPopulatedScenarios(), source: "gallery");
-        StringAssert.DoesNotMatch(withoutStamp, new System.Text.RegularExpressions.Regex("generatedAtUtc"));
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("generatedAtUtc"), withoutStamp);
 
         var withStamp = SampleIndexWriter.Write(
             FullyPopulatedScenarios(), source: "gallery", generatedAtUtc: DateTimeOffset.UnixEpoch);
-        StringAssert.Contains(withStamp, "generatedAtUtc");
+        Assert.Contains("generatedAtUtc", withStamp);
     }
 
     /// <summary>XAML-only samples are the common case for Gallery and Toolkit, and the shape
@@ -583,9 +583,10 @@ public class SampleIndexTests
     {
         var declared = schemaNode.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
 
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             expected,
             declared,
+            SequenceOrder.InAnyOrder,
             $"the {level} properties in docs/winui-sample-index.schema.json and SampleIndexSchema have drifted apart");
     }
 
@@ -649,8 +650,8 @@ public class SampleIndexTests
         var icons = scenarios.Single(s => s.HeaderText == "Segmented with icons");
         Assert.AreEqual("Shows the default Segmented control.", basic.Description);
         Assert.AreEqual("Shows Segmented rendering icon-only items.", icons.Description);
-        CollectionAssert.AreEqual(SegmentedXmlns, basic.XmlnsImports);
-        CollectionAssert.AreEqual(SegmentedMediaXmlns, icons.XmlnsImports);
+        Assert.AreSequenceEqual(SegmentedXmlns, basic.XmlnsImports);
+        Assert.AreSequenceEqual(SegmentedMediaXmlns, icons.XmlnsImports);
     }
 
     /// <summary>
@@ -715,7 +716,7 @@ public class SampleIndexTests
         foreach (var scenario in scenarios)
         {
             Assert.AreEqual("Shared prose written once.", scenario.Description);
-            CollectionAssert.AreEqual(ContosoXmlns, scenario.XmlnsImports);
+            Assert.AreSequenceEqual(ContosoXmlns, scenario.XmlnsImports);
         }
     }
 
@@ -845,7 +846,7 @@ public class SampleIndexTests
         Assert.AreEqual(2, scenarios.Length);
         foreach (var s in scenarios)
         {
-            CollectionAssert.AreEqual(HelpersUsings, s.Usings);
+            Assert.AreSequenceEqual(HelpersUsings, s.Usings);
             Assert.IsFalse(s.CSharp!.Contains("using "), "usings must not be folded into code");
         }
         Assert.AreEqual("var a = 1;", scenarios[0].CSharp);

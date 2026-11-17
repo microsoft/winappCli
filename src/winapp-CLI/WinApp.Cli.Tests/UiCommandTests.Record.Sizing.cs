@@ -130,8 +130,8 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--max-edge", "1", "--json"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--max-edge must be 0");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "64");
+        Assert.Contains("--max-edge must be 0", ConsoleStdErr.ToString());
+        Assert.Contains("64", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -164,9 +164,9 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--max-edge", "1", "--json"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--max-edge must be 0",
+        Assert.Contains("--max-edge must be 0", ConsoleStdErr.ToString(),
             "error must be invalid_arguments, not missing_app");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "64");
+        Assert.Contains("64", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -177,7 +177,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--max-edge", "63", "--json"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--max-edge must be 0",
+        Assert.Contains("--max-edge must be 0", ConsoleStdErr.ToString(),
             "error must be invalid_arguments, not missing_app");
     }
 

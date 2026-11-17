@@ -164,9 +164,9 @@ public class NugetServiceDependencyTests : BaseCommandTests
 
             // The error must name the dependency and the unreachable source, proving the feed/auth failure
             // was not masked as "no satisfying version" (which would silently omit the dependency).
-            StringAssert.Contains(ex.Message, "Broken.Child", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "could not be queried", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "broken", StringComparison.Ordinal);
+            Assert.Contains("Broken.Child", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("could not be queried", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("broken", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -387,8 +387,8 @@ public class NugetServiceDependencyTests : BaseCommandTests
 
             // The error must name the dependency and its unsatisfiable range, proving the missing package was
             // surfaced rather than dropped.
-            StringAssert.Contains(ex.Message, "Missing.Child", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "[5.0.0, )", StringComparison.Ordinal);
+            Assert.Contains("Missing.Child", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("[5.0.0, )", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -441,8 +441,8 @@ public class NugetServiceDependencyTests : BaseCommandTests
                 async () => await service.GetPackageDependenciesAsync("Excl.Root", "1.0.0", TestContext.CancellationToken));
 
             // The error must name the excluded dependency and point at the packageSourceMapping gap.
-            StringAssert.Contains(ex.Message, "Excl.Child", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "packageSourceMapping", StringComparison.Ordinal);
+            Assert.Contains("Excl.Child", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("packageSourceMapping", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -475,8 +475,8 @@ public class NugetServiceDependencyTests : BaseCommandTests
                 async () => await service.GetPackageDependenciesAsync("Cycle.A", "1.0.0", TestContext.CancellationToken));
 
             // The message must call out the cycle and name the chain (A -> B -> A) so it is actionable.
-            StringAssert.Contains(ex.Message, "Circular package dependency", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "Cycle.A -> Cycle.B -> Cycle.A", StringComparison.Ordinal);
+            Assert.Contains("Circular package dependency", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("Cycle.A -> Cycle.B -> Cycle.A", ex.Message, StringComparison.Ordinal);
         }
         finally
         {

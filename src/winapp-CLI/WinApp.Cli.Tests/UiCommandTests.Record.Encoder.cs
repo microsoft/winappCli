@@ -73,8 +73,8 @@ public partial class UiCommandTests
         }
 
         Assert.IsNotNull(thrown, "constructor must translate Media Foundation encoder init failures");
-        StringAssert.Contains(thrown.Message, "Media Feature Pack");
-        StringAssert.Contains(thrown.Message, "0xC00D36B4");
+        Assert.Contains("Media Feature Pack", thrown.Message);
+        Assert.Contains("0xC00D36B4", thrown.Message);
         Assert.IsInstanceOfType<System.Runtime.InteropServices.COMException>(thrown.InnerException);
 
         // The output (final) path must not have been created.
@@ -100,8 +100,8 @@ public partial class UiCommandTests
             command, ["-a", "TestApp", "-o", outputPath, "--json"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Media Feature Pack");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "0xC00D5212");
+        Assert.Contains("Media Feature Pack", ConsoleStdErr.ToString());
+        Assert.Contains("0xC00D5212", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -172,8 +172,9 @@ public partial class UiCommandTests
         }
 
         Assert.AreEqual("late-sentinel", File.ReadAllText(finalPath));
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             new[] { finalPath },
-            Directory.GetFiles(_tempDirectory.FullName, "*.mp4"));
+            Directory.GetFiles(_tempDirectory.FullName, "*.mp4"),
+            SequenceOrder.InAnyOrder);
     }
 }

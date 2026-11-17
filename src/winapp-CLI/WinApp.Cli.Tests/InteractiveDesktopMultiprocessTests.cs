@@ -390,7 +390,7 @@ public partial class InteractiveDesktopMultiprocessTests
 
         var stderr = child.StandardError.ReadToEnd() + child.StandardOutput.ReadToEnd();
         Assert.AreEqual(1, child.ExitCode);
-        StringAssert.Contains(stderr, UiCoordinationErrorCodes.Unavailable,
+        Assert.Contains(UiCoordinationErrorCodes.Unavailable, stderr,
             "a mutating command must fail closed rather than rebuild state over a live participant");
 
         releaseHolder.SetResult();
@@ -417,7 +417,7 @@ public partial class InteractiveDesktopMultiprocessTests
 
         var output = child.StandardError.ReadToEnd() + child.StandardOutput.ReadToEnd();
         Assert.AreEqual(1, child.ExitCode);
-        StringAssert.Contains(output, UiCoordinationErrorCodes.InvalidWorkflowId);
+        Assert.Contains(UiCoordinationErrorCodes.InvalidWorkflowId, output);
         Assert.IsFalse(_participants.AnyLiveParticipant(), "a rejected command must leave no lease behind");
 
         await Task.CompletedTask;

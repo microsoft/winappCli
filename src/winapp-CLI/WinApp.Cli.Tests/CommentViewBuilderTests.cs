@@ -134,7 +134,8 @@ public class CommentViewBuilderTests
         Assert.IsFalse(CommentViewBuilder.IsMaybeStale(c), "An identity-less anchor says nothing about whether the element still exists.");
 
         var warning = CommentViewBuilder.AnchorHealthWarning(c);
-        StringAssert.Contains(warning, "cannot be re-anchored");
+        Assert.IsNotNull(warning);
+        Assert.Contains("cannot be re-anchored", warning);
         Assert.IsFalse(warning!.Contains("renamed or removed", StringComparison.Ordinal));
     }
 
@@ -145,7 +146,7 @@ public class CommentViewBuilderTests
 
         Assert.IsTrue(CommentViewBuilder.IsMaybeStale(c), "A resolvable identity that matched nothing IS the genuine stale case.");
         Assert.IsFalse(CommentViewBuilder.IsUnanchorable(c));
-        StringAssert.Contains(CommentViewBuilder.AnchorHealthWarning(c), "renamed or removed");
+        Assert.Contains("renamed or removed", CommentViewBuilder.AnchorHealthWarning(c)!);
     }
 
     [TestMethod]
