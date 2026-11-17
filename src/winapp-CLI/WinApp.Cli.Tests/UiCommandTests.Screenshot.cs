@@ -66,9 +66,9 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
 
         Assert.AreEqual(0, exitCode);
-        CollectionAssert.AreEqual(PngImage.Encode(pixels, 2, 2), await File.ReadAllBytesAsync(ShotPath(), TestContext.CancellationToken));
+        Assert.AreSequenceEqual(PngImage.Encode(pixels, 2, 2), await File.ReadAllBytesAsync(ShotPath(), TestContext.CancellationToken));
         var warning = ConsoleStdErr.ToString();
-        StringAssert.Contains(warning, $"Warning: The captured image for HWND {_fakeTargetResolver.TargetResult.WindowHandle} is entirely black.");
+        Assert.Contains($"Warning: The captured image for HWND {_fakeTargetResolver.TargetResult.WindowHandle} is entirely black.", warning);
         if (captureScreen)
         {
             Assert.IsFalse(warning.Contains("--capture-screen", StringComparison.Ordinal),
@@ -76,8 +76,8 @@ public partial class UiCommandTests
         }
         else
         {
-            StringAssert.Contains(warning, $"winapp ui screenshot -w {_fakeTargetResolver.TargetResult.WindowHandle} --capture-screen");
-            StringAssert.Contains(warning, "This activates the window");
+            Assert.Contains($"winapp ui screenshot -w {_fakeTargetResolver.TargetResult.WindowHandle} --capture-screen", warning);
+            Assert.Contains("This activates the window", warning);
         }
         var call = _fakeUia.ScreenshotCalls.Single();
         Assert.AreEqual(captureScreen, call.CaptureScreen, "The warning must not switch capture modes or retry.");
@@ -127,10 +127,10 @@ public partial class UiCommandTests
         Assert.AreEqual(0, exitCode);
         var warnings = ConsoleStdErr.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
         Assert.HasCount(2, warnings);
-        StringAssert.Contains(warnings[0], "HWND 11 is entirely black");
-        StringAssert.Contains(warnings[0], "screenshot -w 11 --capture-screen");
-        StringAssert.Contains(warnings[1], "HWND 12 is entirely black");
-        StringAssert.Contains(warnings[1], "screenshot -w 12 --capture-screen");
+        Assert.Contains("HWND 11 is entirely black", warnings[0]);
+        Assert.Contains("screenshot -w 11 --capture-screen", warnings[0]);
+        Assert.Contains("HWND 12 is entirely black", warnings[1]);
+        Assert.Contains("screenshot -w 12 --capture-screen", warnings[1]);
         using var document = JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.AreEqual(2, document.RootElement.GetProperty("windows").GetArrayLength());
         using var image = SKBitmap.Decode(ShotPath());
