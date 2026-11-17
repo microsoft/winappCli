@@ -90,9 +90,9 @@ public class CommentsAppRootTests
         });
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "App A comment");
+        Assert.Contains("App A comment", output);
         Assert.IsFalse(output.Contains("App B comment", StringComparison.Ordinal));
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(StorePath(_cwd)));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(StorePath(_cwd)));
         AssertMutation(verb, _app);
         if (verb is "update" or "delete")
         {
@@ -112,7 +112,7 @@ public class CommentsAppRootTests
             explicitRoot: _app);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "App A comment");
+        Assert.Contains("App A comment", output);
         AssertMutation(verb, _app);
         Assert.AreEqual(CommentStatus.Open, _store.Get(StorePath(_cwd), "shared-id")!.Status);
     }
@@ -129,9 +129,9 @@ public class CommentsAppRootTests
 
         Assert.AreEqual(1, exit, output);
         var payload = JsonSerializer.Deserialize(output, CommentsJsonContext.Default.CommentResultPayload)!;
-        StringAssert.Contains(payload.Error!, "No comment store found");
-        StringAssert.Contains(payload.Error!, emptyProject);
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(StorePath(_cwd)));
+        Assert.Contains("No comment store found", payload.Error!);
+        Assert.Contains(emptyProject, payload.Error!);
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(StorePath(_cwd)));
         Assert.IsFalse(File.Exists(StorePath(emptyProject)));
     }
 
@@ -146,9 +146,9 @@ public class CommentsAppRootTests
         var (exit, output, _) = Run(verb, (_, _) => throw new AssertFailedException("Offline command connected."), withApp: false);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "App B comment");
+        Assert.Contains("App B comment", output);
         AssertMutation(verb, _cwd);
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(StorePath(_app)));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(StorePath(_app)));
     }
 
     [TestMethod]
@@ -174,8 +174,8 @@ public class CommentsAppRootTests
             }, json);
 
             Assert.AreEqual(1, exit, output);
-            StringAssert.Contains(output, "--devtools on");
-            StringAssert.Contains(output, "--source-root");
+            Assert.Contains("--devtools on", output);
+            Assert.Contains("--source-root", output);
             Assert.IsFalse(output.Contains("App B comment", StringComparison.Ordinal));
             Assert.IsFalse(output.Contains("DevToolsProtocolException", StringComparison.Ordinal));
             if (json)
@@ -187,9 +187,9 @@ public class CommentsAppRootTests
             }
             else
             {
-                StringAssert.Contains(output, "Error:");
+                Assert.Contains("Error:", output);
             }
-            CollectionAssert.AreEqual(before, File.ReadAllBytes(StorePath(_cwd)));
+            Assert.AreSequenceEqual(before, File.ReadAllBytes(StorePath(_cwd)));
             Assert.IsNull(pusher.StorePath, "A failed root lookup must not refresh another store.");
         }
     }
@@ -219,9 +219,9 @@ public class CommentsAppRootTests
         Assert.AreEqual(1, exit, output);
         var payload = JsonSerializer.Deserialize(output, CommentsJsonContext.Default.CommentResultPayload)!;
         Assert.IsFalse(payload.Ok);
-        StringAssert.Contains(payload.Error!, "DevTools is unavailable");
-        StringAssert.Contains(payload.Error!, "--source-root");
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(StorePath(_cwd)));
+        Assert.Contains("DevTools is unavailable", payload.Error!);
+        Assert.Contains("--source-root", payload.Error!);
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(StorePath(_cwd)));
     }
 
     private void AssertMutation(string verb, string project)

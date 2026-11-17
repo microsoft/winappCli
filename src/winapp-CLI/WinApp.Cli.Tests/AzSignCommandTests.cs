@@ -48,7 +48,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "--account must be used with --resource-group");
+        Assert.Contains("--account must be used with --resource-group", allOutput);
     }
 
     [TestMethod]
@@ -61,7 +61,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "--profile must be used with --account");
+        Assert.Contains("--profile must be used with --account", allOutput);
     }
 
     [TestMethod]
@@ -77,7 +77,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "Azure authentication failed");
+        Assert.Contains("Azure authentication failed", allOutput);
     }
 
     [TestMethod]
@@ -92,7 +92,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "No Azure subscriptions found");
+        Assert.Contains("No Azure subscriptions found", allOutput);
     }
 
     [TestMethod]
@@ -111,7 +111,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "No signing accounts found");
+        Assert.Contains("No signing accounts found", allOutput);
     }
 
     [TestMethod]
@@ -134,7 +134,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "No certificate profiles found");
+        Assert.Contains("No certificate profiles found", allOutput);
     }
 
     [TestMethod]
@@ -149,7 +149,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "Metadata file not found");
+        Assert.Contains("Metadata file not found", allOutput);
     }
 
     [TestMethod]
@@ -169,7 +169,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "not found");
+        Assert.Contains("not found", allOutput);
     }
 
     [TestMethod]
@@ -284,9 +284,9 @@ public class AzSignCommandTests : BaseCommandTests
 
         // The generated metadata file should contain the resolved signing identity...
         Assert.IsNotNull(_fakeSignToolService.LastMetadataContent);
-        StringAssert.Contains(_fakeSignToolService.LastMetadataContent, "myaccount");
-        StringAssert.Contains(_fakeSignToolService.LastMetadataContent, "myprofile");
-        StringAssert.Contains(_fakeSignToolService.LastMetadataContent, "https://eus.codesigning.azure.net");
+        Assert.Contains("myaccount", _fakeSignToolService.LastMetadataContent);
+        Assert.Contains("myprofile", _fakeSignToolService.LastMetadataContent);
+        Assert.Contains("https://eus.codesigning.azure.net", _fakeSignToolService.LastMetadataContent);
 
         // ...and the temp file must be cleaned up afterward.
         Assert.IsNotNull(_fakeSignToolService.LastMetadataFilePath);
@@ -351,7 +351,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "signtool.exe execution failed");
+        Assert.Contains("signtool.exe execution failed", allOutput);
 
         // The generated metadata temp file must be cleaned up even when signing fails.
         Assert.IsNotNull(_fakeSignToolService.LastMetadataFilePath);
@@ -376,7 +376,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "--subscription");
+        Assert.Contains("--subscription", allOutput);
     }
 
     [TestMethod]
@@ -397,7 +397,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "--account");
+        Assert.Contains("--account", allOutput);
     }
 
     [TestMethod]
@@ -422,7 +422,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "--profile");
+        Assert.Contains("--profile", allOutput);
     }
 
     [TestMethod]
@@ -462,7 +462,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "--metadata-file cannot be combined");
+        Assert.Contains("--metadata-file cannot be combined", allOutput);
         Assert.AreEqual(0, _fakeSignToolService.CallCount, "Signing must not run when inputs are ambiguous");
     }
 
@@ -479,7 +479,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "untrusted Endpoint");
+        Assert.Contains("untrusted Endpoint", allOutput);
         Assert.AreEqual(0, _fakeSignToolService.CallCount, "Must not sign with an untrusted endpoint");
     }
 
@@ -501,7 +501,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "untrusted Endpoint");
+        Assert.Contains("untrusted Endpoint", allOutput);
         Assert.AreEqual(0, _fakeSignToolService.CallCount, "Must not sign with an untrusted discovered endpoint");
     }
 
@@ -549,7 +549,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "Endpoint");
+        Assert.Contains("Endpoint", allOutput);
         Assert.AreEqual(0, _fakeSignToolService.CallCount);
     }
 
@@ -568,7 +568,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "CodeSigningAccountName");
+        Assert.Contains("CodeSigningAccountName", allOutput);
         // Validation must fail before any Azure work or signing.
         Assert.AreEqual(0, _fakeAuthService.GetAccessTokenCallCount, "Must not authenticate with incomplete metadata");
         Assert.AreEqual(0, _fakeSignToolService.CallCount, "Must not sign with incomplete metadata");
@@ -589,7 +589,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "CertificateProfileName");
+        Assert.Contains("CertificateProfileName", allOutput);
         Assert.AreEqual(0, _fakeAuthService.GetAccessTokenCallCount, "Must not authenticate with incomplete metadata");
         Assert.AreEqual(0, _fakeSignToolService.CallCount, "Must not sign with incomplete metadata");
     }
@@ -607,7 +607,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "must contain a JSON object");
+        Assert.Contains("must contain a JSON object", allOutput);
         Assert.AreEqual(0, _fakeSignToolService.CallCount);
     }
 
@@ -626,7 +626,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "not found");
+        Assert.Contains("not found", allOutput);
         Assert.AreEqual(0, _fakeSignToolService.CallCount);
     }
 
@@ -645,7 +645,7 @@ public class AzSignCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, result);
         var allOutput = $"{ConsoleStdOut}{ConsoleStdErr}";
-        StringAssert.Contains(allOutput, "Suspended");
+        Assert.Contains("Suspended", allOutput);
         Assert.AreEqual(0, _fakeSignToolService.CallCount);
     }
 

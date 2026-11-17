@@ -35,7 +35,7 @@ public class AtomicFileTests
 
         await AtomicFile.WriteAllBytesAsync(dest, bytes, CancellationToken.None);
 
-        CollectionAssert.AreEqual(bytes, await File.ReadAllBytesAsync(dest));
+        Assert.AreSequenceEqual(bytes, await File.ReadAllBytesAsync(dest));
         Assert.AreEqual(0, Directory.GetFiles(_tempDir, "*.tmp").Length, "No leftover temp files must remain.");
     }
 
@@ -69,7 +69,7 @@ public class AtomicFileTests
 
         Assert.IsTrue(File.Exists(dest), "After Publish, the destination must exist.");
         Assert.IsFalse(File.Exists(staged), "After Publish, the staged temp file must be gone (moved).");
-        CollectionAssert.AreEqual(bytes, await File.ReadAllBytesAsync(dest));
+        Assert.AreSequenceEqual(bytes, await File.ReadAllBytesAsync(dest));
     }
 
     [TestMethod]

@@ -39,7 +39,7 @@ public class CommentPusherTests
             if (explicitRoot)
             {
                 Assert.AreEqual("scoped", rows[0].GetProperty("id").GetString());
-                CollectionAssert.DoesNotContain(agent.Received, "Internal.sourceRoot");
+                Assert.DoesNotContain("Internal.sourceRoot", agent.Received);
             }
         }
         finally { root.Delete(recursive: true); }
@@ -113,8 +113,8 @@ public class CommentPusherTests
             var logger = new RecordingLogger();
             Assert.IsNull(new CommentPusher(store, logger).Push((uint)agent.Pid, root.FullName, cancellationToken: cancel.Token));
             Assert.AreEqual(1, logger.Warnings);
-            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
-            CollectionAssert.AreEqual(new List<string> { "Internal.sourceRoot" }, agent.Received);
+            Assert.AreSequenceEqual(bytes, File.ReadAllBytes(path));
+            Assert.AreSequenceEqual(new List<string> { "Internal.sourceRoot" }, agent.Received);
         }
         finally { root.Delete(recursive: true); }
     }
@@ -222,7 +222,7 @@ public class CommentPusherTests
                 .Answer("Internal.setComments", reply);
             Assert.IsNull(new CommentPusher(store, logger).Push((uint)agent.Pid, root.FullName));
             Assert.AreEqual(1, logger.Warnings);
-            CollectionAssert.AreEqual(original, File.ReadAllBytes(path));
+            Assert.AreSequenceEqual(original, File.ReadAllBytes(path));
         }
         finally
         {

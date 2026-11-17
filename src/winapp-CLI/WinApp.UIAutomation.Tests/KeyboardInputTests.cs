@@ -114,7 +114,7 @@ public class KeyboardInputTests
     {
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             KeyboardInput.Send(0, [new TextInput("x")], KeyTransport.PostMessage));
-        StringAssert.Contains(ex.Message, "requires a target window");
+        Assert.Contains("requires a target window", ex.Message);
     }
 
     [TestMethod]
@@ -164,12 +164,12 @@ public class KeyboardInputTests
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             KeyboardInput.Send(0, [new KeyChord([0x11], 0x41, Extended: false)], KeyTransport.SendInput));
 
-        StringAssert.Contains(ex.Message, "partially applied");
+        Assert.Contains("partially applied", ex.Message);
         // This first segment failed with nothing typed before it, so the message must NOT warn about
         // already-applied input and the plain retry hint stands.
         Assert.IsFalse(ex.Message.Contains("verify or clear it before retrying"),
             "a first-segment failure typed nothing beforehand, so it must not warn about already-applied input.");
-        StringAssert.Contains(ex.Message, "retry the gesture");
+        Assert.Contains("retry the gesture", ex.Message);
         Assert.AreEqual(2, batches.Count);
         Assert.AreEqual(4, batches[0].Length);
         Assert.AreEqual(2, batches[1].Length);
@@ -188,7 +188,7 @@ public class KeyboardInputTests
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             KeyboardInput.Send(0, [new KeyChord([], 0x41, Extended: false)], KeyTransport.SendInput));
 
-        StringAssert.Contains(ex.Message, expected);
+        Assert.Contains(expected, ex.Message);
     }
 
     [TestMethod]
@@ -312,11 +312,11 @@ public class KeyboardInputTests
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             KeyboardInput.Send(0, [new TextInput("ab")], KeyTransport.SendInput));
 
-        StringAssert.Contains(ex.Message, "partially applied");
+        Assert.Contains("partially applied", ex.Message);
         // A later chunk failed after the first already landed, so the message must warn that a literal retry
         // would duplicate the text already applied — and must drop the bare "retry the gesture" hint that
         // would invite exactly that duplication (issue #657 follow-up).
-        StringAssert.Contains(ex.Message, "verify or clear it before retrying");
+        Assert.Contains("verify or clear it before retrying", ex.Message);
         Assert.IsFalse(ex.Message.Contains("retry the gesture"),
             "once earlier input has landed, the duplicate-inviting bare retry hint must be dropped.");
         // batches: [0] first char fully sent, [1] second char short write, [2] release of ONLY the second char.
@@ -349,8 +349,8 @@ public class KeyboardInputTests
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             KeyboardInput.Send(0, [new TextInput("ab")], KeyTransport.SendInput));
 
-        StringAssert.Contains(ex.Message, "earlier keystrokes already landed");
-        StringAssert.Contains(ex.Message, "higher integrity level"); // precise zero-write reason preserved
+        Assert.Contains("earlier keystrokes already landed", ex.Message);
+        Assert.Contains("higher integrity level", ex.Message); // precise zero-write reason preserved
     }
 
     [TestMethod]
@@ -364,7 +364,7 @@ public class KeyboardInputTests
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             KeyboardInput.Send(0, [new KeyChord([], 0x41, Extended: false)], KeyTransport.SendInput));
 
-        StringAssert.Contains(ex.Message, "higher integrity level");
+        Assert.Contains("higher integrity level", ex.Message);
         Assert.IsFalse(ex.Message.Contains("earlier keystrokes already landed"),
             "a first-segment failure typed nothing beforehand, so it must not warn about already-applied input.");
     }
@@ -395,7 +395,7 @@ public class KeyboardInputTests
         var ex = Assert.ThrowsExactly<ForegroundLostException>(() =>
             KeyboardInput.Send(0x1234, [new TextInput(new string('a', 6))], KeyTransport.SendInput));
 
-        StringAssert.Contains(ex.Message, "lost the foreground");
+        Assert.Contains("lost the foreground", ex.Message);
         Assert.AreEqual(0x1234L, checkedHwnd, "the target hwnd must be what is re-verified against the foreground.");
 
         // Only the first chunk and the one that passed its re-check were injected; the third was withheld and

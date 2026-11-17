@@ -656,12 +656,12 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         // Asserted both ways so the result follows the supplied architecture regardless of the host arch.
         var arm64 = MsixService.CollectNativeFragmentDllNames([fragmentFile], "arm64");
-        CollectionAssert.Contains(arm64, "arm64only.dll");
-        CollectionAssert.DoesNotContain(arm64, "x64only.dll");
+        Assert.Contains("arm64only.dll", arm64);
+        Assert.DoesNotContain("x64only.dll", arm64);
 
         var x64 = MsixService.CollectNativeFragmentDllNames([fragmentFile], "x64");
-        CollectionAssert.Contains(x64, "x64only.dll");
-        CollectionAssert.DoesNotContain(x64, "arm64only.dll");
+        Assert.Contains("x64only.dll", x64);
+        Assert.DoesNotContain("arm64only.dll", x64);
     }
 
     [TestMethod]
@@ -767,7 +767,7 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         // A traversing --name must not redirect the artifact outside the requested output directory.
         Assert.AreEqual(outDir.FullName, result.Directory!.FullName, "sanitized --name must stay inside the output directory");
-        StringAssert.EndsWith(result.Name, "_1.0.0.0_arm64.msix", "the SDK version/arch suffix must be preserved");
+        Assert.EndsWith("_1.0.0.0_arm64.msix", result.Name, "the SDK version/arch suffix must be preserved");
         Assert.IsFalse(result.Name.Contains('\\') || result.Name.Contains('/'), "no path separators may survive in the filename");
     }
 

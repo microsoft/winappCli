@@ -23,9 +23,9 @@ public class NugetErrorMessageTests
         Assert.DoesNotContain("SECRETVALUE", redacted, StringComparison.Ordinal);
         Assert.DoesNotContain("sig=", redacted, StringComparison.Ordinal);
         // The failure is only actionable if the user can still tell which feed it was.
-        StringAssert.Contains(redacted, "contoso.pkgs.visualstudio.com", StringComparison.Ordinal);
-        StringAssert.Contains(redacted, "/_packaging/feed/nuget/v3/index.json", StringComparison.Ordinal);
-        StringAssert.Contains(redacted, "?<redacted>", StringComparison.Ordinal);
+        Assert.Contains("contoso.pkgs.visualstudio.com", redacted, StringComparison.Ordinal);
+        Assert.Contains("/_packaging/feed/nuget/v3/index.json", redacted, StringComparison.Ordinal);
+        Assert.Contains("?<redacted>", redacted, StringComparison.Ordinal);
         // The sentence-ending period must survive rather than being parsed as part of the URI.
         Assert.EndsWith(".", redacted, StringComparison.Ordinal);
     }
@@ -39,7 +39,7 @@ public class NugetErrorMessageTests
 
         Assert.DoesNotContain("hunter2", redacted, StringComparison.Ordinal);
         Assert.DoesNotContain("user:", redacted, StringComparison.Ordinal);
-        StringAssert.Contains(redacted, "https://nuget.contoso.com/v3/index.json", StringComparison.Ordinal);
+        Assert.Contains("https://nuget.contoso.com/v3/index.json", redacted, StringComparison.Ordinal);
     }
 
     [TestMethod]
@@ -48,7 +48,7 @@ public class NugetErrorMessageTests
         var redacted = NugetErrorMessage.Redact("Unable to load the service index for source https://127.0.0.1:8443/v3/index.json?token=SECRET.");
 
         Assert.DoesNotContain("SECRET", redacted, StringComparison.Ordinal);
-        StringAssert.Contains(redacted, "https://127.0.0.1:8443/v3/index.json", StringComparison.Ordinal);
+        Assert.Contains("https://127.0.0.1:8443/v3/index.json", redacted, StringComparison.Ordinal);
     }
 
     [TestMethod]
@@ -60,7 +60,7 @@ public class NugetErrorMessageTests
 
         Assert.DoesNotContain("COMMAND_SECRET", redacted, StringComparison.Ordinal);
         Assert.DoesNotContain("sig=", redacted, StringComparison.Ordinal);
-        StringAssert.Contains(redacted, "<redacted-url>.", StringComparison.Ordinal);
+        Assert.Contains("<redacted-url>.", redacted, StringComparison.Ordinal);
     }
 
     [TestMethod]
@@ -72,7 +72,7 @@ public class NugetErrorMessageTests
 
         Assert.DoesNotContain("p@ss", redacted, StringComparison.Ordinal);
         Assert.DoesNotContain("word@", redacted, StringComparison.Ordinal);
-        StringAssert.Contains(redacted, "<redacted-url>.", StringComparison.Ordinal);
+        Assert.Contains("<redacted-url>.", redacted, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -112,8 +112,8 @@ public class NugetErrorMessageTests
 
         Assert.DoesNotContain("AAA", redacted, StringComparison.Ordinal);
         Assert.DoesNotContain("BBB", redacted, StringComparison.Ordinal);
-        StringAssert.Contains(redacted, "a.example.com", StringComparison.Ordinal);
-        StringAssert.Contains(redacted, "b.example.com", StringComparison.Ordinal);
+        Assert.Contains("a.example.com", redacted, StringComparison.Ordinal);
+        Assert.Contains("b.example.com", redacted, StringComparison.Ordinal);
     }
 
     /// <summary>

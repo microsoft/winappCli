@@ -119,7 +119,8 @@ public class TargetStateDirectoryProviderTests
             () => provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.StateUnavailable, ex.Error.Code);
-        StringAssert.Contains(ex.Error.UserAction, "%USERPROFILE%\\.winapp\\state");
+        Assert.IsNotNull(ex.Error.UserAction);
+        Assert.Contains("%USERPROFILE%\\.winapp\\state", ex.Error.UserAction);
     }
 
     [TestMethod]
@@ -146,7 +147,8 @@ public class TargetStateDirectoryProviderTests
 
             Assert.AreEqual(ExecutionTargetErrorCodes.StateUnavailable, ex.Error.Code);
             Assert.IsInstanceOfType<IOException>(ex.InnerException);
-            StringAssert.Contains(ex.Error.UserAction, "writable");
+            Assert.IsNotNull(ex.Error.UserAction);
+            Assert.Contains("writable", ex.Error.UserAction);
         }
         finally
         {

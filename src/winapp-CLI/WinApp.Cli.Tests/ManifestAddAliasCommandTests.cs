@@ -70,9 +70,9 @@ public class ManifestAddAliasCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<ManifestAddAliasCommand>(),
             ["--manifest", manifestPath, "--app-id", "Second", "--name", "SHARED.exe"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "another application");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Choose a different alias name");
-        CollectionAssert.AreEqual(before, await File.ReadAllBytesAsync(manifestPath, TestContext.CancellationToken));
+        Assert.Contains("another application", ConsoleStdErr.ToString());
+        Assert.Contains("Choose a different alias name", ConsoleStdErr.ToString());
+        Assert.AreSequenceEqual(before, await File.ReadAllBytesAsync(manifestPath, TestContext.CancellationToken));
     }
 
     [TestMethod]

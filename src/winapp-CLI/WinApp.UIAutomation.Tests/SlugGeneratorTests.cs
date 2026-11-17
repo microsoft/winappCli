@@ -66,7 +66,7 @@ public class SlugGeneratorTests
     public void GetTypesForPrefix_UniquePrefix_ReturnsSingleType()
     {
         string[] expected = ["Button"];
-        CollectionAssert.AreEquivalent(expected, SlugGenerator.GetTypesForPrefix("btn"));
+        Assert.AreSequenceEqual(expected, SlugGenerator.GetTypesForPrefix("btn"), SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -76,18 +76,18 @@ public class SlugGeneratorTests
         string[] tab = ["Tab", "TabItem"];
         string[] txt = ["Edit", "TextBox"];
         string[] mnu = ["Menu", "MenuItem"];
-        CollectionAssert.AreEquivalent(tab, SlugGenerator.GetTypesForPrefix("tab"));
-        CollectionAssert.AreEquivalent(txt, SlugGenerator.GetTypesForPrefix("txt"));
-        CollectionAssert.AreEquivalent(mnu, SlugGenerator.GetTypesForPrefix("mnu"));
+        Assert.AreSequenceEqual(tab, SlugGenerator.GetTypesForPrefix("tab"), SequenceOrder.InAnyOrder);
+        Assert.AreSequenceEqual(txt, SlugGenerator.GetTypesForPrefix("txt"), SequenceOrder.InAnyOrder);
+        Assert.AreSequenceEqual(mnu, SlugGenerator.GetTypesForPrefix("mnu"), SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
     public void GetTypesForPrefix_UnknownPrefix_ReturnsUnknownSentinel()
     {
         string[] unknown = ["Unknown"];
-        CollectionAssert.AreEqual(unknown, SlugGenerator.GetTypesForPrefix("zzz"));
+        Assert.AreSequenceEqual(unknown, SlugGenerator.GetTypesForPrefix("zzz"));
         // "elm" is the generic fallback prefix and is not itself a mapped value.
-        CollectionAssert.AreEqual(unknown, SlugGenerator.GetTypesForPrefix("elm"));
+        Assert.AreSequenceEqual(unknown, SlugGenerator.GetTypesForPrefix("elm"));
     }
 
     // ---------------------------------------------------------------------

@@ -154,9 +154,9 @@ public class ValueSetterTests
         var ex = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(strategy, Element(selector: "Rich Text Editor"), "hello"));
 
-        StringAssert.Contains(ex.Message, "put_accValue");
-        StringAssert.Contains(ex.Message, "send-keys");
-        StringAssert.Contains(ex.Message, "Rich Text Editor");
+        Assert.Contains("put_accValue", ex.Message);
+        Assert.Contains("send-keys", ex.Message);
+        Assert.Contains("Rich Text Editor", ex.Message);
         Assert.AreEqual("value,legacy", string.Join(",", strategy.Calls));
     }
 
@@ -183,11 +183,11 @@ public class ValueSetterTests
     {
         var byName = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(new FakeValueSetStrategy(), Element(name: "My Field"), "x"));
-        StringAssert.Contains(byName.Message, "--target \"My Field\"");
+        Assert.Contains("--target \"My Field\"", byName.Message);
 
         var byAutomationId = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(new FakeValueSetStrategy(), Element(automationId: "field-1"), "x"));
-        StringAssert.Contains(byAutomationId.Message, "--target \"field-1\"");
+        Assert.Contains("--target \"field-1\"", byAutomationId.Message);
     }
 
     [TestMethod]
@@ -208,7 +208,7 @@ public class ValueSetterTests
         var ex = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(new FakeValueSetStrategy(), Element(name: unsafeName), "x"));
 
-        StringAssert.Contains(ex.Message, "--target \"<selector>\"");
+        Assert.Contains("--target \"<selector>\"", ex.Message);
         Assert.IsFalse(ex.Message.Contains(mustNotAppear), "Unsafe target text must not appear in the hint.");
     }
 
@@ -221,6 +221,6 @@ public class ValueSetterTests
         var ex = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(new FakeValueSetStrategy(), Element(name: safeName), "x"));
 
-        StringAssert.Contains(ex.Message, $"--target \"{safeName}\"");
+        Assert.Contains($"--target \"{safeName}\"", ex.Message);
     }
 }

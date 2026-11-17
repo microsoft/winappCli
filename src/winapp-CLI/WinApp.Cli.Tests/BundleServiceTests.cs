@@ -67,9 +67,9 @@ public class BundleServiceTests
         Assert.AreEqual(1, _buildToolsService.Invocations.Count);
         var (toolName, args) = _buildToolsService.Invocations[0];
         Assert.AreEqual("makeappx.exe", toolName);
-        StringAssert.Contains(args, "bundle");
-        StringAssert.Contains(args, "/p");
-        StringAssert.Contains(args, "app.msixbundle");
+        Assert.Contains("bundle", args);
+        Assert.Contains("/p", args);
+        Assert.Contains("app.msixbundle", args);
     }
 
     [TestMethod]
@@ -101,7 +101,7 @@ public class BundleServiceTests
         // Bundle.Identity/@Version matches the source manifest's Identity/@Version.
         Assert.AreEqual(1, _buildToolsService.Invocations.Count);
         var (_, args) = _buildToolsService.Invocations[0];
-        StringAssert.Contains(args, "/bv \"1.2.3.4\"");
+        Assert.Contains("/bv \"1.2.3.4\"", args);
     }
 
     [TestMethod]
