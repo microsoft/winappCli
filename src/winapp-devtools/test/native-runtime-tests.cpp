@@ -1168,6 +1168,19 @@ static void CheckMalformedMutationHandles(const std::function<void(bool, const c
             check(HandleCommand(command) == L"ERR bad-args", "private mutation bridge rejects the full malformed handle");
         check(g_mutatedHandle == 0 && g_queryDispatches == dispatches,
             "malformed targeting never dispatches UI work or invokes a mutation callback");
+        if (malformed.empty()) continue;
+        for (const auto& [method, key, extra] : std::initializer_list<std::tuple<const wchar_t*, const wchar_t*, const wchar_t*>>{
+                {L"Property.get", L"handle", L""}, {L"Layout.get", L"handle", L""}, {L"Source.get", L"handle", L""},
+                {L"Resource.resolve", L"handle", L",\"prop\":\"Text\""}, {L"VisualTree.enumerate", L"rootHandle", L""}}) {
+            const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+                L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) + L"\",\"params\":{\"" +
+                key + L"\":\"" + malformed + L"\"" + extra + L"}}"));
+            DevToolsJson parsed;
+            check(DevToolsJsonParse(response, parsed) && parsed.Find(L"error") &&
+                parsed.Find(L"error")->GetInt(L"code", 0) == DevToolsErr::InvalidParams && !parsed.Find(L"result"),
+                "malformed read handle returns invalid parameters, not another element's data");
+        }
+        check(g_queryDispatches == dispatches, "malformed read handles never dispatch UI work");
     }
     for (const auto* invalid : {L"0", L"null", L"true", L"[]"}) {
         for (const auto* method : {L"HotReload.setProperty", L"HotReload.clearProperty"}) {
