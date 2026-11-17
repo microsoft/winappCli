@@ -69,7 +69,7 @@ public sealed class DebugOutputServiceWorkflowTests
         var exit = await _service.RunDebugLoopAsync(bogusPid, cts.Token);
 
         Assert.AreEqual(-1, exit, "Attaching to a non-existent process must return -1.");
-        StringAssert.Contains(_console.Output, "Full debug log:");
+        Assert.Contains("Full debug log:", _console.Output);
 
         var logs = SafeGetLogs(bogusPid);
         Assert.IsTrue(logs.Length > 0, "A debug log file should have been created even when attach fails.");
@@ -113,19 +113,19 @@ public sealed class DebugOutputServiceWorkflowTests
             }
 
             Assert.AreEqual(7, exit, "The child's exit code should be propagated by the debug loop.");
-            StringAssert.Contains(_console.Output, "APPMARKER7X", "App-specific debug output should reach the console.");
+            Assert.Contains("APPMARKER7X", _console.Output, "App-specific debug output should reach the console.");
             Assert.IsFalse(_console.Output.Contains("0xdeadbeef", StringComparison.Ordinal),
                 "Framework-noise debug output should be filtered from the console.");
-            StringAssert.Contains(_console.Output, "Full debug log:");
+            Assert.Contains("Full debug log:", _console.Output);
             Assert.AreEqual(0, _crashDump.WriteCalls.Count, "No crash dump should be written for a clean exit.");
 
             var logs = SafeGetLogs((uint)child.Id);
             if (logs.Length > 0)
             {
                 var logText = await File.ReadAllTextAsync(logs[0]);
-                StringAssert.Contains(logText, "APPMARKER7X");
+                Assert.Contains("APPMARKER7X", logText);
                 // The log captures everything, including the noise that was filtered from the console.
-                StringAssert.Contains(logText, "Microsoft.UI.Xaml.dll");
+                Assert.Contains("Microsoft.UI.Xaml.dll", logText);
                 CleanupLogs(logs);
             }
         }
@@ -173,8 +173,8 @@ public sealed class DebugOutputServiceWorkflowTests
 
             Assert.IsTrue(_crashDump.WriteCalls.Count >= 1,
                 "An access violation should cause the debug loop to request a crash dump.");
-            StringAssert.Contains(_console.Output, "Crash:");
-            StringAssert.Contains(_console.Output, "First-chance exception:");
+            Assert.Contains("Crash:", _console.Output);
+            Assert.Contains("First-chance exception:", _console.Output);
             Assert.IsTrue(_crashDump.AnalyzeCalls.Contains(_crashDump.FakeDumpPath!),
                 "After a captured dump, the loop should invoke crash-dump analysis on it.");
 
@@ -235,8 +235,8 @@ public sealed class DebugOutputServiceWorkflowTests
             // immediately rather than waiting for a (never-arriving) second-chance exception.
             Assert.IsTrue(_crashDump.WriteCalls.Count >= 1,
                 "A stack overflow should cause the debug loop to request a crash dump on first-chance.");
-            StringAssert.Contains(_console.Output, "Crash:");
-            StringAssert.Contains(_console.Output, "C00000FD");
+            Assert.Contains("Crash:", _console.Output);
+            Assert.Contains("C00000FD", _console.Output);
 
             CleanupLogs(SafeGetLogs((uint)child.Id));
         }
@@ -284,7 +284,7 @@ public sealed class DebugOutputServiceWorkflowTests
 
             Assert.AreEqual(-1, exit, "Cancelling before the child exits must return the -1 default exit code.");
             Assert.AreEqual(0, _crashDump.WriteCalls.Count, "Cancellation is not a crash and must not request a dump.");
-            StringAssert.Contains(_console.Output, "Full debug log:");
+            Assert.Contains("Full debug log:", _console.Output);
 
             CleanupLogs(SafeGetLogs((uint)child.Id));
         }
@@ -400,7 +400,7 @@ public sealed class DebugOutputServiceWorkflowTests
             Assert.IsTrue(saved.HasContext, "The crashing thread's context must be in the dump.");
             Assert.AreEqual(unchecked((int)0xC000027B), saved.Code,
                 $"Every earlier handled exception on the crashing thread was already unwound, so the crash's own context must be used. Log:\n{log}");
-            StringAssert.Contains(log, "was already unwound");
+            Assert.Contains("was already unwound", log);
 
             CleanupLogs(SafeGetLogs((uint)child.Id));
         }
@@ -558,7 +558,7 @@ public sealed class DebugOutputServiceWorkflowTests
 
         Assert.AreEqual(NTSTATUS.DBG_EXCEPTION_NOT_HANDLED, continueStatus,
             "A real exception must be passed through to the target's own handlers.");
-        StringAssert.Contains(_console.Output, "Access Violation");
+        Assert.Contains("Access Violation", _console.Output);
         Assert.AreEqual(0, _crashDump.WriteCalls.Count, "An AV does not capture a dump at first-chance.");
     }
 
@@ -573,7 +573,7 @@ public sealed class DebugOutputServiceWorkflowTests
         _service.HandleException(de, ref initialBreakpointSeen, ref continueStatus);
 
         Assert.AreEqual(1, _crashDump.WriteCalls.Count, "Stack overflow must capture a dump at first-chance.");
-        StringAssert.Contains(_console.Output, "Stack Overflow");
+        Assert.Contains("Stack Overflow", _console.Output);
     }
 
     // ---- Crash context selection (issue #836) ----

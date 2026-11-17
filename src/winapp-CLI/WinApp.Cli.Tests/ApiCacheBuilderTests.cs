@@ -415,7 +415,7 @@ public sealed class ApiCacheBuilderTests
 
         List<string> found = ApiCacheBuilder.DiscoverProjectFiles(indirect, scan: true);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             Directory.GetFiles(indirect, "*.csproj", SearchOption.AllDirectories),
             found);
     }

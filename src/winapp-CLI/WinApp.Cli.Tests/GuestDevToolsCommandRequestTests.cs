@@ -182,7 +182,7 @@ public sealed class GuestDevToolsCommandRequestTests : BaseCommandTests
         var forwarded = root.Parse(request.Arguments.ToArray());
         Assert.IsEmpty(forwarded.Errors);
         Assert.AreEqual("VisualTree.get", forwarded.GetValue(DevToolsCallCommand.MethodArgument));
-        CollectionAssert.AreEqual(CallParameters, forwarded.GetValue(DevToolsCallCommand.ParamsArgument));
+        Assert.AreSequenceEqual(CallParameters, forwarded.GetValue(DevToolsCallCommand.ParamsArgument));
         Assert.AreEqual(1, request.Environment!.Count);
     }
 

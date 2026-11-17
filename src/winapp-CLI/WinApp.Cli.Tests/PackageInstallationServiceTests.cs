@@ -69,7 +69,7 @@ public class PackageInstallationServiceTests
         // must not be created as a side effect (it may be read-only in a sandbox).
         _rootDir.Refresh();
         Assert.IsFalse(_rootDir.Exists);
-        CollectionAssert.Contains(_nuget.InstalledPackages, ("Pkg.X", "1.6.0"));
+        Assert.Contains(("Pkg.X", "1.6.0"), _nuget.InstalledPackages);
     }
 
     [TestMethod]
@@ -78,8 +78,8 @@ public class PackageInstallationServiceTests
         var ok = await _service.EnsurePackageAsync(_rootDir, "Pkg.X", _taskContext, version: "2.0.0");
 
         Assert.IsTrue(ok);
-        CollectionAssert.DoesNotContain(_nuget.QueriedPackages, "Pkg.X");
-        CollectionAssert.Contains(_nuget.InstalledPackages, ("Pkg.X", "2.0.0"));
+        Assert.DoesNotContain("Pkg.X", _nuget.QueriedPackages);
+        Assert.Contains(("Pkg.X", "2.0.0"), _nuget.InstalledPackages);
     }
 
     [TestMethod]
@@ -93,7 +93,7 @@ public class PackageInstallationServiceTests
         // The root is cached, but EnsurePackageAsync must still hand off to the NuGet service: that call
         // short-circuits the completed root (no re-download) while walking its dependency graph, so a
         // transitive package that went missing is repaired instead of being reported as a complete install.
-        CollectionAssert.Contains(_nuget.InstalledPackages, ("Pkg.X", "3.0.0"), "The install path must still be entered for a cached root.");
+        Assert.Contains(("Pkg.X", "3.0.0"), _nuget.InstalledPackages, "The install path must still be entered for a cached root.");
     }
 
     [TestMethod]
@@ -118,7 +118,7 @@ public class PackageInstallationServiceTests
         var result = await _service.InstallPackagesAsync(_rootDir, ["Pkg.X"], _taskContext);
 
         Assert.AreEqual("1.6.0", result["Pkg.X"]);
-        CollectionAssert.Contains(_nuget.InstalledPackages, ("Pkg.X", "1.6.0"));
+        Assert.Contains(("Pkg.X", "1.6.0"), _nuget.InstalledPackages);
     }
 
     [TestMethod]
@@ -130,7 +130,7 @@ public class PackageInstallationServiceTests
         var result = await _service.InstallPackagesAsync(_rootDir, ["Pkg.X"], _taskContext);
 
         Assert.AreEqual("1.2.3", result["Pkg.X"]);
-        CollectionAssert.DoesNotContain(_nuget.QueriedPackages, "Pkg.X");
+        Assert.DoesNotContain("Pkg.X", _nuget.QueriedPackages);
     }
 
     [TestMethod]
@@ -143,7 +143,7 @@ public class PackageInstallationServiceTests
         var result = await _service.InstallPackagesAsync(_rootDir, ["Pkg.X"], _taskContext);
 
         Assert.AreEqual("1.6.0", result["Pkg.X"]);
-        CollectionAssert.Contains(_nuget.QueriedPackages, "Pkg.X");
+        Assert.Contains("Pkg.X", _nuget.QueriedPackages);
     }
 
     [TestMethod]
@@ -156,7 +156,7 @@ public class PackageInstallationServiceTests
         var result = await _service.InstallPackagesAsync(_rootDir, ["Pkg.X"], _taskContext, ignoreConfig: true);
 
         Assert.AreEqual("1.6.0", result["Pkg.X"]);
-        CollectionAssert.Contains(_nuget.QueriedPackages, "Pkg.X");
+        Assert.Contains("Pkg.X", _nuget.QueriedPackages);
     }
 
     #endregion

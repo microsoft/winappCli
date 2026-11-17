@@ -124,7 +124,7 @@ public class SandboxRunTests
             @"C:\WinApp\deployments\abc-layout",
             clean: true, json: true);
 
-        CollectionAssert.AreEqual(RegistrationArguments, arguments);
+        Assert.AreSequenceEqual(RegistrationArguments, arguments);
     }
 
     [TestMethod]
@@ -133,7 +133,7 @@ public class SandboxRunTests
         var arguments = GuestRunPlanner.BuildRegistrationArguments(
             @"C:\WinApp\deployments\abc", @"C:\WinApp\deployments\abc-layout", clean: false, json: false);
 
-        CollectionAssert.AreEqual(MinimalRunArguments, arguments);
+        Assert.AreSequenceEqual(MinimalRunArguments, arguments);
     }
 
     /// <summary>
@@ -148,7 +148,7 @@ public class SandboxRunTests
         var arguments = GuestRunPlanner.BuildRegistrationArguments(
             @"C:\WinApp\deployments\abc", @"C:\WinApp\deployments\abc-layout", clean: false, json: false);
 
-        CollectionAssert.DoesNotContain(arguments, "--output-appx-directory");
+        Assert.DoesNotContain("--output-appx-directory", arguments);
 
         var index = arguments.IndexOf("--managed-appx-directory");
         Assert.AreNotEqual(-1, index, "the guest layout must be marked as winapp-managed");
@@ -182,8 +182,8 @@ public class SandboxRunTests
             "Contoso.MyApp", "CN=Contoso", "App", @"C:\layout", @"C:\payload", "sandbox",
             new GuestLaunchOptions());
 
-        CollectionAssert.Contains(quiet, "--quiet");
-        CollectionAssert.DoesNotContain(normal, "--quiet");
+        Assert.Contains("--quiet", quiet);
+        Assert.DoesNotContain("--quiet", normal);
     }
 
     /// <summary>
@@ -197,8 +197,8 @@ public class SandboxRunTests
             "Contoso.MyApp", "CN=Contoso", "App", @"C:\layout", @"C:\payload", "sandbox",
             new GuestLaunchOptions(Json: true, Quiet: true));
 
-        CollectionAssert.Contains(arguments, "--json");
-        CollectionAssert.DoesNotContain(arguments, "--quiet");
+        Assert.Contains("--json", arguments);
+        Assert.DoesNotContain("--quiet", arguments);
     }
 
     [TestMethod]
@@ -818,7 +818,7 @@ public class SandboxRunTests
         await harness.Runner.DeployAsync(
             harness.Target, "dep-1", new DirectoryInfo(_hostSource), clean: false, TestContext.CancellationToken);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { harness.AppLauncher.FakePackageFullName }, harness.AppLauncher.StopPackageCalls);
 
         // Editing the output and rerunning must stop it too, not just an unchanged rerun.
@@ -827,7 +827,7 @@ public class SandboxRunTests
         await harness.Runner.DeployAsync(
             harness.Target, "dep-1", new DirectoryInfo(_hostSource), clean: false, TestContext.CancellationToken);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { harness.AppLauncher.FakePackageFullName, harness.AppLauncher.FakePackageFullName },
             harness.AppLauncher.StopPackageCalls);
     }
@@ -981,7 +981,7 @@ public class SandboxRunTests
         await harness.Runner.DeployAsync(
             harness.Target, "dep-1", new DirectoryInfo(_hostSource), clean: false, TestContext.CancellationToken);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { (processId, startTicksUtc) },
             stopCalls);
     }
@@ -1159,7 +1159,7 @@ public class SandboxRunTests
         var repaired = await harness.Runner.DeployAsync(
             harness.Target, "dep-1", new DirectoryInfo(_hostSource), clean: true, TestContext.CancellationToken);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { harness.AppLauncher.FakePackageFullName }, harness.AppLauncher.StopPackageCalls);
         Assert.IsFalse(repaired.State.Dirty);
         Assert.AreEqual("v2", await File.ReadAllTextAsync(

@@ -121,6 +121,6 @@ public class WinMdParserGenericBaseTests
         Assert.IsNull(result.Error);
         var derived = result.Types.Single(t => t.Name == "Derived");
         Assert.IsNotNull(derived.BaseType, "a constructed generic base must still be recorded as the base type");
-        StringAssert.Contains(derived.BaseType, "Base", "the base is Base<...>");
+        Assert.Contains("Base", derived.BaseType, "the base is Base<...>");
     }
 }

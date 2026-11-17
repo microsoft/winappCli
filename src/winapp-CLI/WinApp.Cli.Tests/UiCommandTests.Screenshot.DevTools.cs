@@ -41,7 +41,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.HasCount(1, _fakeUia.ScreenshotCalls);
-        CollectionAssert.AreEqual(new[] { (4321, true, 0), (4321, false, 1) }, calls,
+        Assert.AreSequenceEqual(new[] { (4321, true, 0), (4321, false, 1) }, calls,
             "hidden before the capture and shown after it, and only in the captured app");
     }
 
@@ -58,7 +58,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "4321", "-o", ShotPath()]);
 
         Assert.AreEqual(1, exitCode);
-        CollectionAssert.AreEqual(new[] { (4321, true, 0), (4321, false, 1) }, calls);
+        Assert.AreSequenceEqual(new[] { (4321, true, 0), (4321, false, 1) }, calls);
     }
 
     [TestMethod]
@@ -95,7 +95,8 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "4321", "-o", ShotPath()]);
 
         Assert.AreEqual(0, exitCode);
-        CollectionAssert.AreEquivalent(devTools ? new long[] { 11 } : new long[] { 11, 12, 13 },
-            _fakeUia.ScreenshotCalls.Select(c => c.Hwnd).ToArray());
+        Assert.AreSequenceEqual(devTools ? new long[] { 11 } : new long[] { 11, 12, 13 },
+            _fakeUia.ScreenshotCalls.Select(c => c.Hwnd).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 }
