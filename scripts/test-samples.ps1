@@ -13,7 +13,9 @@ Requires Pester 5.x: Install-Module -Name Pester -Force -MinimumVersion 5.0
 One or more sample names to test. Defaults to all samples that have a test.Tests.ps1.
 
 .PARAMETER WinappPath
-Path to the winapp npm package (.tgz or directory) passed to each test.
+Path to the winapp package passed to each test: an npm .tgz for existing
+samples, or a Python platform wheel for python-winui and python-identity. A build artifacts directory
+containing both package types can be used when running all samples.
 
 .PARAMETER SkipCleanup
 Passed through to each test - keep build artifacts for debugging.

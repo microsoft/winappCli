@@ -78,6 +78,11 @@ internal sealed class ProjectDetectionService(
             cancellationToken.ThrowIfCancellationRequested();
 
             var current = queue.Dequeue();
+            if (IsPythonVirtualEnvironment(current))
+            {
+                logger.LogDebug("Skipping Python virtual environment: {Path}", current.FullName);
+                continue;
+            }
 
             var detected = DetectProject(current, root);
             if (detected != null)
@@ -103,6 +108,11 @@ internal sealed class ProjectDetectionService(
     /// </summary>
     internal static DetectedProject? DetectProject(DirectoryInfo directory, DirectoryInfo searchRoot)
     {
+        if (IsPythonVirtualEnvironment(directory))
+        {
+            return null;
+        }
+
         var displayPath = GetRelativeDisplayPath(directory, searchRoot);
 
         // Tauri: check immediate subdirectories for tauri.conf.json
@@ -146,14 +156,17 @@ internal sealed class ProjectDetectionService(
         return null;
     }
 
+    private static bool IsPythonVirtualEnvironment(DirectoryInfo directory) =>
+        File.Exists(Path.Join(directory.FullName, "pyvenv.cfg"));
+
     private static string? FindTauriConfFile(DirectoryInfo directory)
     {
         try
         {
             foreach (var subDir in directory.EnumerateDirectories())
             {
-                // Skip symlinks/junctions to prevent reading outside the search root
-                if (subDir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                // Do not inspect linked directories or dependencies inside Python environments.
+                if (subDir.Attributes.HasFlag(FileAttributes.ReparsePoint) || IsPythonVirtualEnvironment(subDir))
                 {
                     continue;
                 }

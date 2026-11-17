@@ -230,6 +230,25 @@ Describe 'verify-signatures.ps1' -Skip:$script:NoSignedBinary {
                 Should -Throw -ExpectedMessage '*Signature verification failed*'
         }
 
+        It 'rejects an unsigned native CLI inside a Python wheel' {
+            $script:root = New-FixtureRoot
+            $layout = Join-Path $script:root 'layout'
+            Add-UnsignedBinary -Directory (Join-Path $layout 'winappcli\_native') -Name 'winapp.exe'
+            New-ZipContainer -SourceDirectory $layout -Destination (Join-Path $script:root 'python\microsoft_winappcli-0.7.2-py3-none-win_amd64.whl')
+
+            { & $script:VerifyScript -Path (Join-Path $script:root 'python') } |
+                Should -Throw -ExpectedMessage '*Signature verification failed*'
+        }
+
+        It 'accepts embedded signed native binaries inside a Python wheel' {
+            $script:root = New-FixtureRoot
+            $layout = Join-Path $script:root 'layout'
+            Add-SignedBinary -Directory (Join-Path $layout 'winappcli\_native') -Name 'winapp.exe'
+            New-ZipContainer -SourceDirectory $layout -Destination (Join-Path $script:root 'python\microsoft_winappcli-0.7.2-py3-none-win_amd64.whl')
+
+            { & $script:VerifyScript -Path (Join-Path $script:root 'python') } | Should -Not -Throw
+        }
+
         It 'expands containers nested inside other containers' {
             $script:root = New-FixtureRoot
             $inner = Join-Path $script:root 'inner'

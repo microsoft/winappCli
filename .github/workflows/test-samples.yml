@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       use-existing-artifacts:
-        description: 'Use npm-package and nuget-packages from this run instead of rebuilding'
+        description: 'Use npm-package, python-package and nuget-packages from this run instead of rebuilding'
         type: boolean
         default: false
   workflow_dispatch:
@@ -25,6 +25,8 @@ on:
           - maui-app
           - node-winui
           - packaging-cli
+          - python-winui
+          - python-identity
           - rust-app
           - sparse-app
           - tauri-app
@@ -52,13 +54,26 @@ jobs:
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: '22'
+    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      with:
+        python-version: '3.12'
+        architecture: x64
     - name: Build npm package
       shell: pwsh
       run: .\scripts\build-cli.ps1 -SkipTests -SkipMsix -SkipDocs
+    - name: Package Python wheels from the same CLI publishes
+      shell: pwsh
+      run: .\scripts\package-python.ps1
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: npm-package
         path: artifacts/*.tgz
+        if-no-files-found: error
+        overwrite: true
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: python-package
+        path: artifacts/python/microsoft_winappcli-*.whl
         if-no-files-found: error
         overwrite: true
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -74,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sample: [cpp-app, cpp-winui-app, dotnet-app, dotnet-file-app, electron, flutter-app, maui-app, node-winui, packaging-cli, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app]
+        sample: [cpp-app, cpp-winui-app, dotnet-app, dotnet-file-app, electron, flutter-app, maui-app, node-winui, packaging-cli, python-winui, python-identity, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app]
     runs-on: windows-latest
     name: ${{ matrix.sample }}
 
@@ -99,11 +114,18 @@ jobs:
 
     # Both entry points use artifacts from this run, never a privileged workflow_run.
     - name: Download npm package
-      if: steps.check.outputs.skip != 'true'
+      if: steps.check.outputs.skip != 'true' && !startsWith(matrix.sample, 'python-')
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: npm-package
         path: artifacts/npm
+
+    - name: Download Python platform wheels
+      if: steps.check.outputs.skip != 'true' && startsWith(matrix.sample, 'python-')
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: python-package
+        path: artifacts/python
 
     # Download NuGet package for .NET samples
     - name: Download NuGet package
@@ -128,6 +150,20 @@ jobs:
         Write-Host "Added local NuGet source: $resolvedPath"
 
     # --- Toolchain setup (conditional per sample) ---
+
+    - name: Setup Python
+      if: steps.check.outputs.skip != 'true' && startsWith(matrix.sample, 'python-')
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      with:
+        python-version: '3.12'
+        architecture: x64
+
+    - name: Enable Developer Mode for Python identity testing
+      if: steps.check.outputs.skip != 'true' && matrix.sample == 'python-identity'
+      shell: pwsh
+      run: |
+        reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v "AllowDevelopmentWithoutDevLicense" /d 1 /f
+        if ($LASTEXITCODE -ne 0) { throw "Could not enable Developer Mode for Python sample testing." }
 
     - name: Setup .NET
       if: >-
@@ -234,8 +270,9 @@ jobs:
       timeout-minutes: 40
       shell: pwsh
       run: |
+        $packagePath = if ('${{ matrix.sample }}'.StartsWith('python-')) { 'artifacts/python' } else { 'artifacts/npm' }
         $container = New-PesterContainer -Path "samples/${{ matrix.sample }}/test.Tests.ps1" -Data @{
-          WinappPath = "artifacts/npm"
+          WinappPath = $packagePath
         }
         $config = New-PesterConfiguration
         $config.Run.Container = $container

@@ -1,6 +1,6 @@
 ---
 name: winapp
-description: Windows app packaging, signing, identity, SDK setup, Windows API lookup, and UI automation for any framework (Electron, .NET, C++, Rust, Flutter, Tauri) with the winapp CLI. Use for MSIX installers, certificates, package identity, appxmanifest edits, or driving a running Windows app.
+description: Windows app packaging, signing, identity, SDK setup, Windows API lookup, and UI automation for any framework (Electron, .NET, C++, Rust, Flutter, Tauri, Python) with the winapp CLI. Use for MSIX installers, certificates, package identity, appxmanifest edits, or driving a running Windows app.
 ---
 
 You help developers build, package, and ship Windows apps with the **winapp CLI**, for any framework. Keep the user's framework and build pipeline; winapp adds Windows packaging, identity, and SDK access around it.
@@ -12,7 +12,7 @@ Each skill has the exact commands, flags, and failure handling. Load it before a
 | Task | Skill |
 |---|---|
 | Add Windows support to an existing project, restore SDKs after cloning, update SDKs, or scaffold a new WinUI app | `winapp-setup` |
-| Framework specifics (Electron, WPF, WinForms, C++, Rust, Flutter, Tauri) | `winapp-frameworks` |
+| Framework specifics (Electron, WPF, WinForms, C++, Rust, Flutter, Tauri, Python) | `winapp-frameworks` |
 | Build an MSIX (folder, project, bundle, CI, Store upload) | `winapp-package` |
 | Sign an MSIX or exe, create/trust certificates, Azure Trusted Signing | `winapp-signing` |
 | Package identity for notifications, background tasks, share target, startup tasks; run or debug with identity; sparse packages | `winapp-identity` |
