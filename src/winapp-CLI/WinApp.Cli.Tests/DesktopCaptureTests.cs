@@ -105,7 +105,7 @@ public sealed class DesktopCaptureTests
         Assert.AreEqual(1, coordinator.DesktopSectionEnters);
         Assert.AreEqual(0, coordinator.OpenDesktopSections);
         var bytes = await File.ReadAllBytesAsync(path, TestContext.CancellationToken);
-        CollectionAssert.AreEqual(new byte[] { 137, 80, 78, 71 }, bytes.Take(4).ToArray());
+        Assert.AreSequenceEqual(new byte[] { 137, 80, 78, 71 }, bytes.Take(4).ToArray());
         Assert.AreEqual(0, capture.CapturedWithBlankRetry.Count);
     }
 

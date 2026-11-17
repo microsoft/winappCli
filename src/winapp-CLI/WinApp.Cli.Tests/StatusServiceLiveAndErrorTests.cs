@@ -96,7 +96,7 @@ public class StatusServiceLiveAndErrorTests
             "running", (_, _) => Task.FromResult((0, "unused")), CancellationToken.None);
 
         Assert.AreEqual(1, rc);
-        StringAssert.Contains(console.Output, "kaboom");
+        Assert.Contains("kaboom", console.Output);
     }
 
     [TestMethod]

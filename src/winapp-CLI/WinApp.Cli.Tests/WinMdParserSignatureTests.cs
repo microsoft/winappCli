@@ -196,7 +196,7 @@ public class WinMdParserSignatureTests
         var member = ParseSingleMethod("Static.winmd", new MethodSpec("Create", IsStatic: true, new ParamSpec("name")));
 
         Assert.IsTrue(member.IsStatic);
-        StringAssert.StartsWith(member.Signature, "static ");
+        Assert.StartsWith("static ", member.Signature);
     }
 
     [TestMethod]
@@ -215,8 +215,8 @@ public class WinMdParserSignatureTests
         Assert.IsFalse(
             member.Signature.Contains("TMethod", StringComparison.Ordinal),
             $"invented type-parameter name in: {member.Signature}");
-        StringAssert.Contains(member.Signature, "ToTensor<T>(");
-        StringAssert.Contains(member.Signature, "T array");
+        Assert.Contains("ToTensor<T>(", member.Signature);
+        Assert.Contains("T array", member.Signature);
     }
 
     [TestMethod]
@@ -239,7 +239,7 @@ public class WinMdParserSignatureTests
                 new ParamSpec("value", ByRef: true, ParameterAttributes.Out)));
 
         Assert.AreEqual("out String", member.Parameters![1].Type);
-        StringAssert.Contains(member.Signature, "out String value");
+        Assert.Contains("out String value", member.Signature);
     }
 
     [TestMethod]

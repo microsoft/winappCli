@@ -104,8 +104,8 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
         AssertJsonErrorCode(UiJsonError.CodeInvalidArguments);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--duration-ms");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "60000");
+        Assert.Contains("--duration-ms", ConsoleStdErr.ToString());
+        Assert.Contains("60000", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -119,8 +119,8 @@ public partial class UiCommandTests
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
         AssertJsonErrorCode(UiJsonError.CodeInvalidArguments);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "--at");
-        StringAssert.Contains(stderr, "--path");
+        Assert.Contains("--at", stderr);
+        Assert.Contains("--path", stderr);
     }
 
     [TestMethod]
@@ -134,8 +134,8 @@ public partial class UiCommandTests
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
         AssertJsonErrorCode(UiJsonError.CodeInvalidArguments);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "--duration-ms");
-        StringAssert.Contains(stderr, "--path");
+        Assert.Contains("--duration-ms", stderr);
+        Assert.Contains("--path", stderr);
     }
 
     [TestMethod]
@@ -278,7 +278,7 @@ public partial class UiCommandTests
         Assert.IsTrue(result.TryGetProperty("warnings", out var warnings),
             "Out-of-window injection must surface a warnings[] advisory");
         Assert.AreEqual(1, warnings.GetArrayLength());
-        StringAssert.Contains(warnings[0].GetString(), "outside the target window",
+        Assert.Contains("outside the target window", warnings[0].GetString()!,
             "Warning must name the out-of-window condition");
     }
 
@@ -304,8 +304,8 @@ public partial class UiCommandTests
         Assert.AreEqual(2, warnings.GetArrayLength(),
             "Both the out-of-window and remote-delivery advisories must be present");
         var joined = warnings[0].GetString() + " | " + warnings[1].GetString();
-        StringAssert.Contains(joined, "outside the target window");
-        StringAssert.Contains(joined, "remote");
+        Assert.Contains("outside the target window", joined);
+        Assert.Contains("remote", joined);
     }
 
     [TestMethod]
@@ -336,7 +336,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode, "Out-of-window point is advisory, not fatal — injection proceeds");
         Assert.AreEqual(1, _fakePointer.PenCalls.Count, "Injection must still happen");
-        StringAssert.Contains(ambient.Output, "outside the target window",
+        Assert.Contains("outside the target window", ambient.Output,
             "Text mode must log the out-of-window advisory, not only emit it in the --json warnings[] envelope");
         Assert.IsFalse(ConsoleStdErr.ToString().Contains("outside the target window"),
             "The advisory is a non-error warning — it must route to stdout, not stderr");
@@ -491,7 +491,7 @@ public partial class UiCommandTests
         Assert.IsTrue(result.TryGetProperty("warnings", out var warnings),
             "Remote session must surface a warnings[] advisory (pen especially does not route over RDP)");
         Assert.AreEqual(1, warnings.GetArrayLength());
-        StringAssert.Contains(warnings[0].GetString(), "pen",
+        Assert.Contains("pen", warnings[0].GetString()!,
             "Warning must name the pen input kind");
     }
 
@@ -522,7 +522,7 @@ public partial class UiCommandTests
     {
         var description = GetRequiredService<UiPenCommand>().ShortDescription;
         Assert.IsFalse(string.IsNullOrWhiteSpace(description));
-        StringAssert.Contains(description, "pen");
+        Assert.Contains("pen", description);
     }
 
     [TestMethod]
@@ -535,7 +535,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--duration-ms");
+        Assert.Contains("--duration-ms", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -549,7 +549,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "tilt");
+        Assert.Contains("tilt", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -561,7 +561,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--path");
+        Assert.Contains("--path", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -573,7 +573,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--at");
+        Assert.Contains("--at", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -585,7 +585,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Provide a target");
+        Assert.Contains("Provide a target", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -598,7 +598,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Target app required");
+        Assert.Contains("Target app required", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -614,7 +614,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "No element found");
+        Assert.Contains("No element found", ConsoleStdErr.ToString());
     }
 
     [TestMethod]
@@ -632,7 +632,7 @@ public partial class UiCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakePointer.PenCalls.Count);
         Assert.IsFalse(TestAnsiConsole.Output.Contains('{'), "Non-JSON path must not emit a JSON envelope");
-        StringAssert.Contains(ambientOutput, "pen", "Success line must name the pen action");
+        Assert.Contains("pen", ambientOutput, "Success line must name the pen action");
         Assert.IsFalse(ambientOutput.Contains("remote", StringComparison.OrdinalIgnoreCase),
             "A local session must not emit the remote-delivery warning");
     }
@@ -649,7 +649,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode, "The remote warning is advisory; injection still succeeds");
         Assert.AreEqual(1, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ambientOutput, "remote", "Remote session must surface the delivery-uncertainty warning");
+        Assert.Contains("remote", ambientOutput, "Remote session must surface the delivery-uncertainty warning");
     }
 
     [TestMethod]
@@ -664,7 +664,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "no longer accessible");
+        Assert.Contains("no longer accessible", ConsoleStdErr.ToString());
         AssertJsonErrorCode(UiJsonError.CodeStaleElement);
     }
 
@@ -680,7 +680,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePointer.PenCalls.Count);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "boom (test)");
+        Assert.Contains("boom (test)", ConsoleStdErr.ToString());
         AssertJsonErrorCode(UiJsonError.CodeInternalError);
     }
 }

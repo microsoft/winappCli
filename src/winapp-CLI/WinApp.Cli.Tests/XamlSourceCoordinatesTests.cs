@@ -94,7 +94,7 @@ public sealed class XamlSourceCoordinatesTests
         var templateChild = mapping.Elements[^1];
         Assert.AreEqual(3, templateChild.ParentLine);
         Assert.AreEqual("DataTemplate", templateChild.ParentType);
-        StringAssert.Contains(mapping.Evidence!, "unverified");
+        Assert.Contains("unverified", mapping.Evidence!);
     }
 
     [TestMethod]
@@ -188,7 +188,7 @@ public sealed class XamlSourceCoordinatesTests
         Assert.AreEqual(1, heading.Column);
         Assert.AreEqual(2, heading.EndLine);
         var inventory = Encoding.UTF8.GetString(GuestSourceSnapshot.SerializeInventory(sources with { Coordinates = [map] }));
-        StringAssert.Contains(inventory, "\"elements\":[{\"line\":1,\"endLine\":1,\"column\":1,\"type\":\"Page\"},{\"line\":2,\"endLine\":2,\"column\":1,\"type\":\"TextBlock\"}]",
+        Assert.Contains("\"elements\":[{\"line\":1,\"endLine\":1,\"column\":1,\"type\":\"Page\"},{\"line\":2,\"endLine\":2,\"column\":1,\"type\":\"TextBlock\"}]", inventory,
             "The native reader consumes this compact element shape; absent names and parents are omitted.");
     }
 
@@ -277,7 +277,7 @@ public sealed class XamlSourceCoordinatesTests
         var excluded = manifest.CoordinateExclusions!.Single();
         Assert.AreEqual("Theme.xaml", excluded.Source);
         Assert.AreEqual("Theme.xaml", excluded.Resource);
-        StringAssert.Contains(excluded.Reason, "saved state");
+        Assert.Contains("saved state", excluded.Reason);
         using var inventory = JsonDocument.Parse(GuestSourceSnapshot.SerializeInventory(manifest));
         Assert.AreEqual("Theme.xaml", inventory.RootElement.GetProperty("coordinateExclusions")[0].GetProperty("source").GetString());
         var run = new Commands.RunCommandResult { SourceWarnings = manifest.CoordinateExclusions };
@@ -369,7 +369,7 @@ public sealed class XamlSourceCoordinatesTests
         var emptyPayload = Directory.CreateDirectory(Path.Combine(_root, "empty"));
         using var lease = XamlSourceCoordinates.HoldPayload(path, emptyPayload.FullName);
         Assert.IsFalse(lease.Verified);
-        StringAssert.Contains(lease.Error!, "deployed XAML payload cannot be verified");
+        Assert.Contains("deployed XAML payload cannot be verified", lease.Error!);
         var environment = XamlSourceCoordinates.XamlCoordinateLaunch.Apply(
             new Dictionary<string, string?>(), path, new string('A', 64), lease.Verified);
         Assert.IsNull(environment["WINAPP_DEVTOOLS_SOURCE_PAYLOAD_HELD"]);
@@ -387,7 +387,7 @@ public sealed class XamlSourceCoordinatesTests
         File.WriteAllText(Path.Combine(_intermediate, "resources.pri"), "different indexed resource");
         using var lease = XamlSourceCoordinates.HoldPayload(path, _intermediate);
         Assert.IsFalse(lease.Verified);
-        StringAssert.Contains(lease.Error!, "PRI resource key");
+        Assert.Contains("PRI resource key", lease.Error!);
     }
 
     [TestMethod]
@@ -522,7 +522,7 @@ public sealed class XamlSourceCoordinatesTests
             new(Path.Combine(_root, "snapshot")), TestContext.CancellationToken, compiler);
         Assert.IsEmpty(manifest.Coordinates!);
         Assert.IsNull(manifest.CoordinateError);
-        StringAssert.Contains(manifest.CoordinateExclusions!.Single().Reason, "does not list both artifacts");
+        Assert.Contains("does not list both artifacts", manifest.CoordinateExclusions!.Single().Reason);
     }
 
     [TestMethod]

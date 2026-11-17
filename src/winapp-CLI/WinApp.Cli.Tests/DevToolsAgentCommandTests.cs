@@ -100,7 +100,7 @@ public class DevToolsAgentCommandTests : BaseCommandTests
         using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.find", "{}");
         var handler = new DevToolsCallCommand.Handler(agent.Resolver(), new TestConsole());
         Assert.AreEqual(0, await handler.InvokeAsync(new DevToolsCallCommand().Parse(["VisualTree.find", argument, "--json"])));
-        CollectionAssert.AreEqual(new List<string> { "DevTools.negotiate", "VisualTree.find" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "DevTools.negotiate", "VisualTree.find" }, agent.Received);
         var request = agent.ReceivedRequests.Last();
         Assert.IsFalse(request.Contains('\n') || request.Contains('\r'));
         using var doc = JsonDocument.Parse(request);
@@ -117,13 +117,13 @@ public class DevToolsAgentCommandTests : BaseCommandTests
         foreach (var command in LiveCommands())
         {
             var names = command.Options.SelectMany(o => o.Aliases.Append(o.Name)).ToArray();
-            CollectionAssert.Contains(names, "--app", $"{command.Name} must accept --app.");
-            CollectionAssert.Contains(names, "-a", $"{command.Name} must accept -a.");
-            CollectionAssert.Contains(names, "--window", $"{command.Name} must accept --window.");
-            CollectionAssert.Contains(names, "-w", $"{command.Name} must accept -w.");
-            CollectionAssert.Contains(names, "--json", $"{command.Name} must accept --json.");
-            CollectionAssert.Contains(names, "--attach", $"{command.Name} must require explicit injection consent.");
-            CollectionAssert.Contains(names, "--root", $"{command.Name} must accept an exact visual subtree.");
+            Assert.Contains("--app", names, $"{command.Name} must accept --app.");
+            Assert.Contains("-a", names, $"{command.Name} must accept -a.");
+            Assert.Contains("--window", names, $"{command.Name} must accept --window.");
+            Assert.Contains("-w", names, $"{command.Name} must accept -w.");
+            Assert.Contains("--json", names, $"{command.Name} must accept --json.");
+            Assert.Contains("--attach", names, $"{command.Name} must require explicit injection consent.");
+            Assert.Contains("--root", names, $"{command.Name} must accept an exact visual subtree.");
             Assert.IsFalse(command.Parse([]).GetValue(SharedDevToolsOptions.AttachOption));
             Assert.IsTrue(command.Parse(["--attach"]).GetValue(SharedDevToolsOptions.AttachOption));
         }
@@ -144,7 +144,7 @@ public class DevToolsAgentCommandTests : BaseCommandTests
             new DevToolsCallCommand().Parse(["DevTools.ping", "--root", root, "--attach", "--json"])));
         Assert.IsNull(resolver.LastAttachIfNeeded);
         Assert.IsEmpty(agent.Received);
-        StringAssert.Contains(console.Output, "bad-root");
+        Assert.Contains("bad-root", console.Output);
     }
 
     [TestMethod]
@@ -243,7 +243,7 @@ public class DevToolsAgentCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, parse.Errors.Count);
         Assert.AreEqual("Layout.get", parse.GetValue(DevToolsCallCommand.MethodArgument));
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             ExpectedCallParams,
             parse.GetValue(DevToolsCallCommand.ParamsArgument));
     }
@@ -287,7 +287,7 @@ public class DevToolsAgentCommandTests : BaseCommandTests
         var command = new DevToolsCallCommand();
         var handler = new DevToolsCallCommand.Handler(agent.Resolver(), console);
         Assert.AreEqual(1, await handler.InvokeAsync(command.Parse(["Internal.sourceRoot", "--json"])));
-        CollectionAssert.AreEqual(new List<string> { "DevTools.negotiate" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "DevTools.negotiate" }, agent.Received);
         using var json = JsonDocument.Parse(console.Output);
         Assert.AreEqual("unknown-method", json.RootElement.GetProperty("error").GetProperty("token").GetString());
     }
@@ -307,7 +307,7 @@ public class DevToolsAgentCommandTests : BaseCommandTests
         var error = json.RootElement.GetProperty("error");
         Assert.AreEqual(-32004, error.GetProperty("code").GetInt32());
         Assert.AreEqual(negotiation ? "unauthorized" : "bad-args", error.GetProperty("token").GetString());
-        StringAssert.Contains(error.GetProperty("message").GetString()!, "controlled refusal");
+        Assert.Contains("controlled refusal", error.GetProperty("message").GetString()!);
     }
 
     [TestMethod]
@@ -326,10 +326,10 @@ public class DevToolsAgentCommandTests : BaseCommandTests
         var error = result.RootElement.GetProperty("error");
         Assert.AreEqual(-32602, error.GetProperty("code").GetInt32());
         Assert.AreEqual("bad-args", error.GetProperty("token").GetString());
-        StringAssert.Contains(error.GetProperty("message").GetString()!, "numeric handle string");
+        Assert.Contains("numeric handle string", error.GetProperty("message").GetString()!);
         using var request = JsonDocument.Parse(agent.ReceivedRequests.Last());
         Assert.AreEqual(expectedWireValue, request.RootElement.GetProperty("params").GetProperty("handle").GetRawText());
-        CollectionAssert.AreEqual(new List<string> { "DevTools.negotiate", "Binding.walk" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "DevTools.negotiate", "Binding.walk" }, agent.Received);
     }
 
     [TestMethod]
@@ -398,7 +398,7 @@ public class DevToolsAgentCommandTests : BaseCommandTests
             ["a:=true", "b:=false", "c:=null", "d:=200", "e:=1.5", "f:=\"text\"", "g:=[1,2]", "h:={\"k\":1}"]);
 
         Assert.IsTrue(parsed.Ok, parsed.Error);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[]
             {
                 JsonValueKind.True, JsonValueKind.False, JsonValueKind.Null, JsonValueKind.Number,
@@ -419,7 +419,7 @@ public class DevToolsAgentCommandTests : BaseCommandTests
         {
             var parsed = DevToolsCallParams.Parse([$"p:={raw}"]);
             Assert.IsFalse(parsed.Ok, $"'p:={raw}' is not one valid JSON value and must be rejected.");
-            StringAssert.Contains(parsed.Error!, "p=", "The error must point at the string form that would work.");
+            Assert.Contains("p=", parsed.Error!, "The error must point at the string form that would work.");
         }
     }
 
@@ -534,27 +534,27 @@ public class DevToolsAgentCommandTests : BaseCommandTests
     [TestMethod]
     public void Errors_ExplainTheCommonFailuresInActionableTerms()
     {
-        StringAssert.Contains(
-            DevToolsErrors.Describe(new DevToolsProtocolError(-32001, "stale-handle", "gone")),
-            "devtools inspect");
-        StringAssert.Contains(
-            DevToolsErrors.Describe(new DevToolsProtocolError(-32005, "refused-unsafe", "refused: posture")),
+        Assert.Contains(
+            "devtools inspect",
+            DevToolsErrors.Describe(new DevToolsProtocolError(-32001, "stale-handle", "gone")));
+        Assert.Contains(
             "Restart the app",
+            DevToolsErrors.Describe(new DevToolsProtocolError(-32005, "refused-unsafe", "refused: posture")),
             "A refused write must explain that posture is fixed at injection, not just that it was refused.");
-        StringAssert.Contains(
-            DevToolsErrors.Describe(DevToolsProtocolError.NoResponse()),
-            "did not answer");
+        Assert.Contains(
+            "did not answer",
+            DevToolsErrors.Describe(DevToolsProtocolError.NoResponse()));
     }
 
     [TestMethod]
     public void Errors_NeverEchoARawTokenOrUnexplainedHresult()
     {
         var outside = DevToolsErrors.Describe(new DevToolsProtocolError(-32001, "outside-window", "outside-window"));
-        StringAssert.Contains(outside, "different window");
+        Assert.Contains("different window", outside);
         Assert.IsFalse(outside.Contains("outside-window"), outside);
         Assert.AreEqual("The app said no.", DevToolsErrors.Describe(new DevToolsProtocolError(-32000, "custom", "The app said no.")));
         Assert.AreEqual("The DevTools agent failed with 'custom'.", DevToolsErrors.Describe(new DevToolsProtocolError(-32000, "custom", "")));
-        StringAssert.Contains(DevToolsErrors.DescribeToken("0x80004005")!, "general failure");
+        Assert.Contains("general failure", DevToolsErrors.DescribeToken("0x80004005")!);
         Assert.IsNull(DevToolsErrors.DescribeToken("0x12345678"));
         Assert.AreEqual("the search ran out of time; narrow it with --root or --of-type", DevToolsErrors.DescribeTruncation("time-budget"));
         Assert.AreEqual("new-reason", DevToolsErrors.DescribeTruncation("new-reason"));

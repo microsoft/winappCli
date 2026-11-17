@@ -85,7 +85,7 @@ public class ManifestGenerateCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, []);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "already exists");
+        Assert.Contains("already exists", ConsoleStdErr.ToString());
         Assert.AreEqual(PlaceholderManifest, File.ReadAllText(PackageManifestPath.FullName), "Existing manifest is left untouched");
     }
 
@@ -132,8 +132,8 @@ public class ManifestGenerateCommandFailureTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, []);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Error generating manifest");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "disk full");
+        Assert.Contains("Error generating manifest", ConsoleStdErr.ToString());
+        Assert.Contains("disk full", ConsoleStdErr.ToString());
     }
 
     private sealed class ThrowingManifestService : IManifestService

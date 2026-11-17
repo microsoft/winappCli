@@ -142,7 +142,7 @@ public class UpdateCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.HasCount(1, _fakeInstall.InstallPackagesCalls);
         var call = _fakeInstall.InstallPackagesCalls[0];
-        CollectionAssert.Contains(call.Packages, "Microsoft.WindowsAppSDK");
+        Assert.Contains("Microsoft.WindowsAppSDK", call.Packages);
         Assert.IsFalse(call.IgnoreConfig, "Update installs using the updated config");
 
         // winapp.yaml was rewritten with the new version
@@ -165,7 +165,7 @@ public class UpdateCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         var persisted = _configService.Load().Packages.Single(p => p.Name == PackageName).Version;
         Assert.AreEqual("2.0.0", persisted, "A strictly-greater latest version must be written to winapp.yaml.");
-        CollectionAssert.Contains(_fakeInstall.InstalledPackages, PackageName, "An update must reinstall the updated package.");
+        Assert.Contains(PackageName, _fakeInstall.InstalledPackages, "An update must reinstall the updated package.");
     }
 
     [TestMethod]
@@ -297,8 +297,8 @@ public class UpdateCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [], cts.Token);
 
         Assert.AreNotEqual(0, exitCode, "A cancelled update must not report success.");
-        CollectionAssert.Contains(_fakeNuget.QueriedPackages, "First.Pkg", "The first package triggers the cancellation.");
-        CollectionAssert.DoesNotContain(_fakeNuget.QueriedPackages, "Second.Pkg",
+        Assert.Contains("First.Pkg", _fakeNuget.QueriedPackages, "The first package triggers the cancellation.");
+        Assert.DoesNotContain("Second.Pkg", _fakeNuget.QueriedPackages,
             "Cancellation must abort the loop, so the second package is never queried.");
         Assert.IsEmpty(_fakeInstall.InstalledPackages, "A cancelled update must not reinstall packages.");
     }
@@ -314,7 +314,7 @@ public class UpdateCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, []);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to install/update build tools");
+        Assert.Contains("Failed to install/update build tools", ConsoleStdErr.ToString());
     }
 
     // ── Runtime install step ────────────────────────────────────────────
@@ -354,7 +354,7 @@ public class UpdateCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, []);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Update command failed");
+        Assert.Contains("Update command failed", ConsoleStdErr.ToString());
     }
 
     /// <summary>

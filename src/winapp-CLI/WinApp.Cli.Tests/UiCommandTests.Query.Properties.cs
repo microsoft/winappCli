@@ -84,10 +84,10 @@ public partial class UiCommandTests
         Assert.AreEqual(retries ? 1 : 0, _fakePollDelay.CallCount);
         Assert.HasCount(retries ? 2 : 1, _fakeUia.Queries);
         Assert.IsTrue(_fakeUia.Queries.All(q => q.Root?.Query == "MailRow" && q.ControlType == "Edit"));
-        if (retries) { StringAssert.Contains(TestAnsiConsole.Output, "\"found\": true"); }
+        if (retries) { Assert.Contains("\"found\": true", TestAnsiConsole.Output); }
         else if (name == "get-property")
         {
-            StringAssert.Contains(ConsoleStdErr.ToString(), "no longer accessible");
+            Assert.Contains("no longer accessible", ConsoleStdErr.ToString());
             Assert.DoesNotContain("\"properties\"", TestAnsiConsole.Output);
         }
         else { AssertJsonErrorCode("stale_element"); }

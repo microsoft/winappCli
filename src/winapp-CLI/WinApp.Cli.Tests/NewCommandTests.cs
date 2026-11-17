@@ -380,7 +380,7 @@ public class NewCommandTests : BaseCommandTests
     [TestMethod]
     public void GetInstalledPackVersions_TwoCopies_ReturnsBothInListingOrder()
     {
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             TwoPackCopiesVersions,
             NewCommand.GetInstalledPackVersions(TwoPackCopiesListing).ToArray());
     }

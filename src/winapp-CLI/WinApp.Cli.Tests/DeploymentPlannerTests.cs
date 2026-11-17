@@ -95,7 +95,7 @@ public class DeploymentPlannerTests
         var first = await SnapshotAsync();
         var second = await SnapshotAsync();
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             first.Files.Select(f => f.RelativePath).ToArray(),
             second.Files.Select(f => f.RelativePath).ToArray());
     }
@@ -159,7 +159,7 @@ public class DeploymentPlannerTests
         var plan = DeploymentPlanner.CreatePlan(snapshot, actual);
 
         // Leaving a stale binary behind is how a rerun silently keeps executing removed code.
-        CollectionAssert.AreEqual(ExpectedRemoved, plan.Removed.ToArray());
+        Assert.AreSequenceEqual(ExpectedRemoved, plan.Removed.ToArray());
     }
 
     [TestMethod]
@@ -190,7 +190,7 @@ public class DeploymentPlannerTests
             () => DeploymentPlanner.VerifyUnchanged(_root.FullName, snapshot.Files));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.DeploymentDirty, failure.Error.Code);
-        StringAssert.Contains(failure.Error.UserAction!, "Rebuild", StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Rebuild", failure.Error.UserAction!, StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]

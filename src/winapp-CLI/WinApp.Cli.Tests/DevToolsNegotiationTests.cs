@@ -130,7 +130,7 @@ public class DevToolsNegotiationTests
         {
             serialized = serialized.Replace("\\u00E9", "\u00e9", StringComparison.OrdinalIgnoreCase)
                 .Replace("\\uD83D\\uDE00", "\U0001F600", StringComparison.OrdinalIgnoreCase);
-            StringAssert.Contains(serialized, "\U0001F600");
+            Assert.Contains("\U0001F600", serialized);
         }
         var overflowing = scenario.EndsWith("260", StringComparison.Ordinal);
         if (scenario.Contains("boundary", StringComparison.Ordinal))
@@ -158,11 +158,11 @@ public class DevToolsNegotiationTests
                     "boundary259" or "unicode-boundary259" or "readonly-fixture",
                     expected.MatchesAgent(metadata), await error);
             }
-            StringAssert.Contains(await error,
-                scenario == "first-local" || rejectedWriter || overflowing ? "writer-sibling=0" : "writer-sibling=1");
+            Assert.Contains(scenario == "first-local" || rejectedWriter || overflowing ? "writer-sibling=0" : "writer-sibling=1",
+                await error);
             if (scenario.Contains("boundary", StringComparison.Ordinal))
             {
-                StringAssert.Contains(await error, overflowing ? "errno=34 returned=0" : "errno=0 returned=259");
+                Assert.Contains(overflowing ? "errno=34 returned=0" : "errno=0 returned=259", await error);
             }
             if (scenario == "exact")
             {
@@ -177,7 +177,7 @@ public class DevToolsNegotiationTests
             {
                 Assert.AreEqual("unavailable", metadata.GetProperty("mode").GetString());
                 Assert.AreEqual(string.Empty, metadata.GetProperty("binding").GetString());
-                StringAssert.Contains(await error, "comment-unavailable=1");
+                Assert.Contains("comment-unavailable=1", await error);
             }
         }
         finally
@@ -255,16 +255,16 @@ public class DevToolsNegotiationTests
         var service = new DevToolsService(NullLogger<DevToolsService>.Instance, new NoComments(), context);
         var result = await service.ConnectAsync((uint)process.Id, false, DevToolsAccess.Mutation, CancellationToken.None);
         Assert.IsFalse(result.Connected);
-        StringAssert.Contains(result.Error!, expected);
+        Assert.Contains(expected, result.Error!);
         Assert.DoesNotContain(binding, result.Error!);
         Assert.DoesNotContain("private-", result.Error!);
         if (scenario == "protocol")
         {
-            StringAssert.Contains(result.Error!, "-32004");
-            StringAssert.Contains(result.Error!, "unauthorized");
+            Assert.Contains("-32004", result.Error!);
+            Assert.Contains("unauthorized", result.Error!);
             Assert.DoesNotContain("binding", result.Error!);
         }
-        CollectionAssert.AreEqual(NegotiationRequests, agent.Received);
+        Assert.AreSequenceEqual(NegotiationRequests, agent.Received);
     }
 
     [TestMethod]

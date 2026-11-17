@@ -122,7 +122,7 @@ public class WindowsSandboxCliClassificationTests
             await _cli.ProbeInteractiveSessionAsync("sandbox-1", TestContext.CancellationToken));
 
         var arguments = _runner.Requests.Single().Arguments.ToList();
-        CollectionAssert.Contains(arguments, "ExistingLogin", "The probe must ask as the interactive user.");
+        Assert.Contains("ExistingLogin", arguments, "The probe must ask as the interactive user.");
     }
 
     [TestMethod]
