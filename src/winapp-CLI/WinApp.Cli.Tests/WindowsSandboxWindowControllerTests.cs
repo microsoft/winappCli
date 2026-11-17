@@ -692,7 +692,7 @@ public class WindowsSandboxWindowControllerTests
 
         Assert.IsNotNull(placed);
         Assert.AreEqual((nint)200, placed.Handle);
-        CollectionAssert.AreEqual(new nint[] { 200 }, scripted.Parked);
+        Assert.AreSequenceEqual(new nint[] { 200 }, scripted.Parked);
     }
 
     [TestMethod]
@@ -708,7 +708,7 @@ public class WindowsSandboxWindowControllerTests
         Assert.IsNotNull(attempt.Placement);
         var placed = await attempt.Placement;
         Assert.AreEqual((nint)200, placed!.Handle);
-        CollectionAssert.AreEqual(new nint[] { 200 }, scripted.Parked);
+        Assert.AreSequenceEqual(new nint[] { 200 }, scripted.Parked);
     }
 
     /// <summary>
@@ -732,7 +732,7 @@ public class WindowsSandboxWindowControllerTests
 
         Assert.IsNotNull(placed, "winapp's own client did arrive, and parentage identifies it.");
         Assert.AreEqual((nint)300, placed.Handle);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new nint[] { 300 },
             scripted.Parked,
             "Another caller's window must never be moved.");
@@ -819,7 +819,7 @@ public class WindowsSandboxWindowControllerTests
 
         Assert.IsNotNull(placed);
         Assert.AreEqual((nint)300, placed.Handle);
-        CollectionAssert.AreEqual(new nint[] { 300 }, scripted.Parked);
+        Assert.AreSequenceEqual(new nint[] { 300 }, scripted.Parked);
     }
 
     [TestMethod]

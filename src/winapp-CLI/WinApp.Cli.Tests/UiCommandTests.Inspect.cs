@@ -56,15 +56,15 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "pane-1");
-        StringAssert.Contains(output, "btn-ok-1");
-        StringAssert.Contains(output, "clicked");
-        StringAssert.Contains(output, "disabled");
-        StringAssert.Contains(output, "offscreen");
-        StringAssert.Contains(output, "+more");
-        StringAssert.Contains(output, "hidden children");
-        StringAssert.Contains(output, "Use -w");
-        StringAssert.Contains(output, "Use -i");
+        Assert.Contains("pane-1", output);
+        Assert.Contains("btn-ok-1", output);
+        Assert.Contains("clicked", output);
+        Assert.Contains("disabled", output);
+        Assert.Contains("offscreen", output);
+        Assert.Contains("+more", output);
+        Assert.Contains("hidden children", output);
+        Assert.Contains("Use -w", output);
+        Assert.Contains("Use -i", output);
     }
 
     [TestMethod]
@@ -85,10 +85,10 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "Pane");
-        StringAssert.Contains(output, "Pane > Group");
-        StringAssert.Contains(output, "btn-1");
-        StringAssert.Contains(output, "+more");
+        Assert.Contains("Pane", output);
+        Assert.Contains("Pane > Group", output);
+        Assert.Contains("btn-1", output);
+        Assert.Contains("+more", output);
     }
 
     [TestMethod]
@@ -98,7 +98,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiInspectCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "Found 0 elements");
+        Assert.Contains("Found 0 elements", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -116,7 +116,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "on-1");
+        Assert.Contains("on-1", output);
         Assert.IsFalse(output.Contains("off-1"));
         Assert.IsFalse(output.Contains("hidden-1"));
     }
@@ -138,7 +138,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         // The grandparent selector surfaces as the invokable-ancestor hint on the menu item.
-        StringAssert.Contains(TestAnsiConsole.Output, "\"gp\"");
+        Assert.Contains("\"gp\"", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -173,7 +173,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "GetDpiForWindow failed for HWND 321");
+        Assert.Contains("GetDpiForWindow failed for HWND 321", ConsoleStdErr.ToString());
     }
 
     [TestMethod]

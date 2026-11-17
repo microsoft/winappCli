@@ -32,7 +32,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(command, ["--app", app, "--json"]));
         Assert.AreEqual(app, _targetResolver.LastApp);
         Assert.IsTrue(_targetResolver.ProcessOnlyRequested);
-        StringAssert.Contains(TestAnsiConsole.Output, "2000000000 is not running");
+        Assert.Contains("2000000000 is not running", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -41,7 +41,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         var command = GetRequiredService<DevToolsAttachCommand>();
         Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(command, ["--app", "Daylight", "--pid", "123", "--json"]));
         Assert.IsNull(_targetResolver.LastApp);
-        StringAssert.Contains(TestAnsiConsole.Output, "not both");
+        Assert.Contains("not both", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -53,8 +53,8 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exit);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"ok\": false", "Failure JSON must report ok:false.");
-        StringAssert.Contains(output, "Invalid --pid", "The message must name the bad pid so it is diagnosable.");
+        Assert.Contains("\"ok\": false", output, "Failure JSON must report ok:false.");
+        Assert.Contains("Invalid --pid", output, "The message must name the bad pid so it is diagnosable.");
     }
 
     [TestMethod]
@@ -68,8 +68,8 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exit);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"ok\": false");
-        StringAssert.Contains(output, "not running", "An absent process must be surfaced as not-running.");
+        Assert.Contains("\"ok\": false", output);
+        Assert.Contains("not running", output, "An absent process must be surfaced as not-running.");
     }
 
     [TestMethod]
@@ -96,11 +96,11 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         var command = GetRequiredService<DevToolsAttachCommand>();
         var names = command.Options.SelectMany(o => o.Aliases.Append(o.Name)).ToArray();
 
-        CollectionAssert.DoesNotContain(names, "--allow-mutation",
+        Assert.DoesNotContain("--allow-mutation", names,
             "Every DevTools connection is writable; there is no access-mode choice to expose.");
-        CollectionAssert.DoesNotContain(names, "--window",
+        Assert.DoesNotContain("--window", names,
             "--window/-w means an HWND across the CLI; the inspector-opening flag is --show-window.");
-        CollectionAssert.Contains(names, "--show-window");
+        Assert.Contains("--show-window", names);
     }
 
     [TestMethod]
@@ -122,7 +122,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         var exit = await handler.InvokeAsync(command.Parse(["--json"]));
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"apps\"", "list --json must emit an apps array.");
+        Assert.Contains("\"apps\"", TestAnsiConsole.Output, "list --json must emit an apps array.");
     }
 
     [TestMethod]
@@ -136,7 +136,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         Assert.AreEqual(0, await handler.InvokeAsync(command.Parse([])));
         var lines = console.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         Assert.HasCount(1, lines, console.Output);
-        StringAssert.StartsWith(lines[0], Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.StartsWith(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), lines[0]);
     }
 
     [TestMethod]
@@ -166,8 +166,9 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         }
         else
         {
-            StringAssert.Contains(why, refusal);
-            StringAssert.Contains(why, "App (PID 42)");
+            Assert.IsNotNull(why);
+            Assert.Contains(refusal, why);
+            Assert.Contains("App (PID 42)", why);
         }
     }
 
@@ -266,7 +267,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         Assert.AreEqual(0, exit, TestAnsiConsole.Output);
         var hints = TestAnsiConsole.Output.Split('\n').Where(l => l.Contains("--source-root", StringComparison.Ordinal)).ToList();
         Assert.AreEqual(1, hints.Count, TestAnsiConsole.Output);
-        StringAssert.Contains(hints[0], "Run attach again with --source-root <project folder>.");
+        Assert.Contains("Run attach again with --source-root <project folder>.", hints[0]);
     }
 
     [TestMethod]
@@ -280,7 +281,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         var exit = await handler.InvokeAsync(GetRequiredService<DevToolsAttachCommand>().Parse(["--pid", "42", "--source-root", missing, "--json"]));
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "The source root");
+        Assert.Contains("The source root", TestAnsiConsole.Output);
         Assert.IsFalse(devTools.WasCalled);
     }
 
@@ -296,8 +297,8 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         var exit = await handler.InvokeAsync(command.Parse(["--pid", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), "--json"]));
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "has not loaded WinUI 3");
-        StringAssert.Contains(TestAnsiConsole.Output, "Nothing was loaded into that process.");
+        Assert.Contains("has not loaded WinUI 3", TestAnsiConsole.Output);
+        Assert.Contains("Nothing was loaded into that process.", TestAnsiConsole.Output);
         Assert.IsFalse(devTools.WasCalled, "a test host is not a WinUI 3 app, so nothing is injected");
     }
 

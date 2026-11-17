@@ -121,8 +121,8 @@ public class ScenarioSanitizerTests
         var s = new Scenario { Id = "gallery-x-1", Xaml = "<Grid>\n\t<TextBox />\n</Grid>" };
         ScenarioSanitizer.Sanitize(s);
         Assert.IsNotNull(s.Xaml);
-        StringAssert.Contains(s.Xaml!, "\n");
-        StringAssert.Contains(s.Xaml!, "\t");
+        Assert.Contains("\n", s.Xaml!);
+        Assert.Contains("\t", s.Xaml!);
     }
 
     [TestMethod]
@@ -210,8 +210,8 @@ public class ScenarioSanitizerTests
 
         Assert.AreEqual("gallery-x-1gallery-fake-1", s.Id, "newline stripped from id");
         Assert.AreEqual("xyz", s.ControlId, "tab and CR stripped from control id");
-        StringAssert.Contains(s.Xaml!, "\n", "newlines are still preserved in XAML");
-        StringAssert.Contains(s.Xaml!, "\t", "tabs are still preserved in XAML");
+        Assert.Contains("\n", s.Xaml!, "newlines are still preserved in XAML");
+        Assert.Contains("\t", s.Xaml!, "tabs are still preserved in XAML");
     }
 
     [TestMethod]
@@ -247,7 +247,7 @@ public class ScenarioSanitizerTests
 
         var listed = engine.ListAll().Select(x => x.id).ToList();
         Assert.IsFalse(listed.Any(id => id.Contains('\u001b')), "no listed id may carry an escape");
-        CollectionAssert.Contains(listed, "gallery-tabview-[2J1");
+        Assert.Contains("gallery-tabview-[2J1", listed);
 
         var (_, poisonedFound, _) = engine.GetPattern("gallery-tabview-\u001b[2J1");
         Assert.IsFalse(poisonedFound, "the pre-sanitization id must no longer resolve");
@@ -362,8 +362,8 @@ public class ScenarioSanitizerTests
 
         ScenarioSanitizer.Sanitize(s);
 
-        StringAssert.Contains(s.Xaml!, "\n", "XAML must remain multi-line");
-        StringAssert.Contains(s.CSharp!, "\n", "C# must remain multi-line");
+        Assert.Contains("\n", s.Xaml!, "XAML must remain multi-line");
+        Assert.Contains("\n", s.CSharp!, "C# must remain multi-line");
         Assert.AreEqual("<Grid>\n  <TextBlock />\n</Grid>", s.Xaml);
     }
 
@@ -391,7 +391,7 @@ public class ScenarioSanitizerTests
 
         ScenarioSanitizer.Sanitize(s);
 
-        CollectionAssert.AreEqual(OneToolkitHelpersUsing, s.Usings,
+        Assert.AreSequenceEqual(OneToolkitHelpersUsing, s.Usings,
             "an entry that is not a namespace name has nothing to salvage and is dropped");
     }
 
@@ -422,7 +422,7 @@ public class ScenarioSanitizerTests
 
         ScenarioSanitizer.Sanitize(s);
 
-        CollectionAssert.AreEqual(TwoNamespaceNames, s.Usings);
+        Assert.AreSequenceEqual(TwoNamespaceNames, s.Usings);
     }
 
     [TestMethod]
@@ -440,7 +440,7 @@ public class ScenarioSanitizerTests
 
         ScenarioSanitizer.Sanitize(s);
 
-        CollectionAssert.AreEqual(ThreeCleanUsings, s.Usings);
+        Assert.AreSequenceEqual(ThreeCleanUsings, s.Usings);
     }
 
     [TestMethod]
@@ -469,7 +469,7 @@ public class ScenarioSanitizerTests
         var (formatted, found, _) = engine.GetPattern("toolkit-evil-1");
 
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "**Namespace:** `CommunityToolkit.WinUI.Helpers`");
+        Assert.Contains("**Namespace:** `CommunityToolkit.WinUI.Helpers`", formatted);
         Assert.IsFalse(formatted.Contains("**Important:**"), "a poisoned using must not forge an instruction row");
         Assert.IsFalse(formatted.Contains("attacker.example"), "the payload must not reach the output at all");
     }

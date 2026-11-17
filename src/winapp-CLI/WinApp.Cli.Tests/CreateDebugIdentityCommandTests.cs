@@ -98,7 +98,7 @@ public class CreateDebugIdentityCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.HasCount(1, _fakeMsixService.AddSparseIdentityCalls);
-        StringAssert.Contains(_fakeMsixService.AddSparseIdentityCalls[0].ManifestPath, manifest.Name);
+        Assert.Contains(manifest.Name, _fakeMsixService.AddSparseIdentityCalls[0].ManifestPath!);
     }
 
     [TestMethod]
@@ -156,8 +156,8 @@ public class CreateDebugIdentityCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "Failed to add package identity");
-        StringAssert.Contains(stderr, "registration blew up");
+        Assert.Contains("Failed to add package identity", stderr);
+        Assert.Contains("registration blew up", stderr);
     }
 
     [TestMethod]
@@ -171,6 +171,6 @@ public class CreateDebugIdentityCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, []);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to add package identity");
+        Assert.Contains("Failed to add package identity", ConsoleStdErr.ToString());
     }
 }

@@ -44,7 +44,7 @@ public class CompactCommandHelpTests : BaseCommandTests
     [TestMethod]
     public void RunPackageAndInit_UseCompactHelp()
     {
-        CollectionAssert.AreEquivalent(CompactCommandNames, CompactCommands.Select(c => c.Name).ToArray());
+        Assert.AreSequenceEqual(CompactCommandNames, CompactCommands.Select(c => c.Name).ToArray(), SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -53,17 +53,17 @@ public class CompactCommandHelpTests : BaseCommandTests
         foreach (var command in CompactCommands)
         {
             var grouped = ((ICompactHelpCommand)command).OptionGroups.SelectMany(g => g.Options).ToList();
-            CollectionAssert.AllItemsAreUnique(grouped, $"'{command.Name}' lists an option in more than one group.");
+            Assert.AreAllDistinct(grouped, $"'{command.Name}' lists an option in more than one group.");
             var visible = command.Options.Where(o => !o.Hidden && o is not HelpOption
                 && o != WinAppRootCommand.VerboseOption && o != WinAppRootCommand.QuietOption
                 && !ExecutionTargetSelection.IsSelectorOption(o));
             foreach (var option in visible)
             {
-                CollectionAssert.Contains(grouped, option, $"'winapp {command.Name} {option.Name}' is not in any help group.");
+                Assert.Contains(option, grouped, $"'winapp {command.Name} {option.Name}' is not in any help group.");
             }
             foreach (var option in grouped)
             {
-                CollectionAssert.Contains(command.Options.ToList(), option, $"'{option.Name}' is grouped but not an option of '{command.Name}'.");
+                Assert.Contains(option, command.Options.ToList(), $"'{option.Name}' is grouped but not an option of '{command.Name}'.");
             }
         }
     }
@@ -97,12 +97,12 @@ public class CompactCommandHelpTests : BaseCommandTests
         Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), [name, "--help"]));
         var output = TestAnsiConsole.Output.Replace("\r\n", "\n");
 
-        StringAssert.StartsWith(output, $"winapp {name} - ");
-        StringAssert.Contains(output, "\nExamples:\n");
+        Assert.StartsWith($"winapp {name} - ", output);
+        Assert.Contains("\nExamples:\n", output);
         Assert.IsLessThan(output.IndexOf("\nExamples:", StringComparison.Ordinal), output.IndexOf("\nUsage:", StringComparison.Ordinal));
         Assert.DoesNotContain("\nOptions:\n", output, "Every option belongs to a named group.");
         Assert.AreEqual(1, Regex.Count(output, "^Global options:", RegexOptions.Multiline));
-        StringAssert.Contains(output, acceptsOn ? CompactHelpRenderer.GlobalOptionsLine : CompactHelpRenderer.LocalGlobalOptionsLine);
+        Assert.Contains(acceptsOn ? CompactHelpRenderer.GlobalOptionsLine : CompactHelpRenderer.LocalGlobalOptionsLine, output);
         Assert.DoesNotContain("--verbose", output);
         Assert.DoesNotContain("\u001b[", output, "Redirected help has no color codes.");
         var tooLong = output.Split('\n').Where(line => line.Length > CompactHelpRenderer.Width).ToList();
@@ -115,8 +115,8 @@ public class CompactCommandHelpTests : BaseCommandTests
         foreach (var command in AllCommands(GetRequiredService<WinAppRootCommand>()))
         {
             var output = CompactHelpRenderer.Render(command).Replace("\r\n", "\n");
-            StringAssert.StartsWith(output, CompactHelpTitlePrefix(command), command.Name);
-            StringAssert.Contains(output, "\nUsage: ", command.Name);
+            Assert.StartsWith(CompactHelpTitlePrefix(command), output, command.Name);
+            Assert.Contains("\nUsage: ", output, command.Name);
             // ui and devtools list their shared options instead of a global-options line.
             Assert.AreEqual(command is ICompactHelpGroup ? 0 : 1, Regex.Count(output, "^Global options:", RegexOptions.Multiline), command.Name);
             foreach (var sub in command.Subcommands.Where(c => !c.Hidden))
@@ -127,7 +127,7 @@ public class CompactCommandHelpTests : BaseCommandTests
                 && o != WinAppRootCommand.VerboseOption && o != WinAppRootCommand.QuietOption
                 && !ExecutionTargetSelection.IsSelectorOption(o)))
             {
-                StringAssert.Contains(output, option.Name, $"'{command.Name}' help doesn't list '{option.Name}'.");
+                Assert.Contains(option.Name, output, $"'{command.Name}' help doesn't list '{option.Name}'.");
             }
             // Usage and example lines are never wrapped, and the ui/devtools overviews are hand-formatted.
             var tooLong = command is ICompactHelpGroup ? [] : output.Split('\n').Where(line => line.Length > CompactHelpRenderer.Width
@@ -145,9 +145,9 @@ public class CompactCommandHelpTests : BaseCommandTests
             var styled = CompactHelpRenderer.Render(command, styled: true);
             static string[] Text(string help) => Regex.Replace(help, "\u001b\\[[0-9;]*m", "")
                 .Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Length > 0).ToArray();
-            CollectionAssert.AreEqual(Text(plain), Text(styled), command.Name);
+            Assert.AreSequenceEqual(Text(plain), Text(styled), command.Name);
         }
-        StringAssert.Contains(CompactHelpRenderer.Render(GetRequiredService<WinAppRootCommand>().Subcommands.Single(c => c.Name == "run"), styled: true), "\u001b[");
+        Assert.Contains("\u001b[", CompactHelpRenderer.Render(GetRequiredService<WinAppRootCommand>().Subcommands.Single(c => c.Name == "run"), styled: true));
     }
 
     [TestMethod]
@@ -167,7 +167,7 @@ public class CompactCommandHelpTests : BaseCommandTests
             command = command.Subcommands.Single(c => c.Name == name);
         }
         var help = Regex.Replace(CompactHelpRenderer.Render(command), @"\s+", " ");
-        StringAssert.Contains(help, expected);
+        Assert.Contains(expected, help);
     }
 
     [TestMethod]
