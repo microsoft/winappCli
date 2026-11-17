@@ -226,9 +226,8 @@ public class ProgramMainTests
     [TestMethod]
     public async Task Main_CliSchemaWithParseError_ExitsZeroWithSchemaJson()
     {
-        // Review feedback (agammann): RequestedDescriptiveAction exempts --help and
-        // --cli-schema from the parse-error exit rule, so a malformed command line that
-        // still asks for the schema must exit 0 with schema JSON.
+        // An explicit --cli-schema request succeeds by printing the schema, even when
+        // other tokens on the command line fail to parse.
         var (stdout, _, exitCode) = await ProgramMainTestHarness.InvokeProgramAsync(["cert", "bogus", "--cli-schema"]);
 
         Assert.AreEqual(0, exitCode,
