@@ -51,8 +51,7 @@ internal static class PerfAnalysisStore
         {
             throw new InvalidDataException("The capture repeats an ETL file.");
         }
-        using var exclusive = new FileStream(Path.Join(capture.Directory, ".analysis.lock"),
-            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        using var exclusive = AcquireAnalysisLock(capture.Directory);
         var fingerprint = Fingerprint(capture, token);
         var cache = Path.Join(capture.Directory, "analysis");
         var manifestPath = Path.Join(cache, "manifest.json");
@@ -116,6 +115,20 @@ internal static class PerfAnalysisStore
             {
                 DeleteCache(staging);
             }
+        }
+    }
+
+    private static FileStream AcquireAnalysisLock(string directory)
+    {
+        try
+        {
+            return new FileStream(Path.Join(directory, ".analysis.lock"),
+                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        // Only sharing and lock violations mean another analysis holds the file.
+        catch (IOException ex) when ((ex.HResult & 0xFFFF) is 32 or 33)
+        {
+            throw new IOException("Another winapp perf analyze is using this capture. Retry when it finishes.", ex);
         }
     }
 

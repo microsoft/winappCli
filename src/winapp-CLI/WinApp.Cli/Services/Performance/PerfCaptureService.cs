@@ -142,7 +142,16 @@ internal sealed class PerfCaptureService(IWinappDirectoryService directories, IA
         {
             throw new ArgumentException("A capture ID must be the 32-character ID returned by perf start.");
         }
-        var registration = ReadRegistration(Path.Join(RegistryRoot, id, "control.json"));
+        PerfControlRegistration registration;
+        try
+        {
+            registration = ReadRegistration(Path.Join(RegistryRoot, id, "control.json"));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new InvalidOperationException(
+                $"No capture with ID '{id}' was found. Run 'winapp perf start' to create one.", ex);
+        }
         var capture = PerfCaptureDocument.Load(registration.Directory);
         ValidateOwnership(registration, capture);
         capture.Worker = registration.Worker;
