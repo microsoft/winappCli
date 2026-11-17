@@ -120,6 +120,9 @@ public class PerfCommandTests : BaseCommandTests
     [DataRow("perf start --output unused --json")]
     [DataRow("perf start --pid 1 --output unused --json")]
     [DataRow("perf unknown --json")]
+    [DataRow("perf status not-a-capture --json")]
+    [DataRow("perf stop not-a-capture --json")]
+    [DataRow("perf mark not-a-capture --name test --json")]
     [DataRow("perf analyze missing --limit 101 --json")]
     [DataRow("perf analyze missing --view frames --type Button --json")]
     [DataRow("perf analyze missing --view call --json")]
@@ -143,6 +146,110 @@ public class PerfCommandTests : BaseCommandTests
         Assert.AreEqual("", stdout);
         using var error = JsonDocument.Parse(stderr);
         Assert.AreEqual("invalid_arguments", error.RootElement.GetProperty("code").GetString());
+    }
+
+    [TestMethod]
+    [DataRow("status", false, false)]
+    [DataRow("status", false, true)]
+    [DataRow("status", true, false)]
+    [DataRow("status", true, true)]
+    [DataRow("stop", false, false)]
+    [DataRow("stop", false, true)]
+    [DataRow("stop", true, false)]
+    [DataRow("stop", true, true)]
+    [DataRow("mark", false, false)]
+    [DataRow("mark", false, true)]
+    [DataRow("mark", true, false)]
+    [DataRow("mark", true, true)]
+    public async Task UnknownCaptureReturnsActionableError(string operation, bool json, bool directoryExists)
+    {
+        var id = Guid.NewGuid().ToString("N");
+        if (directoryExists)
+        {
+            _testCacheDirectory.CreateSubdirectory(Path.Join("perf-control", id));
+        }
+        List<string> args = [operation, id];
+        if (operation == "mark")
+        {
+            args.AddRange(["--name", "test"]);
+        }
+        if (json)
+        {
+            args.Add("--json");
+        }
+        var previous = Console.Error;
+        using var stderr = new StringWriter();
+        Console.SetError(stderr);
+        try
+        {
+            var code = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(), args.ToArray());
+            Assert.AreEqual(1, code);
+            Assert.AreEqual("", TestAnsiConsole.Output);
+            var message = $"No capture with ID '{id}' was found. Run 'winapp perf start' to create one.";
+            if (json)
+            {
+                using var error = JsonDocument.Parse(stderr.ToString());
+                Assert.AreEqual("performance_error", error.RootElement.GetProperty("code").GetString());
+                Assert.AreEqual(message, error.RootElement.GetProperty("message").GetString());
+                Assert.IsFalse(error.RootElement.GetProperty("partialOutput").GetBoolean());
+            }
+            else
+            {
+                Assert.AreEqual(message, stderr.ToString().TrimEnd());
+            }
+        }
+        finally
+        {
+            Console.SetError(previous);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ConcurrentAnalysisReportsContentionAndSucceedsAfterRelease(bool json)
+    {
+        var directory = CreateCachedAnalysis(
+            [new("c1", "MeasureElement", "layout", 7, null, null, "v1", "v2",
+                10, 15, 5, null, "complete", 5)]);
+        try
+        {
+            string[] args = json
+                ? ["perf", "analyze", directory.FullName, "--view", "calls", "--json"]
+                : ["perf", "analyze", directory.FullName, "--view", "calls"];
+            const string message = "Another winapp perf analyze is using this capture. Retry when it finishes.";
+            using (var held = new FileStream(Path.Join(directory.FullName, ".analysis.lock"),
+                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                var (stdout, stderr, code) = await InvokeProgramAsync(args);
+                Assert.AreEqual(1, code);
+                Assert.AreEqual("", stdout);
+                if (json)
+                {
+                    using var error = JsonDocument.Parse(stderr);
+                    Assert.AreEqual("performance_error", error.RootElement.GetProperty("code").GetString());
+                    Assert.AreEqual(message, error.RootElement.GetProperty("message").GetString());
+                    Assert.IsFalse(error.RootElement.GetProperty("partialOutput").GetBoolean());
+                }
+                else
+                {
+                    Assert.AreEqual(message, stderr.TrimEnd());
+                }
+            }
+
+            var retry = await InvokeProgramAsync(args);
+            Assert.AreEqual(0, retry.ExitCode, retry.Stderr);
+            Assert.AreEqual("", retry.Stderr);
+            if (json)
+            {
+                using var result = JsonDocument.Parse(retry.Stdout);
+                Assert.AreEqual(1, result.RootElement.GetProperty("rows").GetArrayLength());
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
     }
 
     [TestMethod]
@@ -825,6 +932,38 @@ public class PerfCommandTests : BaseCommandTests
         var output = _tempDirectory.CreateSubdirectory("capture");
         File.WriteAllText(Path.Join(output.FullName, "keep.txt"), "keep");
         var (code, error) = await InvokePerfStartErrorAsync(selector, output.FullName);
+        Assert.AreEqual(1, code);
+        Assert.Contains("The capture output directory must be empty.", error);
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "capture.json")));
+    }
+
+    [TestMethod]
+    [DataRow("pid", false)]
+    [DataRow("name", false)]
+    [DataRow("pid", true)]
+    [DataRow("name", true)]
+    public async Task PerfStartHostedAppKeepsAppProcess(string kind, bool minimized)
+    {
+        using var process = Process.GetCurrentProcess();
+        var info = new UiProcessInfo(process.Id, "Microsoft.Media.Player", 0, "");
+        systemQuery.ProcessesById[process.Id] = info;
+        systemQuery.ByNameResult = [info];
+        systemQuery.HostedFramesByPid[process.Id] = [42];
+        systemQuery.ProcessIdByHwnd[42] = int.MaxValue;
+        systemQuery.WindowTextByHwnd[42] = "Media Player";
+        systemQuery.ProcessesById[int.MaxValue] = new UiProcessInfo(int.MaxValue, "ApplicationFrameHost", 42, "Media Player");
+        if (minimized)
+        {
+            uiAutomation.WindowsByPidResult = [((nint)43, process.Id, "Media Player")];
+            systemQuery.WindowClassNameByHwnd[43] = "Windows.UI.Core.CoreWindow";
+        }
+
+        // Only the app PID exists: remapping to the fake host fails before capture preparation.
+        var output = _tempDirectory.CreateSubdirectory("capture");
+        File.WriteAllText(Path.Join(output.FullName, "keep.txt"), "keep");
+        var selector = kind == "pid" ? process.Id.ToString() : info.ProcessName;
+        var (code, error) = await InvokePerfStartErrorAsync(selector, output.FullName);
+
         Assert.AreEqual(1, code);
         Assert.Contains("The capture output directory must be empty.", error);
         Assert.IsFalse(File.Exists(Path.Join(output.FullName, "capture.json")));

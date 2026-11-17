@@ -6,7 +6,7 @@
     "dist:win": "electron-builder --win --x64 --config ./build_win.js"
   },
   "devDependencies": {
-    "electron": "42.11.16",
+    "electron": "45.3.2",
     "electron-builder": "24.13.3"
   }
 }
