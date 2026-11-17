@@ -142,7 +142,7 @@ Describe 'Artifact-first workflow dependencies' {
     }
 
     It 'holds merge queue runs to the PR bar: samples run and doc drift fails' {
-        $buildWorkflow | Should -Match '(?m)^  merge_group:\r?\n    types: \[ checks_requested \]'
+        $buildWorkflow | Should -Match '(?m)^  merge_group:\r?\n    types: \[ checks_requested \]\r?\n    branches: \[ "main" \]'
         $samplesCondition = [regex]::Match((Get-JobText $buildWorkflow 'samples'), '(?m)^    if: (.+?)\r?$').Groups[1].Value
         $preMerge = @(
             foreach ($job in @('validate-docs', 'build-and-package')) {
