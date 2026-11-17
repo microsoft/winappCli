@@ -113,13 +113,13 @@ public class DevToolsCommentsListCommandTests
         var (exit, output) = Run();
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "cmt_open01");
+        Assert.Contains("cmt_open01", output);
         Assert.IsFalse(output.Contains("cmt_done01", StringComparison.Ordinal), "a resolved comment is finished work and must not be in the default list");
 
         // The total stays reachable even when some rows are hidden.
-        StringAssert.Contains(output, "2 comments total");
-        StringAssert.Contains(output, "1 resolved");
-        StringAssert.Contains(output, "--all");
+        Assert.Contains("2 comments total", output);
+        Assert.Contains("1 resolved", output);
+        Assert.Contains("--all", output);
     }
 
     [TestMethod]
@@ -131,8 +131,8 @@ public class DevToolsCommentsListCommandTests
         var (exit, output) = Run("--all");
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "cmt_open01");
-        StringAssert.Contains(output, "cmt_done01");
+        Assert.Contains("cmt_open01", output);
+        Assert.Contains("cmt_done01", output);
         Assert.IsFalse(output.Contains("hidden", StringComparison.Ordinal), "nothing is hidden, so nothing should claim to be");
     }
 
@@ -145,9 +145,9 @@ public class DevToolsCommentsListCommandTests
         var (exit, output) = Run("--status", "resolved");
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "cmt_done01");
+        Assert.Contains("cmt_done01", output);
         Assert.IsFalse(output.Contains("cmt_open01", StringComparison.Ordinal));
-        StringAssert.Contains(output, "(1 open hidden; use --all)", "the footer counts what the filter hid, not what it shows");
+        Assert.Contains("(1 open hidden; use --all)", output, "the footer counts what the filter hid, not what it shows");
     }
 
     /// <summary>
@@ -196,7 +196,7 @@ public class DevToolsCommentsListCommandTests
         var (exit, output) = Run();
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, $"HomePage.xaml:{CapturedGridLine}");
+        Assert.Contains($"HomePage.xaml:{CapturedGridLine}", output);
         Assert.IsFalse(output.Contains("candidates", StringComparison.Ordinal),
             "the picked element's captured location still holds, so the tool already knows the answer");
         Assert.IsFalse(output.Contains('⚠'));
@@ -233,8 +233,8 @@ public class DevToolsCommentsListCommandTests
         var (exit, output) = Run();
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "candidates");
-        StringAssert.Contains(Flatten(output), Flatten("HomePage.xaml:3 is historical"));
+        Assert.Contains("candidates", output);
+        Assert.Contains(Flatten("HomePage.xaml:3 is historical"), Flatten(output));
     }
 
     [TestMethod]
@@ -244,8 +244,8 @@ public class DevToolsCommentsListCommandTests
 
         var (_, output) = Run();
 
-        StringAssert.Contains(output, "candidates");
-        StringAssert.Contains(output, "no location was captured");
+        Assert.Contains("candidates", output);
+        Assert.Contains("no location was captured", output);
     }
 
     // A miss is never silent.
@@ -256,8 +256,8 @@ public class DevToolsCommentsListCommandTests
         var (exit, output) = Run();
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "No comment store found");
-        StringAssert.Contains(Flatten(output), Flatten(StorePath));
+        Assert.Contains("No comment store found", output);
+        Assert.Contains(Flatten(StorePath), Flatten(output));
         Assert.IsFalse(output.Contains("No comments.", StringComparison.Ordinal),
             "\"No comments.\" is indistinguishable from \"your store is one directory up\"; that ambiguity is the bug");
     }
@@ -271,8 +271,8 @@ public class DevToolsCommentsListCommandTests
         var (exit, output) = Run();
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "No open comments in");
-        StringAssert.Contains(Flatten(output), Flatten(StorePath));
+        Assert.Contains("No open comments in", output);
+        Assert.Contains(Flatten(StorePath), Flatten(output));
     }
 
     /// <summary>Two apps share one store: an app whose own comments are all resolved must not call the file empty.</summary>
@@ -287,9 +287,9 @@ public class DevToolsCommentsListCommandTests
 
         Assert.AreEqual(0, exit);
         var flat = Flatten(output);
-        StringAssert.Contains(flat, Flatten("No open comments for this project in"));
-        StringAssert.Contains(flat, Flatten("1 resolved hidden"));
-        StringAssert.Contains(flat, Flatten("1 other comment belongs to other projects in this file."));
+        Assert.Contains(Flatten("No open comments for this project in"), flat);
+        Assert.Contains(Flatten("1 resolved hidden"), flat);
+        Assert.Contains(Flatten("1 other comment belongs to other projects in this file."), flat);
     }
 
     [TestMethod]
@@ -301,7 +301,7 @@ public class DevToolsCommentsListCommandTests
 
         var (_, output) = Run("--project", Project);
 
-        StringAssert.Contains(output, "cmt_mine01");
+        Assert.Contains("cmt_mine01", output);
         Assert.IsFalse(output.Contains("cmt_other1", StringComparison.Ordinal));
     }
 
@@ -311,7 +311,7 @@ public class DevToolsCommentsListCommandTests
         var (exit, output) = Run("--all", "--status", "open");
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "alternatives");
+        Assert.Contains("alternatives", output);
     }
 
     // Re-anchoring must not widen to the whole repo.

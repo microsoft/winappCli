@@ -1772,7 +1772,7 @@ public class PackageCommandTests : BaseCommandTests
 
         // Assert - package built, named from manifest identity, AppX exclusion warned.
         Assert.IsTrue(result.MsixPath.Exists, "MSIX package should be created");
-        StringAssert.Contains(result.MsixPath.Name, "TestPackage", "Filename should use the manifest identity name");
+        Assert.Contains("TestPackage", result.MsixPath.Name, "Filename should use the manifest identity name");
 
         var statusMessages = TestTask.SubTasks
             .OfType<StatusMessageTask>()
@@ -2565,8 +2565,8 @@ public class PackageCommandTests : BaseCommandTests
         // Assert - default file name is "{name}_{version}_{arch}.msix" when both are known.
         Assert.IsNotNull(result, "Result should not be null");
         Assert.IsTrue(result.MsixPath.Exists, "MSIX package file should exist");
-        StringAssert.Contains(result.MsixPath.Name, "1.0.0.0", "Package name should include the manifest version");
-        StringAssert.Contains(result.MsixPath.Name, "x64", "Package name should include the detected x64 architecture");
+        Assert.Contains("1.0.0.0", result.MsixPath.Name, "Package name should include the manifest version");
+        Assert.Contains("x64", result.MsixPath.Name, "Package name should include the detected x64 architecture");
     }
 
     [TestMethod]
@@ -2591,13 +2591,13 @@ public class PackageCommandTests : BaseCommandTests
                 selfContained: true,
                 cancellationToken: CancellationToken.None));
 
-        StringAssert.Contains(
-            ex.Message,
+        Assert.Contains(
             "Failed to create MSIX package",
-            "The self-contained packaging failure should surface through the standard MSIX creation error wrapper");
-        StringAssert.Contains(
             ex.Message,
+            "The self-contained packaging failure should surface through the standard MSIX creation error wrapper");
+        Assert.Contains(
             "Runtime",
+            ex.Message,
             "The failure should explain that the Windows App SDK runtime could not be located for self-contained packaging");
     }
 

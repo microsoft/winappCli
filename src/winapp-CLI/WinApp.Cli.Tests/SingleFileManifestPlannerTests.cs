@@ -37,7 +37,7 @@ public class SingleFileManifestPlannerTests
 
         // The identity carries a hash of the file's path, so two counter.cs files in different folders
         // do not share an identity — and therefore do not share LocalState.
-        StringAssert.Matches(info.PackageName, PathHashedName("counter"));
+        Assert.MatchesRegex(PathHashedName("counter"), info.PackageName);
         Assert.AreEqual("counter", info.DisplayName, "the display name stays the readable stem");
         Assert.AreEqual("CN=tester", info.PublisherDN);
         Assert.AreEqual("1.0.0.0", info.Version);
@@ -93,7 +93,7 @@ public class SingleFileManifestPlannerTests
 
         var info = SingleFileManifestPlanner.Plan(SingleFile(), props, defaultPublisher: "CN=tester");
 
-        StringAssert.Matches(info.PackageName, PathHashedName("counter"));
+        Assert.MatchesRegex(PathHashedName("counter"), info.PackageName);
         Assert.AreEqual("counter", info.DisplayName);
         Assert.AreEqual("CN=tester", info.PublisherDN);
         Assert.AreEqual("1.0.0.0", info.Version);
@@ -106,7 +106,7 @@ public class SingleFileManifestPlannerTests
         // the better default there.
         var info = SingleFileManifestPlanner.Plan(SingleFile("my tool.cs"), Props(), defaultPublisher: "CN=tester");
 
-        StringAssert.Matches(info.PackageName, PathHashedName("mytool"));
+        Assert.MatchesRegex(PathHashedName("mytool"), info.PackageName);
         Assert.AreEqual("my tool", info.DisplayName);
     }
 
@@ -124,7 +124,7 @@ public class SingleFileManifestPlannerTests
 
         Assert.IsLessThanOrEqualTo(50, info.PackageName.Length,
             $"A {stemLength}-character stem produced '{info.PackageName}' ({info.PackageName.Length} chars)");
-        StringAssert.Matches(info.PackageName, new Regex("-[0-9a-f]{8}$"),
+        Assert.MatchesRegex(new Regex("-[0-9a-f]{8}$"), info.PackageName,
             "The path hash must survive truncation — it is what makes the identity unique");
     }
 
@@ -241,8 +241,8 @@ public class SingleFileManifestPlannerTests
         var exception = Assert.ThrowsExactly<ProjectRunException>(() =>
             SingleFileManifestPlanner.Plan(SingleFile(), Props((SingleFileManifestPlanner.VersionProperty, declared))));
 
-        StringAssert.Contains(exception.Message, "counter.cs", "the message should name the offending file");
-        StringAssert.Contains(exception.Message, "65535", "the message should state the valid range");
+        Assert.Contains("counter.cs", exception.Message, "the message should name the offending file");
+        Assert.Contains("65535", exception.Message, "the message should state the valid range");
     }
 
     [TestMethod]
@@ -251,11 +251,11 @@ public class SingleFileManifestPlannerTests
         // The two sources have different fixes, so the error must say which one was actually read.
         var winApp = Assert.ThrowsExactly<ProjectRunException>(() =>
             SingleFileManifestPlanner.Plan(SingleFile(), Props((SingleFileManifestPlanner.VersionProperty, "70000.0"))));
-        StringAssert.Contains(winApp.Message, "WinAppVersion='70000.0'");
+        Assert.Contains("WinAppVersion='70000.0'", winApp.Message);
 
         var msBuild = Assert.ThrowsExactly<ProjectRunException>(() =>
             SingleFileManifestPlanner.Plan(SingleFile(), Props(("Version", "70000.0"))));
-        StringAssert.Contains(msBuild.Message, "Version='70000.0'");
+        Assert.Contains("Version='70000.0'", msBuild.Message);
     }
 
     [TestMethod]
@@ -267,8 +267,8 @@ public class SingleFileManifestPlannerTests
         var ex = Assert.ThrowsExactly<ProjectRunException>(() =>
             SingleFileManifestPlanner.Plan(SingleFile(), Props((SingleFileManifestPlanner.PublisherProperty, "''"))));
 
-        StringAssert.Contains(ex.Message, SingleFileManifestPlanner.PublisherProperty);
-        StringAssert.Contains(ex.Message, "CN=");
+        Assert.Contains(SingleFileManifestPlanner.PublisherProperty, ex.Message);
+        Assert.Contains("CN=", ex.Message);
     }
 
     [TestMethod]
@@ -314,8 +314,8 @@ public class SingleFileManifestPlannerTests
                 SingleFile(),
                 Props((SingleFileManifestPlanner.CapabilitiesProperty, "notARealCapability"))));
 
-        StringAssert.Contains(ex.Message, SingleFileManifestPlanner.CapabilitiesProperty);
-        StringAssert.Contains(ex.Message, "notARealCapability");
+        Assert.Contains(SingleFileManifestPlanner.CapabilitiesProperty, ex.Message);
+        Assert.Contains("notARealCapability", ex.Message);
     }
 
     #endregion
@@ -422,7 +422,7 @@ public class SingleFileManifestPlannerTests
                     singleFile,
                     Props((SingleFileManifestPlanner.ManifestPathProperty, "Missing.appxmanifest"))));
 
-            StringAssert.Contains(ex.Message, "no file exists there");
+            Assert.Contains("no file exists there", ex.Message);
         }
         finally
         {
@@ -497,7 +497,7 @@ public class SingleFileManifestPlannerTests
             var ex = Assert.ThrowsExactly<ProjectRunException>(() =>
                 SingleFileManifestPlanner.ResolvePackageName(singleFile, Props()));
 
-            StringAssert.Contains(ex.Message, "no Identity/@Name");
+            Assert.Contains("no Identity/@Name", ex.Message);
         }
         finally
         {
@@ -517,7 +517,7 @@ public class SingleFileManifestPlannerTests
             var singleFile = new FileInfo(Path.Join(directory.FullName, "counter.cs"));
             var props = Props((SingleFileManifestPlanner.VersionProperty, "70000.0"));
 
-            StringAssert.Matches(SingleFileManifestPlanner.ResolvePackageName(singleFile, props), PathHashedName("counter"));
+            Assert.MatchesRegex(PathHashedName("counter"), SingleFileManifestPlanner.ResolvePackageName(singleFile, props));
             Assert.ThrowsExactly<ProjectRunException>(() => SingleFileManifestPlanner.Plan(singleFile, props),
                 "Generating a manifest with that version must still fail");
         }

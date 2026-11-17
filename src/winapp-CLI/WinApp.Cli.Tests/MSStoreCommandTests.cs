@@ -55,7 +55,7 @@ public class MSStoreCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "Error executing MSStoreCLI");
+        Assert.Contains("Error executing MSStoreCLI", stderr);
     }
 
     [TestMethod]
@@ -83,6 +83,6 @@ public class MSStoreCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["whoami"]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to start process for MSStoreCLI");
+        Assert.Contains("Failed to start process for MSStoreCLI", ConsoleStdErr.ToString());
     }
 }

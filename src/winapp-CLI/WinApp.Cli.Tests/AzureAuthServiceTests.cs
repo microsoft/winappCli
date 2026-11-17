@@ -191,7 +191,7 @@ public class AzureAuthServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.GetAccessTokenAsync(ArmScope));
 
-        StringAssert.Contains(ex.Message, "AZURE_CLIENT_SECRET");
+        Assert.Contains("AZURE_CLIENT_SECRET", ex.Message);
         Assert.AreEqual(0, service.RunAzLoginCallCount, "Non-interactive sessions must never launch az login");
     }
 
@@ -208,7 +208,7 @@ public class AzureAuthServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.GetAccessTokenAsync(ArmScope));
 
-        StringAssert.Contains(ex.Message, "Install the Azure CLI");
+        Assert.Contains("Install the Azure CLI", ex.Message);
     }
 
     [TestMethod]
@@ -232,7 +232,7 @@ public class AzureAuthServiceTests
         var tokenRequest = service.ProcessRunner.Requests.Single();
         Assert.AreEqual(@"C:\fake\az.cmd", tokenRequest.FileName);
         string[] expectedTokenArgs = ["account", "get-access-token", "--scope", ArmScope, "--output", "json", "--tenant", "72f988bf-86f1-41af-91ab-2d7cd011db47"];
-        CollectionAssert.AreEqual(expectedTokenArgs, tokenRequest.Arguments.ToArray());
+        Assert.AreSequenceEqual(expectedTokenArgs, tokenRequest.Arguments.ToArray());
     }
 
     [TestMethod]
@@ -276,7 +276,7 @@ public class AzureAuthServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.GetAccessTokenAsync(ArmScope));
 
-        StringAssert.Contains(ex.Message, "AZURE_CLIENT_SECRET");
+        Assert.Contains("AZURE_CLIENT_SECRET", ex.Message);
         Assert.AreEqual(0, service.RunAzLoginCallCount, "Non-interactive sessions must never launch az login");
     }
 
@@ -303,7 +303,7 @@ public class AzureAuthServiceTests
         var loginRequest = service.ProcessRunner.Requests.Single(r => r.Arguments.Count > 0 && r.Arguments[0] == "login");
         Assert.AreEqual(@"C:\fake\az.cmd", loginRequest.FileName);
         string[] expectedLoginArgs = ["login", "--tenant", "72f988bf-86f1-41af-91ab-2d7cd011db47"];
-        CollectionAssert.AreEqual(expectedLoginArgs, loginRequest.Arguments.ToArray());
+        Assert.AreSequenceEqual(expectedLoginArgs, loginRequest.Arguments.ToArray());
     }
 
     [TestMethod]
@@ -321,7 +321,7 @@ public class AzureAuthServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.GetAccessTokenAsync(ArmScope));
 
-        StringAssert.Contains(ex.Message, "Azure CLI login failed");
+        Assert.Contains("Azure CLI login failed", ex.Message);
     }
 
     [TestMethod]
@@ -340,7 +340,7 @@ public class AzureAuthServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.GetAccessTokenAsync(ArmScope));
 
-        StringAssert.Contains(ex.Message, "retrieving an access token failed");
+        Assert.Contains("retrieving an access token failed", ex.Message);
         Assert.AreEqual(1, service.RunAzLoginCallCount);
     }
 
@@ -359,7 +359,7 @@ public class AzureAuthServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.GetAccessTokenAsync(ArmScope));
 
-        StringAssert.Contains(ex.Message, "Invalid AZURE_TENANT_ID");
+        Assert.Contains("Invalid AZURE_TENANT_ID", ex.Message);
         Assert.AreEqual(0, service.RunAzLoginCallCount, "Login must not run with an invalid tenant id");
         Assert.AreEqual(0, service.ProcessRunner.Requests.Count, "An invalid tenant must never reach the Azure CLI");
     }

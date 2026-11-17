@@ -60,9 +60,9 @@ public partial class UiCommandTests
         };
 
         Assert.AreEqual(0, await RunVerifiedFocusAsync());
-        CollectionAssert.AreEqual(new long[] { 4242 }, _fakeDesktopForeground.ForegroundRequests);
+        Assert.AreSequenceEqual(new long[] { 4242 }, _fakeDesktopForeground.ForegroundRequests);
         Assert.IsTrue((bool)_fakeUia.PropertiesResult["HasKeyboardFocus"]!);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"hwnd\": 4242");
+        Assert.Contains("\"hwnd\": 4242", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -85,7 +85,7 @@ public partial class UiCommandTests
         Assert.IsNull(_fakeUia.LastFocusedElement);
         AssertJsonErrorCode("no_interactive_desktop");
         var error = ConsoleStdErr.ToString();
-        StringAssert.Contains(error, "Unlock the session and retry");
+        Assert.Contains("Unlock the session and retry", error);
         Assert.IsFalse(error.Contains("inject", StringComparison.OrdinalIgnoreCase), error);
         Assert.IsFalse(error.Contains("UIA-pattern", StringComparison.OrdinalIgnoreCase), error);
     }
@@ -170,7 +170,7 @@ public partial class UiCommandTests
         _fakeSystemQuery.WindowOwnerByHwnd[5000] = 4242;
         _fakeSystemQuery.ProcessIdByHwnd[5000] = 8888;
         Assert.AreEqual(0, await RunVerifiedFocusAsync());
-        StringAssert.Contains(TestAnsiConsole.Output, "\"hwnd\": 5000");
+        Assert.Contains("\"hwnd\": 5000", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -209,7 +209,7 @@ public partial class UiCommandTests
         _fakeDesktopForeground.MinimizedWindows.Add(4242);
 
         Assert.AreEqual(0, await RunVerifiedFocusAsync(), ConsoleStdErr.ToString());
-        CollectionAssert.AreEqual(new long[] { 4242 }, _fakeDesktopForeground.RestoreRequests);
+        Assert.AreSequenceEqual(new long[] { 4242 }, _fakeDesktopForeground.RestoreRequests);
         Assert.AreEqual(1, _fakePollDelay.CallCount);
         Assert.AreSame(element, _fakeUia.LastFocusedElement);
     }
@@ -222,7 +222,7 @@ public partial class UiCommandTests
         _fakeDesktopForeground.MinimizedWindows.Add(4242);
 
         Assert.AreEqual(1, await RunVerifiedFocusAsync());
-        CollectionAssert.AreEqual(new long[] { 4242 }, _fakeDesktopForeground.RestoreRequests);
+        Assert.AreSequenceEqual(new long[] { 4242 }, _fakeDesktopForeground.RestoreRequests);
         Assert.IsNull(_fakeUia.LastFocusedElement);
         AssertJsonErrorCode("element_not_found");
     }
@@ -267,10 +267,10 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(
             GetRequiredService<UiFocusCommand>(), ["-a", "TestApp", "--json"]));
-        CollectionAssert.AreEqual(new long[] { 4242 }, _fakeDesktopForeground.RestoreRequests);
-        CollectionAssert.AreEqual(new long[] { 4242 }, _fakeDesktopForeground.ForegroundRequests);
+        Assert.AreSequenceEqual(new long[] { 4242 }, _fakeDesktopForeground.RestoreRequests);
+        Assert.AreSequenceEqual(new long[] { 4242 }, _fakeDesktopForeground.ForegroundRequests);
         Assert.IsNull(_fakeUia.LastFocusedElement);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"hwnd\": 4242");
+        Assert.Contains("\"hwnd\": 4242", TestAnsiConsole.Output);
     }
 
     [TestMethod]

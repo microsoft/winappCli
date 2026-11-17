@@ -208,10 +208,10 @@ public class CrashDumpServiceTests
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath);
 
         var output = _console.Output;
-        StringAssert.Contains(output, "CRASH DETECTED");
-        StringAssert.Contains(output, "Managed crash summary");
+        Assert.Contains("CRASH DETECTED", output);
+        Assert.Contains("Managed crash summary", output);
         Assert.IsTrue(File.Exists(logPath));
-        StringAssert.Contains(await File.ReadAllTextAsync(logPath), "Managed crash details");
+        Assert.Contains("Managed crash details", await File.ReadAllTextAsync(logPath));
         Assert.AreEqual(0, _xamlTriage.AnalyzeCalls.Count, "Non-WinUI dumps must not trigger triage.");
     }
 
@@ -225,9 +225,9 @@ public class CrashDumpServiceTests
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath, useSymbols: true);
 
         var output = _console.Output;
-        StringAssert.Contains(output, "0xC000027B — stowed boom");
-        StringAssert.Contains(output, "written to the debug log");
-        StringAssert.Contains(await File.ReadAllTextAsync(logPath), "TRIAGE BREAKDOWN TEXT");
+        Assert.Contains("0xC000027B — stowed boom", output);
+        Assert.Contains("written to the debug log", output);
+        Assert.Contains("TRIAGE BREAKDOWN TEXT", await File.ReadAllTextAsync(logPath));
         Assert.AreEqual(1, _xamlTriage.AnalyzeCalls.Count);
         Assert.IsTrue(_xamlTriage.AnalyzeCalls[0].UseSymbols, "useSymbols must flow through to triage.");
     }
@@ -242,7 +242,7 @@ public class CrashDumpServiceTests
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath);
 
         var output = _console.Output;
-        StringAssert.Contains(output, "written to the debug log");
+        Assert.Contains("written to the debug log", output);
         Assert.IsFalse(output.Contains("WinUI stowed exception:", StringComparison.Ordinal),
             "No verdict line should be shown when the triage result has no verdict.");
     }
@@ -256,7 +256,7 @@ public class CrashDumpServiceTests
 
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath);
 
-        StringAssert.Contains(_console.Output, "triage was skipped");
+        Assert.Contains("triage was skipped", _console.Output);
     }
 
     [TestMethod]
@@ -268,9 +268,9 @@ public class CrashDumpServiceTests
 
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath);
 
-        StringAssert.Contains(
-            System.Text.RegularExpressions.Regex.Replace(_console.Output, @"\s+", " "),
-            "triage was skipped: the WinUI debugger extension crashed (0xC0000409).");
+        Assert.Contains(
+            "triage was skipped: the WinUI debugger extension crashed (0xC0000409).",
+            System.Text.RegularExpressions.Regex.Replace(_console.Output, @"\s+", " "));
     }
 
     [TestMethod]
@@ -285,12 +285,12 @@ public class CrashDumpServiceTests
 
         // The test console wraps at 80 columns; compare with the wrapping removed.
         var output = System.Text.RegularExpressions.Regex.Replace(_console.Output, @"\s+", " ");
-        StringAssert.Contains(output, "0xC000027B — stowed boom");
-        StringAssert.Contains(output, "triage stopped early");
-        StringAssert.Contains(output, "'!xamltriage'");
-        StringAssert.Contains(output, "Partial results were written to the debug log");
+        Assert.Contains("0xC000027B — stowed boom", output);
+        Assert.Contains("triage stopped early", output);
+        Assert.Contains("'!xamltriage'", output);
+        Assert.Contains("Partial results were written to the debug log", output);
         Assert.IsFalse(output.Contains("triage was skipped", StringComparison.Ordinal));
-        StringAssert.Contains(await File.ReadAllTextAsync(logPath), "PARTIAL BREAKDOWN");
+        Assert.Contains("PARTIAL BREAKDOWN", await File.ReadAllTextAsync(logPath));
     }
 
     [TestMethod]
@@ -304,10 +304,10 @@ public class CrashDumpServiceTests
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath, useSymbols: false);
 
         var output = _console.Output;
-        StringAssert.Contains(output, "CRASH ANALYSIS (native)");
-        StringAssert.Contains(output, "Native stack summary");
-        StringAssert.Contains(output, "Re-run with");
-        StringAssert.Contains(await File.ReadAllTextAsync(logPath), "Native stack details");
+        Assert.Contains("CRASH ANALYSIS (native)", output);
+        Assert.Contains("Native stack summary", output);
+        Assert.Contains("Re-run with", output);
+        Assert.Contains("Native stack details", await File.ReadAllTextAsync(logPath));
     }
 
     [TestMethod]
@@ -320,7 +320,7 @@ public class CrashDumpServiceTests
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath, useSymbols: true);
 
         var output = _console.Output;
-        StringAssert.Contains(output, "Downloading symbols");
+        Assert.Contains("Downloading symbols", output);
         Assert.IsFalse(output.Contains("Re-run with", StringComparison.Ordinal),
             "The --symbols tip must not be shown when symbols were already requested.");
     }
@@ -333,7 +333,7 @@ public class CrashDumpServiceTests
 
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath);
 
-        StringAssert.Contains(_console.Output, "Analysis failed");
+        Assert.Contains("Analysis failed", _console.Output);
     }
 
     [TestMethod]
@@ -351,15 +351,15 @@ public class CrashDumpServiceTests
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath, useSymbols: false);
 
         var output = _console.Output;
-        StringAssert.Contains(output, "CRASH ANALYSIS (native)");
-        StringAssert.Contains(output, "NATIVE_SUMMARY_TEXT");
-        StringAssert.Contains(output, "0xC000027B — stowed verdict");
-        StringAssert.Contains(output, "written to the debug log");
+        Assert.Contains("CRASH ANALYSIS (native)", output);
+        Assert.Contains("NATIVE_SUMMARY_TEXT", output);
+        Assert.Contains("0xC000027B — stowed verdict", output);
+        Assert.Contains("written to the debug log", output);
 
         var log = await File.ReadAllTextAsync(logPath);
-        StringAssert.Contains(log, "MANAGED_DETAILS_TEXT");
-        StringAssert.Contains(log, "NATIVE_DETAILS_TEXT");
-        StringAssert.Contains(log, "TRIAGE_LOG_TEXT");
+        Assert.Contains("MANAGED_DETAILS_TEXT", log);
+        Assert.Contains("NATIVE_DETAILS_TEXT", log);
+        Assert.Contains("TRIAGE_LOG_TEXT", log);
         Assert.AreEqual(1, _xamlTriage.AnalyzeCalls.Count, "WinUI dumps must invoke triage on the native path too.");
     }
 
@@ -376,8 +376,8 @@ public class CrashDumpServiceTests
         await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath);
 
         var output = _console.Output;
-        StringAssert.Contains(output, "MANAGED_SUMMARY_TEXT");
-        StringAssert.Contains(output, "CRASH DETECTED");
+        Assert.Contains("MANAGED_SUMMARY_TEXT", output);
+        Assert.Contains("CRASH DETECTED", output);
         Assert.IsFalse(output.Contains("written to the debug log", StringComparison.Ordinal),
             "A None triage result must not claim triage was written to the log.");
         Assert.IsFalse(output.Contains("triage was skipped", StringComparison.Ordinal),
@@ -400,12 +400,12 @@ public class CrashDumpServiceTests
         CrashDumpService.AppendStackOverflowSummary(1234, frames, f => f.Item1, f => f.Item2, sb);
 
         var text = sb.ToString();
-        StringAssert.Contains(text, "Stack Overflow (deep recursion detected)");
-        StringAssert.Contains(text, "Thread: 1234 (5 managed frames)");
-        StringAssert.Contains(text, "Rec.Loop");
-        StringAssert.Contains(text, "repeated 2 more times");
-        StringAssert.Contains(text, "Rec.Other");
-        StringAssert.Contains(text, "Rec.Final");
+        Assert.Contains("Stack Overflow (deep recursion detected)", text);
+        Assert.Contains("Thread: 1234 (5 managed frames)", text);
+        Assert.Contains("Rec.Loop", text);
+        Assert.Contains("repeated 2 more times", text);
+        Assert.Contains("Rec.Other", text);
+        Assert.Contains("Rec.Final", text);
     }
 
     [TestMethod]
@@ -416,7 +416,7 @@ public class CrashDumpServiceTests
 
         CrashDumpService.AppendStackOverflowSummary(7, frames, f => f.Item1, f => f.Item2, sb);
 
-        StringAssert.Contains(sb.ToString(), "A.B in file.cs:42");
+        Assert.Contains("A.B in file.cs:42", sb.ToString());
     }
 
     [TestMethod]
@@ -429,7 +429,7 @@ public class CrashDumpServiceTests
         CrashDumpService.AppendStackOverflowSummary(9, frames, f => f.Item1, f => f.Item2, sb);
 
         var text = sb.ToString();
-        StringAssert.Contains(text, "Frame.M14");
+        Assert.Contains("Frame.M14", text);
         Assert.IsFalse(text.Contains("Frame.M15", StringComparison.Ordinal),
             "Frames beyond the 15-frame display cap must be omitted from the summary.");
     }
@@ -448,9 +448,9 @@ public class CrashDumpServiceTests
         CrashDumpService.AppendStackOverflowSummary(55, frames, f => f.Item1, f => f.Item2, sb);
 
         var text = sb.ToString();
-        StringAssert.Contains(text, "Rec.Head");
-        StringAssert.Contains(text, "Rec.Tail");
-        StringAssert.Contains(text, "repeated 2 more times");
+        Assert.Contains("Rec.Head", text);
+        Assert.Contains("Rec.Tail", text);
+        Assert.Contains("repeated 2 more times", text);
     }
 
     [TestMethod]
@@ -474,8 +474,8 @@ public class CrashDumpServiceTests
         CrashDumpService.AppendStackOverflowSummary(77, frames, f => f.Item1, f => f.Item2, sb);
 
         var text = sb.ToString();
-        StringAssert.Contains(text, "Fr.M13");
-        StringAssert.Contains(text, "repeated 2 more times");
+        Assert.Contains("Fr.M13", text);
+        Assert.Contains("repeated 2 more times", text);
         Assert.IsFalse(text.Contains("Fr.After", StringComparison.Ordinal),
             "The frame after the display cap was reached must be omitted from the summary.");
     }
@@ -510,9 +510,9 @@ public class CrashDumpServiceTests
 
         var modules = CrashDumpService.ParseStackModuleNames(stack);
 
-        CollectionAssert.Contains(modules.ToList(), "ntdll");
-        CollectionAssert.Contains(modules.ToList(), "KERNELBASE");
-        CollectionAssert.Contains(modules.ToList(), "Microsoft_UI_Xaml");
+        Assert.Contains("ntdll", modules.ToList());
+        Assert.Contains("KERNELBASE", modules.ToList());
+        Assert.Contains("Microsoft_UI_Xaml", modules.ToList());
         Assert.IsFalse(modules.Any(m => m.Contains('`')), "Mangled (backtick) names must be skipped.");
         Assert.IsFalse(modules.Any(m => m.StartsWith("0x", StringComparison.OrdinalIgnoreCase)), "Hex addresses must be skipped.");
     }
@@ -547,10 +547,10 @@ public class CrashDumpServiceTests
 
         var summary = CrashDumpService.ExtractNativeStackSummary(sb.ToString());
 
-        StringAssert.Contains(summary, "Stack:");
-        StringAssert.Contains(summary, "module!Func0");
+        Assert.Contains("Stack:", summary);
+        Assert.Contains("module!Func0", summary);
         Assert.IsFalse(summary.Contains("(int, char)", StringComparison.Ordinal), "Parameters after '(' must be stripped.");
-        StringAssert.Contains(summary, "more frames in log");
+        Assert.Contains("more frames in log", summary);
     }
 
     [TestMethod]
@@ -567,7 +567,7 @@ public class CrashDumpServiceTests
 
         var summary = CrashDumpService.ExtractNativeStackSummary(input);
 
-        StringAssert.Contains(summary, "<...>");
+        Assert.Contains("<...>", summary);
         Assert.IsFalse(summary.Contains(new string('X', 200), StringComparison.Ordinal),
             "Long template arguments must be collapsed to <...>.");
     }
@@ -583,8 +583,8 @@ public class CrashDumpServiceTests
 
         var summary = CrashDumpService.ExtractNativeStackSummary(input);
 
-        StringAssert.Contains(summary, "mod!");
-        StringAssert.Contains(summary, "...");
+        Assert.Contains("mod!", summary);
+        Assert.Contains("...", summary);
         Assert.IsFalse(summary.Contains(new string('a', 120), StringComparison.Ordinal),
             "A non-template call site over 100 chars must be truncated to 100 chars + ellipsis.");
         Assert.IsFalse(summary.Contains("more frames in log", StringComparison.Ordinal),
@@ -673,9 +673,9 @@ public class CrashDumpServiceTests
         Assert.AreEqual(15, resolveCount,
             "With distinct frames the loop must resolve source for exactly the 15 displayed frames, then stop.");
         var text = summary.ToString();
-        StringAssert.Contains(text, "Frame.M14");
+        Assert.Contains("Frame.M14", text);
         Assert.IsFalse(text.Contains("Frame.M15", StringComparison.Ordinal),
             "Frames beyond the 15-frame display cap must never be resolved or displayed.");
-        StringAssert.Contains(text, "42 (50 managed frames)");
+        Assert.Contains("42 (50 managed frames)", text);
     }
 }

@@ -38,6 +38,108 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    [DataRow(0, false, false)]
+    [DataRow(255, false, false)]
+    [DataRow(0, true, false)]
+    [DataRow(127, true, false)]
+    [DataRow(255, true, false)]
+    [DataRow(255, true, true)]
+    public async Task Screenshot_BlackCapture_WarnsOnStderrAndPreservesSuccess(int alpha, bool json, bool captureScreen)
+    {
+        var pixels = new byte[16];
+        for (var i = 3; i < pixels.Length; i += 4)
+        {
+            pixels[i] = (byte)alpha;
+        }
+        _fakeUia.ScreenshotResult = (pixels, 2, 2);
+        var command = CreateScreenshotCommand(NullLogger<UiScreenshotCommand>.Instance);
+        string[] args = ["-a", "TestApp", "-o", ShotPath()];
+        if (json)
+        {
+            args = [.. args, "--json"];
+        }
+        if (captureScreen)
+        {
+            args = [.. args, "--capture-screen"];
+        }
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+
+        Assert.AreEqual(0, exitCode);
+        CollectionAssert.AreEqual(PngImage.Encode(pixels, 2, 2), await File.ReadAllBytesAsync(ShotPath(), TestContext.CancellationToken));
+        var warning = ConsoleStdErr.ToString();
+        StringAssert.Contains(warning, $"Warning: The captured image for HWND {_fakeTargetResolver.TargetResult.WindowHandle} is entirely black.");
+        if (captureScreen)
+        {
+            Assert.IsFalse(warning.Contains("--capture-screen", StringComparison.Ordinal),
+                "Do not suggest retrying the screen-capture mode that was already used.");
+        }
+        else
+        {
+            StringAssert.Contains(warning, $"winapp ui screenshot -w {_fakeTargetResolver.TargetResult.WindowHandle} --capture-screen");
+            StringAssert.Contains(warning, "This activates the window");
+        }
+        var call = _fakeUia.ScreenshotCalls.Single();
+        Assert.AreEqual(captureScreen, call.CaptureScreen, "The warning must not switch capture modes or retry.");
+        if (json)
+        {
+            using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+            Assert.AreEqual(ShotPath(), document.RootElement.GetProperty("filePath").GetString());
+            Assert.AreEqual(2, document.RootElement.GetProperty("width").GetInt32());
+            Assert.AreEqual(2, document.RootElement.GetProperty("height").GetInt32());
+            Assert.IsFalse(document.RootElement.TryGetProperty("warnings", out _));
+        }
+        else
+        {
+            Assert.AreEqual("", TestAnsiConsole.Output, "Warnings remain visible even with logging disabled, without writing to stdout.");
+        }
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public async Task Screenshot_RenderedCapture_DoesNotWarn(int channel)
+    {
+        var pixels = new byte[16];
+        pixels[12 + channel] = 1;
+        _fakeUia.ScreenshotResult = (pixels, 2, 2);
+        var command = CreateScreenshotCommand(NullLogger<UiScreenshotCommand>.Instance);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json", "-o", ShotPath()]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("", ConsoleStdErr.ToString(), "Even one nonblack pixel must prevent the warning.");
+        Assert.IsTrue(File.Exists(ShotPath()));
+    }
+
+    [TestMethod]
+    public async Task Screenshot_BlackComposite_WarnsForEachWindowBeforeLabels()
+    {
+        _fakeUia.WindowsByPidResult = [((nint)11, 4321, "Main"), ((nint)12, 4321, "Dialog")];
+        _fakeSystemQuery.ProcessIdByHwnd[11] = 4321;
+        _fakeSystemQuery.ProcessIdByHwnd[12] = 4321;
+        _fakeUia.ScreenshotResult = ([0, 0, 0, 255], 1, 1);
+        var command = CreateScreenshotCommand(NullLogger<UiScreenshotCommand>.Instance);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "4321", "--json", "-o", ShotPath()]);
+
+        Assert.AreEqual(0, exitCode);
+        var warnings = ConsoleStdErr.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        Assert.HasCount(2, warnings);
+        StringAssert.Contains(warnings[0], "HWND 11 is entirely black");
+        StringAssert.Contains(warnings[0], "screenshot -w 11 --capture-screen");
+        StringAssert.Contains(warnings[1], "HWND 12 is entirely black");
+        StringAssert.Contains(warnings[1], "screenshot -w 12 --capture-screen");
+        using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual(2, document.RootElement.GetProperty("windows").GetArrayLength());
+        using var image = SKBitmap.Decode(ShotPath());
+        Assert.IsNotNull(image);
+        Assert.AreEqual(10, image.Width);
+        Assert.AreEqual(29, image.Height);
+    }
+
+    [TestMethod]
     [DataRow(40, false, false, false)]
     [DataRow(80, false, false, false)]
     [DataRow(120, false, false, false)]
@@ -114,7 +216,7 @@ public partial class UiCommandTests
             }
             else
             {
-                StringAssert.Contains(reported, hostPath,
+                Assert.Contains(hostPath, reported,
                     "The rendered path must remain contiguous so host publication can translate it.");
                 Assert.IsFalse(reported.Contains("guest staging", StringComparison.Ordinal));
                 Assert.IsFalse(reported.Contains('\u001b'));
@@ -190,15 +292,15 @@ public partial class UiCommandTests
             var windows = result.GetProperty("windows").EnumerateArray().ToList();
             Assert.HasCount(2, windows);
             Assert.IsTrue(windows.All(w => w.GetProperty("captured").GetBoolean()));
-            CollectionAssert.AreEquivalent(
-                new long[] { 11, 12 }, windows.Select(w => w.GetProperty("hwnd").GetInt64()).ToArray());
+            Assert.AreSequenceEqual(
+                new long[] { 11, 12 }, windows.Select(w => w.GetProperty("hwnd").GetInt64()).ToArray(), SequenceOrder.InAnyOrder);
         }
         else if (minimumLevel == LogLevel.Information)
         {
-            StringAssert.Contains(TestAnsiConsole.Output, "2 windows detected. Compositing into single image.");
-            StringAssert.Contains(TestAnsiConsole.Output, "✓ HWND 11:");
-            StringAssert.Contains(TestAnsiConsole.Output, "✓ HWND 12:");
-            StringAssert.Contains(TestAnsiConsole.Output, $"✓ Saved composite: {path}");
+            Assert.Contains("2 windows detected. Compositing into single image.", TestAnsiConsole.Output);
+            Assert.Contains("✓ HWND 11:", TestAnsiConsole.Output);
+            Assert.Contains("✓ HWND 12:", TestAnsiConsole.Output);
+            Assert.Contains($"✓ Saved composite: {path}", TestAnsiConsole.Output);
         }
         else
         {
@@ -229,8 +331,8 @@ public partial class UiCommandTests
 
         Assert.AreEqual(allCapturesFail ? 1 : 0, exitCode);
         Assert.AreEqual(!allCapturesFail, File.Exists(path));
-        StringAssert.Contains(TestAnsiConsole.Output, "✗ HWND 12:");
-        StringAssert.Contains(TestAnsiConsole.Output.ReplaceLineEndings(""), failure);
+        Assert.Contains("✗ HWND 12:", TestAnsiConsole.Output);
+        Assert.Contains(failure, TestAnsiConsole.Output.ReplaceLineEndings(""));
         Assert.IsFalse(TestAnsiConsole.Output.Contains("windows detected", StringComparison.Ordinal));
         Assert.IsFalse(TestAnsiConsole.Output.Contains('✓'));
         Assert.IsFalse(TestAnsiConsole.Output.Contains("Saved composite", StringComparison.Ordinal));
@@ -253,10 +355,10 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["ui", "screenshot", "--help"]);
         Assert.AreEqual(0, exitCode);
         var help = TestAnsiConsole.Output.ReplaceLineEndings(" ");
-        StringAssert.Contains(help, "labeled composite");
-        StringAssert.Contains(help, "owned windows");
-        StringAssert.Contains(help, "process name or PID");
-        StringAssert.Contains(help, "a title match");
+        Assert.Contains("labeled composite", help);
+        Assert.Contains("owned windows", help);
+        Assert.Contains("process name or PID", help);
+        Assert.Contains("a title match", help);
         Assert.IsFalse(help.Contains("separate file", StringComparison.Ordinal));
     }
 
@@ -298,8 +400,8 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "4321", "--json", "-o", path]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"windows\":");
-        StringAssert.Contains(TestAnsiConsole.Output, "\"captured\": true");
+        Assert.Contains("\"windows\":", TestAnsiConsole.Output);
+        Assert.Contains("\"captured\": true", TestAnsiConsole.Output);
         Assert.IsTrue(File.Exists(path));
         Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters,
             "the whole multi-window capture pass must run inside one desktop section");
@@ -332,7 +434,7 @@ public partial class UiCommandTests
         var recycled = windows.Single(w => w.GetProperty("hwnd").GetInt64() == 32);
         Assert.IsFalse(recycled.GetProperty("captured").GetBoolean(),
             "a recycled handle must never be reported as captured");
-        StringAssert.Contains(recycled.GetProperty("error").GetString()!, "different process");
+        Assert.Contains("different process", recycled.GetProperty("error").GetString()!);
 
         var survivor = windows.Single(w => w.GetProperty("hwnd").GetInt64() == 31);
         Assert.IsTrue(survivor.GetProperty("captured").GetBoolean());
@@ -356,8 +458,8 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", procName, "-o", path]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "windows detected");
-        StringAssert.Contains(TestAnsiConsole.Output, "Saved composite");
+        Assert.Contains("windows detected", TestAnsiConsole.Output);
+        Assert.Contains("Saved composite", TestAnsiConsole.Output);
         Assert.IsTrue(File.Exists(path));
     }
 
@@ -373,7 +475,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "4321", "-o", path]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "✗");
+        Assert.Contains("✗", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -403,7 +505,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json", "-o", path]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"windows\":");
+        Assert.Contains("\"windows\":", TestAnsiConsole.Output);
         Assert.IsTrue(File.Exists(path));
     }
 
@@ -508,9 +610,9 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-w", "2748", "--json", "-o", path]);
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"windows\":");
-        StringAssert.Contains(TestAnsiConsole.Output, "Main Window");   // title read through GetWindowText seam
-        StringAssert.Contains(TestAnsiConsole.Output, "Owned Dialog");  // the second, owned window
+        Assert.Contains("\"windows\":", TestAnsiConsole.Output);
+        Assert.Contains("Main Window", TestAnsiConsole.Output);   // title read through GetWindowText seam
+        Assert.Contains("Owned Dialog", TestAnsiConsole.Output);  // the second, owned window
         Assert.IsTrue(File.Exists(path));
     }
 

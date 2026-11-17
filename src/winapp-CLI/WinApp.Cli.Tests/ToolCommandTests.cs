@@ -46,7 +46,7 @@ public class ToolCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode, "Running 'tool' with no sub-command should be a usage error");
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "No build tool command specified");
+        Assert.Contains("No build tool command specified", stderr);
     }
 
     [TestMethod]
@@ -82,7 +82,7 @@ public class ToolCommandTests : BaseCommandTests
             ["cmd", "/c", "echo", "hello world"], expectStdout: "\"hello world\"");
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(stdout, "\"hello world\"",
+        Assert.Contains("\"hello world\"", stdout,
             "The space-containing argument must be forwarded to the tool as a single quoted token");
     }
 
@@ -96,7 +96,7 @@ public class ToolCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "Could not find 'makeappx'");
+        Assert.Contains("Could not find 'makeappx'", stderr);
     }
 
     [TestMethod]
@@ -109,7 +109,7 @@ public class ToolCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "Could not install or find Windows SDK Build Tools");
+        Assert.Contains("Could not install or find Windows SDK Build Tools", stderr);
     }
 
     [TestMethod]
@@ -123,7 +123,7 @@ public class ToolCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "is not validly signed by Microsoft");
+        Assert.Contains("is not validly signed by Microsoft", stderr);
         Assert.IsFalse(
             stderr.Contains("Could not install or find", StringComparison.Ordinal),
             "The tool was found and refused, so reporting it as missing would send users the wrong way.");
@@ -139,7 +139,7 @@ public class ToolCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         var stderr = ConsoleStdErr.ToString();
-        StringAssert.Contains(stderr, "Error executing 'makepri'");
+        Assert.Contains("Error executing 'makepri'", stderr);
     }
 
     [TestMethod]
@@ -151,7 +151,7 @@ public class ToolCommandTests : BaseCommandTests
             ["cmd", "/c", "echo", "hello"], expectStdout: "hello");
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(stdout, "hello", "The tool's standard output should be forwarded to the console");
+        Assert.Contains("hello", stdout, "The tool's standard output should be forwarded to the console");
     }
 
     [TestMethod]
@@ -163,7 +163,7 @@ public class ToolCommandTests : BaseCommandTests
             ["cmd", "/c", "echo", "oops", "1>&2"], expectStderr: "oops");
 
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(stderr, "oops", "The tool's standard error should be forwarded to the console");
+        Assert.Contains("oops", stderr, "The tool's standard error should be forwarded to the console");
     }
 
     /// <summary>
