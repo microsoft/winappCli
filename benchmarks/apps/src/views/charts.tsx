@@ -32,7 +32,7 @@ export function ChartsView({ entries }: Props) {
       </Text>
 
       {scenarios.map((scenario) => {
-        const scenarioAggs = aggregated.filter((a) => a.scenario === scenario);
+        const scenarioAggs = aggregated.filter((a) => a.scenario === scenario && a.scoredTrials > 0);
         const data = scenarioAggs.map((a) => ({
           x: a.avgScore,
           y: a.avgTokens || 0,
