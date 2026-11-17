@@ -692,6 +692,7 @@ struct EffectiveDiagnostics : BindingDiagnostics
 struct EffectiveTree : TextTreeService
 {
     std::wstring name = L"FontFamily", type = L"Microsoft.UI.Xaml.Media.FontFamily";
+    std::wstring declaringType, rawValue;
     bool bound = false;
     bool nullValue = false;
     bool reportHandle = true;
@@ -708,9 +709,10 @@ struct EffectiveTree : TextTreeService
         for (unsigned i = 0; i < *pc; ++i) {
             auto& row = (*values)[i];
             SysFreeString(row.PropertyName); row.PropertyName = SysAllocString(name.c_str());
+            SysFreeString(row.DeclaringType); row.DeclaringType = SysAllocString(declaringType.c_str());
             SysFreeString(row.Type); row.Type = SysAllocString(type.c_str());
             SysFreeString(row.ValueType); row.ValueType = SysAllocString(type.c_str());
-            SysFreeString(row.Value); row.Value = SysAllocString(reportHandle ? L"902" : L"");
+            SysFreeString(row.Value); row.Value = SysAllocString(reportHandle ? L"902" : rawValue.c_str());
             row.MetadataBits = static_cast<MetadataBit>((reportHandle ? IsValueHandle : 0) |
                 (bound ? IsValueBindingExpression : 0));
         }
@@ -721,6 +723,54 @@ static void CheckEffectiveValues(const std::function<void(bool,const char*)>& ch
 {
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
     CheckSearchText(check);
+    {
+        InputTextBox owner;
+        EffectiveTree tree(owner);
+        tree.name = L"FontSize"; tree.type = L"Windows.Foundation.Double"; tree.reportHandle = false;
+        g_vts3 = &tree;
+        for (const auto* declaringType : {L"Microsoft.UI.Xaml.Controls.TextBlock",
+                L"Microsoft.UI.Xaml.Controls.RichTextBlock", L"Microsoft.UI.Xaml.Controls.Control",
+                L"Example.CustomControl", L""}) {
+            tree.declaringType = declaringType;
+            const bool mayInherit = tree.declaringType.rfind(L"Microsoft.UI.Xaml.Controls.", 0) == 0;
+            for (const auto source : {BaseValueSourceDefault, BaseValueSourceLocal,
+                    BaseValueSourceStyle, static_cast<BaseValueSource>(5)}) {
+                tree.source = source;
+                for (const auto* value : {L"14", L"26", L"32"}) {
+                    tree.rawValue = value;
+                    std::vector<DevToolsReadProp> props;
+                    check(SUCCEEDED(ReadCuratedProps(901, &props, nullptr)) && props.size() == 1,
+                        "FontSize provenance read succeeds");
+                    if (props.size() != 1) continue;
+                    const auto& prop = props[0];
+                    const std::wstring expected = source == BaseValueSourceDefault
+                        ? (mayInherit ? L"Default or inherited" : L"Default")
+                        : source == BaseValueSourceLocal ? L"Local"
+                        : source == BaseValueSourceStyle ? L"Style" : L"Inherited";
+                    DevToolsJson json;
+                    check(DevToolsJsonParse(DevToolsRead_SerializeProps(901, props, L"noSourceInfo"), json) &&
+                        json.Find(L"props") && json.Find(L"props")->arr[0].GetString(L"origin") == expected &&
+                        json.Find(L"props")->arr[0].GetString(L"value") == value,
+                        "FontSize origin qualifies only known framework defaults, independently of the numeric value");
+                    check(prop.source == (source == BaseValueSourceDefault ? L"Default" : expected) &&
+                        prop.writeType == L"Double",
+                        "FontSize keeps its raw source and write capability");
+                    const auto card = ToCardRow(prop);
+                    check(card.source == prop.source && card.defaultMayBeInherited == mayInherit &&
+                        card.chain.size() == 4 && card.chain[0].source == expected &&
+                        card.chain[1].source == L"Default",
+                        "inspector keeps raw source and qualifies only the winning chain entry");
+                }
+            }
+        }
+        tree.name = L"Width"; tree.declaringType = L"Microsoft.UI.Xaml.Controls.TextBlock";
+        tree.source = BaseValueSourceDefault;
+        std::vector<DevToolsReadProp> props;
+        ReadCuratedProps(901, &props, nullptr);
+        check(props.size() == 1 && !props[0].defaultMayBeInherited && props[0].source == L"Default",
+            "an unrelated default property is not labeled as possibly inherited");
+        g_vts3 = nullptr;
+    }
     {
         InputTextBox owner;
         EffectiveTree tree(owner);

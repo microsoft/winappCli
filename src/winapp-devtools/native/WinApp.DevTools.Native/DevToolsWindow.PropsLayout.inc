@@ -98,7 +98,8 @@ static std::vector<std::wstring> SplitFields(const std::wstring& v, size_t count
 // A resource-resolved Local value is not necessarily an authored literal.
 static std::wstring OriginLabel(const DevToolsCardRow& r)
 {
-    return DevToolsRead_OriginLabel(r.authoredKind, r.authored, r.authoredKey, r.binding, r.source, true);
+    return DevToolsRead_OriginLabel(r.authoredKind, r.authored, r.authoredKey, r.binding,
+        r.source, true, r.defaultMayBeInherited);
 }
 
 // One line explaining what the origin means, used as the pill's tooltip. Written per KIND rather than per
@@ -119,6 +120,8 @@ static std::wstring OriginTooltip(const DevToolsCardRow& r)
     if (r.authoredKind == L"customMarkup") return L"Set on this element by a markup extension.";
     if (r.source == kDevToolsReadLiveEditSource) return L"Set on this element by a live edit in DevTools";
     if (SourceIsSetHere(r.source))         return L"Set on this element (in code / XAML)";
+    if (r.source == L"Default" && r.defaultMayBeInherited)
+        return L"WinUI reports Default but does not distinguish an inherited font size from the default font size.";
     return L"Not set here. Value comes from " + r.source;
 }
 
