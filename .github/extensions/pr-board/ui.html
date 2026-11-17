@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PR board</title>
+<style>
+:root {
+  --status-bar-color: var(--background-color-default, #ffffff);
+  --bg: var(--background-color-default, #ffffff);
+  --fg: var(--text-color-default, #1f2328);
+  --muted: var(--text-color-muted, #59636e);
+  --border: var(--border-color-default, #d1d9e0);
+  --focus: var(--color-focus-outline, #0969da);
+  --red: var(--true-color-red, #cf222e);
+  --red-muted: var(--true-color-red-muted, rgba(207,34,46,.12));
+  --green: var(--true-color-green, #1a7f37);
+  --green-muted: var(--true-color-green-muted, rgba(26,127,55,.12));
+  --blue: var(--true-color-blue, #0969da);
+  --blue-muted: var(--true-color-blue-muted, rgba(9,105,218,.12));
+  --yellow: var(--true-color-yellow, #9a6700);
+  --yellow-muted: var(--true-color-yellow-muted, rgba(154,103,0,.14));
+  --purple: var(--true-color-purple, #8250df);
+  --purple-muted: var(--true-color-purple-muted, rgba(130,80,223,.12));
+  --orange: var(--true-color-orange, #bc4c00);
+  --orange-muted: var(--true-color-orange-muted, rgba(188,76,0,.12));
+  --lane-bg: color-mix(in srgb, var(--fg) 4%, var(--bg));
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: var(--text-body-medium, 14px); line-height: var(--leading-body-medium, 20px);
+  display: flex; flex-direction: column;
+}
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px; cursor: pointer; line-height: 20px; }
+button:hover:not(:disabled) { background: var(--lane-bg); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+button.primary { background: var(--blue); color: var(--color-white, #fff); border-color: var(--blue); }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--blue); }
+button.confirm { background: var(--orange); color: var(--color-white, #fff); border-color: var(--orange); }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+header h1 { margin: 0; font-size: var(--text-title-small, 16px); font-weight: var(--font-weight-semibold, 600); }
+header .meta { color: var(--muted); font-size: 12px; }
+header .spacer { flex: 1; }
+.you-count { background: var(--orange-muted); color: var(--orange); border-radius: 12px; padding: 0 10px; font-weight: 600; font-size: 12px; }
+.banner { margin: 10px 14px 0; padding: 8px 12px; border-radius: 6px; background: var(--red-muted); color: var(--red); }
+.banner.info { background: var(--blue-muted); color: var(--blue); }
+.toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80%; }
+.toast.show { opacity: .95; }
+main { flex: 1; display: flex; gap: 10px; padding: 12px 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
+.lane { flex: 0 0 290px; display: flex; flex-direction: column; background: var(--lane-bg); border-radius: 8px; border: 1px solid var(--border); min-height: 0; }
+.lane > h2 { margin: 0; padding: 8px 10px 2px; font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.lane > h2 .count { color: var(--muted); font-weight: 400; }
+.lane > .hint { padding: 0 10px 6px; color: var(--muted); font-size: 12px; }
+.lane > .cards { flex: 1; overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 8px; }
+.lane .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 14px 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.card { background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
+.card.who-you { border-left-color: var(--orange); }
+.card.who-agent { border-left-color: var(--purple); }
+.card.who-ci, .card.who-github { border-left-color: var(--blue); }
+.card.who-done { border-left-color: var(--green); }
+.row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.num { font-weight: 600; color: var(--fg); }
+.title { font-weight: 600; color: var(--fg); line-height: 18px; word-break: break-word; cursor: pointer; }
+.title:hover { text-decoration: underline; }
+.pill { border-radius: 10px; padding: 0 7px; font-size: 11px; line-height: 18px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.pill.red { background: var(--red-muted); color: var(--red); border-color: transparent; }
+.pill.green { background: var(--green-muted); color: var(--green); border-color: transparent; }
+.pill.yellow { background: var(--yellow-muted); color: var(--yellow); border-color: transparent; }
+.pill.blue { background: var(--blue-muted); color: var(--blue); border-color: transparent; }
+.pill.purple { background: var(--purple-muted); color: var(--purple); border-color: transparent; }
+.pill.orange { background: var(--orange-muted); color: var(--orange); border-color: transparent; }
+.avatar { width: 16px; height: 16px; border-radius: 50%; vertical-align: middle; }
+.waiting { font-size: 12px; padding: 3px 7px; border-radius: 4px; background: var(--lane-bg); color: var(--fg); }
+.waiting b { font-weight: 600; }
+.who-you .waiting { background: var(--orange-muted); }
+.who-agent .waiting { background: var(--purple-muted); }
+.agent { font-size: 12px; display: flex; gap: 6px; align-items: flex-start; }
+.agent .text { color: var(--fg); }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; position: relative; }
+.actions button, .actions a.btn { font-size: 12px; padding: 0 8px; }
+a.btn { border: 1px solid var(--border); border-radius: 6px; color: var(--fg); line-height: 20px; display: inline-block; }
+a.btn:hover { background: var(--lane-bg); text-decoration: none; }
+a.btn.disabled { opacity: .45; pointer-events: none; }
+.menu { position: absolute; top: 24px; z-index: 5; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); display: flex; flex-direction: column; padding: 4px; min-width: 170px; }
+.menu button { border: 0; text-align: left; padding: 3px 8px; }
+.details { border-top: 1px dashed var(--border); padding-top: 6px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.details h3 { margin: 0; font-size: 12px; font-weight: 600; }
+.timeline { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.timeline li { color: var(--fg); }
+.timeline time { color: var(--muted); margin-right: 6px; font-family: var(--font-mono, Consolas, monospace); font-size: 11px; }
+pre.draft { white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; background: var(--lane-bg); border-radius: 4px; padding: 6px 8px; margin: 0; font-family: var(--font-mono, Consolas, monospace); font-size: var(--text-code-inline, 12px); }
+code { font-family: var(--font-mono, Consolas, monospace); font-size: var(--text-code-inline, 12px); }
+.legend { display: flex; gap: 10px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 4px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="repo">PR board</h1>
+  <span class="you-count" id="youCount" hidden></span>
+  <span class="meta" id="meta">Loading…</span>
+  <span class="spacer"></span>
+  <div class="legend" aria-label="Card colors">
+    <span><i style="background:var(--orange)"></i>You</span>
+    <span><i style="background:var(--purple)"></i>Agent</span>
+    <span><i style="background:var(--blue)"></i>CI / GitHub</span>
+    <span><i style="background:var(--border)"></i>Author / others</span>
+  </div>
+  <button id="refresh" title="Re-read pull requests from GitHub">↻ Refresh</button>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main id="board" aria-live="polite"></main>
+<div id="toast" class="toast" role="status"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const REPO = params.get("repo");
+const TOKEN = params.get("t");
+const $ = (id) => document.getElementById(id);
+const expanded = new Set();
+const drafts = new Map();
+let snap = null;
+let openMenu = null;
+let armed = null; // { key, timer } for click-again-to-confirm buttons
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ago = (iso) => {
+  if (!iso) return "";
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  if (s < 86400) return Math.round(s / 3600) + "h ago";
+  return Math.round(s / 86400) + "d ago";
+};
+const hhmm = (iso) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+function toast(text) {
+  const t = $("toast");
+  t.textContent = text;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 3500);
+}
+
+async function post(path, body) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-PR-Board-Token": TOKEN }, body: JSON.stringify({ repo: REPO, ...body }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+  return data;
+}
+
+async function act(pr, action, extra = {}) {
+  try {
+    await post("/api/action", { pr, action, ...extra });
+    toast({ review: "Sent to the agent: review #" + pr, post: "Sent to the agent: post the draft on #" + pr, ship: "Sent to the agent: ship #" + pr, "open-chat": "Asked the agent to open the chat for #" + pr, reset: "Reset #" + pr }[action] || "Done");
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+const CI = { passing: ["green", "✓ CI passing"], failing: ["red", "✗ CI failing"], pending: ["yellow", "● CI running"], none: ["", "No CI"] };
+const REVIEW_ICON = { APPROVED: ["green", "✓"], CHANGES_REQUESTED: ["red", "✗"], COMMENTED: ["", "💬"], DISMISSED: ["", "–"] };
+const AGENT = {
+  running: ["purple", "Agent working"],
+  waiting: ["orange", "Needs your input"],
+  draft_ready: ["orange", "Draft ready"],
+  done: ["green", "Done"],
+  failed: ["red", "Failed"],
+};
+
+function ciPill(ci) {
+  if (!ci) return "";
+  const [color, label] = CI[ci.state] || CI.none;
+  const tip = ci.failing?.length ? "Failing: " + ci.failing.join(", ") : ci.pending?.length ? "Running: " + ci.pending.join(", ") : ci.text;
+  return `<span class="pill ${color}" title="${esc(tip)}">${label}</span>`;
+}
+
+function waitingHtml(text) {
+  const i = text.indexOf(":");
+  return i > 0 ? `<b>${esc(text.slice(0, i))}</b>${esc(text.slice(i))}` : esc(text);
+}
+
+function cardHtml(c) {
+  const local = c.local || {};
+  const agent = local.agent;
+  const draft = local.draft && !local.draft.postedAt ? local.draft : null;
+  const sess = local.session;
+  const busy = agent?.status === "running";
+  const isOpen = c.lane !== "merged";
+  const reviewers = (c.reviewers || []).map((r) => {
+    const [color, icon] = REVIEW_ICON[r.state] || ["", "•"];
+    return `<span class="pill ${color}" title="${esc(r.login)}: ${esc(r.state.toLowerCase().replace("_", " "))}">${icon} ${esc(r.login)}</span>`;
+  }).join("");
+  const requested = (c.requested || []).map((r) => `<span class="pill" title="Review requested">⏳ ${esc(r)}</span>`).join("");
+  const agentLine = agent ? (() => {
+    const [color, label] = AGENT[agent.status] || ["", agent.status];
+    return `<div class="agent"><span class="pill ${color}">${label}</span><span class="text">${esc(agent.outcome || "")}${agent.updatedAt ? ` <span style="color:var(--muted)">· ${ago(agent.updatedAt)}</span>` : ""}</span></div>`;
+  })() : "";
+  const sessLine = sess ? `<div class="row">💬 Session: <span style="color:var(--fg)">${esc(sess.name || sess.id)}</span></div>` : "";
+  const shipTip = c.queue ? "Already in the merge queue" : c.reviewDecision !== "APPROVED" ? "Needs an approval first" : c.ci?.state === "failing" ? "Checks are failing" : "Send to the merge queue";
+  const canShip = isOpen && !c.queue && c.reviewDecision === "APPROVED" && c.ci?.state !== "failing" && !busy;
+
+  let actions = "";
+  if (isOpen) {
+    const armedKey = (k) => armed?.key === `${c.number}:${k}`;
+    actions = `<div class="actions">
+      <button data-act="review" data-pr="${c.number}" ${busy ? "disabled" : ""} title="Ask an agent session to draft a review with the pr-review skill (nothing is posted)">${draft || local.draft?.postedAt ? "Re-review" : "Review"}</button>
+      <button data-act="post-menu" data-pr="${c.number}" class="${draft ? "primary" : ""}${armed?.key?.startsWith(c.number + ":post:") ? " confirm" : ""}" ${draft && !busy ? "" : "disabled"} title="${draft ? "Post the draft review to GitHub" : "Run Review first; posting needs a draft"}">${armed?.key?.startsWith(c.number + ":post:") ? "Click again: " + esc(armed.label) : "Post review ▾"}</button>
+      <button data-act="ship" data-pr="${c.number}" class="${armedKey("ship") ? "confirm" : ""}" ${canShip ? "" : "disabled"} title="${esc(shipTip)}">${armedKey("ship") ? "Click again to ship" : "Ship"}</button>
+      ${sess ? `<a class="btn" href="ghapp://sessions/${encodeURIComponent(sess.id)}" title="Open the linked session in the app">Open chat</a><button data-act="open-chat" data-pr="${c.number}" title="If the Open chat link does nothing, ask the agent to switch to the session">↪</button>` : `<a class="btn disabled" title="No session linked yet; press Review">Open chat</a>`}
+      ${openMenu === c.number ? `<div class="menu" role="menu">
+        <button data-act="post" data-event="approve" data-pr="${c.number}" role="menuitem">✓ Approve</button>
+        <button data-act="post" data-event="request_changes" data-pr="${c.number}" role="menuitem">✗ Request changes</button>
+        <button data-act="post" data-event="comment" data-pr="${c.number}" role="menuitem">💬 Comment</button>
+      </div>` : ""}
+    </div>`;
+  }
+
+  let details = "";
+  if (expanded.has(c.number)) {
+    const hist = (local.history || []).slice().reverse().map((h) => `<li><time>${esc(hhmm(h.at))}</time>${esc(h.text)}</li>`).join("") || `<li style="color:var(--muted)">No board activity yet.</li>`;
+    const d = drafts.get(c.number + ":" + (local.draft?.attachedAt || ""));
+    details = `<div class="details">
+      ${c.labels?.length ? `<div class="row">${c.labels.map((l) => `<span class="pill">${esc(l)}</span>`).join("")}</div>` : ""}
+      ${c.ci?.failing?.length ? `<div><h3>Failing checks</h3>${c.ci.failing.map(esc).join(", ")}</div>` : ""}
+      ${local.draft ? `<div><h3>Draft review ${local.draft.postedAt ? "(posted)" : ""} · recommends ${esc((local.draft.recommendation || "").replace("_", " "))}</h3>
+        <div class="row"><code title="${esc(local.draft.path)}">${esc(local.draft.path.split(/[\\/]/).pop())}</code></div>
+        ${d ? `<pre class="draft">${esc(d.text ?? d.error)}</pre>` : `<button data-act="load-draft" data-pr="${c.number}">Show draft</button>`}</div>` : ""}
+      ${sess ? `<div class="row">Session id <code>${esc(sess.id)}</code></div>` : ""}
+      <div><h3>History</h3><ul class="timeline">${hist}</ul></div>
+      ${agent ? `<div><button data-act="reset" data-pr="${c.number}" title="Clear the agent status if it's stuck">Reset agent status</button></div>` : ""}
+    </div>`;
+  }
+
+  return `<article class="card who-${esc(c.who)}" data-card="${c.number}">
+    <div class="row">
+      <a class="num" href="${esc(c.url)}" target="_blank" rel="noopener">#${c.number}</a>
+      <span class="pill" title="${esc(c.size?.text)}">${esc(c.size?.label)}</span>
+      ${ciPill(c.ci)}
+      ${c.isDraft ? `<span class="pill">Draft PR</span>` : ""}
+      ${c.queue ? `<span class="pill blue">Queue #${c.queue.position}</span>` : ""}
+    </div>
+    <div class="title" data-act="toggle" data-pr="${c.number}" title="Show details and history">${esc(c.title)}</div>
+    <div class="row"><img class="avatar" alt="" src="https://github.com/${encodeURIComponent(c.author)}.png?size=32" onerror="this.remove()"> ${esc(c.author)}${c.updatedAt ? ` · updated ${ago(c.updatedAt)}` : ""}</div>
+    ${reviewers || requested ? `<div class="row">${reviewers}${requested}</div>` : ""}
+    <div class="waiting">⏭ ${waitingHtml(c.waitingOn)}</div>
+    ${agentLine}
+    ${sessLine}
+    ${actions}
+    ${details}
+  </article>`;
+}
+
+function render() {
+  if (!snap) return;
+  $("repo").textContent = "PR board · " + snap.repo;
+  document.title = "PR board · " + snap.repo;
+  const banner = $("banner");
+  if (snap.error) {
+    banner.hidden = false;
+    banner.className = "banner";
+    banner.textContent = snap.error.message;
+  } else {
+    banner.hidden = true;
+  }
+  const cards = snap.cards || [];
+  const mine = cards.filter((c) => c.who === "you").length;
+  $("youCount").hidden = !mine;
+  $("youCount").textContent = mine + " waiting on you";
+  $("meta").textContent = snap.loading ? "Refreshing…" : snap.fetchedAt ? `Updated ${ago(snap.fetchedAt)} · ${cards.filter((c) => c.lane !== "merged").length} open` + (snap.viewer ? ` · you are @${snap.viewer}` : "") : "Loading…";
+  const scroll = new Map([...document.querySelectorAll(".lane .cards")].map((el) => [el.dataset.lane, el.scrollTop]));
+  $("board").innerHTML = snap.lanes.map((lane) => {
+    const inLane = cards.filter((c) => c.lane === lane.id);
+    return `<section class="lane" aria-label="${esc(lane.title)}">
+      <h2>${esc(lane.title)} <span class="count">${inLane.length}</span></h2>
+      <div class="hint">${esc(lane.hint)}</div>
+      <div class="cards" data-lane="${lane.id}">${inLane.map(cardHtml).join("") || `<div class="empty">Nothing here</div>`}</div>
+    </section>`;
+  }).join("");
+  for (const el of document.querySelectorAll(".lane .cards")) el.scrollTop = scroll.get(el.dataset.lane) || 0;
+}
+
+function arm(key, label) {
+  clearTimeout(armed?.timer);
+  armed = { key, label, timer: setTimeout(() => { armed = null; render(); }, 4000) };
+  render();
+}
+
+document.addEventListener("click", async (e) => {
+  const el = e.target.closest("[data-act]");
+  if (!el) {
+    if (openMenu !== null) { openMenu = null; render(); }
+    return;
+  }
+  const pr = Number(el.dataset.pr);
+  const a = el.dataset.act;
+  if (a === "toggle") {
+    expanded.has(pr) ? expanded.delete(pr) : expanded.add(pr);
+    return render();
+  }
+  if (a === "load-draft") {
+    try {
+      const res = await fetch(`/api/draft?repo=${encodeURIComponent(REPO)}&pr=${pr}`);
+      const data = await res.json();
+      drafts.set(pr + ":" + (snap.cards.find((x) => x.number === pr)?.local?.draft?.attachedAt || ""), res.ok ? data : { error: data.error });
+    } catch (err) { toast(err.message); }
+    return render();
+  }
+  if (a === "post-menu") {
+    if (armed?.key?.startsWith(pr + ":post:")) {
+      const event = armed.key.split(":")[2];
+      clearTimeout(armed.timer); armed = null; render();
+      return act(pr, "post", { event });
+    }
+    openMenu = openMenu === pr ? null : pr;
+    return render();
+  }
+  if (a === "post") {
+    openMenu = null;
+    return arm(`${pr}:post:${el.dataset.event}`, el.textContent.trim());
+  }
+  if (a === "ship") {
+    if (armed?.key === `${pr}:ship`) { clearTimeout(armed.timer); armed = null; render(); return act(pr, "ship"); }
+    return arm(`${pr}:ship`, "ship");
+  }
+  return act(pr, a);
+});
+
+$("refresh").addEventListener("click", async () => {
+  $("meta").textContent = "Refreshing…";
+  try { await post("/api/refresh", {}); } catch (e) { toast(e.message); }
+});
+
+function connect() {
+  const es = new EventSource(`/events?repo=${encodeURIComponent(REPO)}`);
+  es.addEventListener("board", (ev) => { snap = JSON.parse(ev.data); render(); });
+  es.onerror = () => { $("meta").textContent = "Reconnecting…"; };
+}
+setInterval(() => { if (snap && !snap.loading) render(); }, 30000);
+if (!REPO) {
+  $("banner").hidden = false;
+  $("banner").textContent = "No repo was given to this board.";
+} else {
+  connect();
+}
+</script>
+</body>
+</html>
