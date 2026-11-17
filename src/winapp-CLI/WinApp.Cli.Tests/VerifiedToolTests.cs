@@ -157,9 +157,9 @@ public class VerifiedToolTests
         var ex = Assert.ThrowsExactly<BuildToolSignatureException>(
             () => Open(_tool, verdict: _ => false).Dispose());
 
-        StringAssert.Contains(ex.Message, "not validly signed by Microsoft");
-        StringAssert.Contains(ex.Message, "mt.exe");
-        StringAssert.Contains(ex.Message, "NuGet cache");
+        Assert.Contains("not validly signed by Microsoft", ex.Message);
+        Assert.Contains("mt.exe", ex.Message);
+        Assert.Contains("NuGet cache", ex.Message);
     }
 
     [TestMethod]
@@ -170,7 +170,7 @@ public class VerifiedToolTests
         var ex = Assert.ThrowsExactly<BuildToolSignatureException>(() => Open(_tool, verdict: _ => false));
         var wrapped = new InvalidOperationException("Failed to create MSIX package.", ex);
 
-        StringAssert.Contains(wrapped.GetBaseException().Message, "NuGet cache");
+        Assert.Contains("NuGet cache", wrapped.GetBaseException().Message);
     }
 
     [TestMethod]
@@ -203,7 +203,7 @@ public class VerifiedToolTests
         var ex = Assert.ThrowsExactly<BuildToolSignatureException>(
             () => Open(missing, verdict: _ => { verified = true; return true; }).Dispose());
 
-        StringAssert.Contains(ex.Message, "could not be held open");
+        Assert.Contains("could not be held open", ex.Message);
         Assert.IsFalse(verified, "A file that cannot be held must never reach the signature check.");
     }
 
@@ -214,7 +214,7 @@ public class VerifiedToolTests
 
         var ex = Assert.ThrowsExactly<BuildToolSignatureException>(() => Open(_tool).Dispose());
 
-        StringAssert.Contains(ex.Message, "could not be held open");
+        Assert.Contains("could not be held open", ex.Message);
     }
 
     [TestMethod]

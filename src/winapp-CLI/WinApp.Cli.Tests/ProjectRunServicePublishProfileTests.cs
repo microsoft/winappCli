@@ -72,8 +72,8 @@ public sealed class ProjectRunServicePublishProfileTests
         Assert.AreEqual("win-arm64.pubxml", options.PublishProfile);
 
         var buildArguments = ProjectRunService.BuildBuildPassArguments(app, options, "minimal");
-        StringAssert.Contains(buildArguments, "-r win-arm64");
-        StringAssert.Contains(buildArguments, "-p:PublishProfile=win-arm64.pubxml");
+        Assert.Contains("-r win-arm64", buildArguments);
+        Assert.Contains("-p:PublishProfile=win-arm64.pubxml", buildArguments);
         Assert.IsFalse(buildArguments.Contains("-p:Platform=", StringComparison.Ordinal));
     }
 
@@ -84,27 +84,27 @@ public sealed class ProjectRunServicePublishProfileTests
         WriteProfile("win-arm64.pubxml", "ARM64", "win-arm64");
         var options = ResolveProfile(app, Options("arm64"));
 
-        StringAssert.Contains(
-            ProjectRunService.BuildRestorePassArguments(app, options),
-            "-p:PublishProfile=win-arm64.pubxml");
-        StringAssert.Contains(
-            ProjectRunService.BuildRestorePassArguments(app, options),
-            $"-p:ProjectToOverrideProjectExtensionsPath={app.FullName}");
-        StringAssert.Contains(
-            ProjectRunService.BuildBuildPassArguments(app, options, "minimal"),
-            "-p:PublishProfile=win-arm64.pubxml");
-        StringAssert.Contains(
-            ProjectRunService.BuildBuildPassArguments(app, options, "minimal"),
-            $"-p:ProjectToOverrideProjectExtensionsPath={app.FullName}");
-        StringAssert.Contains(
-            ProjectRunService.BuildEvaluateArguments(app, options),
-            "-p:PublishProfile=win-arm64.pubxml");
-        StringAssert.Contains(
-            ProjectRunService.BuildEvaluateArguments(app, options),
-            $"-p:ProjectToOverrideProjectExtensionsPath={app.FullName}");
-        StringAssert.Contains(
-            ProjectRunService.BuildBuildPassArguments(app, options, "minimal"),
-            $"-p:ProjectToOverrideProjectExtensionsPath={app.FullName}");
+        Assert.Contains(
+            "-p:PublishProfile=win-arm64.pubxml",
+            ProjectRunService.BuildRestorePassArguments(app, options));
+        Assert.Contains(
+            $"-p:ProjectToOverrideProjectExtensionsPath={app.FullName}",
+            ProjectRunService.BuildRestorePassArguments(app, options));
+        Assert.Contains(
+            "-p:PublishProfile=win-arm64.pubxml",
+            ProjectRunService.BuildBuildPassArguments(app, options, "minimal"));
+        Assert.Contains(
+            $"-p:ProjectToOverrideProjectExtensionsPath={app.FullName}",
+            ProjectRunService.BuildBuildPassArguments(app, options, "minimal"));
+        Assert.Contains(
+            "-p:PublishProfile=win-arm64.pubxml",
+            ProjectRunService.BuildEvaluateArguments(app, options));
+        Assert.Contains(
+            $"-p:ProjectToOverrideProjectExtensionsPath={app.FullName}",
+            ProjectRunService.BuildEvaluateArguments(app, options));
+        Assert.Contains(
+            $"-p:ProjectToOverrideProjectExtensionsPath={app.FullName}",
+            ProjectRunService.BuildBuildPassArguments(app, options, "minimal"));
 
         var fallback = ProjectRunService.BuildEvaluateArguments(
             app,
@@ -123,9 +123,9 @@ public sealed class ProjectRunServicePublishProfileTests
         var resolved = ResolveProfile(app, options);
 
         Assert.IsNull(resolved.PublishProfile);
-        StringAssert.Contains(
-            ProjectRunService.BuildBuildPassArguments(app, resolved, "minimal"),
-            "-p:PublishProfile=custom.pubxml");
+        Assert.Contains(
+            "-p:PublishProfile=custom.pubxml",
+            ProjectRunService.BuildBuildPassArguments(app, resolved, "minimal"));
     }
 
     [TestMethod]
@@ -223,7 +223,7 @@ public sealed class ProjectRunServicePublishProfileTests
             candidateProfile: "win-arm64;Extra=true.pubxml");
         var arguments = ProjectRunService.BuildBuildPassArguments(app, resolved, "minimal");
 
-        StringAssert.Contains(arguments, "-p:PublishProfile=win-arm64%3BExtra=true.pubxml");
+        Assert.Contains("-p:PublishProfile=win-arm64%3BExtra=true.pubxml", arguments);
     }
 
     [TestMethod]
@@ -239,7 +239,7 @@ public sealed class ProjectRunServicePublishProfileTests
             candidateProfile: "win-arm64,Extra=true.pubxml");
         var arguments = ProjectRunService.BuildBuildPassArguments(app, resolved, "minimal");
 
-        StringAssert.Contains(arguments, "-p:PublishProfile=win-arm64%2CExtra=true.pubxml");
+        Assert.Contains("-p:PublishProfile=win-arm64%2CExtra=true.pubxml", arguments);
         Assert.IsFalse(arguments.Contains("-p:PublishProfile=win-arm64,Extra=true.pubxml"));
     }
 
@@ -309,10 +309,10 @@ public sealed class ProjectRunServicePublishProfileTests
         var arguments = ProjectRunService.BuildBuildPassArguments(app, resolved, "minimal");
 
         Assert.AreEqual("win-arm64.pubxml", resolved.PublishProfile);
-        StringAssert.Contains(arguments, "-p:PublishProfile=win-arm64.pubxml");
-        StringAssert.Contains(
-            arguments,
+        Assert.Contains("-p:PublishProfile=win-arm64.pubxml", arguments);
+        Assert.Contains(
             $"-p:ProjectToOverrideProjectExtensionsPath={app.FullName}",
+            arguments,
             "the SDK scoping property must limit profile import to the selected app");
     }
 
@@ -500,7 +500,7 @@ public sealed class ProjectRunServicePublishProfileTests
 
         Assert.AreEqual(17, outcome.ExitCode);
         var arguments = dotnet.ArgumentListInvocations.Single().ToList();
-        CollectionAssert.DoesNotContain(arguments, "-p:PublishProfile=win-arm64.pubxml");
+        Assert.DoesNotContain("-p:PublishProfile=win-arm64.pubxml", arguments);
         Assert.AreEqual(explicitProfile, arguments.Contains("-p:PublishProfile=custom.pubxml"));
     }
 
@@ -532,8 +532,8 @@ public sealed class ProjectRunServicePublishProfileTests
 
         Assert.IsNotNull(outcome.Resolution);
         Assert.AreEqual(1, dotnet.StreamingCalls.Count);
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-p:PublishProfile=win-arm64.pubxml");
-        StringAssert.Contains(dotnet.StringInvocations.Last(), "-p:PublishProfile=win-arm64.pubxml");
+        Assert.Contains("-p:PublishProfile=win-arm64.pubxml", dotnet.StreamingCalls[0]);
+        Assert.Contains("-p:PublishProfile=win-arm64.pubxml", dotnet.StringInvocations.Last());
     }
 
     [TestMethod]
@@ -632,12 +632,12 @@ public sealed class ProjectRunServicePublishProfileTests
             siblingRestore.Contains("-p:PublishProfile=", StringComparison.Ordinal),
             "the selected app's profile must not flow into an unrelated solution sibling");
         var filter = dotnet.SolutionFilterContents.Single();
-        StringAssert.Contains(filter, "Server/Server.csproj", "the sibling restores through the solution filter");
+        Assert.Contains("Server/Server.csproj", filter, "the sibling restores through the solution filter");
         Assert.IsFalse(filter.Contains("App.csproj", StringComparison.Ordinal),
             "the target restores separately under its profile, not through the sibling filter");
         var appBuild = dotnet.StreamingCalls.Single(arguments =>
             arguments.StartsWith($"build {app.FullName}", StringComparison.Ordinal));
-        StringAssert.Contains(appBuild, "-p:PublishProfile=win-arm64.pubxml");
+        Assert.Contains("-p:PublishProfile=win-arm64.pubxml", appBuild);
         Assert.IsFalse(
             appBuild.Contains("--no-restore", StringComparison.Ordinal),
             "the target still needs its profile-specific restore graph");
@@ -688,7 +688,7 @@ public sealed class ProjectRunServicePublishProfileTests
         var outcome = await service.BuildAndResolveAsync(app, Options("arm64"), CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution);
-        StringAssert.Contains(dotnet.StreamingCalls.Single(), "-p:PublishProfile=release-arm64.pubxml");
+        Assert.Contains("-p:PublishProfile=release-arm64.pubxml", dotnet.StreamingCalls.Single());
         Assert.IsFalse(dotnet.StreamingCalls.Single().Contains("debug-arm64", StringComparison.Ordinal));
     }
 
@@ -737,7 +737,7 @@ public sealed class ProjectRunServicePublishProfileTests
         var outcome = await service.BuildAndResolveAsync(app, Options("arm64"), CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution);
-        StringAssert.Contains(dotnet.StreamingCalls.Single(), "-p:PublishProfile=imported-arm64.pubxml");
+        Assert.Contains("-p:PublishProfile=imported-arm64.pubxml", dotnet.StreamingCalls.Single());
     }
 
     [TestMethod]

@@ -50,27 +50,27 @@ public class CodeIntegrityCatalogServiceTests : BaseCommandTests
 
     private static void VerifyCdfContent(string content, List<string> files, string expectedCatalogPath, bool usePageHashes, bool computeFlatHashes)
     {
-        StringAssert.Contains(content, "[CatalogHeader]");
-        StringAssert.Contains(content, $"Name={expectedCatalogPath}");
-        StringAssert.Contains(content, "PublicVersion=1");
-        StringAssert.Contains(content, "CatalogVersion=2");
-        StringAssert.Contains(content, "HashAlgorithms=SHA256");
-        StringAssert.Contains(content, "CATATTR1=0x10010001:OSAttr:2:6.2");
+        Assert.Contains("[CatalogHeader]", content);
+        Assert.Contains($"Name={expectedCatalogPath}", content);
+        Assert.Contains("PublicVersion=1", content);
+        Assert.Contains("CatalogVersion=2", content);
+        Assert.Contains("HashAlgorithms=SHA256", content);
+        Assert.Contains("CATATTR1=0x10010001:OSAttr:2:6.2", content);
         if (usePageHashes)
         {
-            StringAssert.Contains(content, "PageHashes=true");
+            Assert.Contains("PageHashes=true", content);
         }
         else
         {
-            StringAssert.Contains(content, "PageHashes=false");
+            Assert.Contains("PageHashes=false", content);
         }
 
         foreach(var file in files)
         {
-            StringAssert.Contains(content, $"<HASH>{file}");
+            Assert.Contains($"<HASH>{file}", content);
             if (computeFlatHashes)
             {
-                StringAssert.Contains(content, $"<HASH>{file}ALTSIPID={{DE351A42-8E59-11d0-8C47-00C04FC295EE}}");
+                Assert.Contains($"<HASH>{file}ALTSIPID={{DE351A42-8E59-11d0-8C47-00C04FC295EE}}", content);
             }
         }
     }
@@ -431,7 +431,7 @@ public class CodeIntegrityCatalogServiceTests : BaseCommandTests
 
         // int needs 4 bytes but only 2 are available.
         var ex = Assert.ThrowsExactly<EndOfStreamException>(() => CodeIntegrityCatalogService.ReadBytes<int>(reader));
-        StringAssert.Contains(ex.Message, "Int32");
+        Assert.Contains("Int32", ex.Message);
     }
 
     private static void WriteWord(byte[] b, int off, ushort v)
@@ -583,7 +583,7 @@ public class CodeIntegrityCatalogServiceTests : BaseCommandTests
             CodeIntegrityCatalogService.DescribeCatalogErrorArea(PInvoke.CRYPTCAT_E_AREA_MEMBER));
         Assert.AreEqual("An attribute entry in the CDF",
             CodeIntegrityCatalogService.DescribeCatalogErrorArea(PInvoke.CRYPTCAT_E_AREA_ATTRIBUTE));
-        StringAssert.Contains(CodeIntegrityCatalogService.DescribeCatalogErrorArea(0xDEAD), "Unknown");
+        Assert.Contains("Unknown", CodeIntegrityCatalogService.DescribeCatalogErrorArea(0xDEAD));
     }
 
     [TestMethod]
@@ -607,7 +607,7 @@ public class CodeIntegrityCatalogServiceTests : BaseCommandTests
             CodeIntegrityCatalogService.DescribeCatalogLocalError(PInvoke.CRYPTCAT_E_CDF_DUPLICATE));
         Assert.AreEqual("The CatalogHeader or Name tag is missing.",
             CodeIntegrityCatalogService.DescribeCatalogLocalError(PInvoke.CRYPTCAT_E_CDF_TAGNOTFOUND));
-        StringAssert.Contains(CodeIntegrityCatalogService.DescribeCatalogLocalError(0xBEEF), "Unknown");
+        Assert.Contains("Unknown", CodeIntegrityCatalogService.DescribeCatalogLocalError(0xBEEF));
     }
 
     #endregion

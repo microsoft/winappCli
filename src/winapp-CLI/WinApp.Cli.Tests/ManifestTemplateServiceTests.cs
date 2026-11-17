@@ -141,7 +141,7 @@ public class ManifestTemplateServiceTests
         Assert.AreEqual("Contoso Ltd", props.Element(Ns + "PublisherDisplayName")!.Value, "display name strips CN=");
 
         var app = root.Element(Ns + "Applications")!.Element(Ns + "Application")!;
-        Assert.AreEqual("myTestApp", app.Attribute("Id")!.Value, "ApplicationId is camelCased and ascii-sanitized");
+        Assert.AreEqual("MyTestApp", app.Attribute("Id")!.Value, "ApplicationId keeps the package name's casing");
 
         var visual = app.Element(Uap + "VisualElements")!;
         Assert.AreEqual("A sample packaged app", visual.Attribute("Description")!.Value);
@@ -205,13 +205,17 @@ public class ManifestTemplateServiceTests
     }
 
     [TestMethod]
-    public async Task GenerateCompleteManifest_CamelCasesMultiWordPackageName()
+    [DataRow("MSIXAnalysis", "MSIXAnalysis")]
+    [DataRow("My-Cool_App Name", "MyCoolAppName")]
+    [DataRow("my-electron-app", "myElectronApp")]
+    [DataRow("my-SDK-tool", "mySDKTool")]
+    public async Task GenerateCompleteManifest_DerivesApplicationIdKeepingPackageNameCasing(string packageName, string expectedId)
     {
-        var outDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "multiword"));
+        var outDir = new DirectoryInfo(Path.Join(_tempDir.FullName, "derived-id-" + expectedId));
 
         await new ManifestTemplateService().GenerateCompleteManifestAsync(
             outDir,
-            packageName: "My-Cool_App Name",
+            packageName: packageName,
             publisherName: "Contoso",
             version: "1.0.0.0",
             manifestTemplate: ManifestTemplates.Packaged,
@@ -221,8 +225,8 @@ public class ManifestTemplateServiceTests
         var doc = XDocument.Load(Path.Combine(outDir.FullName, "Package.appxmanifest"));
         var app = doc.Root!.Element(Ns + "Applications")!.Element(Ns + "Application")!;
 
-        Assert.AreEqual("myCoolAppName", app.Attribute("Id")!.Value,
-            "separators split words that are camelCased into a single identifier");
+        Assert.AreEqual(expectedId, app.Attribute("Id")!.Value,
+            "separators are removed and the package name's casing is kept");
     }
 
     [TestMethod]
@@ -339,8 +343,8 @@ public class ManifestTemplateServiceTests
         Assert.AreEqual("MyTestApp", root.Element(Ns + "Properties")!.Element(Ns + "DisplayName")!.Value,
             "the display name still defaults to the package name");
         Assert.AreEqual("MyTestApp", app.Element(Uap + "VisualElements")!.Attribute("DisplayName")!.Value);
-        Assert.AreEqual("myTestApp", app.Attribute("Id")!.Value,
-            "the ApplicationId is still camelCased from the package name");
+        Assert.AreEqual("MyTestApp", app.Attribute("Id")!.Value,
+            "the ApplicationId is still derived from the package name");
     }
 
     #endregion

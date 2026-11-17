@@ -190,7 +190,7 @@ public class PointerGesturePlannerTests
         Assert.AreEqual(new PointerPoint(396, 300), defaultPaths[0][^1]);
         for (int f = 0; f < 2; f++)
         {
-            CollectionAssert.AreEqual(defaultPaths[f].ToList(), anglePaths[f].ToList(), $"Finger {f} must match the default");
+            Assert.AreSequenceEqual(defaultPaths[f].ToList(), anglePaths[f].ToList(), $"Finger {f} must match the default");
         }
     }
 

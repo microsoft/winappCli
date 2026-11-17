@@ -94,7 +94,7 @@ public class CommentSelectionCaptureTests
             }
             else
             {
-                StringAssert.Contains(console.Output, overrideOption == "--name" ? "conflicts with the captured element" : "--confirm-likely-source");
+                Assert.Contains(overrideOption == "--name" ? "conflicts with the captured element" : "--confirm-likely-source", console.Output);
                 Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
             }
         }
@@ -176,12 +176,12 @@ public class CommentSelectionCaptureTests
                 if (declarationKnown)
                 {
                     Assert.IsFalse(payload.Ok);
-                    StringAssert.Contains(payload.Error!, "--name");
-                    StringAssert.Contains(payload.Error!, "conflicts with the captured element");
+                    Assert.Contains("--name", payload.Error!);
+                    Assert.Contains("conflicts with the captured element", payload.Error!);
                     Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
                     if (before is not null)
                     {
-                        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+                        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
                     }
                     else
                     {
@@ -227,7 +227,7 @@ public class CommentSelectionCaptureTests
         var result = CommentSelectionCapture.CaptureElement((uint)agent.Pid, "SameName");
         Assert.AreEqual(CaptureStatus.Failed, result.Status);
         Assert.AreEqual("ambiguous-selector", result.Error?.Token);
-        CollectionAssert.AreEqual(new List<string> { "VisualTree.find", "VisualTree.getPreviews" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "VisualTree.find", "VisualTree.getPreviews" }, agent.Received);
     }
 
     [TestMethod]
@@ -247,7 +247,7 @@ public class CommentSelectionCaptureTests
                 ["--app", agent.Pid.ToString(), "--from-element", "SameName", "--text", "note", "--source-root", directory.FullName, "--json"]));
             Assert.AreEqual(1, exit);
             Assert.IsFalse(File.Exists(store.GetStorePath(directory)));
-            CollectionAssert.AreEqual(new List<string> { "VisualTree.find", "VisualTree.getPreviews" }, agent.Received);
+            Assert.AreSequenceEqual(new List<string> { "VisualTree.find", "VisualTree.getPreviews" }, agent.Received);
         }
         finally { directory.Delete(recursive: true); }
     }
@@ -269,7 +269,7 @@ public class CommentSelectionCaptureTests
             CommentSelectionCapture.CaptureElement((uint)agent.Pid, "2", cancel.Token);
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-        CollectionAssert.AreEqual(new List<string> { "VisualTree.enumerate" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "VisualTree.enumerate" }, agent.Received);
     }
 
     [TestMethod]
@@ -282,7 +282,7 @@ public class CommentSelectionCaptureTests
             .Answer("Property.get", $$"""{"props":[{{row}}]}""");
         var result = CommentSelectionCapture.CaptureElement((uint)agent.Pid, "2");
         Assert.AreEqual(CaptureStatus.Failed, result.Status);
-        CollectionAssert.AreEqual(new List<string> { "VisualTree.enumerate", "Property.get" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "VisualTree.enumerate", "Property.get" }, agent.Received);
     }
 
     private const string Tree = """
@@ -389,7 +389,7 @@ public class CommentSelectionCaptureTests
             var afterEdit = CommentViewBuilder.ToView(saved.Comments.Single(), new CommentAnchorResolver(), directory.FullName);
             Assert.IsTrue(afterEdit.AnchorConfirmed);
             Assert.AreEqual("AutomationId", afterEdit.Hits.Single().Via);
-            StringAssert.Contains(afterEdit.Anchor.Authored!.Declaration, "Vm.Title");
+            Assert.Contains("Vm.Title", afterEdit.Anchor.Authored!.Declaration);
             var marker = CommentPusher.ToTapComments(saved).Single();
             Assert.AreEqual(captured.ElementPath, marker.Anchor, "Host search confirmation does not gate marker transport.");
             Assert.AreEqual("MainPage.xaml", marker.File);
@@ -524,7 +524,7 @@ public class CommentSelectionCaptureTests
             Assert.AreEqual(CaptureStatus.Ok, result.Status);
             Assert.AreEqual("Label", result.Element!.Name);
             Assert.AreEqual(declaration, result.Element.Authored!.Declaration);
-            StringAssert.Contains(result.Element.Authored.Scope, "Root");
+            Assert.Contains("Root", result.Element.Authored.Scope);
         }
         finally { root.Delete(recursive: true); }
     }
@@ -728,7 +728,7 @@ public class CommentSelectionCaptureTests
         Assert.AreEqual(35, result.Element.Line);
         Assert.AreEqual("Root/0", result.Element.ElementPath);
         Assert.AreEqual(@"C:\owned\project", result.Element.SourceRoot);
-        CollectionAssert.AreEqual(CaptureCalls, agent.Received);
+        Assert.AreSequenceEqual(CaptureCalls, agent.Received);
     }
 
     [TestMethod]

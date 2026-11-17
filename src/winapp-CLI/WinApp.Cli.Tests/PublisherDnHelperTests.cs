@@ -79,7 +79,7 @@ public class PublisherDnHelperTests
     public void Normalize_RejectsEmptyValuedComponent(string input, string componentName)
     {
         var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
-        StringAssert.Contains(ex.Message, componentName, "The error must name the offending empty component.");
+        Assert.Contains(componentName, ex.Message, "The error must name the offending empty component.");
     }
 
     [TestMethod]
@@ -92,7 +92,7 @@ public class PublisherDnHelperTests
         // Inputs that look like a DN (start with an attribute assignment, incl. an OID or "OID."
         // prefix) but do not parse must be rejected rather than silently wrapped as a literal CN.
         var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
-        StringAssert.Contains(ex.Message, "distinguished name");
+        Assert.Contains("distinguished name", ex.Message);
     }
 
     [TestMethod]
@@ -104,7 +104,7 @@ public class PublisherDnHelperTests
         // The MSIX manifest publisher type cannot represent a backslash, so any publisher containing
         // one can never match Identity/@Publisher and is rejected up front.
         var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
-        StringAssert.Contains(ex.Message, "backslash");
+        Assert.Contains("backslash", ex.Message);
     }
 
     [TestMethod]
@@ -115,7 +115,7 @@ public class PublisherDnHelperTests
         // A multi-valued RDN (a+b) is never used for a publisher and can hide an empty value, so it
         // is rejected outright rather than accepted.
         var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
-        StringAssert.Contains(ex.Message, "multi-valued");
+        Assert.Contains("multi-valued", ex.Message);
     }
 
     [TestMethod]
@@ -127,7 +127,7 @@ public class PublisherDnHelperTests
         // attempt, so it is wrapped as CN=<name> (the documented behavior) rather than rejected.
         var result = PublisherDnHelper.Normalize(input);
         Assert.IsTrue(PublisherDnHelper.IsDistinguishedName(result), $"Result should be a valid DN: {result}");
-        StringAssert.StartsWith(result, "CN=");
+        Assert.StartsWith("CN=", result);
     }
 
     [TestMethod]
@@ -138,7 +138,7 @@ public class PublisherDnHelperTests
         // .NET treats an unquoted ';' as an RDN separator, but the raw string keeps the literal ';',
         // so the certificate (re-parsed to commas) and the manifest (literal ';') diverge. Reject it.
         var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
-        StringAssert.Contains(ex.Message, "';'");
+        Assert.Contains("';'", ex.Message);
     }
 
     [TestMethod]
@@ -159,7 +159,7 @@ public class PublisherDnHelperTests
         // A trailing ',' or '+' parses but is dropped when the certificate is encoded (CN=A, -> CN=A),
         // while the manifest keeps it, so the two diverge. Reject it up front.
         var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
-        StringAssert.Contains(ex.Message, "stray");
+        Assert.Contains("stray", ex.Message);
     }
 
     [TestMethod]

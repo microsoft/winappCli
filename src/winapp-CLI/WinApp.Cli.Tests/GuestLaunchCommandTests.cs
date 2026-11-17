@@ -118,11 +118,11 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode, "An exact-match registration must launch successfully.");
         Assert.AreEqual(1, _fakeAppLauncherService.LaunchCalls.Count, "Must launch via AUMID.");
-        StringAssert.EndsWith(_fakeAppLauncherService.LaunchCalls[0].Aumid, "!App");
-        StringAssert.Contains(
-            TestAnsiConsole.Output,
-            "Started the application in Windows Sandbox (PID: 12345).");
-        StringAssert.Contains(TestAnsiConsole.Output, "UI target: --on sandbox -a 12345");
+        Assert.EndsWith("!App", _fakeAppLauncherService.LaunchCalls[0].Aumid);
+        Assert.Contains(
+            "Started the application in Windows Sandbox (PID: 12345).",
+            TestAnsiConsole.Output);
+        Assert.Contains("UI target: --on sandbox -a 12345", TestAnsiConsole.Output);
         Assert.IsFalse(
             TestAnsiConsole.Output
                 .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
@@ -364,15 +364,15 @@ public class GuestLaunchCommandTests : BaseCommandTests
         using var document = JsonDocument.Parse(stdout);
         var root = document.RootElement;
 
-        StringAssert.EndsWith(root.GetProperty("AUMID").GetString(), "!App");
+        Assert.EndsWith("!App", root.GetProperty("AUMID").GetString());
         Assert.AreEqual("activation refused", root.GetProperty("Error").GetString());
         Assert.IsFalse(root.TryGetProperty("ProcessId", out _), "A failed activation must never report a process ID.");
 
         // The failure is logged too, but to stderr only -- proving the earlier successful parse of
         // TestAnsiConsole.Output as a single JSON document is not an accident of ordering; the
         // logger genuinely never writes to the same sink --json callers read.
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to launch application");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "activation refused");
+        Assert.Contains("Failed to launch application", ConsoleStdErr.ToString());
+        Assert.Contains("activation refused", ConsoleStdErr.ToString());
     }
 
     /// <summary>

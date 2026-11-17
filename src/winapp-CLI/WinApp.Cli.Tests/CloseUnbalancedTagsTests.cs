@@ -24,7 +24,7 @@ public class CloseUnbalancedTagsTests
         var result = ControlSnippetText.CloseUnbalancedTags(xaml);
 
         Assert.AreEqual(xaml, result);
-        StringAssert.Contains(result, "</StackPanel>");
+        Assert.Contains("</StackPanel>", result);
         Assert.IsFalse(result.Contains("truncated"), "samples must be emitted whole");
     }
 

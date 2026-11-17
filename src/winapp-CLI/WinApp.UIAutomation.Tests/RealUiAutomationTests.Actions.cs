@@ -193,7 +193,7 @@ public partial class RealUiAutomationTests
         // explicit stale-element error instead of falling through optional pattern probes.
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(uiTarget, button, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "stale");
+        Assert.Contains("stale", ex.Message);
     }
 
     // -----------------------------------------------------------------------------
@@ -238,7 +238,7 @@ public partial class RealUiAutomationTests
         }
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.FocusAsync(uiTarget, box, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "stale");
+        Assert.Contains("stale", ex.Message);
     }
 
     [TestMethod]

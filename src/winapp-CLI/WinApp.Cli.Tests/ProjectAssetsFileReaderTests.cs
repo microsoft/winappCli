@@ -77,8 +77,8 @@ public class ProjectAssetsFileReaderTests
         Assert.IsNotNull(result);
         var framework = result.Projects.Single().Frameworks.Single();
         var all = framework.TopLevelPackages.Concat(framework.TransitivePackages).Select(p => p.Id).ToList();
-        CollectionAssert.Contains(all, "Microsoft.WindowsAppSDK", "A RID-qualified package must be reported");
-        CollectionAssert.Contains(all, "runtime.win-x64.Microsoft.DotNet.ILCompiler");
+        Assert.Contains("Microsoft.WindowsAppSDK", all, "A RID-qualified package must be reported");
+        Assert.Contains("runtime.win-x64.Microsoft.DotNet.ILCompiler", all);
     }
 
     [TestMethod]
@@ -100,13 +100,15 @@ public class ProjectAssetsFileReaderTests
         var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets), "win-x64");
 
         var framework = result!.Projects.Single().Frameworks.Single();
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             ExpectedTopLevel,
             framework.TopLevelPackages.Select(p => p.Id).ToList(),
+            SequenceOrder.InAnyOrder,
             "Only what the project references directly is top-level");
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             ExpectedTransitive,
-            framework.TransitivePackages.Select(p => p.Id).ToList());
+            framework.TransitivePackages.Select(p => p.Id).ToList(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]

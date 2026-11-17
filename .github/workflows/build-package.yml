@@ -5,13 +5,16 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  merge_group:
+    types: [ checks_requested ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
   contents: read
   actions: read
 
-# Supersede only older runs of the same PR, never main or manual builds.
+# Supersede only older runs of the same PR, never main, merge queue, or manual builds.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -26,7 +29,7 @@ jobs:
         fetch-depth: 0  # Required for build number calculation
     
     - name: Install .NET Core
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
       with:
         dotnet-version: 10.0.x
     
@@ -125,7 +128,7 @@ jobs:
         fetch-depth: 0
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
       with:
         dotnet-version: 10.0.x
 
@@ -180,8 +183,8 @@ jobs:
 
     - name: Validate CLI schema and plugin manifests
       env:
-        IS_PR: ${{ github.event_name == 'pull_request' }}
-      run: .\scripts\validate-llm-docs.ps1 -FailOnDrift:($env:IS_PR -eq 'true')
+        PRE_MERGE: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+      run: .\scripts\validate-llm-docs.ps1 -FailOnDrift:($env:PRE_MERGE -eq 'true')
 
   validate-devtools:
     needs: build-artifacts
@@ -191,7 +194,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
       with:
         dotnet-version: |
           8.0.x
@@ -246,7 +249,7 @@ jobs:
 
   # Called locally, within this run and with the PR token, including for forks.
   samples:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     needs: build-artifacts
     uses: ./.github/workflows/test-samples.yml
     with:
@@ -254,7 +257,7 @@ jobs:
 
   # Keep the existing branch-protection check name outside the reusable workflow.
   test-samples-result:
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
     needs: samples
     runs-on: ubuntu-latest
     steps:
@@ -352,7 +355,8 @@ jobs:
     - name: Report build metrics
       # Failed main/manual validation still publishes test-results above, but
       # must not promote failed measurements to the main comparison baseline.
-      if: github.event_name == 'pull_request' || (needs.validate-tests.result == 'success' && needs.validate-devtools.result == 'success')
+      # Merge queue runs have no PR to comment on and must not touch the baseline.
+      if: github.event_name != 'merge_group' && (github.event_name == 'pull_request' || (needs.validate-tests.result == 'success' && needs.validate-devtools.result == 'success'))
       uses: ./.github/actions/report-metrics
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -374,7 +378,7 @@ jobs:
         reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v "AllowDevelopmentWithoutDevLicense" /d 1 /f
 
     - name: Setup .NET 10
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
       with:
         dotnet-version: "10.0.x"
 
@@ -479,11 +483,11 @@ jobs:
       shell: pwsh
       env:
         NEEDS_JSON: ${{ toJSON(needs) }}
-        IS_PR: ${{ github.event_name == 'pull_request' }}
+        PRE_MERGE: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
       run: |
         $results = $env:NEEDS_JSON | ConvertFrom-Json -AsHashtable
         foreach ($job in $results.Keys) {
-          $expected = if ($job -eq 'samples' -and $env:IS_PR -ne 'true') { 'skipped' } else { 'success' }
+          $expected = if ($job -eq 'samples' -and $env:PRE_MERGE -ne 'true') { 'skipped' } else { 'success' }
           if ($results[$job].result -ne $expected) {
             throw "$job did not meet the required outcome: $($results[$job].result) (expected $expected)"
           }

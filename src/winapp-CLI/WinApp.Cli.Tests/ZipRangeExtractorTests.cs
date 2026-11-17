@@ -77,7 +77,7 @@ public class ZipRangeExtractorTests
         var bytes = await WinDbgJsProviderAcquirer.ExtractJsProviderAsync(reader, InnerMsixName, "arm64", CancellationToken.None);
 
         Assert.IsNotNull(bytes, "JsProvider.dll should be extracted from the nested bundle.");
-        CollectionAssert.AreEqual(expected, bytes, "Extracted bytes must match the original (deflate round-trip).");
+        Assert.AreSequenceEqual(expected, bytes, "Extracted bytes must match the original (deflate round-trip).");
     }
 
     [TestMethod]
@@ -124,8 +124,8 @@ public class ZipRangeExtractorTests
         Assert.AreEqual(0, storedEntry.Method, "NoCompression must produce a STORED entry.");
         Assert.AreEqual(8, deflatedEntry.Method, "Optimal must produce a DEFLATE entry.");
 
-        CollectionAssert.AreEqual(stored, await ZipRangeExtractor.ExtractEntryAsync(reader, storedEntry, CancellationToken.None));
-        CollectionAssert.AreEqual(deflated, await ZipRangeExtractor.ExtractEntryAsync(reader, deflatedEntry, CancellationToken.None));
+        Assert.AreSequenceEqual(stored, await ZipRangeExtractor.ExtractEntryAsync(reader, storedEntry, CancellationToken.None));
+        Assert.AreSequenceEqual(deflated, await ZipRangeExtractor.ExtractEntryAsync(reader, deflatedEntry, CancellationToken.None));
     }
 
     [TestMethod]
@@ -183,7 +183,7 @@ public class ZipRangeExtractorTests
 
         var ex = Assert.ThrowsExactly<InvalidDataException>(
             () => ZipRangeExtractor.ParseCentralDirectory(header, archiveBase: 0));
-        StringAssert.Contains(ex.Message, "extends past");
+        Assert.Contains("extends past", ex.Message);
     }
 
     [TestMethod]
@@ -201,7 +201,7 @@ public class ZipRangeExtractorTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidDataException>(async () =>
             await ZipRangeExtractor.FindCentralDirectoryAsync(reader, 0, archive.Length, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "not found");
+        Assert.Contains("not found", ex.Message);
     }
 
     [TestMethod]
