@@ -110,7 +110,7 @@ public class SandboxHandleInheritanceTests
                 cancellationToken: TestContext.CancellationToken);
 
             Assert.AreEqual(0, ordinary.ExitCode);
-            StringAssert.Contains(ordinary.StandardOutput, "after-outliving");
+            Assert.Contains("after-outliving", ordinary.StandardOutput);
         }
         finally
         {
