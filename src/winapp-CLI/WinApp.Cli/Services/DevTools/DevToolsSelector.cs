@@ -37,7 +37,7 @@ internal static class DevToolsSelector
 
         public string? ShortFile => Facts?.File ?? DevToolsFormat.ShortFileName(File);
 
-        public string Selector => Display(Handle, Type, Name, Id, UniqueName);
+        public string Selector => Display(Handle, Type, Name, Id);
     }
 
     internal sealed record FindResult(
@@ -75,19 +75,11 @@ internal static class DevToolsSelector
         && value != 0;
 
     /// <summary>
-    /// The selector to PRINT for an element. A census-unique <c>x:Name</c> wins because it is what the
-    /// developer wrote and will recognise; otherwise the semantic slug, which is readable AND checkable; and
-    /// only when the tap gave the element no identity does the bare handle survive as the printed form.
+    /// Prints a checkable slug, or the handle when no identity is available. Name uniqueness alone
+    /// cannot prove addressability: another element's AutomationId may match that name.
     /// </summary>
-    public static string Display(string handle, string type, string? name, string? id, bool uniqueName)
-    {
-        if (uniqueName && !string.IsNullOrEmpty(name))
-        {
-            return name;
-        }
-
-        return DevToolsSlug.For(type, name, id) ?? handle;
-    }
+    public static string Display(string handle, string type, string? name, string? id) =>
+        DevToolsSlug.For(type, name, id) ?? handle;
 
     public static Resolution Resolve(VisualTreeTap tap, string selector, CancellationToken cancellationToken = default)
     {
@@ -221,10 +213,21 @@ internal static class DevToolsSelector
             return Resolution.Fail(found.Error);
         }
 
-        // find() is a substring search over type/#name/file, so narrow to an EXACT x:Name before deciding.
-        var exact = found.Result!.Matches
+        var matches = found.Result!.Matches.DistinctBy(m => m.Handle).ToArray();
+        var (_, facts, previewError) = DevToolsPreviews.Fetch(tap, matches.Select(m => m.Handle), cancellationToken);
+        if (previewError is not null)
+        {
+            return Resolution.Fail(previewError);
+        }
+
+        var exact = matches
             .Where(m => string.Equals(m.Name, selector, StringComparison.Ordinal))
             .ToArray();
+        var byAutomationId = matches
+            .Where(m => string.Equals(facts.GetValueOrDefault(m.Handle)?.AutomationId, selector, StringComparison.Ordinal))
+            .Select(m => m with { Facts = facts[m.Handle] })
+            .ToArray();
+        var identities = exact.Concat(byAutomationId).DistinctBy(m => m.Handle).ToArray();
 
         // The search itself is node-capped. On a tree above that cap, "exactly one match" can mean "exactly
         // one in the part we looked at", and this is the path that decides which single element a later
@@ -234,38 +237,19 @@ internal static class DevToolsSelector
               "Use the selector `winapp devtools inspect` printed to be certain."
             : null;
 
-        if (exact.Length == 1)
+        if (identities.Length == 1)
         {
-            return Resolution.Found(exact[0].Handle, incomplete);
+            return Resolution.Found(identities[0].Handle, incomplete);
         }
 
-        if (exact.Length > 1)
+        if (identities.Length > 1)
         {
-            // Duplicate x:Names are ordinary (one DataTemplate, many rows). Each one has its own semantic
-            // selector, so the candidate list is directly usable rather than a dead end.
+            var description = exact.Length == identities.Length ? $"are named '{selector}'" :
+                byAutomationId.Length == identities.Length ? $"have AutomationId '{selector}'" :
+                $"have x:Name or AutomationId '{selector}'";
             return Resolution.Fail(
-                $"{exact.Length} elements are named '{selector}'. Use one of their selectors instead:",
-                exact);
-        }
-
-        // No x:Name: an AutomationId, which `winapp ui` selects by, names the same element here.
-        if (found.Result.Matches.Count > 0)
-        {
-            var facts = DevToolsPreviews.Fetch(tap, found.Result.Matches.Select(m => m.Handle), cancellationToken).Facts;
-            var byAutomationId = found.Result.Matches
-                .Where(m => string.Equals(facts.GetValueOrDefault(m.Handle)?.AutomationId, selector, StringComparison.Ordinal))
-                .Select(m => m with { Facts = facts[m.Handle] })
-                .ToArray();
-            if (byAutomationId.Length == 1)
-            {
-                return Resolution.Found(byAutomationId[0].Handle, incomplete);
-            }
-            if (byAutomationId.Length > 1)
-            {
-                return Resolution.Fail(
-                    $"{byAutomationId.Length} elements have AutomationId '{selector}'. Use one of their selectors instead:",
-                    byAutomationId);
-            }
+                $"{identities.Length} elements {description}. Use one of their selectors instead:",
+                identities);
         }
 
         var caseInsensitive = found.Result.Matches

@@ -209,6 +209,7 @@ internal sealed partial class ProjectRunService
         if (options.CaptureDevToolsSources)
         {
             tokens.Add("--getItem:Page,ApplicationDefinition");
+            tokens.Add("--getItem:PackageReference,ProjectReference,Reference");
             foreach (var property in DevTools.XamlSourceCoordinates.Properties) { tokens.Add($"--getProperty:{property}"); }
         }
         return tokens;
@@ -373,6 +374,7 @@ internal sealed partial class ProjectRunService
         if (options.CaptureDevToolsSources)
         {
             tokens.Add("--getItem:Page,ApplicationDefinition");
+            tokens.Add("--getItem:PackageReference,ProjectReference,Reference");
             foreach (var property in DevTools.XamlSourceCoordinates.Properties) { tokens.Add($"--getProperty:{property}"); }
         }
 
@@ -687,6 +689,43 @@ internal sealed partial class ProjectRunService
         }
 
         return found;
+    }
+
+    /// <summary>
+    /// The configuration a user <c>-p Configuration</c> names (last non-empty value wins), or null when none
+    /// is set.
+    /// </summary>
+    internal static string? ConfigurationFromProperties(IReadOnlyList<string> properties) =>
+        TryGetUserProperty(properties, "Configuration", out var configuration) ? configuration : null;
+
+    /// <summary>
+    /// Resolves the build configuration from <c>-c</c> and <c>-p Configuration</c>. A <c>-p Configuration</c>
+    /// replaces the <c>-c</c> default; when the user typed both, they must name the same configuration.
+    /// </summary>
+    /// <returns><see langword="false"/> with <paramref name="error"/> set when the two conflict.</returns>
+    internal static bool TryResolveConfiguration(
+        string configurationOption,
+        bool configurationOptionExplicit,
+        IReadOnlyList<string> properties,
+        out string configuration,
+        out string? error)
+    {
+        configuration = configurationOption;
+        error = null;
+        if (ConfigurationFromProperties(properties) is not { } propertyConfiguration)
+        {
+            return true;
+        }
+
+        if (configurationOptionExplicit
+            && !string.Equals(propertyConfiguration, configurationOption, StringComparison.OrdinalIgnoreCase))
+        {
+            error = $"-p Configuration={propertyConfiguration} conflicts with -c {configurationOption}. Pass only one of them.";
+            return false;
+        }
+
+        configuration = propertyConfiguration;
+        return true;
     }
 
     /// <summary>

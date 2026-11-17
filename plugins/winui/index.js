@@ -1,6 +1,6 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 
-// win-dev-skills is a content plugin: it ships WinUI 3 skills (and agents) only,
+// The winui plugin is a content plugin: it ships WinUI 3 skills (and agents) only,
 // with no runtime tools, providers, or channels. OpenClaw native plugins require
 // a code entry point, so this registers nothing and lets the manifest's `skills`
 // field drive skill discovery.

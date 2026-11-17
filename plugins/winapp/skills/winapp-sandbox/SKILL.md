@@ -30,6 +30,9 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   or run `wsb stop` without user consent. Closing the window of a Sandbox winapp started
   asks for confirmation, then ends it and discards its state; the next command starts a
   fresh one. A Sandbox started with `wsb start` keeps running when its window is closed.
+- When a script or user names a specific Sandbox, pass `--expect-sandbox <id>` so winapp
+  uses only that one. On `sandbox_instance_mismatch`, report the expected and running IDs;
+  do not remove the option or stop a Sandbox to make the command pass.
 
 ## Launch, inspect, act, verify
 

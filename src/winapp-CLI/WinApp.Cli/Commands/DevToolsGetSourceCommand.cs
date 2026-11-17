@@ -199,7 +199,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
         {
             "noFile" => $"Not confirmed: {file} could not be opened from here.",
             "noSourceInfo" => "Not confirmed: the runtime reported no XAML source text for this element.",
-            "stale" => $"Not confirmed: {file} changed since the app was built. Rebuild to confirm the declaration.",
+            "stale" => $"Not confirmed: {file} changed since the app was built. Rebuild and relaunch the app (winapp run) to confirm the declaration.",
             "unverifiedBuild" => $"Not confirmed: DevTools could not confirm that {file} matches the running build. " +
                 "Rebuild and run again (without --no-build); if this persists, check the original XAML before editing.",
             _ => $"Not confirmed ({state}).",

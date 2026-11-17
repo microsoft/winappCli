@@ -547,6 +547,21 @@ public class DevToolsAgentCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void Errors_NeverEchoARawTokenOrUnexplainedHresult()
+    {
+        var outside = DevToolsErrors.Describe(new DevToolsProtocolError(-32001, "outside-window", "outside-window"));
+        StringAssert.Contains(outside, "different window");
+        Assert.IsFalse(outside.Contains("outside-window"), outside);
+        Assert.AreEqual("The app said no.", DevToolsErrors.Describe(new DevToolsProtocolError(-32000, "custom", "The app said no.")));
+        Assert.AreEqual("The DevTools agent failed with 'custom'.", DevToolsErrors.Describe(new DevToolsProtocolError(-32000, "custom", "")));
+        StringAssert.Contains(DevToolsErrors.DescribeToken("0x80004005")!, "general failure");
+        Assert.IsNull(DevToolsErrors.DescribeToken("0x12345678"));
+        Assert.AreEqual("the search ran out of time; narrow it with --root or --of-type", DevToolsErrors.DescribeTruncation("time-budget"));
+        Assert.AreEqual("new-reason", DevToolsErrors.DescribeTruncation("new-reason"));
+        Assert.AreEqual("Load failed: 0x802B000A (XAML could not be parsed).", DevToolsErrors.DescribeHresults("Load failed: 0x802B000A."));
+    }
+
+    [TestMethod]
     public void Json_ErrorPayloadPreservesTheProtocolCodeAndToken()
     {
         var payload = DevToolsJson.Error(1234, new DevToolsProtocolError(-32001, "stale-handle", "gone"));

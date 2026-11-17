@@ -27,7 +27,7 @@ internal sealed record RoutedUiCommand(List<string> Arguments, RoutedArtifact? A
 /// <summary>Removes host routing options and redirects capture output into guest staging.</summary>
 internal static class UiArgvRouter
 {
-    private static readonly string[] TargetOptionNames = ["--on"];
+    private static readonly string[] TargetOptionNames = ["--on", "--expect-sandbox"];
     private static readonly string[] AppOptionNames = ["--app", "-a"];
     private static readonly string[] OutputOptionNames = ["--output", "-o"];
 

@@ -11,9 +11,12 @@ $psKey = 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell'
 New-Item -Path $psKey -Force | Out-Null
 Set-ItemProperty -Path $psKey -Name ExecutionPolicy -Value RemoteSigned
 
+$run = Get-Content -Raw 'C:\bench\in\run.json' | ConvertFrom-Json
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-$add = 'C:\Program Files\WinAppCli;C:\Program Files\dotnet;C:\Program Files\nodejs;C:\Program Files\Git\cmd;C:\Program Files\PowerShell\7'
-if ($machinePath -notlike "*WinAppCli*") { [Environment]::SetEnvironmentVariable('Path', "$add;$machinePath", 'Machine') }
+$tools = 'C:\Program Files\dotnet;C:\Program Files\nodejs;C:\Program Files\Git\cmd;C:\Program Files\PowerShell\7'
+# The none configuration has no winapp on the machine PATH; setup and checks add it to their own PATH.
+$add = if ($run.hideWinapp) { $tools } else { "C:\Program Files\WinAppCli;$tools" }
+if ($machinePath -notlike "*$($tools.Split(';')[0])*") { [Environment]::SetEnvironmentVariable('Path', "$add;$machinePath", 'Machine') }
 foreach ($kv in @{ DOTNET_CLI_TELEMETRY_OPTOUT = '1'; DOTNET_NOLOGO = '1'; WINAPP_CLI_TELEMETRY_OPTOUT = '1'; WINAPP_CLI_UPDATE_CHECK = '0' }.GetEnumerator()) {
     [Environment]::SetEnvironmentVariable($kv.Key, $kv.Value, 'Machine')
 }

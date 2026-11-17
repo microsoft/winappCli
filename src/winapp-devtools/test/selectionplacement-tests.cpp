@@ -110,6 +110,19 @@ static void TestPinsAvoidTheirElementWhenThereIsRoom()
     Check(below.y >= 32, "a marker stays below the title bar the app draws");
     Check(PinViewport(100, 20, 32).top == 20 && PinViewport(100, 20, -4).top == 0,
           "the title bar inset is clamped to the client");
+
+    // Several comments on one element: each marker gets its own spot instead of stacking on the first.
+    const Rect label{ 100, 100, 160, 120 };
+    const auto first = PlacePin(label, viewport, 0);
+    const auto second = PlacePin(label, viewport, 1);
+    const auto third = PlacePin(label, viewport, 2);
+    Check(first.x == second.x && second.x == third.x &&
+          second.y >= first.y + 20 && third.y >= second.y + 20,
+          "markers on the same element sit one below another, none hiding another");
+    for (const auto& pin : { first, second, third }) {
+        Check(pin.x >= label.right || pin.x + 20 <= label.left || pin.y >= label.bottom || pin.y + 20 <= label.top,
+              "a fanned-out marker still keeps off its element");
+    }
 }
 
 static void TestPanelKeepsClearOfTheToolbar()

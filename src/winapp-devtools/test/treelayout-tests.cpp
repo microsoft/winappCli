@@ -246,7 +246,7 @@ static void Test_IndentIsMonotonicAndBounded()
 
 static void Test_BreadcrumbElision()
 {
-    std::printf("\nBreadcrumb: bounded, but the full chain is never lost\n");
+    std::printf("\nBreadcrumb: the two nearest ancestors, with the count of the full chain\n");
     const std::wstring sep = L" \u203A ";
     std::wstring longChain;
     for (int i = 0; i < 24; ++i) { if (i) longChain += sep; longChain += L"Node" + std::to_wstring(i); }
@@ -254,18 +254,20 @@ static void Test_BreadcrumbElision()
     size_t segs = 0;
     const std::wstring elided = ElideBreadcrumb(longChain, segs);
     CheckEq((int)segs, 24, "reports the true ancestor count");
-    Check(elided.size() < longChain.size(), "a 24-level chain is elided");
-    Check(elided.find(L"Node0") == 0, "keeps the root");
-    Check(elided.find(L"Node23") != std::wstring::npos, "keeps the immediate parent");
-    Check(elided.find(L"\u2026") != std::wstring::npos, "marks the elision honestly");
+    Check(elided == L"\u2026" + sep + L"Node22" + sep + L"Node23", "a 24-level chain keeps its two nearest ancestors");
+    Check(elided.find(L"Node0") == std::wstring::npos, "drops the root");
 
-    const std::wstring shortChain = L"A" + sep + L"B" + sep + L"C";
+    const std::wstring threeChain = L"A" + sep + L"B" + sep + L"C";
     size_t segs2 = 0;
-    Check(ElideBreadcrumb(shortChain, segs2) == shortChain, "a short chain is left whole, not mangled");
-    CheckEq((int)segs2, 3, "short chain segment count");
+    Check(ElideBreadcrumb(threeChain, segs2) == L"\u2026" + sep + L"B" + sep + L"C", "a 3-level chain is elided");
+    CheckEq((int)segs2, 3, "3-level chain segment count");
 
+    const std::wstring shortChain = L"A" + sep + L"B";
     size_t segs3 = 0;
-    Check(ElideBreadcrumb(L"", segs3).empty(), "an empty chain stays empty");
+    Check(ElideBreadcrumb(shortChain, segs3) == shortChain, "a 2-level chain is left whole, not mangled");
+
+    size_t segs4 = 0;
+    Check(ElideBreadcrumb(L"", segs4).empty(), "an empty chain stays empty");
 }
 
 static void Test_BuildRowsIsTheUntestedSeam()
@@ -333,6 +335,25 @@ static void Test_RenderCapSelectsTheRequestedViewFairly()
     const auto app = SelectRenderRows(rows, 1, true);
     CheckEq((int)app.size(), 1, "Just-my-XAML spends its cap on app-authored rows");
     Check(app[0] == appRow, "filtering before the cap reaches app content beyond the old prefix");
+}
+
+static void Test_VisibleParents()
+{
+    std::vector<Row> rows(8);
+    const int depths[] = {0, 1, 2, 1, 2, 0, 1, 2};
+    for (size_t i = 0; i < rows.size(); ++i) rows[i].depth = depths[i];
+    const auto all = ComputeVisibleParents(rows, std::vector<char>(8, 1));
+    Check(all == std::vector<size_t>{kNoRow, 0, 1, 0, 3, kNoRow, 5, 6},
+          "visible parents retain nested rows, siblings and separate roots");
+    const auto filtered = ComputeVisibleParents(rows, {1, 0, 1, 0, 1, 0, 1, 1});
+    Check(filtered == std::vector<size_t>{kNoRow, kNoRow, 0, kNoRow, 0, kNoRow, kNoRow, 6},
+          "filtered ancestors promote descendants without attaching across a hidden root");
+    const auto collapsed = ComputeVisibleParents(rows, {1, 1, 0, 1, 0, 1, 0, 0});
+    Check(collapsed == std::vector<size_t>{kNoRow, 0, kNoRow, 0, kNoRow, kNoRow, kNoRow, kNoRow},
+          "collapsed descendants are absent from the accessible hierarchy");
+    Check(ComputeVisibleParents({}, {}).empty(), "an empty tree has no accessible parents");
+    Check(ComputeVisibleParents(rows, {}) == std::vector<size_t>(8, kNoRow),
+          "rows without visibility entries are excluded");
 }
 
 static void Test_A11yRowsFollowTheVisibleHierarchy()
@@ -788,6 +809,7 @@ int main()
     Test_BuildRowsIsTheUntestedSeam();
     Test_RenderCapSelectsTheRequestedViewFairly();
     Test_A11yRowsFollowTheVisibleHierarchy();
+    Test_VisibleParents();
     Test_TreeFilterMatcherIsSharedWithTheProtocol();
     Test_ElementIdentityIsPathDependentAndStable();
     Test_CollapseStateSurvivesARowRebuild();

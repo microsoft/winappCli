@@ -6,23 +6,16 @@ winapp helps developers add Windows-specific features (MSIX packaging, push noti
 
 ## AI Coding Agents
 
-- **GitHub Copilot CLI:** `copilot plugin install microsoft/WinAppCli`
-- **Claude Code:** `claude plugin marketplace add microsoft/WinAppCli` then `claude plugin install winappcli@winappcli`
+This repo ships two agent plugins for GitHub Copilot CLI, Claude Code, and OpenAI Codex:
 
-### Plugin Structure
+- **`winappcli`** ([`plugins/winapp/`](https://github.com/microsoft/WinAppCli/tree/main/plugins/winapp)): the [winapp agent](https://github.com/microsoft/WinAppCli/blob/main/plugins/winapp/com.github.copilot/agents/winapp.agent.md) and [skills](https://github.com/microsoft/WinAppCli/tree/main/plugins/winapp/skills) for packaging, signing, package identity, SDK setup, Windows API lookup, UI automation, and troubleshooting with winapp
+- **`winui`** ([`plugins/winui/`](https://github.com/microsoft/WinAppCli/tree/main/plugins/winui)): the [winui-dev agent](https://github.com/microsoft/WinAppCli/blob/main/plugins/winui/agent-plugin/com.github.copilot/agents/winui-dev.agent.md) and [skills](https://github.com/microsoft/WinAppCli/tree/main/plugins/winui/agent-plugin/skills) for building, designing, testing, packaging, and migrating WinUI 3 apps
 
-A single shared plugin at `plugins/winapp/` serves both GitHub Copilot and Claude Code. It includes:
+Install from this repo's marketplace:
 
-- **Agent:** [winapp.agent.md](https://github.com/microsoft/WinAppCli/blob/main/plugins/winapp/com.github.copilot/agents/winapp.agent.md) — full system prompt with command reference, decision trees, framework-specific guidance, error diagnosis, and critical rules
-- **Skills** (auto-generated, in `plugins/winapp/skills/`):
-  - `winapp-setup/SKILL.md` — project init, restore, update
-  - `winapp-package/SKILL.md` — MSIX packaging
-  - `winapp-identity/SKILL.md` — debug identity and sparse packages
-  - `winapp-signing/SKILL.md` — certificates and code signing
-  - `winapp-manifest/SKILL.md` — appxmanifest.xml generation
-  - `winapp-troubleshoot/SKILL.md` — error diagnosis and SDK tools
-  - `winapp-frameworks/SKILL.md` — Electron, .NET, C++, Rust, Flutter, Tauri guidance
-  - `winapp-ui-automation/SKILL.md` — inspect, interact with, and screenshot running Windows app UIs
+- **GitHub Copilot CLI:** `copilot plugin marketplace add microsoft/WinAppCli`, then `copilot plugin install winappcli@winappcli` and `copilot plugin install winui@winappcli`
+- **Claude Code:** `claude plugin marketplace add microsoft/WinAppCli`, then `claude plugin install winappcli@winappcli` and `claude plugin install winui@winappcli`
+- **OpenAI Codex:** `codex plugin marketplace add microsoft/WinAppCli`, then `codex plugin add winappcli@winappcli` and `codex plugin add winui@winappcli`. Codex loads the skills only, not the agents.
 
 ## Docs
 

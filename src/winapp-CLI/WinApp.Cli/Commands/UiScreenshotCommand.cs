@@ -263,9 +263,6 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
         // Hidden chrome leaves the screen with the app's next frames; window discovery runs meanwhile.
         private Task _devToolsSettled = Task.CompletedTask;
 
-        /// <summary>The title of the DevTools inspector window, followed by the app's PID.</summary>
-        internal const string DevToolsInspectorTitlePrefix = "WinApp DevTools · PID ";
-
         /// <summary>The comment flyout's popup, a window of its own while it is open.</summary>
         internal const string DevToolsFlyoutAutomationId = "DevToolsSelPopup";
 
@@ -319,7 +316,7 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
             {
                 return false;
             }
-            if (title.StartsWith(DevToolsInspectorTitlePrefix, StringComparison.Ordinal))
+            if (UiTargetResolver.IsDevToolsInspector(title))
             {
                 return true;
             }

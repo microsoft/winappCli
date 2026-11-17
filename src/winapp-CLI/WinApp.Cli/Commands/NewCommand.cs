@@ -214,14 +214,41 @@ internal class NewCommand : Command, IShortDescription
     /// Extracts the installed version of the WinUI template pack from a <c>dotnet new uninstall</c>
     /// listing (the "Version: x" line nested under the package-id header). Returns false when the pack
     /// is not present. Used to distinguish an older installed version (which may be upgraded) from a
-    /// newer one (which must not be silently downgraded, since template packs are global).
+    /// newer one (which must not be silently downgraded, since template packs are global). When more
+    /// than one copy of the pack is installed, returns the highest version.
     /// </summary>
     internal static bool TryGetInstalledPackVersion(string uninstallListOutput, out string? installedVersion)
     {
-        installedVersion = null;
+        installedVersion = HighestVersion(GetInstalledPackVersions(uninstallListOutput));
+        return installedVersion is not null;
+    }
+
+    private static string? HighestVersion(IEnumerable<string> versions)
+    {
+        string? highest = null;
+        foreach (var version in versions)
+        {
+            if (highest is null || NuGetVersionHelper.Compare(version, highest) is > 0)
+            {
+                highest = version;
+            }
+        }
+
+        return highest;
+    }
+
+    /// <summary>
+    /// Returns the version of every installed copy of the WinUI template pack, in listing order.
+    /// <c>dotnet new install &lt;id&gt;@&lt;version&gt;</c> replaces an existing copy, but a copy
+    /// installed from a local <c>.nupkg</c> sits alongside one from NuGet, so the same package id can
+    /// be listed more than once.
+    /// </summary>
+    internal static IReadOnlyList<string> GetInstalledPackVersions(string uninstallListOutput)
+    {
+        var versions = new List<string>();
         if (string.IsNullOrEmpty(uninstallListOutput))
         {
-            return false;
+            return versions;
         }
 
         var lines = uninstallListOutput.Split('\n');
@@ -257,15 +284,17 @@ internal class NewCommand : Command, IShortDescription
                 var idx = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
                 if (idx >= 0)
                 {
-                    installedVersion = line[(idx + marker.Length)..].Trim();
-                    return installedVersion.Length > 0;
+                    var version = line[(idx + marker.Length)..].Trim();
+                    if (version.Length > 0)
+                    {
+                        versions.Add(version);
+                    }
+                    break;
                 }
             }
-
-            return false;
         }
 
-        return false;
+        return versions;
     }
 
     /// <summary>Number of leading space/tab characters (indentation) on a line, ignoring a trailing CR.</summary>
@@ -488,7 +517,7 @@ internal class NewCommand : Command, IShortDescription
 
             // Enumerate templates from the installed pack, in the working directory's context (so item
             // templates surface only when that location is inside a WinUI project).
-            var (templates, listFailure) = await WithSpinnerAsync(
+            var (templates, listFailure, installedCopies) = await WithSpinnerAsync(
                 "Loading WinUI templates...",
                 () => EnumerateTemplatesAsync(workingDir, cancellationToken));
             if (templates.Count == 0)
@@ -511,16 +540,25 @@ internal class NewCommand : Command, IShortDescription
                 return ExitTemplatePackFailed;
             }
 
+            if (installedCopies.Count > 1 && !isJson && !quiet)
+            {
+                logger.LogWarning(
+                    "{Warning}  {Count} copies of the WinUI template pack are installed ({Versions}). To keep only the latest, run 'dotnet new uninstall {Pack}' (it removes every copy), then re-run 'winapp new'.",
+                    UiSymbols.Warning, installedCopies.Count, string.Join(", ", installedCopies), TemplatePackageId);
+            }
+
             // --list: print the catalog and exit without scaffolding.
             if (list)
             {
+                // With several copies installed, the templates come from more than one pack version.
+                var listVersion = installedCopies.Count > 1 ? null : packVersion;
                 if (isJson)
                 {
-                    PrintListJson(packVersion, templates, null);
+                    PrintListJson(listVersion, templates, null);
                 }
                 else if (!quiet)
                 {
-                    WriteTemplateList(templates, packVersion);
+                    WriteTemplateList(templates, listVersion);
                 }
                 return ExitSuccess;
             }
@@ -562,6 +600,35 @@ internal class NewCommand : Command, IShortDescription
 
             tel.Template = entry.ShortName;
             tel.TemplateIsItem = entry.IsItem;
+
+            // With more than one copy of the pack installed, the selected template may come from a
+            // different copy than the highest installed version. An explicit or latest request must
+            // not silently scaffold from another copy.
+            if (installedCopies.Count > 1 && entry.PackVersion is not null)
+            {
+                var requestedVersion = mode switch
+                {
+                    VersionMode.Explicit => explicitVersion,
+                    VersionMode.Latest => packVersion,
+                    _ => null,
+                };
+                if (requestedVersion is not null && NuGetVersionHelper.Compare(entry.PackVersion, requestedVersion) is not 0)
+                {
+                    var pinError = $"Template '{entry.ShortName}' comes from WinUI template pack {entry.PackVersion}, not the requested {requestedVersion}, because "
+                        + $"{installedCopies.Count} copies of the pack are installed ({string.Join(", ", installedCopies)}). "
+                        + $"Run 'dotnet new uninstall {TemplatePackageId}' (it removes every copy), then re-run 'winapp new'.";
+                    if (isJson)
+                    {
+                        PrintJson(false, entry.ShortName, name ?? string.Empty, (output ?? currentDir).FullName, pinError, entry.IsExperimental);
+                    }
+                    else
+                    {
+                        logger.LogError("{Error} {Detail}", UiSymbols.Error, pinError);
+                    }
+                    return ExitTemplatePackFailed;
+                }
+                packVersion = entry.PackVersion;
+            }
 
             // 1a. dotnet new selects a template by short name and refuses one that matches templates
             // from more than one installed pack. When another pack registers every alias this template
@@ -818,7 +885,8 @@ internal class NewCommand : Command, IShortDescription
             DirectoryInfo cwd, VersionMode mode, string? explicitVersion, bool useDefaults, bool forListing,
             Version sdkVersion, bool isJson, bool quiet, CancellationToken cancellationToken)
         {
-            var installed = await QueryInstalledPackVersionAsync(cwd, cancellationToken);
+            var installedVersions = await QueryInstalledPackVersionsAsync(cwd, cancellationToken);
+            var installed = HighestVersion(installedVersions);
 
             switch (mode)
             {
@@ -837,10 +905,11 @@ internal class NewCommand : Command, IShortDescription
                     // not satisfy the request, so install exactly what was asked for. This keeps
                     // scaffolding reproducible across machines even when a newer pack is already present
                     // (which means downgrading the shared global pack when the caller pinned an older one).
-                    if (installed is not null
-                        && NuGetVersionHelper.Compare(installed, explicitVersion!) is 0)
+                    // Any installed copy counts: a local .nupkg copy can sit alongside a newer NuGet one.
+                    var pinned = installedVersions.FirstOrDefault(v => NuGetVersionHelper.Compare(v, explicitVersion!) is 0);
+                    if (pinned is not null)
                     {
-                        return (true, installed, null);
+                        return (true, pinned, null);
                     }
 
                     var (ok, err) = await InstallPackWithSpinnerAsync(cwd, explicitVersion, sdkVersion, isJson, quiet, cancellationToken);
@@ -1046,10 +1115,13 @@ internal class NewCommand : Command, IShortDescription
 
         /// <summary>Returns the installed WinUI pack version, or <c>null</c> when the pack isn't installed.</summary>
         private async Task<string?> QueryInstalledPackVersionAsync(DirectoryInfo cwd, CancellationToken cancellationToken)
+            => HighestVersion(await QueryInstalledPackVersionsAsync(cwd, cancellationToken));
+
+        private async Task<IReadOnlyList<string>> QueryInstalledPackVersionsAsync(DirectoryInfo cwd, CancellationToken cancellationToken)
         {
             var (exit, output, stderr) = await dotNetService.RunDotnetCommandAsync(cwd, ListTemplatePacksArgs, EnglishUiEnvironment, cancellationToken: cancellationToken);
             LogDotnetOutput(ListTemplatePacksArgs, exit, output, stderr);
-            return exit == 0 && TryGetInstalledPackVersion(output, out var version) ? version : null;
+            return exit == 0 ? GetInstalledPackVersions(output) : [];
         }
 
         /// <summary>
@@ -1134,7 +1206,7 @@ internal class NewCommand : Command, IShortDescription
         /// On a non-zero exit, returns an empty list plus a <c>FailureDetail</c> carrying the dotnet
         /// diagnostic (stderr/stdout + exit code) so the caller can surface it instead of a generic message.
         /// </summary>
-        private async Task<(IReadOnlyList<WinUiTemplateEntry> Templates, string? FailureDetail)> EnumerateTemplatesAsync(DirectoryInfo contextDir, CancellationToken cancellationToken)
+        private async Task<(IReadOnlyList<WinUiTemplateEntry> Templates, string? FailureDetail, IReadOnlyList<string> InstalledCopies)> EnumerateTemplatesAsync(DirectoryInfo contextDir, CancellationToken cancellationToken)
         {
             var (exit, output, stderr) = await dotNetService.RunDotnetCommandAsync(contextDir, ListTemplatesArgs, EnglishUiEnvironment, cancellationToken: cancellationToken);
             LogDotnetOutput(ListTemplatesArgs, exit, output, stderr);
@@ -1147,7 +1219,7 @@ internal class NewCommand : Command, IShortDescription
                     failure += $": {detail}";
                 }
 
-                return ([], failure);
+                return ([], failure, []);
             }
 
             var parsed = WinUiTemplateCatalog.ParseList(output);
@@ -1172,13 +1244,13 @@ internal class NewCommand : Command, IShortDescription
                     packFailure += $": {packDetail}";
                 }
 
-                return ([], packFailure);
+                return ([], packFailure, []);
             }
 
             var packRows = WinUiTemplateCatalog.ParsePackTemplates(packOutput, TemplatePackageId);
             if (packRows.Count == 0)
             {
-                return ([], $"Could not verify which templates '{TemplatePackageId}' owns: no template list for it in 'dotnet new uninstall' output. Re-run with --verbose to see that output.");
+                return ([], $"Could not verify which templates '{TemplatePackageId}' owns: no template list for it in 'dotnet new uninstall' output. Re-run with --verbose to see that output.", []);
             }
 
             // Another installed pack (e.g. the standalone Microsoft.UI.Reactor.Templates) may register
@@ -1186,7 +1258,7 @@ internal class NewCommand : Command, IShortDescription
             // one pack, so record which aliases are shared and scaffold with one that isn't.
             var owned = WinUiTemplateCatalog.RestrictToPack(parsed, packRows);
             var marked = WinUiTemplateCatalog.MarkSharedAliases(owned, WinUiTemplateCatalog.ParseInstalledPacks(packOutput), TemplatePackageId);
-            return (WinUiTemplateCatalog.OrderForDisplay(marked), null);
+            return (WinUiTemplateCatalog.OrderForDisplay(marked), null, GetInstalledPackVersions(packOutput));
         }
 
         private async Task<WinUiTemplateEntry> PromptTemplateAsync(IReadOnlyList<WinUiTemplateEntry> templates, CancellationToken cancellationToken)

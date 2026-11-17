@@ -169,6 +169,35 @@ public class WinUiTemplateCatalogTests
         Assert.AreEqual(0, WinUiTemplateCatalog.ParsePackTemplates(string.Empty, "Anything").Count);
     }
 
+    [TestMethod]
+    public void ParsePackTemplates_TwoCopiesOfThePack_ReturnsTemplatesFromBothTaggedWithTheirVersion()
+    {
+        // Two copies coexist when one came from NuGet and one from a local .nupkg; each lists only the
+        // templates it supplies.
+        const string listing =
+            "Currently installed items:\n" +
+            "   Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n" +
+            "      Version: 0.0.5-alpha\n" +
+            "      Templates:\n" +
+            "         WinUI Blank App (winui,winui3) C#\n" +
+            "   Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n" +
+            "      Version: 0.0.7-alpha\n" +
+            "      Templates:\n" +
+            "         Reactor Blank App (Experimental) (reactor) C#\n";
+
+        var rows = WinUiTemplateCatalog.ParsePackTemplates(listing, PackageId);
+
+        Assert.AreEqual(2, rows.Count);
+        Assert.AreEqual("0.0.5-alpha", rows.Single(r => r.Aliases.Contains("winui")).PackVersion);
+        Assert.AreEqual("0.0.7-alpha", rows.Single(r => r.Aliases.Contains("reactor")).PackVersion);
+
+        var listed = new[]
+        {
+            new WinUiTemplateEntry("WinUI Blank App", ["winui", "winui3"], "[C#]", "project", "Windows/WinUI"),
+        };
+        Assert.AreEqual("0.0.5-alpha", WinUiTemplateCatalog.RestrictToPack(listed, rows).Single().PackVersion);
+    }
+
     private const string PackageId = "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates";
 
     /// <summary>

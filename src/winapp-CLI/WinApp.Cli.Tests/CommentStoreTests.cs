@@ -189,6 +189,32 @@ public class CommentStoreTests
     }
 
     [TestMethod]
+    public void CorruptStoreBackup_KeepsAnExistingBak_AndReportsTheNewCopy()
+    {
+        const string goodBackup = "{ \"version\":1, \"comments\":[] }";
+        const string corrupt = "{ not json";
+        File.WriteAllText(StorePath + ".bak", goodBackup);
+        File.WriteAllText(StorePath, corrupt);
+
+        var store = NewStore();
+        var first = Assert.ThrowsExactly<CommentStoreCorruptException>(() => store.Add(StorePath, NewComment("one")));
+        var second = Assert.ThrowsExactly<CommentStoreCorruptException>(() => store.Add(StorePath, NewComment("two")));
+
+        Assert.AreEqual(goodBackup, File.ReadAllText(StorePath + ".bak"), "an existing .bak must never be replaced");
+        Assert.AreEqual(corrupt, File.ReadAllText(StorePath));
+        var copies = Directory.GetFiles(_dir, Path.GetFileName(StorePath) + ".*.bak");
+        Assert.AreEqual(2, copies.Length, "each corruption gets its own recovery copy");
+        foreach (var copy in copies)
+        {
+            Assert.AreEqual(corrupt, File.ReadAllText(copy));
+        }
+        var names = copies.Select(Path.GetFileName).ToArray();
+        Assert.IsTrue(names.Any(n => first.Message.Contains(n!)), "the error names the copy it wrote: " + first.Message);
+        Assert.IsTrue(names.Any(n => second.Message.Contains(n!)), "the error names the copy it wrote: " + second.Message);
+        Assert.AreNotEqual(first.Message, second.Message, "each error names its own copy");
+    }
+
+    [TestMethod]
     public void CorruptStoreBackup_NeverWritesThroughALinkedBackupPath()
     {
         // A checkout could ship ui-comments.json.bak as a link to another file the user can write.

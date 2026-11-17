@@ -189,6 +189,46 @@ public class NugetServiceFeedTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void GetNuGetGlobalPackagesDir_ConfigRoot_HonorsThatRootsConfigNotTheWorkingDirectory()
+    {
+        // find-api indexes a --project-dir that need not be the working directory, so the folder
+        // must come from the indexed project's nuget.config, and a read-only lookup must not create it.
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NUGET_PACKAGES")))
+        {
+            Assert.Inconclusive("NUGET_PACKAGES is set in the environment; it overrides the config's globalPackagesFolder.");
+        }
+
+        var cwd = CreateFeedTestDirectory();
+        var project = CreateFeedTestDirectory();
+        try
+        {
+            WriteNuGetConfig(project, """
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <config>
+                    <add key="globalPackagesFolder" value="project-packages" />
+                  </config>
+                </configuration>
+                """);
+
+            var service = CreateServiceRootedAt(cwd);
+
+            var expected = Path.Join(project.FullName, "project-packages");
+            var actual = service.GetNuGetGlobalPackagesDir(project.FullName);
+
+            Assert.AreEqual(
+                expected.TrimEnd(Path.DirectorySeparatorChar),
+                actual.FullName.TrimEnd(Path.DirectorySeparatorChar));
+            Assert.IsFalse(Directory.Exists(expected), "A read-only lookup must not create the folder.");
+        }
+        finally
+        {
+            TryDelete(cwd);
+            TryDelete(project);
+        }
+    }
+
+    [TestMethod]
     public void GetNuGetPackageDir_NormalizesIdAndVersionToOnDiskLayout()
     {
         var root = CreateFeedTestDirectory();

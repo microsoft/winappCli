@@ -271,8 +271,25 @@ public class DevToolsCommentsListCommandTests
         var (exit, output) = Run();
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "No comments in");
+        StringAssert.Contains(output, "No open comments in");
         StringAssert.Contains(Flatten(output), Flatten(StorePath));
+    }
+
+    /// <summary>Two apps share one store: an app whose own comments are all resolved must not call the file empty.</summary>
+    [TestMethod]
+    public void NoOpenCommentsForThisProject_SaysOthersExist()
+    {
+        Seed("cmt_mine01", CommentStatus.Resolved);
+        var other = Seed("cmt_other1");
+        new CommentStore().Update(StorePath, other.Id, c => c.ProjectRoot = Path.Combine(_root, "OtherApp"));
+
+        var (exit, output) = Run("--project", Project);
+
+        Assert.AreEqual(0, exit);
+        var flat = Flatten(output);
+        StringAssert.Contains(flat, Flatten("No open comments for this project in"));
+        StringAssert.Contains(flat, Flatten("1 resolved hidden"));
+        StringAssert.Contains(flat, Flatten("1 other comment belongs to other projects in this file."));
     }
 
     [TestMethod]

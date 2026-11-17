@@ -15,8 +15,14 @@ internal interface ISdkPackageSource
 }
 
 /// <inheritdoc />
-internal sealed class SdkPackageSource : ISdkPackageSource
+/// <remarks>
+/// The SDK scope is not tied to a project, so the NuGet global packages folder (where the
+/// SDK's XML docs live) is resolved from the nuget.config hierarchy of the working directory.
+/// </remarks>
+internal sealed class SdkPackageSource(INugetService nugetService, ICurrentDirectoryProvider currentDirectory) : ISdkPackageSource
 {
     public List<PackageWithWinMd> GetSdkPackages() =>
-        NuGetResolver.FindSdkPackages(ApiCacheBuilder.DetectWinAppSdkRuntime());
+        NuGetResolver.FindSdkPackages(
+            nugetService.GetNuGetGlobalPackagesDir(currentDirectory.GetCurrentDirectory()).FullName,
+            ApiCacheBuilder.DetectWinAppSdkRuntime());
 }

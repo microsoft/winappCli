@@ -531,7 +531,9 @@ internal sealed partial class ProjectRunService
     /// <summary>
     /// What a solution build must restore besides the target.
     /// </summary>
-    /// <param name="ManagedSiblings">Managed projects on disk, excluding the target, in solution order.</param>
+    /// <param name="ManagedSiblings">
+    /// Managed projects on disk, excluding the target and projects that reference it, in solution order.
+    /// </param>
     /// <param name="ManagedSiblingEntries">
     /// The same projects as the solution spells them, which a solution filter must repeat verbatim.
     /// </param>
@@ -601,12 +603,87 @@ internal sealed partial class ProjectRunService
             }
         }
 
+        // A sibling that references the target (such as a unit test project) can't be a build dependency
+        // of it, and restoring it would also restore the target through that reference, with the solution
+        // restore's RuntimeIdentifiers instead of the build's. The two restores would then keep rewriting
+        // the target's project.assets.json, so leave such siblings to their own builds.
+        var referencesTarget = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        for (var i = siblings.Count - 1; i >= 0; i--)
+        {
+            if (ReachesProject(siblings[i], target, referencesTarget))
+            {
+                siblings.RemoveAt(i);
+                siblingEntries.RemoveAt(i);
+            }
+        }
+
         // Check the raw text and the parsed entries (a .slnx path can be spelled with XML character references).
         // MSBuild also decodes %XX escapes in an entry, so the file it opens may not be the one vetted above.
         var canUseSolutionFilter = !text.Contains(".etp", StringComparison.OrdinalIgnoreCase)
             && !entries.Any(entry => entry.Contains(".etp", StringComparison.OrdinalIgnoreCase) || entry.Contains('%'));
 
         return new SolutionRestorePlan(siblings, siblingEntries, missing, canUseSolutionFilter);
+    }
+
+    /// <summary>
+    /// True when <paramref name="target"/> is in <paramref name="start"/>'s <c>ProjectReference</c> closure,
+    /// as declared in the project files. Build-only references count, since restore follows them too.
+    /// References spelled with MSBuild properties or globs, under a <c>Condition</c>, or inside a
+    /// <c>Target</c> are ignored, since they can't be followed or may not apply.
+    /// <paramref name="cache"/> holds results per project and may be shared across calls for one target.
+    /// </summary>
+    private static bool ReachesProject(FileInfo start, FileInfo target, Dictionary<string, bool> cache)
+    {
+        if (cache.TryGetValue(start.FullName, out var cached))
+        {
+            return cached;
+        }
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { start.FullName };
+        var queue = new Queue<FileInfo>();
+        queue.Enqueue(start);
+        var reaches = false;
+        while (!reaches && queue.Count > 0 && visited.Count <= MaxProjectReferenceClosure)
+        {
+            var current = queue.Dequeue();
+            XDocument doc;
+            try
+            {
+                doc = XDocument.Load(current.FullName);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+            {
+                continue;
+            }
+
+            // A conditional reference, or one inside a target, may not apply to this build, so it doesn't
+            // count. Keeping such a sibling in the restore is the safe choice.
+            var includes = doc.Descendants()
+                .Where(e => e.Name.LocalName == "ProjectReference"
+                    && !e.AncestorsAndSelf().Any(a => a.Attribute("Condition") is not null || a.Name.LocalName == "Target"))
+                .Select(e => e.Attribute("Include")?.Value)
+                .Where(include => !string.IsNullOrWhiteSpace(include))
+                .SelectMany(include => include!.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            foreach (var include in includes)
+            {
+                if (!TryResolveReferencePath(current, include, out var reference) || !visited.Add(reference.FullName))
+                {
+                    continue;
+                }
+
+                if (string.Equals(reference.FullName, target.FullName, StringComparison.OrdinalIgnoreCase)
+                    || (cache.TryGetValue(reference.FullName, out var known) && known))
+                {
+                    reaches = true;
+                    break;
+                }
+
+                queue.Enqueue(reference);
+            }
+        }
+
+        cache[start.FullName] = reaches;
+        return reaches;
     }
 
     /// <summary>

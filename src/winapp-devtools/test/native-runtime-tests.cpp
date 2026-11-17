@@ -32,6 +32,7 @@ static HRESULT ObserveBindingAgile(AgileReferenceOptions, REFIID, IUnknown*, IAg
 #include <sstream>
 
 void CommentFixtureOpen(unsigned long long raw);
+void CommentFixtureResolveWriter(const wchar_t* exe, int exitCode);
 std::wstring CommentFixtureLaunch(DWORD pid, const wchar_t* exe, const wchar_t* source,
     const std::wstring& token, const std::wstring& text, bool local, unsigned* spawns);
 
@@ -171,7 +172,9 @@ static std::wstring PushCommentSnapshot(long long generation, const std::wstring
     return reply;
 }
 
-static bool QueuedMutation(bool byName, bool clear, bool replace)
+#include "external-inspector-tests.inc"
+
+static bool QueuedMutation(bool byName, bool clear, bool replace, bool numeric = false)
 {
     g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_byName.clear(); g_nameOf.clear();
     g_sessionNonce = 17;
@@ -181,7 +184,8 @@ static bool QueuedMutation(bool byName, bool clear, bool replace)
     const auto wire = PackWire_nolock(101);
     g_mutatedHandle = 0;
     g_mutatedProperty.clear(); g_mutatedType.clear(); g_mutatedValue.clear();
-    const std::wstring target = byName ? L"\"name\":\"Target\"" : L"\"handle\":\"" + std::to_wstring(wire) + L"\"";
+    const std::wstring target = byName ? L"\"name\":\"Target\"" :
+        numeric ? L"\"handle\":" + std::to_wstring(wire) : L"\"handle\":\"" + std::to_wstring(wire) + L"\"";
     const auto request = DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\""
         + std::wstring(clear ? L"HotReload.clearProperty" : L"HotReload.setProperty")
         + L"\",\"params\":{" + target + L",\"prop\":\"Text\""
@@ -451,6 +455,152 @@ static void CheckEmptyString(const std::function<void(bool,const char*)>& check)
     ResolveState resolved;
     check(SUCCEEDED(ResolveResourceValue(901,L"AccessKey",&resolved)) && resolved.value.empty(),
         "the quick-peek read of an empty String is \"\" too");
+    g_diag=nullptr;g_vts3=nullptr;
+}
+
+// A Local value's source position is the element's opening tag. It is shown only when that tag sets the property,
+// a DevTools write is named as one, and a runtime-only Local (Translation at 0,0,0) reads as Default.
+struct ElementLineTreeService : TextTreeService {
+    using TextTreeService::TextTreeService;
+    const wchar_t* chainText=nullptr; // when set, the chain keeps reporting this while the live value changes
+    HRESULT STDMETHODCALLTYPE GetPropertyValuesChain(InstanceHandle handle,unsigned int* sc,PropertyChainSource** sources,
+        unsigned int* pc,PropertyChainValue** values) override {
+        const HRESULT hr=TextTreeService::GetPropertyValuesChain(handle,sc,sources,pc,values);
+        if(SUCCEEDED(hr) && *sc==2 && *pc==4){
+            if(chainText){SysFreeString((*values)[0].Value);(*values)[0].Value=SysAllocString(chainText);}
+            (*sources)[0].Handle=901;
+            (*sources)[0].SrcInfo.FileName=SysAllocString(L"ms-appx:///MainWindow.xaml");
+            (*sources)[0].SrcInfo.LineNumber=46;
+            auto& v=(*values)[3];
+            SysFreeString(v.PropertyName);v.PropertyName=SysAllocString(L"Translation");
+            SysFreeString(v.Type);v.Type=SysAllocString(L"Windows.Foundation.Numerics.Vector3");
+            SysFreeString(v.ValueType);v.ValueType=SysAllocString(L"Windows.Foundation.Numerics.Vector3");
+            SysFreeString(v.Value);v.Value=SysAllocString(L"0.000000,0.000000,0.000000");
+        }
+        return hr;
+    }
+};
+
+static std::wstring WriteElementLineXaml(const std::wstring& tag)
+{
+    wchar_t temp[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, temp);
+    static int seq = 0;
+    const std::wstring root = std::wstring(temp) + L"winapp-provenance-" + std::to_wstring(GetCurrentProcessId()) +
+                              L"-" + std::to_wstring(++seq);
+    CreateDirectoryW(root.c_str(), nullptr);
+    std::string text;
+    for (int i = 1; i < 46; ++i) text += "<!-- -->\r\n";
+    for (const wchar_t c : tag) text += static_cast<char>(c);
+    text += "\r\n";
+    const HANDLE file = CreateFileW((root + L"\\MainWindow.xaml").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(file, text.data(), (DWORD)text.size(), &written, nullptr);
+        CloseHandle(file);
+    }
+    return root;
+}
+
+static void RemoveElementLineXaml(const std::wstring& root)
+{
+    DeleteFileW((root + L"\\MainWindow.xaml").c_str());
+    RemoveDirectoryW(root.c_str());
+}
+
+static void CheckLocalProvenance(const std::function<void(bool,const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    ElementLineTreeService tree(diagnostics.text);
+    g_diag=&diagnostics;g_vts3=&tree;
+    diagnostics.text.text=L"live";
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
+    MintSlot_nolock(901);
+    const unsigned long long wire=PackWire_nolock(901);
+    auto text=[](const std::vector<DevToolsReadProp>& props){
+        return std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"Text";});
+    };
+    auto read=[](std::vector<DevToolsReadProp>& props){ props.clear(); ReadCuratedProps(901,&props,nullptr); };
+
+    std::vector<DevToolsReadProp> props;
+    read(props);
+    auto row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 && row->chain[0].line==46,
+        "a Local value keeps the element's line when its XAML cannot be read to check");
+    const auto translation=std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"Translation";});
+    check(translation!=props.end() && translation->source==L"Default",
+        "a runtime-only Local at its unset value reads as Default");
+
+    const std::wstring unset=WriteElementLineXaml(L"<TextBlock />");
+    DevToolsAuthored_Init(unset,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        row->chain[0].file.empty() && row->chain[0].line==0,
+        "a Local value the element's XAML does not set names no XAML line");
+
+    const std::wstring authored=WriteElementLineXaml(L"<TextBlock Text=\"live\" />");
+    DevToolsAuthored_Init(authored,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        !row->chain[0].file.empty() && row->chain[0].line==46,
+        "a Local value the element's XAML sets keeps its XAML line");
+
+    const std::wstring propertyElement=WriteElementLineXaml(
+        L"<TextBlock>\r\n  <!-- <TextBlock.Foreground> -->\r\n  <TextBlock.Text>live</TextBlock.Text>\r\n</TextBlock>");
+    DevToolsAuthored_Init(propertyElement,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        !row->chain[0].file.empty() && row->chain[0].line==46,
+        "a Local value set by a <Type.Property> child keeps its XAML line");
+
+    const std::wstring content=WriteElementLineXaml(L"<TextBlock>live</TextBlock>");
+    DevToolsAuthored_Init(content,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 && row->chain[0].line==46,
+        "a Local value set as the element's content keeps its XAML line");
+
+    const std::wstring otherChild=WriteElementLineXaml(
+        L"<TextBlock\r\n    Margin=\"1\">\r\n  <TextBlock.Foreground>\r\n    <SolidColorBrush Color=\"Red\" />\r\n"
+        L"  </TextBlock.Foreground>\r\n</TextBlock>");
+    DevToolsAuthored_Init(otherChild,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        row->chain[0].file.empty() && row->chain[0].line==0,
+        "a body that sets only other properties names no XAML line");
+    DevToolsAuthored_Init(authored,0);
+    DevToolsBindingRow_NoteLiveWrite(wire,L"Text");
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==kDevToolsReadLiveEditSource && row->chain.size()==2 &&
+        row->chain[0].source==kDevToolsReadLiveEditSource && row->chain[0].file.empty(),
+        "a DevTools write reads as DevTools, not as XAML");
+    tree.chainText=L"live";
+    diagnostics.text.text=L"Count: 1";
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->value==L"Count: 1",
+        "once the app writes a different value, it is no longer credited to DevTools, even with unchanged chain text");
+    diagnostics.text.text=L"live";
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && !DevToolsBindingRow_WasWrittenLive(wire,L"Text"),
+        "and the app writing the edited value back later does not credit DevTools again");
+    tree.chainText=nullptr;
+    DevToolsBindingRow_ForgetLiveWrite(wire,L"Text");
+
+    DevToolsAuthored_Init(L"",0);
+    RemoveElementLineXaml(unset);
+    RemoveElementLineXaml(authored);
+    RemoveElementLineXaml(propertyElement);
+    RemoveElementLineXaml(content);
+    RemoveElementLineXaml(otherChild);
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
     g_diag=nullptr;g_vts3=nullptr;
 }
 
@@ -851,6 +1001,7 @@ static bool CompleteBindingRelay()
     g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
     MintSlot_nolock(404);
     const auto wire = PackWire_nolock(404);
+    DevToolsBindingRow_NoteLiveWrite(wire, L"Text");
     bool passed = true;
     for (const wchar_t* op : {L"capture", L"restore"}) {
         const auto name = L"\\\\.\\pipe\\winapp-devtools-binding-" + std::to_wstring(GetCurrentProcessId());
@@ -923,7 +1074,10 @@ static bool CompleteBindingRelay()
             op,identity,referenceCount);
     }
     g_diag=nullptr;
-    return passed && diagnostics.calls==2;
+    // The peer answered "none", not "restored": the edited value is still what the app shows.
+    const bool keptEdit = DevToolsBindingRow_WasWrittenLive(wire, L"Text");
+    DevToolsBindingRow_ForgetLiveWrite(wire, L"Text");
+    return passed && keptEdit && diagnostics.calls==2;
 }
 
 struct GuestNegotiationDiagnostics : BindingDiagnostics {
@@ -979,6 +1133,80 @@ static int GuestNegotiation(int argc, wchar_t** argv)
 
 #include "query-runtime-tests.inc"
 
+static void CheckMalformedMutationHandles(const std::function<void(bool, const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    auto* previousDiagnostics = g_diag;
+    g_diag = &diagnostics;
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_nameOf.clear(); g_byName.clear();
+    MintSlot_nolock(101);
+    g_nameOf[101] = L"Target"; g_byName[L"Target"] = 101;
+    const auto handle = std::to_wstring(PackWire_nolock(101));
+    g_dispatcher = reinterpret_cast<IInspectable*>(1);
+    g_testEnqueueUiOperation = QueryEnqueue;
+    g_testPropertyMutation = ObserveMutation;
+    for (const auto& malformed : {handle + L"abc", handle + L",456", L"0" + handle, L" " + handle,
+        handle + L" ", L"+" + handle, L"-" + handle, std::wstring(L"0x123"),
+        std::wstring(L"18446744073709551616"), std::wstring(L"")}) {
+        g_mutatedHandle = 0;
+        const auto dispatches = g_queryDispatches;
+        for (const auto* method : {L"HotReload.setProperty", L"HotReload.clearProperty", L"Overlay.highlight", L"Selection.select"}) {
+            const std::wstring verb(method);
+            const auto arguments = verb == L"HotReload.setProperty" ? L",\"prop\":\"Text\",\"type\":\"String\",\"value\":\"Changed\"" :
+                verb == L"HotReload.clearProperty" ? L",\"prop\":\"Text\"" : L"";
+            const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+                L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
+                L"\",\"params\":{\"handle\":\"" + malformed + L"\"" + arguments + L"}}"));
+            DevToolsJson parsed;
+            check(DevToolsJsonParse(response, parsed) && parsed.Find(L"error") &&
+                parsed.Find(L"error")->GetInt(L"code", 0) == DevToolsErr::InvalidParams &&
+                !parsed.Find(L"result"), "malformed mutation handle returns invalid parameters, not a result");
+        }
+        for (const auto& command : {L"hotreload.setprop|#" + malformed + L"|Text|String|Changed",
+            L"hotreload.clearprop|#" + malformed + L"|Text", L"highlight|" + malformed,
+            L"selection.select|" + malformed})
+            check(HandleCommand(command) == L"ERR bad-args", "private mutation bridge rejects the full malformed handle");
+        check(g_mutatedHandle == 0 && g_queryDispatches == dispatches,
+            "malformed targeting never dispatches UI work or invokes a mutation callback");
+    }
+    for (const auto* invalid : {L"0", L"null", L"true", L"[]"}) {
+        for (const auto* method : {L"HotReload.setProperty", L"HotReload.clearProperty"}) {
+            g_mutatedHandle = 0;
+            const auto arguments = std::wstring(method) == L"HotReload.setProperty"
+                ? L",\"type\":\"String\",\"value\":\"Changed\"" : L"";
+            const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+                L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
+                L"\",\"params\":{\"handle\":" + invalid + L",\"name\":\"Target\",\"prop\":\"Text\"" + arguments + L"}}"));
+            check(response.find(std::to_wstring(DevToolsErr::InvalidParams)) != std::wstring::npos && !g_mutatedHandle,
+                "invalid handle value cannot fall back to a named mutation target");
+        }
+    }
+    for (const auto* method : {L"HotReload.setProperty", L"HotReload.clearProperty"}) {
+        const auto arguments = std::wstring(method) == L"HotReload.setProperty"
+            ? L",\"type\":\"String\",\"value\":\"Changed\"" : L"";
+        const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
+            L"\",\"params\":{\"handle\":\"0\",\"prop\":\"Text\"" + arguments + L"}}"));
+        check(response.find(std::to_wstring(DevToolsErr::InvalidParams)) != std::wstring::npos,
+            "property mutations do not accept the zero handle");
+    }
+    OverlayFixtureSeedHighlight(101);
+    check(HandleCommand(L"highlight|0") == L"OK" && DevToolsOverlay_GetHighlightHandle() == 0,
+        "canonical zero still clears the highlight");
+    OverlayFixtureSeedHighlight(101);
+    check(HandleCommand(L"selection.select|0").rfind(L"selection|", 0) == 0 && DevToolsOverlay_GetHighlightHandle() == 0,
+        "canonical zero still deselects");
+    for (const auto* zero : {L"\"0\"", L"0"}) for (const auto* method : {L"Overlay.highlight", L"Selection.select"}) {
+        OverlayFixtureSeedHighlight(101);
+        const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) +
+            L"\",\"params\":{\"handle\":" + zero + L"}}"));
+        check(response.find(L"\"result\":") != std::wstring::npos && DevToolsOverlay_GetHighlightHandle() == 0,
+            "string and numeric zero retain RPC clear and deselect semantics");
+    }
+    g_diag = previousDiagnostics;
+}
+
 // An opening ComboBox or Flyout moves its content with an Add under the new parent and no Remove from the old one,
 // and a closing one removes it with no parent at all. The census must never keep a child it no longer knows: a
 // whole-app query write treats such a child as an element it could not evaluate and refuses as incomplete.
@@ -1018,6 +1246,21 @@ static void CheckCensusFollowsReparentsAndParentlessRemoves(const std::function<
     }
     check(known && kids(7004).empty(), "a remove without a parent detaches the element from the parent it was added under");
     for (const InstanceHandle handle : {7004ull, 7002ull, 7001ull}) event(handle, 0, 0, nullptr, Remove);
+    const int countBeforePopup = g_elemCount.load();
+    event(7010, 0, 0, L"Microsoft.UI.Xaml.Controls.MenuFlyoutPresenter", Add);
+    event(7011, 7010, 0, L"Microsoft.UI.Xaml.Controls.MenuFlyoutItem", Add);
+    const auto popupWire = PackWire_nolock(7010);
+    const auto itemWire = PackWire_nolock(7011);
+    OverlaySeed(7010);
+    check(g_elemCount.load() == countBeforePopup && !g_type.count(7010) && !g_type.count(7011) &&
+        !g_ihToSlot.count(7010) && !g_ihToSlot.count(7011) && OverlayContains(7010) && OverlayContains(7011),
+        "seeding a realized menu removes its presenter and items from the app census");
+    InstanceHandle resolved = 0;
+    const wchar_t* reason = nullptr;
+    check(!ResolveWire_nolock(popupWire, &resolved, &reason) && !ResolveWire_nolock(itemWire, &resolved, &reason),
+        "a late-seeded menu retires the app handles minted before its Opened event");
+    event(7011, 0, 0, nullptr, Remove);
+    event(7010, 0, 0, nullptr, Remove);
 }
 
 // The tree callback builds a VisualTree.changed delta only while a client subscribes, and a subscriber gets every one.
@@ -1069,6 +1312,14 @@ static void CheckTreeDeltasFollowSubscription(const std::function<void(bool,cons
 
 int wmain(int argc, wchar_t** argv)
 {
+    if (argc == 3 && std::wstring(argv[1]) == L"--resolve-writer") {
+        Sleep(150);
+        return _wtoi(argv[2]);
+    }
+    if (argc > 3 && std::wstring(argv[1]) == L"devtools" && std::wstring(argv[2]) == L"comments") {
+        Sleep(150);
+        return 0;
+    }
     if (argc == 8 && std::wstring(argv[1]) == L"--overlay-comment-command") {
         DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
         const InstanceHandle raw = 0x12345678;
@@ -1187,11 +1438,50 @@ int wmain(int argc, wchar_t** argv)
             "DevTools UI preferences are per user, in the CLI's user state folder");
     }
     CheckEmptyString(check);
+    CheckLocalProvenance(check);
     CheckEffectiveValues(check);
     CheckCensusFollowsReparentsAndParentlessRemoves(check);
     CheckTreeDeltasFollowSubscription(check);
     CheckQueries(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
+    {
+        wchar_t self[MAX_PATH]{};
+        check(GetModuleFileNameW(nullptr, self, MAX_PATH) != 0, "resolve regression locates its own child executable");
+        wchar_t oldRoot[32768]{};
+        const auto oldRootLength = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", oldRoot, _countof(oldRoot));
+        SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", L".");
+        const auto oldCli = g_cliExe;
+        g_cliExe = self;
+        DevToolsWindowComment comment;
+        comment.id = L"local-resolve-child"; comment.text = L"local saved comment"; comment.status = L"open";
+        for (const int exitCode : {0, 7}) {
+            CommentFixtureResolveWriter(self, exitCode);
+            unsigned calls = 0;
+            int outcome = -1;
+            const auto began = GetTickCount64();
+            check(TapResolveComment(comment.id.c_str(), [&](int result) { ++calls; outcome = result; }),
+                "local resolve starts the owned child writer");
+            check(calls == 0, "local resolve does not acknowledge CreateProcess as a saved comment");
+            while (!calls && GetTickCount64() - began < 5000) {
+                MSG message;
+                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                Sleep(10);
+            }
+            check(calls == 1 && outcome == exitCode, "local resolve reports the real asynchronous child exit exactly once");
+            if (!calls) return 1; // Do not leave a timer holding references to a timed-out test's stack.
+        }
+        CommentFixtureResolveWriter(L"Z:\\missing-winapp-comment-writer.exe", 0);
+        unsigned failedCalls = 0;
+        check(!TapResolveComment(comment.id.c_str(), [&](int result) { if (result != 0) ++failedCalls; }) &&
+            failedCalls == 1, "local resolve reports CreateProcess failure once without a pending writer");
+        CommentFixtureResolveWriter(nullptr, 0);
+        g_cliExe = oldCli;
+        SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", oldRootLength ? oldRoot : nullptr);
+    }
+    CheckMalformedMutationHandles(check);
     auto call = [&](const wchar_t* method) {
         DevToolsRpcRequest request{};
         request.method = method;
@@ -1222,11 +1512,20 @@ int wmain(int argc, wchar_t** argv)
     g_dispatcher = reinterpret_cast<IInspectable*>(1); // The enqueue adapter never dereferences this token.
     g_testEnqueueUiOperation = HoldEnqueue;
     g_testPropertyMutation = ObserveMutation;
+    const int inspectorChecks = checks, inspectorFailures = failed;
+    CheckExternalInspector(check);
+    std::printf("External inspector: checks=%d passed=%d failed=%d\n",
+        checks - inspectorChecks, checks - inspectorChecks - (failed - inspectorFailures),
+        failed - inspectorFailures);
     check(BindingCallerScope(), "actual binding state release owns MTA with initially uninitialized caller");
     check(BindingCallerRejectsSta(), "binding initialization failure preserves caller STA and reports HRESULT");
     for (bool byName : { false, true }) for (bool clear : { false, true }) {
         check(QueuedMutation(byName, clear, false), "unchanged selected element is mutated successfully");
         check(QueuedMutation(byName, clear, true), "retired selection cannot mutate a replacement element");
+    }
+    for (bool clear : {false, true}) {
+        check(QueuedMutation(false, clear, false, true), "canonical numeric JSON handles still mutate the selected element");
+        check(QueuedMutation(false, clear, true, true), "numeric JSON handles cannot mutate a retired replacement");
     }
     {
         const auto newer = PushCommentSnapshot(5, L"newer");
@@ -1438,7 +1737,7 @@ int wmain(int argc, wchar_t** argv)
               "bounded XAML diagnostic preserves valid UTF-16");
         check(InitialBindingTimeout(false), "Pending binding timeout cancels diagnostics acquisition");
         check(InitialBindingTimeout(true), "Running binding timeout releases late diagnostics acquisition");
-        check(CompleteBindingRelay(), "actual CmdBindingOp and relay preserve fake diagnostics identity across capture/restore transports");
+        check(CompleteBindingRelay(), "actual CmdBindingOp and relay preserve fake diagnostics identity across capture/restore transports, and a restore that did not happen keeps the live edit");
         CoUninitialize();
     }
     g_testPropertyMutation = nullptr;

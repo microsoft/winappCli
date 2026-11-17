@@ -358,6 +358,7 @@ static void HostSetLayerTheme(int theme)
 // draws above the layer, but input is hit-tested against the layer first. Chrome that such a popup covers stops
 // taking input while it does, so a click goes to what is drawn on top.
 static bool ChromeRectOverride(IInspectable* element, winrt::Windows::Foundation::Rect* rect);
+static bool ToolbarMenuIsOpen();
 static std::vector<winrt::weak_ref<DevToolsX::UIElement>> g_hostYielded;
 
 static winrt::Windows::Foundation::Rect HostRootBounds(DevToolsX::FrameworkElement const& element)
@@ -396,7 +397,11 @@ static void HostYieldToWindowedPopups()
                 for (auto const& child : panel.Children()) {
                     auto* abi = reinterpret_cast<IInspectable*>(winrt::get_abi(child));
                     auto element = child.try_as<DevToolsX::FrameworkElement>();
-                    if (!element || HostIdentity(abi) == catcher) continue;
+                    if (!element) continue;
+                    if (HostIdentity(abi) == catcher) {
+                        if (ToolbarMenuIsOpen()) covered.push_back(child);
+                        continue;
+                    }
                     if (!element.IsHitTestVisible() && !wasYielded(child)) continue;
                     winrt::Windows::Foundation::Rect bounds{};
                     if (!ChromeRectOverride(abi, &bounds)) bounds = HostRootBounds(element);

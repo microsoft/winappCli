@@ -265,9 +265,9 @@ export function SetupView({ onComplete }: Props) {
   /**
    * Build the flat list of selectable items for the agents step, kept short:
    *
-   *   none
+   *   barebones
    *   production
-   *   winappcli main
+   *   cli-plus-skills main
    *   PRs:
    *     #1234 Title (author)
    *

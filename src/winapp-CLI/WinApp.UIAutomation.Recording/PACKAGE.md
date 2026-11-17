@@ -65,6 +65,10 @@ inspect and drive UI. Reference this package only when you actually want video.
 Set `RecordOptions.FramesDirectory` to also write a frame bundle: numbered JPEGs, a `frames.ndjson`
 index, and a `manifest.json` describing the run.
 
+Set `RecordOptions.Cursor` to draw the mouse pointer into every frame, in any capture mode, with a
+short ring at each click. Set `RecordOptions.ClickHighlight` to `false` to keep the pointer without
+rings. With a frame bundle, each `frames.ndjson` line also carries `cursor` and `clicks`.
+
 ## Whole-desktop recording
 
 Call `IUiRecordingService.RecordDesktopAsync(options, cancellationToken)` to record the calling

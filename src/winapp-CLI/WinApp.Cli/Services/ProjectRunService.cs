@@ -77,6 +77,10 @@ internal sealed partial class ProjectRunService(
         "TargetFramework",
         "Platform",
         "RuntimeIdentifier",
+        "UseWinUI",
+        "UseWPF",
+        "UseWindowsForms",
+        "MicrosoftWindowsAppSDKPackageDir",
     ];
 
     /// <summary>
@@ -704,7 +708,9 @@ internal sealed partial class ProjectRunService(
             DevToolsXamlSources: devToolsSources,
             AppxManifestPath: appxManifestPath,
             AppxRecipePath: appxRecipePath,
-            DevToolsCompilerArtifacts: compiler);
+            DevToolsCompilerArtifacts: compiler,
+            DevToolsUnsupportedFramework: options.CaptureDevToolsSources
+                ? ReadDevToolsUnsupportedFramework(props, stdout) : ProjectAppFramework.Unknown);
 
         return new ProjectBuildOutcome(resolution, 0);
     }
@@ -717,6 +723,35 @@ internal sealed partial class ProjectRunService(
             throw new ProjectRunException("MSBuild did not report the requested XAML source items. Host-backed Sandbox comments require a verified project source snapshot.");
         }
         return items["Page"].Concat(items["ApplicationDefinition"]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    internal static ProjectAppFramework ReadDevToolsUnsupportedFramework(IReadOnlyDictionary<string, string> properties, string output)
+    {
+        if (IsTrue(GetProp(properties, "UseWinUI")) ||
+            !string.IsNullOrWhiteSpace(GetProp(properties, "MicrosoftWindowsAppSDKPackageDir")))
+        {
+            return ProjectAppFramework.Unknown;
+        }
+
+        // References can host WinUI or bring it in transitively. Missing reference metadata is unknown,
+        // not proof that a WPF/WinForms flag describes the whole app.
+        var items = MsBuildPropertyReader.ParseItems(output, (group, item) =>
+            !group.Equals("Reference", StringComparison.OrdinalIgnoreCase) ||
+            !item.TryGetProperty("FrameworkReferenceName", out var framework) ||
+            framework.ValueKind != System.Text.Json.JsonValueKind.String ||
+            framework.GetString() is not ("Microsoft.NETCore.App" or "Microsoft.WindowsDesktop.App" or
+                "Microsoft.WindowsDesktop.App.WPF" or "Microsoft.WindowsDesktop.App.WindowsForms"));
+        foreach (var name in new[] { "PackageReference", "ProjectReference", "Reference" })
+        {
+            if (!items.TryGetValue(name, out var references) || references.Count > 0)
+            {
+                return ProjectAppFramework.Unknown;
+            }
+        }
+
+        return IsTrue(GetProp(properties, "UseWPF")) ? ProjectAppFramework.Wpf
+            : IsTrue(GetProp(properties, "UseWindowsForms")) ? ProjectAppFramework.WinForms
+            : ProjectAppFramework.Unknown;
     }
 
     /// <summary>
@@ -1132,19 +1167,18 @@ internal sealed partial class ProjectRunService(
 
     private void WarnOnOverriddenFlags(ProjectRunOptions options)
     {
-        // Match dotnet's behavior (dedicated flag wins over a same-named -p) but leave a debug trail.
+        // Match dotnet's behavior (dedicated flag wins over a same-named -p) but leave a debug trail. A user
+        // -p Configuration is resolved into options.Configuration by the command, so it is never overridden.
         foreach (var property in options.Properties)
         {
             foreach (var segment in PropertySegments(property))
             {
                 var name = PropertyName(segment);
-                if (name.Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
-                    name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
+                if (name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
                 {
                     // A lone -p RuntimeIdentifier with no --arch is HONORED as an exact-RID override
                     // (ExactRuntimeIdentifier), not overridden — don't claim otherwise.
-                    if (name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase) &&
-                        options.ExactRuntimeIdentifier is { Length: > 0 })
+                    if (options.ExactRuntimeIdentifier is { Length: > 0 })
                     {
                         continue;
                     }

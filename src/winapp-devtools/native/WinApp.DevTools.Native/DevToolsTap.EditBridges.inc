@@ -304,7 +304,12 @@ static void Route1ReadRows(InstanceHandle wire, std::wstring& outType, std::wstr
     AcquireSRWLockShared(&g_censusLock);
     ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
     ReleaseSRWLockShared(&g_censusLock);
-    if (!ok) { outType = L"(element)"; outName = e ? e : L"stale"; return; }
+    if (!ok) {
+        // The resolver's reason ("not-found", "stale") is a diagnostic token, not a name; showing it as "#not-found"
+        // reads like an element called not-found.
+        DevToolsOverlayLog(L"route1.props element unavailable: %ls", e ? e : L"stale");
+        outType = L"Element no longer available"; outName.clear(); return;
+    }
     outType = TypeOf(ih);
     outName = NameOf(ih);
     std::vector<DevToolsReadProp> props;

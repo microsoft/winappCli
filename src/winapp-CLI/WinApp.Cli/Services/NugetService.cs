@@ -91,6 +91,18 @@ internal partial class NugetService : INugetService
         return nugetDir;
     }
 
+    public DirectoryInfo GetNuGetGlobalPackagesDir(string configRoot)
+    {
+        var globalDir = _winappDirectoryService.GetGlobalWinappDirectory();
+        if (IsTestOverride(globalDir))
+        {
+            return new DirectoryInfo(Path.Join(globalDir.FullName, "packages"));
+        }
+
+        var settings = NuGet.Configuration.Settings.LoadDefaultSettings(configRoot);
+        return new DirectoryInfo(SettingsUtility.GetGlobalPackagesFolder(settings));
+    }
+
     public DirectoryInfo GetNuGetPackageDir(string packageName, string version)
     {
         // Validate the identity BEFORE it is ever turned into a filesystem path. A malformed id or a value

@@ -373,6 +373,11 @@ internal static class BindingDiagnosis
             {
                 BindingOperations.SetBinding(element, dp, saved is Binding binding ? CloneBinding(binding) : saved);
                 Field(sb, "restoreKind", "binding");
+                if (saved is Binding restored)
+                {
+                    Field(sb, "path", restored.Path?.Path ?? "");
+                    Field(sb, "mode", restored.Mode.ToString());
+                }
                 Field(sb, "restoreScope", "element-property");
                 Field(sb, "restoreDisclosure", "Re-attached the binding; source/model changes were not undone.");
             }
@@ -392,7 +397,9 @@ internal static class BindingDiagnosis
 
         object? after = element.GetValue(dp);
         Field(sb, "after", Str(after));
-        Field(sb, "bound", (ParentBindingOf(element.ReadLocalValue(dp)) is not null).ToString());
+        bool bound = ParentBindingOf(element.ReadLocalValue(dp)) is not null;
+        Field(sb, "bound", bound.ToString());
+        if (!bound) Field(sb, "reason", "the app removed the binding again right after it was reattached");
         sb.Append('}');
         return sb.ToString();
     }

@@ -127,7 +127,8 @@ extends:
         timeoutInMinutes: 120
         pool:
           name: Azure-Pipelines-1ESPT-ExDShared
-          image: windows-latest
+          # Match the VS 18 compiler that GitHub Actions uses; windows-latest still has VS 2022.
+          image: windows-2025
           os: windows
           hostArchitecture: amd64
         steps:

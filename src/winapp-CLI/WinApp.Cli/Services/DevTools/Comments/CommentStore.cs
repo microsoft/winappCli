@@ -385,15 +385,38 @@ internal sealed class CommentStore : ICommentStore
     {
         try
         {
-            var backup = storePath + ".bak";
             var directory = Path.GetDirectoryName(storePath)!;
-            // A checkout can ship the store or its backup as a link; never write through one.
-            if (PathSafety.HasReparsePointOnPath(storePath, directory) || PathSafety.HasReparsePointOnPath(backup, directory))
+            // A checkout can ship the store as a link; never read through one.
+            if (PathSafety.HasReparsePointOnPath(storePath, directory))
             {
                 return null;
             }
-            File.Copy(storePath, backup, overwrite: true);
-            return backup;
+            // Never replace an existing backup (the user's own, or one left by an earlier corruption): fall back to a
+            // timestamped name, and copy without overwrite so a file (or link) that appears meanwhile is never clobbered.
+            var stamp = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                var backup = attempt switch
+                {
+                    0 => storePath + ".bak",
+                    1 => $"{storePath}.{stamp}.bak",
+                    _ => $"{storePath}.{stamp}-{attempt}.bak",
+                };
+                if (File.Exists(backup) || Directory.Exists(backup) || PathSafety.HasReparsePointOnPath(backup, directory))
+                {
+                    continue;
+                }
+                try
+                {
+                    File.Copy(storePath, backup, overwrite: false);
+                    return backup;
+                }
+                catch (IOException) when (File.Exists(backup))
+                {
+                    // Another writer took this name first; try the next one.
+                }
+            }
+            return null;
         }
         catch
         {

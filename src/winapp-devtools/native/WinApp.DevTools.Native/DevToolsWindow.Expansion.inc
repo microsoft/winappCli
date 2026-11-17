@@ -2,15 +2,37 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+static void PopulateExpansionWitnesses(void* fe, const DevToolsCardRow& r, const std::wstring& path);
+
 // Expansion UI owns retained refs and event sinks for the realized row lifetime; stale generation guards callbacks.
+
+// The line under "Edited" that says what Restore puts back.
+static std::wstring EditedWasText(const EditRecord& rec)
+{
+    switch (rec.kind) {
+    case DevToolsOriginal::Unset:
+        return L"was  not set" + (rec.original.empty() ? std::wstring() : L" (showed " + rec.original + L")");
+    case DevToolsOriginal::Resource:
+        return L"was  " + rec.original;
+    default:
+        return L"was  " + (rec.original.empty() ? std::wstring(L"(not set)") : rec.original);
+    }
+}
+static std::wstring AppChangedText(const std::wstring& prop)
+{
+    return L"The app changed " + prop + L" since your edit, so there's nothing to restore";
+}
+
 static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
+    ForgetPaneEditors(path);
     const DevToolsKind current = CurrentKindOf(r, path);
     const DevToolsKind shown   = StagedOrCurrentKind(r, path);
     const bool    staged  = (PendingKindFind(path) != nullptr) && (shown != current);
 
     KindCtx ctx;
     ctx.row = std::make_shared<const DevToolsCardRow>(r);
+    ctx.wire = g_selWire;
     ctx.path = path;
     ctx.edit = edit;
     ctx.rowFe = g_expansionRowFe;
@@ -22,18 +44,12 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             IInspectable* kindEl = FindInRow(fe, L"PKind");
             void* frameUi = nullptr; void* kindUi = nullptr;
             if (kindEl) kindEl->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &kindUi);
-            bool wired = false;
             if (kindUi && SUCCEEDED(frame->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &frameUi)) && frameUi) {
-                ExpBackgroundFocusSink* bs = new ExpBackgroundFocusSink(); bs->Init(kindUi);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddPointerPressed(frameUi, bs, &tok);
-                wired = SUCCEEDED(hr);
-                if (!wired)
-                    DevToolsOverlayLog(L"route1.props expansion background for '%s' add_PointerPressed FAILED hr=0x%08X"
-                                  L" -- clicking off the field will not commit", path.c_str(), hr);
+                ExpBackgroundFocusSink* bs = new ExpBackgroundFocusSink(); bs->Init(ctx, kindUi);
+                WireKindEditor(bs, frameUi, DevToolsAddPointerPressed, DevToolsRemovePointerPressed);
                 reinterpret_cast<IUnknown*>(frameUi)->Release();
             }
-            if (kindUi && !wired) reinterpret_cast<IUnknown*>(kindUi)->Release();
+            if (kindUi) reinterpret_cast<IUnknown*>(kindUi)->Release();
             if (kindEl) kindEl->Release();
         }
         frame->Release();
@@ -56,11 +72,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             if (edit >= 0) {
                 KindSelectSink* ks = new KindSelectSink();
                 ks->Init(ctx, sel);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddSelectionChanged(sel, ks, &tok);
-                if (FAILED(hr))
-                    DevToolsOverlayLog(L"route1.props kind picker for '%s' add_SelectionChanged FAILED hr=0x%08X -- it will not stage",
-                                  path.c_str(), hr);
+                WireKindEditor(ks, sel, DevToolsAddSelectionChanged, DevToolsRemoveSelectionChanged);
             }
             reinterpret_cast<IUnknown*>(sel)->Release();
         }
@@ -111,7 +123,14 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
                     const auto modeBox = modeObject.as<DevToolsXCP::Selector>();
                     const winrt::hstring pathAtOpen = pathBox.Text();
                     const int32_t modeAtOpen = modeBox.SelectedIndex();
-                    auto sync = [stagedBox, pathBox, modeBox, pathAtOpen, modeAtOpen]() {
+                    auto sync = [staged = winrt::make_weak(stagedBox), path = winrt::make_weak(pathBox),
+                                 mode = winrt::make_weak(modeBox), pathAtOpen, modeAtOpen,
+                                 gen = g_route1Gen, wire = g_selWire]() {
+                        if (gen != g_route1Gen || wire != g_selWire) return;
+                        const auto stagedBox = staged.get();
+                        const auto pathBox = path.get();
+                        const auto modeBox = mode.get();
+                        if (!stagedBox || !pathBox || !modeBox) return;
                         const bool editing = pathBox.Text() != pathAtOpen || modeBox.SelectedIndex() != modeAtOpen;
                         stagedBox.Visibility(editing ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
                     };
@@ -129,15 +148,16 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             if (bindingReplacement) {
                 head = L"Replace the entire binding, not just its path or mode.";
                 body = DevToolsBindingInstall_ReplacementWarning();
-                if (current == DevToolsKind::XBind)
-                    body += L" The authored x:Bind is compiled and read-only; this is a separate classic binding, not an edit to generated code.";
+                if (r.authoredKind == L"xBind")
+                    body += L" This replacement is temporary: generated compiled-binding updates can overwrite it. "
+                            L"The authored x:Bind is not changed.";
             } else if (current == DevToolsKind::XBind || current == DevToolsKind::Binding) {
-                head = L"This cannot be undone.";
+                head = L"This replaces the binding.";
                 body = (current == DevToolsKind::XBind)
-                     ? std::wstring(L"The compiled x:Bind ends for this run. Nothing in DevTools re-creates "
-                                    L"one - restarting the app is the only way back.")
+                     ? std::wstring(L"This overrides the compiled x:Bind, but generated updates can overwrite your edit. "
+                                    L"Restore binding asks before re-applying all compiled bindings on the same owner.")
                      : ((r.authored.empty() ? std::wstring(L"The binding") : r.authored)
-                        + L" will be gone. Nothing in DevTools can re-attach it; restart the app.");
+                        + L" stops updating this value. Restore binding can put it back; if it can't, restart the app.");
             } else if (KindIsResource(current) && !KindIsResource(shown)) {
                 head = L"This cannot be undone.";
                 body = L"This value stops following " + (r.authoredKey.empty() ? std::wstring(L"the resource") : r.authoredKey)
@@ -169,11 +189,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             void* bb = nullptr;
             if (edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 KindApplySink* as = new KindApplySink(); as->Init(ctx);
-                __int64 tok = 0;
-                const HRESULT hr = DevToolsAddClick(bb, as, &tok);
-                if (FAILED(hr))
-                    DevToolsOverlayLog(L"route1.props Apply for '%s' add_Click FAILED hr=0x%08X -- a staged change cannot commit",
-                                  path.c_str(), hr);
+                WireKindEditor(as, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -183,8 +199,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
             void* bb = nullptr;
             if (edit >= 0 && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 KindCancelSink* cs = new KindCancelSink(); cs->Init(ctx);
-                __int64 tok = 0;
-                DevToolsAddClick(bb, cs, &tok);
+                WireKindEditor(cs, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
@@ -218,15 +233,16 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         cf->Release();
     }
 
-    const std::wstring* seedVal = DirtyFind(path);
-    const bool edited = seedVal != nullptr;
+    const EditRecord* record = DirtyFind(path);
+    const bool edited = record != nullptr;
+    const bool appChanged = !edited && AppChanged(g_selWire, path);
     if (IInspectable* e = FindInRow(fe, L"PEditedHdr")) { ShowEl(e, edited); e->Release(); }
     if (IInspectable* e = FindInRow(fe, L"PEditedWas")) {
-        if (edited) {
-            SetTextOn(e, L"was  " + (seedVal->empty() ? std::wstring(L"(not set)") : *seedVal));
+        if (edited || appChanged) {
+            SetTextOn(e, edited ? EditedWasText(*record) : AppChangedText(path));
             SetAutomationTextOn(e, path + L" original", path + L" original", L"");
         }
-        ShowEl(e, edited);
+        ShowEl(e, edited || appChanged);
         e->Release();
     }
     if (IInspectable* rs = FindInRow(fe, L"PRestore")) {
@@ -264,119 +280,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         cl->Release();
     }
 
-    bool anyWitness = false;
-
-    if (IInspectable* w = FindInRow(fe, L"PWitAuthored")) {
-        std::wstring line;
-        if (r.authoredKind != L"literal" && !r.authored.empty()) {
-            const std::wstring inner = MarkupInner(r.authored);
-            // Prefer the FULL inner text over `authoredKey`: in the expansion there is room, and the key
-            // alone drops "Mode=TwoWay", which is exactly what a reader of a binding row came for.
-            const std::wstring body = inner.empty() ? (r.authoredKey.empty() ? r.authored : r.authoredKey) : inner;
-            line = std::wstring(OriginChip(r)) + L"  \u00B7  " + body;
-        } else if (r.authoredKind == L"literal") {
-            line = L"LITERAL  \u00B7  " + r.authored;
-        } else if (!r.binding.empty()) {
-            // Reconstructed from the LIVE element rather than read from source, which only ever happens for a
-            // runtime {Binding}. Said as such rather than presented as authorship we do not have.
-            const std::wstring inner = MarkupInner(r.binding);
-            line = L"BIND  \u00B7  " + (inner.empty() ? r.binding : inner) + L"   (read from the live element)";
-        } else if (r.source == L"Binding") {
-            line = L"Binding expression unavailable.";
-        }
-        if (IInspectable* t = FindInRow(fe, L"POrigin")) {
-            SetTextOn(t, line);
-            SetAutomationTextOn(t, path + L" origin", path + L" origin", L"");
-            t->Release();
-        }
-        ShowEl(w, !line.empty());
-        anyWitness = anyWitness || !line.empty();
-        w->Release();
-    }
-
-    // WITNESS 2 -- DevTools, this session. CATEGORICALLY WEAKER than the other two and rendered as such: a
-    // DASHED-weight rule (a 1px tertiary stroke against the others' divider stroke) plus the limitation said
-    // in words. Setting a resource is an ASSIGN, not a rebind (DevToolsTap.cpp:1024-1029) -- the runtime cannot
-    // recover the identity a value came from, so the pane can name this key only because it remembers doing
-    // it, and a fresh read cannot confirm it. It must never read as an ordinary chain entry.
-    if (IInspectable* w = FindInRow(fe, L"PWitSession")) {
-        std::wstring text, note;
-        if (const SessionAssign* sa = SessionAssignFind(path)) {
-            text = sa->detail;
-            note = KindIsResource(sa->kind)
-                ? L"assigned by ResolveResource - an ASSIGN, not a rebind. The element no longer reports this "
-                  L"key, and this line dies when the selection changes."
-                : L"grafted with SetBinding onto the running app. Your .xaml still says what it always said, "
-                  L"and this line dies when the selection changes.";
-        } else if (BindingLost(path)) {
-            text = L"the binding was replaced with a literal";
-            note = L"DevTools cannot re-attach it. Restart the app to get it back.";
-        } else if (LinkLost(path)) {
-            text = L"no longer follows " + (r.authoredKey.empty() ? r.authored : r.authoredKey);
-            note = L"DevTools cannot re-attach it. Restart the app to get it back.";
-        }
-        if (IInspectable* t = FindInRow(fe, L"PSessionText")) {
-            SetTextOn(t, text);
-            SetAutomationTextOn(t, path + L" session note", path + L" session note", L"");
-            t->Release();
-        }
-        if (IInspectable* n = FindInRow(fe, L"PSessionNote")) { SetTextOn(n, note); n->Release(); }
-        ShowEl(w, !text.empty());
-        anyWitness = anyWitness || !text.empty();
-        w->Release();
-    }
-
-    // WITNESS 3 -- the runtime's precedence chain. Only where there is more than one link: a one-entry chain
-    // says nothing the other witnesses do not.
-    if (IInspectable* w = FindInRow(fe, L"PWitChain")) {
-        const bool have = r.chain.size() > 1;
-        if (have) {
-            if (IInspectable* who = FindInRow(fe, L"PChainWho")) {
-                SetTextOn(who, KindIsResource(current)
-                    ? L"the runtime's precedence chain - a resolved resource keeps no key"
-                    : (current == DevToolsKind::XBind
-                        ? L"the runtime's precedence chain - a compiled binding lands as a plain local value"
-                        : L"the runtime's precedence chain"));
-                who->Release();
-            }
-            if (IInspectable* cb = FindInRow(fe, L"PChain")) {
-                void* kids = nullptr; void* pnl = nullptr;
-                if (SUCCEEDED(cb->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
-                    SUCCEEDED(DevToolsPanelGetChildren(pnl, reinterpret_cast<IInspectable**>(&kids))) && kids) {
-                    for (size_t k = 0; k < r.chain.size(); ++k) {
-                        IInspectable* tb = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.TextBlock");
-                        if (!tb) continue;
-                        void* tbi = nullptr;
-                        if (SUCCEEDED(tb->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tbi)) && tbi) {
-                            const DevToolsCardChainEntry& ce = r.chain[k];
-                            std::wstring cv = ce.value;
-                            const bool handleLike = cv.size() >= 10 &&
-                                cv.find_first_not_of(L"0123456789") == std::wstring::npos;
-                            if (handleLike) cv = ShortType(r.valueType.empty() ? r.type : r.valueType);
-                            std::wstring line = (ce.winner ? std::wstring(L"\u25B8 ") : std::wstring(L"   "))
-                                              + ce.source + L"  " + cv;
-                            if (!ce.file.empty() && ce.line)
-                                line += L"   " + SourceFileName(ce.file) + L":" + std::to_wstring(ce.line);
-                            HSTRING h = MakeStr(line);
-                            DevToolsPutText(tbi, h); WindowsDeleteString(h);
-                            DevToolsAbi<DevToolsXC::ITextBlock>(tbi)->put_FontSize(11.0);
-                            DevToolsPutTextTrimming(tbi, (int)DevToolsX::TextTrimming::CharacterEllipsis);
-                            reinterpret_cast<IUnknown*>(tbi)->Release();
-                        }
-                        DevToolsVecAppend(reinterpret_cast<IInspectable*>(kids), tb);
-                        tb->Release();
-                    }
-                    reinterpret_cast<IUnknown*>(kids)->Release();
-                }
-                if (pnl) reinterpret_cast<IUnknown*>(pnl)->Release();
-                cb->Release();
-            }
-        }
-        ShowEl(w, have);
-        anyWitness = anyWitness || have;
-        w->Release();
-    }
-    if (IInspectable* h = FindInRow(fe, L"PDerivedHdr")) { ShowEl(h, anyWitness); h->Release(); }
+    PopulateExpansionWitnesses(fe, r, path);
 
     if (IInspectable* blk = FindInRow(fe, L"PChildren")) {
         if (!r.children.empty()) {
@@ -416,7 +320,10 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         blk->Release();
     }
 
-    const bool bound = (shown == DevToolsKind::XBind || shown == DevToolsKind::Binding);
+    // A binding replaced by a literal still gets the BINDING block, so Restore binding stays reachable.
+    // This includes bindings set in code or applied from the panel, which the XAML doesn't declare.
+    const bool lostBinding = current == DevToolsKind::Literal && BindingLost(path);
+    const bool bound = (current == DevToolsKind::XBind || current == DevToolsKind::Binding) || lostBinding;
     if (bound) { PostWalk(path); PostDiagnose(path); }
     const WalkAnswer* answer = bound ? WalkFind(path) : nullptr;
     DevToolsPathWalkView wv;
@@ -436,8 +343,12 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         DevToolsBindingRow_ApplyLiveOverride(sum, DevToolsBindingRow_WasWrittenLive(g_selWire, path), r.value);
     if (replaced || overridden) {
         DevToolsJson act;
-        if (DevToolsJsonParse(diag->action, act) && act.IsObject() && act.GetString(L"state") != L"restored")
-            sum.reason = L"Restore failed: " + act.GetString(L"reason");
+        if (DevToolsJsonParse(diag->action, act) && act.IsObject() && !RestoreLanded(diag->action))
+            sum.reason = act.GetString(L"state") == L"confirmation-required"
+                       ? std::wstring(L"Choose whether to re-apply all compiled bindings below")
+                       : (act.GetString(L"ownerUpdated") == L"True" ? std::wstring(L"Restore not confirmed: ")
+                                                                    : std::wstring(L"Restore failed: "))
+                       + act.GetString(L"reason");
     }
     // Without the managed answer the native walk still names a segment where a path stops, as in the quick panel;
     // otherwise the status is unknown rather than guessed.
@@ -481,18 +392,40 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         // nothing.
         const bool offer = bound && g_ctx.bindFn && (replaced || overridden);
         if (IInspectable* row = FindInRow(fe, L"PBindRestoreRow")) { ShowEl(row, offer); row->Release(); }
-        if (IInspectable* note = FindInRow(fe, L"PBindRestoreNote")) { ShowEl(note, offer && shown == DevToolsKind::XBind); note->Release(); }
         if (IInspectable* b = FindInRow(fe, L"PBindRestore")) {
             SetAutomationTextOn(b, L"Restore the binding on " + path, L"", L"");
             void* bb = nullptr;
             if (offer && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 BindRestoreSink* rs = new BindRestoreSink();
-                rs->Init(path, shown == DevToolsKind::XBind);
-                __int64 tok = 0;
-                DevToolsAddClick(bb, rs, &tok);
+                rs->Init(path, BindRestoreSink::Choice::Request, g_expansionRowFe);
+                WireKindEditor(rs, bb, DevToolsAddClick, DevToolsRemoveClick);
                 reinterpret_cast<IUnknown*>(bb)->Release();
             }
             b->Release();
+        }
+        DevToolsJson action;
+        const bool confirm = diag && DevToolsJsonParse(diag->action, action) &&
+                             action.GetString(L"state") == L"confirmation-required";
+        if (IInspectable* panel = FindInRow(fe, L"PBindRestoreConfirm")) { ShowEl(panel, confirm); panel->Release(); }
+        if (IInspectable* text = FindInRow(fe, L"PBindRestoreScope")) {
+            SetTextOn(text, confirm ? action.GetString(L"restoreOwner") + L": " + action.GetString(L"warning") +
+                                     L" " + action.GetString(L"restoreDisclosure") : std::wstring());
+            text->Release();
+        }
+        for (const auto& entry : { std::make_pair(L"PBindRestoreYes", BindRestoreSink::Choice::Confirm),
+                                   std::make_pair(L"PBindRestoreCancel", BindRestoreSink::Choice::Cancel) }) {
+            if (IInspectable* button = FindInRow(fe, entry.first)) {
+                SetAutomationTextOn(button, entry.second == BindRestoreSink::Choice::Confirm
+                    ? L"Re-apply all compiled bindings for " + path : L"Cancel Restore binding on " + path, L"", L"");
+                void* bb = nullptr;
+                if (confirm && SUCCEEDED(button->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                    BindRestoreSink* sink = new BindRestoreSink();
+                    sink->Init(path, entry.second, g_expansionRowFe);
+                    WireKindEditor(sink, bb, DevToolsAddClick, DevToolsRemoveClick);
+                    reinterpret_cast<IUnknown*>(bb)->Release();
+                }
+                button->Release();
+            }
         }
     }
     if (IInspectable* q = FindInRow(fe, L"PDiagQ")) {
@@ -562,6 +495,8 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
 static void RebuildExpansion(void* rowFe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
     if (!rowFe) return;
+    RetireKindEditors(rowFe);
+    RetireRowExpandSinks(rowFe, /*descendantsOnly*/ true);
     if (IInspectable* host = FindInRow(rowFe, L"PExpand")) {
         void* pnl = nullptr; void* kids = nullptr;
         if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
@@ -627,46 +562,6 @@ static bool EnsureExpansion(void* rowFe, const DevToolsCardRow& r, const std::ws
     if (pnl)  reinterpret_cast<IUnknown*>(pnl)->Release();
     host->Release();
     return ok;
-}
-
-// Choose the editor by live Visibility; templated collapsed editors still exist in the namescope.
-static bool FocusExpansionEditor(void* rowFe, const std::wstring& path)
-{
-    static const wchar_t* const kFocusable[] =
-        { L"PEdit", L"PToggle", L"PCombo", L"PHex", L"PResKey", L"PPath" };
-    IInspectable* e = nullptr;
-    for (const wchar_t* nm : kFocusable) {
-        IInspectable* cand = FindInRow(rowFe, nm);
-        if (!cand) continue;
-        void* ui = nullptr;
-        bool visible = false;
-        if (SUCCEEDED(cand->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-            int vis = 1;
-            if (SUCCEEDED(DevToolsGetVisibility(ui, &vis))) visible = (vis == 0);
-            reinterpret_cast<IUnknown*>(ui)->Release();
-        }
-        if (visible && !e) { e = cand; continue; }
-        cand->Release();
-    }
-    // A multi-field row has no templated editor at all -- its boxes are created per wire label -- so the
-    // first box is the target and it is reachable only through the registry that created it.
-    if (!e) {
-        for (const FieldBoxRef& f : g_fieldBoxes)
-            if (f.path == path && f.index == 0 && f.box) { e = f.box; e->AddRef(); break; }
-    }
-    if (!e) return false;
-    void* ui = nullptr;
-    bool moved = false;
-    if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-        DevToolsFocus(ui, 2 /*Programmatic*/, &moved);
-        reinterpret_cast<IUnknown*>(ui)->Release();
-    }
-    e->Release();
-    // An editor that appeared but never took focus never raises LostFocus, so it would also never commit
-    // -- a row that opened and looks ready and is not.
-    if (!moved)
-        DevToolsOverlayLog(L"route1.props editor for '%s' did not take focus -- it will not commit", path.c_str());
-    return moved;
 }
 
 static void* BuildRowElement(const DevToolsCardRow& r, const std::wstring& path, int edit)
@@ -739,8 +634,23 @@ HRESULT STDMETHODCALLTYPE GetElement(void* args, void** element) noexcept overri
         *element = ui;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE RecycleElement(void* /*args*/) noexcept override
+    HRESULT STDMETHODCALLTYPE RecycleElement(void* args) noexcept override
     {
+        IInspectable* element = nullptr;
+        const HRESULT hr = DevToolsGetRecycleElement(args, &element);
+        if (FAILED(hr)) {
+            DevToolsOverlayLog(L"route1.props recycle element failed hr=0x%08X", hr);
+            return hr;
+        }
+        if (element) {
+            void* fe = nullptr;
+            if (SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+                RetireKindEditors(fe);
+                RetireRowExpandSinks(fe);
+                reinterpret_cast<IUnknown*>(fe)->Release();
+            }
+            element->Release();
+        }
         return S_OK;
     }
 };
@@ -814,7 +724,7 @@ struct PropShowAllSink : DevToolsSinkBase
         if (gen != g_route1Gen) return S_OK;
         g_propShowAll = !g_propShowAll;
         const size_t shown = RebuildPaneItems();
-        UpdatePropCount(shown);
+        UpdatePropEmptyState(shown);
         if (g_propShowAllLbl) {
             HSTRING hs = MakeStr(PropShowAllLabel(g_propRows));
             DevToolsPutText(g_propShowAllLbl, hs);
@@ -916,6 +826,151 @@ static void* PaneRowChild(const std::wstring& prop, const wchar_t* childName)
     return nullptr;
 }
 
+static void PopulateExpansionWitnesses(void* fe, const DevToolsCardRow& r, const std::wstring& path)
+{
+    const DevToolsKind current = CurrentKindOf(r, path);
+    bool anyWitness = false;
+    if (IInspectable* w = FindInRow(fe, L"PWitAuthored")) {
+        std::wstring line;
+        if (r.authoredKind != L"literal" && !r.authored.empty()) {
+            const std::wstring inner = MarkupInner(r.authored);
+            const std::wstring body = inner.empty() ? (r.authoredKey.empty() ? r.authored : r.authoredKey) : inner;
+            line = std::wstring(OriginChip(r)) + L"  \u00B7  " + body;
+        } else if (r.authoredKind == L"literal") {
+            line = L"LITERAL  \u00B7  " + r.authored;
+        } else if (!r.binding.empty()) {
+            const std::wstring inner = MarkupInner(r.binding);
+            line = L"BIND  \u00B7  " + (inner.empty() ? r.binding : inner) + L"   (read from the live element)";
+        } else if (r.source == L"Binding") {
+            line = L"Binding expression unavailable.";
+        }
+        if (IInspectable* t = FindInRow(fe, L"POrigin")) {
+            SetTextOn(t, line);
+            SetAutomationTextOn(t, path + L" origin", path + L" origin", L"");
+            t->Release();
+        }
+        ShowEl(w, !line.empty());
+        anyWitness = anyWitness || !line.empty();
+        w->Release();
+    }
+    // Session assignments are not runtime evidence of a surviving resource link.
+    if (IInspectable* w = FindInRow(fe, L"PWitSession")) {
+        std::wstring text, note;
+        if (const SessionAssign* sa = SessionAssignFind(path)) {
+            text = sa->detail;
+            note = KindIsResource(sa->kind)
+                ? L"assigned by ResolveResource - an ASSIGN, not a rebind. The element no longer reports this "
+                  L"key; DevTools names it only because it made the change."
+                : L"grafted with SetBinding onto the running app. Your .xaml still says what it always said.";
+        } else if (BindingLost(path)) {
+            text = L"the binding was replaced with a literal";
+            note = g_ctx.bindFn
+                ? L"Restore binding below can put it back. If it can't, restart the app."
+                : L"This build of DevTools cannot re-attach it. Restart the app to get it back.";
+        } else if (LinkLost(path)) {
+            text = L"no longer follows " + (r.authoredKey.empty() ? r.authored : r.authoredKey);
+            note = L"To follow a resource again, choose ThemeResource or StaticResource above and enter its key.";
+        }
+        if (IInspectable* t = FindInRow(fe, L"PSessionText")) {
+            SetTextOn(t, text);
+            SetAutomationTextOn(t, path + L" session note", path + L" session note", L"");
+            t->Release();
+        }
+        if (IInspectable* n = FindInRow(fe, L"PSessionNote")) { SetTextOn(n, note); n->Release(); }
+        ShowEl(w, !text.empty());
+        anyWitness = anyWitness || !text.empty();
+        w->Release();
+    }
+    if (IInspectable* w = FindInRow(fe, L"PWitChain")) {
+        const bool have = r.chain.size() > 1;
+        const bool setByDevTools = BindingLost(path) || LinkLost(path) || SessionAssignFind(path) != nullptr ||
+                                   DirtyFind(path) != nullptr || DevToolsBindingRow_WasWrittenLive(g_selWire, path);
+        if (IInspectable* who = FindInRow(fe, L"PChainWho")) {
+            SetTextOn(who, KindIsResource(current)
+                ? L"the runtime's precedence chain - a resolved resource keeps no key"
+                : (current == DevToolsKind::XBind
+                    ? L"the runtime's precedence chain - a compiled binding lands as a plain local value"
+                    : L"the runtime's precedence chain"));
+            who->Release();
+        }
+        if (IInspectable* cb = FindInRow(fe, L"PChain")) {
+            void* kids = nullptr; void* pnl = nullptr;
+            if (SUCCEEDED(cb->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
+                SUCCEEDED(DevToolsPanelGetChildren(pnl, reinterpret_cast<IInspectable**>(&kids))) && kids) {
+                DevToolsVecClear(reinterpret_cast<IInspectable*>(kids));
+                if (have) {
+                    for (const auto& ce : r.chain) {
+                        IInspectable* tb = NewTextBlock(L"");
+                        if (!tb) continue;
+                        std::wstring cv = ce.value;
+                        const bool handleLike = cv.size() >= 10 &&
+                            cv.find_first_not_of(L"0123456789") == std::wstring::npos;
+                        if (handleLike) cv = ShortType(r.valueType.empty() ? r.type : r.valueType);
+                        std::wstring line = (ce.winner ? std::wstring(L"\u25B8 ") : std::wstring(L"   "))
+                                          + ce.source + L"  " + cv;
+                        // A DevTools write makes the original local-value source line obsolete.
+                        if (ce.winner && ce.source == L"Local" && setByDevTools)
+                            line += L"   set by DevTools";
+                        else if (!ce.file.empty() && ce.line)
+                            line += L"   " + SourceFileName(ce.file) + L":" + std::to_wstring(ce.line);
+                        SetTextOn(tb, line);
+                        void* tbi = nullptr;
+                        if (SUCCEEDED(tb->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tbi)) && tbi) {
+                            DevToolsPutFontSize(tbi, 11.0);
+                            DevToolsPutTextTrimming(tbi, (int)DevToolsX::TextTrimming::CharacterEllipsis);
+                            reinterpret_cast<IUnknown*>(tbi)->Release();
+                        }
+                        DevToolsVecAppend(reinterpret_cast<IInspectable*>(kids), tb);
+                        tb->Release();
+                    }
+                }
+                reinterpret_cast<IUnknown*>(kids)->Release();
+            }
+            if (pnl) reinterpret_cast<IUnknown*>(pnl)->Release();
+            cb->Release();
+        }
+        ShowEl(w, have);
+        anyWitness = anyWitness || have;
+        w->Release();
+    }
+    if (IInspectable* h = FindInRow(fe, L"PDerivedHdr")) { ShowEl(h, anyWitness); h->Release(); }
+}
+
+static std::wstring CurrentEditSeed(const std::wstring& path, const std::wstring& fallback)
+{
+    const auto* row = FindPropertyRow(g_propRows, path);
+    return row ? RowEditSeed(*row) : fallback;
+}
+
+// Bring a realized row's edited marker, "was" line and Restore button in line with its edit record.
+static void UpdateEditedUi(const std::wstring& prop)
+{
+    const EditRecord* rec = DirtyFind(prop);
+    const bool edited = rec != nullptr;
+    const bool appChanged = !edited && AppChanged(g_selWire, prop);
+    if (void* dot = PaneRowChild(prop, L"PDot")) {
+        DevToolsPutVisibility(dot, edited ? 0 : 1);
+        reinterpret_cast<IUnknown*>(dot)->Release();
+    }
+    // Restore has nothing to put back once the binding is gone, and saying otherwise is the lie removed.
+    if (void* rs = PaneRowChild(prop, L"PRestore")) {
+        DevToolsPutVisibility(rs, (edited && !BindingLost(prop)) ? 0 : 1);
+        reinterpret_cast<IUnknown*>(rs)->Release();
+    }
+    if (void* hdr = PaneRowChild(prop, L"PEditedHdr")) {
+        DevToolsPutVisibility(hdr, edited ? 0 : 1);
+        reinterpret_cast<IUnknown*>(hdr)->Release();
+    }
+    if (void* was = PaneRowChild(prop, L"PEditedWas")) {
+        if (edited || appChanged) SetTextOn(reinterpret_cast<IInspectable*>(was), edited ? EditedWasText(*rec) : AppChangedText(prop));
+        DevToolsPutVisibility(was, (edited || appChanged) ? 0 : 1);
+        reinterpret_cast<IUnknown*>(was)->Release();
+    }
+}
+
+static bool FeedsLayoutSection(const std::wstring& name);
+static void RedrawLayoutSectionFromRows(InstanceHandle wire);
+
 static bool RefreshCommittedValue(const std::wstring& prop)
 {
     std::vector<DevToolsCardRow> fresh;
@@ -925,6 +980,7 @@ static bool RefreshCommittedValue(const std::wstring& prop)
         return false;
     }
     g_ctx.rowsFn(g_selWire, type, name, fresh, authoredState, authoredXaml);
+    ReconcileEditRecords(g_selWire, fresh);
     auto* current = FindPropertyRow(g_propRows, prop);
     const auto* updated = FindPropertyRow(fresh, prop);
     if (!current || !updated) {
@@ -939,9 +995,49 @@ static bool RefreshCommittedValue(const std::wstring& prop)
         g_propRowLabels[i] = std::move(label);
     }
     if (void* value = PaneRowChild(prop, L"PValue")) {
-        PopulateRowValue(static_cast<IInspectable*>(value), *current);
+        PopulateRowValue(static_cast<IInspectable*>(value), *current, prop);
         reinterpret_cast<IUnknown*>(value)->Release();
     }
+    if (void* header = PaneRowChild(prop, L"PHeader")) {
+        NamePropertyHeader(static_cast<IInspectable*>(header), *current, prop);
+        reinterpret_cast<IUnknown*>(header)->Release();
+    }
+    // Refresh evidence without rebuilding editors or replacing unfinished input.
+    if (void* frame = PaneRowChild(prop, L"PExpFrame")) {
+        void* fe = nullptr;
+        if (SUCCEEDED(reinterpret_cast<IUnknown*>(frame)->QueryInterface(
+                DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+            PopulateExpansionWitnesses(fe, *current, prop);
+            reinterpret_cast<IUnknown*>(fe)->Release();
+        }
+        reinterpret_cast<IUnknown*>(frame)->Release();
+    }
+    if (current->editKind == L"color") {
+        if (void* preset = PaneRowChild(prop, L"PPreset")) {
+            void* selector = nullptr;
+            HRESULT hr = reinterpret_cast<IUnknown*>(preset)->QueryInterface(
+                DevToolsIid<DevToolsXCP::ISelector>(), &selector);
+            if (SUCCEEDED(hr) && selector) {
+                int selected = -1;
+                hr = DevToolsGetSelectedIndex(selector, &selected);
+                const auto& colors = ColorPresets();
+                if (SUCCEEDED(hr) && selected >= 0 && static_cast<size_t>(selected) < colors.size() &&
+                    _wcsicmp(colors[selected].second.c_str(), RowEditSeed(*current).c_str()) != 0) {
+                    // Clearing raises SelectionChanged with -1, which cannot commit a preset.
+                    hr = DevToolsPutSelectedIndex(selector, -1);
+                }
+                reinterpret_cast<IUnknown*>(selector)->Release();
+            }
+            if (FAILED(hr)) DevToolsOverlayLog(L"route1.props preset refresh failed for '%s' hr=0x%08X", prop.c_str(), hr);
+            reinterpret_cast<IUnknown*>(preset)->Release();
+        }
+        if (void* swatch = PaneRowChild(prop, L"PSwatch")) {
+            PopulateColorSwatch(static_cast<IInspectable*>(swatch), RowEditSeed(*current));
+            reinterpret_cast<IUnknown*>(swatch)->Release();
+        }
+    }
+    // The live refresh will see this row already up to date, so redraw Size & spacing here.
+    if (FeedsLayoutSection(prop)) RedrawLayoutSectionFromRows(g_selWire);
     return true;
 }
 static int WirePropRepeater(void* fragFe)

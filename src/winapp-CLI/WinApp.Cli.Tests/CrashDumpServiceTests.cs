@@ -260,6 +260,40 @@ public class CrashDumpServiceTests
     }
 
     [TestMethod]
+    public async Task AnalyzeDumpAsync_WinUiTriageSkippedWithReason_ShowsReason()
+    {
+        var logPath = Path.Combine(_tempDir, "skipped-reason.log");
+        _service.ClrMdAnalyzerOverride = (_, _) => ("Managed summary", "Managed details", true);
+        _xamlTriage.FakeResult = XamlTriageResult.Skipped("log note", "the WinUI debugger extension crashed (0xC0000409).");
+
+        await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath);
+
+        StringAssert.Contains(
+            System.Text.RegularExpressions.Regex.Replace(_console.Output, @"\s+", " "),
+            "triage was skipped: the WinUI debugger extension crashed (0xC0000409).");
+    }
+
+    [TestMethod]
+    public async Task AnalyzeDumpAsync_WinUiTriagePartial_ShowsReasonAndKeepsOutputInLog()
+    {
+        var logPath = Path.Combine(_tempDir, "partial.log");
+        _service.ClrMdAnalyzerOverride = (_, _) => ("Managed summary", "Managed details", true);
+        _xamlTriage.FakeResult = XamlTriageResult.Partial(
+            "PARTIAL BREAKDOWN", "0xC000027B — stowed boom", "the WinUI debugger extension crashed (0xC0000409) while running '!xamltriage'.");
+
+        await _service.AnalyzeDumpAsync(Path.Combine(_tempDir, "any.dmp"), logPath);
+
+        // The test console wraps at 80 columns; compare with the wrapping removed.
+        var output = System.Text.RegularExpressions.Regex.Replace(_console.Output, @"\s+", " ");
+        StringAssert.Contains(output, "0xC000027B — stowed boom");
+        StringAssert.Contains(output, "triage stopped early");
+        StringAssert.Contains(output, "'!xamltriage'");
+        StringAssert.Contains(output, "Partial results were written to the debug log");
+        Assert.IsFalse(output.Contains("triage was skipped", StringComparison.Ordinal));
+        StringAssert.Contains(await File.ReadAllTextAsync(logPath), "PARTIAL BREAKDOWN");
+    }
+
+    [TestMethod]
     public async Task AnalyzeDumpAsync_NativeFallback_WritesNativeSummaryAndSymbolsTip()
     {
         var logPath = Path.Combine(_tempDir, "native.log");

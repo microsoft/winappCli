@@ -893,6 +893,36 @@ public class UnregisterCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task UnregisterCommand_SingleFile_PropertyConfigurationSelectsConfiguration()
+    {
+        // `run app.cs -p:Configuration=Release` registers the Release identity, so repeating the
+        // same property on unregister must resolve Release, not the Debug default.
+        var singleFile = CreateSingleFile();
+        var command = GetRequiredService<UnregisterCommand>();
+
+        _fakeProjectRunService.SingleFileIdentity =
+            new SingleFileIdentityResolution("counter", ProjectPackaging.Packaged, BuildRootDirectory: null);
+
+        await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "-p", "Configuration=Release"]);
+
+        Assert.AreEqual("Release", _fakeProjectRunService.ResolveSingleFileIdentityInputs.Single().Configuration);
+    }
+
+    [TestMethod]
+    public async Task UnregisterCommand_SingleFile_ConflictingConfigurationFails()
+    {
+        var singleFile = CreateSingleFile();
+        var command = GetRequiredService<UnregisterCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, [singleFile.FullName, "-c", "Debug", "-p", "Configuration=Release"]);
+
+        Assert.AreNotEqual(0, exitCode);
+        Assert.IsEmpty(_fakeProjectRunService.ResolveSingleFileIdentityInputs);
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count);
+    }
+
+    [TestMethod]
     public async Task UnregisterCommand_ConfigurationWithoutSingleFileInput_IsRejected()
     {
         var manifest = await CreateTestManifestAsync();

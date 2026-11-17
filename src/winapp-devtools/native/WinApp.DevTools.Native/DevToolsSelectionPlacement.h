@@ -37,16 +37,20 @@ inline Rect PinViewport(int width, int height, int titleBarInset)
     return Rect{ 0, std::clamp(titleBarInset, 0, (std::max)(0, height)), width, height };
 }
 
-inline PinPlacement PlacePin(const Rect& element, const Rect& viewport)
+// `slot` is this marker's position among markers on the same element (0 for the first). Each later marker moves
+// one marker-width along the element's edge, so several comments on one element show as a row of markers
+// instead of one marker hiding the rest.
+inline PinPlacement PlacePin(const Rect& element, const Rect& viewport, int slot = 0)
 {
     constexpr int size = 20, gap = 4;
+    const int step = (std::max)(0, slot) * (size + gap);
     const int maxX = (std::max)(viewport.left, viewport.right - size);
     const int maxY = (std::max)(viewport.top, viewport.bottom - size);
     const PinPlacement candidates[] = {
-        { element.right + gap, element.top },
-        { element.left - size - gap, element.top },
-        { element.right - size, element.top - size - gap },
-        { element.right - size, element.bottom + gap },
+        { element.right + gap, element.top + step },
+        { element.left - size - gap, element.top + step },
+        { element.right - size - step, element.top - size - gap },
+        { element.right - size - step, element.bottom + gap },
     };
     PinPlacement best{};
     int leastOverlap = size * size + 1;

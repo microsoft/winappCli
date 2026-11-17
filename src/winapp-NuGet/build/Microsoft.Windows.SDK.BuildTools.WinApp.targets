@@ -45,6 +45,15 @@
     <_WinAppFileBasedApp Condition="'$(_WinAppFileBasedApp)' == ''">false</_WinAppFileBasedApp>
 
     <!--
+      A file-based app has no .ico of its own, so its window would show no icon in the title bar.
+      Give it a placeholder that matches winapp's default manifest logos. Set
+      '#:property ApplicationIcon=path\to\app.ico' to use your own. Either icon is embedded in the
+      exe and copied to Assets\AppIcon.ico (see the ItemGroup below).
+    -->
+    <_WinAppDefaultApplicationIcon Condition="'$(_WinAppFileBasedApp)' == 'true' And '$(ApplicationIcon)' == '' And '$(Win32Resource)' == ''">true</_WinAppDefaultApplicationIcon>
+    <ApplicationIcon Condition="'$(_WinAppDefaultApplicationIcon)' == 'true'">$(MSBuildThisFileDirectory)WinAppDefault.ico</ApplicationIcon>
+
+    <!--
       Output directory for the loose-layout AppX package.
       Defaults to AppX subfolder in the output directory.
       This is set here (in targets) because $(OutputPath) is not available in props.
@@ -95,6 +104,15 @@
     <WinAppManifestPath Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == '' And Exists('$(MSBuildProjectDirectory)\Package.appxmanifest')">$(MSBuildProjectDirectory)\Package.appxmanifest</WinAppManifestPath>
     <WinAppManifestPath Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == '' And Exists('$(MSBuildProjectDirectory)\appxmanifest.xml')">$(MSBuildProjectDirectory)\appxmanifest.xml</WinAppManifestPath>
   </PropertyGroup>
+
+  <!--
+    Copy a file-based app's icon to Assets\AppIcon.ico, the path the WinUI templates use and that
+    frameworks such as Reactor read at run time for the title bar. A file-based app cannot declare
+    Content items itself, so without this an icon set through ApplicationIcon is only embedded in the exe.
+  -->
+  <ItemGroup Condition="'$(_WinAppFileBasedApp)' == 'true' And '$(ApplicationIcon)' != ''">
+    <Content Include="$(ApplicationIcon)" Link="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
 
   <!--
     ============================================================================

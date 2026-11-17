@@ -74,13 +74,17 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
                     "--status and --all are alternatives; pass one."));
             }
 
-            if (!CommentsSharedOptions.TryReadAppRoot(targets, parseResult.GetValue(CommentsSharedOptions.ReadAppOption), ReadSourceRoot,
-                cancellationToken, out var appRoot, out var appError))
+            var explicitSourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption);
+            string? appRoot = null;
+            if (explicitSourceRoot is null && !CommentsSharedOptions.TryReadAppRoot(targets,
+                parseResult.GetValue(CommentsSharedOptions.ReadAppOption), ReadSourceRoot,
+                cancellationToken, out appRoot, out var appError))
             {
                 return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, appError!));
             }
+            var scope = project is not null ? " for this project" : appRoot is not null ? " for this app" : string.Empty;
             project ??= appRoot;
-            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? appRoot ?? currentDirectory.GetCurrentDirectory();
+            var sourceRoot = explicitSourceRoot ?? appRoot ?? currentDirectory.GetCurrentDirectory();
 
             try
             {
@@ -115,8 +119,15 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
 
                 if (payload.Comments.Count == 0)
                 {
-                    DevToolsRender.WriteMarkupLine(ansiConsole, $"[grey]No comments in {Markup.Escape(location.StorePath)}.[/]");
+                    var filter = status is not null ? status + " " : all ? string.Empty : CommentStatus.Open + " ";
+                    DevToolsRender.WriteMarkupLine(ansiConsole, $"[grey]No {filter}comments{scope} in {Markup.Escape(location.StorePath)}.[/]");
                     WriteHiddenFootnote(ansiConsole, inProject, selected);
+                    var elsewhere = doc.Comments.Count - inProject.Count;
+                    if (elsewhere > 0)
+                    {
+                        var noun = elsewhere == 1 ? "comment belongs" : "comments belong";
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"[grey]{elsewhere} other {noun} to other projects in this file.[/]");
+                    }
                     return Task.FromResult(0);
                 }
 

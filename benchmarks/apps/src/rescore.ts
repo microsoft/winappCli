@@ -14,12 +14,14 @@ import {
   extractRequirementResults,
 } from "./runner/benchmark.js";
 import { collectProjectFiles, evaluateBuildWarnings, evaluateSourceChecks, judgeChecks, type QualityCheck } from "./runner/quality-checks.js";
-import { computeScoreV2, formatBreakdown } from "./runner/scoring.js";
+import { computeScoreV2, formatBreakdown, incompleteJudging } from "./runner/scoring.js";
 
 export interface RescoreResult {
   runName: string;
   trialName: string;
   score: number;
+  /** Set when the judge's output can't be scored; the trial then has no score. */
+  harnessError?: string;
   builds: boolean;
   runs: boolean;
   /** Always 0 in scoring v2 (builds/runs are a gate, not points); kept for older UIs. */
@@ -32,6 +34,7 @@ export interface RescoreResult {
   breakdown: string;
   requirementsPassed: number;
   requirementsTotal: number;
+  requirementsAll: number;
   resultsPath: string;
 }
 
@@ -97,7 +100,7 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
   const reported = extractRequirementResults(validation, scenarioReqs);
   const byId = new Map(reported.map((r) => [r.id, r]));
   const requirements = scenarioReqs.length
-    ? scenarioReqs.map((text, i) => byId.get(i + 1) ?? { id: i + 1, text, status: "fail" as const, reason: "Not reported by the judge" })
+    ? scenarioReqs.map((text, i) => byId.get(i + 1) ?? { id: i + 1, text, status: "not-run" as const, reason: "The judge did not rule on this requirement" })
     : reported;
 
   let checks: QualityCheck[] = Array.isArray(prior.metrics?.quality_checks) ? prior.metrics.quality_checks : [];
@@ -118,15 +121,26 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
     designScore: typeof validation.design_score === "number" ? validation.design_score : null,
   });
 
+  // Same rule as a live run: judging we can't score is our failure, not a score.
+  const incomplete = incompleteJudging(requirements, scenario.config.required_requirements);
+  const judgeFailed = !!incomplete;
+  if (incomplete) {
+    prior.harness_error = incomplete;
+    prior.fail_reason = prior.harness_error;
+  } else if (/^(Validation ruled on no requirements|Judge did not rule on required)/.test(prior.harness_error ?? "")) {
+    delete prior.harness_error;
+    delete prior.fail_reason;
+  }
   prior.metrics = {
     ...prior.metrics,
-    score: breakdown.score,
+    score: judgeFailed ? undefined : breakdown.score,
     builds,
     runs,
     requirements,
     score_breakdown: breakdown,
     quality_checks: checks,
   };
+  prior.scoring_version = breakdown.version;
   delete prior.validation;
 
   writeFileSync(resultsPath, JSON.stringify(prior, null, 2));
@@ -135,6 +149,7 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
     runName,
     trialName,
     score: breakdown.score,
+    ...(judgeFailed ? { harnessError: prior.harness_error } : {}),
     builds,
     runs,
     baseRuns: 0,
@@ -142,7 +157,8 @@ export function rescoreTrial(runName: string, trialName: string): RescoreResult 
     reqPoints: Math.round(breakdown.points.requirements),
     breakdown: formatBreakdown(breakdown),
     requirementsPassed: breakdown.requirements.passed,
-    requirementsTotal: breakdown.requirements.total,
+    requirementsTotal: breakdown.requirements.scored,
+    requirementsAll: breakdown.requirements.total,
     resultsPath,
   };
 }
@@ -169,9 +185,10 @@ if (isCliEntry) {
   try {
     const r = rescoreTrial(runName, trialName);
     console.log(`[rescore] ${r.runName}/${r.trialName}`);
+    if (r.harnessError) console.log(`  Harness error: ${r.harnessError}. No score; rerun the trial.`);
     console.log(`  Score: ${r.score}/100  (${r.breakdown}; reqs ${r.reqPoints} + quality/design ${r.generalPoints})`);
     console.log(`  Builds: ${r.builds ? "yes" : "no"}   Runs: ${r.runs ? "yes" : "no"}`);
-    console.log(`  Requirements: ${r.requirementsPassed}/${r.requirementsTotal} passed`);
+    console.log(`  Requirements: ${r.requirementsPassed}/${r.requirementsTotal} passed${r.requirementsAll !== r.requirementsTotal ? ` (judge scored ${r.requirementsTotal} of ${r.requirementsAll})` : ""}`);
     console.log(`  results.json updated: ${r.resultsPath}`);
   } catch (e: unknown) {
     if (e instanceof RescoreError) { console.error(e.message); process.exit(e.code === "no-validation-json" ? 1 : 2); }

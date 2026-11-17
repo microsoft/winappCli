@@ -383,7 +383,7 @@ static const int kChipH         = 28;
 // Bar width must clear the StackPanel content so the last item keeps the same inset as the first. Content =
 // dragHandle(24)+margin(2) + Pick(30)+Comments(34)+Inspect(30)+Layout(30)+Theme(30) + sep(1)+margin(6) +
 // Pin(24) + 7*Spacing(3) = 232 DIP; chrome = 2*Border(1) + 2*Padding(6) = 14 DIP.
-static const int kBarW          = 266;
+static const int kBarW          = 286;
 static const int kBarH          = 36;
 static const int kSnapW         = 112;
 static const int kSnapH         = 32;
@@ -420,11 +420,16 @@ static std::wstring BuildPrototypeMarkup(int wDip, int hDip)
 }
 
 
-static std::wstring BuildAdornerMarkup(int x, int y, int w, int h)
+// A preview (hovering an inspector tree row) is a thin, unfilled outline so it doesn't look like the filled box
+// that picking and selecting draw.
+static std::wstring BuildAdornerMarkup(int x, int y, int w, int h, bool preview)
 {
     return DevToolsXamlSubst(DevToolsXaml::Adorner, {
         { L"X", std::to_wstring(x) }, { L"Y", std::to_wstring(y) },
-        { L"W", std::to_wstring(w) }, { L"H", std::to_wstring(h) } });
+        { L"W", std::to_wstring(w) }, { L"H", std::to_wstring(h) },
+        { L"NAME", preview ? std::wstring(L"Hovered element preview") : std::wstring(L"Selected element highlight") },
+        { L"THICKNESS", preview ? std::wstring(L"1") : std::wstring(L"2") },
+        { L"FILL", preview ? std::wstring(L"#00000000") : std::wstring(L"#333B9EFF") } });
 }
 
 // Record the WinRT runtime class name of an IInspectable (opt-in log) so the anchor probe captures exactly what
@@ -533,6 +538,7 @@ static DevToolsCardScopeFn      g_cardScope = nullptr;
 static DevToolsCardFreezeFn     g_cardFreeze = nullptr;
 static DevToolsSourceReadFn     g_srcRead = nullptr;
 static DevToolsDeclaredFn       g_isDeclared = nullptr;
+static DevToolsHostBackdropFn   g_hostBackdropRead = nullptr;
 
 static const GUID IID_RoutedEventHandler_Del =
     { 0xDAE23D85, 0x69CA, 0x5BDF, { 0x80, 0x5B, 0x61, 0x61, 0xA3, 0xA2, 0x15, 0xCC } };

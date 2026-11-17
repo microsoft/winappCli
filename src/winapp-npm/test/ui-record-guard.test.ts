@@ -94,15 +94,45 @@ test('buildUiRecordArgs: overwrite is forwarded only when explicitly enabled', (
   assert.ok(!buildUiRecordArgs({ durationSec: 1 }).includes('--overwrite'));
 });
 
+test('buildUiRecordArgs: the expected Sandbox GUID precedes the selector terminator', () => {
+  const id = '11111111-2222-4333-8444-555555555555';
+  const args = buildUiRecordArgs({
+    on: 'sandbox',
+    durationSec: 1,
+    selector: 'MyApp',
+    expectSandbox: id,
+  });
+  const option = args.indexOf('--expect-sandbox');
+  assert.ok(option >= 0);
+  assert.equal(args[option + 1], id);
+  assert.ok(option < args.indexOf('--'));
+});
+
+test('uiRecord forwards an explicitly empty expected ID for CLI rejection', async () => {
+  const result = await _uiRecordWithCapture(
+    { on: 'sandbox', durationSec: 1, captureScreen: true, expectSandbox: '', selector: 'Save' },
+    async (args) => {
+      const option = args.indexOf('--expect-sandbox');
+      assert.ok(option >= 0, 'an invalid explicit expectation must not disappear');
+      assert.deepEqual(args.slice(option, option + 2), ['--expect-sandbox', '']);
+      assert.ok(option < args.indexOf('--'));
+      return { exitCode: 1, stdout: '', stderr: 'invalid expected Sandbox ID' };
+    }
+  );
+  assert.equal(result.exitCode, 1);
+});
+
 test('buildUiRecordArgs: all options produce correct arg list', () => {
   const opts: UiRecordOptions = {
     app: 'myapp',
     captureScreen: true,
+    cursor: true,
     durationSec: 10,
     fps: 30,
     frames: true,
     json: true,
     maxEdge: 1080,
+    noClickHighlight: true,
     output: 'out.mp4',
     window: 12345,
     quiet: true,
@@ -124,6 +154,8 @@ test('buildUiRecordArgs: all options produce correct arg list', () => {
   assert.ok(args.includes('--app'), '--app must be present');
   assert.equal(args[args.indexOf('--app') + 1], 'myapp');
   assert.ok(args.includes('--capture-screen'), '--capture-screen must be present');
+  assert.ok(args.includes('--cursor'), '--cursor must be present');
+  assert.ok(args.includes('--no-click-highlight'), '--no-click-highlight must be present');
   assert.equal(args[args.indexOf('--duration-sec') + 1], '10');
   assert.ok(args.includes('--fps'));
   assert.equal(args[args.indexOf('--fps') + 1], '30');

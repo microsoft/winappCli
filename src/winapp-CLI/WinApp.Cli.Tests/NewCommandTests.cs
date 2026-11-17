@@ -363,6 +363,30 @@ public class NewCommandTests : BaseCommandTests
         Assert.IsNull(version);
     }
 
+    private const string TwoPackCopiesListing =
+        "Currently installed items:\n" +
+        "   Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n" +
+        "      Version: 0.0.7-alpha\n" +
+        "   Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n" +
+        "      Version: 0.0.5-alpha\n";
+
+    [TestMethod]
+    public void TryGetInstalledPackVersion_TwoCopies_ReturnsHighestVersion()
+    {
+        Assert.IsTrue(NewCommand.TryGetInstalledPackVersion(TwoPackCopiesListing, out var version));
+        Assert.AreEqual("0.0.7-alpha", version);
+    }
+
+    [TestMethod]
+    public void GetInstalledPackVersions_TwoCopies_ReturnsBothInListingOrder()
+    {
+        CollectionAssert.AreEqual(
+            TwoPackCopiesVersions,
+            NewCommand.GetInstalledPackVersions(TwoPackCopiesListing).ToArray());
+    }
+
+    private static readonly string[] TwoPackCopiesVersions = ["0.0.7-alpha", "0.0.5-alpha"];
+
     [TestMethod]
     [DataRow("1.0.0", "1.0.0", 0)]
     [DataRow("1.0.0", "2.0.0", -1)]

@@ -43,7 +43,10 @@ public class DevToolsCommentsDeleteCommandTests
         var command = new DevToolsCommentsDeleteCommand();
         var pusher = new RecordingPusher();
         var handler = new DevToolsCommentsDeleteCommand.Handler(
-            NewStore(), new NoHits(), pusher, new CommentTestTargetResolver(), new FixedCwd(_dir), console, NullLogger<DevToolsCommentsDeleteCommand>.Instance);
+            NewStore(), new NoHits(), pusher, new CommentTestTargetResolver(), new FixedCwd(_dir), console, NullLogger<DevToolsCommentsDeleteCommand>.Instance)
+        {
+            ReadSourceRoot = (_, _) => _dir,
+        };
         var exit = handler.InvokeAsync(command.Parse(args)).GetAwaiter().GetResult();
         return (exit, console.Output, pusher);
     }
@@ -178,7 +181,10 @@ public class DevToolsCommentsDeleteCommandTests
         var console = new TestConsole();
         var handler = new DevToolsCommentsDeleteCommand.Handler(
             NewStore(), new NoHits(), new RecordingPusher { Fail = true }, new CommentTestTargetResolver(),
-            new FixedCwd(_dir), console, NullLogger<DevToolsCommentsDeleteCommand>.Instance);
+            new FixedCwd(_dir), console, NullLogger<DevToolsCommentsDeleteCommand>.Instance)
+        {
+            ReadSourceRoot = (_, _) => _dir,
+        };
         var args = new List<string> { seeded.Id, "--app", "4321" };
         if (json) { args.Add("--json"); }
         Assert.AreEqual(0, handler.InvokeAsync(new DevToolsCommentsDeleteCommand().Parse(args.ToArray())).GetAwaiter().GetResult());

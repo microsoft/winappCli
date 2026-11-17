@@ -17,6 +17,28 @@ inline int ToggleTarget(int actualTheme) noexcept
 {
     return actualTheme == kDark ? kLight : kDark;
 }
+
+// Without a SystemBackdrop, the window paints its own background from the app theme, so switching only the content
+// root's RequestedTheme leaves dark text on a light page. The switch then paints the root itself, but only when
+// nothing else would: not under High Contrast, not over a backdrop (or when that cannot be read), and never over a
+// Background the app set.
+inline bool SwitchPaintsRoot(bool highContrast, bool backdropKnown, bool hasBackdrop, bool rootHasBackground) noexcept
+{
+    return !highContrast && backdropKnown && !hasBackdrop && !rootHasBackground;
+}
+
+// Whether a Background value paints anything. A fully transparent solid colour, which default styles often set, does
+// not; any other brush (gradient, image, acrylic) is assumed to.
+inline bool BrushPaints(bool present, bool isBrush, bool isSolidColor, unsigned int alpha) noexcept
+{
+    return present && isBrush && (!isSolidColor || alpha != 0);
+}
+
+// The colour a window without a backdrop paints behind its content in each theme.
+inline unsigned int RootBackgroundArgb(int theme) noexcept
+{
+    return theme == kDark ? 0xFF000000u : 0xFFFFFFFFu;
+}
 }
 
 // The overlay paints from its own fixed, fully opaque palette. Under High Contrast the palette is
@@ -48,13 +70,17 @@ inline std::wstring DevToolsSysColorHex(int idx)
     return std::wstring(buf);
 }
 
+inline bool DevToolsHighContrastOn()
+{
+    HIGHCONTRAST hc; hc.cbSize = sizeof(hc); hc.dwFlags = 0; hc.lpszDefaultScheme = nullptr;
+    return SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) && (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+}
+
 inline const DevToolsPalette& DevToolsBuildPalette()
 {
     static const DevToolsPalette pal = []() -> DevToolsPalette {
         DevToolsPalette p;
-        HIGHCONTRAST hc; hc.cbSize = sizeof(hc); hc.dwFlags = 0; hc.lpszDefaultScheme = nullptr;
-        p.highContrast = SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0)
-                         && (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+        p.highContrast = DevToolsHighContrastOn();
         if (p.highContrast) {
             const std::wstring win  = DevToolsSysColorHex(COLOR_WINDOW);
             const std::wstring text = DevToolsSysColorHex(COLOR_WINDOWTEXT);

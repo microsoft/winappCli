@@ -31,11 +31,18 @@ static HRESULT QueryEnqueue(void*, IUnknown* handler, bool* enqueued)
 struct QueryDiagnostics : TextDiagnostics
 {
     std::map<InstanceHandle, InputTextBox> elements;
+    std::map<InstanceHandle, winrt::Windows::Foundation::IInspectable> values;
     std::function<void()> onInspect;
     HRESULT STDMETHODCALLTYPE GetIInspectableFromHandle(InstanceHandle handle, IInspectable** value) override
     {
         if (onInspect) onInspect();
         *value = nullptr;
+        const auto boxed = values.find(handle);
+        if (boxed != values.end()) {
+            *value = static_cast<IInspectable*>(winrt::get_abi(boxed->second));
+            (*value)->AddRef();
+            return S_OK;
+        }
         const auto found = elements.find(handle);
         if (found == elements.end()) return E_INVALIDARG;
         found->second.AddRef(); *value = &found->second;
@@ -99,7 +106,20 @@ struct QueryTreeService : TextTreeService
     std::map<InstanceHandle, std::wstring> automationIds;
     std::set<InstanceHandle> nullText;
     std::function<void()> onRead;
+    bool liveIds = false;
+    unsigned liveReads = 0;
     explicit QueryTreeService(QueryDiagnostics& value) : TextTreeService(value.text), diagnostics(value) {}
+    // Row 5 (AutomationId) read on its own, as a boxed string, when liveIds is set.
+    HRESULT STDMETHODCALLTYPE GetProperty(InstanceHandle handle, unsigned int index, InstanceHandle* value) override
+    {
+        *value = 0;
+        const auto id = automationIds.find(handle);
+        if (!liveIds || index != 5 || id == automationIds.end()) return E_NOTIMPL;
+        ++liveReads;
+        *value = 0x700000 + handle;
+        diagnostics.values[*value] = winrt::box_value(id->second);
+        return S_OK;
+    }
     HRESULT STDMETHODCALLTYPE GetPropertyValuesChain(InstanceHandle handle, unsigned int* sc, PropertyChainSource** sources,
         unsigned int* pc, PropertyChainValue** values) override
     {
@@ -247,8 +267,60 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
     auto query = [&](const std::wstring& parameters, bool write = false) {
         const auto request = DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" +
             std::wstring(write ? L"Property.setQuery" : L"VisualTree.query") + L"\",\"params\":" + parameters + L"}");
-        return HandleRpc(nullptr, request);
+        const auto response = HandleRpc(nullptr, request);
+        DevToolsJson parsed;
+        if (DevToolsJsonParse(response, parsed)) if (const auto* result = parsed.Find(L"result")) {
+            const auto* error = result->Find(L"error");
+            check(result->GetBool(L"ok", false) ? !error : error && error->IsObject() &&
+                error->obj.size() == 3 && error->Find(L"code") && error->Find(L"code")->type == DevToolsJsonType::Number &&
+                error->GetInt(L"code", -1) == 0 && !error->GetString(L"token").empty() &&
+                !error->GetString(L"message").empty(),
+                "native query success omits error; every semantic failure has exactly code, token and message");
+        }
+        return response;
     };
+    {
+        const auto first = PackWire_nolock(901), second = PackWire_nolock(902);
+        auto scope = std::make_shared<TapWindowScope>();
+        scope->root = 901; scope->rootWire = first;
+        scope->members.emplace(901, std::make_pair(first, 1ull));
+        TapWindowScopeGuard guard(scope);
+        for (const auto* type : {L"TextBlock", L"Button"}) {
+            TapQueryRequest request;
+            request.type = type; request.fields = {L"FontSize"};
+            DevToolsJson result;
+            check(DevToolsJsonParse(ExecuteQuery_ui(request), result) &&
+                result.Find(L"scope")->GetString(L"rootHandle") == std::to_wstring(first) &&
+                result.GetInt(L"scopeNodes", 0) == 1 &&
+                result.GetBool(L"ok", false) == (request.type == L"TextBlock"),
+                "reserved root scope is reported on both native query success and no-match");
+            if (request.type == L"Button")
+                check(result.Find(L"error") && result.Find(L"error")->IsObject() &&
+                    result.Find(L"error")->GetString(L"token") == L"no-match",
+                    "scoped no-match retains the structured error");
+        }
+        TapQueryRequest foreign;
+        foreign.root = second;
+        DevToolsJson refused;
+        check(DevToolsJsonParse(ExecuteQuery_ui(foreign), refused) &&
+            refused.Find(L"scope")->GetString(L"rootHandle") == std::to_wstring(first) &&
+            refused.Find(L"error")->GetString(L"token") == L"outside-window" &&
+            refused.Find(L"matches")->arr.empty(),
+            "a rejected query root cannot replace the effective reserved scope or return foreign matches");
+    }
+    {
+        TapQueryRequest request;
+        request.root = PackWire_nolock(902); request.fields = {L"FontSize"};
+        DevToolsJson result;
+        check(DevToolsJsonParse(ExecuteQuery_ui(request), result) && result.GetBool(L"ok", false) &&
+            result.Find(L"scope")->GetString(L"rootHandle") == std::to_wstring(request.root) &&
+            result.GetInt(L"scopeNodes", 0) == 1,
+            "an explicit query root still reports and searches that subtree");
+        request.root = 0;
+        check(DevToolsJsonParse(ExecuteQuery_ui(request), result) && result.GetBool(L"ok", false) &&
+            result.Find(L"scope")->GetString(L"rootHandle") == L"0" && result.GetInt(L"scopeNodes", 0) == 2,
+            "an unscoped query reports zero root and keeps both census roots");
+    }
     {
         const auto first = PackWire_nolock(901), second = PackWire_nolock(902);
         auto scope = std::make_shared<TapWindowScope>();
@@ -344,7 +416,7 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
     }
     const auto incompatible = query(L"{\"ofType\":\"TextBlock\",\"with\":[\"Text>20\"]}");
     check(incompatible.find(L"ordered-comparison-requires-number") != std::wstring::npos &&
-        incompatible.find(L"\"error\":\"incomplete\"") != std::wstring::npos,
+        incompatible.find(L"\"token\":\"incomplete\"") != std::wstring::npos,
         "valid operator with incompatible runtime type remains explicitly unevaluated");
     g_queryDispatches = 0;
     const auto projected = query(L"{\"ofType\":\"TextBox\",\"fields\":[\"Text\",\"PlaceholderText\",\"AutomationProperties.Name\",\"Missing\"]}");
@@ -397,9 +469,9 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
         "a preview exceeding the 500ms budget reports incompleteness before projecting fields");
     g_sourceInfo = savedSourceInfo;
     check(unknown.find(L"\"unevaluated\":2") != std::wstring::npos &&
-        unknown.find(L"\"error\":\"incomplete\"") != std::wstring::npos, "missing inequality blocks exact targeting");
+        unknown.find(L"\"token\":\"incomplete\"") != std::wstring::npos, "missing inequality blocks exact targeting");
     const auto noMatch = query(L"{\"ofType\":\"Button\"}");
-    check(noMatch.find(L"\"error\":\"no-match\"") != std::wstring::npos &&
+    check(noMatch.find(L"\"token\":\"no-match\"") != std::wstring::npos &&
         noMatch.find(L"\"complete\":true") != std::wstring::npos, "complete zero-match is explicit");
     check(query(L"{\"fields\":[\"FontSize\",\"IsEnabled\"]}").find(L"\"value\":24") != std::wstring::npos,
         "query numeric JSON values are typed");
@@ -478,26 +550,32 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
             projectedNull.find(L"\"value\":null") != std::wstring::npos, "excluded null Text remains null when projected");
         diagnostics.elements[901].text = L"Spaces";
         service.automationIds[902] = L"SpacesHeading";
+        g_mutatedHandle = 0;
+        check(query(parameters, true).find(L"\"status\":\"applied\"") != std::wstring::npos && g_mutatedHandle == 901,
+            "matching ID plus local null Text is excluded, so the single match is written");
+        diagnostics.elements[901].text = L"Spaces";
+        diagnostics.elements[902].canRead = true;
+        diagnostics.elements[902].readResult = E_FAIL;
         g_mutatedHandle = 0; g_queryDispatches = 0; service.chainReads = 0;
         const auto refused = query(parameters, true);
         check(refused.find(L"incomplete") != std::wstring::npos && g_mutatedHandle == 0,
-            "matching ID plus null Text blocks write in both orders");
+            "matching ID plus unresolved Text blocks write in both orders");
         const auto details = diagnosticRows(refused);
         const auto* candidates = details.Find(L"candidates");
         check(candidates && candidates->arr.size() == 1 &&
             candidates->arr.front().GetString(L"selector") == std::to_wstring(PackWire_nolock(902)) &&
             candidates->arr.front().GetString(L"phase") == L"initial" &&
-            candidates->arr.front().GetString(L"reason") == L"null" &&
+            candidates->arr.front().GetString(L"reason") == L"unresolved" &&
             candidates->arr.front().Find(L"predicates") &&
             candidates->arr.front().Find(L"predicates")->arr[reversed ? 0 : 1].GetString(L"truth") == L"unknown" &&
             candidates->arr.front().Find(L"predicates")->arr[reversed ? 1 : 0].GetString(L"truth") == L"true",
-            "null refusal identifies candidate and each predicate in either order");
+            "unresolved refusal identifies candidate and each predicate in either order");
         check(g_queryDispatches == 1 && service.chainReads == 2 && g_mutatedHandle == 0,
             "initial diagnostics add no dispatch chains or writes");
         service.automationIds.erase(902);
         const auto bothUnknown = query(parameters, true);
         check(bothUnknown.find(L"incomplete") != std::wstring::npos && g_mutatedHandle == 0,
-            "missing ID plus null Text blocks write in both orders");
+            "missing ID plus unresolved Text blocks write in both orders");
         const auto bothDetails = diagnosticRows(bothUnknown);
         const auto* bothCandidates = bothDetails.Find(L"candidates");
         check(bothCandidates && bothCandidates->arr.size() == 1 &&
@@ -512,8 +590,7 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
                 if (++reads == 3) {
                     service.automationIds[902] = L"SpacesHeading";
                     if (!stillUnknown) {
-                        service.nullText.clear();
-                        diagnostics.elements[902].canRead = true;
+                        diagnostics.elements[902].readResult = S_OK;
                         diagnostics.elements[902].text = L"Spaces";
                     }
                 }
@@ -533,8 +610,7 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
             check(g_queryDispatches == 1 && service.chainReads == 4 && g_mutatedHandle == 0,
                 "final diagnostics add no dispatch chains or writes");
             service.onRead = {};
-            service.nullText = {902};
-            diagnostics.elements[902].canRead = false;
+            diagnostics.elements[902].readResult = E_FAIL;
         }
         service.automationIds[902] = L"Other";
         reads = 0;
@@ -542,6 +618,8 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
         check(query(parameters, true).find(L"target-changed") != std::wstring::npos && g_mutatedHandle == 0,
             "whole-chain acquisition failure still blocks final guard");
         service.onRead = {}; service.failRead = false;
+        diagnostics.elements[902].readResult = S_OK;
+        diagnostics.elements[902].canRead = false;
     }
     service.automationIds.clear(); service.nullText.clear();
     diagnostics.elements[902].canRead = true;
@@ -559,6 +637,8 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
     check(service.chainReads == 35 && g_queryDispatches == 1 && g_mutatedHandle == 0 &&
         capped.find(L"\"unevaluated\":35") != std::wstring::npos,
         "capped diagnostics preserve scope evaluation reads dispatch and refusal");
+    check(capped.find(L"\"truncatedBy\"") == std::wstring::npos,
+        "a write refused for unknown values does not blame the time budget");
     for (InstanceHandle raw = 903; raw < 936; ++raw) {
         FreeSlot_nolock(raw); g_type.erase(raw); diagnostics.elements.erase(raw);
     }
@@ -606,6 +686,14 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
         diagnosticCensus, {{L"Text", L"==", L"x"}});
     check(winrt::to_string(nearBudget).size() <= 64 * 1024 && nearBudget.find(L"\"omitted\":0") != std::wstring::npos,
         "near-budget escaped diagnostic stays within the actual UTF-8 byte limit");
+    reads = 0;
+    service.onRead = [&] { if (++reads <= 2) Sleep(300); };
+    const auto textBeforeBudget = diagnostics.elements[901].text;
+    g_mutatedHandle = 0;
+    check(query(L"{\"ofType\":\"TextBlock\",\"property\":\"Text\",\"value\":\"No\"}", true).find(L"\"status\":\"applied\"") != std::wstring::npos &&
+        g_mutatedHandle == 901, "finding the target and rechecking it before the write each get their own time budget");
+    diagnostics.elements[901].text = textBeforeBudget;
+    g_mutatedHandle = 0;
     service.onRead = [] { Sleep(550); };
     check(query(L"{\"ofType\":\"TextBlock\",\"property\":\"Text\",\"value\":\"No\"}", true).find(L"\"truncatedBy\":\"time-budget\"") != std::wstring::npos &&
         g_mutatedHandle == 0, "over-budget last candidate cannot authorize mutation");
@@ -711,6 +799,30 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
             "indeterminate write reconciles with a read, not a retry");
     }
     QueryBenchmark(diagnostics, service, check);
+    // One full read per element type teaches where a property lives; other elements of that type are then
+    // ruled out by reading only the predicate's property.
+    for (InstanceHandle raw = 1000; raw < 1024; ++raw) service.automationIds[raw] = L"Id" + std::to_wstring(raw);
+    service.automationIds[901] = L"Id901";
+    service.liveIds = true;
+    service.chainReads = 0; g_mutatedHandle = 0;
+    const auto byId = query(L"{\"ofType\":\"TextBlock\",\"with\":[\"AutomationProperties.AutomationId==Id1012\"],"
+        L"\"property\":\"Text\",\"value\":\"Picked\"}", true);
+    check(byId.find(L"\"status\":\"applied\"") != std::wstring::npos && g_mutatedHandle == 1012 &&
+        byId.find(L"\"evaluated\":25") != std::wstring::npos && service.chainReads == 4 && service.liveReads > 0,
+        "same-type candidates are excluded by a single AutomationId read instead of a full property chain");
+    // A name without its owner is resolved per element, so it is never taken from another element's read.
+    service.liveReads = 0; g_mutatedHandle = 0;
+    const auto ownerless = query(L"{\"ofType\":\"TextBlock\",\"with\":[\"AutomationId==Id1012\"],"
+        L"\"property\":\"Text\",\"value\":\"Picked\"}", true);
+    check(ownerless.find(L"\"status\":\"applied\"") != std::wstring::npos && g_mutatedHandle == 1012 && service.liveReads == 0,
+        "an ownerless property name always uses the full read");
+    service.liveIds = false; service.automationIds.clear();
+    service.chainReads = 0; g_mutatedHandle = 0;
+    const auto byText = query(L"{\"ofType\":\"TextBlock\",\"with\":[\"Text==Daylight-like heading 1005\"],"
+        L"\"property\":\"Text\",\"value\":\"Picked\"}", true);
+    check(byText.find(L"\"status\":\"applied\"") != std::wstring::npos && g_mutatedHandle == 1005 &&
+        byText.find(L"\"evaluated\":25") != std::wstring::npos && service.chainReads == 4,
+        "same-type candidates are excluded by reading Text alone instead of a full property chain");
     std::wprintf(L"Query fixture projected result: %s\n", projected.c_str());
     g_diag = previousDiagnostics; g_vts3 = previousService;
     g_queryDiagnostics = nullptr; g_testPropertyMutation = nullptr; g_testEnqueueUiOperation = nullptr; g_dispatcher = nullptr;

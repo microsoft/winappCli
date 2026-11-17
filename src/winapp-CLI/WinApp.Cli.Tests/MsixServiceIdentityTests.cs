@@ -1829,6 +1829,51 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.IsFalse(MsixService.IsPathInsideDirectory("bad\0path", _tempDirectory.FullName));
     }
 
+    // ---- EnsureLayoutIsNotVirtualized (issue #1049) -------------------------------
+
+    private static readonly string[] FakeAppDataFolders =
+        [@"C:\Users\dev\AppData\Local", @"C:\Users\dev\AppData\Roaming", @"C:\Users\dev\AppData\LocalLow"];
+    private const string FakeTemp = @"C:\Users\dev\AppData\Local\Temp\";
+
+    [TestMethod]
+    [DataRow(@"C:\Users\dev\AppData\Local\winapp-layout\repro")]
+    [DataRow(@"C:\Users\dev\AppData\Roaming\layout")]
+    [DataRow(@"C:\Users\dev\AppData\LocalLow\layout")]
+    public void EnsureLayoutIsNotVirtualized_PackagedUnderAppData_Throws(string layout)
+    {
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+            () => MsixService.EnsureLayoutIsNotVirtualized(layout, isPackaged: true, FakeAppDataFolders, FakeTemp));
+
+        StringAssert.Contains(ex.Message, layout, StringComparison.Ordinal);
+        StringAssert.Contains(ex.Message, "outside AppData", StringComparison.Ordinal);
+    }
+
+    [TestMethod]
+    [DataRow(@"C:\Users\dev\layout")]
+    [DataRow(@"C:\Users\dev\AppData\Local\Temp\winapp-package-1")]
+    [DataRow(@"C:\Users\dev\AppDataX\layout")]
+    [DataRow(@"C:\Users\dev\AppData\Other\layout")]
+    public void EnsureLayoutIsNotVirtualized_PackagedOutsideRedirectedAppData_DoesNotThrow(string layout)
+    {
+        MsixService.EnsureLayoutIsNotVirtualized(layout, isPackaged: true, FakeAppDataFolders, FakeTemp);
+    }
+
+    [TestMethod]
+    public void EnsureLayoutIsNotVirtualized_RelocatedLocalAppData_OnlyRejectsThatFolder()
+    {
+        string?[] folders = [@"D:\LocalAppData", @"C:\Users\dev\AppData\Roaming", null];
+
+        MsixService.EnsureLayoutIsNotVirtualized(@"D:\Projects\layout", isPackaged: true, folders, FakeTemp);
+        Assert.ThrowsExactly<InvalidOperationException>(
+            () => MsixService.EnsureLayoutIsNotVirtualized(@"D:\LocalAppData\layout", isPackaged: true, folders, FakeTemp));
+    }
+
+    [TestMethod]
+    public void EnsureLayoutIsNotVirtualized_NotPackaged_DoesNotThrow()
+    {
+        MsixService.EnsureLayoutIsNotVirtualized(@"C:\Users\dev\AppData\Local\layout", isPackaged: false, FakeAppDataFolders, FakeTemp);
+    }
+
     // ---- Register wrappers --------------------------------------------------------
 
     [TestMethod]
@@ -2855,6 +2900,77 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.IsFalse(File.Exists(Path.Combine(output.FullName, "TestApp.pri")), "The original <exe>.pri should no longer exist after rename");
     }
 
+    [TestMethod]
+    public async Task AddLooseLayoutIdentityAsync_RenamedExePri_MergesManifestLogosIntoResourcesPri()
+    {
+        // A file-based WinUI app's build PRI only indexes XAML; the manifest logos must be added so the
+        // shell finds the unplated taskbar variant (#1077).
+        var srcDir = _tempDirectory.CreateSubdirectory("raw-input");
+        var srcManifest = new FileInfo(Path.Join(srcDir.FullName, "Package.appxmanifest"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildRawManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(srcDir.FullName, "TestApp.exe"), "pe", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(srcDir.FullName, "TestApp.pri"), "pri-bytes", TestContext.CancellationToken);
+        var assets = srcDir.CreateSubdirectory("Assets");
+        await File.WriteAllTextAsync(Path.Join(assets.FullName, "logo.png"), "png", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(assets.FullName, "logo.targetsize-24_altform-unplated.png"), "png", TestContext.CancellationToken);
+
+        var output = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "layout"));
+
+        await _msixService.AddLooseLayoutIdentityAsync(
+            srcManifest, srcDir, output, TestTaskContext, LayoutReconciliation.Exact, cancellationToken: TestContext.CancellationToken);
+
+        var merges = _fakeBuildTools.Invocations
+            .Where(i => i.Arguments.Contains("merge.xml", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        Assert.AreEqual(1, merges.Count, "The renamed build PRI should be merged with the manifest logos once.");
+        StringAssert.Contains(merges[0].Arguments, "/in \"TestApp\"");
+        Assert.AreEqual("fake pri", await File.ReadAllTextAsync(Path.Join(output.FullName, "resources.pri"), TestContext.CancellationToken),
+            "resources.pri should be replaced by the merged PRI");
+    }
+
+    [TestMethod]
+    public async Task AddLooseLayoutIdentityAsync_NoExePri_GeneratesPriWithoutMerging()
+    {
+        var srcDir = _tempDirectory.CreateSubdirectory("raw-input");
+        var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "Package.appxmanifest"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildRawManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(srcDir.FullName, "TestApp.exe"), "pe", TestContext.CancellationToken);
+        var assets = srcDir.CreateSubdirectory("Assets");
+        await File.WriteAllTextAsync(Path.Combine(assets.FullName, "logo.png"), "png", TestContext.CancellationToken);
+
+        var output = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "layout"));
+
+        await _msixService.AddLooseLayoutIdentityAsync(
+            srcManifest, srcDir, output, TestTaskContext, LayoutReconciliation.Exact, cancellationToken: TestContext.CancellationToken);
+
+        Assert.IsFalse(
+            _fakeBuildTools.Invocations.Any(i => i.Arguments.Contains("merge.xml", StringComparison.OrdinalIgnoreCase)),
+            "A PRI that winapp generated from the manifest already indexes the logos.");
+    }
+
+    [TestMethod]
+    public async Task AddLooseLayoutIdentityAsync_PriMergeFails_WarnsAndKeepsBuildPri()
+    {
+        var srcDir = _tempDirectory.CreateSubdirectory("raw-input");
+        var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "Package.appxmanifest"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildRawManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(srcDir.FullName, "TestApp.exe"), "pe", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(srcDir.FullName, "TestApp.pri"), "pri-bytes", TestContext.CancellationToken);
+        var assets = srcDir.CreateSubdirectory("Assets");
+        await File.WriteAllTextAsync(Path.Combine(assets.FullName, "logo.png"), "png", TestContext.CancellationToken);
+        _fakeBuildTools.ThrowWhen = (tool, args) =>
+            tool.Contains("makepri", StringComparison.OrdinalIgnoreCase) && args.Contains("merge.xml", StringComparison.OrdinalIgnoreCase);
+
+        var output = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "layout"));
+
+        var result = await _msixService.AddLooseLayoutIdentityAsync(
+            srcManifest, srcDir, output, TestTaskContext, LayoutReconciliation.Exact, cancellationToken: TestContext.CancellationToken);
+
+        Assert.AreEqual("TestApp", result.PackageName);
+        Assert.AreEqual("pri-bytes", await File.ReadAllTextAsync(Path.Combine(output.FullName, "resources.pri"), TestContext.CancellationToken),
+            "A failed merge must leave the build's PRI in place so the app still launches");
+    }
+
     // ---- Executable manifest embedding (mt.exe) ----------------------------------
 
     private Task InvokeEmbedManifestFileToExeAsync(FileInfo exe, FileInfo manifest) =>
@@ -3392,6 +3508,9 @@ internal sealed class ScriptedMtBuildToolsService : IBuildToolsService
 
     /// <summary>Recorded mt.exe argument strings.</summary>
     public List<string> MtInvocations { get; } = [];
+
+    /// <summary>Recorded non-mt tool invocations (makepri, makeappx, ...).</summary>
+    public List<(string ToolName, string Arguments)> Invocations => _inner.Invocations;
 
     /// <summary>
     /// When true, an mt.exe "-inputresource ... -out:PATH" invocation writes

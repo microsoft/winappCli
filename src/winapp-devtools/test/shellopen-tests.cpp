@@ -54,7 +54,7 @@ static void TestNoHandlerNeverLaunches()
     Check(s.askedExtension == L".xaml",
                    "the association is asked for the extension the caller named");
     const std::wstring msg = DevToolsShellOpen::Describe(r, L"MainWindow.xaml", 88, L"C:\\app\\MainWindow.xaml", L"");
-    Check(msg.find(L"Reveal in File Explorer") != std::wstring::npos &&
+    Check(msg.find(L"Show in File Explorer") != std::wstring::npos &&
                        msg.find(L"Copy path") != std::wstring::npos,
                    "and the status names the two actions that cannot fail instead");
     Check(msg.find(L"88") == std::wstring::npos,
@@ -109,6 +109,11 @@ static void TestUnresolvedAndMissing()
         const auto r = Run(s, L"");
         Check(r.outcome == DevToolsShellOpen::Outcome::NoPath, "an unresolved URI reports NoPath");
         Check(!s.launched, "and nothing is launched for it");
+        const auto message = DevToolsShellOpen::Describe(r, L"Gone.xaml", 55, L"", L"");
+        Check(message.find(L"source file unavailable") != std::wstring::npos &&
+              message.find(L"source folder") != std::wstring::npos &&
+              message.find(L"nothing on this machine opens") == std::wstring::npos,
+              "an unavailable source file gives a file-location hint, not a missing-handler message");
     }
     {
         Shell s; s.handler = L"Notepad"; s.fileExists = false;

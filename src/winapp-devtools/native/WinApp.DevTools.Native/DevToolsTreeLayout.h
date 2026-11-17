@@ -79,6 +79,8 @@ std::vector<char> ComputeVisibility(const std::vector<Row>& rows, const std::vec
 
 constexpr size_t kNoRow = static_cast<size_t>(-1);
 
+std::vector<size_t> ComputeVisibleParents(const std::vector<Row>& rows, const std::vector<char>& visible);
+
 // Walk full census depth, not rendered rows; JMX-filtered views omit the framework rows that bridge ancestors.
 size_t NearestAppAuthoredAncestor(const std::vector<Row>& rows, size_t target);
 
@@ -92,6 +94,7 @@ size_t RestoreCollapseByKey(const std::vector<unsigned long long>& oldKeys,
                             const std::vector<unsigned long long>& newKeys,
                             std::vector<char>& newCollapsed);
 
+// Keep the two nearest ancestors ("… › Grid › Parent"); callers show the full chain in a tooltip.
 std::wstring ElideBreadcrumb(const std::wstring& full, size_t& outSegments);
 
 } // namespace DevToolsTreeLayout

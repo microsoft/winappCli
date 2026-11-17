@@ -139,6 +139,33 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task SingleFileMode_ConfigurationProperty_SelectsConfiguration()
+    {
+        var (singleFile, outputDir) = CreateSingleFileApp();
+        SetOutcome(singleFile, outputDir);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "-p", "Configuration=Release", "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("Release", _fakeProjectRunService.SingleFileBuildOptions.Single().Configuration);
+    }
+
+    [TestMethod]
+    public async Task SingleFileMode_ConflictingConfiguration_IsRejected()
+    {
+        var (singleFile, outputDir) = CreateSingleFileApp();
+        SetOutcome(singleFile, outputDir);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, [singleFile.FullName, "-c", "Debug", "-p", "Configuration=Release", "--detach"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveSingleFileCalls.Count);
+    }
+
+    [TestMethod]
     public async Task SingleFileMode_BuildFailure_PropagatesTheDotnetExitCode()
     {
         var (singleFile, _) = CreateSingleFileApp();

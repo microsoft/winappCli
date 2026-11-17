@@ -109,6 +109,12 @@ dotnet run hello.cs
 
 The output shows the same package identity as `winapp run`. Because `dotnet run` builds into a different output folder, it warns that it is replacing an existing registration installed from a different location. This is expected, and you can ignore it.
 
+The package also gives the app a placeholder window icon, so a windowed app shows an icon in its title bar. To use your own, point `ApplicationIcon` at an `.ico` file:
+
+```csharp
+#:property ApplicationIcon=Assets\MyApp.ico
+```
+
 For the properties that control this launch, see [Running with `dotnet run`](../usage.md#running-with-dotnet-run).
 
 ## 5. Clean up

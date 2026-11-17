@@ -25,6 +25,7 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
     g_pickDiag = diag; g_pickRoot = rootHandle; g_pickSeed = seed; g_pickIsOverlay = isOverlay;
     if (!DevToolsSurface_Resolve(diag, appPanel, &g_toolbarSurface)) return E_PENDING;
     g_overlayUiThreadId = GetCurrentThreadId();
+    InstallPickShortcutHook();
     if (g_appPanel) g_appPanel->Release();
     g_appPanel = themePanel.detach();
 
@@ -261,6 +262,7 @@ static double QpcNow()
     return freq.QuadPart ? (double)c.QuadPart * 1000000.0 / (double)freq.QuadPart : 0.0;
 }
 static int g_adornerX = 0, g_adornerY = 0, g_adornerW = 0, g_adornerH = 0;
+static bool g_adornerPreview = false;
 static double g_lastAdornerLoadUs = 0.0;
 static double g_lastAdornerTotalUs = 0.0;
 static double g_lastAdornerClearUs = 0.0;
@@ -283,7 +285,8 @@ static void ClearAdorner(){
 // Draw (or replace) the pick-highlight adorner in the overlay Canvas at the given DIP rect. The adorner is a
 // stroke-only, hit-test-transparent Border, so it never intercepts the next pick and, as a child of the
 // overlay Canvas (whose handle is in the exclusion set), is self-excluded from the element-count oracle (bel.
-static HRESULT DrawAdorner(IXamlDiagnostics* diag, int x, int y, int w, int h, DevToolsSeedFn seed)
+static HRESULT DrawAdorner(IXamlDiagnostics* diag, int x, int y, int w, int h, DevToolsSeedFn seed,
+                           bool preview = false)
 {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::OverlayAdorner);
     if (!g_highlightChildren) { DevToolsOverlayLog(L"overlay.adorner no canvas host"); return E_PENDING; }
@@ -298,7 +301,7 @@ static HRESULT DrawAdorner(IXamlDiagnostics* diag, int x, int y, int w, int h, D
 
     IInspectable* adornInsp = nullptr;
     const double tLoad0 = QpcNow();
-    HRESULT hr = LoadMarkup(BuildAdornerMarkup(x, y, w, h), &adornInsp);
+    HRESULT hr = LoadMarkup(BuildAdornerMarkup(x, y, w, h, preview), &adornInsp);
     const double loadUs = QpcNow() - tLoad0;
     g_lastAdornerLoadUs = loadUs;
     if (FAILED(hr) || !adornInsp) {
@@ -324,8 +327,9 @@ static HRESULT DrawAdorner(IXamlDiagnostics* diag, int x, int y, int w, int h, D
     g_lastAdornerClearUs = clearUs;
     g_lastAdornerInsertUs = insertUs;
     g_adornerX = x; g_adornerY = y; g_adornerW = w; g_adornerH = h;
-    DevToolsOverlayLog(L"overlay.adorner Load hr=0x%08X rect=%d,%d,%d,%d InsertAt(%u) hr=0x%08X seed=%llu",
-        hr, x, y, w, h, size, hrI, ah);
+    g_adornerPreview = preview;
+    DevToolsOverlayLog(L"overlay.adorner Load hr=0x%08X rect=%d,%d,%d,%d InsertAt(%u) hr=0x%08X seed=%llu preview=%d",
+        hr, x, y, w, h, size, hrI, ah, preview ? 1 : 0);
     return hrI;
 }
 
