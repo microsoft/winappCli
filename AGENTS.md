@@ -391,7 +391,7 @@ Each sample under `samples/` has a self-contained **Pester 5.x** test file (`tes
 `Build and Package` builds both CLI architectures and all packages together
 with `-SkipTests -SkipDocs`. Keep full git history in `build-artifacts` so the
 build number is calculated correctly. It uploads packages, then starts the full
-test suite, documentation validation, UI E2E, and (on PRs) sample tests as
+test suite, documentation validation, UI E2E, and (on PRs and merge queue runs) sample tests as
 independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it must
 not republish or delete the downloaded CLI and NuGet packages.
 CI runs `-TestSuite Cli -CliShard 1`, `-TestSuite Cli -CliShard 2`,
