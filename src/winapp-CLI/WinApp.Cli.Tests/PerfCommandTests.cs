@@ -207,6 +207,54 @@ public class PerfCommandTests : BaseCommandTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
+    public async Task ConcurrentAnalysisReportsContentionAndSucceedsAfterRelease(bool json)
+    {
+        var directory = CreateCachedAnalysis(
+            [new("c1", "MeasureElement", "layout", 7, null, null, "v1", "v2",
+                10, 15, 5, null, "complete", 5)]);
+        try
+        {
+            string[] args = json
+                ? ["perf", "analyze", directory.FullName, "--view", "calls", "--json"]
+                : ["perf", "analyze", directory.FullName, "--view", "calls"];
+            const string message = "Another winapp perf analyze is using this capture. Retry when it finishes.";
+            using (var held = new FileStream(Path.Join(directory.FullName, ".analysis.lock"),
+                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                var (stdout, stderr, code) = await InvokeProgramAsync(args);
+                Assert.AreEqual(1, code);
+                Assert.AreEqual("", stdout);
+                if (json)
+                {
+                    using var error = JsonDocument.Parse(stderr);
+                    Assert.AreEqual("performance_error", error.RootElement.GetProperty("code").GetString());
+                    Assert.AreEqual(message, error.RootElement.GetProperty("message").GetString());
+                    Assert.IsFalse(error.RootElement.GetProperty("partialOutput").GetBoolean());
+                }
+                else
+                {
+                    Assert.AreEqual(message, stderr.TrimEnd());
+                }
+            }
+
+            var retry = await InvokeProgramAsync(args);
+            Assert.AreEqual(0, retry.ExitCode, retry.Stderr);
+            Assert.AreEqual("", retry.Stderr);
+            if (json)
+            {
+                using var result = JsonDocument.Parse(retry.Stdout);
+                Assert.AreEqual(1, result.RootElement.GetProperty("rows").GetArrayLength());
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     public async Task UndecodableDiagnosticAndRecordingBoundariesDoNotMakeTimingAnalysisPartial(bool unmatched)
     {
         var directory = Directory.CreateTempSubdirectory("WinApp-Perf-Diagnostic-");
