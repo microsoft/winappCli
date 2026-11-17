@@ -290,7 +290,7 @@ public class ProgramSeamTests
         Assert.AreEqual(7, result);
 
         // Telemetry must bracket the invocation: CommandInvoked before running, CommandCompleted after.
-        CollectionAssert.AreEqual(ExpectedTelemetrySequence, sequence,
+        Assert.AreSequenceEqual(ExpectedTelemetrySequence, sequence,
             "Invoked telemetry fires before the command runs and completed telemetry fires after it returns.");
         Assert.AreSame(expectedCommandResult, invokedWith,
             "CommandInvoked telemetry must carry the parsed command result.");

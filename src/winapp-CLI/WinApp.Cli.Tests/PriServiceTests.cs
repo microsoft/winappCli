@@ -80,9 +80,9 @@ public class PriServiceTests
         await _service.CreatePriConfigAsync(_packageDir, _taskContext, candidates);
 
         var resfiles = await File.ReadAllTextAsync(Path.Combine(_packageDir.FullName, "pri.resfiles"));
-        StringAssert.Contains(resfiles, "Assets\\Logo.png");
-        StringAssert.Contains(resfiles, "Assets\\Splash.jpg");
-        StringAssert.Contains(resfiles, "Assets\\Icon.ico");
+        Assert.Contains("Assets\\Logo.png", resfiles);
+        Assert.Contains("Assets\\Splash.jpg", resfiles);
+        Assert.Contains("Assets\\Icon.ico", resfiles);
         Assert.IsFalse(resfiles.Contains("readme.txt", StringComparison.Ordinal));
         Assert.IsFalse(resfiles.Contains("app.dll", StringComparison.Ordinal));
     }
@@ -101,9 +101,9 @@ public class PriServiceTests
         Assert.AreEqual(1, _buildTools.Invocations.Count);
         var (tool, args) = _buildTools.Invocations[0];
         Assert.AreEqual("makepri.exe", tool);
-        StringAssert.Contains(args, "createconfig");
-        StringAssert.Contains(args, "lang-fr-FR");
-        StringAssert.Contains(args, "/pv 10.0.1");
+        Assert.Contains("createconfig", args);
+        Assert.Contains("lang-fr-FR", args);
+        Assert.Contains("/pv 10.0.1", args);
     }
 
     [TestMethod]
@@ -119,12 +119,12 @@ public class PriServiceTests
 
         var xml = await File.ReadAllTextAsync(configPath.FullName);
         // A resfiles indexer-config must be appended.
-        StringAssert.Contains(xml, "type=\"resfiles\"");
+        Assert.Contains("type=\"resfiles\"", xml);
         // startIndexAt must be rewritten to the relative resfiles path.
-        StringAssert.Contains(xml, ".\\pri.resfiles");
+        Assert.Contains(".\\pri.resfiles", xml);
         // Folder indexer must be augmented with both qualifier flags (created since they were absent).
-        StringAssert.Contains(xml, "foldernameAsQualifier=\"true\"");
-        StringAssert.Contains(xml, "filenameAsQualifier=\"true\"");
+        Assert.Contains("foldernameAsQualifier=\"true\"", xml);
+        Assert.Contains("filenameAsQualifier=\"true\"", xml);
     }
 
     [TestMethod]
@@ -146,8 +146,8 @@ public class PriServiceTests
         var configPath = await _service.CreatePriConfigAsync(_packageDir, _taskContext, ["Logo.png"]);
 
         var xml = await File.ReadAllTextAsync(configPath.FullName);
-        StringAssert.Contains(xml, "foldernameAsQualifier=\"true\"");
-        StringAssert.Contains(xml, "filenameAsQualifier=\"true\"");
+        Assert.Contains("foldernameAsQualifier=\"true\"", xml);
+        Assert.Contains("filenameAsQualifier=\"true\"", xml);
         Assert.IsFalse(xml.Contains("=\"false\"", StringComparison.Ordinal), "Existing false flags should have been flipped to true.");
     }
 
@@ -174,7 +174,7 @@ public class PriServiceTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             _service.CreatePriConfigAsync(_packageDir, _taskContext, ["a.png"]));
-        StringAssert.Contains(ex.Message, "Failed to create PRI configuration");
+        Assert.Contains("Failed to create PRI configuration", ex.Message);
     }
 
     #endregion
@@ -242,7 +242,7 @@ public class PriServiceTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             _service.GeneratePriFileAsync(_packageDir, _taskContext));
-        StringAssert.Contains(ex.Message, "Failed to generate PRI file");
+        Assert.Contains("Failed to generate PRI file", ex.Message);
     }
 
     [TestMethod]
@@ -257,8 +257,8 @@ public class PriServiceTests
         await _service.GeneratePriFileAsync(_packageDir, _taskContext, customConfig, customOutput);
 
         var (_, invokedArgs) = _buildTools.Invocations[0];
-        StringAssert.Contains(invokedArgs, "custom.xml");
-        StringAssert.Contains(invokedArgs, "custom.pri");
+        Assert.Contains("custom.xml", invokedArgs);
+        Assert.Contains("custom.pri", invokedArgs);
     }
 
     #endregion
@@ -288,7 +288,7 @@ public class PriServiceTests
         var languages = await _service.ExtractLanguagesFromPriAsync(priFile, _taskContext, CancellationToken.None);
 
         string[] expected = ["en-US", "fr-FR"];
-        CollectionAssert.AreEqual(expected, languages);
+        Assert.AreSequenceEqual(expected, languages);
     }
 
     [TestMethod]
@@ -307,7 +307,7 @@ public class PriServiceTests
         var languages = await _service.ExtractLanguagesFromPriAsync(priFile, _taskContext, CancellationToken.None);
 
         string[] expected = ["de-DE"];
-        CollectionAssert.AreEqual(expected, languages);
+        Assert.AreSequenceEqual(expected, languages);
         Assert.IsNotNull(dumpPath);
         Assert.IsFalse(File.Exists(dumpPath), "The temporary dump file should be deleted after parsing.");
     }
@@ -399,12 +399,12 @@ public class PriServiceTests
         Assert.AreEqual(1, _buildTools.Invocations.Count);
         var (tool, args) = _buildTools.Invocations[0];
         Assert.AreEqual("makepri.exe", tool);
-        StringAssert.StartsWith(args, "new ");
-        StringAssert.Contains(args, "/in \"Contoso.App\"");
+        Assert.StartsWith("new ", args);
+        Assert.Contains("/in \"Contoso.App\"", args);
         Assert.IsTrue(originalCopied, "The existing resources.pri should be indexed as original.pri.");
         Assert.IsTrue(unplatedCopied, "The unplated asset should be copied next to the resfiles list.");
         string[] expected = ["Assets\\AppList.png", "Assets\\AppList.targetsize-24_altform-unplated.png"];
-        CollectionAssert.AreEqual(expected, resfiles);
+        Assert.AreSequenceEqual(expected, resfiles);
         Assert.AreEqual("merged-pri", File.ReadAllText(Path.Combine(_packageDir.FullName, "resources.pri")));
     }
 
@@ -430,7 +430,7 @@ public class PriServiceTests
 
         Assert.IsTrue(merged);
         string[] expected = ["Assets\\Logo.png"];
-        CollectionAssert.AreEqual(expected, resfiles);
+        Assert.AreSequenceEqual(expected, resfiles);
     }
 
     [TestMethod]

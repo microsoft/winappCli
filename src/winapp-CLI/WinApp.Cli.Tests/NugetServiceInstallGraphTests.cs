@@ -53,8 +53,8 @@ public class NugetServiceInstallGraphTests : BaseCommandTests
 
             // The failure must name the conflicting package and describe the unsatisfiable constraint rather
             // than being swallowed as a successful install.
-            StringAssert.Contains(ex.Message, "Diamond.C", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "cannot be resolved to a single version", StringComparison.Ordinal);
+            Assert.Contains("Diamond.C", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("cannot be resolved to a single version", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -110,8 +110,8 @@ public class NugetServiceInstallGraphTests : BaseCommandTests
             // reason if traversal order changes.
             if (failure is not null)
             {
-                StringAssert.Contains(failure.Message, "DiffMin.C", StringComparison.Ordinal);
-                StringAssert.Contains(failure.Message, "cannot be resolved to a single version", StringComparison.Ordinal);
+                Assert.Contains("DiffMin.C", failure.Message, StringComparison.Ordinal);
+                Assert.Contains("cannot be resolved to a single version", failure.Message, StringComparison.Ordinal);
             }
             else
             {
@@ -384,7 +384,7 @@ public class NugetServiceInstallGraphTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => service.InstallPackageAsync("Live.Root", "1.0.0", TestTaskContext, TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "Live.Missing", StringComparison.Ordinal);
+            Assert.Contains("Live.Missing", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -521,7 +521,7 @@ public class NugetServiceInstallGraphTests : BaseCommandTests
                 return;
             }
 
-            StringAssert.Contains(failure.Message, "Drop.Shared", StringComparison.Ordinal);
+            Assert.Contains("Drop.Shared", failure.Message, StringComparison.Ordinal);
         }
         finally
         {

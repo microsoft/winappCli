@@ -94,7 +94,7 @@ public class DevToolsCommentsDeleteCommandTests
             }
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(StorePath));
+        Assert.AreSequenceEqual(bytes, File.ReadAllBytes(StorePath));
         Assert.AreEqual(0, pusher.Pushes.Count);
     }
 
@@ -106,7 +106,7 @@ public class DevToolsCommentsDeleteCommandTests
         var (exit, output, _) = Run(seeded.Id);
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "Deleted");
+        Assert.Contains("Deleted", output);
         Assert.AreEqual(0, NewStore().Load(StorePath).Comments.Count);
     }
 
@@ -136,7 +136,7 @@ public class DevToolsCommentsDeleteCommandTests
         var payload = JsonSerializer.Deserialize(output, CommentsJsonContext.Default.CommentResultPayload);
         Assert.IsNotNull(payload);
         Assert.IsFalse(payload.Ok);
-        StringAssert.Contains(payload.Error ?? string.Empty, "not found");
+        Assert.Contains("not found", payload.Error ?? string.Empty);
         Assert.AreEqual(1, NewStore().Load(StorePath).Comments.Count);
     }
 
@@ -169,7 +169,7 @@ public class DevToolsCommentsDeleteCommandTests
         var (exit, _, pusher) = Run(seeded.Id, "--app", "4321");
 
         Assert.AreEqual(0, exit);
-        CollectionAssert.AreEqual(new List<uint> { 4321 }, pusher.Pushes, "the marker must leave the screen without a relaunch");
+        Assert.AreSequenceEqual(new List<uint> { 4321 }, pusher.Pushes, "the marker must leave the screen without a relaunch");
     }
 
     [TestMethod]
@@ -197,8 +197,8 @@ public class DevToolsCommentsDeleteCommandTests
         }
         else
         {
-            StringAssert.Contains(console.Output, "markers could not be");
-            StringAssert.Contains(console.Output, "Reattach DevTools");
+            Assert.Contains("markers could not be", console.Output);
+            Assert.Contains("Reattach DevTools", console.Output);
         }
     }
 

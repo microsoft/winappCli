@@ -76,9 +76,9 @@ public class PackageRegistrationServiceTests
             errorText: null,
             ERROR_INSTALL_FAILED);
 
-        StringAssert.Contains(ex.Message, "(0x80073CF9)");
-        StringAssert.Contains(ex.Message, "MAX_PATH");
-        StringAssert.Contains(ex.Message, "--output-appx-directory");
+        Assert.Contains("(0x80073CF9)", ex.Message);
+        Assert.Contains("MAX_PATH", ex.Message);
+        Assert.Contains("--output-appx-directory", ex.Message);
     }
 
     [TestMethod]
@@ -92,7 +92,7 @@ public class PackageRegistrationServiceTests
             errorText: null,
             ERROR_INSTALL_FAILED);
 
-        StringAssert.Contains(ex.Message, "MAX_PATH");
+        Assert.Contains("MAX_PATH", ex.Message);
         Assert.IsFalse(
             ex.Message.Contains("  winapp run"),
             "sparse callers cannot act on a 'winapp run --output-appx-directory' remediation");
@@ -133,8 +133,8 @@ public class PackageRegistrationServiceTests
             "boom",
             unchecked((int)0x8007000B));
 
-        StringAssert.Contains(ex.Message, "Failed to register package: boom");
-        StringAssert.Contains(ex.Message, "(0x8007000B)");
+        Assert.Contains("Failed to register package: boom", ex.Message);
+        Assert.Contains("(0x8007000B)", ex.Message);
     }
 
     [TestMethod]
@@ -145,7 +145,7 @@ public class PackageRegistrationServiceTests
             errorText: null,
             hresult: null);
 
-        StringAssert.Contains(ex.Message, "Unknown error");
+        Assert.Contains("Unknown error", ex.Message);
     }
 
     [TestMethod]
@@ -157,7 +157,7 @@ public class PackageRegistrationServiceTests
             ERROR_INSTALL_PACKAGE_ALREADY_EXISTS,
             packageIdentityName: null);
 
-        StringAssert.Contains(ex.Message, "Get-AppxPackage <PackageName> | Remove-AppxPackage");
+        Assert.Contains("Get-AppxPackage <PackageName> | Remove-AppxPackage", ex.Message);
     }
 
     [TestMethod]
@@ -169,7 +169,7 @@ public class PackageRegistrationServiceTests
             ERROR_INSTALL_PACKAGE_ALREADY_EXISTS,
             packageIdentityName: "Contoso.MyApp");
 
-        StringAssert.Contains(ex.Message, "Get-AppxPackage Contoso.MyApp | Remove-AppxPackage");
+        Assert.Contains("Get-AppxPackage Contoso.MyApp | Remove-AppxPackage", ex.Message);
         Assert.IsFalse(ex.Message.Contains("<PackageName>"),
             "Hint must use the actual identity, not the literal placeholder");
     }
@@ -231,9 +231,9 @@ public class PackageRegistrationServiceTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => svc.RegisterLooseLayoutAsync(manifest));
 
-            StringAssert.Contains(ex.Message, "Failed to register package: denied");
+            Assert.Contains("Failed to register package: denied", ex.Message);
             // TryReadIdentityName read the real manifest, so the hint uses the true identity.
-            StringAssert.Contains(ex.Message, "Get-AppxPackage Contoso.MyApp | Remove-AppxPackage");
+            Assert.Contains("Get-AppxPackage Contoso.MyApp | Remove-AppxPackage", ex.Message);
         }
         finally
         {
@@ -250,7 +250,7 @@ public class PackageRegistrationServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.RegisterLooseLayoutAsync("relative-manifest.xml"));
 
-        StringAssert.Contains(ex.Message, "Sideloading is blocked by Group Policy");
+        Assert.Contains("Sideloading is blocked by Group Policy", ex.Message);
         Assert.AreEqual(ERROR_ACCESS_DISABLED_BY_POLICY, ex.InnerException!.HResult);
     }
 
@@ -266,7 +266,7 @@ public class PackageRegistrationServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.RegisterLooseLayoutAsync(missing));
 
-        StringAssert.Contains(ex.Message, "Failed to register package: winrt boom");
+        Assert.Contains("Failed to register package: winrt boom", ex.Message);
         Assert.AreSame(inner, ex.InnerException);
     }
 
@@ -314,7 +314,7 @@ public class PackageRegistrationServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.RegisterSparseAsync(Path.Combine(dir, "AppxManifest.xml"), dir));
 
-        StringAssert.Contains(ex.Message, "Failed to register sparse package: sparse-fail");
+        Assert.Contains("Failed to register sparse package: sparse-fail", ex.Message);
     }
 
     [TestMethod]
@@ -327,7 +327,7 @@ public class PackageRegistrationServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.RegisterSparseAsync(Path.Combine(dir, "AppxManifest.xml"), dir));
 
-        StringAssert.Contains(ex.Message, "Sideloading is blocked by Group Policy");
+        Assert.Contains("Sideloading is blocked by Group Policy", ex.Message);
     }
 
     [TestMethod]
@@ -341,7 +341,7 @@ public class PackageRegistrationServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.RegisterSparseAsync(Path.Combine(dir, "AppxManifest.xml"), dir));
 
-        StringAssert.Contains(ex.Message, "Failed to register sparse package: sparse boom");
+        Assert.Contains("Failed to register sparse package: sparse boom", ex.Message);
         Assert.AreSame(inner, ex.InnerException);
     }
 
@@ -477,8 +477,8 @@ public class PackageRegistrationServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InstallPackageAsync(Path.Combine(Path.GetTempPath(), "winapp-pkg", "app.msix")));
 
-        StringAssert.Contains(ex.Message, "Failed to install package 'app.msix': install failed");
-        StringAssert.Contains(ex.Message, "0x80073CFB");
+        Assert.Contains("Failed to install package 'app.msix': install failed", ex.Message);
+        Assert.Contains("0x80073CFB", ex.Message);
     }
 
     // ---- GetInstalledVersion -----------------------------------------------

@@ -115,7 +115,7 @@ public class AppLauncherServiceTests
         try
         {
             var ex = Assert.ThrowsExactly<TimeoutException>(() => _service.LaunchByAumid("Contoso.App_abc!App"));
-            StringAssert.Contains(ex.Message, "Contoso.App_abc!App");
+            Assert.Contains("Contoso.App_abc!App", ex.Message);
         }
         finally
         {
@@ -214,7 +214,7 @@ public class AppLauncherServiceTests
             .FindPackagesForUser(string.Empty, installed.Id.FamilyName)
             .Select(p => p.Id.FullName)
             .ToList();
-        CollectionAssert.Contains(familyFullNames, result);
+        Assert.Contains(result, familyFullNames);
     }
 
     // ---- GetRegisteredPackageOrThrow -----------------------------------------

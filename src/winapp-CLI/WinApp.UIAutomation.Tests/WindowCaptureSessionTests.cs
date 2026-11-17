@@ -14,10 +14,10 @@ public class WindowCaptureSessionTests
     {
         byte[] root = [0, 0, 128, 128];
         WindowCaptureSession.IncludeSecondaryWindowInWindowImage(root, 1, 1, [0, 128, 0, 128], 1, 1, 0, 0);
-        CollectionAssert.AreEqual(new byte[] { 0, 128, 64, 192 }, root);
+        Assert.AreSequenceEqual(new byte[] { 0, 128, 64, 192 }, root);
         var before = (byte[])root.Clone();
         WindowCaptureSession.IncludeSecondaryWindowInWindowImage(root, 1, 1, [0, 0, 0, 0], 1, 1, 0, 0);
-        CollectionAssert.AreEqual(before, root);
+        Assert.AreSequenceEqual(before, root);
     }
 
     [TestMethod]
@@ -26,10 +26,10 @@ public class WindowCaptureSessionTests
         var root = new byte[16];
         byte[] popup = [1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255];
         WindowCaptureSession.IncludeSecondaryWindowInWindowImage(root, 2, 2, popup, 2, 2, -1, -1);
-        CollectionAssert.AreEqual(new byte[] { 10, 11, 12, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, root);
+        Assert.AreSequenceEqual(new byte[] { 10, 11, 12, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, root);
         var before = (byte[])root.Clone();
         WindowCaptureSession.IncludeSecondaryWindowInWindowImage(root, 2, 2, popup, 2, 2, int.MaxValue, int.MinValue);
-        CollectionAssert.AreEqual(before, root);
+        Assert.AreSequenceEqual(before, root);
     }
 
     [TestMethod]
@@ -47,11 +47,11 @@ public class WindowCaptureSessionTests
         Assert.AreEqual(3, frame.Height);
         var expected = (byte[])before.Clone();
         new byte[] { 0, 255, 0, 255 }.CopyTo(expected, (1 * 4 + 2) * 4);
-        CollectionAssert.AreEqual(expected, frame.Pixels,
+        Assert.AreSequenceEqual(expected, frame.Pixels,
             "Only pixel (2, 1) may change; its neighbors must retain the main-window pixels.");
-        CollectionAssert.AreEqual(new byte[] { 0, 0, 255, 255 }, frame.Pixels[20..24]);
-        CollectionAssert.AreEqual(new byte[] { 0, 255, 0, 255 }, frame.Pixels[24..28]);
-        CollectionAssert.AreEqual(before, root.Pixels);
+        Assert.AreSequenceEqual(new byte[] { 0, 0, 255, 255 }, frame.Pixels[20..24]);
+        Assert.AreSequenceEqual(new byte[] { 0, 255, 0, 255 }, frame.Pixels[24..28]);
+        Assert.AreSequenceEqual(before, root.Pixels);
     }
 
     [TestMethod]
@@ -92,7 +92,7 @@ public class WindowCaptureSessionTests
 
         var first = combined.TryGetLatest()!.Value;
         Assert.AreEqual(17, captures.Count);
-        CollectionAssert.AreEqual(new byte[] { 0, 255, 0, 255 }, first.Pixels);
+        Assert.AreSequenceEqual(new byte[] { 0, 255, 0, 255 }, first.Pixels);
         Assert.AreSame(first.Pixels, combined.TryGetLatest()!.Value.Pixels);
         Assert.AreEqual(17, captures.Count);
 
@@ -114,12 +114,12 @@ public class WindowCaptureSessionTests
                 started.Add(child);
                 return child;
             });
-        CollectionAssert.AreEqual(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
+        Assert.AreSequenceEqual(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
         popups.Add(new(2, new(0, 0, 1, 1)));
-        CollectionAssert.AreEqual(new byte[] { 0, 255, 0, 255 }, composite.TryGetLatest()!.Value.Pixels);
-        CollectionAssert.AreEqual(new byte[] { 0, 0, 255, 255 }, root.Pixels);
+        Assert.AreSequenceEqual(new byte[] { 0, 255, 0, 255 }, composite.TryGetLatest()!.Value.Pixels);
+        Assert.AreSequenceEqual(new byte[] { 0, 0, 255, 255 }, root.Pixels);
         popups.Clear();
-        CollectionAssert.AreEqual(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
+        Assert.AreSequenceEqual(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
         Assert.IsTrue(started[0].Disposed);
         popups.Add(new(2, new(0, 0, 1, 1)));
         composite.TryGetLatest();
@@ -140,7 +140,7 @@ public class WindowCaptureSessionTests
             handle => handle == 2 ? top : bottom);
         try
         {
-            CollectionAssert.AreEqual(new byte[] { 128, 127, 0, 255 },
+            Assert.AreSequenceEqual(new byte[] { 128, 127, 0, 255 },
                 composite.TryGetLatest()!.Value.Pixels);
         }
         finally

@@ -57,10 +57,10 @@ public class NugetPackageDownloaderSignatureTests : BaseCommandTests
 
             // The whole point: this failure must never arrive blank.
             Assert.IsNotEmpty(ex.Message, "a signature rejection must explain itself");
-            StringAssert.Contains(ex.Message, "Sig.Pkg", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "unsigned", StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Sig.Pkg", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("unsigned", ex.Message, StringComparison.OrdinalIgnoreCase);
             // Names the setting responsible, so the user knows where to look.
-            StringAssert.Contains(ex.Message, "signatureValidationMode", StringComparison.Ordinal);
+            Assert.Contains("signatureValidationMode", ex.Message, StringComparison.Ordinal);
         }
         finally
         {

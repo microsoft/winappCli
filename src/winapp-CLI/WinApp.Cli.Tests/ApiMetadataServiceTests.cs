@@ -198,8 +198,8 @@ public sealed class ApiMetadataServiceTests
         string? error = CreateService().LockTimedOutResult(_currentDir, cacheDir);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, "out of date");
-        StringAssert.Contains(error, "find-api refresh");
+        Assert.Contains("out of date", error);
+        Assert.Contains("find-api refresh", error);
     }
 
     [TestMethod]
@@ -225,7 +225,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Members("Some.Ns.Type", new ApiRequestScope(null, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "no Windows SDK metadata is available");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("no Windows SDK metadata is available", result.Message);
     }
 
     [TestMethod]
@@ -240,7 +241,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Members("Some.Ns.Type", new ApiRequestScope(null, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "no Windows SDK metadata is available");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("no Windows SDK metadata is available", result.Message);
     }
 
     [TestMethod]
@@ -266,8 +268,9 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Refresh(new ApiRequestScope(null, null), scan: false);
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "can't write the API index");
-        StringAssert.Contains(result.Message, "WINAPP_CLI_CACHE_DIRECTORY");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("can't write the API index", result.Message);
+        Assert.Contains("WINAPP_CLI_CACHE_DIRECTORY", result.Message);
     }
 
     [TestMethod]
@@ -278,7 +281,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "WINAPP_CLI_CACHE_DIRECTORY");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("WINAPP_CLI_CACHE_DIRECTORY", result.Message);
     }
 
     [TestMethod]
@@ -372,7 +376,7 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
 
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
-        CollectionAssert.AreEqual(SampleCaveats, result.Data!.Caveats, "the answer must carry what the index could not cover");
+        Assert.AreSequenceEqual(SampleCaveats, result.Data!.Caveats, "the answer must carry what the index could not cover");
     }
 
     private static readonly List<string> SampleCaveats = ["Runtime metadata was excluded; some APIs may be missing."];
@@ -391,9 +395,10 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Members("Contoso.Missing", new ApiRequestScope(null, null));
 
         Assert.AreNotEqual(ApiQueryOutcome.Ok, result.Outcome, "the type is absent from the index");
-        StringAssert.Contains(
-            result.Message,
+        Assert.IsNotNull(result.Message);
+        Assert.Contains(
             SampleCaveats[0],
+            result.Message,
             "a not-found answer must say the index was incomplete");
     }
 
@@ -410,7 +415,7 @@ public sealed class ApiMetadataServiceTests
 
         Assert.AreEqual(1, results.Count);
         Assert.AreNotEqual(ApiQueryOutcome.Ok, results[0].Result.Outcome);
-        StringAssert.Contains(results[0].Result.Message, SampleCaveats[0]);
+        Assert.Contains(SampleCaveats[0], results[0].Result.Message!);
     }
 
     [TestMethod]
@@ -440,7 +445,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "find-api refresh");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("find-api refresh", result.Message);
     }
 
     [TestMethod]
@@ -473,9 +479,10 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "'Alpha'");
-        StringAssert.Contains(result.Message, "'Beta'");
-        StringAssert.Contains(result.Message, "--project <name>");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("'Alpha'", result.Message);
+        Assert.Contains("'Beta'", result.Message);
+        Assert.Contains("--project <name>", result.Message);
     }
 
     [TestMethod]
@@ -559,7 +566,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Members("Some.Ns.Type", new ApiRequestScope(null, "DoesNotExist"));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "not indexed");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("not indexed", result.Message);
     }
 
     [TestMethod]
@@ -573,7 +581,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Members("Some.Ns.Type", new ApiRequestScope(null, "App"));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "not indexed");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("not indexed", result.Message);
     }
 
     [TestMethod]
@@ -598,7 +607,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Refresh(new ApiRequestScope(null, "DoesNotExist"), scan: false);
 
         Assert.AreEqual(ApiQueryOutcome.InvalidInput, result.Outcome);
-        StringAssert.Contains(result.Message, "DoesNotExist");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("DoesNotExist", result.Message);
     }
 
     [TestMethod]
@@ -613,7 +623,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Refresh(new ApiRequestScope(missing, null), scan: false);
 
         Assert.AreEqual(ApiQueryOutcome.InvalidInput, result.Outcome);
-        StringAssert.Contains(result.Message, "no-such-project-dir");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("no-such-project-dir", result.Message);
     }
 
     [TestMethod]
@@ -655,7 +666,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Members("Some.Ns.Type", new ApiRequestScope(unrelated, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "no Windows SDK metadata is available");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("no Windows SDK metadata is available", result.Message);
     }
 
     [TestMethod]
@@ -670,7 +682,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Members("Some.Ns.Type", new ApiRequestScope(other, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "No indexed API metadata was found for");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("No indexed API metadata was found for", result.Message);
     }
 
     [TestMethod]
@@ -688,7 +701,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "find-api refresh");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("find-api refresh", result.Message);
     }
 
     [TestMethod]
@@ -703,7 +717,8 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Members("Some.Ns.Type", new ApiRequestScope(target, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "No indexed API metadata was found for");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("No indexed API metadata was found for", result.Message);
     }
 
     [TestMethod]
@@ -719,8 +734,9 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Members("Some.Ns.Type", new ApiRequestScope(null, "App"));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "ambiguous");
-        StringAssert.Contains(result.Message, "--project-dir");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("ambiguous", result.Message);
+        Assert.Contains("--project-dir", result.Message);
     }
 
     [TestMethod]
@@ -738,9 +754,10 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "'App'");
-        StringAssert.Contains(result.Message, "'Other'");
-        StringAssert.Contains(result.Message, "--project <name>");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("'App'", result.Message);
+        Assert.Contains("'Other'", result.Message);
+        Assert.Contains("--project <name>", result.Message);
     }
 
     [TestMethod]
@@ -757,8 +774,9 @@ public sealed class ApiMetadataServiceTests
         var result = CreateService().Namespaces(null, new ApiRequestScope(dir, null));
 
         Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
-        StringAssert.Contains(result.Message, "'App'");
-        StringAssert.Contains(result.Message, "'Other'");
+        Assert.IsNotNull(result.Message);
+        Assert.Contains("'App'", result.Message);
+        Assert.Contains("'Other'", result.Message);
     }
 
     [TestMethod]
@@ -875,7 +893,7 @@ public sealed class ApiMetadataServiceTests
 
         var result = CreateService().Projects();
 
-        CollectionAssert.AreEquivalent(OnlyTheProjectStillOnDisk, result.Projects.ConvertAll(p => p.Name));
+        Assert.AreSequenceEqual(OnlyTheProjectStillOnDisk, result.Projects.ConvertAll(p => p.Name), SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -935,7 +953,7 @@ public sealed class ApiMetadataServiceTests
         string b = ApiCacheBuilder.ManifestName(Path.Combine("C:", "two", "App.csproj"));
 
         Assert.AreNotEqual(a, b);
-        StringAssert.StartsWith(a, "App_");
-        StringAssert.StartsWith(b, "App_");
+        Assert.StartsWith("App_", a);
+        Assert.StartsWith("App_", b);
     }
 }

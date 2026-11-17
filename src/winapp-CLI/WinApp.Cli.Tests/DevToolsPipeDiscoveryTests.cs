@@ -60,7 +60,7 @@ public class DevToolsPipeDiscoveryTests
         var pids = DevToolsPipeDiscovery.EnumerateInjectedPids(Fake);
 
         int[] expected = [100, 200, 300];
-        CollectionAssert.AreEqual(expected, pids.ToArray());
+        Assert.AreSequenceEqual(expected, pids.ToArray());
     }
 
     [TestMethod]

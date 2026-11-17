@@ -62,7 +62,7 @@ public class CustomHelpTests : BaseCommandTests
         // Assert — every registered subcommand must be present in a help category (hidden commands excluded)
         foreach (var subcommand in rootCommand.Subcommands.Where(c => !c.Hidden))
         {
-            CollectionAssert.Contains(categorizedTypes.ToList(), subcommand.GetType(),
+            Assert.Contains(subcommand.GetType(), categorizedTypes.ToList(),
                 $"Top-level command '{subcommand.Name}' ({subcommand.GetType().Name}) is registered on the root command but not listed in any " +
                 "help category. Add it to the categories in WinAppRootCommand.");
         }

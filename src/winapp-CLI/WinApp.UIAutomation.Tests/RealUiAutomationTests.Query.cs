@@ -30,7 +30,7 @@ public partial class RealUiAutomationTests
         var error = await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
             svc.SearchAsync(target, selector, maxResults, CancellationToken.None));
         Assert.AreEqual("selector", error.ParamName);
-        StringAssert.Contains(error.Message, "Buton");
+        Assert.Contains("Buton", error.Message);
         await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
             svc.FindSingleElementAsync(target, selector, CancellationToken.None));
         Assert.AreEqual(0, targetResolutions);
@@ -549,7 +549,7 @@ public partial class RealUiAutomationTests
         await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() => svc.SearchAsync(SessionFor(fx),
             new UiSelector { Root = new() { Query = "duplicateRoot" }, ControlType = "Button" },
             1, CancellationToken.None));
-        CollectionAssert.Contains(bulkCounts, 1, "Uniqueness must complete a nonempty partial bulk result.");
+        Assert.Contains(1, bulkCounts, "Uniqueness must complete a nonempty partial bulk result.");
     }
 
     [TestMethod]
@@ -580,7 +580,7 @@ public partial class RealUiAutomationTests
             1, CancellationToken.None));
 
         Assert.AreSame(failure, actual);
-        CollectionAssert.Contains(bulkCounts, 1, "A partial root match must not establish uniqueness.");
+        Assert.Contains(1, bulkCounts, "A partial root match must not establish uniqueness.");
     }
 
     [TestMethod]
@@ -596,7 +596,7 @@ public partial class RealUiAutomationTests
         Assert.IsTrue(matches.Any(m => m.AutomationId == "secondButton"),
             $"Actual matches: {string.Join(", ", matches.Select(m => m.AutomationId))}");
         Assert.IsTrue(matches.Length < 1000, "Exercise completion below the requested cap, not capped ordering.");
-        CollectionAssert.Contains(bulkCounts, 1, "The shared completion path must receive a nonempty partial result.");
+        Assert.Contains(1, bulkCounts, "The shared completion path must receive a nonempty partial result.");
         await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() => svc.FindSingleElementAsync(SessionFor(fx),
             new UiSelector { ControlType = "Button" }, CancellationToken.None));
     }

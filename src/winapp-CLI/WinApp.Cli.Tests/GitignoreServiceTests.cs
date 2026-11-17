@@ -38,8 +38,8 @@ public class GitignoreServiceTests : BaseCommandTests
         Assert.IsTrue(updated, "Should report the file was updated.");
         Assert.IsTrue(File.Exists(GitignorePath), ".gitignore should be created.");
         var content = await File.ReadAllTextAsync(GitignorePath);
-        StringAssert.Contains(content, ".winapp");
-        StringAssert.Contains(content, "# Windows SDK packages and generated files");
+        Assert.Contains(".winapp", content);
+        Assert.Contains("# Windows SDK packages and generated files", content);
     }
 
     [TestMethod]
@@ -51,9 +51,9 @@ public class GitignoreServiceTests : BaseCommandTests
 
         Assert.IsTrue(updated);
         var content = await File.ReadAllTextAsync(GitignorePath);
-        StringAssert.Contains(content, "bin/", "Existing entries must be preserved.");
-        StringAssert.Contains(content, "obj/");
-        StringAssert.Contains(content, ".winapp");
+        Assert.Contains("bin/", content, "Existing entries must be preserved.");
+        Assert.Contains("obj/", content);
+        Assert.Contains(".winapp", content);
         // The original content lacked a trailing newline; the service must not glue ".winapp" onto "obj/".
         Assert.IsFalse(content.Contains("obj/\n.winapp", StringComparison.Ordinal) && !content.Contains("obj/\n\n", StringComparison.Ordinal),
             "A separating blank line/comment should precede the .winapp entry.");
@@ -107,8 +107,8 @@ public class GitignoreServiceTests : BaseCommandTests
 
         Assert.IsTrue(updated);
         var content = await File.ReadAllTextAsync(GitignorePath);
-        StringAssert.Contains(content, "MyApp_Cert.pfx");
-        StringAssert.Contains(content, "# Development certificate");
+        Assert.Contains("MyApp_Cert.pfx", content);
+        Assert.Contains("# Development certificate", content);
     }
 
     [TestMethod]
@@ -120,8 +120,8 @@ public class GitignoreServiceTests : BaseCommandTests
 
         Assert.IsTrue(updated);
         var content = await File.ReadAllTextAsync(GitignorePath);
-        StringAssert.Contains(content, ".winapp");
-        StringAssert.Contains(content, "cert.pfx");
+        Assert.Contains(".winapp", content);
+        Assert.Contains("cert.pfx", content);
     }
 
     [TestMethod]
@@ -157,8 +157,8 @@ public class GitignoreServiceTests : BaseCommandTests
 
         Assert.IsTrue(updated, "A different certificate name should still be appended.");
         var content = await File.ReadAllTextAsync(GitignorePath);
-        StringAssert.Contains(content, "certA.pfx");
-        StringAssert.Contains(content, "certB.pfx");
+        Assert.Contains("certA.pfx", content);
+        Assert.Contains("certB.pfx", content);
     }
 
     [TestMethod]

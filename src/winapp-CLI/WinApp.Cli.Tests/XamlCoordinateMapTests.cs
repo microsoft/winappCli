@@ -455,8 +455,8 @@ public sealed class XamlCoordinateMapTests
         var generated = Root + "\n" + RewrittenHeading + "\n</Page>";
         var first = Fixture(source, generated);
         var differentWidth = Fixture(source, generated.Replace("ConnectionId='36'", "ConnectionId='136'", StringComparison.Ordinal));
-        CollectionAssert.AreEqual(first.Source, differentWidth.Source);
-        CollectionAssert.AreEqual(first.Xbf, differentWidth.Xbf,
+        Assert.AreSequenceEqual(first.Source, differentWidth.Source);
+        Assert.AreSequenceEqual(first.Xbf, differentWidth.Xbf,
             "This header fixture fingerprints original bytes only; it is not a compiled node/line-stream proof.");
         Assert.AreNotEqual(first.Proof.GeneratedHash, differentWidth.Proof.GeneratedHash);
         var firstMap = first.Create();
@@ -511,7 +511,7 @@ public sealed class XamlCoordinateMapTests
         var currentSnapshot = fixture.Snapshot with { Files = [new("MainPage.xaml", changed.Length, hash)] };
         var error = Assert.ThrowsExactly<InvalidDataException>(() => XamlCoordinateMap.Create(
             currentSnapshot, currentProof, changed, fixture.Generated, fixture.Xbf));
-        StringAssert.Contains(error.Message, "fingerprint recorded by the compiler");
+        Assert.Contains("fingerprint recorded by the compiler", error.Message);
     }
 
     private static string Rewrite(string element, int id)

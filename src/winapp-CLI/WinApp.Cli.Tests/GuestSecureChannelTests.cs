@@ -122,7 +122,7 @@ public class GuestSecureChannelTests
                 client, GuestRole.Host, NewPreSharedKey(), TargetId, Epoch, timeout.Token));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.AgentIncompatible, failure.Error.Code);
-        StringAssert.Contains(failure.Message, $"protocol {remoteMinimum}-{remoteMaximum}");
+        Assert.Contains($"protocol {remoteMinimum}-{remoteMaximum}", failure.Message);
     }
 
     [TestMethod]
@@ -137,12 +137,12 @@ public class GuestSecureChannelTests
             var request = Encoding.UTF8.GetBytes("run --on sandbox");
             await host.SendFrameAsync(request, TestContext.CancellationTokenSource.Token);
             var received = await guest.ReceiveFrameAsync(TestContext.CancellationTokenSource.Token);
-            CollectionAssert.AreEqual(request, received!.Value.ToArray());
+            Assert.AreSequenceEqual(request, received!.Value.ToArray());
 
             var response = Encoding.UTF8.GetBytes("started");
             await guest.SendFrameAsync(response, TestContext.CancellationTokenSource.Token);
             var back = await host.ReceiveFrameAsync(TestContext.CancellationTokenSource.Token);
-            CollectionAssert.AreEqual(response, back!.Value.ToArray());
+            Assert.AreSequenceEqual(response, back!.Value.ToArray());
         }
     }
 
@@ -227,7 +227,7 @@ public class GuestSecureChannelTests
                 clientStream, GuestRole.Host, NewPreSharedKey(), TargetId, Epoch, timeout.Token));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, failure.Error.Code);
-        StringAssert.Contains(failure.Message, "not a winapp guest agent", StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not a winapp guest agent", failure.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]

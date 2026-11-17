@@ -30,7 +30,7 @@ public partial class RealUiAutomationTests
         // Omitted auto keeps its existing same-name/hash-mismatch behavior.
         var legacyError = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             svc.FindSingleElementAsync(target, selector, default));
-        StringAssert.Contains(legacyError.Message, "RuntimeId hash");
+        Assert.Contains("RuntimeId hash", legacyError.Message);
 
         var selected = await svc.FindSingleElementAsync(target, selector, requireUnique: true, default);
         if (oppositeWindow)
