@@ -25,6 +25,9 @@ extends:
         enabled: true
         break: true
         severity: 'Warning'
+      # Same suppressions as release.yml; see the comment there.
+      suppression:
+        suppressionFile: $(Build.SourcesDirectory)\.config\guardian\.gdnsuppress
       sourceAnalysisPool:
         name: Azure-Pipelines-1ESPT-ExDShared
         image: windows-latest
@@ -33,8 +36,9 @@ extends:
     - stage: Build
       jobs:
       - job: Build
-        # Same build as the release pipeline, which has already exceeded the 60-minute default.
-        timeoutInMinutes: 120
+        # Same build as the release pipeline. It runs 98-111 minutes here and has already
+        # exceeded 120 once, so it gets the same limit.
+        timeoutInMinutes: 180
         pool:
           name: Azure-Pipelines-1ESPT-ExDShared
           # Match the VS 18 compiler that GitHub Actions uses; windows-latest still has VS 2022.
