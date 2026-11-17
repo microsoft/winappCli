@@ -444,7 +444,7 @@ public class DevToolsJsonParityTests
 
         Assert.AreEqual(1, jsonExit);
         using var doc = JsonDocument.Parse(jsonOut);
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(), expected);
+        Assert.Contains(expected, doc.RootElement.GetProperty("error").GetProperty("message").GetString()!);
     }
 
     // The app compares the call site with the file on disk; an edit since the build is said, not shown as current.
@@ -470,10 +470,10 @@ public class DevToolsJsonParityTests
             Assert.AreEqual(0, jsonExit, jsonOut);
             using var doc = JsonDocument.Parse(jsonOut);
             Assert.AreEqual("stale", doc.RootElement.GetProperty("authoredState").GetString());
-            StringAssert.Contains(doc.RootElement.GetProperty("csharpChanged").GetString(), "changed since the app was built");
-            StringAssert.Contains(doc.RootElement.GetProperty("csharpChanged").GetString(), "no longer holds the Button call");
+            Assert.Contains("changed since the app was built", doc.RootElement.GetProperty("csharpChanged").GetString()!);
+            Assert.Contains("no longer holds the Button call", doc.RootElement.GetProperty("csharpChanged").GetString()!);
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "changed since the app was built");
+            Assert.Contains("changed since the app was built", output);
         }
         finally
         {
@@ -502,8 +502,8 @@ public class DevToolsJsonParityTests
             Assert.AreEqual(0, exit, output);
             using var doc = JsonDocument.Parse(output);
             var reason = doc.RootElement.GetProperty("csharpUnavailable").GetString()!;
-            StringAssert.Contains(reason, "has 1 lines, so it has no line 500");
-            StringAssert.Contains(reason, "#line");
+            Assert.Contains("has 1 lines, so it has no line 500", reason);
+            Assert.Contains("#line", reason);
         }
         finally
         {
@@ -530,8 +530,8 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(0, exit, output);
         using var doc = JsonDocument.Parse(output);
         var reason = doc.RootElement.GetProperty("csharpUnavailable").GetString()!;
-        StringAssert.Contains(reason, "source generator");
-        StringAssert.Contains(reason, "EmitCompilerGeneratedFiles");
+        Assert.Contains("source generator", reason);
+        Assert.Contains("EmitCompilerGeneratedFiles", reason);
         Assert.IsFalse(reason.Contains("moved", StringComparison.Ordinal));
     }
 
@@ -570,7 +570,7 @@ public class DevToolsJsonParityTests
 
         Assert.AreEqual(1, jsonExit);
         using var doc = JsonDocument.Parse(jsonOut);
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(), "Hot Reload");
+        Assert.Contains("Hot Reload", doc.RootElement.GetProperty("error").GetProperty("message").GetString()!);
     }
 
     // The CLI redacts the app's C# again, so a quote character before the password cannot hide it.
@@ -652,10 +652,10 @@ public class DevToolsJsonParityTests
         Assert.IsFalse(root.TryGetProperty("csharp", out _));
         Assert.AreEqual("ambiguous", root.GetProperty("authoredState").GetString());
         Assert.AreEqual(2, root.GetProperty("candidates").GetArrayLength());
-        StringAssert.Contains(root.GetProperty("csharpUnavailable").GetString(), "cannot tell which one");
+        Assert.Contains("cannot tell which one", root.GetProperty("csharpUnavailable").GetString()!);
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "<LibPanel>");
-        StringAssert.Contains(output, "cannot tell which one");
+        Assert.Contains("<LibPanel>", output);
+        Assert.Contains("cannot tell which one", output);
     }
 
     // After a late attach the app knows only the project-relative path; it is resolved from the project this command
@@ -682,7 +682,7 @@ public class DevToolsJsonParityTests
             var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
 
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "TextBox(password: \"<redacted>\")");
+            Assert.Contains("TextBox(password: \"<redacted>\")", output);
             Assert.IsFalse(output.Contains("hunter2", StringComparison.Ordinal), "the password literal never reaches the terminal");
         }
         finally

@@ -56,13 +56,13 @@ public class ReactorStateCommandTests
         var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "<Counter> class component · defined App.cs:71 (Counter.Render) · declared App.cs:44");
-        StringAssert.Contains(output, "App.cs changed since the app was built");
-        StringAssert.Contains(output, "Label = Done today");
-        StringAssert.Contains(output, "[0] state int = 3 settable");
-        StringAssert.Contains(output, "[1] context string = \"Compact\" (Density)");
-        StringAssert.Contains(output, "[2] effect");
-        StringAssert.Contains(output, "set-state");
+        Assert.Contains("<Counter> class component · defined App.cs:71 (Counter.Render) · declared App.cs:44", output);
+        Assert.Contains("App.cs changed since the app was built", output);
+        Assert.Contains("Label = Done today", output);
+        Assert.Contains("[0] state int = 3 settable", output);
+        Assert.Contains("[1] context string = \"Compact\" (Density)", output);
+        Assert.Contains("[2] effect", output);
+        Assert.Contains("set-state", output);
         Assert.AreEqual("42", Params(agent, "Reactor.component").GetProperty("handle").GetString());
     }
 
@@ -94,7 +94,7 @@ public class ReactorStateCommandTests
         {
             var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
             Assert.AreEqual(1, exit);
-            StringAssert.Contains(output, "does not use Microsoft.UI.Reactor");
+            Assert.Contains("does not use Microsoft.UI.Reactor", output);
         }
     }
 
@@ -109,13 +109,13 @@ public class ReactorStateCommandTests
             Assert.AreEqual(1, exit);
             var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
             Assert.AreEqual("reactor-error-screen", error.GetProperty("token").GetString());
-            StringAssert.StartsWith(error.GetProperty("message").GetString(), "This window shows Reactor's error screen instead of <MainShell>");
+            Assert.StartsWith("This window shows Reactor's error screen instead of <MainShell>", error.GetProperty("message").GetString());
         }
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.rerender", $$"""{"state":"refused","code":"reactor-error-screen","reason":"{{Reason}}"}"""))
         {
             var (exit, output) = await Run(new DevToolsRerenderCommand(), agent, ["42"]);
             Assert.AreEqual(1, exit);
-            StringAssert.Contains(output, "error screen");
+            Assert.Contains("error screen", output);
             Assert.IsFalse(output.Contains("No Reactor component renders", StringComparison.Ordinal), output);
         }
     }
@@ -129,8 +129,8 @@ public class ReactorStateCommandTests
         var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["42", "0", "42"]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "<Counter> hook [0] (state int): 3 -> 42");
-        StringAssert.Contains(output, "Live only");
+        Assert.Contains("<Counter> hook [0] (state int): 3 -> 42", output);
+        Assert.Contains("Live only", output);
         var request = Params(agent, "Reactor.setState");
         Assert.AreEqual(0, request.GetProperty("hook").GetInt32());
         Assert.AreEqual("42", request.GetProperty("value").GetString());
@@ -144,13 +144,13 @@ public class ReactorStateCommandTests
         {
             var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
             Assert.AreEqual(1, exit);
-            StringAssert.Contains(output, "busy");
-            StringAssert.Contains(output, "run the command again");
+            Assert.Contains("busy", output);
+            Assert.Contains("run the command again", output);
             Assert.DoesNotContain("--devtools on", output, "it was launched that way; relaunching would not help");
         }
         Assert.AreEqual(ReactorDescription.BusyMessage, ReactorDescription.Parse(busy)!.ExplainUnavailable());
         Assert.AreEqual(ReactorDescription.BusyMessage, DevToolsLogsCommand.UnavailableMessage("the app's UI thread did not answer (0x80070102)"));
-        StringAssert.Contains(DevToolsLogsCommand.UnavailableMessage("no managed DevTools agent is loaded"), "--devtools on");
+        Assert.Contains("--devtools on", DevToolsLogsCommand.UnavailableMessage("no managed DevTools agent is loaded"));
     }
 
     [TestMethod]
@@ -163,7 +163,7 @@ public class ReactorStateCommandTests
             Assert.AreEqual(1, exit);
             var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
             Assert.AreEqual("bad-value", error.GetProperty("token").GetString());
-            StringAssert.Contains(error.GetProperty("message").GetString(), "not a valid int");
+            Assert.Contains("not a valid int", error.GetProperty("message").GetString()!);
         }
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.setState",
             """{"state":"unavailable","reason":"the app UI thread did not respond in time","indeterminate":true}"""))
@@ -194,10 +194,10 @@ public class ReactorStateCommandTests
         var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "[0] count state int = 3 settable");
-        StringAssert.Contains(output, "[2] UseEffect effect");
-        StringAssert.Contains(output, "[?] filter line 74 (its index is not known statically)");
-        StringAssert.Contains(output, "set-state <selector> <name|index> <value>");
+        Assert.Contains("[0] count state int = 3 settable", output);
+        Assert.Contains("[2] UseEffect effect", output);
+        Assert.Contains("[?] filter line 74 (its index is not known statically)", output);
+        Assert.Contains("set-state <selector> <name|index> <value>", output);
     }
 
     [TestMethod]
@@ -211,7 +211,7 @@ public class ReactorStateCommandTests
         var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["42", "count", "42"]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "<Counter> hook [0] count (state int): 3 -> 42");
+        Assert.Contains("<Counter> hook [0] count (state int): 3 -> 42", output);
         Assert.AreEqual(0, Params(agent, "Reactor.setState").GetProperty("hook").GetInt32(), "the name is sent as its index");
     }
 
@@ -224,20 +224,20 @@ public class ReactorStateCommandTests
             Assert.AreEqual(1, exit);
             var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
             Assert.AreEqual("bad-hook", error.GetProperty("token").GetString());
-            StringAssert.Contains(error.GetProperty("message").GetString(), "has no hook named 'missing'");
+            Assert.Contains("has no hook named 'missing'", error.GetProperty("message").GetString()!);
             Assert.IsFalse(agent.ReceivedRequests.Any(r => r.Contains("Reactor.setState", StringComparison.Ordinal)));
         }
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", NamedCounter))
         {
             var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["42", "filter", "x"]);
             Assert.AreEqual(1, exit);
-            StringAssert.Contains(output, "not known");
+            Assert.Contains("not known", output);
         }
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", Counter))
         {
             var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["42", "count", "1"]);
             Assert.AreEqual(1, exit);
-            StringAssert.Contains(output, "does not record hook names", "an older Reactor takes the index only");
+            Assert.Contains("does not record hook names", output, "an older Reactor takes the index only");
         }
     }
 
@@ -254,7 +254,7 @@ public class ReactorStateCommandTests
         Assert.AreEqual(1, exit, output);
         var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
         Assert.AreEqual("ambiguous-selector", error.GetProperty("token").GetString());
-        StringAssert.Contains(error.GetProperty("message").GetString(), "Run the command again");
+        Assert.Contains("Run the command again", error.GetProperty("message").GetString()!);
         Assert.IsFalse(agent.ReceivedRequests.Any(r => r.Contains("Reactor.setState", StringComparison.Ordinal)));
     }
 
@@ -305,11 +305,11 @@ public class ReactorStateCommandTests
                 (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
                 Assert.AreEqual(0, exit, output);
             }
-            StringAssert.Contains(output, "[0] password state string = <redacted>");
-            StringAssert.Contains(output, "[1] count state int = 3 settable");
-            StringAssert.Contains(output, "[2] dbPassword context string = <redacted>");
-            StringAssert.Contains(output, "Context Context<string> = <redacted>");
-            StringAssert.Contains(output, "Hook names read from Panels.cs");
+            Assert.Contains("[0] password state string = <redacted>", output);
+            Assert.Contains("[1] count state int = 3 settable", output);
+            Assert.Contains("[2] dbPassword context string = <redacted>", output);
+            Assert.Contains("Context Context<string> = <redacted>", output);
+            Assert.Contains("Hook names read from Panels.cs", output);
             Assert.IsFalse(output.Contains("hook-pass-1", StringComparison.Ordinal) || output.Contains("ctx-pass-1", StringComparison.Ordinal), output);
 
             using var jsonAgent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", LateAttachLogin(path));
@@ -373,7 +373,7 @@ public class ReactorStateCommandTests
                 Assert.AreEqual(1, exit, output);
                 var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
                 Assert.AreEqual("stale-source", error.GetProperty("token").GetString());
-                StringAssert.Contains(error.GetProperty("message").GetString(), "pass the hook's index");
+                Assert.Contains("pass the hook's index", error.GetProperty("message").GetString()!);
                 Assert.IsFalse(agent.ReceivedRequests.Any(r => r.Contains("Reactor.setState", StringComparison.Ordinal)));
             }
 
@@ -401,7 +401,7 @@ public class ReactorStateCommandTests
             using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", LateAttachLogin(path));
             var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "[0] state string = <redacted>", "an unproven mapping names nothing, so any hook may be the password");
+            Assert.Contains("[0] state string = <redacted>", output, "an unproven mapping names nothing, so any hook may be the password");
             Assert.DoesNotContain("hook-pass-1", output);
             Assert.IsFalse(output.Contains("read from", StringComparison.Ordinal), output);
         }
@@ -417,8 +417,8 @@ public class ReactorStateCommandTests
         using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.rerender", """{"state":"ok","component":"Counter","rendered":true,"api":"reactor"}""");
         var (exit, output) = await Run(new DevToolsRerenderCommand(), agent, ["42"]);
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "<Counter> rendered again.");
-        StringAssert.Contains(output, "keeps its edit until its C# value changes");
+        Assert.Contains("<Counter> rendered again.", output);
+        Assert.Contains("keeps its edit until its C# value changes", output);
     }
 
     [TestMethod]
@@ -431,7 +431,7 @@ public class ReactorStateCommandTests
             Assert.AreEqual(1, exit);
             var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
             Assert.AreEqual("unmounted", error.GetProperty("token").GetString());
-            StringAssert.StartsWith(error.GetProperty("message").GetString(), "This element was in a list row");
+            Assert.StartsWith("This element was in a list row", error.GetProperty("message").GetString());
         }
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.rerender", recycled))
         {
@@ -443,13 +443,13 @@ public class ReactorStateCommandTests
         {
             var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "Not on screen: its list parked this row for reuse");
+            Assert.Contains("Not on screen: its list parked this row for reuse", output);
         }
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.rerender", """{"state":"ok","component":"VRow","rendered":false,"parked":true,"api":"reactor"}"""))
         {
             var (exit, output) = await Run(new DevToolsRerenderCommand(), agent, ["42"]);
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "<VRow> rendered again, off screen.");
+            Assert.Contains("<VRow> rendered again, off screen.", output);
             Assert.IsFalse(output.Contains("still rendering", StringComparison.Ordinal), "parked is not a render in progress");
         }
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.setState", """
@@ -458,7 +458,7 @@ public class ReactorStateCommandTests
         {
             var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["42", "0", "5"]);
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "Not on screen");
+            Assert.Contains("Not on screen", output);
             Assert.IsFalse(output.Contains("still rendering", StringComparison.Ordinal));
         }
     }
@@ -471,7 +471,7 @@ public class ReactorStateCommandTests
         {
             var (exit, output) = await Run(new DevToolsInvokeHandlerCommand(), agent, ["42", "Click"]);
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "ran OnClick → lambda in Counter.Render");
+            Assert.Contains("ran OnClick → lambda in Counter.Render", output);
             Assert.AreEqual("Click", Params(agent, "Reactor.invokeHandler").GetProperty("event").GetString());
             Assert.IsFalse(Params(agent, "Reactor.invokeHandler").TryGetProperty("value", out _));
         }
@@ -502,8 +502,8 @@ public class ReactorStateCommandTests
         {
             var (exit, output) = await Run(new DevToolsGetResourceCommand(), agent, ["AccentFillColorDefaultBrush"]);
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "AccentFillColorDefaultBrush = SolidColorBrush #FF0067C0");
-            StringAssert.Contains(output, "ThemeDictionaries[Light]");
+            Assert.Contains("AccentFillColorDefaultBrush = SolidColorBrush #FF0067C0", output);
+            Assert.Contains("ThemeDictionaries[Light]", output);
             var request = Params(agent, "Resource.get");
             Assert.AreEqual("402", request.GetProperty("handle").GetString(), "the window's content, not its XAML source or popup root");
             Assert.IsFalse(request.TryGetProperty("fromElement", out _));
@@ -526,7 +526,7 @@ public class ReactorStateCommandTests
         {
             var (exit, output) = await Run(new DevToolsSetResourceCommand(), agent, ["K", "#FFC42B1C"]);
             Assert.AreEqual(0, exit, output);
-            StringAssert.Contains(output, "K: SolidColorBrush #FF0067C0 -> SolidColorBrush #FFC42B1C");
+            Assert.Contains("K: SolidColorBrush #FF0067C0 -> SolidColorBrush #FFC42B1C", output);
             Assert.AreEqual("app", Params(agent, "Resource.set").GetProperty("scope").GetString());
         }
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Resource.set", Answer))
@@ -539,7 +539,7 @@ public class ReactorStateCommandTests
         {
             var (exit, output) = await Run(new DevToolsSetResourceCommand(), agent, ["K", "#FFC42B1C", "--scope", "element"]);
             Assert.AreEqual(1, exit);
-            StringAssert.Contains(output, "--scope element needs the element");
+            Assert.Contains("--scope element needs the element", output);
             Assert.AreEqual(0, agent.Received.Count);
         }
     }
@@ -559,14 +559,14 @@ public class ReactorStateCommandTests
             Assert.IsTrue(doc.RootElement.GetProperty("reverted").GetBoolean());
             var error = doc.RootElement.GetProperty("error");
             Assert.AreEqual("resource-reverted", error.GetProperty("token").GetString());
-            StringAssert.Contains(error.GetProperty("message").GetString(), "Panels.cs:42");
+            Assert.Contains("Panels.cs:42", error.GetProperty("message").GetString()!);
         }
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Resource.set", Answer))
         {
             var (exit, output) = await Run(new DevToolsSetResourceCommand(), agent, ["Rx4Plain", "elem value 2", "42"]);
             Assert.AreEqual(1, exit, output);
-            StringAssert.Contains(output, "set it back to scoped plain");
-            StringAssert.Contains(output, "won't stick");
+            Assert.Contains("set it back to scoped plain", output);
+            Assert.Contains("won't stick", output);
             Assert.IsFalse(output.Contains("-> elem value 2", StringComparison.Ordinal), output);
         }
     }
@@ -583,7 +583,7 @@ public class ReactorStateCommandTests
         Assert.AreEqual(1, exit, output);
         var error = JsonDocument.Parse(output).RootElement.GetProperty("error");
         Assert.AreEqual("resource-read-only", error.GetProperty("token").GetString());
-        StringAssert.Contains(error.GetProperty("message").GetString(), "--scope element");
+        Assert.Contains("--scope element", error.GetProperty("message").GetString()!);
         Assert.IsFalse(output.Contains("COMException", StringComparison.Ordinal), output);
     }
 
@@ -612,9 +612,9 @@ public class ReactorStateCommandTests
         Assert.AreEqual("element", root.GetProperty("reactor").GetProperty("from").GetString());
         Assert.AreEqual("Counter", root.GetProperty("reactor").GetProperty("component").GetString());
         var sources = root.GetProperty("likelySources").EnumerateArray().Select(s => s.GetProperty("name").GetString()).ToArray();
-        CollectionAssert.Contains(sources, "Label");
-        CollectionAssert.Contains(sources, "[0] state");
-        CollectionAssert.DoesNotContain(sources, "Density");
+        Assert.Contains("Label", sources);
+        Assert.Contains("[0] state", sources);
+        Assert.DoesNotContain("Density", sources);
     }
 
     [TestMethod]
@@ -628,10 +628,10 @@ public class ReactorStateCommandTests
         var (exit, output) = await Run(new DevToolsDiagnoseBindingCommand(), agent, ["42", "Foreground"]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "kind: reactor");
-        StringAssert.Contains(output, "← ThemeRef AccentTextFillColorPrimaryBrush");
-        StringAssert.Contains(output, "← created at App.cs:75 in <Counter>");
-        StringAssert.Contains(output, "<Counter> as it last rendered");
+        Assert.Contains("kind: reactor", output);
+        Assert.Contains("← ThemeRef AccentTextFillColorPrimaryBrush", output);
+        Assert.Contains("← created at App.cs:75 in <Counter>", output);
+        Assert.Contains("<Counter> as it last rendered", output);
     }
 
     [TestMethod]
@@ -643,7 +643,7 @@ public class ReactorStateCommandTests
         var (exit, output) = await Run(new DevToolsDiagnoseBindingCommand(), agent, ["42", "Width"]);
         Assert.AreEqual(0, exit, output);
         Assert.DoesNotContain("kind: reactor", output);
-        StringAssert.Contains(output, "No binding");
+        Assert.Contains("No binding", output);
     }
 
     [TestMethod]
@@ -654,8 +654,8 @@ public class ReactorStateCommandTests
             .Answer("Reactor.element", ElementWithText);
         var (exit, output) = await Run(new DevToolsGetPropertyCommand(), agent, ["42"]);
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "Foreground: #FF003E92 [Style] [← ThemeRef AccentTextFillColorPrimaryBrush]");
-        StringAssert.Contains(output, "OnClick → lambda in Counter.Render App.cs:76");
+        Assert.Contains("Foreground: #FF003E92 [Style] [← ThemeRef AccentTextFillColorPrimaryBrush]", output);
+        Assert.Contains("OnClick → lambda in Counter.Render App.cs:76", output);
 
         var (_, json) = await Run(new DevToolsGetPropertyCommand(), agent, ["42", "--json"]);
         using var doc = JsonDocument.Parse(json);
@@ -689,7 +689,7 @@ public class ReactorStateCommandTests
         Assert.AreEqual(0, exit, output);
         using var doc = JsonDocument.Parse(output);
         var sources = doc.RootElement.GetProperty("likelySources").EnumerateArray().Select(s => s.GetProperty("name").GetString()).ToArray();
-        CollectionAssert.AreEqual(expected.Split(','), sources);
+        Assert.AreSequenceEqual(expected.Split(','), sources);
     }
 
     [TestMethod]

@@ -171,9 +171,9 @@ public class DevToolsCSharpCommentsTests
         File.WriteAllText(AppFile, AppSource.Replace("Counter());", "Counter(), TextBlock(\"tail\"));"));
         var (exit, output) = Add("--text", "x", "--file", "App.cs", "--line", "11");
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "App.cs:11:13 Counter");
-        StringAssert.Contains(output, "App.cs:11:24 TextBlock");
-        StringAssert.Contains(output, "--column");
+        Assert.Contains("App.cs:11:13 Counter", output);
+        Assert.Contains("App.cs:11:24 TextBlock", output);
+        Assert.Contains("--column", output);
         Assert.IsFalse(File.Exists(StorePath));
 
         (exit, output) = Add("--text", "x", "--file", "App.cs", "--line", "11", "--column", "24");
@@ -186,10 +186,10 @@ public class DevToolsCSharpCommentsTests
     {
         var (exit, output) = Add("--text", "x", "--file", "App.cs", "--line", "7");
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "no Reactor call site");
+        Assert.Contains("no Reactor call site", output);
         (exit, output) = Add("--text", "x", "--file", "App.cs");
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "--line");
+        Assert.Contains("--line", output);
     }
 
     [TestMethod]
@@ -258,7 +258,7 @@ public class DevToolsCSharpCommentsTests
         Assert.IsFalse(view.AnchorConfirmed);
         Assert.IsTrue(view.RequiresConfirmation);
         Assert.IsTrue(view.Ambiguous);
-        CollectionAssert.AreEquivalent(DuplicatedLineCandidates, view.Candidates);
+        Assert.AreSequenceEqual(DuplicatedLineCandidates, view.Candidates, SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -310,8 +310,8 @@ public class DevToolsCSharpCommentsTests
             ["--app", agent.Pid.ToString(), "--from-element", "7", "--text", "bigger", "--json"]));
 
         Assert.AreEqual(1, exit, console.Output);
-        StringAssert.Contains(console.Output, "changed since the app was built");
-        StringAssert.Contains(console.Output, "Rebuild and relaunch the app");
+        Assert.Contains("changed since the app was built", console.Output);
+        Assert.Contains("Rebuild and relaunch the app", console.Output);
         Assert.IsFalse(File.Exists(StorePath), "nothing is stored at code the running app may not have");
     }
 
@@ -338,7 +338,7 @@ public class DevToolsCSharpCommentsTests
         view = View(stored);
         Assert.IsFalse(view.AnchorConfirmed);
         Assert.IsTrue(view.RequiresConfirmation);
-        CollectionAssert.AreEquivalent(new[] { 23 + added, 36 + added }, view.Hits.Select(hit => hit.Column).ToArray());
+        Assert.AreSequenceEqual(new[] { 23 + added, 36 + added }, view.Hits.Select(hit => hit.Column).ToArray(), SequenceOrder.InAnyOrder);
     }
 
     // ---- live capture ----
@@ -360,7 +360,7 @@ public class DevToolsCSharpCommentsTests
         if (!exact && !confirm)
         {
             Assert.AreEqual(1, exit);
-            StringAssert.Contains(console.Output, "--confirm-likely-source");
+            Assert.Contains("--confirm-likely-source", console.Output);
             Assert.IsFalse(File.Exists(StorePath));
             return;
         }
@@ -405,8 +405,8 @@ public class DevToolsCSharpCommentsTests
         var get = new DevToolsCommentsGetCommand.Handler(store, new CommentAnchorResolver(), new FixedCwd(_root), getConsole,
             new CommentTestTargetResolver()) { ReadSourceRoot = (_, _) => _root };
         Assert.AreEqual(0, await get.InvokeAsync(new DevToolsCommentsGetCommand().Parse([comment.Id])), getConsole.Output);
-        StringAssert.Contains(getConsole.Output, "Captured declaration: Button(\"+1\", () => setCount(count + 1)).Width(120),");
-        if (exact) { StringAssert.Contains(getConsole.Output, "Button IncrementButton"); }
+        Assert.Contains("Captured declaration: Button(\"+1\", () => setCount(count + 1)).Width(120),", getConsole.Output);
+        if (exact) { Assert.Contains("Button IncrementButton", getConsole.Output); }
     }
 
     [TestMethod]
@@ -489,9 +489,9 @@ public class DevToolsCSharpCommentsTests
         var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(["<Counter>", "--app", agent.Pid.ToString(), "--text", "x"]));
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(console.Output, "one of their selectors:");
-        StringAssert.Contains(console.Output, "key=first App.cs:36");
-        StringAssert.Contains(console.Output, "key=second App.cs:79");
+        Assert.Contains("one of their selectors:", console.Output);
+        Assert.Contains("key=first App.cs:36", console.Output);
+        Assert.Contains("key=second App.cs:79", console.Output);
     }
 
     [TestMethod]
@@ -509,7 +509,7 @@ public class DevToolsCSharpCommentsTests
     public void Store_WritesTheCSharpAnchorAsCsharp()
     {
         Add("--text", "x", "--file", "App.cs", "--line", "10");
-        StringAssert.Contains(File.ReadAllText(StorePath), "\"csharp\": {");
+        Assert.Contains("\"csharp\": {", File.ReadAllText(StorePath));
     }
 
     [TestMethod]
@@ -644,9 +644,9 @@ public class DevToolsCSharpCommentsTests
             using var output = JsonDocument.Parse(console.Output);
             notice = output.RootElement.GetProperty("unanchored").GetString()!;
         }
-        StringAssert.Contains(notice, "Saved without a source location");
-        StringAssert.Contains(notice, "Generated/Wrapper.g.cs");
-        StringAssert.Contains(notice, "--file");
+        Assert.Contains("Saved without a source location", notice);
+        Assert.Contains("Generated/Wrapper.g.cs", notice);
+        Assert.Contains("--file", notice);
     }
 
     private (int Exit, string Output) Add(params string[] args)

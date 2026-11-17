@@ -259,7 +259,7 @@ public sealed class ProjectRunServiceAotTests
         var outcome = await NewService(SuccessfulDotnet(output)).PublishAotAndResolveAsync(
             project, Options() with { CaptureDevToolsSources = true }, CancellationToken.None);
 
-        CollectionAssert.AreEqual((string[])["../Lib/Lib.csproj"], outcome.Resolution!.DevToolsReactor!.ProjectReferences!.ToArray());
+        Assert.AreSequenceEqual((string[])["../Lib/Lib.csproj"], outcome.Resolution!.DevToolsReactor!.ProjectReferences!.ToArray());
     }
 
     [TestMethod]
@@ -1153,17 +1153,17 @@ public sealed class ProjectRunServiceAotTests
         var project = WriteProject();
 
         var devtools = ProjectRunService.BuildPublishArguments(project, Options() with { CaptureDevToolsSources = true }, "minimal");
-        CollectionAssert.Contains(devtools.ToList(), "-p:ReactorDiagnostics=true",
+        Assert.Contains("-p:ReactorDiagnostics=true", devtools.ToList(),
             "a Native AOT or trimmed Reactor app keeps its diagnostics only when they are compiled in");
-        CollectionAssert.Contains(devtools.ToList(), "-p:ReactorSourceMap=true");
+        Assert.Contains("-p:ReactorSourceMap=true", devtools.ToList());
 
         var plain = ProjectRunService.BuildPublishArguments(project, Options(), "minimal");
         Assert.IsFalse(plain.Any(token => token.Contains("ReactorDiagnostics", StringComparison.Ordinal)), "only DevTools launches ask for it");
 
         var own = ProjectRunService.BuildPublishArguments(project,
             Options() with { CaptureDevToolsSources = true, Properties = ["ReactorSourceMap=false"] }, "minimal");
-        CollectionAssert.DoesNotContain(own.ToList(), "-p:ReactorSourceMap=true", "the developer's own -p wins");
-        CollectionAssert.Contains(own.ToList(), "-p:ReactorDiagnostics=true");
+        Assert.DoesNotContain("-p:ReactorSourceMap=true", own.ToList(), "the developer's own -p wins");
+        Assert.Contains("-p:ReactorDiagnostics=true", own.ToList());
     }
 
     private static ProjectRunOptions Options(bool noRestore = false, string configuration = "Debug") =>

@@ -5709,7 +5709,7 @@ public class ProjectRunServiceTests
         Assert.AreEqual(refused, error is not null, error);
         if (refused)
         {
-            StringAssert.Contains(error!, "The .NET SDK 8.0.428 can't relaunch a packaged app under --watch. Install .NET SDK 9.0.100 or newer");
+            Assert.Contains("The .NET SDK 8.0.428 can't relaunch a packaged app under --watch. Install .NET SDK 9.0.100 or newer", error!);
         }
     }
 

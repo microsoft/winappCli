@@ -41,8 +41,8 @@ public class DevToolsLogsCommandTests
         using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.logs", Logs);
         var (exit, output) = await Run(agent);
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "Render error in <Counter>: System.InvalidOperationException");
-        StringAssert.Contains(output, "Theme/Resolve: Missing brush key");
+        Assert.Contains("Render error in <Counter>: System.InvalidOperationException", output);
+        Assert.Contains("Theme/Resolve: Missing brush key", output);
         var request = JsonDocument.Parse(agent.ReceivedRequests.Single(r => r.Contains("Reactor.logs", StringComparison.Ordinal)));
         Assert.AreEqual("info", request.RootElement.GetProperty("params").GetProperty("level").GetString());
     }
@@ -85,8 +85,8 @@ public class DevToolsLogsCommandTests
             .Error("Reactor.logs", -32000, "app-exited", "The app exited.");
         var (exit, output) = await Run(agent, "--follow");
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "Render error in <Counter>");
-        StringAssert.Contains(output, "Window opened: ReactorWindow");
+        Assert.Contains("Render error in <Counter>", output);
+        Assert.Contains("Window opened: ReactorWindow", output);
         Assert.AreEqual(1, output.Split("Render error").Length - 1, "an entry is printed once");
     }
 
@@ -98,8 +98,8 @@ public class DevToolsLogsCommandTests
             .Error("Reactor.logs", -32000, "no-response", "The app did not answer.");
         var (exit, output) = await Run(agent, exited: false, "--follow");
         Assert.AreEqual(1, exit, output);
-        StringAssert.Contains(output, "Render error in <Counter>");
-        StringAssert.Contains(output, "did not answer");
+        Assert.Contains("Render error in <Counter>", output);
+        Assert.Contains("did not answer", output);
     }
 
     [TestMethod]
@@ -109,7 +109,7 @@ public class DevToolsLogsCommandTests
             .Answer("Reactor.logs", """{"state":"absent","entries":[],"next":0,"dropped":0,"errors":0}""");
         var (exit, output) = await Run(agent, "--json");
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "reactor-absent");
+        Assert.Contains("reactor-absent", output);
     }
 
     [TestMethod]
@@ -130,24 +130,24 @@ public class DevToolsLogsCommandTests
         Assert.AreEqual("Reactor logs are unavailable: no managed DevTools agent is loaded in this app. " +
             "Launch the app with 'winapp run <project> --devtools on'.",
             DevToolsLogsCommand.UnavailableMessage("no managed DevTools agent is loaded in this app."));
-        StringAssert.StartsWith(DevToolsLogsCommand.UnavailableMessage(null), "Reactor logs are unavailable. Launch");
+        Assert.StartsWith("Reactor logs are unavailable. Launch", DevToolsLogsCommand.UnavailableMessage(null));
     }
 
     [TestMethod]
     public void Format_DescribesEachKind()
     {
         string Line(string json) => DevToolsLogsCommand.Format(JsonDocument.Parse(json).RootElement);
-        StringAssert.Contains(Line("""{"kind":"commitError","level":"error","phase":"layout","component":"App","exception":"System.ArgumentException"}"""),
-            "Commit error in <App> (layout): System.ArgumentException");
-        StringAssert.Contains(Line("""{"kind":"hresult","level":"warning","category":"Hosting","operation":"Dpi","hresult":"0x80004005"}"""),
-            "Hosting/Dpi failed with 0x80004005");
-        StringAssert.Contains(Line("""{"kind":"hotReload","level":"info","source":"metadataUpdate"}"""), "Hot reload applied an edit");
-        StringAssert.Contains(Line("""{"kind":"swallowedError","level":"warning","category":"Theme","operation":"Apply","exception":"COMException"}"""),
-            "Swallowed error in Theme/Apply: COMException");
-        StringAssert.Contains(Line("""{"kind":"other","level":"warning","event":"IntlMissingKey","detail":"key=Title"}"""), "IntlMissingKey: key=Title");
-        StringAssert.Contains(Line("""{"kind":"keyedList","level":"warning","control":"ListView","problem":"duplicateKey","count":3,"keys":2}"""),
-            "Keyed list in ListView has duplicate keys (2 keys affected); it re-creates its rows");
-        StringAssert.Contains(Line("""{"kind":"keyedList","level":"warning","control":"ItemsRepeater","problem":"nullKey","count":1,"keys":1,"component":"TaskList","file":"C:\\src\\App\\TaskList.cs","line":42,"column":13,"first":true}"""),
-            "Keyed list in ItemsRepeater of <TaskList> at TaskList.cs:42 has an item with a null key (1 key affected)");
+        Assert.Contains("Commit error in <App> (layout): System.ArgumentException",
+Line("""{"kind":"commitError","level":"error","phase":"layout","component":"App","exception":"System.ArgumentException"}"""));
+        Assert.Contains("Hosting/Dpi failed with 0x80004005",
+Line("""{"kind":"hresult","level":"warning","category":"Hosting","operation":"Dpi","hresult":"0x80004005"}"""));
+        Assert.Contains("Hot reload applied an edit", Line("""{"kind":"hotReload","level":"info","source":"metadataUpdate"}"""));
+        Assert.Contains("Swallowed error in Theme/Apply: COMException",
+Line("""{"kind":"swallowedError","level":"warning","category":"Theme","operation":"Apply","exception":"COMException"}"""));
+        Assert.Contains("IntlMissingKey: key=Title", Line("""{"kind":"other","level":"warning","event":"IntlMissingKey","detail":"key=Title"}"""));
+        Assert.Contains("Keyed list in ListView has duplicate keys (2 keys affected); it re-creates its rows",
+Line("""{"kind":"keyedList","level":"warning","control":"ListView","problem":"duplicateKey","count":3,"keys":2}"""));
+        Assert.Contains("Keyed list in ItemsRepeater of <TaskList> at TaskList.cs:42 has an item with a null key (1 key affected)",
+Line("""{"kind":"keyedList","level":"warning","control":"ItemsRepeater","problem":"nullKey","count":1,"keys":1,"component":"TaskList","file":"C:\\src\\App\\TaskList.cs","line":42,"column":13,"first":true}"""));
     }
 }

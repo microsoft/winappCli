@@ -41,7 +41,7 @@ public class GuestReactorCommentTests
         }
         var sources = GuestSourceSnapshot.ReactorCSharpSources(project)
             .Select(path => Path.GetRelativePath(_root.FullName, path)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
-        CollectionAssert.AreEqual(new[] { "App.cs", Path.Combine("Views", "Counter.cs") }, sources);
+        Assert.AreSequenceEqual(new[] { "App.cs", Path.Combine("Views", "Counter.cs") }, sources);
         Assert.AreEqual(2, GuestSourceSnapshot.ValidateSources(project, GuestSourceSnapshot.ReactorCSharpSources(project)).Count,
             "C# files pass the same snapshot limits as XAML");
     }

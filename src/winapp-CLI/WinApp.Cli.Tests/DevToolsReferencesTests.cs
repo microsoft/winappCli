@@ -56,8 +56,8 @@ public class DevToolsReferencesTests
         var lines = DevToolsReferences.Lines([new("LabeledBy", false, null, "TextBlock [x]", false), new("XYFocusDown", false, "7", "Button", true)], true).ToList();
         Assert.AreEqual("  References:", lines[0]);
         Assert.AreEqual("    LabeledBy → TextBlock [[x]]", lines[1]);
-        StringAssert.StartsWith(lines[2], "    [yellow]");
-        StringAssert.Contains(lines[3], "Only part of the tree");
+        Assert.StartsWith("    [yellow]", lines[2]);
+        Assert.Contains("Only part of the tree", lines[3]);
     }
 
     [TestMethod]
@@ -66,6 +66,6 @@ public class DevToolsReferencesTests
         var lines = DevToolsReferences.Lines([], true).ToList();
         Assert.AreEqual(2, lines.Count);
         Assert.AreEqual("  References:", lines[0]);
-        StringAssert.Contains(lines[1], "Only part of the tree");
+        Assert.Contains("Only part of the tree", lines[1]);
     }
 }

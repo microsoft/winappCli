@@ -27,7 +27,7 @@ public sealed class ReactorAgentCrashSafetyTests
         var answer = ReactorComponentOps.RunOnUi<Target>(target, target.Project, (_, work) => { queued = work; return true; },
             mutation: true, timeoutMs: 20, (_, done) => done("{\"state\":\"ok\"}"));
 
-        StringAssert.Contains(answer, "\"indeterminate\":true");
+        Assert.Contains("\"indeterminate\":true", answer);
         Assert.AreEqual(1, target.Disposed, "the timeout released the target the callback never claimed");
         queued!();
         Assert.AreEqual(1, target.Disposed, "the late callback did nothing: no projection, no second release");
@@ -56,7 +56,7 @@ public sealed class ReactorAgentCrashSafetyTests
 
         timedOut.Set();
         ui!.Join(5000);
-        StringAssert.Contains(answer, "\"state\":\"unavailable\"");
+        Assert.Contains("\"state\":\"unavailable\"", answer);
         Assert.IsTrue(projected, "the callback projected the target after the request timed out, and that did not throw");
         Assert.AreEqual(1, target.Disposed, "the callback released it once, after it was done with it");
     }
@@ -70,8 +70,8 @@ public sealed class ReactorAgentCrashSafetyTests
             () => ++calls == 1 ? target : throw new ObjectDisposedException("BindingTarget"),
             (_, work) => { work(); return true; }, mutation: false, timeoutMs: 5000, (_, done) => done("{\"state\":\"ok\"}"));
 
-        StringAssert.Contains(answer, "\"state\":\"unavailable\"");
-        StringAssert.Contains(answer, "ObjectDisposedException");
+        Assert.Contains("\"state\":\"unavailable\"", answer);
+        Assert.Contains("ObjectDisposedException", answer);
         Assert.AreEqual(1, target.Disposed);
     }
 
@@ -82,7 +82,7 @@ public sealed class ReactorAgentCrashSafetyTests
         var answer = ReactorComponentOps.RunOnUi<Target>(target, target.Project, (_, work) => { work(); return true; },
             mutation: true, timeoutMs: 5000, (_, _) => throw new InvalidCastException("Reactor changed"));
 
-        StringAssert.Contains(answer, "InvalidCastException");
+        Assert.Contains("InvalidCastException", answer);
         Assert.AreEqual(1, target.Disposed);
     }
 
@@ -120,6 +120,6 @@ public sealed class ReactorAgentCrashSafetyTests
             asked.Add(id);
             return id == 1 ? throw new InvalidOperationException("the control was collected") : null;
         });
-        CollectionAssert.AreEqual(new long[] { 1, 2 }, asked, "the failing component is skipped and the rest are still resolved");
+        Assert.AreSequenceEqual(new long[] { 1, 2 }, asked, "the failing component is skipped and the rest are still resolved");
     }
 }

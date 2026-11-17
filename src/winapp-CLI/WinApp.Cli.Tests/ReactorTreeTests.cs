@@ -36,7 +36,7 @@ public class ReactorTreeTests
         Assert.AreEqual("0.1.0-preview.17", reactor.Version);
         Assert.AreEqual(true, reactor.SourceMap);
         Assert.AreEqual(2, reactor.Unmapped);
-        CollectionAssert.AreEqual(Expected("10", "16"), reactor.Roots.Select(root => root.Handle).ToArray());
+        Assert.AreSequenceEqual(Expected("10", "16"), reactor.Roots.Select(root => root.Handle).ToArray());
 
         var counter = reactor.ByHandle["13"];
         Assert.AreEqual("Counter", counter.Component!.Name);
@@ -58,10 +58,10 @@ public class ReactorTreeTests
     public void ExplainIfEmpty_TellsNonReactorAppsWhatToUse()
     {
         var absent = ReactorDescription.Parse("""{"state":"absent","nodes":[],"files":[],"truncated":false}""")!;
-        StringAssert.Contains(absent.ExplainIfEmpty(), "does not use Microsoft.UI.Reactor");
+        Assert.Contains("does not use Microsoft.UI.Reactor", absent.ExplainIfEmpty()!);
 
         var noAgent = ReactorDescription.Parse("""{"state":"unavailable","reason":"no managed host","nodes":[],"files":[],"truncated":false}""")!;
-        StringAssert.Contains(noAgent.ExplainIfEmpty(), "winapp run --devtools on");
+        Assert.Contains("winapp run --devtools on", noAgent.ExplainIfEmpty()!);
 
         Assert.IsNull(ReactorDescription.Parse(Described)!.ExplainIfEmpty());
     }
@@ -70,7 +70,7 @@ public class ReactorTreeTests
     public void ExplainMissingSource_PointsAtTheSourceMapSwitch()
     {
         var off = ReactorDescription.Parse("""{"state":"ok","sourceMap":false,"nodes":[{"handle":"1","element":"Button"}],"files":[],"truncated":false}""")!;
-        StringAssert.Contains(off.ExplainMissingSource(), "REACTOR_SOURCEMAP=1");
+        Assert.Contains("REACTOR_SOURCEMAP=1", off.ExplainMissingSource()!);
         Assert.IsNull(ReactorDescription.Parse(Described)!.ExplainMissingSource());
     }
 
@@ -129,7 +129,7 @@ public class ReactorTreeTests
         Assert.IsTrue(unreadable.Present);
         Assert.IsFalse(unreadable.IsReactor);
         Assert.AreEqual(ReactorDescription.UnavailableToken, unreadable.Token);
-        StringAssert.Contains(unreadable.ExplainUnavailable(), "winapp run --devtools on");
+        Assert.Contains("winapp run --devtools on", unreadable.ExplainUnavailable());
     }
 
     [TestMethod]
@@ -199,9 +199,9 @@ public class ReactorTreeTests
 
         var note = annotations.Note!.Value;
         Assert.AreEqual(ReactorDescription.ErrorScreenToken, note.Token);
-        StringAssert.Contains(note.Message, "Window \"TaskBoard\" shows Reactor's error screen instead of <App>: Render error: ArgumentException: ShowAttached failed.");
-        StringAssert.Contains(note.Message, "Hot Reload");
-        StringAssert.Contains(Spectre.Console.Markup.Remove(annotations.RootLine(Node("1"))!), "<App> root showing Reactor's error screen");
+        Assert.Contains("Window \"TaskBoard\" shows Reactor's error screen instead of <App>: Render error: ArgumentException: ShowAttached failed.", note.Message);
+        Assert.Contains("Hot Reload", note.Message);
+        Assert.Contains("<App> root showing Reactor's error screen", Spectre.Console.Markup.Remove(annotations.RootLine(Node("1"))!));
         Assert.IsFalse(Spectre.Console.Markup.Remove(Annotations().RootLine(Node("1"))!).Contains("error screen", StringComparison.Ordinal));
     }
 
@@ -210,12 +210,12 @@ public class ReactorTreeTests
     {
         var annotations = Annotations();
 
-        StringAssert.Contains(annotations.Line(Node("2")), "<Counter>");
-        StringAssert.Contains(annotations.Line(Node("2")), "App.cs:12");
+        Assert.Contains("<Counter>", annotations.Line(Node("2")));
+        Assert.Contains("App.cs:12", annotations.Line(Node("2")));
         Assert.IsFalse(annotations.Line(Node("2")).Contains("Border"), "a component line hides its wrapper Border");
-        StringAssert.Contains(annotations.Line(Node("3")), "key=inc");
-        StringAssert.Contains(annotations.Line(Node("3")), "Counter.cs:7");
-        StringAssert.Contains(annotations.Line(Node("4")), "MainPage.xaml");
+        Assert.Contains("key=inc", annotations.Line(Node("3")));
+        Assert.Contains("Counter.cs:7", annotations.Line(Node("3")));
+        Assert.Contains("MainPage.xaml", annotations.Line(Node("4")));
     }
 
     [TestMethod]
@@ -223,10 +223,10 @@ public class ReactorTreeTests
     {
         var line = Annotations(raw: true).Line(Node("2"));
 
-        StringAssert.Contains(line, "Border");
-        StringAssert.Contains(line, "<Counter>");
+        Assert.Contains("Border", line);
+        Assert.Contains("<Counter>", line);
         Assert.IsNull(Annotations(raw: true).RootLine(Node("1")), "--all shows the root inline, not as its own row");
-        StringAssert.Contains(Annotations(raw: true).Line(Node("1")), "<App>");
+        Assert.Contains("<App>", Annotations(raw: true).Line(Node("1")));
     }
 
     [TestMethod]
@@ -234,8 +234,8 @@ public class ReactorTreeTests
     {
         var annotations = Annotations();
 
-        StringAssert.Contains(annotations.RootLine(Node("1")), "<App>");
-        StringAssert.Contains(annotations.RootLine(Node("5")), "<render in App.Settings>");
+        Assert.Contains("<App>", annotations.RootLine(Node("1"))!);
+        Assert.Contains("<render in App.Settings>", annotations.RootLine(Node("5"))!);
         Assert.IsNull(annotations.RootLine(Node("2")));
     }
 
@@ -246,9 +246,9 @@ public class ReactorTreeTests
         var groups = annotations.Group(AuthoredForest.Parse(Annotated)!.Roots);
 
         Assert.IsTrue(annotations.Grouped);
-        CollectionAssert.AreEqual(Expected("100", "200"), groups.Select(group => group.Window!.Window).ToArray());
-        StringAssert.Contains(annotations.WindowHeader(groups[1].Window), "key=Settings");
-        StringAssert.Contains(annotations.WindowHeader(groups[1].Window), "-w 200");
+        Assert.AreSequenceEqual(Expected("100", "200"), groups.Select(group => group.Window!.Window).ToArray());
+        Assert.Contains("key=Settings", annotations.WindowHeader(groups[1].Window));
+        Assert.Contains("-w 200", annotations.WindowHeader(groups[1].Window));
     }
 
     [TestMethod]
@@ -277,8 +277,8 @@ public class ReactorTreeTests
     {
         var reactor = AuthoredForest.Parse(Annotated)!.Reactor!;
 
-        CollectionAssert.AreEquivalent(Expected("2", "6"),
-            DevToolsSelector.ComponentMatches(reactor, "Counter", StringComparison.Ordinal).Select(node => node.Handle).ToArray());
+        Assert.AreSequenceEqual(Expected("2", "6"),
+            DevToolsSelector.ComponentMatches(reactor, "Counter", StringComparison.Ordinal).Select(node => node.Handle).ToArray(), SequenceOrder.InAnyOrder);
         Assert.AreEqual("1", DevToolsSelector.ComponentMatches(reactor, "App", StringComparison.Ordinal).Single().Handle);
         Assert.AreEqual(2, DevToolsSelector.ComponentMatches(reactor, "TaskBoard.Counter", StringComparison.Ordinal).Count);
         Assert.AreEqual(0, DevToolsSelector.ComponentMatches(reactor, "counter", StringComparison.Ordinal).Count);
@@ -330,14 +330,14 @@ public class ReactorTreeTests
         Assert.IsNull(forest.Reactor.ByHandle["1"].Name, "an element built inline has no name");
 
         var line = Spectre.Console.Markup.Remove(annotations.Line(nodes["2"]));
-        StringAssert.Contains(line, "Button #incrementButton App.cs:67");
-        StringAssert.Contains(Spectre.Console.Markup.Remove(new DevToolsTreeAnnotations(forest.Reactor, [], raw: true).Line(nodes["2"])),
-            "#incrementButton", "--all shows the name with the Reactor element too");
+        Assert.Contains("Button #incrementButton App.cs:67", line);
+        Assert.Contains("#incrementButton",
+Spectre.Console.Markup.Remove(new DevToolsTreeAnnotations(forest.Reactor, [], raw: true).Line(nodes["2"])), "--all shows the name with the Reactor element too");
         Assert.IsTrue(annotations.Matches(nodes["2"], "#incrementbutton"), "a tree filter finds it by #name");
 
         // A Name the control itself has is its name; the C# variable does not repeat it.
         var own = Spectre.Console.Markup.Remove(annotations.Line(nodes["3"]));
-        StringAssert.Contains(own, "#Label");
+        Assert.Contains("#Label", own);
         Assert.IsFalse(own.Contains("#label", StringComparison.Ordinal), own);
     }
 
@@ -418,12 +418,12 @@ public class ReactorTreeTests
                 using var doc = System.Text.Json.JsonDocument.Parse(output);
                 Assert.IsTrue(doc.RootElement.GetProperty("fallback").GetBoolean());
                 Assert.IsFalse(doc.RootElement.GetProperty("appAuthored").GetBoolean());
-                StringAssert.Contains(doc.RootElement.GetProperty("fallbackReason").GetString(), "no XAML source information");
+                Assert.Contains("no XAML source information", doc.RootElement.GetProperty("fallbackReason").GetString()!);
                 continue;
             }
-            StringAssert.Contains(output, "reports no XAML source information");
-            StringAssert.Contains(output, "winapp run --devtools on");
-            StringAssert.Contains(output, "SaveButton", "the XAML around the islands is kept");
+            Assert.Contains("reports no XAML source information", output);
+            Assert.Contains("winapp run --devtools on", output);
+            Assert.Contains("SaveButton", output, "the XAML around the islands is kept");
             Assert.IsTrue(output.IndexOf("<ChartPanel>", StringComparison.Ordinal) < output.IndexOf("<InteropPanel>", StringComparison.Ordinal),
                 "islands keep their visual order: " + output);
         }
@@ -433,7 +433,7 @@ public class ReactorTreeTests
     public void ExplainHiddenXaml_OnlyWhenIslandsSitInUnclassifiedXaml()
     {
         var islands = AuthoredForest.Parse(IslandsOnly)!;
-        StringAssert.Contains(islands.ExplainHiddenXaml(rootHandle: null), "no XAML source information");
+        Assert.Contains("no XAML source information", islands.ExplainHiddenXaml(rootHandle: null)!);
         Assert.IsNull(AuthoredForest.Parse(IslandsOnly.Replace("""{"handle":"20","type":"Microsoft.UI.Xaml.Controls.Border","childCount":0,"children":[]},""", "", StringComparison.Ordinal))!
             .ExplainHiddenXaml(rootHandle: "10"), "an island inspected on its own has no XAML around it");
         Assert.IsNull(AuthoredForest.Parse(Annotated)!.ExplainHiddenXaml(null), "an instrumented app classifies its XAML");
@@ -449,6 +449,6 @@ public class ReactorTreeTests
             """);
         Assert.IsTrue(ReactorDescription.ParseAnnotations(published.RootElement)!.StaticOnly);
         Assert.IsFalse(AuthoredForest.Parse(Named)!.Reactor!.StaticOnly, "the agent's tree has state too");
-        StringAssert.Contains(ReactorDescription.StaticOnlyNote, "state, handlers, re-renders and logs are unavailable");
+        Assert.Contains("state, handlers, re-renders and logs are unavailable", ReactorDescription.StaticOnlyNote);
     }
 }

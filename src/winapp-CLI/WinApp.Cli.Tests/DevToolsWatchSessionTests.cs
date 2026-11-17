@@ -35,8 +35,8 @@ public class DevToolsWatchSessionTests
         apps = [11];
         await session.PollOnceAsync(CancellationToken.None);
 
-        CollectionAssert.AreEqual(ExpectedPids, connected);
-        CollectionAssert.AreEqual(new[] { (10, false), (11, true) }, reports);
+        Assert.AreSequenceEqual(ExpectedPids, connected);
+        Assert.AreSequenceEqual(new[] { (10, false), (11, true) }, reports);
         Assert.AreEqual(2, session.AttachedCount);
     }
 
@@ -101,8 +101,7 @@ public class DevToolsWatchSessionTests
 
         Assert.AreEqual("watch --project \"C:\\src\\My App\\App.csproj\" --non-interactive --no-launch-profile -c Release " +
             "-r win-arm64 -f net10.0-windows10.0.26100.0 --property:DefineConstants=DEMO --property:Platform=ARM64 -- --preview Counter", arguments);
-        StringAssert.EndsWith(ProjectRunService.BuildWatchArguments(csproj, options with { OmitRuntimeIdentifier = true }, null),
-            "--property:Platform=ARM64");
+        Assert.EndsWith("--property:Platform=ARM64", ProjectRunService.BuildWatchArguments(csproj, options with { OmitRuntimeIdentifier = true }, null));
         Assert.IsFalse(ProjectRunService.BuildWatchArguments(csproj, options with { OmitRuntimeIdentifier = true }, null).Contains(" -r ", StringComparison.Ordinal));
     }
 
@@ -118,14 +117,14 @@ public class DevToolsWatchSessionTests
 
         var arguments = ProjectRunService.BuildWatchArguments(csproj, options, null);
 
-        StringAssert.Contains(arguments, @"--property:SolutionDir=C:\src\");
-        StringAssert.Contains(arguments, "\"--property:SolutionName=All Apps\"");
-        StringAssert.Contains(arguments, "--property:SolutionExt=.sln");
+        Assert.Contains(@"--property:SolutionDir=C:\src\", arguments);
+        Assert.Contains("\"--property:SolutionName=All Apps\"", arguments);
+        Assert.Contains("--property:SolutionExt=.sln", arguments);
         Assert.IsFalse(arguments.Contains(" -p:", StringComparison.Ordinal), "dotnet watch reads a bare -p as --project");
 
         var userSet = ProjectRunService.BuildWatchArguments(csproj, options with { Properties = ["SolutionDir=D:\\shared\\"] }, null);
         Assert.AreEqual(1, userSet.Split("SolutionDir=").Length - 1, userSet);
-        StringAssert.Contains(userSet, "--property:SolutionDir=D:\\shared\\");
+        Assert.Contains("--property:SolutionDir=D:\\shared\\", userSet);
     }
 
     /// <summary>
@@ -140,8 +139,8 @@ public class DevToolsWatchSessionTests
 
         var arguments = ProjectRunService.BuildWatchArguments(csproj, options, null, csWinRTMetadataFolder: @"C:\cache\winmd");
 
-        StringAssert.EndsWith(arguments, "--property:PublishProfile=win-arm64.pubxml " +
-            @"--property:ProjectToOverrideProjectExtensionsPath=C:\src\App\App.csproj --property:CsWinRTWindowsMetadata=C:\cache\winmd");
+        Assert.EndsWith("--property:PublishProfile=win-arm64.pubxml " +
+            @"--property:ProjectToOverrideProjectExtensionsPath=C:\src\App\App.csproj --property:CsWinRTWindowsMetadata=C:\cache\winmd", arguments);
     }
 
     [TestMethod]
@@ -150,7 +149,7 @@ public class DevToolsWatchSessionTests
     [DataRow(true, false, false, true, true, true, false, "--debug-output, --no-build, --aot, --on")]
     public void WatchConflict_NamesEveryConflictingOption(bool devTools, bool detach, bool json, bool debugOutput, bool noBuild,
         bool aot, bool local, string expected) =>
-        StringAssert.Contains(RunCommand.WatchConflict(devTools, detach, json, debugOutput, noBuild, aot, local), expected);
+        Assert.Contains(expected, RunCommand.WatchConflict(devTools, detach, json, debugOutput, noBuild, aot, local)!);
 
     [TestMethod]
     public void WatchConflict_AllowsAPlainDevToolsRun() =>
@@ -160,7 +159,7 @@ public class DevToolsWatchSessionTests
     public void WatchConflict_NamesNoLaunchAndWithoutAlias_InsteadOfBlamingDevToolsOff()
     {
         var message = RunCommand.WatchConflict(true, false, false, false, false, false, true, noLaunch: true, withoutAlias: true);
-        StringAssert.Contains(message, "--no-launch, --without-alias");
+        Assert.Contains("--no-launch, --without-alias", message!);
         Assert.IsFalse(message!.Contains("--devtools off", StringComparison.Ordinal), message);
     }
 

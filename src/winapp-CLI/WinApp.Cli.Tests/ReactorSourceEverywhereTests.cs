@@ -57,29 +57,29 @@ public class ReactorSourceEverywhereTests
     [TestMethod]
     public void Match_ComponentInEveryWindow_IsAmbiguous()
     {
-        CollectionAssert.AreEquivalent(Expected("2", "9"), Match("<Counter>"));
-        CollectionAssert.AreEqual(Expected("8"), Match("<SettingsPage>"));
+        Assert.AreSequenceEqual(Expected("2", "9"), Match("<Counter>"), SequenceOrder.InAnyOrder);
+        Assert.AreSequenceEqual(Expected("8"), Match("<SettingsPage>"));
     }
 
     [TestMethod]
     public void Match_PathNarrowsToElementsInsideAComponent()
     {
-        CollectionAssert.AreEquivalent(Expected("5", "11"), Match("<Counter>/Button"));
-        CollectionAssert.AreEqual(Expected("11"), Match("<SettingsPage>/<Counter>/Button"));
-        CollectionAssert.AreEqual(Expected("4"), Match("<App>/<Counter>/textblock"), "element kinds match case-insensitively");
-        CollectionAssert.AreEqual(Expected("11"), Match("<SettingsPage>/key=inc"));
+        Assert.AreSequenceEqual(Expected("5", "11"), Match("<Counter>/Button"), SequenceOrder.InAnyOrder);
+        Assert.AreSequenceEqual(Expected("11"), Match("<SettingsPage>/<Counter>/Button"));
+        Assert.AreSequenceEqual(Expected("4"), Match("<App>/<Counter>/textblock"), "element kinds match case-insensitively");
+        Assert.AreSequenceEqual(Expected("11"), Match("<SettingsPage>/key=inc"));
     }
 
     [TestMethod]
     public void Match_KeyAndCallSite()
     {
-        CollectionAssert.AreEqual(Expected("6"), Match("key=t1"));
-        CollectionAssert.AreEquivalent(Expected("6", "7"), Match("App.cs:47"), "every element created on one line matches it");
-        CollectionAssert.AreEquivalent(Expected("5", "11"), Match("app.CS:75:13"));
+        Assert.AreSequenceEqual(Expected("6"), Match("key=t1"));
+        Assert.AreSequenceEqual(Expected("6", "7"), Match("App.cs:47"), SequenceOrder.InAnyOrder, "every element created on one line matches it");
+        Assert.AreSequenceEqual(Expected("5", "11"), Match("app.CS:75:13"), SequenceOrder.InAnyOrder);
         Assert.AreEqual(0, Match("App.cs:75:14").Length);
         Assert.AreEqual(0, Match("Other.cs:75").Length);
-        CollectionAssert.AreEquivalent(Expected("6", "7"), Match("TaskBoard/App.cs:47"), "a path ending, with either separator");
-        CollectionAssert.AreEquivalent(Expected("6", "7"), Match(@"..\TaskBoard\App.cs:47"), "a relative path from another project");
+        Assert.AreSequenceEqual(Expected("6", "7"), Match("TaskBoard/App.cs:47"), SequenceOrder.InAnyOrder, "a path ending, with either separator");
+        Assert.AreSequenceEqual(Expected("6", "7"), Match(@"..\TaskBoard\App.cs:47"), SequenceOrder.InAnyOrder, "a relative path from another project");
         Assert.AreEqual(0, Match("Other/App.cs:47").Length, "a same-named file in another folder");
     }
 
@@ -92,9 +92,9 @@ public class ReactorSourceEverywhereTests
 
         Assert.AreEqual("button-0123456789", candidate.Selector, "candidates print a slug, not a raw handle");
         Assert.AreEqual("Button", candidate.Label);
-        StringAssert.Contains(candidate.Detail, "key=inc");
-        StringAssert.Contains(candidate.Detail, "App.cs:75");
-        StringAssert.Contains(candidate.Detail, "window \"Settings\" (-w 200)");
+        Assert.Contains("key=inc", candidate.Detail!);
+        Assert.Contains("App.cs:75", candidate.Detail!);
+        Assert.Contains("window \"Settings\" (-w 200)", candidate.Detail!);
         Assert.AreEqual("200", candidate.Window);
         Assert.AreEqual("<Counter>", DevToolsSelector.ReactorCandidate(reactor, reactor.ByHandle["2"], null).Label);
     }
@@ -113,7 +113,7 @@ public class ReactorSourceEverywhereTests
     {
         var annotations = new DevToolsTreeAnnotations(Reactor(), [], raw: false);
         var root = new VisualTreeNode("1", "", "Microsoft.UI.Xaml.Controls.StackPanel", null, null, false, 0, [], 0);
-        StringAssert.Contains(annotations.RootLine(root), "App.cs:7");
+        Assert.Contains("App.cs:7", annotations.RootLine(root)!);
     }
 
     [TestMethod]
@@ -132,8 +132,8 @@ public class ReactorSourceEverywhereTests
         Assert.IsNull(info.OwnerOf("Background"));
         Assert.AreEqual("App.cs:75", info.ShortSource);
         var warning = info.OwnedWarning("Width");
-        StringAssert.Contains(warning, "set in C# (App.cs:75)");
-        StringAssert.Contains(warning, "<Counter> re-renders with a changed value");
+        Assert.Contains("set in C# (App.cs:75)", warning);
+        Assert.Contains("<Counter> re-renders with a changed value", warning);
 
         var component = ReactorElementInfo.Parse("""
             {"state":"ok","tagged":true,"element":"Component","component":{"kind":"class","name":"Login"},"props":[],"modifiers":[],
@@ -157,9 +157,9 @@ public class ReactorSourceEverywhereTests
             Assert.IsTrue(off.Referenced && off.DevtoolsPackage);
             var warnings = off.Warnings().ToArray();
             Assert.AreEqual(2, warnings.Length);
-            StringAssert.Contains(warnings[0], "<ReactorSourceMap>false</ReactorSourceMap>");
-            StringAssert.Contains(warnings[1], "deprecated");
-            StringAssert.Contains(warnings[1], "Visual Studio embedded preview");
+            Assert.Contains("<ReactorSourceMap>false</ReactorSourceMap>", warnings[0]);
+            Assert.Contains("deprecated", warnings[1]);
+            Assert.Contains("Visual Studio embedded preview", warnings[1]);
             Assert.IsFalse(warnings[1].Contains("MCP", StringComparison.Ordinal), "Reactor no longer ships the MCP tools");
 
             // Every new Reactor app references the package in Debug only, for the live previews: no warning there.
@@ -180,7 +180,7 @@ public class ReactorSourceEverywhereTests
             }
 
             var release = ReactorBuildFacts.From(new Dictionary<string, string> { ["_MicrosoftUIReactorTargetsLoaded"] = "true" }, null)!;
-            StringAssert.Contains(release.Warnings().Single(), "only in Debug");
+            Assert.Contains("only in Debug", release.Warnings().Single());
 
             var debug = ReactorBuildFacts.From(new Dictionary<string, string>
             {

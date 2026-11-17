@@ -99,7 +99,7 @@ public sealed class ReactorComponentOpsSafetyTests
         Assert.IsNotNull(answer, "the fault completes the request");
         using var doc = JsonDocument.Parse(answer);
         Assert.AreEqual("unavailable", doc.RootElement.GetProperty("state").GetString());
-        StringAssert.Contains(doc.RootElement.GetProperty("reason").GetString(), "TargetException");
+        Assert.Contains("TargetException", doc.RootElement.GetProperty("reason").GetString()!);
     }
 
     [TestMethod]
@@ -110,8 +110,8 @@ public sealed class ReactorComponentOpsSafetyTests
             json => answer = json, _ => Assert.Fail("not reached"));
 
         Assert.IsNotNull(answer);
-        StringAssert.Contains(answer, "\"state\":\"unavailable\"");
-        StringAssert.Contains(answer, "host closed");
+        Assert.Contains("\"state\":\"unavailable\"", answer);
+        Assert.Contains("host closed", answer);
     }
 
     [TestMethod]

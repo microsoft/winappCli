@@ -109,7 +109,7 @@ public sealed class ReactorEventsTests
         var (entries, dropped) = ReactorEvents.Snapshot();
         Assert.AreEqual(ReactorEvents.Capacity, entries.Count);
         Assert.AreEqual(3, dropped);
-        StringAssert.Contains(entries[^1], "w" + (ReactorEvents.Capacity + 2));
+        Assert.Contains("w" + (ReactorEvents.Capacity + 2), entries[^1]);
     }
 
     [TestMethod]
@@ -129,7 +129,7 @@ public sealed class ReactorEventsTests
         var before = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         ReactorEvents.UpdateApplication([typeof(string)]);
         var (entries, _) = ReactorEvents.Snapshot();
-        StringAssert.Contains(entries.Single(), "\"metadataUpdate\"");
+        Assert.Contains("\"metadataUpdate\"", entries.Single());
         Assert.IsTrue(ReactorEvents.HotReloadedAt >= before, "the time is kept, so files written before it match the running code");
     }
 
@@ -151,10 +151,10 @@ public sealed class ReactorEventsTests
         });
         var lines = Encoding.UTF8.GetString(stream.ToArray()).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.AreEqual(3, lines.Length, string.Join("\n", lines));
-        StringAssert.StartsWith(lines[0], "EVENT {");
-        StringAssert.Contains(lines[0], "\"replay\":true");
-        StringAssert.Contains(lines[1], "\"kind\":\"ready\"");
-        StringAssert.Contains(lines[2], "ReactorWindow");
+        Assert.StartsWith("EVENT {", lines[0]);
+        Assert.Contains("\"replay\":true", lines[0]);
+        Assert.Contains("\"kind\":\"ready\"", lines[1]);
+        Assert.Contains("ReactorWindow", lines[2]);
     }
 
     private sealed record FakeKeyedListDiagnostic(DateTime TimestampUtc, string? ControlContext, FakeKind Kind,
@@ -189,7 +189,7 @@ public sealed class ReactorEventsTests
             foreach (var expected in new[] { "\"kind\":\"keyedList\"", "\"problem\":\"nullKey\"", "\"component\":\"TaskList\"",
                 "\"file\":\"C:\\\\src\\\\App\\\\TaskList.cs\"", "\"line\":42", "\"column\":13", "\"first\":true" })
             {
-                StringAssert.Contains(published[0], expected);
+                Assert.Contains(expected, published[0]);
             }
 
             ReactorEvents.KeyedLists.Poll();
@@ -200,7 +200,7 @@ public sealed class ReactorEventsTests
             source.Add(new FakeKeyedListDiagnostic(at.AddSeconds(1), "GridView", FakeKind.DuplicateKey, ["a", "a"], 1));
             ReactorEvents.KeyedLists.Poll();
             Assert.HasCount(2, published, "firing again with the same keys is not a new report");
-            StringAssert.Contains(published[1], "\"first\":true");
+            Assert.Contains("\"first\":true", published[1]);
             Assert.IsFalse(published[1].Contains("\"component\"", StringComparison.Ordinal) || published[1].Contains("\"file\"", StringComparison.Ordinal),
                 "nothing is made up when Reactor doesn't say");
 
@@ -208,7 +208,7 @@ public sealed class ReactorEventsTests
             source[1] = ((FakeKeyedListDiagnostic)source[1]) with { TimestampUtc = at.AddSeconds(30), SampleKeys = ["a", "a", "b", "b"], Count = 2 };
             ReactorEvents.KeyedLists.Poll();
             Assert.HasCount(3, published);
-            StringAssert.Contains(published[2], "\"keys\":4");
+            Assert.Contains("\"keys\":4", published[2]);
             Assert.IsFalse(published[2].Contains("\"first\"", StringComparison.Ordinal), "a list is first only once");
         }
         finally
@@ -270,8 +270,8 @@ public sealed class ReactorEventsTests
         Assert.AreEqual("keyedList", first.Kind);
         Assert.IsTrue(first.Log);
         var json = ReactorEvents.ToJson(first, 1, at);
-        StringAssert.Contains(json, "\"problem\":\"duplicateKey\"");
-        StringAssert.Contains(json, "\"keys\":2");
+        Assert.Contains("\"problem\":\"duplicateKey\"", json);
+        Assert.Contains("\"keys\":2", json);
         Assert.IsFalse(json.Contains("alice", StringComparison.Ordinal), "keys are app data and are not reported");
         Assert.IsNull(ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "ListView", FakeKind.DuplicateKey, ["alice@example.com", "alice@example.com"], 5)),
             "the same bailout is reported once, however often it fires");
@@ -285,7 +285,7 @@ public sealed class ReactorEventsTests
         var at = new DateTime(2026, 10, 2, 10, 0, 0, DateTimeKind.Utc);
         var record = ReactorEvents.KeyedLists.Translate(new FakeKeyedListDiagnostic(at, "BigList", FakeKind.DuplicateKey,
             ["k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "…and 12 more"], 1))!;
-        StringAssert.Contains(ReactorEvents.ToJson(record, 1, at), "\"keys\":20");
+        Assert.Contains("\"keys\":20", ReactorEvents.ToJson(record, 1, at));
         Assert.AreEqual(3, ReactorEvents.KeyedLists.KeyCount(["a", "b", "c"]), "CONTROL: a whole sample is counted as is");
     }
 

@@ -171,7 +171,7 @@ public partial class UiCommandTests
         var exit = await ParseAndInvokeWithCaptureAsync(QueryCommand("wait-for"),
             ["#incrementButt", "-a", "TestApp", "--type", "Button", "--timeout", "150", "--json"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"timedOut\": true");
+        Assert.Contains("\"timedOut\": true", TestAnsiConsole.Output);
         Assert.IsTrue(_fakeUia.Queries.Count > 1, "wait-for polled instead of failing at once");
     }
 

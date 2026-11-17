@@ -124,12 +124,12 @@ public class DevToolsSelectorTests
         Assert.IsTrue(agent.ReceivedRequests.All(request => !request.Contains("VisualTree.enumerate") || request.Contains("\"annotate\":true")),
             "inspect asks for the window and Reactor annotations in the same request");
         Assert.IsFalse(agent.ReceivedRequests.Any(request => request.Contains("Reactor.describe")), "no extra round trip");
-        StringAssert.Contains(output, "Window \"Main\" -w 100");
-        StringAssert.Contains(output, "Window \"Settings\" -w 200 Reactor win-2 key=Settings");
-        StringAssert.Contains(output, "<SettingsPage> root");
-        StringAssert.Contains(output, "<Counter> App.cs:9");
-        StringAssert.Contains(output, "MainWindow.xaml");
-        StringAssert.Contains(output, "your XAML and Reactor code", "the footer names both kinds of elements shown");
+        Assert.Contains("Window \"Main\" -w 100", output);
+        Assert.Contains("Window \"Settings\" -w 200 Reactor win-2 key=Settings", output);
+        Assert.Contains("<SettingsPage> root", output);
+        Assert.Contains("<Counter> App.cs:9", output);
+        Assert.Contains("MainWindow.xaml", output);
+        Assert.Contains("your XAML and Reactor code", output, "the footer names both kinds of elements shown");
         Assert.IsTrue(output.IndexOf("Main", StringComparison.Ordinal) < output.IndexOf("Settings", StringComparison.Ordinal));
     }
 
@@ -154,8 +154,8 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Clicks"]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "#incrementButton Program.cs:33 in <Counter>");
-        StringAssert.Contains(output, "Found 1 match(es) in your Reactor code");
+        Assert.Contains("#incrementButton Program.cs:33 in <Counter>", output);
+        Assert.Contains("Found 1 match(es) in your Reactor code", output);
     }
 
     /// <summary>A Reactor-only app has no XAML, so the search fallback must not say "your XAML".</summary>
@@ -174,7 +174,7 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium"]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "Nothing in your Reactor code matches");
+        Assert.Contains("Nothing in your Reactor code matches", output);
     }
 
     [TestMethod]
@@ -213,7 +213,7 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, []);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "This app uses Microsoft.UI.Reactor, but its components cannot be read");
+        Assert.Contains("This app uses Microsoft.UI.Reactor, but its components cannot be read", output);
         Assert.AreEqual(1, output.Split("cannot be read").Length - 1, "the Reactor note is said once");
         Assert.IsFalse(output.Contains("XAML source information"), "the reason is Reactor, not missing XAML source info");
     }
@@ -245,9 +245,9 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["--component", name]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "<Counter> App.cs:36 window \"TaskBoard\" (-w 100)");
-        StringAssert.Contains(output, "<Counter> App.cs:79 window \"Settings\" (-w 200)");
-        StringAssert.Contains(output, "Found 2 match(es)");
+        Assert.Contains("<Counter> App.cs:36 window \"TaskBoard\" (-w 100)", output);
+        Assert.Contains("<Counter> App.cs:79 window \"Settings\" (-w 200)", output);
+        Assert.Contains("Found 2 match(es)", output);
     }
 
     [TestMethod]
@@ -259,8 +259,8 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["--component", "Counter", "--json"]);
 
         Assert.AreNotEqual(0, exit);
-        StringAssert.Contains(output, "reactor-incomplete");
-        StringAssert.Contains(output, "Run the command again");
+        Assert.Contains("reactor-incomplete", output);
+        Assert.Contains("Run the command again", output);
         Assert.IsFalse(output.Contains("No rendered Reactor component", StringComparison.Ordinal), output);
     }
 
@@ -273,8 +273,8 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["--component", "Counter", "--json"]);
 
         Assert.AreNotEqual(0, exit);
-        StringAssert.Contains(output, "no-match");
-        StringAssert.Contains(output, "No rendered Reactor component is named <Counter>");
+        Assert.Contains("no-match", output);
+        Assert.Contains("No rendered Reactor component is named <Counter>", output);
     }
 
     [TestMethod]
@@ -286,7 +286,7 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["--component", "Counter", "--of-type", "Button"]);
 
         Assert.AreNotEqual(0, exit);
-        StringAssert.Contains(output, "--root 21 or --root 31");
+        Assert.Contains("--root 21 or --root 31", output);
         Assert.IsFalse(output.Contains("selector to --root", StringComparison.Ordinal), "--root takes a handle, not a selector");
         Assert.IsFalse(agent.ReceivedRequests.Any(request => request.Contains("VisualTree.query", StringComparison.Ordinal)));
     }
@@ -311,7 +311,7 @@ public class DevToolsSelectorTests
         Assert.IsFalse(resolved.Ok);
         Assert.HasCount(2, resolved.Candidates);
         Assert.AreEqual(suggested, resolved.Error!.Contains("-w", StringComparison.Ordinal), resolved.Error);
-        StringAssert.Contains(resolved.Error, "one of their selectors:");
+        Assert.Contains("one of their selectors:", resolved.Error);
     }
 
     [TestMethod]
@@ -335,9 +335,9 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["<Counter>/Button"]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "App.cs:67 window \"TaskBoard\" (-w 100)");
-        StringAssert.Contains(output, "App.cs:67 window \"Settings\" (-w 200)");
-        StringAssert.Contains(output, "Found 2 match(es)");
+        Assert.Contains("App.cs:67 window \"TaskBoard\" (-w 100)", output);
+        Assert.Contains("App.cs:67 window \"Settings\" (-w 200)", output);
+        Assert.Contains("Found 2 match(es)", output);
     }
 
     /// <summary>A key is exact, as in get-state: key=v1 must not also list v10, which text search would.</summary>
@@ -362,9 +362,9 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["key=v1"]);
 
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "key=v1 ");
+        Assert.Contains("key=v1 ", output);
         Assert.IsFalse(output.Contains("key=v10", StringComparison.Ordinal), output);
-        StringAssert.Contains(output, "Found 1 match(es)");
+        Assert.Contains("Found 1 match(es)", output);
     }
 
     [TestMethod]
@@ -382,7 +382,7 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["key=v1"]);
 
         Assert.AreNotEqual(0, exit, output);
-        StringAssert.Contains(output, "No rendered Reactor element matches key=v1");
+        Assert.Contains("No rendered Reactor element matches key=v1", output);
         Assert.IsFalse(output.Contains("key=v10", StringComparison.Ordinal), output);
     }
 
@@ -817,7 +817,7 @@ public class DevToolsSelectorTests
         var overlaysPage = DevToolsSelector.Resolve(tap, "border-5d10e2c4a7");
 
         Assert.IsFalse(homePage.Ok, "the <HomePage> selector must not resolve to <OverlaysPage>");
-        StringAssert.Contains(homePage.Error, "stale");
+        Assert.Contains("stale", homePage.Error!);
         Assert.AreEqual("77", overlaysPage.Handle, "the new component's own selector resolves");
     }
 
@@ -842,8 +842,8 @@ public class DevToolsSelectorTests
         var resolved = DevToolsSelector.Resolve(tap, "border-3fad591266");
 
         Assert.IsFalse(resolved.Ok);
-        StringAssert.Contains(resolved.Error, "no longer rendered");
-        StringAssert.Contains(resolved.Error, "winapp devtools search");
+        Assert.Contains("no longer rendered", resolved.Error!);
+        Assert.Contains("winapp devtools search", resolved.Error!);
         Assert.AreEqual(0, resolved.Candidates.Length, "unrelated elements of the same type are not offered");
     }
 
@@ -905,7 +905,7 @@ public class DevToolsSelectorTests
         Assert.AreEqual("61", DevToolsSelector.Resolve(tap, "IncrementButton").Handle, "a unique name matches case-insensitively, like an x:Name");
         var missing = DevToolsSelector.Resolve(tap, "#resetButton");
         Assert.IsFalse(missing.Ok);
-        StringAssert.Contains(missing.Error, "C# variable");
+        Assert.Contains("C# variable", missing.Error!);
     }
 
     /// <summary>One C# name reused by several elements (a list row built by one method) is ambiguous, as an x:Name is.</summary>
@@ -928,10 +928,10 @@ public class DevToolsSelectorTests
         var resolved = DevToolsSelector.Resolve(tap, "#Row");
 
         Assert.IsFalse(resolved.Ok);
-        StringAssert.Contains(resolved.Error, "2 elements are named");
+        Assert.Contains("2 elements are named", resolved.Error!);
         Assert.AreEqual(2, resolved.Candidates.Length);
-        StringAssert.Contains(resolved.Candidates[0].Detail, "#Row");
-        StringAssert.Contains(resolved.Candidates[0].Detail, "key=t1", "each candidate says which row it is");
+        Assert.Contains("#Row", resolved.Candidates[0].Detail!);
+        Assert.Contains("key=t1", resolved.Candidates[0].Detail!, "each candidate says which row it is");
     }
 
     /// <summary>

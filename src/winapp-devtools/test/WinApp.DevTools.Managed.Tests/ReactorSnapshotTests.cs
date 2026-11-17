@@ -53,7 +53,7 @@ public sealed class ReactorSnapshotTests
         Assert.AreEqual("Counter", snapshot.Name);
         Assert.AreEqual("class", snapshot.Kind);
         Assert.AreEqual(3, snapshot.Props.Count);
-        CollectionAssert.AreEqual(new[] { "state", "context", "ref", "effect", "state", "context", "state" }, snapshot.State.Select(s => s.Kind).ToArray());
+        Assert.AreSequenceEqual(new[] { "state", "context", "ref", "effect", "state", "context", "state" }, snapshot.State.Select(s => s.Kind).ToArray());
         Assert.IsTrue(snapshot.State[2].Migrated);
         Assert.AreEqual("provided", snapshot.Contexts[1].Kind);
         Assert.AreEqual("function", ReactorSnapshot.From(new ComponentSnapshot("render in Program.Main", "Function", true, [], [], []))!.Kind);
@@ -71,7 +71,7 @@ public sealed class ReactorSnapshotTests
         Assert.AreEqual("reactor", root.GetProperty("api").GetString());
         var component = root.GetProperty("component");
         Assert.AreEqual("Counter", component.GetProperty("name").GetString());
-        StringAssert.EndsWith(component.GetProperty("type").GetString(), "+Counter", "the element record's type is still reported");
+        Assert.EndsWith("+Counter", component.GetProperty("type").GetString(), "the element record's type is still reported");
         Assert.AreEqual("Counter.Render", root.GetProperty("definition").GetProperty("method").GetString(), "and where it is defined");
         Assert.AreEqual("SHA256", root.GetProperty("definition").GetProperty("checksumAlgorithm").GetString());
 

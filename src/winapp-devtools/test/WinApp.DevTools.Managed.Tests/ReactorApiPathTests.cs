@@ -52,7 +52,7 @@ public sealed class ReactorApiPathTests
         var pending = api.PendingReferences(null!);
 
         Assert.IsNotNull(pending);
-        CollectionAssert.AreEqual(new[] { "XYFocusRight", "LabeledBy", "FlowsTo" }, pending.Select(edge => edge.Property).ToArray());
+        Assert.AreSequenceEqual(new[] { "XYFocusRight", "LabeledBy", "FlowsTo" }, pending.Select(edge => edge.Property).ToArray());
     }
 
     [TestMethod]

@@ -44,7 +44,7 @@ public class ReactorHookSourceTests
     public void Names_ReadsDeconstructionsAssignmentsAndUnassignedHooksInOrder()
     {
         var names = Names(Login, 6, 5, "state", "state", "context", "effect", "reducer", "ref");
-        CollectionAssert.AreEqual(new[] { "password", "count", "dbPassword", null, null, "clicks" }, names?.ToArray());
+        Assert.AreSequenceEqual(new[] { "password", "count", "dbPassword", null, null, "clicks" }, names?.ToArray());
     }
 
     [TestMethod]
@@ -78,9 +78,9 @@ public class ReactorHookSourceTests
                 }
             }
             """;
-        CollectionAssert.AreEqual(PasswordAndTheme, Names(source, 4, 9, "state", "context")?.ToArray(),
+        Assert.AreSequenceEqual(PasswordAndTheme, Names(source, 4, 9, "state", "context")?.ToArray(),
             "a function component's lambda body");
-        CollectionAssert.AreEqual(CountOnly, Names(source, 14, 5, "state")?.ToArray(), "this.UseState");
+        Assert.AreSequenceEqual(CountOnly, Names(source, 14, 5, "state")?.ToArray(), "this.UseState");
     }
 
     [TestMethod]
@@ -99,7 +99,7 @@ public class ReactorHookSourceTests
                 }
             }
             """;
-        CollectionAssert.AreEqual(SortAndRows, Names(source, 6, 5, "state", "memo")?.ToArray());
+        Assert.AreSequenceEqual(SortAndRows, Names(source, 6, 5, "state", "memo")?.ToArray());
     }
 
     [TestMethod]
@@ -120,7 +120,7 @@ public class ReactorHookSourceTests
         Assert.IsNull(Names(Body("        var (a, setA) = UseState(0);"), 4, 5, "state", "state"), "fewer hook calls than live hooks");
         Assert.IsNull(Names(Body("        var (a, setA) = UseState(0);"), 4, 5, "ref"), "a kind that does not line up");
         Assert.IsNull(Names(Body("        var a = Helper.UseState(0);"), 4, 5, "state"), "a qualified call that is not ctx. or this.");
-        CollectionAssert.AreEqual(AOnly,
+        Assert.AreSequenceEqual(AOnly,
             Names(Body("        var (a, setA) = UseState(0);\n        Action reset = () => { setA(0); return; };"), 4, 5, "state")?.ToArray(),
             "a return inside a lambda is not an early return");
     }
@@ -139,7 +139,7 @@ public class ReactorHookSourceTests
                 }
             }
             """;
-        CollectionAssert.AreEqual(LabelOnly, Names(source, 4, 5, "state")?.ToArray());
+        Assert.AreSequenceEqual(LabelOnly, Names(source, 4, 5, "state")?.ToArray());
     }
 
     [TestMethod]
@@ -217,13 +217,13 @@ public class ReactorHookSourceTests
     public void PasswordVariables_AreWhatTheBodyPassesWhereAPasswordGoes()
     {
         var lines = BoxLogin.Split('\n');
-        CollectionAssert.AreEqual(PwdOnly, ReactorHookSource.PasswordVariables(lines, 4, 5).ToArray());
+        Assert.AreSequenceEqual(PwdOnly, ReactorHookSource.PasswordVariables(lines, 4, 5).ToArray());
         var named = "class C : Component\n{\n    public override Element Render()\n    {\n" +
             "        var f = Field(label: user, adminPassword: form.Value.Secret);\n" +
             "        var d = new Login { UserPassword = pin!, Name = other };\n" +
             "        var ok = userPassword == other;\n        var e = PasswordBox(default, null);\n" +
             "        return PasswordBox(pwd + other);\n    }\n}\n";
-        CollectionAssert.AreEqual(FormAndPin, ReactorHookSource.PasswordVariables(named.Split('\n'), 4, 5).ToArray());
+        Assert.AreSequenceEqual(FormAndPin, ReactorHookSource.PasswordVariables(named.Split('\n'), 4, 5).ToArray());
         Assert.IsTrue(ReactorHookSource.NamesSecret(lines, 4, 5), "a body with a PasswordBox uses a password");
         Assert.IsTrue(ReactorHookSource.NamesSecret(
             "class C\n{\n    Element Render()\n    {\n        var (p, setP) = UseState(\"\");\n        return LoginForm(onPasswordChanged: setP);\n    }\n}\n".Split('\n'), 4, 5),
@@ -243,7 +243,7 @@ public class ReactorHookSourceTests
             "        var x4 = PasswordBox(null, d.Set);\n" +
             "        var x5 = PasswordBox(placeholderText: \"pin\", password: e, onPasswordChanged: setE);\n" +
             "        return TextBox(shown, setShown);\n    }\n}\n";
-        CollectionAssert.AreEquivalent(UncontrolledPasswords, ReactorHookSource.PasswordVariables(uncontrolled.Split('\n'), 4, 5).ToArray());
+        Assert.AreSequenceEqual(UncontrolledPasswords, ReactorHookSource.PasswordVariables(uncontrolled.Split('\n'), 4, 5).ToArray(), SequenceOrder.InAnyOrder);
     }
 
     private static readonly string[] UncontrolledPasswords = ["a", "b", "c", "d", "e"];

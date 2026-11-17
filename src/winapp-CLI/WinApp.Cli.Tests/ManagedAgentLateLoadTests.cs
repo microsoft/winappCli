@@ -18,7 +18,7 @@ public class ManagedAgentLateLoadTests
     {
         var message = DiagnosticsIpc.ApplyStartupHook(Agent);
 
-        CollectionAssert.AreEqual("DOTNET_IPC_V1\0"u8.ToArray(), message[..14]);
+        Assert.AreSequenceEqual("DOTNET_IPC_V1\0"u8.ToArray(), message[..14]);
         Assert.AreEqual(message.Length, BinaryPrimitives.ReadUInt16LittleEndian(message.AsSpan(14)));
         Assert.AreEqual(0x04, message[16], "Process command set");
         Assert.AreEqual(0x07, message[17], "ApplyStartupHook");
@@ -75,8 +75,8 @@ public class ManagedAgentLateLoadTests
         var result = await loader.EnsureAsync(Process.GetCurrentProcess(), CancellationToken.None);
 
         Assert.AreEqual(ManagedAgentState.Unavailable, result.State);
-        StringAssert.Contains(result.Reason, "same user and integrity level");
-        StringAssert.Contains(result.Reason, "elevated");
+        Assert.Contains("same user and integrity level", result.Reason!);
+        Assert.Contains("elevated", result.Reason!);
         Assert.AreEqual(0, sent);
     }
 
@@ -95,9 +95,9 @@ public class ManagedAgentLateLoadTests
             var result = await loader.EnsureAsync(Process.GetCurrentProcess(), CancellationToken.None);
 
             Assert.AreEqual(ManagedAgentState.Unavailable, result.State);
-            StringAssert.Contains(result.Reason, "StartupHookSupport");
+            Assert.Contains("StartupHookSupport", result.Reason!);
             Assert.AreEqual(0, sent, "the runtime silently ignores a hook it can't run, so DevTools doesn't send it");
-            StringAssert.StartsWith(result.Note, note);
+            Assert.StartsWith(note, result.Note);
             Assert.AreEqual(reactor, result.Note!.Contains("Reactor", StringComparison.Ordinal), "only a Reactor app hears about Reactor");
         }
         finally
@@ -124,7 +124,7 @@ public class ManagedAgentLateLoadTests
         var result = await loader.EnsureAsync(Process.GetCurrentProcess(), CancellationToken.None);
 
         Assert.AreEqual(ManagedAgentState.Unavailable, result.State);
-        StringAssert.Contains(result.Reason, expected);
+        Assert.Contains(expected, result.Reason!);
     }
 
     [TestMethod]
@@ -150,7 +150,7 @@ public class ManagedAgentLateLoadTests
         var result = await loader.EnsureAsync(Process.GetCurrentProcess(), CancellationToken.None);
 
         Assert.AreEqual(ManagedAgentState.Unavailable, result.State);
-        StringAssert.Contains(result.Reason, "did not start");
+        Assert.Contains("did not start", result.Reason!);
     }
 
     [TestMethod]
@@ -182,7 +182,7 @@ public class ManagedAgentLateLoadTests
         var result = await loader.EnsureAsync(Process.GetCurrentProcess(), CancellationToken.None);
 
         Assert.AreEqual(ManagedAgentState.Unavailable, result.State);
-        StringAssert.Contains(result.Reason, "owned by another process");
+        Assert.Contains("owned by another process", result.Reason!);
     }
 
     [TestMethod]
@@ -199,7 +199,7 @@ public class ManagedAgentLateLoadTests
         var result = await loader.EnsureAsync(Process.GetCurrentProcess(), CancellationToken.None);
 
         Assert.AreEqual(1, sent, "a .NET process of this user at this integrity level is eligible");
-        StringAssert.Contains(result.Reason, ".NET 8 or later");
+        Assert.Contains(".NET 8 or later", result.Reason!);
     }
 
     private static ManagedAgentLateLoad Loader(

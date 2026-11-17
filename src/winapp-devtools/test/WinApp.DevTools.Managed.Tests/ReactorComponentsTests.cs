@@ -30,7 +30,7 @@ public sealed class ReactorComponentsTests
         var span = ReactorPdb.Locate(new Counter().Lambda().Method);
         Assert.IsNotNull(span);
         var line = File.ReadAllLines(span.File)[span.Line - 1];
-        StringAssert.Contains(line, "public Action Lambda()");
+        Assert.Contains("public Action Lambda()", line);
     }
 
     [TestMethod]
@@ -46,13 +46,13 @@ public sealed class ReactorComponentsTests
         Assert.AreEqual(1.5, real);
 
         Assert.IsFalse(ReactorComponents.TryParse("maybe", typeof(bool), out _, out var error));
-        StringAssert.Contains(error, "true or false");
+        Assert.Contains("true or false", error!);
         Assert.IsFalse(ReactorComponents.TryParse("Later", typeof(Filter), out _, out error));
-        StringAssert.Contains(error, "All, Active, Done");
+        Assert.Contains("All, Active, Done", error!);
         Assert.IsFalse(ReactorComponents.TryParse("x", typeof(int), out _, out error));
-        StringAssert.Contains(error, "not a valid int");
+        Assert.Contains("not a valid int", error!);
         Assert.IsFalse(ReactorComponents.TryParse("{}", typeof(TaskItem), out _, out error));
-        StringAssert.Contains(error, "cannot be typed as text");
+        Assert.Contains("cannot be typed as text", error!);
         Assert.IsFalse(ReactorComponents.TryParse("null", typeof(int), out _, out _));
     }
 
@@ -60,7 +60,7 @@ public sealed class ReactorComponentsTests
     public void TryParse_IsStrictAboutNumbersAndEnums()
     {
         Assert.IsFalse(ReactorComponents.TryParse("3,5", typeof(double), out _, out var error), "a group separator is not a decimal point");
-        StringAssert.Contains(error, "not a valid double");
+        Assert.Contains("not a valid double", error!);
         Assert.IsFalse(ReactorComponents.TryParse("2,5", typeof(decimal), out _, out _));
         Assert.IsFalse(ReactorComponents.TryParse("1,000", typeof(int), out _, out _));
         Assert.IsFalse(ReactorComponents.TryParse("3.4e39", typeof(float), out _, out _), "out of range is not Infinity");
@@ -72,7 +72,7 @@ public sealed class ReactorComponentsTests
         Assert.AreEqual(2.5m, money);
 
         Assert.IsFalse(ReactorComponents.TryParse("All,Done", typeof(Filter), out _, out error), "a plain enum holds one member");
-        StringAssert.Contains(error, "All, Active, Done");
+        Assert.Contains("All, Active, Done", error!);
         Assert.IsTrue(ReactorComponents.TryParse("Read,Write", typeof(Access), out var access, out _));
         Assert.AreEqual(Access.Read | Access.Write, access);
     }
@@ -123,7 +123,7 @@ public sealed class ReactorComponentsTests
         };
 
         var handlers = ReactorHandlers.Read(tag);
-        CollectionAssert.AreEquivalent(new[] { "OnClick", "OnRename", "OnDrop", "OnPointerWheel" }, handlers.Select(h => h.Event).ToArray());
+        Assert.AreSequenceEqual(new[] { "OnClick", "OnRename", "OnDrop", "OnPointerWheel" }, handlers.Select(h => h.Event).ToArray(), SequenceOrder.InAnyOrder);
         Assert.IsTrue(handlers.Single(h => h.Event == "OnPointerWheel").Modifier);
         Assert.AreSame(handlers[0], ReactorHandlers.Find(handlers, "click"));
 
@@ -132,13 +132,13 @@ public sealed class ReactorComponentsTests
         Assert.AreEqual(1, clicks);
 
         Assert.IsFalse(ReactorHandlers.TryArguments(tag.OnRename, null, "", out _, out var why));
-        StringAssert.Contains(why, "--value");
+        Assert.Contains("--value", why!);
         Assert.IsTrue(ReactorHandlers.TryArguments(tag.OnRename, null, "Draft", out args, out _));
         tag.OnRename.DynamicInvoke(args);
         Assert.AreEqual("Draft", renamed);
 
         Assert.IsFalse(ReactorHandlers.TryArguments(tag.OnDrop, null, "", out _, out why));
-        StringAssert.Contains(why, "cannot create a TaskItem");
+        Assert.Contains("cannot create a TaskItem", why!);
         Assert.IsFalse(ReactorHandlers.TryArguments(tag.OnClick, null, "extra", out _, out why));
         Assert.AreEqual("(string obj)", ReactorHandlers.Signature(tag.OnRename));
     }
@@ -166,8 +166,8 @@ public sealed class ReactorComponentsTests
     [TestMethod]
     public void Resources_ReadOnlyAppResourcesNamesTheNextStep()
     {
-        StringAssert.Contains(ResourceOps.ReadOnlyAppResources, "--scope element");
-        StringAssert.Contains(ResourceOps.ReadOnlyAppResources, "MergedDictionaries");
+        Assert.Contains("--scope element", ResourceOps.ReadOnlyAppResources);
+        Assert.Contains("MergedDictionaries", ResourceOps.ReadOnlyAppResources);
         Assert.IsFalse(ResourceOps.ReadOnlyAppResources.Contains("COMException", StringComparison.Ordinal));
     }
 
@@ -181,8 +181,8 @@ public sealed class ReactorComponentsTests
         Assert.IsFalse(ReactorApi.IsErrorScreenHeadline(null));
 
         var reason = ReactorApi.ErrorScreenReason("MainShell", "Render error: ArgumentException: ShowAttached failed.");
-        StringAssert.StartsWith(reason, "this window shows Reactor's error screen instead of <MainShell>");
-        StringAssert.Contains(reason, "Render error: ArgumentException: ShowAttached failed. Fix the error");
-        StringAssert.Contains(ReactorApi.ErrorScreenReason(null, "Something went wrong."), "instead of its root component");
+        Assert.StartsWith("this window shows Reactor's error screen instead of <MainShell>", reason);
+        Assert.Contains("Render error: ArgumentException: ShowAttached failed. Fix the error", reason);
+        Assert.Contains("instead of its root component", ReactorApi.ErrorScreenReason(null, "Something went wrong."));
     }
 }

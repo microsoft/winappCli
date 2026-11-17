@@ -77,12 +77,12 @@ public class ReactorRelativeSourceTests
             File.WriteAllText(Path.Combine(app.FullName, "Panels", "Footer.cs"), "// a different file");
             Assert.IsNull(DevToolsGetSourceCommand.Handler.ResolveRelativeSource("Panels/Footer.cs", app.FullName, out var candidates),
                 "a same-named file under the app makes the path ambiguous instead of resolving to the app's file");
-            CollectionAssert.AreEquivalent(new[] { footer, Path.Combine(app.FullName, "Panels", "Footer.cs") }, candidates);
-            StringAssert.Contains(DevToolsGetSourceCommand.Handler.DescribeMissingCSharp("Panels/Footer.cs", candidates, true, "LibPanel"),
-                "cannot tell which one");
+            Assert.AreSequenceEqual(new[] { footer, Path.Combine(app.FullName, "Panels", "Footer.cs") }, candidates, SequenceOrder.InAnyOrder);
+            Assert.Contains("cannot tell which one",
+DevToolsGetSourceCommand.Handler.DescribeMissingCSharp("Panels/Footer.cs", candidates, true, "LibPanel"));
 
             var references = ReactorBuildFacts.ReadProjectReferences(Path.Combine(app.FullName, "obj", "project.assets.json"));
-            CollectionAssert.AreEqual(LibReference, references, "only project libraries are project references");
+            Assert.AreSequenceEqual(LibReference, references, "only project libraries are project references");
             var environment = ReactorBuildFacts.ApplyEnvironment(
                 new Dictionary<string, string?> { [ReactorBuildFacts.SourceRootVariable] = app.FullName },
                 new ReactorBuildFacts(true, null, true, false, null, references));

@@ -718,7 +718,7 @@ public class DevToolsQueryCommandTests
             new("PlaceholderText", "New task", "value", "String", false),
             new("AutomationProperties.Name", "New task", "value", "String", false),
         ]);
-        StringAssert.Contains(placeholder, "AutomationProperties.Name=\"New task\"");
+        Assert.Contains("AutomationProperties.Name=\"New task\"", placeholder);
     }
 
     [TestMethod]
@@ -736,7 +736,7 @@ public class DevToolsQueryCommandTests
             new("AutomationProperties.Name", "Counter", "value", "String", false),
         };
         Assert.AreEqual("Text=\"Done today: 3\"", DevToolsPreviews.Format(values, defaultAutomationName: true));
-        StringAssert.Contains(DevToolsPreviews.Format(values), "AutomationProperties.Name=\"Counter\"",
+        Assert.Contains("AutomationProperties.Name=\"Counter\"", DevToolsPreviews.Format(values),
             "without Reactor's word for it, the name is the app's own");
     }
 

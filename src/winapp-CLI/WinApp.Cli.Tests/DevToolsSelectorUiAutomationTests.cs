@@ -326,10 +326,10 @@ public class DevToolsSelectorUiAutomationTests
 
         var error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(() =>
             bridge.SearchAsync(target, new UiSelector { Query = "#incrementButt" }, 10, CancellationToken.None));
-        StringAssert.Contains(error.Message, "incrementButton");
+        Assert.Contains("incrementButton", error.Message);
         error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(() =>
             bridge.FindSingleElementAsync(target, new UiSelector { Query = "#incrementButt", ControlType = "Button" }, CancellationToken.None));
-        StringAssert.Contains(error.Message, "incrementButton", "ui invoke, click and the others keep the suggestion");
+        Assert.Contains("incrementButton", error.Message, "ui invoke, click and the others keep the suggestion");
         Assert.IsTrue(DevToolsSelectorUiAutomation.IsAbsent(error), "and wait-for still knows nothing has that name yet");
     }
 

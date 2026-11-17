@@ -63,15 +63,15 @@ public sealed class ReactorElementPropsTests
     {
         var props = ReactorElementProps.RecordProps(new TextBlockElement("hi") { FontSize = 20 }, typeof(Element));
 
-        CollectionAssert.AreEquivalent(new[] { "Content→Text=hi", "FontSize→FontSize=20" },
-            props.Select(p => $"{p.Name}→{p.Property}={p.Value}").ToArray());
+        Assert.AreSequenceEqual(new[] { "Content→Text=hi", "FontSize→FontSize=20" },
+            props.Select(p => $"{p.Name}→{p.Property}={p.Value}").ToArray(), SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
     public void RecordProps_IgnoresInitializerDefaultsAndHandlers()
     {
         var unchanged = ReactorElementProps.RecordProps(new ButtonElement("+1", () => { }), typeof(Element));
-        CollectionAssert.AreEqual(new[] { "Label→Content" }, unchanged.Select(p => $"{p.Name}→{p.Property}").ToArray());
+        Assert.AreSequenceEqual(new[] { "Label→Content" }, unchanged.Select(p => $"{p.Name}→{p.Property}").ToArray());
 
         var disabled = ReactorElementProps.RecordProps(new ButtonElement("+1") { IsEnabled = false }, typeof(Element));
         Assert.AreEqual("False", disabled.Single(p => p.Name == "IsEnabled").Value);
@@ -83,7 +83,7 @@ public sealed class ReactorElementPropsTests
         var props = ReactorElementProps.RecordProps(
             new StackElement([new TextBlockElement("a")]) { Spacing = 8 }, typeof(Element));
 
-        CollectionAssert.AreEqual(new[] { "Spacing" }, props.Select(p => p.Name).ToArray());
+        Assert.AreSequenceEqual(new[] { "Spacing" }, props.Select(p => p.Name).ToArray());
     }
 
     [TestMethod]
@@ -111,8 +111,8 @@ public sealed class ReactorElementPropsTests
             Modifiers = new Modifiers { Width = 200, IsVisible = false, AutomationName = "Title", OnTapped = () => { } },
         });
 
-        CollectionAssert.AreEquivalent(new[] { "Width", "Visibility", "AutomationProperties.Name" },
-            modifiers.Select(m => m.Property).ToArray());
+        Assert.AreSequenceEqual(new[] { "Width", "Visibility", "AutomationProperties.Name" },
+            modifiers.Select(m => m.Property).ToArray(), SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
