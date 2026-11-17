@@ -248,7 +248,8 @@ diagnosed as before.
 
 `winapp ui` commands accept the same Reactor selectors when the app runs with
 DevTools, including `#incrementButton`, a C# name such as `incrementButton`, and the
-bracketed selectors an ambiguity error lists:
+bracketed selectors an ambiguity error lists. Text that no element matches, or a C# name
+that several elements share, is searched by name and AutomationId as usual:
 
 ```powershell
 winapp ui invoke "<Counter>/Button" -a TaskBoard

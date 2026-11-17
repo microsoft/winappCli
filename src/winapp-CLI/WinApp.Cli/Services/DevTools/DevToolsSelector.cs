@@ -275,6 +275,7 @@ internal static class DevToolsSelector
         // A near miss does NOT excuse skipping the rescan when the search was truncated: the element the
         // selector actually names could be outside the cap, and reporting "stale" on the strength of a
         // similar element we did happen to see is a confident wrong answer about a live element.
+        var scannedWhole = false;
         if (exact.Length == 0 && (nearMisses.Length == 0 || result.Truncated))
         {
             var (whole, scanError) = ScanTree(tap, cancellationToken);
@@ -289,6 +290,7 @@ internal static class DevToolsSelector
             candidates = whole;
             exact = MatchSlug(candidates, slug);
             nearMisses = NearMissSlug(candidates, slug);
+            scannedWhole = true;
         }
 
         if (exact.Length == 1)
@@ -320,7 +322,7 @@ internal static class DevToolsSelector
                     $"'{selector}' is stale: the element it named is no longer rendered, for example because the app " +
                     "navigated, switched tabs or a condition removed it, or a different component is rendered in its place. " +
                     "Run `winapp devtools search` with the component's name (for example `winapp devtools search \"<Counter>\"`) " +
-                    "or `winapp devtools inspect` to get its current selector.");
+                    "or `winapp devtools inspect` to get its current selector.") with { Absent = scannedWhole || !result.Truncated };
             }
             return Resolution.Fail(
                 $"'{selector}' is stale: an element of that type and name is live, but at a different place in " +

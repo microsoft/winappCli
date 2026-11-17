@@ -180,16 +180,44 @@ public class DevToolsSelectorUiAutomationTests
     }
 
     [TestMethod]
-    public async Task ReactorSelector_ThatMatchesNothing_FindsNothing_SoWaitForKeepsPolling()
+    public async Task ReactorSelector_ThatMatchesNothing_KeepsItsUiMeaning_SoWaitForKeepsPolling()
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("Reactor.describe", """{"state":"ok","nodes":[{"handle":"42","element":"Button","key":"save","file":0,"line":9}],"files":["C:\\src\\App.cs"],"unmapped":0,"truncated":false}""");
-        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var seen = new List<UiSelector>();
+        var inner = Proxy((method, args) =>
+        {
+            if (method.Name != nameof(IUiAutomation.FindSingleElementAsync)) { throw new NotSupportedException(method.Name); }
+            seen.Add((UiSelector)args![1]!);
+            return Task.FromResult<UiElement?>(null);
+        });
         var bridge = new DevToolsSelectorUiAutomation(inner);
         var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
 
         Assert.IsNull(await bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=loading", ControlType = "Button" }, CancellationToken.None));
         Assert.IsNull(await bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=loading" }, requireUnique: true, CancellationToken.None));
+        Assert.IsTrue(seen.All(selector => selector.Query == "key=loading" && selector.Slug is null), "the text is searched as winapp ui reads it");
+    }
+
+    [TestMethod]
+    [DataRow("key=value")]
+    [DataRow("Program.cs:12")]
+    [DataRow("<Counter>")]
+    public async Task ReactorSelector_InAnAppWithoutReactor_KeepsItsUiMeaning(string text)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", """{"state":"absent","nodes":[],"files":[],"unmapped":0,"truncated":false}""");
+        UiSelector? searched = null;
+        var inner = Proxy((method, args) => method.Name == nameof(IUiAutomation.SearchAsync)
+            ? Task.FromResult(new[] { new UiElement { Selector = "btn-x-1111", Name = (searched = (UiSelector)args![1]!).Query } })
+            : throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        var found = await bridge.SearchAsync(target, new UiSelector { Query = text }, 10, CancellationToken.None);
+
+        Assert.AreEqual(text, searched?.Query);
+        Assert.AreEqual(text, found.Single().Name);
     }
 
     [TestMethod]
@@ -208,7 +236,6 @@ public class DevToolsSelectorUiAutomationTests
         var failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=save", ControlType = "Button" }, CancellationToken.None));
         Assert.IsTrue(DevToolsSelectorUiAutomation.IsIncomplete(failure));
-        Assert.IsFalse(DevToolsSelectorUiAutomation.IsAbsent(failure));
     }
 
     [TestMethod]
@@ -301,12 +328,14 @@ public class DevToolsSelectorUiAutomationTests
     }
 
     [TestMethod]
-    public async Task HashName_ThatNothingHasYet_FindsNothing_SoWaitForKeepsPolling()
+    public async Task HashName_ThatNothingHasYet_KeepsItsUiMeaning_SoWaitForKeepsPolling()
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", """{"matches":[]}""")
             .Answer("VisualTree.getPreviews", """{"previews":[],"truncated":false}""");
-        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var inner = Proxy((method, _) => method.Name == nameof(IUiAutomation.FindSingleElementAsync)
+            ? Task.FromResult<UiElement?>(null)
+            : throw new NotSupportedException(method.Name));
         var bridge = new DevToolsSelectorUiAutomation(inner);
         var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
 
@@ -315,22 +344,23 @@ public class DevToolsSelectorUiAutomationTests
     }
 
     [TestMethod]
-    public async Task HashName_ThatNothingHas_StillSuggestsSimilarNames_ToOtherCommands()
+    public async Task HashName_ThatNoElementIsNamed_IsSearchedAsText_LikeAButtonCalledGeneral()
     {
+        // A XAML app with a channel button whose text is "#general": no element is named general.
         using var agent = new FakeDevToolsProtocolAgent()
-            .Answer("VisualTree.find", """{"matches":[{"handle":"42","name":"","type":"Microsoft.UI.Xaml.Controls.Button","reactor":{"element":"Button","name":"incrementButton"}}]}""")
+            .Answer("VisualTree.find", """{"matches":[{"handle":"42","name":"generalPanel","type":"Microsoft.UI.Xaml.Controls.StackPanel"}]}""")
             .Answer("VisualTree.getPreviews", """{"previews":[],"truncated":false}""");
-        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        UiSelector? searched = null;
+        var inner = Proxy((method, args) => method.Name == nameof(IUiAutomation.FindSingleElementAsync)
+            ? Task.FromResult<UiElement?>(new UiElement { Selector = "btn-general-1111", Name = (searched = (UiSelector)args![1]!).Query })
+            : throw new NotSupportedException(method.Name));
         var bridge = new DevToolsSelectorUiAutomation(inner);
         var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
 
-        var error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(() =>
-            bridge.SearchAsync(target, new UiSelector { Query = "#incrementButt" }, 10, CancellationToken.None));
-        Assert.Contains("incrementButton", error.Message);
-        error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(() =>
-            bridge.FindSingleElementAsync(target, new UiSelector { Query = "#incrementButt", ControlType = "Button" }, CancellationToken.None));
-        Assert.Contains("incrementButton", error.Message, "ui invoke, click and the others keep the suggestion");
-        Assert.IsTrue(DevToolsSelectorUiAutomation.IsAbsent(error), "and wait-for still knows nothing has that name yet");
+        var found = await bridge.FindSingleElementAsync(target, new UiSelector { Query = "#general" }, CancellationToken.None);
+
+        Assert.AreEqual("btn-general-1111", found?.Selector);
+        Assert.AreEqual("#general", searched?.Query);
     }
 
     [TestMethod]
@@ -345,6 +375,62 @@ public class DevToolsSelectorUiAutomationTests
 
         await Assert.ThrowsExactlyAsync<UiElementNotFoundException>(() =>
             bridge.FindSingleElementAsync(target, new UiSelector { Query = "#doesNotExist", ControlType = "Button" }, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task CSharpName_ThatSeveralReactorElementsHave_KeepsItsUiMeaning()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", """{"matches":[{"handle":"42","name":"","type":"Microsoft.UI.Xaml.Controls.Button","reactor":{"element":"Button","name":"button"}},{"handle":"43","name":"","type":"Microsoft.UI.Xaml.Controls.Button","reactor":{"element":"Button","name":"button"}}]}""");
+        UiSelector? searched = null;
+        var inner = Proxy((method, args) =>
+        {
+            if (method.Name != nameof(IUiAutomation.SearchAsync)) { throw new NotSupportedException(method.Name); }
+            searched = (UiSelector)args![1]!;
+            return Task.FromResult(new[] { new UiElement { Selector = "btn-a-1111" }, new UiElement { Selector = "btn-b-2222" } });
+        });
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        var found = await bridge.SearchAsync(target, new UiSelector { Query = "button" }, 10, CancellationToken.None);
+
+        Assert.HasCount(2, found, "winapp ui search lists the matches");
+        Assert.AreEqual("button", searched?.Query);
+    }
+
+    [TestMethod]
+    public async Task CSharpName_FromATruncatedSearch_IsRefused_SoNothingActsOnIt()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", """{"matches":[{"handle":"42","name":"","type":"Microsoft.UI.Xaml.Controls.Button","reactor":{"element":"Button","name":"saveButton"}}],"truncated":true}""");
+        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        var failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            bridge.FindSingleElementAsync(target, new UiSelector { Query = "saveButton" }, CancellationToken.None));
+        Assert.IsTrue(DevToolsSelectorUiAutomation.IsIncomplete(failure));
+    }
+
+    [TestMethod]
+    public async Task AnElementDevToolsFoundButCouldNotPlace_IsADevToolsFailure_NotADisappearance()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", """{"state":"ok","nodes":[{"handle":"42","element":"Button","key":"save","file":0,"line":9}],"files":["C:\\src\\App.cs"],"unmapped":0,"truncated":false}""")
+            .Answer("Layout.get", """{"handle":"42","render":{"w":56,"h":32},"offset":{"x":16,"y":42},"screen":{"x":615,"y":489,"w":84,"h":48}}""")
+            .Answer("Property.get", """{"handle":"42","props":[]}""");
+        var inner = Proxy((method, _) => method.Name switch
+        {
+            nameof(IUiAutomation.FindWindowsByPid) => new List<(nint, int, string)> { (4242, Environment.ProcessId, "Form") },
+            nameof(IUiAutomation.InspectAsync) => Task.FromResult(Array.Empty<UiElement>()),
+            _ => throw new NotSupportedException(method.Name),
+        });
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        var failure = await Assert.ThrowsExactlyAsync<UiElementNotFoundException>(() =>
+            bridge.FindSingleElementAsync(target, new UiSelector { Query = "key=save" }, CancellationToken.None));
+        Assert.IsTrue(DevToolsSelectorUiAutomation.IsDevToolsFailure(failure), "so ui wait-for --gone does not report it gone");
     }
 
     [TestMethod]

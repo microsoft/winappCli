@@ -845,6 +845,7 @@ public class DevToolsSelectorTests
         Assert.Contains("no longer rendered", resolved.Error!);
         Assert.Contains("winapp devtools search", resolved.Error!);
         Assert.AreEqual(0, resolved.Candidates.Length, "unrelated elements of the same type are not offered");
+        Assert.IsTrue(resolved.Absent, "the search saw the whole app, so `ui wait-for --gone` can say it is gone");
     }
 
     /// <summary>A slug for an element that is simply gone is refused with rerun guidance, not a near-miss claim.</summary>

@@ -631,10 +631,18 @@ static std::vector<DevToolsX::DependencyObject> TapReferenceTargets_ui(const Dev
             if (!list) return;
             for (const auto& target : list) if (target) out.push_back(target);
         };
+        // GetDescribedBy, GetFlowsTo and GetFlowsFrom store a new empty collection on an element that has none, so
+        // reading them would mark the property set. XAML fills these collections through the same getter, which makes
+        // a set value local: reading the local value finds it and writes nothing.
+        auto addLocalList = [&](const DevToolsX::DependencyProperty& property) {
+            const auto value = element.ReadLocalValue(property);
+            if (value && value != DevToolsX::DependencyProperty::UnsetValue())
+                addList(value.try_as<winrt::Windows::Foundation::Collections::IVector<DevToolsX::DependencyObject>>());
+        };
         if (kind == L"LabeledBy") { if (auto target = DevToolsXA::AutomationProperties::GetLabeledBy(element)) out.push_back(target); }
-        else if (kind == L"DescribedBy") addList(DevToolsXA::AutomationProperties::GetDescribedBy(element));
-        else if (kind == L"FlowsTo") addList(DevToolsXA::AutomationProperties::GetFlowsTo(element));
-        else if (kind == L"FlowsFrom") addList(DevToolsXA::AutomationProperties::GetFlowsFrom(element));
+        else if (kind == L"DescribedBy") addLocalList(DevToolsXA::AutomationProperties::DescribedByProperty());
+        else if (kind == L"FlowsTo") addLocalList(DevToolsXA::AutomationProperties::FlowsToProperty());
+        else if (kind == L"FlowsFrom") addLocalList(DevToolsXA::AutomationProperties::FlowsFromProperty());
         else if (kind == L"XYFocusUp") { if (auto target = element.XYFocusUp()) out.push_back(target); }
         else if (kind == L"XYFocusDown") { if (auto target = element.XYFocusDown()) out.push_back(target); }
         else if (kind == L"XYFocusLeft") { if (auto target = element.XYFocusLeft()) out.push_back(target); }

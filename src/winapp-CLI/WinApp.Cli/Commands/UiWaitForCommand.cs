@@ -150,11 +150,6 @@ internal class UiWaitForCommand : Command, IShortDescription, IHelpExamples
                         await pollDelay.DelayAsync(100, cancellationToken);
                         continue;
                     }
-                    catch (Exception ex) when (Services.DevTools.DevToolsSelectorUiAutomation.IsAbsent(ex))
-                    {
-                        // No element has this DevTools name yet (similar names don't count): keep waiting for it.
-                        element = null;
-                    }
                     catch (Exception ex) when (Services.DevTools.DevToolsSelectorUiAutomation.IsIncomplete(ex))
                     {
                         // Not every window answered DevTools, so the element may or may not be there: look again.

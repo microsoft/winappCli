@@ -53,38 +53,31 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
     public async Task<UiElement[]> SearchAsync(UiTarget uiTarget, UiSelector selector, int maxResults, CancellationToken ct) =>
         await inner.SearchAsync(uiTarget, await TranslateAsync(uiTarget, selector, ct), maxResults, ct);
 
-    // Null when the app says no element matches a DevTools selector, as IUiAutomation.FindSingleElementAsync promises, so
-    // `ui wait-for` keeps polling for an element that isn't there yet. Any other failure (an ambiguous selector, an app
-    // that couldn't answer, an element UI Automation can't find) still throws, so `--gone` never reports it gone.
+    // A selector DevTools can't place in the app keeps its `winapp ui` meaning, so `ui wait-for` keeps polling for an
+    // element that isn't there yet. Any DevTools failure (an ambiguous selector, an app that couldn't fully answer, an
+    // element UI Automation can't find) throws tagged, so `--gone` never reports it gone.
     public async Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct) =>
-        await TranslateOrNoneAsync(uiTarget, selector, ct) is { } translated ? await inner.FindSingleElementAsync(uiTarget, translated, ct) : null;
+        await inner.FindSingleElementAsync(uiTarget, await TranslateForLookupAsync(uiTarget, selector, ct), ct);
 
     public async Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct) =>
-        await TranslateOrNoneAsync(uiTarget, selector, ct) is { } translated
-            ? await inner.FindSingleElementAsync(uiTarget, translated, requireUnique, ct)
-            : null;
+        await inner.FindSingleElementAsync(uiTarget, await TranslateForLookupAsync(uiTarget, selector, ct), requireUnique, ct);
 
-    private async Task<UiSelector?> TranslateOrNoneAsync(UiTarget target, UiSelector selector, CancellationToken ct)
+    private async Task<UiSelector> TranslateForLookupAsync(UiTarget target, UiSelector selector, CancellationToken ct)
     {
         try
         {
             return await TranslateAsync(target, selector, ct);
         }
-        catch (UiElementNotFoundException ex) when (IsAbsent(ex))
+        catch (Exception ex) when (ex is not OperationCanceledException && !IsDevToolsFailure(ex))
         {
-            return null;
+            // DevTools found the element but could not hand it to UI Automation: not a sign it is gone.
+            ex.Data[DevToolsKey] = true;
+            throw;
         }
     }
 
-    internal const string AbsentKey = "winapp.devtools.absent";
     internal const string IncompleteKey = "winapp.devtools.incomplete";
     internal const string DevToolsKey = "winapp.devtools.selector";
-
-    /// <summary>
-    /// Whether DevTools looked at the whole app and no element has the selector's name yet. The error still lists
-    /// similar names for the other commands; <c>ui wait-for</c> keeps waiting.
-    /// </summary>
-    internal static bool IsAbsent(Exception ex) => ex.Data.Contains(AbsentKey);
 
     /// <summary>Whether DevTools could not see every window, so it cannot say whether or which element matches.</summary>
     internal static bool IsIncomplete(Exception ex) => ex.Data.Contains(IncompleteKey);
@@ -193,16 +186,17 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
             var resolved = DevToolsSelector.Resolve(tap, selector, ct);
             if (!resolved.Ok)
             {
+                // As without DevTools, the text keeps its `winapp ui` meaning (a name or AutomationId search) when
+                // DevTools looked at the whole app and found no such element, or the app has no Reactor elements.
+                if (resolved.Absent || resolved.RemoteError?.Token == ReactorDescription.AbsentToken)
+                {
+                    return null;
+                }
                 var message = resolved.RemoteError?.Message ?? resolved.Error ?? $"'{selector}' matched no element.";
                 Exception failure = resolved.Candidates.Length > 0
                     ? Ambiguous(message, resolved.Candidates)
                     : resolved.Incomplete ? new InvalidOperationException(message)
                     : new UiElementNotFoundException(selector);
-                // A name nothing has yet still lists the similar ones it found, but `ui wait-for` keeps waiting for it.
-                if (resolved.Absent)
-                {
-                    failure.Data[AbsentKey] = true;
-                }
                 failure.Data[resolved.Incomplete ? IncompleteKey : DevToolsKey] = true;
                 throw failure;
             }
@@ -280,8 +274,9 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
         ?? NonEmpty(DevToolsPropertyRow.Find(props, "Text")?.Value);
 
     /// <summary>
-    /// The one rendered Reactor element whose C# variable is <paramref name="name"/>; null when none is, so the text
-    /// keeps its <c>winapp ui</c> meaning.
+    /// The one rendered Reactor element whose C# variable is <paramref name="name"/>; null when none is, or several
+    /// are, so the text keeps its <c>winapp ui</c> meaning (<c>winapp ui search button</c> lists them all). One match
+    /// from a search the node limit cut short may not be the only one, so it is refused rather than acted on.
     /// </summary>
     private static string? ResolveCSharpName(VisualTreeTap tap, string name, CancellationToken ct)
     {
@@ -291,12 +286,19 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
             return null;
         }
         var named = result.Matches.Where(m => m.IsReactor && string.Equals(m.ReactorName, name, StringComparison.Ordinal)).ToArray();
-        return named.Length switch
+        if (named.Length != 1)
         {
-            0 => null,
-            1 => named[0].Handle,
-            _ => throw Ambiguous($"{named.Length} elements are named '{name}'. Use one of their selectors instead:", named),
-        };
+            return null;
+        }
+        if (result.Truncated)
+        {
+            var incomplete = new InvalidOperationException(
+                $"One element is named '{name}', but the agent's node limit cut the search short, so another may be. " +
+                "Pass the element's slug from `winapp ui search` or `winapp devtools inspect`.");
+            incomplete.Data[IncompleteKey] = true;
+            throw incomplete;
+        }
+        return named[0].Handle;
     }
 
     private static UiAmbiguousSelectorException Ambiguous(string message, IEnumerable<DevToolsSelector.VisualTreeMatch> candidates)
