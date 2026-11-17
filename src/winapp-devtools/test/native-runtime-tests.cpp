@@ -1299,6 +1299,26 @@ static void CheckMalformedMutationHandles(const std::function<void(bool, const c
         check(response.find(L"\"result\":") != std::wstring::npos && DevToolsOverlay_GetHighlightHandle() == 0,
             "string and numeric zero retain RPC clear and deselect semantics");
     }
+    // A '|' in a structural field would shift the '|'-delimited bridge fields into a different write.
+    for (const auto* params : {
+            L"\"method\":\"HotReload.setProperty\",\"params\":{\"name\":\"Target|Text|String|x\",\"prop\":\"Tag\",\"type\":\"String\",\"value\":\"hi\"}",
+            L"\"method\":\"HotReload.setProperty\",\"params\":{\"name\":\"Target\",\"prop\":\"Text|String|x\",\"type\":\"String\",\"value\":\"hi\"}",
+            L"\"method\":\"HotReload.setProperty\",\"params\":{\"name\":\"Target\",\"prop\":\"Text\",\"type\":\"String|x\",\"value\":\"hi\"}",
+            L"\"method\":\"HotReload.clearProperty\",\"params\":{\"name\":\"Target|Text\",\"prop\":\"Tag\"}",
+            L"\"method\":\"HotReload.clearProperty\",\"params\":{\"name\":\"Target\",\"prop\":\"Text|Tag\"}"}) {
+        g_mutatedHandle = 0;
+        const auto dispatches = g_queryDispatches;
+        const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1," + std::wstring(params) + L"}"));
+        DevToolsJson parsed;
+        check(DevToolsJsonParse(response, parsed) && parsed.Find(L"error") &&
+            parsed.Find(L"error")->GetInt(L"code", 0) == DevToolsErr::InvalidParams &&
+            g_mutatedHandle == 0 && g_queryDispatches == dispatches,
+            "a '|' in name, prop or type is rejected before any mutation");
+    }
+    g_mutatedHandle = 0;
+    check(HandleCommand(L"hotreload.clearprop|Target|Text|Tag") == L"ERR bad-args" && g_mutatedHandle == 0,
+        "private clear bridge rejects extra fields");
     g_diag = previousDiagnostics;
 }
 

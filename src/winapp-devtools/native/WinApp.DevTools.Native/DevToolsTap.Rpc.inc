@@ -626,6 +626,9 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                                L"handle must be a canonical non-zero decimal string", L"bad-args");
         if (handle.empty() && name.empty())
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"either handle or name is required", L"bad-args");
+        // The bridge line is '|'-delimited and only the trailing value may contain '|'.
+        if (HasBridgeDelimiter(name) || HasBridgeDelimiter(prop) || HasBridgeDelimiter(p.GetString(L"type")))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"name, prop and type cannot contain '|'", L"bad-args");
         std::wstring target = handle.empty() ? name : (L"#" + handle);
         std::wstring line = L"hotreload.setprop|" + target + L"|" +
                             BridgeEscape(prop) + L"|" + BridgeEscape(p.GetString(L"type")) +
@@ -672,6 +675,8 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"either handle or name is required", L"bad-args");
         if (prop.empty())
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"prop is required", L"bad-args");
+        if (HasBridgeDelimiter(name) || HasBridgeDelimiter(prop))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"name and prop cannot contain '|'", L"bad-args");
         std::wstring target = handle.empty() ? name : (L"#" + handle);
         std::wstring reply = HandleCommand(L"hotreload.clearprop|" + target + L"|" + BridgeEscape(prop));
         if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);
