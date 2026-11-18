@@ -105,23 +105,53 @@ export async function fetchRepoData(repo) {
     };
 }
 
-// Issues in progress: open issues assigned to you with no open PR yet, plus issues
-// a session here is linked to. linked = issue numbers from the board's state.
-const ISSUE_FIELDS = "number,title,url,state,updatedAt,createdAt,author,labels,assignees,closedByPullRequestsReferences";
-export async function fetchIssues(repo, linked, openPrNumbers) {
-    const open = new Set(openPrNumbers);
-    const hasOpenPr = (i) => (i.closedByPullRequestsReferences || []).some((r) => open.has(r.number) && (!r.repository || `${r.repository.owner?.login}/${r.repository.name}`.toLowerCase() === repo.toLowerCase()));
+// Issues on the board: open issues assigned to you with no open PR yet, plus every issue a session here is
+// linked to (shown under Yours with its PR's state). A linked issue that closed in the last two days stays,
+// so you can see it merged.
+const ISSUE_FIELDS = "number,title,url,state,updatedAt,createdAt,closedAt,author,labels,assignees,closedByPullRequestsReferences";
+const RECENT_CLOSE_MS = 2 * 86400000;
+
+// prIndex: PR number -> { number, state: "OPEN" | "MERGED" | "CLOSED", isDraft, url } for PRs already loaded.
+export async function fetchIssues(repo, { linked = [], prIndex = new Map(), localIssues = {} } = {}) {
+    const sameRepo = (r) => !r.repository || `${r.repository.owner?.login}/${r.repository.name}`.toLowerCase() === repo.toLowerCase();
+    const isOpenPr = (n) => prIndex.get(n)?.state === "OPEN";
     let assigned = [];
     try {
         assigned = JSON.parse(await gh(["issue", "list", "-R", repo, "--assignee", "@me", "--state", "open", "--limit", "50", "--json", ISSUE_FIELDS]));
     } catch {
         assigned = [];
     }
+    const linkedSet = new Set(linked);
     const out = new Map();
-    for (const i of assigned) if (!hasOpenPr(i)) out.set(i.number, { ...i, assignedToYou: true });
-    const missing = linked.filter((n) => !out.has(n) && !assigned.some((i) => i.number === n));
+    for (const i of assigned) {
+        const hasOpenPr = (i.closedByPullRequestsReferences || []).some((r) => sameRepo(r) && isOpenPr(r.number));
+        if (linkedSet.has(i.number) || !hasOpenPr) out.set(i.number, { ...i, assignedToYou: true });
+    }
+    const missing = linked.filter((n) => !out.has(n));
     const viewed = await Promise.all(missing.slice(0, 20).map((n) => gh(["issue", "view", String(n), "-R", repo, "--json", ISSUE_FIELDS]).then((s) => JSON.parse(s)).catch(() => null)));
-    for (const i of viewed) if (i && i.state === "OPEN" && !hasOpenPr(i)) out.set(i.number, { ...i, assignedToYou: false });
+    for (const i of viewed) {
+        if (!i) continue;
+        const recent = i.state !== "OPEN" && i.closedAt && Date.now() - new Date(i.closedAt).getTime() < RECENT_CLOSE_MS;
+        if (i.state === "OPEN" || recent) out.set(i.number, { ...i, assignedToYou: false });
+    }
+
+    // Find each linked issue's PR: an explicit link, GitHub's "closes #n" references, or the session's branch.
+    const lookups = [];
+    for (const i of out.values()) {
+        const local = localIssues[String(i.number)] || {};
+        const nums = new Set((i.closedByPullRequestsReferences || []).filter(sameRepo).map((r) => r.number));
+        if (Number.isInteger(local.linkedPr)) nums.add(local.linkedPr);
+        i.prNumbers = [...nums];
+        if (local.branch && local.session?.id) lookups.push(gh(["pr", "list", "-R", repo, "--head", local.branch, "--state", "all", "--limit", "3", "--json", "number,state,isDraft,url"]).then((s) => { for (const p of JSON.parse(s)) { prIndex.set(p.number, p); if (!i.prNumbers.includes(p.number)) i.prNumbers.push(p.number); } }).catch(() => {}));
+    }
+    await Promise.all(lookups);
+    const unknown = [...new Set([...out.values()].flatMap((i) => i.prNumbers))].filter((n) => !prIndex.has(n)).slice(0, 10);
+    await Promise.all(unknown.map((n) => gh(["pr", "view", String(n), "-R", repo, "--json", "number,state,isDraft,url"]).then((s) => prIndex.set(n, JSON.parse(s))).catch(() => {})));
+    const rank = (p) => (p.state === "OPEN" ? (p.isDraft ? 1 : 0) : p.state === "MERGED" ? 2 : 3);
+    for (const i of out.values()) {
+        const prs = i.prNumbers.map((n) => prIndex.get(n)).filter(Boolean).sort((a, b) => rank(a) - rank(b) || b.number - a.number);
+        i.pr = prs[0] ? { number: prs[0].number, url: prs[0].url, state: prs[0].state === "OPEN" ? (prs[0].isDraft ? "draft" : "open") : prs[0].state === "MERGED" ? "merged" : "closed" } : null;
+    }
     return [...out.values()];
 }
 
@@ -135,13 +165,16 @@ export function buildIssueCards(issues, localIssues) {
             number: i.number,
             title: i.title,
             url: i.url,
+            state: i.state,
             author: i.author?.login || "unknown",
             createdAt: i.createdAt,
             updatedAt: i.updatedAt,
             labels: (i.labels || []).map((l) => l.name),
             assignees: (i.assignees || []).map((a) => a.login),
             assignedToYou: !!i.assignedToYou,
-            section: "issues",
+            pr: i.pr || null,
+            // An issue someone is working on here belongs with your other work; assigned-only ones get their own list.
+            section: local.session?.id ? "yours" : "issues",
             group: "issue",
             status,
             waitingOn: status,

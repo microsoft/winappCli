@@ -17,18 +17,18 @@ The board uses the current repo. To pick another one, pass `{ "repo": "owner/nam
 
 ## Overview
 
-The first screen. The header shows `15 open · 6 waiting on you · 4 stuck`, when
+The first screen. The header shows `14 open · 6 issues · 4 waiting on you · 4 stuck`, when
 sessions were last synced, and a **Sync** button. Under it, one chip per section
-with its count (`Yours 1` `Reviewing 4` `Everything else 9` `Issues in progress 6`)
+with its count (`Yours 5` `Reviewing 6` `Everything else 6` `Issues assigned to you 3`)
 jumps to that section. Each section keeps its rows in place (newest first, or
 the order you pick under Sort); a row's state changes, not its position.
 
-| Section | Which PRs | Columns |
+| Section | What's in it | Columns |
 |---------|-----------|---------|
-| **Yours** | You wrote it, or a session here is working on it (for example a Dependabot PR you're fixing) | Agent, Monitoring, pr-review, PR |
+| **Yours** | PRs you wrote, and PRs and issues a session here is working on (for example a Dependabot PR you're fixing, or an issue you're investigating) | Agent, Monitoring, pr-review, PR |
 | **Reviewing** | You're a requested reviewer, chose **Track under Reviewing** or ran **Review**, you reviewed it, or pr-review ran here | pr-review, PR, Last activity |
 | **Everything else** | Open PRs nobody is working on here | PR |
-| **Issues in progress** | Open issues a session here is working on, or assigned to you, with no open PR yet | Agent, Last activity |
+| **Issues assigned to you** | Open issues assigned to you that nobody here is working on yet, with no open PR | Agent, Last activity |
 
 - **Agent:** `Working`, `Waiting on you`, `Idle`, `Linked` (not synced yet), or
   `No session here` (it may be worked on another machine).
@@ -38,7 +38,14 @@ the order you pick under Sort); a row's state changes, not its position.
   It never merges unless you ask.
 - **pr-review:** `Drafted`, `Posted` or `You reviewed`; `Re-run needed` /
   `Needs re-review` when new commits landed after the review; or `Not run`.
-- **PR:** the waiting reason and how long, as in the list below.
+- **PR:** the waiting reason and how long, as in the list below. For an issue,
+  the state of its pull request: `No PR`, `Draft PR #1322`, `PR #1340 open`,
+  or `Merged #1340`. Click the chip to open that PR. The board finds the PR from
+  GitHub's "Fixes #n" links, from the linked session's branch, or from a PR the
+  agent names in `pr_board_sync_sessions`.
+
+An item appears in one section only. Issue rows have an `Issue` tag, and a
+linked issue stays under Yours for two days after it closes.
 
 **Reviewing** rows also show what's happened so far, for example
 `You requested changes 1d ago → moooyo pushed 12h ago`.
@@ -78,6 +85,24 @@ comes back). Its **⋯** menu has:
 
 The ↗ icon on every row, and **Open in browser** in the flyout, open the PR or
 issue on GitHub in a new tab in the app.
+
+### Explain like I'm 5
+
+The top of every flyout and every PR's Overview tab has two plain-language
+sections the agent writes for you:
+
+- **Explain like I'm 5:** what the feature is, the problem or change with a
+  concrete example, why it matters, and where it stands on GitHub (reviews, CI,
+  who it's waiting on). It's written so a PM or someone new to the code
+  understands it.
+- **Where we are:** what we've done in our sessions so far, each decision and
+  its date (for example "Nov 18: ship the small fix first"), and the next step
+  with who takes it.
+
+When an item has none, the section shows **Explain this**, which asks the agent
+to write it. When new commits or GitHub activity arrive after it was written,
+it says so and shows **Update**. The agent also updates it on its own after a
+review, or when an answer in the thread changes the picture.
 
 ### Unread replies
 
@@ -213,6 +238,10 @@ agent in the session that opened the board answers in the Thread tab, or
 forwards the question to the PR's own session and posts the answer when it comes
 back.
 
+After you press Send, the message box clears and keeps focus, and the thread
+scrolls to the newest message. The thread also follows new replies while you're
+at the bottom.
+
 While the agent works, the reply bubble shows what it's doing, for example
 `Reading the commits since the review…` or `Asking the linked session…`. The
 lines come from the agent's own short notes and the tools it runs. The answer
@@ -266,10 +295,11 @@ Every request from the board tells the agent which of these to call.
 
 | Tool | Use |
 |------|-----|
-| `pr_board_sync_sessions` | Report the sessions on each PR or issue: activity, a pending question, Agent merge state, and when pr-review ran (on which commit). `untrack: true` stops tracking an item |
+| `pr_board_sync_sessions` | Report the sessions on each PR or issue: activity, a pending question, Agent merge state, and when pr-review ran (on which commit). `untrack: true` stops tracking an item. For an issue, `branch` (the session's branch) or `linkedPr` lets the board show its PR |
+| `pr_board_set_explainer` | Write the "Explain like I'm 5" and "Where we are" sections for a PR or issue (`{ pr \| issue, eli5, progress }`, Markdown) |
 | `pr_board_set_summary` | Set the plain-words summary (≤140 characters), next steps, and risk (`low`, `medium`, `high`) |
 | `pr_board_reply` | Post a reply in a PR's thread (Markdown) |
-| `pr_board_link_session` | Link a session to a PR |
+| `pr_board_link_session` | Link a session to a PR or issue (pass `branch` for an issue) |
 | `pr_board_set_status` | Set the agent status with a one-line outcome: `running`, `waiting` (needs you), `waiting_on_others` (blocked on another approver or the author; the outcome becomes the ⏭ line), `posted`, `done`, `failed`, or `clear` |
 | `pr_board_review_guide` | Read first: the review workflow, plain-words rules, diagram conventions and schema |
 | `pr_board_set_review` | Set the whole structured review: `{ pr, review }`, or `{ pr, path }` to a JSON file with the same shape (for sessions that don't have the board's tools) |

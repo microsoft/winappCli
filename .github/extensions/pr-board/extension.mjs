@@ -14,7 +14,7 @@ import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
-import { answerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -51,7 +51,8 @@ class Board {
                 const st = readState(this.repo);
                 // Only issues someone is working on here (a linked session); assigned issues come from GitHub.
                 const linked = Object.entries(st.issues).filter(([, v]) => v.session?.id).map(([k]) => Number(k));
-                this.issues = await fetchIssues(this.repo, linked, this.data.open.map((p) => p.number));
+                const prIndex = new Map([...this.data.open.map((p) => [p.number, { number: p.number, state: "OPEN", isDraft: !!p.isDraft, url: p.url }]), ...this.data.merged.map((p) => [p.number, { number: p.number, state: "MERGED", isDraft: false, url: p.url }])]);
+                this.issues = await fetchIssues(this.repo, { linked, prIndex, localIssues: st.issues });
                 this.error = null;
                 await refreshLiveSessions();
             } catch (e) {
@@ -183,7 +184,10 @@ async function runIssueAction({ repo, number, action }) {
     const card = b.issueCard(number);
     if (!card) throw httpError(404, `Issue #${number} isn't on the board. Press Refresh.`);
     const quiet = { quiet: true, kind: "issue" };
-    if (action === "status-update") {
+    if (action === "explain-item") {
+        updateItem(repo, "issue", number, (s) => { s.explainerPending = nowIso(); });
+        await send(explainerPrompt(card, repo), repo, number, quiet);
+    } else if (action === "status-update") {
         updateItem(repo, "issue", number, (s) => { s.pending = { id: "status", at: nowIso() }; note(s, "You asked for a status update"); });
         await send(statusUpdatePrompt(card, repo), repo, number, quiet);
     } else if (action === "start-issue") {
@@ -278,6 +282,9 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
             note(s, `You asked to post ${preview.counts.posted} finding(s) as "${word}"`);
         });
         await send(postFindingsPrompt(card, repo, event, preview, files), repo, pr);
+    } else if (action === "explain-item") {
+        updatePr(repo, pr, (s) => { s.explainerPending = nowIso(); });
+        await send(explainerPrompt(card, repo), repo, pr, { quiet: true });
     } else if (action === "status-update") {
         updatePr(repo, pr, (s) => { s.pending = { id: "status", at: nowIso() }; note(s, "You asked for a status update"); });
         await send(statusUpdatePrompt(card, repo), repo, pr, { quiet: true });
@@ -743,6 +750,8 @@ const tools = [
                             issue: { type: "number", description: "Issue number, for an issue with no PR yet. Use instead of pr." },
                             status: { type: "string", description: "One plain line about where it is, shown on the row, e.g. 'Waiting on the reporter to rerun the installed winapp'." },
                             untrack: { type: "boolean", description: "true = unlink this PR or issue from its session here and clear its synced state (an issue then leaves 'Issues in progress' unless it's assigned to the user)." },
+                            branch: { type: "string", description: "For an issue: the linked session's git branch. The board finds the issue's PR from it." },
+                            linkedPr: { type: "number", description: "For an issue: the PR that fixes it, if GitHub doesn't already link them." },
                             sessionId: { type: "string" },
                             name: { type: "string" },
                             role: { type: "string", enum: ["author", "reviewer"], description: "author = working on the PR; reviewer = reviewing it." },
@@ -784,6 +793,8 @@ const tools = [
                     if (e.status !== undefined) s.status = e.status ? String(e.status).slice(0, 200) : null;
                     if (e.sessionId) s.session = { id: String(e.sessionId), name: e.name ? String(e.name).slice(0, 120) : s.session?.name || null, linkedAt: s.session?.linkedAt || at };
                     if (e.role === "author" || e.role === "reviewer") s.role = e.role;
+                    if (kind === "issue" && e.branch) s.branch = String(e.branch).slice(0, 200);
+                    if (kind === "issue" && Number.isInteger(e.linkedPr) && e.linkedPr > 0) s.linkedPr = e.linkedPr;
                     const input = e.awaitingInput?.requestId ? { requestId: String(e.awaitingInput.requestId), question: String(e.awaitingInput.question || "").slice(0, 2000), choices: (e.awaitingInput.choices || []).map((x) => String(x).slice(0, 200)).slice(0, 8) } : null;
                     s.sync = {
                         activity: ["busy", "idle", "unknown"].includes(e.activity) ? e.activity : (s.sync?.activity || "unknown"),
@@ -800,6 +811,7 @@ const tools = [
             }
             updateMeta(repo, (m) => { m.syncedAt = at; });
             refreshIfNewIssues(repo, updated);
+            if ((Array.isArray(args.sessions) ? args.sessions : []).some((e) => e.branch || e.linkedPr)) { const b = board(repo); b.fetchedAt = 0; b.refresh(); }
             board(repo).broadcast();
             return { ok: true, repo, updated };
         },
@@ -831,6 +843,39 @@ const tools = [
             });
             board(repo).broadcast();
             return { ok: true, repo, pr: args.pr, summary: clipped, trimmed: clipped !== summary };
+        },
+    },
+    {
+        name: "pr_board_set_explainer",
+        description: "Set the plain-language explainer for a PR or issue on the PR board. eli5 = 'Explain like I'm 5': the problem or change with background and a concrete example, why it matters, and where it stands on GitHub. progress = 'Where we are': what we've done in our sessions, the current state, decisions made (with dates), and the next step with who takes it. Write it for a PM or a junior developer. Call it whenever your understanding or a decision changes.",
+        parameters: {
+            type: "object",
+            properties: {
+                repo: repoProp,
+                pr: prProp,
+                issue: { type: "number", description: "Issue number. Use instead of pr." },
+                eli5: { type: "string", description: "Markdown, about 120-250 words." },
+                progress: { type: "string", description: "Markdown, about 60-150 words. Dates for decisions; end with the next step and who takes it." },
+            },
+        },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const [kind, n] = target(args);
+            const eli5 = String(args.eli5 || "").trim(), progress = String(args.progress || "").trim();
+            if (!eli5 && !progress) throw new Error("Pass eli5, progress, or both.");
+            const b = board(repo);
+            const item = b.item(kind, n);
+            updateItem(repo, kind, n, (s) => {
+                s.explainer = {
+                    eli5: eli5 ? eli5.slice(0, 6000) : s.explainer?.eli5 || "",
+                    progress: progress ? progress.slice(0, 4000) : s.explainer?.progress || "",
+                    updatedAt: nowIso(),
+                    basis: { headSha: item?.headSha || null, ghUpdatedAt: item?.updatedAt || null },
+                };
+                s.explainerPending = null;
+            });
+            b.broadcast();
+            return { ok: true, repo, [kind]: n };
         },
     },
     {
@@ -871,6 +916,7 @@ const tools = [
                 issue: { type: "number", description: "Issue number, for an issue with no PR yet. Use instead of pr." },
                 sessionId: { type: "string", description: "The session's id (the id navigate_to / send_session_message accept)." },
                 sessionName: { type: "string", description: "Short display name of the session." },
+                branch: { type: "string", description: "For an issue: the session's git branch, so the board can find the issue's PR." },
             },
             required: ["sessionId"],
         },
@@ -879,7 +925,7 @@ const tools = [
             const name = args.sessionName ? String(args.sessionName).slice(0, 120) : null;
             const [kind, n] = target(args);
             const pr = updateItem(repo, kind, n, (s) => {
-                if (kind === "issue") { s.tracked = true; s.pending = null; }
+                if (kind === "issue") { s.tracked = true; s.pending = null; if (args.branch) s.branch = String(args.branch).slice(0, 200); }
                 s.session = { id: String(args.sessionId), name, linkedAt: nowIso() };
                 if (s.agent?.status === "running") s.agent.outcome = `Session started: ${name || args.sessionId}`;
                 addHistory(s, `Linked session ${name || args.sessionId}`);

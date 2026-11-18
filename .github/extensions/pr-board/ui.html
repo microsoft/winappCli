@@ -77,6 +77,17 @@ code { font-family: var(--mono); font-size: var(--t-meta); background: var(--sub
 .chip.ok { background: var(--green-muted); } .chip.ok .i { color: var(--green); }
 .chip.stuck { background: var(--red-muted); } .chip.stuck .i { color: var(--red); }
 .chip.neutral .i { color: var(--muted); }
+.chip-link { border: 0; background: none; padding: 0; margin: 0; cursor: pointer; text-decoration: none; color: inherit; font: inherit; display: inline-flex; border-radius: 999px; }
+.chip-link:hover .chip { outline: 1px solid var(--border); }
+.kind-tag { font-size: var(--t-meta); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; color: var(--muted); line-height: 16px; }
+.explainer .ex-head { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.explainer .ex-head h3 { margin: 0; font-size: var(--t-small); font-weight: var(--w-strong); }
+.explainer .ex-head .note { font-weight: 400; color: var(--muted); font-size: var(--t-meta); }
+.explainer > h3 { margin: var(--s3) 0 var(--s1); }
+.explainer .ex-head .sp { flex: 1; }
+.explainer h3 + .md, .explainer .md + h3 { margin-top: var(--s2); }
+.explainer .md { max-width: 72ch; }
+.explainer.empty .hint { margin: var(--s1) 0 var(--s2); }
 .chip.new { background: var(--blue); color: var(--bg); } .chip.new .i { color: var(--bg); }
 .unread-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--blue); margin-right: 6px; vertical-align: middle; flex: none; }
 .ov-row.unread .ov-title { font-weight: var(--w-strong); }
@@ -544,6 +555,7 @@ const ICONS = {
   merged: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="8" r="1.5"/><path d="M4.5 5v6M4.5 5c0 2.6 2.3 3 5.5 3"/>',
   running: '<circle cx="8" cy="8" r="6.5" stroke-dasharray="3 2.4"/><circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none"/>',
   dash: '<path d="M4 8h8"/>',
+  pr: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="12.5" r="1.5"/><path d="M4.5 5v6M11.5 11V6.5a2 2 0 0 0-2-2H7.5M9 3L7.5 4.5 9 6"/>',
   person: '<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c.6-2.6 2.6-4 5-4s4.4 1.4 5 4"/>',
   chevDown: '<path d="M4 6l4 4 4-4"/>',
   chevRight: '<path d="M6 4l4 4-4 4"/>',
@@ -923,6 +935,7 @@ function overviewHtml(c) {
   const stuck = isOpen && r?.stuck;
   return `
     ${stuck ? `<div class="callout" role="note">${icon("alert")}<div class="body"><div>${esc(r.stuck.replace(/^⚠️\s*/, ""))}. ${esc(r.text)}</div>${actionButton(c)}${r.action?.nudge ? `<span class="hint">Pre-fills a draft comment below. Nothing is posted until you send it.</span>` : ""}</div></div>` : ""}
+    ${explainerHtml(c)}
     ${reviewHeadHtml(c)}
     ${rvOf(c) ? "" : `<section class="sec"><h3>What this PR does <span class="note">${s ? `${icon("sparkle", "sm")} Agent summary · ${esc(ago(s.at))}${ago(s.at) === "just now" ? "" : " ago"}` : "From the description"}</span></h3>
       <div class="summary">${s ? mdInline(s.text) : esc(local.summarizing ? "Summarizing…" : (c.fallbackSummary || "No description."))}</div>
@@ -1029,6 +1042,33 @@ function streamInner(c, s) {
   if (s?.text) return `<div class="who">Agent · writing…</div><div class="md">${md(s.text)}</div>`;
   if (s?.step) return `<div class="who">Agent</div><div class="step">${dots}<span>${esc(s.step)}…</span></div>`;
   return `<div class="who">Agent</div>${dots}${mins > 5 ? ` <span class="hint">No reply yet. The agent may be busy; the answer will show up here.</span>` : ""}`;
+}
+
+// "Explain like I'm 5" and "Where we are": plain-language text the agent writes with pr_board_set_explainer.
+function explainerStale(c) {
+  const x = c.local?.explainer;
+  if (!x?.updatedAt) return "";
+  if (c.headSha && x.basis?.headSha && c.headSha !== x.basis.headSha) return "new commits since";
+  if (tms(c.updatedAt) > tms(x.updatedAt) + 60000) return "new activity on GitHub since";
+  return "";
+}
+function explainerHtml(c) {
+  const x = c.local?.explainer;
+  const kind = c.kind === "issue" ? "issue" : "pr";
+  const pending = c.local?.explainerPending && (!x?.updatedAt || tms(c.local.explainerPending) > tms(x.updatedAt));
+  const btn = (label) => pending
+    ? `<span class="hint">${icon("running", "sm")} Asking the agent…</span>`
+    : `<button data-act="explain-item" data-pr="${c.number}" data-kind="${kind}" title="Ask the agent to explain this in plain words and summarize where we are">${icon("sparkle", "sm")}${label}</button>`;
+  if (!x || (!x.eli5 && !x.progress)) {
+    return `<section class="sec explainer empty"><h3>Explain like I'm 5</h3><p class="hint">No plain-language explanation yet: what this is, why it matters, and where we are.</p>${btn("Explain this")}</section>`;
+  }
+  const stale = explainerStale(c);
+  const meta = `<span class="note">updated ${esc(ago(x.updatedAt))}${ago(x.updatedAt) === "just now" ? "" : " ago"}${stale ? ` · ${esc(stale)}` : ""}</span>`;
+  return `<section class="sec explainer">
+    <div class="ex-head"><h3>Explain like I'm 5</h3>${meta}<span class="sp"></span>${stale || pending ? btn("Update") : ""}</div>
+    ${x.eli5 ? `<div class="md">${md(x.eli5)}</div>` : ""}
+    ${x.progress ? `<h3>Where we are</h3><div class="md">${md(x.progress)}</div>` : ""}
+  </section>`;
 }
 
 function threadHtml(c) {
@@ -1215,7 +1255,7 @@ async function loadPreview(c, event) {
 function renderScroll(c, force) {
   const local = c.local || {};
   const det = details.get(c.number);
-  const key = JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, det?.data?.fetchedAt, det?.error, drafts.has(draftKey(c)), (c.local?.thread || []).length]);
+  const key = JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, local.explainer?.updatedAt, local.explainerPending, det?.data?.fetchedAt, det?.error, drafts.has(draftKey(c)), (c.local?.thread || []).length]);
   if (!force && key === lastKey) return;
   lastKey = key;
   const sc = $("wsScroll");
@@ -1226,7 +1266,7 @@ function renderScroll(c, force) {
   sc.innerHTML = { overview: overviewHtml, architecture: architectureHtml, changes: changesTabHtml, review: reviewTabHtml, conversation: conversationHtml, thread: threadHtml }[tab](c);
   if (tab === "architecture") mountDiagrams(c);
   for (const d of sc.querySelectorAll("details[data-k]")) if (d.dataset.k in openState) d.open = openState[d.dataset.k];
-  if (tab === "thread" && (force || atBottom)) sc.scrollTop = sc.scrollHeight;
+  if (tab === "thread" && (force || atBottom || stickBottom)) { sc.scrollTop = sc.scrollHeight; stickBottom = false; }
   else sc.scrollTop = force ? 0 : prevTop;
   if (local.draft && !drafts.has(draftKey(c))) loadDraft(c);
 }
@@ -1264,10 +1304,10 @@ const scheduleDetail = (c) => { clearTimeout(detailTimer); detailTimer = setTime
 // ---- Overview ----
 const answers = new Map(); // pr -> typed answer, kept across live re-renders
 const SECTIONS = [
-  ["yours", "Yours", "You wrote these, or a session here is working on them.", ["Agent", "Monitoring", "pr-review", "PR"]],
+  ["yours", "Yours", "PRs you wrote, and PRs and issues a session here is working on.", ["Agent", "Monitoring", "pr-review", "PR"]],
   ["reviewing", "Reviewing", "You're a reviewer, you reviewed them, or pr-review ran here.", ["pr-review", "PR", "Last activity"]],
   ["other", "Everything else", "Open PRs nobody is working on here.", ["PR"]],
-  ["issues", "Issues in progress", "Open issues a session here is working on, or assigned to you, with no PR yet.", ["Agent", "Last activity"]],
+  ["issues", "Issues assigned to you", "Open issues assigned to you that nobody is working on here yet.", ["Agent", "Last activity"]],
 ];
 
 function cell(label, chipHtml, under = "", extra = "") {
@@ -1331,6 +1371,8 @@ function ovRow(c, sec) {
   const sub = `<span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span title="${esc(c.size?.text)}">${esc(c.size?.label)}</span><span class="sep">·</span>${ciHtml(c)}<span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>`;
   const kind = c.kind === "issue" ? "issue" : "pr";
   const main = `<div class="ov-main"><div class="ov-title-row"><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}${pin}${esc(c.title)}</button>${replyMarks(c)}${browserLink(c)}</div><div class="ov-sub">${sub}</div>`;
+  const issueSub = c.kind === "issue" ? `<div class="ov-sub"><span class="kind-tag">Issue</span><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>` : "";
+  if (c.kind === "issue" && sec === "yours") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:4">${main.replace(`<div class="ov-sub">${sub}</div>`, issueSub)}<div class="ov-line"><div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div></div>${agentCell(c)}${cell("Monitoring", `<span class="tone-mute" title="Monitoring applies to a PR">—</span>`)}${cell("pr-review", `<span class="tone-mute" title="pr-review applies to a PR">—</span>`)}${cell("PR", issuePrChip(c))}</div>`;
   if (sec === "issues") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-line"><div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div></div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
   if (sec === "yours") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:4">${main}<div class="ov-line"><div class="ov-where">${whereHtml(c)}</div>${rowActs(c, kind)}</div></div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
   if (sec === "reviewing") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${rowActs(c, kind)}</div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
@@ -1341,10 +1383,23 @@ function ovRow(c, sec) {
 let fly = null; // { kind: "pr" | "issue", number }
 let flyReturnFocus = null;
 const changes = new Map(); // pr -> { loading } | { data } | { error }
+let stickBottom = false; // after you send, the next render scrolls the thread to the bottom
+let lastFlyKey = null;
 let flyDraft = "";
 let flyMore = false;
 const issuesOf = () => snap?.issues || [];
 const itemOf = (kind, n) => (kind === "issue" ? issuesOf() : cardsOf()).find((c) => c.number === n) || null;
+
+// The PR state of an issue: No PR, Draft PR #n, PR #n open, Merged #n. Opens the PR when it's on the board.
+function issuePrChip(c) {
+  const p = c.pr;
+  if (!p) return mkChip("neutral", "dash", "No PR", "No pull request for this issue yet");
+  const [tone, ic, label] = { draft: ["neutral", "pencil", `Draft PR #${p.number}`], open: ["info", "pr", `PR #${p.number} open`], merged: ["ok", "merged", `Merged #${p.number}`], closed: ["neutral", "xCircle", `PR #${p.number} closed`] }[p.state] || ["neutral", "pr", `PR #${p.number}`];
+  const chipHtml = mkChip(tone, ic, label);
+  return cardsOf().some((x) => x.number === p.number)
+    ? `<button class="chip-link" data-act="flyout" data-kind="pr" data-pr="${p.number}" title="Open PR #${p.number}">${chipHtml}</button>`
+    : `<a class="chip-link" href="${esc(p.url)}" target="_blank" rel="noopener" title="Open PR #${p.number} on GitHub">${chipHtml}</a>`;
+}
 
 function browserLink(c, label = "") {
   return `<a class="btn ico" href="${esc(c.url)}" target="_blank" rel="noopener" title="Open #${c.number} on GitHub" aria-label="Open #${c.number} on GitHub">${icon("external", "sm")}${label ? esc(label) : ""}</a>`;
@@ -1424,12 +1479,15 @@ function renderFlyout() {
   noteViewing(c);
   const prev = host.querySelector(".fly-body");
   const scroll = prev ? prev.scrollTop : null;
+  const flyKey = fly.kind + ":" + fly.number;
+  const nearBottom = !!prev && lastFlyKey === flyKey && prev.scrollHeight - prev.scrollTop - prev.clientHeight < 60;
+  lastFlyKey = flyKey;
   const ta = host.querySelector("#flyInput");
   if (ta) flyDraft = ta.value;
   const hadFocus = ta && document.activeElement === ta;
   const isIssue = fly.kind === "issue";
   const chips = isIssue
-    ? `${agentCell(c).replace('class="ov-cell"', 'class="ov-cell" style="flex-direction:row;align-items:center"')}`
+    ? `${agentCell(c).replace('class="ov-cell"', 'class="ov-cell" style="flex-direction:row;align-items:center"')}${issuePrChip(c)}`
     : `${chip(c)}${c.review ? mkChip(c.review.state === "done" ? "ok" : c.review.state === "stale" ? "you" : "neutral", c.review.state === "done" ? "checkCircle" : c.review.state === "stale" ? "reset" : "dash", "pr-review: " + c.review.label, c.review.text) : ""}${ciHtml(c)}`;
   const summary = isIssue
     ? `<div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div><div class="hint">Last activity ${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"} · opened by ${esc(c.author)}</div>`
@@ -1455,6 +1513,7 @@ function renderFlyout() {
       <div class="fly-body">
         <section class="sec"><div class="fly-cmds" role="group" aria-label="Quick commands">${flyCommands(c, fly.kind)}</div></section>
         ${!isIssue ? askHtml(c) : ""}
+        ${explainerHtml(c)}
         <section class="sec"><h3>Where it is</h3>${summary}</section>
         ${!isIssue ? changesHtml(c.number) : ""}
         <section class="sec"><h3>Thread</h3>${threadHtml(c)}</section>
@@ -1465,7 +1524,8 @@ function renderFlyout() {
   nta.value = flyDraft;
   if (hadFocus) { nta.focus(); nta.setSelectionRange(nta.value.length, nta.value.length); }
   const body = host.querySelector(".fly-body");
-  if (scroll !== null) body.scrollTop = scroll;
+  if (stickBottom || nearBottom) { body.scrollTop = body.scrollHeight; stickBottom = false; }
+  else if (scroll !== null) body.scrollTop = scroll;
   scrollToNew(body);
   markViewed();
 }
@@ -1511,7 +1571,7 @@ function renderOverview() {
   const unreadN = allItems().filter(isUnread).length;
   if (!unreadN && unreadOnly && !allItems().some(isReplying)) unreadOnly = false;
   const keep = (c) => !unreadOnly || isUnread(c) || isReplying(c);
-  const secRows = SECTIONS.map(([id]) => order((id === "issues" ? issuesOf() : cards).filter((c) => c.section === id && !(c.hidden || c.local?.hidden) && keep(c))));
+  const secRows = SECTIONS.map(([id]) => order((id === "issues" ? issuesOf() : id === "yours" ? [...cards, ...issuesOf()] : cards).filter((c) => c.section === id && !(c.hidden || c.local?.hidden) && keep(c))));
   el.innerHTML = `<div class="ov-inner">
     <div class="ov-bar"><nav class="ov-jump" aria-label="Jump to a section">${unreadN || unreadOnly ? `<button class="unread-chip${unreadOnly ? " on" : ""}" data-act="unread-only" aria-pressed="${unreadOnly}" title="${unreadOnly ? "Show everything again" : "Show only items with a reply you haven't read, or one still being written"}"><span class="unread-dot" aria-hidden="true"></span>Unread <span class="n">${unreadN}</span></button>${unreadN ? `<button class="quiet" data-act="mark-all-read">Mark all read</button>` : ""}` : ""}${SECTIONS.map(([id, title], i) => `<button class="quiet" data-act="jump" data-sec="${id}">${esc(title)} <span class="n">${secRows[i].length}</span></button>`).join("")}</nav>
       <span class="right"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select></span></div>
@@ -1544,8 +1604,8 @@ function renderSyncInfo() {
   const asked = s.requestedAt && (!s.syncedAt || s.requestedAt > s.syncedAt);
   $("syncInfo").textContent = asked ? "Sync requested…" : s.syncedAt ? `Sessions synced ${ago(s.syncedAt)}${ago(s.syncedAt) === "just now" ? "" : " ago"}` : "Sessions not synced yet";
   const open = cards.filter((c) => c.section !== "merged").length;
-  const nIssues = issuesOf().length;
-  if (view === "overview") $("meta").innerHTML = `<b>${open} open</b>${nIssues ? ` · ${nIssues} issue${nIssues === 1 ? "" : "s"} in progress` : ""} · ${waiting} waiting on you · ${stuck} stuck · updated ${esc(ago(snap.fetchedAt))}${ago(snap.fetchedAt) === "just now" ? "" : " ago"}`;
+  const nIssues = issuesOf().filter((i) => !i.hidden && i.state !== "CLOSED").length;
+  if (view === "overview") $("meta").innerHTML = `<b>${open} open</b>${nIssues ? ` · ${nIssues} issue${nIssues === 1 ? "" : "s"}` : ""} · ${waiting} waiting on you · ${stuck} stuck · updated ${esc(ago(snap.fetchedAt))}${ago(snap.fetchedAt) === "just now" ? "" : " ago"}`;
 }
 
 async function requestSync() {
@@ -1647,6 +1707,7 @@ document.addEventListener("click", (e) => {
     return target?.click();
   }
   if (a === "what-changed") { loadChanges(rowPr); return; }
+  if (a === "explain-item") return post("/api/action", { pr: rowPr, action: "explain-item", kind: el.dataset.kind || "pr" }).then(() => toast("Asked the agent to explain it; it appears here when ready")).catch((err) => toast("Couldn't ask: " + err.message));
   if (el.dataset.kind === "issue") return post("/api/action", { pr: rowPr, action: a, kind: "issue" }).then(() => toast(a === "untrack" ? "Removed from the board" : "Asked the agent")).catch((err) => toast("Couldn't do that: " + err.message));
   if (a === "track" || a === "untrack") { openMenu = null; flyMore = false; }
   if (a === "track" || a === "untrack") return post("/api/action", { pr: rowPr, action: a }).then(() => toast(a === "track" ? "Tracking it under Reviewing. Nothing changed on GitHub." : "Stopped tracking it")).catch((err) => toast("Couldn't do that: " + err.message));
@@ -1789,14 +1850,14 @@ $("composer").addEventListener("submit", async (e) => {
   const text = input.value.trim();
   if (!c || !text) return;
   $("send").disabled = true;
+  input.value = ""; input.style.height = "auto"; stickBottom = true;
   try {
     await post("/api/message", { pr: c.number, text });
-    input.value = "";
-    input.style.height = "auto";
     if (tab !== "thread") { tab = "thread"; store.set("prb-tab", tab); render(true); }
-  } catch (err) { toast("Couldn't send: " + err.message); }
+  } catch (err) { stickBottom = false; if (!input.value) input.value = text; toast("Couldn't send: " + err.message); }
   $("send").disabled = false;
   input.focus();
+  if (tab === "thread") { const sc = $("wsScroll"); sc.scrollTop = sc.scrollHeight; }
 });
 
 $("sumAll").innerHTML = `${icon("sparkle", "sm")}<span class="lbl">Summarize all needing me</span>`;
@@ -1812,10 +1873,18 @@ document.addEventListener("submit", async (e) => {
   const ta = $("flyInput");
   const text = ta.value.trim();
   if (!text) return;
+  // Clear first: the board update that follows a send re-renders the flyout and would restore the old text.
+  flyDraft = ""; ta.value = ""; stickBottom = true;
   try {
     await post("/api/message", { pr: fly.number, kind: fly.kind, text });
-    flyDraft = ""; ta.value = "";
-  } catch (err) { toast("Couldn't send: " + err.message); }
+  } catch (err) {
+    stickBottom = false;
+    const box = $("flyInput"); if (box && !box.value) { box.value = text; flyDraft = text; }
+    toast("Couldn't send: " + err.message);
+    return;
+  }
+  const box = $("flyInput"); box?.focus();
+  const body = $("flyHost").querySelector(".fly-body"); if (body) body.scrollTop = body.scrollHeight;
 });
 $("refresh").addEventListener("click", async () => { try { await post("/api/refresh", {}); } catch (e) { toast("Couldn't refresh: " + e.message); } });
 $("sumAll").addEventListener("click", async () => {

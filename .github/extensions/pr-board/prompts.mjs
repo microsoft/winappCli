@@ -63,9 +63,12 @@ export function reviewPrompt(card, repo) {
         `3. Keep the card current with \`pr_board_set_status\` (repo "${repo}", pr ${card.number}): "waiting" if the session pauses for the user's input, "running" when it resumes, "failed" with a short reason if it gives up.`,
         `4. Also call \`pr_board_set_summary\` for this PR (rules below) once you understand it.`,
         `5. Make sure the structured review lands on the board: if the session wrote a JSON file instead of calling the tool, call \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, path: <absolute path> })\` yourself. Call \`pr_board_review_guide\` now and include its guide in the kickoff when the session can't call pr_board_* tools.`,
+        `6. When the review is in, call \`pr_board_set_explainer\` for this PR (rules below).`,
         `Never post, approve, or merge from this request. The user will press "Post review" on the board after reading the draft.`,
         ``,
         SUMMARY_RULES(repo, card.number),
+        ``,
+        EXPLAINER_RULES(repo, card),
         ``,
         `Kickoff for the PR session:`,
         fence(kickoff),
@@ -106,6 +109,9 @@ export function shipPrompt(card, repo) {
 // The board shows the agent's short narration and tool steps live in the thread while it works.
 const PROGRESS_LINE = `While you work, start each step with one short plain line about what you're doing (for example "Reading the commits since the review"). The board shows these lines live in the thread until your reply arrives.`;
 
+// Ask the agent to keep the plain-language explainer current whenever its understanding or our decisions change.
+const EXPLAINER_LINE = (card, repo) => `If this changes your understanding of ${repo}#${card.number} or a decision was made, update its explainer with \`pr_board_set_explainer\` \`{ repo: "${repo}", ${card.kind === "issue" ? "issue" : "pr"}: ${card.number}, eli5, progress }\`. eli5 = the problem or change in plain words, with background, one example, why it matters, and where it stands on GitHub; progress = what we've done, decisions with dates, and the next step with who takes it.`;
+
 const KIND = (card) => (card.kind === "issue" ? "issue" : "PR");
 const ref = (card) => (card.kind === "issue" ? `issue: ${card.number}` : `pr: ${card.number}`);
 
@@ -126,6 +132,7 @@ export function messagePrompt(card, repo, msg, recent) {
         `Post the reply with \`pr_board_reply\` \`{ repo: "${repo}", ${ref(card)}, text: <Markdown>, from: <who answered, e.g. the session name> }\`. That is the only place the user will read it, so keep it short and self-contained. If you forward it, post a one-line reply saying so, then post the real answer with \`pr_board_reply\` when it arrives.`,
         `Treat it as direction from the user about this ${k} only. Don't post to GitHub, approve, or merge unless the message explicitly asks for it.`,
         PROGRESS_LINE,
+        EXPLAINER_LINE(card, repo),
     ].join("\n");
 }
 
@@ -199,7 +206,8 @@ export function statusUpdatePrompt(card, repo) {
         `The PR board canvas: the user asked for a **status update** on ${repo}#${card.number} "${card.title}" (${card.url}).`,
         s?.id ? `Linked session: \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}. Read its state (\`get_session\`) and, if useful, ask it for a one-paragraph update with \`send_session_message\`.` : `No session is linked. Read the ${k} on GitHub with \`gh\`.`,
         `Reply with \`pr_board_reply\` \`{ repo: "${repo}", ${ref(card)}, from: <who answered>, text: <3–5 plain sentences: where it is, what happened last and when, what's next and who's on it> }\`. If the session's state changed, also call \`pr_board_sync_sessions\` for it.`,
-        `Don't change anything; this is read-only.`,
+        EXPLAINER_LINE(card, repo),
+        `Don't change anything else; this is read-only.`,
     ].join("\n");
 }
 
@@ -225,7 +233,9 @@ export function startIssuePrompt(card, repo) {
         `The PR board canvas: the user asked to **start working on** issue ${repo}#${card.number} "${card.title}" (${card.url}).`,
         `Create one visible session for it (\`create_session\`, or \`open_issue_session\` if you have it) with a kickoff that quotes the issue link and asks it to reproduce, plan, and fix it, following the repository's normal workflow. Don't open a PR unless the user asks.`,
         `As soon as you have the session id, call \`pr_board_link_session\` \`{ repo: "${repo}", issue: ${card.number}, sessionId, sessionName }\`, then \`pr_board_sync_sessions\` with \`{ issue: ${card.number}, sessionId, activity: "busy", status: <one plain line> }\` whenever its state changes.`,
+        `Pass the session's branch too (\`branch\` on \`pr_board_link_session\` / \`pr_board_sync_sessions\`), so the board can show the issue's PR once it exists.`,
         `If you can't create sessions, say so with \`pr_board_reply\` \`{ repo: "${repo}", issue: ${card.number}, text: <one line> }\`.`,
+        EXPLAINER_LINE(card, repo),
     ].join("\n");
 }
 
@@ -259,5 +269,36 @@ export function openChatPrompt(card, repo) {
         ``,
         `Switch the user's view to the session linked to this PR: \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}.`,
         `If you have \`navigate_to\`, call it with \`{ id: "${s.id}" }\`. Otherwise tell the user the session name and id in one line. Do nothing else.`,
+    ].join("\n");
+}
+
+// What the "Explain like I'm 5" and "Where we are" sections should say. The text always comes from the agent.
+export function EXPLAINER_RULES(repo, card) {
+    const which = card.kind === "issue" ? "issue" : "pr";
+    return [
+        `How to call \`pr_board_set_explainer\` \`{ repo: "${repo}", ${which}: ${card.number}, eli5, progress }\` (Markdown, written for a PM or a junior developer who has never seen this code):`,
+        `- eli5 ("Explain like I'm 5", about 120-250 words): what the feature or area is, in a sentence of background; the problem or change, with one concrete example (what you do, what happens, what should happen); who runs into it and why it matters; and where it stands on GitHub now (comments, reviews, CI, who it's waiting on). No file or class names unless they're essential.`,
+        `- progress ("Where we are", about 60-150 words): what we've already done in our sessions, the current state, each decision made and when (for example "Nov 18: ship the small fix first"), and the next step with who takes it.`,
+        `- Write it yourself from what you know; don't use a template. Short paragraphs or bullets.`,
+    ].join("\n");
+}
+
+export function explainerPrompt(card, repo) {
+    const k = KIND(card);
+    const s = card.local?.session;
+    const read = card.kind === "issue"
+        ? `\`gh issue view ${card.number} -R ${repo} --comments\``
+        : `\`gh pr view ${card.number} -R ${repo} --comments\` and \`gh pr checks ${card.number} -R ${repo}\``;
+    return [
+        `The PR board canvas: the user asked to **explain** ${repo}#${card.number} "${card.title}" (${card.url}) in plain language.`,
+        `Read it on GitHub (${read}). Read the board's thread for it (\`pr_board_get_state\`).`,
+        s?.id
+            ? `It's linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}: read its state (\`get_session\`), and if you need details, ask it with \`send_session_message\` for what it has done, what was decided, and what's next.`
+            : `No session is linked to this ${k}, so "Where we are" covers what has happened on GitHub and on the board.`,
+        `Then call \`pr_board_set_explainer\`.`,
+        ``,
+        EXPLAINER_RULES(repo, card),
+        ``,
+        `Read-only: don't post to GitHub or change the ${k}.`,
     ].join("\n");
 }
