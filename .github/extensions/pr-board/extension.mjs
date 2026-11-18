@@ -647,6 +647,8 @@ function storeReview(repo, pr, review, { replace }) {
     return warnings;
 }
 
+// The review tools (review_guide, set_review, update_review, add_findings) are adapted from angelser's
+// pr-arch-review, https://gist.github.com/angelser/01c49ffdd3296f58b25d78194bfe1ebe
 const tools = [
     {
         name: "pr_board_review_guide",

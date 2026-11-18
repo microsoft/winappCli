@@ -3,8 +3,9 @@
 An overview of a GitHub repo's open pull requests, split into the ones you're
 working on, the ones you're reviewing, and everything else. Each row says where
 the PR is and what it needs, so you don't have to open it. Click a PR to open
-its workspace: description, conversation, files, a thread with the agent, and
-the next step.
+its workspace: a plain-words review with architecture diagrams, changes by
+system and by file, findings you pick to post, the conversation, and a thread
+with the agent.
 
 Open it from a chat in a winappCli session:
 
@@ -50,11 +51,17 @@ Merged PRs are in a collapsed **Merged today** section at the bottom.
 
 ### The flyout
 
-Click any row to open a panel on the right, without leaving the Overview. It
-shows where the item is, quick commands that fit it, and its thread: type a
+Click anywhere on a row to open a panel on the right, without leaving the
+Overview. Each row also shows its first quick command as a button (for example
+**What changed?** on a PR you need to re-review); hover the row to see two more,
+or click **⋯**. Links and buttons inside a row do their own thing.
+
+The flyout puts quick commands at the top, then the item's thread: type a
 question and the agent answers there, without starting a new session. Esc or ✕
 closes it; **Open details** goes to the full PR workspace (**← Overview** or Esc
-comes back).
+comes back). Its **⋯** menu has **Remove from board**, which hides the PR or
+issue on this board only; find it again under **Removed from the board** at the
+bottom of the Overview.
 
 | Row | Quick commands |
 |-----|----------------|
@@ -73,6 +80,11 @@ The board can't read other sessions by itself, so the agent in the session that
 opened the board reports them. **Sync** asks it to check the sessions working on
 this repo's PRs and call `pr_board_sync_sessions`. The agent also calls it after
 turning monitoring on or off.
+
+An issue shows under **Issues in progress** only while a session here is linked
+to it or it's assigned to you; opening an issue yourself doesn't count. To stop
+tracking a linked issue, the agent calls `pr_board_sync_sessions` with
+`{ issue: 1349, untrack: true }`.
 
 ## The full list
 
@@ -154,29 +166,53 @@ you send it.
 
 ## The workspace
 
-Buttons: the one that fits the stage is blue (Review, Post review, Ship, or
-Answer). **Summarize** is next to it, and **More** holds Architecture review,
-Open full chat, Pin to top, Open on GitHub, and Reset agent status. Tabs:
+Buttons: the one that fits the stage is blue (Review, Post review…, Ship, or
+Answer). **Summarize** is next to it, and **More** holds Open full chat, Pin to
+top, Open on GitHub, and Reset agent status. Tabs:
 
 | Tab | Shows |
 |-----|-------|
-| Overview | What the PR does in plain words, with a risk level; next steps as a checklist; status (who's next, CI and failing checks, reviews, merge queue, agent, session, size, labels); the draft review, if any; and the PR description |
+| Overview | The review's verdict, risk and plain-words summary, with what the PR does for users; next steps; status (who's next, CI, reviews, merge queue, agent, session, size, labels); and the PR description. GitHub events are under **Timeline** |
+| Architecture | Diagrams of what the PR touches. Green is new, orange is changed, red dashed is removed. A number on a box counts its findings. Click a box to see its files, its findings, and **Ask about this** |
+| Changes | By system: each area the PR touches, with one plain line and +/− counts. By file: one plain line per file. Without a review it lists the files with +/− counts |
+| Review | The findings, most severe first, each with what's wrong, the suggested fix, and the file and lines. Mark each one **Post**, **Ignore** or **Undecided**, and add a note. **Explain** asks the agent to explain the finding in plain words; the answer appears under it |
 | Conversation | GitHub comments and reviews, oldest first. Bot comments are collapsed |
-| Files | Changed files with +/− counts, largest first |
 | Thread | Your conversation with the agent about this PR |
-| Timeline | GitHub events (opened, reviews, merged) and board events |
+
+Until a review has run, Architecture, Changes and Review offer **Review this
+PR**.
 
 The message box at the bottom works from any tab. Type a question or a
 direction and press Enter, for example `What's still blocking this?` or
-`Explain the risky part in simple terms`. The agent in the session that opened
-the board answers in the Thread tab, or forwards the question to the PR's own
-session and posts the answer when it comes back.
+`Explain the risky part in simple terms`. **Ask about this** on a finding,
+diagram box, system or file fills it in with a question about that item. The
+agent in the session that opened the board answers in the Thread tab, or
+forwards the question to the PR's own session and posts the answer when it comes
+back.
 
-**🏛 Architecture review** asks the agent to open the
-[PR architecture review canvas](https://gist.github.com/angelser/01c49ffdd3296f58b25d78194bfe1ebe)
-(`pr-arch-review`) for this PR in its own panel, with diagrams, architecture
-changes and findings. Install that extension separately. The Thread tab notes
-the request and the agent's one-line result.
+### Posting the findings you picked
+
+On the Review tab, **Post review ▾** → Approve, Request changes or Comment shows
+exactly what will be posted, before anything is sent:
+
+```text
+Preview: Comment  2 inline comments, 0 in the summary, 1 ignored, 1 undecided (not posted)
+
+Summary comment
+  Nice work on the undo answers. One question on rollback below.
+
+Inline on src/…/DevToolsTap.EditRpc.inc:182
+  [medium] A failed resource assign can leave a binding removed
+  …
+  Reviewer note: This is the one I would block on if the agent can be missing in practice.
+```
+
+Only findings marked **Post** go out. A finding with a file and line becomes an
+inline comment; the rest go in the summary, under your note. Every comment ends
+with "Generated with AI assistance (GitHub Copilot PR board). Reviewed by a
+human." **Post this as …** asks the agent to post it with
+`gh api repos/{owner}/{repo}/pulls/{n}/reviews`. If GitHub rejects an inline
+line, it posts everything in the summary instead.
 
 ## What the buttons do
 
@@ -184,11 +220,10 @@ Nothing is posted, approved, or merged unless you click the button for it.
 
 | Button | What the agent does |
 |--------|---------------------|
-| **Review** | Opens or reuses a session for the PR (`open_pr_session`, `send_session_message`, or `create_session`, whichever it has; otherwise it reviews inline), runs `.github/skills/pr-review`, sets the plain-words summary, and attaches the review as a draft file. Nothing is posted. |
-| **Post review ▾** | Enabled once a draft is attached. Pick Approve, Request changes, or Comment, then click again to confirm. The agent runs `gh pr review --body-file <draft>` with that exact file. |
+| **Review** | Opens or reuses a session for the PR (`open_pr_session`, `send_session_message`, or `create_session`, whichever it has; otherwise it reviews inline), runs `.github/skills/pr-review`, and fills in the structured review (`pr_board_review_guide`, then `pr_board_set_review`). Nothing is posted. |
+| **Post review…** | With a structured review, goes to the Review tab to pick findings and preview the post (see above). With only a Markdown draft from `pr_board_attach_draft`, pick Approve, Request changes, or Comment, then click again to confirm; the agent runs `gh pr review --body-file <draft>` with that file. |
 | **Ship** | Enabled when the PR is approved and checks aren't failing. Click again to confirm. The agent follows `.github/skills/pr-lifecycle` and runs `gh pr merge --squash` (never `--admin`). If the PR isn't ready, it says what's blocking it. |
 | **✨ Summarize** | Reads the PR and sets a one-sentence summary for a non-expert, up to 3 next steps, and a risk level. |
-| **🏛 Architecture review** | Opens `pr-arch-review` for the PR and follows its `review_guide`. |
 | **Open full chat** | A `ghapp://sessions/<id>` link to the linked session. **↪** asks the agent to call `navigate_to` instead. |
 | **Reset status** | Clears a stuck agent status. |
 | **Refresh** | Re-reads GitHub. The board also refreshes when it opens and every 2 minutes. |
@@ -199,12 +234,17 @@ Every request from the board tells the agent which of these to call.
 
 | Tool | Use |
 |------|-----|
-| `pr_board_sync_sessions` | Report the sessions on each PR: activity, a pending question, Agent merge state, and when pr-review ran (on which commit) |
+| `pr_board_sync_sessions` | Report the sessions on each PR or issue: activity, a pending question, Agent merge state, and when pr-review ran (on which commit). `untrack: true` stops tracking an item |
 | `pr_board_set_summary` | Set the plain-words summary (≤140 characters), next steps, and risk (`low`, `medium`, `high`) |
 | `pr_board_reply` | Post a reply in a PR's thread (Markdown) |
 | `pr_board_link_session` | Link a session to a PR |
 | `pr_board_set_status` | Set the agent status with a one-line outcome: `running`, `waiting` (needs you), `waiting_on_others` (blocked on another approver or the author; the outcome becomes the ⏭ line), `posted`, `done`, `failed`, or `clear` |
-| `pr_board_attach_draft` | Attach the draft review file and its recommendation |
+| `pr_board_review_guide` | Read first: the review workflow, plain-words rules, diagram conventions and schema |
+| `pr_board_set_review` | Set the whole structured review: `{ pr, review }`, or `{ pr, path }` to a JSON file with the same shape (for sessions that don't have the board's tools) |
+| `pr_board_update_review` | Change part of a review, such as the verdict or one diagram |
+| `pr_board_add_findings` | Add or update findings by id. Your Post/Ignore choices stay when ids stay the same |
+| `pr_board_set_explanation` | Put the answer to **Explain** under a finding |
+| `pr_board_attach_draft` | Attach a Markdown draft review file and its recommendation (older flow) |
 | `pr_board_get_state` | Read the board, or one PR, including its summary and recent thread messages |
 
 The canvas also has `refresh` and `get_board` actions for `invoke_canvas_action`.
@@ -215,8 +255,8 @@ PR data comes from GitHub with the `gh` CLI: the list on every refresh, and a
 PR's conversation and files when you select it (cached until the PR changes).
 If `gh` is missing or signed out, the board says so and tells you what to run.
 
-What the board adds (summary, linked session, agent status, draft path,
-timeline, thread) is saved per PR in one file per repo:
+What the board adds (summary, structured review, your Post/Ignore choices and
+notes, linked session, agent status, timeline, thread) is saved per PR in one file per repo:
 
 ```text
 %USERPROFILE%\.copilot\extensions\pr-board\artifacts\microsoft__winappCli.json
@@ -235,4 +275,13 @@ per user and isn't committed. When a PR merges, a leftover agent status shows as
 | `github.mjs` | `gh` calls, groups, the ⏭ rules, waiting reasons and stuck thresholds, and fallback summaries |
 | `prompts.mjs` | The requests sent to the agent |
 | `store.mjs` | The per-repo state file |
+| `review.mjs` | The structured review schema, guide, and how picked findings become a GitHub review |
+| `diagram.js` | Draws the architecture diagrams as SVG |
 | `ui.html` | The inbox page (no build step, no dependencies) |
+
+## Credits
+
+The structured review, the diagram renderer (`diagram.js`) and the review guide
+are adapted from angelser's
+[pr-arch-review](https://gist.github.com/angelser/01c49ffdd3296f58b25d78194bfe1ebe)
+canvas.

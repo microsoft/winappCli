@@ -309,6 +309,138 @@ button.ico, a.ico { padding: 3px 6px; }
 .ov-title-row a.ico { border-color: transparent; color: var(--muted); }
 .ov-title-row a.ico:hover { color: var(--fg); }
 
+/* Diagram styles adapted from angelser's pr-arch-review, https://gist.github.com/angelser/01c49ffdd3296f58b25d78194bfe1ebe */
+:root { --surface: color-mix(in srgb, var(--fg) 4%, var(--bg)); --surface-2: color-mix(in srgb, var(--fg) 8%, var(--bg));
+  --c-added: var(--green); --c-added-bg: var(--green-muted); --c-modified: var(--orange); --c-modified-bg: var(--orange-muted);
+  --c-removed: var(--red); --c-removed-bg: var(--red-muted);
+  --sev-critical: var(--red); --sev-high: color-mix(in srgb, var(--red) 70%, var(--orange)); --sev-medium: var(--orange); --sev-low: var(--blue); --sev-info: var(--muted);
+  --gc0: var(--blue); --gc1: var(--purple); --gc2: var(--orange); --gc3: var(--yellow); --gc4: var(--green); --gc5: var(--red); --gc6: var(--muted); --gc7: var(--yellow); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--border); align-items: center; }
+.legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 5px; border: 2px solid; }
+.legend .l-added { border-color: var(--c-added); background: var(--c-added-bg); }
+.legend .l-modified { border-color: var(--c-modified); background: var(--c-modified-bg); }
+.legend .l-removed { border-color: var(--c-removed); background: var(--c-removed-bg); border-style: dashed; }
+.legend .l-unchanged { border-color: var(--border); background: var(--surface); }
+.legend .l-external { border-color: var(--muted); border-style: dashed; background: transparent; }
+.legend .line { display: inline-block; width: 26px; height: 0; border-top: 2.5px solid var(--muted); vertical-align: middle; margin-right: 5px; }
+.legend .line.dashed { border-top-style: dashed; }
+.legend .line.dotted { border-top-style: dotted; }
+/* SVG */
+svg.diagram { font-family: var(--font-sans, "Segoe UI", sans-serif); }
+.node { cursor: pointer; transition: opacity 0.15s; }
+.node-shape { fill: var(--surface); stroke: var(--border); stroke-width: 2; filter: url(#node-shadow); }
+.node-detail { fill: none; stroke: var(--border); stroke-width: 1.5; }
+.node-label { font-size: 18px; font-weight: 600; fill: var(--fg); }
+.node-sublabel { font-size: 14px; fill: var(--muted); }
+.node.st-added .node-shape { fill: color-mix(in srgb, var(--c-added) 12%, var(--bg)); stroke: var(--c-added); stroke-width: 2.5; }
+.node.st-modified .node-shape { fill: color-mix(in srgb, var(--c-modified) 12%, var(--bg)); stroke: var(--c-modified); stroke-width: 2.5; }
+.node.st-removed .node-shape { fill: color-mix(in srgb, var(--c-removed) 9%, var(--bg)); stroke: var(--c-removed); stroke-dasharray: 7 5; stroke-width: 2.5; }
+.node.st-removed .node-label { text-decoration: line-through; fill: var(--muted); }
+.node.st-external .node-shape { fill: var(--bg); stroke: var(--muted); stroke-dasharray: 4 4; }
+.node.st-added .node-detail { stroke: var(--c-added); }
+.node.st-modified .node-detail { stroke: var(--c-modified); }
+.view-before .node.st-modified .node-shape, .view-after .node.st-modified .node-shape { stroke: var(--c-modified); }
+.node.selected .node-shape { stroke: var(--focus); stroke-width: 3.5; }
+.node:focus { outline: none; }
+.node:focus-visible .node-shape { stroke: var(--focus); stroke-width: 3.5; }
+.status-tag rect { stroke: var(--bg); stroke-width: 2; }
+.status-tag text { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; fill: var(--color-white, #fff); }
+.status-tag.st-added rect { fill: var(--c-added); }
+.status-tag.st-modified rect { fill: var(--c-modified); }
+.status-tag.st-removed rect { fill: var(--c-removed); }
+.status-tag.st-external rect { fill: var(--muted); }
+.badge circle { stroke: var(--bg); stroke-width: 2.5; fill: var(--sev-medium); }
+.badge.sev-critical circle, .badge.sev-high circle { fill: var(--sev-critical); }
+.badge.sev-low circle, .badge.sev-info circle { fill: var(--sev-low); }
+.badge text { font-size: 13px; font-weight: 800; fill: var(--color-white, #fff); }
+.group-stripe { opacity: 0.9; }
+.gc-0 { fill: var(--gc0); }
+.gc-4 { fill: var(--gc4); }
+.lane { stroke: var(--border); stroke-width: 1; }
+.lane-0 { fill: color-mix(in srgb, var(--fg) 3%, transparent); }
+.lane-1 { fill: color-mix(in srgb, var(--fg) 6%, transparent); }
+.lane-label { font-size: 15px; font-weight: 750; fill: var(--muted); letter-spacing: 0.03em; text-transform: uppercase; }
+.edge-line { fill: none; stroke: var(--muted); stroke-width: 2.2; transition: opacity 0.15s, stroke-width 0.15s; }
+.edge-hit { fill: none; stroke: transparent; stroke-width: 14; }
+.edge.st-added .edge-line { stroke: var(--c-added); stroke-width: 3; }
+.edge.st-modified .edge-line { stroke: var(--c-modified); stroke-width: 3; }
+.edge.st-removed .edge-line { stroke: var(--c-removed); stroke-dasharray: 8 6; stroke-width: 2.5; }
+.edge.style-async .edge-line { stroke-dasharray: 9 6; }
+.edge.style-data .edge-line { stroke-dasharray: 2 5; stroke-linecap: round; }
+.edge.style-dependency .edge-line { stroke-dasharray: 12 4 2 4; }
+.edge.style-return .edge-line { stroke-dasharray: 5 5; }
+.arrowhead { fill: var(--muted); }
+.arrowhead.st-added { fill: var(--c-added); }
+.arrowhead.st-modified { fill: var(--c-modified); }
+.arrowhead.st-removed { fill: var(--c-removed); }
+.edge-label rect { fill: var(--bg); stroke: var(--border); stroke-width: 1.2; }
+.edge-label text, .loop-label { font-size: 14px; font-weight: 500; fill: var(--fg); }
+.edge-label.st-added rect { stroke: var(--c-added); }
+.edge-label.st-modified rect { stroke: var(--c-modified); }
+.edge-label.st-removed rect { stroke: var(--c-removed); }
+.edge-label.st-removed text { text-decoration: line-through; }
+svg.has-focus .node:not(.focus) { opacity: 0.28; }
+svg.has-focus .edge:not(.focus), svg.has-focus .edge-label:not(.focus) { opacity: 0.15; }
+svg.has-focus .edge.focus .edge-line { stroke-width: 3.5; }
+.lifeline { stroke: var(--border); stroke-width: 2; stroke-dasharray: 6 6; }
+.msg-label { font-size: 15px; font-weight: 500; fill: var(--fg); }
+.msg.st-removed .msg-label { text-decoration: line-through; fill: var(--muted); }
+.msg.st-added .msg-label { fill: var(--c-added); font-weight: 650; }
+.msg-note { font-size: 13px; fill: var(--muted); font-style: italic; }
+.msg-num circle { fill: var(--surface-2); stroke: var(--border); }
+.msg-num.st-added circle { fill: var(--c-added); stroke: none; }
+.msg-num.st-modified circle { fill: var(--c-modified); stroke: none; }
+.msg-num.st-removed circle { fill: var(--c-removed); stroke: none; }
+.msg-num text { font-size: 12px; font-weight: 700; fill: var(--fg); }
+.msg-num.st-added text, .msg-num.st-modified text, .msg-num.st-removed text { fill: var(--color-white, #fff); }
+.seq-divider line { stroke: var(--border); stroke-width: 1.5; stroke-dasharray: 3 4; }
+.seq-divider rect { fill: var(--surface-2); }
+.seq-divider text { font-size: 14px; font-weight: 700; fill: var(--muted); }
+/* ---- PR detail: review tabs ---- */
+.verdict { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+.diag { display: flex; flex-direction: column; gap: var(--s2); }
+.diag-host { border: 1px solid var(--border); border-radius: 8px; padding: var(--s2); overflow: auto; background: var(--bg); }
+.diag-host svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: var(--t-meta); color: var(--muted); align-items: center; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; border: 2px solid; }
+.legend .l-added { border-color: var(--c-added); background: var(--c-added-bg); }
+.legend .l-modified { border-color: var(--c-modified); background: var(--c-modified-bg); }
+.legend .l-removed { border-color: var(--c-removed); background: var(--c-removed-bg); border-style: dashed; }
+.legend .l-unchanged { border-color: var(--border); background: var(--surface); }
+.nodepanel { border: 1px solid var(--border); border-radius: 8px; padding: var(--s3); display: flex; flex-direction: column; gap: var(--s2); font-size: var(--t-small); }
+.nodepanel h4 { margin: 0; font-size: var(--t-small); display: flex; gap: var(--s2); align-items: center; }
+.flist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.flist li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--s3); align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--hairline); }
+.flist .path { font-family: var(--mono); font-size: var(--t-meta); }
+a.path { overflow-wrap: break-word; }
+.flist .what { grid-column: 1 / -1; font-size: var(--t-small); color: var(--fg); }
+.flist .nums { font-size: var(--t-meta); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sysc { border: 1px solid var(--border); border-radius: 8px; padding: var(--s3); display: flex; flex-direction: column; gap: var(--s1); }
+.sys-head { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
+.sys-head > .ask-end { margin-left: auto; }
+.sys-head b { font-size: var(--t-body); }
+.stc { font-size: var(--t-meta); font-weight: var(--w-strong); border-radius: 999px; padding: 0 8px; line-height: 18px; color: var(--fg); background: var(--surface-2); }
+.stc.st-added { background: var(--c-added-bg); } .stc.st-modified { background: var(--c-modified-bg); } .stc.st-removed { background: var(--c-removed-bg); }
+.rv-bar { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; position: relative; }
+.rv-bar .count { font-size: var(--t-small); color: var(--muted); }
+.finding { border: 1px solid var(--border); border-radius: 8px; padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
+.finding.d-post { border-color: var(--blue); box-shadow: inset 3px 0 0 var(--blue); }
+.finding.d-ignore { opacity: .62; }
+.finding .fh { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
+.finding .fh b { font-size: var(--t-body); }
+.sev { font-size: var(--t-meta); font-weight: var(--w-strong); border-radius: 999px; padding: 0 8px; line-height: 18px; color: var(--fg); display: inline-flex; gap: 4px; align-items: center; }
+.sev::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--sev-info); }
+.sev.s-critical::before { background: var(--sev-critical); } .sev.s-high::before { background: var(--sev-high); } .sev.s-medium::before { background: var(--sev-medium); } .sev.s-low::before { background: var(--sev-low); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 2px 10px; font-size: var(--t-meta); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.finding textarea, .rv-note { width: 100%; resize: vertical; min-height: 34px; font: inherit; font-size: var(--t-small); color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.expl { background: var(--purple-muted); border-radius: 6px; padding: var(--s2) var(--s3); font-size: var(--t-small); }
+.preview { border: 2px solid var(--blue); border-radius: 8px; padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
+.preview .inl { border-left: 3px solid var(--border); padding-left: var(--s3); }
+.empty-rv { display: flex; flex-direction: column; gap: var(--s3); align-items: flex-start; padding: var(--s4); border: 1px dashed var(--border); border-radius: 8px; }
+
 /* ---- Narrow panel: one pane at a time ---- */
 body.narrow aside { width: 100%; max-width: none; min-width: 0; }
 body.narrow .split { display: none; }
@@ -497,7 +629,7 @@ async function post(path, body) {
   return data;
 }
 
-const DONE_TOAST = { review: "Asked the agent for a review", post: "Asked the agent to post the draft", ship: "Asked the agent to ship it", summarize: "Asked the agent for a summary", "arch-review": "Asked the agent to open the architecture review", "open-chat": "Asked the agent to open the chat", reset: "Agent status reset" };
+const DONE_TOAST = { review: "Asked the agent for a review", post: "Asked the agent to post the draft", ship: "Asked the agent to ship it", summarize: "Asked the agent for a summary", explain: "Asked the agent to explain it", "post-findings": "Asked the agent to post the review", "open-chat": "Asked the agent to open the chat", reset: "Agent status reset" };
 async function act(pr, action, extra = {}) {
   try { await post("/api/action", { pr, action, ...extra }); toast(DONE_TOAST[action] || "Done"); }
   catch (e) { toast("Couldn't do that: " + e.message); }
@@ -703,15 +835,20 @@ function renderHead(c) {
   const det = details.get(c.number)?.data;
   const s = statusOf(c);
   const counts = { conversation: det ? det.conversation.length : "", files: det ? det.files.length : c.size?.text?.match(/(\d+) files/)?.[1] || "", thread: (local.thread || []).filter((m) => m.role !== "system").length || "" };
-  const TABS = [["overview", "Overview"], ["conversation", "Conversation"], ["files", "Files"], ["thread", "Thread"], ["timeline", "Timeline"]];
+  const rv = rvOf(c);
+  counts.architecture = rv?.diagrams.length || "";
+  counts.review = rv?.findings.length || "";
+  counts.changes = counts.files;
+  const TABS = [["overview", "Overview"], ["architecture", "Architecture"], ["changes", "Changes"], ["review", "Review"], ["conversation", "Conversation"], ["thread", "Thread"]];
 
   const buttons = [];
   if (isOpen) {
+    if (rvOf(c) && !draft) buttons.push(`<button class="primary" data-act="tab" data-tab="review">Post review…</button>`);
     if (draft) buttons.push(`<button data-act="post-menu" class="${postArmed ? "confirm" : "primary"}" ${busy ? "disabled" : ""} aria-haspopup="menu" aria-expanded="${openMenu === "post"}">${postArmed ? "Click again: " + esc(armed.label) : "Post review"}${postArmed ? "" : icon("chevDown", "sm")}</button>`);
     if (pa?.act === "row-answer") buttons.push(`<button class="primary" data-act="row-answer">Answer the agent</button>`);
     if (c.shippable || shipArmed) buttons.push(`<button data-act="ship" class="${shipArmed ? "confirm" : "primary"}" ${canShip(c) ? "" : "disabled"}>${shipArmed ? "Click again to ship" : "Ship"}</button>`);
     const reviewPrimary = pa?.act === "review";
-    buttons.push(`<button data-act="review" class="${reviewPrimary ? "primary" : ""}" ${busy ? "disabled" : ""} title="Ask an agent to draft a review with the pr-review skill. Nothing is posted.">${local.draft ? "Re-review" : pa?.label === "Re-review" ? "Re-review" : "Review"}</button>`);
+    buttons.push(`<button data-act="review" class="${reviewPrimary ? "primary" : ""}" ${busy ? "disabled" : ""} title="Ask an agent to draft a review with the pr-review skill. Nothing is posted.">${local.draft || rvOf(c) ? "Re-review" : pa?.label === "Re-review" ? "Re-review" : "Review"}</button>`);
   }
   buttons.push(`<button data-act="summarize" ${local.summarizing ? "disabled" : ""} title="Ask the agent for a plain-words summary and next steps">${icon("sparkle", "sm")}${local.summarizing ? "Summarizing…" : "Summarize"}</button>`);
   buttons.push(`<button data-act="more-menu" class="quiet" aria-haspopup="menu" aria-expanded="${openMenu === "more"}" aria-label="More actions">${icon("more")}More</button>`);
@@ -765,10 +902,11 @@ function overviewHtml(c) {
   const stuck = isOpen && r?.stuck;
   return `
     ${stuck ? `<div class="callout" role="note">${icon("alert")}<div class="body"><div>${esc(r.stuck.replace(/^⚠️\s*/, ""))}. ${esc(r.text)}</div>${actionButton(c)}${r.action?.nudge ? `<span class="hint">Pre-fills a draft comment below. Nothing is posted until you send it.</span>` : ""}</div></div>` : ""}
-    <section class="sec"><h3>What this PR does <span class="note">${s ? `${icon("sparkle", "sm")} Agent summary · ${esc(ago(s.at))}${ago(s.at) === "just now" ? "" : " ago"}` : "From the description"}</span></h3>
+    ${reviewHeadHtml(c)}
+    ${rvOf(c) ? "" : `<section class="sec"><h3>What this PR does <span class="note">${s ? `${icon("sparkle", "sm")} Agent summary · ${esc(ago(s.at))}${ago(s.at) === "just now" ? "" : " ago"}` : "From the description"}</span></h3>
       <div class="summary">${s ? mdInline(s.text) : esc(local.summarizing ? "Summarizing…" : (c.fallbackSummary || "No description."))}</div>
       ${s || local.summarizing ? "" : `<div style="margin-top:var(--s3)"><button data-act="summarize">${icon("sparkle", "sm")}Get a plain-words summary and next steps</button></div>`}
-    </section>
+    </section>`}
     ${isOpen ? `<section class="sec"><h3>Next steps</h3><ol class="steps">${steps.map((t) => `<li>${nextHtml(t)}</li>`).join("")}</ol></section>` : ""}
     <section class="sec"><h3>Status</h3><dl class="grid">
       ${r && isOpen ? `<dt>Why</dt><dd><b>${esc(r.label)}</b>${r.since ? `<span class="tone-mute">for ${esc(dur(r.since))} · since ${esc(when(r.since))}</span>` : ""}<span class="sub">${esc(r.text)}</span></dd>` : ""}
@@ -782,6 +920,7 @@ function overviewHtml(c) {
     ${draft ? `<details class="panel" data-k="draft" open><summary>${icon("chevRight", "sm chev")}Draft review <span class="note">recommends ${esc((draft.recommendation || "").replace("_", " "))}${draft.postedAt ? " · posted" : ""}</span></summary>
       <div class="body">${d ? (d.error ? `<div class="hint">${esc(d.error)}</div>` : `<div class="md">${md(d.text)}</div>`) : `<div class="hint">Loading…</div>`}</div></details>` : ""}
     <details class="panel" data-k="desc" open><summary>${icon("chevRight", "sm chev")}Description</summary><div class="body md">${md(cleanBody(c.description)) || `<span class="hint">No description.</span>`}</div></details>
+    <details class="panel" data-k="timeline"><summary>${icon("chevRight", "sm chev")}Timeline</summary><div class="body">${timelineHtml(c)}</div></details>
     <details class="panel" data-k="more"><summary>${icon("chevRight", "sm chev")}Details <span class="note">size, opened, labels</span></summary><div class="body"><dl class="grid">
       <dt>Size</dt><dd>${esc(c.size?.label)} · ${esc(c.size?.text)}</dd>
       <dt>Opened</dt><dd>${esc(when(c.createdAt))} by ${esc(c.author)}</dd>
@@ -831,17 +970,182 @@ function timelineHtml(c) {
   return t.length ? `<ul class="timeline">${t.map((e) => `<li><time>${esc(when(e.at))}</time>${esc(e.text)}${e.source === "github" ? ` <span class="tone-mute">· GitHub</span>` : ""}</li>`).join("")}</ul>` : `<div class="hint">No events yet.</div>`;
 }
 
+// ---- PR detail: structured review (Architecture, Changes, Review) ----
+const diagramMod = import("/diagram.js").catch(() => null);
+let archSel = null;   // { pr, diagram, node }
+let rvPreview = null; // { pr, event, data | error | loading }
+const SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+const VERDICT = { approve: ["checkCircle", "tone-ok", "Recommends approve"], "approve-with-comments": ["checkCircle", "tone-ok", "Approve with comments"], "needs-discussion": ["comment", "tone-run", "Needs discussion"], "request-changes": ["xCircle", "tone-bad", "Recommends changes"] };
+const EVENT_WORD = { approve: "Approve", request_changes: "Request changes", comment: "Comment" };
+const rvOf = (c) => c.local?.review || null;
+const triOf = (c) => c.local?.triage || {};
+const decisionOf = (c, id) => triOf(c)[id]?.decision || "undecided";
+const fileLink = (f) => `<a href="${esc(f.href || "#")}" data-act="browser" data-url="${esc(f.href || "")}" class="path" title="${esc(f.path)}">${esc(f.path).replace(/\//g, "/<wbr>")}${f.line ? `:${f.line}${f.endLine && f.endLine !== f.line ? "-" + f.endLine : ""}` : ""}</a>`;
+const askBtn = (q) => `<button class="quiet" data-act="ask-about" data-q="${esc(q)}">${icon("comment", "sm")}Ask about this</button>`;
+
+function noReviewHtml(c, what) {
+  const running = c.local?.agent?.status === "running" && c.local.agent.kind === "review";
+  return `<div class="empty-rv"><div><b>No ${what} yet.</b> ${running ? "An agent is reviewing this PR now; it fills in as it goes." : "Run Review: an agent follows the repo's pr-review skill and fills in a summary, diagrams, changes by system and file, and findings you can pick to post."}</div>
+    ${running ? "" : `<button class="primary" data-act="review">Review this PR</button>`}</div>`;
+}
+
+function reviewHeadHtml(c) {
+  const r = rvOf(c);
+  if (!r) return "";
+  const [vi, vt, vl] = VERDICT[r.verdict] || ["dash", "tone-mute", "No verdict"];
+  const rk = r.risk ? RISK[r.risk] : null;
+  const n = r.findings.length, posted = r.findings.filter((f) => decisionOf(c, f.id) === "post").length;
+  return `<section class="sec"><h3>Review <span class="note">${icon("sparkle", "sm")} by the agent${c.local.reviewSetAt ? ` · ${esc(ago(c.local.reviewSetAt))} ago` : ""}${c.review?.state === "stale" ? " · new commits since" : ""}</span></h3>
+    <div class="verdict"><span>${icon(vi, "sm " + vt)} <b>${esc(vl)}</b></span>${rk ? `<span>${icon(rk[0], "sm " + rk[1])} ${rk[2]}</span>` : ""}
+      <button class="quiet" data-act="tab" data-tab="review">${n} finding${n === 1 ? "" : "s"}${posted ? ` · ${posted} to post` : ""}</button>
+      <button class="quiet" data-act="tab" data-tab="architecture">${r.diagrams.length} diagram${r.diagrams.length === 1 ? "" : "s"}</button></div>
+    ${r.summary ? `<div class="md" style="margin-top:var(--s2)">${md(r.summary)}</div>` : ""}
+    ${r.functionality.length ? `<ul class="steps" style="list-style:disc;margin-top:var(--s2)">${r.functionality.map((x) => `<li><b>${esc(x.title)}</b>${x.detail ? ` — ${mdInline(x.detail)}` : ""}</li>`).join("")}</ul>` : ""}
+  </section>`;
+}
+
+function architectureHtml(c) {
+  const r = rvOf(c);
+  if (!r || !r.diagrams.length) return noReviewHtml(c, "architecture diagrams");
+  const sel = archSel?.pr === c.number ? archSel : null;
+  return r.diagrams.map((d) => {
+    let panel = "";
+    if (sel && sel.diagram === d.id) {
+      const n = (d.nodes || d.participants || []).find((x) => x.id === sel.node);
+      if (n) {
+        const comp = r.components.find((x) => x.id === n.component);
+        const files = [...(n.files || []), ...(comp?.files || [])];
+        const fs = r.findings.filter((f) => f.diagramRefs.some((x) => x.diagram === d.id && x.node === n.id));
+        panel = `<div class="nodepanel"><h4>${n.status ? `<span class="stc st-${esc(n.status)}">${esc(n.status)}</span>` : ""}${esc(n.label)}<span class="sp" style="flex:1"></span><button class="quiet ico" data-act="node-close" aria-label="Close">${icon("x", "sm")}</button></h4>
+          ${n.description || comp?.role ? `<div>${mdInline(n.description || comp.role)}</div>` : ""}
+          ${files.length ? `<div><div class="hint">Files</div><ul class="flist">${files.map((f) => `<li>${fileLink(f)}</li>`).join("")}</ul></div>` : ""}
+          ${fs.length ? `<div><div class="hint">Findings</div>${fs.map((f) => `<div><span class="sev s-${esc(f.severity)}">${esc(f.severity)}</span> <button class="quiet" data-act="goto-finding" data-id="${esc(f.id)}">${esc(f.title)}</button></div>`).join("")}</div>` : ""}
+          <div>${askBtn(`the "${n.label}" part of the diagram "${d.title}"`)}</div></div>`;
+      }
+    }
+    return `<section class="sec diag"><h3>${esc(d.title)} <span class="note">${esc(d.kind)}</span></h3>
+      ${d.description ? `<div class="md">${md(d.description)}</div>` : ""}
+      <div class="diag-host" data-diagram="${esc(d.id)}" aria-label="Diagram: ${esc(d.title)}"></div>
+      <div class="legend"><span><i class="l-added"></i>New</span><span><i class="l-modified"></i>Changed</span><span><i class="l-removed"></i>Removed</span><span><i class="l-unchanged"></i>Unchanged</span><span>Click a box for its files and findings</span></div>
+      ${panel}</section>`;
+  }).join("");
+}
+
+async function mountDiagrams(c) {
+  const mod = await diagramMod;
+  const r = rvOf(c);
+  if (!mod || !r) return;
+  for (const host of document.querySelectorAll("#wsScroll .diag-host")) {
+    const d = r.diagrams.find((x) => x.id === host.dataset.diagram);
+    if (!d) continue;
+    const badges = new Map();
+    for (const f of r.findings) for (const ref of f.diagramRefs) {
+      if (ref.diagram !== d.id || !ref.node) continue;
+      const b = badges.get(ref.node) || { count: 0, worst: "info" };
+      b.count++;
+      if (SEV_ORDER[f.severity] < SEV_ORDER[b.worst]) b.worst = f.severity;
+      badges.set(ref.node, b);
+    }
+    const sel = archSel?.pr === c.number && archSel.diagram === d.id ? archSel.node : null;
+    const svg = mod.renderDiagram(d, { view: "diff", selected: sel, badges, fitTo: { w: Math.max(320, host.clientWidth - 16), h: 640 }, onSelect: (id) => { archSel = { pr: c.number, diagram: d.id, node: id }; render(true); } });
+    svg.style.maxWidth = svg.dataset.width + "px";
+    host.replaceChildren(svg);
+  }
+}
+
+function changesTabHtml(c) {
+  const r = rvOf(c);
+  const det = details.get(c.number)?.data;
+  const stats = new Map((det?.files || []).map((f) => [f.path, f]));
+  const nums = (path) => { const s = stats.get(path); return s ? `<span class="nums"><span class="tone-ok">+${s.additions}</span> <span class="tone-bad">−${s.deletions}</span></span>` : `<span></span>`; };
+  const fileRows = (list) => list.map((f) => `<li>${fileLink(f)}${nums(f.path)}${f.summary ? `<span class="what">${mdInline(f.summary)}</span>` : ""}</li>`).join("");
+  let systems = "";
+  if (r?.components.length) {
+    systems = `<section class="sec"><h3>By system</h3><div style="display:flex;flex-direction:column;gap:var(--s3)">${r.components.map((k) => {
+      const files = (r.changedFiles.filter((f) => f.component === k.id).length ? r.changedFiles.filter((f) => f.component === k.id) : k.files);
+      const add = files.reduce((s, f) => s + (stats.get(f.path)?.additions || 0), 0), del = files.reduce((s, f) => s + (stats.get(f.path)?.deletions || 0), 0);
+      return `<div class="sysc"><div class="sys-head">${k.status ? `<span class="stc st-${esc(k.status)}">${esc(k.status)}</span>` : ""}<b>${esc(k.name)}</b><span class="hint">${files.length} file${files.length === 1 ? "" : "s"}${det ? ` · <span class="tone-ok">+${add}</span> <span class="tone-bad">−${del}</span>` : ""}</span><span class="ask-end">${askBtn(`the "${k.name}" changes`)}</span></div>
+        ${k.role ? `<div>${mdInline(k.role)}</div>` : ""}
+        ${files.length ? `<details><summary class="hint" style="cursor:pointer">Files</summary><ul class="flist">${fileRows(files)}</ul></details>` : ""}</div>`;
+    }).join("")}</div></section>`;
+  }
+  const byFile = r?.changedFiles.length ? r.changedFiles : (det?.files || []).map((f) => ({ path: f.path, href: `${c.url}/files` }));
+  if (!byFile.length && !systems) return det ? `<div class="hint">No changed files.</div>` : `<div class="hint">Loading files…</div>`;
+  return `${r ? "" : noReviewHtml(c, "plain-words summary of the changes")}${systems}
+    <section class="sec"><h3>By file <span class="note">${byFile.length} file${byFile.length === 1 ? "" : "s"}${r?.changedFiles.length ? "" : " · no summaries yet"}</span></h3><ul class="flist">${fileRows(byFile)}</ul></section>`;
+}
+
+function reviewTabHtml(c) {
+  const r = rvOf(c);
+  if (!r) return noReviewHtml(c, "review findings");
+  const tri = triOf(c);
+  const fs = [...r.findings].sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
+  const cnt = { post: 0, ignore: 0, undecided: 0 };
+  for (const f of fs) cnt[decisionOf(c, f.id)]++;
+  const expl = c.local?.explanations || {}, explaining = c.local?.explaining || {};
+  const pv = rvPreview?.pr === c.number ? rvPreview : null;
+  const isOpen = c.group !== "merged";
+  const preview = pv ? (pv.loading ? `<div class="preview"><div class="hint">Building the preview…</div></div>` : pv.error ? `<div class="preview"><div class="hint">${esc(pv.error)}</div></div>` : `<div class="preview" role="region" aria-label="Preview of the review to post">
+      <div class="fh"><b>Preview: ${EVENT_WORD[pv.event]}</b> <span class="hint">${pv.data.counts.inline} inline comment${pv.data.counts.inline === 1 ? "" : "s"}, ${pv.data.counts.inBody} in the summary, ${pv.data.counts.ignored} ignored, ${pv.data.counts.undecided} undecided (not posted)</span></div>
+      <div><div class="hint">Summary comment</div><div class="md">${md(pv.data.body) || `<span class="hint">(empty)</span>`}</div></div>
+      ${pv.data.comments.map((x) => `<div class="inl"><div class="hint">Inline on <code>${esc(x.path)}:${x.line}</code></div><div class="md">${md(x.body)}</div></div>`).join("")}
+      <div class="rv-bar"><button class="primary" data-act="rv-post" data-event="${pv.event}">Post this as ${EVENT_WORD[pv.event]}</button><button data-act="rv-cancel">Cancel</button><span class="hint">The agent posts exactly this with gh. Nothing else is posted.</span></div></div>`) : "";
+  return `<div class="rv-bar">
+      <span class="count"><b>${cnt.post}</b> to post · ${cnt.ignore} ignored · ${cnt.undecided} undecided</span><span style="flex:1"></span>
+      ${isOpen ? `<button class="${cnt.post ? "primary" : ""}" data-act="rv-menu" aria-haspopup="menu" aria-expanded="${openMenu === "rpost"}">Post review${icon("chevDown", "sm")}</button>` : ""}
+      ${openMenu === "rpost" ? `<div class="menu" role="menu" aria-label="Post review as" style="right:0;top:32px">
+        <button role="menuitem" data-act="rv-preview" data-event="comment">${icon("comment")}Comment</button>
+        <button role="menuitem" data-act="rv-preview" data-event="request_changes">${icon("xCircle", "tone-bad")}Request changes</button>
+        <button role="menuitem" data-act="rv-preview" data-event="approve">${icon("checkCircle", "tone-ok")}Approve</button></div>` : ""}
+    </div>
+    ${preview}
+    <section class="sec"><h3>Your note <span class="note">goes at the top of the posted review</span></h3><textarea class="rv-note" data-finding="_note" placeholder="Optional overall comment">${esc(tri._note?.note || "")}</textarea></section>
+    ${fs.map((f) => {
+      const d = decisionOf(c, f.id);
+      const ex = expl[f.id];
+      return `<article class="finding d-${d}" id="finding-${esc(f.id)}">
+        <div class="fh"><span class="sev s-${esc(f.severity)}">${esc(f.severity)}</span><span class="hint">${esc(f.category)}${f.confidence ? ` · ${esc(f.confidence)} confidence` : ""}</span><b>${esc(f.title)}</b></div>
+        ${f.files.length ? `<div class="flist" style="flex-direction:row;flex-wrap:wrap;gap:var(--s2)">${f.files.map(fileLink).join("")}</div>` : ""}
+        ${f.description ? `<div class="md">${md(f.description)}</div>` : ""}
+        ${f.recommendation ? `<div class="md"><b>Suggestion:</b> ${mdInline(f.recommendation)}</div>` : ""}
+        ${ex ? `<div class="expl">${icon("sparkle", "sm tone-agent")} <b>Explanation</b><div class="md">${md(ex.text)}</div></div>` : explaining[f.id] ? `<div class="expl hint">Explaining…</div>` : ""}
+        <div class="rv-bar"><div class="seg" role="group" aria-label="Decision for ${esc(f.title)}">
+          ${["post", "ignore", "undecided"].map((k) => `<button data-act="triage" data-id="${esc(f.id)}" data-decision="${k}" aria-pressed="${d === k}">${{ post: "Post", ignore: "Ignore", undecided: "Undecided" }[k]}</button>`).join("")}</div>
+          <button class="quiet" data-act="explain" data-id="${esc(f.id)}" ${explaining[f.id] ? "disabled" : ""}>${icon("sparkle", "sm")}Explain</button>
+          ${askBtn(`the finding "${f.title}"`)}</div>
+        <textarea data-finding="${esc(f.id)}" placeholder="Note to add when posting (optional)">${esc(tri[f.id]?.note || "")}</textarea>
+      </article>`;
+    }).join("")}`;
+}
+
+async function saveTriage(pr, findingId, patch) {
+  try { await post("/api/triage", { pr, findingId, ...patch }); }
+  catch (e) { toast("Couldn't save: " + e.message); }
+}
+
+async function loadPreview(c, event) {
+  rvPreview = { pr: c.number, event, loading: true };
+  render(true);
+  try {
+    const data = await post("/api/review-preview", { pr: c.number, event });
+    rvPreview = { pr: c.number, event, data };
+  } catch (e) { rvPreview = { pr: c.number, event, error: e.message }; }
+  render(true);
+}
+
 function renderScroll(c, force) {
   const local = c.local || {};
   const det = details.get(c.number);
-  const key = JSON.stringify([c.number, tab, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, det?.data?.fetchedAt, det?.error, drafts.has(draftKey(c)), (c.local?.thread || []).length]);
+  const key = JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, det?.data?.fetchedAt, det?.error, drafts.has(draftKey(c)), (c.local?.thread || []).length]);
   if (!force && key === lastKey) return;
   lastKey = key;
   const sc = $("wsScroll");
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40;
   const prevTop = sc.scrollTop;
   const openState = Object.fromEntries([...sc.querySelectorAll("details[data-k]")].map((d) => [d.dataset.k, d.open]));
-  sc.innerHTML = { overview: overviewHtml, conversation: conversationHtml, files: filesHtml, thread: threadHtml, timeline: timelineHtml }[tab](c);
+  if (!["overview", "architecture", "changes", "review", "conversation", "thread"].includes(tab)) tab = tab === "files" ? "changes" : "overview";
+  sc.innerHTML = { overview: overviewHtml, architecture: architectureHtml, changes: changesTabHtml, review: reviewTabHtml, conversation: conversationHtml, thread: threadHtml }[tab](c);
+  if (tab === "architecture") mountDiagrams(c);
   for (const d of sc.querySelectorAll("details[data-k]")) if (d.dataset.k in openState) d.open = openState[d.dataset.k];
   if (tab === "thread" && (force || atBottom)) sc.scrollTop = sc.scrollHeight;
   else sc.scrollTop = force ? 0 : prevTop;
@@ -1256,6 +1560,15 @@ document.addEventListener("click", (e) => {
   const pr = rowPr ?? selected;
   const c = cardsOf().find((x) => x.number === pr);
   if (!c) return;
+  if (a === "ask-about") { if (c.number !== selected) select(c.number); input.value = `About ${el.dataset.q}: `; input.dispatchEvent(new Event("input")); input.focus(); input.setSelectionRange(input.value.length, input.value.length); return; }
+  if (a === "node-close") { archSel = null; return render(true); }
+  if (a === "goto-finding") { tab = "review"; store.set("prb-tab", tab); render(true); return document.getElementById("finding-" + el.dataset.id)?.scrollIntoView({ block: "center" }); }
+  if (a === "triage") { const d = el.dataset.decision; c.local.triage = { ...(c.local.triage || {}), [el.dataset.id]: { ...(c.local.triage?.[el.dataset.id] || {}), decision: d } }; render(true); return saveTriage(c.number, el.dataset.id, { decision: d }); }
+  if (a === "explain") return act(c.number, "explain", { findingId: el.dataset.id });
+  if (a === "rv-menu") { openMenu = openMenu === "rpost" ? null : "rpost"; render(true); return document.querySelector('#wsScroll .menu button')?.focus(); }
+  if (a === "rv-preview") { openMenu = null; return loadPreview(c, el.dataset.event); }
+  if (a === "rv-cancel") { rvPreview = null; return render(true); }
+  if (a === "rv-post") { const ev = el.dataset.event; rvPreview = null; render(true); return act(c.number, "post-findings", { event: ev }); }
   if (a === "reload-detail") { loadDetail(c, { force: true }); return render(true); }
   if (a === "more-menu") return openMenuAndFocus("more");
   if (a === "pin") { openMenu = null; pins.has(pr) ? pins.delete(pr) : pins.add(pr); store.set(PIN_KEY, JSON.stringify([...pins])); toast(pins.has(pr) ? "Pinned to the top of the list" : "Unpinned"); return render(); }
@@ -1344,6 +1657,8 @@ $("split").addEventListener("pointerdown", (e) => {
 });
 
 document.addEventListener("change", (e) => {
+  const fid = e.target.dataset?.finding;
+  if (fid && current()) { const cur = current(); cur.local.triage = { ...(cur.local.triage || {}), [fid]: { ...(cur.local.triage?.[fid] || {}), note: e.target.value } }; saveTriage(cur.number, fid, { note: e.target.value }); return; }
   if (e.target.id === "sortSel" || e.target.id === "ovSort") { sortBy = e.target.value; store.set("prb-sort", sortBy); render(); }
 });
 
