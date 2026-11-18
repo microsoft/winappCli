@@ -6,20 +6,8 @@ static void PopulateExpansionWitnesses(void* fe, const DevToolsCardRow& r, const
 
 // Expansion UI owns retained refs and event sinks for the realized row lifetime; stale generation guards callbacks.
 
-// Property rows the repeater has recycled, by pool. EXPERIMENT (#1283): WINAPP_DEVTOOLS_ROW_POOL=kind keeps one pool
-// per editor kind, and a reused row keeps the expansion it built; otherwise one pool holds every property row and a
-// recycled row drops its expansion.
-static int g_rowPoolMode = 0;
-static bool RowPoolPerKind()
-{
-    if (!g_rowPoolMode) {
-        wchar_t value[16]{};
-        const DWORD n = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_ROW_POOL", value, _countof(value));
-        g_rowPoolMode = (n && n < _countof(value) && _wcsicmp(value, L"kind") == 0) ? 2 : 1;
-        DevToolsOverlayLog(L"route1.props row pool mode=%d", g_rowPoolMode);
-    }
-    return g_rowPoolMode == 2;
-}
+// Property rows the repeater has recycled, pooled by the editor their expansion shows, so a reused row keeps the
+// expansion it built and only fills it in for the new property.
 static const int kHeaderPoolKey = -1;
 // A row the factory handed out: its pool, the property it shows, and whether its expansion was built for it.
 struct PooledRow { int key = 0; std::wstring path; bool expansionCurrent = false; };
@@ -36,7 +24,6 @@ static void* PaneIdentity(IUnknown* object)
 
 static int RowPoolKey(const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
-    if (!RowPoolPerKind()) return 0;
     if (!RowHasExpansion(r, path, edit)) return 1;
     if (ExpansionTemplateForRow(r, edit) != g_tmplExpEdit) return 2;
     const DevToolsKind kind = StagedOrCurrentKind(r, path);
@@ -108,20 +95,8 @@ static void RecycleRow(void* rowFe, IInspectable* element)
         ForgetPaneEditors(std::wstring(), expansion, /*anyPath*/ true);
         ReleaseFieldBoxesWhere(std::wstring(), expansion);
         reinterpret_cast<IUnknown*>(expansion)->Release();
-        if (!RowPoolPerKind()) {
-            if (IInspectable* host = FindInRow(rowFe, L"PExpand")) {
-                void* panel = nullptr;
-                IInspectable* kids = nullptr;
-                if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &panel)) && panel &&
-                    SUCCEEDED(DevToolsPanelGetChildren(panel, &kids)) && kids) {
-                    DevToolsVecClear(kids);
-                    kids->Release();
-                }
-                if (panel) reinterpret_cast<IUnknown*>(panel)->Release();
-                host->Release();
-            }
-        }
     }
+
     row->expansionCurrent = false;
     // Close it now, while it is out of view, so reusing it doesn't animate a collapse on screen.
     ApplyRowExpansionState(rowFe, row->path, false);

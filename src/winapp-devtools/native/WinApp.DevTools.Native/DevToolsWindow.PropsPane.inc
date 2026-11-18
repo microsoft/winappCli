@@ -384,12 +384,6 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     DevToolsOverlayLog(L"route1.props shown type=%s name=%s rows=%zu items=%zu ms=%.1f",
                   type.c_str(), name.c_str(), rows.size(), g_paneItems.size(),
                   (double)(tShown.QuadPart - tStart.QuadPart) * ms);
-    // MEASUREMENT (temporary, #1283): time until the rows the selection realized have been laid out.
-    DevToolsPostLowPriority([start = tStart.QuadPart, ms] {
-        LARGE_INTEGER now{};
-        QueryPerformanceCounter(&now);
-        DevToolsOverlayLog(L"route1.props settled ms=%.1f", (double)(now.QuadPart - start) * ms);
-    });
     if (!flushed.empty()) {
         SetStatusText(flushed);
         if (g_statusTb) {

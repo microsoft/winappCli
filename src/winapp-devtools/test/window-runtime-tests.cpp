@@ -78,6 +78,12 @@ static bool TestPostLowPriority(const DevToolsD::DispatcherQueueHandler& work)
     return true;
 }
 #define DevToolsPostLowPriority TestPostLowPriority
+static HRESULT TestVecSize(void*, unsigned int*);
+static HRESULT TestVecAt(void*, unsigned int, IInspectable**);
+static HRESULT TestGetIsExpanded(void*, bool*);
+#define DevToolsVecGetSize TestVecSize
+#define DevToolsVecGetAt TestVecAt
+#define DevToolsGetIsExpanded TestGetIsExpanded
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsSetAutomationName PutTestAutomationName
@@ -280,6 +286,21 @@ static HRESULT TestBorderBackground(void* border, void* brush)
     return S_OK;
 }
 static bool exposeHeader = false, exposeTitleBar = false;
+// A row's expansion host for the row pool tests.
+static TestElement* rowExpandHost = nullptr;
+static HRESULT TestVecSize(void* vector, unsigned int* size)
+{
+    *size = static_cast<unsigned int>(static_cast<TestElement*>(vector)->children.size());
+    return S_OK;
+}
+static HRESULT TestVecAt(void* vector, unsigned int index, IInspectable** item)
+{
+    const auto& children = static_cast<TestElement*>(vector)->children;
+    *item = index < children.size() ? children[index] : nullptr;
+    if (*item) (*item)->AddRef();
+    return *item ? S_OK : E_BOUNDS;
+}
+static HRESULT TestGetIsExpanded(void*, bool* expanded) { *expanded = false; return S_OK; }
 static TestElement testAppWindow, testCaption;
 static HRESULT appWindowResult = S_OK, captionResult = S_OK, addThemeResult = S_OK, putThemeResult = S_OK;
 static unsigned themeAdds = 0;
@@ -323,6 +344,7 @@ static HRESULT FindTestName(void*, HSTRING name, IInspectable** found)
         if (*found && *found != &testValue && *found != &testHeader) (*found)->AddRef();
     }
     if(exposeTitleBar && std::wstring(chars,length)==L"InspectorTitleBar") { *found=&testTitleBar; testTitleBar.AddRef(); }
+    if(rowExpandHost && std::wstring(chars,length)==L"PExpand") { *found=rowExpandHost; rowExpandHost->AddRef(); }
     return S_OK;
 }
 static HRESULT PutTestText(void* element, HSTRING value)
@@ -2101,6 +2123,56 @@ int main()
         ReleasePaneSinks(); drain();
         check(g_paneSinksToRelease.empty() && kept->Release() == 0, "kept sinks are released with the next pane");
         dispatcherAvailable = false;
-    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    }
+    {
+        // Rows the repeater recycles are pooled by the editor they show and reused, expansion included, so a
+        // selection adds no elements to the window (#1283). Nothing of the old property may survive the reuse.
+        TestElement rowFe, otherRow, host, expansion, otherExpansion, editorUi, otherEditorUi, box, otherBox;
+        host.children.push_back(&expansion); expansion.AddRef();
+        g_pooledRows[PaneIdentity(&rowFe)] = { 24, L"Width", true };
+        unsigned revokedWidth = 0, revokedOther = 0;
+        TrackPaneEvent(L"Width", [&] { ++revokedWidth; });
+        TrackPaneEvent(L"Width.Left", [&] { ++revokedWidth; });
+        TrackPaneEvent(L"Height", [&] { ++revokedOther; });
+        RegisterPaneEditor(L"Width", &editorUi, nullptr, nullptr, [] {}, &expansion);
+        RegisterPaneEditor(L"Height", &otherEditorUi, nullptr, nullptr, [] {}, &otherExpansion);
+        box.AddRef(); otherBox.AddRef();
+        g_fieldBoxes.push_back({ L"Width", 0, &box, &expansion });
+        g_fieldBoxes.push_back({ L"Height", 0, &otherBox, &otherExpansion });
+
+        rowExpandHost = &host;
+        check(g_propRowFactory.RecycleElement(&rowFe) == S_OK && revokedWidth == 2 && revokedOther == 0 &&
+              g_paneEventRevokers.size() == 1,
+            "recycling a row removes the handlers of its property and child properties, and no other row's");
+        check(g_paneEditors.size() == 1 && g_paneEditors[0].owner == &otherExpansion && editorUi.refs == 1 &&
+              g_fieldBoxes.size() == 1 && g_fieldBoxes[0].owner == &otherExpansion && box.refs == 1 && otherBox.refs == 2,
+            "a recycled row's expansion keeps no editor or field box of the property it showed");
+        check(g_rowPools[24].size() == 1 && rowFe.refs == 2 && host.children.size() == 1 &&
+              !FindPooledRow(&rowFe)->expansionCurrent,
+            "the recycled row is pooled with its expansion, which must be filled in again before it is shown");
+        check(g_propRowFactory.RecycleElement(&otherRow) == S_OK && otherRow.refs == 1 && g_rowPools[24].size() == 1,
+            "an element the factory did not hand out is not pooled");
+        check(!TakePooledRow(20) && g_rowPools[24].size() == 1, "a pooled row is not handed out for another editor kind");
+        IInspectable* reused = TakePooledRow(24);
+        check(reused == &rowFe && !TakePooledRow(24), "a pooled row is handed out again for the same editor kind");
+        if (reused) reused->Release();
+
+        FindPooledRow(&rowFe)->path = L"Height";
+        DevToolsCardRow height; height.name = L"Height"; height.type = L"Double"; height.editKind = L"number";
+        check(EnsureExpansion(&rowFe, height, L"Height", 0) && host.children.size() == 1 && host.children[0] == &expansion &&
+              FindPooledRow(&rowFe)->expansionCurrent && revokedOther == 1 && g_paneEventRevokers.empty(),
+            "a reused row fills in the expansion it kept for the new property instead of loading another");
+        rowExpandHost = nullptr;
+
+        RevokePaneEvents();
+        ReleasePaneEditors(false);
+        ReleaseFieldBoxes(L"");
+        ReleaseRowPools();
+        TestClearChildren(&host);
+        check(g_rowPools.empty() && g_pooledRows.empty() && expansion.refs == 1 && otherBox.refs == 1 &&
+              otherEditorUi.refs == 1,
+            "closing the window releases the pooled rows and everything they held");
+    }
+    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }
