@@ -85,8 +85,7 @@ Do not overwrite the generated WinUI `App.xaml` or `App.xaml.cs`. Merge the old 
 
 Merge application resource dictionaries after the template's platform resources; see [XAML Migration](xaml-migration.md).
 
-Obtain application services through dependency injection (DI) in views and view models: inject them or resolve them from the application's configured service provider instead of constructing them with `new`.
-Service registration and explicit construction belong in the composition root (the startup code that assembles the application), preserving service lifetimes and cleanup.
+Keep the way the application creates and disposes its services. If it already uses a dependency injection (DI) container, register migrated services there with their existing lifetimes. Do not introduce a container as part of the port.
 
 ## MVVM Migration
 
@@ -103,7 +102,7 @@ Preserve behavior as well as public property and command names.
 | Custom setter logic | Preserve normalization, validation, side effects, and notification order; do not replace it with a plain generated property. |
 | Custom command | Use `[RelayCommand]` only after preserving arguments, cancellation, exception handling, and the generated command's name. |
 
-Use partial properties for generated observable state:
+Use partial properties for generated observable state. In this example, only `document_name` belongs in the saved settings:
 
 ```csharp
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -122,6 +121,7 @@ public partial class EditorViewModel : ObservableObject
     public string DisplayName => Name.Trim();
 
     [RelayCommand(CanExecute = nameof(CanSave))]
+    [property: JsonIgnore]
     private void Save() { /* Persist changes. */ }
 
     private bool CanSave() => !string.IsNullOrWhiteSpace(Name);

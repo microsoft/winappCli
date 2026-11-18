@@ -15,14 +15,13 @@ Typical namespace change:
     xmlns:local="clr-namespace:MyApp"
     xmlns:models="clr-namespace:MyApp.Models;assembly=MyApp.Core">
 
-<!-- WinUI 3: WindowEx for a top-level window -->
-<winuiex:WindowEx
+<!-- WinUI 3 -->
+<Window
     x:Class="MyApp.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:MyApp"
-    xmlns:models="using:MyApp.Models"
-    xmlns:winuiex="using:WinUIEx">
+    xmlns:models="using:MyApp.Models">
 ```
 
 Use `using:` for application CLR namespaces. Remove WPF-only library namespaces only after replacing their elements, markup extensions, and styles.
@@ -204,7 +203,7 @@ Use the first matching option instead of porting WPF converters one-for-one.
 | Numeric value or collection count → `Visibility` | `DoubleToVisibilityConverter` with `GreaterThan` / `LessThan`; for nonempty collections use `GreaterThan="0"`. |
 | Formatted text with classic `Binding` | Use Toolkit's [`StringFormatConverter`](https://learn.microsoft.com/dotnet/api/communitytoolkit.winui.converters.stringformatconverter). |
 | Inverse of a Toolkit Boolean or numeric conversion | Reuse the converter with `ConverterParameter=True`. The `BoolToObjectConverter` and `DoubleToObjectConverter` families support this; it is not a convention for every converter. |
-| Framework `CornerRadius` → `Rectangle.RadiusX` / `RadiusY` | Check the target SDK's `XamlControlsResources` for `TopLeftCornerRadiusDoubleValueConverter` and `BottomRightCornerRadiusDoubleValueConverter`; preserve available resources instead of reimplementing them. |
+| Framework `CornerRadius` → `Rectangle.RadiusX` / `RadiusY` | Look up `TopLeftCornerRadiusDoubleValueConverter` and `BottomRightCornerRadiusDoubleValueConverter` as [resource keys](#styles-and-templates) in the target SDK; reuse them when available. |
 | App-specific conversion without an existing equivalent | Implement WinUI `IValueConverter`; both `Convert` and `ConvertBack` take `string language` instead of `CultureInfo culture`. |
 
 For Toolkit converters, reference `CommunityToolkit.WinUI.Converters` using the project's package/version conventions and declare `xmlns:converters="using:CommunityToolkit.WinUI.Converters"` on the view. Visibility converters default to `Visible` / `Collapsed`. One resource can show either the populated or empty state:
@@ -238,52 +237,48 @@ Current WinUI styles do not support the WPF pattern of putting a `Binding` direc
 
 ## Triggers to Visual States
 
-Use visual states when the behavior belongs to the visual surface:
+Put `VisualStateManager.VisualStateGroups` on the **direct content root** of the `Page` or `UserControl`, or on the root element of a `ControlTemplate`. In this page, turning on the switch changes the label to **Active**; turning it off restores **Inactive**. Use the `StackPanel` as the page's content, not inside another layout panel.
 
 ```xml
-<Border x:Name="StatusBorder">
+<StackPanel Spacing="8">
     <VisualStateManager.VisualStateGroups>
         <VisualStateGroup x:Name="ActivityStates">
-            <VisualState x:Name="Inactive" />
             <VisualState x:Name="Active">
                 <VisualState.StateTriggers>
-                    <StateTrigger IsActive="{x:Bind ViewModel.IsActive, Mode=OneWay}" />
+                    <StateTrigger IsActive="{x:Bind ActivitySwitch.IsOn, Mode=OneWay}" />
                 </VisualState.StateTriggers>
                 <VisualState.Setters>
-                    <Setter Target="StatusBorder.Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                    <Setter Target="StatusText.Text" Value="Active" />
                 </VisualState.Setters>
             </VisualState>
         </VisualStateGroup>
     </VisualStateManager.VisualStateGroups>
-</Border>
+    <ToggleSwitch x:Name="ActivitySwitch" Header="Activity" />
+    <TextBlock x:Name="StatusText" Text="Inactive" />
+</StackPanel>
 ```
 
 For a standard control's pointer-over, pressed, disabled, selected, or focused behavior, use its existing visual states.
 
 ## Styles and Templates
 
-- When extending a platform control style, use `BasedOn` with its default style key; verify the actual key in the target SDK.
-- Recheck visual-state names; WPF `MouseOver` commonly becomes WinUI `PointerOver`.
+Check the `Themes/generic.xaml` shipped with the WinUI package and version resolved in the app's `obj/project.assets.json`. Search for the exact `x:Key`, for example `x:Key="DefaultButtonStyle"` before using it in `BasedOn`. Resource keys are not API type names: `TopLeftCornerRadiusDoubleValueConverter` names an instance of `CornerRadiusFilterConverter`. For a control state, look up its `x:Name` in that control's template; WPF `MouseOver` commonly becomes WinUI `PointerOver`.
 
 ## Window Content
 
-For top-level windows, prefer `WinUIEx.WindowEx` or an existing base derived from it, with a `Page` or `UserControl` as the content. Declare supported window settings in XAML; use raw `AppWindow`/presenter code only for behavior the window base does not expose. WinUI `Window`, including `WindowEx`, is not a `FrameworkElement`.
+Use a `Microsoft.UI.Xaml.Window` with a `Page` or `UserControl` as its content:
 
 ```xml
-<winuiex:WindowEx
+<Window
     x:Class="MyApp.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:views="using:MyApp.Views"
-    xmlns:winuiex="using:WinUIEx"
-    MinWidth="480"
-    MinHeight="320"
-    IsResizable="True">
+    xmlns:views="using:MyApp.Views">
     <views:MainPage />
-</winuiex:WindowEx>
+</Window>
 ```
 
-Match the code-behind base class to `WindowEx`. Place `DataContext`, local resources, and visual states on the hosted view or its root element; see [Threading and Windowing](threading-and-windowing.md).
+Match the code-behind base class to `Window`. Set `DataContext` and local resources on the hosted view, not the window. For size, resizing, or topmost behavior, see the [window mappings](threading-and-windowing.md#winui-window-model).
 
 ## WPF Property and Event Differences
 
@@ -312,7 +307,7 @@ Map each library control's behavior before removing its namespace and package. C
 
 | WPF-UI item | WinUI migration |
 |---|---|
-| `ui:FluentWindow` / `ui:TitleBar` | `WinUIEx.WindowEx` with the target SDK's title-bar APIs; prefer its XAML properties and preserve custom drag regions and caption behavior. See [Threading and Windowing](threading-and-windowing.md). |
+| `ui:FluentWindow` / `ui:TitleBar` | Use `Window` and the target SDK's [title-bar APIs](threading-and-windowing.md#title-bars-and-presenters); preserve custom drag regions and caption behavior. |
 | `ui:ThemesDictionary` / `ui:ControlsDictionary` | Replace the WPF dictionaries with `XamlControlsResources` and application theme resources, as shown above. |
 | `ui:NumberBox` | Native `NumberBox`; set `Mode=TwoWay` when user edits must update the source. |
 | `ui:InfoBar` / `ui:SymbolIcon` / `ui:Button` | Native controls with the same names; recheck enum values and custom styles. |

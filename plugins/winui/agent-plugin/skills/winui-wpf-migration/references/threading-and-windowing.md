@@ -123,80 +123,33 @@ Choose the surface according to its role in the application:
 
 Use a separate window when the interface needs that independent top-level behavior. Keep dialogs and child pages within their owning window.
 
-## Prefer WindowEx for Top-Level Windows
-
-For top-level windows, default to `WinUIEx.WindowEx` or the project's existing `WindowEx`-derived base. Declare the window properties exposed by that base in XAML. Use `AppWindow`/presenter APIs for behavior the base does not expose, imperative window commands, or HWND interop.
-
-Reference WinUIEx according to the project's package and version policy. Change both the XAML root and its code-behind base class:
-
-```xml
-<winuiex:WindowEx
-    x:Class="MyApp.MainWindow"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:views="using:MyApp.Views"
-    xmlns:winuiex="using:WinUIEx"
-    Title="My App"
-    MinWidth="480"
-    MinHeight="320"
-    IsResizable="True"
-    IsMinimizable="True"
-    IsMaximizable="True"
-    IsAlwaysOnTop="False"
-    IsTitleBarVisible="True">
-    <views:MainPage />
-</winuiex:WindowEx>
-```
-
-```csharp
-using WinUIEx;
-
-namespace MyApp;
-
-public sealed partial class MainWindow : WindowEx
-{
-    public MainWindow()
-    {
-        InitializeComponent();
-        this.CenterOnScreen(width: 800, height: 600);
-    }
-}
-```
-
-Keep `DataContext`, local resources, and visual states on the hosted view. `WindowEx` remains a `Window`, not a `FrameworkElement`.
-
-| WPF requirement | WinUIEx option |
-|---|---|
-| Window size and minimum/maximum bounds | `Width`/`Height`, `MinWidth`/`MinHeight`, `MaxWidth`/`MaxHeight`, in device-independent pixels (DIPs). |
-| `ResizeMode` and caption-button restrictions | Set `IsResizable`, `IsMinimizable`, and `IsMaximizable` separately to preserve the intended behavior. |
-| `Topmost` | `IsAlwaysOnTop`. |
-| `WindowState` | `WindowState` (`Normal`, `Minimized`, `Maximized`). |
-| Taskbar and Alt-Tab visibility | `IsShownInSwitchers`; verify both behaviors when replacing `ShowInTaskbar`. |
-| Standard title-bar visibility | `IsTitleBarVisible`; custom chrome still needs its drag regions and caption behavior. |
-| Center on the current monitor | `CenterOnScreen()`; optional width/height arguments use DIPs, unlike the physical pixels accepted by `AppWindow`. |
-| Restore window placement across sessions | A stable `PersistenceId`, set before first activation, with persistence storage appropriate to the deployment model. |
-
-For example, set `PersistenceId = "MainWindow";` before the first `Activate()` only when restoring placement is part of the application's behavior. Center the initial window before activation as above; do not center it again after saved placement is restored. The built-in restoration depends on the monitor layout remaining unchanged.
-
-Packaged applications can use WinUIEx's default `ApplicationData` storage. For an unpackaged application, initialize `WindowManager.PersistenceStorage` from application-owned persisted data before any participating window opens, and save the updated dictionary across sessions.
-
 ## WinUI Window Model
 
-`WindowEx` inherits WinUI `Window`, which is not a `DependencyObject` or `FrameworkElement`.
+Start with `Microsoft.UI.Xaml.Window` for a top-level window. It hosts the view but is not a `FrameworkElement`.
 
 | WPF `Window` feature | WinUI migration |
 |---|---|
-| `Resources`, `DataContext`, visual states | Put them on a hosted `Page`, `UserControl`, or root `FrameworkElement`. |
+| `Resources`, `DataContext` | Put them on the hosted view or its root element. For visual state groups, use the [content or template root](xaml-migration.md#triggers-to-visual-states). |
 | `Application.Current.MainWindow` / `Window.Current` | Track window references explicitly. |
-| `Width`, `Height`, `WindowState`, `ResizeMode` | Prefer the exposed `WindowEx` XAML properties above; preserve resize/minimize/maximize settings separately. |
+| `Width`, `Height` | Use `AppWindow.Resize` for the whole window or `ResizeClient` for its content area; convert the original WPF size to physical pixels at the target monitor's scale. |
+| `MinWidth`, `MinHeight`, `MaxWidth`, `MaxHeight` | On Windows App SDK 1.7 or later, set the matching [OverlappedPresenter](https://learn.microsoft.com/windows/apps/develop/ui-input/manage-app-windows#modify-an-overlappedpresenter) property: `PreferredMinimumWidth`, `PreferredMinimumHeight`, `PreferredMaximumWidth`, or `PreferredMaximumHeight`. Convert each WPF limit from device-independent pixels to physical pixels for the whole window, including its frame. Update the limits when the window's DPI changes. |
+| `WindowState`, `ResizeMode`, `Topmost` | Use `OverlappedPresenter` for minimize/maximize/restore, `IsResizable`, `IsMinimizable`, `IsMaximizable`, and `IsAlwaysOnTop`. |
 | `Left`, `Top` | Position the `AppWindow` with `Move`. |
 | `SizeToContent` | Measure content and size the `AppWindow`. |
-| `WindowStartupLocation` | Use `CenterOnScreen()` for centering; use `AppWindow` and `DisplayArea` for other placement, respecting monitor work areas and DPI. |
+| `WindowStartupLocation="Manual"` (default) | Keep each specified `Left` or `Top` coordinate. Let Windows choose any unset coordinate; do not center the window. |
+| `WindowStartupLocation="CenterScreen"` | Center in the work area of the owner's monitor if the app has set an owner window with a handle. Otherwise, use the monitor containing the pointer. |
+| `WindowStartupLocation="CenterOwner"` | For a minimized or maximized WPF owner, use `CenterScreen`. Otherwise, center over the owner and keep the window within its work area when possible. If no owner bounds are available, keep `Manual` placement. |
 | `Closing` / cancellation | Use the supported WinUI/`AppWindow` closing event and preserve hide-to-tray or cancellation behavior. |
 | `Loaded` / `Unloaded` | Attach these handlers to the hosted `FrameworkElement`, not the WinUI `Window`. |
-| `Title` | Set the inherited `Title` in `WindowEx` XAML, or use `Window.Title` / `AppWindow.Title`. |
+| `Title` | Use `Window.Title` or `AppWindow.Title`. |
 | `Icon` | Use `AppWindow.SetIcon(path)` with the deployed icon file. |
-| `ShowInTaskbar` | Set `WindowEx.IsShownInSwitchers` in XAML; it also affects Alt-Tab, so verify both behaviors. |
+| `ShowInTaskbar` | `AppWindow.IsShownInSwitchers` also affects Alt-Tab, so verify both behaviors. |
+
+### Projects already using WinUIEx
+
+Keep the project's `WindowEx` base in both XAML and code-behind. Its `MinWidth`/`MinHeight` are in device-independent pixels, and its presenter properties such as `IsResizable` can be set on the window itself. For a window that was already centered on startup, `this.CenterOnScreen(width: 800, height: 600)` also takes device-independent pixels.
+
+If the app already restores window placement, set its stable `PersistenceId` before first activation and do not center it again after restoration. WinUIEx uses `ApplicationData` by default for packaged apps; unpackaged apps must load and save their own `WindowManager.PersistenceStorage`. Restoration depends on the monitor layout remaining unchanged.
 
 ## Track Windows Explicitly
 
@@ -284,9 +237,7 @@ appWindow.Move(new Windows.Graphics.PointInt32(x, y));
 
 ## Title Bars and Presenters
 
-Set the window caption through `Window.Title` or `AppWindow.Title`; `WindowEx` also exposes the inherited `Title` in XAML.
-
-On Windows App SDK 1.3 and later, use `Window.SystemBackdrop` when the intended design calls for a system material. For example, this child of the `WindowEx` XAML root applies Mica:
+On Windows App SDK 1.3 and later, use `Window.SystemBackdrop` when the intended design calls for a system material. For example, this child of the `Window` XAML root applies Mica:
 
 ```xml
 <Window.SystemBackdrop>
@@ -363,7 +314,7 @@ picker.FileTypeFilter.Add(".txt");
 var result = await picker.PickSingleFileAsync();
 ```
 
-Use the returned result type defined by that API; do not assume it is the same as the legacy `StorageFile` result without checking the target SDK.
+This picker returns a `PickFileResult`, not the legacy `StorageFile`. To check the method on the restored project, use the fully qualified picker name in the [migration rules' `find-api` example](../SKILL.md#migration-rules).
 
 ### Older Windows App SDK targets / legacy WinRT pickers
 

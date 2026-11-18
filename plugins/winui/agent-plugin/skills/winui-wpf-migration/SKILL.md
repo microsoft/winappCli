@@ -5,7 +5,7 @@ description: "Migrate WPF desktop apps to WinUI 3: project files, XAML, MVVM, re
 
 # WPF to WinUI 3 Migration
 
-Port WPF code to WinUI 3 while preserving the application's behavior, deployment, stored data, and external contracts. Work through project setup, code and resource conversion, installer changes, and validation in dependency order.
+Port WPF code to WinUI 3 while preserving the application's behavior, deployment, stored data, and external contracts.
 
 ## When to Use
 
@@ -29,7 +29,7 @@ Port bounded groups of files in dependency order:
 7. **Views and pages** — start with leaf views. Port markup, styles, converters, templates, keyboard behavior, and accessibility.
 8. **Main view and shell** — integrate the converted views, navigation, windows, and owner-dependent dialogs/pickers.
 9. **Application startup** — merge initialization, resources, activation, and cleanup into the WinUI lifecycle.
-10. **Installer and build pipeline** — update resource/component inventories, output paths, signing inputs, and build/publish dependencies for the resulting artifacts.
+10. **Existing installer, packaging, or signing steps** — [update only the affected steps](references/project-and-application-migration.md#installer-and-build-pipeline) if the port changes the files they consume or when those files are ready.
 11. **Tests** — adapt async calls, resource access, pixel/metadata assertions, settings fixtures, and integration scenarios.
 
 Compile each migrated group and run its relevant tests when the repository permits those checks. Follow restrictions that defer builds to final acceptance, and keep failures attributable to the changed group.
@@ -38,13 +38,20 @@ Compile each migrated group and run its relevant tests when the repository permi
 
 ### Projects and application code
 
+Check uncertain replacement APIs against the restored WinUI app, not the machine SDK. From the target app's project directory, search for the type, then inspect the member on the intended type (see `winui-design`):
+
+```powershell
+winapp find-api FileOpenPicker --json --project-dir .
+winapp find-api members Microsoft.Windows.Storage.Pickers.FileOpenPicker --filter PickSingleFileAsync --json --project-dir .
+```
+
 - Merge into the target's `App.xaml` and `App.xaml.cs`; preserve generated startup and initialization that the target SDK needs.
 - Remove WPF-only dependencies and project items once their callers have been ported. Do not add `UseWPF` or a WPF framework reference to the WinUI application to conceal an incomplete conversion.
-- Change `WindowsPackageType`, `WindowsAppSDKSelfContained`, `SelfContained`, or package identity only as part of the chosen deployment configuration.
+- Keep the existing `Package.appxmanifest` for packaged apps. Change `WindowsPackageType`, `WindowsAppSDKSelfContained`, `SelfContained`, or package identity only as part of the chosen deployment configuration.
 - Keep reusable logic out of executable project references; check unexpected copied executables, dependency files, and runtime configuration files in the output.
 - Use CommunityToolkit.Mvvm for migrated observable properties and commands. Prefer source-generated partial properties with a supported compiler and Toolkit version.
-- Inject or resolve services through dependency injection; do not construct service implementations in views or view models. Register services during application setup.
-- Prefer `WinUIEx.WindowEx` or an existing base derived from it for top-level windows. Declare supported window settings in XAML and use raw `AppWindow`/presenter calls for behavior the helper does not expose.
+- Keep the way the app creates services. If it already uses dependency injection, register migrated services there; do not add a container for the port.
+- Use a plain `Window` for top-level windows. Set its size with `AppWindow`; use `OverlappedPresenter` to control whether users can resize it or it stays on top. If the project already uses WinUIEx, keep its `WindowEx` base.
 - Use `ContentDialog` for in-app dialogs and `Frame`/`Page` for sub-views. Reserve separate windows for distinct top-level surfaces.
 - Preserve JSON names, enum values, defaults, resource keys, CLI options, and IPC/COM contracts.
 
@@ -71,16 +78,13 @@ Compile each migrated group and run its relevant tests when the repository permi
 
 | Symptom | What to check |
 |---|---|
-| A WinUI project still needs WPF assemblies | Find remaining callers, resource items, generated files, and shared-library dependencies before removing references. |
-| Startup reports a Windows App SDK runtime/COM activation error | Check the chosen package identity, runtime deployment, architecture, and initialization path; do not change deployment properties blindly. |
+| A WinUI project still needs WPF assemblies | Check callers, resource items, generated files, and shared-library dependencies for WPF-only types. A `System.Windows` name alone is not a failure: `System.Windows.Input.ICommand` is valid in WinUI. |
+| Startup reports a Windows App SDK runtime/COM activation error | Launch the project with `winapp run .\MyApp.csproj --detach --json` first (see `winui-dev-workflow`). Starting a packaged app's `.exe` directly skips package activation. If project launch still fails, check package identity, runtime deployment, architecture, and initialization. |
 | A window's bindings or resources do not resolve | Move view state and resources to the hosted view/root and check the binding source. |
 | Edited text does not reach the view model | Check explicit `Mode=TwoWay`, update timing, and notifications. |
 | A dialog or picker opens without the correct owner | Supply the owning loaded `XamlRoot`, HWND, or `WindowId` required by that API. |
 | Localized strings fail during startup or tests | Check PRI generation/name, resource-map lookup, initialization timing, and the test resource accessor. |
-| An installer reports a missing `.resources.dll` | Check whether the resource migration stopped producing that file, then update component and language-directory entries from actual output. |
-| Unexpected `.exe`, `.deps.json`, or `.runtimeconfig.json` files appear | Check executable project references and copied output before harvesting or signing artifacts. |
-| Scripts work from a solution but fail from a project | Review `$(SolutionDir)` dependencies and use a stable path base appropriate to the declaring file. |
-| Packaging or signing cannot find build artifacts | Check target ordering, selected build/publish output, and stale file inventories. |
+| A build script works from the solution but not from the project | Check the [project-relative build paths](references/project-and-application-migration.md#project-relative-build-paths). |
 | Image quality, dimensions, or tests change | Check codec options and types, pixel/alpha representation, integer widths, and frame/metadata handling. |
 
 ## Detailed References
@@ -96,9 +100,10 @@ Read the reference that matches the current phase:
 ## Completion Checklist
 
 - [ ] The WinUI application's project items and dependencies reflect the completed conversion.
+- [ ] Build and launch the app with project-mode `winapp run` by default. If activation depends on a separate packaging project (`.wapproj`), use that project's existing deployment and launch steps instead. Confirm the expected window opens and responds to input.
 - [ ] Startup, shutdown, window ownership, dialogs, and pickers preserve the required behavior.
 - [ ] Binding updates, commands, themes, localization, keyboard access, and automation remain correct.
 - [ ] Settings fixtures, CLI behavior, and both directions of any existing IPC integration remain compatible.
-- [ ] Installer inventories and signing inputs match the actual build/publish output.
+- [ ] If the port affected an existing installer, package, or signing step, its inputs match the actual build/publish output.
 - [ ] Tests exercise the same image, resource, and application behavior as before the migration.
 - [ ] The intended published output is validated; use `winui-dev-workflow` for Native AOT publish/run steps and `winui-packaging`'s `references/sourcegen-patterns.md` for trimming/binding/serialization guidance.
