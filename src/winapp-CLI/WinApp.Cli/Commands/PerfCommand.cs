@@ -36,7 +36,7 @@ internal sealed class PerfCommand : Command, IShortDescription
         Configure(start);
         start.SetAction(async (parse, token) => await ExecuteAsync(parse, async () =>
         {
-            var resolved = await targetResolver.ResolveAsync(parse.GetRequiredValue(app), null, token);
+            var resolved = await targetResolver.ResolveProcessAsync(parse.GetRequiredValue(app), token);
             using var target = Process.GetProcessById(resolved.ProcessId);
             var identity = PerfProcessIdentity.Read(target);
             var registration = await service.PrepareAsync(parse.GetRequiredValue(output), parse.GetValue(duration), parse.GetValue(size), PerfProfileModes.Attach, token);

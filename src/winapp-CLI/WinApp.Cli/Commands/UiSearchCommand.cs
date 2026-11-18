@@ -140,6 +140,8 @@ internal class UiSearchCommand : Command, IShortDescription, IHelpExamples
                 if (matches.Length == 0 && UiErrors.MinimizedWindowHint(uiTarget) is { } minimizedHint)
                 {
                     logger.LogWarning("{Message}", minimizedHint);
+                    UiJsonError.Emit(json, UiJsonError.CodeElementNotFound, $"No element found matching '{selectorStr}'", selectorStr,
+                        errorOut: parseResult.InvocationConfiguration.Error, recoveryHint: minimizedHint);
                 }
                 return matches.Length > 0 ? 0 : 1;
             }
