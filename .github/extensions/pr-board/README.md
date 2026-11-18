@@ -262,6 +262,8 @@ Nothing is posted, approved, or merged unless you click the button for it.
 
 Every request from the board tells the agent which of these to call.
 
+`repo` is optional on every tool. Without it, the board uses the repo of the current folder, then the repo of the open board. If a tool fails, the error says why.
+
 | Tool | Use |
 |------|-----|
 | `pr_board_sync_sessions` | Report the sessions on each PR or issue: activity, a pending question, Agent merge state, and when pr-review ran (on which commit). `untrack: true` stops tracking an item |

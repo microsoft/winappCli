@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 // Extension: pr-board
 // An inbox of a repo's pull requests with a per-PR workspace: status, timeline,
 // draft review, review/post/ship buttons, and a thread with the hosting agent.
@@ -152,8 +153,15 @@ function defaultRepo() {
     return defaultRepoPromise;
 }
 
+// Without repo, use the current folder's repo. A coordinator often runs outside a checkout, so fall back to
+// the repo of an open board, then to the only repo with saved board state.
 async function resolveRepo(repo) {
-    const r = repo || (await defaultRepo());
+    let r = repo || (await defaultRepo());
+    if (!r) r = [...new Set(instances.values())][0] || [...boards.keys()][0] || null;
+    if (!r) {
+        const saved = (() => { try { return readdirSync(artifactsDir()).filter((f) => /^[\w.-]+__[\w.-]+\.json$/.test(f)); } catch { return []; } })();
+        if (saved.length === 1) r = saved[0].replace(/\.json$/, "").replace("__", "/");
+    }
     if (!r || !REPO_RE.test(r)) throw new Error("Couldn't tell which GitHub repo to use. Pass repo as \"owner/name\".");
     return r;
 }
@@ -970,8 +978,21 @@ function instanceRepo(ctx) {
     return repo;
 }
 
+// The SDK reports a thrown error only as "Tool execution failed", so return the real message instead.
+const readableTools = tools.map((tool) => ({
+    ...tool,
+    handler: async (...a) => {
+        try {
+            return await tool.handler(...a);
+        } catch (e) {
+            const message = e?.message || String(e);
+            return { textResultForLlm: `Error: ${message}`, resultType: "failure", error: message };
+        }
+    },
+}));
+
 session = await joinSession({
-    tools,
+    tools: readableTools,
     canvases: [
         createCanvas({
             id: "pr-board",
