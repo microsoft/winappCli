@@ -441,13 +441,25 @@ internal static class CSharpSourceText
     }
 
     // The index after the '}' that closes the interpolation whose expression starts at `k`, stepping over the braces,
-    // strings and characters inside it (`{ new { A = 1 } }`, `{ "}" }`).
+    // comments, strings and characters inside it (`{ new { A = 1 } }`, `{ "}" }`, `{ /* } */ x }`).
     private static int InterpolationEnd(string code, int k)
     {
         var depth = 0;
         while (k < code.Length)
         {
             var c = code[k];
+            if (c == '/' && k + 1 < code.Length && code[k + 1] == '*')
+            {
+                var end = code.IndexOf("*/", k + 2, StringComparison.Ordinal);
+                k = end < 0 ? code.Length : end + 2;
+                continue;
+            }
+            if (c == '/' && k + 1 < code.Length && code[k + 1] == '/')
+            {
+                var end = code.IndexOf('\n', k);
+                k = end < 0 ? code.Length : end;
+                continue;
+            }
             if (c == '}')
             {
                 if (depth == 0) { return k + 1; }

@@ -198,12 +198,22 @@ inline bool ScanLiteral(const std::wstring& code, size_t i, size_t* valueStart, 
 }
 
 // The index after the '}' that closes the interpolation whose expression starts at `k`, stepping over the braces,
-// strings and characters inside it (`{ new { A = 1 } }`, `{ "}" }`).
+// comments, strings and characters inside it (`{ new { A = 1 } }`, `{ "}" }`, `{ /* } */ x }`).
 inline size_t InterpolationEnd(const std::wstring& code, size_t k)
 {
     size_t depth = 0;
     while (k < code.size()) {
         const wchar_t c = code[k];
+        if (c == L'/' && k + 1 < code.size() && code[k + 1] == L'*') {
+            const size_t end = code.find(L"*/", k + 2);
+            k = end == std::wstring::npos ? code.size() : end + 2;
+            continue;
+        }
+        if (c == L'/' && k + 1 < code.size() && code[k + 1] == L'/') {
+            const size_t end = code.find(L'\n', k);
+            k = end == std::wstring::npos ? code.size() : end;
+            continue;
+        }
         if (c == L'}') {
             if (depth == 0) return k + 1;
             --depth;

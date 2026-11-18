@@ -117,6 +117,7 @@ public class DevToolsCSharpCommentsTests
     [DataRow("PasswordBox($\"{ \"hunter2\" }\")", "PasswordBox($\"<redacted>\")")]
     [DataRow("PasswordBox($\"a{ new { P = \"}\" }.P }b\", \"x\")", "PasswordBox($\"<redacted>\", \"<redacted>\")")]
     [DataRow("PasswordBox($\"{{ \\\"x\\\" }}\", \"y\")", "PasswordBox($\"<redacted>\", \"<redacted>\")")]
+    [DataRow("PasswordBox($\"{ /* } */ \"hunter2\" }\")", "PasswordBox($\"<redacted>\")")]
     public void Redact_AQuoteInACharacterLiteralOrComment_DoesNotHideThePassword(string code, string expected)
     {
         Assert.AreEqual(expected, CSharpSourceText.Redact(code));

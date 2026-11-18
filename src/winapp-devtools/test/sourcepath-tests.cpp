@@ -346,6 +346,9 @@ int RunSourcePathTests()
         std::wstring escaped = L"PasswordBox($\"{{ \\\"x\\\" }}\", \"y\")";
         DevToolsCSharpSource::Redact(escaped);
         Check(escaped == L"PasswordBox($\"<redacted>\", \"<redacted>\")", "escaped braces open no interpolation");
+        std::wstring commented = L"PasswordBox($\"{ /* } */ \"hunter2\" }\")";
+        DevToolsCSharpSource::Redact(commented);
+        Check(commented == L"PasswordBox($\"<redacted>\")", "a brace inside a comment does not end the interpolation");
     }
 
     DeleteFileW((pages + L"\\MainPage.xaml").c_str());
