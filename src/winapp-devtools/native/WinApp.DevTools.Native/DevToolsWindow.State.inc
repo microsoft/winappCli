@@ -36,6 +36,36 @@ static void SyncTreeStructure();
 static unsigned g_route1Gen = 0;
 static unsigned g_treeRowsGen = 0;
 
+// Event sinks wired into the current details pane. The pane owns one reference to each and gives it up when the
+// pane is replaced, so a replaced pane's sinks are freed once XAML releases its own references. The release is
+// posted to the dispatcher: a sink whose event replaced the pane may still be running.
+static std::vector<DevToolsSinkBase*> g_paneSinks;
+static std::vector<DevToolsSinkBase*> g_paneSinksToRelease;
+
+template <class T>
+static T* NewPaneSink()
+{
+    T* sink = DevToolsNewSink<T>();
+    g_paneSinks.push_back(sink);
+    return sink;
+}
+
+static void ReleasePaneSinks()
+{
+    g_paneSinksToRelease.insert(g_paneSinksToRelease.end(), g_paneSinks.begin(), g_paneSinks.end());
+    g_paneSinks.clear();
+    if (g_paneSinksToRelease.empty()) return;
+    auto batch = std::make_shared<std::vector<DevToolsSinkBase*>>(std::move(g_paneSinksToRelease));
+    g_paneSinksToRelease.clear();
+    if (DevToolsPostLowPriority([batch] {
+            for (auto* sink : *batch) sink->Release();
+            batch->clear();
+        }))
+        return;
+    // Without a dispatcher, keep them for the next release rather than free a sink that may be running.
+    g_paneSinksToRelease = std::move(*batch);
+}
+
 // WIRE handle of the currently selected tree node (set on select in ShowPropsForNode, cleared on teardown).
 // Declared up here so the per-node hover-exit sink below can revert the app highlight back to the selected
 // node when the pointer leaves a row (0 = nothing selected -> clear the highlight). The rest of the editable

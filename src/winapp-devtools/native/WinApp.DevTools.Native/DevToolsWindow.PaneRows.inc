@@ -455,11 +455,9 @@ static VOID CALLBACK RefreshTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD)
 
 static void ArmTreeRefresh()
 {
-    // Nothing rebuilds rows while the window is hidden. A rebuild allocates per-row sinks that are
-    // deliberately immortal (DevToolsSinkBase never frees), so letting a hidden window track every navigation the
-    // user makes with the inspector closed would grow the app for the life of the process -- the exact class
-    // of leak is about. The show path re-reads the tree before the window comes back on screen, so the
-    // work is deferred rather than dropped.
+    // Nothing rebuilds rows while the window is hidden, so a hidden window doesn't do tree work for every
+    // navigation the user makes with the inspector closed. The show path re-reads the tree before the window
+    // comes back on screen, so the work is deferred rather than dropped.
     if (g_route1WindowHidden) {
         DevToolsOverlayLog(L"route1.refresh NOT armed -- window is hidden; the tree is re-read on show");
         return;
@@ -697,23 +695,9 @@ static void ApplyRowExpansionState(void* rowFe, const std::wstring& path, bool o
 struct RowExpandSink : DevToolsSinkBase
 {
     // Unlike the shared/static sinks, these delegates have one owner per realized property row.
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** p) override
-    {
-        const HRESULT hr = DevToolsSinkBase::QueryInterface(r, p);
-        if (SUCCEEDED(hr) && r != __uuidof(IMarshal)) AddRef();
-        return hr;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&refs); }
-    ULONG STDMETHODCALLTYPE Release() override
-    {
-        const ULONG remaining = InterlockedDecrement(&refs);
-        if (!remaining) delete this;
-        return remaining;
-    }
     ~RowExpandSink()
     {
         if (rowFe) reinterpret_cast<IUnknown*>(rowFe)->Release();
-        if (ftm) ftm->Release();
     }
 
     void Retire()
@@ -775,7 +759,6 @@ struct RowExpandSink : DevToolsSinkBase
     std::shared_ptr<const DevToolsCardRow> row;
     winrt::com_ptr<IUnknown> publisher;
     __int64 token = 0;
-    long refs = 1;
     std::wstring path;
     InstanceHandle wire = 0;
     int edit = -1;
@@ -789,7 +772,7 @@ static void WireRowExpansion(const std::shared_ptr<const DevToolsCardRow>& row, 
                              int edit, void* rowFe, void* expander)
 {
     for (bool open : { true, false }) {
-        auto* sink = new RowExpandSink();
+        auto* sink = DevToolsNewSink<RowExpandSink>();
         sink->Init(row, path, edit, rowFe, open);
         const HRESULT hr = open ? DevToolsAddExpanding(expander, sink, &sink->token)
                                 : DevToolsAddCollapsed(expander, sink, &sink->token);

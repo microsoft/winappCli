@@ -149,7 +149,7 @@ static std::wstring CurrentEditSeed(const std::wstring& path, const std::wstring
 // member name to the live app element via the in-process write bridge. Self-contained (captures the node handle
 // + property + write type + the ordered member-value list + a NON-owning ISelector pointer). Non-owning is safe
 // for the same reason LostFocusSink's box is: SelectionChanged only fires while the ComboBox is live in the
-// tree, and a torn-down window's sinks go inert (gen guard). Leaked for the process lifetime. UI thread only.
+// tree, and a torn-down window's sinks go inert (gen guard). Owned by the pane (NewPaneSink). UI thread only.
 struct EnumSelectSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
@@ -191,7 +191,8 @@ struct EnumSelectSink : DevToolsSinkBase
     std::wstring              prop, type, original;
     std::vector<std::wstring> members;
     void*                     selector = nullptr;
-    LostFocusSink*            textEditor = nullptr; // Same expansion lifetime as the preset selector.
+    LostFocusSink*            textEditor = nullptr; // Owned reference: the colour preset's hex box.
+    ~EnumSelectSink() { if (textEditor) textEditor->Release(); }
 };
 
 // Theme brush order matches the ComboBox item order; SelectedIndex maps directly to a resource name.

@@ -52,6 +52,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     // After the flush: saving the editor can rebuild this pane, which moves the stashed draft into a new box.
     RetireKindEditors();
     RetireRowExpandSinks();
+    ReleasePaneSinks();
     StashCommentDraft();
     ReleasePropFilterState();
     ReleaseLayoutSectionRefs();
@@ -169,7 +170,7 @@ g_propRows = rows;
             void* ex = nullptr;
             if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
                 for (bool open : {true, false}) {
-                    auto* sink = new LayoutSectionSink(); sink->Init(open);
+                    auto* sink = NewPaneSink<LayoutSectionSink>(); sink->Init(open);
                     __int64 tok = 0;
                     const HRESULT hr = open
                         ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
@@ -184,7 +185,7 @@ g_propRows = rows;
             void* ex = nullptr;
             if (SUCCEEDED(at->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
                 for (bool open : {true, false}) {
-                    auto* sink = new AxmlToggleSink(); sink->Init(open);
+                    auto* sink = NewPaneSink<AxmlToggleSink>(); sink->Init(open);
                     __int64 tok = 0;
                     const HRESULT hr = open
                         ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
@@ -219,7 +220,7 @@ g_propRows = rows;
             if (IInspectable* sa = findByName(L"PropShowAll")) {
                 void* bb = nullptr;
                 if (SUCCEEDED(sa->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    PropShowAllSink* ps = new PropShowAllSink(); ps->Init();
+                    PropShowAllSink* ps = NewPaneSink<PropShowAllSink>(); ps->Init();
                     __int64 tok = 0;
                     const HRESULT hrS = DevToolsAddClick(bb, ps, &tok);
                     if (FAILED(hrS)) DevToolsOverlayLog(L"route1.wire PropShowAll add_Click FAILED hr=0x%08X -- the full list is unreachable", hrS);
@@ -231,7 +232,7 @@ g_propRows = rows;
                 void* tbx = nullptr;
                 if (SUCCEEDED(pf->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tbx)) && tbx) {
                     g_propFilterTextBox = tbx;
-                    PropFilterSink* fs = new PropFilterSink(); fs->Init();
+                    PropFilterSink* fs = NewPaneSink<PropFilterSink>(); fs->Init();
                     __int64 tok = 0;
                     HRESULT hrF = DevToolsAddTextChanged(tbx, fs, &tok);
                     if (FAILED(hrF)) DevToolsOverlayLog(L"route1.wire propfilter add_TextChanged FAILED hr=0x%08X -- the filter will do nothing", hrF);
@@ -250,7 +251,7 @@ g_propRows = rows;
                 cf->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &g_propEmptyClearUi);
                 void* bb = nullptr;
                 if (SUCCEEDED(cf->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    PropClearFilterSink* cs = new PropClearFilterSink(); cs->Init();
+                    PropClearFilterSink* cs = NewPaneSink<PropClearFilterSink>(); cs->Init();
                     __int64 tok = 0;
                     const HRESULT hrC = DevToolsAddClick(bb, cs, &tok);
                     if (FAILED(hrC)) DevToolsOverlayLog(L"route1.wire PropClearFilter add_Click FAILED hr=0x%08X -- the empty pane has no way back", hrC);
@@ -276,7 +277,7 @@ g_propRows = rows;
                 if (IInspectable* ob = findByName(button)) {
                     void* bb = nullptr;
                     if (SUCCEEDED(ob->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                        auto* sink = new SourceActionSink();
+                        auto* sink = NewPaneSink<SourceActionSink>();
                         sink->Init(action, status);
                         __int64 token = 0;
                         const HRESULT hr = DevToolsAddClick(bb, sink, &token);
@@ -421,6 +422,7 @@ static void ResetRoute1State()
     g_axmlExpanded = false;
     g_propFilterQuery.clear(); g_propFilterRaw.clear();
     RetirePaneEditors();
+    ReleasePaneSinks();
     g_editRecords.clear(); g_appChanged.clear(); g_dirtyNode = 0; g_propView = DevToolsPropView::Computed; g_propShowAll = false;
     g_bindingLost.clear(); g_linkedRows.clear(); g_linkLost.clear();
     g_sessionAssign.clear(); g_pendingKind.clear(); g_pendingWrites.clear();

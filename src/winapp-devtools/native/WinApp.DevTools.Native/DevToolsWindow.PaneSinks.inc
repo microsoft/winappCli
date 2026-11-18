@@ -177,8 +177,8 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
         NoteBindingLost(prop);
         RebaselineRecords(wire);
         // Rebuild so the row re-renders with its undo + reset affordances DISABLED and the reason attached.
-        // Safe from inside a commit/click handler for the same reason ResetSink's rebuild is (the sinks are
-        // process-lifetime and gen-guarded, not owned by the subtree being replaced).
+        // Safe from inside a commit/click handler for the same reason ResetSink's rebuild is (the replaced pane's
+        // sinks are gen-guarded and released only after the current event returns, see ReleasePaneSinks).
         ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
         SetStatusText(L"Replaced the binding on " + prop + L" with a literal. " +
                       (g_ctx.bindFn ? std::wstring(L"Use Restore binding to put it back")
@@ -313,7 +313,7 @@ struct PaneEditor
     std::wstring          path;
     IUnknown*             ident = nullptr;
     bool*                 retired = nullptr;
-    LostFocusSink*        text = nullptr;
+    LostFocusSink*        text = nullptr; // owned reference; `retired` and `commit` may point into it
     std::function<void()> commit;
     void*                 owner = nullptr;
 };
@@ -327,6 +327,7 @@ static void RegisterPaneEditor(const std::wstring& path, void* element, bool* re
     IUnknown* ident = nullptr;
     if (FAILED(reinterpret_cast<IUnknown*>(element)->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&ident))) || !ident)
         return;
+    if (text) text->AddRef();
     g_paneEditors.push_back({ path, ident, retired, text, std::move(commit), owner });
 }
 
@@ -340,7 +341,7 @@ static void ForgetPaneEditors(const std::wstring& path, void* owner = nullptr)
         g_paneEditors.erase(g_paneEditors.begin() + i);
     }
     for (auto& e : departing) {
-        if (e.text) e.text->Detach();
+        if (e.text) { e.text->Detach(); e.text->Release(); }
         if (e.ident) e.ident->Release();
     }
 }
@@ -354,7 +355,7 @@ static void ReleasePaneEditors(bool retire)
     departing.swap(g_paneEditors);
     for (auto& e : departing) {
         if (retire && e.retired) *e.retired = true;
-        if (e.text) e.text->Detach();
+        if (e.text) { e.text->Detach(); e.text->Release(); }
         if (e.ident) e.ident->Release();
     }
 }

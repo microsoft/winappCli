@@ -224,7 +224,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         }
         void* bb = nullptr;
         if (edit >= 0 && SUCCEEDED(cf->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-            ConfirmSink* cs = new ConfirmSink();
+            ConfirmSink* cs = NewPaneSink<ConfirmSink>();
             cs->Init(g_selWire, path);
             __int64 tok = 0;
             DevToolsAddClick(bb, cs, &tok);
@@ -251,7 +251,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         SetAutomationTextOn(rs, L"Restore " + path, L"", L"");
         void* bb = nullptr;
         if (wirable && SUCCEEDED(rs->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-            UndoSink* us = new UndoSink();
+            UndoSink* us = NewPaneSink<UndoSink>();
             us->Init(g_selWire, path, r.type);
             __int64 tok = 0;
             DevToolsAddClick(bb, us, &tok);
@@ -271,7 +271,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         SetAutomationTextOn(cl, L"Clear value of " + path, L"", L"");
         void* bb = nullptr;
         if (canClear && SUCCEEDED(cl->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-            ResetSink* rk = new ResetSink();
+            ResetSink* rk = NewPaneSink<ResetSink>();
             rk->Init(g_selWire, path);
             __int64 tok = 0;
             DevToolsAddClick(bb, rk, &tok);

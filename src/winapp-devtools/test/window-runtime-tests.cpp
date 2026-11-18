@@ -68,6 +68,16 @@ static HRESULT TestAddLoaded(void*, void* handler, __int64* token)
 static HRESULT TestAddRowEvent(void*, void*, __int64*);
 static HRESULT TestRemoveRowEvent(void*, __int64);
 static HRESULT TestRecycleElement(void*, IInspectable**);
+// Work the pane posts to the dispatcher; tests run it to simulate the end of the current event.
+static std::vector<DevToolsD::DispatcherQueueHandler> postedWork;
+static bool dispatcherAvailable = false;
+static bool TestPostLowPriority(const DevToolsD::DispatcherQueueHandler& work)
+{
+    if (!dispatcherAvailable) return false;
+    postedWork.push_back(work);
+    return true;
+}
+#define DevToolsPostLowPriority TestPostLowPriority
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsSetAutomationName PutTestAutomationName
@@ -2061,6 +2071,39 @@ int main()
             g_ctx.readInputFn=savedRead; g_propRows={text};
         }
         g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr; g_valuesFn=nullptr;
+    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // Each selection rebuilds the pane with new event sinks. They must be freed once the pane is replaced.
+        auto drain = [] { auto work = std::move(postedWork); postedWork.clear(); for (auto& w : work) w(); };
+        dispatcherAvailable = true;
+        ReleasePaneSinks(); drain();
+        auto* filter = NewPaneSink<PropFilterSink>(); filter->Init();
+        filter->AddRef(); // the reference XAML holds while the old pane's filter box is alive
+        TestElement editorBox, editorUi;
+        auto* commit = NewPaneSink<LostFocusSink>();
+        commit->Init(0, L"Text", L"String", L"", &editorBox);
+        RegisterPaneEditor(L"Text", &editorUi, &commit->retired, commit, [commit] { commit->Invoke(nullptr, nullptr); });
+        check(g_paneSinks.size() == 2 && filter->refs == 2 && commit->refs == 2,
+            "the pane and the editor registry each own a reference to the pane's sinks");
+        ReleasePaneSinks();
+        check(g_paneSinks.empty() && filter->refs == 2 && commit->refs == 2 && postedWork.size() == 1,
+            "a replaced pane's sinks stay alive until the event that replaced it returns");
+        drain();
+        check(filter->refs == 1 && commit->refs == 1, "after that event, the replaced pane no longer owns its sinks");
+        commit->AddRef();
+        ReleasePaneEditors(false);
+        check(editorUi.refs == 1 && commit->Release() == 0, "releasing the pane's editors drops their sink references");
+        check(filter->Release() == 0, "a pane sink is freed when XAML releases the last reference");
+
+        dispatcherAvailable = false;
+        auto* kept = NewPaneSink<PropFilterSink>(); kept->Init(); kept->AddRef();
+        ReleasePaneSinks();
+        check(kept->refs == 2 && g_paneSinksToRelease.size() == 1,
+            "without a dispatcher the sinks are kept rather than freed while one may be running");
+        dispatcherAvailable = true;
+        ReleasePaneSinks(); drain();
+        check(g_paneSinksToRelease.empty() && kept->Release() == 0, "kept sinks are released with the next pane");
+        dispatcherAvailable = false;
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

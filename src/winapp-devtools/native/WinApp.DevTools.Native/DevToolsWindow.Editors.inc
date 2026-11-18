@@ -16,22 +16,9 @@ static void ResyncPaneEditor(const std::wstring& path)
     }
 }
 
-// Only expansion editors use this owning delegate. The shared/static sink base stays immortal.
+// Only expansion editors use this owning delegate. InitEditor makes it free itself on its last Release.
 struct KindEditorSink : DevToolsSinkBase
 {
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** p) override
-    {
-        const HRESULT hr = DevToolsSinkBase::QueryInterface(r, p);
-        if (SUCCEEDED(hr) && r != __uuidof(IMarshal)) AddRef();
-        return hr;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&refs); }
-    ULONG STDMETHODCALLTYPE Release() override
-    {
-        const ULONG left = InterlockedDecrement(&refs);
-        if (!left) delete this;
-        return left;
-    }
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
     {
         if (!Active()) return S_OK;
@@ -43,7 +30,7 @@ struct KindEditorSink : DevToolsSinkBase
         active.retired = &retired;
         return Run(active, args);
     }
-    virtual ~KindEditorSink() { if (ftm) ftm->Release(); }
+    virtual ~KindEditorSink() = default;
     virtual HRESULT Run(const KindCtx& active, void* args) = 0;
     bool Active() const { return !retired && gen == g_route1Gen && ctx.wire == g_selWire; }
     void InitEditor(const KindCtx& c, const GUID& iid)
@@ -51,6 +38,7 @@ struct KindEditorSink : DevToolsSinkBase
         ctx = c;
         if (c.rowFe) rowRoot.copy_from(reinterpret_cast<IUnknown*>(c.rowFe));
         if (c.expFe) expansionRoot.copy_from(reinterpret_cast<IUnknown*>(c.expFe));
+        destroy = [](DevToolsSinkBase* base) { delete static_cast<KindEditorSink*>(base); };
         InitSink(iid, g_route1Gen);
     }
     void Retire()
@@ -69,7 +57,6 @@ struct KindEditorSink : DevToolsSinkBase
     }
     KindCtx ctx;
     bool retired = false;
-    long refs = 1;
     winrt::com_ptr<IUnknown> rowRoot, expansionRoot, publisher;
     __int64 token = 0;
     HRESULT (*remove)(void*, __int64) = nullptr;
@@ -905,8 +892,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                 DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->put_Text(DevToolsAbiStr(h));
                 WindowsDeleteString(h);
                 const auto changed = ResourceKeyChangedHandler(fe, path, std::move(candidates));
-                auto* chosen = new ResSuggestSink(); chosen->Init();
-                auto* submitted = new ResQuerySink(); submitted->Init(ctx);
+                auto* chosen = NewPaneSink<ResSuggestSink>(); chosen->Init();
+                auto* submitted = NewPaneSink<ResQuerySink>(); submitted->Init(ctx);
                 __int64 tok = 0;
                 const HRESULT textHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_TextChanged(winrt::get_abi(changed), DevToolsAbiTok(&tok));
                 const HRESULT choiceHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_SuggestionChosen(chosen, DevToolsAbiTok(&tok));
@@ -1032,7 +1019,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                 if (SUCCEEDED(t->QueryInterface(DevToolsIid<DevToolsXC::IToggleSwitch>(), &ts)) && ts) {
                     DevToolsTogglePutIsOn(ts, DevToolsBoolValueIsOn(r.value));
                     if (edit >= 0) {
-                        BoolToggleSink* bs = new BoolToggleSink();
+                        BoolToggleSink* bs = NewPaneSink<BoolToggleSink>();
                         bs->Init(g_selWire, path, r.type, DevToolsBoolLiteral(DevToolsBoolValueIsOn(seed)), ts);
                         __int64 btok = 0;
                         const HRESULT hrT = DevToolsAddToggled(ts, bs, &btok);
@@ -1056,7 +1043,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     if (edit >= 0) {
                         const int cur = EnumIndexOf(members, seed);
                         const std::wstring orig = cur >= 0 ? members[(size_t)cur] : seed;
-                        EnumSelectSink* es = new EnumSelectSink();
+                        EnumSelectSink* es = NewPaneSink<EnumSelectSink>();
                         es->Init(g_selWire, path, r.type, orig, members, sel);
                         __int64 stok = 0;
                         const HRESULT hrS = DevToolsAddSelectionChanged(sel, es, &stok);
@@ -1087,7 +1074,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     hx->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui);
                     hx->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &box);
                     if (ui && box) {
-                        LostFocusSink* commit = new LostFocusSink();
+                        LostFocusSink* commit = NewPaneSink<LostFocusSink>();
                         commit->Init(g_selWire, path, r.type, seed, reinterpret_cast<IInspectable*>(box));
                         __int64 tok = 0;
                         DevToolsAddLostFocus(ui, commit, &tok);
@@ -1167,9 +1154,10 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     void* psel = nullptr;
                     if (SUCCEEDED(pb->QueryInterface(DevToolsIid<DevToolsXCP::ISelector>(), &psel)) && psel) {
                         // Placeholder-only: nothing is pre-selected, so building the expansion cannot commit.
-                        EnumSelectSink* ps = new EnumSelectSink();
+                        EnumSelectSink* ps = NewPaneSink<EnumSelectSink>();
                         ps->Init(g_selWire, path, r.type, seed, presets, psel);
                         ps->textEditor = hexCommit;
+                        if (hexCommit) hexCommit->AddRef();
                         __int64 tok = 0;
                         DevToolsAddSelectionChanged(psel, ps, &tok);
                         reinterpret_cast<IUnknown*>(psel)->Release();
@@ -1292,7 +1280,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     ed->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &edUi);
                     ed->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &box);
                     if (edUi && box) {
-                        LostFocusSink* commit = new LostFocusSink();
+                        LostFocusSink* commit = NewPaneSink<LostFocusSink>();
                         commit->Init(g_selWire, path, r.type, seed, reinterpret_cast<IInspectable*>(box));
                         __int64 mtok = 0;
                         const HRESULT hrM = DevToolsAddLostFocus(edUi, commit, &mtok);
