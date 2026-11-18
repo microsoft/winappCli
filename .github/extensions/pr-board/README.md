@@ -26,7 +26,7 @@ the order you pick under Sort); a row's state changes, not its position.
 | Section | Which PRs | Columns |
 |---------|-----------|---------|
 | **Yours** | You wrote it, or a session here is working on it (for example a Dependabot PR you're fixing) | Agent, Monitoring, pr-review, PR |
-| **Reviewing** | You're a requested reviewer, added it with **Add to my reviews**, you reviewed it, or pr-review ran here | pr-review, PR, Last activity |
+| **Reviewing** | You're a requested reviewer, chose **Track under Reviewing** or ran **Review**, you reviewed it, or pr-review ran here | pr-review, PR, Last activity |
 | **Everything else** | Open PRs nobody is working on here | PR |
 | **Issues in progress** | Open issues a session here is working on, or assigned to you, with no open PR yet | Agent, Last activity |
 
@@ -60,19 +60,42 @@ or click **⋯**. Links and buttons inside a row do their own thing.
 The flyout puts quick commands at the top, then the item's thread: type a
 question and the agent answers there, without starting a new session. Esc or ✕
 closes it; **Open details** goes to the full PR workspace (**← Overview** or Esc
-comes back). Its **⋯** menu has **Remove from board**, which hides the PR or
-issue on this board only; find it again under **Removed from the board** at the
-bottom of the Overview.
+comes back). Its **⋯** menu has:
+
+- **Track under Reviewing** (PRs in Everything else): keeps the PR in your
+  Reviewing list. It doesn't run a review or change anything on GitHub.
+  **Stop tracking** takes it out again.
+- **Mark as read**, when there's an unread reply.
+- **Remove from board**: hides the PR or issue on this board only. Find it again
+  under **Removed from the board** at the bottom of the Overview.
 
 | Row | Quick commands |
 |-----|----------------|
 | Yours | Status update, Turn on/off monitoring, Summarize, Ask |
 | Issues | Status update, Start working on it (the agent creates a session), Ask |
 | Reviewing | **What changed since my review?** lists the commits and files changed since the commit you reviewed (read from GitHub right away), then asks the agent for a plain summary in the thread. Also Summarize the author's replies, Re-run review |
-| Everything else | Quick question, Add to my reviews (tracked on the board only; nothing changes on GitHub), Start review, Summarize |
+| Everything else | **Review** runs `.github/skills/pr-review` in a session and drafts findings for you to post; it also moves the PR to Reviewing. Also Quick question, Summarize |
 
 The ↗ icon on every row, and **Open in browser** in the flyout, open the PR or
 issue on GitHub in a new tab in the app.
+
+### Unread replies
+
+You can ask something, close the flyout, and keep going. Until the answer
+arrives, the row shows **Replying…**. When it arrives, the row gets a blue dot
+and a **New reply** chip:
+
+```text
+● Fix stale DevTools comment cards after resolving from Comments  [New reply]
+  Clarify inherited FontSize reporting in DevTools  [Replying…]
+```
+
+The **Unread 2** chip at the top shows only those rows, and **Mark all read**
+clears them. A new draft or structured review also counts as a reply. Opening
+the flyout, or the PR's Overview, Review or Thread tab, marks it read and
+scrolls to a **New** line above the first unread message. The canvas title shows
+the count, for example `(2) PR board`. Read state is saved per PR and issue in
+the board's state file.
 
 ### Sync
 
@@ -227,7 +250,7 @@ Nothing is posted, approved, or merged unless you click the button for it.
 
 | Button | What the agent does |
 |--------|---------------------|
-| **Review** | Opens or reuses a session for the PR (`open_pr_session`, `send_session_message`, or `create_session`, whichever it has; otherwise it reviews inline), runs `.github/skills/pr-review`, and fills in the structured review (`pr_board_review_guide`, then `pr_board_set_review`). Nothing is posted. |
+| **Review** | Opens or reuses a session for the PR (`open_pr_session`, `send_session_message`, or `create_session`, whichever it has; otherwise it reviews inline), runs `.github/skills/pr-review`, and fills in the structured review (`pr_board_review_guide`, then `pr_board_set_review`). Moves the PR to Reviewing if it isn't yours. Nothing is posted. |
 | **Post review…** | With a structured review, goes to the Review tab to pick findings and preview the post (see above). With only a Markdown draft from `pr_board_attach_draft`, pick Approve, Request changes, or Comment, then click again to confirm; the agent runs `gh pr review --body-file <draft>` with that file. |
 | **Ship** | Enabled when the PR is approved and checks aren't failing. Click again to confirm. The agent follows `.github/skills/pr-lifecycle` and runs `gh pr merge --squash` (never `--admin`). If the PR isn't ready, it says what's blocking it. |
 | **✨ Summarize** | Reads the PR and sets a one-sentence summary for a non-expert, up to 3 next steps, and a risk level. |

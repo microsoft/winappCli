@@ -77,6 +77,14 @@ code { font-family: var(--mono); font-size: var(--t-meta); background: var(--sub
 .chip.ok { background: var(--green-muted); } .chip.ok .i { color: var(--green); }
 .chip.stuck { background: var(--red-muted); } .chip.stuck .i { color: var(--red); }
 .chip.neutral .i { color: var(--muted); }
+.chip.new { background: var(--blue); color: var(--bg); } .chip.new .i { color: var(--bg); }
+.unread-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--blue); margin-right: 6px; vertical-align: middle; flex: none; }
+.ov-row.unread .ov-title { font-weight: var(--w-strong); }
+.ov-title-row .chip { flex: none; }
+.unread-chip { border: 1px solid var(--blue); border-radius: 999px; background: var(--blue-muted); color: var(--fg); font-size: var(--t-small); padding: 2px 10px; display: inline-flex; align-items: center; }
+.unread-chip.on { background: var(--blue); color: var(--bg); } .unread-chip.on .unread-dot { background: var(--bg); } .unread-chip.on .n { color: var(--bg); }
+.new-div { display: flex; align-items: center; gap: var(--s2); color: var(--blue); font-size: var(--t-meta); font-weight: var(--w-strong); margin: var(--s2) 0; }
+.new-div::before, .new-div::after { content: ""; flex: 1; border-top: 1px solid var(--blue); }
 /* "Your move" and "stuck" are the two states that must jump out: solid fills. */
 .chip.you.solid { background: var(--orange); color: var(--bg); } .chip.you.solid .i, .chip.you.solid .age { color: var(--bg); opacity: 1; }
 .chip.stuck.solid { background: var(--red); color: var(--bg); } .chip.stuck.solid .i, .chip.stuck.solid .age { color: var(--bg); opacity: 1; }
@@ -831,6 +839,8 @@ function moreMenu(c) {
     `<button role="menuitem" data-act="pin">${icon("pin")}${pins.has(c.number) ? "Unpin from top" : "Pin to top of the list"}</button>`,
     `<a role="menuitem" class="menu-link" href="${esc(c.url)}" target="_blank" rel="noopener">${icon("external")}Open on GitHub</a>`,
     local.agent ? `<button role="menuitem" data-act="reset">${icon("reset")}Reset agent status</button>` : "",
+    isUnread(c) ? `<button role="menuitem" data-act="mark-read" data-pr="${c.number}">${icon("checkCircle")}Mark as read</button>` : "",
+    trackItem(c, false),
   ];
   return `<div class="menu" role="menu" aria-label="More actions">${items.join("")}</div>`;
 }
@@ -859,7 +869,7 @@ function renderHead(c) {
     if (pa?.act === "row-answer") buttons.push(`<button class="primary" data-act="row-answer">Answer the agent</button>`);
     if (c.shippable || shipArmed) buttons.push(`<button data-act="ship" class="${shipArmed ? "confirm" : "primary"}" ${canShip(c) ? "" : "disabled"}>${shipArmed ? "Click again to ship" : "Ship"}</button>`);
     const reviewPrimary = pa?.act === "review";
-    buttons.push(`<button data-act="review" class="${reviewPrimary ? "primary" : ""}" ${busy ? "disabled" : ""} title="Ask an agent to draft a review with the pr-review skill. Nothing is posted.">${local.draft || rvOf(c) ? "Re-review" : pa?.label === "Re-review" ? "Re-review" : "Review"}</button>`);
+    buttons.push(`<button data-act="review" class="${reviewPrimary ? "primary" : ""}" ${busy ? "disabled" : ""} title="${esc(REVIEW_TIP)} Nothing is posted.">${local.draft || rvOf(c) ? "Re-review" : pa?.label === "Re-review" ? "Re-review" : "Review"}</button>`);
   }
   buttons.push(`<button data-act="summarize" ${local.summarizing ? "disabled" : ""} title="Ask the agent for a plain-words summary and next steps">${icon("sparkle", "sm")}${local.summarizing ? "Summarizing…" : "Summarize"}</button>`);
   buttons.push(`<button data-act="more-menu" class="quiet" aria-haspopup="menu" aria-expanded="${openMenu === "more"}" aria-label="More actions">${icon("more")}More</button>`);
@@ -964,6 +974,52 @@ function filesHtml(c) {
       <td><span class="bar" aria-hidden="true"><i class="a" style="width:${(f.additions / max) * 60}px"></i><i class="d" style="width:${(f.deletions / max) * 60}px"></i></span></td></tr>`).join("")}</table>`;
 }
 
+// ---- Unread replies ----
+// An item is unread when the agent's newest reply (a thread answer, a draft or a structured review) is newer
+// than the last time you viewed it here. Older replies than snap.readBaseline never count.
+const tms = (s) => (s ? new Date(s).getTime() || 0 : 0);
+function latestReplyAt(c) {
+  const l = c?.local || {};
+  let at = 0;
+  for (const m of l.thread || []) if (m.role === "agent") at = Math.max(at, tms(m.at));
+  return Math.max(at, tms(l.reviewSetAt), tms(l.draft?.attachedAt));
+}
+const seenAt = (c) => Math.max(tms(c?.local?.lastSeenAt), tms(snap?.readBaseline));
+const isUnread = (c) => !!c && latestReplyAt(c) > seenAt(c);
+const isReplying = (c) => !!c?.local?.pending;
+const allItems = () => [...cardsOf().filter((c) => c.section !== "merged" && !c.local?.hidden), ...issuesOf().filter((c) => !c.hidden)];
+let unreadOnly = false;
+// The item you're looking at, and where its unread part started when you opened it (for the "New" divider).
+let viewing = null; // { key, at, scrolled }
+function noteViewing(c) {
+  const key = streamKey(c);
+  if (viewing?.key !== key) viewing = { key, at: isUnread(c) ? seenAt(c) : null, scrolled: false };
+}
+const seenBusy = new Set();
+function markSeen(c) {
+  const key = streamKey(c);
+  if (!isUnread(c) || seenBusy.has(key) || document.visibilityState !== "visible") return;
+  seenBusy.add(key);
+  post("/api/seen", { pr: c.number, kind: c.kind === "issue" ? "issue" : "pr" }).catch(() => {}).finally(() => setTimeout(() => seenBusy.delete(key), 1500));
+}
+function viewedItem() {
+  if (fly) return itemOf(fly.kind, fly.number);
+  if (view === "detail" && ["thread", "review", "overview"].includes(tab)) return current();
+  return null;
+}
+function markViewed() {
+  const c = viewedItem();
+  if (c) markSeen(c);
+  const n = allItems().filter(isUnread).length;
+  document.title = n ? `(${n}) PR board` : "PR board";
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") markViewed(); });
+function replyMarks(c) {
+  if (isUnread(c)) return `<span class="chip new" title="The agent replied since you last looked. Open it to read.">${icon("comment", "sm")}<span>New reply</span></span>`;
+  if (isReplying(c)) return `<span class="chip agent" title="You asked something; the agent is still answering.">${icon("running", "sm")}<span>Replying…</span></span>`;
+  return "";
+}
+
 // Live progress for a pending reply, pushed by the extension as "stream" events while the agent works.
 const streams = new Map();
 const streamKey = (c) => `${c.kind === "issue" ? "issue" : "pr"}:${c.number}`;
@@ -977,9 +1033,12 @@ function streamInner(c, s) {
 
 function threadHtml(c) {
   const local = c.local || {};
-  const msgs = (local.thread || []).map((m) => m.role === "system"
+  const divAt = viewing?.key === streamKey(c) ? viewing.at : null;
+  let divDone = divAt === null;
+  const divider = (m) => { if (divDone || m.role !== "agent" || tms(m.at) <= divAt) return ""; divDone = true; return `<div class="new-div" role="separator" aria-label="New replies"><span>New</span></div>`; };
+  const msgs = (local.thread || []).map((m) => divider(m) + (m.role === "system"
     ? `<div class="sys">${esc(m.text)} · ${esc(when(m.at))}</div>`
-    : `<div class="msg ${m.role === "user" ? "user" : "agent"}"><div class="who">${m.role === "user" ? "You" : esc(m.from || "Agent")} · ${esc(when(m.at))}</div><div class="md">${md(m.text)}</div></div>`).join("");
+    : `<div class="msg ${m.role === "user" ? "user" : "agent"}"><div class="who">${m.role === "user" ? "You" : esc(m.from || "Agent")} · ${esc(when(m.at))}</div><div class="md">${md(m.text)}</div></div>`)).join("");
   const sk = streamKey(c);
   const pending = local.pending ? `<div class="msg agent streaming" aria-live="polite" data-stream-key="${sk}">${streamInner(c, streams.get(sk))}</div>` : "";
   return `<div class="thread">${msgs || (pending ? "" : `<div class="hint">Ask anything about this PR, for example "What's still blocking this?" or "Explain the risky part in simple terms." The agent answers here.</div>`)}${pending}</div>`;
@@ -1271,11 +1330,11 @@ function ovRow(c, sec) {
   const pin = pins.has(c.number) ? icon("pin", "sm tone-mute") : "";
   const sub = `<span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span title="${esc(c.size?.text)}">${esc(c.size?.label)}</span><span class="sep">·</span>${ciHtml(c)}<span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>`;
   const kind = c.kind === "issue" ? "issue" : "pr";
-  const main = `<div class="ov-main"><div class="ov-title-row"><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${browserLink(c)}</div><div class="ov-sub">${sub}</div>`;
-  if (sec === "issues") return `<div class="ov-row" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-line"><div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div></div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
-  if (sec === "yours") return `<div class="ov-row" style="--cols:4">${main}<div class="ov-line"><div class="ov-where">${whereHtml(c)}</div>${rowActs(c, kind)}</div></div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
-  if (sec === "reviewing") return `<div class="ov-row" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${rowActs(c, kind)}</div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
-  return `<div class="ov-row" style="--cols:1">${main}<div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${sec === "merged" ? "" : rowActs(c, kind)}</div></div>${prCell(c)}</div>`;
+  const main = `<div class="ov-main"><div class="ov-title-row"><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}${pin}${esc(c.title)}</button>${replyMarks(c)}${browserLink(c)}</div><div class="ov-sub">${sub}</div>`;
+  if (sec === "issues") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-line"><div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div></div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
+  if (sec === "yours") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:4">${main}<div class="ov-line"><div class="ov-where">${whereHtml(c)}</div>${rowActs(c, kind)}</div></div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
+  if (sec === "reviewing") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${rowActs(c, kind)}</div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
+  return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:1">${main}<div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${sec === "merged" ? "" : rowActs(c, kind)}</div></div>${prCell(c)}</div>`;
 }
 
 // ---- Flyout ----
@@ -1307,6 +1366,8 @@ function changesHtml(n) {
   </section>`;
 }
 
+const REVIEW_TIP = "Run pr-review in a session and draft findings for you to post. Also keeps the PR under Reviewing.";
+const TRACK_TIP = "Keep this PR in your Reviewing list. Doesn't run a review or change anything on GitHub.";
 // Quick commands that fit a row. short = the label used inline on the Overview row.
 function quickCmds(c, kind) {
   const busy = isBusy(c);
@@ -1327,13 +1388,12 @@ function quickCmds(c, kind) {
   if (c.section === "reviewing") return [
     { act: "what-changed", label: "What changed since my review?", short: "What changed?" },
     { act: "summarize-replies", label: "Summarize the author's replies", short: "Author's replies" },
-    { act: "review", label: c.review?.state === "none" ? "Start review" : "Re-run review", short: c.review?.state === "none" ? "Review" : "Re-review", extra: busy ? "disabled" : "" },
+    { act: "review", label: c.review?.state === "none" ? "Review" : "Re-run review", short: c.review?.state === "none" ? "Review" : "Re-review", extra: busy ? "disabled" : "", tip: REVIEW_TIP },
     { act: "focus-ask", label: "Ask a question", short: "Ask" },
   ];
   return [
+    { act: "review", label: "Review", short: "Review", extra: busy ? "disabled" : "", tip: REVIEW_TIP },
     { act: "focus-ask", label: "Quick question", short: "Ask" },
-    { act: "track", label: "Add to my reviews", short: "Add to my reviews" },
-    { act: "review", label: "Start review", short: "Review", extra: busy ? "disabled" : "" },
     { act: "summarize", label: "Summarize", short: "Summarize" },
   ];
 }
@@ -1341,12 +1401,19 @@ function quickCmds(c, kind) {
 // Inline on each Overview row: the first command, the next two on hover, and ⋯ for the flyout.
 function rowActs(c, kind) {
   const cmds = quickCmds(c, kind).slice(0, 3);
-  const b = (x, i) => `<button class="${i === 0 ? "" : "more"}" data-act="row-${x.act}" data-pr="${c.number}" data-kind="${kind}" ${x.extra || ""}>${esc(x.short)}</button>`;
+  const b = (x, i) => `<button class="${i === 0 ? "" : "more"}" data-act="row-${x.act}" data-pr="${c.number}" data-kind="${kind}" ${x.tip ? `title="${esc(x.tip)}"` : ""} ${x.extra || ""}>${esc(x.short)}</button>`;
   return `<div class="ov-acts">${cmds.map(b).join("")}<button class="quiet" data-act="flyout" data-pr="${c.number}" data-kind="${kind}" aria-label="All actions and chat for #${c.number}">${icon("more", "sm")}</button></div>`;
 }
 
 function flyCommands(c, kind) {
-  return quickCmds(c, kind).map((x, i) => `<button class="${i === 0 ? "primary" : ""}" data-act="${x.act}" data-pr="${c.number}" data-kind="${kind}" ${x.extra || ""}>${esc(x.label)}</button>`).join("");
+  return quickCmds(c, kind).map((x, i) => `<button class="${i === 0 ? "primary" : ""}" data-act="${x.act}" data-pr="${c.number}" data-kind="${kind}" ${x.tip ? `title="${esc(x.tip)}"` : ""} ${x.extra || ""}>${esc(x.label)}</button>`).join("");
+}
+
+function trackItem(c, isIssue) {
+  if (isIssue || c.section === "yours" || c.section === "merged") return "";
+  return c.local?.tracked === "reviewer"
+    ? `<button role="menuitem" data-act="untrack" data-pr="${c.number}" title="Take it out of your Reviewing list. Nothing changes on GitHub.">Stop tracking</button>`
+    : c.section === "reviewing" ? "" : `<button role="menuitem" data-act="track" data-pr="${c.number}" title="${esc(TRACK_TIP)}">Track under Reviewing</button>`;
 }
 
 function renderFlyout() {
@@ -1354,6 +1421,7 @@ function renderFlyout() {
   if (!fly) { host.innerHTML = ""; return; }
   const c = itemOf(fly.kind, fly.number);
   if (!c) { fly = null; host.innerHTML = ""; return; }
+  noteViewing(c);
   const prev = host.querySelector(".fly-body");
   const scroll = prev ? prev.scrollTop : null;
   const ta = host.querySelector("#flyInput");
@@ -1377,7 +1445,8 @@ function renderFlyout() {
           <button class="quiet ico" data-act="fly-more" aria-haspopup="menu" aria-expanded="${flyMore}" aria-label="More">${icon("more", "sm")}</button>
           <button class="quiet ico" data-act="fly-close" aria-label="Close">${icon("x", "sm")}</button></div>
         ${flyMore ? `<div class="fly-menu" role="menu">
-          ${!isIssue && c.local?.tracked === "reviewer" ? `<button role="menuitem" data-act="untrack" data-pr="${c.number}">Remove from my reviews</button>` : ""}
+          ${isUnread(c) ? `<button role="menuitem" data-act="mark-read" data-pr="${c.number}" data-kind="${fly.kind}">Mark as read</button>` : ""}
+          ${trackItem(c, isIssue)}
           <button role="menuitem" data-act="hide" data-pr="${c.number}" data-kind="${fly.kind}">Remove from board</button>
         </div>` : ""}
         <h2 id="flyTitle">${esc(c.title)}</h2>
@@ -1397,6 +1466,8 @@ function renderFlyout() {
   if (hadFocus) { nta.focus(); nta.setSelectionRange(nta.value.length, nta.value.length); }
   const body = host.querySelector(".fly-body");
   if (scroll !== null) body.scrollTop = scroll;
+  scrollToNew(body);
+  markViewed();
 }
 
 function openFlyout(kind, number, from) {
@@ -1409,6 +1480,7 @@ function openFlyout(kind, number, from) {
 }
 function closeFlyout() {
   fly = null;
+  viewing = null;
   flyMore = false;
   renderFlyout();
   flyReturnFocus?.isConnected ? flyReturnFocus.focus() : null;
@@ -1436,9 +1508,12 @@ function renderOverview() {
   const order = (rows) => { rows.sort(sort); return [...rows.filter((c) => pins.has(c.number)), ...rows.filter((c) => !pins.has(c.number))]; };
   const cards = cardsOf();
   const merged = cards.filter((c) => c.section === "merged");
-  const secRows = SECTIONS.map(([id]) => order((id === "issues" ? issuesOf() : cards).filter((c) => c.section === id && !(c.hidden || c.local?.hidden))));
+  const unreadN = allItems().filter(isUnread).length;
+  if (!unreadN && unreadOnly && !allItems().some(isReplying)) unreadOnly = false;
+  const keep = (c) => !unreadOnly || isUnread(c) || isReplying(c);
+  const secRows = SECTIONS.map(([id]) => order((id === "issues" ? issuesOf() : cards).filter((c) => c.section === id && !(c.hidden || c.local?.hidden) && keep(c))));
   el.innerHTML = `<div class="ov-inner">
-    <div class="ov-bar"><nav class="ov-jump" aria-label="Jump to a section">${SECTIONS.map(([id, title], i) => `<button class="quiet" data-act="jump" data-sec="${id}">${esc(title)} <span class="n">${secRows[i].length}</span></button>`).join("")}</nav>
+    <div class="ov-bar"><nav class="ov-jump" aria-label="Jump to a section">${unreadN || unreadOnly ? `<button class="unread-chip${unreadOnly ? " on" : ""}" data-act="unread-only" aria-pressed="${unreadOnly}" title="${unreadOnly ? "Show everything again" : "Show only items with a reply you haven't read, or one still being written"}"><span class="unread-dot" aria-hidden="true"></span>Unread <span class="n">${unreadN}</span></button>${unreadN ? `<button class="quiet" data-act="mark-all-read">Mark all read</button>` : ""}` : ""}${SECTIONS.map(([id, title], i) => `<button class="quiet" data-act="jump" data-sec="${id}">${esc(title)} <span class="n">${secRows[i].length}</span></button>`).join("")}</nav>
       <span class="right"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select></span></div>
     ${SECTIONS.map(([id, title, hint, cols], i) => {
       const rows = secRows[i];
@@ -1446,10 +1521,10 @@ function renderOverview() {
         <div class="ov-cols" style="--cols:${cols.length}" aria-hidden="true"><span>${id === "issues" ? "Issue" : "Pull request"}</span>${cols.map((k) => `<span>${esc(k)}</span>`).join("")}</div>
         <div role="list">${rows.map((c) => ovRow(c, id)).join("") || `<div class="ov-empty">Nothing here.</div>`}</div></section>`;
     }).join("")}
-    ${merged.length ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${order(merged).map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
+    ${merged.length && !unreadOnly ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${order(merged).map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
     ${(() => {
       const hidden = [...cards.filter((c) => c.section !== "merged" && c.local?.hidden), ...issuesOf().filter((c) => c.hidden)];
-      return hidden.length ? `<details class="ov-hidden"><summary>${icon("chevRight", "sm chev")}Removed from the board <span class="n">${hidden.length}</span></summary><ul style="list-style:none;padding:0;margin:var(--s2) 0 0">${hidden.map((h) => `<li>${h.kind === "issue" ? "Issue" : "PR"} #${h.number} · ${esc(h.title)} <button data-act="unhide" data-pr="${h.number}" data-kind="${h.kind === "issue" ? "issue" : "pr"}">Put back</button></li>`).join("")}</ul></details>` : "";
+      return hidden.length && !unreadOnly ? `<details class="ov-hidden"><summary>${icon("chevRight", "sm chev")}Removed from the board <span class="n">${hidden.length}</span></summary><ul style="list-style:none;padding:0;margin:var(--s2) 0 0">${hidden.map((h) => `<li>${h.kind === "issue" ? "Issue" : "PR"} #${h.number} · ${esc(h.title)} <button data-act="unhide" data-pr="${h.number}" data-kind="${h.kind === "issue" ? "issue" : "pr"}">Put back</button></li>`).join("")}</ul></details>` : "";
     })()}
   </div>`;
   el.scrollTop = scroll;
@@ -1490,7 +1565,7 @@ function render(force = false) {
   if (!current() && cards.length) { const vis = visibleCards(); selected = (vis.find((c) => c.group === "you") || vis[0] || cards[0]).number; force = true; }
   document.body.classList.toggle("ovmode", view === "overview");
   renderSyncInfo();
-  if (view === "overview") { renderOverview(); renderFlyout(); return; }
+  if (view === "overview") { renderOverview(); renderFlyout(); markViewed(); return; }
   renderList();
   const c = current();
   $("wsHead").hidden = !c;
@@ -1500,8 +1575,18 @@ function render(force = false) {
   const focusAct = document.activeElement?.closest?.("#wsHead [data-act]")?.dataset.act;
   renderHead(c);
   if (focusAct) $("wsHead").querySelector(`[data-act="${focusAct}"]`)?.focus();
+  if (["thread", "review", "overview"].includes(tab)) noteViewing(c);
   renderScroll(c, force);
   scheduleDetail(c);
+  if (fly) renderFlyout();
+  markViewed();
+  scrollToNew($("wsScroll"));
+}
+function scrollToNew(box) {
+  const d = box?.querySelector(".new-div");
+  if (!d || !viewing || viewing.scrolled) return;
+  viewing.scrolled = true;
+  d.scrollIntoView({ block: "center" });
 }
 
 function select(pr, { tabTo, focus } = {}) {
@@ -1540,6 +1625,9 @@ document.addEventListener("click", (e) => {
   const a = el.dataset.act;
   const rowPr = el.dataset.pr ? Number(el.dataset.pr) : null;
   if (a === "select") return select(rowPr ?? selected);
+  if (a === "unread-only") { unreadOnly = !unreadOnly; return render(); }
+  if (a === "mark-all-read") return post("/api/seen", { all: true }).then(() => toast("Marked everything as read")).catch((err) => toast("Couldn't do that: " + err.message));
+  if (a === "mark-read") { openMenu = null; flyMore = false; const it = itemOf(el.dataset.kind || "pr", rowPr); if (!it) return; return post("/api/seen", { pr: rowPr, kind: el.dataset.kind || "pr" }).then(() => toast("Marked as read")).catch((err) => toast("Couldn't do that: " + err.message)); }
   if (a === "jump") { const s = document.getElementById("sec-" + el.dataset.sec); if (s) { s.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); s.querySelector(".ov-title")?.focus({ preventScroll: true }); } return; }
   if (a === "flyout") return openFlyout(el.dataset.kind || "pr", rowPr, el);
   if (a === "fly-close") return closeFlyout();
@@ -1560,10 +1648,11 @@ document.addEventListener("click", (e) => {
   }
   if (a === "what-changed") { loadChanges(rowPr); return; }
   if (el.dataset.kind === "issue") return post("/api/action", { pr: rowPr, action: a, kind: "issue" }).then(() => toast(a === "untrack" ? "Removed from the board" : "Asked the agent")).catch((err) => toast("Couldn't do that: " + err.message));
-  if (a === "track" || a === "untrack") return post("/api/action", { pr: rowPr, action: a }).then(() => toast(a === "track" ? "Added to your reviews" : "Removed from your reviews")).catch((err) => toast("Couldn't do that: " + err.message));
+  if (a === "track" || a === "untrack") { openMenu = null; flyMore = false; }
+  if (a === "track" || a === "untrack") return post("/api/action", { pr: rowPr, action: a }).then(() => toast(a === "track" ? "Tracking it under Reviewing. Nothing changed on GitHub." : "Stopped tracking it")).catch((err) => toast("Couldn't do that: " + err.message));
   if (a === "status-update" || a === "summarize-replies") return post("/api/action", { pr: rowPr, action: a }).then(() => toast("Asked the agent; the answer will appear in the thread")).catch((err) => toast("Couldn't do that: " + err.message));
   if (a === "open") { fly = null; renderFlyout(); view = "detail"; return select(rowPr, { focus: true }); }
-  if (a === "to-overview") { view = "overview"; openMenu = null; armed = null; render(); return document.querySelector(`.ov-title[data-pr="${selected}"]`)?.focus(); }
+  if (a === "to-overview") { view = "overview"; viewing = null; openMenu = null; armed = null; render(); return document.querySelector(`.ov-title[data-pr="${selected}"]`)?.focus(); }
   if (a === "sync") return requestSync();
   if (a === "answer" || a === "answer-text") {
     const answer = a === "answer" ? el.dataset.answer : (el.closest(".ov-ask")?.querySelector("input")?.value || "").trim();

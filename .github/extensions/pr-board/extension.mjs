@@ -36,6 +36,8 @@ class Board {
         this.clients = new Set();
         this.timer = null;
         this.watching = false;
+        // Replies older than this never count as unread, so a new install doesn't flag every old reply.
+        if (!readState(repo).meta.readBaseline) updateMeta(repo, (m) => { m.readBaseline ??= new Date().toISOString(); });
     }
 
     async refresh({ force = false } = {}) {
@@ -69,6 +71,7 @@ class Board {
         return {
             repo: this.repo,
             sync: { syncedAt: state.meta.syncedAt || null, requestedAt: state.meta.syncRequestedAt || null },
+            readBaseline: state.meta.readBaseline || null,
             liveSessions: liveSessions.list,
             liveSessionsNote: liveSessions.note,
             groups: GROUPS,
@@ -219,6 +222,7 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
         updatePr(repo, pr, (s) => {
             s.agent = { status: "running", kind: "review", outcome: "Queued: asking the agent to start a review", updatedAt: nowIso() };
             s.draft = null;
+            if (card.section !== "yours" && !s.tracked) s.tracked = "reviewer";
             note(s, "You asked for an agent review");
         });
         await send(reviewPrompt(card, repo), repo, pr);
@@ -278,9 +282,9 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
         updatePr(repo, pr, (s) => { s.pending = { id: "changes", at: nowIso() }; note(s, "You asked what changed since your review"); });
         await send(explainChangesPrompt(card, repo, changes), repo, pr, { quiet: true });
     } else if (action === "track") {
-        updatePr(repo, pr, (s) => { s.tracked = "reviewer"; addHistory(s, "You added it to your reviews"); });
+        updatePr(repo, pr, (s) => { s.tracked = "reviewer"; addHistory(s, "You started tracking it under Reviewing"); });
     } else if (action === "untrack") {
-        updatePr(repo, pr, (s) => { s.tracked = null; addHistory(s, "You removed it from your reviews"); });
+        updatePr(repo, pr, (s) => { s.tracked = null; addHistory(s, "You stopped tracking it"); });
     } else if (action === "hide" || action === "unhide") {
         updatePr(repo, pr, (s) => { s.hidden = action === "hide"; addHistory(s, action === "hide" ? "You removed it from the board" : "You put it back on the board"); });
     } else if (action === "monitor") {
@@ -529,6 +533,17 @@ async function handle(req, res) {
             const pr = Number(body.pr);
             if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
             return json(200, await sendMessage({ repo, pr, text: body.text, kind: body.kind === "issue" ? "issue" : "pr" }));
+        }
+        if (url.pathname === "/api/seen") {
+            if (body.all) {
+                updateMeta(repo, (m) => { m.readBaseline = nowIso(); });
+            } else {
+                const pr = Number(body.pr);
+                if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid number");
+                updateItem(repo, body.kind === "issue" ? "issue" : "pr", pr, (s) => { s.lastSeenAt = nowIso(); });
+            }
+            board(repo).broadcast();
+            return json(200, { ok: true });
         }
         if (url.pathname === "/api/action") {
             const pr = Number(body.pr);
