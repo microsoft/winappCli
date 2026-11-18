@@ -662,14 +662,24 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             // stays plain unless DevTools was asked for, and only a WinUI project gets it by default. 'dotnet run'
             // through the NuGet package hands winapp the build output and the project's framework.
             dotnetRun = string.Equals(parseResult.GetValue(WinAppRootCommand.CallerOption), "nuget-package", StringComparison.Ordinal);
+            var nuGetFramework = dotnetRun && inputResolution.Mode == WinAppRunMode.Folder
+                ? parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption)
+                : null;
             var winUIProject = inputResolution.Mode == WinAppRunMode.Project
                 ? projectContextDetector.DetectProject(inputResolution.Csproj!).Framework == ProjectAppFramework.WinUI
-                : dotnetRun && inputResolution.Mode == WinAppRunMode.Folder &&
-                    string.Equals(parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption), "winui", StringComparison.OrdinalIgnoreCase);
+                : string.Equals(nuGetFramework, "winui", StringComparison.OrdinalIgnoreCase);
+            // The NuGet targets report 'winui' for any project that sets UseWinUI, so 'wpf' and 'winforms' are
+            // certain even when the output carries Windows App SDK files that look like WinUI.
+            var unsupportedFramework =
+                string.Equals(nuGetFramework, "wpf", StringComparison.OrdinalIgnoreCase) ? "WPF" :
+                string.Equals(nuGetFramework, "winforms", StringComparison.OrdinalIgnoreCase) ? "Windows Forms" : null;
             if (explicitDevTools && inputResolution.Mode == WinAppRunMode.Folder && !winUIProject &&
-                !WinUIOutputDetector.MayContainWinUI3(inputResolution.ProjectDirectory))
+                (unsupportedFramework is not null || !WinUIOutputDetector.MayContainWinUI3(inputResolution.ProjectDirectory)))
             {
-                return Fail($"DevTools requires WinUI 3; '{inputResolution.ProjectDirectory.FullName}' does not contain a WinUI 3 app. " +
+                var reason = unsupportedFramework is null
+                    ? "does not contain a WinUI 3 app"
+                    : $"is the output of a {unsupportedFramework}-only project";
+                return Fail($"DevTools requires WinUI 3; '{inputResolution.ProjectDirectory.FullName}' {reason}. " +
                     "Run with --devtools off to start the app without DevTools.", isJson);
             }
 

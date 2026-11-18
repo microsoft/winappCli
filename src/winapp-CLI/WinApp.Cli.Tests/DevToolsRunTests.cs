@@ -1455,6 +1455,24 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
+    [DataRow("wpf", "WPF")]
+    [DataRow("winforms", "Windows Forms")]
+    public async Task NuGetRun_ExplicitForWpfOrWinFormsWithWindowsAppSdkFiles_FailsBeforeLaunch(string framework, string name)
+    {
+        // A WPF or Windows Forms app that references the Windows App SDK ships Microsoft.WinUI.dll.
+        var run = NuGetWinUIRun();
+
+        Assert.AreEqual(1, await DotnetRun(run.Output, framework, run.SourcesFile, "--devtools", "on", "--detach", "--json"));
+        var error = JsonDocument.Parse(TestAnsiConsole.Output).RootElement.GetProperty("Error").GetString()!;
+        StringAssert.Contains(error, $"DevTools requires WinUI 3; '{run.Output}' is the output of a {name}-only project");
+        StringAssert.Contains(error, "--devtools off");
+        Assert.IsEmpty(_environments);
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+        Assert.IsEmpty(_launcher.LaunchCalls);
+        Assert.IsEmpty(_attach.Calls);
+    }
+
+    [TestMethod]
     public async Task NuGetWinUIRun_IsOnByDefault_AndInspectsTheProjectSources()
     {
         var run = NuGetWinUIRun();
