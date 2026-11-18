@@ -416,7 +416,7 @@ internal sealed class CrashDumpService(IAnsiConsole console, ILogger<CrashDumpSe
         ClrRuntime runtime;
         try
         {
-            runtime = dt.ClrVersions[0].CreateRuntime();
+            runtime = CreateRuntime(dt.ClrVersions[0]);
         }
         catch (ClrDiagnosticsException ex) when (ex.InnerException is BadImageFormatException)
         {
@@ -613,6 +613,34 @@ internal sealed class CrashDumpService(IAnsiConsole console, ILogger<CrashDumpSe
     /// Returns true when the dump's loaded module list contains Microsoft.UI.Xaml.dll,
     /// indicating a WinUI (Windows App SDK) app whose crashes benefit from the triage pass.
     /// </summary>
+    /// <summary>
+    /// Loads the DAC installed next to the dump's runtime before falling back to ClrMD's symbol server
+    /// download. The dump comes from an app that just ran on this machine, so its DAC is normally on
+    /// disk; without this, analysis needs network access. ClrMD still checks the DAC's version and signature.
+    /// </summary>
+    private ClrRuntime CreateRuntime(ClrInfo clr)
+    {
+        var dacName = clr.Flavor == ClrFlavor.Desktop ? "mscordacwks.dll" : "mscordaccore.dll";
+        var runtimeDirectory = Path.GetDirectoryName(clr.ModuleInfo.FileName);
+        if (!string.IsNullOrEmpty(runtimeDirectory))
+        {
+            var localDac = Path.Combine(runtimeDirectory, dacName);
+            if (File.Exists(localDac))
+            {
+                try
+                {
+                    return clr.CreateRuntime(localDac);
+                }
+                catch (Exception ex) when (ex is ClrDiagnosticsException or IOException)
+                {
+                    logger.LogDebug("Local DAC {DacPath} could not be used, so ClrMD will look it up: {Error}", localDac, ex.Message);
+                }
+            }
+        }
+
+        return clr.CreateRuntime();
+    }
+
     private static bool DumpHasWinUiModule(DataTarget dt)
     {
         try
