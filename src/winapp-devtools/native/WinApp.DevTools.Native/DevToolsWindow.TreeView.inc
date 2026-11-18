@@ -484,7 +484,7 @@ static void ApplyPropFilter(const std::wstring& queryRaw)
 // TextChanged sink for the property filter box. Reads the box's text DIRECTLY off the TextBox: the
 // diagnostics chain returns the PREVIOUS text here, so clearing the box would re-apply the old query and
 // leave the pane filtered with no way back short of reselecting the node.
-struct PropFilterSink : DevToolsSinkBase
+struct PropFilterSink : DevToolsOwnedSink
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void* /*sender*/, void* /*args*/)
     {
@@ -508,7 +508,7 @@ struct PropFilterSink : DevToolsSinkBase
 // The way back from an empty pane. Writes the BOX, not the query: the box's TextChanged is what
 // re-applies the filter, so one path owns it and the text the user can still see in the box cannot drift
 // from the rows the pane is rendering.
-struct PropClearFilterSink : DevToolsSinkBase
+struct PropClearFilterSink : DevToolsOwnedSink
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {

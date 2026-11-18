@@ -633,7 +633,7 @@ static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
 }
 
 // WinUI owns disclosure visibility and automation; callbacks only remember the user's choice.
-struct LayoutSectionSink : DevToolsSinkBase
+struct LayoutSectionSink : DevToolsOwnedSink
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
@@ -653,7 +653,7 @@ struct LayoutSectionSink : DevToolsSinkBase
     bool open = false;
 };
 
-struct AxmlToggleSink : DevToolsSinkBase
+struct AxmlToggleSink : DevToolsOwnedSink
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {

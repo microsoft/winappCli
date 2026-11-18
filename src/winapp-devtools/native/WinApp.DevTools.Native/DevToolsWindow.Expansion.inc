@@ -717,7 +717,7 @@ static size_t RebuildPaneItems()
     return PushPaneItemsToRepeater();
 }
 
-struct PropShowAllSink : DevToolsSinkBase
+struct PropShowAllSink : DevToolsOwnedSink
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {

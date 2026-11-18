@@ -97,7 +97,7 @@ static DevToolsXC::TextBlock g_sourceStatus{ nullptr };
 static std::vector<winrt::Windows::Foundation::IInspectable> g_commentBoxParts;
 
 // Keep feedback with the source header that owns these actions, not the current selection's status line.
-struct SourceActionSink : DevToolsSinkBase
+struct SourceActionSink : DevToolsOwnedSink
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
