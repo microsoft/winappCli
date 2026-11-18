@@ -1,8 +1,9 @@
 # PR board (prototype)
 
-An inbox of a GitHub repo's pull requests, with a workspace for each PR. Pick a
-PR, see who it's waiting on, hand the next step to an agent, and ask the agent
-questions about the PR without leaving the canvas.
+An inbox of a GitHub repo's pull requests, with a workspace for each PR. The
+list tells you what each PR does, how it's doing, and what happens next, so
+you don't have to open it. Pick one to read its description, conversation and
+files, ask the agent about it, or hand it the next step.
 
 Open it from a chat in a winappCli session:
 
@@ -12,71 +13,72 @@ Open the PR board canvas
 
 The board uses the current repo. To pick another one, pass `{ "repo": "owner/name" }`.
 
-## Layout
+## The list
+
+PRs are grouped by who they're waiting on: **Needs you**, **Agent working**,
+**Waiting on others**, **In merge queue**, and **Merged** (last 24 hours,
+collapsed). Each row answers the basic questions without a click:
 
 ```text
-┌ PR board · microsoft/winappCli   4 need you   17 open · 8 merged in the last 24h ┐
-│ NEEDS YOU 4          │ Add winapp ask for WinUI samples… #1187                    │
-│ ● #1187 Add winapp…  │ ⏭ You: read the draft review, then post it                 │
-│ ● #1163 Add sampled… │ [Re-review] [Post review ▾] [Ship] [Open full chat]        │
-│ AGENT WORKING 1      │ ▾ Draft review · recommends approve                        │
-│ WAITING ON OTHERS 11 │ ▸ Timeline · 3 events                                      │
-│ IN MERGE QUEUE 1     │ THREAD                                                     │
-│ ▸ MERGED 8           │                 You: What's still blocking this?           │
-│                      │ Coordinator: Nothing technical. It needs one approval.     │
-│                      │ [Ask a question or give direction on #1187…]  [Send]       │
-└──────────────────────┴────────────────────────────────────────────────────────────┘
+#1187 Add winapp ask for WinUI samples and Microsoft Learn docs        [Review]
+● Jaylyn-Barbee · XL +1911 −31 · opened 22d ago · 💬 zateutsch · Medium risk
+📝 Adds `winapp ask` so you can ask a WinUI question and get matching samples
+   plus Microsoft Learn links in one search.
+⏭ You: review needed
 ```
 
-**Left: the inbox.** PRs are grouped by who they're waiting on:
+- **●** CI: green passing, yellow running, red failing.
+- **Reviews:** ✓ approved, ✗ requested changes, 💬 commented, ⏳ requested.
+- **📝 Summary:** the agent's plain-words summary. Until there is one, it shows
+  the first sentence of the PR description in gray.
+- **⏭ Next step:** who acts next, in plain words.
+- **The button** fits the stage: Review, Post…, Ship, Answer (the agent asked
+  you something), ✨ Summarize, or View.
 
-| Group | A PR is here when |
-|-------|-------------------|
-| Needs you | You need to review it, read a draft, answer the agent, or ship it |
-| Agent working | An agent is working on it (yours, or the author's agent preparing it) |
-| Waiting on others | The author, another reviewer, or CI is next |
-| In merge queue | It's in GitHub's merge queue |
-| Merged | Merged in the last 24 hours (collapsed; click to expand) |
+Drag the line between the list and the workspace to resize it. The header shows
+`17 open · 8 merged in the last 24h`. **✨ Summarize all needing me** asks the
+agent to summarize every PR in Needs you and Agent working that doesn't have a
+summary yet.
 
-Each row shows a CI dot (green passing, yellow running, red failing), the PR
-number and title, a status glyph (⚙ agent working, ❓ needs your input, ⏳
-waiting on others, 📝 draft ready, 💬 thread), and who's next. The PR you pick
-is remembered.
+## The workspace
 
-**Right: the workspace** for the selected PR:
+Buttons: **Review**, **Post review ▾**, **Ship**, **✨ Summarize**,
+**🏛 Architecture review**, and **Open full chat** (when a session is linked).
+Tabs:
 
-- **Header:** title, author, size, CI, reviewers and their verdicts, labels,
-  and the **⏭ line** that says who's next in plain words, such as
-  `You: review needed` or `zateutsch: address changes requested by nmetulev`.
-- **Buttons** (see below).
-- **Draft review:** the attached draft, rendered.
-- **Timeline:** GitHub events (opened, reviews, merged) mixed with board
-  events (review requested, status changes, draft attached).
-- **Thread:** your messages and the agent's replies about this PR, with button
-  clicks and status changes shown as small system lines so it reads as one story.
+| Tab | Shows |
+|-----|-------|
+| Overview | What the PR does in plain words, with a risk level; next steps as a checklist; status (who's next, CI and failing checks, reviews, merge queue, agent, session, size, labels); the draft review, if any; and the PR description |
+| Conversation | GitHub comments and reviews, oldest first. Bot comments are collapsed |
+| Files | Changed files with +/− counts, largest first |
+| Thread | Your conversation with the agent about this PR |
+| Timeline | GitHub events (opened, reviews, merged) and board events |
 
-## Asking about a PR
+The message box at the bottom works from any tab. Type a question or a
+direction and press Enter, for example `What's still blocking this?` or
+`Explain the risky part in simple terms`. The agent in the session that opened
+the board answers in the Thread tab, or forwards the question to the PR's own
+session and posts the answer when it comes back.
 
-Type in the box at the bottom and press Enter (Shift+Enter for a new line). The
-board saves your message, shows a "thinking" bubble, and sends it to the agent
-in the session that opened the board. That agent answers, or forwards the
-question to the PR's linked session if the work is there, and posts the answer
-with `pr_board_reply`. The answer appears in the thread.
+**🏛 Architecture review** asks the agent to open the
+[PR architecture review canvas](https://gist.github.com/angelser/01c49ffdd3296f58b25d78194bfe1ebe)
+(`pr-arch-review`) for this PR in its own panel, with diagrams, architecture
+changes and findings. Install that extension separately. The Thread tab notes
+the request and the agent's one-line result.
 
-The agent treats a message as direction for that PR only. It doesn't post to
-GitHub, approve, or merge unless your message asks for it.
-
-## Buttons
+## What the buttons do
 
 Nothing is posted, approved, or merged unless you click the button for it.
 
 | Button | What the agent does |
 |--------|---------------------|
-| **Review** | Opens or reuses a session for the PR (`open_pr_session`, `send_session_message`, or `create_session`, whichever it has; otherwise it reviews inline), runs `.github/skills/pr-review`, and attaches the review as a draft file. Nothing is posted. |
+| **Review** | Opens or reuses a session for the PR (`open_pr_session`, `send_session_message`, or `create_session`, whichever it has; otherwise it reviews inline), runs `.github/skills/pr-review`, sets the plain-words summary, and attaches the review as a draft file. Nothing is posted. |
 | **Post review ▾** | Enabled once a draft is attached. Pick Approve, Request changes, or Comment, then click again to confirm. The agent runs `gh pr review --body-file <draft>` with that exact file. |
 | **Ship** | Enabled when the PR is approved and checks aren't failing. Click again to confirm. The agent follows `.github/skills/pr-lifecycle` and runs `gh pr merge --squash` (never `--admin`). If the PR isn't ready, it says what's blocking it. |
+| **✨ Summarize** | Reads the PR and sets a one-sentence summary for a non-expert, up to 3 next steps, and a risk level. |
+| **🏛 Architecture review** | Opens `pr-arch-review` for the PR and follows its `review_guide`. |
 | **Open full chat** | A `ghapp://sessions/<id>` link to the linked session. **↪** asks the agent to call `navigate_to` instead. |
-| **Reset agent status** | Clears a stuck status. |
+| **Reset status** | Clears a stuck agent status. |
 | **Refresh** | Re-reads GitHub. The board also refreshes when it opens and every 2 minutes. |
 
 ## Agent tools
@@ -85,21 +87,23 @@ Every request from the board tells the agent which of these to call.
 
 | Tool | Use |
 |------|-----|
+| `pr_board_set_summary` | Set the plain-words summary (≤140 characters), next steps, and risk (`low`, `medium`, `high`) |
 | `pr_board_reply` | Post a reply in a PR's thread (Markdown) |
 | `pr_board_link_session` | Link a session to a PR |
 | `pr_board_set_status` | Set the agent status with a one-line outcome: `running`, `waiting` (needs you), `waiting_on_others` (blocked on another approver or the author; the outcome becomes the ⏭ line), `posted`, `done`, `failed`, or `clear` |
 | `pr_board_attach_draft` | Attach the draft review file and its recommendation |
-| `pr_board_get_state` | Read the board, or one PR, including recent thread messages |
+| `pr_board_get_state` | Read the board, or one PR, including its summary and recent thread messages |
 
 The canvas also has `refresh` and `get_board` actions for `invoke_canvas_action`.
 
 ## Where state lives
 
-PR data comes from GitHub on every refresh, using the `gh` CLI. If `gh` is
-missing or signed out, the board says so and tells you what to run.
+PR data comes from GitHub with the `gh` CLI: the list on every refresh, and a
+PR's conversation and files when you select it (cached until the PR changes).
+If `gh` is missing or signed out, the board says so and tells you what to run.
 
-What the board adds (linked session, agent status, draft path, timeline, thread)
-is saved per PR in one file per repo:
+What the board adds (summary, linked session, agent status, draft path,
+timeline, thread) is saved per PR in one file per repo:
 
 ```text
 %USERPROFILE%\.copilot\extensions\pr-board\artifacts\microsoft__winappCli.json
@@ -115,7 +119,7 @@ per user and isn't committed. When a PR merges, a leftover agent status shows as
 | File | Contents |
 |------|----------|
 | `extension.mjs` | Canvas, agent tools, loopback server, buttons and messages |
-| `github.mjs` | `gh` calls, groups, and the ⏭ rules |
+| `github.mjs` | `gh` calls, groups, the ⏭ rules, and fallback summaries |
 | `prompts.mjs` | The requests sent to the agent |
 | `store.mjs` | The per-repo state file |
 | `ui.html` | The inbox page (no build step, no dependencies) |

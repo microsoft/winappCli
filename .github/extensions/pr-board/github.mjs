@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 const PR_FIELDS = [
     "number", "title", "url", "author", "isDraft", "additions", "deletions", "changedFiles",
     "reviewDecision", "mergeStateStatus", "mergeable", "statusCheckRollup", "latestReviews",
-    "reviewRequests", "labels", "updatedAt", "createdAt", "autoMergeRequest", "baseRefName",
+    "reviewRequests", "labels", "updatedAt", "createdAt", "autoMergeRequest", "baseRefName", "body",
 ].join(",");
 
 export class GhError extends Error {
@@ -63,7 +63,7 @@ async function mergeQueue(repo, branch) {
 export async function fetchRepoData(repo) {
     const [openJson, mergedJson, viewer, defaultBranch] = await Promise.all([
         gh(["pr", "list", "-R", repo, "--state", "open", "--limit", "60", "--json", PR_FIELDS]),
-        gh(["pr", "list", "-R", repo, "--state", "merged", "--limit", "8", "--json", "number,title,url,author,mergedAt,createdAt,additions,deletions,changedFiles,latestReviews"]),
+        gh(["pr", "list", "-R", repo, "--state", "merged", "--limit", "8", "--json", "number,title,url,author,mergedAt,createdAt,additions,deletions,changedFiles,latestReviews,body"]),
         viewerLogin(),
         gh(["repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]).then((s) => s.trim() || "main"),
     ]);
@@ -75,6 +75,38 @@ export async function fetchRepoData(repo) {
         defaultBranch,
         queue,
     };
+}
+
+// Conversation and files for one PR, fetched when the user selects it.
+export async function fetchDetail(repo, number) {
+    const out = await gh(["pr", "view", String(number), "-R", repo, "--json", "comments,reviews,files"]);
+    const d = JSON.parse(out);
+    const conversation = [
+        ...(d.comments || []).map((c) => ({ kind: "comment", author: c.author?.login || "unknown", bot: isBot(c.author), at: c.createdAt, body: c.body || "", url: c.url })),
+        ...(d.reviews || []).filter((r) => r.body || r.state !== "COMMENTED").map((r) => ({ kind: "review", state: r.state, author: r.author?.login || "unknown", bot: isBot(r.author), at: r.submittedAt, body: r.body || "" })),
+    ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    const files = (d.files || []).map((f) => ({ path: f.path, additions: f.additions || 0, deletions: f.deletions || 0 }))
+        .sort((a, b) => (b.additions + b.deletions) - (a.additions + a.deletions));
+    return { conversation, files, fetchedAt: new Date().toISOString() };
+}
+
+// First real sentence of a PR description: no template comments, headings, images or HTML.
+export function fallbackSummary(body) {
+    const text = String(body || "")
+        .replace(/<!--[\s\S]*?-->/g, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/```[\s\S]*?```/g, " ")
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !/^(#|\||>|-{3,}|!\[|\*\*?(what|why|before|after|not tested|checklist)\b)/i.test(l))
+        .join(" ")
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/[*_`]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const m = text.match(/^.{20,200}?[.!?](\s|$)/);
+    const s = (m ? m[0] : text).trim();
+    return s.length > 160 ? s.slice(0, 157).trimEnd() + "…" : s;
 }
 
 // ---- Classification -------------------------------------------------------
@@ -101,8 +133,9 @@ function sizeLabel(pr) {
     return { label, text: `+${pr.additions || 0} −${pr.deletions || 0}, ${pr.changedFiles || 0} files` };
 }
 
-const BOT_LOGINS = /\[bot\]$|^copilot-pull-request-reviewer$|^github-code-quality$|^copilot$/i;
-const humanReview = (r) => r?.author?.login && !r.author.is_bot && !BOT_LOGINS.test(r.author.login);
+const BOT_LOGINS = /\[bot\]$|^copilot-pull-request-reviewer$|^github-code-quality$|^copilot$|^github-actions$|^microsoft-github-policy-service$/i;
+const isBot = (a) => !!a && (!!a.is_bot || BOT_LOGINS.test(a.login || ""));
+const humanReview = (r) => r?.author?.login && !isBot(r.author);
 
 // Decide a card's lane and a plain-words "waiting on" line.
 export function classify(pr, ctx, local) {
@@ -202,6 +235,9 @@ export function buildCards(data, localPrs) {
             who: c.who,
             shippable: !!c.shippable,
             updatedAt: pr.updatedAt,
+            createdAt: pr.createdAt,
+            description: pr.body || "",
+            fallbackSummary: fallbackSummary(pr.body),
             events: githubEvents(pr),
             local,
         });
@@ -222,6 +258,10 @@ export function buildCards(data, localPrs) {
             waitingOn: `Merged ${new Date(pr.mergedAt).toLocaleString()}`,
             who: "done",
             mergedAt: pr.mergedAt,
+            createdAt: pr.createdAt,
+            description: pr.body || "",
+            fallbackSummary: fallbackSummary(pr.body),
+            reviewers: (pr.latestReviews || []).filter(humanReview).map((r) => ({ login: r.author.login, state: r.state })),
             events: githubEvents(pr),
             local,
         });

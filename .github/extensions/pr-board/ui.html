@@ -26,6 +26,7 @@
   --orange-muted: var(--true-color-orange-muted, rgba(188,76,0,.12));
   --subtle: color-mix(in srgb, var(--fg) 5%, var(--bg));
   --mono: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  --list-w: 560px;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -37,13 +38,14 @@ body {
 }
 a { color: var(--blue); text-decoration: none; }
 a:hover { text-decoration: underline; }
-button, a.btn { font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px; cursor: pointer; line-height: 20px; display: inline-block; }
+button, a.btn { font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px; cursor: pointer; line-height: 20px; display: inline-block; white-space: nowrap; }
 button:hover:not(:disabled), a.btn:hover { background: var(--subtle); text-decoration: none; }
 button:disabled, a.btn.disabled { opacity: .45; cursor: default; pointer-events: none; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 button.primary { background: var(--blue); color: var(--color-white, #fff); border-color: var(--blue); }
 button.primary:hover:not(:disabled) { background: var(--blue); filter: brightness(1.08); }
 button.confirm { background: var(--orange); color: var(--color-white, #fff); border-color: var(--orange); }
+button.small { font-size: 12px; padding: 0 8px; }
 code { font-family: var(--mono); font-size: var(--text-code-inline, 12px); background: var(--subtle); padding: 0 4px; border-radius: 4px; }
 
 header.top { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex: none; }
@@ -54,28 +56,39 @@ header.top h1 { margin: 0; font-size: var(--text-title-small, 16px); font-weight
 .banner { margin: 8px 14px 0; padding: 8px 12px; border-radius: 6px; background: var(--red-muted); color: var(--red); flex: none; }
 .toast { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80%; z-index: 20; }
 .toast.show { opacity: .95; }
-
 .layout { flex: 1; display: flex; min-height: 0; }
 
 /* ---- Inbox list ---- */
-aside { width: 340px; flex: none; border-right: 1px solid var(--border); overflow-y: auto; padding-bottom: 12px; }
-.group > h2 { position: sticky; top: 0; z-index: 1; background: var(--bg); margin: 0; padding: 10px 12px 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); display: flex; gap: 6px; align-items: center; cursor: default; }
+aside { width: var(--list-w); min-width: 320px; max-width: 75%; flex: none; overflow-y: auto; padding-bottom: 12px; }
+.split { width: 5px; flex: none; cursor: col-resize; border-left: 1px solid var(--border); }
+.split:hover, .split.drag { background: var(--blue-muted); }
+.group > h2 { position: sticky; top: 0; z-index: 2; background: var(--bg); margin: 0; padding: 10px 14px 6px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); display: flex; gap: 6px; align-items: center; border-bottom: 1px solid var(--border); }
 .group > h2 .n { font-weight: 400; }
+.group > h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; }
 .group.collapsible > h2 { cursor: pointer; }
-.group .empty { color: var(--muted); font-size: 12px; padding: 2px 12px 6px; }
-.row { display: grid; grid-template-columns: 10px 44px 1fr auto; gap: 6px; align-items: center; padding: 5px 12px; cursor: pointer; border-left: 3px solid transparent; }
+.group .empty { color: var(--muted); font-size: 12px; padding: 6px 14px; }
+.row { padding: 9px 14px 9px 11px; cursor: pointer; border-left: 3px solid transparent; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; }
 .row:hover { background: var(--subtle); }
 .row.sel { background: var(--blue-muted); border-left-color: var(--blue); }
-.row .num { color: var(--muted); font-size: 12px; font-family: var(--mono); }
-.row .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
-.row .glyph { font-size: 12px; color: var(--muted); white-space: nowrap; }
-.row .sub { grid-column: 3 / 5; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -3px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--border); }
+.row .line1 { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.row .num { color: var(--muted); font-size: 12px; font-family: var(--mono); flex: none; }
+.row .t { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.row .act { grid-row: 1 / 3; grid-column: 2; align-self: start; }
+.row .facts { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.row .sum { grid-column: 1 / 3; font-size: 12.5px; color: var(--fg); }
+.row .sum.fallback { color: var(--muted); }
+.row .nxt { grid-column: 1 / 3; font-size: 12px; padding: 2px 7px; border-radius: 4px; background: var(--subtle); justify-self: start; }
+.row .nxt.you { background: var(--orange-muted); }
+.row .nxt.agent { background: var(--purple-muted); }
+.row .nxt b { font-weight: 600; }
+.row .ag { grid-column: 1 / 3; font-size: 12px; display: flex; gap: 6px; align-items: center; color: var(--fg); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--border); flex: none; }
 .dot.passing { background: var(--green); } .dot.failing { background: var(--red); } .dot.pending { background: var(--yellow); }
+.rv-ok { color: var(--green); } .rv-bad { color: var(--red); }
 
 /* ---- Workspace ---- */
 .ws { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.ws-head { padding: 12px 18px 10px; border-bottom: 1px solid var(--border); flex: none; display: flex; flex-direction: column; gap: 6px; }
+.ws-head { padding: 12px 18px 0; border-bottom: 1px solid var(--border); flex: none; display: flex; flex-direction: column; gap: 7px; }
 .ws-head h2 { margin: 0; font-size: var(--text-title-small, 17px); line-height: 24px; font-weight: 600; }
 .ws-head h2 a { color: var(--muted); font-weight: 400; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
@@ -87,34 +100,61 @@ aside { width: 340px; flex: none; border-right: 1px solid var(--border); overflo
 .pill.purple { background: var(--purple-muted); color: var(--purple); border-color: transparent; }
 .pill.orange { background: var(--orange-muted); color: var(--orange); border-color: transparent; }
 .avatar { width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; }
-.next { padding: 6px 10px; border-radius: 6px; background: var(--subtle); font-size: 13px; }
-.next.you { background: var(--orange-muted); }
-.next.agent { background: var(--purple-muted); }
-.next b { font-weight: 600; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; position: relative; align-items: center; }
 .menu { position: absolute; top: 26px; z-index: 5; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); display: flex; flex-direction: column; padding: 4px; min-width: 170px; }
 .menu button { border: 0; text-align: left; }
+.tabs { display: flex; gap: 2px; margin-top: 2px; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 12px; color: var(--muted); background: none; }
+.tabs button.on { color: var(--fg); border-bottom-color: var(--orange); font-weight: 600; }
+.tabs .n { font-size: 11px; background: var(--subtle); border-radius: 10px; padding: 0 6px; margin-left: 4px; font-weight: 400; }
 
-.scroll { flex: 1; overflow-y: auto; padding: 10px 18px 16px; display: flex; flex-direction: column; gap: 10px; }
+.scroll { flex: 1; overflow-y: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+.card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+.card > h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.card > h3 .right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.summary { font-size: 15px; line-height: 22px; }
+.summary.fallback { color: var(--muted); font-size: 14px; }
+.steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.steps li { display: flex; gap: 8px; }
+.steps li::before { content: "☐"; color: var(--muted); }
+.steps b { font-weight: 600; }
+.grid { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; font-size: 13px; }
+.grid dt { color: var(--muted); }
+.grid dd { margin: 0; }
 details.panel { border: 1px solid var(--border); border-radius: 8px; }
-details.panel > summary { padding: 6px 10px; cursor: pointer; font-size: 13px; font-weight: 600; list-style: none; display: flex; gap: 6px; align-items: center; }
-details.panel > summary::before { content: "▸"; color: var(--muted); }
+details.panel > summary { padding: 8px 14px; cursor: pointer; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); list-style: none; display: flex; gap: 6px; align-items: center; }
+details.panel > summary::before { content: "▸"; }
 details.panel[open] > summary::before { content: "▾"; }
-details.panel > summary .muted { font-weight: 400; color: var(--muted); }
-details.panel > .body { padding: 0 12px 10px; }
-.timeline { margin: 0; padding: 0; list-style: none; font-size: 12px; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+details.panel > summary .muted { font-weight: 400; text-transform: none; letter-spacing: 0; }
+details.panel > .body { padding: 0 14px 12px; }
+.timeline { margin: 0; padding: 0; list-style: none; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
 .timeline time { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-right: 8px; }
-.timeline .src { color: var(--muted); }
+.src { color: var(--muted); font-size: 12px; }
 
 .md { overflow-wrap: anywhere; }
-.md p { margin: 0 0 6px; } .md p:last-child { margin-bottom: 0; }
-.md ul, .md ol { margin: 0 0 6px; padding-left: 20px; }
-.md pre { background: var(--subtle); border-radius: 6px; padding: 6px 8px; overflow-x: auto; margin: 0 0 6px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+.md p { margin: 0 0 8px; } .md > :last-child { margin-bottom: 0; }
+.md ul, .md ol { margin: 0 0 8px; padding-left: 22px; }
+.md pre { background: var(--subtle); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 0 0 8px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
 .md pre code { background: none; padding: 0; }
-.md .h { font-weight: 600; margin: 6px 0 4px; }
+.md .h { font-weight: 600; margin: 10px 0 4px; }
+.md .h1 { font-size: 16px; } .md .h2 { font-size: 15px; }
+.md table { border-collapse: collapse; margin: 0 0 8px; font-size: 13px; }
+.md th, .md td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; }
+.md blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); }
+
+.conv { display: flex; flex-direction: column; gap: 10px; }
+.conv details { border: 1px solid var(--border); border-radius: 8px; }
+.conv summary { padding: 6px 12px; cursor: pointer; font-size: 13px; display: flex; gap: 8px; align-items: center; list-style: none; }
+.conv summary .when { color: var(--muted); font-size: 12px; margin-left: auto; }
+.conv .body { padding: 2px 12px 10px; font-size: 13px; }
+.files { width: 100%; border-collapse: collapse; font-size: 13px; }
+.files td { padding: 3px 6px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.files td.path { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+.files .add { color: var(--green); text-align: right; white-space: nowrap; } .files .del { color: var(--red); text-align: right; white-space: nowrap; }
+.bar { display: inline-flex; width: 60px; height: 8px; border-radius: 2px; overflow: hidden; background: var(--subtle); vertical-align: middle; }
+.bar i { display: block; height: 100%; } .bar .a { background: var(--green); } .bar .d { background: var(--red); }
 
 .thread { display: flex; flex-direction: column; gap: 8px; }
-.thread .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
 .msg { max-width: 82%; padding: 7px 11px; border-radius: 10px; font-size: 13px; }
 .msg.user { align-self: flex-end; background: var(--blue-muted); border-bottom-right-radius: 3px; }
 .msg.agent { align-self: flex-start; background: var(--subtle); border: 1px solid var(--border); border-bottom-left-radius: 3px; }
@@ -124,7 +164,6 @@ details.panel > .body { padding: 0 12px 10px; }
 .thinking span:nth-child(2) { animation-delay: .2s; } .thinking span:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
 .hint { color: var(--muted); font-size: 12px; }
-
 .composer { flex: none; border-top: 1px solid var(--border); padding: 10px 18px; display: flex; gap: 8px; align-items: flex-end; }
 .composer textarea { flex: 1; resize: none; min-height: 38px; max-height: 160px; font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 .composer textarea:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
@@ -137,11 +176,13 @@ details.panel > .body { padding: 0 12px 10px; }
   <span class="badge" id="youCount" hidden></span>
   <span class="meta" id="meta">Loading…</span>
   <span class="spacer"></span>
+  <button id="sumAll" title="Ask the agent for plain-words summaries of the PRs that need you or an agent">✨ Summarize all needing me</button>
   <button id="refresh" title="Re-read pull requests from GitHub">↻ Refresh</button>
 </header>
 <div id="banner" class="banner" hidden></div>
 <div class="layout">
   <aside id="list" aria-label="Pull requests"></aside>
+  <div class="split" id="split" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
   <section class="ws" aria-label="Pull request workspace">
     <div class="ws-head" id="wsHead" hidden></div>
     <div class="scroll" id="wsScroll"><div class="empty-ws">Pick a pull request on the left.</div></div>
@@ -162,64 +203,82 @@ const store = { get: (k) => { try { return localStorage.getItem(k); } catch { re
 const SEL_KEY = "prb-sel:" + REPO;
 let snap = null;
 let selected = Number(store.get(SEL_KEY)) || null;
+let tab = store.get("prb-tab") || "overview";
 let showMerged = store.get("prb-show-merged") === "1";
 let openMenu = false;
 let armed = null;
-let lastRenderedThread = "";
+let lastKey = "";
 const drafts = new Map();
+const details = new Map(); // pr -> { data } | { error } | { loading }
+
+const listW = Number(store.get("prb-list-w"));
+if (listW) document.documentElement.style.setProperty("--list-w", listW + "px");
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ago = (iso) => {
   if (!iso) return "";
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return "just now";
-  if (s < 3600) return Math.round(s / 60) + "m ago";
-  if (s < 86400) return Math.round(s / 3600) + "h ago";
-  return Math.round(s / 86400) + "d ago";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  if (s < 86400) return Math.round(s / 3600) + "h";
+  return Math.round(s / 86400) + "d";
 };
-const when = (iso) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const when = (iso) => iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
 
-// Minimal, safe Markdown: everything is escaped first; only code, bold, italics,
-// http(s) links, lists and headings are turned back into markup.
+// Safe Markdown: everything is escaped first; only code, bold, italics, http(s)
+// links, lists, headings, quotes and pipe tables become markup.
 function md(src) {
   const blocks = [];
-  let text = String(src ?? "").replace(/\r\n/g, "\n").replace(/```[^\n]*\n([\s\S]*?)(```|$)/g, (_, code) => {
+  const text = String(src ?? "").replace(/\r\n/g, "\n").replace(/```[^\n]*\n([\s\S]*?)(```|$)/g, (_, code) => {
     blocks.push(`<pre><code>${esc(code.replace(/\n$/, ""))}</code></pre>`);
-    return `\u0000${blocks.length - 1}\u0000`;
+    return `\n\u0000${blocks.length - 1}\u0000\n`;
   });
   const inline = (s) => {
     const codes = [];
     s = esc(s).replace(/`([^`]+)`/g, (_, c) => { codes.push(`<code>${c}</code>`); return `\u0001${codes.length - 1}\u0001`; });
-    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`)
+    s = s.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">🖼 ${t || "image"}</a>`)
+         .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`)
          .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
          .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
          .replace(/(^|[\s(])_([^_\s][^_]*)_/g, "$1<em>$2</em>");
     return s.replace(/\u0001(\d+)\u0001/g, (_, i) => codes[i]);
   };
   const out = [];
-  let list = null;
-  let para = [];
+  let list = null, para = [], table = null, quote = [];
   const flushPara = () => { if (para.length) { out.push(`<p>${para.map(inline).join("<br>")}</p>`); para = []; } };
   const flushList = () => { if (list) { out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i)}</li>`).join("")}</${list.tag}>`); list = null; } };
+  const flushQuote = () => { if (quote.length) { out.push(`<blockquote>${quote.map(inline).join("<br>")}</blockquote>`); quote = []; } };
+  const flushTable = () => {
+    if (!table) return;
+    const rows = table.filter((r) => !/^\s*\|?\s*:?-{2,}/.test(r)).map((r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => inline(c.trim())));
+    out.push(`<table>${rows.map((r, i) => `<tr>${r.map((c) => i === 0 ? `<th>${c}</th>` : `<td>${c}</td>`).join("")}</tr>`).join("")}</table>`);
+    table = null;
+  };
+  const flushAll = () => { flushPara(); flushList(); flushQuote(); flushTable(); };
   for (const line of text.split("\n")) {
     const block = line.match(/^\u0000(\d+)\u0000$/);
-    const ul = line.match(/^\s*[-*+]\s+(.*)$/);
+    const ul = line.match(/^\s*[-*+]\s+(?:\[[ xX]\]\s+)?(.*)$/);
     const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
-    const h = line.match(/^#{1,6}\s+(.*)$/);
-    if (block) { flushPara(); flushList(); out.push(blocks[block[1]]); }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (block) { flushAll(); out.push(blocks[block[1]]); }
+    else if (/^\s*\|/.test(line)) { flushPara(); flushList(); flushQuote(); (table ??= []).push(line); }
+    else if (/^\s*>/.test(line)) { flushPara(); flushList(); flushTable(); quote.push(line.replace(/^\s*>\s?/, "")); }
     else if (ul || ol) {
-      flushPara();
+      flushPara(); flushQuote(); flushTable();
       const tag = ul ? "ul" : "ol";
       if (list && list.tag !== tag) flushList();
       list ??= { tag, items: [] };
       list.items.push((ul || ol)[1]);
-    } else if (h) { flushPara(); flushList(); out.push(`<div class="h">${inline(h[1])}</div>`); }
-    else if (!line.trim()) { flushPara(); flushList(); }
-    else { flushList(); para.push(line); }
+    } else if (h) { flushAll(); out.push(`<div class="h h${Math.min(h[1].length, 3)}">${inline(h[2])}</div>`); }
+    else if (!line.trim()) flushAll();
+    else { flushList(); flushQuote(); flushTable(); para.push(line); }
   }
-  flushPara(); flushList();
-  return out.join("").replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[i]);
+  flushAll();
+  return out.join("");
 }
+// PR descriptions: drop template comments and raw HTML tags before rendering.
+const mdInline = (s) => md(s).replace(/^<p>|<\/p>$/g, "");
+const cleanBody = (s) => String(s || "").replace(/<!--[\s\S]*?-->/g, "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/?(details|summary|sub|sup|p|div|span|b|i|em|strong|kbd|img|a)\b[^>]*>/gi, "").replace(/\n{3,}/g, "\n\n").trim();
 
 function toast(text) {
   const t = $("toast");
@@ -236,132 +295,214 @@ async function post(path, body) {
   return data;
 }
 
+const DONE_TOAST = { review: "Asked the agent for a review", post: "Asked the agent to post the draft", ship: "Asked the agent to ship it", summarize: "Asked the agent for a summary", "arch-review": "Asked the agent to open the architecture review", "open-chat": "Asked the agent to open the chat", reset: "Agent status reset" };
 async function act(pr, action, extra = {}) {
-  try {
-    await post("/api/action", { pr, action, ...extra });
-    toast({ review: "Asked the agent for a review", post: "Asked the agent to post the draft", ship: "Asked the agent to ship it", "open-chat": "Asked the agent to open the chat", reset: "Agent status reset" }[action] || "Done");
-  } catch (e) { toast(e.message); }
+  try { await post("/api/action", { pr, action, ...extra }); toast(DONE_TOAST[action] || "Done"); }
+  catch (e) { toast(e.message); }
 }
 
 const CI = { passing: ["green", "✓ CI passing"], failing: ["red", "✗ CI failing"], pending: ["yellow", "● CI running"], none: ["", "No CI"] };
-const REVIEW = { APPROVED: ["green", "✓"], CHANGES_REQUESTED: ["red", "✗"], COMMENTED: ["", "💬"], DISMISSED: ["", "–"] };
+const REVIEW = { APPROVED: ["green", "✓", "approved"], CHANGES_REQUESTED: ["red", "✗", "requested changes"], COMMENTED: ["", "💬", "commented"], DISMISSED: ["", "–", "dismissed"] };
 const AGENT = { running: ["purple", "Agent working"], waiting: ["orange", "Needs your input"], waiting_on_others: ["", "Waiting on others"], draft_ready: ["orange", "Draft ready"], done: ["green", "Done"], failed: ["red", "Failed"] };
-const GLYPH = { running: "⚙", waiting: "❓", waiting_on_others: "⏳", draft_ready: "📝", done: "✓", failed: "⚠" };
+const RISK = { low: ["green", "Low risk"], medium: ["yellow", "Medium risk"], high: ["red", "High risk"] };
 
 const cardsOf = () => snap?.cards || [];
 const current = () => cardsOf().find((c) => c.number === selected) || null;
+const isBusy = (c) => c.local?.agent?.status === "running";
+const draftOf = (c) => (c.local?.draft && !c.local.draft.postedAt) ? c.local.draft : null;
+const canShip = (c) => c.group !== "merged" && !c.queue && c.reviewDecision === "APPROVED" && c.ci?.state !== "failing" && !isBusy(c);
 
-function waitingHtml(text) {
+function nextHtml(text) {
   const i = text.indexOf(":");
   return i > 0 ? `<b>${esc(text.slice(0, i))}</b>${esc(text.slice(i))}` : esc(text);
 }
+function reviewSummary(c) {
+  const ok = (c.reviewers || []).filter((r) => r.state === "APPROVED").map((r) => r.login);
+  const bad = (c.reviewers || []).filter((r) => r.state === "CHANGES_REQUESTED").map((r) => r.login);
+  const parts = [];
+  if (ok.length) parts.push(`<span class="rv-ok">✓ ${esc(ok.join(", "))}</span>`);
+  if (bad.length) parts.push(`<span class="rv-bad">✗ ${esc(bad.join(", "))}</span>`);
+  if (!parts.length && c.requested?.length) parts.push(`⏳ ${esc(c.requested.join(", "))}`);
+  const commented = (c.reviewers || []).filter((r) => r.state === "COMMENTED").map((r) => r.login);
+  if (!parts.length && commented.length) parts.push(`💬 ${esc(commented.join(", "))}`);
+  if (!parts.length && c.group !== "merged") parts.push("no reviews yet");
+  return parts.join(" ");
+}
 
-// ---- Left: inbox list ----
+// The one button that fits the PR's stage.
+function primaryAction(c) {
+  const local = c.local || {};
+  if (c.group === "merged") return null;
+  if (isBusy(c)) return { act: "select", label: "View" };
+  if (draftOf(c)) return { act: "row-post", label: "Post…", cls: "primary" };
+  if (local.agent?.status === "waiting") return { act: "row-answer", label: "Answer", cls: "primary" };
+  if (c.shippable && canShip(c)) return armed?.key === c.number + ":ship" ? { act: "ship", label: "Click again", cls: "confirm" } : { act: "ship", label: "Ship", cls: "primary" };
+  if (c.group === "you" && !c.isDraft) return { act: "review", label: "Review" };
+  if (!local.summary && !local.summarizing) return { act: "summarize", label: "✨ Summarize" };
+  return { act: "select", label: "View" };
+}
+
+// ---- Left: inbox ----
+function rowHtml(c) {
+  const local = c.local || {};
+  const s = local.summary;
+  const pa = primaryAction(c);
+  const agent = local.agent;
+  const nextClass = c.who === "you" ? "you" : c.who === "agent" ? "agent" : "";
+  const sumText = s ? s.text : local.summarizing ? "✨ Summarizing…" : (c.fallbackSummary || "No description.");
+  const ag = agent ? (() => { const [k, l] = AGENT[agent.status] || ["", agent.status]; return `<div class="ag"><span class="pill ${k}">${l}</span><span>${esc(agent.outcome || "")}</span></div>`; })() : local.pending ? `<div class="ag"><span class="pill purple">💬 Agent replying…</span></div>` : "";
+  return `<div class="row${c.number === selected ? " sel" : ""}" data-act="select" data-pr="${c.number}" role="button" tabindex="0">
+    <div class="line1"><span class="num">#${c.number}</span><span class="t" title="${esc(c.title)}">${esc(c.title)}</span></div>
+    ${pa ? `<button class="small act ${pa.cls || ""}" data-act="${pa.act}" data-pr="${c.number}">${esc(pa.label)}</button>` : `<a class="btn small act" href="${esc(c.url)}" target="_blank" rel="noopener">GitHub ↗</a>`}
+    <div class="facts"><span class="dot ${esc(c.ci?.state || "")}" title="${esc(c.ci?.text || "")}"></span>${esc(c.author)} · <span title="${esc(c.size?.text)}">${esc(c.size?.label)} ${esc(c.size?.text?.split(",")[0] || "")}</span> · ${c.group === "merged" ? "merged " + ago(c.mergedAt) + " ago" : "opened " + ago(c.createdAt) + " ago"}${c.isDraft ? " · draft" : ""} · ${reviewSummary(c)}${s?.risk ? ` <span class="pill ${RISK[s.risk][0]}">${RISK[s.risk][1]}</span>` : ""}</div>
+    <div class="sum${s ? "" : " fallback"}">📝 ${s ? mdInline(sumText) : esc(sumText)}</div>
+    ${c.group === "merged" ? "" : `<div class="nxt ${nextClass}">⏭ ${nextHtml(c.waitingOn)}</div>`}
+    ${ag}
+  </div>`;
+}
+
 function renderList() {
   const cards = cardsOf();
+  const scroll = $("list").scrollTop;
   $("list").innerHTML = snap.groups.map((g) => {
     const rows = cards.filter((c) => c.group === g.id);
     const collapsible = g.id === "merged";
     const collapsed = collapsible && !showMerged;
-    const head = `<h2 ${collapsible ? `data-act="toggle-merged" role="button" tabindex="0" aria-expanded="${!collapsed}"` : ""} title="${esc(g.hint)}">${collapsible ? (collapsed ? "▸ " : "▾ ") : ""}${esc(g.title)} <span class="n">${rows.length}</span></h2>`;
+    const head = `<h2 ${collapsible ? `data-act="toggle-merged" role="button" tabindex="0" aria-expanded="${!collapsed}"` : ""} title="${esc(g.hint)}">${collapsible ? (collapsed ? "▸ " : "▾ ") : ""}${esc(g.title)} <span class="n">${rows.length}</span><span class="right">${esc(g.hint)}</span></h2>`;
     if (collapsed) return `<div class="group collapsible">${head}</div>`;
-    const body = rows.map((c) => {
-      const local = c.local || {};
-      const glyph = local.pending ? "💬…" : local.agent ? (GLYPH[local.agent.status] || "") : local.thread?.length ? "💬" : "";
-      return `<div class="row${c.number === selected ? " sel" : ""}" data-act="select" data-pr="${c.number}" role="button" tabindex="0" title="${esc(c.title)}">
-        <span class="dot ${esc(c.ci?.state || "")}" title="${esc(c.ci?.text || "")}"></span>
-        <span class="num">#${c.number}</span>
-        <span class="t">${esc(c.title)}</span>
-        <span class="glyph">${glyph}</span>
-        <span class="sub">${esc(c.waitingOn)}</span>
-      </div>`;
-    }).join("") || `<div class="empty">Nothing here</div>`;
-    return `<div class="group${collapsible ? " collapsible" : ""}">${head}${body}</div>`;
+    return `<div class="group${collapsible ? " collapsible" : ""}">${head}${rows.map(rowHtml).join("") || `<div class="empty">Nothing here</div>`}</div>`;
   }).join("");
+  $("list").scrollTop = scroll;
 }
 
 // ---- Right: workspace ----
 function renderHead(c) {
   const local = c.local || {};
-  const agent = local.agent;
-  const draft = local.draft && !local.draft.postedAt ? local.draft : null;
+  const draft = draftOf(c);
   const sess = local.session;
-  const busy = agent?.status === "running";
+  const busy = isBusy(c);
   const isOpen = c.group !== "merged";
   const [ciColor, ciLabel] = CI[c.ci?.state] || CI.none;
-  const ciTip = c.ci?.failing?.length ? "Failing: " + c.ci.failing.join(", ") : c.ci?.pending?.length ? "Running: " + c.ci.pending.join(", ") : (c.ci?.text || "");
-  const reviewers = (c.reviewers || []).map((r) => { const [k, i] = REVIEW[r.state] || ["", "•"]; return `<span class="pill ${k}" title="${esc(r.state.toLowerCase().replace("_", " "))}">${i} ${esc(r.login)}</span>`; }).join("");
-  const requested = (c.requested || []).map((r) => `<span class="pill" title="Review requested">⏳ ${esc(r)}</span>`).join("");
-  const canShip = isOpen && !c.queue && c.reviewDecision === "APPROVED" && c.ci?.state !== "failing" && !busy;
   const shipTip = !isOpen ? "Already merged" : c.queue ? "Already in the merge queue" : c.reviewDecision !== "APPROVED" ? "Needs an approval first" : c.ci?.state === "failing" ? "Checks are failing" : "Send to the merge queue";
   const postArmed = armed?.key?.startsWith(c.number + ":post:");
   const shipArmed = armed?.key === c.number + ":ship";
-  const nextClass = c.who === "you" ? "you" : c.who === "agent" ? "agent" : "";
-  const agentLine = agent ? (() => { const [k, l] = AGENT[agent.status] || ["", agent.status]; return `<span class="pill ${k}">${l}</span> ${esc(agent.outcome || "")} <span class="hint">· ${ago(agent.updatedAt)}</span>`; })() : "";
-
+  const det = details.get(c.number)?.data;
+  const counts = { conversation: det ? det.conversation.length : "", files: det ? det.files.length : c.size?.text?.match(/(\d+) files/)?.[1] || "", thread: (local.thread || []).filter((m) => m.role !== "system").length || "" };
+  const TABS = [["overview", "Overview"], ["conversation", "Conversation"], ["files", "Files"], ["thread", "Thread"], ["timeline", "Timeline"]];
   $("wsHead").innerHTML = `
-    <h2>${esc(c.title)} <a href="${esc(c.url)}" target="_blank" rel="noopener">#${c.number}</a></h2>
+    <h2>${esc(c.title)} <a href="${esc(c.url)}" target="_blank" rel="noopener">#${c.number} ↗</a></h2>
     <div class="chips">
       <img class="avatar" alt="" src="https://github.com/${encodeURIComponent(c.author)}.png?size=32" onerror="this.remove()"> ${esc(c.author)}
       <span class="pill" title="${esc(c.size?.text)}">${esc(c.size?.label)} · ${esc(c.size?.text)}</span>
-      <span class="pill ${ciColor}" title="${esc(ciTip)}">${ciLabel}</span>
+      ${isOpen ? `<span class="pill ${ciColor}">${ciLabel}</span>` : `<span class="pill green">Merged</span>`}
       ${c.isDraft ? `<span class="pill">Draft PR</span>` : ""}
       ${c.queue ? `<span class="pill blue">Merge queue #${c.queue.position}</span>` : ""}
-      ${reviewers}${requested}
-      ${(c.labels || []).map((l) => `<span class="pill">${esc(l)}</span>`).join("")}
+      ${local.summary?.risk ? `<span class="pill ${RISK[local.summary.risk][0]}">${RISK[local.summary.risk][1]}</span>` : ""}
     </div>
-    <div class="next ${nextClass}">⏭ ${waitingHtml(c.waitingOn)}</div>
-    ${agentLine ? `<div class="chips">${agentLine}${sess ? ` · 💬 ${esc(sess.name || sess.id)}` : ""}</div>` : sess ? `<div class="chips">💬 Session: ${esc(sess.name || sess.id)}</div>` : ""}
-    ${isOpen ? `<div class="actions">
-      <button data-act="review" ${busy ? "disabled" : ""} title="Ask an agent to draft a review with the pr-review skill. Nothing is posted.">${local.draft ? "Re-review" : "Review"}</button>
+    <div class="actions">
+      ${isOpen ? `<button data-act="review" ${busy ? "disabled" : ""} title="Ask an agent to draft a review with the pr-review skill. Nothing is posted.">${local.draft ? "Re-review" : "Review"}</button>
       <button data-act="post-menu" class="${postArmed ? "confirm" : draft ? "primary" : ""}" ${draft && !busy ? "" : "disabled"} title="${draft ? "Post the draft review to GitHub" : "Run Review first; posting needs a draft"}">${postArmed ? "Click again: " + esc(armed.label) : "Post review ▾"}</button>
-      <button data-act="ship" class="${shipArmed ? "confirm" : ""}" ${canShip ? "" : "disabled"} title="${esc(shipTip)}">${shipArmed ? "Click again to ship" : "Ship"}</button>
-      ${sess ? `<a class="btn" href="ghapp://sessions/${encodeURIComponent(sess.id)}" title="Open the linked session's full chat">Open full chat</a><button data-act="open-chat" title="If Open full chat does nothing, ask the agent to switch to it">↪</button>` : `<a class="btn disabled" title="No session linked yet">Open full chat</a>`}
-      ${agent ? `<button data-act="reset" title="Clear the agent status if it's stuck">Reset agent status</button>` : ""}
+      <button data-act="ship" class="${shipArmed ? "confirm" : ""}" ${canShip(c) ? "" : "disabled"} title="${esc(shipTip)}">${shipArmed ? "Click again to ship" : "Ship"}</button>` : ""}
+      <button data-act="summarize" ${local.summarizing ? "disabled" : ""} title="Ask the agent for a plain-words summary and next steps">${local.summarizing ? "✨ Summarizing…" : "✨ Summarize"}</button>
+      <button data-act="arch-review" title="Open the PR architecture review canvas for this PR in its own panel">🏛 Architecture review</button>
+      ${sess ? `<a class="btn" href="ghapp://sessions/${encodeURIComponent(sess.id)}" title="Open the linked session's full chat">Open full chat</a><button data-act="open-chat" title="If Open full chat does nothing, ask the agent to switch to it">↪</button>` : ""}
+      ${local.agent ? `<button data-act="reset" title="Clear the agent status if it's stuck">Reset status</button>` : ""}
       ${openMenu ? `<div class="menu" role="menu">
         <button data-act="post" data-event="approve" role="menuitem">✓ Approve</button>
         <button data-act="post" data-event="request_changes" role="menuitem">✗ Request changes</button>
         <button data-act="post" data-event="comment" role="menuitem">💬 Comment</button>
       </div>` : ""}
-    </div>` : ""}`;
+    </div>
+    <div class="tabs" role="tablist">${TABS.map(([id, label]) => `<button role="tab" aria-selected="${tab === id}" class="${tab === id ? "on" : ""}" data-act="tab" data-tab="${id}">${label}${counts[id] !== undefined && counts[id] !== "" ? `<span class="n">${counts[id]}</span>` : ""}</button>`).join("")}</div>`;
 }
 
-function renderScroll(c, force) {
+function overviewHtml(c) {
   const local = c.local || {};
-  const thread = local.thread || [];
-  const key = JSON.stringify([c.number, thread.length, thread.at(-1)?.id, local.pending?.id, local.draft?.attachedAt, (local.history || []).length, (c.events || []).length, drafts.has(draftKey(c))]);
-  const sc = $("wsScroll");
-  if (!force && key === lastRenderedThread) return;
-  lastRenderedThread = key;
-  const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40;
-  const openState = Object.fromEntries([...sc.querySelectorAll("details[data-k]")].map((d) => [d.dataset.k, d.open]));
-
-  const timeline = [...(c.events || []), ...(local.history || []).map((h) => ({ ...h, source: "board" }))].sort((a, b) => a.at.localeCompare(b.at));
+  const s = local.summary;
+  const steps = s?.nextSteps?.length ? s.nextSteps : [c.waitingOn];  const agent = local.agent;
+  const failing = c.ci?.failing?.length ? `: ${c.ci.failing.join(", ")}` : c.ci?.pending?.length ? `: ${c.ci.pending.length} running` : "";
+  const reviews = (c.reviewers || []).map((r) => { const [k, i, w] = REVIEW[r.state] || ["", "•", r.state]; return `<span class="pill ${k}">${i} ${esc(r.login)} ${w}</span>`; }).join(" ") + (c.requested?.length ? ` <span class="pill">⏳ requested: ${esc(c.requested.join(", "))}</span>` : "") || "No reviews yet";
   const draft = local.draft;
   const d = draft ? drafts.get(draftKey(c)) : null;
-  const draftHtml = draft ? `<details class="panel" data-k="draft" ${openState.draft ?? !draft.postedAt ? "open" : ""}>
-      <summary>Draft review <span class="muted">· recommends ${esc((draft.recommendation || "").replace("_", " "))}${draft.postedAt ? " · posted" : ""}</span></summary>
-      <div class="body">${d ? (d.error ? `<div class="hint">${esc(d.error)}</div>` : `<div class="md">${md(d.text)}</div>`) : `<div class="hint">Loading…</div>`}
-        <div class="hint" style="margin-top:6px" title="${esc(draft.path)}">${esc(draft.path.split(/[\\/]/).pop())}</div></div>
-    </details>` : "";
-  const timelineHtml = `<details class="panel" data-k="timeline" ${openState.timeline ? "open" : ""}>
-      <summary>Timeline <span class="muted">· ${timeline.length} event${timeline.length === 1 ? "" : "s"}</span></summary>
-      <div class="body"><ul class="timeline">${timeline.map((e) => `<li><time>${esc(when(e.at))}</time>${esc(e.text)}${e.source === "github" ? ` <span class="src">· GitHub</span>` : ""}</li>`).join("")}</ul></div>
-    </details>`;
-  const msgs = thread.map((m) => m.role === "system"
+  return `
+    <div class="card"><h3>What this PR does ${s ? `<span class="right">✨ agent summary · ${esc(ago(s.at))} ago</span>` : `<span class="right">from the description</span>`}</h3>
+      <div class="summary${s ? "" : " fallback"}">${s ? mdInline(s.text) : esc(local.summarizing ? "✨ Summarizing…" : (c.fallbackSummary || "No description."))}</div>
+      ${s || local.summarizing ? "" : `<div style="margin-top:8px"><button data-act="summarize">✨ Get a plain-words summary and next steps</button></div>`}
+    </div>
+    ${c.group === "merged" ? "" : `<div class="card"><h3>Next steps</h3><ul class="steps">${steps.map((t) => `<li><span>${nextHtml(t)}</span></li>`).join("")}</ul></div>`}
+    <div class="card"><h3>Status</h3><dl class="grid">
+      <dt>Who's next</dt><dd>${c.group === "merged" ? "Nobody: it's merged" : nextHtml(c.waitingOn)}</dd>
+      ${c.group === "merged" ? `<dt>Merged</dt><dd>${esc(when(c.mergedAt))}</dd>` : `<dt>CI</dt><dd>${esc((CI[c.ci?.state] || CI.none)[1])}${esc(failing)}</dd>`}
+      <dt>Reviews</dt><dd>${reviews}</dd>
+      ${c.queue ? `<dt>Merge queue</dt><dd>Position ${c.queue.position}</dd>` : ""}
+      ${agent ? `<dt>Agent</dt><dd><span class="pill ${(AGENT[agent.status] || [""])[0]}">${(AGENT[agent.status] || ["", agent.status])[1]}</span> ${esc(agent.outcome || "")}</dd>` : ""}
+      ${local.session ? `<dt>Session</dt><dd>💬 ${esc(local.session.name || local.session.id)}</dd>` : ""}
+      <dt>Size</dt><dd>${esc(c.size?.label)} · ${esc(c.size?.text)}</dd>
+      <dt>Opened</dt><dd>${esc(when(c.createdAt))} by ${esc(c.author)}</dd>
+      ${c.labels?.length ? `<dt>Labels</dt><dd>${c.labels.map((l) => `<span class="pill">${esc(l)}</span>`).join(" ")}</dd>` : ""}
+    </dl></div>
+    ${draft ? `<details class="panel" data-k="draft" open><summary>Draft review <span class="muted">· recommends ${esc((draft.recommendation || "").replace("_", " "))}${draft.postedAt ? " · posted" : ""}</span></summary>
+      <div class="body">${d ? (d.error ? `<div class="hint">${esc(d.error)}</div>` : `<div class="md">${md(d.text)}</div>`) : `<div class="hint">Loading…</div>`}</div></details>` : ""}
+    <details class="panel" data-k="desc" open><summary>Description</summary><div class="body md">${md(cleanBody(c.description)) || `<span class="hint">No description.</span>`}</div></details>`;
+}
+
+function conversationHtml(c) {
+  const det = details.get(c.number);
+  if (!det || det.loading) return `<div class="hint">Loading the GitHub conversation…</div>`;
+  if (det.error) return `<div class="hint">Couldn't load the conversation: ${esc(det.error)} <button class="small" data-act="reload-detail">Retry</button></div>`;
+  const items = det.data.conversation;
+  if (!items.length) return `<div class="hint">No comments or reviews on GitHub yet.</div>`;
+  return `<div class="conv">${items.map((m) => {
+    const [k, i, w] = m.kind === "review" ? (REVIEW[m.state] || ["", "•", m.state.toLowerCase()]) : ["", "💬", "commented"];
+    const first = cleanBody(m.body).split("\n").find((l) => l.trim()) || "";
+    return `<details ${m.bot ? "" : "open"}><summary><b>${esc(m.author)}</b>${m.bot ? ` <span class="pill">bot</span>` : ""} <span class="pill ${k}">${i} ${esc(w)}</span>${m.bot ? ` <span class="hint">${esc(first.replace(/[#*`>]/g, "").slice(0, 80))}</span>` : ""}<span class="when">${esc(when(m.at))}</span></summary>
+      <div class="body md">${m.body ? md(cleanBody(m.body)) : `<span class="hint">No comment.</span>`}</div></details>`;
+  }).join("")}</div>`;
+}
+
+function filesHtml(c) {
+  const det = details.get(c.number);
+  if (!det || det.loading) return `<div class="hint">Loading files…</div>`;
+  if (det.error) return `<div class="hint">Couldn't load files: ${esc(det.error)}</div>`;
+  const files = det.data.files;
+  const max = Math.max(1, ...files.map((f) => f.additions + f.deletions));
+  return `<div class="hint">${files.length} files · ${esc(c.size?.text?.split(",")[0] || "")} · largest first</div>
+    <table class="files">${files.map((f) => `<tr><td class="path">${esc(f.path)}</td><td class="add">+${f.additions}</td><td class="del">−${f.deletions}</td>
+      <td><span class="bar"><i class="a" style="width:${(f.additions / max) * 60}px"></i><i class="d" style="width:${(f.deletions / max) * 60}px"></i></span></td></tr>`).join("")}</table>`;
+}
+
+function threadHtml(c) {
+  const local = c.local || {};
+  const msgs = (local.thread || []).map((m) => m.role === "system"
     ? `<div class="sys">${esc(m.text)} · ${esc(when(m.at))}</div>`
     : `<div class="msg ${m.role === "user" ? "user" : "agent"}"><div class="who">${m.role === "user" ? "You" : esc(m.from || "Agent")} · ${esc(when(m.at))}</div><div class="md">${md(m.text)}</div></div>`).join("");
   const pending = local.pending ? (() => {
     const mins = (Date.now() - new Date(local.pending.at).getTime()) / 60000;
     return `<div class="msg agent"><div class="who">Agent</div><span class="thinking"><span>●</span><span>●</span><span>●</span></span>${mins > 5 ? ` <span class="hint">No reply yet. The agent may be busy; the answer will show up here.</span>` : ""}</div>`;
   })() : "";
-  sc.innerHTML = `${draftHtml}${timelineHtml}
-    <div class="thread"><div class="label">Thread</div>
-      ${msgs || (pending ? "" : `<div class="hint">Ask anything about this PR, for example "What's still blocking this?" or "Address the nit about naming." The agent answers here.</div>`)}
-      ${pending}
-    </div>`;
-  if (force || atBottom) sc.scrollTop = sc.scrollHeight;
-  if (draft && !d) loadDraft(c);
+  return `<div class="thread">${msgs || (pending ? "" : `<div class="hint">Ask anything about this PR, for example "What's still blocking this?", "Explain the risky part in simple terms" or "Draw how the new pieces fit together." The agent answers here.</div>`)}${pending}</div>`;
+}
+
+function timelineHtml(c) {
+  const t = [...(c.events || []), ...(c.local?.history || []).map((h) => ({ ...h, source: "board" }))].sort((a, b) => a.at.localeCompare(b.at));
+  return t.length ? `<ul class="timeline">${t.map((e) => `<li><time>${esc(when(e.at))}</time>${esc(e.text)}${e.source === "github" ? ` <span class="src">· GitHub</span>` : ""}</li>`).join("")}</ul>` : `<div class="hint">No events yet.</div>`;
+}
+
+function renderScroll(c, force) {
+  const local = c.local || {};
+  const det = details.get(c.number);
+  const key = JSON.stringify([c.number, tab, c.updatedAt, c.waitingOn, local.updatedAt, local.pending?.id, det?.data?.fetchedAt, det?.error, drafts.has(draftKey(c)), (c.local?.thread || []).length]);
+  if (!force && key === lastKey) return;
+  lastKey = key;
+  const sc = $("wsScroll");
+  const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40;
+  const prevTop = sc.scrollTop;
+  const openState = Object.fromEntries([...sc.querySelectorAll("details[data-k]")].map((d) => [d.dataset.k, d.open]));
+  sc.innerHTML = { overview: overviewHtml, conversation: conversationHtml, files: filesHtml, thread: threadHtml, timeline: timelineHtml }[tab](c);
+  for (const d of sc.querySelectorAll("details[data-k]")) if (d.dataset.k in openState) d.open = openState[d.dataset.k];
+  if (tab === "thread" && (force || atBottom)) sc.scrollTop = sc.scrollHeight;
+  else sc.scrollTop = force ? 0 : prevTop;
+  if (local.draft && !drafts.has(draftKey(c))) loadDraft(c);
 }
 
 const draftKey = (c) => c.number + ":" + (c.local?.draft?.attachedAt || "");
@@ -375,26 +516,34 @@ async function loadDraft(c) {
     drafts.set(k, res.ok ? data : { error: data.error || "Couldn't load the draft" });
   } catch (e) { drafts.set(k, { error: e.message }); }
   loadDraft.busy.delete(k);
-  if (current()?.number === c.number) renderScroll(c, false);
+  if (current()?.number === c.number) render();
+}
+
+async function loadDetail(c, { force = false } = {}) {
+  const cur = details.get(c.number);
+  if (cur?.loading) return;
+  if (cur && !force && cur.updatedAt === (c.updatedAt || c.mergedAt)) return;
+  details.set(c.number, { loading: true, updatedAt: c.updatedAt || c.mergedAt });
+  try {
+    const res = await fetch(`/api/detail?repo=${encodeURIComponent(REPO)}&pr=${c.number}`);
+    const data = await res.json();
+    details.set(c.number, res.ok ? { data, updatedAt: c.updatedAt || c.mergedAt } : { error: data.error || "HTTP " + res.status, updatedAt: c.updatedAt || c.mergedAt });
+  } catch (e) { details.set(c.number, { error: e.message }); }
+  if (current()?.number === c.number) render();
 }
 
 function render(force = false) {
   if (!snap) return;
   $("repo").textContent = "PR board · " + snap.repo;
-  const banner = $("banner");
-  banner.hidden = !snap.error;
-  if (snap.error) banner.textContent = snap.error.message;
+  $("banner").hidden = !snap.error;
+  if (snap.error) $("banner").textContent = snap.error.message;
   const cards = cardsOf();
   const mine = cards.filter((c) => c.group === "you").length;
   $("youCount").hidden = !mine;
   $("youCount").textContent = mine + " need you";
   const open = cards.filter((c) => c.group !== "merged").length;
-  $("meta").textContent = snap.loading && !snap.fetchedAt ? "Loading…" : `${open} open · ${cards.length - open} merged in the last 24h · ${snap.loading ? "refreshing…" : "updated " + ago(snap.fetchedAt)}` + (snap.viewer ? ` · you are @${snap.viewer}` : "");
-
-  if (!current() && cards.length) {
-    selected = (cards.find((c) => c.group === "you") || cards[0]).number;
-    force = true;
-  }
+  $("meta").textContent = snap.loading && !snap.fetchedAt ? "Loading…" : `${open} open · ${cards.length - open} merged in the last 24h · ${snap.loading ? "refreshing…" : "updated " + ago(snap.fetchedAt) + (ago(snap.fetchedAt) === "just now" ? "" : " ago")}` + (snap.viewer ? ` · you are @${snap.viewer}` : "");
+  if (!current() && cards.length) { selected = (cards.find((c) => c.group === "you") || cards[0]).number; force = true; }
   renderList();
   const c = current();
   $("wsHead").hidden = !c;
@@ -403,16 +552,17 @@ function render(force = false) {
   $("input").placeholder = `Ask a question or give direction on #${c.number}…`;
   renderHead(c);
   renderScroll(c, force);
+  loadDetail(c);
 }
 
-function select(pr) {
-  if (pr === selected) return;
+function select(pr, { tabTo } = {}) {
+  if (tabTo) { tab = tabTo; store.set("prb-tab", tab); }
+  if (pr === selected && !tabTo) return;
   selected = pr;
   store.set(SEL_KEY, String(pr));
   openMenu = false;
   armed = null;
   render(true);
-  $("input").focus();
 }
 
 function arm(key, label) {
@@ -424,12 +574,18 @@ function arm(key, label) {
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el) { if (openMenu) { openMenu = false; render(); } return; }
+  e.stopPropagation();
   const a = el.dataset.act;
-  const c = current();
-  if (a === "select") return select(Number(el.dataset.pr));
+  const rowPr = el.dataset.pr ? Number(el.dataset.pr) : null;
+  if (a === "select") return select(rowPr ?? selected);
   if (a === "toggle-merged") { showMerged = !showMerged; store.set("prb-show-merged", showMerged ? "1" : "0"); return render(); }
+  if (a === "tab") { tab = el.dataset.tab; store.set("prb-tab", tab); return render(true); }
+  if (a === "row-post") { select(rowPr, { tabTo: "overview" }); openMenu = true; return render(); }
+  if (a === "row-answer") { select(rowPr, { tabTo: "thread" }); return $("input").focus(); }
+  const pr = rowPr ?? selected;
+  const c = cardsOf().find((x) => x.number === pr);
   if (!c) return;
-  const pr = c.number;
+  if (a === "reload-detail") { loadDetail(c, { force: true }); return render(true); }
   if (a === "post-menu") {
     if (armed?.key?.startsWith(pr + ":post:")) { const ev = armed.key.split(":")[2]; clearTimeout(armed.timer); armed = null; render(); return act(pr, "post", { event: ev }); }
     openMenu = !openMenu;
@@ -440,18 +596,34 @@ document.addEventListener("click", (e) => {
     if (armed?.key === `${pr}:ship`) { clearTimeout(armed.timer); armed = null; render(); return act(pr, "ship"); }
     return arm(`${pr}:ship`, "ship");
   }
+  if (a === "arch-review") { if (pr !== selected) select(pr); tab = "thread"; store.set("prb-tab", tab); render(true); }
   return act(pr, a);
 });
 
 document.addEventListener("keydown", (e) => {
   const el = e.target.closest?.('[role="button"][data-act]');
-  if (el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); el.click(); return; }
+  if (el && e.target === el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); el.click(); return; }
   if (el && el.classList.contains("row") && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
     e.preventDefault();
     const rows = [...document.querySelectorAll(".row")];
     const next = rows[rows.indexOf(el) + (e.key === "ArrowDown" ? 1 : -1)];
     if (next) { select(Number(next.dataset.pr)); document.querySelector(`.row[data-pr="${next.dataset.pr}"]`)?.focus(); }
   }
+});
+
+// Resizable split between the list and the workspace.
+$("split").addEventListener("pointerdown", (e) => {
+  const split = $("split");
+  split.classList.add("drag");
+  split.setPointerCapture(e.pointerId);
+  const move = (ev) => {
+    const w = Math.max(320, Math.min(ev.clientX, window.innerWidth * 0.75));
+    document.documentElement.style.setProperty("--list-w", w + "px");
+    store.set("prb-list-w", String(Math.round(w)));
+  };
+  const up = () => { split.classList.remove("drag"); split.removeEventListener("pointermove", move); split.removeEventListener("pointerup", up); };
+  split.addEventListener("pointermove", move);
+  split.addEventListener("pointerup", up);
 });
 
 const input = $("input");
@@ -467,13 +639,16 @@ $("composer").addEventListener("submit", async (e) => {
     await post("/api/message", { pr: c.number, text });
     input.value = "";
     input.style.height = "auto";
+    if (tab !== "thread") { tab = "thread"; store.set("prb-tab", tab); render(true); }
   } catch (err) { toast(err.message); }
   $("send").disabled = false;
   input.focus();
 });
 
-$("refresh").addEventListener("click", async () => {
-  try { await post("/api/refresh", {}); } catch (e) { toast(e.message); }
+$("refresh").addEventListener("click", async () => { try { await post("/api/refresh", {}); } catch (e) { toast(e.message); } });
+$("sumAll").addEventListener("click", async () => {
+  try { const r = await post("/api/summarize-all", {}); toast(r.count ? `Asked the agent to summarize ${r.count} PR${r.count === 1 ? "" : "s"}` : "Every PR that needs you already has a summary"); }
+  catch (e) { toast(e.message); }
 });
 
 function connect() {
@@ -481,7 +656,7 @@ function connect() {
   es.addEventListener("board", (ev) => { snap = JSON.parse(ev.data); render(); });
   es.onerror = () => { $("meta").textContent = "Reconnecting…"; };
 }
-setInterval(() => { if (snap) { lastRenderedThread = ""; render(); } }, 30000);
+setInterval(() => { if (snap) render(); }, 30000);
 if (!REPO) { $("banner").hidden = false; $("banner").textContent = "No repo was given to this board."; }
 else connect();
 </script>

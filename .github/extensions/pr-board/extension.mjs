@@ -7,9 +7,9 @@ import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, detectRepo, fetchRepoData, GhError, GROUPS } from "./github.mjs";
+import { buildCards, detectRepo, fetchDetail, fetchRepoData, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updatePr } from "./store.mjs";
-import { messagePrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt } from "./prompts.mjs";
+import { archReviewPrompt, messagePrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -161,6 +161,15 @@ async function runCardAction({ repo, pr, action, event, force }) {
             note(s, "You asked to ship it");
         });
         await send(shipPrompt(card, repo), repo, pr);
+    } else if (action === "summarize") {
+        updatePr(repo, pr, (s) => {
+            s.summarizing = { at: nowIso() };
+            addHistory(s, "You asked for a plain-words summary");
+        });
+        await send(summarizePrompt(card, repo), repo, pr, { quiet: true });
+    } else if (action === "arch-review") {
+        updatePr(repo, pr, (s) => note(s, "You asked for an architecture review (opens in its own panel)"));
+        await send(archReviewPrompt(card, repo), repo, pr, { quiet: true });
     } else if (action === "open-chat") {
         if (!local.session?.id) throw httpError(409, "No session is linked to this PR yet.");
         await send(openChatPrompt(card, repo), repo, pr, { quiet: true });
@@ -177,6 +186,37 @@ async function runCardAction({ repo, pr, action, event, force }) {
 }
 
 const MAX_MESSAGE = 4000;
+
+// Conversation + files, fetched on selection and cached until the PR changes on GitHub.
+const detailCache = new Map();
+async function prDetail(repo, pr) {
+    const card = board(repo).card(pr);
+    const key = `${repo}#${pr}`;
+    const hit = detailCache.get(key);
+    const fresh = hit && hit.updatedAt === (card?.updatedAt || card?.mergedAt) && Date.now() - hit.at < 10 * 60_000;
+    if (fresh) return hit.data;
+    if (hit?.inflight) return hit.inflight;
+    const inflight = fetchDetail(repo, pr).then((data) => {
+        detailCache.set(key, { data, at: Date.now(), updatedAt: card?.updatedAt || card?.mergedAt });
+        return data;
+    }).catch((e) => {
+        detailCache.delete(key);
+        throw httpError(502, e.message);
+    });
+    detailCache.set(key, { ...(hit || {}), inflight });
+    return inflight;
+}
+
+async function summarizeAll(repo) {
+    const b = board(repo);
+    if (!b.data) await b.refresh();
+    const targets = b.snapshot().cards.filter((c) => c.group !== "merged" && !c.local?.summary && (c.group === "you" || c.group === "agent"));
+    if (!targets.length) return { ok: true, count: 0 };
+    for (const c of targets) updatePr(repo, c.number, (s) => { s.summarizing = { at: nowIso() }; });
+    b.broadcast();
+    await session.send({ prompt: summarizeAllPrompt(targets, repo) });
+    return { ok: true, count: targets.length };
+}
 
 async function sendMessage({ repo, pr, text }) {
     text = String(text || "").trim();
@@ -271,6 +311,12 @@ async function handle(req, res) {
         b.refresh();
         return;
     }
+    if (req.method === "GET" && url.pathname === "/api/detail") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const pr = Number(url.searchParams.get("pr"));
+        if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
+        return json(200, await prDetail(repo, pr));
+    }
     if (req.method === "GET" && url.pathname === "/api/draft") {
         const repo = checkRepo(url.searchParams.get("repo"));
         const draft = readState(repo).prs[String(Number(url.searchParams.get("pr")))]?.draft;
@@ -285,6 +331,9 @@ async function handle(req, res) {
         if (req.headers["x-pr-board-token"] !== TOKEN) return json(403, { error: "Forbidden" });
         const body = await readBody(req);
         const repo = checkRepo(body.repo);
+        if (url.pathname === "/api/summarize-all") {
+            return json(200, await summarizeAll(repo));
+        }
         if (url.pathname === "/api/refresh") {
             await board(repo).refresh({ force: true });
             return json(200, { ok: true });
@@ -333,6 +382,7 @@ function summarizeCard(c) {
         agent: c.local?.agent || null,
         draft: c.local?.draft || null,
         awaitingReply: !!c.local?.pending,
+        summary: c.local?.summary || null,
         thread: (c.local?.thread || []).slice(-5).map((m) => ({ role: m.role, from: m.from, text: m.text.slice(0, 300), at: m.at })),
     };
 }
@@ -347,6 +397,35 @@ const STATUS_WORDS = {
 };
 
 const tools = [
+    {
+        name: "pr_board_set_summary",
+        description: "Set a PR's plain-words summary on the PR board, shown in the inbox row and the PR's Overview. Write it for a product manager: what changes for the person using the product, not how the code does it.",
+        parameters: {
+            type: "object",
+            properties: {
+                repo: repoProp,
+                pr: prProp,
+                summary: { type: "string", description: "One sentence, at most 140 characters, e.g. 'Adds `winapp ask` so you can ask a WinUI question and get answers from samples and Microsoft Learn.'" },
+                nextSteps: { type: "array", items: { type: "string" }, description: "1 to 3 short steps, each starting with who acts, e.g. 'You: review the new help text'." },
+                risk: { type: "string", enum: ["low", "medium", "high"], description: "low = small, tested, easy to undo; medium = shared behavior or thin tests; high = could break users, a release, or security." },
+            },
+            required: ["pr", "summary"],
+        },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const summary = String(args.summary || "").replace(/\s+/g, " ").trim();
+            if (!summary) throw new Error("summary is empty");
+            const clipped = summary.length > 140 ? summary.slice(0, 139).trimEnd() + "…" : summary;
+            const nextSteps = (Array.isArray(args.nextSteps) ? args.nextSteps : []).map((s) => String(s).trim().slice(0, 160)).filter(Boolean).slice(0, 3);
+            updatePr(repo, args.pr, (s) => {
+                s.summary = { text: clipped, nextSteps, risk: args.risk || null, at: nowIso() };
+                s.summarizing = null;
+                addHistory(s, "Summary updated");
+            });
+            board(repo).broadcast();
+            return { ok: true, repo, pr: args.pr, summary: clipped, trimmed: clipped !== summary };
+        },
+    },
     {
         name: "pr_board_reply",
         description: "Post a reply in a PR's thread on the PR board. Use it to answer every \"[PR board] Message about ...\" request; the user reads replies only in the board, not in chat. Markdown: bold, italics, inline code, code blocks, lists and links.",
