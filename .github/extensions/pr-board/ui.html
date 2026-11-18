@@ -223,6 +223,57 @@ details.panel > .body { padding-top: var(--s3); }
 .composer textarea:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
 .empty-ws { margin: auto; color: var(--muted); text-align: center; }
 
+/* ---- Overview: list first, three sections ---- */
+.ov { flex: 1; overflow-y: auto; padding: var(--s4) var(--s5) var(--s6); }
+.ov-inner { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--s6); }
+.ov-bar { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; font-size: var(--t-meta); color: var(--muted); }
+.ov-bar select { font: inherit; font-size: var(--t-meta); color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
+.ov-bar .right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+.ov-sec > header { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); }
+.ov-sec > header h2 { margin: 0; font-size: var(--t-title); font-weight: var(--w-strong); }
+.ov-sec > header .n { color: var(--muted); font-size: var(--t-small); }
+.ov-sec > header p { margin: 0 0 0 var(--s2); color: var(--muted); font-size: var(--t-meta); }
+.ov-cols { display: grid; grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 168px); gap: var(--s3); padding: 0 var(--s3) var(--s1); font-size: var(--t-meta); color: var(--muted); border-bottom: 1px solid var(--border); }
+.ov-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 168px); gap: var(--s1) var(--s3); padding: var(--s3); border-bottom: 1px solid var(--hairline); align-items: start; }
+.ov-row:hover { background: var(--subtle); }
+.ov-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ov-title { all: unset; cursor: pointer; font-weight: var(--w-strong); font-size: var(--t-body); line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-title:hover { text-decoration: underline; }
+.ov-title:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.ov-sub { font-size: var(--t-meta); color: var(--muted); display: flex; gap: 6px; align-items: center; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-where { font-size: var(--t-small); color: var(--fg); display: flex; gap: 6px; align-items: flex-start; }
+.ov-where .i { margin-top: 2px; }
+.ov-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.ov-cell .chip { max-width: 100%; }
+.ov-cell .chip > span:not(.age) { overflow: hidden; text-overflow: ellipsis; }
+.ov-cell .since { font-size: var(--t-meta); color: var(--muted); font-variant-numeric: tabular-nums; }
+.ov-cell .since.stuck { color: var(--fg); font-weight: var(--w-strong); }
+.ov-cell .k { display: none; font-size: var(--t-meta); color: var(--muted); }
+.ov-cell button { font-size: var(--t-meta); padding: 0 8px; line-height: 20px; }
+.ov-story { font-size: var(--t-meta); color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.ov-story b { color: var(--fg); font-weight: 400; }
+.ov-ask { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3); border-radius: 8px; background: var(--orange-muted); }
+.ov-ask .q { display: flex; gap: var(--s2); font-size: var(--t-small); }
+.ov-ask .q .i { color: var(--orange); margin-top: 2px; }
+.ov-ask .row2 { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+.ov-ask input { flex: 1; min-width: 180px; font: inherit; font-size: var(--t-small); color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
+.ov-ask input:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
+.ov-empty { color: var(--muted); font-size: var(--t-small); padding: var(--s3); }
+.ov-merged > summary { cursor: pointer; font-size: var(--t-small); font-weight: var(--w-strong); list-style: none; display: flex; gap: var(--s2); align-items: center; }
+.ov-merged > summary::-webkit-details-marker { display: none; }
+.ov-merged[open] > summary .chev { transform: rotate(90deg); }
+.syncinfo { font-size: var(--t-meta); color: var(--muted); white-space: nowrap; }
+body.ovmode .layout { display: none; }
+body:not(.ovmode) .ov { display: none; }
+body:not(.ovmode) #sync, body:not(.ovmode) #syncInfo { display: none; }
+body.ovmode #toOverview { display: none; }
+/* Narrow overview: the status columns stack under the title, each with its label. */
+body.ovnarrow .ov-cols { display: none; }
+body.ovnarrow .ov-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+body.ovnarrow .ov-main { grid-column: 1 / -1; }
+body.ovnarrow .ov-cell .k { display: block; }
+body.ovnarrow .ov { padding: var(--s3) var(--s4) var(--s5); }
+
 /* ---- Narrow panel: one pane at a time ---- */
 body.narrow aside { width: 100%; max-width: none; min-width: 0; }
 body.narrow .split { display: none; }
@@ -242,12 +293,16 @@ aside.tight .row .st { flex-direction: row; align-items: center; gap: var(--s2);
 </head>
 <body>
 <header class="top">
+  <button id="toOverview" class="quiet" data-act="to-overview"></button>
   <h1>Pull requests <span id="repo"></span></h1>
   <span class="meta" id="meta">Loading…</span>
+  <span class="syncinfo" id="syncInfo"></span>
+  <button id="sync" title="Ask the agent to refresh which sessions are working on these PRs, and their state"></button>
   <button id="sumAll" title="Ask the agent for plain-words summaries of the PRs that need you or an agent"></button>
   <button id="refresh" title="Re-read pull requests from GitHub"></button>
 </header>
 <div id="banner" class="banner" hidden></div>
+<main class="ov" id="overview" aria-label="Pull request overview"></main>
 <div class="layout">
   <aside id="list" aria-label="Pull requests"></aside>
   <div class="split" id="split" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
@@ -273,6 +328,7 @@ let snap = null;
 let selected = Number(store.get(SEL_KEY)) || null;
 let tab = store.get("prb-tab") || "overview";
 let filter = store.get("prb-filter") || "all";
+let view = "overview"; // the Overview is the first screen; a row opens the detail view
 let sortBy = store.get("prb-sort") || "newest";
 const PIN_KEY = "prb-pins:" + REPO;
 let pins = new Set(JSON.parse(store.get(PIN_KEY) || "[]"));
@@ -787,6 +843,125 @@ let detailTimer = null;
 // Arrow-key browsing shouldn't fetch every PR it passes; wait until the selection settles.
 const scheduleDetail = (c) => { clearTimeout(detailTimer); detailTimer = setTimeout(() => loadDetail(c), 250); };
 
+// ---- Overview ----
+const answers = new Map(); // pr -> typed answer, kept across live re-renders
+const SECTIONS = [
+  ["yours", "Yours", "You wrote these, or a session here is working on them.", ["Agent", "Monitoring", "pr-review", "PR"]],
+  ["reviewing", "Reviewing", "You're a reviewer, you reviewed them, or pr-review ran here.", ["pr-review", "PR", "Last activity"]],
+  ["other", "Everything else", "Open PRs nobody is working on here.", ["PR"]],
+];
+
+function cell(label, chipHtml, under = "", extra = "") {
+  return `<div class="ov-cell"><span class="k">${esc(label)}</span>${chipHtml}${under}${extra}</div>`;
+}
+const mkChip = (tone, ic, label, title = "") => `<span class="chip ${tone}${tone === "you" || tone === "stuck" ? " solid" : ""}" title="${esc(title)}">${icon(ic, "sm")}<span>${esc(label)}</span></span>`;
+const pendingQuestion = (c) => { const s = c.local?.sync; const q = s?.awaitingInput; return q && c.local?.dismissed !== q.requestId && c.local?.dismissed !== "all" ? q : null; };
+
+function agentCell(c) {
+  const local = c.local || {}, s = local.sync;
+  const q = pendingQuestion(c);
+  if (q && local.answered?.requestId === q.requestId) return cell("Agent", mkChip("agent", "sparkle", "Answer sent"), `<span class="since">waiting for it to pick up</span>`);
+  if (q) return cell("Agent", mkChip("you", "comment", "Waiting on you", q.question), s?.at ? `<span class="since">as of sync ${esc(ago(s.at))}${ago(s.at) === "just now" ? "" : " ago"}</span>` : "");
+  if (s?.activity === "busy" || local.agent?.status === "running") return cell("Agent", mkChip("agent", "sparkle", "Working", local.agent?.outcome || ""), local.agent?.updatedAt ? `<span class="since">for ${esc(dur(local.agent.updatedAt))}</span>` : "");
+  if (s?.activity === "idle") return cell("Agent", mkChip("neutral", "clock", "Idle"), `<span class="since">as of sync ${esc(ago(s.at))}${ago(s.at) === "just now" ? "" : " ago"}</span>`);
+  if (local.session?.id) return cell("Agent", mkChip("neutral", "link", "Linked", "Linked to a session here; press Sync for its state"), `<span class="since">not synced</span>`);
+  return cell("Agent", mkChip("neutral", "dash", "No session here", "Nobody is working on it from this app. It may be worked on another machine."));
+}
+function monitorCell(c) {
+  const local = c.local || {}, am = local.sync?.agentMerge, pend = local.monitorPending;
+  if (pend) return cell("Monitoring", mkChip("info", "running", pend.enable ? "Turning on…" : "Turning off…"), `<span class="since">waiting for the agent</span>`);
+  if (am?.enabled) return cell("Monitoring", mkChip("ok", "eye", "On", (am.actions || []).join(", ")), `<span class="since">${esc((am.actions || []).map((a) => a.replace(/_/g, " ")).join(", ") || "Agent merge")}</span>`, `<button data-act="monitor" data-enable="0" data-pr="${c.number}">Turn off</button>`);
+  return cell("Monitoring", mkChip("neutral", "dash", am ? "Off" : "Off or unknown", am ? "" : "Press Sync to read the real state"), "", `<button data-act="monitor" data-enable="1" data-pr="${c.number}" title="Ask the agent to watch this PR per pr-lifecycle: address reviews, fix CI, resolve conflicts. It never merges unless you ask.">Turn on</button>`);
+}
+function reviewCell(c) {
+  const r = c.review || { state: "none", label: "Not run" };
+  const tone = r.state === "done" ? "ok" : r.state === "stale" ? "you" : "neutral";
+  const ic = r.state === "done" ? "checkCircle" : r.state === "stale" ? "reset" : "dash";
+  const btn = r.state !== "done" && c.group !== "merged" && !isBusy(c) ? `<button data-act="review" data-pr="${c.number}">${r.state === "stale" ? "Re-run" : "Run pr-review"}</button>` : "";
+  return cell("pr-review", mkChip(tone, ic, r.label, r.text), r.at ? `<span class="since">${esc(ago(r.at))}${ago(r.at) === "just now" ? "" : " ago"}</span>` : "", btn);
+}
+const prCell = (c) => cell("PR", chip(c, { withAge: false }), sinceLine(c));
+
+function whereHtml(c) {
+  const local = c.local || {};
+  const q = pendingQuestion(c);
+  if (q && local.answered?.requestId === q.requestId) return `${icon("sparkle", "sm")}<span>You answered "${esc(local.answered.answer.slice(0, 80))}". Waiting for the session to continue.</span>`;
+  if (q) return `${icon("comment", "sm tone-you")}<span><b>Waiting on you:</b> the session asked a question. Answer it below.</span>`;
+  if (local.agent?.outcome && local.agent.status !== "done") return `${icon("sparkle", "sm tone-agent")}<span>${esc(local.agent.outcome)}</span>`;
+  return `${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span>`;
+}
+function storyHtml(c) {
+  const st = c.story || [];
+  if (!st.length) return `<span>Nothing has happened in review yet.</span>`;
+  return st.map((e) => `<span><b>${esc(e.text)}</b> ${esc(ago(e.at))}${ago(e.at) === "just now" ? "" : " ago"}</span>`).join(`<span aria-hidden="true">→</span>`);
+}
+function askHtml(c) {
+  const q = pendingQuestion(c);
+  if (!q || c.local?.answered?.requestId === q.requestId) return "";
+  return `<div class="ov-ask" role="group" aria-label="Question from the agent on #${c.number}">
+    <div class="q">${icon("comment")}<span>${esc(q.question)}</span></div>
+    <div class="row2">${(q.choices || []).map((ch) => `<button data-act="answer" data-pr="${c.number}" data-answer="${esc(ch)}">${esc(ch)}</button>`).join("")}
+      <input data-pr="${c.number}" placeholder="Or type an answer…" aria-label="Answer for #${c.number}" value="${esc(answers.get(c.number) || "")}">
+      <button class="primary" data-act="answer-text" data-pr="${c.number}">Send</button>
+      <button class="quiet" data-act="dismiss" data-pr="${c.number}" title="Hide this on the board. It doesn't answer the session.">Dismiss</button></div>
+  </div>`;
+}
+
+function ovRow(c, sec) {
+  const pin = pins.has(c.number) ? icon("pin", "sm tone-mute") : "";
+  const sub = `<span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span title="${esc(c.size?.text)}">${esc(c.size?.label)}</span><span class="sep">·</span>${ciHtml(c)}<span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>`;
+  const main = `<div class="ov-main"><button class="ov-title" data-act="open" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button><div class="ov-sub">${sub}</div>`;
+  if (sec === "yours") return `<div class="ov-row" style="--cols:4">${main}<div class="ov-where">${whereHtml(c)}</div></div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
+  if (sec === "reviewing") return `<div class="ov-row" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
+  return `<div class="ov-row" style="--cols:1">${main}<div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div></div>${prCell(c)}</div>`;
+}
+
+function renderOverview() {
+  const el = $("overview");
+  const scroll = el.scrollTop;
+  for (const inp of el.querySelectorAll(".ov-ask input")) answers.set(Number(inp.dataset.pr), inp.value);
+  const f = document.activeElement?.closest?.("#overview [data-act], #overview input, #overview select");
+  const fk = f ? [f.tagName, f.dataset.act || "", f.dataset.pr || "", f.dataset.answer || "", f.dataset.enable || ""].join("|") : null;
+  const sort = (SORTS[sortBy] || SORTS.newest)[1];
+  const order = (rows) => { rows.sort(sort); return [...rows.filter((c) => pins.has(c.number)), ...rows.filter((c) => !pins.has(c.number))]; };
+  const cards = cardsOf();
+  const merged = cards.filter((c) => c.section === "merged");
+  el.innerHTML = `<div class="ov-inner">
+    <div class="ov-bar"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <span>Rows keep their place when their state changes.</span></div>
+    ${SECTIONS.map(([id, title, hint, cols]) => {
+      const rows = order(cards.filter((c) => c.section === id));
+      return `<section class="ov-sec" aria-label="${esc(title)}"><header><h2>${esc(title)}</h2><span class="n">${rows.length}</span><p>${esc(hint)}</p></header>
+        <div class="ov-cols" style="--cols:${cols.length}" aria-hidden="true"><span>Pull request</span>${cols.map((k) => `<span>${esc(k)}</span>`).join("")}</div>
+        <div role="list">${rows.map((c) => ovRow(c, id)).join("") || `<div class="ov-empty">Nothing here.</div>`}</div></section>`;
+    }).join("")}
+    ${merged.length ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${order(merged).map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
+  </div>`;
+  el.scrollTop = scroll;
+  if (fk) {
+    const [tag, act, pr, ans, en] = fk.split("|");
+    const sel = tag === "SELECT" ? "#ovSort" : tag === "INPUT" ? `.ov-ask input[data-pr="${pr}"]` : `[data-act="${act}"]${pr ? `[data-pr="${pr}"]` : ""}${ans ? `[data-answer="${CSS.escape(ans)}"]` : ""}${en ? `[data-enable="${en}"]` : ""}`;
+    const t = el.querySelector(sel);
+    if (t) { t.focus(); if (tag === "INPUT") t.setSelectionRange(t.value.length, t.value.length); }
+  }
+}
+
+function renderSyncInfo() {
+  const s = snap?.sync || {};
+  const cards = cardsOf();
+  const waiting = cards.filter((c) => c.section !== "merged" && (c.group === "you" || (pendingQuestion(c) && c.local?.answered?.requestId !== pendingQuestion(c).requestId))).length;
+  const stuck = cards.filter((c) => c.section !== "merged" && c.reason?.stuck).length;
+  const asked = s.requestedAt && (!s.syncedAt || s.requestedAt > s.syncedAt);
+  $("syncInfo").textContent = asked ? "Sync requested…" : s.syncedAt ? `Sessions synced ${ago(s.syncedAt)}${ago(s.syncedAt) === "just now" ? "" : " ago"}` : "Sessions not synced yet";
+  const open = cards.filter((c) => c.section !== "merged").length;
+  if (view === "overview") $("meta").innerHTML = `<b>${open} open</b> · ${waiting} waiting on you · ${stuck} stuck · updated ${esc(ago(snap.fetchedAt))}${ago(snap.fetchedAt) === "just now" ? "" : " ago"}`;
+}
+
+async function requestSync() {
+  try { const r = await post("/api/sync", {}); toast(`Asked the agent to sync ${r.tracked} PR${r.tracked === 1 ? "" : "s"}`); }
+  catch (e) { toast("Couldn't start a sync: " + e.message); }
+}
+
 function render(force = false) {
   if (!snap) return;
   $("repo").textContent = snap.repo;
@@ -797,6 +972,9 @@ function render(force = false) {
   $("meta").textContent = snap.loading && !snap.fetchedAt ? "Loading…" : `${open} open · ${cards.length - open} merged today · ${snap.loading ? "refreshing…" : "updated " + ago(snap.fetchedAt) + (ago(snap.fetchedAt) === "just now" ? "" : " ago")}` + (snap.viewer ? ` · @${snap.viewer}` : "");
   $("meta").title = $("meta").textContent;
   if (!current() && cards.length) { const vis = visibleCards(); selected = (vis.find((c) => c.group === "you") || vis[0] || cards[0]).number; force = true; }
+  document.body.classList.toggle("ovmode", view === "overview");
+  renderSyncInfo();
+  if (view === "overview") { renderOverview(); return; }
   renderList();
   const c = current();
   $("wsHead").hidden = !c;
@@ -840,6 +1018,17 @@ document.addEventListener("click", (e) => {
   const a = el.dataset.act;
   const rowPr = el.dataset.pr ? Number(el.dataset.pr) : null;
   if (a === "select") return select(rowPr ?? selected);
+  if (a === "open") { view = "detail"; return select(rowPr, { focus: true }); }
+  if (a === "to-overview") { view = "overview"; openMenu = null; armed = null; render(); return document.querySelector(`.ov-title[data-pr="${selected}"]`)?.focus(); }
+  if (a === "sync") return requestSync();
+  if (a === "answer" || a === "answer-text") {
+    const answer = a === "answer" ? el.dataset.answer : (document.querySelector(`.ov-ask input[data-pr="${rowPr}"]`)?.value || "").trim();
+    if (!answer) { toast("Type an answer first."); return; }
+    answers.delete(rowPr);
+    return post("/api/action", { pr: rowPr, action: "answer", answer }).then(() => toast("Answer sent to the agent")).catch((e) => toast("Couldn't send: " + e.message));
+  }
+  if (a === "monitor") return post("/api/action", { pr: rowPr, action: "monitor", enable: el.dataset.enable === "1" }).then(() => toast(el.dataset.enable === "1" ? "Asked the agent to turn monitoring on" : "Asked the agent to turn monitoring off")).catch((e) => toast("Couldn't do that: " + e.message));
+  if (a === "dismiss") return post("/api/action", { pr: rowPr, action: "dismiss" }).then(() => toast("Hidden on the board. The question is still open in the session.")).catch((e) => toast("Couldn't do that: " + e.message));
   if (a === "back") { document.body.classList.remove("detail"); return render(); }
   if (a === "filter") { filter = el.dataset.filter; store.set("prb-filter", filter); return render(); }
   if (a === "tab") { tab = el.dataset.tab; store.set("prb-tab", tab); render(true); return $("wsHead").querySelector(`[data-tab="${tab}"]`)?.focus(); }
@@ -881,6 +1070,16 @@ document.addEventListener("keydown", (e) => {
     if (armed) { clearTimeout(armed.timer); armed = null; return render(); }
     if (document.body.classList.contains("narrow") && document.body.classList.contains("detail") && e.target.id !== "input") { document.body.classList.remove("detail"); render(); return document.querySelector(`.row-main[data-pr="${selected}"]`)?.focus(); }
   }
+  // Overview: arrow keys move between PR titles; Enter opens one.
+  const ovt = e.target.closest?.(".ov-title");
+  if (ovt && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault();
+    const all = [...document.querySelectorAll(".ov-title")];
+    all[all.indexOf(ovt) + (e.key === "ArrowDown" ? 1 : -1)]?.focus();
+    return;
+  }
+  if (e.target.matches?.(".ov-ask input") && e.key === "Enter") { e.preventDefault(); e.target.closest(".ov-ask").querySelector('[data-act="answer-text"]')?.click(); return; }
+  if (e.key === "Escape" && view === "detail" && !openMenu && !armed && e.target.id !== "input" && !document.body.classList.contains("narrow")) { $("toOverview").click(); return; }
   // List: arrow keys move between rows.
   const row = e.target.closest?.(".row-main");
   if (row && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
@@ -925,7 +1124,7 @@ $("split").addEventListener("pointerdown", (e) => {
 });
 
 document.addEventListener("change", (e) => {
-  if (e.target.id === "sortSel") { sortBy = e.target.value; store.set("prb-sort", sortBy); render(); }
+  if (e.target.id === "sortSel" || e.target.id === "ovSort") { sortBy = e.target.value; store.set("prb-sort", sortBy); render(); }
 });
 
 // A narrow list stacks the status above the title.
@@ -959,6 +1158,10 @@ $("composer").addEventListener("submit", async (e) => {
 $("sumAll").innerHTML = `${icon("sparkle", "sm")}<span class="lbl">Summarize all needing me</span>`;
 $("sumAll").setAttribute("aria-label", "Summarize all needing me");
 $("refresh").innerHTML = `${icon("refresh", "sm")}Refresh`;
+$("sync").innerHTML = `${icon("reset", "sm")}Sync`;
+$("sync").dataset.act = "sync";
+$("toOverview").innerHTML = `${icon("chevLeft", "sm")}Overview`;
+new ResizeObserver(([entry]) => document.body.classList.toggle("ovnarrow", entry.contentRect.width < 900)).observe(document.body);
 $("refresh").addEventListener("click", async () => { try { await post("/api/refresh", {}); } catch (e) { toast("Couldn't refresh: " + e.message); } });
 $("sumAll").addEventListener("click", async () => {
   try { const r = await post("/api/summarize-all", {}); toast(r.count ? `Asked the agent to summarize ${r.count} PR${r.count === 1 ? "" : "s"}` : "Every PR that needs you already has a summary"); }

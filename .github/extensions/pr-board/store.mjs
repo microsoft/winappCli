@@ -20,12 +20,12 @@ export function stateFile(repo) {
 
 export function readState(repo) {
     const file = stateFile(repo);
-    if (!existsSync(file)) return { repo, prs: {} };
+    if (!existsSync(file)) return { repo, prs: {}, meta: {} };
     try {
         const data = JSON.parse(readFileSync(file, "utf8"));
-        return { repo, prs: data.prs && typeof data.prs === "object" ? data.prs : {} };
+        return { repo, prs: data.prs && typeof data.prs === "object" ? data.prs : {}, meta: data.meta && typeof data.meta === "object" ? data.meta : {} };
     } catch {
-        return { repo, prs: {} };
+        return { repo, prs: {}, meta: {} };
     }
 }
 
@@ -40,12 +40,24 @@ export function updatePr(repo, number, mutate) {
     pr.thread = (pr.thread || []).slice(-THREAD_LIMIT);
     pr.updatedAt = new Date().toISOString();
     state.prs[key] = pr;
+    writeState(repo, state);
+    return pr;
+}
+
+// Repo-level board data, e.g. when sessions were last synced.
+export function updateMeta(repo, mutate) {
+    const state = readState(repo);
+    mutate(state.meta);
+    writeState(repo, state);
+    return state.meta;
+}
+
+function writeState(repo, state) {
     mkdirSync(artifactsDir(), { recursive: true });
     const file = stateFile(repo);
     const tmp = `${file}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(state, null, 2));
     renameSync(tmp, file);
-    return pr;
 }
 
 export function addHistory(pr, text) {

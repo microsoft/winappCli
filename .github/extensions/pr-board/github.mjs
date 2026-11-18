@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 const PR_FIELDS = [
     "number", "title", "url", "author", "isDraft", "additions", "deletions", "changedFiles",
     "reviewDecision", "mergeStateStatus", "mergeable", "statusCheckRollup", "latestReviews",
-    "reviewRequests", "labels", "updatedAt", "createdAt", "autoMergeRequest", "baseRefName", "body",
+    "reviewRequests", "labels", "updatedAt", "createdAt", "autoMergeRequest", "baseRefName", "body", "headRefOid",
 ].join(",");
 
 export class GhError extends Error {
@@ -367,11 +367,55 @@ function githubEvents(pr) {
     return events;
 }
 
+// Which Overview section a PR belongs to, and what our own review work looks like.
+// yours: you wrote it, or a session here is working on it (not reviewing it).
+// reviewing: you're a requested reviewer, you reviewed it, or pr-review ran here.
+function tracking(pr, data, local, ext) {
+    const viewer = data.viewer;
+    const items = ext?.timelineItems?.nodes || [];
+    const viewerReviewAt = maxIso(...items.filter((i) => i.__typename === "PullRequestReview" && i.author?.login === viewer).map((i) => i.submittedAt),
+        ...(pr.latestReviews || []).filter((r) => r.author?.login === viewer).map((r) => r.submittedAt));
+    const lastPush = maxIso(...items.map((i) => i.__typename === "PullRequestCommit" ? i.commit?.committedDate : i.__typename === "HeadRefForcePushedEvent" ? i.createdAt : null), ext?.commits?.nodes?.[0]?.commit?.committedDate);
+    const requested = (pr.reviewRequests || []).some((r) => r.login === viewer);
+    const reviewWork = !!(local.prReview || local.draft || ["review", "post"].includes(local.agent?.kind));
+    let section = "other";
+    if (local.role === "author" || pr.author?.login === viewer) section = "yours";
+    else if (local.role === "reviewer" || requested || viewerReviewAt || reviewWork) section = "reviewing";
+    else if (local.session?.id) section = "yours";
+
+    // pr-review state: ran here (and on which commit), or a human review on GitHub.
+    let review;
+    const pv = local.prReview;
+    if (pv?.headSha && pr.headRefOid && pv.headSha !== pr.headRefOid) review = { state: "stale", label: "Re-run needed", text: `pr-review ran on an older commit (${pv.headSha.slice(0, 7)}); new commits landed since.`, at: pv.at };
+    else if (pv) review = { state: "done", label: pv.result === "posted" ? "Posted" : "Drafted", text: pv.result === "posted" ? `Review posted${pv.event ? ` (${pv.event.replace("_", " ")})` : ""}.` : "A pr-review draft is ready.", at: pv.at };
+    else if (local.draft) review = { state: "done", label: local.draft.postedAt ? "Posted" : "Drafted", text: local.draft.postedAt ? "Review posted." : "A pr-review draft is ready.", at: local.draft.postedAt || local.draft.attachedAt };
+    else if (local.agent?.kind === "post" && local.agent.status === "done") review = { state: "done", label: "Posted", text: local.agent.outcome || "Review posted.", at: local.agent.updatedAt };
+    else if (viewerReviewAt && lastPush && lastPush > viewerReviewAt) review = { state: "stale", label: "Needs re-review", text: "The author pushed after your review.", at: lastPush };
+    else if (viewerReviewAt) review = { state: "done", label: "You reviewed", text: "You reviewed it on GitHub.", at: viewerReviewAt };
+    else review = { state: "none", label: "Not run", text: "No pr-review here yet.", at: null };
+    // Without a recorded commit, fall back to time: a push after our review means it needs another look.
+    if (review.state === "done" && !pv?.headSha && lastPush && review.at && lastPush > review.at) review = { state: "stale", label: "Needs re-review", text: "The author pushed after this review.", at: lastPush };
+
+    // A short "what's happened so far" for reviews: human reviews, our drafts/posts, and the latest push.
+    const story = [];
+    for (const r of items.filter((i) => i.__typename === "PullRequestReview" && i.author && !isBot(i.author) && i.author.login !== pr.author?.login && i.state && i.state !== "COMMENTED")) {
+        story.push({ at: r.submittedAt, text: `${r.author.login === viewer ? "You" : r.author.login} ${r.state === "APPROVED" ? "approved" : r.state === "CHANGES_REQUESTED" ? "requested changes" : r.state.toLowerCase()}` });
+    }
+    if (pv?.draftedAt) story.push({ at: pv.draftedAt, text: "pr-review drafted" });
+    if (pv?.postedAt) story.push({ at: pv.postedAt, text: `Review posted${pv.event ? ` (${pv.event.replace("_", " ")})` : ""}` });
+    if (!pv && local.draft?.attachedAt) story.push({ at: local.draft.attachedAt, text: "pr-review drafted" });
+    if (!pv && local.draft?.postedAt) story.push({ at: local.draft.postedAt, text: "Review posted" });
+    if (lastPush) story.push({ at: lastPush, text: `${pr.author?.login || "Author"} pushed` });
+    story.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    return { section, review, story: story.slice(-3), headSha: pr.headRefOid || null };
+}
+
 export function buildCards(data, localPrs) {
     const cards = [];
     for (const pr of data.open) {
         const local = localPrs[String(pr.number)] || {};
         const c = classify(pr, data, local);
+        const t = tracking(pr, data, local, data.activity?.get(pr.number));
         cards.push({
             number: pr.number,
             title: pr.title,
@@ -388,6 +432,10 @@ export function buildCards(data, localPrs) {
             lane: c.lane,
             waitingOn: c.waitingOn,
             reason: c.reason || null,
+            section: t.section,
+            review: t.review,
+            story: t.story,
+            headSha: t.headSha,
             who: c.who,
             shippable: !!c.shippable,
             updatedAt: pr.updatedAt,
@@ -411,6 +459,7 @@ export function buildCards(data, localPrs) {
             author: pr.author?.login || "unknown",
             size: sizeLabel(pr),
             lane: "merged",
+            section: "merged",
             waitingOn: `Merged ${new Date(pr.mergedAt).toLocaleString()}`,
             who: "done",
             mergedAt: pr.mergedAt,

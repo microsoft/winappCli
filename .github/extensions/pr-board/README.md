@@ -1,9 +1,10 @@
 # PR board (prototype)
 
-An inbox of a GitHub repo's pull requests, with a workspace for each PR. The
-list tells you what each PR does, how it's doing, and what happens next, so
-you don't have to open it. Pick one to read its description, conversation and
-files, ask the agent about it, or hand it the next step.
+An overview of a GitHub repo's open pull requests, split into the ones you're
+working on, the ones you're reviewing, and everything else. Each row says where
+the PR is and what it needs, so you don't have to open it. Click a PR to open
+its workspace: description, conversation, files, a thread with the agent, and
+the next step.
 
 Open it from a chat in a winappCli session:
 
@@ -13,9 +14,50 @@ Open the PR board canvas
 
 The board uses the current repo. To pick another one, pass `{ "repo": "owner/name" }`.
 
-## The list
+## Overview
 
-One flat list of open pull requests, newest first. A row never moves when its
+The first screen. The header shows `15 open · 6 waiting on you · 4 stuck`, when
+sessions were last synced, and a **Sync** button. Each section keeps its rows in
+place (newest first, or the order you pick under Sort); a row's state changes,
+not its position.
+
+| Section | Which PRs | Columns |
+|---------|-----------|---------|
+| **Yours** | You wrote it, or a session here is working on it (for example a Dependabot PR you're fixing) | Agent, Monitoring, pr-review, PR |
+| **Reviewing** | You're a requested reviewer, you reviewed it, or pr-review ran here | pr-review, PR, Last activity |
+| **Everything else** | Open PRs nobody is working on here | PR |
+
+- **Agent:** `Working`, `Waiting on you`, `Idle`, `Linked` (not synced yet), or
+  `No session here` (it may be worked on another machine).
+- **Monitoring:** whether Agent merge watches the PR (address reviews, fix CI,
+  resolve conflicts). **Turn on** asks the agent to enable it per
+  `.github/skills/pr-lifecycle`; it shows `Turning on…` until the agent confirms.
+  It never merges unless you ask.
+- **pr-review:** `Drafted`, `Posted` or `You reviewed`; `Re-run needed` /
+  `Needs re-review` when new commits landed after the review; or `Not run`.
+- **PR:** the waiting reason and how long, as in the list below.
+
+**Reviewing** rows also show what's happened so far, for example
+`You requested changes 1d ago → moooyo pushed 12h ago`.
+
+When a session is waiting on you, its row shows the question with a button for
+each choice, a box for a typed answer, and **Dismiss**. An answer goes to the
+agent, which answers the session for you. Dismiss only hides the question on the
+board; the session keeps waiting.
+
+Merged PRs are in a collapsed **Merged today** section at the bottom. Click a PR
+title to open its workspace; **← Overview** (or Esc) goes back.
+
+### Sync
+
+The board can't read other sessions by itself, so the agent in the session that
+opened the board reports them. **Sync** asks it to check the sessions working on
+this repo's PRs and call `pr_board_sync_sessions`. The agent also calls it after
+turning monitoring on or off.
+
+## The full list
+
+In a PR's workspace, the left side shows one flat list of open pull requests, newest first. A row never moves when its
 status changes; the status is shown in the row. Each row has a status column on
 the left, so you can scan the states top to bottom:
 
@@ -138,6 +180,7 @@ Every request from the board tells the agent which of these to call.
 
 | Tool | Use |
 |------|-----|
+| `pr_board_sync_sessions` | Report the sessions on each PR: activity, a pending question, Agent merge state, and when pr-review ran (on which commit) |
 | `pr_board_set_summary` | Set the plain-words summary (≤140 characters), next steps, and risk (`low`, `medium`, `high`) |
 | `pr_board_reply` | Post a reply in a PR's thread (Markdown) |
 | `pr_board_link_session` | Link a session to a PR |

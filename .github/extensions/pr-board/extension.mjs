@@ -8,8 +8,8 @@ import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import { buildCards, detectRepo, fetchDetail, fetchRepoData, GhError, GROUPS } from "./github.mjs";
-import { addHistory, addMessage, readState, stateFile, updatePr } from "./store.mjs";
-import { archReviewPrompt, messagePrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt } from "./prompts.mjs";
+import { addHistory, addMessage, readState, stateFile, updateMeta, updatePr } from "./store.mjs";
+import { answerPrompt, archReviewPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -42,6 +42,7 @@ class Board {
             try {
                 this.data = await fetchRepoData(this.repo);
                 this.error = null;
+                await refreshLiveSessions();
             } catch (e) {
                 this.error = { code: e instanceof GhError ? e.code : "error", message: e.message };
             } finally {
@@ -55,9 +56,13 @@ class Board {
     }
 
     snapshot() {
-        const local = readState(this.repo).prs;
+        const state = readState(this.repo);
+        const local = state.prs;
         return {
             repo: this.repo,
+            sync: { syncedAt: state.meta.syncedAt || null, requestedAt: state.meta.syncRequestedAt || null },
+            liveSessions: liveSessions.list,
+            liveSessionsNote: liveSessions.note,
             groups: GROUPS,
             viewer: this.data?.viewer || null,
             cards: this.data ? buildCards(this.data, local) : [],
@@ -127,7 +132,7 @@ function note(s, text) {
     addMessage(s, "system", text);
 }
 
-async function runCardAction({ repo, pr, action, event, force }) {
+async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
     const b = board(repo);
     if (!b.data) await b.refresh();
     const card = b.card(pr);
@@ -149,6 +154,7 @@ async function runCardAction({ repo, pr, action, event, force }) {
         if (busy && !force) throw httpError(409, "An agent is already working on this PR.");
         const word = event.replace("_", " ");
         updatePr(repo, pr, (s) => {
+            s.postEvent = event;
             s.agent = { status: "running", kind: "post", outcome: `Posting the draft as "${word}"`, updatedAt: nowIso() };
             note(s, `You asked to post the draft as "${word}"`);
         });
@@ -170,6 +176,31 @@ async function runCardAction({ repo, pr, action, event, force }) {
     } else if (action === "arch-review") {
         updatePr(repo, pr, (s) => note(s, "You asked for an architecture review (opens in its own panel)"));
         await send(archReviewPrompt(card, repo), repo, pr, { quiet: true });
+    } else if (action === "monitor") {
+        const enable = extra.enable !== false;
+        const actions = enable ? (extra.mergePr ? ["address_reviews", "fix_ci", "resolve_conflicts", "merge_pr"] : ["address_reviews", "fix_ci", "resolve_conflicts"]) : [];
+        updatePr(repo, pr, (s) => {
+            s.monitorPending = { enable, actions, at: nowIso() };
+            note(s, enable ? "You asked to turn monitoring on" : "You asked to turn monitoring off");
+        });
+        await send(monitorPrompt(card, repo, enable, actions), repo, pr, { quiet: true });
+    } else if (action === "answer") {
+        const input = local.sync?.awaitingInput;
+        const answer = String(extra.answer || "").trim();
+        if (!input?.requestId) throw httpError(409, "There's no pending question for this PR. Press Sync.");
+        if (!answer) throw httpError(400, "Type or pick an answer.");
+        if (answer.length > 2000) throw httpError(413, "Keep answers under 2000 characters.");
+        updatePr(repo, pr, (s) => {
+            s.answered = { requestId: input.requestId, answer, at: nowIso() };
+            note(s, `You answered: ${answer.slice(0, 120)}`);
+        });
+        await send(answerPrompt(card, repo, input, answer), repo, pr, { quiet: true });
+    } else if (action === "dismiss") {
+        const input = local.sync?.awaitingInput;
+        updatePr(repo, pr, (s) => {
+            s.dismissed = input?.requestId || "all";
+            addHistory(s, "You dismissed the question on the board (it wasn't answered)");
+        });
     } else if (action === "open-chat") {
         if (!local.session?.id) throw httpError(409, "No session is linked to this PR yet.");
         await send(openChatPrompt(card, repo), repo, pr, { quiet: true });
@@ -205,6 +236,30 @@ async function prDetail(repo, pr) {
     });
     detailCache.set(key, { ...(hit || {}), inflight });
     return inflight;
+}
+
+async function requestSync(repo) {
+    const b = board(repo);
+    if (!b.data) await b.refresh();
+    const tracked = b.snapshot().cards.filter((c) => c.section !== "merged" && (c.local?.session?.id || c.section !== "other")).map((c) => ({ pr: c.number, sessionId: c.local?.session?.id || null, name: c.local?.session?.name || null }));
+    updateMeta(repo, (m) => { m.syncRequestedAt = nowIso(); });
+    b.broadcast();
+    await session.send({ prompt: syncPrompt(repo, tracked) });
+    return { ok: true, tracked: tracked.length };
+}
+
+// Best effort: live, opted-in local sessions the SDK can see directly. App sessions
+// usually aren't opted in, so the coordinator-fed sync is the main source.
+const liveSessions = { list: [], note: "not checked yet" };
+async function refreshLiveSessions() {
+    try {
+        const r = await session.rpc.management.list({});
+        liveSessions.list = (r?.sessions || []).map((s) => ({ sessionId: s.sessionId, name: s.name, state: s.state, parentSessionId: s.parentSessionId || null }));
+        liveSessions.note = `management.list returned ${liveSessions.list.length}`;
+    } catch (e) {
+        liveSessions.list = [];
+        liveSessions.note = `management.list unavailable: ${String(e?.message || e).slice(0, 160)}`;
+    }
 }
 
 async function summarizeAll(repo) {
@@ -331,6 +386,9 @@ async function handle(req, res) {
         if (req.headers["x-pr-board-token"] !== TOKEN) return json(403, { error: "Forbidden" });
         const body = await readBody(req);
         const repo = checkRepo(body.repo);
+        if (url.pathname === "/api/sync") {
+            return json(200, await requestSync(repo));
+        }
         if (url.pathname === "/api/summarize-all") {
             return json(200, await summarizeAll(repo));
         }
@@ -346,7 +404,7 @@ async function handle(req, res) {
         if (url.pathname === "/api/action") {
             const pr = Number(body.pr);
             if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
-            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force }));
+            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer } }));
         }
     }
     json(404, { error: "Not found" });
@@ -382,6 +440,10 @@ function summarizeCard(c) {
         agent: c.local?.agent || null,
         draft: c.local?.draft || null,
         awaitingReply: !!c.local?.pending,
+        section: c.section,
+        review: c.review,
+        sync: c.local?.sync || null,
+        monitorPending: c.local?.monitorPending || null,
         summary: c.local?.summary || null,
         thread: (c.local?.thread || []).slice(-5).map((m) => ({ role: m.role, from: m.from, text: m.text.slice(0, 300), at: m.at })),
     };
@@ -397,6 +459,74 @@ const STATUS_WORDS = {
 };
 
 const tools = [
+    {
+        name: "pr_board_sync_sessions",
+        description: "Tell the PR board about the sessions working on or reviewing PRs: activity, a pending question (awaiting input), Agent merge (monitoring) state, and when pr-review ran. Call it after a PR board Sync request, after turning monitoring on or off, and whenever a linked session's state changes. Omit fields you can't determine.",
+        parameters: {
+            type: "object",
+            properties: {
+                repo: repoProp,
+                sessions: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            pr: prProp,
+                            sessionId: { type: "string" },
+                            name: { type: "string" },
+                            role: { type: "string", enum: ["author", "reviewer"], description: "author = working on the PR; reviewer = reviewing it." },
+                            activity: { type: "string", enum: ["busy", "idle", "unknown"] },
+                            awaitingInput: {
+                                type: ["object", "null"],
+                                properties: { requestId: { type: "string" }, question: { type: "string" }, choices: { type: "array", items: { type: "string" } } },
+                                required: ["requestId", "question"],
+                            },
+                            agentMerge: {
+                                type: ["object", "null"],
+                                properties: { enabled: { type: "boolean" }, actions: { type: "array", items: { type: "string" } } },
+                                required: ["enabled"],
+                            },
+                            prReview: {
+                                type: ["object", "null"],
+                                properties: { ranAt: { type: "string" }, headSha: { type: "string" }, result: { type: "string", enum: ["drafted", "posted"] }, event: { type: "string", enum: ["approve", "request_changes", "comment"] } },
+                                required: ["ranAt"],
+                            },
+                        },
+                        required: ["pr"],
+                    },
+                },
+            },
+            required: ["sessions"],
+        },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const at = nowIso();
+            const updated = [];
+            for (const e of Array.isArray(args.sessions) ? args.sessions : []) {
+                const n = Number(e.pr);
+                if (!Number.isInteger(n) || n <= 0) continue;
+                updatePr(repo, n, (s) => {
+                    if (e.sessionId) s.session = { id: String(e.sessionId), name: e.name ? String(e.name).slice(0, 120) : s.session?.name || null, linkedAt: s.session?.linkedAt || at };
+                    if (e.role === "author" || e.role === "reviewer") s.role = e.role;
+                    const input = e.awaitingInput?.requestId ? { requestId: String(e.awaitingInput.requestId), question: String(e.awaitingInput.question || "").slice(0, 2000), choices: (e.awaitingInput.choices || []).map((x) => String(x).slice(0, 200)).slice(0, 8) } : null;
+                    s.sync = {
+                        activity: ["busy", "idle", "unknown"].includes(e.activity) ? e.activity : (s.sync?.activity || "unknown"),
+                        awaitingInput: e.awaitingInput === undefined ? (s.sync?.awaitingInput || null) : input,
+                        agentMerge: e.agentMerge === undefined ? (s.sync?.agentMerge ?? null) : (e.agentMerge ? { enabled: !!e.agentMerge.enabled, actions: (e.agentMerge.actions || []).map(String) } : null),
+                        at,
+                    };
+                    if (e.agentMerge !== undefined) s.monitorPending = null;
+                    if (!input || s.answered?.requestId !== input.requestId) s.answered = null;
+                    if (input && s.dismissed && s.dismissed !== input.requestId) s.dismissed = null;
+                    if (e.prReview?.ranAt) s.prReview = { ...(s.prReview || {}), result: e.prReview.result || s.prReview?.result || "drafted", at: e.prReview.ranAt, headSha: e.prReview.headSha || s.prReview?.headSha || null, event: e.prReview.event || s.prReview?.event || null, ...(e.prReview.result === "posted" ? { postedAt: e.prReview.ranAt } : { draftedAt: s.prReview?.draftedAt || e.prReview.ranAt }) };
+                });
+                updated.push(n);
+            }
+            updateMeta(repo, (m) => { m.syncedAt = at; });
+            board(repo).broadcast();
+            return { ok: true, repo, updated };
+        },
+    },
     {
         name: "pr_board_set_summary",
         description: "Set a PR's plain-words summary on the PR board, shown in the inbox row and the PR's Overview. Write it for a product manager: what changes for the person using the product, not how the code does it.",
@@ -492,6 +622,7 @@ const tools = [
         handler: async (args) => {
             const repo = await resolveRepo(args.repo);
             const outcome = args.outcome ? String(args.outcome).slice(0, 200) : null;
+            const head = board(repo).card(args.pr)?.headSha || null;
             const pr = updatePr(repo, args.pr, (s) => {
                 if (args.status === "clear") {
                     s.agent = null;
@@ -500,6 +631,7 @@ const tools = [
                 }
                 if (args.status === "posted") {
                     if (s.draft) s.draft.postedAt = nowIso();
+                    s.prReview = { ...(s.prReview || {}), result: "posted", at: nowIso(), postedAt: nowIso(), event: s.postEvent || s.prReview?.event || null, headSha: head || s.prReview?.headSha || null };
                     s.agent = { status: "done", kind: "post", outcome: outcome || "Review posted", updatedAt: nowIso() };
                 } else {
                     s.agent = { status: args.status, kind: s.agent?.kind || null, outcome: outcome || s.agent?.outcome || null, updatedAt: nowIso() };
@@ -529,8 +661,10 @@ const tools = [
             if (!isAbsolute(args.path) || !existsSync(args.path)) throw new Error(`Draft file not found: ${args.path}. Pass an absolute path to an existing file.`);
             const words = { approve: "recommends approve", request_changes: "recommends request changes", comment: "recommends comment" }[args.recommendation];
             const summary = args.summary ? String(args.summary).slice(0, 200) : null;
+            const head = board(repo).card(args.pr)?.headSha || null;
             updatePr(repo, args.pr, (s) => {
                 s.draft = { path: args.path, recommendation: args.recommendation, summary, attachedAt: nowIso(), postedAt: null };
+                s.prReview = { result: "drafted", at: nowIso(), draftedAt: nowIso(), headSha: head, recommendation: args.recommendation };
                 s.agent = { status: "draft_ready", kind: "review", outcome: `Draft ready: ${summary || words}`, updatedAt: nowIso() };
                 note(s, `Draft review attached (${words})${summary ? `: ${summary}` : ""}`);
             });

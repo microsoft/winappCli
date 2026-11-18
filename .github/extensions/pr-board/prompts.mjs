@@ -135,6 +135,68 @@ export function messagePrompt(card, repo, msg, recent) {
     ].join("\n");
 }
 
+// The exact shape the coordinator should send back after a sync.
+export const SYNC_SHAPE = `pr_board_sync_sessions({
+  repo: "owner/name",            // optional; defaults to the current repo
+  sessions: [{
+    pr: 1305,                    // PR number
+    sessionId: "…",              // the session working on (or reviewing) this PR
+    name: "NuGet group bump fixes",
+    role: "author" | "reviewer", // optional: is the session working on the PR or reviewing it?
+    activity: "busy" | "idle" | "unknown",
+    awaitingInput: { requestId: "…", question: "…", choices: ["…"] } | null,  // from awaiting_input
+    agentMerge: { enabled: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"] } | null,
+    prReview: { ranAt: "ISO time", headSha: "abc1234…", result: "drafted" | "posted", event?: "approve" | "request_changes" | "comment" } | null
+  }]
+})`;
+
+export function syncPrompt(repo, tracked) {
+    return [
+        `The PR board canvas: the user clicked **Sync** for ${repo}. Refresh the board's view of the sessions working on its PRs.`,
+        ``,
+        tracked.length ? `PRs the board already links to a session:` : `The board has no linked sessions yet.`,
+        ...tracked.map((t) => `- #${t.pr}${t.sessionId ? ` → session \`${t.sessionId}\`${t.name ? ` ("${t.name}")` : ""}` : ""}`),
+        ``,
+        `1. Call \`get_sessions_status\` (and \`get_session\` where you need detail) to find every session working on or reviewing a PR in ${repo}, including the ones above and any you coordinate that aren't listed yet.`,
+        `2. For each, read its activity (busy/idle), whether it's awaiting input (copy the exact \`request_id\`, question and choices), its Agent merge settings if you can read them (\`manage_agent_merge\` with a read/get operation, if available), and whether pr-review has run (when, on which head commit, drafted or posted).`,
+        `3. Call \`pr_board_sync_sessions\` once with all of them, in this shape:`,
+        "```",
+        SYNC_SHAPE,
+        "```",
+        `Leave out fields you can't determine (don't guess). Don't answer any question or change any session while syncing. In chat, one line when done is enough.`,
+    ].join("\n");
+}
+
+export function monitorPrompt(card, repo, enable, actions) {
+    const s = card.local?.session;
+    return [
+        `The PR board canvas: the user turned **monitoring ${enable ? "on" : "off"}** for ${repo}#${card.number} "${card.title}" (${card.url}).`,
+        ``,
+        s?.id
+            ? (enable
+                ? `Call \`manage_agent_merge\` for the PR's linked session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} to enable: ${actions.join(", ")}.${actions.includes("merge_pr") ? "" : " Leave merge_pr off."}`
+                : `Call \`manage_agent_merge\` for the PR's linked session \`${s.id}\` to turn Agent merge off.`)
+            : (enable
+                ? `No session is linked to this PR. Start monitoring it per the repository's \`.github/skills/pr-lifecycle\` skill (open or reuse a session for the PR, e.g. \`open_pr_session\`, then enable \`manage_agent_merge\` with ${actions.join(", ")} on it). Never merge from this request.`
+                : `No session is linked to this PR, so there's nothing to turn off. Say so in one line.`),
+        `Then call \`pr_board_sync_sessions\` for this PR with the session's id and its \`agentMerge\` state, so the board shows the confirmed state. If it fails, call \`pr_board_reply\` with \`{ repo: "${repo}", pr: ${card.number}, text: <the reason in one line> }\`.`,
+    ].join("\n");
+}
+
+export function answerPrompt(card, repo, input, answer) {
+    const s = card.local?.session;
+    return [
+        `The PR board canvas: the user answered a question from the session working on ${repo}#${card.number} "${card.title}".`,
+        ``,
+        `Session: \`${s?.id || "unknown"}\`${s?.name ? ` ("${s.name}")` : ""}`,
+        `Question (request_id \`${input.requestId}\`): ${input.question}`,
+        `User's answer: ${answer}`,
+        ``,
+        `Call \`answer_session_input\` with \`{ project_session_id: "${s?.id || ""}", request_id: "${input.requestId}", answer: ${JSON.stringify(answer)} }\`. If the question had choices and the answer is free text that doesn't match one, and freeform isn't allowed, don't send it; instead call \`pr_board_reply\` for this PR explaining that in one line.`,
+        `If the request_id is no longer pending, don't resend; call \`pr_board_sync_sessions\` for this PR so the board drops the stale question.`,
+    ].join("\n");
+}
+
 export function openChatPrompt(card, repo) {
     const s = card.local.session;
     return [
