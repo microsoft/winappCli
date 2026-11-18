@@ -128,8 +128,9 @@ extends:
       jobs:
       - job: Build
         # NativeAOT for two architectures plus tests, all under CodeQL tracing on this Official
-        # template, reached 116 minutes in Build CLI alone (November 2026).
-        timeoutInMinutes: 180
+        # template, took 149 minutes in Build CLI alone (November 2026). Signing and SDL binary
+        # analysis add another ~35 minutes after it on a release.
+        timeoutInMinutes: 240
         pool:
           name: Azure-Pipelines-1ESPT-ExDShared
           # Match the VS 18 compiler that GitHub Actions uses; windows-latest still has VS 2022.
