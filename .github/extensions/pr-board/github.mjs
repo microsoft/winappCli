@@ -129,7 +129,7 @@ export function buildIssueCards(issues, localIssues) {
     return issues.map((i) => {
         const local = localIssues[String(i.number)] || {};
         const status = local.status
-            || (local.session?.id ? `Being worked on in "${local.session.name || "a session here"}"` : i.assignedToYou ? "Assigned to you; no PR yet" : "Tracked here; no session or PR yet");
+            || (local.session?.id ? `Being worked on in "${local.session.name || "a session here"}"` : i.assignedToYou ? "Assigned to you; no PR yet" : "Linked here; no PR yet");
         return {
             kind: "issue",
             number: i.number,
@@ -145,6 +145,7 @@ export function buildIssueCards(issues, localIssues) {
             group: "issue",
             status,
             waitingOn: status,
+            hidden: !!local.hidden,
             local,
         };
     });

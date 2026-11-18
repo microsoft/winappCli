@@ -10,7 +10,10 @@ import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/exte
 import { buildCards, buildIssueCards, detectRepo, fetchChangesSince, fetchDetail, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
 import { spawn } from "node:child_process";
-import { answerPrompt, archReviewPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
+import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
+import { artifactsDir } from "./store.mjs";
+import { answerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -43,7 +46,8 @@ class Board {
             try {
                 this.data = await fetchRepoData(this.repo);
                 const st = readState(this.repo);
-                const linked = Object.entries(st.issues).filter(([, v]) => v.session?.id || v.tracked).map(([k]) => Number(k));
+                // Only issues someone is working on here (a linked session); assigned issues come from GitHub.
+                const linked = Object.entries(st.issues).filter(([, v]) => v.session?.id).map(([k]) => Number(k));
                 this.issues = await fetchIssues(this.repo, linked, this.data.open.map((p) => p.number));
                 this.error = null;
                 await refreshLiveSessions();
@@ -69,7 +73,7 @@ class Board {
             liveSessionsNote: liveSessions.note,
             groups: GROUPS,
             viewer: this.data?.viewer || null,
-            cards: this.data ? buildCards(this.data, local) : [],
+            cards: this.data ? buildCards(this.data, local).map((card) => (card.local?.review ? { ...card, local: { ...card.local, review: withLinks(card.local.review, card.url) } } : card)) : [],
             issues: buildIssueCards(this.issues || [], state.issues),
             error: this.error,
             fetchedAt: this.fetchedAt ? new Date(this.fetchedAt).toISOString() : null,
@@ -158,13 +162,30 @@ async function runIssueAction({ repo, number, action }) {
         if (card.local?.session?.id) throw httpError(409, "A session is already linked to this issue.");
         updateItem(repo, "issue", number, (s) => { s.pending = { id: "start", at: nowIso() }; note(s, "You asked to start working on it"); });
         await send(startIssuePrompt(card, repo), repo, number, quiet);
-    } else if (action === "untrack") {
-        updateItem(repo, "issue", number, (s) => { s.tracked = false; addHistory(s, "You removed it from the board"); });
+    } else if (action === "hide" || action === "untrack") {
+        updateItem(repo, "issue", number, (s) => { s.hidden = true; addHistory(s, "You removed it from the board"); });
+    } else if (action === "unhide") {
+        updateItem(repo, "issue", number, (s) => { s.hidden = false; addHistory(s, "You put it back on the board"); });
     } else {
         throw httpError(400, `Unknown action ${action}`);
     }
     b.broadcast();
     return { ok: true };
+}
+
+// Exactly what will be posted, saved as gh api request bodies the agent posts unchanged.
+function writePostPayload(repo, pr, preview) {
+    const dir = join(artifactsDir(), "posts");
+    mkdir(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = join(dir, `${repo.replace("/", "__")}-${pr}-${stamp}`);
+    const strip = ({ findingId, ...c }) => c;
+    const full = { event: preview.event, body: preview.body, comments: preview.comments.map(strip), ...(preview.commit_id ? { commit_id: preview.commit_id } : {}) };
+    const folded = preview.comments.map((x) => `- \`${x.path}:${x.line}\`: ${x.body.replace(/\n\n/g, "\n  ")}`).join("\n");
+    const bodyOnly = { event: preview.event, body: [preview.body, folded].filter(Boolean).join("\n\n"), ...(preview.commit_id ? { commit_id: preview.commit_id } : {}) };
+    writeFile(`${base}.json`, JSON.stringify(full, null, 2));
+    writeFile(`${base}-body-only.json`, JSON.stringify(bodyOnly, null, 2));
+    return { full: `${base}.json`, bodyOnly: `${base}-body-only.json` };
 }
 
 async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
@@ -209,9 +230,25 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
             addHistory(s, "You asked for a plain-words summary");
         });
         await send(summarizePrompt(card, repo), repo, pr, { quiet: true });
-    } else if (action === "arch-review") {
-        updatePr(repo, pr, (s) => note(s, "You asked for an architecture review (opens in its own panel)"));
-        await send(archReviewPrompt(card, repo), repo, pr, { quiet: true });
+    } else if (action === "explain") {
+        const f = (local.review?.findings || []).find((x) => x.id === extra.findingId);
+        if (!f) throw httpError(404, "That finding isn't in the review anymore.");
+        updatePr(repo, pr, (s) => { s.explaining = { ...(s.explaining || {}), [f.id]: nowIso() }; });
+        await send(explainPrompt(card, repo, f), repo, pr, { quiet: true });
+    } else if (action === "post-findings") {
+        if (!POST_EVENTS.has(event)) throw httpError(400, "Pick Approve, Request changes, or Comment.");
+        if (!local.review) throw httpError(409, "There's no structured review yet. Run Review first.");
+        if (busy && !force) throw httpError(409, "An agent is already working on this PR.");
+        const preview = composeGithubReview(local.review, local.triage, event, card.headSha);
+        if (!preview.counts.posted && !local.triage?._note?.note) throw httpError(409, "Mark at least one finding Post, or write a note, first.");
+        const files = writePostPayload(repo, pr, preview);
+        const word = event.replace("_", " ");
+        updatePr(repo, pr, (s) => {
+            s.postEvent = event;
+            s.agent = { status: "running", kind: "post", outcome: `Posting ${preview.counts.posted} finding(s) as "${word}"`, updatedAt: nowIso() };
+            note(s, `You asked to post ${preview.counts.posted} finding(s) as "${word}"`);
+        });
+        await send(postFindingsPrompt(card, repo, event, preview, files), repo, pr);
     } else if (action === "status-update") {
         updatePr(repo, pr, (s) => { s.pending = { id: "status", at: nowIso() }; note(s, "You asked for a status update"); });
         await send(statusUpdatePrompt(card, repo), repo, pr, { quiet: true });
@@ -227,6 +264,8 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
         updatePr(repo, pr, (s) => { s.tracked = "reviewer"; addHistory(s, "You added it to your reviews"); });
     } else if (action === "untrack") {
         updatePr(repo, pr, (s) => { s.tracked = null; addHistory(s, "You removed it from your reviews"); });
+    } else if (action === "hide" || action === "unhide") {
+        updatePr(repo, pr, (s) => { s.hidden = action === "hide"; addHistory(s, action === "hide" ? "You removed it from the board" : "You put it back on the board"); });
     } else if (action === "monitor") {
         const enable = extra.enable !== false;
         const actions = enable ? (extra.mergePr ? ["address_reviews", "fix_ci", "resolve_conflicts", "merge_pr"] : ["address_reviews", "fix_ci", "resolve_conflicts"]) : [];
@@ -418,6 +457,17 @@ async function handle(req, res) {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
         return res.end(readFileSync(join(HERE, "ui.html"), "utf8"));
     }
+    if (req.method === "GET" && url.pathname === "/diagram.js") {
+        res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+        return res.end(readFileSync(join(HERE, "diagram.js"), "utf8"));
+    }
+    if (req.method === "GET" && url.pathname === "/api/review") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const pr = Number(url.searchParams.get("pr"));
+        const local = readState(repo).prs[String(pr)] || {};
+        if (!local.review) return json(200, { review: null });
+        return json(200, { review: withLinks(local.review, `https://github.com/${repo}/pull/${pr}`), triage: local.triage || {}, explanations: local.explanations || {}, explaining: local.explaining || {}, reviewedAt: local.reviewSetAt || null });
+    }
     if (req.method === "GET" && url.pathname === "/events") {
         const b = board(checkRepo(url.searchParams.get("repo")));
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
@@ -476,7 +526,28 @@ async function handle(req, res) {
         if (url.pathname === "/api/action") {
             const pr = Number(body.pr);
             if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
-            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer, kind: body.kind === "issue" ? "issue" : "pr" } }));
+            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer, findingId: body.findingId, kind: body.kind === "issue" ? "issue" : "pr" } }));
+        }
+        if (url.pathname === "/api/triage") {
+            const pr = Number(body.pr);
+            const id = String(body.findingId || "");
+            if (!Number.isInteger(pr) || pr <= 0 || !id) throw httpError(400, "Invalid PR or finding");
+            const decision = body.decision === undefined ? undefined : ["post", "ignore", "undecided"].includes(body.decision) ? body.decision : null;
+            if (decision === null) throw httpError(400, "decision must be post, ignore or undecided");
+            updatePr(repo, pr, (s) => {
+                s.triage = s.triage || {};
+                const cur = s.triage[id] || {};
+                s.triage[id] = { ...cur, ...(decision !== undefined ? { decision } : {}), ...(body.note !== undefined ? { note: String(body.note).slice(0, 2000) } : {}), at: nowIso() };
+            });
+            board(repo).broadcast();
+            return json(200, { ok: true });
+        }
+        if (url.pathname === "/api/review-preview") {
+            const pr = Number(body.pr);
+            const local = readState(repo).prs[String(pr)] || {};
+            if (!local.review) throw httpError(404, "No structured review yet.");
+            if (!POST_EVENTS.has(body.event)) throw httpError(400, "Pick Approve, Request changes, or Comment.");
+            return json(200, composeGithubReview(local.review, local.triage, body.event, board(repo).card(pr)?.headSha));
         }
         if (url.pathname === "/api/open") {
             return json(200, openInBrowser(repo, String(body.url || "")));
@@ -549,7 +620,84 @@ const STATUS_WORDS = {
     failed: "Agent failed",
 };
 
+function loadReviewArg(args) {
+    if (args.review && typeof args.review === "object") return structuredClone(args.review);
+    if (args.path) {
+        if (!isAbsolute(args.path) || !existsSync(args.path)) throw new Error(`Review file not found: ${args.path}`);
+        return JSON.parse(readFileSync(args.path, "utf8"));
+    }
+    throw new Error("Pass review (an object) or path (an absolute path to a JSON file).");
+}
+
+function storeReview(repo, pr, review, { replace }) {
+    let warnings = [];
+    const head = board(repo).card(pr)?.headSha || null;
+    updatePr(repo, pr, (s) => {
+        const next = replace ? review : mergeReview(s.review || {}, review);
+        warnings = normalizeReview(next);
+        next.headSha = next.headSha || head;
+        s.review = next;
+        s.reviewSetAt = nowIso();
+        s.prReview = { ...(s.prReview || {}), result: s.prReview?.result === "posted" ? "posted" : "drafted", at: nowIso(), draftedAt: nowIso(), headSha: next.headSha };
+        if (replace) note(s, `Structured review ready: ${next.findings.length} finding(s), ${next.diagrams.length} diagram(s)`);
+        if (next.summary && !s.summary) s.summary = { text: next.summary.replace(/\s+/g, " ").replace(/[*_`#>]/g, "").slice(0, 139), nextSteps: [], risk: next.risk || null, at: nowIso() };
+        if (s.agent?.kind === "review" && s.agent.status === "running") s.agent = { status: "draft_ready", kind: "review", outcome: `Review ready: ${next.findings.length} finding(s) to triage`, updatedAt: nowIso() };
+    });
+    board(repo).broadcast();
+    return warnings;
+}
+
 const tools = [
+    {
+        name: "pr_board_review_guide",
+        description: "Read first before filling a PR board structured review: the workflow, plain-words rules, diagram conventions and the review schema used by pr_board_set_review.",
+        parameters: { type: "object", properties: {} },
+        handler: async () => ({ guide: GUIDE, schema: REVIEW_SCHEMA }),
+    },
+    {
+        name: "pr_board_set_review",
+        description: "Set (replace) the structured review for a PR on the PR board: summary, verdict, risk, functionality, components (changes by system), changedFiles (changes by file), diagrams and findings. Pass review as an object, or path to a JSON file with the same shape. The user's Post/Ignore choices survive when finding ids stay the same. Call pr_board_review_guide first.",
+        parameters: { type: "object", properties: { repo: repoProp, pr: prProp, review: REVIEW_SCHEMA, path: { type: "string", description: "Absolute path to a JSON file holding the review, instead of review." } }, required: ["pr"] },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const warnings = storeReview(repo, Number(args.pr), loadReviewArg(args), { replace: true });
+            return { ok: true, repo, pr: args.pr, warnings };
+        },
+    },
+    {
+        name: "pr_board_update_review",
+        description: "Merge a partial structured review into a PR's review on the PR board (objects merge, id'd arrays merge by id). Use for big PRs, section by section.",
+        parameters: { type: "object", properties: { repo: repoProp, pr: prProp, patch: REVIEW_SCHEMA }, required: ["pr", "patch"] },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const warnings = storeReview(repo, Number(args.pr), structuredClone(args.patch || {}), { replace: false });
+            return { ok: true, repo, pr: args.pr, warnings };
+        },
+    },
+    {
+        name: "pr_board_add_findings",
+        description: "Add or update findings in a PR's structured review on the PR board (merged by id).",
+        parameters: { type: "object", properties: { repo: repoProp, pr: prProp, findings: REVIEW_SCHEMA.properties.findings }, required: ["pr", "findings"] },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const warnings = storeReview(repo, Number(args.pr), { findings: structuredClone(args.findings || []) }, { replace: false });
+            return { ok: true, repo, pr: args.pr, warnings };
+        },
+    },
+    {
+        name: "pr_board_set_explanation",
+        description: "Put a plain-words explanation under a finding on the PR board, after the board asked you to explain it.",
+        parameters: { type: "object", properties: { repo: repoProp, pr: prProp, findingId: { type: "string" }, text: { type: "string", description: "Short Markdown." } }, required: ["pr", "findingId", "text"] },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            updatePr(repo, Number(args.pr), (s) => {
+                s.explanations = { ...(s.explanations || {}), [args.findingId]: { text: String(args.text).slice(0, 6000), at: nowIso() } };
+                if (s.explaining) delete s.explaining[args.findingId];
+            });
+            board(repo).broadcast();
+            return { ok: true };
+        },
+    },
     {
         name: "pr_board_sync_sessions",
         description: "Tell the PR board about the sessions working on or reviewing PRs: activity, a pending question (awaiting input), Agent merge (monitoring) state, and when pr-review ran. Call it after a PR board Sync request, after turning monitoring on or off, and whenever a linked session's state changes. Omit fields you can't determine.",
@@ -565,6 +713,7 @@ const tools = [
                             pr: prProp,
                             issue: { type: "number", description: "Issue number, for an issue with no PR yet. Use instead of pr." },
                             status: { type: "string", description: "One plain line about where it is, shown on the row, e.g. 'Waiting on the reporter to rerun the installed winapp'." },
+                            untrack: { type: "boolean", description: "true = unlink this PR or issue from its session here and clear its synced state (an issue then leaves 'Issues in progress' unless it's assigned to the user)." },
                             sessionId: { type: "string" },
                             name: { type: "string" },
                             role: { type: "string", enum: ["author", "reviewer"], description: "author = working on the PR; reviewer = reviewing it." },
@@ -597,8 +746,12 @@ const tools = [
             for (const e of Array.isArray(args.sessions) ? args.sessions : []) {
                 let kind, n;
                 try { [kind, n] = target(e); } catch { continue; }
+                if (e.untrack) {
+                    updateItem(repo, kind, n, (s) => { s.session = null; s.sync = null; s.status = null; s.tracked = false; s.role = null; addHistory(s, "Unlinked by the agent"); });
+                    updated.push(kind === "issue" ? `issue #${n}` : n);
+                    continue;
+                }
                 updateItem(repo, kind, n, (s) => {
-                    if (kind === "issue") s.tracked = true;
                     if (e.status !== undefined) s.status = e.status ? String(e.status).slice(0, 200) : null;
                     if (e.sessionId) s.session = { id: String(e.sessionId), name: e.name ? String(e.name).slice(0, 120) : s.session?.name || null, linkedAt: s.session?.linkedAt || at };
                     if (e.role === "author" || e.role === "reviewer") s.role = e.role;

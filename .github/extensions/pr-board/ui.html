@@ -235,7 +235,19 @@ details.panel > .body { padding-top: var(--s3); }
 .ov-sec > header p { margin: 0 0 0 var(--s2); color: var(--muted); font-size: var(--t-meta); }
 .ov-cols { display: grid; grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 168px); gap: var(--s3); padding: 0 var(--s3) var(--s1); font-size: var(--t-meta); color: var(--muted); border-bottom: 1px solid var(--border); }
 .ov-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 168px); gap: var(--s1) var(--s3); padding: var(--s3); border-bottom: 1px solid var(--hairline); align-items: start; }
+.ov-row { cursor: pointer; }
 .ov-row:hover { background: var(--subtle); }
+.ov-acts { display: flex; gap: 6px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+.ov-acts button { font-size: var(--t-meta); padding: 0 8px; line-height: 22px; }
+.ov-acts .more { display: none; }
+.ov-row:hover .ov-acts .more, .ov-row:focus-within .ov-acts .more { display: inline-flex; }
+.fly-menu { position: absolute; right: var(--s5); top: 44px; z-index: 2; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); display: flex; flex-direction: column; padding: var(--s1); min-width: 200px; }
+.fly-menu button { border: 0; justify-content: flex-start; padding: 6px 10px; }
+.fly-head { position: relative; }
+.ov-hidden > summary { cursor: pointer; font-size: var(--t-small); font-weight: var(--w-strong); list-style: none; display: flex; gap: var(--s2); align-items: center; color: var(--muted); }
+.ov-hidden > summary::-webkit-details-marker { display: none; }
+.ov-hidden[open] > summary .chev { transform: rotate(90deg); }
+.ov-hidden li { display: flex; gap: var(--s2); align-items: center; font-size: var(--t-small); padding: 4px 0; }
 .ov-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ov-title { all: unset; cursor: pointer; font-weight: var(--w-strong); font-size: var(--t-body); line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-title:hover { text-decoration: underline; }
@@ -671,7 +683,6 @@ function renderList() {
 function moreMenu(c) {
   const local = c.local || {};
   const items = [
-    `<button role="menuitem" data-act="arch-review">${icon("arch")}Architecture review</button>`,
     local.session ? `<button role="menuitem" data-act="open-chat-link">${icon("comment")}Open full chat</button>` : "",
     local.session ? `<button role="menuitem" data-act="open-chat">${icon("link")}Ask the agent to open the chat</button>` : "",
     `<button role="menuitem" data-act="pin">${icon("pin")}${pins.has(c.number) ? "Unpin from top" : "Pin to top of the list"}</button>`,
@@ -937,10 +948,10 @@ function ovRow(c, sec) {
   const sub = `<span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span title="${esc(c.size?.text)}">${esc(c.size?.label)}</span><span class="sep">·</span>${ciHtml(c)}<span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>`;
   const kind = c.kind === "issue" ? "issue" : "pr";
   const main = `<div class="ov-main"><div class="ov-title-row"><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${browserLink(c)}</div><div class="ov-sub">${sub}</div>`;
-  if (sec === "issues") return `<div class="ov-row" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div></div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
-  if (sec === "yours") return `<div class="ov-row" style="--cols:4">${main}<div class="ov-where">${whereHtml(c)}</div></div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
-  if (sec === "reviewing") return `<div class="ov-row" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
-  return `<div class="ov-row" style="--cols:1">${main}<div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div></div>${prCell(c)}</div>`;
+  if (sec === "issues") return `<div class="ov-row" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
+  if (sec === "yours") return `<div class="ov-row" style="--cols:4">${main}<div class="ov-where">${whereHtml(c)}</div>${rowActs(c, kind)}</div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
+  if (sec === "reviewing") return `<div class="ov-row" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${rowActs(c, kind)}</div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
+  return `<div class="ov-row" style="--cols:1">${main}<div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${sec === "merged" ? "" : rowActs(c, kind)}</div>${prCell(c)}</div>`;
 }
 
 // ---- Flyout ----
@@ -948,6 +959,7 @@ let fly = null; // { kind: "pr" | "issue", number }
 let flyReturnFocus = null;
 const changes = new Map(); // pr -> { loading } | { data } | { error }
 let flyDraft = "";
+let flyMore = false;
 const issuesOf = () => snap?.issues || [];
 const itemOf = (kind, n) => (kind === "issue" ? issuesOf() : cardsOf()).find((c) => c.number === n) || null;
 
@@ -971,20 +983,46 @@ function changesHtml(n) {
   </section>`;
 }
 
-function flyCommands(c, kind) {
-  const b = (act, label, extra = "") => `<button data-act="${act}" data-pr="${c.number}" data-kind="${kind}" ${extra}>${label}</button>`;
-  if (kind === "issue") {
-    return [b("status-update", "Status update"), c.local?.session?.id ? "" : b("start-issue", `${icon("sparkle", "sm")}Start working on it`), b("focus-ask", "Ask a question"), c.local?.tracked ? b("untrack", "Remove from board", 'class="quiet"') : ""].join("");
-  }
+// Quick commands that fit a row. short = the label used inline on the Overview row.
+function quickCmds(c, kind) {
   const busy = isBusy(c);
+  if (kind === "issue") return [
+    { act: "status-update", label: "Status update", short: "Status" },
+    c.local?.session?.id ? null : { act: "start-issue", label: "Start working on it", short: "Start working" },
+    { act: "focus-ask", label: "Ask a question", short: "Ask" },
+  ].filter(Boolean);
   if (c.section === "yours") {
     const am = c.local?.sync?.agentMerge;
-    return [b("status-update", "Status update"), am?.enabled ? b("monitor", "Turn off monitoring", 'data-enable="0"') : b("monitor", "Turn on monitoring", 'data-enable="1"'), b("summarize", `${icon("sparkle", "sm")}Summarize`), b("focus-ask", "Ask a question")].join("");
+    return [
+      { act: "status-update", label: "Status update", short: "Status" },
+      { act: "focus-ask", label: "Ask a question", short: "Ask" },
+      am?.enabled ? { act: "monitor", label: "Turn off monitoring", short: "Monitoring off", extra: 'data-enable="0"' } : { act: "monitor", label: "Turn on monitoring", short: "Monitor", extra: 'data-enable="1"' },
+      { act: "summarize", label: "Summarize", short: "Summarize" },
+    ];
   }
-  if (c.section === "reviewing") {
-    return [b("what-changed", "What changed since my review?", 'class="primary"'), b("summarize-replies", "Summarize the author's replies"), b("review", c.review?.state === "none" ? "Start review" : "Re-run review", busy ? "disabled" : ""), c.local?.tracked === "reviewer" ? b("untrack", "Remove from my reviews", 'class="quiet"') : ""].join("");
-  }
-  return [b("focus-ask", "Quick question", 'class="primary"'), b("track", "Add to my reviews"), b("review", "Start review", busy ? "disabled" : ""), b("summarize", `${icon("sparkle", "sm")}Summarize`)].join("");
+  if (c.section === "reviewing") return [
+    { act: "what-changed", label: "What changed since my review?", short: "What changed?" },
+    { act: "summarize-replies", label: "Summarize the author's replies", short: "Author's replies" },
+    { act: "review", label: c.review?.state === "none" ? "Start review" : "Re-run review", short: c.review?.state === "none" ? "Review" : "Re-review", extra: busy ? "disabled" : "" },
+    { act: "focus-ask", label: "Ask a question", short: "Ask" },
+  ];
+  return [
+    { act: "focus-ask", label: "Quick question", short: "Ask" },
+    { act: "track", label: "Add to my reviews", short: "Add to my reviews" },
+    { act: "review", label: "Start review", short: "Review", extra: busy ? "disabled" : "" },
+    { act: "summarize", label: "Summarize", short: "Summarize" },
+  ];
+}
+
+// Inline on each Overview row: the first command, the next two on hover, and ⋯ for the flyout.
+function rowActs(c, kind) {
+  const cmds = quickCmds(c, kind).slice(0, 3);
+  const b = (x, i) => `<button class="${i === 0 ? "" : "more"}" data-act="row-${x.act}" data-pr="${c.number}" data-kind="${kind}" ${x.extra || ""}>${esc(x.short)}</button>`;
+  return `<div class="ov-acts">${cmds.map(b).join("")}<button class="quiet" data-act="flyout" data-pr="${c.number}" data-kind="${kind}" aria-label="All actions and chat for #${c.number}">${icon("more", "sm")}</button></div>`;
+}
+
+function flyCommands(c, kind) {
+  return quickCmds(c, kind).map((x, i) => `<button class="${i === 0 ? "primary" : ""}" data-act="${x.act}" data-pr="${c.number}" data-kind="${kind}" ${x.extra || ""}>${esc(x.label)}</button>`).join("");
 }
 
 function renderFlyout() {
@@ -1012,14 +1050,19 @@ function renderFlyout() {
         <div class="top"><span>${isIssue ? "Issue" : "Pull request"} #${c.number}</span><span class="sp"></span>
           ${browserLink(c, "Open in browser")}
           ${isIssue ? "" : `<button data-act="open" data-pr="${c.number}">Open details</button>`}
+          <button class="quiet ico" data-act="fly-more" aria-haspopup="menu" aria-expanded="${flyMore}" aria-label="More">${icon("more", "sm")}</button>
           <button class="quiet ico" data-act="fly-close" aria-label="Close">${icon("x", "sm")}</button></div>
+        ${flyMore ? `<div class="fly-menu" role="menu">
+          ${!isIssue && c.local?.tracked === "reviewer" ? `<button role="menuitem" data-act="untrack" data-pr="${c.number}">Remove from my reviews</button>` : ""}
+          <button role="menuitem" data-act="hide" data-pr="${c.number}" data-kind="${fly.kind}">Remove from board</button>
+        </div>` : ""}
         <h2 id="flyTitle">${esc(c.title)}</h2>
         <div class="chips">${chips}</div>
       </div>
       <div class="fly-body">
-        <section class="sec"><h3>Where it is</h3>${summary}</section>
+        <section class="sec"><div class="fly-cmds" role="group" aria-label="Quick commands">${flyCommands(c, fly.kind)}</div></section>
         ${!isIssue ? askHtml(c) : ""}
-        <section class="sec"><h3>Quick commands</h3><div class="fly-cmds">${flyCommands(c, fly.kind)}</div></section>
+        <section class="sec"><h3>Where it is</h3>${summary}</section>
         ${!isIssue ? changesHtml(c.number) : ""}
         <section class="sec"><h3>Thread</h3>${threadHtml(c)}</section>
       </div>
@@ -1035,12 +1078,14 @@ function renderFlyout() {
 function openFlyout(kind, number, from) {
   if (!fly || fly.kind !== kind || fly.number !== number) flyDraft = "";
   fly = { kind, number };
+  flyMore = false;
   flyReturnFocus = from || null;
   renderFlyout();
   $("flyHost").querySelector(".fly-cmds button, .fly-head button")?.focus();
 }
 function closeFlyout() {
   fly = null;
+  flyMore = false;
   renderFlyout();
   flyReturnFocus?.isConnected ? flyReturnFocus.focus() : null;
 }
@@ -1071,11 +1116,15 @@ function renderOverview() {
     <div class="ov-bar"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select>
       <span>Rows keep their place when their state changes.</span></div>
     ${SECTIONS.map(([id, title, hint, cols]) => {
-      const rows = order((id === "issues" ? issuesOf() : cards).filter((c) => c.section === id));
+      const rows = order((id === "issues" ? issuesOf() : cards).filter((c) => c.section === id && !(c.hidden || c.local?.hidden)));
       return `<section class="ov-sec" aria-label="${esc(title)}"><header><h2>${esc(title)}</h2><span class="n">${rows.length}</span><p>${esc(hint)}</p></header>
         <div class="ov-cols" style="--cols:${cols.length}" aria-hidden="true"><span>${id === "issues" ? "Issue" : "Pull request"}</span>${cols.map((k) => `<span>${esc(k)}</span>`).join("")}</div>
         <div role="list">${rows.map((c) => ovRow(c, id)).join("") || `<div class="ov-empty">Nothing here.</div>`}</div></section>`;
     }).join("")}
+    ${(() => {
+      const hidden = [...cards.filter((c) => c.section !== "merged" && c.local?.hidden), ...issuesOf().filter((c) => c.hidden)];
+      return hidden.length ? `<details class="ov-hidden"><summary>${icon("chevRight", "sm chev")}Removed from the board <span class="n">${hidden.length}</span></summary><ul style="list-style:none;padding:0;margin:var(--s2) 0 0">${hidden.map((h) => `<li>${h.kind === "issue" ? "Issue" : "PR"} #${h.number} · ${esc(h.title)} <button data-act="unhide" data-pr="${h.number}" data-kind="${h.kind === "issue" ? "issue" : "pr"}">Put back</button></li>`).join("")}</ul></details>` : "";
+    })()}
     ${merged.length ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${order(merged).map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
   </div>`;
   el.scrollTop = scroll;
@@ -1156,7 +1205,13 @@ function openMenuAndFocus(name) {
 
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
-  if (!el) { if (openMenu) { openMenu = null; render(); } return; }
+  if (!el) {
+    const row = e.target.closest(".ov-row");
+    if (row && !e.target.closest("a, button, input, textarea, select, summary")) return row.querySelector(".ov-title")?.click();
+    if (flyMore && !e.target.closest(".fly-menu")) { flyMore = false; renderFlyout(); }
+    if (openMenu) { openMenu = null; render(); }
+    return;
+  }
   const a = el.dataset.act;
   const rowPr = el.dataset.pr ? Number(el.dataset.pr) : null;
   if (a === "select") return select(rowPr ?? selected);
@@ -1164,6 +1219,20 @@ document.addEventListener("click", (e) => {
   if (a === "flyout") return openFlyout(el.dataset.kind || "pr", rowPr, el);
   if (a === "fly-close") return closeFlyout();
   if (a === "focus-ask") return $("flyInput")?.focus();
+  if (a === "fly-more") { flyMore = !flyMore; renderFlyout(); return $("flyHost").querySelector(".fly-menu button")?.focus(); }
+  if (a === "hide" || a === "unhide") {
+    flyMore = false;
+    if (a === "hide" && fly?.number === rowPr) closeFlyout();
+    return post("/api/action", { pr: rowPr, action: a, kind: el.dataset.kind || "pr" }).then(() => toast(a === "hide" ? "Removed from the board. It's listed under \"Removed from the board\" at the bottom." : "Back on the board")).catch((err) => toast("Couldn't do that: " + err.message));
+  }
+  if (a.startsWith("row-") && el.closest(".ov-row")) {
+    // Inline row commands open the flyout too, so the answer has somewhere to show up.
+    const cmd = a.slice(4), kind = el.dataset.kind || "pr";
+    openFlyout(kind, rowPr, el.closest(".ov-row").querySelector(".ov-title"));
+    if (cmd === "focus-ask") return $("flyInput")?.focus();
+    const target = $("flyHost").querySelector(`.fly-cmds [data-act="${cmd}"]`);
+    return target?.click();
+  }
   if (a === "what-changed") { loadChanges(rowPr); return; }
   if (el.dataset.kind === "issue") return post("/api/action", { pr: rowPr, action: a, kind: "issue" }).then(() => toast(a === "untrack" ? "Removed from the board" : "Asked the agent")).catch((err) => toast("Couldn't do that: " + err.message));
   if (a === "track" || a === "untrack") return post("/api/action", { pr: rowPr, action: a }).then(() => toast(a === "track" ? "Added to your reviews" : "Removed from your reviews")).catch((err) => toast("Couldn't do that: " + err.message));
@@ -1210,7 +1279,6 @@ document.addEventListener("click", (e) => {
     return arm(`${pr}:ship`, "ship");
   }
   openMenu = null;
-  if (a === "arch-review") { if (pr !== selected) select(pr); tab = "thread"; store.set("prb-tab", tab); render(true); }
   return act(pr, a);
 });
 

@@ -44,28 +44,14 @@ export function summarizeAllPrompt(cards, repo) {
     ].join("\n");
 }
 
-export function archReviewPrompt(card, repo) {
-    const instanceId = `arch-${repo}-${card.number}`.replace(/[^A-Za-z0-9._-]/g, "-");
-    return [
-        header("🏛 Architecture review", card, repo),
-        ``,
-        `Open the PR architecture review canvas for this PR in its own panel and run its review:`,
-        `1. \`open_canvas\` with \`{ canvasId: "pr-arch-review", instanceId: "${instanceId}", input: { pr: "${repo}#${card.number}" } }\`.`,
-        `2. \`invoke_canvas_action\` with \`{ instanceId: "${instanceId}", actionName: "review_guide" }\`, and follow the guide it returns to fill in the review.`,
-        `3. Call \`pr_board_reply\` with \`{ repo: "${repo}", pr: ${card.number}, from: "Architecture review", text: <one or two lines: the panel is open, then the verdict and risk in plain words once it's filled in> }\`.`,
-        `If the \`pr-arch-review\` canvas isn't installed or won't open, don't build a replacement; call \`pr_board_reply\` saying so in one line (install it from https://gist.github.com/angelser/01c49ffdd3296f58b25d78194bfe1ebe).`,
-        `Don't post anything to GitHub, vote, or push from this request.`,
-    ].join("\n");
-}
-
 export function reviewPrompt(card, repo) {
     const kickoff = [
         `Review ${repo}#${card.number}: ${card.url}`,
         ``,
         `Follow the repository's \`.github/skills/pr-review\` skill end to end.`,
-        `Draft the review only. Do NOT post it to GitHub, do NOT approve or request changes, do NOT push commits, and do NOT change labels.`,
-        `Save the final review body (exactly the text that would be posted, nothing else) as a Markdown file named \`pr-${card.number}-review.md\` in your session files/artifacts folder.`,
-        `When done, report back: the absolute path of that file, a recommendation (one of: approve, request_changes, comment), and a one-line summary such as "Recommends merge; 1 optional nit".`,
+        `Then fill in the PR board's structured review: summary, verdict, risk, changes by system and by file, diagrams, and every pr-review finding with file and line. If you have the \`pr_board_review_guide\` tool, call it first and follow it, then \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, review })\`. If you don't have the pr_board_* tools, follow the review guide included below instead and write the review as JSON (same shape) to \`pr-${card.number}-review.json\` in your session files folder.`,
+        `Draft only. Do NOT post to GitHub, approve or request changes, push commits, or change labels.`,
+        `When done, report back: the absolute path of the JSON file (if you wrote one), a recommendation (approve, request_changes or comment), and a one-line summary such as "Recommends merge; 1 optional nit".`,
     ].join("\n");
     return [
         header("Review", card, repo),
@@ -76,7 +62,7 @@ export function reviewPrompt(card, repo) {
         `2. As soon as you know the session id, call \`pr_board_link_session\` with \`{ repo: "${repo}", pr: ${card.number}, sessionId: <id>, sessionName: <name> }\`. Skip this if you are doing the work inline.`,
         `3. Keep the card current with \`pr_board_set_status\` (repo "${repo}", pr ${card.number}): "waiting" if the session pauses for the user's input, "running" when it resumes, "failed" with a short reason if it gives up.`,
         `4. Also call \`pr_board_set_summary\` for this PR (rules below) once you understand it.`,
-        `5. When the draft is ready, call \`pr_board_attach_draft\` with \`{ repo: "${repo}", pr: ${card.number}, path: <absolute path>, recommendation, summary }\`. That moves the card to "Draft ready".`,
+        `5. Make sure the structured review lands on the board: if the session wrote a JSON file instead of calling the tool, call \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, path: <absolute path> })\` yourself. Call \`pr_board_review_guide\` now and include its guide in the kickoff when the session can't call pr_board_* tools.`,
         `Never post, approve, or merge from this request. The user will press "Post review" on the board after reading the draft.`,
         ``,
         SUMMARY_RULES(repo, card.number),
@@ -236,6 +222,29 @@ export function startIssuePrompt(card, repo) {
         `Create one visible session for it (\`create_session\`, or \`open_issue_session\` if you have it) with a kickoff that quotes the issue link and asks it to reproduce, plan, and fix it, following the repository's normal workflow. Don't open a PR unless the user asks.`,
         `As soon as you have the session id, call \`pr_board_link_session\` \`{ repo: "${repo}", issue: ${card.number}, sessionId, sessionName }\`, then \`pr_board_sync_sessions\` with \`{ issue: ${card.number}, sessionId, activity: "busy", status: <one plain line> }\` whenever its state changes.`,
         `If you can't create sessions, say so with \`pr_board_reply\` \`{ repo: "${repo}", issue: ${card.number}, text: <one line> }\`.`,
+    ].join("\n");
+}
+
+export function explainPrompt(card, repo, f) {
+    return [
+        `The PR board canvas: the user asked to **explain a review finding** on ${repo}#${card.number} "${card.title}" (${card.url}).`,
+        `Finding \`${f.id}\` [${f.severity} ${f.category}]: ${f.title}`,
+        f.files?.length ? `Files: ${f.files.map((x) => x.path + (x.line ? ":" + x.line : "")).join(", ")}` : "",
+        f.description ? `Description: ${f.description.replace(/\s+/g, " ").slice(0, 600)}` : "",
+        `Read the code involved and explain in plain words: what is raised, why it matters to users, and what to do about it (or why it might be fine). 3-6 short sentences or bullets.`,
+        `Call \`pr_board_set_explanation({ repo: "${repo}", pr: ${card.number}, findingId: "${f.id}", text })\`. Read-only: don't post anything.`,
+    ].filter(Boolean).join("\n");
+}
+
+export function postFindingsPrompt(card, repo, event, preview, files) {
+    const word = { approve: "Approve", request_changes: "Request changes", comment: "Comment" }[event];
+    return [
+        `The PR board canvas: the user reviewed the findings on ${repo}#${card.number} "${card.title}" (${card.url}), previewed exactly what will be posted, and asked to post it as **${word}**.`,
+        `It has ${preview.counts.inline} inline comment(s) and ${preview.counts.inBody} finding(s) in the summary body. The exact request body is in:`,
+        `\`${files.full}\``,
+        `Post it unchanged: \`gh api repos/${repo}/pulls/${card.number}/reviews --method POST --input "${files.full}"\`.`,
+        `If GitHub rejects an inline comment (422, line not part of the diff), post \`${files.bodyOnly}\` instead, which has the same comments folded into the body.`,
+        `Don't edit the text, change the event, or post anything else. Then call \`pr_board_set_status({ repo: "${repo}", pr: ${card.number}, status: "posted", outcome: "Posted: ${word.toLowerCase()}, ${preview.counts.posted} finding(s)" })\`. If it fails, call it with status "failed" and the error in one line.`,
     ].join("\n");
 }
 
