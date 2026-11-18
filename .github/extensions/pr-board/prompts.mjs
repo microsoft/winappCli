@@ -63,7 +63,7 @@ export function reviewPrompt(card, repo) {
         `3. Keep the card current with \`pr_board_set_status\` (repo "${repo}", pr ${card.number}): "waiting" if the session pauses for the user's input, "running" when it resumes, "failed" with a short reason if it gives up.`,
         `4. Also call \`pr_board_set_summary\` for this PR (rules below) once you understand it.`,
         `5. Make sure the structured review lands on the board: if the session wrote a JSON file instead of calling the tool, call \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, path: <absolute path> })\` yourself. Call \`pr_board_review_guide\` now and include its guide in the kickoff when the session can't call pr_board_* tools.`,
-        `6. When the review is in, call \`pr_board_set_explainer\` for this PR (rules below).`,
+        `6. When the review is in, call \`pr_board_set_explainer\` for this PR (rules below), and \`pr_board_set_next_step\` with owner "you" and the move (for example "Post the approval" or "Pick findings and post").`,
         `Never post, approve, or merge from this request. The user will press "Post review" on the board after reading the draft.`,
         ``,
         SUMMARY_RULES(repo, card.number),
@@ -112,6 +112,9 @@ const PROGRESS_LINE = `While you work, start each step with one short plain line
 // Ask the agent to keep the plain-language explainer current whenever its understanding or our decisions change.
 const EXPLAINER_LINE = (card, repo) => `If this changes your understanding of ${repo}#${card.number} or a decision was made, update its explainer with \`pr_board_set_explainer\` \`{ repo: "${repo}", ${card.kind === "issue" ? "issue" : "pr"}: ${card.number}, eli5, progress }\`. eli5 = the problem or change in plain words, with background, one example, why it matters, and where it stands on GitHub; progress = what we've done, decisions with dates, and the next step with who takes it.`;
 
+// Ask the agent to say whose move it is after it answers.
+const NEXT_STEP_LINE = (card, repo) => `If your reply leaves a decision or an action with the user, say so on the board with \`pr_board_set_next_step\` \`{ repo: "${repo}", ${card.kind === "issue" ? "issue" : "pr"}: ${card.number}, owner: "you", action: <one plain line>, choices?: [<button labels>] }\`. If the next move is someone else's, use their role as owner (author, reviewer, reporter, ci) or "agent" while you work.`;
+
 const KIND = (card) => (card.kind === "issue" ? "issue" : "PR");
 const ref = (card) => (card.kind === "issue" ? `issue: ${card.number}` : `pr: ${card.number}`);
 
@@ -133,6 +136,7 @@ export function messagePrompt(card, repo, msg, recent) {
         `Treat it as direction from the user about this ${k} only. Don't post to GitHub, approve, or merge unless the message explicitly asks for it.`,
         PROGRESS_LINE,
         EXPLAINER_LINE(card, repo),
+        NEXT_STEP_LINE(card, repo),
     ].join("\n");
 }
 
@@ -207,6 +211,7 @@ export function statusUpdatePrompt(card, repo) {
         s?.id ? `Linked session: \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}. Read its state (\`get_session\`) and, if useful, ask it for a one-paragraph update with \`send_session_message\`.` : `No session is linked. Read the ${k} on GitHub with \`gh\`.`,
         `Reply with \`pr_board_reply\` \`{ repo: "${repo}", ${ref(card)}, from: <who answered>, text: <3–5 plain sentences: where it is, what happened last and when, what's next and who's on it> }\`. If the session's state changed, also call \`pr_board_sync_sessions\` for it.`,
         EXPLAINER_LINE(card, repo),
+        NEXT_STEP_LINE(card, repo),
         `Don't change anything else; this is read-only.`,
     ].join("\n");
 }
@@ -300,5 +305,41 @@ export function explainerPrompt(card, repo) {
         EXPLAINER_RULES(repo, card),
         ``,
         `Read-only: don't post to GitHub or change the ${k}.`,
+    ].join("\n");
+}
+
+const ref2 = (card) => (card.kind === "issue" ? `issue: ${card.number}` : `pr: ${card.number}`);
+
+export function choosePrompt(card, repo, next, choice) {
+    const s = card.local?.session;
+    return [
+        `The PR board canvas: on ${repo}#${card.number} "${card.title}" (${card.url}), the user answered your question${next?.action ? ` "${next.action}"` : ""} with: **${choice}**.`,
+        s?.id
+            ? `It's linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}; if the work happens there, pass the decision on with \`send_session_message\` and ask it to report back.`
+            : `No session is linked; act on it yourself.`,
+        `Treat it as the user's decision. Confirm in one line with \`pr_board_reply\` \`{ repo: "${repo}", ${ref2(card)}, text }\`, then set the next step with \`pr_board_set_next_step\` (owner "agent" while work runs).`,
+        `Don't post to GitHub, approve or merge unless the choice says so.`,
+    ].join("\n");
+}
+
+export function openPrPrompt(card, repo) {
+    const s = card.local?.session;
+    return [
+        `The PR board canvas: the user asked to **open a pull request** for ${repo}#${card.number} "${card.title}" (${card.url}).`,
+        s?.id
+            ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\` to open the PR from its branch, following the repository's PR template and \`.github/skills/pr-lifecycle\`. Open it as a draft unless the work is ready for review.`
+            : `No session is linked; say so with \`pr_board_reply\` and ask the user which branch to use.`,
+        `Then link it: \`pr_board_sync_sessions\` with \`{ issue: ${card.number}, linkedPr: <number> }\`, and set the next step (\`pr_board_set_next_step\`, usually owner "reviewer").`,
+    ].join("\n");
+}
+
+export function fixPrompt(card, repo, what) {
+    const s = card.local?.session;
+    return [
+        `The PR board canvas: the user asked the agent to **fix what's blocking** ${repo}#${card.number} "${card.title}" (${card.url})${what ? `: ${what}` : ""}.`,
+        s?.id
+            ? `Send it to its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\`.`
+            : `No session is linked: use \`open_pr_session\` or \`create_session\` if you have them, otherwise say what's needed with \`pr_board_reply\`.`,
+        `Set \`pr_board_set_next_step\` owner "agent" while it works, and report the result with \`pr_board_reply\`. Don't merge.`,
     ].join("\n");
 }

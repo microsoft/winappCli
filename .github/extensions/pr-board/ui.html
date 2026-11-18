@@ -77,6 +77,81 @@ code { font-family: var(--mono); font-size: var(--t-meta); background: var(--sub
 .chip.ok { background: var(--green-muted); } .chip.ok .i { color: var(--green); }
 .chip.stuck { background: var(--red-muted); } .chip.stuck .i { color: var(--red); }
 .chip.neutral .i { color: var(--muted); }
+/* ---- Ball: one glyph per state, so color is never the only signal ---- */
+.g { width: 20px; height: 20px; flex: none; display: inline-grid; place-items: center; border-radius: 50%; }
+.g svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.g-decide, .g-ready { background: var(--orange); color: var(--bg); }
+.g-blocked { background: var(--red); color: var(--bg); }
+.g-nextpr { background: var(--blue-muted); color: var(--blue); }
+.g-waiting { border: 1.5px solid var(--muted); width: 18px; height: 18px; margin: 1px; }
+.g-quiet { color: var(--green); }
+.g-backlog, .g-snoozed { color: var(--muted); }
+.spin { width: 16px; height: 16px; flex: none; animation: spin .9s linear infinite; color: var(--purple); margin: 2px; }
+.spin circle { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 26 40; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+.tone-you-text { color: var(--orange); }
+.owner { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-meta); color: var(--muted); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.owner .avatar { width: 18px; height: 18px; }
+.pill { font-size: var(--t-meta); border-radius: 999px; padding: 0 8px; line-height: 18px; background: var(--subtle); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill.stuck { background: var(--red-muted); color: var(--fg); font-weight: var(--w-strong); }
+.btns { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.btns button { font-size: var(--t-meta); padding: 1px 9px; }
+.snooze-opts { display: inline-flex; gap: 2px; border: 1px solid var(--border); border-radius: 6px; padding: 1px; }
+.ball-line { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-size: var(--t-small); padding: 6px 10px; border-radius: 8px; background: var(--subtle); }
+.ball-line .txt { flex: 1 1 14em; min-width: 0; }
+.ball-line.t-you { background: color-mix(in srgb, var(--orange) 10%, var(--bg)); }
+.ball-line.t-stuck { background: var(--red-muted); }
+.ball-line.t-agent { background: var(--purple-muted); }
+.state-chip { border-radius: 999px; padding: 2px 10px 2px 4px; font-size: var(--t-small); gap: 6px; }
+.state-chip .g { width: 18px; height: 18px; } .state-chip .g svg { width: 12px; height: 12px; }
+.state-chip .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.state-chip.on { background: var(--fg); color: var(--bg); border-color: var(--fg); } .state-chip.on .n { color: inherit; opacity: .75; }
+/* Your move box */
+.ym { border: 1px solid var(--orange); border-radius: 12px; padding: var(--s3) var(--s4) var(--s4); background: color-mix(in srgb, var(--orange) 5%, var(--bg)); }
+.ym.empty { border-color: var(--border); background: var(--subtle); padding: var(--s3) var(--s4); }
+.ym-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); flex-wrap: wrap; }
+.ym.empty .ym-head { margin: 0; }
+.ym-head h2 { margin: 0; font-size: var(--t-title); }
+.ym-head .n { color: var(--muted); }
+.ym-head .hint { font-size: var(--t-meta); color: var(--muted); margin-left: var(--s2); }
+.ym-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--s3); }
+.ym-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: var(--s3); display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.ym-card.st-blocked { border-color: var(--red); }
+.ym-h { display: flex; align-items: center; gap: var(--s2); }
+.ym-h .sp { flex: 1; }
+.ym-kind { font-size: var(--t-meta); font-weight: var(--w-strong); color: var(--orange); }
+.ym-card.st-blocked .ym-kind { color: var(--red); }
+.ym-card.st-nextpr .ym-kind { color: var(--blue); }
+.ym-t { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.ym-t .ov-title { font-size: var(--t-body); }
+.ym-ask { font-size: var(--t-small); }
+.ov-ask-inline { display: flex; gap: 6px; flex-wrap: wrap; }
+.ov-ask-inline input { flex: 1; min-width: 140px; font: inherit; font-size: var(--t-small); color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+.ov-ask-inline button { font-size: var(--t-meta); padding: 1px 9px; }
+/* Rows: a status rail, the item and its ask, then owner and age */
+.ov-row.r2 { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; column-gap: var(--s3); align-items: center; padding: 8px var(--s3) 8px var(--s2); border-left: 3px solid transparent; }
+.ov-row.r2.mine { border-left-color: var(--orange); background: color-mix(in srgb, var(--orange) 4%, var(--bg)); }
+.ov-row.r2.st-blocked { border-left-color: var(--red); }
+.ov-row.r2.st-quiet, .ov-row.r2.st-backlog, .ov-row.r2.st-snoozed { opacity: .72; }
+.ov-row.r2 .rail { display: grid; place-items: center; }
+.ov-row.r2 .num { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; font-size: var(--t-small); }
+.ov-row.r2 .ask { font-size: var(--t-small); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-row.r2.mine .ask { color: var(--fg); }
+.ov-row.r2 .right { display: flex; align-items: center; gap: var(--s2); }
+.ov-row.r2 .right > button { font-size: var(--t-meta); padding: 1px 9px; }
+.ov-row.r2 .ov-acts { margin: 0; }
+.ov-row.r2 .ov-acts > button:not(.quiet) { display: none; }
+.ov-row.r2:hover .ov-acts > button:not(.more), .ov-row.r2:focus-within .ov-acts > button:not(.more) { display: inline-flex; }
+body.ovnarrow .ov-row.r2 { grid-template-columns: 26px minmax(0, 1fr); }
+body.ovnarrow .ov-row.r2 .right { grid-column: 2; flex-wrap: wrap; margin-top: 4px; }
+body.ovnarrow .ov-row.r2 .ov-main { grid-column: 2; }
+body.ovnarrow .ov-row.r2 .rail { grid-row: 1 / span 2; align-self: start; padding-top: 2px; }
+.rask { font-size: var(--t-meta); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rask.t-you b { color: var(--orange); } .rask.t-stuck b { color: var(--red); } .rask.t-agent { color: var(--purple); }
+.rrow .l1 .g, .rrow .l1 .spin { align-self: center; }
+.rrow .l1 .g { width: 16px; height: 16px; } .rrow .l1 .g svg { width: 11px; height: 11px; } .rrow .l1 .g-waiting { width: 14px; height: 14px; }
+.rrow .l1 .spin { width: 14px; height: 14px; margin: 1px; }
 .chip-link { border: 0; background: none; padding: 0; margin: 0; cursor: pointer; text-decoration: none; color: inherit; font: inherit; display: inline-flex; border-radius: 999px; }
 .chip-link:hover .chip { outline: 1px solid var(--border); }
 .kind-tag { font-size: var(--t-meta); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; color: var(--muted); line-height: 16px; }
@@ -815,7 +890,7 @@ function renderHead(c) {
       ${risk}
       ${chip(c)}
     </div>
-    ${isOpen ? `<div class="next ${nextTone}">${icon(s.tone === "stuck" ? "alert" : nextTone === "you" ? "person" : nextTone === "agent" ? "sparkle" : "clock", "sm")}<span>${nextHtml(waitingText(c))}</span></div>` : ""}
+    ${ballLine(c)}
     <div class="actions">${buttons.join("")}
       ${openMenu === "post" ? `<div class="menu" role="menu" aria-label="Post review as">
         <button data-act="post" data-event="approve" role="menuitem">${icon("checkCircle", "tone-ok")}Approve</button>
@@ -918,6 +993,7 @@ const isUnread = (c) => !!c && latestReplyAt(c) > seenAt(c);
 const isReplying = (c) => !!c?.local?.pending;
 const allItems = () => [...cardsOf().filter((c) => c.section !== "merged" && !c.local?.hidden), ...issuesOf().filter((c) => !c.hidden)];
 let unreadOnly = false;
+let ballFilter = null; // "you" | "agent" | "waiting" | "snoozed" | "backlog"
 // The item you're looking at, and where its unread part started when you opened it (for the "New" divider).
 let viewing = null; // { key, at, scrolled }
 function noteViewing(c) {
@@ -1219,6 +1295,159 @@ let detailTimer = null;
 // Arrow-key browsing shouldn't fetch every PR it passes; wait until the selection settles.
 const scheduleDetail = (c) => { clearTimeout(detailTimer); detailTimer = setTimeout(() => loadDetail(c), 250); };
 
+// ---- Who has the ball ----
+// Three signals per row: the ball (exactly one state), activity (a spinner) and unread (a dot). Opening an item
+// clears only the dot; "your move" states stay until you act, or press Done or Snooze.
+const BALL = {
+  decide: { label: "Needs your decision", tone: "you", you: true },
+  blocked: { label: "Blocked", tone: "stuck", you: true },
+  ready: { label: "Ready for you", tone: "you", you: true },
+  nextpr: { label: "Next: open a PR", tone: "info", you: true },
+  agent: { label: "Agent working", tone: "agent" },
+  waiting: { label: "Waiting on others", tone: "neutral" },
+  snoozed: { label: "Snoozed", tone: "neutral" },
+  backlog: { label: "Not started", tone: "neutral" },
+  quiet: { label: "Done", tone: "ok" },
+};
+const BALL_GLYPH = {
+  decide: '<path d="M6 6.2a2 2 0 1 1 2.8 1.8c-.6.3-.8.7-.8 1.3v.4"/><path d="M8 11.6v.1"/>',
+  ready: '<path d="M4 8h7.5M8.5 5l3 3-3 3"/>',
+  blocked: '<path d="M8 4.5v4.2M8 11.4v.1"/>',
+  nextpr: '<circle cx="5" cy="4" r="1.4"/><circle cx="5" cy="12" r="1.4"/><circle cx="11" cy="12" r="1.4"/><path d="M5 5.4v5.2M11 10.6V6.8a2 2 0 0 0-2-2H7.4"/>',
+  quiet: '<path d="M3.5 8.5l3 3 6-6.5"/>',
+  backlog: '<path d="M4 8h8"/>',
+  snoozed: '<path d="M10.5 3.2A5 5 0 1 0 12.8 9 4 4 0 0 1 10.5 3.2z"/>',
+  waiting: "",
+};
+const spinner = (label = "Agent working") => `<svg class="spin" viewBox="0 0 16 16" role="img" aria-label="${esc(label)}"><circle cx="8" cy="8" r="6"/></svg>`;
+const ballGlyph = (b) => b.st === "agent" ? spinner() : `<span class="g g-${b.st}" role="img" aria-label="${esc(BALL[b.st].label)}"><svg viewBox="0 0 16 16" aria-hidden="true">${BALL_GLYPH[b.st] || ""}</svg></span>`;
+const tsOf = (s) => (s ? new Date(s).getTime() || 0 : 0);
+const isWorking = (c) => { const l = c.local || {}; return l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending || !!l.summarizing || !!l.explainerPending; };
+const whenText = (iso) => { const d = new Date(iso); const today = new Date(); const same = d.toDateString() === today.toDateString(); return (same ? "" : d.toLocaleDateString([], { weekday: "short" }) + " ") + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+
+function deriveBall(c, skipYou) {
+  const l = c.local || {};
+  const issue = c.kind === "issue";
+  const q0 = pendingQuestion(c);
+  const q = q0 && l.answered?.requestId !== q0.requestId ? q0 : null;
+  const since = c.reason?.since || c.updatedAt;
+  const stuck = !!c.reason?.stuck;
+  const nx = l.next;
+  const running = l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending;
+  if (c.section === "merged" || (issue && c.state && c.state !== "OPEN")) return { st: "quiet", ask: c.section === "merged" ? "Merged" : "Closed", since: c.mergedAt || c.updatedAt };
+  if (!skipYou && q) return { st: "decide", ask: q.question, choices: q.choices || [], question: true, since: l.sync?.at };
+  if (nx && !(skipYou && nx.owner === "you")) {
+    if (nx.owner === "you") return { st: nx.blocked ? "blocked" : nx.choices?.length ? "decide" : "ready", ask: nx.action, choices: nx.choices || [], explicit: true, since: nx.at };
+    if (nx.owner === "agent") return { st: "agent", ask: nx.action, since: nx.at };
+    if (!running) return { st: "waiting", owner: nx.owner, ask: nx.action, since: nx.at, stuck: !!nx.blocked };
+  }
+  if (!skipYou && l.agent?.status === "waiting") return { st: "decide", ask: l.agent.outcome || "The agent needs your input", reply: true, since: l.agent.updatedAt };
+  if (running) return { st: "agent", ask: (l.agent?.status === "running" && l.agent.outcome) || (l.pending ? "Answering your question" : issue ? c.status : l.agent?.outcome) || "Working", since: l.pending?.at || l.agent?.updatedAt || l.sync?.at };
+  if (!skipYou && l.agent?.status === "failed") return { st: "blocked", ask: l.agent.outcome || "The agent gave up", fix: true, since: l.agent.updatedAt };
+  const mine = issue ? !!l.session?.id : c.section === "yours";
+  if (!skipYou && !issue && mine && c.ci?.state === "failing") return { st: "blocked", ask: `CI failing: ${(c.ci.failing || []).slice(0, 2).join(", ") || "checks"}`, fix: true, since, stuck };
+  if (!skipYou && !issue && mine && /conflict/i.test(c.reason?.label || "")) return { st: "blocked", ask: "Merge conflicts with main", fix: true, since, stuck };
+  if (!skipYou && !issue && c.group === "you") {
+    const r = rvOf(c);
+    const drafted = r && c.review?.state !== "stale" && l.prReview?.result !== "posted";
+    if (drafted) return { st: "ready", ask: `Review drafted: post the ${/^approve/.test(r.verdict || "") ? "approval" : "review"}`, post: true, since: l.reviewSetAt || since, stuck };
+    if (draftOf(c)) return { st: "ready", ask: "Draft review ready: post it", postDraft: true, since: l.draft.attachedAt, stuck };
+    const label = c.reason?.label || "";
+    if (/re-review/i.test(label)) return { st: "ready", ask: "Re-review: the author responded", review: true, since, stuck };
+    if (label === "Waiting on your review") return { st: "ready", ask: "Review it", review: true, since, stuck };
+    return { st: "ready", ask: (c.waitingOn || "Your move").replace(/^You:\s*/, ""), since, stuck };
+  }
+  if (skipYou && (l.ballDone || l.next?.owner === "you")) return { st: "quiet", ask: "You marked it done; it comes back when something changes", since: l.ballDone?.at || since };
+  if (!skipYou && issue && l.session?.id && !c.pr && l.sync?.activity === "idle" && !/waiting on/i.test(c.status || "")) return { st: "nextpr", ask: "The fix is on a branch: open a PR", since: l.sync.at };
+  if (issue && !l.session?.id) return { st: "backlog", ask: c.assignedToYou ? "Assigned to you; not started" : "Not started", since: c.updatedAt };
+  if (issue) {
+    const m = String(c.status || "").match(/waiting on (?:the )?(?:reporter )?@?([\w-]+)/i);
+    return { st: "waiting", owner: m ? m[1] : "reporter", ask: c.status || "Waiting", since: l.sync?.at || c.updatedAt };
+  }
+  if (c.group === "queue" || c.queue) return { st: "waiting", owner: "merge queue", ask: (c.waitingOn || "").replace(/^[^:]+:\s*/, ""), since, stuck };
+  const w = String(c.waitingOn || "");
+  const who = (w.match(/^([^:]+):/) || [])[1]?.trim() || "";
+  const owner = who && !/^(another reviewer|other approvers|agent|you)$/i.test(who) ? who : c.who === "author" ? c.author : who || "a reviewer";
+  return { st: "waiting", owner, ask: w.replace(/^[^:]+:\s*/, "") || "Waiting", since, stuck };
+}
+function ballKey(c, b) {
+  const l = c.local || {};
+  return [b.st, b.ask, c.updatedAt || "", l.agent?.updatedAt || "", l.next?.at || "", l.sync?.awaitingInput?.requestId || "", l.reviewSetAt || ""].join("|");
+}
+function ball(c) {
+  const l = c.local || {};
+  let b = deriveBall(c, false);
+  if (BALL[b.st].you) {
+    if (l.snoozeUntil && tsOf(l.snoozeUntil) > Date.now()) return { st: "snoozed", ask: `Until ${whenText(l.snoozeUntil)}: ${b.ask}`, since: b.since, under: b };
+    if (l.ballDone?.key && l.ballDone.key === ballKey(c, b)) b = deriveBall(c, true);
+  }
+  return b;
+}
+const isYourMove = (c) => BALL[ball(c).st].you;
+const ownerHtml = (b) => {
+  if (b.st === "agent") return `<span class="owner tone-agent">${icon("sparkle", "sm")}agent</span>`;
+  if (BALL[b.st].you) return `<span class="owner"><img class="avatar" alt="" src="https://github.com/${encodeURIComponent(snap?.viewer || "")}.png?size=36" onerror="this.remove()">you</span>`;
+  if (b.st !== "waiting" || !b.owner) return "";
+  const person = /^[\w-]+$/.test(b.owner) && !/^(merge|ci|reporter)$/i.test(b.owner);
+  return `<span class="owner">${person ? `<img class="avatar" alt="" src="https://github.com/${encodeURIComponent(b.owner)}.png?size=36" onerror="this.remove()">` : ""}${esc(b.owner)}</span>`;
+};
+const agePill = (b) => b.since ? `<span class="pill${b.stuck ? " stuck" : ""}" title="${b.stuck ? "Stuck: waiting longer than usual" : "How long it's been in this state"}">${b.stuck ? "Stuck " : ""}${esc(ago(b.since))}</span>` : "";
+
+// The move itself, as buttons. kind/number go on every button so one click handler serves rows, cards and headers.
+function moveButtons(c, b, { withDone = true } = {}) {
+  const kind = c.kind === "issue" ? "issue" : "pr";
+  const at = `data-pr="${c.number}" data-kind="${kind}"`;
+  const out = [];
+  if (b.st === "decide" && b.question) out.push(...(b.choices || []).slice(0, 3).map((x, i) => `<button class="${i ? "" : "primary"}" data-act="answer" ${at} data-answer="${esc(x)}">${esc(x)}</button>`));
+  else if (b.st === "decide" && b.explicit) out.push(...(b.choices || []).slice(0, 3).map((x, i) => `<button class="${i ? "" : "primary"}" data-act="choose" ${at} data-choice="${esc(x)}">${esc(x)}</button>`));
+  if (b.st === "decide" && (b.reply || b.question || !b.choices?.length)) out.push(`<button class="${out.length ? "" : "primary"}" data-act="ball-reply" ${at}>Reply…</button>`);
+  if (b.st === "ready" && b.post) out.push(`<button class="primary" data-act="ball-post" ${at}>Post review…</button>`);
+  else if (b.st === "ready" && b.postDraft) out.push(`<button class="primary" data-act="row-post" ${at}>Post review</button>`);
+  else if (b.st === "ready" && b.review) out.push(`<button class="primary" data-act="review" ${at} title="${esc(REVIEW_TIP)}">${/re-review/i.test(b.ask) ? "Re-review" : "Review"}</button>`);
+  else if (b.st === "ready") out.push(`<button class="primary" data-act="flyout" ${at}>Open</button>`);
+  if (b.st === "blocked") out.push(`<button class="primary" data-act="fix" ${at} data-what="${esc(b.ask)}">Ask the agent to fix</button>`);
+  if (b.st === "nextpr") out.push(`<button class="primary" data-act="open-pr" ${at}>Open a PR</button>`);
+  if (withDone && BALL[b.st].you) {
+    out.push(`<button class="quiet" data-act="ball-done" ${at} data-key="${esc(ballKey(c, b))}" title="I've handled this. It comes back if something changes.">Done</button>`);
+    out.push(snoozeOpen === `${kind}:${c.number}`
+      ? `<span class="snooze-opts" role="group" aria-label="Snooze until">${SNOOZE.map(([l, f]) => `<button class="quiet" data-act="ball-snooze" ${at} data-until="${f().toISOString()}">${l}</button>`).join("")}</span>`
+      : `<button class="quiet" data-act="snooze-menu" ${at} aria-expanded="false" title="Hide it from Your move until later">Snooze ▾</button>`);
+  }
+  return out.join("");
+}
+let snoozeOpen = null;
+const SNOOZE = [
+  ["1 hour", () => new Date(Date.now() + 3600e3)],
+  ["Tomorrow 9:00", () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; }],
+  ["Monday 9:00", () => { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); d.setHours(9, 0, 0, 0); return d; }],
+];
+
+// One line for headers, flyouts and the rail: the ball's state and the ask.
+function ballLine(c, b = ball(c), { buttons = true } = {}) {
+  const meta = BALL[b.st];
+  const lead = BALL[b.st].you || b.st === "agent" ? `<b>${esc(meta.label)}:</b> ` : b.st === "waiting" && b.owner ? `<b>${esc(b.owner)}:</b> ` : b.st === "snoozed" ? `<b>Snoozed</b> ` : "";
+  return `<div class="ball-line t-${meta.tone}">${ballGlyph(b)}<span class="txt">${lead}${esc(b.ask)}</span>${agePill(b)}${buttons && (meta.you || b.st === "snoozed") ? `<span class="btns">${moveButtons(c, b.st === "snoozed" ? b.under : b, { withDone: b.st !== "snoozed" })}${b.st === "snoozed" ? `<button class="quiet" data-act="ball-unsnooze" data-pr="${c.number}" data-kind="${c.kind === "issue" ? "issue" : "pr"}">Unsnooze</button>` : ""}</span>` : ""}</div>`;
+}
+
+// The "Your move" box: every item where the next step is yours, oldest first, with the move inline.
+function yourMoveBox(items) {
+  if (!items.length) return `<section class="ym empty" aria-label="Your move"><div class="ym-head">${ballGlyph({ st: "quiet" })}<h2>Nothing needs you right now</h2></div></section>`;
+  const card = (c) => {
+    const b = ball(c);
+    const kind = c.kind === "issue" ? "issue" : "pr";
+    const q = b.question ? `<div class="ov-ask-inline"><input data-pr="${c.number}" data-kind="${kind}" placeholder="Or type an answer…" aria-label="Answer for #${c.number}" value="${esc(answers.get(c.number) || "")}"><button data-act="answer-text" data-pr="${c.number}">Send</button><button class="quiet" data-act="dismiss" data-pr="${c.number}" title="Hide this question on the board. It doesn't answer the session.">Dismiss</button></div>` : "";
+    return `<article class="ym-card st-${b.st}" role="listitem">
+      <div class="ym-h">${ballGlyph(b)}<span class="ym-kind">${esc(BALL[b.st].label)}</span>${isWorking(c) && b.st !== "agent" ? spinner("Also working") : ""}<span class="sp"></span>${agePill(b)}</div>
+      <div class="ym-t">${isUnread(c) ? '<span class="unread-dot" aria-label="Unread"></span>' : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${esc(c.title)}</button></div>
+      <div class="ym-ask">${esc(b.ask)}</div>
+      ${q}
+      <div class="btns">${moveButtons(c, b)}</div>
+    </article>`;
+  };
+  return `<section class="ym" aria-label="Your move"><div class="ym-head">${ballGlyph({ st: "ready" })}<h2>Your move</h2><span class="n">${items.length}</span><span class="hint">Stays here until you act, or press Done or Snooze.</span></div>
+    <div class="ym-cards" role="list">${items.map(card).join("")}</div></section>`;
+}
+
 // ---- Overview ----
 // One place decides which section each PR or issue is in, and the order, for both the Overview and the rail.
 function sectionRows(keep = () => true) {
@@ -1296,27 +1525,32 @@ function askHtml(c) {
 }
 
 function ovRow(c, sec) {
-  const pin = pins.has(c.number) ? icon("pin", "sm tone-mute") : "";
-  const sub = `<span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span title="${esc(c.size?.text)}">${esc(c.size?.label)}</span><span class="sep">·</span>${ciHtml(c)}<span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>`;
   const kind = c.kind === "issue" ? "issue" : "pr";
-  const main = `<div class="ov-main"><div class="ov-title-row"><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}${pin}${esc(c.title)}</button>${replyMarks(c)}${browserLink(c)}</div><div class="ov-sub">${sub}</div>`;
-  const issueSub = c.kind === "issue" ? `<div class="ov-sub"><span class="kind-tag">Issue</span><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>` : "";
-  if (c.kind === "issue" && sec === "yours") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:4">${main.replace(`<div class="ov-sub">${sub}</div>`, issueSub)}<div class="ov-line"><div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div></div>${agentCell(c)}${cell("Monitoring", `<span class="tone-mute" title="Monitoring applies to a PR">—</span>`)}${cell("pr-review", `<span class="tone-mute" title="pr-review applies to a PR">—</span>`)}${cell("PR", issuePrChip(c))}</div>`;
-  if (sec === "issues") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-line"><div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div></div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
-  if (sec === "yours") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:4">${main}<div class="ov-line"><div class="ov-where">${whereHtml(c)}</div>${rowActs(c, kind)}</div></div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
-  if (sec === "reviewing") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(waitingText(c))}</span></div>${rowActs(c, kind)}</div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
-  return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:1">${main}<div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(waitingText(c))}</span></div>${sec === "merged" ? "" : rowActs(c, kind)}</div></div>${prCell(c)}</div>`;
+  const b = ball(c);
+  const mine = BALL[b.st].you;
+  const pin = pins.has(c.number) ? icon("pin", "sm tone-mute") : "";
+  const lead = mine ? `<b class="tone-you-text">${esc(BALL[b.st].label)}:</b> ` : b.st === "agent" ? `<b class="tone-agent">Agent:</b> ` : b.st === "snoozed" ? `<b>Snoozed</b> ` : "";
+  const primary = mine ? moveButtons(c, b, { withDone: false }).split("</button>")[0] : "";
+  return `<div class="ov-row r2${mine ? " mine" : ""} st-${b.st}${isUnread(c) ? " unread" : ""}" role="listitem">
+    <span class="rail">${ballGlyph(b)}</span>
+    <div class="ov-main">
+      <div class="ov-title-row">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${isWorking(c) && b.st !== "agent" ? spinner("Agent working on something here") : ""}${browserLink(c)}</div>
+      <div class="ask">${lead}${esc(b.ask)}</div>
+    </div>
+    <div class="right">${primary ? primary + "</button>" : ""}${ownerHtml(b)}${agePill(b)}${sec === "merged" ? "" : rowActs(c, kind)}</div>
+  </div>`;
 }
 
 // ---- Rail ----
 function railRow(c, sec) {
   const kind = c.kind === "issue" ? "issue" : "pr";
   const sel = kind === "pr" && c.number === selected && view === "detail";
-  const state = kind === "issue" ? issuePrChipInner(c) : chip(c, { withAge: false });
-  const replying = isReplying(c) ? `<span class="chip agent" title="The agent is still answering">${icon("running", "sm")}<span>Replying…</span></span>` : "";
+  const b = ball(c);
+  const state = `<span class="rask t-${BALL[b.st].tone}">${BALL[b.st].you ? `<b>${esc(BALL[b.st].label)}</b> · ` : b.st === "waiting" && b.owner ? `<b>${esc(b.owner)}</b> · ` : ""}${esc(b.ask)}</span>${kind === "issue" ? issuePrChipInner(c) : ""}`;
+  const replying = "";
   const label = `${kind === "issue" ? "Issue" : "Pull request"} #${c.number}: ${c.title}${isUnread(c) ? ", new reply" : ""}`;
   return `<button class="rrow${sel ? " sel" : ""}${isUnread(c) ? " unread" : ""}" role="listitem" data-act="rail-open" data-kind="${kind}" data-pr="${c.number}" ${sel ? 'aria-current="true"' : ""} aria-label="${esc(label)}" title="${esc(c.title)}">
-    <span class="l1">${isUnread(c) ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><span class="tt">${esc(c.title)}</span></span>
+    <span class="l1">${ballGlyph(b)}${isUnread(c) ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><span class="tt">${esc(c.title)}</span></span>
     <span class="l2">${state}${replying}</span>
   </button>`;
 }
@@ -1503,6 +1737,7 @@ function renderFlyout() {
         <div class="chips">${chips}</div>
       </div>
       <div class="fly-body">
+        ${ballLine(c)}
         <section class="sec"><div class="fly-cmds" role="group" aria-label="Quick commands">${flyCommands(c, fly.kind)}</div></section>
         ${!isIssue ? askHtml(c) : ""}
         ${explainerHtml(c)}
@@ -1553,24 +1788,33 @@ async function loadChanges(n) {
 function renderOverview() {
   const el = $("overview");
   const scroll = el.scrollTop;
-  for (const inp of el.querySelectorAll(".ov-ask input")) answers.set(Number(inp.dataset.pr), inp.value);
+  for (const inp of el.querySelectorAll(".ov-ask input, .ov-ask-inline input")) answers.set(Number(inp.dataset.pr), inp.value);
   const f = document.activeElement?.closest?.("#overview [data-act], #overview input, #overview select");
   const fk = f ? [f.tagName, f.dataset.act || "", f.dataset.pr || "", f.dataset.answer || "", f.dataset.enable || ""].join("|") : null;
   const cards = cardsOf();
   const unreadN = allItems().filter(isUnread).length;
   if (!unreadN && unreadOnly && !allItems().some(isReplying)) unreadOnly = false;
-  const keep = (c) => !unreadOnly || isUnread(c) || isReplying(c);
+  const all = allItems();
+  const ballOf = new Map(all.map((c) => [(c.kind === "issue" ? "i" : "p") + c.number, ball(c)]));
+  const bOf = (c) => ballOf.get((c.kind === "issue" ? "i" : "p") + c.number) || ball(c);
+  const GROUPS = [["you", "Your move", (b) => BALL[b.st].you], ["agent", "Agent working", (b) => b.st === "agent"], ["waiting", "Waiting on others", (b) => b.st === "waiting"], ["snoozed", "Snoozed", (b) => b.st === "snoozed"], ["backlog", "Not started", (b) => b.st === "backlog"]];
+  const gCount = Object.fromEntries(GROUPS.map(([id, , f]) => [id, all.filter((c) => f(bOf(c))).length]));
+  if (ballFilter && !gCount[ballFilter]) ballFilter = null;
+  const gPass = ballFilter ? GROUPS.find((g) => g[0] === ballFilter)[2] : null;
+  const keep = (c) => (!unreadOnly || isUnread(c) || isReplying(c)) && (!gPass || gPass(bOf(c)));
+  const yourMove = all.filter((c) => BALL[bOf(c).st].you).sort((a, b) => tsOf(bOf(a).since) - tsOf(bOf(b).since));
+  const glyphFor = { you: "ready", agent: "agent", waiting: "waiting", snoozed: "snoozed", backlog: "backlog" };
   const { rows: secRows, merged } = sectionRows(keep);
   el.innerHTML = `<div class="ov-inner">
-    <div class="ov-bar"><nav class="ov-jump" aria-label="Jump to a section">${unreadN || unreadOnly ? `<button class="unread-chip${unreadOnly ? " on" : ""}" data-act="unread-only" aria-pressed="${unreadOnly}" title="${unreadOnly ? "Show everything again" : "Show only items with a reply you haven't read, or one still being written"}"><span class="unread-dot" aria-hidden="true"></span>Unread <span class="n">${unreadN}</span></button>${unreadN ? `<button class="quiet" data-act="mark-all-read">Mark all read</button>` : ""}` : ""}${SECTIONS.map(([id, title], i) => `<button class="quiet" data-act="jump" data-sec="${id}">${esc(title)} <span class="n">${secRows[i].length}</span></button>`).join("")}</nav>
+    <div class="ov-bar"><nav class="ov-jump" aria-label="Filter by whose move it is">${unreadN || unreadOnly ? `<button class="unread-chip${unreadOnly ? " on" : ""}" data-act="unread-only" aria-pressed="${unreadOnly}" title="${unreadOnly ? "Show everything again" : "Show only items with a reply you haven't read, or one still being written"}"><span class="unread-dot" aria-hidden="true"></span>Unread <span class="n">${unreadN}</span></button>${unreadN ? `<button class="quiet" data-act="mark-all-read">Mark all read</button>` : ""}` : ""}${GROUPS.filter(([id]) => gCount[id] || ballFilter === id).map(([id, label]) => `<button class="state-chip${ballFilter === id ? " on" : ""}" data-act="ball-filter" data-g="${id}" aria-pressed="${ballFilter === id}">${ballGlyph({ st: glyphFor[id] })}${esc(label)} <span class="n">${gCount[id]}</span></button>`).join("")}</nav>
       <span class="right"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select></span></div>
+    ${ballFilter || unreadOnly ? "" : yourMoveBox(yourMove)}
     ${SECTIONS.map(([id, title, hint, cols], i) => {
       const rows = secRows[i];
       return `<section class="ov-sec" id="sec-${id}" aria-label="${esc(title)}"><header><h2>${esc(title)}</h2><span class="n">${rows.length}</span><p>${esc(hint)}</p></header>
-        <div class="ov-cols" style="--cols:${cols.length}" aria-hidden="true"><span>${id === "issues" ? "Issue" : "Pull request"}</span>${cols.map((k) => `<span>${esc(k)}</span>`).join("")}</div>
         <div role="list">${rows.map((c) => ovRow(c, id)).join("") || `<div class="ov-empty">Nothing here.</div>`}</div></section>`;
     }).join("")}
-    ${merged.length && !unreadOnly ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${merged.map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
+    ${merged.length && !unreadOnly ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${merged.map((c) => ovRow(c, "merged")).join("")}</div></details>` : ""}
     ${(() => {
       const hidden = [...cards.filter((c) => c.section !== "merged" && c.local?.hidden), ...issuesOf().filter((c) => c.hidden)];
       return hidden.length && !unreadOnly ? `<details class="ov-hidden"><summary>${icon("chevRight", "sm chev")}Removed from the board <span class="n">${hidden.length}</span></summary><ul style="list-style:none;padding:0;margin:var(--s2) 0 0">${hidden.map((h) => `<li>${h.kind === "issue" ? "Issue" : "PR"} #${h.number} · ${esc(h.title)} <button data-act="unhide" data-pr="${h.number}" data-kind="${h.kind === "issue" ? "issue" : "pr"}">Put back</button></li>`).join("")}</ul></details>` : "";
@@ -1579,7 +1823,7 @@ function renderOverview() {
   el.scrollTop = scroll;
   if (fk) {
     const [tag, act, pr, ans, en] = fk.split("|");
-    const sel = tag === "SELECT" ? "#ovSort" : tag === "INPUT" ? `.ov-ask input[data-pr="${pr}"]` : `[data-act="${act}"]${pr ? `[data-pr="${pr}"]` : ""}${ans ? `[data-answer="${CSS.escape(ans)}"]` : ""}${en ? `[data-enable="${en}"]` : ""}`;
+    const sel = tag === "SELECT" ? "#ovSort" : tag === "INPUT" ? `.ov-ask-inline input[data-pr="${pr}"]` : `[data-act="${act}"]${pr ? `[data-pr="${pr}"]` : ""}${ans ? `[data-answer="${CSS.escape(ans)}"]` : ""}${en ? `[data-enable="${en}"]` : ""}`;
     const t = el.querySelector(sel);
     if (t) { t.focus(); if (tag === "INPUT") t.setSelectionRange(t.value.length, t.value.length); }
   }
@@ -1588,13 +1832,13 @@ function renderOverview() {
 function renderSyncInfo() {
   const s = snap?.sync || {};
   const cards = cardsOf();
-  const waiting = cards.filter((c) => c.section !== "merged" && (c.group === "you" || (pendingQuestion(c) && c.local?.answered?.requestId !== pendingQuestion(c).requestId))).length;
+  const waiting = allItems().filter(isYourMove).length;
   const stuck = cards.filter((c) => c.section !== "merged" && c.reason?.stuck).length;
   const asked = s.requestedAt && (!s.syncedAt || s.requestedAt > s.syncedAt);
   $("syncInfo").textContent = asked ? "Sync requested…" : s.syncedAt ? `Sessions synced ${ago(s.syncedAt)}${ago(s.syncedAt) === "just now" ? "" : " ago"}` : "Sessions not synced yet";
   const open = cards.filter((c) => c.section !== "merged").length;
   const nIssues = issuesOf().filter((i) => !i.hidden && i.state !== "CLOSED").length;
-  if (view === "overview") $("meta").innerHTML = `<b>${open} open</b>${nIssues ? ` · ${nIssues} issue${nIssues === 1 ? "" : "s"}` : ""} · ${waiting} waiting on you · ${stuck} stuck · updated ${esc(ago(snap.fetchedAt))}${ago(snap.fetchedAt) === "just now" ? "" : " ago"}`;
+  if (view === "overview") $("meta").innerHTML = `<b>${open} open</b>${nIssues ? ` · ${nIssues} issue${nIssues === 1 ? "" : "s"}` : ""} · ${waiting} your move · ${stuck} stuck · updated ${esc(ago(snap.fetchedAt))}${ago(snap.fetchedAt) === "just now" ? "" : " ago"}`;
 }
 
 async function requestSync() {
@@ -1703,6 +1947,16 @@ document.addEventListener("click", (e) => {
     return target?.click();
   }
   if (a === "what-changed") { loadChanges(rowPr); return; }
+  if (a === "ball-filter") { ballFilter = ballFilter === el.dataset.g ? null : el.dataset.g; return render(); }
+  if (a === "snooze-menu") { snoozeOpen = `${el.dataset.kind || "pr"}:${rowPr}`; render(); renderFlyout(); return document.querySelector(`[data-act="ball-snooze"][data-pr="${rowPr}"]`)?.focus(); }
+  if (["ball-done", "ball-snooze", "ball-unsnooze", "choose", "fix", "open-pr"].includes(a)) {
+    snoozeOpen = null;
+    const body = { pr: rowPr, action: a, kind: el.dataset.kind || "pr", key: el.dataset.key, until: el.dataset.until, choice: el.dataset.choice, what: el.dataset.what };
+    const msg = { "ball-done": "Marked done. It comes back if something changes.", "ball-snooze": "Snoozed. It comes back to Your move then.", "ball-unsnooze": "Back in Your move", choose: "Sent your choice to the agent", fix: "Asked the agent to fix it", "open-pr": "Asked the agent to open a PR" }[a];
+    return post("/api/action", body).then(() => toast(msg)).catch((err) => toast("Couldn't do that: " + err.message));
+  }
+  if (a === "ball-reply") { const kind = el.dataset.kind || "pr"; openFlyout(kind, rowPr, el); return $("flyInput")?.focus(); }
+  if (a === "ball-post") { fly = null; renderFlyout(); view = "detail"; tab = "review"; store.set("prb-tab", tab); return select(rowPr, { tabTo: "review" }); }
   if (a === "explain-item") return post("/api/action", { pr: rowPr, action: "explain-item", kind: el.dataset.kind || "pr" }).then(() => toast("Asked the agent to explain it; it appears here when ready")).catch((err) => toast("Couldn't ask: " + err.message));
   if (el.dataset.kind === "issue") return post("/api/action", { pr: rowPr, action: a, kind: "issue" }).then(() => toast(a === "untrack" ? "Removed from the board" : "Asked the agent")).catch((err) => toast("Couldn't do that: " + err.message));
   if (a === "track" || a === "untrack") { openMenu = null; flyMore = false; }
@@ -1712,7 +1966,7 @@ document.addEventListener("click", (e) => {
   if (a === "to-overview") { view = "overview"; viewing = null; openMenu = null; armed = null; render(); return document.querySelector(`.ov-title[data-pr="${selected}"]`)?.focus(); }
   if (a === "sync") return requestSync();
   if (a === "answer" || a === "answer-text") {
-    const answer = a === "answer" ? el.dataset.answer : (el.closest(".ov-ask")?.querySelector("input")?.value || "").trim();
+    const answer = a === "answer" ? el.dataset.answer : (el.closest(".ov-ask, .ov-ask-inline")?.querySelector("input")?.value || "").trim();
     if (!answer) { toast("Type an answer first."); return; }
     answers.delete(rowPr);
     return post("/api/action", { pr: rowPr, action: "answer", answer }).then(() => toast("Answer sent to the agent")).catch((e) => toast("Couldn't send: " + e.message));
@@ -1775,7 +2029,8 @@ document.addEventListener("keydown", (e) => {
     all[all.indexOf(ovt) + (e.key === "ArrowDown" ? 1 : -1)]?.focus();
     return;
   }
-  if (e.target.matches?.(".ov-ask input") && e.key === "Enter") { e.preventDefault(); e.target.closest(".ov-ask").querySelector('[data-act="answer-text"]')?.click(); return; }
+  if (e.target.matches?.(".ov-ask input, .ov-ask-inline input") && e.key === "Enter") { e.preventDefault(); e.target.closest(".ov-ask, .ov-ask-inline").querySelector('[data-act="answer-text"]')?.click(); return; }
+  if (e.key === "Escape" && snoozeOpen) { snoozeOpen = null; render(); renderFlyout(); return; }
   if (e.key === "Escape" && view === "detail" && !openMenu && !armed && e.target.id !== "input") { $("toOverview").click(); return; }
   // Rail: arrow keys move between rows and section headers; Enter opens.
   const rr = e.target.closest?.("#list .rrow, #list summary");
@@ -1882,6 +2137,9 @@ $("sumAll").addEventListener("click", async () => {
   try { const r = await post("/api/summarize-all", {}); toast(r.count ? `Asked the agent to summarize ${r.count} PR${r.count === 1 ? "" : "s"}` : "Every PR that needs you already has a summary"); }
   catch (e) { toast("Couldn't start summaries: " + e.message); }
 });
+
+// Ages and snoozes change with time, not just with data.
+setInterval(() => { if (document.visibilityState === "visible") render(); }, 60000);
 
 function connect() {
   const es = new EventSource(`/events?repo=${encodeURIComponent(REPO)}`);

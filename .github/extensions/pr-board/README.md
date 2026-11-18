@@ -17,46 +17,75 @@ The board uses the current repo. To pick another one, pass `{ "repo": "owner/nam
 
 ## Overview
 
-The first screen. The header shows `14 open · 6 issues · 4 waiting on you · 4 stuck`, when
-sessions were last synced, and a **Sync** button. Under it, one chip per section
-with its count (`Yours 5` `Reviewing 6` `Everything else 6` `Issues assigned to you 3`)
-jumps to that section. Each section keeps its rows in place (newest first, or
-the order you pick under Sort); a row's state changes, not its position.
+The first screen answers one question for every PR and issue: **whose move is
+it?**
 
-| Section | What's in it | Columns |
-|---------|-----------|---------|
-| **Yours** | PRs you wrote, and PRs and issues a session here is working on (for example a Dependabot PR you're fixing, or an issue you're investigating) | Agent, Monitoring, pr-review, PR |
-| **Reviewing** | You're a requested reviewer, chose **Track under Reviewing** or ran **Review**, you reviewed it, or pr-review ran here | pr-review, PR, Last activity |
-| **Everything else** | Open PRs nobody is working on here | PR |
-| **Issues assigned to you** | Open issues assigned to you that nobody here is working on yet, with no open PR | Agent, Last activity |
+```text
+[Your move 3] [Agent working 2] [Waiting on others 12] [Not started 3]   Sort: Newest
 
-- **Agent:** `Working`, `Waiting on you`, `Idle`, `Linked` (not synced yet), or
-  `No session here` (it may be worked on another machine).
-- **Monitoring:** whether Agent merge watches the PR (address reviews, fix CI,
-  resolve conflicts). **Turn on** asks the agent to enable it per
-  `.github/skills/pr-lifecycle`; it shows `Turning on…` until the agent confirms.
-  It never merges unless you ask.
-- **pr-review:** `Drafted`, `Posted` or `You reviewed`; `Re-run needed` /
-  `Needs re-review` when new commits landed after the review; or `Not run`.
-- **PR:** the waiting reason and how long, as in the list below. For an issue,
-  the state of its pull request: `No PR`, `Draft PR #1322`, `PR #1340 open`,
-  or `Merged #1340`. Click the chip to open that PR. The board finds the PR from
-  GitHub's "Fixes #n" links, from the linked session's branch, or from a PR the
-  agent names in `pr_board_sync_sessions`.
+┌ Your move 3 ───────────────────────────────────────────────────────────┐
+│ ➜ Ready for you      #1197 Add Microsoft.UI.Reactor support     3h    │
+│   Re-review: the author responded         [Re-review] Done  Snooze ▾  │
+│ ? Needs your decision  #1283 Memory fix                          1h    │
+│   Pick A or B                              [A] [B]  Done  Snooze ▾     │
+└────────────────────────────────────────────────────────────────────────┘
+Yours 6
+  ◌  #1322 Refuse --devtools…   Agent: fixing the test lines        agent  1m
+  ○  #1352 Keep major NuGet…    needs an approval from someone else  1h
+  ○  Issue #1306 0x8007007B…    Waiting on reporter PhilMinecraft    2h
+```
 
-An item appears in one section only. Issue rows have an `Issue` tag, and a
-linked issue stays under Yours for two days after it closes.
+Each row has three separate signals:
 
-**Reviewing** rows also show what's happened so far, for example
-`You requested changes 1d ago → moooyo pushed 12h ago`.
+| Signal | Shows | Goes away when |
+|---|---|---|
+| **The ball** (the glyph at the start of the row and the line under the title) | Whose move it is and what the move is | Only when someone moves it (you act, the agent or GitHub moves on), or you press **Done** / **Snooze** |
+| **Activity** (a spinner) | An agent is working on it right now | The agent finishes |
+| **Unread** (a blue dot) | There's agent output you haven't seen | You open it. This clears **only** the dot |
 
-When a session is waiting on you, its row shows the question with a button for
-each choice, a box for a typed answer, and **Dismiss**. An answer goes to the
-agent, which answers the session for you. Dismiss only hides the question on the
-board; the session keeps waiting.
+The ball is one of these states, checked top to bottom:
+
+| State | Glyph | When |
+|---|---|---|
+| **Needs your decision** | orange `?` | A session is waiting on a question, the agent asked you something, or set a next step with choices |
+| **Agent working** | spinner | A session is busy, or the agent is answering you |
+| **Blocked** | red `!` | On your PR: CI failing, merge conflicts, or the agent failed |
+| **Ready for you** | orange `→` | Your review or re-review is wanted, a drafted review is ready to post, or the agent handed you a step |
+| **Next: open a PR** | blue PR | An issue's fix is on a branch, the session is idle, and there's no PR yet |
+| **Waiting on others** | hollow ring | Someone else's move: the author, a reviewer, the merge queue, CI or the reporter, with their avatar and how long. The age turns red (`Stuck 28d`) when it's waited too long |
+| **Done / Not started** | check / dash | Merged or closed, or assigned to you but not started |
+
+**Your move** (the box at the top) gathers every item where the move is yours,
+oldest first, with the move as buttons: a session question's choices plus a box
+for a typed answer, **Review**, **Post review…**, **Ask the agent to fix**, or
+**Open a PR**. Each item stays in the box until you act, or until you press:
+
+- **Done:** you handled it elsewhere. It returns if something changes, for
+  example new commits or a new question.
+- **Snooze ▾:** for 1 hour, until tomorrow 9:00, or until Monday 9:00. Then it
+  comes back by itself. **Unsnooze** is in its flyout.
+
+The chips at the top count each state and filter the list to it.
+
+Below the box, the sections keep their rows in place (newest first, or the order
+you pick under Sort). A row's state changes, but its position doesn't:
+
+| Section | What's in it |
+|---------|-----------|
+| **Yours** | PRs you wrote, and PRs and issues a session here is working on (for example a Dependabot PR you're fixing, or an issue you're investigating) |
+| **Reviewing** | You're a requested reviewer, chose **Track under Reviewing** or ran **Review**, you reviewed it, or pr-review ran here |
+| **Everything else** | Open PRs nobody is working on here |
+| **Issues assigned to you** | Open issues assigned to you that nobody here is working on yet, with no open PR |
+
+Each row shows the owner (avatar and name) and how long it's been that way. Hover
+a row for its quick commands. Issue rows show `Issue #n`, and their flyout shows
+the PR's state (`No PR`, `Draft PR #1322`, `PR #1340 open`, `Merged #1340`). The
+board finds that PR from GitHub's "Fixes #n" links, from the linked session's
+branch, or from a PR the agent names in `pr_board_sync_sessions`. An item appears
+in one section only, and a linked issue stays under Yours for two days after it
+closes.
 
 At the bottom, collapsed: **Merged today**, then **Removed from the board**.
-
 ### The flyout
 
 Click anywhere on a row to open a panel on the right, without leaving the
@@ -297,6 +326,7 @@ Every request from the board tells the agent which of these to call.
 | Tool | Use |
 |------|-----|
 | `pr_board_sync_sessions` | Report the sessions on each PR or issue: activity, a pending question, Agent merge state, and when pr-review ran (on which commit). `untrack: true` stops tracking an item. For an issue, `branch` (the session's branch) or `linkedPr` lets the board show its PR |
+| `pr_board_set_next_step` | Say whose move it is: `{ pr` or `issue, owner, action, choices?, blocked? }` (owner: `you`, `agent`, `author`, `reviewer`, `reporter` or `ci`), or `clear: true`. Owner `you` puts it in **Your move** (choices become buttons that come back to the agent); `agent` shows the spinner |
 | `pr_board_set_explainer` | Write the "Explain like I'm 5" and "Where we are" sections for a PR or issue (`{ pr \| issue, eli5, progress }`, Markdown) |
 | `pr_board_set_summary` | Set the plain-words summary (≤140 characters), next steps, and risk (`low`, `medium`, `high`) |
 | `pr_board_reply` | Post a reply in a PR's thread (Markdown) |

@@ -14,7 +14,7 @@ import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
-import { answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -172,18 +172,58 @@ async function resolveRepo(repo) {
 const POST_EVENTS = new Set(["approve", "request_changes", "comment"]);
 const nowIso = () => new Date().toISOString();
 
+// The user acted on an item, so an explicit "your move" from the agent is done, and any snooze ends.
+function userActed(s) {
+    if (s.next?.owner === "you") s.next = null;
+    s.snoozeUntil = null;
+}
+const OWNERS = ["you", "agent", "author", "reviewer", "reporter", "ci"];
+
+// Done / Snooze / a choice from the board's "Your move" box. Shared by PRs and issues.
+async function runBallAction({ repo, kind, number, action, extra, card }) {
+    const upd = (fn) => (kind === "issue" ? updateItem(repo, "issue", number, fn) : updatePr(repo, number, fn));
+    if (action === "ball-done") {
+        upd((s) => { if (s.next?.owner === "you") s.next = null; s.ballDone = { key: String(extra.key || "").slice(0, 400), at: nowIso() }; s.snoozeUntil = null; addHistory(s, "You marked your move done"); });
+    } else if (action === "ball-snooze") {
+        const until = new Date(String(extra.until || ""));
+        if (Number.isNaN(until.getTime()) || until.getTime() <= Date.now()) throw httpError(400, "Pick a time in the future.");
+        upd((s) => { s.snoozeUntil = until.toISOString(); addHistory(s, `You snoozed it until ${until.toLocaleString()}`); });
+    } else if (action === "ball-unsnooze") {
+        upd((s) => { s.snoozeUntil = null; });
+    } else if (action === "choose") {
+        const choice = String(extra.choice || "").trim().slice(0, 300);
+        if (!choice) throw httpError(400, "Pick a choice.");
+        const next = (readState(repo)[kind === "issue" ? "issues" : "prs"][String(number)] || {}).next || null;
+        upd((s) => { s.next = null; s.snoozeUntil = null; s.pending = { id: "choice", at: nowIso() }; addMessage(s, "user", `${next?.action ? next.action + ": " : ""}${choice}`); });
+        await send(choosePrompt(card, repo, next, choice), repo, number, { quiet: true, kind });
+    } else if (action === "open-pr") {
+        upd((s) => { userActed(s); s.pending = { id: "open-pr", at: nowIso() }; note(s, "You asked the agent to open a PR"); });
+        await send(openPrPrompt(card, repo), repo, number, { quiet: true, kind });
+    } else if (action === "fix") {
+        upd((s) => { userActed(s); s.pending = { id: "fix", at: nowIso() }; note(s, "You asked the agent to fix what's blocking it"); });
+        await send(fixPrompt(card, repo, String(extra.what || "").slice(0, 300)), repo, number, { quiet: true, kind });
+    } else return null;
+    board(repo).broadcast();
+    return { ok: true };
+}
+const BALL_ACTIONS = new Set(["ball-done", "ball-snooze", "ball-unsnooze", "choose", "open-pr", "fix"]);
+// Actions that are the user acting on the item (they hand the ball to the agent or GitHub).
+const ACTING = new Set(["review", "post", "post-findings", "ship", "answer", "monitor", "status-update", "summarize-replies", "explain-changes", "start-issue"]);
+
 // Record an event in both the timeline and the thread, so the thread reads as one story.
 function note(s, text) {
     addHistory(s, text);
     addMessage(s, "system", text);
 }
 
-async function runIssueAction({ repo, number, action }) {
+async function runIssueAction({ repo, number, action, extra = {} }) {
     const b = board(repo);
     if (!b.data) await b.refresh();
     const card = b.issueCard(number);
     if (!card) throw httpError(404, `Issue #${number} isn't on the board. Press Refresh.`);
     const quiet = { quiet: true, kind: "issue" };
+    if (BALL_ACTIONS.has(action)) return runBallAction({ repo, kind: "issue", number, action, extra, card });
+    if (ACTING.has(action)) updateItem(repo, "issue", number, userActed);
     if (action === "explain-item") {
         updateItem(repo, "issue", number, (s) => { s.explainerPending = nowIso(); });
         await send(explainerPrompt(card, repo), repo, number, quiet);
@@ -221,13 +261,15 @@ function writePostPayload(repo, pr, preview) {
 }
 
 async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
-    if (extra.kind === "issue") return runIssueAction({ repo, number: pr, action });
+    if (extra.kind === "issue") return runIssueAction({ repo, number: pr, action, extra });
     const b = board(repo);
     if (!b.data) await b.refresh();
     const card = b.card(pr);
     if (!card) throw httpError(404, `PR #${pr} isn't on the board. Press Refresh.`);
     const local = card.local || {};
     const busy = local.agent?.status === "running";
+    if (BALL_ACTIONS.has(action)) return runBallAction({ repo, kind: "pr", number: pr, action, extra, card });
+    if (ACTING.has(action)) updatePr(repo, pr, userActed);
 
     if (action === "review") {
         if (busy && !force) throw httpError(409, "An agent is already working on this PR. Use 'Reset agent status' if it's stuck.");
@@ -413,6 +455,7 @@ async function sendMessage({ repo, pr, text, kind = "pr" }) {
     updateItem(repo, kind, pr, (s) => {
         msg = addMessage(s, "user", text);
         s.pending = { id: msg.id, at: msg.at };
+        userActed(s);
     });
     b.broadcast();
     try {
@@ -564,7 +607,7 @@ async function handle(req, res) {
         if (url.pathname === "/api/action") {
             const pr = Number(body.pr);
             if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
-            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer, findingId: body.findingId, kind: body.kind === "issue" ? "issue" : "pr" } }));
+            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer, findingId: body.findingId, key: body.key, until: body.until, choice: body.choice, what: body.what, kind: body.kind === "issue" ? "issue" : "pr" } }));
         }
         if (url.pathname === "/api/triage") {
             const pr = Number(body.pr);
@@ -844,6 +887,44 @@ const tools = [
             });
             board(repo).broadcast();
             return { ok: true, repo, pr: args.pr, summary: clipped, trimmed: clipped !== summary };
+        },
+    },
+    {
+        name: "pr_board_set_next_step",
+        description: "Say whose move it is on a PR or issue, and what the move is. The board shows it as the row's state: owner 'you' puts it in the user's 'Your move' box (with choices as buttons, which come back to you as a prompt); 'agent' shows a spinner; author/reviewer/reporter/ci show who it's waiting on. Call it whenever your reply or work leaves the next step with someone, especially the user. It replaces the previous next step; clear: true removes it so the board derives the state from GitHub again.",
+        parameters: {
+            type: "object",
+            properties: {
+                repo: repoProp,
+                pr: prProp,
+                issue: { type: "number", description: "Issue number. Use instead of pr." },
+                owner: { type: "string", enum: OWNERS, description: "Who has the ball." },
+                action: { type: "string", description: "One plain line: the move, e.g. 'Pick A or B for the memory fix' or 'Approve the dependabot config PR'." },
+                choices: { type: "array", items: { type: "string" }, description: "Optional buttons for the user (owner 'you'), e.g. ['A', 'B'] or ['Go', 'Not now']." },
+                blocked: { type: "boolean", description: "true = it's blocked (CI red, conflicts, an error) and someone has to fix it." },
+                clear: { type: "boolean", description: "true = remove the explicit next step." },
+            },
+        },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const [kind, n] = target(args);
+            if (args.clear) {
+                updateItem(repo, kind, n, (s) => { s.next = null; });
+            } else {
+                if (!OWNERS.includes(args.owner)) throw new Error(`owner must be one of: ${OWNERS.join(", ")}`);
+                const action = String(args.action || "").replace(/\s+/g, " ").trim().slice(0, 240);
+                if (!action) throw new Error("action is empty");
+                const choices = (Array.isArray(args.choices) ? args.choices : []).map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 4);
+                updateItem(repo, kind, n, (s) => {
+                    s.next = { owner: args.owner, action, choices, blocked: !!args.blocked, at: nowIso() };
+                    s.ballDone = null;
+                    if (args.owner !== "you") s.snoozeUntil = null;
+                    if (args.owner !== "agent") s.pending = null;
+                    addHistory(s, `Next: ${args.owner} · ${action}`);
+                });
+            }
+            board(repo).broadcast();
+            return { ok: true, repo, [kind]: n };
         },
     },
     {
