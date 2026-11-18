@@ -115,6 +115,10 @@ extends:
         enabled: true
         break: true
         severity: 'Warning'
+      # benchmarks/ is not shipped, but 1ES PT has no way to exclude a folder from the SDL source
+      # scan, so its findings are suppressed one by one here, each with a justification.
+      suppression:
+        suppressionFile: $(Build.SourcesDirectory)\.config\guardian\.gdnsuppress
       sourceAnalysisPool:
         name: Azure-Pipelines-1ESPT-ExDShared
         image: windows-latest
@@ -123,8 +127,9 @@ extends:
     - stage: Build
       jobs:
       - job: Build
-        # NativeAOT for two architectures plus tests now runs past the 60-minute default.
-        timeoutInMinutes: 120
+        # NativeAOT for two architectures plus tests, all under CodeQL tracing on this Official
+        # template, reached 116 minutes in Build CLI alone (November 2026).
+        timeoutInMinutes: 180
         pool:
           name: Azure-Pipelines-1ESPT-ExDShared
           # Match the VS 18 compiler that GitHub Actions uses; windows-latest still has VS 2022.

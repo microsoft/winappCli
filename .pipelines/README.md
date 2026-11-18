@@ -230,6 +230,7 @@ week is exactly when an external policy change slips in unnoticed.
 | WinGet (rehearsal path) | `wingetcreate`, the installer downloads, or the manifest schema changed. A real submission would fail the same way. |
 | MS Learn (rehearsal path) | A doc edit landed that the port or validation script rejects. |
 | `Verify shipped binaries are signed` | A binary is shipping unsigned. Read the failure line — it names each file, using `container!/path` for anything nested. See [Signing and Code Sign Validation](#signing-and-code-sign-validation). |
+| `🛡 Guardian: Post Analysis` in **SDL Sources Analysis** | A source scanner (PSScriptAnalyzer runs only here, not in CI) found a new issue. Fix it. If it is under `benchmarks/`, which is not shipped, copy its entry from the run's `drop_sdl_sources` artifact (`.gdnsuppress`) into `.config/guardian/.gdnsuppress` and add a `justification`. 1ES PT cannot exclude a folder from the scan. |
 
 ### Running it on demand
 
