@@ -132,10 +132,13 @@ Start with `Microsoft.UI.Xaml.Window` for a top-level window. It hosts the view 
 | `Resources`, `DataContext` | Put them on the hosted view or its root element. For visual state groups, use the [content or template root](xaml-migration.md#triggers-to-visual-states). |
 | `Application.Current.MainWindow` / `Window.Current` | Track window references explicitly. |
 | `Width`, `Height` | Use `AppWindow.Resize` for the whole window or `ResizeClient` for its content area; convert the original WPF size to physical pixels at the target monitor's scale. |
+| `MinWidth`, `MinHeight`, `MaxWidth`, `MaxHeight` | On Windows App SDK 1.7 or later, set the matching [OverlappedPresenter](https://learn.microsoft.com/windows/apps/develop/ui-input/manage-app-windows#modify-an-overlappedpresenter) property: `PreferredMinimumWidth`, `PreferredMinimumHeight`, `PreferredMaximumWidth`, or `PreferredMaximumHeight`. Convert each WPF limit from device-independent pixels to physical pixels for the whole window, including its frame. Update the limits when the window's DPI changes. |
 | `WindowState`, `ResizeMode`, `Topmost` | Use `OverlappedPresenter` for minimize/maximize/restore, `IsResizable`, `IsMinimizable`, `IsMaximizable`, and `IsAlwaysOnTop`. |
 | `Left`, `Top` | Position the `AppWindow` with `Move`. |
 | `SizeToContent` | Measure content and size the `AppWindow`. |
-| `WindowStartupLocation` | Center in the intended monitor's work area (or relative to the owning window for `CenterOwner`); see [Size and Position](#size-and-position). |
+| `WindowStartupLocation="Manual"` (default) | Keep each specified `Left` or `Top` coordinate. Let Windows choose any unset coordinate; do not center the window. |
+| `WindowStartupLocation="CenterScreen"` | Center in the work area of the owner's monitor if the app has set an owner window with a handle. Otherwise, use the monitor containing the pointer. |
+| `WindowStartupLocation="CenterOwner"` | For a minimized or maximized WPF owner, use `CenterScreen`. Otherwise, center over the owner and keep the window within its work area when possible. If no owner bounds are available, keep `Manual` placement. |
 | `Closing` / cancellation | Use the supported WinUI/`AppWindow` closing event and preserve hide-to-tray or cancellation behavior. |
 | `Loaded` / `Unloaded` | Attach these handlers to the hosted `FrameworkElement`, not the WinUI `Window`. |
 | `Title` | Use `Window.Title` or `AppWindow.Title`. |
