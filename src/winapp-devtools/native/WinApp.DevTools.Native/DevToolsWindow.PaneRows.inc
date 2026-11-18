@@ -112,21 +112,12 @@ static std::map<InstanceHandle, std::wstring> g_commentDrafts; // unsaved text, 
 static winrt::weak_ref<DevToolsXC::TextBox> g_commentBox;
 static std::shared_ptr<CommentBoxSaved> g_commentBoxSaved; // what the live box last loaded or saved
 
-// Each property is its own named row so filtering, virtualization, and per-row actions can target one element.
-static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstring& name,
-                                       const std::wstring& label, const std::wstring& breadcrumb,
-                                       const std::wstring& sourceUri, unsigned int sourceLine,
-                                       const std::vector<DevToolsCardRow>& rows,
-                                       const std::wstring& authoredState,
-                                       const std::wstring& authoredXaml,
-                                       const DevToolsWindowLayout* layout)
+// The source line: the file, its Open, Show in File Explorer and Copy path actions, and the authored XAML. Empty when
+// the element has neither a source location nor authored XAML.
+static std::wstring BuildSourceSection(const std::wstring& sourceUri, unsigned int sourceLine,
+                                       const std::wstring& authoredState, const std::wstring& authoredXaml)
 {
-    // The title, the breadcrumb and the Comment button live in the shell's details header, which does not scroll.
-    (void)type; (void)name; (void)label; (void)breadcrumb;
     std::wstring m;
-    m += L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
-         L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Spacing=\"10\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsProps\">";
     // Show a source link only with actual XBF/source instrumentation and a file resolved under
     // the configured source root. Environment delivery is the host's responsibility.
     // The file, its actions and the authored XAML come from one source lookup, so they share one Source expander.
@@ -200,6 +191,59 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>" + sourceIcon + sourceText + L"</Grid>";
     }
     if (!sourceStatus.empty()) m += sourceStatus + L"</StackPanel>";
+    return m;
+}
+
+// Why the x:Bind and resource sources of an element's properties can't be shown, or empty when they can.
+static std::wstring AuthoredUnavailableReason(const std::wstring& sourceUri, const std::wstring& authoredState)
+{
+    if (authoredState == L"available") return std::wstring();
+    // Framework source with no readable app declaration is not missing app instrumentation.
+    // Do not recommend changing a correct build for that case.
+    const bool frameworkDeclared = !sourceUri.empty() && !DevToolsAppXaml_IsAppAuthored(sourceUri);
+    if (frameworkDeclared)
+        return SourceFileName(sourceUri) + L" is framework XAML, not your app's, so there is no authored "
+               L"source to read for this element. Authored values ({x:Bind}, {ThemeResource}) are shown "
+               L"for elements your app declares.";
+    if (authoredState == L"noSourceInfo" && g_jmxSrcSeen > 0)
+        // Instrumentation demonstrably works in this process -- g_jmxSrcSeen counts nodes that DID report
+        // a source URI -- so the build and the launch are not the cause and must not be named as one.
+        return L"The runtime reported no XAML source location for this element, so its authored values "
+               L"can't be shown. Other elements in this app do report one, so the build and the launch are "
+               L"fine. An element created from a template or in code simply has no authored line.";
+    if (authoredState == L"noSourceInfo")
+        return L"XAML source info isn't available in this process, so authored values "
+               L"({x:Bind}, {ThemeResource}) can't be shown. Either the build carries no XBF line info "
+               L"(Debug bakes it in; a Release build needs -p:DisableXbfLineInfo=false), or this launch "
+               L"couldn't deliver ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO. winapp warns when that is the reason.";
+    if (authoredState == L"noFile")
+        return L"The app's XAML source file couldn't be opened, so authored values "
+               L"({x:Bind}, {ThemeResource}) can't be shown. A value an {x:Bind} sets appears as Local.";
+    if (authoredState == L"stale")
+        return L"The source on disk changed after the captured build or source snapshot. "
+               L"Authored values are hidden because the running app's source identity is no longer verified.";
+    if (authoredState == L"unavailable")
+        return L"The source coordinates and element identity do not identify one XAML declaration. "
+               L"Authored values are hidden rather than attributed to a different element.";
+    if (authoredState == L"unverifiedBuild")
+        return L"The compiler output, original source and deployed XAML could not be verified together. "
+               L"Check the original XAML before editing; rebuilding alone does not verify the column mapping.";
+    if (authoredState == L"likely")
+        return L"The likely declaration is shown for review, but its authored values are not treated as verified runtime properties.";
+    return L"Authored values ({x:Bind}, {ThemeResource}) can't be shown for this element.";
+}
+
+// The details pane, built once per window and updated in place for each selection (ShowPropsForNode). Sections an
+// element doesn't have start collapsed. Each property is its own row in the ItemsRepeater, so filtering,
+// virtualization and per-row actions can target one property.
+static std::wstring BuildPaneShell()
+{
+    // The title, the breadcrumb and the Comment button live in the shell's details header, which does not scroll.
+    std::wstring m;
+    m += L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
+         L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Spacing=\"10\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsProps\">";
+    m += L"<StackPanel x:Name=\"SourceSlot\" Visibility=\"Collapsed\"/>";
     if (g_ctx.writeFn) {
         m += L"<StackPanel x:Name=\"AddCommentBox\" Visibility=\"Collapsed\" Spacing=\"6\">"
              L"<TextBox x:Name=\"AddCommentText\" AcceptsReturn=\"True\" TextWrapping=\"Wrap\" MinHeight=\"56\" MaxHeight=\"120\""
@@ -209,7 +253,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\""
              DT_FG_SECONDARY L" AutomationProperties.LiveSetting=\"Polite\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAddCommentStatus\"/></StackPanel>";
-        // The element's open comment. WireAddComment fills the card and swaps it with the box while editing.
+        // The element's open comment. PresentCommentBox fills the card and swaps it with the box while editing.
         m += L"<Border x:Name=\"CommentCard\" Visibility=\"Collapsed\" Padding=\"12,10\" CornerRadius=\"6\" BorderThickness=\"1\""
              L" BorderBrush=\"{ThemeResource CardStrokeColorDefaultBrush}\""
              L" Background=\"{ThemeResource CardBackgroundFillColorDefaultBrush}\""
@@ -235,66 +279,21 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L"<TextBlock Text=\"Resolve\" FontSize=\"12\"/></StackPanel></Button>"
              L"</Grid></Border>";
     }
-    if (rows.empty()) {
-        m += L"<TextBlock Text=\"(no curated properties)\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>";
-        if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
-        m += L"</StackPanel>";
-        return m;
-    }
-
-    if (authoredState != L"available") {
-        // Framework source with no readable app declaration is not missing app instrumentation.
-            // Do not recommend changing a correct build for that case.
-        const bool frameworkDeclared = !sourceUri.empty() && !DevToolsAppXaml_IsAppAuthored(sourceUri);
-        std::wstring why;
-        if (frameworkDeclared) {
-            why = SourceFileName(sourceUri) + L" is framework XAML, not your app's, so there is no authored "
-                  L"source to read for this element. Authored values ({x:Bind}, {ThemeResource}) are shown "
-                  L"for elements your app declares.";
-        } else if (authoredState == L"noSourceInfo" && g_jmxSrcSeen > 0) {
-            // Instrumentation demonstrably works in this process -- g_jmxSrcSeen counts nodes that DID report
-            // a source URI -- so the build and the launch are not the cause and must not be named as one.
-            why = L"The runtime reported no XAML source location for this element, so its authored values "
-                  L"can't be shown. Other elements in this app do report one, so the build and the launch are "
-                  L"fine. An element created from a template or in code simply has no authored line.";
-        } else if (authoredState == L"noSourceInfo") {
-            why = L"XAML source info isn't available in this process, so authored values "
-                  L"({x:Bind}, {ThemeResource}) can't be shown. Either the build carries no XBF line info "
-                  L"(Debug bakes it in; a Release build needs -p:DisableXbfLineInfo=false), or this launch "
-                  L"couldn't deliver ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO. winapp warns when that is the reason.";
-        } else if (authoredState == L"noFile") {
-            why = L"The app's XAML source file couldn't be opened, so authored values "
-                  L"({x:Bind}, {ThemeResource}) can't be shown. A value an {x:Bind} sets appears as Local.";
-        } else if (authoredState == L"stale") {
-            why = L"The source on disk changed after the captured build or source snapshot. "
-                  L"Authored values are hidden because the running app's source identity is no longer verified.";
-        } else if (authoredState == L"unavailable") {
-            why = L"The source coordinates and element identity do not identify one XAML declaration. "
-                  L"Authored values are hidden rather than attributed to a different element.";
-        } else if (authoredState == L"unverifiedBuild") {
-            why = L"The compiler output, original source and deployed XAML could not be verified together. "
-                  L"Check the original XAML before editing; rebuilding alone does not verify the column mapping.";
-        } else if (authoredState == L"likely") {
-            why = L"The likely declaration is shown for review, but its authored values are not treated as verified runtime properties.";
-        } else {
-            why = L"Authored values ({x:Bind}, {ThemeResource}) can't be shown for this element.";
-        }
-        // One line in the header; the full reason is on hover and for screen readers. It names what is missing, so a
-        // Local value set by a compiled binding is not read as a plain literal.
-        m += L"<TextBlock Text=\"x:Bind and resource sources not shown (why?)\" FontSize=\"11\" TextWrapping=\"NoWrap\""
-             L" TextTrimming=\"CharacterEllipsis\" Margin=\"0,0,0,2\""
-             L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(why) + L"\""
-             DT_FG_SECONDARY
-             L" AutomationProperties.Name=\"x:Bind and resource sources not shown\""
-             L" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(why) + L"\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredUnavailable\"/>";
-    }
-    if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
-
-    // Property toolbar: the filter box, with the Computed | Set choice to its right. ApplyPropViewSelection
-    // rebuilds this fragment, so the selector's IsSelected state comes from the current view.
+    m += L"<TextBlock x:Name=\"NoProps\" Visibility=\"Collapsed\" Text=\"(no curated properties)\""
+         L" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>";
+    // One line in the header; the full reason is on hover and for screen readers. It names what is missing, so a
+    // Local value set by a compiled binding is not read as a plain literal. ShowPropsForNode sets the reason.
+    m += L"<TextBlock x:Name=\"AuthoredUnavailable\" Visibility=\"Collapsed\""
+         L" Text=\"x:Bind and resource sources not shown (why?)\" FontSize=\"11\" TextWrapping=\"NoWrap\""
+         L" TextTrimming=\"CharacterEllipsis\" Margin=\"0,0,0,2\""
+         DT_FG_SECONDARY
+         L" AutomationProperties.Name=\"x:Bind and resource sources not shown\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredUnavailable\"/>";
+    m += BuildLayoutDisclosure();
+    // Property toolbar: the filter box, with the Computed | Set choice to its right. The selector keeps the view
+    // across selections; it starts on the current one.
     const bool setView = ShowingSetView();
-    m += L"<Grid ColumnSpacing=\"8\" Margin=\"0,2,0,0\"><Grid.ColumnDefinitions>"
+    m += L"<Grid x:Name=\"PropToolbar\" ColumnSpacing=\"8\" Margin=\"0,2,0,0\"><Grid.ColumnDefinitions>"
          L"<ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/>"
          L"</Grid.ColumnDefinitions>";
     m += L"<TextBox x:Name=\"PropFilter\" MinHeight=\"32\" VerticalAlignment=\"Center\""
@@ -336,16 +335,14 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
          L"</HyperlinkButton>";
     m += L"</StackPanel></Border>";
 
-    if (!setView) {
-        m += L"<HyperlinkButton x:Name=\"PropShowAll\" Padding=\"0\" Margin=\"0,4,0,0\" FontSize=\"12\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsPropShowAll\""
-             L" AutomationProperties.Name=\"Toggle the full property list\">";
-        m += L"<TextBlock x:Name=\"PropShowAllLbl\" FontSize=\"12\" Text=\"" +
-             DevToolsXmlEscape(PropShowAllLabel(rows)) + L"\""
-             L" AutomationProperties.AutomationId=\"WinAppDevToolsPropShowAllLabel\""
-             L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-        m += L"</HyperlinkButton>";
-    }
+    // Computed view only.
+    m += L"<HyperlinkButton x:Name=\"PropShowAll\" Visibility=\"Collapsed\" Padding=\"0\" Margin=\"0,4,0,0\" FontSize=\"12\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsPropShowAll\""
+         L" AutomationProperties.Name=\"Toggle the full property list\">";
+    m += L"<TextBlock x:Name=\"PropShowAllLbl\" FontSize=\"12\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsPropShowAllLabel\""
+         L" AutomationProperties.AccessibilityView=\"Raw\"/>";
+    m += L"</HyperlinkButton>";
     m += L"</StackPanel>";
     return m;
 }
@@ -651,6 +648,8 @@ static void FillCombo(IInspectable* combo, const std::vector<std::wstring>& opti
     }
     reinterpret_cast<IUnknown*>(ic)->Release();
     if (!items) return;
+    // A reused editor already holds another property's choices.
+    DevToolsVecClear(reinterpret_cast<IInspectable*>(items));
     for (const std::wstring& o : options) {
         IInspectable* it = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.ComboBoxItem");
         if (!it) continue;

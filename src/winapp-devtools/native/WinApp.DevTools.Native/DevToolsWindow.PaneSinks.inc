@@ -332,11 +332,11 @@ static void RegisterPaneEditor(const std::wstring& path, void* element, bool* re
 }
 
 // Capture the departing text before releasing the box, so a delayed blur can save without reading old UI.
-static void ForgetPaneEditors(const std::wstring& path, void* owner = nullptr)
+static void ForgetPaneEditors(const std::wstring& path, void* owner = nullptr, bool anyPath = false)
 {
     std::vector<PaneEditor> departing;
     for (size_t i = g_paneEditors.size(); i-- > 0; ) {
-        if (g_paneEditors[i].path != path || (owner && g_paneEditors[i].owner != owner)) continue;
+        if ((!anyPath && g_paneEditors[i].path != path) || (owner && g_paneEditors[i].owner != owner)) continue;
         departing.push_back(std::move(g_paneEditors[i]));
         g_paneEditors.erase(g_paneEditors.begin() + i);
     }
@@ -574,10 +574,8 @@ struct SplitterKeySink : DevToolsSinkBase
     void Init() { InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
 };
 
-// The Computed | Set selector sits in the property toolbar, which a view change rebuilds. The rebuild runs after
-// the selection event returns, and keyboard focus moves to the new selector when the old one had it.
-static DevToolsXC::SelectorBar g_propViewSelector{nullptr};
-
+// The Computed | Set selector sits in the property toolbar. A view change refreshes the pane in place, so the selector
+// and its keyboard focus stay.
 static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
 {
     try {
@@ -591,48 +589,12 @@ static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
         const auto view = selected == items.GetAt(1) ? DevToolsPropView::Set : DevToolsPropView::Computed;
         if (g_propView == view) return;
         g_propView = view;
-        bool hadFocus = false;
-        DevToolsD::DispatcherQueue queue{nullptr};
-        if (const auto ui = selector.try_as<DevToolsX::UIElement>()) {
-            queue = ui.DispatcherQueue();
-            const auto self = ui.as<DevToolsX::DependencyObject>();
-            if (const auto root = ui.XamlRoot()) {
-                for (auto node = DevToolsXI::FocusManager::GetFocusedElement(root).try_as<DevToolsX::DependencyObject>();
-                     node && !hadFocus; node = DevToolsXM::VisualTreeHelper::GetParent(node))
-                    hadFocus = node == self;
-            }
-        }
-        const auto rebuild = [gen = g_route1Gen, hadFocus] {
-            if (gen != g_route1Gen) return;
-            ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-            if (!hadFocus) return;
-            try {
-                if (const auto bar = g_propViewSelector) {
-                    const auto token = std::make_shared<winrt::event_token>();
-                    *token = bar.Loaded([gen, token](auto const& sender, auto const&) {
-                        try {
-                            const auto loaded = sender.template as<DevToolsXC::SelectorBar>();
-                            loaded.Loaded(*token);
-                            if (gen != g_route1Gen || loaded != g_propViewSelector) return;
-                            if (const auto item = loaded.SelectedItem())
-                                if (!item.Focus(DevToolsX::FocusState::Keyboard))
-                                    DevToolsOverlayLog(L"route1.props view focus refused");
-                        } catch (const winrt::hresult_error& e) {
-                            DevToolsOverlayLog(L"route1.props view focus failed hr=0x%08X", e.code().value);
-                        }
-                    });
-                }
-            } catch (const winrt::hresult_error& e) {
-                DevToolsOverlayLog(L"route1.props view focus failed hr=0x%08X", e.code().value);
-            }
-        };
-        if (!queue || !queue.TryEnqueue(rebuild)) rebuild();
+        ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"route1.props view selection failed hr=0x%08X", e.code().value);
         SetStatusText(L"Could not update the property view. Refresh the inspector and retry.");
     }
 }
-
 // WinUI owns disclosure visibility and automation; callbacks only remember the user's choice.
 struct LayoutSectionSink : DevToolsSinkBase
 {

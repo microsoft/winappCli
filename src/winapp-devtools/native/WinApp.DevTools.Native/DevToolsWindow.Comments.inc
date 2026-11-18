@@ -24,7 +24,7 @@ struct InspectorShellRefs
     DevToolsX::UIElement showInTree{nullptr}, addComment{nullptr};
 };
 static InspectorShellRefs g_shell;
-static std::function<void()> g_openCommentBox; // opens the selected element's comment box; set per fragment
+static std::function<void()> g_openCommentBox; // opens the selected element's comment box; set when the pane is built
 static bool g_navSyncing = false;              // the rail selection is being set from code, not by the user
 static std::vector<DevToolsWindowComment> g_commentRows;
 // The pane is a virtualizing list: one item per file caption or comment row, built only while it is on screen.
@@ -641,102 +641,89 @@ static bool SelectedElementComment(InstanceHandle wire, DevToolsWindowComment* o
 
 // The details header's Comment button opens a box under Source, already holding the element's comment if it has
 // one. A saved comment shows as a card with Edit and Resolve instead of the box. Enter saves through the in-app
-// comment writer, Shift+Enter starts a new line and Esc closes the box.
+// comment writer, Shift+Enter starts a new line and Esc closes the box. The box is part of the pane, so it is wired
+// once per window; its handlers read the selected element's state from g_commentBoxSaved.
+struct CommentBoxUi
+{
+    DevToolsX::UIElement box{ nullptr }, card{ nullptr };
+    DevToolsXC::TextBox text{ nullptr };
+    DevToolsXC::TextBlock status{ nullptr }, cardText{ nullptr }, cardMeta{ nullptr };
+};
+static CommentBoxUi g_commentUi;
 static unsigned g_addCommentGen = 0;
-static void WireAddComment(void* frameworkElement)
+
+// A saved comment shows as the card; the box shows while editing (or, without a card, whenever there is one).
+static void PresentCommentBox(bool editing)
+{
+    const auto& ui = g_commentUi;
+    const auto saved = g_commentBoxSaved;
+    if (!ui.box || !saved) return;
+    saved->editing = editing;
+    const bool exists = !saved->id.empty() && !saved->text.empty();
+    const bool asCard = ui.card && exists && !editing;
+    if (asCard) {
+        if (ui.cardText) ui.cardText.Text(saved->text);
+        if (ui.cardMeta) ui.cardMeta.Text(L"Open \u00B7 " + saved->id);
+    }
+    if (ui.card) ui.card.Visibility(asCard ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+    ui.box.Visibility(editing || (exists && !ui.card) ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+}
+
+static void WireCommentBox(void* frameworkElement)
 {
     g_openCommentBox = nullptr;
+    g_commentUi = {};
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, frameworkElement);
         auto root = object.as<DevToolsX::FrameworkElement>();
-        auto box = root.FindName(L"AddCommentBox").try_as<DevToolsX::UIElement>();
-        auto text = root.FindName(L"AddCommentText").try_as<DevToolsXC::TextBox>();
-        auto status = root.FindName(L"AddCommentStatus").try_as<DevToolsXC::TextBlock>();
-        if (!box || !text || !status) return;
-        auto card = root.FindName(L"CommentCard").try_as<DevToolsX::UIElement>();
-        auto cardText = root.FindName(L"CommentCardText").try_as<DevToolsXC::TextBlock>();
-        auto cardMeta = root.FindName(L"CommentCardMeta").try_as<DevToolsXC::TextBlock>();
+        CommentBoxUi ui;
+        ui.box = root.FindName(L"AddCommentBox").try_as<DevToolsX::UIElement>();
+        ui.text = root.FindName(L"AddCommentText").try_as<DevToolsXC::TextBox>();
+        ui.status = root.FindName(L"AddCommentStatus").try_as<DevToolsXC::TextBlock>();
+        if (!ui.box || !ui.text || !ui.status) return;
+        ui.card = root.FindName(L"CommentCard").try_as<DevToolsX::UIElement>();
+        ui.cardText = root.FindName(L"CommentCardText").try_as<DevToolsXC::TextBlock>();
+        ui.cardMeta = root.FindName(L"CommentCardMeta").try_as<DevToolsXC::TextBlock>();
         auto cardEdit = root.FindName(L"CommentCardEdit").try_as<DevToolsXCP::ButtonBase>();
         auto cardResolve = root.FindName(L"CommentCardResolve").try_as<DevToolsXCP::ButtonBase>();
-        const unsigned gen = ++g_addCommentGen;
-        auto saved = std::make_shared<CommentBoxSaved>();
-        // The handlers below live on elements of this fragment, so they hold its elements weakly. A strong
-        // capture would form a cycle XAML cannot collect and keep every replaced pane alive.
-        const winrt::weak_ref<DevToolsX::UIElement> weakBox{ box }, weakCard{ card };
-        const winrt::weak_ref<DevToolsXC::TextBlock> weakCardText{ cardText }, weakCardMeta{ cardMeta };
-        const winrt::weak_ref<DevToolsXC::TextBox> weakText{ text };
-        const winrt::weak_ref<DevToolsXC::TextBlock> weakStatus{ status };
-        const bool hasCard = static_cast<bool>(card);
-        g_commentBoxParts = { box, text, status };
-        if (card) g_commentBoxParts.push_back(card);
-        if (cardText) g_commentBoxParts.push_back(cardText);
-        if (cardMeta) g_commentBoxParts.push_back(cardMeta);
-        // A saved comment shows as the card; the box shows while editing (or, without a card, whenever there is one).
-        auto present = [weakBox, weakCard, weakCardText, weakCardMeta, hasCard, saved](bool editing) {
-            auto box = weakBox.get();
-            if (!box) return;
-            auto card = weakCard.get();
-            auto cardText = weakCardText.get();
-            auto cardMeta = weakCardMeta.get();
-            saved->editing = editing;
-            const bool exists = !saved->id.empty() && !saved->text.empty();
-            const bool asCard = card && exists && !editing;
-            if (asCard) {
-                if (cardText) cardText.Text(saved->text);
-                if (cardMeta) cardMeta.Text(L"Open \u00B7 " + saved->id);
-            }
-            if (card) card.Visibility(asCard ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
-            box.Visibility(editing || (exists && !hasCard) ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
-        };
-        DevToolsWindowComment existing;
-        if (SelectedElementComment(g_selWire, &existing)) {
-            saved->id = existing.id;
-            saved->text = existing.text;
-            text.Text(existing.text);
-        }
-        g_commentBox = weakText;
-        g_commentBoxSaved = saved;
-        if (auto it = g_selWire ? g_commentDrafts.find(g_selWire) : g_commentDrafts.end(); it != g_commentDrafts.end()) {
-            text.Text(it->second);
-            status.Text(L"Your unsaved comment is back. Press Enter to save it, or Esc to discard it.");
-            present(true);
-            g_commentDrafts.erase(it);
-        } else {
-            present(false);
-        }
-        g_openCommentBox = [present, weakText]() {
-            present(true);
-            if (auto box = weakText.get()) box.Focus(DevToolsX::FocusState::Programmatic);
+        g_commentUi = ui;
+        // The handlers live on the pane's elements, so they read those elements from g_commentUi instead of
+        // capturing them: a captured element would form a cycle XAML cannot collect.
+        g_openCommentBox = []() {
+            PresentCommentBox(true);
+            if (const auto& text = g_commentUi.text) text.Focus(DevToolsX::FocusState::Programmatic);
         };
         if (cardEdit) {
-            cardEdit.Click([present, weakText](auto&&, auto&&) {
-                present(true);
-                if (auto text = weakText.get()) text.Focus(DevToolsX::FocusState::Programmatic);
+            cardEdit.Click([](auto&&, auto&&) {
+                PresentCommentBox(true);
+                if (const auto& text = g_commentUi.text) text.Focus(DevToolsX::FocusState::Programmatic);
             });
         }
         if (cardResolve) {
-            cardResolve.Click([present, weakText, gen, saved](auto&&, auto&&) {
-                auto text = weakText.get();
-                if (!text || saved->id.empty() || saved->resolving || text.IsReadOnly()) return;
+            cardResolve.Click([](auto&&, auto&&) {
+                const auto text = g_commentUi.text;
+                const auto saved = g_commentBoxSaved;
+                if (!text || !saved || saved->id.empty() || saved->resolving || text.IsReadOnly()) return;
                 saved->resolving = true;
-                ResolveCommentById(saved->id, [present, weakText, gen, saved](int result) {
+                ResolveCommentById(saved->id, [gen = g_addCommentGen, saved](int result) {
                     if (gen != g_addCommentGen || !saved->FinishResolve(result)) return;
-                    if (auto box = weakText.get()) box.Text(L"");
-                    present(false);
+                    if (const auto& box = g_commentUi.text) box.Text(L"");
+                    PresentCommentBox(false);
                 });
             });
         }
-        text.PreviewKeyDown([present, weakText, weakStatus, gen, saved](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
+        ui.text.PreviewKeyDown([](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
             using winrt::Windows::System::VirtualKey;
-            auto text = weakText.get();
-            auto status = weakStatus.get();
-            if (!text || !status) return;
+            const auto text = g_commentUi.text;
+            const auto status = g_commentUi.status;
+            const auto saved = g_commentBoxSaved;
+            if (!text || !status || !saved) return;
             if (args.Key() == VirtualKey::Escape) {
                 args.Handled(true);
                 text.Text(saved->text);
                 status.Text(kAddCommentHint);
-                present(false);
+                PresentCommentBox(false);
                 return;
             }
             if (args.Key() != VirtualKey::Enter || (GetKeyState(VK_SHIFT) & 0x8000)) return;
@@ -747,9 +734,9 @@ static void WireAddComment(void* frameworkElement)
             text.IsReadOnly(true);
             status.Text(L"Saving\u2026");
             saved->id = DevToolsOverlay_AddComment(element, value, saved->id,
-                [weakText, weakStatus, present, gen, saved, value](int code) {
-                auto savedText = weakText.get();
-                auto savedStatus = weakStatus.get();
+                [gen = g_addCommentGen, saved, value](int code) {
+                const auto savedText = g_commentUi.text;
+                const auto savedStatus = g_commentUi.status;
                 if (!savedText || !savedStatus || gen != g_addCommentGen) return;
                 savedText.IsReadOnly(false);
                 if (code != 0) {
@@ -758,7 +745,7 @@ static void WireAddComment(void* frameworkElement)
                 }
                 saved->text = value;
                 savedStatus.Text(kAddCommentHint);
-                present(false);
+                PresentCommentBox(false);
                 SetStatusText(L"Comment saved.");
             });
             if (element) element->Release();
@@ -766,4 +753,44 @@ static void WireAddComment(void* frameworkElement)
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"route1.props comment box wiring failed hr=0x%08X", e.code().value);
     }
+}
+
+// Load the selected element's comment, or its unsaved draft, into the comment box.
+static void ShowSelectionComment()
+{
+    const auto& ui = g_commentUi;
+    if (!ui.text) return;
+    try {
+        ++g_addCommentGen;
+        auto saved = std::make_shared<CommentBoxSaved>();
+        g_commentBoxSaved = saved;
+        g_commentBox = ui.text;
+        ui.text.IsReadOnly(false);
+        ui.text.Text(L"");
+        ui.status.Text(kAddCommentHint);
+        DevToolsWindowComment existing;
+        if (SelectedElementComment(g_selWire, &existing)) {
+            saved->id = existing.id;
+            saved->text = existing.text;
+            ui.text.Text(existing.text);
+        }
+        if (auto it = g_selWire ? g_commentDrafts.find(g_selWire) : g_commentDrafts.end(); it != g_commentDrafts.end()) {
+            ui.text.Text(it->second);
+            ui.status.Text(L"Your unsaved comment is back. Press Enter to save it, or Esc to discard it.");
+            PresentCommentBox(true);
+            g_commentDrafts.erase(it);
+        } else {
+            PresentCommentBox(false);
+        }
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.props comment box update failed hr=0x%08X", e.code().value);
+    }
+}
+
+static void ReleaseCommentBoxUi()
+{
+    g_commentUi = {};
+    g_commentBoxSaved = nullptr;
+    g_commentBox = nullptr;
+    g_openCommentBox = nullptr;
 }

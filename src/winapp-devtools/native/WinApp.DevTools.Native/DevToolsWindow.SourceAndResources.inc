@@ -91,12 +91,11 @@ static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, co
 enum class SourceAction { Open, Reveal, Copy };
 
 // XAML's visual ownership does not keep this WinRT wrapper's weak references alive.
-// Retain it for the pane's lifetime; the sinks still hold only weak references.
+// Retain it while its source line is on screen; the sinks still hold only weak references.
 static DevToolsXC::TextBlock g_sourceStatus{ nullptr };
-// The same for the comment box's elements: its handlers hold them weakly, so the pane holds them here.
-static std::vector<winrt::Windows::Foundation::IInspectable> g_commentBoxParts;
 
-// Keep feedback with the source header that owns these actions, not the current selection's status line.
+// Keep feedback with the source header that owns these actions, not the window's status line. The source line is
+// reused across selections, so the actions read the selected element's file when clicked.
 struct SourceActionSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
@@ -116,10 +115,10 @@ struct SourceActionSink : DevToolsSinkBase
             }
         };
         if (action == SourceAction::Open) {
-            HandOffSource(uri, line, L"", report);
+            HandOffSource(g_selSourceFile, g_selSourceLine, L"", report);
         } else {
             bool sourceRootMissing = false;
-            const std::wstring path = ResolveSourcePath(uri, &sourceRootMissing);
+            const std::wstring path = ResolveSourcePath(g_selSourceFile, &sourceRootMissing);
             if (path.empty()) {
                 report(sourceRootMissing ? kSourceRootMissing
                     : L"Source file unavailable. Check that it still exists under the project's source folder.");
@@ -134,12 +133,10 @@ struct SourceActionSink : DevToolsSinkBase
     }
     void Init(SourceAction a, const DevToolsXC::TextBlock& status)
     {
-        action = a; uri = g_selSourceFile; line = g_selSourceLine; feedback = status;
+        action = a; feedback = status;
         InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
     }
     SourceAction action = SourceAction::Open;
-    std::wstring uri;
-    unsigned int line = 0;
     winrt::weak_ref<DevToolsXC::TextBlock> feedback;
 };
 

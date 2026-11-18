@@ -545,15 +545,14 @@ static void TestToolbarContract()
                      windowShell.find("<NavigationViewItem x:Name=\"CommentsTabBtn\"") != std::string::npos &&
                      windowShell.find("<InfoBadge x:Name=\"CommentsBadge\"") > windowShell.find("<NavigationViewItem x:Name=\"CommentsTabBtn\""),
                  "native NavigationView items report the showing view through SelectionItemPattern, and Comments carries the open count");
-    // Computed | Set sits beside the property filter, inside the fragment a view change rebuilds. The rebuild
-    // runs after the selection event, then gives keyboard focus back to the new selector if the old one had it.
+    // Computed | Set sits beside the property filter. A view change refreshes the pane in place, so the selector,
+    // and its keyboard focus, stay.
     Check(windowShell.find("PropViewSelector") == std::string::npos &&
                      window.find("<SelectorBar x:Name=\\\"PropViewSelector\\\"") != std::string::npos &&
-                     window.find("if (!queue || !queue.TryEnqueue(rebuild)) rebuild();") != std::string::npos &&
-                     window.find("*token = bar.Loaded(") != std::string::npos &&
-                     window.find("if (const auto item = loaded.SelectedItem())") != std::string::npos &&
-                     window.find("if (!item.Focus(DevToolsX::FocusState::Keyboard))") != std::string::npos,
-                 "the property view selector keeps keyboard focus across the rebuild it causes");
+                     window.find("g_propView = view;") != std::string::npos &&
+                     window.find("ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);") != std::string::npos &&
+                     window.find("bar.Loaded(") == std::string::npos,
+                 "the property view selector stays in place, with its focus, when the view changes");
     Check(windowShell.find("<ToggleButton x:Name=\"PickBtn\"") != std::string::npos &&
                      windowShell.find("<ToggleButton x:Name=\"FocusBtn\"") != std::string::npos,
                  "inspector pick and focus modes expose TogglePattern through standard ToggleButtons");

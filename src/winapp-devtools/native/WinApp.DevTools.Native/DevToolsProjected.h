@@ -707,6 +707,8 @@ inline HRESULT DevToolsTogglePutIsOn(void* toggleSwitch, bool on) noexcept
 { return DevToolsAbi<DevToolsXC::IToggleSwitch>(toggleSwitch)->put_IsOn(on); }
 inline HRESULT DevToolsAddToggled(void* toggleSwitch, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXC::IToggleSwitch>(toggleSwitch)->add_Toggled(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveToggled(void* toggleSwitch, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXC::IToggleSwitch>(toggleSwitch)->remove_Toggled(*DevToolsAbiTok(&token)); }
 
 inline HRESULT DevToolsAddClick(void* buttonBase, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXCP::IButtonBase>(buttonBase)->add_Click(handler, DevToolsAbiTok(token)); }

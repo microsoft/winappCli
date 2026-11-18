@@ -324,6 +324,7 @@ static std::wstring ShortType(const std::wstring& t)
 #include "DevToolsWindow.TreeRefresh.inc"
 #include "DevToolsWindow.PropsLayout.inc"
 #include "DevToolsWindow.PaneRows.inc"
+#include "DevToolsWindow.PaneReuse.inc"
 #include "DevToolsWindow.KindModel.inc"
 #include "DevToolsWindow.Editors.inc"
 #include "DevToolsWindow.Expansion.inc"

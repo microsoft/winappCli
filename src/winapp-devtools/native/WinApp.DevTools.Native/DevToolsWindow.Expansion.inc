@@ -6,6 +6,136 @@ static void PopulateExpansionWitnesses(void* fe, const DevToolsCardRow& r, const
 
 // Expansion UI owns retained refs and event sinks for the realized row lifetime; stale generation guards callbacks.
 
+// Property rows the repeater has recycled, by pool. EXPERIMENT (#1283): WINAPP_DEVTOOLS_ROW_POOL=kind keeps one pool
+// per editor kind, and a reused row keeps the expansion it built; otherwise one pool holds every property row and a
+// recycled row drops its expansion.
+static int g_rowPoolMode = 0;
+static bool RowPoolPerKind()
+{
+    if (!g_rowPoolMode) {
+        wchar_t value[16]{};
+        const DWORD n = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_ROW_POOL", value, _countof(value));
+        g_rowPoolMode = (n && n < _countof(value) && _wcsicmp(value, L"kind") == 0) ? 2 : 1;
+        DevToolsOverlayLog(L"route1.props row pool mode=%d", g_rowPoolMode);
+    }
+    return g_rowPoolMode == 2;
+}
+static const int kHeaderPoolKey = -1;
+// A row the factory handed out: its pool, the property it shows, and whether its expansion was built for it.
+struct PooledRow { int key = 0; std::wstring path; bool expansionCurrent = false; };
+static std::map<void*, PooledRow> g_pooledRows; // by IUnknown identity
+static std::map<int, std::vector<winrt::com_ptr<IInspectable>>> g_rowPools;
+
+static void* PaneIdentity(IUnknown* object)
+{
+    IUnknown* identity = nullptr;
+    if (object && SUCCEEDED(object->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&identity))) && identity)
+        identity->Release();
+    return identity;
+}
+
+static int RowPoolKey(const DevToolsCardRow& r, const std::wstring& path, int edit)
+{
+    if (!RowPoolPerKind()) return 0;
+    if (!RowHasExpansion(r, path, edit)) return 1;
+    if (ExpansionTemplateForRow(r, edit) != g_tmplExpEdit) return 2;
+    const DevToolsKind kind = StagedOrCurrentKind(r, path);
+    if (kind != DevToolsKind::Literal) return 10 + static_cast<int>(kind);
+    const std::wstring& ek = r.editKind;
+    return ek == L"bool" ? 20 : ek == L"enum" ? 21 : ek == L"color" ? 22 : ek == L"fields" ? 23 : 24;
+}
+
+static IInspectable* TakePooledRow(int key)
+{
+    const auto it = g_rowPools.find(key);
+    if (it == g_rowPools.end() || it->second.empty()) return nullptr;
+    IInspectable* element = it->second.back().detach();
+    it->second.pop_back();
+    return element;
+}
+
+// The expansion a row has built, if any (AddRef'd).
+static void* RowExpansionElement(void* rowFe)
+{
+    IInspectable* host = FindInRow(rowFe, L"PExpand");
+    if (!host) return nullptr;
+    void* expansion = nullptr;
+    void* panel = nullptr;
+    IInspectable* kids = nullptr;
+    if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &panel)) && panel &&
+        SUCCEEDED(DevToolsPanelGetChildren(panel, &kids)) && kids) {
+        unsigned int n = 0;
+        DevToolsVecGetSize(kids, &n);
+        IInspectable* first = nullptr;
+        if (n > 0 && SUCCEEDED(DevToolsVecGetAt(kids, 0, &first)) && first) {
+            first->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &expansion);
+            first->Release();
+        }
+        kids->Release();
+    }
+    if (panel) reinterpret_cast<IUnknown*>(panel)->Release();
+    host->Release();
+    return expansion;
+}
+
+static PooledRow* FindPooledRow(void* rowFe)
+{
+    const auto it = g_pooledRows.find(PaneIdentity(reinterpret_cast<IUnknown*>(rowFe)));
+    return it == g_pooledRows.end() ? nullptr : &it->second;
+}
+
+// A row from the pool starts closed and enabled; PopulateRowLine fills in the rest.
+static void ResetPooledRow(void* rowFe)
+{
+    if (IInspectable* header = FindInRow(rowFe, L"PHeader")) {
+        void* control = nullptr;
+        if (SUCCEEDED(header->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), &control)) && control) {
+            DevToolsPutIsEnabled(control, true);
+            reinterpret_cast<IUnknown*>(control)->Release();
+        }
+        header->Release();
+    }
+    ApplyRowExpansionState(rowFe, std::wstring(), false);
+}
+
+// The repeater is done with a row: stop its handlers, keep it for reuse.
+static void RecycleRow(void* rowFe, IInspectable* element)
+{
+    PooledRow* row = FindPooledRow(rowFe);
+    if (!row) return;
+    if (!row->path.empty()) RevokePaneEvents(row->path);
+    if (void* expansion = RowExpansionElement(rowFe)) {
+        ForgetPaneEditors(std::wstring(), expansion, /*anyPath*/ true);
+        ReleaseFieldBoxesWhere(std::wstring(), expansion);
+        reinterpret_cast<IUnknown*>(expansion)->Release();
+        if (!RowPoolPerKind()) {
+            if (IInspectable* host = FindInRow(rowFe, L"PExpand")) {
+                void* panel = nullptr;
+                IInspectable* kids = nullptr;
+                if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &panel)) && panel &&
+                    SUCCEEDED(DevToolsPanelGetChildren(panel, &kids)) && kids) {
+                    DevToolsVecClear(kids);
+                    kids->Release();
+                }
+                if (panel) reinterpret_cast<IUnknown*>(panel)->Release();
+                host->Release();
+            }
+        }
+    }
+    row->expansionCurrent = false;
+    // Close it now, while it is out of view, so reusing it doesn't animate a collapse on screen.
+    ApplyRowExpansionState(rowFe, row->path, false);
+    winrt::com_ptr<IInspectable> held;
+    held.copy_from(element);
+    g_rowPools[row->key].push_back(std::move(held));
+}
+
+static void ReleaseRowPools()
+{
+    g_rowPools.clear();
+    g_pooledRows.clear();
+}
+
 // The line under "Edited" that says what Restore puts back.
 static std::wstring EditedWasText(const EditRecord& rec)
 {
@@ -26,6 +156,9 @@ static std::wstring AppChangedText(const std::wstring& prop)
 static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std::wstring& path, int edit)
 {
     ForgetPaneEditors(path);
+    // A reused expansion may still hold another property's editors.
+    ForgetPaneEditors(std::wstring(), fe, /*anyPath*/ true);
+    ReleaseFieldBoxesWhere(std::wstring(), fe);
     const DevToolsKind current = CurrentKindOf(r, path);
     const DevToolsKind shown   = StagedOrCurrentKind(r, path);
     const bool    staged  = (PendingKindFind(path) != nullptr) && (shown != current);
@@ -134,8 +267,12 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
                         const bool editing = pathBox.Text() != pathAtOpen || modeBox.SelectedIndex() != modeAtOpen;
                         stagedBox.Visibility(editing ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
                     };
-                    pathBox.TextChanged([sync](auto&&, auto&&) { sync(); });
-                    modeBox.SelectionChanged([sync](auto&&, auto&&) { sync(); });
+                    const auto pathToken = pathBox.TextChanged([sync](auto&&, auto&&) { sync(); });
+                    const auto modeToken = modeBox.SelectionChanged([sync](auto&&, auto&&) { sync(); });
+                    TrackPaneEvent(path, [pathBox, modeBox, pathToken, modeToken] {
+                        pathBox.TextChanged(pathToken);
+                        modeBox.SelectionChanged(modeToken);
+                    });
                 }
                 if (pathEl) pathEl->Release();
                 if (modeEl) modeEl->Release();
@@ -226,8 +363,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         if (edit >= 0 && SUCCEEDED(cf->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
             ConfirmSink* cs = NewPaneSink<ConfirmSink>();
             cs->Init(g_selWire, path);
-            __int64 tok = 0;
-            DevToolsAddClick(bb, cs, &tok);
+            WirePaneEvent(path, bb, cs, DevToolsAddClick, DevToolsRemoveClick);
             reinterpret_cast<IUnknown*>(bb)->Release();
         }
         cf->Release();
@@ -253,8 +389,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         if (wirable && SUCCEEDED(rs->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
             UndoSink* us = NewPaneSink<UndoSink>();
             us->Init(g_selWire, path, r.type);
-            __int64 tok = 0;
-            DevToolsAddClick(bb, us, &tok);
+            WirePaneEvent(path, bb, us, DevToolsAddClick, DevToolsRemoveClick);
             reinterpret_cast<IUnknown*>(bb)->Release();
         }
         rs->Release();
@@ -273,8 +408,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         if (canClear && SUCCEEDED(cl->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
             ResetSink* rk = NewPaneSink<ResetSink>();
             rk->Init(g_selWire, path);
-            __int64 tok = 0;
-            DevToolsAddClick(bb, rk, &tok);
+            WirePaneEvent(path, bb, rk, DevToolsAddClick, DevToolsRemoveClick);
             reinterpret_cast<IUnknown*>(bb)->Release();
         }
         cl->Release();
@@ -283,6 +417,16 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
     PopulateExpansionWitnesses(fe, r, path);
 
     if (IInspectable* blk = FindInRow(fe, L"PChildren")) {
+        // A reused expansion may still show another property's child rows.
+        void* oldPnl = nullptr;
+        IInspectable* oldKids = nullptr;
+        if (SUCCEEDED(blk->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &oldPnl)) && oldPnl &&
+            SUCCEEDED(DevToolsPanelGetChildren(oldPnl, &oldKids)) && oldKids) {
+            DevToolsVecClear(oldKids);
+            oldKids->Release();
+        }
+        if (oldPnl) reinterpret_cast<IUnknown*>(oldPnl)->Release();
+        if (r.children.empty()) ShowEl(blk, false);
         if (!r.children.empty()) {
             void* blkPnl = nullptr;
             void* kids = nullptr;
@@ -497,6 +641,7 @@ static void RebuildExpansion(void* rowFe, const DevToolsCardRow& r, const std::w
     if (!rowFe) return;
     RetireKindEditors(rowFe);
     RetireRowExpandSinks(rowFe, /*descendantsOnly*/ true);
+    RevokePaneEvents(path);
     if (IInspectable* host = FindInRow(rowFe, L"PExpand")) {
         void* pnl = nullptr; void* kids = nullptr;
         if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
@@ -525,8 +670,19 @@ static bool EnsureExpansion(void* rowFe, const DevToolsCardRow& r, const std::ws
     {
         unsigned int n = 0;
         DevToolsVecGetSize(reinterpret_cast<IInspectable*>(kids), &n);
-        if (n > 0) {
+        PooledRow* pooled = FindPooledRow(rowFe);
+        if (n > 0 && (!pooled || pooled->expansionCurrent)) {
             ok = true;
+        } else if (n > 0) {
+            // A reused row keeps the expansion it built for another property; fill it in for this one.
+            if (void* expFe = RowExpansionElement(rowFe)) {
+                RevokePaneEvents(path);
+                g_expansionRowFe = rowFe;
+                PopulateExpansionInto(expFe, r, path, edit);
+                g_expansionRowFe = nullptr;
+                reinterpret_cast<IUnknown*>(expFe)->Release();
+                ok = true;
+            }
         } else if (IInspectable* tmpl = ExpansionTemplateForRow(r, edit)) {
             void* dt = nullptr;
             if (SUCCEEDED(tmpl->QueryInterface(DevToolsIid<DevToolsX::IDataTemplate>(), &dt)) && dt) {
@@ -561,6 +717,8 @@ static bool EnsureExpansion(void* rowFe, const DevToolsCardRow& r, const std::ws
     if (kids) reinterpret_cast<IUnknown*>(kids)->Release();
     if (pnl)  reinterpret_cast<IUnknown*>(pnl)->Release();
     host->Release();
+    if (ok)
+        if (PooledRow* row = FindPooledRow(rowFe)) row->expansionCurrent = true;
     return ok;
 }
 
@@ -590,7 +748,8 @@ static void* BuildRowElement(const DevToolsCardRow& r, const std::wstring& path,
 
 struct PropRowFactory : DevToolsElementFactoryBase
 {
-    // Do not pool realized rows: sinks and element pointers are tied to the row data they were built for.
+    // Rows are pooled and reused: adding and removing elements costs memory WinUI never gives back. A recycled row
+    // stays a child of the repeater, which keeps it out of view, until GetElement hands it out again.
 HRESULT STDMETHODCALLTYPE GetElement(void* args, void** element) noexcept override
     {
         if (element) *element = nullptr;
@@ -607,28 +766,48 @@ HRESULT STDMETHODCALLTYPE GetElement(void* args, void** element) noexcept overri
 
         const DevToolsPaneItem& item = g_paneItems[(size_t)idx];
         void* fe = nullptr;
+        PooledRow pooled;
         if (item.kind == DevToolsPaneItemKind::GroupHeader) {
-            void* dt = nullptr;
-            if (!g_tmplHeader ||
-                FAILED(g_tmplHeader->QueryInterface(DevToolsIid<DevToolsX::IDataTemplate>(), &dt)) || !dt) return E_FAIL;
-            IInspectable* content = nullptr;
-            const HRESULT hr = DevToolsTemplateLoadContent(dt, &content);
-            reinterpret_cast<IUnknown*>(dt)->Release();
-            if (FAILED(hr) || !content) {
-                DevToolsOverlayLog(L"route1.props group caption produced nothing hr=0x%08X", hr);
-                return E_FAIL;
+            pooled.key = kHeaderPoolKey;
+            if (IInspectable* reused = TakePooledRow(pooled.key)) {
+                reused->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe);
+                reused->Release();
+            } else {
+                void* dt = nullptr;
+                if (!g_tmplHeader ||
+                    FAILED(g_tmplHeader->QueryInterface(DevToolsIid<DevToolsX::IDataTemplate>(), &dt)) || !dt) return E_FAIL;
+                IInspectable* content = nullptr;
+                const HRESULT hr = DevToolsTemplateLoadContent(dt, &content);
+                reinterpret_cast<IUnknown*>(dt)->Release();
+                if (FAILED(hr) || !content) {
+                    DevToolsOverlayLog(L"route1.props group caption produced nothing hr=0x%08X", hr);
+                    return E_FAIL;
+                }
+                content->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe);
+                content->Release();
             }
-            if (SUCCEEDED(content->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe)
+            if (fe)
                 if (IInspectable* n = FindInRow(fe, L"PName")) { SetTextOn(n, item.caption); n->Release(); }
-            content->Release();
         } else {
+            const DevToolsCardRow& row = g_propRows[item.rowIndex];
             const int edit = item.rowIndex < g_paneEditMap.rowIdx.size()
                            ? g_paneEditMap.rowIdx[item.rowIndex] : -1;
-            fe = BuildRowElement(g_propRows[item.rowIndex], g_propRows[item.rowIndex].name, edit);
+            pooled.key = RowPoolKey(row, row.name, edit);
+            pooled.path = row.name;
+            if (IInspectable* reused = TakePooledRow(pooled.key)) {
+                if (SUCCEEDED(reused->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+                    ResetPooledRow(fe);
+                    PopulateRowLine(fe, row, row.name, edit);
+                }
+                reused->Release();
+            } else {
+                fe = BuildRowElement(row, row.name, edit);
+            }
         }
         if (!fe) return E_FAIL;
         void* ui = nullptr;
         const HRESULT hrElem = reinterpret_cast<IUnknown*>(fe)->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui);
+        if (SUCCEEDED(hrElem) && ui) g_pooledRows[PaneIdentity(reinterpret_cast<IUnknown*>(fe))] = std::move(pooled);
         reinterpret_cast<IUnknown*>(fe)->Release();
         if (FAILED(hrElem) || !ui) return E_FAIL;
         *element = ui;
@@ -647,6 +826,7 @@ HRESULT STDMETHODCALLTYPE GetElement(void* args, void** element) noexcept overri
             if (SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
                 RetireKindEditors(fe);
                 RetireRowExpandSinks(fe);
+                RecycleRow(fe, element);
                 reinterpret_cast<IUnknown*>(fe)->Release();
             }
             element->Release();

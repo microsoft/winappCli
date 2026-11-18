@@ -1378,11 +1378,10 @@ int main()
         check(DetailGroup(L"ARRANGED BY MainPage",L"Gray").find(L"TextWrapping=\"Wrap\"")!=std::wstring::npos,
             "layout detail headings wrap when the parent name is long");
         g_layoutSectionOpen=0;
-        const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noSourceInfo",L"",&stretched);
+        const auto pane=BuildPaneShell();
         const auto view=pane.find(L"x:Name=\"PropViewSelector\""), filter=pane.find(L"PropFilter"),
-            section=pane.find(L"WinAppDevToolsSizeSpacing"), box=pane.find(L"WinAppDevToolsBoxModel\"");
-        check(section<box && box<filter && filter<view && view!=std::wstring::npos,
+            section=pane.find(L"WinAppDevToolsSizeSpacing");
+        check(section<filter && filter<view && view!=std::wstring::npos,
             "properties pane: the Size & spacing section, then the filter with Computed | Set on its right, then the grid");
         const auto filterTag=filter==std::wstring::npos ? std::wstring() : pane.substr(filter,pane.find(L"/>",filter)-filter);
         check(!filterTag.empty() && filterTag.find(L"FontSize=")==std::wstring::npos && filterTag.find(L"Grid.Column=")==std::wstring::npos &&
@@ -1401,21 +1400,19 @@ int main()
             pane.find(L"LayoutSectionChev")==std::wstring::npos,
             "Size & spacing uses a standard collapsed Expander, not a custom visibility toggle");
         g_layoutSectionOpen=1;
-        check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"True\"")!=std::wstring::npos,
+        check(BuildPaneShell().find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"True\"")!=std::wstring::npos,
             "an opened Size & spacing section stays open");
         check(pane.find(L"x:Bind and resource sources not shown (why?)")!=std::wstring::npos &&
             pane.find(L"TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.Name=\"x:Bind and resource sources not shown\"")==std::wstring::npos,
             "without the XAML source, one line says x:Bind and resource sources are not shown; the reason is on hover");
-        check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
+        check(AuthoredUnavailableReason(L"",L"noFile").find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos &&
+            AuthoredUnavailableReason(L"",L"available").empty(),
             "the reason says an x:Bind value reads as Local");
         g_layoutSectionOpen=-1;
     }
     {
         const auto authoredPane = [] {
-            return BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock", L"Title", L"TextBlock", L"Window > Grid",
-                L"", 0, {}, L"verified", L"<TextBlock\n Text=\"Hello\"/>", nullptr);
+            return BuildSourceSection(L"", 0, L"verified", L"<TextBlock\n Text=\"Hello\"/>");
         };
         g_axmlExpanded = false;
         const auto collapsed = authoredPane();
@@ -1458,7 +1455,7 @@ int main()
         if (required) GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", savedRoot.data(), required);
         SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", directory);
         const auto buildSourcePane = [](const std::wstring& uri) {
-            return BuildPropsFragment(L"TextBlock", L"", L"TextBlock", L"", uri, 55, {}, L"", L"", nullptr);
+            return BuildSourceSection(uri, 55, L"", L"");
         };
         const auto pane = buildSourcePane(L"ms-appx:///Main&Window.xaml");
         const auto location = pane.find(L"WinAppDevToolsSource\"");

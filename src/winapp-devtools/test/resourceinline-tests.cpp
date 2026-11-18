@@ -70,7 +70,7 @@ void Test_AStyleReferenceBecomesTheAttributesItSets()
 void Test_AuthoredXamlTextIsNotRewritten()
 {
     std::printf("== the app's authored XAML, shown as TEXT, is never rewritten ==\n");
-    // What BuildPropsFragment emits for the AUTHORED XAML card: the app's source, XML-escaped, inside a
+    // What BuildSourceSection emits for the AUTHORED XAML card: the app's source, XML-escaped, inside a
     // Text attribute. Its inner quotes are &quot;, so no `="{` anchor exists -- which is the whole reason
     // the anchor is `="{` and not `{`.
     const std::wstring authored =
