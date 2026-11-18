@@ -205,17 +205,176 @@ export async function fetchChangesSince(repo, number, viewer, fallbackSha) {
     };
 }
 
-// Conversation and files for one PR, fetched when the user selects it.
+// Files for one PR, fetched when the user selects it. The GitHub tab reads the conversation itself.
 export async function fetchDetail(repo, number) {
-    const out = await gh(["pr", "view", String(number), "-R", repo, "--json", "comments,reviews,files"]);
+    const out = await gh(["pr", "view", String(number), "-R", repo, "--json", "files"]);
     const d = JSON.parse(out);
-    const conversation = [
-        ...(d.comments || []).map((c) => ({ kind: "comment", author: c.author?.login || "unknown", bot: isBot(c.author), at: c.createdAt, body: c.body || "", url: c.url })),
-        ...(d.reviews || []).filter((r) => r.body || r.state !== "COMMENTED").map((r) => ({ kind: "review", state: r.state, author: r.author?.login || "unknown", bot: isBot(r.author), at: r.submittedAt, body: r.body || "" })),
-    ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
     const files = (d.files || []).map((f) => ({ path: f.path, additions: f.additions || 0, deletions: f.deletions || 0 }))
         .sort((a, b) => (b.additions + b.deletions) - (a.additions + a.deletions));
-    return { conversation, files, fetchedAt: new Date().toISOString() };
+    return { files, fetchedAt: new Date().toISOString() };
+}
+
+// ---- GitHub view: the PR or issue as it is on GitHub ---------------------------
+
+const WHO = "login avatarUrl";
+const EVENT_FIELDS = `
+    __typename
+    ... on IssueComment { author { ${WHO} } createdAt bodyHTML url }
+    ... on LabeledEvent { actor { ${WHO} } createdAt label { name color } }
+    ... on UnlabeledEvent { actor { ${WHO} } createdAt label { name color } }
+    ... on AssignedEvent { actor { ${WHO} } createdAt assignee { ... on User { login } ... on Bot { login } } }
+    ... on UnassignedEvent { actor { ${WHO} } createdAt assignee { ... on User { login } ... on Bot { login } } }
+    ... on ClosedEvent { actor { ${WHO} } createdAt }
+    ... on ReopenedEvent { actor { ${WHO} } createdAt }
+    ... on RenamedTitleEvent { actor { ${WHO} } createdAt previousTitle currentTitle }
+    ... on CrossReferencedEvent { actor { ${WHO} } createdAt willCloseTarget source { __typename ... on Issue { number title url } ... on PullRequest { number title url } } }`;
+const PR_EVENT_FIELDS = EVENT_FIELDS + `
+    ... on PullRequestReview { id author { ${WHO} } submittedAt createdAt state bodyHTML url }
+    ... on PullRequestCommit { url commit { abbreviatedOid messageHeadline committedDate author { name user { ${WHO} } } } }
+    ... on ReviewRequestedEvent { actor { ${WHO} } createdAt requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } }
+    ... on ReviewRequestRemovedEvent { actor { ${WHO} } createdAt requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } }
+    ... on ReadyForReviewEvent { actor { ${WHO} } createdAt }
+    ... on ConvertToDraftEvent { actor { ${WHO} } createdAt }
+    ... on HeadRefForcePushedEvent { actor { ${WHO} } createdAt beforeCommit { abbreviatedOid } afterCommit { abbreviatedOid } }
+    ... on AddedToMergeQueueEvent { actor { ${WHO} } createdAt }
+    ... on RemovedFromMergeQueueEvent { actor { ${WHO} } createdAt reason }
+    ... on MergedEvent { actor { ${WHO} } createdAt commit { abbreviatedOid } }
+    ... on AutoMergeEnabledEvent { actor { ${WHO} } createdAt }
+    ... on AutoMergeDisabledEvent { actor { ${WHO} } createdAt reason }
+    ... on ReviewDismissedEvent { actor { ${WHO} } createdAt dismissalMessage }`;
+const ISSUE_TYPES = "ISSUE_COMMENT, LABELED_EVENT, UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT, CLOSED_EVENT, REOPENED_EVENT, RENAMED_TITLE_EVENT, CROSS_REFERENCED_EVENT";
+const PR_TYPES = ISSUE_TYPES + ", PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, HEAD_REF_FORCE_PUSHED_EVENT, ADDED_TO_MERGE_QUEUE_EVENT, REMOVED_FROM_MERGE_QUEUE_EVENT, MERGED_EVENT, AUTO_MERGE_ENABLED_EVENT, AUTO_MERGE_DISABLED_EVENT, REVIEW_DISMISSED_EVENT";
+const timelineSel = (pr) => `timelineItems(first: 100, after: $after, itemTypes: [${pr ? PR_TYPES : ISSUE_TYPES}]) { pageInfo { hasNextPage endCursor } nodes { ${pr ? PR_EVENT_FIELDS : EVENT_FIELDS} } }`;
+const PR_VIEW_QUERY = `query($owner: String!, $name: String!, $n: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $n) {
+    number title url state isDraft createdAt updatedAt bodyHTML baseRefName headRefName author { ${WHO} }
+    labels(first: 30) { nodes { name color } }
+    assignees(first: 20) { nodes { login } }
+    reviewRequests(first: 30) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
+    closingIssuesReferences(first: 10) { nodes { number title url state } }
+    commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename
+        ... on CheckRun { name status conclusion detailsUrl startedAt completedAt checkSuite { workflowRun { workflow { name } } } }
+        ... on StatusContext { context state targetUrl description createdAt } } } } } } }
+    reviewThreads(first: 100) { nodes { isResolved isOutdated path line originalLine comments(first: 50) { nodes { author { ${WHO} } createdAt bodyHTML url diffHunk pullRequestReview { id } } } } }
+    ${timelineSel(true)}
+} } }`;
+const PR_TIMELINE_QUERY = `query($owner: String!, $name: String!, $n: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $n) { ${timelineSel(true)} } } }`;
+const ISSUE_VIEW_QUERY = `query($owner: String!, $name: String!, $n: Int!, $after: String) { repository(owner: $owner, name: $name) { issue(number: $n) {
+    number title url state stateReason createdAt updatedAt bodyHTML author { ${WHO} }
+    labels(first: 30) { nodes { name color } }
+    assignees(first: 20) { nodes { login } }
+    closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number title url state isDraft } }
+    ${timelineSel(false)}
+} } }`;
+const ISSUE_TIMELINE_QUERY = `query($owner: String!, $name: String!, $n: Int!, $after: String) { repository(owner: $owner, name: $name) { issue(number: $n) { ${timelineSel(false)} } } }`;
+
+const person = (a) => (a?.login ? { login: a.login, avatar: a.avatarUrl || null } : { login: a?.name || "ghost", avatar: null });
+const reviewerName = (r) => r?.login || r?.name || "someone";
+const lastLines = (hunk, n = 8) => String(hunk || "").split("\n").slice(-n).join("\n");
+
+// One event from the GitHub timeline, in a shape the board renders directly.
+function viewEvent(e) {
+    const base = { at: e.createdAt || null, who: person(e.actor || e.author) };
+    switch (e.__typename) {
+        case "IssueComment": return { ...base, type: "comment", html: e.bodyHTML || "", url: e.url };
+        case "PullRequestReview": return { ...base, at: e.submittedAt || e.createdAt, type: "review", id: e.id, state: e.state, html: e.bodyHTML || "", url: e.url, threads: [] };
+        case "PullRequestCommit": return { at: e.commit?.committedDate, who: person(e.commit?.author?.user || { name: e.commit?.author?.name }), type: "commit", sha: e.commit?.abbreviatedOid, text: e.commit?.messageHeadline || "", url: e.url };
+        case "LabeledEvent": return { ...base, type: "event", icon: "label", text: "added the label", label: e.label };
+        case "UnlabeledEvent": return { ...base, type: "event", icon: "label", text: "removed the label", label: e.label };
+        case "AssignedEvent": return { ...base, type: "event", icon: "person", text: e.assignee?.login && e.assignee.login === e.actor?.login ? "self-assigned this" : `assigned ${e.assignee?.login || "someone"}` };
+        case "UnassignedEvent": return { ...base, type: "event", icon: "person", text: `unassigned ${e.assignee?.login || "someone"}` };
+        case "ClosedEvent": return { ...base, type: "event", icon: "x", text: "closed this" };
+        case "ReopenedEvent": return { ...base, type: "event", icon: "reset", text: "reopened this" };
+        case "RenamedTitleEvent": return { ...base, type: "event", icon: "pencil", text: `changed the title from "${e.previousTitle}" to "${e.currentTitle}"` };
+        case "CrossReferencedEvent": return e.source?.number ? { ...base, type: "event", icon: "link", text: e.willCloseTarget ? "linked a PR that will close this:" : "mentioned this in", ref: { number: e.source.number, title: e.source.title, url: e.source.url, pr: e.source.__typename === "PullRequest" } } : null;
+        case "ReviewRequestedEvent": return { ...base, type: "event", icon: "eye", text: `requested a review from ${reviewerName(e.requestedReviewer)}` };
+        case "ReviewRequestRemovedEvent": return { ...base, type: "event", icon: "eye", text: `removed the review request for ${reviewerName(e.requestedReviewer)}` };
+        case "ReadyForReviewEvent": return { ...base, type: "event", icon: "eye", text: "marked this ready for review" };
+        case "ConvertToDraftEvent": return { ...base, type: "event", icon: "pencil", text: "converted this to a draft" };
+        case "HeadRefForcePushedEvent": return { ...base, type: "event", icon: "reset", text: `force-pushed from ${e.beforeCommit?.abbreviatedOid || "?"} to ${e.afterCommit?.abbreviatedOid || "?"}` };
+        case "AddedToMergeQueueEvent": return { ...base, type: "event", icon: "queue", text: "added this to the merge queue" };
+        case "RemovedFromMergeQueueEvent": return { ...base, type: "event", icon: "queue", text: `removed this from the merge queue${e.reason ? ": " + e.reason.toLowerCase().replace(/_/g, " ") : ""}` };
+        case "MergedEvent": return { ...base, type: "event", icon: "merge", text: `merged commit ${e.commit?.abbreviatedOid || ""}` };
+        case "AutoMergeEnabledEvent": return { ...base, type: "event", icon: "merge", text: "enabled auto-merge" };
+        case "AutoMergeDisabledEvent": return { ...base, type: "event", icon: "merge", text: `disabled auto-merge${e.reason ? ": " + e.reason : ""}` };
+        case "ReviewDismissedEvent": return { ...base, type: "event", icon: "x", text: `dismissed a review${e.dismissalMessage ? ": " + e.dismissalMessage : ""}` };
+        default: return null;
+    }
+}
+
+const checkState = (c) => (c.__typename === "StatusContext" ? c.state : c.status === "COMPLETED" ? c.conclusion : c.status);
+
+// Everything GitHub shows for one PR or issue, read-only, for the board's GitHub tab.
+export async function fetchGitHubView(repo, kind, number) {
+    const [owner, name] = repo.split("/");
+    const pr = kind !== "issue";
+    const run = async (query, after) => {
+        const args = ["api", "graphql", "-f", `query=${query}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `n=${number}`];
+        if (after) args.push("-f", `after=${after}`);
+        const d = JSON.parse(await gh(args, { timeoutMs: 60000 }));
+        const node = d.data?.repository?.[pr ? "pullRequest" : "issue"];
+        if (!node) throw new Error(d.errors?.[0]?.message || `${pr ? "PR" : "Issue"} #${number} not found`);
+        return node;
+    };
+    const node = await run(pr ? PR_VIEW_QUERY : ISSUE_VIEW_QUERY);
+    const raw = [...node.timelineItems.nodes];
+    let page = node.timelineItems.pageInfo;
+    for (let i = 0; page.hasNextPage && i < 9; i++) {
+        const more = await run(pr ? PR_TIMELINE_QUERY : ISSUE_TIMELINE_QUERY, page.endCursor);
+        raw.push(...more.timelineItems.nodes);
+        page = more.timelineItems.pageInfo;
+    }
+    const timeline = raw.map(viewEvent).filter(Boolean);
+
+    if (pr) {
+        // Inline review threads sit under the review that started them, as on GitHub.
+        const reviews = new Map(timeline.filter((e) => e.type === "review").map((e) => [e.id, e]));
+        for (const th of node.reviewThreads?.nodes || []) {
+            const cs = th.comments?.nodes || [];
+            if (!cs.length) continue;
+            const thread = { path: th.path, line: th.line ?? th.originalLine ?? null, outdated: !!th.isOutdated, resolved: !!th.isResolved, hunk: lastLines(cs[0].diffHunk), url: cs[0].url,
+                comments: cs.map((c) => ({ who: person(c.author), at: c.createdAt, html: c.bodyHTML || "", url: c.url })) };
+            const parent = reviews.get(cs[0].pullRequestReview?.id);
+            if (parent) parent.threads.push(thread);
+            else timeline.push({ type: "thread", at: cs[0].createdAt, who: person(cs[0].author), thread });
+        }
+        // Replies in a thread create their own empty "commented" reviews; GitHub hides those, so do we.
+        for (let i = timeline.length - 1; i >= 0; i--) { const e = timeline[i]; if (e.type === "review" && e.state === "COMMENTED" && !e.html.trim() && !e.threads.length) timeline.splice(i, 1); }
+    }
+    timeline.sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
+
+    const state = pr ? (node.state === "MERGED" ? "merged" : node.state === "CLOSED" ? "closed" : node.isDraft ? "draft" : "open")
+        : node.state === "CLOSED" ? (node.stateReason === "NOT_PLANNED" ? "closed as not planned" : "closed") : "open";
+    const checks = pr ? (node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes || []).map((c) => ({
+        name: c.name || c.context || "check",
+        workflow: c.checkSuite?.workflowRun?.workflow?.name || null,
+        state: checkState(c) || "PENDING",
+        url: c.detailsUrl || c.targetUrl || null,
+        description: c.description || null,
+        at: c.completedAt || c.startedAt || c.createdAt || null,
+    })) : [];
+    const linked = pr ? (node.closingIssuesReferences?.nodes || []).map((i) => ({ number: i.number, title: i.title, url: i.url, state: i.state.toLowerCase(), pr: false }))
+        : (node.closedByPullRequestsReferences?.nodes || []).map((p) => ({ number: p.number, title: p.title, url: p.url, state: p.state === "OPEN" && p.isDraft ? "draft" : p.state.toLowerCase(), pr: true }));
+    return {
+        kind: pr ? "pr" : "issue",
+        number: node.number,
+        title: node.title,
+        url: node.url,
+        state,
+        author: person(node.author),
+        createdAt: node.createdAt,
+        updatedAt: node.updatedAt,
+        base: node.baseRefName || null,
+        head: node.headRefName || null,
+        html: node.bodyHTML || "",
+        labels: (node.labels?.nodes || []).map((l) => ({ name: l.name, color: l.color })),
+        assignees: (node.assignees?.nodes || []).map((a) => a.login),
+        requested: (node.reviewRequests?.nodes || []).map((r) => reviewerName(r.requestedReviewer)),
+        linked,
+        checks,
+        timeline,
+        truncated: !!page.hasNextPage,
+        fetchedAt: new Date().toISOString(),
+    };
 }
 
 // First real sentence of a PR description: no template comments, headings, images or HTML.
@@ -310,6 +469,15 @@ function stuckIf(since, key, why) {
 }
 
 // One reason per PR: a short label, a plain sentence, since when, stuck or not, and a suggested next action.
+// The viewer's latest review: GitHub's, or one just posted from the board that GitHub's data doesn't show yet.
+const POSTED_STATE = { approve: "APPROVED", request_changes: "CHANGES_REQUESTED", comment: "COMMENTED" };
+function myLatestReview(pr, viewer, local) {
+    const mine = (pr.latestReviews || []).find((r) => r.author?.login === viewer);
+    const pv = local?.prReview;
+    const posted = pv?.result === "posted" && pv.postedAt && POSTED_STATE[pv.event] ? { state: POSTED_STATE[pv.event], submittedAt: pv.postedAt, author: { login: viewer } } : null;
+    return posted && (!mine || ts(posted.submittedAt) > ts(mine.submittedAt)) ? posted : mine || null;
+}
+
 function reason(label, text, since, stuck, action) {
     return { label, text, since, stuck, action: action || null };
 }
@@ -322,7 +490,7 @@ export function classify(pr, ctx, local) {
     const ci = ciSummary(pr.statusCheckRollup);
     const labels = (pr.labels || []).map((l) => l.name);
     const reviews = (pr.latestReviews || []).filter(humanReview);
-    const mine = reviews.find((r) => r.author.login === viewer);
+    const mine = myLatestReview(pr, viewer, local);
     const isMine = pr.author?.login === viewer;
     const agent = local?.agent;
     const draft = local?.draft && !local.draft.postedAt ? local.draft : null;
@@ -401,6 +569,9 @@ export function classify(pr, ctx, local) {
             return { lane: "approved", waitingOn: "GitHub: auto-merge is on; waiting to enter the queue", who: "github", ci,
                 reason: reason("Auto-merge on", "Approved and checks pass; auto-merge should add it to the merge queue.", since, stuckIf(since, "autoMerge", "auto-merge hasn't queued it"), { label: "Check why it isn't queued", url: pr.url }) };
         }
+        // Someone else's PR: once it's approved and green, merging is the author's move.
+        if (!isMine && local?.role !== "author" && !isBot(pr.author)) return { lane: "approved", waitingOn: `${author}: merge it (approved, checks pass)`, who: "author", ci, shippable: true,
+            reason: reason("Approved, ready to merge", "Approved and checks pass; the author can merge it.", approvedAt, null, { label: "Ship it", act: "ship" }) };
         return { lane: "approved", waitingOn: "You: ready to ship", who: "you", ci, shippable: true,
             reason: reason("Ready to ship", "Approved and checks pass.", approvedAt, null, { label: "Ship it", act: "ship" }) };
     }
@@ -412,7 +583,7 @@ export function classify(pr, ctx, local) {
     if (approvals.length) {
         // GitHub says REVIEW_REQUIRED even though someone approved: that approval doesn't count.
         const since = approvedAt;
-        return { lane: "waiting", waitingOn: `Someone else: an approval that counts`, who: "others", ci,
+        return { lane: "waiting", waitingOn: approvals.some((r) => r.author.login === viewer) ? "Another reviewer: one more approval" : "Someone else: an approval that counts", who: "others", ci,
             reason: reason("Approval doesn't count", `${approvals.map((r) => r.author.login).join(", ")} approved, but GitHub still needs an approval that counts (for example from someone who didn't push the last commit, or a code owner).`, since, stuckIf(since, "approvedBlocked", "the approval hasn't counted"), { label: "Ask a different maintainer to approve", nudge: `Could another maintainer approve this? The existing approval doesn't count toward branch protection.` }) };
     }
     if (labels.includes("agent-preparing")) {
@@ -430,8 +601,16 @@ export function classify(pr, ctx, local) {
     }
     if (mine) {
         const since = mine.submittedAt;
-        return { lane: "waiting", waitingOn: `Other approvers: you already ${mine.state === "APPROVED" ? "approved" : "reviewed"}`, who: "others", ci,
-            reason: reason("Waiting on other reviewers", `You already ${mine.state === "APPROVED" ? "approved" : "reviewed"}; it needs another review.`, since, stuckIf(since, "reviewNoReview", "no other review"), { label: "Ask a maintainer to review", nudge: "Could another maintainer take a look at this one?" }) };
+        if (mine.state === "APPROVED") return { lane: "waiting", waitingOn: "Another reviewer: one more approval", who: "others", ci,
+            reason: reason("Waiting on another approval", "You approved; GitHub still needs another approval.", since, stuckIf(since, "reviewNoReview", "no other approval"), { label: "Ask a maintainer to review", nudge: "Could another maintainer take a look at this one?" }) };
+        // You commented or asked for changes: the author is next, until they push or reply.
+        if (ts(act.authorActivity) > ts(since)) {
+            const s2 = act.authorActivity;
+            return { lane: "needs-review", waitingOn: "You: re-review (the author responded)", who: "you", ci,
+                reason: reason("Author responded, needs re-review", `You reviewed ${duration(since)} ago; the author pushed or replied since.`, s2, stuckIf(s2, "reReview", "no re-review since the author responded"), { label: "Re-review the new changes", act: "review" }) };
+        }
+        return { lane: "waiting", waitingOn: `${author}: respond to your review`, who: authorWho, ci,
+            reason: reason("Waiting on the author", `You ${mine.state === "CHANGES_REQUESTED" ? "requested changes" : "commented"} ${duration(since)} ago; no push or reply from the author since.`, since, stuckIf(since, "changesNoResponse", "no response to your review"), nudge(`${at}, friendly ping on my review from ${duration(since)} ago. Is anything blocking you?`)) };
     }
     const r = reason("Waiting on your review", `Ready for review ${duration(reviewSince)} ago; no human review yet.`, reviewSince, stuckIf(reviewSince, "reviewNoReview", "no review"), { label: "Review it", act: "review" });
     if (ci.state === "failing") return { lane: "needs-review", waitingOn: `You: review (note: ${ci.failing.length} failing check${ci.failing.length === 1 ? "" : "s"})`, who: "you", ci, reason: r };
@@ -508,7 +687,7 @@ function tracking(pr, data, local, ext) {
     if (!pv && local.draft?.postedAt) story.push({ at: local.draft.postedAt, text: "Review posted" });
     if (lastPush) story.push({ at: lastPush, text: `${pr.author?.login || "Author"} pushed` });
     story.sort((a, b) => String(a.at).localeCompare(String(b.at)));
-    return { section, review, story: story.slice(-3), headSha: pr.headRefOid || null };
+    return { section, review, story: story.slice(-3), headSha: pr.headRefOid || null, viewerReviewAt };
 }
 
 export function buildCards(data, localPrs) {
@@ -517,6 +696,7 @@ export function buildCards(data, localPrs) {
         const local = localPrs[String(pr.number)] || {};
         const c = classify(pr, data, local);
         const t = tracking(pr, data, local, data.activity?.get(pr.number));
+        const my = myLatestReview(pr, data.viewer, local);
         cards.push({
             number: pr.number,
             title: pr.title,
@@ -539,6 +719,8 @@ export function buildCards(data, localPrs) {
             headSha: t.headSha,
             who: c.who,
             shippable: !!c.shippable,
+            myReviewAt: maxIso(t.viewerReviewAt, my?.submittedAt),
+            hint: pr.author?.login !== data.viewer && my?.state === "COMMENTED" && pr.reviewDecision === "REVIEW_REQUIRED" ? "Your comment doesn't count as approval" : null,
             updatedAt: pr.updatedAt,
             createdAt: pr.createdAt,
             description: pr.body || "",

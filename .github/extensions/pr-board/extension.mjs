@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, buildIssueCards, detectRepo, fetchChangesSince, fetchDetail, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
+import { buildCards, buildIssueCards, detectRepo, fetchChangesSince, fetchDetail, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
 import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
@@ -407,6 +407,26 @@ async function prDetail(repo, pr) {
     return inflight;
 }
 
+// The GitHub tab: the PR or issue as GitHub shows it. Cached briefly, because image links in
+// GitHub's rendered HTML are signed and expire after a few minutes.
+const ghViewCache = new Map();
+async function githubView(repo, kind, n, force) {
+    const key = `${repo}#${kind}${n}`;
+    const hit = ghViewCache.get(key);
+    if (hit?.inflight) return hit.inflight;
+    if (hit?.data && !force && Date.now() - hit.at < 4 * 60_000) return hit.data;
+    const inflight = fetchGitHubView(repo, kind, n).then((data) => {
+        ghViewCache.set(key, { data, at: Date.now() });
+        if (ghViewCache.size > 40) ghViewCache.delete(ghViewCache.keys().next().value);
+        return data;
+    }).catch((e) => {
+        ghViewCache.delete(key);
+        throw httpError(502, e.message);
+    });
+    ghViewCache.set(key, { ...(hit || {}), inflight });
+    return inflight;
+}
+
 async function requestSync(repo) {
     const b = board(repo);
     if (!b.data) await b.refresh();
@@ -563,6 +583,13 @@ async function handle(req, res) {
         const pr = Number(url.searchParams.get("pr"));
         if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
         return json(200, await prDetail(repo, pr));
+    }
+    if (req.method === "GET" && url.pathname === "/api/github") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const n = Number(url.searchParams.get("n"));
+        const kind = url.searchParams.get("kind") === "issue" ? "issue" : "pr";
+        if (!Number.isInteger(n) || n <= 0) throw httpError(400, "Invalid number");
+        return json(200, await githubView(repo, kind, n, url.searchParams.get("force") === "1"));
     }
     if (req.method === "GET" && url.pathname === "/api/draft") {
         const repo = checkRepo(url.searchParams.get("repo"));
@@ -1044,12 +1071,15 @@ const tools = [
                     if (s.draft) s.draft.postedAt = nowIso();
                     s.prReview = { ...(s.prReview || {}), result: "posted", at: nowIso(), postedAt: nowIso(), event: s.postEvent || s.prReview?.event || null, headSha: head || s.prReview?.headSha || null };
                     s.agent = { status: "done", kind: "post", outcome: outcome || "Review posted", updatedAt: nowIso() };
+                    userActed(s);
                 } else {
                     s.agent = { status: args.status, kind: s.agent?.kind || null, outcome: outcome || s.agent?.outcome || null, updatedAt: nowIso() };
                 }
                 note(s, `${STATUS_WORDS[args.status]}${outcome ? `: ${outcome}` : ""}`);
             });
             board(repo).broadcast();
+            // A posted review changes who's next on GitHub, so don't wait for the next poll.
+            if (args.status === "posted") { const b = board(repo); b.fetchedAt = 0; b.refresh(); }
             return { ok: true, repo, pr: args.pr, agent: pr.agent };
         },
     },

@@ -4,8 +4,8 @@ An overview of a GitHub repo's open pull requests, split into the ones you're
 working on, the ones you're reviewing, and everything else. Each row says where
 the PR is and what it needs, so you don't have to open it. Click a PR to open
 its workspace: a plain-words review with architecture diagrams, changes by
-system and by file, findings you pick to post, the conversation, and a thread
-with the agent.
+system and by file, findings you pick to post, the PR as it is on GitHub, and a thread with the
+agent.
 
 Open it from a chat in a winappCli session:
 
@@ -93,8 +93,20 @@ Overview. Each row also shows its first quick command as a button (for example
 **What changed?** on a PR you need to re-review); hover the row to see two more,
 or click **⋯**. Links and buttons inside a row do their own thing.
 
-The flyout puts quick commands at the top, then the item's thread: type a
-question and the agent answers there, without starting a new session. Esc or ✕
+The flyout has two tabs, and remembers the last one you used:
+
+- **Summary:** the move, quick commands, the plain-words explanation, and the
+  item's thread. Type a question and the agent answers there, without starting a
+  new session.
+- **GitHub:** the PR or issue exactly as GitHub shows it, read-only. The header
+  has the state, author, `head` → `base`, labels, assignees, requested reviewers
+  and linked issues or PRs. Then the description, every check with a **Details**
+  link to its log, and the full timeline, oldest first: comments, reviews with
+  their inline threads (file and line, the diff lines, replies, Resolved and
+  Outdated), commits, labels, review requests, force-pushes and merge-queue
+  events. Links open in a new tab.
+
+The message box stays at the bottom on both tabs. Esc or ✕
 closes it; **Open details** goes to the full PR workspace (**← Overview** or Esc
 comes back). Its **⋯** menu has:
 
@@ -212,12 +224,14 @@ for example `Author: changes requested` with `for 2 days` under it:
 | Reason | Meaning | Stuck after |
 |--------|---------|-------------|
 | Waiting on your review | Ready for review; no human review yet | 3 days |
-| Author responded, needs re-review | Changes were requested, then the author pushed or replied. Moves to **Needs you** | 3 days |
+| Waiting on the author | You commented or asked for changes; the author hasn't pushed or replied since. A comment-only review also shows *Your comment doesn't count as approval* | 5 days |
+| Author responded, needs re-review | You (or someone) commented or requested changes, then the author pushed or replied. Moves to **Your move** | 3 days |
 | Changes requested, no response | No push or reply from the author since the change request | 5 days |
 | Draft, author still working | Draft PR; timed from the last push | 14 days |
 | Author still preparing it | The author's agent is still working (`agent-preparing`) | 3 days |
 | Waiting on a reviewer | Your PR; nobody has reviewed it yet | 3 days |
-| Approval doesn't count | Someone approved, but GitHub still needs an approval that counts | 1 day |
+| Approval doesn't count | Someone approved (maybe you), but GitHub still needs another approval | 1 day |
+| Approved, ready to merge | Someone else's PR is approved and green; the author merges it (**Ship** still works) | none |
 | Approved, blocked | Approved, but failing checks, conflicts, or behind main | 1 day |
 | Approved, waiting on CI | Approved; checks still running (says whether auto-merge is on) | 2 hours |
 | Auto-merge on | Approved and green; waiting to enter the merge queue | 3 hours |
@@ -254,7 +268,7 @@ top, Open on GitHub, and Reset agent status. Tabs:
 | Architecture | Diagrams of what the PR touches. Green is new, orange is changed, red dashed is removed. A number on a box counts its findings. Click a box to see its files, its findings, and **Ask about this** |
 | Changes | By system: each area the PR touches, with one plain line and +/− counts. By file: one plain line per file. Without a review it lists the files with +/− counts |
 | Review | The findings, most severe first, each with what's wrong, the suggested fix, and the file and lines. Mark each one **Post**, **Ignore** or **Undecided**, and add a note. **Explain** asks the agent to explain the finding in plain words; the answer appears under it |
-| Conversation | GitHub comments and reviews, oldest first. Bot comments are collapsed |
+| GitHub | The PR as GitHub shows it, the same view as the flyout's **GitHub** tab |
 | Thread | Your conversation with the agent about this PR |
 
 Until a review has run, Architecture, Changes and Review offer **Review this
@@ -345,7 +359,8 @@ The canvas also has `refresh` and `get_board` actions for `invoke_canvas_action`
 ## Where state lives
 
 PR data comes from GitHub with the `gh` CLI: the list on every refresh, and a
-PR's conversation and files when you select it (cached until the PR changes).
+PR's files when you select it, and the GitHub tab when you open it (cached for
+a few minutes, because GitHub's image links expire).
 If `gh` is missing or signed out, the board says so and tells you what to run.
 
 What the board adds (summary, structured review, your Post/Ignore choices and

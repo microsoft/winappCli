@@ -76,6 +76,7 @@ code { font-family: var(--mono); font-size: var(--t-meta); background: var(--sub
 .chip.info { background: var(--blue-muted); } .chip.info .i { color: var(--blue); }
 .chip.ok { background: var(--green-muted); } .chip.ok .i { color: var(--green); }
 .chip.stuck { background: var(--red-muted); } .chip.stuck .i { color: var(--red); }
+.row-hint { color: var(--text-color-muted, #59636e); font-weight: normal; }
 .chip.neutral .i { color: var(--muted); }
 /* ---- Ball: one glyph per state, so color is never the only signal ---- */
 .g { width: 20px; height: 20px; flex: none; display: inline-grid; place-items: center; border-radius: 50%; }
@@ -279,13 +280,73 @@ details.panel > .body { padding-top: var(--s3); }
 .md th, .md td { border: 1px solid var(--hairline); padding: 4px 8px; text-align: left; }
 .md blockquote { margin: 0 0 var(--s3); padding: var(--s2) var(--s3); background: var(--subtle); border-radius: 6px; color: var(--muted); }
 
-.conv { display: flex; flex-direction: column; gap: var(--s3); max-width: 90ch; }
-.conv details { border: 1px solid var(--hairline); border-radius: 8px; }
-.conv summary { padding: var(--s2) var(--s3); cursor: pointer; font-size: var(--t-small); display: flex; gap: var(--s2); align-items: center; list-style: none; min-width: 0; }
-.conv summary::-webkit-details-marker { display: none; }
-.conv summary .first { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.conv summary .when { color: var(--muted); font-size: var(--t-meta); margin-left: auto; white-space: nowrap; }
-.conv .body { padding: 0 var(--s3) var(--s3); }
+.fly-tabs { margin: 0 0 calc(-1 * var(--s3) - 1px); }
+.gh-view { display: flex; flex-direction: column; gap: var(--s5); max-width: 100ch; min-width: 0; }
+.gh-top { display: flex; flex-direction: column; gap: var(--s3); }
+.gh-title { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-size: var(--t-small); }
+.gh-title > span:last-child { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gh-title code { font-size: var(--t-meta); }
+.gh-state { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: var(--t-meta); font-weight: var(--w-strong); color: #fff; background: var(--green); text-transform: capitalize; }
+.gh-state.s-draft, .gh-state.s-not { background: var(--muted); } .gh-state.s-merged { background: var(--purple); } .gh-state.s-closed { background: var(--red); }
+.gh-meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px var(--s3); margin: 0; font-size: var(--t-small); }
+.gh-meta dt { color: var(--muted); } .gh-meta dd { margin: 0; min-width: 0; }
+.gh-meta a .i { vertical-align: -2px; margin-right: 2px; }
+.gh-label { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: var(--t-meta); line-height: 20px; font-weight: var(--w-strong); margin: 1px 2px 1px 0; }
+.gh-sec h3 { margin: 0 0 var(--s2); font-size: var(--t-small); font-weight: var(--w-strong); }
+.gh-sec h3 .tone-mute { font-weight: 400; }
+.gh-av { width: 20px; height: 20px; border-radius: 50%; flex: none; vertical-align: middle; }
+.gh-av.ph { display: inline-block; background: var(--hairline); }
+.gh-when { color: var(--muted); font-size: var(--t-meta); white-space: nowrap; text-decoration: none; }
+a.gh-when:hover { text-decoration: underline; }
+.gh-md { font-size: var(--t-small); line-height: 1.55; overflow-wrap: anywhere; min-width: 0; }
+.gh-md > :first-child { margin-top: 0; } .gh-md > :last-child { margin-bottom: 0; }
+.gh-md img, .gh-md video { max-width: 100%; height: auto; border-radius: 6px; }
+.gh-md pre { overflow-x: auto; padding: var(--s2) var(--s3); border-radius: 6px; background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.gh-md code { font-family: var(--font-mono, Consolas, monospace); font-size: 0.92em; }
+.gh-md table { border-collapse: collapse; display: block; overflow-x: auto; }
+.gh-md th, .gh-md td { border: 1px solid var(--hairline); padding: 4px 8px; }
+.gh-md blockquote { margin: 0; padding-left: var(--s3); border-left: 3px solid var(--hairline); color: var(--muted); }
+.gh-md h1, .gh-md h2, .gh-md h3 { font-size: 1.1em; margin: 1em 0 .4em; }
+.gh-md details { border: 1px solid var(--hairline); border-radius: 6px; padding: 4px var(--s2); margin: 6px 0; }
+.gh-md li > input[type=checkbox] { margin: 0 6px 0 -18px; vertical-align: -1px; }
+.gh-md ul:has(> li > input[type=checkbox]) { list-style: none; }
+.gh-sum { display: flex; gap: var(--s3); font-size: var(--t-small); margin-bottom: var(--s2); }
+.gh-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; font-size: var(--t-small); }
+.gh-checks li { display: flex; align-items: center; gap: var(--s2); padding: 4px 0; border-top: 1px solid var(--hairline); min-width: 0; }
+.gh-checks .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-checks .st { font-size: var(--t-meta); white-space: nowrap; }
+.gh-pass > summary, .gh-commits > summary, .gh-th > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.gh-pass > summary::-webkit-details-marker, .gh-commits > summary::-webkit-details-marker, .gh-th > summary::-webkit-details-marker { display: none; }
+.gh-pass > summary { font-size: var(--t-small); color: var(--muted); padding: 4px 0; }
+details[open] > summary > .chev { transform: rotate(90deg); }
+.gh-tl { display: flex; flex-direction: column; gap: var(--s3); position: relative; }
+.gh-card { border: 1px solid var(--border); border-radius: 8px; padding: var(--s2) var(--s3) var(--s3); display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.gh-card.r-APPROVED { border-left: 3px solid var(--green); } .gh-card.r-CHANGES_REQUESTED { border-left: 3px solid var(--red); }
+.gh-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--t-small); }
+.gh-h .gh-when { margin-left: auto; }
+.gh-ev { display: flex; align-items: center; gap: 6px; font-size: var(--t-small); color: var(--muted); padding: 0 var(--s3); min-width: 0; }
+.gh-ev > span { min-width: 0; } .gh-ev b { color: var(--fg); font-weight: var(--w-strong); }
+.gh-ev .gh-when, .gh-commits > summary .gh-when { margin-left: auto; }
+.gh-ev a .i { vertical-align: -2px; }
+.gh-commits { display: block; }
+.gh-commits ul { list-style: none; margin: 4px 0 0 46px; padding: 0; font-size: var(--t-small); display: flex; flex-direction: column; gap: 2px; }
+.gh-commits li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.gh-commits .sha { font-family: var(--font-mono, Consolas, monospace); font-size: var(--t-meta); margin-right: 6px; }
+.gh-ths { display: flex; flex-direction: column; gap: var(--s2); }
+.gh-th { border: 1px solid var(--hairline); border-radius: 6px; }
+.gh-th > summary { padding: 6px var(--s2); font-size: var(--t-small); }
+.gh-th > summary .n { margin-left: auto; white-space: nowrap; font-size: var(--t-meta); }
+.gh-th .path { flex: 0 1 auto; font-family: var(--font-mono, Consolas, monospace); font-size: var(--t-meta); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-tag { font-size: var(--t-meta); padding: 0 6px; border-radius: 999px; border: 1px solid var(--hairline); color: var(--muted); white-space: nowrap; }
+.gh-tag.ok { color: var(--green); }
+.gh-hunk { margin: 0; padding: 6px var(--s2); overflow-x: auto; font-size: var(--t-meta); line-height: 1.45; background: color-mix(in srgb, var(--fg) 4%, transparent); border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+.gh-hunk .ad { background: color-mix(in srgb, var(--green) 18%, transparent); display: inline-block; min-width: 100%; }
+.gh-hunk .de { background: color-mix(in srgb, var(--red) 18%, transparent); display: inline-block; min-width: 100%; }
+.gh-hunk .hh { color: var(--muted); }
+.gh-tc { padding: var(--s2); display: flex; flex-direction: column; gap: 4px; }
+.gh-tc + .gh-tc { border-top: 1px solid var(--hairline); }
+.gh-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gh-loading { display: flex; align-items: center; gap: var(--s2); }
 .files { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
 .files td { padding: 6px; border-bottom: 1px solid var(--hairline); }
 .files td.path { font-family: var(--mono); font-size: var(--t-meta); word-break: break-all; }
@@ -639,6 +700,7 @@ const ICONS = {
   link: '<path d="M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 0 1 4 4l-1 1M9 11.5l-1 1a2.8 2.8 0 0 1-4-4l1-1"/>',
   reset: '<path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v3h3"/>',
   file: '<path d="M4 1.5h5.5l3 3v10H4z"/><path d="M9.5 1.5v3h3"/>',
+  label: '<path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z"/><circle cx="5.3" cy="5.3" r=".9"/>',
   pin: '<path d="M6 2h4l-.5 4 2.5 2.5H4L6.5 6z"/><path d="M8 8.5v5.5"/>',
 };
 const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 16 16" aria-hidden="true">${ICONS[name] || ""}</svg>`;
@@ -859,12 +921,13 @@ function renderHead(c) {
   const shipArmed = armed?.key === c.number + ":ship";
   const det = details.get(c.number)?.data;
   const s = statusOf(c);
-  const counts = { conversation: det ? det.conversation.length : "", files: det ? det.files.length : c.size?.text?.match(/(\d+) files/)?.[1] || "", thread: (local.thread || []).filter((m) => m.role !== "system").length || "" };
+  const ghv = ghViews.get("pr:" + c.number)?.data;
+  const counts = { github: ghv ? ghv.timeline.filter((x) => x.type === "comment" || x.type === "review").length : "", files: det ? det.files.length : c.size?.text?.match(/(\d+) files/)?.[1] || "", thread: (local.thread || []).filter((m) => m.role !== "system").length || "" };
   const rv = rvOf(c);
   counts.architecture = rv?.diagrams.length || "";
   counts.review = rv?.findings.length || "";
   counts.changes = counts.files;
-  const TABS = [["overview", "Overview"], ["architecture", "Architecture"], ["changes", "Changes"], ["review", "Review"], ["conversation", "Conversation"], ["thread", "Thread"]];
+  const TABS = [["overview", "Overview"], ["architecture", "Architecture"], ["changes", "Changes"], ["review", "Review"], ["github", "GitHub"], ["thread", "Thread"]];
 
   const buttons = [];
   if (isOpen) {
@@ -953,18 +1016,149 @@ function overviewHtml(c) {
     </dl></div></details>`;
 }
 
-function conversationHtml(c) {
-  const det = details.get(c.number);
-  if (!det || det.loading) return `<div class="hint">Loading the GitHub conversation…</div>`;
-  if (det.error) return `<div class="hint">Couldn't load the conversation: ${esc(det.error)} <button data-act="reload-detail">Try again</button></div>`;
-  const items = det.data.conversation;
-  if (!items.length) return `<div class="hint">No comments or reviews on GitHub yet.</div>`;
-  return `<div class="conv">${items.map((m) => {
-    const [ic, tone, w] = m.kind === "review" ? (REVIEW[m.state] || ["comment", "tone-mute", m.state.toLowerCase()]) : ["comment", "tone-mute", "commented"];
-    const first = cleanBody(m.body).split("\n").find((l) => l.trim()) || "";
-    return `<details ${m.bot ? "" : "open"}><summary>${icon(ic, "sm " + tone)}<b>${esc(m.author)}</b><span class="tone-mute">${esc(w)}${m.bot ? " · bot" : ""}</span>${m.bot ? `<span class="first">${esc(first.replace(/[#*`>]/g, "").slice(0, 90))}</span>` : ""}<span class="when">${esc(when(m.at))}</span></summary>
-      <div class="body md">${m.body ? md(cleanBody(m.body)) : `<span class="hint">No comment.</span>`}</div></details>`;
-  }).join("")}</div>`;
+// ---- GitHub tab: the PR or issue as it is on GitHub, read-only ----
+// Bodies are GitHub's own rendered HTML (tables, task lists, images), passed through a strict allowlist.
+const GH_TAGS = new Set(["a", "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "del", "s", "ins", "code", "pre", "blockquote", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td", "img", "details", "summary", "span", "div", "sup", "sub", "kbd", "input", "g-emoji", "dl", "dt", "dd", "video"]);
+const GH_DROP = new Set(["script", "style", "iframe", "object", "embed", "form", "svg", "math", "link", "meta", "template", "button", "textarea", "select"]);
+const GH_ATTRS = new Set(["href", "src", "alt", "title", "width", "height", "align", "open", "colspan", "rowspan", "start", "type", "checked"]);
+function safeHtml(html) {
+  const doc = new DOMParser().parseFromString(`<div>${html || ""}</div>`, "text/html");
+  const walk = (el) => {
+    for (const ch of [...el.children]) {
+      const tag = ch.tagName.toLowerCase();
+      if (GH_DROP.has(tag)) { ch.remove(); continue; }
+      walk(ch);
+      if (!GH_TAGS.has(tag)) { ch.replaceWith(...ch.childNodes); continue; }
+      for (const a of [...ch.attributes]) if (!GH_ATTRS.has(a.name)) ch.removeAttribute(a.name);
+      for (const name of ["href", "src"]) {
+        const v = ch.getAttribute(name);
+        if (v !== null && !(name === "href" ? /^(https?:|mailto:)/i : /^https:/i).test(v.trim())) ch.removeAttribute(name);
+      }
+      if (tag === "a") { ch.setAttribute("target", "_blank"); ch.setAttribute("rel", "noopener noreferrer"); }
+      if (tag === "img") { ch.setAttribute("loading", "lazy"); ch.setAttribute("referrerpolicy", "no-referrer"); }
+      if (tag === "video") ch.setAttribute("controls", "");
+      if (tag === "input") { if (ch.getAttribute("type") !== "checkbox") { ch.remove(); continue; } ch.setAttribute("disabled", ""); }
+    }
+  };
+  const root = doc.body.firstElementChild;
+  walk(root);
+  return root.innerHTML;
+}
+
+const ghViews = new Map(); // "pr:123" -> { loading } | { data } | { error }
+async function loadGitHubView(kind, n, force = false) {
+  const key = `${kind}:${n}`;
+  const cur = ghViews.get(key);
+  if (cur?.loading) return;
+  if (cur?.data && !force && Date.now() - cur.at < 4 * 60_000) return;
+  ghViews.set(key, { ...(cur || {}), loading: true });
+  try {
+    const res = await fetch(`/api/github?repo=${encodeURIComponent(REPO)}&kind=${kind}&n=${n}${force ? "&force=1" : ""}`);
+    const data = await res.json();
+    ghViews.set(key, res.ok ? { data, at: Date.now() } : { error: data.error || "HTTP " + res.status, data: cur?.data, at: cur?.at });
+  } catch (e) { ghViews.set(key, { error: e.message, data: cur?.data, at: cur?.at }); }
+  rerenderGitHub(kind, n);
+}
+function rerenderGitHub(kind, n) {
+  if (fly && fly.kind === kind && fly.number === n) renderFlyout();
+  if (kind === "pr" && current()?.number === n) render();
+}
+
+const GH_REVIEW = { APPROVED: ["checkCircle", "tone-ok", "approved these changes"], CHANGES_REQUESTED: ["xCircle", "tone-bad", "requested changes"], COMMENTED: ["comment", "tone-mute", "reviewed"], DISMISSED: ["dash", "tone-mute", "review was dismissed"], PENDING: ["clock", "tone-mute", "has a pending review"] };
+const GH_CHECK = (s) => /^(SUCCESS|NEUTRAL|SKIPPED)$/.test(s) ? ["checkCircle", "tone-ok", s === "SUCCESS" ? "passed" : s.toLowerCase()] : /^(FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE|STALE)$/.test(s) ? ["xCircle", "tone-bad", s.toLowerCase().replace(/_/g, " ")] : ["running", "tone-run", s.toLowerCase().replace(/_/g, " ")];
+const ghAvatar = (p) => p?.avatar ? `<img class="gh-av" alt="" src="${esc(p.avatar)}${p.avatar.includes("?") ? "&" : "?"}s=40" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : `<span class="gh-av ph" aria-hidden="true"></span>`;
+const ghWhen = (at, url) => at ? (url ? `<a class="gh-when" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="${esc(new Date(at).toLocaleString())}">${esc(ago(at))} ago</a>` : `<span class="gh-when" title="${esc(new Date(at).toLocaleString())}">${esc(ago(at))} ago</span>`) : "";
+const ghLabel = (l) => { const hex = /^[0-9a-f]{6}$/i.test(l.color || "") ? l.color : "8b949e"; const lum = parseInt(hex.slice(0, 2), 16) * 0.299 + parseInt(hex.slice(2, 4), 16) * 0.587 + parseInt(hex.slice(4, 6), 16) * 0.114; return `<span class="gh-label" style="background:#${hex};color:${lum > 150 ? "#1f2328" : "#ffffff"}">${esc(l.name)}</span>`; };
+const ghBody = (html) => html && html.trim() ? `<div class="gh-md">${safeHtml(html)}</div>` : "";
+const ghLink = (l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${l.pr ? icon("pr", "sm") : ""}#${l.number} ${esc(l.title)}</a> <span class="gh-state s-${esc(l.state.replace(/\s.*/, ""))}">${esc(l.state)}</span>`;
+
+function ghThread(t) {
+  const hunk = String(t.hunk || "").split("\n").map((l) => `<span class="${l.startsWith("+") ? "ad" : l.startsWith("-") ? "de" : l.startsWith("@@") ? "hh" : ""}">${esc(l)}</span>`).join("\n");
+  return `<details class="gh-th" ${t.resolved || t.outdated ? "" : "open"}><summary>${icon("chevRight", "sm chev")}${icon("file", "sm tone-mute")}<span class="path" title="${esc(t.path)}${t.line ? `:${t.line}` : ""}">${esc(t.path.split("/").length > 2 ? "…/" + t.path.split("/").slice(-2).join("/") : t.path)}${t.line ? `:${t.line}` : ""}</span>${t.outdated ? `<span class="gh-tag">Outdated</span>` : ""}${t.resolved ? `<span class="gh-tag ok">Resolved</span>` : ""}<span class="tone-mute n">${t.comments.length} comment${t.comments.length === 1 ? "" : "s"}</span></summary>
+    ${hunk ? `<pre class="gh-hunk">${hunk}</pre>` : ""}
+    ${t.comments.map((m) => `<div class="gh-tc"><div class="gh-h">${ghAvatar(m.who)}<b>${esc(m.who.login)}</b>${ghWhen(m.at, m.url)}</div>${ghBody(m.html)}</div>`).join("")}
+  </details>`;
+}
+
+function ghTimeline(items) {
+  const out = [];
+  for (let i = 0; i < items.length; i++) {
+    const e = items[i];
+    if (e.type === "commit") {
+      const run = [e];
+      while (items[i + 1]?.type === "commit") run.push(items[++i]);
+      const who = [...new Set(run.map((k) => k.who.login))];
+      out.push(`<details class="gh-ev gh-commits" ${run.length <= 3 ? "open" : ""}><summary>${icon("pr", "sm tone-mute")}${ghAvatar(run[0].who)}<span><b>${esc(who.join(", "))}</b> added ${run.length} commit${run.length === 1 ? "" : "s"}</span>${ghWhen(run[run.length - 1].at)}</summary>
+        <ul>${run.map((k) => `<li><a class="sha" href="${esc(k.url)}" target="_blank" rel="noopener noreferrer">${esc(k.sha)}</a> ${esc(k.text)}</li>`).join("")}</ul></details>`);
+      continue;
+    }
+    if (e.type === "comment") { out.push(`<article class="gh-card"><div class="gh-h">${ghAvatar(e.who)}<b>${esc(e.who.login)}</b><span class="tone-mute">commented</span>${ghWhen(e.at, e.url)}</div>${ghBody(e.html) || `<div class="gh-md hint">No text.</div>`}</article>`); continue; }
+    if (e.type === "review") {
+      const [ic, tone, verb] = GH_REVIEW[e.state] || GH_REVIEW.COMMENTED;
+      const body = ghBody(e.html);
+      out.push(`<article class="gh-card gh-review r-${esc(e.state)}"><div class="gh-h">${icon(ic, "sm " + tone)}${ghAvatar(e.who)}<b>${esc(e.who.login)}</b><span class="${tone}">${verb}</span>${ghWhen(e.at, e.url)}</div>${body}${e.threads.length ? `<div class="gh-ths">${e.threads.map(ghThread).join("")}</div>` : ""}</article>`);
+      continue;
+    }
+    if (e.type === "thread") { out.push(`<article class="gh-card"><div class="gh-h">${icon("comment", "sm tone-mute")}${ghAvatar(e.who)}<b>${esc(e.who.login)}</b><span class="tone-mute">commented on a line</span>${ghWhen(e.at, e.thread.url)}</div><div class="gh-ths">${ghThread(e.thread)}</div></article>`); continue; }
+    out.push(`<div class="gh-ev">${icon(e.icon === "merge" ? "merged" : ICONS[e.icon] ? e.icon : "dash", "sm tone-mute")}${ghAvatar(e.who)}<span><b>${esc(e.who.login)}</b> ${esc(e.text)}${e.label ? " " + ghLabel(e.label) : ""}${e.ref ? " " + ghLink({ ...e.ref, state: "" }).replace(/ <span class="gh-state[^>]*><\/span>$/, "") : ""}</span>${ghWhen(e.at)}</div>`);
+  }
+  return out.join("");
+}
+
+function ghChecks(checks) {
+  if (!checks.length) return `<div class="hint">No checks on the latest commit.</div>`;
+  const rank = (s) => { const t = GH_CHECK(s)[1]; return t === "tone-bad" ? 0 : t === "tone-run" ? 1 : 2; };
+  const sorted = [...checks].sort((a, b) => rank(a.state) - rank(b.state) || a.name.localeCompare(b.name));
+  const n = { bad: 0, warn: 0, ok: 0 };
+  for (const c of checks) n[{ "tone-bad": "bad", "tone-run": "warn", "tone-ok": "ok" }[GH_CHECK(c.state)[1]]]++;
+  const row = (c) => { const [ic, tone, word] = GH_CHECK(c.state); return `<li>${icon(ic, "sm " + tone)}<span class="nm">${c.workflow ? `<span class="tone-mute">${esc(c.workflow)} /</span> ` : ""}${esc(c.name)}</span><span class="${tone} st">${esc(word)}</span>${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">Details</a>` : ""}</li>`; };
+  const problems = sorted.filter((c) => rank(c.state) < 2);
+  const fine = sorted.filter((c) => rank(c.state) === 2);
+  return `<div class="gh-sum">${n.bad ? `<span class="tone-bad">${n.bad} failing</span>` : ""}${n.warn ? `<span class="tone-run">${n.warn} running</span>` : ""}<span class="tone-ok">${n.ok} passed</span></div>
+    ${problems.length ? `<ul class="gh-checks">${problems.map(row).join("")}</ul>` : ""}
+    ${fine.length ? `<details class="gh-pass" ${problems.length ? "" : ""}><summary>${icon("chevRight", "sm chev")}${fine.length} successful or skipped check${fine.length === 1 ? "" : "s"}</summary><ul class="gh-checks">${fine.map(row).join("")}</ul></details>` : ""}`;
+}
+
+// One renderer for both the flyout's GitHub tab and the detail view's GitHub tab.
+const ghHtmlCache = new Map();
+function githubTabHtml(kind, n) {
+  const key = `${kind}:${n}`;
+  const v = ghViews.get(key);
+  if (!v || (!v.data && v.loading)) { setTimeout(() => loadGitHubView(kind, n)); return `<div class="hint gh-loading">${spinner("Loading")} Loading #${n} from GitHub…</div>`; }
+  if (!v.data) return `<div class="hint">Couldn't load it from GitHub: ${esc(v.error)} <button data-act="gh-refresh" data-kind="${kind}" data-pr="${n}">Try again</button></div>`;
+  if (Date.now() - v.at > 4 * 60_000 && !v.loading) setTimeout(() => loadGitHubView(kind, n));
+  const d = v.data;
+  const hit = ghHtmlCache.get(key);
+  if (hit?.fetchedAt === d.fetchedAt) return hit.html;
+  const pr = d.kind === "pr";
+  const meta = [
+    d.labels.length ? `<dt>Labels</dt><dd>${d.labels.map(ghLabel).join(" ")}</dd>` : "",
+    `<dt>Assignees</dt><dd>${d.assignees.length ? d.assignees.map(esc).join(", ") : `<span class="tone-mute">No one</span>`}</dd>`,
+    pr ? `<dt>Reviewers</dt><dd>${d.requested.length ? `requested: ${d.requested.map(esc).join(", ")}` : `<span class="tone-mute">No pending requests</span>`}</dd>` : "",
+    `<dt>${pr ? "Fixes" : "Linked PRs"}</dt><dd>${d.linked.length ? d.linked.map(ghLink).join("<br>") : `<span class="tone-mute">None</span>`}</dd>`,
+  ].join("");
+  const html = `<div class="gh-view" data-gh="${esc(key)}">
+    <header class="gh-top"><div class="gh-title"><span class="gh-state s-${esc(d.state.replace(/\s.*/, ""))}">${esc(d.state)}</span>
+      <span>${ghAvatar(d.author)}<b>${esc(d.author.login)}</b> ${pr ? `wants to merge <code>${esc(d.head)}</code> into <code>${esc(d.base)}</code>` : "opened this"} ${ghWhen(d.createdAt)}</span></div>
+      <dl class="gh-meta">${meta}</dl></header>
+    <section class="gh-sec"><h3>Description</h3>${ghBody(d.html) || `<div class="hint">No description provided.</div>`}</section>
+    ${pr ? `<section class="gh-sec"><h3>Checks</h3>${ghChecks(d.checks)}</section>` : ""}
+    <section class="gh-sec"><h3>Timeline <span class="tone-mute">oldest first</span></h3><div class="gh-tl">${ghTimeline(d.timeline) || `<div class="hint">Nothing yet.</div>`}</div>
+      ${d.truncated ? `<div class="hint">Only the first 1,000 timeline items are shown. <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">See the rest on GitHub</a></div>` : ""}</section>
+    <div class="gh-foot hint">Read from GitHub ${esc(ago(d.fetchedAt))} ago · <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">Open on GitHub ${icon("external", "sm")}</a> · <button class="quiet" data-act="gh-refresh" data-kind="${kind}" data-pr="${n}">${icon("refresh", "sm")}Refresh</button></div>
+  </div>`;
+  ghHtmlCache.set(key, { fetchedAt: d.fetchedAt, html });
+  return html;
+}
+
+// Re-rendering a long GitHub view would reload its images and close its <details>, so keep the old
+// DOM when the data hasn't changed.
+const ghSlotKey = (kind, n) => { const v = ghViews.get(`${kind}:${n}`); return `${kind}:${n}:${v?.data?.fetchedAt || (v?.error ? "err" : "loading")}`; };
+function fillGhSlot(container, oldSlot, kind, n) {
+  const slot = container.querySelector(".gh-slot");
+  if (!slot) return;
+  if (oldSlot && oldSlot.dataset.k === slot.dataset.k) slot.replaceWith(oldSlot);
+  else slot.innerHTML = githubTabHtml(kind, n);
 }
 
 function filesHtml(c) {
@@ -1249,15 +1443,17 @@ async function loadPreview(c, event) {
 function renderScroll(c, force) {
   const local = c.local || {};
   const det = details.get(c.number);
-  const key = JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, local.explainer?.updatedAt, local.explainerPending, det?.data?.fetchedAt, det?.error, drafts.has(draftKey(c)), (c.local?.thread || []).length]);
+  const key = JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, local.explainer?.updatedAt, local.explainerPending, det?.data?.fetchedAt, det?.error, tab === "github" ? ghSlotKey("pr", c.number) : "", drafts.has(draftKey(c)), (c.local?.thread || []).length]);
   if (!force && key === lastKey) return;
   lastKey = key;
   const sc = $("wsScroll");
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40;
   const prevTop = sc.scrollTop;
   const openState = Object.fromEntries([...sc.querySelectorAll("details[data-k]")].map((d) => [d.dataset.k, d.open]));
-  if (!["overview", "architecture", "changes", "review", "conversation", "thread"].includes(tab)) tab = tab === "files" ? "changes" : "overview";
-  sc.innerHTML = { overview: overviewHtml, architecture: architectureHtml, changes: changesTabHtml, review: reviewTabHtml, conversation: conversationHtml, thread: threadHtml }[tab](c);
+  if (!["overview", "architecture", "changes", "review", "github", "thread"].includes(tab)) tab = tab === "files" ? "changes" : tab === "conversation" ? "github" : "overview";
+  const oldGh = sc.querySelector(".gh-slot");
+  sc.innerHTML = { overview: overviewHtml, architecture: architectureHtml, changes: changesTabHtml, review: reviewTabHtml, github: (x) => `<div class="gh-slot" data-k="${esc(ghSlotKey("pr", x.number))}"></div>`, thread: threadHtml }[tab](c);
+  if (tab === "github") fillGhSlot(sc, oldGh, "pr", c.number);
   if (tab === "architecture") mountDiagrams(c);
   for (const d of sc.querySelectorAll("details[data-k]")) if (d.dataset.k in openState) d.open = openState[d.dataset.k];
   if (tab === "thread" && (force || atBottom || stickBottom)) { sc.scrollTop = sc.scrollHeight; stickBottom = false; }
@@ -1336,10 +1532,11 @@ function deriveBall(c, skipYou) {
   const running = l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending;
   if (c.section === "merged" || (issue && c.state && c.state !== "OPEN")) return { st: "quiet", ask: c.section === "merged" ? "Merged" : "Closed", since: c.mergedAt || c.updatedAt };
   if (!skipYou && q) return { st: "decide", ask: q.question, choices: q.choices || [], question: true, since: l.sync?.at };
-  if (nx && !(skipYou && nx.owner === "you")) {
+  // A review you sent on GitHub after the agent handed you the step counts as acting on it.
+  if (nx && !(skipYou && nx.owner === "you") && !(nx.owner === "you" && tsOf(c.myReviewAt) > tsOf(nx.at))) {
     if (nx.owner === "you") return { st: nx.blocked ? "blocked" : nx.choices?.length ? "decide" : "ready", ask: nx.action, choices: nx.choices || [], explicit: true, since: nx.at };
     if (nx.owner === "agent") return { st: "agent", ask: nx.action, since: nx.at };
-    if (!running) return { st: "waiting", owner: nx.owner, ask: nx.action, since: nx.at, stuck: !!nx.blocked };
+    if (!running) return { st: "waiting", owner: nx.owner === "author" || nx.owner === "reporter" ? c.author || nx.owner : nx.owner === "ci" ? "CI" : nx.owner, ask: nx.action, since: nx.at, stuck: !!nx.blocked };
   }
   if (!skipYou && l.agent?.status === "waiting") return { st: "decide", ask: l.agent.outcome || "The agent needs your input", reply: true, since: l.agent.updatedAt };
   if (running) return { st: "agent", ask: (l.agent?.status === "running" && l.agent.outcome) || (l.pending ? "Answering your question" : issue ? c.status : l.agent?.outcome) || "Working", since: l.pending?.at || l.agent?.updatedAt || l.sync?.at };
@@ -1423,10 +1620,11 @@ const SNOOZE = [
 ];
 
 // One line for headers, flyouts and the rail: the ball's state and the ask.
+const hintHtml = (c) => c.hint ? ` <span class="row-hint" title="GitHub still needs an Approve review before this can merge.">· ${esc(c.hint)}</span>` : "";
 function ballLine(c, b = ball(c), { buttons = true } = {}) {
   const meta = BALL[b.st];
   const lead = BALL[b.st].you || b.st === "agent" ? `<b>${esc(meta.label)}:</b> ` : b.st === "waiting" && b.owner ? `<b>${esc(b.owner)}:</b> ` : b.st === "snoozed" ? `<b>Snoozed</b> ` : "";
-  return `<div class="ball-line t-${meta.tone}">${ballGlyph(b)}<span class="txt">${lead}${esc(b.ask)}</span>${agePill(b)}${buttons && (meta.you || b.st === "snoozed") ? `<span class="btns">${moveButtons(c, b.st === "snoozed" ? b.under : b, { withDone: b.st !== "snoozed" })}${b.st === "snoozed" ? `<button class="quiet" data-act="ball-unsnooze" data-pr="${c.number}" data-kind="${c.kind === "issue" ? "issue" : "pr"}">Unsnooze</button>` : ""}</span>` : ""}</div>`;
+  return `<div class="ball-line t-${meta.tone}">${ballGlyph(b)}<span class="txt">${lead}${esc(b.ask)}${hintHtml(c)}</span>${agePill(b)}${buttons && (meta.you || b.st === "snoozed") ? `<span class="btns">${moveButtons(c, b.st === "snoozed" ? b.under : b, { withDone: b.st !== "snoozed" })}${b.st === "snoozed" ? `<button class="quiet" data-act="ball-unsnooze" data-pr="${c.number}" data-kind="${c.kind === "issue" ? "issue" : "pr"}">Unsnooze</button>` : ""}</span>` : ""}</div>`;
 }
 
 // The "Your move" box: every item where the next step is yours, oldest first, with the move inline.
@@ -1535,7 +1733,7 @@ function ovRow(c, sec) {
     <span class="rail">${ballGlyph(b)}</span>
     <div class="ov-main">
       <div class="ov-title-row">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${isWorking(c) && b.st !== "agent" ? spinner("Agent working on something here") : ""}${browserLink(c)}</div>
-      <div class="ask">${lead}${esc(b.ask)}</div>
+      <div class="ask">${lead}${esc(b.ask)}${hintHtml(c)}</div>
     </div>
     <div class="right">${primary ? primary + "</button>" : ""}${ownerHtml(b)}${agePill(b)}${sec === "merged" ? "" : rowActs(c, kind)}</div>
   </div>`;
@@ -1697,6 +1895,7 @@ function trackItem(c, isIssue) {
     : c.section === "reviewing" ? "" : `<button role="menuitem" data-act="track" data-pr="${c.number}" title="${esc(TRACK_TIP)}">Track under Reviewing</button>`;
 }
 
+let flyTab = store.get("prb-fly-tab") === "github" ? "github" : "summary";
 function renderFlyout() {
   const host = $("flyHost");
   if (!fly) { host.innerHTML = ""; return; }
@@ -1712,6 +1911,7 @@ function renderFlyout() {
   if (ta) flyDraft = ta.value;
   const hadFocus = ta && document.activeElement === ta;
   const isIssue = fly.kind === "issue";
+  const oldGh = host.querySelector(".gh-slot");
   const chips = isIssue
     ? `${agentCell(c).replace('class="ov-cell"', 'class="ov-cell" style="flex-direction:row;align-items:center"')}${issuePrChip(c)}`
     : `${chip(c)}${c.review ? mkChip(c.review.state === "done" ? "ok" : c.review.state === "stale" ? "you" : "neutral", c.review.state === "done" ? "checkCircle" : c.review.state === "stale" ? "reset" : "dash", "pr-review: " + c.review.label, c.review.text) : ""}${ciHtml(c)}`;
@@ -1735,23 +1935,25 @@ function renderFlyout() {
         </div>` : ""}
         <h2 id="flyTitle">${esc(c.title)}</h2>
         <div class="chips">${chips}</div>
+        <div class="tabs fly-tabs" role="tablist" aria-label="Views">${[["summary", "Summary"], ["github", "GitHub"]].map(([id, label]) => `<button role="tab" aria-selected="${flyTab === id}" tabindex="${flyTab === id ? 0 : -1}" data-act="fly-tab" data-tab="${id}">${label}</button>`).join("")}</div>
       </div>
-      <div class="fly-body">
+      <div class="fly-body">${flyTab === "github" ? `<div class="gh-slot" data-k="${esc(ghSlotKey(fly.kind, c.number))}"></div>` : `
         ${ballLine(c)}
         <section class="sec"><div class="fly-cmds" role="group" aria-label="Quick commands">${flyCommands(c, fly.kind)}</div></section>
         ${!isIssue ? askHtml(c) : ""}
         ${explainerHtml(c)}
         <section class="sec"><h3>Where it is</h3>${summary}</section>
         ${!isIssue ? changesHtml(c.number) : ""}
-        <section class="sec"><h3>Thread</h3>${threadHtml(c)}</section>
+        <section class="sec"><h3>Thread</h3>${threadHtml(c)}</section>`}
       </div>
       <form class="composer" id="flyComposer"><textarea id="flyInput" rows="1" placeholder="Ask anything about #${c.number}…" aria-label="Message about #${c.number}"></textarea><button class="primary" type="submit">Send</button></form>
     </aside>`;
+  if (flyTab === "github") fillGhSlot(host, oldGh, fly.kind, c.number);
   const nta = host.querySelector("#flyInput");
   nta.value = flyDraft;
   if (hadFocus) { nta.focus(); nta.setSelectionRange(nta.value.length, nta.value.length); }
   const body = host.querySelector(".fly-body");
-  if (stickBottom || nearBottom) { body.scrollTop = body.scrollHeight; stickBottom = false; }
+  if (flyTab === "summary" && (stickBottom || nearBottom)) { body.scrollTop = body.scrollHeight; stickBottom = false; }
   else if (scroll !== null) body.scrollTop = scroll;
   scrollToNew(body);
   markViewed();
@@ -1931,6 +2133,8 @@ document.addEventListener("click", (e) => {
   if (a === "jump") { const s = document.getElementById("sec-" + el.dataset.sec); if (s) { s.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); s.querySelector(".ov-title")?.focus({ preventScroll: true }); } return; }
   if (a === "flyout") return openFlyout(el.dataset.kind || "pr", rowPr, el);
   if (a === "fly-close") return closeFlyout();
+  if (a === "fly-tab") { flyTab = el.dataset.tab; store.set("prb-fly-tab", flyTab); const b = $("flyHost").querySelector(".fly-body"); if (b) b.scrollTop = 0; renderFlyout(); return $("flyHost").querySelector(`[data-act="fly-tab"][data-tab="${flyTab}"]`)?.focus(); }
+  if (a === "gh-refresh") return loadGitHubView(el.dataset.kind === "issue" ? "issue" : "pr", Number(el.dataset.pr), true);
   if (a === "focus-ask") return $("flyInput")?.focus();
   if (a === "fly-more") { flyMore = !flyMore; renderFlyout(); return $("flyHost").querySelector(".fly-menu button")?.focus(); }
   if (a === "hide" || a === "unhide") {
