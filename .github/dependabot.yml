@@ -36,16 +36,6 @@ updates:
       # Dependabot also discovers its project through winapp.sln. Keep compiler
       # reference updates manual so test dependencies cannot lift that baseline.
       - dependency-name: "Microsoft.CodeAnalysis.CSharp"
-      # Stay on the .NET 10 (LTS) libraries instead of .NET 11 (STS, which ends
-      # support on the same date). Remove these when moving to .NET 12 (LTS).
-      - dependency-name: "Microsoft.Extensions.*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "System.Diagnostics.EventLog"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "System.Drawing.Common"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "System.Security.Cryptography.Pkcs"
-        update-types: ["version-update:semver-major"]
       # System.CommandLine 3 and NuGet 8 are planned as deliberate upgrades.
       # Remove each entry once its upgrade lands.
       - dependency-name: "System.CommandLine"
