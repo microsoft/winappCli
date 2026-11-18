@@ -53,6 +53,7 @@ header.top h1 { margin: 0; font-size: var(--text-title-small, 16px); font-weight
 .meta { color: var(--muted); font-size: 12px; }
 .spacer { flex: 1; }
 .badge { background: var(--orange-muted); color: var(--orange); border-radius: 12px; padding: 0 10px; font-weight: 600; font-size: 12px; }
+.badge.stuckb { background: var(--red-muted); color: var(--red); }
 .banner { margin: 8px 14px 0; padding: 8px 12px; border-radius: 6px; background: var(--red-muted); color: var(--red); flex: none; }
 .toast { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80%; z-index: 20; }
 .toast.show { opacity: .95; }
@@ -81,6 +82,10 @@ aside { width: var(--list-w); min-width: 320px; max-width: 75%; flex: none; over
 .row .nxt.you { background: var(--orange-muted); }
 .row .nxt.agent { background: var(--purple-muted); }
 .row .nxt b { font-weight: 600; }
+.row .why { grid-column: 1 / 3; font-size: 12px; color: var(--muted); }
+.row .why b { font-weight: 600; color: var(--fg); }
+.row .why.stuck, .row .why.stuck b { color: var(--red); }
+.stuckbox { background: var(--red-muted); color: var(--red); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
 .row .ag { grid-column: 1 / 3; font-size: 12px; display: flex; gap: 6px; align-items: center; color: var(--fg); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--border); flex: none; }
 .dot.passing { background: var(--green); } .dot.failing { background: var(--red); } .dot.pending { background: var(--yellow); }
@@ -174,6 +179,7 @@ details.panel > .body { padding: 0 14px 12px; }
 <header class="top">
   <h1 id="repo">PR board</h1>
   <span class="badge" id="youCount" hidden></span>
+  <span class="badge stuckb" id="stuckCount" hidden title="PRs that have been in the same state longer than expected"></span>
   <span class="meta" id="meta">Loading…</span>
   <span class="spacer"></span>
   <button id="sumAll" title="Ask the agent for plain-words summaries of the PRs that need you or an agent">✨ Summarize all needing me</button>
@@ -224,6 +230,13 @@ const ago = (iso) => {
   return Math.round(s / 86400) + "d";
 };
 const when = (iso) => iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+const dur = (iso) => {
+  const h = (Date.now() - new Date(iso).getTime()) / 3600000;
+  if (!iso || h < 0) return "";
+  if (h < 1) return Math.max(1, Math.round(h * 60)) + " min";
+  if (h < 48) return Math.round(h) + "h";
+  return Math.round(h / 24) + " days";
+};
 
 // Safe Markdown: everything is escaped first; only code, bold, italics, http(s)
 // links, lists, headings, quotes and pipe tables become markup.
@@ -312,6 +325,15 @@ const isBusy = (c) => c.local?.agent?.status === "running";
 const draftOf = (c) => (c.local?.draft && !c.local.draft.postedAt) ? c.local.draft : null;
 const canShip = (c) => c.group !== "merged" && !c.queue && c.reviewDecision === "APPROVED" && c.ci?.state !== "failing" && !isBusy(c);
 
+// The suggested next action: open a link, run a board action, or pre-fill a nudge
+// in the message box. A nudge is never posted until you send it and the agent posts it.
+function actionButton(c) {
+  const a = c.reason.action;
+  if (a.url) return `<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.label)} ↗</a>`;
+  if (a.act) return `<button data-act="${esc(a.act)}">${esc(a.label)}</button>`;
+  return `<button data-act="nudge" title="Puts a draft comment in the message box. Edit it, then press Send to ask the agent to post it.">${esc(a.label)}…</button> <span class="hint">pre-fills a draft comment below; nothing is posted until you send it</span>`;
+}
+
 function nextHtml(text) {
   const i = text.indexOf(":");
   return i > 0 ? `<b>${esc(text.slice(0, i))}</b>${esc(text.slice(i))}` : esc(text);
@@ -357,6 +379,7 @@ function rowHtml(c) {
     <div class="facts"><span class="dot ${esc(c.ci?.state || "")}" title="${esc(c.ci?.text || "")}"></span>${esc(c.author)} · <span title="${esc(c.size?.text)}">${esc(c.size?.label)} ${esc(c.size?.text?.split(",")[0] || "")}</span> · ${c.group === "merged" ? "merged " + ago(c.mergedAt) + " ago" : "opened " + ago(c.createdAt) + " ago"}${c.isDraft ? " · draft" : ""} · ${reviewSummary(c)}${s?.risk ? ` <span class="pill ${RISK[s.risk][0]}">${RISK[s.risk][1]}</span>` : ""}</div>
     <div class="sum${s ? "" : " fallback"}">📝 ${s ? mdInline(sumText) : esc(sumText)}</div>
     ${c.group === "merged" ? "" : `<div class="nxt ${nextClass}">⏭ ${nextHtml(c.waitingOn)}</div>`}
+    ${c.reason && c.group !== "merged" ? `<div class="why${c.reason.stuck ? " stuck" : ""}" title="${esc(c.reason.text)}">${c.reason.stuck ? "⚠️ " : "⏱ "}<b>${esc(c.reason.label)}</b>${c.reason.since ? ` · for ${esc(dur(c.reason.since))}` : ""}${c.reason.stuck ? ` · <span>stuck</span>` : ""}</div>` : ""}
     ${ag}
   </div>`;
 }
@@ -430,8 +453,12 @@ function overviewHtml(c) {
       ${s || local.summarizing ? "" : `<div style="margin-top:8px"><button data-act="summarize">✨ Get a plain-words summary and next steps</button></div>`}
     </div>
     ${c.group === "merged" ? "" : `<div class="card"><h3>Next steps</h3><ul class="steps">${steps.map((t) => `<li><span>${nextHtml(t)}</span></li>`).join("")}</ul></div>`}
-    <div class="card"><h3>Status</h3><dl class="grid">
+    <div class="card"><h3>Status</h3>
+      ${c.reason?.stuck && c.group !== "merged" ? `<div class="stuckbox" style="margin-bottom:8px">${esc(c.reason.stuck)}</div>` : ""}
+      <dl class="grid">
       <dt>Who's next</dt><dd>${c.group === "merged" ? "Nobody: it's merged" : nextHtml(c.waitingOn)}</dd>
+      ${c.reason && c.group !== "merged" ? `<dt>Why</dt><dd><b>${esc(c.reason.label)}</b>${c.reason.since ? ` · for ${esc(dur(c.reason.since))} (since ${esc(when(c.reason.since))})` : ""}<br>${esc(c.reason.text)}</dd>` : ""}
+      ${c.reason?.action && c.group !== "merged" ? `<dt>Suggested</dt><dd>${actionButton(c)}</dd>` : ""}
       ${c.group === "merged" ? `<dt>Merged</dt><dd>${esc(when(c.mergedAt))}</dd>` : `<dt>CI</dt><dd>${esc((CI[c.ci?.state] || CI.none)[1])}${esc(failing)}</dd>`}
       <dt>Reviews</dt><dd>${reviews}</dd>
       ${c.queue ? `<dt>Merge queue</dt><dd>Position ${c.queue.position}</dd>` : ""}
@@ -541,6 +568,9 @@ function render(force = false) {
   const mine = cards.filter((c) => c.group === "you").length;
   $("youCount").hidden = !mine;
   $("youCount").textContent = mine + " need you";
+  const stuck = cards.filter((c) => c.group !== "merged" && c.reason?.stuck).length;
+  $("stuckCount").hidden = !stuck;
+  $("stuckCount").textContent = "⚠️ " + stuck + " stuck";
   const open = cards.filter((c) => c.group !== "merged").length;
   $("meta").textContent = snap.loading && !snap.fetchedAt ? "Loading…" : `${open} open · ${cards.length - open} merged in the last 24h · ${snap.loading ? "refreshing…" : "updated " + ago(snap.fetchedAt) + (ago(snap.fetchedAt) === "just now" ? "" : " ago")}` + (snap.viewer ? ` · you are @${snap.viewer}` : "");
   if (!current() && cards.length) { selected = (cards.find((c) => c.group === "you") || cards[0]).number; force = true; }
@@ -586,6 +616,14 @@ document.addEventListener("click", (e) => {
   const c = cardsOf().find((x) => x.number === pr);
   if (!c) return;
   if (a === "reload-detail") { loadDetail(c, { force: true }); return render(true); }
+  if (a === "nudge") {
+    const n = c.reason?.action?.nudge;
+    if (!n) return;
+    input.value = `Please post this comment on #${c.number}:\n\n${n}`;
+    input.dispatchEvent(new Event("input"));
+    input.focus();
+    return toast("Draft comment is in the message box. Edit it, then press Send.");
+  }
   if (a === "post-menu") {
     if (armed?.key?.startsWith(pr + ":post:")) { const ev = armed.key.split(":")[2]; clearTimeout(armed.timer); armed = null; render(); return act(pr, "post", { event: ev }); }
     openMenu = !openMenu;

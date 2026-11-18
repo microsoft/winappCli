@@ -36,9 +36,49 @@ collapsed). Each row answers the basic questions without a click:
   you something), ✨ Summarize, or View.
 
 Drag the line between the list and the workspace to resize it. The header shows
-`17 open · 8 merged in the last 24h`. **✨ Summarize all needing me** asks the
-agent to summarize every PR in Needs you and Agent working that doesn't have a
-summary yet.
+`17 open · 8 merged in the last 24h`, how many PRs need you, and how many are
+stuck. **✨ Summarize all needing me** asks the agent to summarize every PR in
+Needs you and Agent working that doesn't have a summary yet.
+
+## Why a PR is waiting, and for how long
+
+Every open PR gets one reason, worked out from GitHub data, with how long it's
+been in that state. The row shows the reason and how long it has been waiting,
+for example `⏱ Changes requested, no response · for 2 days`, and stuck PRs move
+to the top of their group:
+
+| Reason | Meaning | Stuck after |
+|--------|---------|-------------|
+| Waiting on your review | Ready for review; no human review yet | 3 days |
+| Author responded, needs re-review | Changes were requested, then the author pushed or replied. Moves to **Needs you** | 3 days |
+| Changes requested, no response | No push or reply from the author since the change request | 5 days |
+| Draft, author still working | Draft PR; timed from the last push | 14 days |
+| Author still preparing it | The author's agent is still working (`agent-preparing`) | 3 days |
+| Waiting on a reviewer | Your PR; nobody has reviewed it yet | 3 days |
+| Approval doesn't count | Someone approved, but GitHub still needs an approval that counts | 1 day |
+| Approved, blocked | Approved, but failing checks, conflicts, or behind main | 1 day |
+| Approved, waiting on CI | Approved; checks still running (says whether auto-merge is on) | 2 hours |
+| Auto-merge on | Approved and green; waiting to enter the merge queue | 3 hours |
+| In merge queue | Position N in the queue | 3 hours |
+| Agent waiting on others | An agent set `waiting_on_others`; shows its text | 3 days |
+
+A stuck PR shows `⚠️ Stuck: no response to changes requested for 12 days`. The
+thresholds live in `STUCK_AFTER_HOURS` at the top of the rules in `github.mjs`.
+
+The Overview's Status section shows the reason, since when, and a **suggested
+next action**: open a link (the checks or the merge queue), Review, Ship, or a
+nudge such as **Nudge the author…**. A nudge puts a draft comment in the
+message box:
+
+```text
+Please post this comment on #1310:
+
+@Jaylyn-Barbee, friendly ping on the changes @zateutsch requested 2 days ago.
+Is anything blocking you, or should someone else pick this up?
+```
+
+Edit it, then press Send to ask the agent to post it. Nothing is posted until
+you send it.
 
 ## The workspace
 
@@ -119,7 +159,7 @@ per user and isn't committed. When a PR merges, a leftover agent status shows as
 | File | Contents |
 |------|----------|
 | `extension.mjs` | Canvas, agent tools, loopback server, buttons and messages |
-| `github.mjs` | `gh` calls, groups, the ⏭ rules, and fallback summaries |
+| `github.mjs` | `gh` calls, groups, the ⏭ rules, waiting reasons and stuck thresholds, and fallback summaries |
 | `prompts.mjs` | The requests sent to the agent |
 | `store.mjs` | The per-repo state file |
 | `ui.html` | The inbox page (no build step, no dependencies) |

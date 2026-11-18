@@ -60,12 +60,39 @@ async function mergeQueue(repo, branch) {
     }
 }
 
+// Timing signals for every open PR in one GraphQL call: pushes, author replies,
+// ready-for-review and review-requested events, and auto-merge.
+const ACTIVITY_QUERY = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN,first:60,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{
+ number mergeStateStatus autoMergeRequest{enabledAt}
+ commits(last:1){nodes{commit{committedDate}}}
+ timelineItems(last:40,itemTypes:[PULL_REQUEST_REVIEW,ISSUE_COMMENT,READY_FOR_REVIEW_EVENT,REVIEW_REQUESTED_EVENT,HEAD_REF_FORCE_PUSHED_EVENT,PULL_REQUEST_COMMIT]){nodes{
+  __typename
+  ... on PullRequestReview{author{login} state submittedAt}
+  ... on IssueComment{author{login} createdAt}
+  ... on ReadyForReviewEvent{createdAt}
+  ... on ReviewRequestedEvent{createdAt}
+  ... on HeadRefForcePushedEvent{createdAt}
+  ... on PullRequestCommit{commit{committedDate}}
+ }}}}}}`;
+
+async function fetchActivity(repo) {
+    const [owner, name] = repo.split("/");
+    try {
+        const out = await gh(["api", "graphql", "-f", `query=${ACTIVITY_QUERY}`, "-F", `owner=${owner}`, "-F", `name=${name}`]);
+        const nodes = JSON.parse(out)?.data?.repository?.pullRequests?.nodes || [];
+        return new Map(nodes.map((n) => [n.number, n]));
+    } catch {
+        return new Map(); // Reasons fall back to what gh pr list provides.
+    }
+}
+
 export async function fetchRepoData(repo) {
-    const [openJson, mergedJson, viewer, defaultBranch] = await Promise.all([
+    const [openJson, mergedJson, viewer, defaultBranch, activity] = await Promise.all([
         gh(["pr", "list", "-R", repo, "--state", "open", "--limit", "60", "--json", PR_FIELDS]),
         gh(["pr", "list", "-R", repo, "--state", "merged", "--limit", "8", "--json", "number,title,url,author,mergedAt,createdAt,additions,deletions,changedFiles,latestReviews,body"]),
         viewerLogin(),
         gh(["repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]).then((s) => s.trim() || "main"),
+        fetchActivity(repo),
     ]);
     const queue = await mergeQueue(repo, defaultBranch);
     return {
@@ -74,6 +101,7 @@ export async function fetchRepoData(repo) {
         viewer,
         defaultBranch,
         queue,
+        activity,
     };
 }
 
@@ -137,9 +165,60 @@ const BOT_LOGINS = /\[bot\]$|^copilot-pull-request-reviewer$|^github-code-qualit
 const isBot = (a) => !!a && (!!a.is_bot || BOT_LOGINS.test(a.login || ""));
 const humanReview = (r) => r?.author?.login && !isBot(r.author);
 
-// Decide a card's lane and a plain-words "waiting on" line.
+// How long a PR can sit in one state before the board calls it stuck.
+export const STUCK_AFTER_HOURS = {
+    ciRunning: 2,           // approved, checks still running
+    approvedBlocked: 24,    // approved, but failing checks, conflicts, behind main, or an approval that doesn't count
+    changesNoResponse: 5 * 24, // changes requested, author hasn't pushed or replied
+    reReview: 3 * 24,       // author responded, nobody re-reviewed yet
+    draftNoPush: 14 * 24,   // draft with no new commits
+    reviewNoReview: 3 * 24, // ready for review (or review requested), no review yet
+    mergeQueue: 3,          // sitting in the merge queue
+    autoMerge: 3,           // auto-merge on, not in the queue yet
+    agentWaiting: 3 * 24,   // an agent says it's waiting on someone else
+};
+
+const HOUR = 3600_000;
+const ts = (s) => (s ? new Date(s).getTime() : 0);
+const maxIso = (...xs) => xs.filter(Boolean).sort().at(-1) || null;
+const minIso = (...xs) => xs.filter(Boolean).sort()[0] || null;
+
+export function duration(sinceIso, now = Date.now()) {
+    const h = (now - ts(sinceIso)) / HOUR;
+    if (!sinceIso || h < 0) return "";
+    if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+    if (h < 48) return `${Math.round(h)} hour${Math.round(h) === 1 ? "" : "s"}`;
+    const d = Math.round(h / 24);
+    return `${d} day${d === 1 ? "" : "s"}`;
+}
+
+// Activity facts from the GraphQL timeline (see fetchActivity).
+function activity(pr, ext) {
+    const author = pr.author?.login;
+    const items = ext?.timelineItems?.nodes || [];
+    const pushes = items.map((i) => i.__typename === "PullRequestCommit" ? i.commit?.committedDate : i.__typename === "HeadRefForcePushedEvent" ? i.createdAt : null);
+    const lastPush = maxIso(...pushes, ext?.commits?.nodes?.[0]?.commit?.committedDate);
+    const authorTalk = items.filter((i) => i.author?.login === author && (i.__typename === "IssueComment" || i.__typename === "PullRequestReview")).map((i) => i.createdAt || i.submittedAt);
+    const readyAt = maxIso(...items.filter((i) => i.__typename === "ReadyForReviewEvent").map((i) => i.createdAt)) || pr.createdAt;
+    const requestedAt = maxIso(...items.filter((i) => i.__typename === "ReviewRequestedEvent").map((i) => i.createdAt));
+    return { lastPush, authorActivity: maxIso(lastPush, ...authorTalk), readyAt, requestedAt, autoMergeAt: ext?.autoMergeRequest?.enabledAt || null };
+}
+
+function stuckIf(since, key, why) {
+    const limit = STUCK_AFTER_HOURS[key];
+    return since && Date.now() - ts(since) > limit * HOUR ? `⚠️ Stuck: ${why} for ${duration(since)}` : null;
+}
+
+// One reason per PR: a short label, a plain sentence, since when, stuck or not, and a suggested next action.
+function reason(label, text, since, stuck, action) {
+    return { label, text, since, stuck, action: action || null };
+}
+
+// Decide a card's lane, its plain-words "waiting on" line, and why it's waiting.
 export function classify(pr, ctx, local) {
     const { viewer, queue } = ctx;
+    const ext = ctx.activity?.get(pr.number);
+    const act = activity(pr, ext);
     const ci = ciSummary(pr.statusCheckRollup);
     const labels = (pr.labels || []).map((l) => l.name);
     const reviews = (pr.latestReviews || []).filter(humanReview);
@@ -150,8 +229,17 @@ export function classify(pr, ctx, local) {
     const q = queue.get(pr.number);
     const author = isMine ? "You" : pr.author.login;
     const authorWho = isMine ? "you" : "author";
+    const at = `@${pr.author.login}`;
+    const nudge = (text) => ({ label: "Nudge the author", nudge: text });
+    const ciPendingSince = minIso(...(pr.statusCheckRollup || []).filter((c) => PENDING.has(c.status === "COMPLETED" ? c.conclusion : c.status)).map((c) => c.startedAt).filter((s) => s && !s.startsWith("0001")));
+    const approvals = reviews.filter((r) => r.state === "APPROVED");
+    const approvedAt = maxIso(...approvals.map((r) => r.submittedAt));
 
-    if (q) return { lane: "queue", waitingOn: `Merge queue: position ${q.position}${q.state && q.state !== "QUEUED" ? ` (${q.state.toLowerCase().replace(/_/g, " ")})` : ""}`, who: "github", ci };
+    if (q) {
+        const since = q.enqueuedAt;
+        return { lane: "queue", waitingOn: `Merge queue: position ${q.position}${q.state && q.state !== "QUEUED" ? ` (${q.state.toLowerCase().replace(/_/g, " ")})` : ""}`, who: "github", ci,
+            reason: reason("In merge queue", `Position ${q.position} in GitHub's merge queue.`, since, stuckIf(since, "mergeQueue", "in the merge queue"), { label: "Check the merge queue", url: pr.url.replace(/\/pull\/\d+$/, "/queue/" + (ctx.defaultBranch || "main")) }) };
+    }
     if (agent?.status === "running") {
         if (agent.kind === "ship") return { lane: "approved", waitingOn: "Agent: sending it to the merge queue", who: "agent", ci };
         if (agent.kind === "post") return { lane: "draft-ready", waitingOn: "Agent: posting your review", who: "agent", ci };
@@ -159,28 +247,95 @@ export function classify(pr, ctx, local) {
     }
     if (draft) return { lane: "draft-ready", waitingOn: "You: read the draft review, then post it", who: "you", ci };
     if (agent?.status === "waiting") return { lane: "agent-reviewing", waitingOn: `You: ${agent.outcome || "the agent session needs your input"}`, who: "you", ci };
-    if (agent?.status === "waiting_on_others") return { lane: "waiting", waitingOn: `Someone else: ${agent.outcome || "the agent is waiting on another person"}`, who: "others", ci };
+    if (agent?.status === "waiting_on_others") {
+        const since = agent.updatedAt;
+        return { lane: "waiting", waitingOn: `Someone else: ${agent.outcome || "the agent is waiting on another person"}`, who: "others", ci,
+            reason: reason("Agent waiting on others", agent.outcome || "An agent is waiting on someone else.", since, stuckIf(since, "agentWaiting", "the agent has been waiting on someone"), { label: "Ask a maintainer to help", nudge: `Could a maintainer take a look at this one? ${agent.outcome ? `It ${agent.outcome.replace(/^needs/, "needs")}.` : ""}`.trim() }) };
+    }
 
-    if (pr.isDraft) return { lane: "waiting", waitingOn: `${author}: PR is still a draft`, who: authorWho, ci };
+    if (pr.isDraft) {
+        const since = act.lastPush || pr.createdAt;
+        return { lane: "waiting", waitingOn: `${author}: PR is still a draft`, who: authorWho, ci,
+            reason: reason("Draft, author still working", `It's a draft. Last push ${duration(since)} ago.`, since, stuckIf(since, "draftNoPush", "no new commits on this draft"), isMine ? null : { label: "Ask if it's still active", nudge: `${at}, is this draft still active? If you've moved on, closing it keeps the PR list tidy; if you're blocked, say what would help.` }) };
+    }
+
     if (pr.reviewDecision === "CHANGES_REQUESTED") {
-        const by = reviews.filter((r) => r.state === "CHANGES_REQUESTED").map((r) => r.author.login);
-        return { lane: "waiting", waitingOn: `${author}: address changes requested${by.length ? ` by ${by.join(", ")}` : ""}`, who: authorWho, ci };
+        // latestReviews hides a change request once that reviewer comments again, so also read the timeline.
+        const timelineReqs = (ext?.timelineItems?.nodes || []).filter((i) => i.__typename === "PullRequestReview" && i.state === "CHANGES_REQUESTED" && i.author?.login !== pr.author.login && !isBot(i.author));
+        const allReqs = [...reviews.filter((r) => r.state === "CHANGES_REQUESTED"), ...timelineReqs];
+        const by = [...new Set(allReqs.map((r) => r.author.login))];
+        const reqAt = maxIso(...allReqs.map((r) => r.submittedAt));
+        if (reqAt && ts(act.authorActivity) > ts(reqAt)) {
+            const since = act.authorActivity;
+            const r = reason("Author responded, needs re-review", `${by.join(", ")} requested changes; the author pushed or replied ${duration(since)} ago.`, since, stuckIf(since, "reReview", "no re-review since the author responded"),
+                isMine ? { label: "Ask for a re-review", nudge: `@${by.join(", @")}, I've addressed your feedback. Could you take another look?` } : { label: "Re-review the new changes", act: "review" });
+            if (isMine) return { lane: "waiting", waitingOn: `${by.join(", ")}: re-review your changes`, who: "others", ci, reason: r };
+            return { lane: "needs-review", waitingOn: `You: re-review (author responded to ${by.join(", ")})`, who: "you", ci, reason: r };
+        }
+        const since = reqAt;
+        return { lane: "waiting", waitingOn: `${author}: address changes requested${by.length ? ` by ${by.join(", ")}` : ""}`, who: authorWho, ci,
+            reason: reason("Changes requested, no response", `${by.join(", ")} requested changes ${duration(since)} ago; no push or reply from the author since.`, since, stuckIf(since, "changesNoResponse", "no response to changes requested"),
+                isMine ? null : nudge(`${at}, friendly ping on the changes ${by.map((b) => "@" + b).join(", ")} requested ${duration(since)} ago. Is anything blocking you, or should someone else pick this up?`)) };
     }
-    if (labels.includes("agent-blocked")) return { lane: "waiting", waitingOn: `${author}: ${isMine ? "your" : "their"} agent is blocked and needs help`, who: authorWho, ci };
-    if (pr.mergeable === "CONFLICTING") return { lane: "waiting", waitingOn: `${author}: resolve merge conflicts`, who: authorWho, ci };
+    if (labels.includes("agent-blocked")) {
+        const since = act.authorActivity;
+        return { lane: "waiting", waitingOn: `${author}: ${isMine ? "your" : "their"} agent is blocked and needs help`, who: authorWho, ci,
+            reason: reason("Author's agent is blocked", "The author's agent says it can't continue without help.", since, stuckIf(since, "approvedBlocked", "the agent has been blocked"), isMine ? null : nudge(`${at}, your agent marked this blocked. What does it need to continue?`)) };
+    }
 
+    const blockedWhy = ci.state === "failing" ? `failing checks (${ci.failing.slice(0, 2).join(", ")})` : pr.mergeable === "CONFLICTING" ? "merge conflicts" : (pr.mergeStateStatus || ext?.mergeStateStatus) === "BEHIND" ? "it's behind main" : null;
     if (pr.reviewDecision === "APPROVED") {
-        if (ci.state === "failing") return { lane: "waiting", waitingOn: `${author}: fix failing checks (${ci.failing.slice(0, 2).join(", ")})`, who: authorWho, ci };
-        if (ci.state === "pending") return { lane: "approved", waitingOn: `CI: ${ci.pending.length} check${ci.pending.length === 1 ? "" : "s"} still running`, who: "ci", ci };
-        if (pr.autoMergeRequest) return { lane: "approved", waitingOn: "GitHub: auto-merge is on; waiting to enter the queue", who: "github", ci };
-        return { lane: "approved", waitingOn: "You: ready to ship", who: "you", ci, shippable: true };
+        if (blockedWhy) {
+            const since = maxIso(approvedAt, act.lastPush);
+            return { lane: "waiting", waitingOn: `${author}: fix ${blockedWhy}`, who: authorWho, ci,
+                reason: reason("Approved, blocked", `Approved, but blocked by ${blockedWhy}.`, since, stuckIf(since, "approvedBlocked", `approved but blocked by ${blockedWhy}`), isMine ? null : nudge(`${at}, this is approved but blocked by ${blockedWhy}. Could you take a look?`)) };
+        }
+        const queueNote = act.autoMergeAt ? "auto-merge is on, so it goes to the merge queue when checks pass" : "nobody has turned on auto-merge yet";
+        if (ci.state === "pending") {
+            const since = ciPendingSince || act.lastPush;
+            return { lane: "approved", waitingOn: `CI: ${ci.pending.length} check${ci.pending.length === 1 ? "" : "s"} still running`, who: "ci", ci,
+                reason: reason("Approved, waiting on CI", `Approved; ${ci.pending.length} check${ci.pending.length === 1 ? "" : "s"} still running, and ${queueNote}.`, since, stuckIf(since, "ciRunning", "checks have been running"), { label: "Look at the running checks", url: pr.url + "/checks" }) };
+        }
+        if (act.autoMergeAt) {
+            const since = act.autoMergeAt;
+            return { lane: "approved", waitingOn: "GitHub: auto-merge is on; waiting to enter the queue", who: "github", ci,
+                reason: reason("Auto-merge on", "Approved and checks pass; auto-merge should add it to the merge queue.", since, stuckIf(since, "autoMerge", "auto-merge hasn't queued it"), { label: "Check why it isn't queued", url: pr.url }) };
+        }
+        return { lane: "approved", waitingOn: "You: ready to ship", who: "you", ci, shippable: true,
+            reason: reason("Ready to ship", "Approved and checks pass.", approvedAt, null, { label: "Ship it", act: "ship" }) };
     }
-
-    if (labels.includes("agent-preparing")) return { lane: "waiting", waitingOn: isMine ? "Your agent: still preparing it" : `${author}: their agent is still preparing it`, who: isMine ? "agent" : "author", ci };
-    if (isMine) return { lane: "waiting", waitingOn: "Another reviewer: needs an approval from someone else", who: "others", ci };
-    if (mine) return { lane: "waiting", waitingOn: `Other approvers: you already ${mine.state === "APPROVED" ? "approved" : "reviewed"}`, who: "others", ci };
-    if (ci.state === "failing") return { lane: "needs-review", waitingOn: `You: review (note: ${ci.failing.length} failing check${ci.failing.length === 1 ? "" : "s"})`, who: "you", ci };
-    return { lane: "needs-review", waitingOn: "You: review needed", who: "you", ci };
+    if (pr.mergeable === "CONFLICTING") {
+        const since = act.lastPush;
+        return { lane: "waiting", waitingOn: `${author}: resolve merge conflicts`, who: authorWho, ci,
+            reason: reason("Merge conflicts", "It conflicts with main, so it can't be reviewed or merged as is.", since, stuckIf(since, "approvedBlocked", "it has had conflicts"), isMine ? null : nudge(`${at}, this has merge conflicts with main. Could you update the branch?`)) };
+    }
+    if (approvals.length) {
+        // GitHub says REVIEW_REQUIRED even though someone approved: that approval doesn't count.
+        const since = approvedAt;
+        return { lane: "waiting", waitingOn: `Someone else: an approval that counts`, who: "others", ci,
+            reason: reason("Approval doesn't count", `${approvals.map((r) => r.author.login).join(", ")} approved, but GitHub still needs an approval that counts (for example from someone who didn't push the last commit, or a code owner).`, since, stuckIf(since, "approvedBlocked", "the approval hasn't counted"), { label: "Ask a different maintainer to approve", nudge: `Could another maintainer approve this? The existing approval doesn't count toward branch protection.` }) };
+    }
+    if (labels.includes("agent-preparing")) {
+        const since = act.authorActivity;
+        if (isMine) return { lane: "waiting", waitingOn: "Your agent: still preparing it", who: "agent", ci, reason: reason("Your agent is preparing it", "Your agent is still fixing feedback or waiting for CI.", since, null) };
+        return { lane: "waiting", waitingOn: `${author}: their agent is still preparing it`, who: "author", ci,
+            reason: reason("Author still preparing it", "The author's agent is still addressing feedback or CI; not ready for review.", since, stuckIf(since, "reReview", "the author's agent has been preparing it"), nudge(`${at}, is this close to ready for review? Anything blocking it?`)) };
+    }
+    const reviewSince = maxIso(act.readyAt, act.requestedAt) || pr.createdAt;
+    const requested = (pr.reviewRequests || []).map((r) => r.login || r.name || r.slug).filter(Boolean);
+    if (isMine) {
+        const who = requested.length ? requested.join(", ") : "any maintainer";
+        return { lane: "waiting", waitingOn: `${requested.length ? requested.join(", ") : "Another reviewer"}: needs an approval from someone else`, who: "others", ci,
+            reason: reason("Waiting on a reviewer", `Waiting for ${who} to review; nobody has yet.`, reviewSince, stuckIf(reviewSince, "reviewNoReview", "no review"), { label: requested.length ? `Ask ${requested.join(", ")} to review` : "Ask a maintainer to review", nudge: `${requested.length ? requested.map((r) => "@" + r).join(", ") : "Could a maintainer"} take a look at this one when you have a moment?`.replace(/^(@[^ ]+(?:, @[^ ]+)*) take/, "$1, could you take") }) };
+    }
+    if (mine) {
+        const since = mine.submittedAt;
+        return { lane: "waiting", waitingOn: `Other approvers: you already ${mine.state === "APPROVED" ? "approved" : "reviewed"}`, who: "others", ci,
+            reason: reason("Waiting on other reviewers", `You already ${mine.state === "APPROVED" ? "approved" : "reviewed"}; it needs another review.`, since, stuckIf(since, "reviewNoReview", "no other review"), { label: "Ask a maintainer to review", nudge: "Could another maintainer take a look at this one?" }) };
+    }
+    const r = reason("Waiting on your review", `Ready for review ${duration(reviewSince)} ago; no human review yet.`, reviewSince, stuckIf(reviewSince, "reviewNoReview", "no review"), { label: "Review it", act: "review" });
+    if (ci.state === "failing") return { lane: "needs-review", waitingOn: `You: review (note: ${ci.failing.length} failing check${ci.failing.length === 1 ? "" : "s"})`, who: "you", ci, reason: r };
+    return { lane: "needs-review", waitingOn: "You: review needed", who: "you", ci, reason: r };
 }
 
 export const GROUPS = [
@@ -232,6 +387,7 @@ export function buildCards(data, localPrs) {
             queue: data.queue.get(pr.number) || null,
             lane: c.lane,
             waitingOn: c.waitingOn,
+            reason: c.reason || null,
             who: c.who,
             shippable: !!c.shippable,
             updatedAt: pr.updatedAt,
@@ -267,5 +423,7 @@ export function buildCards(data, localPrs) {
         });
     }
     for (const c of cards) c.group = groupOf(c);
+    // Stuck PRs first within their group; otherwise keep GitHub's order.
+    cards.sort((a, b) => (b.reason?.stuck ? 1 : 0) - (a.reason?.stuck ? 1 : 0));
     return cards;
 }
