@@ -602,6 +602,9 @@ public sealed class XamlTriageServiceWorkflowTests
 
         var savedArch = WinDbgJsProviderAcquirer.HostArchitectureProvider;
         WinDbgJsProviderAcquirer.HostArchitectureProvider = () => System.Runtime.InteropServices.Architecture.Wasm;
+        // The fake PEs are unsigned; accept them so acquisition short-circuits instead of downloading.
+        var savedVerifier = XamlTriageBinaries.SignatureVerifier;
+        XamlTriageBinaries.SignatureVerifier = (_, _) => true;
         XamlTriageResult result;
         try
         {
@@ -610,6 +613,7 @@ public sealed class XamlTriageServiceWorkflowTests
         finally
         {
             WinDbgJsProviderAcquirer.HostArchitectureProvider = savedArch;
+            XamlTriageBinaries.SignatureVerifier = savedVerifier;
         }
 
         Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome,

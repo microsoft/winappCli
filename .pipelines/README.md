@@ -29,7 +29,7 @@ Queue **WinDevCLI - Release** manually with the **`publishPrereleaseNugets`** pa
 (optionally set `prereleaseNugetVersion`; blank auto-computes `version.json` + `-prerelease.<build>`).
 That adds two stages — `Prerelease_Nugets_Build` and `Prerelease_Nugets_Publish` — which pack just
 those three packages (`package-nuget.ps1 -SkipCliPackage`, so the CLI tools package is never built),
-ESRP-sign them, and push only them via the `NuGet-WinAppCLI` service connection.
+ESRP-sign them, and publish only them to nuget.org through ESRP Release (see [Publishing to nuget.org](#publishing-to-nugetorg)).
 
 Both stages are gated on the parameter, which **defaults false**, so they are pruned at *compile*
 time on every scheduled rehearsal and every real `rel/v*` release — they are absent from the graph
@@ -52,10 +52,22 @@ Notes:
 - Run it from a **non-`rel/v*`, non-`main`** branch to also keep the `main`-gated rehearsal stages
   (WinGet, MS Learn, credentials) out of the run. The unconditional `Build` stage still runs
   regardless — that is the cost of folding this into the release pipeline rather than a separate one.
-- The push runs as `NuGet-WinAppCLI`, which owns the `Microsoft.Windows.SDK.BuildTools.*` reserved
-  prefix, so no personal namespace ownership is needed. The run branch must be allowed by the Branch
-  control checks on `NuGet-WinAppCLI` and the signing connection.
+- The run branch must be allowed by the Branch control check on the signing connection, which
+  ESRP Release also uses to publish.
 - A successful push is an immutable nuget.org publish — bump the prerelease number per attempt.
+
+---
+
+## Publishing to nuget.org
+
+Both `Release_NuGet` and `Prerelease_Nugets_Publish` hand the signed `.nupkg` files to ESRP Release
+(`EsrpRelease@14`, `contenttype: NuGet`), which pushes them to nuget.org. No job in this pipeline
+contacts `api.nuget.org`, which keeps the pipeline compliant with the `CFSClean` network isolation
+policy. That policy blocks direct pushes to nuget.org.
+
+ESRP only publishes package IDs that are onboarded for our ESRP client. A new package ID needs a
+scope update with the ESRP Release team before its first release. Otherwise the release fails with
+`ErrorCode 2201: Tenant is not allowed to publish`.
 
 ---
 
@@ -115,7 +127,7 @@ Exactly seven things, each gated:
 | GitHub release | compile-time `${{ if }}` |
 | Symbol publication | whole stage omitted |
 | npm publish (ESRP Release) | whole stage omitted |
-| nuget.org push (`Release_NuGet`) | whole stage omitted |
+| nuget.org publish (`Release_NuGet`, ESRP Release) | whole stage omitted |
 | WinGet fork sync + `--submit` | `WINGET_SUBMIT` env, `'false'` unless `rel/v*` |
 | MS Learn push + PR | `MSLEARN_PUBLISH` env, `'false'` unless `rel/v*` |
 
@@ -159,13 +171,6 @@ Everything else, for real:
   and nothing is published, but it proves the connection exists, this pipeline is authorized to
   use it, **and the workload-identity federation credential still works** — the part that silently
   rotates or gets de-authorized under ES policy changes.
-- **The network path to nuget.org.** A plain HTTPS GET of `https://api.nuget.org/v3/index.json`
-  proves a release could reach the endpoint it pushes to, under the same network isolation policy
-  the release runs. Nothing is published and the API key is not exercised. This is a canary for the
-  break it was added after: 1ES centrally onboarded this pipeline to the `CFSClean` policy, which
-  DNS-blackholes `api.nuget.org`, and because the rehearsal skips `Release_NuGet` it stayed green
-  for weeks while a release could no longer publish. If this step fails, the release push is
-  already dead — the step prints the triage path.
 
 ### Limitations
 
@@ -174,15 +179,14 @@ Everything else, for real:
   is therefore also rehearsal-inert — see [Signing and Code Sign Validation](#signing-and-code-sign-validation).
 - **Code Sign Validation reports every first-party binary as unsigned.** Expected, and not
   actionable: nothing was signed. See the same section before filing anything.
-- **Connection existence is not credential validity.** `github-service-connection` and
-  `NuGet-WinAppCLI` are checked for existence and readiness only; nothing authenticates the secret
-  inside them without publishing.
-  **Two connections cannot be verified at all.** `github-service-connection` is consumed only by
-  `GitHubRelease@1`, whose every action mutates, and `NuGet-WinAppCLI` carries an API key that is
-  only validated on push. There is deliberately no check for them — a metadata lookup would prove
-  nothing about the credential, and it is better to say so than to fake coverage. They are covered
-  the moment you cut a real release. The `NuGet-WinAppCLI` **credential** is still unverified this
-  way — only the network path to `api.nuget.org` is checked, which is a different question.
+- **Connection existence is not credential validity.** `github-service-connection` is checked for
+  existence and readiness only; nothing authenticates the secret inside it without publishing.
+  **It cannot be verified at all**, because it is consumed only by `GitHubRelease@1`, whose every
+  action mutates. There is deliberately no check for it — a metadata lookup would prove nothing
+  about the credential, and it is better to say so than to fake coverage. It is covered the moment
+  you cut a real release.
+- **ESRP's NuGet onboarding is not checked.** The signing identity's token is verified, but whether
+  ESRP may publish each package is only known when a release runs.
 - **The publish calls themselves never run.** The rehearsal validates their preconditions, not the
   final API call.
 
