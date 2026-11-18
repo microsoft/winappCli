@@ -237,7 +237,18 @@ details.panel > .body { padding-top: var(--s3); }
 .ov-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 168px); gap: var(--s1) var(--s3); padding: var(--s3); border-bottom: 1px solid var(--hairline); align-items: start; }
 .ov-row { cursor: pointer; }
 .ov-row:hover { background: var(--subtle); }
-.ov-acts { display: flex; gap: 6px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+.ov-line { display: flex; align-items: center; gap: var(--s1) var(--s3); flex-wrap: wrap; min-width: 0; }
+.ov-line .ov-where { flex: 1 1 14em; min-width: 0; }
+.ov-acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ov-jump { display: flex; gap: 4px; flex-wrap: wrap; }
+.ov-jump button { font-size: var(--t-small); padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--fg); }
+.ov-jump button:hover { background: var(--subtle); }
+.ov-jump .n { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 2px; }
+.ov-sec { scroll-margin-top: var(--s3); }
+.msg.streaming .step { display: flex; align-items: center; gap: var(--s2); color: var(--muted); font-size: var(--t-small); }
+.menu a.menu-link { display: flex; align-items: center; gap: var(--s2); color: var(--fg); text-decoration: none; padding: 6px 10px; border-radius: 6px; font-size: var(--t-small); }
+.menu a.menu-link:hover { background: var(--subtle); }
+.menu a.menu-link:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .ov-acts button { font-size: var(--t-meta); padding: 0 8px; line-height: 22px; }
 .ov-acts .more { display: none; }
 .ov-row:hover .ov-acts .more, .ov-row:focus-within .ov-acts .more { display: inline-flex; }
@@ -818,7 +829,7 @@ function moreMenu(c) {
     local.session ? `<button role="menuitem" data-act="open-chat-link">${icon("comment")}Open full chat</button>` : "",
     local.session ? `<button role="menuitem" data-act="open-chat">${icon("link")}Ask the agent to open the chat</button>` : "",
     `<button role="menuitem" data-act="pin">${icon("pin")}${pins.has(c.number) ? "Unpin from top" : "Pin to top of the list"}</button>`,
-    `<button role="menuitem" data-act="open-github">${icon("external")}Open on GitHub</button>`,
+    `<a role="menuitem" class="menu-link" href="${esc(c.url)}" target="_blank" rel="noopener">${icon("external")}Open on GitHub</a>`,
     local.agent ? `<button role="menuitem" data-act="reset">${icon("reset")}Reset agent status</button>` : "",
   ];
   return `<div class="menu" role="menu" aria-label="More actions">${items.join("")}</div>`;
@@ -953,15 +964,24 @@ function filesHtml(c) {
       <td><span class="bar" aria-hidden="true"><i class="a" style="width:${(f.additions / max) * 60}px"></i><i class="d" style="width:${(f.deletions / max) * 60}px"></i></span></td></tr>`).join("")}</table>`;
 }
 
+// Live progress for a pending reply, pushed by the extension as "stream" events while the agent works.
+const streams = new Map();
+const streamKey = (c) => `${c.kind === "issue" ? "issue" : "pr"}:${c.number}`;
+function streamInner(c, s) {
+  const mins = c?.local?.pending ? (Date.now() - new Date(c.local.pending.at).getTime()) / 60000 : 0;
+  const dots = `<span class="thinking" aria-hidden="true"><span>●</span><span>●</span><span>●</span></span>`;
+  if (s?.text) return `<div class="who">Agent · writing…</div><div class="md">${md(s.text)}</div>`;
+  if (s?.step) return `<div class="who">Agent</div><div class="step">${dots}<span>${esc(s.step)}…</span></div>`;
+  return `<div class="who">Agent</div>${dots}${mins > 5 ? ` <span class="hint">No reply yet. The agent may be busy; the answer will show up here.</span>` : ""}`;
+}
+
 function threadHtml(c) {
   const local = c.local || {};
   const msgs = (local.thread || []).map((m) => m.role === "system"
     ? `<div class="sys">${esc(m.text)} · ${esc(when(m.at))}</div>`
     : `<div class="msg ${m.role === "user" ? "user" : "agent"}"><div class="who">${m.role === "user" ? "You" : esc(m.from || "Agent")} · ${esc(when(m.at))}</div><div class="md">${md(m.text)}</div></div>`).join("");
-  const pending = local.pending ? (() => {
-    const mins = (Date.now() - new Date(local.pending.at).getTime()) / 60000;
-    return `<div class="msg agent" aria-label="Agent is replying"><div class="who">Agent</div><span class="thinking"><span>●</span><span>●</span><span>●</span></span>${mins > 5 ? ` <span class="hint">No reply yet. The agent may be busy; the answer will show up here.</span>` : ""}</div>`;
-  })() : "";
+  const sk = streamKey(c);
+  const pending = local.pending ? `<div class="msg agent streaming" aria-live="polite" data-stream-key="${sk}">${streamInner(c, streams.get(sk))}</div>` : "";
   return `<div class="thread">${msgs || (pending ? "" : `<div class="hint">Ask anything about this PR, for example "What's still blocking this?" or "Explain the risky part in simple terms." The agent answers here.</div>`)}${pending}</div>`;
 }
 
@@ -980,7 +1000,7 @@ const EVENT_WORD = { approve: "Approve", request_changes: "Request changes", com
 const rvOf = (c) => c.local?.review || null;
 const triOf = (c) => c.local?.triage || {};
 const decisionOf = (c, id) => triOf(c)[id]?.decision || "undecided";
-const fileLink = (f) => `<a href="${esc(f.href || "#")}" data-act="browser" data-url="${esc(f.href || "")}" class="path" title="${esc(f.path)}">${esc(f.path).replace(/\//g, "/<wbr>")}${f.line ? `:${f.line}${f.endLine && f.endLine !== f.line ? "-" + f.endLine : ""}` : ""}</a>`;
+const fileLink = (f) => `<a href="${esc(f.href || "#")}" target="_blank" rel="noopener" class="path" title="${esc(f.path)}">${esc(f.path).replace(/\//g, "/<wbr>")}${f.line ? `:${f.line}${f.endLine && f.endLine !== f.line ? "-" + f.endLine : ""}` : ""}</a>`;
 const askBtn = (q) => `<button class="quiet" data-act="ask-about" data-q="${esc(q)}">${icon("comment", "sm")}Ask about this</button>`;
 
 function noReviewHtml(c, what) {
@@ -1186,9 +1206,9 @@ const scheduleDetail = (c) => { clearTimeout(detailTimer); detailTimer = setTime
 const answers = new Map(); // pr -> typed answer, kept across live re-renders
 const SECTIONS = [
   ["yours", "Yours", "You wrote these, or a session here is working on them.", ["Agent", "Monitoring", "pr-review", "PR"]],
-  ["issues", "Issues in progress", "Open issues a session here is working on, or assigned to you, with no PR yet.", ["Agent", "Last activity"]],
   ["reviewing", "Reviewing", "You're a reviewer, you reviewed them, or pr-review ran here.", ["pr-review", "PR", "Last activity"]],
   ["other", "Everything else", "Open PRs nobody is working on here.", ["PR"]],
+  ["issues", "Issues in progress", "Open issues a session here is working on, or assigned to you, with no PR yet.", ["Agent", "Last activity"]],
 ];
 
 function cell(label, chipHtml, under = "", extra = "") {
@@ -1252,10 +1272,10 @@ function ovRow(c, sec) {
   const sub = `<span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span title="${esc(c.size?.text)}">${esc(c.size?.label)}</span><span class="sep">·</span>${ciHtml(c)}<span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>`;
   const kind = c.kind === "issue" ? "issue" : "pr";
   const main = `<div class="ov-main"><div class="ov-title-row"><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${browserLink(c)}</div><div class="ov-sub">${sub}</div>`;
-  if (sec === "issues") return `<div class="ov-row" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
-  if (sec === "yours") return `<div class="ov-row" style="--cols:4">${main}<div class="ov-where">${whereHtml(c)}</div>${rowActs(c, kind)}</div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
-  if (sec === "reviewing") return `<div class="ov-row" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${rowActs(c, kind)}</div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
-  return `<div class="ov-row" style="--cols:1">${main}<div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${sec === "merged" ? "" : rowActs(c, kind)}</div>${prCell(c)}</div>`;
+  if (sec === "issues") return `<div class="ov-row" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-line"><div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div></div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
+  if (sec === "yours") return `<div class="ov-row" style="--cols:4">${main}<div class="ov-line"><div class="ov-where">${whereHtml(c)}</div>${rowActs(c, kind)}</div></div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
+  if (sec === "reviewing") return `<div class="ov-row" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${rowActs(c, kind)}</div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
+  return `<div class="ov-row" style="--cols:1">${main}<div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${sec === "merged" ? "" : rowActs(c, kind)}</div></div>${prCell(c)}</div>`;
 }
 
 // ---- Flyout ----
@@ -1268,7 +1288,7 @@ const issuesOf = () => snap?.issues || [];
 const itemOf = (kind, n) => (kind === "issue" ? issuesOf() : cardsOf()).find((c) => c.number === n) || null;
 
 function browserLink(c, label = "") {
-  return `<a class="btn ico" href="${esc(c.url)}" target="_blank" rel="noopener" data-act="browser" data-url="${esc(c.url)}" title="Open #${c.number} in your browser" aria-label="Open #${c.number} on GitHub in your browser">${icon("external", "sm")}${label ? esc(label) : ""}</a>`;
+  return `<a class="btn ico" href="${esc(c.url)}" target="_blank" rel="noopener" title="Open #${c.number} on GitHub" aria-label="Open #${c.number} on GitHub">${icon("external", "sm")}${label ? esc(label) : ""}</a>`;
 }
 
 function changesHtml(n) {
@@ -1416,20 +1436,21 @@ function renderOverview() {
   const order = (rows) => { rows.sort(sort); return [...rows.filter((c) => pins.has(c.number)), ...rows.filter((c) => !pins.has(c.number))]; };
   const cards = cardsOf();
   const merged = cards.filter((c) => c.section === "merged");
+  const secRows = SECTIONS.map(([id]) => order((id === "issues" ? issuesOf() : cards).filter((c) => c.section === id && !(c.hidden || c.local?.hidden))));
   el.innerHTML = `<div class="ov-inner">
-    <div class="ov-bar"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select>
-      <span>Rows keep their place when their state changes.</span></div>
-    ${SECTIONS.map(([id, title, hint, cols]) => {
-      const rows = order((id === "issues" ? issuesOf() : cards).filter((c) => c.section === id && !(c.hidden || c.local?.hidden)));
-      return `<section class="ov-sec" aria-label="${esc(title)}"><header><h2>${esc(title)}</h2><span class="n">${rows.length}</span><p>${esc(hint)}</p></header>
+    <div class="ov-bar"><nav class="ov-jump" aria-label="Jump to a section">${SECTIONS.map(([id, title], i) => `<button class="quiet" data-act="jump" data-sec="${id}">${esc(title)} <span class="n">${secRows[i].length}</span></button>`).join("")}</nav>
+      <span class="right"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select></span></div>
+    ${SECTIONS.map(([id, title, hint, cols], i) => {
+      const rows = secRows[i];
+      return `<section class="ov-sec" id="sec-${id}" aria-label="${esc(title)}"><header><h2>${esc(title)}</h2><span class="n">${rows.length}</span><p>${esc(hint)}</p></header>
         <div class="ov-cols" style="--cols:${cols.length}" aria-hidden="true"><span>${id === "issues" ? "Issue" : "Pull request"}</span>${cols.map((k) => `<span>${esc(k)}</span>`).join("")}</div>
         <div role="list">${rows.map((c) => ovRow(c, id)).join("") || `<div class="ov-empty">Nothing here.</div>`}</div></section>`;
     }).join("")}
+    ${merged.length ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${order(merged).map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
     ${(() => {
       const hidden = [...cards.filter((c) => c.section !== "merged" && c.local?.hidden), ...issuesOf().filter((c) => c.hidden)];
       return hidden.length ? `<details class="ov-hidden"><summary>${icon("chevRight", "sm chev")}Removed from the board <span class="n">${hidden.length}</span></summary><ul style="list-style:none;padding:0;margin:var(--s2) 0 0">${hidden.map((h) => `<li>${h.kind === "issue" ? "Issue" : "PR"} #${h.number} · ${esc(h.title)} <button data-act="unhide" data-pr="${h.number}" data-kind="${h.kind === "issue" ? "issue" : "pr"}">Put back</button></li>`).join("")}</ul></details>` : "";
     })()}
-    ${merged.length ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${order(merged).map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
   </div>`;
   el.scrollTop = scroll;
   if (fk) {
@@ -1504,7 +1525,7 @@ function arm(key, label) {
 function openMenuAndFocus(name) {
   openMenu = openMenu === name ? null : name;
   render();
-  if (openMenu) $("wsHead").querySelector(".menu button")?.focus();
+  if (openMenu) $("wsHead").querySelector('.menu [role="menuitem"]')?.focus();
 }
 
 document.addEventListener("click", (e) => {
@@ -1519,7 +1540,7 @@ document.addEventListener("click", (e) => {
   const a = el.dataset.act;
   const rowPr = el.dataset.pr ? Number(el.dataset.pr) : null;
   if (a === "select") return select(rowPr ?? selected);
-  if (a === "browser") { e.preventDefault(); return post("/api/open", { url: el.dataset.url }).then(() => toast("Opened in your browser")).catch((err) => toast("Couldn't open it: " + err.message)); }
+  if (a === "jump") { const s = document.getElementById("sec-" + el.dataset.sec); if (s) { s.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); s.querySelector(".ov-title")?.focus({ preventScroll: true }); } return; }
   if (a === "flyout") return openFlyout(el.dataset.kind || "pr", rowPr, el);
   if (a === "fly-close") return closeFlyout();
   if (a === "focus-ask") return $("flyInput")?.focus();
@@ -1572,7 +1593,6 @@ document.addEventListener("click", (e) => {
   if (a === "reload-detail") { loadDetail(c, { force: true }); return render(true); }
   if (a === "more-menu") return openMenuAndFocus("more");
   if (a === "pin") { openMenu = null; pins.has(pr) ? pins.delete(pr) : pins.add(pr); store.set(PIN_KEY, JSON.stringify([...pins])); toast(pins.has(pr) ? "Pinned to the top of the list" : "Unpinned"); return render(); }
-  if (a === "open-github") { openMenu = null; render(); return post("/api/open", { url: c.url }).then(() => toast("Opened in your browser")).catch((err) => toast("Couldn't open it: " + err.message)); }
   if (a === "open-chat-link") { openMenu = null; render(); location.href = "ghapp://sessions/" + encodeURIComponent(c.local.session.id); return; }
   if (a === "nudge") {
     const n = c.reason?.action?.nudge;
@@ -1716,7 +1736,24 @@ $("sumAll").addEventListener("click", async () => {
 
 function connect() {
   const es = new EventSource(`/events?repo=${encodeURIComponent(REPO)}`);
-  es.addEventListener("board", (ev) => { snap = JSON.parse(ev.data); render(); });
+  es.addEventListener("board", (ev) => {
+    snap = JSON.parse(ev.data);
+    streams.clear();
+    for (const [k, v] of Object.entries(snap.streams || {})) streams.set(k, v);
+    render();
+  });
+  es.addEventListener("stream", (ev) => {
+    const u = JSON.parse(ev.data);
+    const key = `${u.kind}:${u.number}`;
+    if (u.done) streams.delete(key); else streams.set(key, { text: u.text || "", step: u.step || "" });
+    const c = itemOf(u.kind, u.number);
+    for (const node of document.querySelectorAll(`[data-stream-key="${key}"]`)) {
+      const box = node.closest(".ws-scroll, #wsScroll, .fly-body") || node.parentElement;
+      const atBottom = box && box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+      node.innerHTML = streamInner(c, streams.get(key));
+      if (atBottom) box.scrollTop = box.scrollHeight;
+    }
+  });
   es.onerror = () => { $("meta").textContent = "Reconnecting…"; };
 }
 setInterval(() => { if (snap) render(); }, 30000);

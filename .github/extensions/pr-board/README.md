@@ -18,16 +18,17 @@ The board uses the current repo. To pick another one, pass `{ "repo": "owner/nam
 ## Overview
 
 The first screen. The header shows `15 open · 6 waiting on you · 4 stuck`, when
-sessions were last synced, and a **Sync** button. Each section keeps its rows in
-place (newest first, or the order you pick under Sort); a row's state changes,
-not its position.
+sessions were last synced, and a **Sync** button. Under it, one chip per section
+with its count (`Yours 1` `Reviewing 4` `Everything else 9` `Issues in progress 6`)
+jumps to that section. Each section keeps its rows in place (newest first, or
+the order you pick under Sort); a row's state changes, not its position.
 
 | Section | Which PRs | Columns |
 |---------|-----------|---------|
 | **Yours** | You wrote it, or a session here is working on it (for example a Dependabot PR you're fixing) | Agent, Monitoring, pr-review, PR |
-| **Issues in progress** | Open issues a session here is working on, or assigned to you, with no open PR yet | Agent, Last activity |
 | **Reviewing** | You're a requested reviewer, added it with **Add to my reviews**, you reviewed it, or pr-review ran here | pr-review, PR, Last activity |
 | **Everything else** | Open PRs nobody is working on here | PR |
+| **Issues in progress** | Open issues a session here is working on, or assigned to you, with no open PR yet | Agent, Last activity |
 
 - **Agent:** `Working`, `Waiting on you`, `Idle`, `Linked` (not synced yet), or
   `No session here` (it may be worked on another machine).
@@ -47,7 +48,7 @@ each choice, a box for a typed answer, and **Dismiss**. An answer goes to the
 agent, which answers the session for you. Dismiss only hides the question on the
 board; the session keeps waiting.
 
-Merged PRs are in a collapsed **Merged today** section at the bottom.
+At the bottom, collapsed: **Merged today**, then **Removed from the board**.
 
 ### The flyout
 
@@ -71,8 +72,7 @@ bottom of the Overview.
 | Everything else | Quick question, Add to my reviews (tracked on the board only; nothing changes on GitHub), Start review, Summarize |
 
 The ↗ icon on every row, and **Open in browser** in the flyout, open the PR or
-issue in your default browser. The extension opens it for you, because links
-inside the canvas may not leave the app.
+issue on GitHub in a new tab in the app.
 
 ### Sync
 
@@ -190,6 +190,13 @@ agent in the session that opened the board answers in the Thread tab, or
 forwards the question to the PR's own session and posts the answer when it comes
 back.
 
+While the agent works, the reply bubble shows what it's doing, for example
+`Reading the commits since the review…` or `Asking the linked session…`. The
+lines come from the agent's own short notes and the tools it runs. The answer
+itself appears all at once when the agent posts it with `pr_board_reply`.
+Extensions don't get the answer text while it's being written, so it can't
+appear word by word.
+
 ### Posting the findings you picked
 
 On the Review tab, **Post review ▾** → Approve, Request changes or Comment shows
@@ -275,6 +282,7 @@ per user and isn't committed. When a PR merges, a leftover agent status shows as
 | `github.mjs` | `gh` calls, groups, the ⏭ rules, waiting reasons and stuck thresholds, and fallback summaries |
 | `prompts.mjs` | The requests sent to the agent |
 | `store.mjs` | The per-repo state file |
+| `stream.mjs` | Turns the agent's notes and tool steps into the live progress line in a reply bubble |
 | `review.mjs` | The structured review schema, guide, and how picked findings become a GitHub review |
 | `diagram.js` | Draws the architecture diagrams as SVG |
 | `ui.html` | The inbox page (no build step, no dependencies) |

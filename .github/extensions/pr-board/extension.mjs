@@ -9,10 +9,10 @@ import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import { buildCards, buildIssueCards, detectRepo, fetchChangesSince, fetchDetail, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
-import { spawn } from "node:child_process";
 import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
+import { createStreamer } from "./stream.mjs";
 import { answerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -75,6 +75,7 @@ class Board {
             viewer: this.data?.viewer || null,
             cards: this.data ? buildCards(this.data, local).map((card) => (card.local?.review ? { ...card, local: { ...card.local, review: withLinks(card.local.review, card.url) } } : card)) : [],
             issues: buildIssueCards(this.issues || [], state.issues),
+            streams: streamer.forRepo(this.repo),
             error: this.error,
             fetchedAt: this.fetchedAt ? new Date(this.fetchedAt).toISOString() : null,
             loading: !!this.inflight,
@@ -96,6 +97,11 @@ class Board {
     broadcast() {
         if (!this.clients.size) return;
         const payload = `event: board\ndata: ${JSON.stringify(this.snapshot())}\n\n`;
+        for (const res of this.clients) res.write(payload);
+    }
+
+    sendStream(update) {
+        const payload = `event: stream\ndata: ${JSON.stringify(update)}\n\n`;
         for (const res of this.clients) res.write(payload);
     }
 
@@ -121,6 +127,17 @@ class Board {
 }
 
 const boards = new Map();
+let knownRepo = null;
+const streamer = createStreamer({
+    defaultRepo: () => knownRepo,
+    isPending: (repo, kind, number) => {
+        const st = readState(repo);
+        return !!(kind === "issue" ? st.issues : st.prs)[String(number)]?.pending;
+    },
+    onUpdate: (repo, update) => {
+        for (const [r, b] of boards) if (r.toLowerCase() === repo.toLowerCase()) b.sendStream(update);
+    },
+});
 function board(repo) {
     if (!boards.has(repo)) boards.set(repo, new Board(repo));
     return boards.get(repo);
@@ -128,7 +145,7 @@ function board(repo) {
 
 let defaultRepoPromise = null;
 function defaultRepo() {
-    defaultRepoPromise ??= detectRepo(process.cwd());
+    defaultRepoPromise ??= detectRepo(process.cwd()).then((r) => (knownRepo = r));
     return defaultRepoPromise;
 }
 
@@ -379,6 +396,7 @@ async function sendMessage({ repo, pr, text, kind = "pr" }) {
     });
     b.broadcast();
     try {
+        streamer.expect(repo, kind, pr);
         await session.send({ prompt: messagePrompt(card, repo, msg, recent) });
     } catch (e) {
         updateItem(repo, kind, pr, (s) => {
@@ -393,6 +411,7 @@ async function sendMessage({ repo, pr, text, kind = "pr" }) {
 
 async function send(prompt, repo, pr, { quiet = false, kind = "pr" } = {}) {
     try {
+        if (readState(repo)[kind === "issue" ? "issues" : "prs"][String(pr)]?.pending) streamer.expect(repo, kind, pr);
         await session.send({ prompt });
     } catch (e) {
         updateItem(repo, kind, pr, (s) => {
@@ -402,18 +421,6 @@ async function send(prompt, repo, pr, { quiet = false, kind = "pr" } = {}) {
         });
         throw httpError(502, `Couldn't send to the agent: ${e.message}`);
     }
-}
-
-// Open a GitHub link for this repo in the system browser. The extension runs on the
-// user's machine, so it can do this directly; links in the canvas iframe may not.
-function openInBrowser(repo, url) {
-    const prefix = `https://github.com/${repo}/`;
-    if (!url.toLowerCase().startsWith(prefix.toLowerCase()) || /[\s"'<>^&|]/.test(url)) throw httpError(400, `Only links under ${prefix} can be opened.`);
-    const [cmd, args] = process.platform === "win32" ? ["explorer.exe", [url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-    const child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true });
-    child.on("error", () => {});
-    child.unref();
-    return { ok: true };
 }
 
 function httpError(status, message) {
@@ -548,9 +555,6 @@ async function handle(req, res) {
             if (!local.review) throw httpError(404, "No structured review yet.");
             if (!POST_EVENTS.has(body.event)) throw httpError(400, "Pick Approve, Request changes, or Comment.");
             return json(200, composeGithubReview(local.review, local.triage, body.event, board(repo).card(pr)?.headSha));
-        }
-        if (url.pathname === "/api/open") {
-            return json(200, openInBrowser(repo, String(body.url || "")));
         }
     }
     json(404, { error: "Not found" });
@@ -1017,4 +1021,11 @@ session = await joinSession({
             },
         }),
     ],
+});
+
+// Mirror the agent's work on a board request into the thread's "replying" bubble (see stream.mjs).
+session.on((event) => {
+    try {
+        streamer.handle(event);
+    } catch {}
 });
