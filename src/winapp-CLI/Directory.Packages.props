@@ -1,26 +1,26 @@
 <Project>
   <ItemGroup>
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.5" />
-    <PackageVersion Include="Spectre.Console" Version="0.54.0" />
-    <PackageVersion Include="Spectre.Console.Testing" Version="0.54.0" />
-    <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.360" />
-    <PackageVersion Include="System.CommandLine" Version="2.0.5" />
-    <PackageVersion Include="System.Diagnostics.EventLog" Version="10.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.14" />
+    <PackageVersion Include="Spectre.Console" Version="0.57.2" />
+    <PackageVersion Include="Spectre.Console.Testing" Version="0.57.2" />
+    <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.367" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.14" />
+    <PackageVersion Include="System.Diagnostics.EventLog" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Telemetry.Inbox.Managed" Version="10.0.25148.1001-220626-1600.rs-fun-deploy-dev5" />
     <!-- These two move together. Svg.Skia is compiled against a specific SkiaSharp major, and
          SkiaSharp majors are binary-breaking, so lifting one alone leaves SVG rendering to fail at
          runtime rather than at build. Svg.Skia 5.x requires SkiaSharp 4.148.0 or newer. Anything at
          or above SkiaSharp 3.119.4 carries libexpat 2.7.5, which is what takes the CLI off
          CVE-2025-59375. -->
-    <PackageVersion Include="SkiaSharp" Version="4.152.0" />
+    <PackageVersion Include="SkiaSharp" Version="4.154.0" />
     <PackageVersion Include="Svg.Skia" Version="5.2.3" />
-    <PackageVersion Include="System.Drawing.Common" Version="10.0.5" />
-    <PackageVersion Include="Microsoft.Diagnostics.Runtime" Version="3.1.512801" />
-    <PackageVersion Include="Microsoft.Diagnostics.Runtime.Utilities" Version="3.0.442202" />
+    <PackageVersion Include="System.Drawing.Common" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Diagnostics.Runtime" Version="4.2.751201" />
+    <PackageVersion Include="Microsoft.Diagnostics.Runtime.Utilities" Version="4.2.751201" />
     <!-- NuGet client libraries. 7.9.0 is the first stable release exposing the
          `NuGet.UseSystemTextJsonDeserialization` feature switch, which lets the linker trim the
          reflection-based Newtonsoft.Json path entirely and keeps the Native AOT publish clean.
@@ -33,7 +33,7 @@
     <PackageVersion Include="NuGet.Credentials" Version="7.9.0" />
     <!-- NuGet.Packaging 7.9.0 brings in 8.0.1, which has CVE-2026-70162 and CVE-2026-84008. Drop this
          pin once NuGet.Packaging depends on a fixed version. -->
-    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <!-- Native debugging engine bits for WinUI stowed-exception triage (the run debug-output flag).
          Restore-only (ExcludeAssets="all"): pins versions and populates the NuGet global cache for
          dev/CI; the published single-file CLI resolves these at runtime from the cache or downloads

@@ -609,20 +609,17 @@ internal partial class MsixService
         GetLocalLowFolder(),
     ];
 
-    private static unsafe string? GetLocalLowFolder()
+    private static string? GetLocalLowFolder()
     {
         var hr = Windows.Win32.PInvoke.SHGetKnownFolderPath(
             Windows.Win32.PInvoke.FOLDERID_LocalAppDataLow,
             Windows.Win32.UI.Shell.KNOWN_FOLDER_FLAG.KF_FLAG_DONT_VERIFY,
             null,
             out var path);
-        try
+        // The safe handle frees the string with CoTaskMemFree on dispose, even when the call fails.
+        using (path)
         {
-            return hr.Succeeded ? path.ToString() : null;
-        }
-        finally
-        {
-            System.Runtime.InteropServices.Marshal.FreeCoTaskMem((nint)path.Value);
+            return hr.Succeeded ? path.DangerousValue.ToString() : null;
         }
     }
 
