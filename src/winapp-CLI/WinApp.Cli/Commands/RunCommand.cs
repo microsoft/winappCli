@@ -49,7 +49,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         ("Package layout",
             [ManifestOption, ExecutableOption, OutputAppXDirectoryOption]),
         ("Debug and profile",
-            [DebugOutputOption, SymbolsOption, DevToolsOption, ProfileOption, ProfileModeOption, ProfileDurationOption, ProfileSizeOption, WinAppRootCommand.JsonOption]),
+            [DebugOutputOption, SymbolsOption, DevToolsOption, WatchOption, ProfileOption, ProfileModeOption, ProfileDurationOption, ProfileSizeOption, WinAppRootCommand.JsonOption]),
     ];
 
     public static Argument<FileSystemInfo> InputArgument { get; }
