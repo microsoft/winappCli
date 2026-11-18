@@ -840,9 +840,9 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         var message = document is not null
             ? document.RootElement.GetProperty("Error").GetString()
             : ConsoleStdErr.ToString();
-        StringAssert.Contains(message!, "DevTools requires WinUI 3");
-        StringAssert.Contains(message!, $"'{app.Output}' does not contain a WinUI 3 app");
-        StringAssert.Contains(message!, "--devtools off");
+        Assert.Contains("DevTools requires WinUI 3", message!);
+        Assert.Contains($"'{app.Output}' does not contain a WinUI 3 app", message!);
+        Assert.Contains("--devtools off", message!);
         Assert.IsEmpty(_environments);
         Assert.IsEmpty(closed);
         Assert.IsEmpty(_msix.AddLooseLayoutCalls);
@@ -1464,8 +1464,8 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
 
         Assert.AreEqual(1, await DotnetRun(run.Output, framework, run.SourcesFile, "--devtools", "on", "--detach", "--json"));
         var error = JsonDocument.Parse(TestAnsiConsole.Output).RootElement.GetProperty("Error").GetString()!;
-        StringAssert.Contains(error, $"DevTools requires WinUI 3; '{run.Output}' is the output of a {name}-only project");
-        StringAssert.Contains(error, "--devtools off");
+        Assert.Contains($"DevTools requires WinUI 3; '{run.Output}' is the output of a {name}-only project", error);
+        Assert.Contains("--devtools off", error);
         Assert.IsEmpty(_environments);
         Assert.IsEmpty(_launcher.LaunchExecutableCalls);
         Assert.IsEmpty(_launcher.LaunchCalls);
