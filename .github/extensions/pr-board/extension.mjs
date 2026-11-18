@@ -1,15 +1,15 @@
 // Extension: pr-board
-// A canvas that shows a repo's open pull requests as cards in lifecycle lanes,
-// and lets the user hand review / post / ship steps to the hosting agent.
+// An inbox of a repo's pull requests with a per-PR workspace: status, timeline,
+// draft review, review/post/ship buttons, and a thread with the hosting agent.
 import { createServer } from "node:http";
 import { readFileSync, existsSync, statSync, watchFile, unwatchFile } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, detectRepo, fetchRepoData, GhError, LANES } from "./github.mjs";
-import { addHistory, readState, stateFile, updatePr } from "./store.mjs";
-import { openChatPrompt, postPrompt, reviewPrompt, shipPrompt } from "./prompts.mjs";
+import { buildCards, detectRepo, fetchRepoData, GhError, GROUPS } from "./github.mjs";
+import { addHistory, addMessage, readState, stateFile, updatePr } from "./store.mjs";
+import { messagePrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -58,7 +58,7 @@ class Board {
         const local = readState(this.repo).prs;
         return {
             repo: this.repo,
-            lanes: LANES,
+            groups: GROUPS,
             viewer: this.data?.viewer || null,
             cards: this.data ? buildCards(this.data, local) : [],
             error: this.error,
@@ -121,6 +121,12 @@ async function resolveRepo(repo) {
 const POST_EVENTS = new Set(["approve", "request_changes", "comment"]);
 const nowIso = () => new Date().toISOString();
 
+// Record an event in both the timeline and the thread, so the thread reads as one story.
+function note(s, text) {
+    addHistory(s, text);
+    addMessage(s, "system", text);
+}
+
 async function runCardAction({ repo, pr, action, event, force }) {
     const b = board(repo);
     if (!b.data) await b.refresh();
@@ -130,11 +136,11 @@ async function runCardAction({ repo, pr, action, event, force }) {
     const busy = local.agent?.status === "running";
 
     if (action === "review") {
-        if (busy && !force) throw httpError(409, "An agent is already working on this PR. Use Reset in the details panel if it's stuck.");
+        if (busy && !force) throw httpError(409, "An agent is already working on this PR. Use 'Reset agent status' if it's stuck.");
         updatePr(repo, pr, (s) => {
             s.agent = { status: "running", kind: "review", outcome: "Queued: asking the agent to start a review", updatedAt: nowIso() };
             s.draft = null;
-            addHistory(s, "You asked for an agent review");
+            note(s, "You asked for an agent review");
         });
         await send(reviewPrompt(card, repo), repo, pr);
     } else if (action === "post") {
@@ -144,7 +150,7 @@ async function runCardAction({ repo, pr, action, event, force }) {
         const word = event.replace("_", " ");
         updatePr(repo, pr, (s) => {
             s.agent = { status: "running", kind: "post", outcome: `Posting the draft as "${word}"`, updatedAt: nowIso() };
-            addHistory(s, `You asked to post the draft as "${word}"`);
+            note(s, `You asked to post the draft as "${word}"`);
         });
         await send(postPrompt(card, repo, event), repo, pr);
     } else if (action === "ship") {
@@ -152,7 +158,7 @@ async function runCardAction({ repo, pr, action, event, force }) {
         if (busy && !force) throw httpError(409, "An agent is already working on this PR.");
         updatePr(repo, pr, (s) => {
             s.agent = { status: "running", kind: "ship", outcome: "Asking the agent to send it to the merge queue", updatedAt: nowIso() };
-            addHistory(s, "You asked to ship it");
+            note(s, "You asked to ship it");
         });
         await send(shipPrompt(card, repo), repo, pr);
     } else if (action === "open-chat") {
@@ -161,13 +167,43 @@ async function runCardAction({ repo, pr, action, event, force }) {
     } else if (action === "reset") {
         updatePr(repo, pr, (s) => {
             s.agent = null;
-            addHistory(s, "You reset the agent status");
+            note(s, "You reset the agent status");
         });
     } else {
         throw httpError(400, `Unknown action ${action}`);
     }
     b.broadcast();
     return { ok: true };
+}
+
+const MAX_MESSAGE = 4000;
+
+async function sendMessage({ repo, pr, text }) {
+    text = String(text || "").trim();
+    if (!text) throw httpError(400, "Type a message first.");
+    if (text.length > MAX_MESSAGE) throw httpError(413, `Keep messages under ${MAX_MESSAGE} characters.`);
+    const b = board(repo);
+    if (!b.data) await b.refresh();
+    const card = b.card(pr);
+    if (!card) throw httpError(404, `PR #${pr} isn't on the board. Press Refresh.`);
+    const recent = (card.local?.thread || []).filter((m) => m.role !== "system").slice(-6);
+    let msg;
+    updatePr(repo, pr, (s) => {
+        msg = addMessage(s, "user", text);
+        s.pending = { id: msg.id, at: msg.at };
+    });
+    b.broadcast();
+    try {
+        await session.send({ prompt: messagePrompt(card, repo, msg, recent) });
+    } catch (e) {
+        updatePr(repo, pr, (s) => {
+            s.pending = null;
+            addMessage(s, "system", `Couldn't reach the agent: ${e.message}`);
+        });
+        b.broadcast();
+        throw httpError(502, `Couldn't send to the agent: ${e.message}`);
+    }
+    return { ok: true, id: msg.id };
 }
 
 async function send(prompt, repo, pr, { quiet = false } = {}) {
@@ -177,7 +213,7 @@ async function send(prompt, repo, pr, { quiet = false } = {}) {
         if (!quiet) {
             updatePr(repo, pr, (s) => {
                 s.agent = { status: "failed", kind: s.agent?.kind, outcome: `Couldn't reach the agent: ${e.message}`, updatedAt: nowIso() };
-                addHistory(s, "Couldn't send the request to the agent");
+                note(s, "Couldn't send the request to the agent");
             });
         }
         throw httpError(502, `Couldn't send to the agent: ${e.message}`);
@@ -253,6 +289,11 @@ async function handle(req, res) {
             await board(repo).refresh({ force: true });
             return json(200, { ok: true });
         }
+        if (url.pathname === "/api/message") {
+            const pr = Number(body.pr);
+            if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
+            return json(200, await sendMessage({ repo, pr, text: body.text }));
+        }
         if (url.pathname === "/api/action") {
             const pr = Number(body.pr);
             if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
@@ -285,16 +326,52 @@ function summarizeCard(c) {
     return {
         pr: c.number,
         title: c.title,
-        lane: c.lane,
+        group: c.group,
         waitingOn: c.waitingOn,
         ci: c.ci?.text,
         session: c.local?.session || null,
         agent: c.local?.agent || null,
         draft: c.local?.draft || null,
+        awaitingReply: !!c.local?.pending,
+        thread: (c.local?.thread || []).slice(-5).map((m) => ({ role: m.role, from: m.from, text: m.text.slice(0, 300), at: m.at })),
     };
 }
 
+const STATUS_WORDS = {
+    running: "Agent working",
+    waiting: "Agent needs your input",
+    waiting_on_others: "Waiting on someone else",
+    posted: "Review posted",
+    done: "Done",
+    failed: "Agent failed",
+};
+
 const tools = [
+    {
+        name: "pr_board_reply",
+        description: "Post a reply in a PR's thread on the PR board. Use it to answer every \"[PR board] Message about ...\" request; the user reads replies only in the board, not in chat. Markdown: bold, italics, inline code, code blocks, lists and links.",
+        parameters: {
+            type: "object",
+            properties: {
+                repo: repoProp,
+                pr: prProp,
+                text: { type: "string", description: "The reply, in Markdown. Short and self-contained." },
+                from: { type: "string", description: "Who answered, e.g. \"Coordinator\" or the linked session's name." },
+            },
+            required: ["pr", "text"],
+        },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            if (!String(args.text || "").trim()) throw new Error("text is empty");
+            let msg;
+            updatePr(repo, args.pr, (s) => {
+                msg = addMessage(s, "agent", String(args.text).trim(), args.from || null);
+                s.pending = null;
+            });
+            board(repo).broadcast();
+            return { ok: true, repo, pr: args.pr, id: msg.id };
+        },
+    },
     {
         name: "pr_board_link_session",
         description: "Link a Copilot session to a pull request card on the PR board, so the card shows it and 'Open chat' can open it. Call right after creating or reusing a session for a PR from a PR board request.",
@@ -339,7 +416,7 @@ const tools = [
             const pr = updatePr(repo, args.pr, (s) => {
                 if (args.status === "clear") {
                     s.agent = null;
-                    addHistory(s, "Agent status cleared");
+                    note(s, "Agent status cleared");
                     return;
                 }
                 if (args.status === "posted") {
@@ -348,7 +425,7 @@ const tools = [
                 } else {
                     s.agent = { status: args.status, kind: s.agent?.kind || null, outcome: outcome || s.agent?.outcome || null, updatedAt: nowIso() };
                 }
-                addHistory(s, `${args.status}${outcome ? `: ${outcome}` : ""}`);
+                note(s, `${STATUS_WORDS[args.status]}${outcome ? `: ${outcome}` : ""}`);
             });
             board(repo).broadcast();
             return { ok: true, repo, pr: args.pr, agent: pr.agent };
@@ -376,7 +453,7 @@ const tools = [
             updatePr(repo, args.pr, (s) => {
                 s.draft = { path: args.path, recommendation: args.recommendation, summary, attachedAt: nowIso(), postedAt: null };
                 s.agent = { status: "draft_ready", kind: "review", outcome: `Draft ready: ${summary || words}`, updatedAt: nowIso() };
-                addHistory(s, `Draft ready (${words})${summary ? `: ${summary}` : ""}`);
+                note(s, `Draft review attached (${words})${summary ? `: ${summary}` : ""}`);
             });
             board(repo).broadcast();
             return { ok: true, repo, pr: args.pr, lane: "draft-ready" };
@@ -411,7 +488,7 @@ session = await joinSession({
         createCanvas({
             id: "pr-board",
             displayName: "PR board",
-            description: "Board of a GitHub repo's open pull requests by lifecycle stage, with agent review, post and ship buttons per PR.",
+            description: "Inbox of a GitHub repo's pull requests grouped by who they wait on, with a per-PR workspace: status, timeline, draft review, review/post/ship buttons and an inline thread with the agent.",
             inputSchema: {
                 type: "object",
                 additionalProperties: false,
@@ -431,8 +508,8 @@ session = await joinSession({
                 },
                 {
                     name: "get_board",
-                    description: "Return the board's cards: lane, who each PR waits on, linked session and agent status.",
-                    inputSchema: { type: "object", additionalProperties: false, properties: { lane: { type: "string", enum: LANES.map((l) => l.id) } } },
+                    description: "Return the PRs: group (who it waits on), next step, linked session, agent status and recent thread messages.",
+                    inputSchema: { type: "object", additionalProperties: false, properties: { group: { type: "string", enum: GROUPS.map((g) => g.id) } } },
                     handler: async (ctx) => {
                         const repo = instanceRepo(ctx);
                         const b = board(repo);
@@ -441,8 +518,8 @@ session = await joinSession({
                         return {
                             repo,
                             error: b.error,
-                            counts: Object.fromEntries(LANES.map((l) => [l.id, all.filter((c) => c.lane === l.id).length])),
-                            cards: all.filter((c) => !ctx.input?.lane || c.lane === ctx.input.lane).map(summarizeCard),
+                            counts: Object.fromEntries(GROUPS.map((g) => [g.id, all.filter((c) => c.group === g.id).length])),
+                            cards: all.filter((c) => !ctx.input?.group || c.group === ctx.input.group).map(summarizeCard),
                         };
                     },
                 },

@@ -63,7 +63,7 @@ async function mergeQueue(repo, branch) {
 export async function fetchRepoData(repo) {
     const [openJson, mergedJson, viewer, defaultBranch] = await Promise.all([
         gh(["pr", "list", "-R", repo, "--state", "open", "--limit", "60", "--json", PR_FIELDS]),
-        gh(["pr", "list", "-R", repo, "--state", "merged", "--limit", "8", "--json", "number,title,url,author,mergedAt,additions,deletions"]),
+        gh(["pr", "list", "-R", repo, "--state", "merged", "--limit", "8", "--json", "number,title,url,author,mergedAt,createdAt,additions,deletions,changedFiles,latestReviews"]),
         viewerLogin(),
         gh(["repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]).then((s) => s.trim() || "main"),
     ]);
@@ -103,16 +103,6 @@ function sizeLabel(pr) {
 
 const BOT_LOGINS = /\[bot\]$|^copilot-pull-request-reviewer$|^github-code-quality$|^copilot$/i;
 const humanReview = (r) => r?.author?.login && !r.author.is_bot && !BOT_LOGINS.test(r.author.login);
-
-export const LANES = [
-    { id: "needs-review", title: "Needs review", hint: "Nobody has reviewed the latest changes yet." },
-    { id: "agent-reviewing", title: "Agent reviewing", hint: "An agent session is drafting a review." },
-    { id: "draft-ready", title: "Draft ready", hint: "A review draft is waiting for you to read and post." },
-    { id: "waiting", title: "Waiting on author / others", hint: "The next step belongs to someone else." },
-    { id: "approved", title: "Approved", hint: "Approved; waiting on CI, or ready to ship." },
-    { id: "queue", title: "In merge queue", hint: "Queued for merge on GitHub." },
-    { id: "merged", title: "Merged recently", hint: "Merged in the last 24 hours." },
-];
 
 // Decide a card's lane and a plain-words "waiting on" line.
 export function classify(pr, ctx, local) {
@@ -160,6 +150,35 @@ export function classify(pr, ctx, local) {
     return { lane: "needs-review", waitingOn: "You: review needed", who: "you", ci };
 }
 
+export const GROUPS = [
+    { id: "you", title: "Needs you", hint: "Your move: review, read a draft, answer the agent, or ship." },
+    { id: "agent", title: "Agent working", hint: "An agent is on it." },
+    { id: "others", title: "Waiting on others", hint: "The author, another reviewer, or CI is next." },
+    { id: "queue", title: "In merge queue", hint: "Queued for merge on GitHub." },
+    { id: "merged", title: "Merged", hint: "Merged in the last 24 hours." },
+];
+
+function groupOf(card) {
+    if (card.lane === "merged") return "merged";
+    if (card.lane === "queue") return "queue";
+    if (card.who === "you") return "you";
+    if (card.who === "agent") return "agent";
+    return "others";
+}
+
+// GitHub-side events for the PR timeline (local board events are merged in by the UI).
+function githubEvents(pr) {
+    const events = [];
+    if (pr.createdAt) events.push({ at: pr.createdAt, text: `${pr.author?.login || "Someone"} opened the PR`, source: "github" });
+    for (const r of (pr.latestReviews || []).filter(humanReview)) {
+        if (!r.submittedAt) continue;
+        const verb = { APPROVED: "approved", CHANGES_REQUESTED: "requested changes", COMMENTED: "commented", DISMISSED: "review dismissed" }[r.state] || r.state.toLowerCase();
+        events.push({ at: r.submittedAt, text: `${r.author.login} ${verb}`, source: "github" });
+    }
+    if (pr.mergedAt) events.push({ at: pr.mergedAt, text: "Merged", source: "github" });
+    return events;
+}
+
 export function buildCards(data, localPrs) {
     const cards = [];
     for (const pr of data.open) {
@@ -183,6 +202,7 @@ export function buildCards(data, localPrs) {
             who: c.who,
             shippable: !!c.shippable,
             updatedAt: pr.updatedAt,
+            events: githubEvents(pr),
             local,
         });
     }
@@ -202,8 +222,10 @@ export function buildCards(data, localPrs) {
             waitingOn: `Merged ${new Date(pr.mergedAt).toLocaleString()}`,
             who: "done",
             mergedAt: pr.mergedAt,
+            events: githubEvents(pr),
             local,
         });
     }
+    for (const c of cards) c.group = groupOf(c);
     return cards;
 }

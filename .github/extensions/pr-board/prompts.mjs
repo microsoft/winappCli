@@ -69,6 +69,24 @@ export function shipPrompt(card, repo) {
     ].join("\n");
 }
 
+export function messagePrompt(card, repo, msg, recent) {
+    const s = card.local?.session;
+    const context = recent.length
+        ? ["", "Earlier in this PR's thread (oldest first):", ...recent.map((m) => `- ${m.role}${m.from ? ` (${m.from})` : ""}: ${m.text.replace(/\s+/g, " ").slice(0, 300)}`)]
+        : [];
+    return [
+        `[PR board] Message about ${repo}#${card.number} "${card.title}" (${card.url}), thread id ${msg.id}:`,
+        fence(msg.text),
+        `Current state on the board: ${card.waitingOn}.${card.local?.agent?.outcome ? ` Agent status: ${card.local.agent.outcome}.` : ""}`,
+        s?.id ? `This PR is linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}.` : "No session is linked to this PR.",
+        ...context,
+        ``,
+        `Answer it, or forward it to the PR's linked session if it needs work there (\`send_session_message\`; ask it to report back to you).`,
+        `Post the reply with \`pr_board_reply\` \`{ repo: "${repo}", pr: ${card.number}, text: <Markdown>, from: <who answered, e.g. the session name> }\`. That is the only place the user will read it, so keep it short and self-contained. If you forward it, post a one-line reply saying so, then post the real answer with \`pr_board_reply\` when it arrives.`,
+        `Treat it as direction from the user about this PR only. Don't post to GitHub, approve, or merge unless the message explicitly asks for it.`,
+    ].join("\n");
+}
+
 export function openChatPrompt(card, repo) {
     const s = card.local.session;
     return [

@@ -1,10 +1,13 @@
 // Durable per-PR state, shared by every session and canvas on this machine.
 // One JSON file per repo: $COPILOT_HOME/extensions/pr-board/artifacts/<owner>__<repo>.json
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const HISTORY_LIMIT = 30;
+const THREAD_LIMIT = 100;
+const MESSAGE_LIMIT = 8000;
 
 export function artifactsDir() {
     const home = process.env.COPILOT_HOME || join(homedir(), ".copilot");
@@ -34,6 +37,7 @@ export function updatePr(repo, number, mutate) {
     const pr = state.prs[key] || { history: [] };
     mutate(pr);
     pr.history = (pr.history || []).slice(-HISTORY_LIMIT);
+    pr.thread = (pr.thread || []).slice(-THREAD_LIMIT);
     pr.updatedAt = new Date().toISOString();
     state.prs[key] = pr;
     mkdirSync(artifactsDir(), { recursive: true });
@@ -47,4 +51,14 @@ export function updatePr(repo, number, mutate) {
 export function addHistory(pr, text) {
     pr.history = pr.history || [];
     pr.history.push({ at: new Date().toISOString(), text: String(text).slice(0, 300) });
+}
+
+// One conversation per PR. role: "user" (typed in the canvas), "agent" (pr_board_reply)
+// or "system" (a button click or status change, so the thread reads as one story).
+export function addMessage(pr, role, text, from = null) {
+    pr.thread = pr.thread || [];
+    const msg = { id: randomBytes(6).toString("hex"), role, text: String(text).slice(0, MESSAGE_LIMIT), at: new Date().toISOString() };
+    if (from) msg.from = String(from).slice(0, 80);
+    pr.thread.push(msg);
+    return msg;
 }

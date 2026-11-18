@@ -24,7 +24,8 @@
   --purple-muted: var(--true-color-purple-muted, rgba(130,80,223,.12));
   --orange: var(--true-color-orange, #bc4c00);
   --orange-muted: var(--true-color-orange-muted, rgba(188,76,0,.12));
-  --lane-bg: color-mix(in srgb, var(--fg) 4%, var(--bg));
+  --subtle: color-mix(in srgb, var(--fg) 5%, var(--bg));
+  --mono: var(--font-mono, "SFMono-Regular", Consolas, monospace);
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -32,97 +33,124 @@ body {
   margin: 0; background: var(--bg); color: var(--fg);
   font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   font-size: var(--text-body-medium, 14px); line-height: var(--leading-body-medium, 20px);
-  display: flex; flex-direction: column;
+  display: flex; flex-direction: column; overflow: hidden;
 }
 a { color: var(--blue); text-decoration: none; }
 a:hover { text-decoration: underline; }
-button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px; cursor: pointer; line-height: 20px; }
-button:hover:not(:disabled) { background: var(--lane-bg); }
-button:disabled { opacity: .45; cursor: default; }
-button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+button, a.btn { font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px; cursor: pointer; line-height: 20px; display: inline-block; }
+button:hover:not(:disabled), a.btn:hover { background: var(--subtle); text-decoration: none; }
+button:disabled, a.btn.disabled { opacity: .45; cursor: default; pointer-events: none; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 button.primary { background: var(--blue); color: var(--color-white, #fff); border-color: var(--blue); }
-button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--blue); }
+button.primary:hover:not(:disabled) { background: var(--blue); filter: brightness(1.08); }
 button.confirm { background: var(--orange); color: var(--color-white, #fff); border-color: var(--orange); }
-header { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-header h1 { margin: 0; font-size: var(--text-title-small, 16px); font-weight: var(--font-weight-semibold, 600); }
-header .meta { color: var(--muted); font-size: 12px; }
-header .spacer { flex: 1; }
-.you-count { background: var(--orange-muted); color: var(--orange); border-radius: 12px; padding: 0 10px; font-weight: 600; font-size: 12px; }
-.banner { margin: 10px 14px 0; padding: 8px 12px; border-radius: 6px; background: var(--red-muted); color: var(--red); }
-.banner.info { background: var(--blue-muted); color: var(--blue); }
-.toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80%; }
+code { font-family: var(--mono); font-size: var(--text-code-inline, 12px); background: var(--subtle); padding: 0 4px; border-radius: 4px; }
+
+header.top { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex: none; }
+header.top h1 { margin: 0; font-size: var(--text-title-small, 16px); font-weight: var(--font-weight-semibold, 600); }
+.meta { color: var(--muted); font-size: 12px; }
+.spacer { flex: 1; }
+.badge { background: var(--orange-muted); color: var(--orange); border-radius: 12px; padding: 0 10px; font-weight: 600; font-size: 12px; }
+.banner { margin: 8px 14px 0; padding: 8px 12px; border-radius: 6px; background: var(--red-muted); color: var(--red); flex: none; }
+.toast { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80%; z-index: 20; }
 .toast.show { opacity: .95; }
-main { flex: 1; display: flex; gap: 10px; padding: 12px 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
-.lane { flex: 0 0 290px; display: flex; flex-direction: column; background: var(--lane-bg); border-radius: 8px; border: 1px solid var(--border); min-height: 0; }
-.lane.done { opacity: .75; }
-.lane.collapsed { flex: 0 0 40px; opacity: .75; cursor: pointer; align-items: center; }
-.lane.collapsed > h2 { writing-mode: vertical-rl; padding: 10px 0; white-space: nowrap; }
-.lane.collapsed:hover { opacity: 1; }
-button.link { border: 0; padding: 0 4px; background: none; color: var(--muted); }
-.lane > h2 { margin: 0; padding: 8px 10px 2px; font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
-.lane > h2 .count { color: var(--muted); font-weight: 400; }
-.lane > .hint { padding: 0 10px 6px; color: var(--muted); font-size: 12px; }
-.lane > .cards { flex: 1; overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 8px; }
-.lane .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 14px 0; }
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
-.card { background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
-.card.who-you { border-left-color: var(--orange); }
-.card.who-agent { border-left-color: var(--purple); }
-.card.who-ci, .card.who-github { border-left-color: var(--blue); }
-.card.who-done { border-left-color: var(--green); }
-.row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
-.num { font-weight: 600; color: var(--fg); }
-.title { font-weight: 600; color: var(--fg); line-height: 18px; word-break: break-word; cursor: pointer; }
-.title:hover { text-decoration: underline; }
-.pill { border-radius: 10px; padding: 0 7px; font-size: 11px; line-height: 18px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+
+.layout { flex: 1; display: flex; min-height: 0; }
+
+/* ---- Inbox list ---- */
+aside { width: 340px; flex: none; border-right: 1px solid var(--border); overflow-y: auto; padding-bottom: 12px; }
+.group > h2 { position: sticky; top: 0; z-index: 1; background: var(--bg); margin: 0; padding: 10px 12px 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); display: flex; gap: 6px; align-items: center; cursor: default; }
+.group > h2 .n { font-weight: 400; }
+.group.collapsible > h2 { cursor: pointer; }
+.group .empty { color: var(--muted); font-size: 12px; padding: 2px 12px 6px; }
+.row { display: grid; grid-template-columns: 10px 44px 1fr auto; gap: 6px; align-items: center; padding: 5px 12px; cursor: pointer; border-left: 3px solid transparent; }
+.row:hover { background: var(--subtle); }
+.row.sel { background: var(--blue-muted); border-left-color: var(--blue); }
+.row .num { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+.row .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.row .glyph { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.row .sub { grid-column: 3 / 5; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -3px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--border); }
+.dot.passing { background: var(--green); } .dot.failing { background: var(--red); } .dot.pending { background: var(--yellow); }
+
+/* ---- Workspace ---- */
+.ws { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.ws-head { padding: 12px 18px 10px; border-bottom: 1px solid var(--border); flex: none; display: flex; flex-direction: column; gap: 6px; }
+.ws-head h2 { margin: 0; font-size: var(--text-title-small, 17px); line-height: 24px; font-weight: 600; }
+.ws-head h2 a { color: var(--muted); font-weight: 400; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
+.pill { border-radius: 10px; padding: 0 8px; font-size: 11px; line-height: 18px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
 .pill.red { background: var(--red-muted); color: var(--red); border-color: transparent; }
 .pill.green { background: var(--green-muted); color: var(--green); border-color: transparent; }
 .pill.yellow { background: var(--yellow-muted); color: var(--yellow); border-color: transparent; }
 .pill.blue { background: var(--blue-muted); color: var(--blue); border-color: transparent; }
 .pill.purple { background: var(--purple-muted); color: var(--purple); border-color: transparent; }
 .pill.orange { background: var(--orange-muted); color: var(--orange); border-color: transparent; }
-.avatar { width: 16px; height: 16px; border-radius: 50%; vertical-align: middle; }
-.waiting { font-size: 12px; padding: 3px 7px; border-radius: 4px; background: var(--lane-bg); color: var(--fg); }
-.waiting b { font-weight: 600; }
-.who-you .waiting { background: var(--orange-muted); }
-.who-agent .waiting { background: var(--purple-muted); }
-.agent { font-size: 12px; display: flex; gap: 6px; align-items: flex-start; }
-.agent .text { color: var(--fg); }
-.actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; position: relative; }
-.actions button, .actions a.btn { font-size: 12px; padding: 0 8px; }
-a.btn { border: 1px solid var(--border); border-radius: 6px; color: var(--fg); line-height: 20px; display: inline-block; }
-a.btn:hover { background: var(--lane-bg); text-decoration: none; }
-a.btn.disabled { opacity: .45; pointer-events: none; }
-.menu { position: absolute; top: 24px; z-index: 5; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); display: flex; flex-direction: column; padding: 4px; min-width: 170px; }
-.menu button { border: 0; text-align: left; padding: 3px 8px; }
-.details { border-top: 1px dashed var(--border); padding-top: 6px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
-.details h3 { margin: 0; font-size: 12px; font-weight: 600; }
-.timeline { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
-.timeline li { color: var(--fg); }
-.timeline time { color: var(--muted); margin-right: 6px; font-family: var(--font-mono, Consolas, monospace); font-size: 11px; }
-pre.draft { white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; background: var(--lane-bg); border-radius: 4px; padding: 6px 8px; margin: 0; font-family: var(--font-mono, Consolas, monospace); font-size: var(--text-code-inline, 12px); }
-code { font-family: var(--font-mono, Consolas, monospace); font-size: var(--text-code-inline, 12px); }
-.legend { display: flex; gap: 10px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
-.legend span { display: inline-flex; align-items: center; gap: 4px; }
-.legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.avatar { width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; }
+.next { padding: 6px 10px; border-radius: 6px; background: var(--subtle); font-size: 13px; }
+.next.you { background: var(--orange-muted); }
+.next.agent { background: var(--purple-muted); }
+.next b { font-weight: 600; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; position: relative; align-items: center; }
+.menu { position: absolute; top: 26px; z-index: 5; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); display: flex; flex-direction: column; padding: 4px; min-width: 170px; }
+.menu button { border: 0; text-align: left; }
+
+.scroll { flex: 1; overflow-y: auto; padding: 10px 18px 16px; display: flex; flex-direction: column; gap: 10px; }
+details.panel { border: 1px solid var(--border); border-radius: 8px; }
+details.panel > summary { padding: 6px 10px; cursor: pointer; font-size: 13px; font-weight: 600; list-style: none; display: flex; gap: 6px; align-items: center; }
+details.panel > summary::before { content: "▸"; color: var(--muted); }
+details.panel[open] > summary::before { content: "▾"; }
+details.panel > summary .muted { font-weight: 400; color: var(--muted); }
+details.panel > .body { padding: 0 12px 10px; }
+.timeline { margin: 0; padding: 0; list-style: none; font-size: 12px; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.timeline time { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-right: 8px; }
+.timeline .src { color: var(--muted); }
+
+.md { overflow-wrap: anywhere; }
+.md p { margin: 0 0 6px; } .md p:last-child { margin-bottom: 0; }
+.md ul, .md ol { margin: 0 0 6px; padding-left: 20px; }
+.md pre { background: var(--subtle); border-radius: 6px; padding: 6px 8px; overflow-x: auto; margin: 0 0 6px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+.md pre code { background: none; padding: 0; }
+.md .h { font-weight: 600; margin: 6px 0 4px; }
+
+.thread { display: flex; flex-direction: column; gap: 8px; }
+.thread .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.msg { max-width: 82%; padding: 7px 11px; border-radius: 10px; font-size: 13px; }
+.msg.user { align-self: flex-end; background: var(--blue-muted); border-bottom-right-radius: 3px; }
+.msg.agent { align-self: flex-start; background: var(--subtle); border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+.msg .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.sys { align-self: center; font-size: 11px; color: var(--muted); text-align: center; }
+.thinking span { animation: blink 1.4s infinite both; }
+.thinking span:nth-child(2) { animation-delay: .2s; } .thinking span:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
+.hint { color: var(--muted); font-size: 12px; }
+
+.composer { flex: none; border-top: 1px solid var(--border); padding: 10px 18px; display: flex; gap: 8px; align-items: flex-end; }
+.composer textarea { flex: 1; resize: none; min-height: 38px; max-height: 160px; font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.composer textarea:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
+.empty-ws { margin: auto; color: var(--muted); text-align: center; }
 </style>
 </head>
 <body>
-<header>
+<header class="top">
   <h1 id="repo">PR board</h1>
-  <span class="you-count" id="youCount" hidden></span>
+  <span class="badge" id="youCount" hidden></span>
   <span class="meta" id="meta">Loading…</span>
   <span class="spacer"></span>
-  <div class="legend" aria-label="Card colors">
-    <span><i style="background:var(--orange)"></i>You</span>
-    <span><i style="background:var(--purple)"></i>Agent</span>
-    <span><i style="background:var(--blue)"></i>CI / GitHub</span>
-    <span><i style="background:var(--border)"></i>Author / others</span>
-  </div>
   <button id="refresh" title="Re-read pull requests from GitHub">↻ Refresh</button>
 </header>
 <div id="banner" class="banner" hidden></div>
-<main id="board" aria-live="polite"></main>
+<div class="layout">
+  <aside id="list" aria-label="Pull requests"></aside>
+  <section class="ws" aria-label="Pull request workspace">
+    <div class="ws-head" id="wsHead" hidden></div>
+    <div class="scroll" id="wsScroll"><div class="empty-ws">Pick a pull request on the left.</div></div>
+    <form class="composer" id="composer">
+      <textarea id="input" rows="1" placeholder="Ask a question or give direction…" aria-label="Message about this pull request" disabled></textarea>
+      <button class="primary" id="send" type="submit" disabled>Send</button>
+    </form>
+  </section>
+</div>
 <div id="toast" class="toast" role="status"></div>
 
 <script>
@@ -130,12 +158,15 @@ const params = new URLSearchParams(location.search);
 const REPO = params.get("repo");
 const TOKEN = params.get("t");
 const $ = (id) => document.getElementById(id);
-const expanded = new Set();
-const drafts = new Map();
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+const SEL_KEY = "prb-sel:" + REPO;
 let snap = null;
-let showMerged = localStorage.getItem("prb-show-merged") === "1";
-let openMenu = null;
-let armed = null; // { key, timer } for click-again-to-confirm buttons
+let selected = Number(store.get(SEL_KEY)) || null;
+let showMerged = store.get("prb-show-merged") === "1";
+let openMenu = false;
+let armed = null;
+let lastRenderedThread = "";
+const drafts = new Map();
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ago = (iso) => {
@@ -146,7 +177,49 @@ const ago = (iso) => {
   if (s < 86400) return Math.round(s / 3600) + "h ago";
   return Math.round(s / 86400) + "d ago";
 };
-const hhmm = (iso) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const when = (iso) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+// Minimal, safe Markdown: everything is escaped first; only code, bold, italics,
+// http(s) links, lists and headings are turned back into markup.
+function md(src) {
+  const blocks = [];
+  let text = String(src ?? "").replace(/\r\n/g, "\n").replace(/```[^\n]*\n([\s\S]*?)(```|$)/g, (_, code) => {
+    blocks.push(`<pre><code>${esc(code.replace(/\n$/, ""))}</code></pre>`);
+    return `\u0000${blocks.length - 1}\u0000`;
+  });
+  const inline = (s) => {
+    const codes = [];
+    s = esc(s).replace(/`([^`]+)`/g, (_, c) => { codes.push(`<code>${c}</code>`); return `\u0001${codes.length - 1}\u0001`; });
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`)
+         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+         .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+         .replace(/(^|[\s(])_([^_\s][^_]*)_/g, "$1<em>$2</em>");
+    return s.replace(/\u0001(\d+)\u0001/g, (_, i) => codes[i]);
+  };
+  const out = [];
+  let list = null;
+  let para = [];
+  const flushPara = () => { if (para.length) { out.push(`<p>${para.map(inline).join("<br>")}</p>`); para = []; } };
+  const flushList = () => { if (list) { out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i)}</li>`).join("")}</${list.tag}>`); list = null; } };
+  for (const line of text.split("\n")) {
+    const block = line.match(/^\u0000(\d+)\u0000$/);
+    const ul = line.match(/^\s*[-*+]\s+(.*)$/);
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    const h = line.match(/^#{1,6}\s+(.*)$/);
+    if (block) { flushPara(); flushList(); out.push(blocks[block[1]]); }
+    else if (ul || ol) {
+      flushPara();
+      const tag = ul ? "ul" : "ol";
+      if (list && list.tag !== tag) flushList();
+      list ??= { tag, items: [] };
+      list.items.push((ul || ol)[1]);
+    } else if (h) { flushPara(); flushList(); out.push(`<div class="h">${inline(h[1])}</div>`); }
+    else if (!line.trim()) { flushPara(); flushList(); }
+    else { flushList(); para.push(line); }
+  }
+  flushPara(); flushList();
+  return out.join("").replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[i]);
+}
 
 function toast(text) {
   const t = $("toast");
@@ -166,140 +239,180 @@ async function post(path, body) {
 async function act(pr, action, extra = {}) {
   try {
     await post("/api/action", { pr, action, ...extra });
-    toast({ review: "Sent to the agent: review #" + pr, post: "Sent to the agent: post the draft on #" + pr, ship: "Sent to the agent: ship #" + pr, "open-chat": "Asked the agent to open the chat for #" + pr, reset: "Reset #" + pr }[action] || "Done");
-  } catch (e) {
-    toast(e.message);
-  }
+    toast({ review: "Asked the agent for a review", post: "Asked the agent to post the draft", ship: "Asked the agent to ship it", "open-chat": "Asked the agent to open the chat", reset: "Agent status reset" }[action] || "Done");
+  } catch (e) { toast(e.message); }
 }
 
 const CI = { passing: ["green", "✓ CI passing"], failing: ["red", "✗ CI failing"], pending: ["yellow", "● CI running"], none: ["", "No CI"] };
-const REVIEW_ICON = { APPROVED: ["green", "✓"], CHANGES_REQUESTED: ["red", "✗"], COMMENTED: ["", "💬"], DISMISSED: ["", "–"] };
-const AGENT = {
-  running: ["purple", "Agent working"],
-  waiting: ["orange", "Needs your input"],
-  waiting_on_others: ["", "Waiting on others"],
-  draft_ready: ["orange", "Draft ready"],
-  done: ["green", "Done"],
-  failed: ["red", "Failed"],
-};
+const REVIEW = { APPROVED: ["green", "✓"], CHANGES_REQUESTED: ["red", "✗"], COMMENTED: ["", "💬"], DISMISSED: ["", "–"] };
+const AGENT = { running: ["purple", "Agent working"], waiting: ["orange", "Needs your input"], waiting_on_others: ["", "Waiting on others"], draft_ready: ["orange", "Draft ready"], done: ["green", "Done"], failed: ["red", "Failed"] };
+const GLYPH = { running: "⚙", waiting: "❓", waiting_on_others: "⏳", draft_ready: "📝", done: "✓", failed: "⚠" };
 
-function ciPill(ci) {
-  if (!ci) return "";
-  const [color, label] = CI[ci.state] || CI.none;
-  const tip = ci.failing?.length ? "Failing: " + ci.failing.join(", ") : ci.pending?.length ? "Running: " + ci.pending.join(", ") : ci.text;
-  return `<span class="pill ${color}" title="${esc(tip)}">${label}</span>`;
-}
+const cardsOf = () => snap?.cards || [];
+const current = () => cardsOf().find((c) => c.number === selected) || null;
 
 function waitingHtml(text) {
   const i = text.indexOf(":");
   return i > 0 ? `<b>${esc(text.slice(0, i))}</b>${esc(text.slice(i))}` : esc(text);
 }
 
-function cardHtml(c) {
+// ---- Left: inbox list ----
+function renderList() {
+  const cards = cardsOf();
+  $("list").innerHTML = snap.groups.map((g) => {
+    const rows = cards.filter((c) => c.group === g.id);
+    const collapsible = g.id === "merged";
+    const collapsed = collapsible && !showMerged;
+    const head = `<h2 ${collapsible ? `data-act="toggle-merged" role="button" tabindex="0" aria-expanded="${!collapsed}"` : ""} title="${esc(g.hint)}">${collapsible ? (collapsed ? "▸ " : "▾ ") : ""}${esc(g.title)} <span class="n">${rows.length}</span></h2>`;
+    if (collapsed) return `<div class="group collapsible">${head}</div>`;
+    const body = rows.map((c) => {
+      const local = c.local || {};
+      const glyph = local.pending ? "💬…" : local.agent ? (GLYPH[local.agent.status] || "") : local.thread?.length ? "💬" : "";
+      return `<div class="row${c.number === selected ? " sel" : ""}" data-act="select" data-pr="${c.number}" role="button" tabindex="0" title="${esc(c.title)}">
+        <span class="dot ${esc(c.ci?.state || "")}" title="${esc(c.ci?.text || "")}"></span>
+        <span class="num">#${c.number}</span>
+        <span class="t">${esc(c.title)}</span>
+        <span class="glyph">${glyph}</span>
+        <span class="sub">${esc(c.waitingOn)}</span>
+      </div>`;
+    }).join("") || `<div class="empty">Nothing here</div>`;
+    return `<div class="group${collapsible ? " collapsible" : ""}">${head}${body}</div>`;
+  }).join("");
+}
+
+// ---- Right: workspace ----
+function renderHead(c) {
   const local = c.local || {};
   const agent = local.agent;
   const draft = local.draft && !local.draft.postedAt ? local.draft : null;
   const sess = local.session;
   const busy = agent?.status === "running";
-  const isOpen = c.lane !== "merged";
-  const reviewers = (c.reviewers || []).map((r) => {
-    const [color, icon] = REVIEW_ICON[r.state] || ["", "•"];
-    return `<span class="pill ${color}" title="${esc(r.login)}: ${esc(r.state.toLowerCase().replace("_", " "))}">${icon} ${esc(r.login)}</span>`;
-  }).join("");
+  const isOpen = c.group !== "merged";
+  const [ciColor, ciLabel] = CI[c.ci?.state] || CI.none;
+  const ciTip = c.ci?.failing?.length ? "Failing: " + c.ci.failing.join(", ") : c.ci?.pending?.length ? "Running: " + c.ci.pending.join(", ") : (c.ci?.text || "");
+  const reviewers = (c.reviewers || []).map((r) => { const [k, i] = REVIEW[r.state] || ["", "•"]; return `<span class="pill ${k}" title="${esc(r.state.toLowerCase().replace("_", " "))}">${i} ${esc(r.login)}</span>`; }).join("");
   const requested = (c.requested || []).map((r) => `<span class="pill" title="Review requested">⏳ ${esc(r)}</span>`).join("");
-  const agentLine = agent ? (() => {
-    const [color, label] = AGENT[agent.status] || ["", agent.status];
-    return `<div class="agent"><span class="pill ${color}">${label}</span><span class="text">${esc(agent.outcome || "")}${agent.updatedAt ? ` <span style="color:var(--muted)">· ${ago(agent.updatedAt)}</span>` : ""}</span></div>`;
-  })() : "";
-  const sessLine = sess ? `<div class="row">💬 Session: <span style="color:var(--fg)">${esc(sess.name || sess.id)}</span></div>` : "";
-  const shipTip = c.queue ? "Already in the merge queue" : c.reviewDecision !== "APPROVED" ? "Needs an approval first" : c.ci?.state === "failing" ? "Checks are failing" : "Send to the merge queue";
   const canShip = isOpen && !c.queue && c.reviewDecision === "APPROVED" && c.ci?.state !== "failing" && !busy;
+  const shipTip = !isOpen ? "Already merged" : c.queue ? "Already in the merge queue" : c.reviewDecision !== "APPROVED" ? "Needs an approval first" : c.ci?.state === "failing" ? "Checks are failing" : "Send to the merge queue";
+  const postArmed = armed?.key?.startsWith(c.number + ":post:");
+  const shipArmed = armed?.key === c.number + ":ship";
+  const nextClass = c.who === "you" ? "you" : c.who === "agent" ? "agent" : "";
+  const agentLine = agent ? (() => { const [k, l] = AGENT[agent.status] || ["", agent.status]; return `<span class="pill ${k}">${l}</span> ${esc(agent.outcome || "")} <span class="hint">· ${ago(agent.updatedAt)}</span>`; })() : "";
 
-  let actions = "";
-  if (isOpen) {
-    const armedKey = (k) => armed?.key === `${c.number}:${k}`;
-    actions = `<div class="actions">
-      <button data-act="review" data-pr="${c.number}" ${busy ? "disabled" : ""} title="Ask an agent session to draft a review with the pr-review skill (nothing is posted)">${draft || local.draft?.postedAt ? "Re-review" : "Review"}</button>
-      <button data-act="post-menu" data-pr="${c.number}" class="${draft ? "primary" : ""}${armed?.key?.startsWith(c.number + ":post:") ? " confirm" : ""}" ${draft && !busy ? "" : "disabled"} title="${draft ? "Post the draft review to GitHub" : "Run Review first; posting needs a draft"}">${armed?.key?.startsWith(c.number + ":post:") ? "Click again: " + esc(armed.label) : "Post review ▾"}</button>
-      <button data-act="ship" data-pr="${c.number}" class="${armedKey("ship") ? "confirm" : ""}" ${canShip ? "" : "disabled"} title="${esc(shipTip)}">${armedKey("ship") ? "Click again to ship" : "Ship"}</button>
-      ${sess ? `<a class="btn" href="ghapp://sessions/${encodeURIComponent(sess.id)}" title="Open the linked session in the app">Open chat</a><button data-act="open-chat" data-pr="${c.number}" title="If the Open chat link does nothing, ask the agent to switch to the session">↪</button>` : `<a class="btn disabled" title="No session linked yet; press Review">Open chat</a>`}
-      ${openMenu === c.number ? `<div class="menu" role="menu">
-        <button data-act="post" data-event="approve" data-pr="${c.number}" role="menuitem">✓ Approve</button>
-        <button data-act="post" data-event="request_changes" data-pr="${c.number}" role="menuitem">✗ Request changes</button>
-        <button data-act="post" data-event="comment" data-pr="${c.number}" role="menuitem">💬 Comment</button>
-      </div>` : ""}
-    </div>`;
-  }
-
-  let details = "";
-  if (expanded.has(c.number)) {
-    const hist = (local.history || []).slice().reverse().map((h) => `<li><time>${esc(hhmm(h.at))}</time>${esc(h.text)}</li>`).join("") || `<li style="color:var(--muted)">No board activity yet.</li>`;
-    const d = drafts.get(c.number + ":" + (local.draft?.attachedAt || ""));
-    details = `<div class="details">
-      ${c.labels?.length ? `<div class="row">${c.labels.map((l) => `<span class="pill">${esc(l)}</span>`).join("")}</div>` : ""}
-      ${c.ci?.failing?.length ? `<div><h3>Failing checks</h3>${c.ci.failing.map(esc).join(", ")}</div>` : ""}
-      ${local.draft ? `<div><h3>Draft review ${local.draft.postedAt ? "(posted)" : ""} · recommends ${esc((local.draft.recommendation || "").replace("_", " "))}</h3>
-        <div class="row"><code title="${esc(local.draft.path)}">${esc(local.draft.path.split(/[\\/]/).pop())}</code></div>
-        ${d ? `<pre class="draft">${esc(d.text ?? d.error)}</pre>` : `<button data-act="load-draft" data-pr="${c.number}">Show draft</button>`}</div>` : ""}
-      ${sess ? `<div class="row">Session id <code>${esc(sess.id)}</code></div>` : ""}
-      <div><h3>History</h3><ul class="timeline">${hist}</ul></div>
-      ${agent ? `<div><button data-act="reset" data-pr="${c.number}" title="Clear the agent status if it's stuck">Reset agent status</button></div>` : ""}
-    </div>`;
-  }
-
-  return `<article class="card who-${esc(c.who)}" data-card="${c.number}">
-    <div class="row">
-      <a class="num" href="${esc(c.url)}" target="_blank" rel="noopener">#${c.number}</a>
-      <span class="pill" title="${esc(c.size?.text)}">${esc(c.size?.label)}</span>
-      ${ciPill(c.ci)}
+  $("wsHead").innerHTML = `
+    <h2>${esc(c.title)} <a href="${esc(c.url)}" target="_blank" rel="noopener">#${c.number}</a></h2>
+    <div class="chips">
+      <img class="avatar" alt="" src="https://github.com/${encodeURIComponent(c.author)}.png?size=32" onerror="this.remove()"> ${esc(c.author)}
+      <span class="pill" title="${esc(c.size?.text)}">${esc(c.size?.label)} · ${esc(c.size?.text)}</span>
+      <span class="pill ${ciColor}" title="${esc(ciTip)}">${ciLabel}</span>
       ${c.isDraft ? `<span class="pill">Draft PR</span>` : ""}
-      ${c.queue ? `<span class="pill blue">Queue #${c.queue.position}</span>` : ""}
+      ${c.queue ? `<span class="pill blue">Merge queue #${c.queue.position}</span>` : ""}
+      ${reviewers}${requested}
+      ${(c.labels || []).map((l) => `<span class="pill">${esc(l)}</span>`).join("")}
     </div>
-    <div class="title" data-act="toggle" data-pr="${c.number}" title="Show details and history">${esc(c.title)}</div>
-    <div class="row"><img class="avatar" alt="" src="https://github.com/${encodeURIComponent(c.author)}.png?size=32" onerror="this.remove()"> ${esc(c.author)}${c.updatedAt ? ` · updated ${ago(c.updatedAt)}` : ""}</div>
-    ${reviewers || requested ? `<div class="row">${reviewers}${requested}</div>` : ""}
-    <div class="waiting">⏭ ${waitingHtml(c.waitingOn)}</div>
-    ${agentLine}
-    ${sessLine}
-    ${actions}
-    ${details}
-  </article>`;
+    <div class="next ${nextClass}">⏭ ${waitingHtml(c.waitingOn)}</div>
+    ${agentLine ? `<div class="chips">${agentLine}${sess ? ` · 💬 ${esc(sess.name || sess.id)}` : ""}</div>` : sess ? `<div class="chips">💬 Session: ${esc(sess.name || sess.id)}</div>` : ""}
+    ${isOpen ? `<div class="actions">
+      <button data-act="review" ${busy ? "disabled" : ""} title="Ask an agent to draft a review with the pr-review skill. Nothing is posted.">${local.draft ? "Re-review" : "Review"}</button>
+      <button data-act="post-menu" class="${postArmed ? "confirm" : draft ? "primary" : ""}" ${draft && !busy ? "" : "disabled"} title="${draft ? "Post the draft review to GitHub" : "Run Review first; posting needs a draft"}">${postArmed ? "Click again: " + esc(armed.label) : "Post review ▾"}</button>
+      <button data-act="ship" class="${shipArmed ? "confirm" : ""}" ${canShip ? "" : "disabled"} title="${esc(shipTip)}">${shipArmed ? "Click again to ship" : "Ship"}</button>
+      ${sess ? `<a class="btn" href="ghapp://sessions/${encodeURIComponent(sess.id)}" title="Open the linked session's full chat">Open full chat</a><button data-act="open-chat" title="If Open full chat does nothing, ask the agent to switch to it">↪</button>` : `<a class="btn disabled" title="No session linked yet">Open full chat</a>`}
+      ${agent ? `<button data-act="reset" title="Clear the agent status if it's stuck">Reset agent status</button>` : ""}
+      ${openMenu ? `<div class="menu" role="menu">
+        <button data-act="post" data-event="approve" role="menuitem">✓ Approve</button>
+        <button data-act="post" data-event="request_changes" role="menuitem">✗ Request changes</button>
+        <button data-act="post" data-event="comment" role="menuitem">💬 Comment</button>
+      </div>` : ""}
+    </div>` : ""}`;
 }
 
-function render() {
+function renderScroll(c, force) {
+  const local = c.local || {};
+  const thread = local.thread || [];
+  const key = JSON.stringify([c.number, thread.length, thread.at(-1)?.id, local.pending?.id, local.draft?.attachedAt, (local.history || []).length, (c.events || []).length, drafts.has(draftKey(c))]);
+  const sc = $("wsScroll");
+  if (!force && key === lastRenderedThread) return;
+  lastRenderedThread = key;
+  const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40;
+  const openState = Object.fromEntries([...sc.querySelectorAll("details[data-k]")].map((d) => [d.dataset.k, d.open]));
+
+  const timeline = [...(c.events || []), ...(local.history || []).map((h) => ({ ...h, source: "board" }))].sort((a, b) => a.at.localeCompare(b.at));
+  const draft = local.draft;
+  const d = draft ? drafts.get(draftKey(c)) : null;
+  const draftHtml = draft ? `<details class="panel" data-k="draft" ${openState.draft ?? !draft.postedAt ? "open" : ""}>
+      <summary>Draft review <span class="muted">· recommends ${esc((draft.recommendation || "").replace("_", " "))}${draft.postedAt ? " · posted" : ""}</span></summary>
+      <div class="body">${d ? (d.error ? `<div class="hint">${esc(d.error)}</div>` : `<div class="md">${md(d.text)}</div>`) : `<div class="hint">Loading…</div>`}
+        <div class="hint" style="margin-top:6px" title="${esc(draft.path)}">${esc(draft.path.split(/[\\/]/).pop())}</div></div>
+    </details>` : "";
+  const timelineHtml = `<details class="panel" data-k="timeline" ${openState.timeline ? "open" : ""}>
+      <summary>Timeline <span class="muted">· ${timeline.length} event${timeline.length === 1 ? "" : "s"}</span></summary>
+      <div class="body"><ul class="timeline">${timeline.map((e) => `<li><time>${esc(when(e.at))}</time>${esc(e.text)}${e.source === "github" ? ` <span class="src">· GitHub</span>` : ""}</li>`).join("")}</ul></div>
+    </details>`;
+  const msgs = thread.map((m) => m.role === "system"
+    ? `<div class="sys">${esc(m.text)} · ${esc(when(m.at))}</div>`
+    : `<div class="msg ${m.role === "user" ? "user" : "agent"}"><div class="who">${m.role === "user" ? "You" : esc(m.from || "Agent")} · ${esc(when(m.at))}</div><div class="md">${md(m.text)}</div></div>`).join("");
+  const pending = local.pending ? (() => {
+    const mins = (Date.now() - new Date(local.pending.at).getTime()) / 60000;
+    return `<div class="msg agent"><div class="who">Agent</div><span class="thinking"><span>●</span><span>●</span><span>●</span></span>${mins > 5 ? ` <span class="hint">No reply yet. The agent may be busy; the answer will show up here.</span>` : ""}</div>`;
+  })() : "";
+  sc.innerHTML = `${draftHtml}${timelineHtml}
+    <div class="thread"><div class="label">Thread</div>
+      ${msgs || (pending ? "" : `<div class="hint">Ask anything about this PR, for example "What's still blocking this?" or "Address the nit about naming." The agent answers here.</div>`)}
+      ${pending}
+    </div>`;
+  if (force || atBottom) sc.scrollTop = sc.scrollHeight;
+  if (draft && !d) loadDraft(c);
+}
+
+const draftKey = (c) => c.number + ":" + (c.local?.draft?.attachedAt || "");
+async function loadDraft(c) {
+  const k = draftKey(c);
+  if (drafts.has(k) || loadDraft.busy?.has(k)) return;
+  (loadDraft.busy ??= new Set()).add(k);
+  try {
+    const res = await fetch(`/api/draft?repo=${encodeURIComponent(REPO)}&pr=${c.number}`);
+    const data = await res.json();
+    drafts.set(k, res.ok ? data : { error: data.error || "Couldn't load the draft" });
+  } catch (e) { drafts.set(k, { error: e.message }); }
+  loadDraft.busy.delete(k);
+  if (current()?.number === c.number) renderScroll(c, false);
+}
+
+function render(force = false) {
   if (!snap) return;
   $("repo").textContent = "PR board · " + snap.repo;
-  document.title = "PR board · " + snap.repo;
   const banner = $("banner");
-  if (snap.error) {
-    banner.hidden = false;
-    banner.className = "banner";
-    banner.textContent = snap.error.message;
-  } else {
-    banner.hidden = true;
-  }
-  const cards = snap.cards || [];
-  const mine = cards.filter((c) => c.who === "you").length;
+  banner.hidden = !snap.error;
+  if (snap.error) banner.textContent = snap.error.message;
+  const cards = cardsOf();
+  const mine = cards.filter((c) => c.group === "you").length;
   $("youCount").hidden = !mine;
-  $("youCount").textContent = mine + " waiting on you";
-  const open = cards.filter((c) => c.lane !== "merged").length;
-  const merged = cards.length - open;
-  $("meta").textContent = snap.loading ? "Refreshing…" : snap.fetchedAt ? `${open} open · ${merged} merged in the last 24h · updated ${ago(snap.fetchedAt)}` + (snap.viewer ? ` · you are @${snap.viewer}` : "") : "Loading…";
-  const scroll = new Map([...document.querySelectorAll(".lane .cards")].map((el) => [el.dataset.lane, el.scrollTop]));
-  $("board").innerHTML = snap.lanes.map((lane) => {
-    const inLane = cards.filter((c) => c.lane === lane.id);
-    if (lane.id === "merged" && !showMerged) {
-      return `<section class="lane collapsed" data-act="toggle-merged" role="button" tabindex="0" title="Show recently merged PRs" aria-label="${esc(lane.title)}, ${inLane.length}, collapsed">
-        <h2>▸ ${esc(lane.title)} <span class="count">${inLane.length}</span></h2>
-      </section>`;
-    }
-    return `<section class="lane${lane.id === "merged" ? " done" : ""}" aria-label="${esc(lane.title)}">
-      <h2>${lane.id === "merged" ? `<button class="link" data-act="toggle-merged" title="Hide recently merged PRs">◂</button> ` : ""}${esc(lane.title)} <span class="count">${inLane.length}</span></h2>
-      <div class="hint">${esc(lane.hint)}</div>
-      <div class="cards" data-lane="${lane.id}">${inLane.map(cardHtml).join("") || `<div class="empty">Nothing here</div>`}</div>
-    </section>`;
-  }).join("");
-  for (const el of document.querySelectorAll(".lane .cards")) el.scrollTop = scroll.get(el.dataset.lane) || 0;
+  $("youCount").textContent = mine + " need you";
+  const open = cards.filter((c) => c.group !== "merged").length;
+  $("meta").textContent = snap.loading && !snap.fetchedAt ? "Loading…" : `${open} open · ${cards.length - open} merged in the last 24h · ${snap.loading ? "refreshing…" : "updated " + ago(snap.fetchedAt)}` + (snap.viewer ? ` · you are @${snap.viewer}` : "");
+
+  if (!current() && cards.length) {
+    selected = (cards.find((c) => c.group === "you") || cards[0]).number;
+    force = true;
+  }
+  renderList();
+  const c = current();
+  $("wsHead").hidden = !c;
+  $("input").disabled = $("send").disabled = !c;
+  if (!c) return;
+  $("input").placeholder = `Ask a question or give direction on #${c.number}…`;
+  renderHead(c);
+  renderScroll(c, force);
+}
+
+function select(pr) {
+  if (pr === selected) return;
+  selected = pr;
+  store.set(SEL_KEY, String(pr));
+  openMenu = false;
+  armed = null;
+  render(true);
+  $("input").focus();
 }
 
 function arm(key, label) {
@@ -308,44 +421,21 @@ function arm(key, label) {
   render();
 }
 
-document.addEventListener("click", async (e) => {
+document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
-  if (!el) {
-    if (openMenu !== null) { openMenu = null; render(); }
-    return;
-  }
-  const pr = Number(el.dataset.pr);
+  if (!el) { if (openMenu) { openMenu = false; render(); } return; }
   const a = el.dataset.act;
-  if (a === "toggle-merged") {
-    showMerged = !showMerged;
-    try { localStorage.setItem("prb-show-merged", showMerged ? "1" : "0"); } catch {}
-    return render();
-  }
-  if (a === "toggle") {
-    expanded.has(pr) ? expanded.delete(pr) : expanded.add(pr);
-    return render();
-  }
-  if (a === "load-draft") {
-    try {
-      const res = await fetch(`/api/draft?repo=${encodeURIComponent(REPO)}&pr=${pr}`);
-      const data = await res.json();
-      drafts.set(pr + ":" + (snap.cards.find((x) => x.number === pr)?.local?.draft?.attachedAt || ""), res.ok ? data : { error: data.error });
-    } catch (err) { toast(err.message); }
-    return render();
-  }
+  const c = current();
+  if (a === "select") return select(Number(el.dataset.pr));
+  if (a === "toggle-merged") { showMerged = !showMerged; store.set("prb-show-merged", showMerged ? "1" : "0"); return render(); }
+  if (!c) return;
+  const pr = c.number;
   if (a === "post-menu") {
-    if (armed?.key?.startsWith(pr + ":post:")) {
-      const event = armed.key.split(":")[2];
-      clearTimeout(armed.timer); armed = null; render();
-      return act(pr, "post", { event });
-    }
-    openMenu = openMenu === pr ? null : pr;
+    if (armed?.key?.startsWith(pr + ":post:")) { const ev = armed.key.split(":")[2]; clearTimeout(armed.timer); armed = null; render(); return act(pr, "post", { event: ev }); }
+    openMenu = !openMenu;
     return render();
   }
-  if (a === "post") {
-    openMenu = null;
-    return arm(`${pr}:post:${el.dataset.event}`, el.textContent.trim());
-  }
+  if (a === "post") { openMenu = false; return arm(`${pr}:post:${el.dataset.event}`, el.textContent.trim()); }
   if (a === "ship") {
     if (armed?.key === `${pr}:ship`) { clearTimeout(armed.timer); armed = null; render(); return act(pr, "ship"); }
     return arm(`${pr}:ship`, "ship");
@@ -354,11 +444,35 @@ document.addEventListener("click", async (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if ((e.key === "Enter" || e.key === " ") && e.target.matches?.('section[data-act="toggle-merged"]')) { e.preventDefault(); e.target.click(); }
+  const el = e.target.closest?.('[role="button"][data-act]');
+  if (el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); el.click(); return; }
+  if (el && el.classList.contains("row") && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault();
+    const rows = [...document.querySelectorAll(".row")];
+    const next = rows[rows.indexOf(el) + (e.key === "ArrowDown" ? 1 : -1)];
+    if (next) { select(Number(next.dataset.pr)); document.querySelector(`.row[data-pr="${next.dataset.pr}"]`)?.focus(); }
+  }
+});
+
+const input = $("input");
+input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; });
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("composer").requestSubmit(); } });
+$("composer").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const c = current();
+  const text = input.value.trim();
+  if (!c || !text) return;
+  $("send").disabled = true;
+  try {
+    await post("/api/message", { pr: c.number, text });
+    input.value = "";
+    input.style.height = "auto";
+  } catch (err) { toast(err.message); }
+  $("send").disabled = false;
+  input.focus();
 });
 
 $("refresh").addEventListener("click", async () => {
-  $("meta").textContent = "Refreshing…";
   try { await post("/api/refresh", {}); } catch (e) { toast(e.message); }
 });
 
@@ -367,13 +481,9 @@ function connect() {
   es.addEventListener("board", (ev) => { snap = JSON.parse(ev.data); render(); });
   es.onerror = () => { $("meta").textContent = "Reconnecting…"; };
 }
-setInterval(() => { if (snap && !snap.loading) render(); }, 30000);
-if (!REPO) {
-  $("banner").hidden = false;
-  $("banner").textContent = "No repo was given to this board.";
-} else {
-  connect();
-}
+setInterval(() => { if (snap) { lastRenderedThread = ""; render(); } }, 30000);
+if (!REPO) { $("banner").hidden = false; $("banner").textContent = "No repo was given to this board."; }
+else connect();
 </script>
 </body>
 </html>
