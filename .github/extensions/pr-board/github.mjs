@@ -423,7 +423,5 @@ export function buildCards(data, localPrs) {
         });
     }
     for (const c of cards) c.group = groupOf(c);
-    // Stuck PRs first within their group; otherwise keep GitHub's order.
-    cards.sort((a, b) => (b.reason?.stuck ? 1 : 0) - (a.reason?.stuck ? 1 : 0));
     return cards;
 }

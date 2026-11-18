@@ -15,37 +15,48 @@ The board uses the current repo. To pick another one, pass `{ "repo": "owner/nam
 
 ## The list
 
-PRs are grouped by who they're waiting on: **Needs you**, **Agent working**,
-**Waiting on others**, **In merge queue**, and **Merged** (last 24 hours,
-collapsed). Each row answers the basic questions without a click:
+One flat list of open pull requests, newest first. A row never moves when its
+status changes; the status is shown in the row. Each row has a status column on
+the left, so you can scan the states top to bottom:
 
 ```text
-#1187 Add winapp ask for WinUI samples and Microsoft Learn docs        [Review]
-● Jaylyn-Barbee · XL +1911 −31 · opened 22d ago · 💬 zateutsch · Medium risk
-📝 Adds `winapp ask` so you can ask a WinUI question and get matching samples
-   plus Microsoft Learn links in one search.
-⏭ You: review needed
+[Your review]        Add winapp ask for WinUI samples and Microsoft Learn docs   [Review]
+for 22 days          #1187 · Jaylyn-Barbee · XL · ✓ CI passing · zateutsch
+                     ✦ Adds `winapp ask` so you can ask a WinUI question and get…
 ```
 
-- **●** CI: green passing, yellow running, red failing.
-- **Reviews:** ✓ approved, ✗ requested changes, 💬 commented, ⏳ requested.
-- **📝 Summary:** the agent's plain-words summary. Until there is one, it shows
-  the first sentence of the PR description in gray.
-- **⏭ Next step:** who acts next, in plain words.
-- **The button** fits the stage: Review, Post…, Ship, Answer (the agent asked
-  you something), ✨ Summarize, or View.
+- **Status chip:** an icon and a short label, such as `Your review`,
+  `Author: changes requested`, `Approved · CI`, `In queue #2`, or `Draft`.
+  Your move is a solid orange chip, and a stuck PR is a solid red chip, with
+  `Stuck · 12 days` under it. Other states are tinted: purple for an agent,
+  blue for CI or the merge queue, gray for the author or other reviewers.
+- **Second line:** the number, author, size, CI (icon and label), and reviews.
+- **Third line:** the agent's plain-words summary (✦), the agent's latest
+  status when it's working, or the first sentence of the description.
+- **The button** appears when it's your move (Review, Post review, Ship,
+  Answer), and on hover for other rows.
 
-Drag the line between the list and the workspace to resize it. The header shows
-`17 open · 8 merged in the last 24h`, how many PRs need you, and how many are
-stuck. **✨ Summarize all needing me** asks the agent to summarize every PR in
-Needs you and Agent working that doesn't have a summary yet.
+Above the list:
+
+- **Filters**, with counts: All open, Needs you, Stuck, Waiting on others,
+  Agent working, Mine, Drafts, and Merged today. Filters hide rows; they never
+  reorder them. Merged PRs appear only under **Merged today**.
+- **Sort:** Newest (default), Oldest, Recently updated, or Number. The board
+  remembers your choice.
+- **Pin:** pin a PR to the top with **More → Pin to top of the list**. Pins are
+  saved per repo in this board.
+
+Use ↑ and ↓ to move through the list. Drag the line between the list and the
+workspace to resize it. In a panel narrower than about 760px, the list and the
+workspace take turns; **← All pull requests** goes back. **Summarize all
+needing me** asks the agent to summarize every PR that needs you or an agent
+and doesn't have a summary yet.
 
 ## Why a PR is waiting, and for how long
 
 Every open PR gets one reason, worked out from GitHub data, with how long it's
 been in that state. The row shows the reason and how long it has been waiting,
-for example `⏱ Changes requested, no response · for 2 days`, and stuck PRs move
-to the top of their group:
+for example `Author: changes requested` with `for 2 days` under it:
 
 | Reason | Meaning | Stuck after |
 |--------|---------|-------------|
@@ -82,9 +93,9 @@ you send it.
 
 ## The workspace
 
-Buttons: **Review**, **Post review ▾**, **Ship**, **✨ Summarize**,
-**🏛 Architecture review**, and **Open full chat** (when a session is linked).
-Tabs:
+Buttons: the one that fits the stage is blue (Review, Post review, Ship, or
+Answer). **Summarize** is next to it, and **More** holds Architecture review,
+Open full chat, Pin to top, Open on GitHub, and Reset agent status. Tabs:
 
 | Tab | Shows |
 |-----|-------|
