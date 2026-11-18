@@ -66,6 +66,12 @@ public sealed class UiTargetResolver(
             {
                 throw new AppNotFoundException($"No running app found matching '{app}'.");
             }
+            // "My App" means the window titled exactly that, not also "My App 2".
+            var exactTitles = windows.Where(w => string.Equals(w.Title, app, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (exactTitles.Count > 0)
+            {
+                windows = exactTitles;
+            }
             if (processOnly)
             {
                 var processes = windows.Select(window => window.Pid).Distinct().ToArray();
@@ -85,8 +91,28 @@ public sealed class UiTargetResolver(
             return Task.FromResult(new UiTarget { ProcessId = resolved.Id, ProcessName = resolved.ProcessName });
         }
 
-        // Process found — check for multiple windows
-        var processWindows = uiAutomation.FindWindowsByPid(resolved.Id);
+        // Process found — check for multiple windows. A packaged (UWP) app such as Calculator draws
+        // inside an ApplicationFrameHost frame, so it owns no top-level window — except while
+        // minimized, when its content window detaches from the frame and becomes an empty top-level
+        // window. In both cases the frame hosting the app is the real target.
+        var processWindows = WithoutDevToolsInspector(uiAutomation.FindWindowsByPid(resolved.Id));
+        if (processWindows.TrueForAll(w => IsCoreWindow(systemQuery, w.Hwnd)))
+        {
+            var frames = HostedAppFrameWindows(systemQuery, resolved.Id);
+            if (frames.Count > 0)
+            {
+                var target = frames.Count > 1
+                    ? AutoSelectWindow(frames, app)
+                    : CreateTarget(frames[0].Pid, frames[0].Hwnd, frames[0].Title);
+                // The host process owns every packaged app's frame, so stay in this window.
+                target.IsExplicitWindow = true;
+                logger.LogInformation(
+                    "'{ProcessName}' (PID {Pid}) has no top-level window of its own; using the app frame \"{Title}\" (HWND {Hwnd}) that hosts it.",
+                    resolved.ProcessName, resolved.Id, target.WindowTitle, target.WindowHandle);
+                return Task.FromResult(target);
+            }
+        }
+
         if (processWindows.Count > 1)
         {
             return Task.FromResult(AutoSelectWindow(processWindows, app));
@@ -95,22 +121,6 @@ public sealed class UiTargetResolver(
         if (processWindows.Count == 1)
         {
             return Task.FromResult(CreateTarget(resolved.Id, processWindows[0].Hwnd, processWindows[0].Title));
-        }
-
-        // The process owns no top-level window. Packaged (UWP) apps such as Calculator draw inside
-        // an ApplicationFrameHost frame, so use the frame that hosts this process's content.
-        var frames = HostedAppFrameWindows(systemQuery, resolved.Id);
-        if (frames.Count > 0)
-        {
-            var target = frames.Count > 1
-                ? AutoSelectWindow(frames, app)
-                : CreateTarget(frames[0].Pid, frames[0].Hwnd, frames[0].Title);
-            // The host process owns every packaged app's frame, so stay in this window.
-            target.IsExplicitWindow = true;
-            logger.LogInformation(
-                "'{ProcessName}' (PID {Pid}) has no top-level window of its own; using the app frame \"{Title}\" (HWND {Hwnd}) that hosts it.",
-                resolved.ProcessName, resolved.Id, target.WindowTitle, target.WindowHandle);
-            return Task.FromResult(target);
         }
 
         // No window yet (for example, the app is still starting). Keep the process-scoped target so
@@ -151,20 +161,60 @@ public sealed class UiTargetResolver(
         return target;
     }
 
+    // The DevTools inspector runs inside the app's process, so it is one of the app's own windows. Targeting
+    // the app by PID or name means the app's UI, never the inspector, even when the inspector is in front.
+    /// <summary>The title of the DevTools inspector window, followed by the app's PID.</summary>
+    public const string DevToolsInspectorTitlePrefix = "WinApp DevTools · PID ";
+
+    /// <summary>Whether a window title is the DevTools inspector's, which runs inside the app's process.</summary>
+    public static bool IsDevToolsInspector(string title) => title.StartsWith(DevToolsInspectorTitlePrefix, StringComparison.Ordinal);
+
+    private static List<(nint Hwnd, int Pid, string Title)> WithoutDevToolsInspector(List<(nint Hwnd, int Pid, string Title)> windows)
+    {
+        var appWindows = windows.Where(w => !IsDevToolsInspector(w.Title)).ToList();
+        return appWindows.Count > 0 ? appWindows : windows;
+    }
+
     private const string ApplicationFrameWindowClass = "ApplicationFrameWindow";
+    private const string CoreWindowClass = "Windows.UI.Core.CoreWindow";
 
     /// <summary>
-    /// The ApplicationFrameHost frames hosting <paramref name="pid"/>'s content, with each frame's
-    /// owning PID and title. Empty for an ordinary process or one with no visible window yet.
+    /// The top-level windows of <paramref name="pid"/> or, for a packaged app hosted by
+    /// ApplicationFrameHost (including one that is minimized), the frame windows hosting it.
     /// </summary>
-    /// <param name="pid">Process whose packaged-app content the frames must host.</param>
-    public static List<(nint Hwnd, int Pid, string Title)> FindHostedAppFrameWindows(int pid)
-        => HostedAppFrameWindows(s_sharedQuery, pid);
+    /// <param name="uiAutomation">Window discovery service used to list the process's own windows.</param>
+    /// <param name="pid">Process whose windows to return.</param>
+    public static List<(nint Hwnd, int Pid, string Title)> FindWindowsOrHostedAppFrames(IUiAutomation uiAutomation, int pid)
+    {
+        ArgumentNullException.ThrowIfNull(uiAutomation);
+        var windows = uiAutomation.FindWindowsByPid(pid);
+        if (!windows.TrueForAll(w => IsCoreWindow(s_sharedQuery, w.Hwnd)))
+        {
+            return windows;
+        }
+
+        List<(nint Hwnd, int Pid, string Title)> frames;
+        try
+        {
+            frames = HostedAppFrameWindows(s_sharedQuery, pid);
+        }
+        catch (AmbiguousHostedAppFrameException ex)
+        {
+            // Listing does not select a window, so show every candidate for the user to pick with -w.
+            frames = ex.Frames.Select(h => ToFrameWindow(s_sharedQuery, h)).ToList();
+        }
+
+        return frames.Count > 0 ? frames : windows;
+    }
+
+    private static bool IsCoreWindow(ISystemUiQuery query, nint hwnd)
+        => string.Equals(query.GetWindowClassName((long)hwnd), CoreWindowClass, StringComparison.Ordinal);
 
     private static List<(nint Hwnd, int Pid, string Title)> HostedAppFrameWindows(ISystemUiQuery query, int pid)
-        => query.FindHostedAppFrames(pid)
-            .Select(h => ((nint)h, (int)query.GetProcessIdForWindow(h), query.GetWindowText(h) ?? ""))
-            .ToList();
+        => query.FindHostedAppFrames(pid).Select(h => ToFrameWindow(query, h)).ToList();
+
+    private static (nint Hwnd, int Pid, string Title) ToFrameWindow(ISystemUiQuery query, long hwnd)
+        => ((nint)hwnd, (int)query.GetProcessIdForWindow(hwnd), query.GetWindowText(hwnd) ?? "");
 
     /// <summary>
     /// Auto-selects the best window from multiple candidates silently.

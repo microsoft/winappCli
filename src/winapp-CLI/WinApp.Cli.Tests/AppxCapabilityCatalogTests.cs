@@ -205,8 +205,9 @@ public class AppxCapabilityCatalogTests
         // default to one — and the message has to name the way forward.
         Assert.IsFalse(AppxCapabilityCatalog.TryParse("someFutureCapability", out _, out var error));
 
-        StringAssert.Contains(error, "someFutureCapability");
-        StringAssert.Contains(error, "rescap:someFutureCapability");
+        Assert.IsNotNull(error);
+        Assert.Contains("someFutureCapability", error);
+        Assert.Contains("rescap:someFutureCapability", error);
     }
 
     [TestMethod]
@@ -214,8 +215,9 @@ public class AppxCapabilityCatalogTests
     {
         Assert.IsFalse(AppxCapabilityCatalog.TryParse("nope:something", out _, out var error));
 
-        StringAssert.Contains(error, "nope");
-        StringAssert.Contains(error, "rescap");
+        Assert.IsNotNull(error);
+        Assert.Contains("nope", error);
+        Assert.Contains("rescap", error);
     }
 
     [TestMethod]
@@ -232,7 +234,8 @@ public class AppxCapabilityCatalogTests
     public void Parse_PrefixWithNoName_IsRejected()
     {
         Assert.IsFalse(AppxCapabilityCatalog.TryParse("rescap:", out _, out var error));
-        StringAssert.Contains(error, "prefix");
+        Assert.IsNotNull(error);
+        Assert.Contains("prefix", error);
     }
 
     [TestMethod]
@@ -251,7 +254,8 @@ public class AppxCapabilityCatalogTests
         // rather than merely uncatalogued. Accepting it would defer the failure to registration, which
         // reports only an opaque schema error naming no capability.
         Assert.IsFalse(AppxCapabilityCatalog.TryParse("app:notARealCapability", out _, out var error));
-        StringAssert.Contains(error, "closed at", "The error should name the closed foundation set");
+        Assert.IsNotNull(error);
+        Assert.Contains("closed at", error, "The error should name the closed foundation set");
     }
 
     [TestMethod]
@@ -267,7 +271,8 @@ public class AppxCapabilityCatalogTests
         // would reintroduce exactly that failure.
         Assert.IsFalse(AppxCapabilityCatalog.TryParse(value, out var caps, out var error));
         Assert.AreEqual(0, caps.Count);
-        StringAssert.Contains(error, expectedInError, "The error should name the correct declaration");
+        Assert.IsNotNull(error);
+        Assert.Contains(expectedInError, error, "The error should name the correct declaration");
     }
 
     [TestMethod]
@@ -337,7 +342,8 @@ public class AppxCapabilityCatalogTests
         // child elements a flat property cannot carry. Emitting it would produce a manifest that either
         // fails schema validation or registers and silently grants no access.
         Assert.IsFalse(AppxCapabilityCatalog.TryParse(value, out _, out var error));
-        StringAssert.Contains(error, "WinAppManifestPath", "The error should point at the authored-manifest escape hatch");
+        Assert.IsNotNull(error);
+        Assert.Contains("WinAppManifestPath", error, "The error should point at the authored-manifest escape hatch");
     }
 
     [TestMethod]

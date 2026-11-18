@@ -54,7 +54,7 @@ namespace WinApp.Cli.Services.Controls;
 ///          the control Subtitle for HeaderText (was empty → "{Control}: "),
 ///          so the embedded gallery snapshot changed.
 ///   "19" — Event handlers not backed by emitted code-behind are now stripped from
-///          both Gallery and Toolkit XAML (StripUnbackedEventHandlers): the WinUI
+///          both Gallery and Toolkit XAML (StripUnbackedEventHandlers, since removed in "28"): the WinUI
 ///          Gallery keeps sample handlers in shared page code-behind we don't fetch,
 ///          so ~44 scenarios shipped XAML wired to a missing handler (compile error
 ///          on paste). Method-aware: backed handlers (e.g. TabView's) are kept.
@@ -134,6 +134,16 @@ namespace WinApp.Cli.Services.Controls;
 ///          This change also re-bakes the snapshot. CommunityToolkit/Windows now
 ///          publishes catalog/toolkit-samples.json, so the baked corpus carries the
 ///          Toolkit again instead of the reduced floor it held while that index 404'd.
+///   "27" — gallery-tags.json gains a tableview entry and listview loses its table,
+///          column, sort, editable and datagrid tags, so tabular-data queries reach
+///          TableView instead of ListView (issue #1120). Rule 2: an unbumped cache keeps
+///          serving the old tags, and the offline fallback ignores the TTL.
+///   "28" — Event hookups whose handler is not defined in the emitted code-behind are no
+///          longer deleted from Gallery and Toolkit XAML; they are kept and disclosed
+///          instead (an "Undefined handlers:" line in find-ui output). Deleting removed
+///          the very event a sample is about (ScrollView's ScrollAnimationStarting, ...)
+///          and depended on a hand-kept event-name list. Rule 3: same input, different
+///          output — an unbumped cache keeps serving the stripped markup.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
@@ -141,5 +151,5 @@ namespace WinApp.Cli.Services.Controls;
 /// </summary>
 internal static class CacheVersion
 {
-    public const string Current = "26";
+    public const string Current = "28";
 }

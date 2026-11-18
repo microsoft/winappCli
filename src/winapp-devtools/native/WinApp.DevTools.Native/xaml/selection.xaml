@@ -4,7 +4,7 @@
         x:Name="DevToolsSelRoot" Width="$W$" Height="$H$" Canvas.ZIndex="2000"
         AutomationProperties.AutomationId="DevToolsSelAnchor">
 
-  <!-- Display only — it must never eat a click aimed at the element under it. -->
+  <!-- Display only: it must never eat a click aimed at the element under it. -->
   <Border x:Name="DevToolsSelTag" Canvas.Left="$TAGX$" Canvas.Top="$TAGY$" Canvas.ZIndex="2001"
           Visibility="$TAGVIS$"
           Background="$SURFACE$" BorderBrush="$RIM$" BorderThickness="1" CornerRadius="5" Padding="7,5"

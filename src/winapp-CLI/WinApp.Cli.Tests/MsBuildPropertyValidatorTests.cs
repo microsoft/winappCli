@@ -39,8 +39,8 @@ public class MsBuildPropertyValidatorTests
         var error = MsBuildPropertyValidator.Validate(["A=1;RuntimeIdentifier=win-arm64"]);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, "'A'", "The message should name the offending property");
-        StringAssert.Contains(error, "%3B", "The message should name the escape for a literal ';'");
+        Assert.Contains("'A'", error, "The message should name the offending property");
+        Assert.Contains("%3B", error, "The message should name the escape for a literal ';'");
     }
 
     [TestMethod]
@@ -51,8 +51,8 @@ public class MsBuildPropertyValidatorTests
         var error = MsBuildPropertyValidator.Validate(["PublishProfile=win-arm64,Extra=true"]);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, "'PublishProfile'");
-        StringAssert.Contains(error, "%2C", "The message should name the escape for a literal ','");
+        Assert.Contains("'PublishProfile'", error);
+        Assert.Contains("%2C", error, "The message should name the escape for a literal ','");
     }
 
     [TestMethod]
@@ -70,7 +70,7 @@ public class MsBuildPropertyValidatorTests
         var error = MsBuildPropertyValidator.Validate(["A;B"]);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, "'A'");
+        Assert.Contains("'A'", error);
     }
 
     [TestMethod]
@@ -83,8 +83,8 @@ public class MsBuildPropertyValidatorTests
         var error = MsBuildPropertyValidator.Validate([property]);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, expectedInError);
-        StringAssert.Contains(error, "Name=Value", "The message should show the expected shape");
+        Assert.Contains(expectedInError, error);
+        Assert.Contains("Name=Value", error, "The message should show the expected shape");
     }
 
     [TestMethod]
@@ -96,7 +96,7 @@ public class MsBuildPropertyValidatorTests
         var error = MsBuildPropertyValidator.Validate([property]);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, "(empty)");
+        Assert.Contains("(empty)", error);
         Assert.IsFalse(error.Contains("--property ''", StringComparison.Ordinal),
             "An empty name must render as a sentinel, not as empty quotes");
     }
@@ -118,6 +118,6 @@ public class MsBuildPropertyValidatorTests
         var error = MsBuildPropertyValidator.Validate(["Good=1", "AlsoBad", "Bad;Packed"]);
 
         Assert.IsNotNull(error);
-        StringAssert.Contains(error, "'AlsoBad'", "Validation stops at the first offender");
+        Assert.Contains("'AlsoBad'", error, "Validation stops at the first offender");
     }
 }

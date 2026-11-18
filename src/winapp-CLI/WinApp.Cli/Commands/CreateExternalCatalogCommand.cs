@@ -12,7 +12,7 @@ namespace WinApp.Cli.Commands;
 
 internal class CreateExternalCatalogCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Generate CodeIntegrityExternal.cat for TrustedLaunch sparse packages";
+    public string ShortDescription => "Create CodeIntegrityExternal.cat (TrustedLaunch)";
 
     public static Argument<string> InputFolderArgument { get; }
     public static Option<bool> RecursiveOption { get; }

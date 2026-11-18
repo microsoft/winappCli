@@ -332,7 +332,8 @@ static std::wstring HandleCommand(const std::wstring& line,
         // The token is an opaque packed WIRE handle (same scheme as property.get), NOT a raw InstanceHandle -
         // RE-RESOLVE it to a raw ih INSIDE the UI-thread closure right before the live hit-test (UAF-by-construction:
         // never carry a raw handle across the hop).
-        unsigned long long wire = wcstoull(line.c_str() + wcslen(L"highlight|"), nullptr, 10);
+        unsigned long long wire = 0;
+        if (!DevToolsParseWireHandle(line.substr(wcslen(L"highlight|")), true, &wire)) return L"ERR bad-args";
         InstanceHandle root = RootVisual();
         auto rerr = std::make_shared<const wchar_t*>(nullptr);
         bool completed = false;
@@ -361,7 +362,8 @@ static std::wstring HandleCommand(const std::wstring& line,
     if (line.rfind(L"selection.select|", 0) == 0) {
         // Highlight-only (`highlight|`) remains the HOVER primitive and is unchanged: a client that only wants to
         // light a rect while the pointer moves must not move the app's selection with it.
-        unsigned long long wire = wcstoull(line.c_str() + wcslen(L"selection.select|"), nullptr, 10);
+        unsigned long long wire = 0;
+        if (!DevToolsParseWireHandle(line.substr(wcslen(L"selection.select|")), true, &wire)) return L"ERR bad-args";
         InstanceHandle root = RootVisual();
         auto rerr = std::make_shared<const wchar_t*>(nullptr);
         auto selected = std::make_shared<bool>(false);
@@ -493,8 +495,8 @@ static std::wstring HandleCommand(const std::wstring& line,
         // hotreload.clearprop|<target>|<prop> -> ClearProperty on the app UI thread, the same primitive the
         // in-process window's Clear value button uses. Addressing is identical to hotreload.setprop.
         auto p = Split(line, L'|');
-        if (p.size() < 3) return L"ERR bad-args";
-        // A property name cannot contain '|', so unlike the write there is no tail to rejoin here.
+        // A property name cannot contain '|', so unlike the write there is no tail; extra fields are malformed.
+        if (p.size() != 3) return L"ERR bad-args";
         std::wstring prop;
         if (!TryUnescapeField(p[2], prop) || prop.empty()) return L"ERR bad-args";
         return MutatePropertyTarget(p[1], [prop](InstanceHandle h) { return ClearPropertyByPath(h, prop); });
@@ -570,6 +572,10 @@ static std::wstring HandleCommand(const std::wstring& line,
         return CmdResourceResolve(Split(line, L'|'));
     }
     return L"ERR unknown";
+}
+
+static bool HasBridgeDelimiter(const std::wstring& s) {
+    return s.find(L'|') != std::wstring::npos;
 }
 
 static std::wstring BridgeEscape(const std::wstring& s) {

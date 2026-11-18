@@ -55,9 +55,10 @@ public class NugetServiceFeedTests : BaseCommandTests
                 .Select(r => r.PackageSource.Name)
                 .ToList();
 
-            CollectionAssert.AreEquivalent(
+            Assert.AreSequenceEqual(
                 AlphaAndBeta,
                 sources,
+                SequenceOrder.InAnyOrder,
                 "With no packageSourceMapping in effect, every configured source is eligible.");
         }
         finally
@@ -98,13 +99,13 @@ public class NugetServiceFeedTests : BaseCommandTests
             var mapped = provider.GetRepositoriesForPackage("Contoso.Widget")
                 .Select(r => r.PackageSource.Name)
                 .ToList();
-            CollectionAssert.AreEqual(AlphaOnly, mapped, "Contoso.* must resolve to the mapped source only.");
+            Assert.AreSequenceEqual(AlphaOnly, mapped, "Contoso.* must resolve to the mapped source only.");
 
             // Everything else falls back to the '*' mapping on 'beta'.
             var fallback = provider.GetRepositoriesForPackage("Fabrikam.Thing")
                 .Select(r => r.PackageSource.Name)
                 .ToList();
-            CollectionAssert.AreEqual(BetaOnly, fallback, "Unmatched packages use the '*' mapping.");
+            Assert.AreSequenceEqual(BetaOnly, fallback, "Unmatched packages use the '*' mapping.");
         }
         finally
         {
@@ -189,6 +190,46 @@ public class NugetServiceFeedTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void GetNuGetGlobalPackagesDir_ConfigRoot_HonorsThatRootsConfigNotTheWorkingDirectory()
+    {
+        // find-api indexes a --project-dir that need not be the working directory, so the folder
+        // must come from the indexed project's nuget.config, and a read-only lookup must not create it.
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NUGET_PACKAGES")))
+        {
+            Assert.Inconclusive("NUGET_PACKAGES is set in the environment; it overrides the config's globalPackagesFolder.");
+        }
+
+        var cwd = CreateFeedTestDirectory();
+        var project = CreateFeedTestDirectory();
+        try
+        {
+            WriteNuGetConfig(project, """
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <config>
+                    <add key="globalPackagesFolder" value="project-packages" />
+                  </config>
+                </configuration>
+                """);
+
+            var service = CreateServiceRootedAt(cwd);
+
+            var expected = Path.Join(project.FullName, "project-packages");
+            var actual = service.GetNuGetGlobalPackagesDir(project.FullName);
+
+            Assert.AreEqual(
+                expected.TrimEnd(Path.DirectorySeparatorChar),
+                actual.FullName.TrimEnd(Path.DirectorySeparatorChar));
+            Assert.IsFalse(Directory.Exists(expected), "A read-only lookup must not create the folder.");
+        }
+        finally
+        {
+            TryDelete(cwd);
+            TryDelete(project);
+        }
+    }
+
+    [TestMethod]
     public void GetNuGetPackageDir_NormalizesIdAndVersionToOnDiskLayout()
     {
         var root = CreateFeedTestDirectory();
@@ -238,7 +279,7 @@ public class NugetServiceFeedTests : BaseCommandTests
             var ex = Assert.ThrowsExactly<InvalidOperationException>(
                 () => service.GetNuGetPackageDir("Some.Package", version));
 
-            StringAssert.Contains(ex.Message, "is not a valid NuGet version", StringComparison.Ordinal);
+            Assert.Contains("is not a valid NuGet version", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -262,7 +303,7 @@ public class NugetServiceFeedTests : BaseCommandTests
             var ex = Assert.ThrowsExactly<InvalidOperationException>(
                 () => service.GetNuGetPackageDir(packageId, "1.0.0"));
 
-            StringAssert.Contains(ex.Message, "is not a valid NuGet package id", StringComparison.Ordinal);
+            Assert.Contains("is not a valid NuGet package id", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -354,7 +395,7 @@ public class NugetServiceFeedTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.GetPackageDependenciesAsync("Unmapped.Package", "1.0.0", TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "no <packageSourceMapping> pattern maps 'Unmapped.Package'", StringComparison.Ordinal);
+            Assert.Contains("no <packageSourceMapping> pattern maps 'Unmapped.Package'", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -392,8 +433,8 @@ public class NugetServiceFeedTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.GetPackageDependenciesAsync("Winapp.Thing", "1.0.0", TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "mapped to source(s) [phantom]", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "not enabled/configured", StringComparison.Ordinal);
+            Assert.Contains("mapped to source(s) [phantom]", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("not enabled/configured", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -431,7 +472,7 @@ public class NugetServiceFeedTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.GetLatestVersionAsync("Unmapped.Package", SdkInstallMode.Stable, TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "no <packageSourceMapping> pattern maps 'Unmapped.Package'", StringComparison.Ordinal);
+            Assert.Contains("no <packageSourceMapping> pattern maps 'Unmapped.Package'", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -472,8 +513,8 @@ public class NugetServiceFeedTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.GetPackageDependenciesAsync("Winapp.Thing", "1.0.0", TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "mapped to source(s) [insecurehttp]", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "plain HTTP", StringComparison.Ordinal);
+            Assert.Contains("mapped to source(s) [insecurehttp]", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("plain HTTP", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -505,7 +546,7 @@ public class NugetServiceFeedTests : BaseCommandTests
             var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await service.GetPackageDependenciesAsync("Winapp.TestA", "not-a-version", TestContext.CancellationToken));
 
-            StringAssert.Contains(ex.Message, "'not-a-version' is not a valid NuGet version for package 'Winapp.TestA'", StringComparison.Ordinal);
+            Assert.Contains("'not-a-version' is not a valid NuGet version for package 'Winapp.TestA'", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -608,8 +649,8 @@ public class NugetServiceFeedTests : BaseCommandTests
 
             // The error must name the unreachable source and explain it could not be queried, proving the
             // resolver did not silently return 1.0.0 from the reachable feed.
-            StringAssert.Contains(ex.Message, "could not be queried", StringComparison.Ordinal);
-            StringAssert.Contains(ex.Message, "broken", StringComparison.Ordinal);
+            Assert.Contains("could not be queried", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("broken", ex.Message, StringComparison.Ordinal);
         }
         finally
         {

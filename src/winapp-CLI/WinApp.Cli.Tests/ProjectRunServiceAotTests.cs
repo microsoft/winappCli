@@ -67,35 +67,35 @@ public sealed class ProjectRunServiceAotTests
             options,
             "minimal");
 
-        CollectionAssert.Contains(arguments.ToList(), "publish");
-        CollectionAssert.DoesNotContain(arguments.ToList(), "-target:Build");
-        CollectionAssert.Contains(arguments.ToList(), "Release");
-        CollectionAssert.Contains(arguments.ToList(), "win-arm64");
-        CollectionAssert.Contains(arguments.ToList(), "--no-restore");
-        CollectionAssert.Contains(arguments.ToList(), "-p:PublishAot=true");
-        CollectionAssert.Contains(arguments.ToList(), "-p:Flavor=Retail");
-        CollectionAssert.Contains(arguments.ToList(), "-p:Platform=ARM64");
+        Assert.Contains("publish", arguments.ToList());
+        Assert.DoesNotContain("-target:Build", arguments.ToList());
+        Assert.Contains("Release", arguments.ToList());
+        Assert.Contains("win-arm64", arguments.ToList());
+        Assert.Contains("--no-restore", arguments.ToList());
+        Assert.Contains("-p:PublishAot=true", arguments.ToList());
+        Assert.Contains("-p:Flavor=Retail", arguments.ToList());
+        Assert.Contains("-p:Platform=ARM64", arguments.ToList());
         var withoutAotProperty = ProjectRunService.BuildPublishArguments(
             project,
             options with { Properties = ["Flavor=Retail"] },
             "minimal");
-        CollectionAssert.DoesNotContain(
-            withoutAotProperty.ToList(),
+        Assert.DoesNotContain(
             "-p:PublishAot=true",
+            withoutAotProperty.ToList(),
             "WinApp must not enable PublishAot implicitly.");
         var argumentList = arguments.ToList();
         Assert.IsTrue(
             argumentList.IndexOf("-p:IncludePublishItemsOutputGroup=true") >
             argumentList.IndexOf("-p:PublishAot=true"),
             "WinApp's recipe switch must win over a conflicting user property.");
-        CollectionAssert.Contains(
-            arguments.ToList(),
-            "--getProperty:AppxPackageRecipe");
+        Assert.Contains(
+            "--getProperty:AppxPackageRecipe",
+            arguments.ToList());
 
-        CollectionAssert.DoesNotContain(
+        Assert.DoesNotContain(
+            "-p:_IsPublishing=true",
             WindowsCommandLine.SplitArguments(
-                ProjectRunService.BuildEvaluateArguments(project, options)).ToList(),
-            "-p:_IsPublishing=true");
+                ProjectRunService.BuildEvaluateArguments(project, options)).ToList());
     }
 
     [TestMethod]
@@ -108,15 +108,73 @@ public sealed class ProjectRunServiceAotTests
             assets,
             publishAot: false,
             packaging: "None");
-        var dotnet = SuccessfulDotnet(properties);
+        // The pre-publish evaluate reports nothing usable, so the publish result is the backstop.
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (1, string.Empty, "evaluation failed"),
+            RunDotnetArgumentListHandler = _ => (0, properties, string.Empty),
+        };
         var service = NewService(dotnet);
 
         var error = await Assert.ThrowsAsync<ProjectRunException>(() =>
             service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
 
-        StringAssert.Contains(error.Message, "<PublishAot>true</PublishAot>");
-        StringAssert.Contains(error.Message, "-p PublishAot=true");
+        Assert.Contains("<PublishAot>true</PublishAot>", error.Message);
+        Assert.Contains("-p PublishAot=true -p PublishTrimmed=true", error.Message);
         Assert.AreEqual(1, dotnet.ArgumentListInvocations.Count);
+    }
+
+    [TestMethod]
+    [DataRow("", false)]
+    [DataRow("False", true)]
+    public async Task PublishAot_DisabledFailsBeforePublishing(string publishTrimmed, bool mentionsTrimming)
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        var dotnet = SuccessfulDotnet(PropertyJson(
+            project,
+            assets,
+            publishAot: false,
+            packaging: "None",
+            publishTrimmed: publishTrimmed));
+        var service = NewService(dotnet);
+
+        var error = await Assert.ThrowsAsync<ProjectRunException>(() =>
+            service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
+
+        Assert.Contains("Native AOT is not enabled for 'Sample.csproj'", error.Message);
+        Assert.Contains("<PublishAot>true</PublishAot>", error.Message);
+        Assert.Contains("-p PublishAot=true -p PublishTrimmed=true", error.Message);
+        Assert.AreEqual(
+            mentionsTrimming,
+            error.Message.Contains("<PublishTrimmed>false</PublishTrimmed> for the Debug configuration", StringComparison.Ordinal));
+        Assert.AreEqual(0, dotnet.ArgumentListInvocations.Count, "the check must run before publishing");
+        Assert.IsTrue(dotnet.StringInvocations.Any(arguments =>
+            arguments.Contains("-p:_IsPublishing=true", StringComparison.Ordinal)),
+            "the check must evaluate the project as dotnet publish sees it");
+    }
+
+    [TestMethod]
+    [DataRow("Debug", "--aot -p PublishAot=true")]
+    [DataRow("Release", "--aot -c Release -p PublishAot=true")]
+    public async Task PublishAot_TrimmingDisabledFailsBeforePublishing(string configuration, string expectedRetry)
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        var dotnet = SuccessfulDotnet(PropertyJson(
+            project,
+            assets,
+            publishAot: true,
+            packaging: "None",
+            publishTrimmed: "False"));
+        var service = NewService(dotnet);
+
+        var error = await Assert.ThrowsAsync<ProjectRunException>(() =>
+            service.PublishAotAndResolveAsync(project, Options(configuration: configuration), CancellationToken.None));
+
+        Assert.Contains($"Native AOT requires trimming, but 'Sample.csproj' sets <PublishTrimmed>false</PublishTrimmed> for the {configuration} configuration", error.Message);
+        Assert.Contains($"{expectedRetry} -p PublishTrimmed=true", error.Message);
+        Assert.AreEqual(0, dotnet.ArgumentListInvocations.Count);
     }
 
     [TestMethod]
@@ -126,7 +184,7 @@ public sealed class ProjectRunServiceAotTests
         var properties = PropertyJson(
             project,
             new FileInfo(Path.Join(_tempDirectory.FullName, "obj", "missing.assets.json")),
-            publishAot: false,
+            publishAot: true,
             packaging: "None");
         var dotnet = new FakeDotNetService
         {
@@ -143,9 +201,9 @@ public sealed class ProjectRunServiceAotTests
 
         Assert.IsNull(outcome.Resolution);
         Assert.AreEqual(73, outcome.ExitCode);
-        CollectionAssert.Contains(
-            dotnet.ArgumentListInvocations.Single().ToList(),
-            "--no-restore");
+        Assert.Contains(
+            "--no-restore",
+            dotnet.ArgumentListInvocations.Single().ToList());
     }
 
     [TestMethod]
@@ -172,10 +230,10 @@ public sealed class ProjectRunServiceAotTests
 
         Assert.AreEqual(captureSources,
             dotnet.ArgumentListInvocations.Single().Contains("--getItem:Page,ApplicationDefinition"));
-        CollectionAssert.DoesNotContain(dotnet.ArgumentListInvocations.Single().ToList(), "-target:Build");
+        Assert.DoesNotContain("-target:Build", dotnet.ArgumentListInvocations.Single().ToList());
         if (captureSources)
         {
-            CollectionAssert.AreEqual((string[])["Published.xaml", "App.xaml"], outcome.Resolution!.DevToolsXamlSources!.ToArray());
+            Assert.AreSequenceEqual((string[])["Published.xaml", "App.xaml"], outcome.Resolution!.DevToolsXamlSources!.ToArray());
         }
         else
         {
@@ -205,18 +263,49 @@ public sealed class ProjectRunServiceAotTests
         var dotnet = new FakeDotNetService
         {
             RunDotnetCommandHandler = _ => (0, evaluated, ""),
-            RunDotnetArgumentListHandler = _ => (0, built, ""),
+            ResultOutputFileHandler = _ => built,
         };
         var outcome = await NewService(dotnet).BuildAndResolveAsync(
             project, Options(noRestore: true) with { CaptureDevToolsSources = true }, CancellationToken.None);
         Assert.AreEqual(0, outcome.ExitCode);
-        var command = dotnet.ArgumentListInvocations.Single();
+        var command = Helpers.WindowsCommandLine.SplitArguments(dotnet.StreamingCalls.Single());
         Assert.AreEqual("build", command[0]);
-        CollectionAssert.Contains(command.ToList(), "-target:Build");
-        CollectionAssert.DoesNotContain(command.ToList(), "--no-incremental");
-        CollectionAssert.Contains(command.ToList(), "--getProperty:XamlCompilerExeInputJson");
+        Assert.Contains("-target:Build", command.ToList());
+        Assert.DoesNotContain("--no-incremental", command.ToList());
+        Assert.Contains("--getProperty:XamlCompilerExeInputJson", command.ToList());
         Assert.AreEqual(properties["XamlCompilerExeInputJson"], outcome.Resolution!.DevToolsCompilerArtifacts!.Input);
-        CollectionAssert.AreEqual((string[])["Main.xaml"], outcome.Resolution.DevToolsXamlSources!.ToArray());
+        Assert.AreSequenceEqual((string[])["Main.xaml"], outcome.Resolution.DevToolsXamlSources!.ToArray());
+    }
+
+    [TestMethod]
+    public async Task PublishAot_ReportsEvaluatedUnsupportedFrameworkBeforeLaunch()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        using var evaluated = JsonDocument.Parse(PropertyJson(project, assets, true, "None"));
+        var properties = evaluated.RootElement.GetProperty("Properties").EnumerateObject()
+            .ToDictionary(property => property.Name, property => property.Value.GetString()!);
+        properties["UseWPF"] = "true";
+        var output = JsonSerializer.Serialize(new
+        {
+            Properties = properties,
+            Items = new
+            {
+                Page = Array.Empty<object>(),
+                ApplicationDefinition = Array.Empty<object>(),
+                PackageReference = Array.Empty<object>(),
+                ProjectReference = Array.Empty<object>(),
+                Reference = Array.Empty<object>(),
+            },
+        });
+        var dotnet = SuccessfulDotnet(output);
+
+        var outcome = await NewService(dotnet).PublishAotAndResolveAsync(
+            project, Options() with { CaptureDevToolsSources = true }, CancellationToken.None);
+
+        Assert.AreEqual(ProjectAppFramework.Wpf, outcome.Resolution!.DevToolsUnsupportedFramework);
+        Assert.Contains("--getItem:PackageReference,ProjectReference,Reference", dotnet.ArgumentListInvocations.Single().ToList());
     }
 
     [TestMethod]
@@ -242,7 +331,12 @@ public sealed class ProjectRunServiceAotTests
         var dotnet = new FakeDotNetService
         {
             RunDotnetCommandHandler = _ => (0, properties, ""),
-            RunDotnetArgumentListHandler = _ => (exitCode, "Build diagnostic", "Build stderr"),
+            RunDotnetStreamingHandler = (_, output, error) =>
+            {
+                output?.Invoke("Build diagnostic");
+                error?.Invoke("Build stderr");
+                return exitCode;
+            },
             ResultOutputFileHandler = _ => properties,
         };
         using var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
@@ -266,6 +360,34 @@ public sealed class ProjectRunServiceAotTests
         Assert.IsFalse(output.Contains("\"Properties\"", StringComparison.Ordinal));
         Assert.IsFalse(output.Contains("\"Items\"", StringComparison.Ordinal));
         if (json) { Assert.AreEqual("", _consoles.Last().Output); }
+    }
+
+    // DevTools is on by default for WinUI, so its build must look like any other `winapp run` build on a terminal.
+    [TestMethod]
+    public async Task DevToolsBuild_OnATerminal_RendersLikeAnyOtherBuild()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("bin\\Sample.exe", "controlled executable path");
+        var propertyDocument = System.Text.Json.Nodes.JsonNode.Parse(PropertyJson(project, assets, false, "None"))!;
+        propertyDocument["Properties"]!["RunCommand"] = Path.Join(_tempDirectory.FullName, "bin", "Sample.exe");
+        propertyDocument["Items"] = System.Text.Json.Nodes.JsonNode.Parse("""{"Page":[{"Identity":"Main.xaml"}],"ApplicationDefinition":[]}""");
+        var dotnet = new FakeDotNetService { ResultOutputFileHandler = _ => propertyDocument.ToJsonString() };
+        using var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = NewService(dotnet, logger: logger);
+        service.NativeTerminalGateOverrideForTests = () => true;
+
+        var outcome = await service.BuildAndResolveAsync(project,
+            Options() with { CaptureDevToolsSources = true }, CancellationToken.None);
+
+        Assert.AreEqual(0, outcome.ExitCode);
+        Assert.AreSequenceEqual((string[])["Main.xaml"], outcome.Resolution!.DevToolsXamlSources!.ToArray());
+        var build = dotnet.InheritedCalls.Single();
+        Assert.Contains("--getItem:Page,ApplicationDefinition", build);
+        Assert.IsFalse(build.Contains("-tl:off", StringComparison.Ordinal), "dotnet's terminal logger renders the build");
+        var output = _consoles.Last().Output;
+        Assert.Contains("Building Sample.csproj (Debug | x64)...", output);
+        Assert.Contains("Built Sample in ", output);
     }
 
     [TestMethod]
@@ -338,7 +460,7 @@ public sealed class ProjectRunServiceAotTests
         var error = await Assert.ThrowsAsync<ProjectRunException>(() =>
             NewService(dotnet).PublishAotAndResolveAsync(
                 project, Options() with { CaptureDevToolsSources = true }, CancellationToken.None));
-        StringAssert.Contains(error.Message, "MSBuild did not report the requested XAML source items");
+        Assert.Contains("MSBuild did not report the requested XAML source items", error.Message);
     }
 
     [TestMethod]
@@ -410,7 +532,7 @@ public sealed class ProjectRunServiceAotTests
             assemblyName: "TargetValue");
         var dotnet = new FakeDotNetService
         {
-            RunDotnetCommandHandler = _ => (0, preEvaluation, string.Empty),
+            RunDotnetCommandHandler = PublishContextEvaluation(preEvaluation, publishProperties),
             RunDotnetArgumentListHandler = _ =>
                 (0, publishProperties, string.Empty),
         };
@@ -463,9 +585,9 @@ public sealed class ProjectRunServiceAotTests
         Assert.AreEqual(executable.FullName, resolution.RunCommand);
         Assert.AreEqual(manifest.FullName, resolution.AppxManifestPath);
         Assert.AreEqual(recipe.FullName, resolution.AppxRecipePath);
-        CollectionAssert.Contains(
-            dotnet.ArgumentListInvocations.Single().ToList(),
-            "-p:IncludePublishItemsOutputGroup=true");
+        Assert.Contains(
+            "-p:IncludePublishItemsOutputGroup=true",
+            dotnet.ArgumentListInvocations.Single().ToList());
     }
 
     [TestMethod]
@@ -553,8 +675,8 @@ public sealed class ProjectRunServiceAotTests
         var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
             service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
 
-        StringAssert.Contains(error.Message, "both Package.appxmanifest and appxmanifest.xml");
-        StringAssert.Contains(error.Message, "Remove the stale manifest");
+        Assert.Contains("both Package.appxmanifest and appxmanifest.xml", error.Message);
+        Assert.Contains("Remove the stale manifest", error.Message);
     }
 
     [TestMethod]
@@ -572,8 +694,8 @@ public sealed class ProjectRunServiceAotTests
         var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
             service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
 
-        StringAssert.Contains(error.Message, "package manifest");
-        StringAssert.Contains(error.Message, Path.Join(_tempDirectory.FullName, "publish"));
+        Assert.Contains("package manifest", error.Message);
+        Assert.Contains(Path.Join(_tempDirectory.FullName, "publish"), error.Message);
     }
 
     [TestMethod]
@@ -591,7 +713,7 @@ public sealed class ProjectRunServiceAotTests
         var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
             service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
 
-        StringAssert.Contains(error.Message, "FinalAppxManifestName");
+        Assert.Contains("FinalAppxManifestName", error.Message);
     }
 
     [TestMethod]
@@ -617,8 +739,8 @@ public sealed class ProjectRunServiceAotTests
         var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
             service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
 
-        StringAssert.Contains(error.Message, "AppxPackageRecipe");
-        StringAssert.Contains(error.Message, "was not produced");
+        Assert.Contains("AppxPackageRecipe", error.Message);
+        Assert.Contains("was not produced", error.Message);
     }
 
     [TestMethod]
@@ -650,8 +772,8 @@ public sealed class ProjectRunServiceAotTests
         var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
             service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
 
-        StringAssert.Contains(error.Message, "ManagedHelper.exe");
-        StringAssert.Contains(error.Message, "not sourced from the evaluated NativeBinary");
+        Assert.Contains("ManagedHelper.exe", error.Message);
+        Assert.Contains("not sourced from the evaluated NativeBinary", error.Message);
     }
 
     [TestMethod]
@@ -689,7 +811,7 @@ public sealed class ProjectRunServiceAotTests
             targetName: "Conditional");
         var dotnet = new FakeDotNetService
         {
-            RunDotnetCommandHandler = _ => (0, ordinaryProperties, string.Empty),
+            RunDotnetCommandHandler = PublishContextEvaluation(ordinaryProperties, publishingProperties),
             RunDotnetArgumentListHandler = _ =>
                 (0, publishingProperties, string.Empty),
         };
@@ -741,8 +863,8 @@ public sealed class ProjectRunServiceAotTests
 
         var consoleOutput = _consoles.Last().Output;
         var output = json || level == LogLevel.Warning ? stderr.ToString() : consoleOutput;
-        StringAssert.Contains(output, "PUBLISH-STDOUT");
-        StringAssert.Contains(output, "PUBLISH-STDERR");
+        Assert.Contains("PUBLISH-STDOUT", output);
+        Assert.Contains("PUBLISH-STDERR", output);
         Assert.IsFalse(output.Contains("STDOUT_SECRET", StringComparison.Ordinal));
         Assert.IsFalse(output.Contains("STDERR_SECRET", StringComparison.Ordinal));
         if (json || level == LogLevel.Warning)
@@ -767,7 +889,7 @@ public sealed class ProjectRunServiceAotTests
             project, Options(), CancellationToken.None);
 
         Assert.AreEqual(17, outcome.ExitCode);
-        StringAssert.Contains(_consoles.Last().Output, diagnostics.Replace("\n", Environment.NewLine, StringComparison.Ordinal));
+        Assert.Contains(diagnostics.Replace("\n", Environment.NewLine, StringComparison.Ordinal), _consoles.Last().Output);
     }
 
     [TestMethod]
@@ -792,13 +914,13 @@ public sealed class ProjectRunServiceAotTests
 
         Assert.IsNotNull(outcome.Resolution);
         var output = _consoles.Last().Output;
-        StringAssert.Contains(output, targetOutput);
-        StringAssert.Contains(output, "Publish diagnostic");
+        Assert.Contains(targetOutput, output);
+        Assert.Contains("Publish diagnostic", output);
         Assert.IsFalse(output.Contains(properties, StringComparison.Ordinal));
         var resultFile = dotnet.ResultOutputFiles.Single();
-        CollectionAssert.Contains(
-            dotnet.ArgumentListInvocations.Single().ToList(),
-            $"--getResultOutputFile:{resultFile}");
+        Assert.Contains(
+            $"--getResultOutputFile:{resultFile}",
+            dotnet.ArgumentListInvocations.Single().ToList());
         Assert.IsFalse(File.Exists(resultFile), "the temporary result file must be deleted");
     }
 
@@ -821,7 +943,7 @@ public sealed class ProjectRunServiceAotTests
         var outcome = await NewService(dotnet).PublishAotAndResolveAsync(
             project, Options() with { CaptureDevToolsSources = true }, CancellationToken.None);
 
-        CollectionAssert.AreEqual(expected.Length == 0 ? Array.Empty<string>() : [expected],
+        Assert.AreSequenceEqual(expected.Length == 0 ? Array.Empty<string>() : [expected],
             outcome.Resolution!.DevToolsXamlSources!.ToArray());
     }
 
@@ -839,7 +961,8 @@ public sealed class ProjectRunServiceAotTests
         var outcome = await service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None);
 
         Assert.AreEqual(17, outcome.ExitCode);
-        StringAssert.Contains(_consoles.Last().Output, "Native linker failed");
+        Assert.Contains("Native linker failed", _consoles.Last().Output);
+        Assert.Contains("Command: dotnet publish", _consoles.Last().Output, "a failed publish shows the command to rerun it");
         Assert.IsFalse(File.Exists(dotnet.ResultOutputFiles.Single()));
     }
 
@@ -875,7 +998,7 @@ public sealed class ProjectRunServiceAotTests
         }
 
         Assert.AreEqual(string.Empty, _consoles.Last().Output);
-        StringAssert.Contains(stderr.ToString(), "Publish diagnostic");
+        Assert.Contains("Publish diagnostic", stderr.ToString());
         Assert.IsFalse(stderr.ToString().Contains("\"Properties\"", StringComparison.Ordinal));
     }
 
@@ -929,6 +1052,44 @@ public sealed class ProjectRunServiceAotTests
         Assert.IsTrue(dotnet.ArgumentListInvocations[0].Contains("--getProperty:AppxPackageOutput"),
             "the argument-list overload must carry the native packaging publish");
         Assert.AreEqual(1, dotnet.ArgumentListEnvironmentInvocations.Count, "the AOT publish environment must be threaded (value is machine-dependent, presence is not)");
+        Assert.Contains(
+            "winapp-packaging-references-",
+            dotnet.ArgumentListEnvironmentInvocations[0]![ProjectRunService.CustomAfterDirectoryBuildTargetsVariable],
+            "winapp pack imports the packaging-reference targets too");
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error
+    public async Task PublishNativeMsix_JsonFailure_PrintsTheExactCommandOnStderr()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        var properties = PropertyJson(project, assets, publishAot: false, packaging: "MSIX", enableMsixTooling: true);
+        var packageDir = _tempDirectory.CreateSubdirectory("pkgout");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, properties, string.Empty),
+            RunDotnetArgumentListHandler = _ => (1, string.Empty, "App.csproj : error MSB4018: packaging failed"),
+        };
+        var service = NewService(dotnet);
+        var preparation = await service.PreparePackageAsync(project, Options() with { Json = true }, CancellationToken.None);
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        NativeMsixPublishOutcome outcome;
+        try
+        {
+            outcome = await service.PublishNativeMsixAsync(project, preparation, packageDir, CancellationToken.None);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.AreEqual(1, outcome.ExitCode);
+        Assert.Contains("error MSB4018", stderr.ToString());
+        var command = stderr.ToString().Split('\n').Single(line => line.StartsWith("Command: dotnet ", StringComparison.Ordinal));
+        Assert.Contains("--getProperty:AppxPackageOutput", command);
     }
 
     private static FakeDotNetService SuccessfulDotnet(string properties) =>
@@ -937,6 +1098,15 @@ public sealed class ProjectRunServiceAotTests
             RunDotnetCommandHandler = _ => (0, properties, string.Empty),
             RunDotnetArgumentListHandler = _ => (0, properties, string.Empty),
         };
+
+    /// <summary>Answers evaluates the way MSBuild would for a project whose values change while publishing.</summary>
+    private static Func<string, (int ExitCode, string Output, string Error)> PublishContextEvaluation(
+        string ordinary,
+        string publishing) =>
+        arguments => (
+            0,
+            arguments.Contains("-p:_IsPublishing=true", StringComparison.Ordinal) ? publishing : ordinary,
+            string.Empty);
 
     private ProjectRunService NewService(
         FakeDotNetService dotnet,
@@ -956,9 +1126,9 @@ public sealed class ProjectRunServiceAotTests
             new FakeMSBuildService());
     }
 
-    private static ProjectRunOptions Options(bool noRestore = false) =>
+    private static ProjectRunOptions Options(bool noRestore = false, string configuration = "Debug") =>
         new(
-            "Debug",
+            configuration,
             "x64",
             Framework: null,
             NoBuild: false,
@@ -1041,7 +1211,8 @@ public sealed class ProjectRunServiceAotTests
         string? manifest = null,
         string? recipe = null,
         bool winAppRunSupportActive = false,
-        bool enableMsixTooling = false)
+        bool enableMsixTooling = false,
+        string publishTrimmed = "")
     {
         var projectDirectory = project.DirectoryName!;
         var properties = new Dictionary<string, string>
@@ -1070,7 +1241,7 @@ public sealed class ProjectRunServiceAotTests
             ["PackageCertificateThumbprint"] = string.Empty,
             ["AppxPackageSigningTimestampServerUrl"] = string.Empty,
             ["WinAppRunUseExecutionAlias"] = string.Empty,
-            ["PublishTrimmed"] = string.Empty,
+            ["PublishTrimmed"] = publishTrimmed,
             ["WindowsAppSDKSelfContained"] = "true",
             ["SelfContained"] = "true",
             ["PublishProfile"] = string.Empty,

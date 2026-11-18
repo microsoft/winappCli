@@ -20,4 +20,7 @@ internal class RealMouseInput : IMouseInput
 
     public void ScrollWheel(int screenX, int screenY, int delta, int settleMs = 30)
         => MouseInput.ScrollWheel(screenX, screenY, delta, settleMs);
+
+    public void ScrollWheelHorizontal(int screenX, int screenY, int delta, int settleMs = 30)
+        => MouseInput.ScrollWheel(screenX, screenY, delta, settleMs, horizontal: true);
 }

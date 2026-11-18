@@ -3,6 +3,7 @@
 
 using System.Security.Cryptography;
 using WinApp.Cli.ConsoleTasks;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Tools;
 
 namespace WinApp.Cli.Services;
@@ -95,7 +96,7 @@ internal class AzureSignToolService(
         }
 
         // Build signtool arguments for Azure Trusted Signing
-        var arguments = $@"sign /v /debug /fd SHA256 /tr ""{TimestampUrl}"" /td SHA256 /dlib ""{dlibPath.FullName}"" /dmdf ""{metadataFilePath.FullName}"" ""{filePath.FullName}""";
+        var arguments = $@"sign /v /debug /fd {PackageDigestAlgorithm.Detect(filePath)} /tr ""{TimestampUrl}"" /td SHA256 /dlib ""{dlibPath.FullName}"" /dmdf ""{metadataFilePath.FullName}"" ""{filePath.FullName}""";
 
         taskContext.AddDebugMessage($"Using signtool: {signtoolPath.FullName}");
         taskContext.AddDebugMessage($"Using dlib: {dlibPath.FullName}");

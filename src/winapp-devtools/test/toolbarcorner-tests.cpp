@@ -6,23 +6,9 @@
 #include "DevToolsToolbarCorner.h"
 
 #include <cstdio>
+#include "DevToolsTestCheck.h"
 
 using namespace DevToolsToolbar;
-
-static int g_failures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
-}
-
-static void CheckEqD(double got, double want, const char* what)
-{
-    const double d = got - want;
-    if (d > 0.001 || d < -0.001) { ++g_failures; std::printf("  FAIL  %s (want %.2f, got %.2f)\n", what, want, got); }
-    else                         {              std::printf("  ok    %s (%.2f)\n", what, got); }
-}
 
 // Negative control: top corners ignore the app's title-bar inset. Keep this deliberately wrong.
 static void AnchorPreFix(int c, const Client& client, double w, double h, double* x, double* y)
@@ -136,6 +122,19 @@ static void TestEveryPositionIsReachableByDrag()
     Check(kCornerCount == 6, "four corners and two center positions are offered");
 }
 
+static void TestChipLabelNamesOnlyTheClickCapturingModes()
+{
+    Check(DevToolsToolbar::ChipLabel(false, false, L"") == L"DevTools", "at rest the collapsed toolbar says DevTools");
+    Check(DevToolsToolbar::ChipLabel(true, false, L"") == L"Picking", "pick mode says Picking");
+    Check(DevToolsToolbar::ChipLabel(true, true, L"") == L"Commenting", "comment mode says Commenting");
+    Check(DevToolsToolbar::ChipLabel(false, true, L"") == L"DevTools", "leaving comment mode goes back to DevTools");
+    Check(DevToolsToolbar::ChipLabel(false, false, L"Settings") == L"Settings", "with several windows it names its window");
+    Check(DevToolsToolbar::ChipLabel(true, false, L"Settings") == L"Picking", "a mode wins over the window name");
+    Check(DevToolsToolbar::ChipAutomationName(false, false) == L"DevTools (open toolbar)", "the UIA name is stable at rest");
+    Check(DevToolsToolbar::ChipAutomationName(true, false) == L"DevTools (open toolbar), Picking", "the UIA name adds Picking");
+    Check(DevToolsToolbar::ChipAutomationName(true, true) == L"DevTools (open toolbar), Commenting", "the UIA name adds Commenting");
+}
+
 int RunToolbarCornerTests()
 {
     std::printf("DevToolsToolbarCorner tests\n");
@@ -144,5 +143,6 @@ int RunToolbarCornerTests()
     TestNonExtendingAppIsUnchanged();
     TestNonsenseInsetCannotStrandTheToolbar();
     TestEveryPositionIsReachableByDrag();
-    return g_failures;
+    TestChipLabelNamesOnlyTheClickCapturingModes();
+    return g_testFailures;
 }

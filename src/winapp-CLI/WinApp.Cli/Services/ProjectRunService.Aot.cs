@@ -31,13 +31,27 @@ internal sealed partial class ProjectRunService
         WarnOnOverriddenFlags(options);
         var workingDirectory = csproj.Directory
             ?? new DirectoryInfo(Directory.GetCurrentDirectory());
-        (options, _, var csWinRTMetadata) =
+        (options, _, var csWinRTMetadata, _) =
             await PrepareBuildInputsAsync(
                 csproj,
                 options,
                 workingDirectory,
                 cancellationToken,
                 aotPublish: true);
+
+        // Read the AOT settings as `dotnet publish` will see them, so a project that can't publish
+        // Native AOT fails in about a second instead of after a full publish. If the evaluate fails or
+        // doesn't report PublishAot, the publish below runs and reports the real outcome.
+        var publishContext = await EvaluatePreparedPropertiesAsync(
+            csproj,
+            WithPublishContext(options),
+            workingDirectory,
+            csWinRTMetadata,
+            cancellationToken);
+        if (publishContext?.ContainsKey("PublishAot") == true)
+        {
+            ThrowIfNotAotPublishable(csproj, options, publishContext);
+        }
 
         // A build-context pre-restore does not cover publish-conditional dependencies.
         var publish = await RunPublishPassAsync(
@@ -62,16 +76,15 @@ internal sealed partial class ProjectRunService
         var properties = MsBuildPropertyReader.Parse(
             publish.Properties,
             RequestedProperties);
-        if (!IsTrue(GetProp(properties, "PublishAot")))
-        {
-            throw new ProjectRunException(BuildPublishAotRequiredMessage(csproj));
-        }
+        ThrowIfNotAotPublishable(csproj, options, properties);
 
         var resolution = CreateAotResolution(csproj, options, properties) with
         {
             DevToolsXamlSources = options.CaptureDevToolsSources ? ReadDevToolsSources(publish.Properties) : null,
             DevToolsCompilerArtifacts = options.CaptureDevToolsSources
                 ? DevTools.XamlSourceCoordinates.FromProperties(csproj, properties) : null,
+            DevToolsUnsupportedFramework = options.CaptureDevToolsSources
+                ? ReadDevToolsUnsupportedFramework(properties, publish.Properties) : ProjectAppFramework.Unknown,
         };
         logger.LogDebug(
             "{UISymbol} Native AOT output: PublishDir={PublishDir}; executable={Executable}; manifest={Manifest}; recipe={Recipe}",
@@ -95,14 +108,13 @@ internal sealed partial class ProjectRunService
         DirectoryInfo workingDirectory,
         string? csWinRTMetadata,
         CancellationToken cancellationToken,
-        bool aot = false,
-        bool publish = true)
+        bool aot = false)
     {
         var arguments = BuildPublishArguments(
             csproj,
             options,
             ResolveBuildVerbosity(logger, options.Json),
-            csWinRTMetadata, publish);
+            csWinRTMetadata);
         var display = RedactSecretsForDisplay(
             WindowsCommandLine.JoinArguments(arguments) ?? string.Empty);
         logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, display);
@@ -114,7 +126,7 @@ internal sealed partial class ProjectRunService
         }
         else
         {
-            ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} {(publish ? "Publishing" : "Building")} {(aot ? "Native AOT" : csproj.Name)}...");
+            ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Publishing {(aot ? "Native AOT" : csproj.Name)}...");
             writeLine = CreateSynchronizedRedactedLineWriter();
         }
 
@@ -125,13 +137,26 @@ internal sealed partial class ProjectRunService
             var (exitCode, output, error) = await dotNetService.RunDotnetCommandAsync(
                 workingDirectory,
                 [.. arguments, $"--getResultOutputFile:{resultFile}"],
-                publish ? BuildAotPublishEnvironment() : null,
+                WithPackagingReferenceTargets(BuildAotPublishEnvironment()),
                 writeLine,
                 writeLine,
                 cancellationToken);
             var properties = exitCode == 0 && File.Exists(resultFile)
                 ? await File.ReadAllTextAsync(resultFile, cancellationToken)
                 : string.Empty;
+            if (exitCode != 0 && !logger.IsEnabled(LogLevel.Debug))
+            {
+                // --verbose already showed the command; otherwise show it so the failure can be reproduced.
+                if (options.Json)
+                {
+                    Console.Error.WriteLine($"Command: dotnet {display}");
+                }
+                else if (logger.IsEnabled(LogLevel.Information))
+                {
+                    PrintFailedCommand($"dotnet {display}");
+                }
+            }
+
             return (exitCode, output, error, properties);
         }
         finally
@@ -499,11 +524,38 @@ internal sealed partial class ProjectRunService
         return path;
     }
 
-    private static string BuildPublishAotRequiredMessage(FileInfo csproj)
+    private static void ThrowIfNotAotPublishable(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        IReadOnlyDictionary<string, string> properties)
     {
-        var retry = WindowsCommandLine.JoinArguments(
-            ["winapp", "run", csproj.FullName, "--aot", "-p", "PublishAot=true"]);
-        return $"Native AOT is not enabled for '{csproj.Name}'. Add <PublishAot>true</PublishAot> inside a <PropertyGroup> in the project, or retry with: {retry}";
+        var aotEnabled = IsTrue(GetProp(properties, "PublishAot"));
+        // Native AOT always trims; the SDK rejects an explicit PublishTrimmed=false during publish.
+        var trimmingDisabled = GetProp(properties, "PublishTrimmed")
+            .Equals("false", StringComparison.OrdinalIgnoreCase);
+        if (aotEnabled && !trimmingDisabled)
+        {
+            return;
+        }
+
+        List<string> retryArguments = ["winapp", "run", csproj.FullName, "--aot"];
+        if (!options.Configuration.Equals("Debug", StringComparison.OrdinalIgnoreCase))
+        {
+            retryArguments.AddRange(["-c", options.Configuration]);
+        }
+        retryArguments.AddRange(["-p", "PublishAot=true", "-p", "PublishTrimmed=true"]);
+        var retry = WindowsCommandLine.JoinArguments(retryArguments);
+        var trimming = $"sets <PublishTrimmed>false</PublishTrimmed> for the {options.Configuration} configuration";
+        var message = (aotEnabled, trimmingDisabled) switch
+        {
+            (false, false) =>
+                $"Native AOT is not enabled for '{csproj.Name}'. Add <PublishAot>true</PublishAot> inside a <PropertyGroup> in the project, or retry with: {retry}",
+            (false, true) =>
+                $"Native AOT is not enabled for '{csproj.Name}', and the project {trimming}. Native AOT requires trimming. Add <PublishAot>true</PublishAot> and remove that PublishTrimmed setting, or retry with: {retry}",
+            _ =>
+                $"Native AOT requires trimming, but '{csproj.Name}' {trimming}. Remove that PublishTrimmed setting, or retry with: {retry}",
+        };
+        throw new ProjectRunException(message);
     }
 
 }

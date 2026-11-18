@@ -80,7 +80,7 @@ internal sealed class CommentAnchor
     /// </summary>
     public string? ElementPath { get; set; }
 
-    /// <summary>Identity is weak / source uninstrumented — the agent must grep the whole project and not guess.</summary>
+    /// <summary>Identity is weak / source uninstrumented: the agent must grep the whole project and not guess.</summary>
     public bool Weak { get; set; }
 
     public bool Templated { get; set; }

@@ -38,7 +38,7 @@ internal sealed class WindowsSandboxBackend(
     IWindowsSandboxWindowController windowController,
     IWindowsSandboxSetup? setup = null,
     ITargetStateStore? stateStore = null,
-    ITargetProgress? progress = null) : IExecutionTargetBackend, IHostRenderedTarget, IInspectableTarget, IReconnectableTarget
+    ITargetProgress? progress = null) : IExecutionTargetBackend, IHostRenderedTarget, IInspectableTarget, IReconnectableTarget, IHostReadinessTarget
 {
     /// <summary>Guest path prefix the read-only bootstrap folder is mapped under.</summary>
     /// <remarks>
@@ -220,6 +220,10 @@ internal sealed class WindowsSandboxBackend(
     }
 
     /// <inheritdoc/>
+    public async Task<TargetHostReadiness?> DescribeHostAsync(CancellationToken cancellationToken) =>
+        setup is null ? null : await setup.DescribeHostAsync(cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc/>
     public async Task<TargetConnection> EnsureConnectedAsync(
         EnsureTargetOptions options,
         CancellationToken cancellationToken)
@@ -252,10 +256,17 @@ internal sealed class WindowsSandboxBackend(
             return reused;
         }
 
+        // Recheck after a failed reconnect before preparing the caller's exact instance.
+        if (lifecycle.CurrentExpectation() is { } expectation)
+        {
+            expectation.RequireOnlyRunning(await cli.ListAsync(cancellationToken).ConfigureAwait(false));
+        }
+
         _progress.Report(lease.IsWarm
             ? "Repairing the Windows Sandbox connection..."
             : "Preparing the Windows Sandbox guest agent...");
         var bootstrap = PrepareBootstrapDirectories(lease.Epoch);
+        _progress.Report("Copying the Windows Sandbox guest-agent files...");
         var payload = await StageBootstrapPayloadAsync(hostBinaryProvider.GetBinary(), bootstrap.HostBootstrap, cancellationToken)
             .ConfigureAwait(false);
         var agentHash = payload.BinaryHash;
@@ -322,6 +333,7 @@ internal sealed class WindowsSandboxBackend(
         }
         else
         {
+            _progress.Report("Checking the Windows Sandbox interactive sign-in...");
             var session = await cli
                 .ProbeInteractiveSessionAsync(lease.InstanceId, cancellationToken)
                 .ConfigureAwait(false);
@@ -351,12 +363,15 @@ internal sealed class WindowsSandboxBackend(
 
         // Before the agent starts listening, not after. This is the fix for the firewall consent
         // prompt: the rule has to be in place when the socket opens, or Windows asks the user.
+        _progress.Report("Configuring the Windows Sandbox guest-agent firewall rule...");
         await AllowGuestAgentConnectionAsync(
             lease.InstanceId,
+            lease.Epoch,
             bootstrap.GuestBinaryDirectory,
             agentPort,
             cancellationToken).ConfigureAwait(false);
 
+        _progress.Report("Starting the Windows Sandbox guest agent and waiting for readiness...");
         var heartbeat = await LaunchReadyAgentAsync(
             lease.InstanceId,
             bootstrap,
@@ -411,8 +426,11 @@ internal sealed class WindowsSandboxBackend(
     public async Task<TargetConnection?> TryReconnectAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+
+        var expectation = lifecycle.CurrentExpectation();
         var state = stateStore?.Read(Target);
         if (state?.InstanceId is not { } instanceId ||
+            (expectation is not null && !expectation.IsInstance(instanceId)) ||
             string.IsNullOrWhiteSpace(instanceId) ||
             string.IsNullOrWhiteSpace(state.BootNonce) ||
             string.IsNullOrWhiteSpace(state.GuestAddress))
@@ -486,7 +504,7 @@ internal sealed class WindowsSandboxBackend(
         // case where connection material on disk describes an agent that is actually there. Anything
         // else has no agent to attach to, and manufacturing one is what this method exists not to do.
         var state = stateStore?.Read(Target);
-        var isWarm = string.Equals(
+        var isWarm = !reconciliation.Epoch.IsNone && string.Equals(
             state?.BootstrappedEpoch, reconciliation.Epoch.Value, StringComparison.Ordinal);
 
         if (!isWarm)
@@ -1171,7 +1189,7 @@ internal sealed class WindowsSandboxBackend(
     /// <para>
     /// Windows Sandbox blocks the host-to-guest connection by default. This is the second and only
     /// other privileged bootstrap operation: the executable, direction, protocol, action, and
-    /// profile are constants; the sole dynamic value is the integer port the host chose.
+    /// profile are constants; the port and generation are chosen by the host.
     /// Authentication and encryption still gate every request after the socket opens.
     /// </para>
     /// <para>
@@ -1184,13 +1202,14 @@ internal sealed class WindowsSandboxBackend(
     /// </para>
     /// <para>
     /// The rule is scoped to the agent program <em>and</em> the single port it was told to use, so
-    /// nothing else in the guest gains inbound reachability. Existing rules for that exact program
-    /// path are removed first, which is what lets the <em>same</em> generation be repaired onto a
-    /// fresh port without leaving its previous one open.
+    /// nothing else in the guest gains inbound reachability. The rule has a per-generation name.
+    /// An exact program-filter query also finds older unnamed rules and consent-dialog block
+    /// rules, so repair replaces the previous port without querying every rule in the guest.
+    /// The generation's named rule is also replaced when a rebuilt bundle has a different path.
     /// </para>
     /// <para>
-    /// The program path is per generation, so this deliberately cannot see, and cannot remove, a
-    /// rule belonging to a different generation — including one created by a second winapp whose
+    /// Both the program path and rule name are per generation, so this cannot remove a rule
+    /// belonging to a different generation — including one created by a second winapp whose
     /// state root was redirected, which under the old fixed path would have had its live agent's
     /// rule deleted underneath it. A rule left behind by a generation that is gone names a program
     /// path that no longer exists, lives only in the volatile <c>ActiveStore</c>, and disappears
@@ -1199,6 +1218,7 @@ internal sealed class WindowsSandboxBackend(
     /// </remarks>
     private async Task AllowGuestAgentConnectionAsync(
         string instanceId,
+        ExecutionTargetEpoch epoch,
         string guestBootstrapPath,
         int port,
         CancellationToken cancellationToken)
@@ -1217,19 +1237,19 @@ internal sealed class WindowsSandboxBackend(
 
         var portText = port.ToString(CultureInfo.InvariantCulture);
         var agentPath = $@"{guestBootstrapPath}\{GuestAgentCommandNames.BinaryName}";
+        var ruleName = $"WinApp-Sandbox-Agent-{EpochToken(epoch)}";
         var command =
             @"powershell.exe -NoProfile -NonInteractive -Command " +
-            $@"""$agent='{agentPath}'; " +
-
-            // Any existing rule for this exact program path is removed first, block or allow: a
-            // block rule would defeat the new allow, and a stale allow from an earlier attempt at
-            // this same generation would leave a port open that is no longer in use.
-            @"$existing=Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Where-Object { " +
-            @"($_ | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue).Program -eq $agent }; " +
-            @"foreach ($rule in $existing) { " +
-            @"Remove-NetFirewallRule -Name $rule.Name -PolicyStore ActiveStore -ErrorAction SilentlyContinue; " +
-            @"Remove-NetFirewallRule -Name $rule.Name -PolicyStore PersistentStore -ErrorAction SilentlyContinue }; " +
-            $@"New-NetFirewallRule -DisplayName 'WinApp Sandbox Agent {portText}' " +
+            $@"""$agent='{agentPath}'; $rule='{ruleName}'; " +
+            @"$existing=Get-NetFirewallApplicationFilter -Program $agent -PolicyStore ActiveStore -ErrorAction SilentlyContinue | " +
+            @"Get-NetFirewallRule -ErrorAction Stop; " +
+            @"foreach ($existingRule in $existing) { " +
+            @"Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore ActiveStore -ErrorAction SilentlyContinue; " +
+            @"Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore PersistentStore -ErrorAction SilentlyContinue }; " +
+            // A rebuilt payload has a new immutable path within the same generation.
+            @"Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore -ErrorAction SilentlyContinue; " +
+            @"Remove-NetFirewallRule -Name $rule -PolicyStore PersistentStore -ErrorAction SilentlyContinue; " +
+            $@"New-NetFirewallRule -Name $rule -DisplayName 'WinApp Sandbox Agent {portText}' " +
             $@"-Direction Inbound -Action Allow -Protocol TCP -LocalPort {portText} -Program $agent " +
             @"-Profile Any -EdgeTraversalPolicy Allow -PolicyStore ActiveStore -ErrorAction Stop | Out-Null""";
 
@@ -1292,8 +1312,10 @@ internal sealed class WindowsSandboxBackend(
     /// <summary>Connects the interactive client and parks the window this connect created.</summary>
     private Task ConnectClientAsync(
         string instanceId,
-        CancellationToken cancellationToken) =>
-        OpenClientAsync(
+        CancellationToken cancellationToken)
+    {
+        _progress.Report("Connecting the Windows Sandbox interactive client...");
+        return OpenClientAsync(
             (onLaunched, token) => cli.ConnectAsync(instanceId, onLaunched, token),
             placed =>
             {
@@ -1301,6 +1323,7 @@ internal sealed class WindowsSandboxBackend(
                 RememberClientWindow(placed);
             },
             cancellationToken);
+    }
 
     /// <summary>
     /// Opens a new Sandbox in its own window and returns that window once it shows a session.

@@ -157,6 +157,31 @@ internal sealed class SearchEngine
     }
 
     /// <summary>
+    /// The control's one-line concept summary, used as a BM25 field.
+    ///
+    /// This is the only control field carrying task vocabulary — what a control
+    /// is *for*, as opposed to what it is *called*. Every other field is naming
+    /// (name, id, camel-split) or authored search metadata (keywords, tags,
+    /// headers), so without it an intent query like "labels separated by a
+    /// bullet" cannot reach MetadataControl even though that phrasing is almost
+    /// verbatim in its description.
+    ///
+    /// Mirrors the resolution order <see cref="SearchGrouped"/> already uses for
+    /// display: prefer the explicit ControlDescription from toolkit frontmatter,
+    /// then fall back to the per-control Description that Gallery repeats on
+    /// every scenario row.
+    /// </summary>
+    private static string ControlConceptText(List<Scenario> scenarios)
+    {
+        var desc = scenarios
+            .Select(s => s.ControlDescription)
+            .FirstOrDefault(d => !string.IsNullOrEmpty(d));
+        if (string.IsNullOrEmpty(desc))
+            desc = scenarios.FirstOrDefault()?.Description;
+        return desc ?? string.Empty;
+    }
+
+    /// <summary>
     /// Remove the control name from a scenario header, but only where it stands alone —
     /// never where it is the prefix of a longer identifier.
     /// </summary>
@@ -265,7 +290,8 @@ internal sealed class SearchEngine
                 (nameSplit, 2.5),
                 (string.Join(" ", keywords), 5.0),
                 (string.Join(" ", enrichTags), 3.0),
-                (ExpandHeaderForIndex(scenarios[0].HeaderText), 1.5)
+                (ExpandHeaderForIndex(scenarios[0].HeaderText), 1.5),
+                (ControlConceptText(scenarios), 1.5)
             );
         }).ToArray();
 
@@ -425,7 +451,8 @@ internal sealed class SearchEngine
                 (nameSplit,                    2.5),
                 (string.Join(" ", keywords),   5.0),
                 (string.Join(" ", enrichTags), 3.0),
-                (allHeaders,                   0.8)
+                (allHeaders,                   0.8),
+                (ControlConceptText(scenarios), 1.5)
             );
         }).ToArray();
 
@@ -710,13 +737,8 @@ internal sealed class SearchEngine
         return scenarios[bestIdx];
     }
 
-    public (string formatted, bool found, string? canonicalId) GetPattern(string id)
+    private (Scenario? scenario, string? expectedSource, string bareId) FindScenario(string id)
     {
-        // Check core patterns (ids are case-insensitive — humans and agents copy them
-        // by hand, so "File-Picker-Desktop" must resolve the same as "file-picker-desktop").
-        var core = _corePatterns.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
-        if (core != null) return (FormatCorePattern(core), true, core.Id);
-
         // Strip a known "{source}-" prefix and remember which source the caller asked
         // for, so we don't return a Gallery scenario for a "toolkit-..." id (or
         // vice-versa) when the bare ids happen to collide.
@@ -751,6 +773,26 @@ internal sealed class SearchEngine
                 .ThenBy(s => s.Id, StringComparer.OrdinalIgnoreCase)
                 .FirstOrDefault();
         }
+
+        return (scenario, expectedSource, bareId);
+    }
+
+    /// <summary>Event hookups the scenario's XAML wires to methods its code does not declare, as Event="Method" strings. Empty for core patterns and unknown ids.</summary>
+    public string[] GetUndefinedHandlers(string id)
+    {
+        if (_corePatterns.Any(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase))) return [];
+        var (scenario, _, _) = FindScenario(id);
+        return scenario is null ? [] : ControlSnippetText.FindUndefinedEventHandlers(scenario.Xaml, scenario.CSharp);
+    }
+
+    public (string formatted, bool found, string? canonicalId) GetPattern(string id)
+    {
+        // Check core patterns (ids are case-insensitive — humans and agents copy them
+        // by hand, so "File-Picker-Desktop" must resolve the same as "file-picker-desktop").
+        var core = _corePatterns.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (core != null) return (FormatCorePattern(core), true, core.Id);
+
+        var (scenario, expectedSource, bareId) = FindScenario(id);
 
         if (scenario != null) return (FormatScenario(scenario), true, $"{scenario.Source}-{scenario.Id}");
 
@@ -947,6 +989,11 @@ internal sealed class SearchEngine
         if (imports.Count > 0)
             sb.AppendLine($"**Namespace:** {string.Join(" · ", imports.Select(u => $"`{u}`"))}");
 
+        var undefinedHandlers = ControlSnippetText.FindUndefinedEventHandlers(s.Xaml, s.CSharp);
+        if (undefinedHandlers.Length > 0)
+        {
+            sb.AppendLine($"**Undefined handlers:** {string.Join(" · ", undefinedHandlers.Select(h => $"`{h}`"))} — wired in the XAML but not defined here; supply each method in your code-behind");
+        }
         if (s.Xaml != null)
         {
             sb.AppendLine("**XAML:**");

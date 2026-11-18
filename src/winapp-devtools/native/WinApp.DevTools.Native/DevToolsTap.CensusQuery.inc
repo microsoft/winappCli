@@ -9,12 +9,110 @@ struct DevToolsEnumTable
 {
     std::vector<int>          ints;
     std::vector<std::wstring> names;
+    bool                      isUnsigned = false;   // a flags enum, boxed as UInt32
 };
 
 // Every enum the target app knows, keyed by BOTH the full type name and its short (last-dotted-segment) form,
 // because GetPropertyValuesChain's ValueType spelling is not guaranteed to match GetEnums' Name spelling.
 static std::map<std::wstring, DevToolsEnumTable> g_enumTables;
 static bool g_enumTablesLoaded = false;
+static std::set<std::wstring> g_notEnums;
+
+// Declared in rometadataresolution.h, which needs the .NET SDK's cor.h.
+extern "C" HRESULT WINAPI RoGetMetaDataFile(const HSTRING name, IMetaDataDispenserEx* metaDataDispenser,
+    HSTRING* metaDataFilePath, IMetaDataImport2** metaDataImport, mdTypeDef* typeDefToken);
+
+// GetEnums lists the core Microsoft.UI.Xaml enums but not the Microsoft.UI.Xaml.Controls ones or an app's own, so
+// those are read from the .winmd that defines them. False when the type is not an enum or has no metadata here.
+static bool LoadEnumFromMetadata(const std::wstring& type, DevToolsEnumTable* out)
+{
+    HSTRING name = nullptr;
+    if (FAILED(WindowsCreateString(type.c_str(), (UINT32)type.size(), &name))) return false;
+    winrt::com_ptr<IMetaDataImport2> md;
+    mdTypeDef typeDef = 0;
+    const HRESULT hr = RoGetMetaDataFile(name, nullptr, nullptr, md.put(), &typeDef);
+    WindowsDeleteString(name);
+    if (FAILED(hr) || !md) return false;
+    constexpr DWORD kStatic = 0x10, kLiteral = 0x40, kRuntimeSpecialName = 0x400;   // fdStatic, fdLiteral, fdRTSpecialName
+    constexpr DWORD kI4 = 0x08, kU4 = 0x09;                                         // ELEMENT_TYPE_I4, ELEMENT_TYPE_U4
+    HCORENUM fieldEnum = 0;
+    mdFieldDef fields[32];
+    ULONG count = 0;
+    while (SUCCEEDED(md->EnumFields(&fieldEnum, typeDef, fields, _countof(fields), &count)) && count) {
+        for (ULONG k = 0; k < count; ++k) {
+            wchar_t fieldName[256]{};
+            ULONG length = 0, signatureLength = 0, valueLength = 0;
+            DWORD attributes = 0, constantType = 0;
+            PCCOR_SIGNATURE signature = nullptr;
+            UVCP_CONSTANT value = nullptr;
+            if (FAILED(md->GetFieldProps(fields[k], nullptr, fieldName, _countof(fieldName), &length, &attributes,
+                    &signature, &signatureLength, &constantType, &value, &valueLength))) continue;
+            if (attributes & kRuntimeSpecialName) {   // value__, whose type is the enum's underlying type
+                out->isUnsigned = signatureLength >= 2 && signature[1] == kU4;
+                continue;
+            }
+            if (!(attributes & kStatic) || !(attributes & kLiteral) || !value) continue;
+            if (constantType == kI4) out->ints.push_back(*reinterpret_cast<const int32_t*>(value));
+            else if (constantType == kU4) out->ints.push_back((int)*reinterpret_cast<const uint32_t*>(value));
+            else continue;
+            out->names.push_back(fieldName);
+        }
+    }
+    if (fieldEnum) md->CloseEnum(fieldEnum);
+    return !out->names.empty();
+}
+
+// The table for an enum GetEnums did not list, read once per type. Primitives and Windows.Foundation types are
+// never enums the chain reports by name, so they are not looked up.
+static const DevToolsEnumTable* MetadataEnumTable(const std::wstring& type)
+{
+    if (type.find(L'.') == std::wstring::npos || type.rfind(L"Windows.Foundation.", 0) == 0 ||
+        type.rfind(L"System.", 0) == 0 || g_notEnums.count(type)) return nullptr;
+    auto it = g_enumTables.find(type);
+    if (it != g_enumTables.end()) return &it->second;
+    DevToolsEnumTable table;
+    if (!LoadEnumFromMetadata(type, &table)) { g_notEnums.insert(type); return nullptr; }
+    Log(L"enums: %s read from metadata (%zu members)", type.c_str(), table.names.size());
+    return &(g_enumTables[type] = std::move(table));
+}
+
+// An enum boxed as IReference<Enum> without IPropertyValue. Its get_Value returns the underlying integer; the
+// interface ID is derived from the enum's name, so it is computed here rather than compiled in.
+struct DevToolsEnumReferenceLocator : IRoMetaDataLocator
+{
+    const wchar_t* enumType = nullptr;
+    bool isUnsigned = false;
+    STDMETHOD(Locate)(PCWSTR name, IRoSimpleMetaDataBuilder& builder) const override
+    {
+        if (wcscmp(name, L"Windows.Foundation.IReference`1") == 0)
+            return builder.SetParameterizedInterface(
+                { 0x61c17706, 0x2d65, 0x11e0, { 0x9a, 0xe8, 0xd4, 0x85, 0x64, 0x01, 0x54, 0x72 } }, 1);
+        if (enumType && wcscmp(name, enumType) == 0) return builder.SetEnum(name, isUnsigned ? L"UInt32" : L"Int32");
+        return E_FAIL;
+    }
+};
+
+static bool ReadBoxedEnum(IInspectable* value, const std::wstring& enumType, std::wstring* out)
+{
+    for (bool isUnsigned : { false, true }) {
+        DevToolsEnumReferenceLocator locator;
+        locator.enumType = enumType.c_str();
+        locator.isUnsigned = isUnsigned;
+        PCWSTR parts[] = { L"Windows.Foundation.IReference`1", enumType.c_str() };
+        GUID iid{};
+        if (FAILED(RoGetParameterizedTypeInstanceIID(2, parts, locator, &iid, nullptr))) continue;
+        void* reference = nullptr;
+        if (FAILED(value->QueryInterface(iid, &reference)) || !reference) continue;
+        using GetValue = HRESULT(STDMETHODCALLTYPE*)(void*, uint32_t*);
+        uint32_t raw = 0;
+        const HRESULT hr = (*reinterpret_cast<GetValue**>(reference))[6](reference, &raw);   // after IInspectable's six
+        reinterpret_cast<IUnknown*>(reference)->Release();
+        if (FAILED(hr)) continue;
+        *out = isUnsigned ? std::to_wstring(raw) : std::to_wstring((int32_t)raw);
+        return true;
+    }
+    return false;
+}
 
 // It stays as a FALLBACK (see EnumTableFor), so a GetEnums failure degrades to today's behaviour instead of silently
 // losing every enum dropdown.
@@ -80,6 +178,7 @@ static std::vector<std::wstring> EnumTableFor(const std::wstring& type)
         it = g_enumTables.find(type.substr(dot + 1));
         if (it != g_enumTables.end()) return it->second.names;
     }
+    if (const auto* table = MetadataEnumTable(type)) return table->names;
     return DevToolsEnumMembersFor(type.substr(dot == std::wstring::npos ? 0 : dot + 1));
 }
 
@@ -94,6 +193,7 @@ static std::wstring EnumNameForValue(const std::wstring& type, const std::wstrin
         if (dot != std::wstring::npos) it = g_enumTables.find(type.substr(dot + 1));
     }
     if (it != g_enumTables.end()) t = &it->second;
+    if (!t) t = MetadataEnumTable(type);
 
     wchar_t* end = nullptr;
     long n = wcstol(raw.c_str(), &end, 10);
@@ -101,15 +201,15 @@ static std::wstring EnumNameForValue(const std::wstring& type, const std::wstrin
     if (t && numeric) {
         for (size_t k = 0; k < t->ints.size() && k < t->names.size(); ++k)
             if (t->ints[k] == (int)n) return t->names[k];
-        if (n >= 0 && (size_t)n < t->names.size()) return t->names[(size_t)n];
-        return L"";
+        if (t->ints.empty() && n >= 0 && (size_t)n < t->names.size()) return t->names[(size_t)n];
+        return raw;   // a flags combination, or a value the table does not name: the number, never nothing
     }
     if (numeric) {
         // No GetEnums table: fall back to the shared curated declaration order (same mapping the in-proc
         // surfaces already use), so Visibility/alignments still cross the wire as names.
         std::vector<std::wstring> members = EnumTableFor(type);
         if (n >= 0 && (size_t)n < members.size()) return members[(size_t)n];
-        return L"";
+        return raw;
     }
     return raw;
 }
@@ -173,7 +273,7 @@ static bool TapAnchorOf(InstanceHandle h, std::wstring* outAnchor, bool* unique 
 }
 
 // resolve an anchor from TapAnchorOf back to a live handle. 0 when it does not currently resolve, which
-// the caller must treat as "not back yet" rather than "gone forever" — the page may not have been rebuilt at
+// the caller must treat as "not back yet" rather than "gone forever"; the page may not have been rebuilt at
 // the moment we looked.
 static InstanceHandle TapResolveAnchor(const wchar_t* anchor)
 {

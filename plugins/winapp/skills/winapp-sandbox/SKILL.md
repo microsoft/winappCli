@@ -30,6 +30,9 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   or run `wsb stop` without user consent. Closing the window of a Sandbox winapp started
   asks for confirmation, then ends it and discards its state; the next command starts a
   fresh one. A Sandbox started with `wsb start` keeps running when its window is closed.
+- When a script or user names a specific Sandbox, pass `--expect-sandbox <id>` so winapp
+  uses only that one. On `sandbox_instance_mismatch`, report the expected and running IDs;
+  do not remove the option or stop a Sandbox to make the command pass.
 
 ## Launch, inspect, act, verify
 
@@ -104,7 +107,9 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
 ```
 
 - Start with `target snapshot` when an app never appeared or a command failed. It does
-  not create a VM, reconnect the client, or repair an agent.
+  not create a VM, reconnect the client, or repair an agent. Its host checks show
+  missing Sandbox prerequisites and their fixes; report those to the user instead of
+  enabling features, elevating, or restarting Windows yourself.
   For error windows or ambiguous readiness, follow the
   [desktop readiness guidance](https://github.com/microsoft/winappCli/blob/main/docs/sandbox-execution.md#automating-the-ui);
   do not close windows or reconnect automatically to make a snapshot succeed.

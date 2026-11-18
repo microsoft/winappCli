@@ -17,13 +17,40 @@ using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 using WinApp.Cli.Services.DevTools;
+using WinApp.Cli.Services.Performance;
 using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
-internal partial class RunCommand : Command, IShortDescription, ITargetAwareCommand
+internal partial class RunCommand : Command, IShortDescription, ITargetAwareCommand, ICompactHelpCommand
 {
-    public string ShortDescription => "Run a Windows app from a project, .NET file-based app, or build-output folder";
+    public string ShortDescription => "Run an app from a project, .cs file, or folder";
+
+    string? ICompactHelpCommand.Usage => "winapp run [<input>] [options] [-- <app args>]";
+
+    IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Examples { get; } =
+    [
+        ("winapp run .", "build and launch"),
+        ("winapp run <build-folder>", "launch a build output folder"),
+        ("winapp run app.cs", "run a .NET file-based app"),
+        ("winapp run . --debug-output", "show debug output and crash details"),
+        ("winapp run . --detach", "launch and return to the prompt"),
+        ("winapp run . -- --my-flag value", "pass arguments to the app"),
+        ("winapp run . --profile <folder>", "record layout and rendering timings"),
+        ("winapp perf analyze <folder>", "see what was slow"),
+    ];
+
+    IReadOnlyList<(string Heading, Option[] Options)> ICompactHelpCommand.OptionGroups =>
+    [
+        ("Build (project and .cs input)",
+            [ConfigurationOption, ArchOption, RuntimeOption, FrameworkOption, ProjectOption, PropertyOption, AotOption, NoBuildOption, NoRestoreOption]),
+        ("Launch",
+            [DetachOption, ArgsOption, WithAliasOption, WithoutAliasOption, NoLaunchOption, CleanOption, UnregisterOnExitOption, UniqueIdentityOption, ExecutionTargetSelection.ExpectSandboxOption]),
+        ("Package layout",
+            [ManifestOption, ExecutableOption, OutputAppXDirectoryOption]),
+        ("Debug and profile",
+            [DebugOutputOption, SymbolsOption, DevToolsOption, ProfileOption, ProfileModeOption, ProfileDurationOption, ProfileSizeOption, WinAppRootCommand.JsonOption]),
+    ];
 
     public static Argument<FileSystemInfo> InputArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }
@@ -80,11 +107,13 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         ManifestOption = new Option<FileInfo>("--manifest")
         {
+            HelpName = "path",
             Description = "Path to the Package.appxmanifest (default: auto-detect from input folder or current directory)"
         };
 
         OutputAppXDirectoryOption = new Option<DirectoryInfo?>("--output-appx-directory")
         {
+            HelpName = "dir",
             Description = "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used."
         };
 
@@ -122,7 +151,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         DebugOutputOption = new Option<bool>("--debug-output")
         {
-            Description = "Capture OutputDebugString messages and first-chance exceptions from the launched application. Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use --no-launch instead if you need to attach a different debugger. For WinUI apps, a crash also triggers a stowed-exception triage pass; the first run downloads debugger components (cached under the winapp global directory) and can be pointed at an existing debugger install via the WINAPP_DBGTOOLS_DIR environment variable. Cannot be combined with --no-launch or --json."
+            Description = "Capture OutputDebugString messages and first-chance exceptions from the launched application, and analyze it if it crashes. winapp attaches as the debugger, so Visual Studio or VS Code can't attach at the same time; use --no-launch to attach your own. Cannot be combined with --no-launch or --json."
         };
 
         UnregisterOnExitOption = new Option<bool>("--unregister-on-exit")
@@ -142,7 +171,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         UniqueIdentityOption = new Option<bool>("--unique-identity")
         {
-            Description = "Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged apps, sparse packages, bundles, manifests with several applications, or apps that register protocols, file types, COM servers, or other system-wide extensions."
+            Description = "Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged, sparse, or bundled apps, or apps that register system-wide extensions such as protocols or file types."
         };
 
         SymbolsOption = new Option<bool>("--symbols")
@@ -152,12 +181,14 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         ExecutableOption = new Option<string?>("--executable")
         {
+            HelpName = "path",
             Description = "Path to the executable relative to the input folder. Use to disambiguate when the manifest contains a $targetnametoken$ placeholder and multiple .exe files are present in the input folder."
         };
         ExecutableOption.Aliases.Add("--exe");
 
         ConfigurationOption = new Option<string>("--configuration")
         {
+            HelpName = "name",
             Description = "Project and single-file mode: build configuration (e.g., Debug, Release). Ignored in folder mode. Default: Debug.",
             DefaultValueFactory = _ => "Debug",
         };
@@ -165,17 +196,19 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         ArchOption = new Option<string?>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture."
+            Description = "Project mode: target architecture (x64, arm64, or x86). Ignored in folder mode. Honored for a .cs file-based app too. Default: the current process architecture."
         };
 
         RuntimeOption = new Option<string?>("--runtime")
         {
-            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too."
+            HelpName = "rid",
+            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Only its architecture is used, and it overrides --arch; non-Windows RIDs are rejected. Ignored in folder mode. Honored for a .cs file-based app too."
         };
         RuntimeOption.Aliases.Add("-r");
 
         FrameworkOption = new Option<string?>("--framework")
         {
+            HelpName = "tfm",
             Description = "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored in folder mode. Rejected for a .cs file-based app, which declares its own with '#:property TargetFramework=...'."
         };
         FrameworkOption.Aliases.Add("-f");
@@ -197,6 +230,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         PropertyOption = new Option<string[]>("--property")
         {
+            HelpName = "Name=Value",
             Description = "Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode.",
             // ZeroOrMore (not OneOrMore) so a valueless '-p' reaches the handler, which emits a
             // --json-aware error; OneOrMore would raise a plain-text parser error, bypassing --json.
@@ -242,7 +276,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         return true;
     }
 
-    public RunCommand() : base("run", "Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.vcxproj/.sln, or a build-output folder. In project mode, invokes dotnet build (MSBuild for C++ .vcxproj) — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
+    public RunCommand() : base("run", "Builds and launches a Windows app (packaged or unpackaged) from a .csproj, .vcxproj, or .sln (via dotnet build or MSBuild), a .cs file-based app, or a build output folder (default: current directory). Packaged apps launch with package identity. With --aot, runs the project's Native AOT publish instead of a build. A packaged .cs app gets a manifest from its #:property directives; folder input is registered as a debug-signed layout.")
     {
         Arguments.Add(InputArgument);
         Arguments.Add(PassthroughArgument);
@@ -274,6 +308,10 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(PropertyOption);
         Options.Add(ProjectOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        Options.Add(ProfileOption);
+        Options.Add(ProfileDurationOption);
+        Options.Add(ProfileSizeOption);
+        Options.Add(ProfileModeOption);
     }
 
     public partial class Handler(
@@ -296,7 +334,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         IWinappDirectoryService winappDirectoryService,
         ILogger<RunCommand> logger,
         GuestDevToolsHost? guestDevToolsHost = null,
-        IPriService? priService = null) : AsynchronousCommandLineAction
+        IPriService? priService = null,
+        PerfCaptureService? perfCaptureService = null) : AsynchronousCommandLineAction
     {
         private bool _uniqueIdentityRequested;
         private DevelopmentIdentity? _runIdentity;
@@ -330,7 +369,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             ProjectContextPackaging.Unknown,
             ProjectExecutionMode.SingleFile);
 
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        private async Task<int> InvokeCoreAsync(ParseResult parseResult, CancellationToken cancellationToken)
         {
             // GuestLaunchCommand shares this handler (it needs the same app-launcher/package-
             // registration/debug-output dependencies and the extracted post-launch logic) but is a
@@ -472,6 +511,12 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             {
                 return Fail("--devtools requires a private launch environment and cannot use --without-alias. " +
                     "Launch normally and use 'winapp devtools attach --pid <pid>' for limited late inspection.", isJson);
+            }
+            // A performance trace measures the app, and DevTools' own UI-thread work would show up in it.
+            var profiling = parseResult.GetValue(ProfileOption) is not null;
+            if (explicitDevTools && profiling)
+            {
+                return Fail("--profile measures the app without DevTools; remove --devtools or --profile.", isJson);
             }
 
             // Validate mutually exclusive options. Route through Fail so that under --json these
@@ -618,7 +663,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 return Fail("Sandbox DevTools requires a project with evaluated XAML sources for persistent host comments. Output-only and single-file inputs cannot establish that source owner.", isJson);
             }
 
-            // A run DevTools could not start for (CI, --no-launch, --without-alias, a Sandbox run, a guest registration)
+            // A run DevTools could not start for (CI, --no-launch, --without-alias, --profile, a Sandbox run, a guest registration)
             // stays plain unless DevTools was asked for, and only a WinUI project gets it by default. 'dotnet run'
             // through the NuGet package hands winapp the build output and the project's framework.
             dotnetRun = string.Equals(parseResult.GetValue(WinAppRootCommand.CallerOption), "nuget-package", StringComparison.Ordinal);
@@ -628,7 +673,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     string.Equals(parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption), "winui", StringComparison.OrdinalIgnoreCase);
             devToolsRun = DevToolsResolution.Resolve(requestedDevTools,
                 DevToolsResolution.IsCi(ReadCiVariable()),
-                noLaunch || withoutAlias || !executionTarget.IsLocal || guestInspectorApplication is not null,
+                noLaunch || withoutAlias || profiling || !executionTarget.IsLocal || guestInspectorApplication is not null,
                 winUIProject, requestedDevTools is null ? ReadDefaultMode() : null);
             devToolsReported = requestedDevTools is not null || winUIProject;
             DevToolsRunTelemetryScope.Set(devToolsRun);
@@ -852,6 +897,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             string? errorMessage = null;
             DirectoryInfo? resolvedOutputDir = null;
             InspectorAlias? inspectorAlias = null;
+            IReadOnlyDictionary<string, string?>? devToolsEnvironment = null;
             int[] replaced = [];
             int[] closedForDevTools = [];
             string? devToolsStepAside = null;
@@ -962,17 +1008,61 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // Step 2: Create and register the debug identity
                     taskContext.AddDebugMessage($"{UiSymbols.Package} Creating debug identity...");
                     // DevTools must start the app itself: a running instance would either keep the old
-                    // files locked or receive this launch without DevTools, depending on the app.
+                    // files locked or receive this launch without DevTools, depending on the app. Without
+                    // DevTools the running instance is still closed so its files can be replaced.
                     var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
-                    if (devTools && runningBefore.Count > 0)
+                    if (devTools)
                     {
+                        try
+                        {
+                            var sourceProject = projectFile ?? devToolsProject;
+                            var sourceManifest = MsixService.ResolveManifestPlaceholders(
+                                await File.ReadAllTextAsync(resolvedManifest.FullName, cancellationToken),
+                                executable, inputFolder, taskContext);
+                            var sourceDocument = AppxManifestDocument.Parse(sourceManifest);
+                            var sourceExecutable = sourceDocument.ApplicationExecutable;
+                            var managedProject = sourceProject is not null && !ProjectRunService.IsCppProject(sourceProject);
+                            var runtimeConfigExists = false;
+                            if (!nativeAot && !managedProject && sourceExecutable is { Length: > 0 } && !Path.IsPathRooted(sourceExecutable))
+                            {
+                                var runtimeConfig = Path.ChangeExtension(sourceExecutable, ".runtimeconfig.json");
+                                var usesRecipe = sourceDocument.Document.Root?
+                                    .Element(AppxManifestDocument.BuildNs + "Metadata")?
+                                    .Elements(AppxManifestDocument.BuildNs + "Item")
+                                    .Any(item => string.Equals(item.Attribute("Name")?.Value, "makepri.exe", StringComparison.OrdinalIgnoreCase)) == true;
+                                var recipe = appxRecipe ?? (usesRecipe
+                                    ? inputFolder.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault()
+                                    : null);
+                                runtimeConfigExists = recipe is not null
+                                    ? MsixService.RecipeContainsPackageFile(recipe, outputAppXDirectory, runtimeConfig)
+                                    : File.Exists(Path.Combine(inputFolder.FullName, runtimeConfig));
+                            }
+                            var managed = !nativeAot && (managedProject || runtimeConfigExists);
+                            devToolsEnvironment = CreateDevToolsEnvironment(sourceProject?.DirectoryName, managed);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                        {
+                            if (!devToolsRun.FailOpen)
+                            {
+                                DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.Failed);
+                                errorMessage = $"Could not prepare DevTools: {RunFailure.Describe(ex)}";
+                                return (1, $"{UiSymbols.Error} {errorMessage}");
+                            }
+                            devToolsStepAside = $"it could not be prepared: {RunFailure.Describe(ex)}";
+                            devTools = false;
+                            effectiveAlias = AliasLaunchDecision.Aumid;
+                        }
+                    }
+                    if (runningBefore.Count > 0)
+                    {
+                        var closedAll = runningBefore.All(CloseRunningProcess);
                         // Otherwise every second run of an edit loop would lose DevTools.
-                        if (runningBefore.All(CloseRunningProcess))
+                        if (devTools && closedAll)
                         {
                             closedForDevTools = [.. runningBefore];
                             runningBefore = [];
                         }
-                        else if (devToolsRun.FailOpen)
+                        else if (devTools && devToolsRun.FailOpen)
                         {
                             devToolsStepAside = $"the app is already running (PID {string.Join(", ", runningBefore)}) and could not be closed.";
                             devTools = false;
@@ -1001,7 +1091,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         effectiveAlias.UseAlias && !devTools && inspectorApplicationId is null,
                         packageGraph,
                         appxRecipe: appxRecipe,
-                        inspectorAlias: devTools || inspectorApplicationId is not null ? new InspectorAliasRequest(inspectorApplicationId) : null,
+                        inspectorAlias: devTools || inspectorApplicationId is not null
+                            ? new InspectorAliasRequest(inspectorApplicationId, Required: inspectorApplicationId is not null || !devToolsRun.FailOpen)
+                            : null,
                         developmentIdentity: developmentIdentity,
                         cancellationToken: cancellationToken);
 
@@ -1071,7 +1163,10 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
                     // Step 3: Launch the application using IApplicationActivationManager
                     taskContext.AddDebugMessage($"{UiSymbols.Rocket} Launching application...");
+                    await PreparePackageProfileAsync(packageFamilyName, cancellationToken);
+                    var launchedAfter = DateTime.UtcNow;
                     processId = appLauncherService.LaunchByAumid(aumid, appArgs);
+                    await BindProfileAsync(processId, launchedAfter, cancellationToken);
 
                     return (0, $"{packageFamilyName} launched (PID: {processId})");
                 }
@@ -1118,8 +1213,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             if (devTools)
             {
                 if (await RunInspectorAliasAsync(inspectorAlias, inputFolder, projectFile ?? devToolsProject, aumid, appArgs,
-                    debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName, cancellationToken,
-                    nativeAot, devToolsSources, devToolsCompilerArtifacts) is int inspected)
+                    debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName,
+                    devToolsEnvironment!, cancellationToken, devToolsSources, devToolsCompilerArtifacts) is int inspected)
                 {
                     return inspected;
                 }
@@ -1197,7 +1292,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // project-mode detach path (Change 3 / L6).
                     ansiConsole.WriteLine(processId.ToString());
                 }
-                return 0;
+                return profileRun?.Error is null ? 0 : 1;
             }
 
             // Alias launch: run in this terminal with inherited stdio. When the alias was a default rather
@@ -1219,7 +1314,17 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
                 if (aumid != null)
                 {
+                    try
+                    {
+                        await PreparePackageProfileAsync(packageFamilyName, cancellationToken);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                    {
+                        return Fail($"Failed to prepare performance capture: {ex.Message}", isJson);
+                    }
+                    var launchedAfter = DateTime.UtcNow;
                     processId = appLauncherService.LaunchByAumid(aumid, appArgs);
+                    await BindProfileAsync(processId, launchedAfter, cancellationToken);
                 }
             }
 
@@ -1296,6 +1401,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 SourceWarnings = Services.DevTools.XamlSourceExclusion.Collapse(sourceWarnings),
                 SourceError = sourceError,
                 DevTools = WithDevToolsMode(devTools),
+                Profile = profileRun?.Result,
                 Identity = _runIdentity,
             };
 
@@ -1623,7 +1729,10 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
             try
             {
+                await PreparePackageProfileAsync(packageFamilyName, cancellationToken);
+                var launchedAfter = DateTime.UtcNow;
                 using var process = appLauncherService.LaunchExecutable(aliasFile.FullName, appArgs);
+                await BindProfileAsync(process.ProcessId, launchedAfter, cancellationToken);
 
                 if (targetSelector is not null)
                 {
@@ -1684,6 +1793,7 @@ internal sealed class RunCommandResult
     public string? AUMID { get; set; }
     public uint? ProcessId { get; set; }
     public string? Error { get; set; }
+    public RunProfileResult? Profile { get; set; }
 
     [JsonPropertyName("sourceWarnings")]
     public IReadOnlyList<Services.DevTools.XamlSourceExclusion>? SourceWarnings { get; set; }

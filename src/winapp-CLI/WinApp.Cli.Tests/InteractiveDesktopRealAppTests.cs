@@ -47,8 +47,9 @@ public class InteractiveDesktopRealAppTests : IDisposable
     private UiaTestFixture _fixture = null!;
     private InteractiveDesktopStateStore _store = null!;
     private InteractiveDesktopLock _coordinator = null!;
-    private Stopwatch? _graceWatch;
     private readonly List<Process> _children = [];
+
+    public TestContext TestContext { get; set; } = null!;
 
     [TestInitialize]
     public void Setup()
@@ -83,6 +84,12 @@ public class InteractiveDesktopRealAppTests : IDisposable
             NullLogger<InteractiveDesktopLock>.Instance);
 
         _fixture = new UiaTestFixture();
+        _fixture.OnUiThread(() =>
+        {
+            // Keep the handover click clear of the menu bar, including with larger system fonts.
+            _fixture.InvokeButton.Left = _fixture.Form.ClientSize.Width - _fixture.InvokeButton.Width - 16;
+            _fixture.InvokeButton.Top = _fixture.Menu.Bottom + 16;
+        });
     }
 
     [TestCleanup]
@@ -142,7 +149,8 @@ public class InteractiveDesktopRealAppTests : IDisposable
     // ------------------------------------------------------------------ real winapp.exe agents
 
     private sealed record AgentRun(
-        Process Process, Task<int> Completion, Task<string> Output, Task<string> StandardOutput);
+        Process Process, Task<int> Completion, Task<string> Output, Task<string> StandardOutput,
+        StringBuilder OutputSnapshot, StringBuilder ErrorSnapshot);
 
     /// <summary>
     /// Launches a real <c>winapp.exe</c> as <paramref name="ownerId"/> against the fixture window.
@@ -175,20 +183,48 @@ public class InteractiveDesktopRealAppTests : IDisposable
         var process = Process.Start(startInfo)!;
         _children.Add(process);
 
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        async Task<string> ReadErrorAsync()
+        var outputSnapshot = new StringBuilder();
+        var errorSnapshot = new StringBuilder();
+        async Task<string> ReadPipeAsync(
+            StreamReader reader, StringBuilder snapshot, Action<string>? onLine = null)
         {
-            var error = new StringBuilder();
-            while (await process.StandardError.ReadLineAsync() is { } line)
+            var buffer = new char[4096];
+            var pendingLine = new StringBuilder();
+            int count;
+            while ((count = await reader.ReadAsync(buffer.AsMemory())) > 0)
             {
-                error.AppendLine(line);
-                onErrorLine?.Invoke(line);
+                lock (snapshot)
+                {
+                    snapshot.Append(buffer, 0, count);
+                }
+
+                if (onLine is not null)
+                {
+                    for (var i = 0; i < count; i++)
+                    {
+                        if (buffer[i] == '\n')
+                        {
+                            onLine(pendingLine.ToString().TrimEnd('\r'));
+                            pendingLine.Clear();
+                        }
+                        else
+                        {
+                            pendingLine.Append(buffer[i]);
+                        }
+                    }
+                }
             }
 
-            return error.ToString();
+            if (onLine is not null && pendingLine.Length > 0)
+            {
+                onLine(pendingLine.ToString());
+            }
+
+            return Snapshot(snapshot);
         }
 
-        var stderr = ReadErrorAsync();
+        var stdout = ReadPipeAsync(process.StandardOutput, outputSnapshot);
+        var stderr = ReadPipeAsync(process.StandardError, errorSnapshot, onErrorLine);
         var completion = Task.Run(async () =>
         {
             await process.WaitForExitAsync();
@@ -196,7 +232,15 @@ public class InteractiveDesktopRealAppTests : IDisposable
         });
         var output = Task.Run(async () => await stdout + await stderr);
 
-        return new AgentRun(process, completion, output, stdout);
+        return new AgentRun(process, completion, output, stdout, outputSnapshot, errorSnapshot);
+    }
+
+    private static string Snapshot(StringBuilder buffer)
+    {
+        lock (buffer)
+        {
+            return buffer.ToString();
+        }
     }
 
     private async Task<(int ExitCode, string Output)> RunAgentAsync(string ownerId, params string[] args)
@@ -246,18 +290,22 @@ public class InteractiveDesktopRealAppTests : IDisposable
     /// surface only as an opaque "state never reached" timeout that says nothing about the real cause.
     /// </remarks>
     private async Task WaitForAgentStateAsync(
-        AgentRun agent, Func<InteractiveDesktopState, bool> predicate, string because, int timeoutMs = 20_000)
+        AgentRun agent, Func<InteractiveDesktopState, bool> predicate, string because, int timeoutMs = 20_000,
+        Func<bool>? recordingStarted = null)
     {
         var deadline = Stopwatch.StartNew();
+        InteractiveDesktopState? latestState = null;
         while (deadline.ElapsedMilliseconds < timeoutMs)
         {
-            if (predicate(ReadState()))
+            latestState = ReadState();
+            if (predicate(latestState))
             {
                 return;
             }
 
             if (agent.Process.HasExited)
             {
+                WriteAgentDiagnostics(agent, latestState, recordingStarted);
                 Assert.Fail(
                     $"{because}, but the agent exited early with code {agent.Process.ExitCode}. Output: {await agent.Output}");
             }
@@ -265,7 +313,24 @@ public class InteractiveDesktopRealAppTests : IDisposable
             await Task.Delay(50);
         }
 
+        WriteAgentDiagnostics(agent, latestState, recordingStarted);
         Assert.Fail($"{because}, but the state was never reached within {timeoutMs} ms.");
+    }
+
+    private void WriteAgentDiagnostics(
+        AgentRun agent, InteractiveDesktopState? latestState, Func<bool>? recordingStarted)
+    {
+        var hasExited = agent.Process.HasExited;
+        TestContext.WriteLine("Agent readiness failure diagnostics: " + JsonSerializer.Serialize(new
+        {
+            Pid = agent.Process.Id,
+            HasExited = hasExited,
+            ExitCode = hasExited ? agent.Process.ExitCode : (int?)null,
+            RecordingStarted = recordingStarted?.Invoke(),
+            LatestPersistedState = latestState,
+            StandardOutput = Snapshot(agent.OutputSnapshot),
+            StandardError = Snapshot(agent.ErrorSnapshot),
+        }));
     }
 
     /// <summary>
@@ -281,7 +346,6 @@ public class InteractiveDesktopRealAppTests : IDisposable
     {
         var (exitCode, output) = await RunAgentAsync(ownerId, WithTarget("ui", "invoke", "File Menu"));
         Assert.AreEqual(0, exitCode, $"the agent's menu-opening command should succeed. Output: {output}");
-        _graceWatch = Stopwatch.StartNew();
 
         // UIA Invoke posts the click; the drop-down appears a moment later.
         var deadline = Stopwatch.StartNew();
@@ -406,28 +470,72 @@ public class InteractiveDesktopRealAppTests : IDisposable
     /// pins, and would leave the assertion below racing the other owner's grace.
     /// </remarks>
     [TestMethod]
-    public async Task AReasoningGapHandsOverTheTurnAndForcesReplay()
+    [DataRow(0)]
+    [DataRow(1000)]
+    public async Task AReasoningGapHandsOverTheTurnAndForcesReplay(int postExitObservationDelayMs)
     {
+        var recordingStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recorder = StartAgent(OwnerA, WithTarget(
+            "ui", "record", "--duration-sec", "0", "--capture-screen",
+            "-o", Path.Combine(_scratchDirectory, "reasoning-gap.mp4")),
+            redirectStandardInput: true,
+            onErrorLine: line =>
+            {
+                if (line.Contains("\"recording-started\"", StringComparison.Ordinal))
+                {
+                    recordingStarted.TrySetResult();
+                }
+            });
+        await WaitForAgentStateAsync(
+            recorder,
+            s => recordingStarted.Task.IsCompletedSuccessfully
+                && s.Owner?.Key == KeyOf(OwnerA)
+                && s.OwnerCommands.Any(c => c.Pid == recorder.Process.Id && c.Status == UiCommandStatus.Running),
+            "agent A's recording must pin its turn before agent B starts");
+
         await OpenMenuAsOwnerAsync(OwnerA);
 
         var agentB = StartAgent(OwnerB, WithTarget("ui", "click", "btnInvoke"));
         await WaitForAgentStateAsync(
             agentB,
-            s => s.Waiters.Count == 1,
+            s => s.Waiters.Any(w => w.Pid == agentB.Process.Id),
             "agent B must queue while agent A still holds the turn");
 
-        // The reasoning gap: agent A issues nothing while its model thinks. The grace is not renewed,
-        // so ownership legitimately transfers. The grace started when A's command completed, not when B
-        // queued, so it is measured from there.
-        Assert.AreEqual(0, await agentB.Completion, $"agent B must acquire the turn after the gap. Output: {await agentB.Output}");
-        Assert.IsTrue(
-            _graceWatch!.ElapsedMilliseconds >= InteractiveDesktopScheduler.IdleGraceMs - 500,
-            $"handover must wait out the {InteractiveDesktopScheduler.IdleGraceMs} ms idle grace, "
-                + $"but took {_graceWatch.ElapsedMilliseconds} ms from agent A's last command");
+        // Child startup can exceed the idle grace on a busy runner. Release the real pin only
+        // after B has queued, so the reasoning gap never depends on process startup speed.
+        Assert.IsTrue(_fixture.IsFileMenuOpen, "the menu must survive while agent B starts and queues");
+        long idleDeadline = 0;
+        await recorder.Process.StandardInput.WriteLineAsync();
+        await recorder.Process.StandardInput.FlushAsync();
+        Assert.IsTrue(await WaitForStateAsync(s =>
+        {
+            if (s.Owner?.Key != KeyOf(OwnerA) || s.OwnerCommands.Count != 0 ||
+                !s.Waiters.Any(w => w.Pid == agentB.Process.Id))
+            {
+                return false;
+            }
 
+            idleDeadline = s.IdleExpiresTick64;
+            return idleDeadline > 0;
+        }), "A's final command must publish an idle deadline while B is queued");
+        Assert.AreEqual(0, await recorder.Completion.WaitAsync(TimeSpan.FromSeconds(20)),
+            $"agent A's recording must finish before the idle handover. Output: {await recorder.Output}");
+        // Slow shutdown or output observation must not shorten the scheduler's grace.
+        if (postExitObservationDelayMs > 0)
+        {
+            await Task.Delay(postExitObservationDelayMs);
+        }
+
+        // The reasoning gap: agent A issues nothing while its model thinks. The grace is not renewed,
+        // so ownership legitimately transfers after the final pinned command completes.
+        Assert.AreEqual(0, await agentB.Completion.WaitAsync(TimeSpan.FromSeconds(20)),
+            $"agent B must acquire the turn after the gap. Output: {await agentB.Output}");
         Assert.IsTrue(
             await WaitForStateAsync(s => s.Owner?.Key == KeyOf(OwnerB), timeoutMs: 5_000),
             "the turn must transfer to agent B after agent A's grace expires");
+        var handover = ReadState();
+        Assert.IsGreaterThanOrEqualTo(idleDeadline, handover.TurnStartedTick64,
+            $"B's turn at {handover.TurnStartedTick64} must not precede A's idle deadline {idleDeadline}");
 
         var menuGone = Stopwatch.StartNew();
         while (menuGone.ElapsedMilliseconds < 5_000 && _fixture.IsFileMenuOpen)
@@ -496,7 +604,8 @@ public class InteractiveDesktopRealAppTests : IDisposable
                 && s.Owner?.Key == KeyOf(OwnerA) && s.OwnerCommands.Any(
                     c => c.Pid == recorder.Process.Id
                         && c.Mode == UiTurnMode.TurnShared && c.Status == UiCommandStatus.Running),
-            "the recording must commit its first frame while holding agent A's shared turn");
+            "the recording must commit its first frame while holding agent A's shared turn",
+            recordingStarted: () => recordingStarted.Task.IsCompletedSuccessfully);
 
         // A different owner's mutation must not interleave with the recording.
         var agentB = StartAgent(OwnerB, WithTarget("ui", "click", "btnInvoke"));

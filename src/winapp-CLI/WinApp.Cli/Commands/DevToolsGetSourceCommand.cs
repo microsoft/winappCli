@@ -83,9 +83,14 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             // ONE verdict for both shapes: no source record is a failure in the human path, and `--json` used
             // to report ok:true with fileName:"" and exit 0 for exactly that.
             var hasSource = file.Length > 0;
-            const string NoSource =
-                "No XAML source is recorded for this element. Framework, template or generated elements " +
-                "may have no app-authored declaration.";
+            // Without source information for the whole app (DevTools attached after it started) no element has a
+            // source, so that is the reason, not this element being framework XAML.
+            var noSource = !hasSource &&
+                DevToolsAppAuthored.Parse(target.Tap!.RequestAppAuthored(cancellationToken).ResultJson) is { SourceInstrumented: false }
+                    ? "No XAML source is recorded for this element because this app reports no XAML source information. " +
+                      DevToolsAppAuthored.RelaunchForSource
+                    : "No XAML source is recorded for this element. Framework, template or generated elements " +
+                      "may have no app-authored declaration.";
             var confirmed = authoredLine > 0 && authoredColumn > 0 && provenance.Length > 0;
             var projectFile = confirmed && ReadString(root, "authoredFileName") is { Length: > 0 } authoredFile
                 ? authoredFile
@@ -143,7 +148,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     }
                     else
                     {
-                        DevToolsJson.WriteError(writer, "source-unavailable", NoSource);
+                        DevToolsJson.WriteError(writer, "source-unavailable", noSource);
                     }
                 }));
                 return Task.FromResult(hasSource ? 0 : 1);
@@ -152,7 +157,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             DevToolsRender.WriteMarkupLine(Console, DevToolsRender.Header(handle, Describe(target, handle, cancellationToken)));
             if (!hasSource)
             {
-                Console.MarkupLineInterpolated($"  [yellow]{NoSource}[/]");
+                Console.MarkupLineInterpolated($"  [yellow]{noSource}[/]");
                 return Task.FromResult(1);
             }
 
@@ -194,7 +199,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
         {
             "noFile" => $"Not confirmed: {file} could not be opened from here.",
             "noSourceInfo" => "Not confirmed: the runtime reported no XAML source text for this element.",
-            "stale" => $"Not confirmed: {file} changed since the app was built. Rebuild to confirm the declaration.",
+            "stale" => $"Not confirmed: {file} changed since the app was built. Rebuild and relaunch the app (winapp run) to confirm the declaration.",
             "unverifiedBuild" => $"Not confirmed: DevTools could not confirm that {file} matches the running build. " +
                 "Rebuild and run again (without --no-build); if this persists, check the original XAML before editing.",
             _ => $"Not confirmed ({state}).",

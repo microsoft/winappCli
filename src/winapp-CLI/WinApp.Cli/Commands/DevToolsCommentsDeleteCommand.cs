@@ -15,12 +15,12 @@ using WinApp.Cli.Services.DevTools.Comments;
 namespace WinApp.Cli.Commands;
 
 /// <summary>
-/// <c>winapp devtools comments delete &lt;id&gt;</c> — removes a comment from
+/// <c>winapp devtools comments delete &lt;id&gt;</c> removes a comment from
 /// <c>.winapp/ui-comments.json</c> outright.
 ///
 /// Deliberately NOT <c>resolve</c>: resolve records that a comment was acted on and keeps the row (an agent's
 /// work queue needs its history), delete says the comment should never have been there and leaves nothing
-/// behind. The store is under the gitignored <c>.winapp</c>, so this is permanent — hence "not found" is an
+/// behind. The store is under the gitignored <c>.winapp</c>, so this is permanent. That is why "not found" is an
 /// error rather than a silent success, and the removed row is echoed so a caller can see what it destroyed.
 /// </summary>
 internal class DevToolsCommentsDeleteCommand : Command, IShortDescription, IHelpExamples
@@ -36,7 +36,7 @@ internal class DevToolsCommentsDeleteCommand : Command, IShortDescription, IHelp
 
     public static Option<string?> AppOption { get; } = new("--app", "-a")
     {
-        Description = "Optional marker refresh target: PID, process name, or window title.",
+        Description = "Use this running DevTools app's project and refresh its markers: PID, process name, or window title. --source-root overrides the project.",
     };
 
     public DevToolsCommentsDeleteCommand()
@@ -58,11 +58,13 @@ internal class DevToolsCommentsDeleteCommand : Command, IShortDescription, IHelp
         ILogger<DevToolsCommentsDeleteCommand> logger,
         ExecutionTargets.GuestAgent.GuestCommentContext? guestComments = null) : AsynchronousCommandLineAction
     {
+        internal Func<uint, CancellationToken, string?> ReadSourceRoot { get; init; } = CommentsSharedOptions.ReadTapSourceRoot;
+
         public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var id = parseResult.GetValue(IdArgument);
-            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? currentDirectory.GetCurrentDirectory();
+            var explicitSourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption);
 
             if (string.IsNullOrWhiteSpace(id))
             {
@@ -77,6 +79,13 @@ internal class DevToolsCommentsDeleteCommand : Command, IShortDescription, IHelp
                 {
                     return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, error!));
                 }
+                string? appRoot = null;
+                if (app is not null && explicitSourceRoot is null &&
+                    !CommentsSharedOptions.TryReadSourceRoot(pid, ReadSourceRoot, cancellationToken, out appRoot, out var rootError))
+                {
+                    return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, rootError!));
+                }
+                var sourceRoot = explicitSourceRoot ?? appRoot ?? currentDirectory.GetCurrentDirectory();
                 var location = store.Locate(sourceRoot);
                 var storePath = location.StorePath;
                 cancellationToken.ThrowIfCancellationRequested();

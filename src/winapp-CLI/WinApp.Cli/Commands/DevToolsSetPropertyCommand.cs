@@ -11,13 +11,13 @@ using WinApp.Cli.Services.DevTools;
 namespace WinApp.Cli.Commands;
 
 /// <summary>
-/// <c>winapp devtools set-property &lt;selector&gt; &lt;property&gt; &lt;value&gt;</c> — change one
+/// <c>winapp devtools set-property &lt;selector&gt; &lt;property&gt; &lt;value&gt;</c>: change one
 /// dependency property on a live element and report what the app actually did.
 /// <para>
 /// The command reads the property, writes it, and reads it back, and reports the OBSERVED before → after. It
 /// never reports the value it sent as though it were the value that took: a write can be accepted and then
 /// overridden by a style, a binding, or the next layout pass, and only the read-back can tell. It also never
-/// claims a source file changed — this is a live in-memory edit that disappears when the app restarts.
+/// claims a source file changed; this is a live in-memory edit that disappears when the app restarts.
 /// </para>
 /// </summary>
 internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
@@ -154,13 +154,13 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             var beforeRow = DevToolsPropertyRow.Find(beforeRows, property);
             if (beforeRow is null)
             {
-                var known = beforeRows is null or { Count: 0 }
+                var hint = beforeRows is null or { Count: 0 }
                     ? string.Empty
-                    : $" The agent reads: {string.Join(", ", beforeRows.Select(r => r.Name))}.";
+                    : " " + DevToolsPropertyRow.UnknownPropertyHint(beforeRows.Select(r => r.Name), property, parseResult.GetValue(SelectorArgument));
                 return Task.FromResult(Fail(
                     json,
                     target.Pid,
-                    $"The DevTools agent does not read '{property}' on this element.{known}"));
+                    $"The DevTools agent does not read '{property}' on this element.{hint}"));
             }
 
             // The tap already knows the XAML type each property must be written as, so --type is a manual
@@ -184,7 +184,12 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             var writeResponse = tap.RequestSetProperty(handle, beforeRow.Name, writeType, value, cancellationToken);
             if (!writeResponse.Ok)
             {
-                return Task.FromResult(Fail(json, target.Pid, writeResponse.Error!));
+                var error = writeResponse.Error!;
+                if (error.Token == "invalid-value")
+                {
+                    error = error with { Message = DevToolsErrors.DescribePropertyWriteFailure(value, error.Message) };
+                }
+                return Task.FromResult(Fail(json, target.Pid, error));
             }
 
             var afterResponse = tap.RequestProperties(handle, cancellationToken);
@@ -199,7 +204,7 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                 && MatchesRequested(after, value, beforeRow.ValueType, writeType);
 
             // ONE verdict, shared by both output shapes. A `--json` caller that got ok:true and exit 0 for a
-            // write the human path calls a failure has no usable signal at all — and this is the agent-facing
+            // write the human path calls a failure has no usable signal at all, and this is the agent-facing
             // mode. `took || matchesRequested` is the honest test: a value the framework normalized on the way
             // in (Thickness "10" -> "10,10,10,10") DID take, while a value that neither changed nor equals the
             // request demonstrably did not.
@@ -278,7 +283,7 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     $"{UiSymbols.Check} {label}: {Markup.Escape(before)} [grey]->[/] [green]{Markup.Escape(after)}[/]");
                 if (!matchesRequested)
                 {
-                    // The value changed, but not to what was asked for — the framework coerced or normalized
+                    // The value changed, but not to what was asked for: the framework coerced or normalized
                     // it. Saying so is the difference between a caller trusting the number it sent and the
                     // number the app actually holds.
                     DevToolsRender.WriteMarkupLine(Console,
@@ -287,18 +292,18 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             }
             else if (matchesRequested)
             {
-                DevToolsRender.WriteMarkupLine(Console, $"{UiSymbols.Check} {label}: already {Markup.Escape(after)} — unchanged.");
+                DevToolsRender.WriteMarkupLine(Console, $"{UiSymbols.Check} {label}: already {Markup.Escape(after)}, unchanged.");
             }
             else
             {
                 // Accepted-then-overridden is a real and common outcome (a style, a binding, or the next
                 // layout pass wins). Reporting it as success would be a lie the next read would expose.
                 // Phrased as "could not confirm" rather than "did not take", because a value the tap renders
-                // as an opaque {TypeName} reads identically before and after a change that genuinely landed —
+                // as an opaque {TypeName} reads identically before and after a change that genuinely landed,
                 // and asserting a failure we cannot see is the same overclaim in the other direction.
                 DevToolsRender.WriteMarkupLine(Console,
                     $"{UiSymbols.Warning} {label}: reads back {Markup.Escape(after)} after writing " +
-                    $"{Markup.Escape(value)} — the change could not be confirmed.");
+                    $"{Markup.Escape(value)}. The change could not be confirmed.");
                 if ((afterRow?.Binding ?? afterRow?.ValueSource) is string source)
                 {
                     DevToolsRender.WriteMarkupLine(Console, $"   [grey]Its effective value comes from {Markup.Escape(source)}.[/]");
@@ -346,15 +351,23 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                 "Decimal" => decimal.TryParse(actual, NumberStyles.Float, CultureInfo.InvariantCulture, out var a) &&
                     decimal.TryParse(requested, NumberStyles.Float, CultureInfo.InvariantCulture, out var b) && a == b,
                 "Boolean" => bool.TryParse(actual, out var a) && bool.TryParse(requested, out var b) && a == b,
-                "SolidColorBrush" => NormalizeHexColor(actual) is string color && color == NormalizeHexColor(requested),
+                "SolidColorBrush" => NormalizeColor(actual) is string color && color == NormalizeColor(requested),
                 _ => false,
             };
         }
 
-        private static string? NormalizeHexColor(string value)
+        private static string? NormalizeColor(string value)
         {
             var text = value.Trim(' ', '\t');
-            if (text.Length is not (4 or 5 or 7 or 9) || text[0] != '#' ||
+            if (!text.StartsWith('#'))
+            {
+                var color = System.Drawing.Color.FromName(text);
+                // System palette names such as Control are not XAML named colors.
+                return color.IsKnownColor && !color.IsSystemColor
+                    ? color.ToArgb().ToString("X8", CultureInfo.InvariantCulture)
+                    : null;
+            }
+            if (text.Length is not (4 or 5 or 7 or 9) ||
                 text.Skip(1).Any(c => !char.IsAsciiHexDigit(c)))
             {
                 return null;

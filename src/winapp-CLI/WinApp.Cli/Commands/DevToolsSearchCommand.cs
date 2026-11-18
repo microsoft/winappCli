@@ -186,7 +186,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             Console.MarkupLine($"[grey]Found {matches.Count}{scope}{more}.[/]");
             if (appAuthored)
             {
-                Console.MarkupLine("[grey]Framework and control-template elements are not searched — pass --all to include them.[/]");
+                Console.MarkupLine("[grey]Framework and control-template elements are not searched. Pass --all to include them.[/]");
             }
 
             // The census walk the search runs over is itself node-capped. Saying so is the difference between
@@ -213,7 +213,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
 
         /// <summary>
         /// Why a search found nothing, once the scope itself was viable. An unfinished classification is
-        /// stated HERE as well as in the footer, because the footer is not reached on an empty result — and
+        /// stated HERE as well as in the footer, because the footer is not reached on an empty result, and
         /// an empty answer is exactly when "the classifier has not looked at everything yet" is the fact that
         /// explains it. Without it, a fresh attach reports "no element matches" and the next run finds one.
         /// </summary>
@@ -221,7 +221,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             DevToolsTarget target, string query, bool appAuthored, bool classificationTruncated)
         {
             var scope = appAuthored
-                ? " in your XAML — pass --all to search framework and template elements too"
+                ? " in your XAML. Pass --all to search framework and template elements too"
                 : string.Empty;
             var why = $"No element matches \"{query}\" in {target.Describe()}{scope}. " +
                       "Matching covers type, x:Name, AutomationId, source file, and displayed text.";

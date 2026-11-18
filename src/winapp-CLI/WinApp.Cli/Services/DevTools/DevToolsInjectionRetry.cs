@@ -12,7 +12,7 @@ internal static class DevToolsInjectionRetry
     /// <summary>
     /// <c>HRESULT_FROM_WIN32(ERROR_NOT_FOUND)</c> == <c>0x80070490</c>. Returned by
     /// <c>InitializeXamlDiagnosticsEx</c> against a live process when the XAML visual tree has not yet come up.
-    /// This is the one — and only — HRESULT treated as "retry: the tree isn't ready yet".
+    /// This is the only HRESULT treated as "retry: the tree isn't ready yet".
     /// </summary>
     public const int ErrorNotFound = unchecked((int)0x80070490);
 
@@ -52,7 +52,7 @@ internal static class DevToolsInjectionRetry
 
             lastHr = attemptInject();
 
-            // S_OK, or any terminal failure that is NOT "tree not ready", is the final answer — return now.
+            // S_OK, or any terminal failure that is NOT "tree not ready", is the final answer, so return now.
             if (!IsTreeNotReady(lastHr))
             {
                 return new InjectionOutcome(lastHr, attempt, TargetExited: false);

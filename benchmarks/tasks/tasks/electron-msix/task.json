@@ -1,0 +1,15 @@
+{
+  "prompt": "This is my Electron app (Sticky Notes Lite). I've never shipped anything on Windows. I'd like an MSIX installer for it. Can you build a signed .msix and install it on this machine so I can see it in the Start menu and launch it?",
+  "cluster": "Electron packaging",
+  "workspace": "C:\\src\\sticky-notes",
+  "timeoutMinutes": 30,
+  "lintAllow": ["msix installer"],
+  "checks": [
+    "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
+    "msix-built (required): an .msix exists under the project folder (node_modules excluded)",
+    "msix-signed (required): it carries an Authenticode signature that still matches the file",
+    "msix-trusted: the signature chain is trusted on this machine",
+    "installed (required): a new package is installed whose install folder contains the Electron app (resources\\app.asar or resources\\app\\package.json)",
+    "launches (required): activating the installed app starts its executable from the package"
+  ]
+}

@@ -34,7 +34,7 @@ using DevToolsWindowReadInputFn = std::function<bool(IInspectable* box, std::wst
 // Write outcome distinguishes failure, binding-replace refusal, and confirmed data loss.
 using DevToolsWindowWriteFn     = std::function<DevToolsWriteOutcome(InstanceHandle wire, const std::wstring& prop,
                                                            const std::wstring& type, const std::wstring& value,
-                                                           bool confirmBindingReplace)>;
+                                                           bool confirmBindingReplace, std::wstring* reason)>;
 // clearFn - reset one curated property to its inherited/default value on the node (IVisualTreeService::
 // ClearProperty). Returns false on a stale handle or if the property index cannot be resolved.
 using DevToolsWindowClearFn     = std::function<bool(InstanceHandle wire, const std::wstring& prop)>;
@@ -110,7 +110,7 @@ struct DevToolsWindowComment
 using DevToolsWindowCommentsFn = std::function<bool(std::vector<DevToolsWindowComment>* /*out*/)>;
 
 // Resolve a comment's live anchor to a WIRE handle for selection, or 0 when its element isn't realized right
-// now — which is a normal answer (another page, a virtualized item), not a failure.
+// now, which is a normal answer (another page, a virtualized item), not a failure.
 using DevToolsWindowAnchorWireFn = std::function<InstanceHandle(const wchar_t* /*anchor*/)>;
 
 using DevToolsWindowCommentResolveFn = std::function<bool(const wchar_t* /*id*/, std::function<void(int)> /*completed*/)>;

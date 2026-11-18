@@ -256,7 +256,7 @@ internal class UiSendKeysCommand : Command, IShortDescription, IHelpExamples
 
                     if (targetElement is null)
                     {
-                        UiErrors.ElementNotFound(logger, target, json);
+                        UiErrors.ElementNotFound(logger, target, json, target: uiTarget);
                         return 1;
                     }
 
@@ -274,7 +274,7 @@ internal class UiSendKeysCommand : Command, IShortDescription, IHelpExamples
                         targetElement = await uiAutomation.FindSingleElementAsync(uiTarget, targetSelector, cancellationToken);
                         if (targetElement is null)
                         {
-                            UiErrors.ElementNotFound(logger, target!, json);
+                            UiErrors.ElementNotFound(logger, target!, json, target: uiTarget);
                             return 1;
                         }
 

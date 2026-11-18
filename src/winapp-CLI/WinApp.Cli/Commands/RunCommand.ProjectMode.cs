@@ -196,6 +196,15 @@ internal partial class RunCommand
                 return Fail($"{(aot ? "--aot" : "--framework")} applies to .NET projects and can't be used with a C++ project ({csproj.Name}).", isJson);
             }
 
+            // -p Configuration=Release selects the configuration like -c Release. Both are allowed only when
+            // they name the same configuration.
+            if (!ProjectRunService.TryResolveConfiguration(
+                    configuration, parseResult.GetResult(ConfigurationOption) is { Implicit: false }, properties,
+                    out configuration, out var configurationError))
+            {
+                return Fail(configurationError!, isJson);
+            }
+
             // For C++, -p Platform=ARM64 is how Visual Studio users pick the architecture, so honor it when
             // --arch/--runtime weren't given instead of defaulting to the machine's architecture.
             if (isCpp && archOption is null && runtimeOption is null
@@ -305,6 +314,13 @@ internal partial class RunCommand
             }
 
             var resolution = outcome.Resolution;
+            if (devToolsRun is { Enabled: true, FailOpen: false } &&
+                resolution.DevToolsUnsupportedFramework is ProjectAppFramework.Wpf or ProjectAppFramework.WinForms)
+            {
+                var unsupported = resolution.DevToolsUnsupportedFramework == ProjectAppFramework.Wpf ? "WPF" : "Windows Forms";
+                return Fail($"DevTools requires WinUI 3; '{csproj.Name}' is a {unsupported}-only project. " +
+                    "Run with --devtools off to start the app without DevTools.", isJson);
+            }
 
             return resolution.Packaging == ProjectPackaging.Packaged
                 ? await RunPackagedProjectAsync(
@@ -456,7 +472,8 @@ internal partial class RunCommand
                             // Report whether the runtime was actually prepared: a plain console/desktop app
                             // with no Windows App SDK reference is skipped inside, so claiming "ready" would
                             // be a lie. Surface the skip honestly instead.
-                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), ct);
+                            var packageDir = resolution.WindowsAppSdkPackageDir is { } dir ? new DirectoryInfo(dir) : null;
+                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), packageDir, ct);
                             return (0, prepared ? "Windows App Runtime ready" : "No Windows App SDK reference — runtime not needed");
                         }
                         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -506,10 +523,14 @@ internal partial class RunCommand
                         (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(exePath)!, token));
                     environment = WithWatchEnvironment(CreateDevToolsEnvironment(csproj.DirectoryName, !resolution.IsAot && !ProjectRunService.IsCppProject(csproj)));
                 }
-                catch (Exception ex) when (devToolsRun.FailOpen && ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
                     coordinates?.Dispose();
                     coordinates = null;
+                    if (!devToolsRun.FailOpen)
+                    {
+                        return InspectorFailure(null, null, $"Could not prepare DevTools: {RunFailure.Describe(ex)}", isJson);
+                    }
                     DevToolsStepsAside($"it could not be prepared: {RunFailure.Describe(ex)}", isJson);
                     devTools = false;
                 }
@@ -527,7 +548,11 @@ internal partial class RunCommand
                     if (coordinates.Error is { } coordinateError) { logger.LogWarning("{Message}", coordinateError); }
                     LogSourceExclusions(coordinates.Exclusions);
                 }
+                await PrepareProfileAsync(new(ExecutableName: Path.GetFileName(exePath)), cancellationToken);
+
+                var launchedAfter = DateTime.UtcNow;
                 launched = appLauncherService.LaunchExecutable(exePath, launchArgs, workingDirectory, stdioMode, environment);
+                await BindProfileAsync(launched.ProcessId, launchedAfter, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -572,7 +597,7 @@ internal partial class RunCommand
                     {
                         ansiConsole.WriteLine(processId.ToString());
                     }
-                    return 0;
+                    return profileRun?.Error is null ? 0 : 1;
                 }
 
                 if (isJson)
@@ -693,8 +718,12 @@ internal partial class RunCommand
                 return null;
             }
 
-            var configuration = parseResult.GetValue(ConfigurationOption) ?? "Debug";
             var properties = parseResult.GetValue(PropertyOption) ?? [];
+            // A -c / -p Configuration conflict is reported by RunProjectModeAsync; classify with -c meanwhile.
+            _ = ProjectRunService.TryResolveConfiguration(
+                parseResult.GetValue(ConfigurationOption) ?? "Debug",
+                parseResult.GetResult(ConfigurationOption) is { Implicit: false },
+                properties, out var configuration, out _);
             // Share the SAME explicit effective framework the build uses (--framework > bare
             // -p:TargetFramework) so classification and build never evaluate a different TFM.
             var framework = ProjectRunService.ResolveExplicitFramework(parseResult.GetValue(FrameworkOption), properties);

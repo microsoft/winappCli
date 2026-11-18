@@ -216,6 +216,15 @@ internal partial class PackageCommand
                 return Fail(propertyError);
             }
 
+            // -p Configuration=Debug selects the configuration like -c Debug. Both are allowed only when they
+            // name the same configuration.
+            if (!ProjectRunService.TryResolveConfiguration(
+                    configuration, parseResult.GetResult(ConfigurationOption) is { Implicit: false }, properties,
+                    out configuration, out var configurationError))
+            {
+                return Fail(configurationError!);
+            }
+
             // Packaging options (reused as-is by the MSIX pipeline).
             var output = parseResult.GetValue(OutputOption);
             var name = parseResult.GetValue(NameOption);

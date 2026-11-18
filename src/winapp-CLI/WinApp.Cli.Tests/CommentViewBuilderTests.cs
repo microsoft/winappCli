@@ -118,7 +118,7 @@ public class CommentViewBuilderTests
 
     // an anchor whose identity bundle is empty cannot be re-anchored NO MATTER WHAT THE SOURCE LOOKS
     // LIKE, so reporting it as "the element may be renamed or removed" asserts a cause that was never
-    // established — while the element is on screen in front of the user. The two states must not share a
+    // established, while the element is on screen in front of the user. The two states must not share a
     // message.
     [TestMethod]
     public void AnchorHealth_EmptyIdentity_ReportsUnanchorable_NotRenamedOrRemoved()
@@ -134,7 +134,8 @@ public class CommentViewBuilderTests
         Assert.IsFalse(CommentViewBuilder.IsMaybeStale(c), "An identity-less anchor says nothing about whether the element still exists.");
 
         var warning = CommentViewBuilder.AnchorHealthWarning(c);
-        StringAssert.Contains(warning, "cannot be re-anchored");
+        Assert.IsNotNull(warning);
+        Assert.Contains("cannot be re-anchored", warning);
         Assert.IsFalse(warning!.Contains("renamed or removed", StringComparison.Ordinal));
     }
 
@@ -145,13 +146,13 @@ public class CommentViewBuilderTests
 
         Assert.IsTrue(CommentViewBuilder.IsMaybeStale(c), "A resolvable identity that matched nothing IS the genuine stale case.");
         Assert.IsFalse(CommentViewBuilder.IsUnanchorable(c));
-        StringAssert.Contains(CommentViewBuilder.AnchorHealthWarning(c), "renamed or removed");
+        Assert.Contains("renamed or removed", CommentViewBuilder.AnchorHealthWarning(c)!);
     }
 
     [TestMethod]
     public void AnchorHealth_TypeOnlyWithSourceFile_IsMaybeStale()
     {
-        // Type + source file is the resolver's last-resort cascade step, so it CAN produce a hit — zero hits
+        // Type + source file is the resolver's last-resort cascade step, so it CAN produce a hit, so zero hits
         // here really is a claim about the source, not about the anchor.
         var c = View("cmt_type", "MainWindow.xaml", "Grid", null, "pad it");
 

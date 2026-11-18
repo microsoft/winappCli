@@ -29,7 +29,9 @@ internal sealed partial class ProjectRunService
         bool pinFramework = false)
     {
         var rid = options.EffectiveRuntimeIdentifier;
-        var isSolution = IsSolutionFile(csproj);
+        // A solution filter (.slnf) restores through the same solution machinery, so it shares its rules.
+        var isSolution = IsSolutionFile(csproj)
+            || string.Equals(csproj.Extension, ".slnf", StringComparison.OrdinalIgnoreCase);
         var tokens = new List<string>
         {
             "restore",
@@ -40,6 +42,14 @@ internal sealed partial class ProjectRunService
         {
             tokens.Add("-r");
             tokens.Add(rid);
+
+            // `dotnet restore -r` only adds the RID to RuntimeIdentifiers; `dotnet build -r` restores with
+            // RuntimeIdentifier set. Mirror the build so RuntimeIdentifier-conditioned PackageReferences reach
+            // the project.assets.json its --no-restore build reads. A solution restore keeps -r alone.
+            if (!isSolution)
+            {
+                tokens.Add($"-p:RuntimeIdentifier={rid}");
+            }
         }
 
         // 'dotnet restore' has no -c switch; Configuration flows as a property so config-conditional
@@ -181,10 +191,11 @@ internal sealed partial class ProjectRunService
         ProjectRunOptions options,
         string verbosity,
         string? csWinRTMetadataFolder = null,
-        bool publish = true)
+        bool publish = true,
+        bool nativeTerminal = false)
     {
         var tokens = WindowsCommandLine.SplitArguments(
-            BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, publish: publish)).ToList();
+            BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, nativeTerminal, publish)).ToList();
         if (!publish)
         {
             // Property/item queries otherwise suppress the default Build target.
@@ -198,6 +209,7 @@ internal sealed partial class ProjectRunService
         if (options.CaptureDevToolsSources)
         {
             tokens.Add("--getItem:Page,ApplicationDefinition");
+            tokens.Add("--getItem:PackageReference,ProjectReference,Reference");
             foreach (var property in DevTools.XamlSourceCoordinates.Properties) { tokens.Add($"--getProperty:{property}"); }
         }
         return tokens;
@@ -362,6 +374,7 @@ internal sealed partial class ProjectRunService
         if (options.CaptureDevToolsSources)
         {
             tokens.Add("--getItem:Page,ApplicationDefinition");
+            tokens.Add("--getItem:PackageReference,ProjectReference,Reference");
             foreach (var property in DevTools.XamlSourceCoordinates.Properties) { tokens.Add($"--getProperty:{property}"); }
         }
 
@@ -417,6 +430,35 @@ internal sealed partial class ProjectRunService
         // TargetFramework is deliberately NOT reserved: single-file mode rejects --framework, so -p is the
         // only way to express it, and reusing project mode's wider filter would drop it from both passes
         // and silently ignore what the user asked for.
+        foreach (var property in SingleFileForwardableProperties(options.Properties, options.InjectedRuntimeIdentifier is not null))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Builds the arguments for the separate single-file restore that precedes a <c>--no-restore</c> build pass
+    /// on an interactive terminal. It restores the same graph that build reads: the same configuration, the
+    /// same injected RID (also as <c>RuntimeIdentifier</c>, because <c>dotnet restore -r</c> only adds it to
+    /// <c>RuntimeIdentifiers</c>) and the same forwarded properties.
+    /// </summary>
+    internal static string BuildSingleFileRestoreArguments(FileInfo singleFile, SingleFileRunOptions options)
+    {
+        var tokens = new List<string>
+        {
+            "restore",
+            singleFile.FullName,
+        };
+
+        AppendSingleFileRuntimeIdentifier(tokens, options);
+        if (!string.IsNullOrWhiteSpace(options.InjectedRuntimeIdentifier))
+        {
+            tokens.Add($"-p:RuntimeIdentifier={options.InjectedRuntimeIdentifier}");
+        }
+
+        tokens.Add($"-p:Configuration={options.Configuration}");
         foreach (var property in SingleFileForwardableProperties(options.Properties, options.InjectedRuntimeIdentifier is not null))
         {
             tokens.Add($"-p:{property}");
@@ -647,6 +689,43 @@ internal sealed partial class ProjectRunService
         }
 
         return found;
+    }
+
+    /// <summary>
+    /// The configuration a user <c>-p Configuration</c> names (last non-empty value wins), or null when none
+    /// is set.
+    /// </summary>
+    internal static string? ConfigurationFromProperties(IReadOnlyList<string> properties) =>
+        TryGetUserProperty(properties, "Configuration", out var configuration) ? configuration : null;
+
+    /// <summary>
+    /// Resolves the build configuration from <c>-c</c> and <c>-p Configuration</c>. A <c>-p Configuration</c>
+    /// replaces the <c>-c</c> default; when the user typed both, they must name the same configuration.
+    /// </summary>
+    /// <returns><see langword="false"/> with <paramref name="error"/> set when the two conflict.</returns>
+    internal static bool TryResolveConfiguration(
+        string configurationOption,
+        bool configurationOptionExplicit,
+        IReadOnlyList<string> properties,
+        out string configuration,
+        out string? error)
+    {
+        configuration = configurationOption;
+        error = null;
+        if (ConfigurationFromProperties(properties) is not { } propertyConfiguration)
+        {
+            return true;
+        }
+
+        if (configurationOptionExplicit
+            && !string.Equals(propertyConfiguration, configurationOption, StringComparison.OrdinalIgnoreCase))
+        {
+            error = $"-p Configuration={propertyConfiguration} conflicts with -c {configurationOption}. Pass only one of them.";
+            return false;
+        }
+
+        configuration = propertyConfiguration;
+        return true;
     }
 
     /// <summary>

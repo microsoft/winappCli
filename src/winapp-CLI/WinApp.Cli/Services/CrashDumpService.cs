@@ -368,8 +368,18 @@ internal sealed class CrashDumpService(IAnsiConsole console, ILogger<CrashDumpSe
 
                 console.MarkupLine("[dim]WinUI stowed-exception triage written to the debug log.[/]");
                 break;
+            case XamlTriageOutcome.Partial:
+                if (!string.IsNullOrWhiteSpace(result.Verdict))
+                {
+                    console.MarkupLine($"[yellow]WinUI stowed exception:[/] {result.Verdict.EscapeMarkup()}");
+                }
+
+                console.MarkupLine($"[yellow]WinUI stowed-exception triage stopped early:[/] {result.Reason?.EscapeMarkup()} Partial results were written to the debug log.");
+                break;
             case XamlTriageOutcome.Skipped:
-                console.MarkupLine("[dim]WinUI stowed-exception triage was skipped (see the debug log for details).[/]");
+                console.MarkupLine(string.IsNullOrWhiteSpace(result.Reason)
+                    ? "[dim]WinUI stowed-exception triage was skipped (see the debug log for details).[/]"
+                    : $"[dim]WinUI stowed-exception triage was skipped: {result.Reason.EscapeMarkup()} See the debug log for details.[/]");
                 break;
             case XamlTriageOutcome.None:
             default:

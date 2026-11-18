@@ -26,6 +26,48 @@ public sealed class NuGetResolverTests
     #region Compile-surface resolution
 
     [TestMethod]
+    public void FindPackagesFromConfig_PackageInConfiguredGlobalFolder_IsFound()
+    {
+        // A packages.config project on a machine whose nuget.config redirects
+        // globalPackagesFolder: the package lives only in that folder, not under
+        // %USERPROFILE%\.nuget\packages, and must still be found.
+        string projectDir = Path.Combine(_dir, "App");
+        Directory.CreateDirectory(projectDir);
+        string configPath = Path.Combine(projectDir, "packages.config");
+        File.WriteAllText(configPath, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <packages>
+              <package id="Contoso.Widgets" version="1.2.3" />
+            </packages>
+            """);
+        string globalPackages = Path.Combine(_dir, "redirected-packages");
+        string packageDir = Path.Combine(globalPackages, "contoso.widgets", "1.2.3", "lib");
+        Directory.CreateDirectory(packageDir);
+        File.WriteAllText(Path.Combine(packageDir, "Contoso.winmd"), string.Empty);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromConfig(configPath, projectDir, globalPackages);
+
+        Assert.HasCount(1, packages);
+        Assert.AreEqual("Contoso.Widgets", packages[0].Id);
+        Assert.AreSequenceEqual(SelectedWinmdOnly, packages[0].WinMdFiles.Select(Path.GetFileName).ToList());
+    }
+
+    [TestMethod]
+    public void FindWindowsSdkWinMd_NonDefaultKitsRoot_FindsSdk()
+    {
+        // An SDK installed to another drive registers that root in KitsRoot10; the
+        // search must use it rather than assuming %ProgramFiles(x86)%.
+        string kitsRoot = Path.Combine(_dir, "Kits", "10");
+        string versionDir = Path.Combine(kitsRoot, "UnionMetadata", "10.0.26100.0");
+        Directory.CreateDirectory(versionDir);
+        File.WriteAllText(Path.Combine(versionDir, "Windows.winmd"), string.Empty);
+
+        (List<string> files, string version) = NuGetResolver.FindWindowsSdkWinMd(kitsRoot: kitsRoot);
+
+        Assert.AreEqual("10.0.26100.0", version);
+        Assert.AreEqual(Path.Combine(versionDir, "Windows.winmd"), files.Single());
+    }
+    [TestMethod]
     public void ReadTargetPlatformVersionFromProjectFile_CppProject_ReadsWindowsTargetPlatformVersion()
     {
         // A C++ project has no project.assets.json, so this is the only place its target
@@ -103,9 +145,10 @@ public sealed class NuGetResolverTests
         List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
 
         Assert.AreEqual(1, packages.Count, "the referenced library must be indexed");
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             ReferencedLibraryOutputOnly,
-            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -140,9 +183,10 @@ public sealed class NuGetResolverTests
         List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
 
         Assert.AreEqual(1, packages.Count, "the renamed output is still the referenced library");
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             RenamedLibraryOutputOnly,
-            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -315,9 +359,10 @@ public sealed class NuGetResolverTests
 
         List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
 
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             AlphaAndBetaOutputs,
             packages.SelectMany(p => p.WinMdFiles).Select(Path.GetFileName).ToList(),
+            SequenceOrder.InAnyOrder,
             "both projects named by one Include are on the compile surface");
     }
 
@@ -370,9 +415,10 @@ public sealed class NuGetResolverTests
 
         List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
 
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             MiddleAndLeafOutputs,
             packages.SelectMany(p => p.WinMdFiles).Select(Path.GetFileName).ToList(),
+            SequenceOrder.InAnyOrder,
             "a transitively referenced project is on the compile surface");
     }
 
@@ -721,8 +767,8 @@ public sealed class NuGetResolverTests
         NuGetResolver.FindPackagesFromAssets(path, warnings.Add);
 
         Assert.AreEqual(1, warnings.Count);
-        StringAssert.Contains(warnings[0], "net8.0-windows10.0.26100.0");
-        StringAssert.Contains(warnings[0], "may not exist for the others");
+        Assert.Contains("net8.0-windows10.0.26100.0", warnings[0]);
+        Assert.Contains("may not exist for the others", warnings[0]);
     }
 
     [TestMethod]
@@ -819,8 +865,8 @@ public sealed class NuGetResolverTests
 
         Assert.AreEqual(0, packages.Count);
         Assert.AreEqual(1, warnings.Count, "a truncated assets file must be reported");
-        StringAssert.Contains(warnings[0], "project.assets.json");
-        StringAssert.Contains(warnings[0], "dotnet restore");
+        Assert.Contains("project.assets.json", warnings[0]);
+        Assert.Contains("dotnet restore", warnings[0]);
     }
 
     [TestMethod]
@@ -869,8 +915,8 @@ public sealed class NuGetResolverTests
         NuGetResolver.FindPackagesFromAssets(path, warnings.Add);
 
         Assert.AreEqual(1, warnings.Count, "a compile asset restore selected but that is not on disk must be reported");
-        StringAssert.Contains(warnings[0], "Contoso.winmd");
-        StringAssert.Contains(warnings[0], "dotnet restore");
+        Assert.Contains("Contoso.winmd", warnings[0]);
+        Assert.Contains("dotnet restore", warnings[0]);
     }
 
     [TestMethod]
@@ -999,9 +1045,10 @@ public sealed class NuGetResolverTests
         List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path);
 
         Assert.AreEqual(1, packages.Count);
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             SelectedWinmdOnly,
-            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -1034,9 +1081,10 @@ public sealed class NuGetResolverTests
         List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path);
 
         Assert.AreEqual(1, packages.Count);
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             ScannedRuntimeWinmd,
-            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     private static readonly (string Dir, Version? Version)[] InstalledSdks =
@@ -1066,7 +1114,7 @@ public sealed class NuGetResolverTests
 
         Assert.AreEqual(@"C:\Kits\10.0.19041.0", picked);
         Assert.AreEqual(1, warnings.Count);
-        StringAssert.Contains(warnings[0], "10.0.22621.0 is not installed");
+        Assert.Contains("10.0.22621.0 is not installed", warnings[0]);
     }
 
     [TestMethod]
@@ -1080,7 +1128,7 @@ public sealed class NuGetResolverTests
 
         Assert.AreEqual(@"C:\Kits\10.0.19041.0", picked);
         Assert.AreEqual(1, warnings.Count);
-        StringAssert.Contains(warnings[0], "at or below");
+        Assert.Contains("at or below", warnings[0]);
     }
 
     [TestMethod]
@@ -1154,9 +1202,10 @@ public sealed class NuGetResolverTests
 
         Assert.AreEqual(1, packages.Count);
         Assert.AreEqual("Contoso.Runtime", packages[0].Id);
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             ScannedRuntimeWinmd,
-            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -1182,9 +1231,10 @@ public sealed class NuGetResolverTests
         List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path);
 
         Assert.AreEqual(1, packages.Count);
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             ScannedRuntimeWinmd,
-            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -1231,9 +1281,10 @@ public sealed class NuGetResolverTests
 
         List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path);
 
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             SystemContosoAndTransitiveIds,
             packages.Select(p => p.Id).ToArray(),
+            SequenceOrder.InAnyOrder,
             "both the directly referenced and transitive System.* packages are indexed");
     }
 
@@ -1327,9 +1378,10 @@ public sealed class NuGetResolverTests
             List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path, projectDir: projectDir);
 
             Assert.AreEqual(1, packages.Count, "a package under a junctioned cache root must still resolve");
-            CollectionAssert.AreEquivalent(
+            Assert.AreSequenceEqual(
                 SelectedWinmdOnly,
-                packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+                packages[0].WinMdFiles.Select(Path.GetFileName).ToArray(),
+                SequenceOrder.InAnyOrder);
         }
         finally
         {
@@ -1381,9 +1433,10 @@ public sealed class NuGetResolverTests
         List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path);
 
         Assert.AreEqual(1, packages.Count);
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             SelectedWinmdOnly,
-            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -1430,9 +1483,10 @@ public sealed class NuGetResolverTests
         List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path);
 
         Assert.AreEqual(1, packages.Count);
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             SelectedWinmdOnly,
-            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     [TestMethod]
@@ -1687,8 +1741,8 @@ public sealed class NuGetResolverTests
         NuGetResolver.FindPackagesFromWinmdsLockfile(projectDir, warnings.Add);
 
         Assert.AreEqual(1, warnings.Count, "metadata named by the inventory but absent must be reported");
-        StringAssert.Contains(warnings[0], "Microsoft.UI.Xaml.winmd");
-        StringAssert.Contains(warnings[0], "winapp restore");
+        Assert.Contains("Microsoft.UI.Xaml.winmd", warnings[0]);
+        Assert.Contains("winapp restore", warnings[0]);
     }
 
     [TestMethod]

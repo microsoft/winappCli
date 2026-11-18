@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 <#
 .SYNOPSIS
-Run the real native-element binding capture lifetime gate on a desktop host.
+Run real-XAML comment layout and native-element binding lifetime checks on a desktop host.
 .DESCRIPTION
 Requires the existing Windows App Runtime. Creates one hidden in-process window;
 does not launch the CLI, register a package, or install a runtime. Zero/skip/fail

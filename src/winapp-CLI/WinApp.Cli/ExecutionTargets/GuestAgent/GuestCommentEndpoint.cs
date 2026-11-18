@@ -35,6 +35,7 @@ internal sealed class GuestCommentEndpoint(GuestCommentSession session)
         isAppAlive ??= () => GuestCommandServer.IsExactProcessRunning(session.Process.ProcessId, session.Process.StartTicksUtc);
         verifyPeer ??= GuestCommentPeer.Verify;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        HashSet<string> previousMarkerDiagnostics = [];
         pushToApp ??= PushToApp;
         var replies = Channel.CreateBounded<GuestCommentReply>(1);
         // Only the newest host snapshot matters; an older one waiting behind a slow app is dropped.
@@ -100,8 +101,19 @@ internal sealed class GuestCommentEndpoint(GuestCommentSession session)
 
         void PushToApp(GuestCommentReply snapshot)
         {
-            var comments = CommentPusher.ToTapComments(
-                new CommentStoreDocument { Comments = snapshot.Comments?.ToList() ?? [] }, CommentStore.Revision);
+            var document = new CommentStoreDocument { Comments = snapshot.Comments?.ToList() ?? [] };
+            var comments = CommentPusher.ToTapComments(document, CommentStore.Revision);
+            HashSet<string> markerDiagnostics = [];
+            CommentPusher.ResolveSourceAnchors(document, comments, checked((uint)session.Process.ProcessId),
+                snapshot.GuestSourceRoot, message => markerDiagnostics.Add(message), stop.Token);
+            foreach (var message in markerDiagnostics)
+            {
+                if (!previousMarkerDiagnostics.Contains(message))
+                {
+                    diagnostic(message);
+                }
+            }
+            previousMarkerDiagnostics = markerDiagnostics;
             _ = new VisualTreeTap(checked((uint)session.Process.ProcessId))
                 .SetComments(comments, snapshot.Generation, CommentPusher.ResolvedCount(snapshot.Comments ?? []),
                     cancellationToken: stop.Token).RequireResult();

@@ -401,6 +401,8 @@ internal sealed class RecordFrameBundleWriter : IRecordFrameSink
                     ImageIndex = nextImageIndex,
                     File = nextFile,
                     Changed = changed,
+                    Cursor = queued.Sample.Cursor,
+                    Clicks = queued.Sample.Clicks,
                 };
                 var line = JsonSerializer.Serialize(
                     entry,

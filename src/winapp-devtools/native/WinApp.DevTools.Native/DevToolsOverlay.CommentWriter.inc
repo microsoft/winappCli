@@ -14,7 +14,7 @@ static void SetCommentTarget(InstanceHandle raw)
     g_selHandle = raw;
     g_selCommentWire = raw && g_wireOf ? g_wireOf(raw) : 0;
 }
-// The registry is what the CLI last pushed (DevToolsOverlay_SetComments, from `.winapp/ui-comments.json` — the
+// The registry is what the CLI last pushed (DevToolsOverlay_SetComments, from `.winapp/ui-comments.json`; the
 // CLI is that file's single writer; the overlay parses no JSON and reads no file) PLUS anything composed this
 // session, which the CLI persists on the way through. Entries persist across comment-mode toggles (id/tex.
 struct PinClickSink;
@@ -181,6 +181,11 @@ static bool LaunchWinapp(const std::wstring& args, const wchar_t* what, GuestCom
         guest->authority = authority;
         guestToken = DevToolsOverlay_GuestCommentToken(guest->operation, guest->revision);
     }
+    if (!authority && !CommentsHaveProjectFolder()) {
+        g_guestCommentWrite = std::move(*guest);
+        GuestCommentComplete(1, false, L"no-project-folder");
+        DevToolsOverlayLog(L"overlay.comment %s: no project folder", what); return false;
+    }
     wchar_t root[1024];
     DWORD rn = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", root, _countof(root));
     const auto cmd = DevToolsCommentText::WriterCommand(exe, args,
@@ -301,10 +306,10 @@ static bool LaunchCommentDelete(const std::wstring& id, const std::wstring& requ
                         L" --app " + std::to_wstring(GetCurrentProcessId()), L"delete", &guest);
 }
 
-bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstring& revision,
+bool DevToolsOverlay_ResolveComment(const std::wstring& id, const std::wstring& revision,
     std::function<void(int)> completed)
 {
-    if (!g_guestCommentAuthority.load() || g_guestCommentWrite.process) return false;
+    if (id.empty() || g_guestCommentWrite.process) return false;
     GuestCommentWrite guest;
     guest.editor = GuestCommentEditor::WindowResolve;
     guest.root = g_pickRoot;
@@ -434,6 +439,16 @@ static bool DiscardFailedSelectionCommentDraft()
     return true;
 }
 
+// Where the writer saves: the project folder the launch or `attach --source-root` gave, or the folder a run without a
+// project was started from. A guest app saves on the host.
+static bool CommentsHaveProjectFolder()
+{
+    if (g_guestCommentAuthority.load()) return true;
+    for (const wchar_t* name : { L"WINAPP_DEVTOOLS_SOURCE_ROOT", L"WINAPP_DEVTOOLS_COMMENT_ROOT" })
+        if (GetEnvironmentVariableW(name, nullptr, 0) > 1) return true;
+    return false;
+}
+
 static void GuestCommentSetStatus(IInspectable* root, const wchar_t* name, const std::wstring& text)
 {
     if (!root) return;
@@ -516,28 +531,37 @@ static void ShowCommentToast(const std::wstring& text, bool problem)
     const DevToolsPalette& pal = DevToolsInverseAcrylicPalette();
     int w = 0, h = 0;
     if (!GetClientSizeDips(&w, &h)) { w = 800; h = 600; }
-    const int toastW = 240;
+    // A problem is a sentence, so it gets more room, but never more than the window has.
+    const int toastW = (std::min)(problem ? 360 : 240, (std::max)(240, w - 16));
     RECT bar{};
     const bool haveBar = g_toolbarSurface.xamlRootKey == g_activeSurface.xamlRootKey && ToolbarRectDip(&bar);
     int x = haveBar ? (int)bar.right - toastW : (w - toastW) / 2;
-    int y = haveBar ? (int)bar.top - 44 : h - 64;
-    if (haveBar && y < 8) y = (int)bar.bottom + 8;
     x = (std::max)(8, (std::min)(x, w - toastW - 8));
-    y = (std::max)(8, y);
+    // Above the toolbar, or below it when there is no room above. The toast starts one line tall; a longer message
+    // moves up once it has been measured, so it never covers the toolbar.
+    const int lineToastH = 37;
+    const auto toastTop = [&](int toastH) {
+        int top = haveBar ? (int)bar.top - 7 - toastH : h - 27 - toastH;
+        if (haveBar && top < 8) top = (int)bar.bottom + 8;
+        return (std::max)(8, top);
+    };
     const std::wstring markup =
         L"<Border xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
-        L" Canvas.Left=\"" + std::to_wstring(x) + L"\" Canvas.Top=\"" + std::to_wstring(y) + L"\" Canvas.ZIndex=\"3000\""
+        L" Canvas.Left=\"" + std::to_wstring(x) + L"\" Canvas.Top=\"" + std::to_wstring(toastTop(lineToastH)) +
+        L"\" Canvas.ZIndex=\"3000\""
         L" Width=\"" + std::to_wstring(toastW) + L"\" IsHitTestVisible=\"False\" RequestedTheme=\"" +
         DevToolsInverseAppRequestedTheme() + L"\" Background=\"" + pal.surface + L"\" BorderBrush=\"" + pal.rim +
         L"\" BorderThickness=\"1\" CornerRadius=\"8\" Padding=\"12,8\" BackgroundSizing=\"InnerBorderEdge\""
         L" AutomationProperties.AutomationId=\"DevToolsCommentToast\" AutomationProperties.LiveSetting=\"Polite\""
         L" AutomationProperties.Name=\"" + DevToolsXmlEscape(text) + L"\">"
-        L"<StackPanel Orientation=\"Horizontal\" Spacing=\"8\">"
+        L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
+        L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>"
         L"<FontIcon FlowDirection=\"LeftToRight\" Glyph=\"" + std::wstring(problem ? L"&#xE7BA;" : L"&#xE73E;") +
-        L"\" FontSize=\"14\" VerticalAlignment=\"Center\" Foreground=\"" + (problem ? pal.caution : pal.accent) + L"\"/>"
+        L"\" FontSize=\"14\" VerticalAlignment=\"Top\" Margin=\"0,3,0,0\" Foreground=\"" +
+        (problem ? pal.caution : pal.accent) + L"\"/>"
         L"<TextBlock x:Name=\"DevToolsCommentToastText\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\""
-        L" Text=\"" + DevToolsXmlEscape(text) + L"\" TextWrapping=\"Wrap\" VerticalAlignment=\"Center\""
-        L" Foreground=\"" + pal.textPrimary + L"\"/></StackPanel></Border>";
+        L" Grid.Column=\"1\" Text=\"" + DevToolsXmlEscape(text) + L"\" TextWrapping=\"Wrap\" VerticalAlignment=\"Center\""
+        L" Foreground=\"" + pal.textPrimary + L"\"/></Grid></Border>";
     IInspectable* toast = nullptr;
     if (FAILED(LoadMarkup(markup, &toast)) || !toast) {
         DevToolsOverlayLog(L"overlay.comment toast markup failed");
@@ -548,6 +572,13 @@ static void ShowCommentToast(const std::wstring& text, bool problem)
         unsigned int n = 0; DevToolsVecGetSize(g_canvasChildren, &n);
         if (g_cardScope) g_cardScope(1);
         DevToolsVecInsertAt(g_canvasChildren, n, ui);
+        // Measured in the tree so inherited text settings apply, and inside the scope so anything layout creates
+        // stays DevTools' own.
+        float measuredW = 0, measuredH = 0;
+        const float unbounded = std::numeric_limits<float>::infinity();
+        if (SUCCEEDED(DevToolsMeasure(ui, unbounded, unbounded)) &&
+            SUCCEEDED(DevToolsGetDesiredSize(ui, &measuredW, &measuredH)) && measuredH > (float)lineToastH)
+            MoveOverlayElement(ui, x, toastTop((int)std::ceil(measuredH)));
         if (g_cardScope) g_cardScope(0);
         g_commentToast = ui;
     }
@@ -572,10 +603,11 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
         (write.authority && (exitCode == 0x57410001 || exitCode == 0x57410002)));
     write.persisted = saved;
     std::wstring revision;
-    bool snapshotMatches = write.editor == GuestCommentEditor::Delete;
+    const bool removesPin = write.editor == GuestCommentEditor::Delete || write.editor == GuestCommentEditor::WindowResolve;
+    bool snapshotMatches = removesPin;
     for (const auto& pin : g_pins) if (pin.id == write.id) {
         revision = pin.revision;
-        snapshotMatches = write.editor != GuestCommentEditor::Delete && pin.text == write.submitted;
+        snapshotMatches = !removesPin && pin.text == write.submitted;
         if (write.authority && saved && exitCode == 0 && (write.editor == GuestCommentEditor::Delete || pin.text != write.submitted))
             exitCode = 0x57410002;
         break;
@@ -586,7 +618,8 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
     const bool newerDraft = write.editor == GuestCommentEditor::Selection &&
         !DevToolsCommentText::Unchanged(write.draft, write.submitted);
     write.failed = !saved || exitCode == 0x57410002 || newerDraft;
-    write.status = !saved ? DevToolsCommentText::WriterFailureStatus(exitCode, stage, write.authority != nullptr) :
+    write.status = !saved && stage && wcscmp(stage, L"no-project-folder") == 0 ? DevToolsCommentText::NoProjectFolderStatus(GetCurrentProcessId()) :
+        !saved ? DevToolsCommentText::WriterFailureStatus(exitCode, stage, write.authority != nullptr) :
         exitCode == 0x57410001 ? L"Saved on the host, but markers could not refresh. Refresh comments before editing again." :
         exitCode == 0x57410002 ? (write.authority ?
             L"The earlier save reached the host, which now has a newer edit. Draft retained; refresh before editing." :
@@ -620,9 +653,12 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
     }
     if (write.editor == GuestCommentEditor::WindowResolve) {
         auto completed = std::move(write.completed);
-        if (write.authority == g_guestCommentAuthority.load() && write.root == g_pickRoot &&
-            write.generation == g_selGen && completed)
-            completed(acknowledged ? static_cast<int>(exitCode) : 1);
+        const bool current = write.authority == g_guestCommentAuthority.load() && write.root == g_pickRoot &&
+            write.generation == g_selGen;
+        if (!write.authority && saved && !write.superseded && !g_commentSnapshotAuthoritative)
+            RemovePinById(write.id);
+        if (!write.authority) write = {};
+        if (current && completed) completed(acknowledged ? static_cast<int>(exitCode) : 1);
         return;
     }
     if (!GuestCommentMatchesEditor()) {

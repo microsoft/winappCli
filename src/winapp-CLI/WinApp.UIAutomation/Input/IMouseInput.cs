@@ -61,4 +61,18 @@ public interface IMouseInput
     /// <param name="settleMs">Cursor-settle pause (ms) after positioning, before the wheel rotation. Pass
     /// <c>0</c> when the caller already moved the cursor and confirmed the target is stable.</param>
     void ScrollWheel(int screenX, int screenY, int delta, int settleMs = 30);
+
+    /// <summary>
+    /// Rotates the horizontal (tilt) mouse wheel at the given screen position. Positive delta scrolls right,
+    /// negative left. One notch is <c>120</c> units (WHEEL_DELTA).
+    /// </summary>
+    /// <param name="screenX">X position in screen coordinates.</param>
+    /// <param name="screenY">Y position in screen coordinates.</param>
+    /// <param name="delta">Wheel movement in WHEEL_DELTA units.</param>
+    /// <param name="settleMs">Cursor-settle pause (ms) after positioning, before the wheel rotation. Pass
+    /// <c>0</c> when the caller already moved the cursor and confirmed the target is stable.</param>
+    /// <remarks>The default implementation throws <see cref="NotSupportedException"/>, so implementations
+    /// written against an earlier version of this interface keep compiling.</remarks>
+    void ScrollWheelHorizontal(int screenX, int screenY, int delta, int settleMs = 30)
+        => throw new NotSupportedException("This IMouseInput implementation does not support horizontal wheel input.");
 }

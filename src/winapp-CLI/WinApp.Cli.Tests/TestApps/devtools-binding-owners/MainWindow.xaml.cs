@@ -29,6 +29,18 @@ public sealed partial class MainWindow : Window
         }
         Title = "Owned binding fixture " + name;
         AppWindow.Resize(new SizeInt32(520, 360));
+        if (!large)
+        {
+            ((FrameworkElement)Content).Loaded += (_, _) =>
+            {
+                var content = (FrameworkElement)Content;
+                content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                var scale = content.XamlRoot.RasterizationScale;
+                AppWindow.ResizeClient(new SizeInt32(
+                    (int)Math.Ceiling(Math.Max(520, content.DesiredSize.Width) * scale),
+                    (int)Math.Ceiling(Math.Max(360, content.DesiredSize.Height) * scale)));
+            };
+        }
     }
 
     public void ShowWithoutActivation()

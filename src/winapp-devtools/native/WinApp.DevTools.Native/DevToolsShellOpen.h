@@ -52,16 +52,17 @@ inline std::wstring Describe(const Result& r,
                              const std::wstring& resolvedPath,
                              const std::wstring& offScreenPrefix)
 {
-    const std::wstring lead = offScreenPrefix.empty() ? std::wstring() : offScreenPrefix + L" \u2014 ";
+    const std::wstring lead = offScreenPrefix.empty() ? std::wstring() : offScreenPrefix + L": ";
     switch (r.outcome) {
     case Outcome::NoPath:
         return display.empty()
             ? lead + L"there is no source file to open."
-            : lead + L"source path unavailable for " + display + L" (build from a project?)";
+            : lead + L"source file unavailable for " + display +
+                L". Check that it exists under the project's source folder.";
     case Outcome::NotFound:
         return lead + L"source file not found: " + resolvedPath;
     case Outcome::NoHandler:
-        return lead + L"nothing on this machine opens .xaml files. Use Reveal in File Explorer or Copy path.";
+        return lead + L"nothing on this machine opens .xaml files. Use Show in File Explorer or Copy path.";
     case Outcome::LaunchFailed:
         return lead + L"couldn't hand " + display + L" to " + r.handler + L".";
     case Outcome::Handed:

@@ -87,9 +87,10 @@ public partial class TargetCaptureCommandTests
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox"));
 
-        StringAssert.Contains(console.Output, "Work root: " +
-            new GuestFileService(harness.GuestManaged)
-                .ResolveScopeDirectory(TargetFileTransferService.WorkScope, create: false));
+        Assert.Contains(
+            "Work root: " + new GuestFileService(harness.GuestManaged)
+                .ResolveScopeDirectory(TargetFileTransferService.WorkScope, create: false),
+            console.Output);
     }
 
     [TestMethod]
@@ -123,9 +124,9 @@ public partial class TargetCaptureCommandTests
         Assert.AreEqual(0, exitCode);
 
         var report = console.Output;
-        StringAssert.Contains(report, "real input yes");
-        StringAssert.Contains(report, $"HWND {DesktopHwnd}");
-        StringAssert.Contains(report, "Calculator");
+        Assert.Contains("real input yes", report);
+        Assert.Contains($"HWND {DesktopHwnd}", report);
+        Assert.Contains("Calculator", report);
     }
 
     /// <summary>
@@ -174,7 +175,7 @@ public partial class TargetCaptureCommandTests
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox"));
 
-        StringAssert.Contains(console.Output, "Setup");
+        Assert.Contains("Setup", console.Output);
         Assert.IsFalse(console.Output.Contains('\u001b'), "No escape may reach the terminal.");
         Assert.IsFalse(console.Output.Contains("pwned", StringComparison.Ordinal), "Nor may its payload.");
     }
@@ -188,7 +189,7 @@ public partial class TargetCaptureCommandTests
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox"));
 
-        StringAssert.Contains(console.Output, "Real title\u21b5Windows: 0 running");
+        Assert.Contains("Real title\u21b5Windows: 0 running", console.Output);
     }
 
     /// <summary>
@@ -216,10 +217,119 @@ public partial class TargetCaptureCommandTests
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox"));
 
-        StringAssert.Contains(console.Output, "not running");
-        StringAssert.Contains(console.Output, "winapp run . --on sandbox");
+        Assert.Contains("not running", console.Output);
+        Assert.Contains("winapp run . --on sandbox", console.Output);
         Assert.AreEqual(0, harness.Backend.EnsureCalls);
     }
+
+    [TestMethod]
+    public async Task Snapshot_NothingRunning_ShowsFailedHostChecksWithTheirFix()
+    {
+        await using var harness = new Harness(GuestWindows());
+        harness.Backend.Running = false;
+        harness.Backend.Host = NotReadyHost();
+        using var console = new TestConsole();
+        console.Profile.Width = 400;
+
+        Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox"));
+
+        Assert.Contains("Host: not ready", console.Output);
+        Assert.Contains("sandboxClient: FAILED - client missing", console.Output);
+        Assert.Contains("Fix: Open Windows Sandbox from the Start menu.", console.Output);
+        Assert.Contains("wsb: not checked", console.Output);
+        Assert.Contains("Fix the failed host checks, then start one with", console.Output);
+        Assert.AreEqual(0, harness.Backend.EnsureCalls);
+    }
+
+    [TestMethod]
+    public async Task Snapshot_Json_IncludesHostChecks()
+    {
+        await using var harness = new Harness(GuestWindows());
+        harness.Backend.Running = false;
+        harness.Backend.Host = NotReadyHost();
+        using var console = new TestConsole();
+
+        Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox", "--json"));
+
+        using var json = JsonDocument.Parse(console.Output);
+        var host = json.RootElement.GetProperty("host");
+        Assert.IsFalse(host.GetProperty("ready").GetBoolean());
+        var client = host.GetProperty("checks")[0];
+        Assert.AreEqual("sandboxClient", client.GetProperty("name").GetString());
+        Assert.AreEqual("failed", client.GetProperty("status").GetString());
+        Assert.AreEqual("notChecked", host.GetProperty("checks")[1].GetProperty("status").GetString());
+    }
+
+    [TestMethod]
+    public async Task Snapshot_TargetWithoutHostChecks_OmitsHost()
+    {
+        await using var harness = new Harness(GuestWindows());
+        harness.Backend.Running = false;
+        using var console = new TestConsole();
+
+        Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox", "--json"));
+
+        using var json = JsonDocument.Parse(console.Output);
+        Assert.IsFalse(json.RootElement.TryGetProperty("host", out _));
+    }
+
+    [TestMethod]
+    public async Task Snapshot_InspectionFails_StillReportsHostChecksWithTheError()
+    {
+        await using var harness = new Harness(GuestWindows());
+        harness.Backend.Host = NotReadyHost();
+        harness.Backend.AttachError = new ExecutionTargetErrorInfo
+        {
+            Code = ExecutionTargetErrorCodes.Unsupported,
+            Message = "wsb.exe is not available.",
+        };
+        using var console = new TestConsole();
+
+        var (exitCode, stderr) = await CaptureStandardErrorAsync(() =>
+            RunSnapshotAsync(harness, console, "sandbox", "--json"));
+
+        Assert.AreEqual(TargetOutput.TargetInfrastructureExitCode, exitCode);
+        using var json = JsonDocument.Parse(stderr);
+        Assert.AreEqual(ExecutionTargetErrorCodes.Unsupported, json.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.IsFalse(json.RootElement.GetProperty("host").GetProperty("ready").GetBoolean());
+    }
+
+    [TestMethod]
+    public async Task Snapshot_InspectionFails_WritesHostChecksToStderrWithTheError()
+    {
+        await using var harness = new Harness(GuestWindows());
+        harness.Backend.Host = NotReadyHost();
+        harness.Backend.AttachError = new ExecutionTargetErrorInfo
+        {
+            Code = ExecutionTargetErrorCodes.Unsupported,
+            Message = "wsb.exe is not available.",
+        };
+        using var console = new TestConsole();
+
+        var (exitCode, stderr) = await CaptureStandardErrorAsync(() =>
+            RunSnapshotAsync(harness, console, "sandbox"));
+
+        Assert.AreEqual(TargetOutput.TargetInfrastructureExitCode, exitCode);
+        Assert.Contains("Fix: Open Windows Sandbox from the Start menu.", stderr);
+        Assert.Contains("wsb.exe is not available.", stderr);
+        Assert.IsFalse(console.Output.Contains("Host:", StringComparison.Ordinal));
+    }
+
+    private static TargetHostReadiness NotReadyHost() => new()
+    {
+        Ready = false,
+        Checks =
+        [
+            new TargetHostCheck
+            {
+                Name = "sandboxClient",
+                Status = TargetHostCheckStatus.Failed,
+                Detail = "client missing",
+                Fix = "Open Windows Sandbox from the Start menu.",
+            },
+            new TargetHostCheck { Name = "wsb", Status = TargetHostCheckStatus.NotChecked, Detail = "waiting" },
+        ],
+    };
 
     [TestMethod]
     public async Task Snapshot_NothingRunning_Json_ReportsItWithoutAnEpochOrCapabilities()
@@ -246,6 +356,23 @@ public partial class TargetCaptureCommandTests
     /// repaired: repairing it is what <c>winapp run</c> does, and doing it here would replace the
     /// agent the caller was asking about.
     /// </summary>
+    [TestMethod]
+    public async Task Snapshot_RunningWithoutAManagedEpoch_JsonReportsUnpreparedState()
+    {
+        await using var harness = new Harness(GuestWindows());
+        harness.Backend.InspectionEpoch = ExecutionTargetEpoch.None;
+        using var console = new TestConsole();
+
+        Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox", "--json"));
+
+        var output = Deserialize(console.Output);
+        Assert.IsTrue(output.Running);
+        Assert.IsFalse(output.Attached);
+        Assert.IsNull(output.ExecutionTarget.Epoch);
+        Assert.IsNull(output.Capabilities);
+        Assert.AreEqual(0, harness.Backend.EnsureCalls);
+    }
+
     [TestMethod]
     public async Task Snapshot_RunningButAgentSilent_ReportsWhatTheHostKnowsAndDoesNotRepair()
     {
@@ -478,7 +605,7 @@ public partial class TargetCaptureCommandTests
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, store, "sandbox"));
 
-        StringAssert.Contains(console.Output, "history-only (retained layout)");
+        Assert.Contains("history-only (retained layout)", console.Output);
     }
 
     [TestMethod]
@@ -513,7 +640,7 @@ public partial class TargetCaptureCommandTests
                 isJson: false,
                 TestContext.CancellationToken));
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { TargetDesktopUse.RealInput },
             harness.Rendering.ResolvedUses);
     }
@@ -788,7 +915,7 @@ public partial class TargetCaptureCommandTests
             await RunScreenshotAsync(harness, new TestConsole(), "sandbox", "-o", destination));
 
         var bytes = await File.ReadAllBytesAsync(destination, TestContext.CancellationToken);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G' },
             bytes.Take(4).ToArray(),
             "The published file is a whole PNG, not the old contents and not a mixture.");
@@ -967,7 +1094,7 @@ public partial class TargetCaptureCommandTests
 
         Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
         Assert.AreEqual(string.Empty, console.Output, "A failure must not put anything on stdout under --json.");
-        StringAssert.Contains(stderr, ExecutionTargetErrorCodes.TargetInvalidArguments);
+        Assert.Contains(ExecutionTargetErrorCodes.TargetInvalidArguments, stderr);
         Assert.AreEqual(0, harness.Backend.EnsureCalls, "Nothing may be created to serve a request this bad.");
         Assert.AreEqual(0, harness.Backend.AttachCalls);
         Assert.AreEqual(0, harness.Backend.Requests.Count);
@@ -993,7 +1120,7 @@ public partial class TargetCaptureCommandTests
             "--json"));
 
         Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
-        StringAssert.Contains(stderr, ExecutionTargetErrorCodes.TargetInvalidArguments);
+        Assert.Contains(ExecutionTargetErrorCodes.TargetInvalidArguments, stderr);
         Assert.AreEqual(0, harness.Backend.EnsureCalls);
         Assert.AreEqual(
             "an earlier recording",
@@ -1015,7 +1142,7 @@ public partial class TargetCaptureCommandTests
             "0"));
 
         Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
-        StringAssert.Contains(stderr, "--fps must be at least 1");
+        Assert.Contains("--fps must be at least 1", stderr);
         Assert.AreEqual(0, harness.Backend.EnsureCalls);
     }
 
@@ -1229,9 +1356,18 @@ public partial class TargetCaptureCommandTests
         string stdout,
         int exitCode,
         IAppLauncherService? appLauncher)
-        : IExecutionTargetBackend, IInspectableTarget
+        : IExecutionTargetBackend, IInspectableTarget, IHostReadinessTarget
     {
         public ExecutionTargetRef Target { get; set; } = WindowsSandboxTarget.Default;
+
+        /// <summary>What the host readiness check reports; null for a target that reports none.</summary>
+        public TargetHostReadiness? Host { get; set; }
+
+        /// <summary>When set, the inspect-only attach fails with this error.</summary>
+        public ExecutionTargetErrorInfo? AttachError { get; set; }
+
+        public Task<TargetHostReadiness?> DescribeHostAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(Host);
 
         public List<GuestExecRequest> Requests { get; } = [];
 
@@ -1253,6 +1389,8 @@ public partial class TargetCaptureCommandTests
 
         public bool ReportsManagedRoot { get; set; } = true;
 
+        public ExecutionTargetEpoch InspectionEpoch { get; set; } = Epoch;
+
         /// <summary>The host end of the last channel handed out, so a test can watch it close.</summary>
         public IGuestTransport? LastHostTransport { get; private set; }
 
@@ -1271,14 +1409,19 @@ public partial class TargetCaptureCommandTests
         {
             AttachCalls++;
 
+            if (AttachError is { } attachError)
+            {
+                throw new ExecutionTargetException(attachError);
+            }
+
             if (!Running)
             {
                 return Task.FromResult(TargetAttachment.NotRunning);
             }
 
-            return Task.FromResult(AgentAnswers
-                ? new TargetAttachment(true, Epoch, Connect())
-                : new TargetAttachment(true, Epoch, null));
+            return Task.FromResult(AgentAnswers && !InspectionEpoch.IsNone
+                ? new TargetAttachment(true, InspectionEpoch, Connect())
+                : new TargetAttachment(true, InspectionEpoch, null));
         }
 
         public IReadOnlyDictionary<string, string> DescribeForDiagnostics() =>

@@ -173,12 +173,12 @@ std::wstring DevToolsBindingRelay_UnavailableJson(const std::wstring& reason)
 const wchar_t* DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime runtime)
 {
     if (runtime == DevToolsAppRuntime::Clr)
-        return L"this .NET app has no loaded managed binding host. The host must be loaded through "
-               L"DOTNET_STARTUP_HOOKS before app startup; attaching the native inspector cannot add it.";
+        return L"this .NET app was started without the managed binding host. Relaunch it with 'winapp run --devtools on' "
+               L"so the host loads through DOTNET_STARTUP_HOOKS before app startup; attaching to a running app cannot add it.";
     if (runtime == DevToolsAppRuntime::NativeAot)
         return L"Native AOT apps can't load the managed binding agent, so {Binding}/{x:Bind} can't be diagnosed "
                L"by it. Use get-property to read the property's live value and where it comes from.";
-    return L"this app has no .NET runtime, so there is no managed agent to load \u2014 bindings cannot be "
+    return L"this app has no .NET runtime, so there is no managed agent to load, so bindings cannot be "
            L"diagnosed by the managed host under any launch option. Use get-property to read the property's live value and where it comes from.";
 }
 

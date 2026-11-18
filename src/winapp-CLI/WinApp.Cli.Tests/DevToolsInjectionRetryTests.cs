@@ -6,8 +6,8 @@ using WinApp.Cli.Services.DevTools;
 namespace WinApp.Cli.Tests;
 
 /// <summary>
-/// Unit tests for the cold-start injection retry. The retry loop is pure — inject, liveness, and delay
-/// are all injected — so these exercise the policy with synthetic HRESULTs and no live WinUI target and no
+/// Unit tests for the cold-start injection retry. The retry loop is pure (inject, liveness, and delay
+/// are all injected), so these exercise the policy with synthetic HRESULTs and no live WinUI target and no
 /// real waiting. Includes an explicit mutation guard: the same fail-twice-then-succeed sequence that passes
 /// with a full budget FAILS when the budget is cut, proving the retry test is not vacuous.
 /// </summary>
@@ -16,10 +16,10 @@ public class DevToolsInjectionRetryTests
 {
     private const int SOk = 0;
     private const int ErrorNotFound = unchecked((int)0x80070490); // HRESULT_FROM_WIN32(ERROR_NOT_FOUND)
-    private const int AccessDenied = unchecked((int)0x80070005);  // E_ACCESSDENIED — terminal, must fail fast
+    private const int AccessDenied = unchecked((int)0x80070005);  // E_ACCESSDENIED: terminal, must fail fast
     private const int EUnexpected = unchecked((int)0x8000FFFF);
 
-    // A delay that never actually waits, but counts how many times it was asked to — lets a test assert the
+    // A delay that never actually waits, but counts how many times it was asked to, so a test can assert the
     // retry backed off between attempts without spending wall-clock time.
     private static (Func<TimeSpan, CancellationToken, Task> Delay, Func<int> Count) RecordingDelay()
     {
@@ -50,7 +50,7 @@ public class DevToolsInjectionRetryTests
     [TestMethod]
     public void IsTreeNotReady_IsTrueOnlyForErrorNotFound()
     {
-        // The retry is deliberately narrow — only ERROR_NOT_FOUND means "tree not up yet". Everything else,
+        // The retry is deliberately narrow: only ERROR_NOT_FOUND means "tree not up yet". Everything else,
         // including S_OK and other failures, is terminal.
         Assert.IsTrue(DevToolsInjectionRetry.IsTreeNotReady(ErrorNotFound));
         Assert.IsFalse(DevToolsInjectionRetry.IsTreeNotReady(SOk));
@@ -85,7 +85,7 @@ public class DevToolsInjectionRetryTests
     public async Task RunAsync_BudgetTooSmallForTheRace_FailsToConnect_MutationGuard()
     {
         // MUTATION GUARD: the exact same fail-twice-then-succeed sequence as the success test above, but with a
-        // budget of only two attempts — i.e. the retry is effectively "disabled" before it reaches the third,
+        // budget of only two attempts, so the retry is effectively "disabled" before it reaches the third,
         // succeeding attempt. If this still reported success, the success test would be vacuous. It must fail.
         var (inject, injectCount) = ScriptedInject(ErrorNotFound, ErrorNotFound, SOk);
         var (delay, _) = RecordingDelay();
@@ -100,7 +100,7 @@ public class DevToolsInjectionRetryTests
 
         Assert.AreEqual(ErrorNotFound, outcome.Hr, "With too few attempts the race is lost and ERROR_NOT_FOUND stands");
         Assert.AreEqual(2, outcome.Attempts);
-        Assert.IsFalse(outcome.Succeeded, "A cut budget must NOT report success — this is what makes the retry test non-vacuous");
+        Assert.IsFalse(outcome.Succeeded, "A cut budget must NOT report success; this is what makes the retry test non-vacuous");
         Assert.AreEqual(2, injectCount());
     }
 
@@ -141,7 +141,7 @@ public class DevToolsInjectionRetryTests
     [TestMethod]
     public async Task RunAsync_TargetExitedBeforeFirstAttempt_ReportsExited_NeverInjects()
     {
-        // If the process is already gone, we never inject — injecting into a dead target would just surface a
+        // If the process is already gone, we never inject. Injecting into a dead target would just surface a
         // different, confusing HRESULT. Report the exit so the caller can say "the app crashed on startup".
         var (inject, injectCount) = ScriptedInject(SOk);
         var (delay, _) = RecordingDelay();

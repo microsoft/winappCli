@@ -98,13 +98,7 @@ static std::vector<std::wstring> SplitFields(const std::wstring& v, size_t count
 // A resource-resolved Local value is not necessarily an authored literal.
 static std::wstring OriginLabel(const DevToolsCardRow& r)
 {
-    if (r.authoredKind == L"themeResource")   return L"Theme resource";
-    if (r.authoredKind == L"staticResource")  return L"Static resource";
-    if (r.authoredKind == L"xBind")           return L"x:Bind";
-    if (r.authoredKind == L"binding")         return L"Binding";
-    if (r.authoredKind == L"templateBinding") return L"TemplateBinding";
-    if (r.authoredKind == L"customMarkup")    return L"Markup";
-    return r.source;
+    return DevToolsRead_OriginLabel(r.authoredKind, r.authored, r.authoredKey, r.binding, r.source, true);
 }
 
 // One line explaining what the origin means, used as the pill's tooltip. Written per KIND rather than per
@@ -123,13 +117,14 @@ static std::wstring OriginTooltip(const DevToolsCardRow& r)
     if (r.authoredKind == L"templateBinding")
         return L"Supplied by the control template, from the templated parent's property of the same name.";
     if (r.authoredKind == L"customMarkup") return L"Set on this element by a markup extension.";
+    if (r.source == kDevToolsReadLiveEditSource) return L"Set on this element by a live edit in DevTools";
     if (SourceIsSetHere(r.source))         return L"Set on this element (in code / XAML)";
     return L"Not set here. Value comes from " + r.source;
 }
 
 static std::wstring LayoutNumW(double v)
 {
-    if (!(v == v)) return L"\u2014";
+    if (!(v == v)) return L"n/a";
     wchar_t buf[32];
     _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"%.2f", v);
     std::wstring s = buf;
@@ -146,7 +141,7 @@ static std::wstring LayoutLine(const std::wstring& label, const std::wstring& va
                      L"<ColumnDefinition Width=\"104\"/><ColumnDefinition Width=\"*\"/>"
                      L"</Grid.ColumnDefinitions>";
     m += L"<TextBlock Grid.Column=\"0\" Text=\"" + DevToolsXmlEscape(label) + L"\" FontSize=\"12\""
-         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" TextWrapping=\"NoWrap\""
+         DT_FG_SECONDARY L" TextWrapping=\"NoWrap\""
          L" TextTrimming=\"CharacterEllipsis\"/>";
     m += L"<TextBlock Grid.Column=\"1\" Text=\"" + DevToolsXmlEscape(value) + L"\" FontSize=\"12\""
          L" FontFamily=\"Consolas\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" Foreground=\"";
@@ -335,17 +330,17 @@ static std::wstring BuildFitThumb(const DevToolsWindowLayout& L, const std::wstr
 static std::wstring DetailRow(const std::wstring& term, const std::wstring& value,
                              const std::wstring& ink, const std::wstring& dim)
 {
-    return L"<Grid Margin=\"0,0,0,3\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"78\"/>"
-           L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>"
+    return L"<Grid Margin=\"0,0,0,3\" ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"2*\"/>"
+           L"<ColumnDefinition Width=\"3*\"/></Grid.ColumnDefinitions>"
            L"<TextBlock Grid.Column=\"0\" Text=\"" + DevToolsXmlEscape(term) + L"\" FontSize=\"11\" Foreground=\"" + dim +
-           L"\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\"/>"
+           L"\" TextWrapping=\"Wrap\"/>"
            L"<TextBlock Grid.Column=\"1\" Text=\"" + DevToolsXmlEscape(value) + L"\" FontSize=\"11\" FontFamily=\"Consolas\""
-           L" Foreground=\"" + ink + L"\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\"/></Grid>";
+           L" Foreground=\"" + ink + L"\" TextWrapping=\"Wrap\"/></Grid>";
 }
 static std::wstring DetailGroup(const std::wstring& caption, const std::wstring& dim)
 {
     return L"<TextBlock Text=\"" + DevToolsXmlEscape(caption) + L"\" FontSize=\"10\" CharacterSpacing=\"80\""
-           L" Foreground=\"" + dim + L"\" Margin=\"0,0,0,5\"/>";
+           L" Foreground=\"" + dim + L"\" TextWrapping=\"Wrap\" Margin=\"0,0,0,5\"/>";
 }
 
 // Draw the box model and fit thumbnail, with details behind More. Resolve each theme key once
@@ -384,7 +379,7 @@ static std::wstring BuildBoxModel(const DevToolsWindowLayout& L, const std::vect
          L" VerticalAlignment=\"Center\">";
     m += L"<TextBlock Text=\"content\" FontSize=\"9\" Foreground=\"" + dim +
          L"\" HorizontalAlignment=\"Center\" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    m += L"<TextBlock Text=\"" + DevToolsXmlEscape(degenerate ? std::wstring(L"\u2014") : sContent) +
+    m += L"<TextBlock Text=\"" + DevToolsXmlEscape(degenerate ? std::wstring(L"n/a") : sContent) +
          L"\" FontSize=\"12\" FontFamily=\"Consolas\" FontWeight=\"SemiBold\" Foreground=\"" + ink +
          L"\" HorizontalAlignment=\"Center\" TextTrimming=\"CharacterEllipsis\" TextWrapping=\"NoWrap\""
          L" AutomationProperties.Name=\"content box " + DevToolsXmlEscape(sContent) + L"\"/>";
@@ -401,7 +396,9 @@ static std::wstring BuildBoxModel(const DevToolsWindowLayout& L, const std::vect
     out += L"</StackPanel>";
 
     more = DetailGroup(L"THIS ELEMENT", dim);
-    if (L.haveDesired) more += DetailRow(L"asked for", BoxSizeText(L.desiredW, L.desiredH), ink, dim);
+    if (L.haveDesired)
+        more += DetailRow(L"asked for", BoxSizeText(L.desiredW, L.desiredH) +
+                          (margin.present && !margin.Zero() ? std::wstring(L" with margin") : std::wstring()), ink, dim);
     if (L.haveRender)  more += DetailRow(L"arranged",  sBorder, ink, dim);
     if (L.haveOffset)  more += DetailRow(L"placed at", LayoutNumW(L.offsetX) + L", " + LayoutNumW(L.offsetY), ink, dim);
     if (L.haveActual && L.haveRender &&
@@ -434,25 +431,6 @@ static std::wstring BuildBoxModel(const DevToolsWindowLayout& L, const std::vect
             L" Foreground=\"" + dim + L"\"/>";
     return out;
 }
-// Build the collapsed authored-XAML line from source text so it reflects what the user wrote.
-static std::wstring AuthoredXamlOneLine(const std::wstring& xaml)
-{
-    size_t nl = xaml.find_first_of(L"\r\n");
-    std::wstring head = (nl == std::wstring::npos) ? xaml : xaml.substr(0, nl);
-    while (!head.empty() && (head.back() == L' ' || head.back() == L'\t')) head.pop_back();
-
-    const std::wstring key = L"x:Name=\"";
-    const size_t at = xaml.find(key);
-    if (at != std::wstring::npos) {
-        const size_t vs = at + key.size();
-        const size_t ve = xaml.find(L'"', vs);
-        if (ve != std::wstring::npos && head.find(key) == std::wstring::npos)
-            head += L" x:Name=\"" + xaml.substr(vs, ve - vs) + L"\"";
-    }
-    const bool truncated = (nl != std::wstring::npos) || head.size() < xaml.size();
-    if (truncated) head += L" \u2026";
-    return head;
-}
 
 static std::wstring BuildParentDecidesBlock(const DevToolsWindowLayout& L)
 {
@@ -462,8 +440,7 @@ static std::wstring BuildParentDecidesBlock(const DevToolsWindowLayout& L)
     if (!anyDetail) return L"";
 
     std::wstring m;
-    m += L"<TextBlock Text=\"PARENT DECIDES\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" CharacterSpacing=\"60\""
+    m += L"<TextBlock Text=\"PARENT DECIDES\"" DT_SECTION_CAPTION
          L" Margin=\"0,10,0,0\"/>";
     m += L"<StackPanel Spacing=\"0\" Margin=\"0,-4,0,0\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsParentDecides\">";
@@ -515,10 +492,9 @@ static std::wstring BuildParentDecidesBlock(const DevToolsWindowLayout& L)
         }
     }
     if (!why.empty()) {
-        m += L"<Border Margin=\"0,6,0,0\" Padding=\"8,6,8,6\" CornerRadius=\"4\""
-             L" Background=\"{ThemeResource CardBackgroundFillColorSecondaryBrush}\">";
-        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(why) + L"\" FontSize=\"11\" TextWrapping=\"Wrap\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></Border>";
+        m += L"<Border" DT_NOTE_BOX L">";
+        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(why) + L"\""
+             DT_NOTE_TEXT L"/></Border>";
     }
     m += L"</StackPanel>";
     return m;
@@ -551,30 +527,41 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
     };
     std::wstring why;
     if (haveBoth) {
-        const double dw = L.desiredW, rw = L.renderW;
-        double maxW = 0, minW = 0;
+        // DesiredSize includes Margin and never exceeds the slot the parent offered; RenderSize excludes Margin
+        // and keeps an explicit Width even when that overflows the slot. Compare like with like.
+        const DevToolsRing margin = RingFromRows(rows, L"Margin");
+        const double mw = margin.present ? margin.l + margin.r : 0;
+        // DesiredSize is floored at zero, so negative margins or a margin wider than the slot must be clamped too.
+        const double dw = L.desiredW, rw = L.renderW, took = (std::max)(0.0, rw + mw);
+        const double inside = (std::max)(0.0, dw - mw);
+        double maxW = 0, minW = 0, fixedW = 0;
         const bool hasMax = asNumber(rowValue(L"MaxWidth"), maxW);
         const bool hasMin = asNumber(rowValue(L"MinWidth"), minW);
-        if (hasMax && fabs((double)rw - maxW) < 0.5)
+        const bool hasWidth = asNumber(rowValue(L"Width"), fixedW);
+        if (hasMax && fabs(rw - maxW) < 0.5)
             why = L"Its width is sitting exactly on MaxWidth (" + LayoutNumW(maxW) +
                   L"). That clamp is what decided this size, not the content and not the parent.";
-        else if (hasMin && fabs((double)rw - minW) < 0.5 && minW > dw + 0.5)
+        else if (hasWidth && fabs(rw - fixedW) < 0.5 && took > dw + 0.5)
+            why = L"Its Width (" + LayoutNumW(fixedW) + L") is larger than the " + LayoutNumW(inside) +
+                  L" its parent offered" + (mw > 0.5 ? std::wstring(L" inside its Margin") : std::wstring()) +
+                  L", so it is clipped. Lower Width, or give the parent more room.";
+        else if (hasMin && fabs(rw - minW) < 0.5 && minW > inside + 0.5)
             why = L"Its width is being held up by MinWidth (" + LayoutNumW(minW) +
-                  L"), which is larger than the " + LayoutNumW(dw) + L" the content asked for.";
-        else if (rw > dw + 0.5 && !rowValue(L"HorizontalAlignment").empty() && rowValue(L"HorizontalAlignment") != L"Stretch")
+                  L"), which is larger than the " + LayoutNumW(inside) + L" the content asked for.";
+        else if (took > dw + 0.5 && !rowValue(L"HorizontalAlignment").empty() && rowValue(L"HorizontalAlignment") != L"Stretch")
             why = L"It got MORE width than it asked for even though HorizontalAlignment is " +
                   rowValue(L"HorizontalAlignment") + L". Check the parent's layout.";
-        else if (rw < dw - 0.5)
-            why = L"It got LESS width than it asked for. It is being constrained. Check MaxWidth on this "
-                  L"element and the space the parent had to give.";
-        else if ((double)rw <= 0.5 && (double)L.renderH <= 0.5)
+        else if (took < dw - 0.5)
+            why = L"It got LESS width than it asked for, so part of it may be clipped. Check the space the "
+                  L"parent had to give.";
+        else if (rw <= 0.5 && (double)L.renderH <= 0.5)
             why = L"It has no size. Check Visibility, an empty parent, or a zero-width constraint.";
     }
     if (!why.empty()) {
         m += L"<Border Margin=\"0,8,0,0\" Padding=\"9,7,9,7\" CornerRadius=\"4\""
              L" Background=\"{ThemeResource CardBackgroundFillColorSecondaryBrush}\">";
-        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(why) + L"\" FontSize=\"11\" TextWrapping=\"Wrap\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></Border>";
+        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(why) + L"\""
+             DT_NOTE_TEXT L"/></Border>";
     }
 
     m += L"<StackPanel Spacing=\"0\" Margin=\"0,7,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsBoxModelDetail\">";
@@ -591,19 +578,16 @@ static std::wstring BuildLayoutDisclosure(const DevToolsWindowLayout& L, const s
 {
     const bool open = LayoutSectionOpen();
     std::wstring m = L"<StackPanel Margin=\"0,8,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacing\">";
-    m += L"<HyperlinkButton x:Name=\"LayoutSectionToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
-         L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Size and spacing\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingToggle\">";
-    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"7\">";
-    m += L"<TextBlock x:Name=\"LayoutSectionChev\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\" FontSize=\"8\""
-         L" VerticalAlignment=\"Center\" Text=\"" + std::wstring(open ? L"\uE70D" : L"\uE76C") + L"\""
+    m += L"<Expander x:Name=\"LayoutSectionToggle\" HorizontalAlignment=\"Stretch\""
+         L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.Name=\"Size and spacing\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"" +
+         std::wstring(open ? L"True" : L"False") + L"\"><Expander.Header>";
+    m += L"<TextBlock Text=\"Size &amp; spacing\" Style=\"{StaticResource BodyTextBlockStyle}\""
          L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    m += L"<TextBlock Text=\"SIZE &amp; SPACING\" Style=\"{StaticResource CaptionTextBlockStyle}\" CharacterSpacing=\"60\""
-         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    m += L"</StackPanel></HyperlinkButton>";
-    m += L"<StackPanel x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\" Visibility=\"" +
-         std::wstring(open ? L"Visible" : L"Collapsed") + L"\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\">";
+    m += L"</Expander.Header>";
+    m += L"<StackPanel x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\">";
     m += BuildLayoutSection(L, rows);
-    m += L"</StackPanel></StackPanel>";
+    m += L"</StackPanel></Expander></StackPanel>";
     return m;
 }

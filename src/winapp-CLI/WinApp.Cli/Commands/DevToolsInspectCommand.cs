@@ -132,8 +132,8 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
                 classificationTruncated = forest.ClassificationTruncated;
                 roots = forest.Roots;
 
-                // Nothing to show is not one fact but three — no source information, not finished
-                // classifying, or genuinely all-framework — and the envelope tells them apart. Fall back to
+                // Nothing to show is not one fact but three (no source information, not finished
+                // classifying, or genuinely all-framework), and the envelope tells them apart. Fall back to
                 // the raw tree and say which one it was; an empty view alone reads as "your app has no
                 // elements" and sends someone to debug markup that is fine.
                 if (forest.ExplainIfEmpty() is string why)
@@ -190,7 +190,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
                     }
 
                     // A truncated x:Name lookup resolved this root. Without the caveat, JSON hands back an
-                    // apparently unambiguous handle that a caller would then write through — routing around
+                    // apparently unambiguous handle that a caller would then write through, routing around
                     // the very refusal the mutation path added.
                     WriteWarning(writer);
                     writer.WriteNumber("depth", depth);
@@ -250,7 +250,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
 
         /// <summary>
         /// Why a tree view came back empty once the agent did return one. An unfinished classification is
-        /// stated HERE rather than only in the footer, because the footer is not reached on an empty result —
+        /// stated HERE rather than only in the footer, because the footer is not reached on an empty result,
         /// and an empty answer is exactly when "the classifier has not looked at everything yet" is the fact
         /// that explains it.
         /// </summary>
@@ -465,12 +465,12 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
             if (snapshot.DepthLimitedElements > 0)
             {
                 Console.MarkupLineInterpolated(
-                    $"[grey]{snapshot.DepthLimitedElements} element(s) have children beyond this depth — rerun with --depth {depth * 2} to expand.[/]");
+                    $"[grey]{snapshot.DepthLimitedElements} element(s) have children beyond this depth. Rerun with --depth {depth * 2} to expand.[/]");
             }
 
             if (authored)
             {
-                Console.MarkupLine("[grey]Framework and control-template elements are hidden — pass --all to see them.[/]");
+                Console.MarkupLine("[grey]Framework and control-template elements are hidden. Pass --all to see them.[/]");
             }
 
             // A SECOND, independent incompleteness from the agent's node limit below: the classifier resolves

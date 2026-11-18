@@ -40,7 +40,7 @@ static DWORD WINAPI PipeServer(LPVOID)
     if (!sd) {
         // Fail closed: never expose the command pipe with the default DACL (which would grant read
         // access broadly). If the current user's SID/integrity level can't be resolved to lock the pipe
-        // down, don't serve at all — the CLI simply reports the DevTools agent as unavailable.
+        // down, don't serve at all. The CLI simply reports the DevTools agent as unavailable.
         Log(L"pipe server: could not build owner-only security descriptor; refusing to create pipe");
         return 0;
     }
@@ -220,7 +220,7 @@ static bool ResolveWriteTarget(InstanceHandle h, const std::wstring& path,
 // UI thread only. Such a memo also has to key on element identity across time -- with a recyclable raw handle, so a
 // dead element's consent could be inherited by whatever is slotted next.
 static DevToolsWriteOutcome InteractiveWrite(InstanceHandle h, const std::wstring& prop, const std::wstring& type,
-                                        const std::wstring& value, bool confirmBindingReplace)
+                                        const std::wstring& value, bool confirmBindingReplace, std::wstring* reason)
 {
     InstanceHandle target = 0; std::wstring leaf;
     if (!ResolveWriteTarget(h, prop, &target, &leaf)) return DevToolsWriteOutcome::Failed;
@@ -229,7 +229,7 @@ static DevToolsWriteOutcome InteractiveWrite(InstanceHandle h, const std::wstrin
         Log(L"write.gate '%s' refused: bound, unconfirmed", prop.c_str());
         return DevToolsWriteOutcome::NeedsConfirm;
     }
-    HRESULT hr = SetLiteral(target, leaf, type, value);
+    HRESULT hr = SetLiteral(target, leaf, type, value, reason);
     if (FAILED(hr)) {
         Log(L"write '%s'='%s' (%s) hr=0x%08X", prop.c_str(), value.c_str(), type.c_str(), hr);
         return DevToolsWriteOutcome::Failed;
@@ -304,7 +304,12 @@ static void Route1ReadRows(InstanceHandle wire, std::wstring& outType, std::wstr
     AcquireSRWLockShared(&g_censusLock);
     ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
     ReleaseSRWLockShared(&g_censusLock);
-    if (!ok) { outType = L"(element)"; outName = e ? e : L"stale"; return; }
+    if (!ok) {
+        // The resolver's reason ("not-found", "stale") is a diagnostic token, not a name; showing it as "#not-found"
+        // reads like an element called not-found.
+        DevToolsOverlayLog(L"route1.props element unavailable: %ls", e ? e : L"stale");
+        outType = L"Element no longer available"; outName.clear(); return;
+    }
     outType = TypeOf(ih);
     outName = NameOf(ih);
     std::vector<DevToolsReadProp> props;
@@ -502,7 +507,7 @@ static void ReadPreviewFacts(InstanceHandle wire, DevToolsBatch::PreviewFacts& o
 
 // Runs on the UI thread (the window's commit sinks), so it may touch the live tree directly. Stale handle -> Failed.
 static DevToolsWriteOutcome Route1Write(InstanceHandle wire, const std::wstring& prop, const std::wstring& type,
-                                   const std::wstring& value, bool confirmBindingReplace)
+                                   const std::wstring& value, bool confirmBindingReplace, std::wstring* reason)
 {
     if (!DevToolsTrust_MutationEnabled()) {
         Log(L"route1.write refused by process posture");
@@ -513,7 +518,7 @@ static DevToolsWriteOutcome Route1Write(InstanceHandle wire, const std::wstring&
     ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
     ReleaseSRWLockShared(&g_censusLock);
     if (!ok) { Log(L"route1.write stale wire (%s)", e ? e : L"?"); return DevToolsWriteOutcome::Failed; }
-    return InteractiveWrite(ih, prop, type, value, confirmBindingReplace);
+    return InteractiveWrite(ih, prop, type, value, confirmBindingReplace, reason);
 }
 
 // Reset one curated property from the in-proc window's inspector to its inherited/default value: re-resolve
@@ -596,16 +601,15 @@ static bool Route1Bind(InstanceHandle wire, const std::wstring& op, const std::w
 // the UI thread, so no RunOnUiThread hop.
 // UI thread only. Shows where the declaration opens in the authored file when the build proves it; the runtime's
 // own line points somewhere inside the tag and is kept only when no verified mapping exists.
+// The file and the declaration's confirmed line (DevToolsAuthored_DisplayLine), as `inspect` and `get-source` show them.
 static bool ReadDisplaySourceInfo(InstanceHandle ih, std::wstring& file, unsigned int& line, unsigned int& column)
 {
     if (!ReadElementSourceInfo(ih, file, line, column)) return false;
     std::wstring xaml;
     DevToolsAuthoredLocation location;
-    if (ReadElementAuthoredContext(ih, file, line, column, &xaml, &location) == DevToolsAuthoredState::Available &&
-        location.mapped) {
-        line = location.line;
-        column = location.column;
-    }
+    const auto state = ReadElementAuthoredContext(ih, file, line, column, &xaml, &location);
+    line = DevToolsAuthored_DisplayLine(state, location);
+    column = line ? location.column : 0;
     return true;
 }
 
@@ -707,69 +711,17 @@ static void ReadParentContext(InstanceHandle elem, InstanceHandle parent, void* 
 }
 
 // Already on the UI thread, so the reads happen inline with no RunOnUiThread hop -- the same reason Route1Source has
-// none. Shares its reads with CmdElementLayout deliberately at the level of the projected calls rather than by
-// calling that verb: this path already holds the UI thread and must not re-enter the dispatcher.
+// none -- and share CmdElementLayout's reads without re-entering the dispatcher.
 static bool Route1Layout(InstanceHandle wire, DevToolsWindowLayout& out)
 {
     InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
     AcquireSRWLockShared(&g_censusLock);
     ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
     ReleaseSRWLockShared(&g_censusLock);
-    if (!ok || !g_diag) return false;
-
-    IInspectable* insp = nullptr;
-    if (FAILED(g_diag->GetIInspectableFromHandle(ih, &insp)) || !insp) return false;
-
-    void* ui = nullptr; void* fe = nullptr;
-    if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-        float w = 0, h = 0;
-        if (SUCCEEDED(DevToolsGetDesiredSize(ui, &w, &h))) { out.desiredW = w; out.desiredH = h; out.haveDesired = true; }
-        if (SUCCEEDED(DevToolsGetRenderSize(ui, &w, &h)))  { out.renderW  = w; out.renderH  = h; out.haveRender  = true; }
-    }
-    if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
-        double d = 0;
-        if (SUCCEEDED(DevToolsGetActualWidth(fe, &d)))  { out.actualW = d; out.haveActual = true; }
-        if (SUCCEEDED(DevToolsGetActualHeight(fe, &d))) { out.actualH = d; }
-    }
-    std::vector<InstanceHandle> path;
-    {
-        AcquireSRWLockShared(&g_censusLock);
-        InstanceHandle cur = ih;
-        for (int guard = 0; guard < 512; guard++) {
-            auto it = g_parent.find(cur);
-            if (it == g_parent.end() || !it->second) break;
-            cur = it->second;
-            path.push_back(cur);
-        }
-        ReleaseSRWLockShared(&g_censusLock);
-    }
-    for (size_t k = path.size(); k-- > 0 && ui && !out.haveOffset; ) {
-        IInspectable* rInsp = nullptr;
-        if (FAILED(g_diag->GetIInspectableFromHandle(path[k], &rInsp)) || !rInsp) continue;
-        void* rUi = nullptr;
-        if (SUCCEEDED(rInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &rUi)) && rUi) {
-            void* gt = nullptr;
-            if (SUCCEEDED(DevToolsTransformToVisual(ui, rUi, &gt)) && gt) {
-                float x = 0, y = 0;
-                if (SUCCEEDED(DevToolsTransformPoint(gt, 0.0f, 0.0f, &x, &y))) {
-                    out.offsetX = x; out.offsetY = y; out.haveOffset = true;
-                }
-                reinterpret_cast<IUnknown*>(gt)->Release();
-            }
-            reinterpret_cast<IUnknown*>(rUi)->Release();
-        }
-        rInsp->Release();
-    }
-    if (!path.empty()) out.parentType = TypeOf(path.front());
-    if (!path.empty()) ReadParentContext(ih, path.front(), ui, out);
-
-    if (ui) reinterpret_cast<IUnknown*>(ui)->Release();
-    if (fe) reinterpret_cast<IUnknown*>(fe)->Release();
-    insp->Release();
-    return out.haveDesired || out.haveRender || out.haveOffset;
+    return ok && SUCCEEDED(ReadElementLayout_ui(ih, out)) && (out.haveDesired || out.haveRender || out.haveOffset);
 }
 
-// The overlay works in RAW diagnostics handles (straight from HitTest), so this is a direct ReadElementSourceInfo —
+// The overlay works in RAW diagnostics handles (straight from HitTest), so this is a direct ReadElementSourceInfo,
 // no wire resolution (unlike Route1Source, which the window calls with wire tokens). UI thread only (the overlay's
 // pick and comment flyout both run there).
 static bool OverlaySourceBridge(InstanceHandle raw, std::wstring* outFile, unsigned int* outLine, unsigned int* outCol)

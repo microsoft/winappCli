@@ -150,13 +150,14 @@ public class WinUiTemplateCatalogTests
 
         // Every alias of the Microsoft pack's templates, including the "(Item)"/"(Experimental)" rows
         // whose display names themselves contain parentheses (only the last group is the alias list).
-        CollectionAssert.AreEquivalent(ExpectedMicrosoftAliases, rows.SelectMany(r => r.Aliases).ToArray());
+        Assert.AreSequenceEqual(ExpectedMicrosoftAliases, rows.SelectMany(r => r.Aliases).ToArray(), SequenceOrder.InAnyOrder);
         Assert.IsFalse(rows.Any(r => r.Aliases.Contains("winui-widget")), "A different pack's template must not be included.");
 
         // The display name is everything before the alias group, so the parenthesised suffixes survive.
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             ExpectedMicrosoftDisplayNames,
-            rows.Select(r => r.DisplayName).ToArray());
+            rows.Select(r => r.DisplayName).ToArray(),
+            SequenceOrder.InAnyOrder);
     }
 
     private static readonly string[] ExpectedMicrosoftDisplayNames =
@@ -167,6 +168,35 @@ public class WinUiTemplateCatalogTests
     {
         Assert.AreEqual(0, WinUiTemplateCatalog.ParsePackTemplates(UninstallOutput, "Not.Installed").Count);
         Assert.AreEqual(0, WinUiTemplateCatalog.ParsePackTemplates(string.Empty, "Anything").Count);
+    }
+
+    [TestMethod]
+    public void ParsePackTemplates_TwoCopiesOfThePack_ReturnsTemplatesFromBothTaggedWithTheirVersion()
+    {
+        // Two copies coexist when one came from NuGet and one from a local .nupkg; each lists only the
+        // templates it supplies.
+        const string listing =
+            "Currently installed items:\n" +
+            "   Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n" +
+            "      Version: 0.0.5-alpha\n" +
+            "      Templates:\n" +
+            "         WinUI Blank App (winui,winui3) C#\n" +
+            "   Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n" +
+            "      Version: 0.0.7-alpha\n" +
+            "      Templates:\n" +
+            "         Reactor Blank App (Experimental) (reactor) C#\n";
+
+        var rows = WinUiTemplateCatalog.ParsePackTemplates(listing, PackageId);
+
+        Assert.AreEqual(2, rows.Count);
+        Assert.AreEqual("0.0.5-alpha", rows.Single(r => r.Aliases.Contains("winui")).PackVersion);
+        Assert.AreEqual("0.0.7-alpha", rows.Single(r => r.Aliases.Contains("reactor")).PackVersion);
+
+        var listed = new[]
+        {
+            new WinUiTemplateEntry("WinUI Blank App", ["winui", "winui3"], "[C#]", "project", "Windows/WinUI"),
+        };
+        Assert.AreEqual("0.0.5-alpha", WinUiTemplateCatalog.RestrictToPack(listed, rows).Single().PackVersion);
     }
 
     private const string PackageId = "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates";
@@ -260,7 +290,7 @@ public class WinUiTemplateCatalogTests
         Assert.IsTrue(found);
         Assert.AreEqual("dotnet-version", option);
         Assert.IsNull(tfm, "No offered framework is <= the SDK major, so nothing is pinned.");
-        CollectionAssert.AreEquivalent(MinNineChoices, choices.ToArray());
+        Assert.AreSequenceEqual(MinNineChoices, choices.ToArray(), SequenceOrder.InAnyOrder);
         Assert.AreEqual(9, WinUiTemplateCatalog.MinimumSdkMajor(choices));
     }
 
@@ -325,7 +355,7 @@ public class WinUiTemplateCatalogTests
 
         var ordered = WinUiTemplateCatalog.OrderForDisplay(entries);
 
-        CollectionAssert.AreEqual(ExpectedDisplayOrder, ordered.Select(e => e.DisplayName).ToArray());
+        Assert.AreSequenceEqual(ExpectedDisplayOrder, ordered.Select(e => e.DisplayName).ToArray());
     }
 
     [TestMethod]
@@ -339,7 +369,7 @@ public class WinUiTemplateCatalogTests
 
         var ordered = WinUiTemplateCatalog.OrderForDisplay(entries);
 
-        CollectionAssert.AreEqual(ExpectedShortNameFallbackOrder, ordered.Select(e => e.ShortName).ToArray());
+        Assert.AreSequenceEqual(ExpectedShortNameFallbackOrder, ordered.Select(e => e.ShortName).ToArray());
     }
 
     private static readonly string[] ExpectedShortNameFallbackOrder = ["winui-mvvm", "alpha"];
@@ -362,7 +392,7 @@ public class WinUiTemplateCatalogTests
 
         var kept = WinUiTemplateCatalog.RestrictToPack(listed, packRows);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             ExpectedKeptDisplayNames,
             kept.Select(t => t.DisplayName).ToArray());
     }
@@ -398,7 +428,7 @@ public class WinUiTemplateCatalogTests
 
         var kept = WinUiTemplateCatalog.RestrictToPack(listed, WinUiTemplateCatalog.ParsePackTemplates(UninstallOutput, PackageId));
 
-        CollectionAssert.AreEqual(OfficialBlankAppAliases, kept[0].ShortNames.ToArray());
+        Assert.AreSequenceEqual(OfficialBlankAppAliases, kept[0].ShortNames.ToArray());
     }
 
     [TestMethod]
@@ -447,9 +477,9 @@ public class WinUiTemplateCatalogTests
     {
         var packs = WinUiTemplateCatalog.ParseInstalledPacks(ConflictingUninstallOutput);
 
-        CollectionAssert.AreEqual(ExpectedInstalledPackIds, packs.Select(p => p.PackageId).ToArray(),
+        Assert.AreSequenceEqual(ExpectedInstalledPackIds, packs.Select(p => p.PackageId).ToArray(),
             "A pack without a Templates block contributes no aliases and is omitted.");
-        CollectionAssert.AreEqual(ExpectedReactorBlankAliases, packs[1].Templates[1].Aliases.ToArray());
+        Assert.AreSequenceEqual(ExpectedReactorBlankAliases, packs[1].Templates[1].Aliases.ToArray());
         Assert.AreEqual("Microsoft.UI.Reactor App", packs[0].Templates[0].DisplayName);
     }
 
@@ -481,8 +511,8 @@ public class WinUiTemplateCatalogTests
 
         Assert.AreEqual("reactor", marked[1].ShortName, "The canonical short name shown to the user is unchanged.");
         Assert.AreEqual("reactor-blank", marked[1].ScaffoldShortName);
-        CollectionAssert.AreEqual(ExpectedSharedReactorAlias, marked[1].SharedAliases.ToArray());
-        CollectionAssert.AreEqual(ExpectedConflictingPacks, marked[1].ConflictingPackages.ToArray());
+        Assert.AreSequenceEqual(ExpectedSharedReactorAlias, marked[1].SharedAliases.ToArray());
+        Assert.AreSequenceEqual(ExpectedConflictingPacks, marked[1].ConflictingPackages.ToArray());
     }
 
     [TestMethod]
@@ -497,7 +527,7 @@ public class WinUiTemplateCatalogTests
         var marked = WinUiTemplateCatalog.MarkSharedAliases(entries, WinUiTemplateCatalog.ParseInstalledPacks(output), PackageId);
 
         Assert.IsNull(marked[0].ScaffoldShortName);
-        CollectionAssert.AreEqual(ExpectedConflictingPacks, marked[0].ConflictingPackages.ToArray());
+        Assert.AreSequenceEqual(ExpectedConflictingPacks, marked[0].ConflictingPackages.ToArray());
     }
 
     [TestMethod]
@@ -527,5 +557,23 @@ public class WinUiTemplateCatalogTests
 
         var (foundMalformed, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption("{ not json", PackageId, "winui", 9);
         Assert.IsFalse(foundMalformed);
+    }
+
+    [TestMethod]
+    public void DeriveTfmOption_PackVersion_MatchesOnlyThatPackVersion()
+    {
+        // CacheJson describes 0.0.6-alpha. A cache for any other pack version is stale for the caller.
+        var (foundSameVersion, option, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.6-ALPHA");
+        Assert.IsTrue(foundSameVersion);
+        Assert.AreEqual("dotnet-version", option);
+
+        var (foundOtherVersion, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.7-alpha");
+        Assert.IsFalse(foundOtherVersion);
+
+        var (foundPrefixVersion, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.6");
+        Assert.IsFalse(foundPrefixVersion, "A version that is only a prefix of the mounted one must not match.");
+
+        var (foundEquivalentVersion, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.6.0-alpha");
+        Assert.IsTrue(foundEquivalentVersion, "A NuGet-equivalent spelling of the mounted version must match.");
     }
 }

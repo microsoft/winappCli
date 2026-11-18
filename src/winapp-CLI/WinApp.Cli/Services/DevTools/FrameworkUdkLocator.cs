@@ -6,12 +6,12 @@ using System.Diagnostics;
 namespace WinApp.Cli.Services.DevTools;
 
 /// <summary>
-/// Locates <c>Microsoft.Internal.FrameworkUdk.dll</c> — the Windows App SDK framework module that
+/// Locates <c>Microsoft.Internal.FrameworkUdk.dll</c>, the Windows App SDK framework module that
 /// exports <c>InitializeXamlDiagnosticsEx</c>.
 ///
 /// <para><c>%ProgramFiles%\WindowsApps</c> can't be enumerated by a normal user (its ACL hides the
 /// listing), so discovery does <b>not</b> walk that folder. Instead it reads the target WinUI
-/// process's own loaded modules — a running WinUI app has already loaded its framework UDK — and
+/// process's own loaded modules (a running WinUI app has already loaded its framework UDK) and
 /// supports an explicit override. Paths can be opened even when the parent cannot be listed.</para>
 ///
 /// <para>The module read is retried briefly and derives the UDK directory from <em>any</em> loaded
@@ -79,7 +79,7 @@ internal static class FrameworkUdkLocator
     internal static string? FindInModules(IEnumerable<(string Name, string Path)> modules)
     {
         var snapshot = modules.ToArray();
-        // Primary: the UDK is itself loaded into the target — return its exact path.
+        // Primary: the UDK is itself loaded into the target: return its exact path.
         foreach (var module in snapshot)
         {
             if (string.Equals(module.Name, UdkFileName, StringComparison.OrdinalIgnoreCase)
@@ -91,7 +91,7 @@ internal static class FrameworkUdkLocator
 
         // Fallback: derive the UDK from any sibling Windows App Runtime module. The UDK sits in the
         // same framework-package folder as the runtime's other DLLs, so this resolves the correct
-        // installed version/architecture even if the UDK itself isn't in the module list yet — and
+        // installed version/architecture even if the UDK itself isn't in the module list yet, and
         // without needing to enumerate the ACL-locked WindowsApps directory.
         foreach (var module in snapshot)
         {

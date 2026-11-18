@@ -8,7 +8,7 @@ namespace WinApp.Cli.Services.DevTools;
 
 /// <summary>
 /// Builds the <c>--json</c> payloads for the agent-facing <c>winapp devtools</c> commands with
-/// <see cref="Utf8JsonWriter"/> — reflection-free and AOT-safe, and able to copy a DevTools result through
+/// <see cref="Utf8JsonWriter"/>: reflection-free and AOT-safe, and able to copy a DevTools result through
 /// VERBATIM rather than round-tripping it through a DTO that would quietly drop any field the CLI does not
 /// model. Every payload carries <c>ok</c> and the target <c>pid</c>; a failure carries the DevTools
 /// <c>{code, token, message}</c> whole.
@@ -35,7 +35,7 @@ internal static class DevToolsJson
 
     /// <summary>
     /// A command whose payload is the DevTools result copied through unchanged, with the verdict supplied by the
-    /// caller. A command whose human path calls an outcome a failure MUST pass <c>ok: false</c> here — a
+    /// caller. A command whose human path calls an outcome a failure MUST pass <c>ok: false</c> here, because a
     /// <c>--json</c> consumer that sees <c>ok:true</c> for the same run has no usable signal at all.
     /// </summary>
     public static string Result(int pid, bool ok, string? resultJson, Action<Utf8JsonWriter>? extra = null) =>
@@ -63,7 +63,7 @@ internal static class DevToolsJson
     /// Writes the <c>error</c> member. It is ALWAYS an object of <c>{code, token, message}</c>, whatever
     /// produced the failure.
     /// <para>
-    /// A semantic outcome — nothing matched, no source recorded, a binding that could not be diagnosed — is
+    /// A semantic outcome (nothing matched, no source recorded, a binding that could not be diagnosed) is
     /// just as much a failure as a protocol refusal, and emitting one as a bare string while the other is an
     /// object means an agent that branches on <c>error.token</c> throws on the ordinary no-result case. CLI-side
     /// failures carry <c>code: 0</c>, because no JSON-RPC exchange assigned them one; the token is the stable
@@ -160,6 +160,11 @@ internal static class DevToolsJson
     {
         foreach (var field in row.EnumerateObject())
         {
+            // get-property reports the engine's origin label as `source`.
+            if (field.Name == "origin")
+            {
+                continue;
+            }
             if (field.Name == "chain" && field.Value.ValueKind == JsonValueKind.Array)
             {
                 writer.WriteStartArray("chain");

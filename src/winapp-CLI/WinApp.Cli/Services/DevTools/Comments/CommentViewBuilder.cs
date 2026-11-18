@@ -47,7 +47,7 @@ internal static class CommentViewBuilder
     {
         // Re-anchor under the project the comment was captured against, not under wherever the user happens to
         // be standing. The store moved to the repo root, so listing from there would otherwise scan
-        // EVERY same-named .xaml in the repo — five other MainWindow.xaml files turn one element into ten
+        // EVERY same-named .xaml in the repo: five other MainWindow.xaml files turn one element into ten
         // candidates, and the answer changes depending on which directory you ran from. This is what the
         // per-comment project root is for.
         var searchRoot = c.ProjectRoot is { Length: > 0 } captured && Directory.Exists(captured)
@@ -182,7 +182,7 @@ internal static class CommentViewBuilder
     }
 
     /// <summary>
-    /// True when the comment was stored without any identity the resolver can match on — so it cannot be
+    /// True when the comment was stored without any identity the resolver can match on, so it cannot be
     /// re-anchored at all. Distinct from <see cref="IsMaybeStale"/>: this is a fact about the STORED anchor,
     /// not about the current source, and reporting it as "the element may be renamed or removed" asserts a
     /// cause that was never established.
@@ -192,7 +192,7 @@ internal static class CommentViewBuilder
 
     /// <summary>
     /// True when the comment carries an anchor the resolver COULD have matched, and re-anchoring still found no
-    /// current match — the element was plausibly renamed or removed. A comment that was never source-anchored
+    /// current match: the element was plausibly renamed or removed. A comment that was never source-anchored
     /// (no <c>SourceFile</c>), or whose identity bundle is empty (<see cref="IsUnanchorable"/>), is not "stale":
     /// there was nothing to match in the first place.
     /// </summary>
@@ -201,14 +201,14 @@ internal static class CommentViewBuilder
 
     public static string? AnchorHealthWarning(CommentView c)
         => IsUnanchorable(c)
-            ? "saved without source identity — cannot be re-anchored (re-add the comment on the running app)"
+            ? "saved without source identity, so it cannot be re-anchored (re-add the comment on the running app)"
             : string.IsNullOrEmpty(c.Anchor.SourceFile)
             ? c.Hits.Count > 0
                 ? "not linked to source; candidates come from a source-wide search and require explicit confirmation"
                 : "not linked to source; no source candidates were found"
             : c.RequiresConfirmation
             ? "current source candidates require explicit confirmation; the creation location is historical"
-            : IsMaybeStale(c) ? "no current source match — source may be unavailable, or element may be renamed or removed (stale)" : null;
+            : IsMaybeStale(c) ? "no current source match: source may be unavailable, or element may be renamed or removed (stale)" : null;
 
     /// <summary>The creation location, shown only while it is useful: a confirmed anchor has a current one.</summary>
     public static string? HistoricalLocation(CommentView c)

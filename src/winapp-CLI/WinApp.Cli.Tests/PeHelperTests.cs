@@ -164,7 +164,7 @@ public class PeHelperTests
         }
 
         var arch = PeHelper.DetectPeArchitecture(kernel32);
-        CollectionAssert.Contains(KnownArchitectures, arch,
+        Assert.Contains(arch, KnownArchitectures,
             $"A real native system DLL should classify to a known architecture, got '{arch}'.");
     }
 }

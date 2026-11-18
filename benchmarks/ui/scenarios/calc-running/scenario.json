@@ -1,0 +1,16 @@
+{
+  "id": "calc-running",
+  "app": "calculator",
+  "description": "Baseline: Calculator is already open in Standard mode showing 0.",
+  "prompt": "Calculator is already open on my screen. Use it to work out 123 + 456 so that the answer is showing in Calculator's display. Leave Calculator open when you're done.",
+  "setup": {
+    "instances": [
+      { "role": "main", "target": true }
+    ]
+  },
+  "checks": [
+    { "type": "instanceCount", "equals": 1 },
+    { "type": "alive", "instance": "main" },
+    { "type": "value", "instance": "main", "key": "display", "equals": "579" }
+  ]
+}

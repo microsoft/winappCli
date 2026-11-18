@@ -57,9 +57,11 @@ It writes the following to a dedicated `sparse/` folder in the current directory
 - `appxmanifest.xml` — a sparse manifest with `<uap10:AllowExternalContent>true</uap10:AllowExternalContent>` (an element under `<Properties>`), `ProcessorArchitecture="neutral"`, a `win32App` application, and the exe name filled into `Executable`.
 - `Assets/` — placeholder visual assets (extracted from the exe's icon when possible).
 
+> [!NOTE]
 > **Why a `sparse/` folder and not next to the exe?** The manifest and `Assets/` are **build-time inputs** consumed by `winapp pack` and `winapp embed-identity` — nothing reads them from beside the exe at runtime (runtime identity comes from the `<msix>` element embedded in the exe plus the registered package's external location, and the manifest references the exe by *name*, so its location is independent of where the exe lives). Writing them into a dedicated, source-controlled folder keeps them out of a build-output directory (like `bin/`) that a clean/rebuild would wipe, and keeps the folder free of binaries so the next steps stay clean. `winapp pack` and `winapp embed-identity` look in `sparse/` automatically, so you rarely need to name the path.
 
-> **Note:** The sparse init flow deliberately **skips all SDK/package installation** — identity-only packages have no SDK dependencies.
+> [!NOTE]
+> The sparse init flow deliberately **skips all SDK/package installation** — identity-only packages have no SDK dependencies.
 
 If an `appxmanifest.xml` already exists in the target directory, init stops rather than overwriting it (and its `Assets/`). Re-run with `--force` to regenerate it.
 
@@ -95,7 +97,8 @@ In XML mode the `<msix>` element is inserted into (or replaced in) the target ma
 
 Both modes read identity from a sparse `appxmanifest.xml`. When you omit `--manifest`, winapp looks in a `sparse/` folder (where `winapp init --exe --sparse` writes it by default) beside the target first, then in the current directory, then falls back to beside the target and the current directory; pass `--manifest` to point elsewhere.
 
-> **Note:** EXE mode rewrites the binary with `mt.exe`, which invalidates any existing Authenticode signature. Re-sign the exe (e.g. `winapp sign ./MyApp.exe <cert.pfx>`) before distributing it.
+> [!IMPORTANT]
+> EXE mode rewrites the binary with `mt.exe`, which invalidates any existing Authenticode signature. Re-sign the exe (e.g. `winapp sign ./MyApp.exe <cert.pfx>`) before distributing it.
 
 ### Step 4 — Register (for local testing)
 
@@ -140,7 +143,8 @@ Registration and unregistration are the installer's job. The pattern is the same
   `Add-AppxPackage -Path "<install-dir>\MyApp.identity.msix" -ExternalLocation "<install-dir>"`.
 - **Uninstall:** run `Remove-AppxPackage <full-package-name>` before deleting files.
 
-> **Security:** the install directory is resolved at install time and may contain characters
+> [!WARNING]
+> The install directory is resolved at install time and may contain characters
 > (e.g. a single quote) that break out of a PowerShell string literal. Always escape or validate
 > the path before interpolating it into a `-Command` string — the WiX and NSIS snippets below
 > assume a trusted install path, while the Inno Setup example demonstrates safe escaping. Prefer

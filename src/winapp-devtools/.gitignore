@@ -1,4 +1,4 @@
-# Native build artifacts — WinApp.DevTools.Native.dll is produced by build-devtools.ps1 and staged next to
+# Native build artifacts: WinApp.DevTools.Native.dll is produced by build-devtools.ps1 and staged next to
 # winapp.exe at build time; only the C++ sources (DevToolsTap.cpp/.def) are tracked here.
 native/**/*.dll
 native/**/*.exp
@@ -8,7 +8,7 @@ native/**/*.pdb
 native/**/*.ilk
 native/**/*.res
 
-# Generated overlay XAML header — emitted from native/WinApp.DevTools.Native/xaml/*.xaml by gen-xaml-resources.ps1
+# Generated overlay XAML header, emitted from native/WinApp.DevTools.Native/xaml/*.xaml by gen-xaml-resources.ps1
 # at build time (DevToolsOverlay.cpp #includes it). Build output, not source; edit the.xaml files instead.
 native/**/*.g.h
 

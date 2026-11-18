@@ -529,19 +529,36 @@ internal sealed partial class ProjectRunService
         ManagedProjectExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// What a solution build must restore besides the target.
+    /// </summary>
+    /// <param name="ManagedSiblings">
+    /// Managed projects on disk, excluding the target and projects that reference it, in solution order.
+    /// </param>
+    /// <param name="ManagedSiblingEntries">
+    /// The same projects as the solution spells them, which a solution filter must repeat verbatim.
+    /// </param>
+    /// <param name="MissingProjects">Listed projects that aren't on disk, as the solution spells them.</param>
+    /// <param name="CanUseSolutionFilter">
+    /// Whether MSBuild can read the solution without opening entries winapp didn't vet. MSBuild opens every
+    /// <c>.etp</c> entry a solution lists, and the files it references, even through a solution filter, and
+    /// it decodes <c>%XX</c> escapes in entries; either can lead it to a share.
+    /// </param>
+    internal sealed record SolutionRestorePlan(
+        IReadOnlyList<FileInfo> ManagedSiblings,
+        IReadOnlyList<string> ManagedSiblingEntries,
+        IReadOnlyList<string> MissingProjects,
+        bool CanUseSolutionFilter = true);
+
+    /// <summary>
     /// Computes the restore plan for a solution build. VS (and <c>dotnet build &lt;sln&gt;</c>) restore the
     /// <em>whole solution</em> before building — including build-dependency projects that aren't
     /// <c>ProjectReference</c>s of the target — whereas <c>winapp run</c> restores only the target, so those
     /// siblings lack a <c>project.assets.json</c> and the build fails with <c>NETSDK1004</c>. Enumerates the
-    /// solution's listed projects (pure text parse — no shell-out, no <c>File.Exists</c> gating) and returns
-    /// the managed siblings to restore, excluding the target.
-    /// <para>
-    /// <paramref name="AllManaged"/> is true when every listed project is a restorable managed type. When
-    /// false (a native <c>.vcxproj</c>/<c>.wapproj</c>/<c>.shproj</c> is present, which <c>dotnet restore
-    /// &lt;sln&gt;</c> can't handle VS-less), the caller restores managed siblings individually.
-    /// </para>
+    /// solution's listed projects from its text (no shell-out) and returns the managed siblings on disk to
+    /// restore, excluding the target, plus the listed projects that are missing (for example, in an
+    /// uninitialized git submodule). Rooted and reparse-redirected entries are left out entirely.
     /// </summary>
-    internal static (bool AllManaged, List<FileInfo> ManagedSiblings) ComputeSolutionRestorePlan(FileInfo solution, FileInfo target)
+    internal static SolutionRestorePlan ComputeSolutionRestorePlan(FileInfo solution, FileInfo target)
     {
         string text;
         try
@@ -550,28 +567,123 @@ internal sealed partial class ProjectRunService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return (true, []);
+            return new SolutionRestorePlan([], [], []);
         }
 
         var solutionDir = solution.Directory?.FullName ?? Directory.GetCurrentDirectory();
-        var projectPaths = (string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
-                ? ExtractSlnxAllProjectPaths(text)
-                : ExtractSlnAllProjectPaths(text))
-            // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
-            .Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var entries = string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
+            ? ExtractSlnxAllProjectPaths(text)
+            : ExtractSlnAllProjectPaths(text);
 
-        var allManaged = projectPaths.All(IsManagedProjectPath);
+        // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
+        var projectPaths = entries.Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase)).ToList();
 
-        var resolvedSiblings = projectPaths
-            .Where(IsManagedProjectPath)
-            .Select(relative => TryResolveSolutionRelativePath(solutionDir, relative))
-            .Where(full => full is not null && !string.Equals(full, target.FullName, StringComparison.OrdinalIgnoreCase))
-            .Select(full => full!);
+        var siblings = new List<FileInfo>();
+        var siblingEntries = new List<string>();
+        var missing = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var relative in projectPaths)
+        {
+            // TryResolve rejects rooted and reparse-redirected entries, so File.Exists below never probes a share.
+            var full = TryResolveSolutionRelativePath(solutionDir, relative);
+            if (full is null || !seen.Add(full))
+            {
+                continue;
+            }
+            if (!File.Exists(full))
+            {
+                missing.Add(relative);
+                continue;
+            }
 
-        var siblings = DistinctProjectFiles(resolvedSiblings);
+            if (IsManagedProjectPath(relative) && !string.Equals(full, target.FullName, StringComparison.OrdinalIgnoreCase))
+            {
+                siblings.Add(new FileInfo(full));
+                siblingEntries.Add(relative);
+            }
+        }
 
-        return (allManaged, siblings);
+        // A sibling that references the target (such as a unit test project) can't be a build dependency
+        // of it, and restoring it would also restore the target through that reference, with the solution
+        // restore's RuntimeIdentifiers instead of the build's. The two restores would then keep rewriting
+        // the target's project.assets.json, so leave such siblings to their own builds.
+        var referencesTarget = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        for (var i = siblings.Count - 1; i >= 0; i--)
+        {
+            if (ReachesProject(siblings[i], target, referencesTarget))
+            {
+                siblings.RemoveAt(i);
+                siblingEntries.RemoveAt(i);
+            }
+        }
+
+        // Check the raw text and the parsed entries (a .slnx path can be spelled with XML character references).
+        // MSBuild also decodes %XX escapes in an entry, so the file it opens may not be the one vetted above.
+        var canUseSolutionFilter = !text.Contains(".etp", StringComparison.OrdinalIgnoreCase)
+            && !entries.Any(entry => entry.Contains(".etp", StringComparison.OrdinalIgnoreCase) || entry.Contains('%'));
+
+        return new SolutionRestorePlan(siblings, siblingEntries, missing, canUseSolutionFilter);
+    }
+
+    /// <summary>
+    /// True when <paramref name="target"/> is in <paramref name="start"/>'s <c>ProjectReference</c> closure,
+    /// as declared in the project files. Build-only references count, since restore follows them too.
+    /// References spelled with MSBuild properties or globs, under a <c>Condition</c>, or inside a
+    /// <c>Target</c> are ignored, since they can't be followed or may not apply.
+    /// <paramref name="cache"/> holds results per project and may be shared across calls for one target.
+    /// </summary>
+    private static bool ReachesProject(FileInfo start, FileInfo target, Dictionary<string, bool> cache)
+    {
+        if (cache.TryGetValue(start.FullName, out var cached))
+        {
+            return cached;
+        }
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { start.FullName };
+        var queue = new Queue<FileInfo>();
+        queue.Enqueue(start);
+        var reaches = false;
+        while (!reaches && queue.Count > 0 && visited.Count <= MaxProjectReferenceClosure)
+        {
+            var current = queue.Dequeue();
+            XDocument doc;
+            try
+            {
+                doc = XDocument.Load(current.FullName);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+            {
+                continue;
+            }
+
+            // A conditional reference, or one inside a target, may not apply to this build, so it doesn't
+            // count. Keeping such a sibling in the restore is the safe choice.
+            var includes = doc.Descendants()
+                .Where(e => e.Name.LocalName == "ProjectReference"
+                    && !e.AncestorsAndSelf().Any(a => a.Attribute("Condition") is not null || a.Name.LocalName == "Target"))
+                .Select(e => e.Attribute("Include")?.Value)
+                .Where(include => !string.IsNullOrWhiteSpace(include))
+                .SelectMany(include => include!.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            foreach (var include in includes)
+            {
+                if (!TryResolveReferencePath(current, include, out var reference) || !visited.Add(reference.FullName))
+                {
+                    continue;
+                }
+
+                if (string.Equals(reference.FullName, target.FullName, StringComparison.OrdinalIgnoreCase)
+                    || (cache.TryGetValue(reference.FullName, out var known) && known))
+                {
+                    reaches = true;
+                    break;
+                }
+
+                queue.Enqueue(reference);
+            }
+        }
+
+        cache[start.FullName] = reaches;
+        return reaches;
     }
 
     /// <summary>

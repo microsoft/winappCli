@@ -1,0 +1,1191 @@
+// Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
+// Licensed under the MIT License.
+
+using System.CommandLine;
+using System.Diagnostics;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using Microsoft.Extensions.DependencyInjection;
+using WinApp.Cli.Commands;
+using WinApp.Cli.Services.Performance;
+
+namespace WinApp.Cli.Tests;
+
+[TestClass]
+[DoNotParallelize]
+public class PerfCommandTests : BaseCommandTests
+{
+    private FakeSystemUiQuery systemQuery = null!;
+    private FakeUiAutomationService uiAutomation = null!;
+
+    protected override IServiceCollection ConfigureServices(IServiceCollection services)
+    {
+        systemQuery = new();
+        uiAutomation = new();
+        return services
+            .AddSingleton<ISystemUiQuery>(systemQuery)
+            .AddSingleton<IUiAutomation>(uiAutomation);
+    }
+
+    [TestMethod]
+    [DataRow("start", "recording", null, "Capture ID: capture-id\nStop: winapp perf stop capture-id\n")]
+    [DataRow("mark", "recording", null, "Added mark scenario-start\n")]
+    [DataRow("stop", "completed", "requested", "Recording stopped.\n")]
+    [DataRow("status", "recording", null, "Capture state: recording.\n")]
+    [DataRow("status", "completed", "duration-limit", "Capture state: completed.\nStop reason: duration-limit.\n")]
+    [DataRow("status", "failed", "worker-failed", "Capture state: failed.\nStop reason: worker-failed.\n")]
+    [DataRow("stop", "failed", "worker-failed", "")]
+    [DataRow("mark", "failed", "worker-failed", "")]
+    public void CaptureConsoleOutputIsSpecificToTheOperation(string operation, string state,
+        string? reason, string expected)
+    {
+        var capture = new PerfCaptureDocument
+        {
+            Id = "capture-id", Directory = @"C:\capture", SessionName = "test",
+            State = state, StopReason = reason,
+        };
+
+        PerfCommand.PrintCapture(capture, false, TestAnsiConsole, operation, "scenario-start");
+
+        Assert.AreEqual(expected, TestAnsiConsole.Output.Replace("\r\n", "\n"));
+    }
+
+    [TestMethod]
+    public void ConciseCaptureOutputPreservesWarnings()
+    {
+        var capture = new PerfCaptureDocument
+        {
+            Id = "capture-id", Directory = @"C:\capture", SessionName = "test", State = "completed",
+            Warnings = ["Final loss counters unavailable."],
+            ProviderStates = [new(PerfProviders.Clr, "unavailable", null, "Denied.")],
+        };
+
+        PerfCommand.PrintCapture(capture, false, TestAnsiConsole, "stop");
+
+        Assert.Contains("Recording stopped.", TestAnsiConsole.Output);
+        Assert.Contains("Final loss counters unavailable.", TestAnsiConsole.Output);
+        Assert.Contains("Denied.", TestAnsiConsole.Output);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains(capture.Id, StringComparison.Ordinal));
+        Assert.IsFalse(TestAnsiConsole.Output.Contains(capture.Directory, StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void MarkOutputOmitsCaptureWarnings()
+    {
+        var capture = new PerfCaptureDocument
+        {
+            Id = "capture-id", Directory = @"C:\capture", SessionName = "test", State = "recording",
+            Warnings = ["Event filtering unavailable."],
+        };
+
+        PerfCommand.PrintCapture(capture, false, TestAnsiConsole, "mark", "scenario-start");
+
+        Assert.AreEqual("Added mark scenario-start\n", TestAnsiConsole.Output.Replace("\r\n", "\n"));
+    }
+
+    [TestMethod]
+    [DataRow("start")]
+    [DataRow("mark")]
+    [DataRow("stop")]
+    [DataRow("status")]
+    public void CaptureJsonStillReturnsTheFullDocument(string operation)
+    {
+        var capture = new PerfCaptureDocument
+        {
+            Id = "capture-id", Directory = @"C:\capture", SessionName = "test", State = "recording",
+            Markers = [new("scenario-start", 42)],
+        };
+        var previous = Console.Out;
+        using var stdout = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            PerfCommand.PrintCapture(capture, true, TestAnsiConsole, operation, "scenario-start");
+        }
+        finally
+        {
+            Console.SetOut(previous);
+        }
+
+        Assert.AreEqual(JsonSerializer.Serialize(capture, PerfJsonContext.Default.PerfCaptureDocument),
+            stdout.ToString().TrimEnd());
+        Assert.AreEqual("", TestAnsiConsole.Output);
+    }
+
+    [TestMethod]
+    [DataRow("perf start --app --output unused --json")]
+    [DataRow("perf start --app 1 --output unused --json=not-bool")]
+    [DataRow("perf start --output unused --json")]
+    [DataRow("perf start --pid 1 --output unused --json")]
+    [DataRow("perf unknown --json")]
+    [DataRow("perf status not-a-capture --json")]
+    [DataRow("perf stop not-a-capture --json")]
+    [DataRow("perf mark not-a-capture --name test --json")]
+    [DataRow("perf analyze missing --limit 101 --json")]
+    [DataRow("perf analyze missing --view frames --type Button --json")]
+    [DataRow("perf analyze missing --view call --json")]
+    [DataRow("perf analyze missing --view call --id c1 --depth 5 --json")]
+    [DataRow("perf analyze missing --view gc --thread 1 --json")]
+    [DataRow("perf analyze missing --view resources --thread 1 --json")]
+    [DataRow("perf analyze missing --view resources --family layout --json")]
+    [DataRow("perf analyze missing --view calls --sort self --json")]
+    [DataRow("perf analyze missing --view gc --sort self --json")]
+    [DataRow("perf analyze missing --view hotspots --sort duration --json")]
+    [DataRow("perf analyze missing --view frames --min-frame-ms 10 --json")]
+    [DataRow("perf analyze missing --view hotspots --min-frame-ms -1 --json")]
+    [DataRow("perf analyze missing --view events --family layout --json")]
+    [DataRow("perf analyze missing --view components --sort duration --json")]
+    [DataRow("perf analyze missing --view components --min-frame-ms 5 --json")]
+    [DataRow("perf --json")]
+    public async Task InvalidPerfInvocationsEmitOnlyStructuredErrors(string command)
+    {
+        var (stdout, stderr, code) = await InvokeProgramAsync(command.Split(' '));
+        Assert.AreEqual(1, code);
+        Assert.AreEqual("", stdout);
+        using var error = JsonDocument.Parse(stderr);
+        Assert.AreEqual("invalid_arguments", error.RootElement.GetProperty("code").GetString());
+    }
+
+    [TestMethod]
+    [DataRow("status", false, false)]
+    [DataRow("status", false, true)]
+    [DataRow("status", true, false)]
+    [DataRow("status", true, true)]
+    [DataRow("stop", false, false)]
+    [DataRow("stop", false, true)]
+    [DataRow("stop", true, false)]
+    [DataRow("stop", true, true)]
+    [DataRow("mark", false, false)]
+    [DataRow("mark", false, true)]
+    [DataRow("mark", true, false)]
+    [DataRow("mark", true, true)]
+    public async Task UnknownCaptureReturnsActionableError(string operation, bool json, bool directoryExists)
+    {
+        var id = Guid.NewGuid().ToString("N");
+        if (directoryExists)
+        {
+            _testCacheDirectory.CreateSubdirectory(Path.Join("perf-control", id));
+        }
+        List<string> args = [operation, id];
+        if (operation == "mark")
+        {
+            args.AddRange(["--name", "test"]);
+        }
+        if (json)
+        {
+            args.Add("--json");
+        }
+        var previous = Console.Error;
+        using var stderr = new StringWriter();
+        Console.SetError(stderr);
+        try
+        {
+            var code = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(), args.ToArray());
+            Assert.AreEqual(1, code);
+            Assert.AreEqual("", TestAnsiConsole.Output);
+            var message = $"No capture with ID '{id}' was found. Run 'winapp perf start' to create one.";
+            if (json)
+            {
+                using var error = JsonDocument.Parse(stderr.ToString());
+                Assert.AreEqual("performance_error", error.RootElement.GetProperty("code").GetString());
+                Assert.AreEqual(message, error.RootElement.GetProperty("message").GetString());
+                Assert.IsFalse(error.RootElement.GetProperty("partialOutput").GetBoolean());
+            }
+            else
+            {
+                Assert.AreEqual(message, stderr.ToString().TrimEnd());
+            }
+        }
+        finally
+        {
+            Console.SetError(previous);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ConcurrentAnalysisReportsContentionAndSucceedsAfterRelease(bool json)
+    {
+        var directory = CreateCachedAnalysis(
+            [new("c1", "MeasureElement", "layout", 7, null, null, "v1", "v2",
+                10, 15, 5, null, "complete", 5)]);
+        try
+        {
+            string[] args = json
+                ? ["perf", "analyze", directory.FullName, "--view", "calls", "--json"]
+                : ["perf", "analyze", directory.FullName, "--view", "calls"];
+            const string message = "Another winapp perf analyze is using this capture. Retry when it finishes.";
+            using (var held = new FileStream(Path.Join(directory.FullName, ".analysis.lock"),
+                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                var (stdout, stderr, code) = await InvokeProgramAsync(args);
+                Assert.AreEqual(1, code);
+                Assert.AreEqual("", stdout);
+                if (json)
+                {
+                    using var error = JsonDocument.Parse(stderr);
+                    Assert.AreEqual("performance_error", error.RootElement.GetProperty("code").GetString());
+                    Assert.AreEqual(message, error.RootElement.GetProperty("message").GetString());
+                    Assert.IsFalse(error.RootElement.GetProperty("partialOutput").GetBoolean());
+                }
+                else
+                {
+                    Assert.AreEqual(message, stderr.TrimEnd());
+                }
+            }
+
+            var retry = await InvokeProgramAsync(args);
+            Assert.AreEqual(0, retry.ExitCode, retry.Stderr);
+            Assert.AreEqual("", retry.Stderr);
+            if (json)
+            {
+                using var result = JsonDocument.Parse(retry.Stdout);
+                Assert.AreEqual(1, result.RootElement.GetProperty("rows").GetArrayLength());
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task UndecodableDiagnosticAndRecordingBoundariesDoNotMakeTimingAnalysisPartial(bool unmatched)
+    {
+        var directory = Directory.CreateTempSubdirectory("WinApp-Perf-Diagnostic-");
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            using var xaml = new XamlTraceLoggingWriter();
+            var provider = PerfProviders.All.Single(p => p.Id == PerfProviders.Xaml);
+            var id = Guid.NewGuid().ToString("N");
+            var capture = new PerfCaptureDocument
+            {
+                Id = id, Directory = directory.FullName, SessionName = "WinApp-Perf-" + id,
+                SessionId = Guid.NewGuid(), Target = PerfProcessIdentity.Read(process), Providers = [provider],
+                Runtime = new("diagnostic test fixture", null, null, null),
+            };
+            using (var trace = new PrivateEtwSession(capture.SessionName, capture.SessionId, process.Id,
+                Path.Join(directory.FullName, "trace.etl"), 16))
+            {
+                capture.ProviderStates.Add(PerfCaptureWorker.EnableProvider(trace, provider));
+                capture.ReadyQpc = Stopwatch.GetTimestamp();
+                if (unmatched)
+                {
+                    xaml.PublicApiCall(isStart: 0, "Layout", 42);
+                }
+                xaml.PublicApiCall(isStart: 1, "Layout", 42);
+                xaml.FallbackError(-1, "diagnostic fixture");
+                if (unmatched)
+                {
+                    xaml.PublicApiCall(isStart: 1, "UnfinishedChild", 43);
+                }
+                Thread.Sleep(10);
+                xaml.PublicApiCall(isStart: 0, "Layout", 42);
+                if (unmatched)
+                {
+                    xaml.PublicApiCall(isStart: 1, "RecordingTail", 44);
+                }
+                trace.Stop();
+                capture.StopQpc = Stopwatch.GetTimestamp();
+                capture.EventsLost = trace.EventsLost;
+                capture.BuffersLost = trace.BuffersLost;
+            }
+            capture.TraceFiles = directory.GetFiles("trace.etl*").Select(f => f.Name).ToArray();
+            capture.State = "completed";
+            capture.Save();
+
+            var (stdout, stderr, code) = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--json"]);
+
+            Assert.AreEqual(0, code, stderr);
+            Assert.AreEqual("", stderr);
+            using (var summary = JsonDocument.Parse(stdout))
+            {
+                Assert.IsTrue(summary.RootElement.GetProperty("coverage").GetProperty("complete").GetBoolean());
+                Assert.AreEqual(0, summary.RootElement.GetProperty("coverage").GetProperty("decodeErrors").GetInt32());
+                Assert.IsTrue(summary.RootElement.GetProperty("rows").GetArrayLength() > 0);
+                Assert.IsFalse(summary.RootElement.GetProperty("coverage").TryGetProperty("incompleteCalls", out _));
+            }
+            var analysis = PerfAnalysisStore.Open(directory.FullName, CancellationToken.None);
+            Assert.AreEqual(4, analysis.Manifest.DecoderVersion);
+            Assert.AreEqual(4, analysis.Manifest.AnalyzerVersion);
+            Assert.AreEqual(1, analysis.Manifest.Calls);
+            Assert.AreEqual(1, analysis.Manifest.DecodeErrors, "The diagnostic decoding failure must remain recorded.");
+            Assert.IsEmpty(analysis.Manifest.IncompleteReasons);
+            var call = PerfAnalysisStore.Read(analysis, "calls.ndjson", PerfJsonContext.Default.PerfCall).Single();
+            Assert.AreEqual("PublicApiCall:Layout", call.Name);
+            Assert.IsGreaterThan(0d, call.DurationMs!.Value);
+            if (unmatched)
+            {
+                Assert.IsNull(call.ExclusiveMs);
+                var raw = await InvokeProgramAsync(
+                    ["perf", "analyze", directory.FullName, "--view", "events", "--event", "PublicApiCall:RecordingTail", "--json"]);
+                Assert.AreEqual(0, raw.ExitCode, raw.Stderr);
+                using var tail = JsonDocument.Parse(raw.Stdout);
+                Assert.AreEqual("begin", tail.RootElement.GetProperty("rows")[0].GetProperty("event").GetProperty("phase").GetString());
+            }
+            var diagnostic = PerfAnalysisStore.Read(analysis, "events.ndjson", PerfJsonContext.Default.PerfEvent)
+                .Single(e => e.Name == "FallbackError");
+            Assert.Contains("Unsupported structured or variable-length TDH property", diagnostic.DecodeError!);
+            Assert.AreEqual("diagnostics", diagnostic.Family);
+
+            var evidence = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--view", "events", "--event", "FallbackError", "--json"]);
+            Assert.AreEqual(1, evidence.ExitCode, "The requested diagnostic payload is still incomplete.");
+            using var events = JsonDocument.Parse(evidence.Stdout);
+            Assert.AreEqual(1, events.RootElement.GetProperty("rows").GetArrayLength());
+            Assert.Contains("Unsupported structured", events.RootElement.GetProperty("rows")[0].GetProperty("event")
+                .GetProperty("decodeError").GetString()!);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ReactorSpansFromAPrivateSessionAreCategorizedRankedByComponentAndShownAsHotspots()
+    {
+        var directory = Directory.CreateTempSubdirectory("WinApp-Perf-Reactor-");
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            using var reactor = new ReactorTraceLoggingWriter();
+            var provider = PerfProviders.All.Single(p => p.Id == PerfProviders.Reactor);
+            var id = Guid.NewGuid().ToString("N");
+            var capture = new PerfCaptureDocument
+            {
+                Id = id, Directory = directory.FullName, SessionName = "WinApp-Perf-" + id,
+                SessionId = Guid.NewGuid(), Target = PerfProcessIdentity.Read(process), Providers = [provider],
+            };
+            using (var trace = new PrivateEtwSession(capture.SessionName, capture.SessionId, process.Id,
+                Path.Join(directory.FullName, "trace.etl"), 16))
+            {
+                capture.ProviderStates.Add(PerfCaptureWorker.EnableProvider(trace, provider));
+                capture.ReadyQpc = Stopwatch.GetTimestamp();
+                reactor.RenderPassStart(1);
+                reactor.ComponentRenderStart(1, "App", "state");
+                reactor.ReconcileStart("reconcile", "StackElement");
+                reactor.ComponentRenderStart(2, "SlowPanel", "parent");
+                // Verbose keywords are off by default, so these must not reach the ETL.
+                reactor.ChildReconcileStart(3, 3);
+                reactor.KeyedListDiagnostic("duplicateKey", true);
+                Thread.Sleep(25);
+                reactor.ComponentRenderStop(2);
+                reactor.ReconcileStop();
+                reactor.ComponentRenderStop(1);
+                reactor.EffectsStart(1);
+                reactor.EffectsStop(1);
+                reactor.RenderPassStop(1);
+                // A second pass in schema revision 2, so one capture holds both revisions.
+                reactor.RenderPassStart(1, 2, "SlowPanel", 1);
+                reactor.ComponentRenderStart(2, "SlowPanel", "state", "MainPage.cs", 40, 9);
+                reactor.ReconcileStart("reconcile", "StackElement");
+                reactor.ReconcileStop(1, 0, 2, 0);
+                reactor.ComponentRenderStop(2);
+                reactor.RenderPassStop(1);
+                trace.Stop();
+                capture.StopQpc = Stopwatch.GetTimestamp();
+                capture.EventsLost = trace.EventsLost;
+                capture.BuffersLost = trace.BuffersLost;
+            }
+            capture.TraceFiles = directory.GetFiles("trace.etl*").Select(f => f.Name).ToArray();
+            capture.State = "completed";
+            capture.Save();
+
+            Assert.AreEqual("enabled", capture.ProviderStates.Single().State);
+            var (stdout, stderr, code) = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--view", "components", "--json"]);
+            Assert.AreEqual(0, code, stderr);
+            using (var components = JsonDocument.Parse(stdout))
+            {
+                var rows = components.RootElement.GetProperty("rows");
+                Assert.AreEqual("SlowPanel", rows[0].GetProperty("name").GetString());
+                Assert.AreEqual(2, rows[0].GetProperty("count").GetInt32());
+                Assert.AreEqual(1, rows[0].GetProperty("reasons").GetProperty("parent").GetInt32());
+                Assert.AreEqual(1, rows[0].GetProperty("reasons").GetProperty("state").GetInt32());
+                Assert.AreEqual("MainPage.cs:40", rows[0].GetProperty("callSites")[0].GetString());
+                Assert.IsGreaterThanOrEqualTo(20d, rows[0].GetProperty("exclusiveMs").GetDouble());
+                Assert.AreEqual("App", rows[1].GetProperty("name").GetString());
+                Assert.IsGreaterThan(20d, rows[1].GetProperty("inclusiveMs").GetDouble());
+                var passes = components.RootElement.GetProperty("reactorPasses");
+                Assert.AreEqual(2, passes.GetProperty("count").GetInt32());
+                Assert.AreEqual("SlowPanel", passes.GetProperty("requesters")[0].GetProperty("name").GetString());
+                Assert.AreEqual(2, passes.GetProperty("reconcileEdits").GetProperty("moved").GetInt32());
+            }
+
+            (stdout, stderr, code) = await InvokeProgramAsync(["perf", "analyze", directory.FullName, "--json"]);
+            Assert.AreEqual(0, code, stderr);
+            using (var summary = JsonDocument.Parse(stdout))
+            {
+                var activity = summary.RootElement.GetProperty("activity").EnumerateArray()
+                    .ToDictionary(row => row.GetProperty("category").GetString()!, row => row.GetProperty("observedMs").GetDouble());
+                Assert.IsGreaterThanOrEqualTo(20d, activity["Reactor"]);
+            }
+
+            (stdout, stderr, code) = await InvokeProgramAsync(["perf", "analyze", directory.FullName, "--view", "hotspots", "--json"]);
+            Assert.AreEqual(0, code, stderr);
+            using (var hotspots = JsonDocument.Parse(stdout))
+            {
+                var row = hotspots.RootElement.GetProperty("rows").EnumerateArray().Single();
+                Assert.AreEqual("ReactorRenderPass", row.GetProperty("name").GetString());
+                Assert.AreEqual("ReactorRender:SlowPanel",
+                    row.GetProperty("dominantOperations")[0].GetProperty("name").GetString());
+            }
+
+            var analysis = PerfAnalysisStore.Open(directory.FullName, CancellationToken.None);
+            Assert.AreEqual(0, analysis.Manifest.DecodeErrors);
+            var names = PerfAnalysisStore.Read(analysis, "events.ndjson", PerfJsonContext.Default.PerfEvent)
+                .Select(e => e.Name).ToArray();
+            Assert.AreEqual(16, names.Length, string.Join(", ", names));
+            Assert.IsFalse(names.Any(name => name is "ReactorChildReconcile" or "ReactorKeyedListDiagnostic"));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task UnmatchedOnlyCaptureReturnsAnEvidenceErrorInsteadOfZeroCost()
+    {
+        var directory = CreateCachedAnalysis([], events:
+            [new("v1", 10, 10, 1, PerfProviders.Xaml, 47, 0, 1, Guid.Empty,
+                "MeasureElement", "layout", "begin", "a", [])]);
+        try
+        {
+            var (stdout, stderr, code) = await InvokeProgramAsync(["perf", "analyze", directory.FullName, "--json"]);
+            Assert.AreEqual(1, code);
+            Assert.AreEqual("", stdout);
+            using var error = JsonDocument.Parse(stderr);
+            Assert.Contains("No usable requested performance evidence was recorded",
+                error.RootElement.GetProperty("message").GetString()!);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ResourceAnalysisNeedsNoEtlAndReportsPartialCounterFailures()
+    {
+        var directory = Directory.CreateTempSubdirectory("WinApp-Resource-Command-");
+        try
+        {
+            var capture = new PerfCaptureDocument
+            {
+                Id = Guid.NewGuid().ToString("N"), Directory = directory.FullName, SessionName = "test",
+                Target = new(Environment.ProcessId, DateTime.UtcNow), State = "completed",
+                Frequency = 1000, ReadyQpc = 1000, StopQpc = 2000,
+                ProcessResources = new()
+                {
+                    Samples = [new(1000, 10, 20, new(10, 20, 3, 4)), new(2000, 30, 40, new(30, 40, 4, 5))],
+                },
+            };
+            capture.Save();
+            string[] args = ["perf", "analyze", directory.FullName, "--view", "resources", "--json"];
+            var (stdout, stderr, code) = await InvokeProgramAsync(args);
+            Assert.AreEqual(0, code, stderr);
+            Assert.AreEqual("", stderr);
+            using (var result = JsonDocument.Parse(stdout))
+            {
+                Assert.AreEqual(40, result.RootElement.GetProperty("processResources").GetProperty("totalCpuMs").GetDouble());
+                Assert.AreEqual(2, result.RootElement.GetProperty("rows").GetArrayLength());
+            }
+            Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
+                ["analyze", directory.FullName, "--view", "resources"]));
+            Assert.Contains("Private MiB", TestAnsiConsole.Output);
+            Assert.Contains("User CPU ms", TestAnsiConsole.Output);
+            Assert.Contains("CPU: 40", TestAnsiConsole.Output);
+            capture.ProcessResources.FailedSamples = 1;
+            capture.ProcessResources.LastError = "Counter unavailable";
+            capture.Save();
+            var partial = await InvokeProgramAsync(args);
+            Assert.AreEqual(1, partial.ExitCode);
+            using var error = JsonDocument.Parse(partial.Stderr);
+            Assert.AreEqual("partial_data", error.RootElement.GetProperty("code").GetString());
+            using var evidence = JsonDocument.Parse(partial.Stdout);
+            Assert.IsFalse(evidence.RootElement.GetProperty("coverage").GetProperty("complete").GetBoolean());
+            Assert.AreEqual(2, evidence.RootElement.GetProperty("rows").GetArrayLength());
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task CompositionCallsAndCommitNotificationsHaveDistinctJsonAndTextEvidence()
+    {
+        var commit = new PerfEvent("device-commit", 15, 15, 7, PerfProviders.DirectComposition,
+            25, 0, 0, Guid.Empty, "DCompDeviceCommit", "composition", "info", null,
+            new() { ["DeviceId"] = "0000000000001234", ["LastCommittedBatchId"] = "9", ["LastConfirmedBatchId"] = "7" });
+        var directory = CreateCachedAnalysis(
+            [new("commit", "CommitMainDevice", "composition", 7, null, null, "begin", "end",
+                10, 15, 5, null, "complete", 5)],
+            events: [commit], compositionState: new(PerfProviders.DirectComposition, "enabled", false));
+        try
+        {
+            var (stdout, stderr, code) = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--view", "calls", "--family", "composition", "--json"]);
+            Assert.AreEqual(0, code, stderr);
+            using (var calls = JsonDocument.Parse(stdout))
+            {
+                Assert.AreEqual(1, calls.RootElement.GetProperty("rows").GetArrayLength());
+                Assert.AreEqual(5, calls.RootElement.GetProperty("rows")[0].GetProperty("call").GetProperty("durationMs").GetDouble());
+                Assert.AreEqual("enabled", calls.RootElement.GetProperty("directCompositionProvider").GetProperty("state").GetString());
+            }
+            (stdout, stderr, code) = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--view", "events", "--event", "DCompDeviceCommit", "--json"]);
+            Assert.AreEqual(0, code, stderr);
+            using (var events = JsonDocument.Parse(stdout))
+            {
+                var notification = events.RootElement.GetProperty("rows")[0].GetProperty("event");
+                Assert.AreEqual("info", notification.GetProperty("phase").GetString());
+                Assert.AreEqual("9", notification.GetProperty("fields").GetProperty("LastCommittedBatchId").GetString());
+            }
+            Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
+                ["analyze", directory.FullName]));
+            Assert.Contains("Composition submission", TestAnsiConsole.Output);
+            Assert.Contains("CommitMainDevice", TestAnsiConsole.Output);
+            Assert.Contains("DirectComposition provider: enabled", TestAnsiConsole.Output);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("--app", "1234")]
+    [DataRow("--app", "WinUIBenchmarkApp")]
+    [DataRow("--app", "Benchmark")]
+    [DataRow("--app", "WinUI Performance Lab")]
+    [DataRow("-a", "WinUIBenchmarkApp")]
+    public void PerfStartAcceptsRequiredAppSelector(string option, string selector)
+    {
+        var command = GetRequiredService<PerfCommand>().Subcommands.Single(c => c.Name == "start");
+        var app = command.Options.OfType<Option<string>>().Single(o => o.Name == "--app");
+        var parse = command.Parse([option, selector, "--output", "unused"]);
+        Assert.IsEmpty(parse.Errors);
+        Assert.AreEqual(selector, parse.GetValue(app));
+    }
+
+    [TestMethod]
+    [DataRow("call")]
+    [DataRow("element")]
+    public void ExpansionDepthDefaultsAreResolvedByView(string view)
+    {
+        var command = GetRequiredService<PerfCommand>().Subcommands.Single(c => c.Name == "analyze");
+        var depth = command.Options.OfType<Option<int?>>().Single(o => o.Name == "--depth");
+        var parse = command.Parse(["capture", "--view", view, "--id", "id"]);
+        Assert.IsEmpty(parse.Errors);
+        Assert.IsNull(parse.GetValue(depth));
+    }
+
+    [TestMethod]
+    public void AnalyzeAcceptsGcDurationAndHotspotThreshold()
+    {
+        var command = GetRequiredService<PerfCommand>().Subcommands.Single(c => c.Name == "analyze");
+        var view = command.Options.OfType<Option<string>>().Single(o => o.Name == "--view");
+        var sort = command.Options.OfType<Option<string>>().Single(o => o.Name == "--sort");
+        var minimum = command.Options.OfType<Option<double?>>().Single(o => o.Name == "--min-frame-ms");
+
+        var gc = command.Parse(["capture", "--view", "gc", "--sort", "duration"]);
+        Assert.IsEmpty(gc.Errors);
+        Assert.AreEqual("gc", gc.GetValue(view));
+        Assert.AreEqual("duration", gc.GetValue(sort));
+
+        var hotspots = command.Parse(["capture", "--view", "hotspots", "--min-frame-ms", "8.5"]);
+        Assert.IsEmpty(hotspots.Errors);
+        Assert.AreEqual("hotspots", hotspots.GetValue(view));
+        Assert.AreEqual(8.5, hotspots.GetValue(minimum));
+
+        var parsing = command.Parse(["capture", "--view", "parsing"]);
+        Assert.IsEmpty(parsing.Errors);
+        Assert.AreEqual("parsing", parsing.GetValue(view));
+    }
+
+    [TestMethod]
+    public async Task DefaultConsoleReportShowsActivityParsingThenDetailedSummary()
+    {
+        var parserEvent = new PerfEvent("parse-begin", 10, 10, 7, PerfProviders.Xaml, 1, 0, 1,
+            Guid.Empty, "ParseXaml", "parsing", "begin", null,
+            new() { ["URI"] = "Views/[MainPage].xaml" });
+        var directory = CreateCachedAnalysis(
+            [
+                new("frame", "Frame", "frames", 7, null, null, "f1", "f2", 0, 40, 40, null, "complete", 20),
+                new("parse", "ParseXaml", "parsing", 7, null, "frame", "parse-begin", "parse-end", 10, 20, 10, null, "complete", 10),
+            ],
+            events: [parserEvent]);
+        try
+        {
+            var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
+                ["analyze", directory.FullName]);
+            var output = TestAnsiConsole.Output;
+
+            Assert.AreEqual(0, exitCode);
+            var activity = output.IndexOf("Observed UI-thread activity", StringComparison.Ordinal);
+            var parsing = output.IndexOf("Parsing by resource", StringComparison.Ordinal);
+            var details = output.IndexOf("Detailed summary", StringComparison.Ordinal);
+            Assert.IsTrue(activity >= 0 && parsing > activity && details > parsing);
+            Assert.Contains("Views/[MainPage].xaml", output);
+            Assert.Contains("primary UI thread 7", output);
+            var sectionLines = output.Split('\n').Where(line =>
+                line.Contains("Observed UI-thread activity", StringComparison.Ordinal) ||
+                line.Contains("Parsing by resource", StringComparison.Ordinal) ||
+                line.Contains("Detailed summary", StringComparison.Ordinal)).ToArray();
+            Assert.HasCount(3, sectionLines);
+            Assert.IsTrue(sectionLines.All(line => line.Contains('─') || line.Contains("---", StringComparison.Ordinal)));
+            Assert.IsFalse(output.Contains('\u001b'), "Plain-text consoles must not contain ANSI escapes.");
+            foreach (var hiddenDetail in new[] { "evidence:", "count=", "mean=", "max=", "p95=", "GC coverage:", "Coverage:", "next offset:" })
+            {
+                Assert.IsFalse(output.Contains(hiddenDetail, StringComparison.Ordinal), hiddenDetail);
+            }
+            Assert.IsTrue(output.TrimEnd().EndsWith("Returned 2/2", StringComparison.Ordinal));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("summary", false)]
+    [DataRow("parsing", false)]
+    [DataRow("summary", true)]
+    [DataRow("parsing", true)]
+    public async Task ParsingResourceLabelsPreserveFileNamesAndJsonKeepsFullUris(string view, bool json)
+    {
+        (string Resource, string Label)[] resources =
+        [
+            ("Views/[MainPage].xaml", "Views/[MainPage].xaml"),
+            ("ms-resource:///Files/Controls/HomePage/Views/MainPage.xaml",
+                "ms-resource:///Files...Views/MainPage.xaml"),
+            ("ms-resource:///Files/Controls/HomePage/Views/SettingsPage.xaml",
+                "ms-resource:///Files...s/SettingsPage.xaml"),
+            ("ms-resource:///Files/Microsoft.UI.Xaml/Controls/VeryLongDistinctiveResourceName.xaml",
+                "ms-...VeryLongDistinctiveResourceName.xaml"),
+            (@"C:\Projects\Example\Controls\HomePage\Views\SettingsPage.xaml",
+                @"C:\Projects\Example\...s\SettingsPage.xaml"),
+            (new string('x', 37) + ".xaml", new string('x', 37) + ".xaml"),
+            (new string('x', 38) + ".xaml", "..." + new string('x', 34) + ".xaml"),
+            ("ms-resource:///Files/" + new string('a', 50) + ".xaml",
+                "..." + new string('a', 34) + ".xaml"),
+        ];
+        var calls = resources.Select((resource, index) => new PerfCall(
+            "parse" + index, "ParseXaml", "parsing", 7, null, null,
+            "begin" + index, "end" + index, index, index + 1, 1, null, "complete", 1)).ToArray();
+        var events = resources.Select((resource, index) => new PerfEvent(
+            "begin" + index, index, index, 7, PerfProviders.Xaml, 1, 0, 1,
+            Guid.Empty, "ParseXaml", "parsing", "begin", null,
+            new() { ["URI"] = resource.Resource })).ToArray();
+        var directory = CreateCachedAnalysis(calls, events: events);
+        try
+        {
+            string[] args = ["analyze", directory.FullName, "--view", view];
+            if (json)
+            {
+                var (stdout, stderr, exitCode) = await InvokeProgramAsync(["perf", .. args, "--json"]);
+                Assert.AreEqual(0, exitCode);
+                Assert.AreEqual("", stderr);
+                using var result = JsonDocument.Parse(stdout);
+                var actual = view == "summary"
+                    ? result.RootElement.GetProperty("parsingResources").EnumerateArray()
+                        .Select(row => row.GetProperty("resource").GetString()).ToArray()
+                    : result.RootElement.GetProperty("rows").EnumerateArray()
+                        .Select(row => row.GetProperty("name").GetString()).ToArray();
+                Assert.AreSequenceEqual(resources.Select(resource => resource.Resource).ToArray(), actual, SequenceOrder.InAnyOrder);
+            }
+            else
+            {
+                var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(), args);
+                Assert.AreEqual(0, exitCode);
+                foreach (var resource in resources)
+                {
+                    Assert.IsTrue(resource.Label.Length <= 42);
+                    Assert.Contains($"{resource.Label,-42} {1d,11:F3} {1,7}", TestAnsiConsole.Output);
+                }
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task SummaryOmitsEmptyParsingSection()
+    {
+        var directory = CreateCachedAnalysis(
+            [new("c1", "Layout", "layout", 1, null, null, "v1", "v2",
+                0, 10, 10, null, "complete", 10)]);
+        try
+        {
+            var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
+                ["analyze", directory.FullName]);
+
+            Assert.AreEqual(0, exit);
+            Assert.Contains("Observed UI-thread activity", TestAnsiConsole.Output);
+            Assert.Contains("Detailed summary", TestAnsiConsole.Output);
+            Assert.IsFalse(TestAnsiConsole.Output.Contains("Parsing by resource", StringComparison.Ordinal));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task SummaryNextPageCommandPreservesQueryAndReplacesOffset()
+    {
+        TestAnsiConsole.Profile.Width = 4096;
+        var directory = CreateCachedAnalysis(Enumerable.Range(0, 25).Select(index =>
+            new PerfCall("c" + index, "Operation" + index, "layout", 7, null, null,
+                "v" + index, null, 0, 10, 10, null, "complete", 10)));
+        try
+        {
+            var command = GetRequiredService<PerfCommand>();
+            var exit = await ParseAndInvokeWithCaptureAsync(command,
+                ["analyze", directory.FullName, "--view", "summary", "--thread", "7",
+                    "--from-ms", "0", "--to-ms", "20", "--sort", "count", "--limit", "10", "--offset", "10"]);
+            Assert.AreEqual(0, exit);
+            var output = TestAnsiConsole.Output;
+            Assert.Contains("Returned 10/25", output);
+            var next = output[output.IndexOf("Next page: winapp ", StringComparison.Ordinal)..]
+                .Replace("Next page: winapp ", "", StringComparison.Ordinal).Replace("\r", "").Replace("\n", "");
+            var parse = command.Parse(next["perf ".Length..]);
+            Assert.IsEmpty(parse.Errors);
+            Assert.AreEqual("summary", parse.GetValue(command.Subcommands.Single(c => c.Name == "analyze")
+                .Options.OfType<Option<string>>().Single(o => o.Name == "--view")));
+            var analyze = command.Subcommands.Single(c => c.Name == "analyze");
+            Assert.AreEqual(20, parse.GetValue(analyze.Options.OfType<Option<int>>().Single(o => o.Name == "--offset")));
+            Assert.AreEqual(10, parse.GetValue(analyze.Options.OfType<Option<int>>().Single(o => o.Name == "--limit")));
+            Assert.AreEqual(7u, parse.GetValue(analyze.Options.OfType<Option<uint?>>().Single(o => o.Name == "--thread")));
+            Assert.AreEqual(20d, parse.GetValue(analyze.Options.OfType<Option<double?>>().Single(o => o.Name == "--to-ms")));
+            Assert.AreEqual(0, await parse.InvokeAsync());
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("summary", false)]
+    [DataRow("calls", false)]
+    [DataRow("summary", true)]
+    public async Task PartialAnalysisExplainsReasonsWithoutDiscardingResults(string view, bool json)
+    {
+        var directory = CreateCachedAnalysis(
+            [
+                new("c1", "Layout", "layout", 1, null, null, "v1", "v2",
+                    0, 10, 10, null, "complete", 10),
+            ],
+            events: [new("v3", 20, 20, 1, PerfProviders.Xaml, 47, 0, 1, Guid.Empty,
+                "MeasureElement", "layout", "unknown", null, [], "unsupported timing payload")]);
+        var previous = Console.Error;
+        using var stderr = new StringWriter();
+        try
+        {
+            string[] args = ["analyze", directory.FullName, "--view", view, "--to-ms", "50"];
+            string error;
+            if (json)
+            {
+                var (stdout, jsonError, exit) = await InvokeProgramAsync(["perf", .. args, "--json"]);
+                Assert.AreEqual(1, exit);
+                using var result = JsonDocument.Parse(stdout);
+                Assert.IsTrue(result.RootElement.GetProperty("rows").GetArrayLength() > 0);
+                Assert.AreEqual(2, result.RootElement.GetProperty("coverage").GetProperty("reasons").GetArrayLength());
+                using var envelope = JsonDocument.Parse(jsonError);
+                Assert.AreEqual("partial_data", envelope.RootElement.GetProperty("code").GetString());
+                Assert.IsTrue(envelope.RootElement.GetProperty("partialOutput").GetBoolean());
+            }
+            else
+            {
+                Console.SetError(stderr);
+                var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(), args);
+                Assert.AreEqual(1, exit);
+                Assert.Contains("Returned", TestAnsiConsole.Output);
+                error = stderr.ToString();
+                Assert.Contains("Results may be incomplete:", error);
+                Assert.Contains("- The selected time range extends beyond the recording.", error);
+                Assert.Contains("- Some events in the selected time range could not be decoded", error);
+                Assert.IsFalse(error.Contains("coverage.reasons", StringComparison.Ordinal));
+                Assert.IsFalse(error.Contains("manifests", StringComparison.Ordinal));
+                Assert.IsFalse(TestAnsiConsole.Output.Contains("Coverage:", StringComparison.Ordinal));
+            }
+        }
+        finally
+        {
+            Console.SetError(previous);
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("summary")]
+    [DataRow("calls")]
+    [DataRow("call")]
+    public async Task AnalysisOmitsTextLimitationsButRetainsThemInJson(string view)
+    {
+        TestAnsiConsole.Profile.Width = 4096;
+        var directory = CreateCachedAnalysis(
+            [new("c1", "Layout", "layout", 1, null, null, "v1", "v2",
+                0, 10, 10, null, "complete", 10)]);
+        try
+        {
+            string[] args = ["analyze", directory.FullName, "--view", view];
+            if (view == "call")
+            {
+                args = [.. args, "--id", "c1"];
+            }
+            var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(), args);
+            Assert.AreEqual(0, exit);
+            var output = TestAnsiConsole.Output;
+            Assert.Contains("Returned", output);
+
+            var (stdout, stderr, code) = await InvokeProgramAsync(["perf", .. args, "--json"]);
+            Assert.AreEqual(0, code, stderr);
+            using var json = JsonDocument.Parse(stdout);
+            var limitations = json.RootElement.GetProperty("limitations");
+            Assert.AreEqual(9, limitations.GetArrayLength());
+            foreach (var limitation in limitations.EnumerateArray())
+            {
+                Assert.IsFalse(output.Contains(limitation.GetString()!, StringComparison.Ordinal));
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SummaryJsonRetainsEvidenceAndStatistics(bool includeResources)
+    {
+        var directory = CreateCachedAnalysis(
+            [new("c1", "Layout", "layout", 1, null, null, "v1", "v2",
+                0, 10, 10, null, "complete", 10)],
+            resources: includeResources ? new()
+            {
+                Samples = [new(0, 10, 20, new(10, 20, 3, 4)), new(40, 30, 40, new(30, 40, 4, 5))],
+            } : null);
+        try
+        {
+            var (stdout, stderr, code) = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--json"]);
+
+            Assert.AreEqual(0, code, stderr);
+            using var json = JsonDocument.Parse(stdout);
+            var row = json.RootElement.GetProperty("rows").EnumerateArray()
+                .Single(row => row.GetProperty("id").GetString() == "phase:Layout");
+            Assert.AreEqual("v1", row.GetProperty("evidence")[0].GetString());
+            Assert.AreEqual(1, row.GetProperty("count").GetInt32());
+            Assert.AreEqual(10d, row.GetProperty("meanMs").GetDouble());
+            Assert.AreEqual(10d, row.GetProperty("maxMs").GetDouble());
+            Assert.AreEqual(10d, row.GetProperty("p95Ms").GetDouble());
+            Assert.AreEqual(includeResources ? "observed" : "not-recorded", json.RootElement.GetProperty("processResources")
+                .GetProperty("availability").GetString());
+            if (includeResources)
+            {
+                Assert.AreEqual(40, json.RootElement.GetProperty("processResources").GetProperty("totalCpuMs").GetDouble());
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("pid")]
+    [DataRow("name")]
+    [DataRow("partial")]
+    [DataRow("title")]
+    public async Task PerfStartResolvesAppBeforePreparingCapture(string kind)
+    {
+        using var process = Process.GetCurrentProcess();
+        var info = new UiProcessInfo(process.Id, "WinUIBenchmarkApp", 42, "WinUI Performance Lab");
+        systemQuery.ProcessesById[process.Id] = info;
+        var selector = kind switch
+        {
+            "pid" => process.Id.ToString(),
+            "name" => info.ProcessName,
+            "partial" => "Benchmark",
+            _ => info.MainWindowTitle!,
+        };
+        if (kind == "name") { systemQuery.ByNameResult = [info]; }
+        if (kind == "partial") { systemQuery.MatchingResult = [info]; }
+        if (kind == "title") { uiAutomation.WindowsByTitleResult = [((nint)42, process.Id, selector)]; }
+
+        // A nonempty output proves resolution reached preparation without launching a worker.
+        var output = _tempDirectory.CreateSubdirectory("capture");
+        File.WriteAllText(Path.Join(output.FullName, "keep.txt"), "keep");
+        var (code, error) = await InvokePerfStartErrorAsync(selector, output.FullName);
+        Assert.AreEqual(1, code);
+        Assert.Contains("The capture output directory must be empty.", error);
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "capture.json")));
+    }
+
+    [TestMethod]
+    [DataRow("pid", false)]
+    [DataRow("name", false)]
+    [DataRow("pid", true)]
+    [DataRow("name", true)]
+    public async Task PerfStartHostedAppKeepsAppProcess(string kind, bool minimized)
+    {
+        using var process = Process.GetCurrentProcess();
+        var info = new UiProcessInfo(process.Id, "Microsoft.Media.Player", 0, "");
+        systemQuery.ProcessesById[process.Id] = info;
+        systemQuery.ByNameResult = [info];
+        systemQuery.HostedFramesByPid[process.Id] = [42];
+        systemQuery.ProcessIdByHwnd[42] = int.MaxValue;
+        systemQuery.WindowTextByHwnd[42] = "Media Player";
+        systemQuery.ProcessesById[int.MaxValue] = new UiProcessInfo(int.MaxValue, "ApplicationFrameHost", 42, "Media Player");
+        if (minimized)
+        {
+            uiAutomation.WindowsByPidResult = [((nint)43, process.Id, "Media Player")];
+            systemQuery.WindowClassNameByHwnd[43] = "Windows.UI.Core.CoreWindow";
+        }
+
+        // Only the app PID exists: remapping to the fake host fails before capture preparation.
+        var output = _tempDirectory.CreateSubdirectory("capture");
+        File.WriteAllText(Path.Join(output.FullName, "keep.txt"), "keep");
+        var selector = kind == "pid" ? process.Id.ToString() : info.ProcessName;
+        var (code, error) = await InvokePerfStartErrorAsync(selector, output.FullName);
+
+        Assert.AreEqual(1, code);
+        Assert.Contains("The capture output directory must be empty.", error);
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "capture.json")));
+    }
+
+    [TestMethod]
+    public async Task PerfStartMissingAppReturnsStructuredErrorWithoutCreatingCapture()
+    {
+        var output = Path.Join(_tempDirectory.FullName, "capture");
+        var (code, error) = await InvokePerfStartErrorAsync("MissingApp", output);
+        Assert.AreEqual(1, code);
+        Assert.Contains("No running app found matching 'MissingApp'.", error);
+        Assert.IsFalse(Directory.Exists(output));
+    }
+
+    [TestMethod]
+    public async Task PerfStartAmbiguousAppPreservesResolverGuidanceWithoutCreatingCapture()
+    {
+        systemQuery.ByNameResult =
+        [
+            new UiProcessInfo(101, "MyApp", 1, "First"),
+            new UiProcessInfo(102, "MyApp", 2, "Second"),
+        ];
+        var output = Path.Join(_tempDirectory.FullName, "capture");
+        var (code, error) = await InvokePerfStartErrorAsync("MyApp", output);
+        Assert.AreEqual(1, code);
+        Assert.Contains("PID 101", error);
+        Assert.Contains("PID 102", error);
+        Assert.Contains("Use --app with a PID or a more specific window title.", error);
+        Assert.IsFalse(Directory.Exists(output));
+    }
+
+    private async Task<(int ExitCode, string Message)> InvokePerfStartErrorAsync(string app, string output)
+    {
+        var previous = Console.Error;
+        using var stderr = new StringWriter();
+        Console.SetError(stderr);
+        try
+        {
+            var code = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
+                ["start", "--app", app, "--output", output, "--json"]);
+            using var error = JsonDocument.Parse(stderr.ToString());
+            Assert.AreEqual("performance_error", error.RootElement.GetProperty("code").GetString());
+            return (code, error.RootElement.GetProperty("message").GetString()!);
+        }
+        finally
+        {
+            Console.SetError(previous);
+        }
+    }
+
+    [TestMethod]
+    public async Task InvalidProfileValueKeepsTheRunJsonEnvelope()
+    {
+        var (stdout, stderr, code) = await InvokeProgramAsync(["run", ".", "--profile", "unused", "--profile-duration-sec", "nope", "--json"]);
+        Assert.AreEqual(1, code);
+        Assert.AreEqual("", stderr);
+        using var error = JsonDocument.Parse(stdout);
+        Assert.IsTrue(error.RootElement.TryGetProperty("Error", out _));
+    }
+
+    [TestMethod]
+    public async Task UnknownProfileModeIsRejected()
+    {
+        var (stdout, _, code) = await InvokeProgramAsync(["run", ".", "--profile", "unused", "--profile-mode", "kernel", "--json"]);
+        Assert.AreEqual(1, code);
+        using var error = JsonDocument.Parse(stdout);
+        Assert.Contains("kernel", error.RootElement.GetProperty("Error").GetString()!);
+    }
+
+    [TestMethod]
+    [DataRow("--profile-duration-sec", "2")]
+    [DataRow("--profile-max-size-mib", "2")]
+    [DataRow("--profile-mode", "elevated")]
+    public async Task ProfileSettingsWithoutProfileAreRejected(string option, string value)
+    {
+        var command = GetRequiredService<RunCommand>();
+        var exit = await ParseAndInvokeWithCaptureAsync(command, [".", option, value, "--json"]);
+        Assert.AreEqual(1, exit);
+        using var error = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.Contains("require --profile", error.RootElement.GetProperty("Error").GetString()!);
+    }
+
+    [TestMethod]
+    [DataRow("elements")]
+    [DataRow("summary")]
+    public async Task ConsoleRendererIncludesBoundaryOverlapTotals(string view)
+    {
+        var directory = CreateCachedAnalysis(
+            [new("c1", "MeasureElement", "layout", 1, "e1", null, "v1", "v2",
+                0, 40, 40, 40, "complete", 40)],
+            elements: [new() { Id = "e1", ObjectId = "a", Type = "Panel" }]);
+        try
+        {
+            var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
+                ["analyze", directory.FullName, "--view", view, "--from-ms", "5", "--to-ms", "35"]);
+
+            Assert.AreEqual(0, exitCode);
+            Assert.Contains("boundary", TestAnsiConsole.Output);
+            Assert.Contains("30.000", TestAnsiConsole.Output);
+            if (view == "elements")
+            {
+                foreach (var detail in new[] { "evidence:", "count=", "mean=", "max=", "p95=" })
+                {
+                    Assert.Contains(detail, TestAnsiConsole.Output);
+                }
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ConsoleRendererIncludesEventTimestampPhaseAndFields()
+    {
+        var e = new PerfEvent("v1", 10, 10, 1, PerfProviders.Xaml, 47, 0, 1, Guid.Empty,
+            "MeasureElement", "layout", "begin", "a", new() { ["Width"] = "42" });
+        var directory = CreateCachedAnalysis([], events: [e]);
+        try
+        {
+            var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
+                ["analyze", directory.FullName, "--view", "events", "--event", "v1"]);
+
+            Assert.AreEqual(0, exitCode);
+            Assert.Contains("10.000", TestAnsiConsole.Output);
+            Assert.Contains("begin", TestAnsiConsole.Output);
+            Assert.Contains("Width=42", TestAnsiConsole.Output);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PerformanceSkillStartsWithMarkerBoundedSummary()
+    {
+        var source = await ReadRepositoryFileAsync(
+            "plugins", "winapp", "skills", "winapp-performance", "SKILL.md");
+        var initialQuery = source.Split('\n').Single(line =>
+            line.Contains("winapp perf analyze <directory> --from-marker scenario-start"));
+
+        Assert.Contains("--from-marker", initialQuery);
+        Assert.Contains("--to-marker", initialQuery);
+        Assert.IsFalse(initialQuery.Contains("--view", StringComparison.Ordinal));
+    }
+
+    private static async Task<string> ReadRepositoryFileAsync(params string[] path)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Join(directory.FullName, "version.json")))
+        {
+            directory = directory.Parent;
+        }
+        Assert.IsNotNull(directory, "Could not locate the repository root.");
+        return await File.ReadAllTextAsync(Path.Join([directory.FullName, .. path]), CancellationToken.None);
+    }
+
+    private static DirectoryInfo CreateCachedAnalysis(
+        IEnumerable<PerfCall> calls,
+        IEnumerable<PerfEvent>? events = null,
+        IEnumerable<PerfElement>? elements = null,
+        PerfProcessResources? resources = null,
+        PerfProviderState? compositionState = null)
+    {
+        var directory = Directory.CreateTempSubdirectory("WinApp-Perf-Console-");
+        File.WriteAllBytes(Path.Join(directory.FullName, "trace.etl"), []);
+        using var process = Process.GetCurrentProcess();
+        var capture = new PerfCaptureDocument
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Directory = directory.FullName,
+            SessionId = Guid.NewGuid(),
+            SessionName = "WinApp-Perf-Test",
+            State = "completed",
+            Target = PerfProcessIdentity.Read(process),
+            ReadyQpc = 0,
+            StopQpc = 40,
+            Frequency = 1000,
+            ProcessResources = resources,
+            EventsLost = 0,
+            BuffersLost = 0,
+            TraceFiles = ["trace.etl"],
+            Providers = PerfProviders.All.Where(provider => provider.Id == PerfProviders.Xaml ||
+                compositionState is not null && provider.Id == PerfProviders.DirectComposition).ToArray(),
+            ProviderStates = compositionState is null ? [] : [compositionState],
+        };
+        capture.Save();
+
+        var cache = directory.CreateSubdirectory("analysis");
+        Write(cache, "calls.ndjson", calls, PerfJsonContext.Default.PerfCall);
+        Write(cache, "events.ndjson", events ?? [], PerfJsonContext.Default.PerfEvent);
+        Write(cache, "elements.ndjson", elements ?? [], PerfJsonContext.Default.PerfElement);
+        Write(cache, "gc.ndjson", [], PerfJsonContext.Default.PerfGcInterval);
+
+        var fingerprintMethod = typeof(PerfAnalysisStore).GetMethod(
+            "Fingerprint", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var fingerprint = (string)fingerprintMethod.Invoke(
+            null, [PerfCaptureDocument.Load(directory.FullName), CancellationToken.None])!;
+        var manifest = new PerfAnalysisManifest
+        {
+            Fingerprint = fingerprint,
+            FirstEventMs = 0,
+            LastEventMs = 40,
+            Events = events?.Count() ?? 0,
+            Calls = calls.Count(),
+            Elements = elements?.Count() ?? 0,
+            Families = new() { ["layout"] = 1 },
+        };
+        foreach (var file in new[] { "events.ndjson", "calls.ndjson", "elements.ndjson", "gc.ndjson" })
+        {
+            manifest.CacheHashes[file] = Convert.ToHexString(
+                SHA256.HashData(File.ReadAllBytes(Path.Join(cache.FullName, file))));
+        }
+        File.WriteAllText(Path.Join(cache.FullName, "manifest.json"),
+            JsonSerializer.Serialize(manifest, PerfJsonContext.Default.PerfAnalysisManifest));
+        return directory;
+    }
+
+    private static void Write<T>(DirectoryInfo directory, string name, IEnumerable<T> values, JsonTypeInfo<T> type) =>
+        File.WriteAllLines(Path.Join(directory.FullName, name),
+            values.Select(value => JsonSerializer.Serialize(value, type)));
+}

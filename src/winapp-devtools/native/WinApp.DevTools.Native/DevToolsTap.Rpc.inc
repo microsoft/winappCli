@@ -2,6 +2,18 @@
 // Licensed under the MIT License.
 // Part of DevToolsTap.cpp; included into that translation unit, not compiled on its own.
 
+// When the app's executable was last written, so a source file newer than the build can be told apart.
+static unsigned long long ExecutableBuildTime()
+{
+    wchar_t exe[MAX_PATH] = L"";
+    WIN32_FILE_ATTRIBUTE_DATA fad{};
+    if (!GetModuleFileNameW(nullptr, exe, _countof(exe)) || !GetFileAttributesExW(exe, GetFileExInfoStandard, &fad)) return 0;
+    ULARGE_INTEGER li{};
+    li.LowPart = fad.ftLastWriteTime.dwLowDateTime;
+    li.HighPart = fad.ftLastWriteTime.dwHighDateTime;
+    return li.QuadPart > 116444736000000000ULL ? (li.QuadPart - 116444736000000000ULL) / 10000000ULL : 0;
+}
+
 // Parts of one comment push, keyed by the batch the CLI names, so pushes from two CLIs cannot mix. Bounded in batches
 // and in size: a part that is out of order, or a set past the limit, drops its batch.
 struct TapCommentPushStage { std::wstring batch; long long next = 0, parts = 0; std::wstring data; };
@@ -234,6 +246,50 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                            L"not-on-dispatcher", L"\"hresult\":\"" + HrStr(postHr) + L"\"");
     }
 
+    if (m == L"Inspector.registerExternal" || m == L"Inspector.unregisterExternal") {
+        // Unlike ordinary owned mutations on short request pipes, presentation belongs to the requesting
+        // persistent connection itself: it must be able to receive its own openRequested notifications.
+        if (ownerConn == 0 || ownerConn != DevToolsEvents_ConnId(conn))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                L"owner must be the token negotiated on this connection", L"owner-connection-mismatch");
+        const std::wstring displayName = p.GetString(L"displayName");
+        if (m == L"Inspector.registerExternal" &&
+            (displayName.empty() || displayName.size() > 128 || displayName.find_first_not_of(L" \t\r\n") == std::wstring::npos))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                L"displayName must contain 1 to 128 characters and cannot be blank", L"bad-args");
+        auto operation = [m, id, ownerConn, displayName]() {
+            if (!DevToolsEvents_IsOwnerLive(ownerConn))
+                return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                    L"owner does not name a live negotiated connection", L"unknown-owner");
+            const unsigned long long current = ExternalInspectorOwner_ui();
+            if (current && current != ownerConn)
+                return DevToolsRpcError(id, DevToolsErr::CapabilityUnsupported,
+                    L"Inspector presentation is already owned by " + g_externalInspectorName, L"inspector-owned");
+            if (m == L"Inspector.unregisterExternal") {
+                if (g_externalInspectorOwner == ownerConn) ClearExternalInspector_ui();
+                return DevToolsRpcResult(id, L"null");
+            }
+            const bool nativeOpen = DevToolsWindow_IsOpen();
+            g_ownedState.Reconcile(DevToolsStateAxis::Window, nativeOpen ? 1ull : 0ull);
+            // Do not close a window containing drafts, or inherit a Window.close owner's pending restore-to-open.
+            if (nativeOpen || g_ownedState.Owner(DevToolsStateAxis::Window) != 0)
+                return DevToolsRpcError(id, DevToolsErr::CapabilityUnsupported,
+                    L"Close the native inspector and release its owned window state before registering an external inspector",
+                    L"native-inspector-active");
+            g_externalInspectorName = displayName;
+            g_externalInspectorOwner = ownerConn;
+            return DevToolsRpcResult(id, L"null");
+        };
+        HRESULT postHr = PostRpcToUi(conn, id, [operation = std::move(operation), respond = req.hasId]() {
+            std::wstring response = operation();
+            return respond ? response : std::wstring();
+        });
+        if (SUCCEEDED(postHr)) return {};
+        return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher,
+            L"could not enqueue inspector registration", L"not-on-dispatcher",
+            L"\"hresult\":\"" + HrStr(postHr) + L"\"");
+    }
+
     if (m == L"VisualTree.query" || m == L"Property.setQuery")
         return HandleQuery(id, p, m == L"Property.setQuery");
     if (m == L"VisualTree.enumerate") {
@@ -327,7 +383,13 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
     if (m == L"Overlay.hide")
         return BridgeOk(id, L"overlay.hide", L"null", eventOrigin, ownerConn);
     if (m == L"Overlay.highlight") {
-        return BridgeOk(id, L"highlight|" + p.GetString(L"handle", L"0"),
+        unsigned long long wire = 0;
+        if (!DevToolsParseWireHandle(p.GetString(L"handle", L"0"), true, &wire) ||
+            (p.HasKey(L"handle") && p.Find(L"handle")->type != DevToolsJsonType::String &&
+                p.Find(L"handle")->type != DevToolsJsonType::Number))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"handle must be a canonical decimal wire handle (\"0\" clears highlight)", L"bad-args");
+        return BridgeOk(id, L"highlight|" + std::to_wstring(wire),
                         L"null", eventOrigin, ownerConn);
     }
     if (m == L"Overlay.layout") {
@@ -368,6 +430,11 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             HRESULT hr = S_OK;
             std::wstring errorMessage;
             if (m == L"Window.open") {
+                if (ExternalInspectorOwner_ui()) {
+                    if (!respond) return std::wstring();
+                    return DevToolsRpcError(id, DevToolsErr::CapabilityUnsupported,
+                        L"Unregister the external inspector before opening the native inspector", L"inspector-external");
+                }
                 // A protocol client may open the window from a headless attach, so initialize that substrate on this
                 // same UI turn before the window is reported live. The helper is idempotent, never waits on the pipe,
                 // and attributes the rail the build turns on to this validated session rather than to nobody.
@@ -453,8 +520,15 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         std::wstring handle = p.GetString(L"handle");
         std::wstring prop   = p.GetString(L"prop");
         std::wstring value  = p.GetString(L"value");
+        unsigned long long targetWire = 0;
+        if (p.HasKey(L"handle") && !DevToolsParseWireHandle(handle, false, &targetWire))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"handle must be a canonical non-zero decimal string", L"bad-args");
         if (handle.empty() && name.empty())
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"either handle or name is required", L"bad-args");
+        // The bridge line is '|'-delimited and only the trailing value may contain '|'.
+        if (HasBridgeDelimiter(name) || HasBridgeDelimiter(prop) || HasBridgeDelimiter(p.GetString(L"type")))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"name, prop and type cannot contain '|'", L"bad-args");
         std::wstring target = handle.empty() ? name : (L"#" + handle);
         std::wstring line = L"hotreload.setprop|" + target + L"|" +
                             BridgeEscape(prop) + L"|" + BridgeEscape(p.GetString(L"type")) +
@@ -471,8 +545,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                 // Echo the caller's handle back only if it still resolves, so the event never carries a
                 // handle that has already gone stale.
                 InstanceHandle ih = 0; const wchar_t* e = nullptr;
-                unsigned long long w = wcstoull(handle.c_str(), nullptr, 10);
-                if (ResolveWire_nolock(w, &ih, &e)) { wire = w; if (name.empty()) name = NameOf_nolock(ih); }
+                if (ResolveWire_nolock(targetWire, &ih, &e)) { wire = targetWire; if (name.empty()) name = NameOf_nolock(ih); }
             } else {
                 auto it = g_byName.find(name);
                 if (it != g_byName.end()) wire = PackWire_nolock(it->second);
@@ -494,10 +567,16 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         std::wstring name   = p.GetString(L"name");
         std::wstring handle = p.GetString(L"handle");
         std::wstring prop   = p.GetString(L"prop");
+        unsigned long long targetWire = 0;
+        if (p.HasKey(L"handle") && !DevToolsParseWireHandle(handle, false, &targetWire))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"handle must be a canonical non-zero decimal string", L"bad-args");
         if (handle.empty() && name.empty())
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"either handle or name is required", L"bad-args");
         if (prop.empty())
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"prop is required", L"bad-args");
+        if (HasBridgeDelimiter(name) || HasBridgeDelimiter(prop))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"name and prop cannot contain '|'", L"bad-args");
         std::wstring target = handle.empty() ? name : (L"#" + handle);
         std::wstring reply = HandleCommand(L"hotreload.clearprop|" + target + L"|" + BridgeEscape(prop));
         if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);
@@ -510,8 +589,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             AcquireSRWLockShared(&g_censusLock);
             if (!handle.empty()) {
                 InstanceHandle ih = 0; const wchar_t* e = nullptr;
-                unsigned long long w = wcstoull(handle.c_str(), nullptr, 10);
-                if (ResolveWire_nolock(w, &ih, &e)) { wire = w; if (name.empty()) name = NameOf_nolock(ih); }
+                if (ResolveWire_nolock(targetWire, &ih, &e)) { wire = targetWire; if (name.empty()) name = NameOf_nolock(ih); }
             } else {
                 auto it = g_byName.find(name);
                 if (it != g_byName.end()) wire = PackWire_nolock(it->second);
@@ -646,6 +724,13 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                            L",\"y\":" + b[1] + L",\"w\":" + b[2] + L",\"h\":" + b[3] + L"}}";
         return DevToolsRpcResult(id, out);
     }
+    if (m == L"Internal.hideChrome") {
+        // `winapp ui screenshot` hides the chrome around its capture, so the image shows the app alone.
+        const bool hidden = p.GetBool(L"hidden", false);
+        const HRESULT hr = RunOnUiThread([hidden]() { return DevToolsOverlay_HideChromeForCapture(hidden); });
+        if (FAILED(hr)) return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher, L"The app's UI thread did not answer.", L"ui-thread");
+        return DevToolsRpcResult(id, L"null");
+    }
     if (m == L"Internal.overlayHost") {
         // Tests only: {"force":"popup"} places chrome built from now on in the fallback Popup host.
         const std::wstring force = p.GetString(L"force");
@@ -662,7 +747,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
     }
     if (m == L"Internal.sourceRoot") {
         // The CLI asks the APP where its sources are rather than guessing from its own cwd, so the comment store the
-        // overlay writes through and the one the CLI pushes back are the same file — `winapp run samples/foo` from a
+        // overlay writes through and the one the CLI pushes back are the same file: `winapp run samples/foo` from a
         // repo root would otherwise read a different.winapp than the in-app comment writer wrote to.
         wchar_t root[1024]{};
         DWORD n = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", root, (DWORD)_countof(root));
@@ -673,6 +758,29 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         std::wstring commentRoot = (n > 0 && n < _countof(comments)) ? std::wstring(comments, n) : std::wstring();
         return DevToolsRpcResult(id, L"{\"sourceRoot\":\"" + DevToolsJsonEscape(value) + L"\"" +
             (commentRoot.empty() ? L"" : L",\"commentRoot\":\"" + DevToolsJsonEscape(commentRoot) + L"\"") + L"}");
+    }
+    if (m == L"Internal.setSourceRoot") {
+        // An app DevTools attached to after launch has no project folder, so in-app comments have nowhere to go.
+        // `devtools attach --source-root` gives it one. A root the launch already set is kept: it also carries the
+        // build's source coordinates.
+        const std::wstring requested = p.GetString(L"path");
+        const DWORD attributes = requested.empty() ? INVALID_FILE_ATTRIBUTES : GetFileAttributesW(requested.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"The source root is not a folder: " + requested, L"bad-args");
+        wchar_t current[1024]{};
+        const DWORD n = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", current, (DWORD)_countof(current));
+        if (n > 0 && n < _countof(current) && _wcsicmp(current, requested.c_str()) != 0)
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                L"This app already uses the project folder " + std::wstring(current) + L".", L"source-root-set");
+        if (n == 0) {
+            const HRESULT hr = RunOnUiThread([requested]() -> HRESULT {
+                if (!SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", requested.c_str())) return HRESULT_FROM_WIN32(GetLastError());
+                DevToolsAuthored_Init(requested, ExecutableBuildTime());
+                return S_OK;
+            });
+            if (FAILED(hr)) return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher, L"The app's UI thread did not answer.", L"ui-thread");
+        }
+        return DevToolsRpcResult(id, L"null");
     }
     if (m == L"Internal.elementAnchor") {
         // hand the CLI the SAME rebuild-stable anchor the pin re-anchoring uses, so a comment it is about

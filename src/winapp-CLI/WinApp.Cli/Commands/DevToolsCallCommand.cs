@@ -10,7 +10,7 @@ using WinApp.Cli.Services.DevTools;
 namespace WinApp.Cli.Commands;
 
 /// <summary>
-/// <c>winapp devtools call &lt;Domain.method&gt; [name=value ...]</c> — the advanced escape hatch: invoke any
+/// <c>winapp devtools call &lt;Domain.method&gt; [name=value ...]</c> is the advanced escape hatch: invoke any
 /// method the app's own <c>DevTools.negotiate</c> advertises.
 /// <para>
 /// This exists so a protocol capability is usable the day it lands, without waiting for a curated command. The
@@ -19,8 +19,8 @@ namespace WinApp.Cli.Commands;
 /// </para>
 /// <para>
 /// The accepted set is exactly what the target app advertises. <c>Internal.*</c> verbs are compiled into the
-/// same registry so the access gate covers them, but they are deliberately not advertised — they are CLI
-/// back-channels, not protocol surface — so this command rejects them by name before anything reaches the wire.
+/// same registry so the access gate covers them, but they are deliberately not advertised (they are CLI
+/// back-channels, not protocol surface), so this command rejects them by name before anything reaches the wire.
 /// </para>
 /// </summary>
 internal class DevToolsCallCommand : DevToolsLiveCommand, IHelpExamples

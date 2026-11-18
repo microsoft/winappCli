@@ -21,7 +21,7 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
 
     // Cold-start injection retry: on a first launch after a rebuild the app's main window handle can
     // appear before its XAML visual tree, so InitializeXamlDiagnosticsEx returns ERROR_NOT_FOUND. That is
-    // transient — a warm retry (and attach --pid against the same live process) succeeds. Retry ONLY that
+    // transient: a warm retry (and attach --pid against the same live process) succeeds. Retry ONLY that
     // HRESULT, while the target is alive, for ~10s (interval * (attempts - 1)): enough to cover packaged
     // identity registration + JIT on a cold app, while a non-WinUI target still fails fast (it returns a
     // different, terminal HRESULT on the first attempt, which is not retried).
@@ -79,7 +79,7 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
         }
 
         // 3. Locate the framework UDK that exports InitializeXamlDiagnosticsEx (from the target's own
-        //    loaded modules where possible — see FrameworkUdkLocator).
+        //    loaded modules where possible; see FrameworkUdkLocator).
         string? udkPath;
         try
         {
@@ -99,7 +99,7 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
 
         // 4. Inject (pure Win32, MTA thread, no Windows App SDK bootstrap), retrying the cold-start race:
         //    on a fresh launch the app's window handle can appear before its XAML visual tree exists, so the
-        //    first InitializeXamlDiagnosticsEx returns ERROR_NOT_FOUND. Retry that — and only that — while the
+        //    first InitializeXamlDiagnosticsEx returns ERROR_NOT_FOUND. Retry only that, while the
         //    target is alive, so the first --devtools on a cold app succeeds where today it fails on attempt one.
         InjectionOutcome outcome;
         try
@@ -146,7 +146,7 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
         }
 
         // Injection bound. If it took more than one attempt we lost the cold-start race and the retry
-        // recovered it — surface how much of the budget that consumed at Information level (the warm,
+        // recovered it, so surface how much of the budget that consumed at Information level (the warm,
         // single-attempt path stays quiet). This is the number that says whether the budget is generous
         // or tight: a success on attempt 18 of 21 is a pass on this machine but a fail waiting for a
         // slower one, so it is worth seeing without --verbose.
@@ -246,7 +246,7 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
         // 7. Interactive only: hand the app the comments already in its store, so the toolbar's count and its
         //    markers describe THIS APP's comments rather than only the ones typed since this attach. The
         //    overlay places what it can by anchor; comments whose element isn't realized right now still count.
-        //    Best-effort — an app with no store, or one whose comments no longer anchor, is not an error.
+        //    Best-effort: an app with no store, or one whose comments no longer anchor, is not an error.
         if (showOverlay && (!hasGuestComments || guestComments is { Process: not null, HostCommentsUnavailable: false }))
         {
             var pushed = commentPusher.Push(targetPid, CommentStoreRootFor(target), cancellationToken: cancellationToken);
@@ -314,7 +314,7 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
     /// Where to look for the comment store when the app itself can't say (it wasn't launched by
     /// <c>winapp run</c>, so it carries no <c>WINAPP_DEVTOOLS_SOURCE_ROOT</c>): the app's own executable
     /// directory. The store lookup walks UP from here, so a build output under <c>&lt;project&gt;\bin\...</c>
-    /// finds <c>&lt;project&gt;\.winapp</c> — which is the store the developer means, and not necessarily the
+    /// finds <c>&lt;project&gt;\.winapp</c>, which is the store the developer means, and not necessarily the
     /// one under whatever directory winapp happens to have been invoked from. Falls back to that cwd when the
     /// app's path can't be read (a protected process, or one that exited under us).
     /// </summary>
@@ -331,7 +331,7 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
         {
-            // Fall through to the cwd — an unreadable module list is not a reason to skip the push.
+            // Fall through to the cwd: an unreadable module list is not a reason to skip the push.
         }
 
         return Environment.CurrentDirectory;

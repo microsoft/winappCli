@@ -11,9 +11,29 @@ using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
-internal class InitCommand : Command, IShortDescription
+internal class InitCommand : Command, IShortDescription, ICompactHelpCommand
 {
-    public string ShortDescription => "Initialize existing project with manifest and/or SDK packages";
+    public string ShortDescription => "Add a manifest and SDK packages to a project";
+
+    string? ICompactHelpCommand.Usage => "winapp init [<base-directory>] [options]";
+
+    IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Examples { get; } =
+    [
+        ("winapp init", "set up the project in this folder"),
+        ("winapp init . --use-defaults", "no prompts (scripts, agents)"),
+        ("winapp init --setup-sdks none", "manifest only; bring your own SDK"),
+        ("winapp init --exe .\\MyApp.exe --sparse", "identity for an existing exe"),
+        ("winapp run <project|folder>", "then launch with package identity"),
+        ("winapp create-debug-identity <exe>", "or add identity to an exe you launch yourself"),
+        ("npx winapp node add-electron-debug-identity", "the same, for Electron"),
+        ("winapp restore", "teammates run this after cloning"),
+    ];
+
+    IReadOnlyList<(string Heading, Option[] Options)> ICompactHelpCommand.OptionGroups =>
+    [
+        ("Setup", [SetupSdksOption, UseDefaults, ConfigDirOption, IgnoreConfigOption, ConfigOnlyOption, NoGitignoreOption]),
+        ("Sparse identity (--exe with --sparse)", [ExeOption, SparseOption, NameOption, PublisherOption, OutputDirOption, ForceOption]),
+    ];
 
     public static Argument<DirectoryInfo> BaseDirectoryArgument { get; }
     public static Option<DirectoryInfo> ConfigDirOption { get; }
@@ -39,6 +59,7 @@ internal class InitCommand : Command, IShortDescription
         BaseDirectoryArgument.AcceptExistingOnly();
         ConfigDirOption = new Option<DirectoryInfo>("--config-dir")
         {
+            HelpName = "dir",
             Description = "Directory to read/store configuration (default: the selected project directory, or current directory if no project is detected)"
         };
         ConfigDirOption.AcceptExistingOnly();
@@ -65,6 +86,7 @@ internal class InitCommand : Command, IShortDescription
         };
         ExeOption = new Option<FileInfo>("--exe")
         {
+            HelpName = "path",
             Description = "Path to the application executable. Requires --sparse. Generates an identity-only sparse manifest for the exe instead of a full package/SDK setup."
         };
         ExeOption.AcceptExistingOnly();
@@ -82,6 +104,7 @@ internal class InitCommand : Command, IShortDescription
         };
         OutputDirOption = new Option<DirectoryInfo>("--output-dir")
         {
+            HelpName = "dir",
             Description = "Directory to write the sparse manifest and Assets/ (sparse only; default: a 'sparse/' folder in the current directory)"
         };
         ForceOption = new Option<bool>("--force")
@@ -90,7 +113,7 @@ internal class InitCommand : Command, IShortDescription
         };
     }
 
-    public InitCommand() : base("init", "Start here for initializing a Windows app with required setup. Sets up everything needed for Windows app development: creates Package.appxmanifest with default assets, downloads Windows SDK and Windows App SDK packages, and generates projections. When SDK packages are managed (--setup-sdks stable/preview/experimental), also creates winapp.yaml to pin versions for 'restore'/'update'; with --setup-sdks none (e.g., for Rust/Tauri projects that bring their own SDK bindings), no winapp.yaml is created. Interactive by default; automatically uses defaults in non-interactive environments (use --use-defaults to skip prompts explicitly). Use 'restore' instead if you cloned a repo that already has winapp.yaml. Use 'manifest generate' if you only need a manifest, or 'cert generate' if you need a development certificate for code signing.")
+    public InitCommand() : base("init", "Sets up an existing project for Windows app development: creates Package.appxmanifest with default assets, downloads the Windows SDK and Windows App SDK, and generates projections. With managed SDKs (the default), non-.NET projects also get winapp.yaml to pin versions for 'restore' and 'update'; .NET projects get PackageReferences in the .csproj instead. --setup-sdks none (for projects that bring their own SDK bindings, such as Rust or Tauri) creates no winapp.yaml. Asks questions unless --use-defaults is set or the terminal isn't interactive. Cloned a repo that already has winapp.yaml? Run 'winapp restore' instead. Only need a manifest? Run 'winapp manifest generate'.")
     {
         Arguments.Add(BaseDirectoryArgument);
         Options.Add(ConfigDirOption);

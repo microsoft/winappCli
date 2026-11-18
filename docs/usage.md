@@ -105,6 +105,7 @@ Generates an identity-only [sparse package](guides/sparse.md) manifest for an ex
 - Uses `--use-defaults`/`--no-prompt` to skip the interactive override prompts (CI-friendly)
 - `--exe` without `--sparse` is an error
 
+> [!IMPORTANT]
 > **Assets are external.** The sparse `.msix` is identity-only: the generated `Assets/` are resolved from the app's install directory (the external content location) at runtime, **not** bundled into the `.msix`. Deploy them alongside your application.
 
 Next steps after `winapp init --exe <exe> --sparse`: [`winapp pack <appxmanifest.xml>`](#pack) to build the identity `.msix`, then [`winapp embed-identity <exe>`](#embed-identity). See the [Sparse Packaging Guide](guides/sparse.md) for the full walkthrough.
@@ -179,6 +180,7 @@ The pack ships two styles of WinUI app. **XAML** templates define the UI in mark
 | `reactor-navview` | **Experimental.** Reactor NavigationView starter app |
 | `reactor-tabview` | **Experimental.** Reactor TabView starter app |
 
+> [!WARNING]
 > **Reactor templates are experimental.** They reference the prerelease `Microsoft.UI.Reactor` packages, whose APIs can change or be removed in a future release. `winapp new` marks them **(Experimental)** in `--list` and in the interactive picker, sets `"Experimental": true` in `--json`, and prints a warning after scaffolding one. They are never chosen as the default template. Reactor also requires the **.NET 10 SDK or newer**; on an older SDK `winapp new` fails up front with the version it needs rather than scaffolding a project you can't build.
 
 Each template's canonical short name is the first alias `dotnet new` lists for it; any listed alias (e.g. `winui3`, `wasdk-single`, `winui-reactor`) is also accepted. If another installed template pack registers the same short name (for example, `reactor` from `Microsoft.UI.Reactor.Templates`), `winapp new` still creates the WinUI pack's template by using one of its other aliases. If another pack registers every alias the template has, `winapp new` stops and names that pack. Remove it with `dotnet new uninstall <package>` and re-run. When run inside an existing WinUI project, `dotnet new` also surfaces **item** templates (e.g. a blank page), which `winapp new` adds into the current project rather than creating a new one.
@@ -187,6 +189,8 @@ Each template's canonical short name is the first alias `dotnet new` lists for i
 
 `winapp new` no longer pins a specific template pack version. If no pack is installed it installs the **latest**. If an older pack is already installed it checks the feed and, when a newer one exists, **prompts** whether to update — except in non-interactive/`--use-defaults` runs, which keep the installed pack. Use `--template-version latest` to always take the newest without prompting (it never replaces an installed pack with an older one, and fails if the feed can't be checked), or `--template-version installed` to always use the downloaded pack without a network check. Passing an **explicit** version (e.g. `--template-version 1.2.3`) always installs exactly that version — reinstalling even when a newer pack is already present — so scaffolding is reproducible across machines.
 
+`dotnet new` can hold two copies of the pack at once, for example one from NuGet and one installed from a local `.nupkg`. `winapp new` still creates the project and warns that several copies are installed. If you pass `--template-version` and `dotnet new` would take the template from a different copy, `winapp new` stops instead. In either case, run `dotnet new uninstall Microsoft.WindowsAppSDK.WinUI.CSharp.Templates` (it removes every copy) and re-run `winapp new`.
+> [!NOTE]
 > **A first run may take longer:** Installing or updating the template pack, or restoring missing Windows App SDK NuGet packages used by the selected template, can require additional downloads. This can also happen after a new Windows App SDK version is published. If scaffolding is still running after 10 seconds, `winapp new` updates its status message to indicate that packages may be downloading or restoring.
 
 **What it does:**
@@ -316,7 +320,7 @@ winapp update --setup-sdks experimental
 
 Create MSIX packages from a project or prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
 
-Pass a single `.csproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
+Pass a single `.csproj` or C++ `.vcxproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
 
 ```bash
 winapp pack <input-folder> [input-folder...] [options]
@@ -324,7 +328,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Arguments:**
 
-- `input-folder` - A single `.csproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
+- `input-folder` - A single `.csproj` or C++ `.vcxproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
 
 **Options:**
 
@@ -341,16 +345,17 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--skip-pri` - Skip PRI file generation
 - `--executable <path>` - Path to the executable relative to the input folder (also `--exe`). Used to resolve `$targetnametoken$` placeholders in the manifest.
 
-**Project-mode options** (require a `.csproj` input; rejected for folder/bundle/manifest inputs):
+**Project-mode options** (require a `.csproj` or `.vcxproj` input; rejected for folder/bundle/manifest inputs):
 
-- `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
-- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture)
-- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted projects
+- `--configuration <name>` (`-c`) - Build configuration (default: `Release`). `-p Configuration=<name>` also selects it; passing both with different values is an error.
+- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture). Repeat it to build a multi-architecture bundle from a `.csproj`.
+- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted .NET projects
 - `--no-build` - Package the existing build output without rebuilding
 - `--no-restore` - Skip restoring the project before building
 - `--property <name=value>` (`-p`) - MSBuild property, forwarded to build and evaluation (repeatable)
 
-> **Note:** For a WinUI / `EnableMsixTooling` `.csproj` (MSIX-tooling project mode), the Windows App SDK owns the manifest, the entry point, and PRI generation, so `--manifest`, `--executable`, and `--skip-pri` are rejected — configure `<AppxManifest>`, the project's entry point, and its resource build in the project itself. Those three options still apply to folder inputs and to generic (non-MSIX-tooling) `.csproj` project mode.
+> [!NOTE]
+> For a WinUI / `EnableMsixTooling` `.csproj` (MSIX-tooling project mode), the Windows App SDK owns the manifest, the entry point, and PRI generation, so `--manifest`, `--executable`, and `--skip-pri` are rejected — configure `<AppxManifest>`, the project's entry point, and its resource build in the project itself. Those three options still apply to folder inputs and to generic (non-MSIX-tooling) `.csproj` project mode.
 
 **What it does:**
 
@@ -382,7 +387,19 @@ The target architecture comes from `--arch`, or from a lone `-p RuntimeIdentifie
 
 The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
 
-Project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
+.NET project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
+
+**C++ projects (`.vcxproj`).** winapp builds the project with Visual Studio's MSBuild, the same build `winapp run` uses (see [C++ projects](#c-projects-vcxproj) for prerequisites), then packages the build output folder:
+
+```powershell
+winapp pack .\MyApp.vcxproj --cert .\devcert.pfx
+winapp pack .\MyApp.vcxproj -p Platform=ARM64 --generate-cert
+```
+
+- Builds `Release` for the current architecture by default. `-c` or `-p Configuration=<name>` selects the configuration, and `--arch` or `-p Platform=x64|ARM64|Win32` selects the architecture.
+- A packaged project, such as the **WinUI Blank App (Packaged)** template, is packaged with the `AppxManifest.xml` its build generates. Any other application project needs an `appxmanifest.xml`: run `winapp init` in the project folder once, or pass `--manifest`. The built `.exe` fills a `$targetnametoken$` placeholder in that manifest.
+- `--self-contained` builds the project with `WindowsAppSDKSelfContained=true`, so the package carries the Windows App SDK runtime. With `--no-build`, the existing build must already be self-contained.
+- `--framework` and multiple `--arch` values aren't supported. To build a multi-architecture bundle, build each architecture and pass the output folders: `winapp pack <x64-folder> <arm64-folder>`.
 
 #### Sparse identity packages
 
@@ -479,6 +496,7 @@ winapp pack ./publish/x64 ./publish/arm64
 
 Create app identity for debugging using [sparse packaging](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/grant-identity-to-nonpackaged-apps). The exe stays in its original location — Windows associates identity with it via `Add-AppxPackage -ExternalLocation`.
 
+> [!TIP]
 > **When to use this vs `winapp run`:** Use `create-debug-identity` when the exe is **separate from your app code** (e.g., Electron apps where `electron.exe` is in `node_modules`), or when specifically testing sparse package behavior. For most frameworks where the exe is in your build output folder, use [`winapp run`](#run) instead — it registers a full loose layout package and launches the app. See the [Debugging Guide](debugging.md) for a full comparison.
 
 ```bash
@@ -597,7 +615,8 @@ This follows the same convention used by Visual Studio project templates, so man
 - **`winapp create-debug-identity`** — When an entrypoint argument is provided, `$targetnametoken$` is resolved from it. Without an entrypoint, the executable placeholder must already be resolved in the manifest.
 - **`winapp manifest generate --executable`** — When `--executable` is provided, manifest metadata (version, description) and icons are extracted from the executable, but the generated manifest still uses `$targetnametoken$.exe`; this placeholder is resolved later (e.g. `winapp pack` or `winapp create-debug-identity`).
 
-> **PS:** Keeping `$targetnametoken$` in your checked-in manifest avoids hard-coding executable names and works with both `winapp pack` and Visual Studio builds.
+> [!TIP]
+> Keeping `$targetnametoken$` in your checked-in manifest avoids hard-coding executable names and works with both `winapp pack` and Visual Studio builds.
 
 **Examples:**
 
@@ -710,6 +729,11 @@ winapp manifest update-assets mylogo.png --verbose
 
 ### run
 
+To record native WinUI performance while launching, add `--profile <empty-directory>`.
+Add `--profile-mode elevated` to record startup (one UAC prompt for the recorder).
+See the [performance guide](guides/winui-performance.md) for duration/size options,
+startup coverage, detached capture, and offline analysis.
+
 Create a loose layout package from a build output folder, register it with Windows using the `Windows.Management.Deployment.PackageManager` API, and launch the application — simulating a full MSIX install for debugging. Returns the process ID for debugger attachment.
 
 `winapp run` operates in one of three modes, chosen automatically from the input:
@@ -725,6 +749,7 @@ Create a loose layout package from a build output folder, register it with Windo
 > build-output folder.`). A directory is only built as a project when a `.csproj`/`.vcxproj`/`.sln`/`.slnx`
 > with a runnable app sits at its **top level**; it is not searched recursively.
 
+> [!TIP]
 > **This is the preferred command for debugging with package identity** for most frameworks (.NET, C++, Rust, Flutter, Tauri). Unlike [`create-debug-identity`](#create-debug-identity) which registers a sparse package for a single exe, `winapp run` registers the entire folder as a loose layout package, just like a real MSIX install. See the [Debugging Guide](debugging.md) for common debugging workflows.
 
 ```bash
@@ -753,6 +778,7 @@ winapp run [<input>] [options]
 - `--clean` - Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments.
 - `--json` - Format output as JSON for programmatic consumption (e.g. CI/automation). Useful with `--detach` to capture the PID. Cannot be combined with `--with-alias` or `--debug-output`.
 - `--on <target>` - Build on the host, then register and run in the target. Currently supports `sandbox`, with no fallback to local execution. Use `--detach` before follow-up UI commands. Sandbox `--debug-output` requires a packaged app. See [Windows Sandbox execution](sandbox-execution.md#running-and-rebuilding) for setup, runtime support, and detached-app lifetime.
+- `--expect-sandbox <id>` - Use only the Sandbox with this provider GUID, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 
 **Application data persistence:**
 
@@ -763,6 +789,7 @@ Use `--clean` when you need a fresh start (e.g., to reset corrupted state or tes
 **What it does:**
 
 - Locates or generates the Package.appxmanifest
+- Closes the app if it is already running from this layout, so its files can be replaced. winapp asks it to close and ends it after 2 seconds, or right away if it has no window or is showing a dialog, so save your work first. This also happens with `--no-launch`.
 - Creates and registers a debug identity using a loose layout package
 - Computes the Application User Model ID (AUMID)
 - Launches the application using the registered identity (unless `--no-launch` is specified)
@@ -889,47 +916,21 @@ winapp run . --aot
 winapp run . --aot -c Release
 ```
 
-#### Live edits (`--watch`)
+Native AOT also requires trimming. The WinUI templates set `<PublishTrimmed>False</PublishTrimmed>` for the Debug configuration, so remove that setting as well. If either property is off, winapp stops before publishing and says which one to change.
+
+For a one-time override without editing the project, set both:
 
 ```powershell
-winapp run . --watch
+winapp run . --aot -p PublishAot=true -p PublishTrimmed=true
 ```
 
-`winapp run` builds and launches a WinUI 3 .NET project once, then keeps watching it. Every time you save a `.cs`, `.xaml` or `.csproj` file, or an image or other content file, the change is applied to the running app without rebuilding, and one status line reports what happened:
-
-```text
-[watch] ready (2510 ms): saved .cs, .xaml and project file changes apply to the running app (PID 1234)
-[watch] applied MainPage.xaml (31 ms)
-[watch] waiting MainPage.xaml
-  MainPage.xaml: waiting for handler AddButton_Click (AddButton.Click)
-[watch] error MainPage.xaml(13,40): Failed to create a 'Microsoft.UI.Xaml.Media.Brush' from the text 'Oranj'.
-[watch] error Pages\HomePage.xaml(20,17): Invalid binding path 'ViewModel.Statuz' : Property 'Statuz' not found on type 'MainViewModel'.
-```
-
-- **ready** - the app is running and watched (again, after a restart).
-- **applied** - the running app now matches your files. A `note:` line below it tells you when it doesn't yet: an edit to `App.OnLaunched` or to settings on `<Application>` in `App.xaml` (such as `RequestedTheme`) takes effect at the next start, and a constructor that starts a timer starts another on each reload. Pages, windows and controls keep their instances: their markup is reloaded and their constructor body runs again, so view models, fields and the items in your lists survive. Text you typed, boxes you checked, list selections, scroll positions and focus are carried over too, unless your edit changed that starting value in the markup. Values your code assigned to elements after they loaded (for example `StatusText.Text = ...` in a click handler) are not: those elements start again from the markup. A page is constructed again only when you change its field or property initializers.
-- **waiting** - the change is live, but something it refers to doesn't exist yet, such as a `Click` handler or an `x:Bind` function you haven't written. It connects on the save that adds it.
-- **unchanged** - the save didn't change what runs (for example a comment, or a file saved without edits).
-- **error** - the files don't compile (including `x:Bind` paths the XAML compiler would reject, such as a property you renamed in code before updating the markup that binds it, and code or markup that still uses a package you removed from the project or a page whose files you deleted), or the app couldn't load the new markup. Nothing in that file is applied and the app keeps the UI it had; the next save tries again.
-- **restart** - the change can't be applied to a running process (for example changing a class's base type, editing `.resw` string resources, or editing `Directory.Build.props`). winapp rebuilds and relaunches the app. If that build fails, winapp keeps watching and tries again on your next save. If the app crashes, winapp prints the exception and the next save relaunches it (right away when a save hadn't reached the app yet); closing the app ends the session.
-
-New pages and controls (and navigating to them), new files and types, renamed or deleted fields, `x:Name` changes, event handlers (including inside `DataTemplate`s), `x:Bind` (including functions, casts, `BindBack`, event bindings such as `Click="{x:Bind ViewModel.Save}"`, and templates), converters (edits to their code included, as with `x:Bind` functions and computed properties, even on objects that don't raise `PropertyChanged`), styles and control templates, new `DependencyProperty` declarations, `[ObservableProperty]` properties added, renamed or deleted, `App.xaml`, `ResourceDictionary` and theme dictionary files, templated controls and their `Themes\Generic.xaml`, new package references in the project file, and new or changed content files (images, data) are all applied live. Renaming a folder of source files, and building the project elsewhere (an IDE, another terminal) while it runs, don't interrupt the session. Editing the window that hosts your pages keeps you on the page you were on, with its back stack and Frame page cache; pages a Frame keeps cached (`NavigationCacheMode`) show your edits when you navigate back to them. Class libraries the app references through a `ProjectReference` are watched too, whether they're in a folder under the app or next to it (a solution's projects): their controls, markup and `Generic.xaml` edits apply live, while edits to their C# restart the app. Because the app's project also picks up files in its subfolders, exclude the library's folder from it (for example `<Compile Remove="MyLib\**" />`, `<Page Remove="MyLib\**" />` and `<None Remove="MyLib\**" />`), or the next build fails with duplicate types (CS0111); the `applied` line notes this when it's missing. Saves made while the app is still starting are applied once it's ready. Markup is applied by the WinUI runtime, so live XAML edits need a WinUI version that supports hot reload; with an older WinUI, C# edits still apply live and saving a `.xaml` file restarts the app.
-
-Requirements and limits:
-
-- A .NET 10 SDK, and a debuggable build configuration (the default `Debug`).
-- Live edits need a Debug build. In an optimized build (for example `-c Release`) winapp says so once when the app starts, and every save rebuilds and restarts the app. Live XAML edits also need the `EnableXamlHotReload` project property, which is `true` by default in Debug; without it, C# edits still apply live and saving a `.xaml` file restarts the app. For a custom debug configuration, pass `-p EnableXamlHotReload=true`.
-- Runs locally only; it can't be combined with `--on`, `--no-launch`, `--detach`, `--no-build`, `--aot`, or `--json`.
-- One `--watch` per project at a time: a second one reports the PID of the winapp already watching it. Stopping winapp (Ctrl+C, closing its terminal, or ending its process) also stops the app.
-- Because a constructor body runs again on reload, work it does that isn't about the UI (for example starting a timer or writing a file) also happens again. Event subscriptions it makes to your view models and collections are not doubled, and collections it fills (in the constructor or a method it calls) start over from their initial value, so their items aren't added twice; items your code added to them while the app ran are dropped, and the `applied` line notes it.
-
-`--aot` supports x64 and ARM64 projects and requires the **.NET SDK 8.0.300 or newer**. It runs `dotnet publish` with the project's AOT configuration, then launches that output; use `-p PublishAot=true` for a one-time override. It does not perform separate runtime certification and cannot be combined with `--no-build` or `--manifest`.
+`--aot` supports x64 and ARM64 projects and requires the **.NET SDK 8.0.300 or newer**. It runs `dotnet publish` with the project's AOT configuration, then launches that output. It does not perform separate runtime certification and cannot be combined with `--no-build` or `--manifest`.
 
 For apps that use package identity without a generated MSIX layout, include `Package.appxmanifest` or `appxmanifest.xml` in the project's publish output. Winapp stages the published files with that manifest. If both names are present, winapp stops instead of choosing one; remove the stale manifest and configure the project to publish only the intended manifest.
 
 **Project-mode options** (ignored in folder mode unless noted):
 
-- `-c, --configuration <name>` - Build configuration. Default: `Debug`. *(Also honored in single-file mode.)*
+- `-c, --configuration <name>` - Build configuration. Default: `Debug`. `-p Configuration=<name>` also selects it; passing both with different values is an error. *(Also honored in single-file mode.)*
 - `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines the build RID and Windows App Runtime architecture, and selects a matching platform-dependent publish profile when required by the effective build. *(Also honored in single-file mode.)* For a project, an architecture this machine can't run (such as arm64 on an x64 PC) is rejected before building unless `--no-launch` is set.
 - `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch` and can select the required publish profile. *(Also honored in single-file mode, where it overrides a `#:property RuntimeIdentifier` declared by the file.)*
 - `-f, --framework <tfm>` - Target framework moniker for multi-targeted projects (e.g. `net10.0-windows10.0.26100.0`). *(Rejected in single-file mode — use `#:property TargetFramework=...`.)*
@@ -939,12 +940,12 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 - `--aot` - Run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
-**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. Restore and build output stream live, with credentials from authenticated feed URLs redacted. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
+**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. In an interactive terminal, restore reports one line and the build looks like `dotnet build`; agents, CI, and redirected output stream plain text. Credentials from authenticated feed URLs are redacted, and a failed restore or build shows its full output and the exact `dotnet` command. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
 | *(default)* | `minimal` | — |
-| `--verbose` | `minimal` | winapp's build decision traces |
+| `--verbose` | `minimal` | the exact `dotnet` commands and winapp's build decision traces |
 | `--quiet` | `quiet` | — |
 
 Native AOT publish output streams as it arrives. Under `--json`, restore/build invocations and child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean. Native AOT publish output also goes to stderr under either option.
@@ -985,6 +986,40 @@ winapp run . --verbose
 winapp run . --detach -- --my-flag value
 ```
 
+#### Live edits (`--watch`)
+
+```powershell
+winapp run . --watch
+```
+
+`winapp run` builds and launches a WinUI 3 .NET project once, then keeps watching it. Every time you save a `.cs`, `.xaml` or `.csproj` file, or an image or other content file, the change is applied to the running app without rebuilding, and one status line reports what happened:
+
+```text
+[watch] ready (2510 ms): saved .cs, .xaml and project file changes apply to the running app (PID 1234)
+[watch] applied MainPage.xaml (31 ms)
+[watch] waiting MainPage.xaml
+  MainPage.xaml: waiting for handler AddButton_Click (AddButton.Click)
+[watch] error MainPage.xaml(13,40): Failed to create a 'Microsoft.UI.Xaml.Media.Brush' from the text 'Oranj'.
+[watch] error Pages\HomePage.xaml(20,17): Invalid binding path 'ViewModel.Statuz' : Property 'Statuz' not found on type 'MainViewModel'.
+```
+
+- **ready** - the app is running and watched (again, after a restart).
+- **applied** - the running app now matches your files. A `note:` line below it tells you when it doesn't yet: an edit to `App.OnLaunched` or to settings on `<Application>` in `App.xaml` (such as `RequestedTheme`) takes effect at the next start, and a constructor that starts a timer starts another on each reload. Pages, windows and controls keep their instances: their markup is reloaded and their constructor body runs again, so view models, fields and the items in your lists survive. Text you typed, boxes you checked, list selections, scroll positions and focus are carried over too, unless your edit changed that starting value in the markup. Values your code assigned to elements after they loaded (for example `StatusText.Text = ...` in a click handler) are not: those elements start again from the markup. A page is constructed again only when you change its field or property initializers.
+- **waiting** - the change is live, but something it refers to doesn't exist yet, such as a `Click` handler or an `x:Bind` function you haven't written. It connects on the save that adds it.
+- **unchanged** - the save didn't change what runs (for example a comment, or a file saved without edits).
+- **error** - the files don't compile (including `x:Bind` paths the XAML compiler would reject, such as a property you renamed in code before updating the markup that binds it, and code or markup that still uses a package you removed from the project or a page whose files you deleted), or the app couldn't load the new markup. Nothing in that file is applied and the app keeps the UI it had; the next save tries again.
+- **restart** - the change can't be applied to a running process (for example changing a class's base type, editing `.resw` string resources, or editing `Directory.Build.props`). winapp rebuilds and relaunches the app. If that build fails, winapp keeps watching and tries again on your next save. If the app crashes, winapp prints the exception and the next save relaunches it (right away when a save hadn't reached the app yet); closing the app ends the session.
+
+New pages and controls (and navigating to them), new files and types, renamed or deleted fields, `x:Name` changes, event handlers (including inside `DataTemplate`s), `x:Bind` (including functions, casts, `BindBack`, event bindings such as `Click="{x:Bind ViewModel.Save}"`, and templates), converters (edits to their code included, as with `x:Bind` functions and computed properties, even on objects that don't raise `PropertyChanged`), styles and control templates, new `DependencyProperty` declarations, `[ObservableProperty]` properties added, renamed or deleted, `App.xaml`, `ResourceDictionary` and theme dictionary files, templated controls and their `Themes\Generic.xaml`, new package references in the project file, and new or changed content files (images, data) are all applied live. Renaming a folder of source files, and building the project elsewhere (an IDE, another terminal) while it runs, don't interrupt the session. Editing the window that hosts your pages keeps you on the page you were on, with its back stack and Frame page cache; pages a Frame keeps cached (`NavigationCacheMode`) show your edits when you navigate back to them. Class libraries the app references through a `ProjectReference` are watched too, whether they're in a folder under the app or next to it (a solution's projects): their controls, markup and `Generic.xaml` edits apply live, while edits to their C# restart the app. Because the app's project also picks up files in its subfolders, exclude the library's folder from it (for example `<Compile Remove="MyLib\**" />`, `<Page Remove="MyLib\**" />` and `<None Remove="MyLib\**" />`), or the next build fails with duplicate types (CS0111); the `applied` line notes this when it's missing. Saves made while the app is still starting are applied once it's ready. Markup is applied by the WinUI runtime, so live XAML edits need a WinUI version that supports hot reload; with an older WinUI, C# edits still apply live and saving a `.xaml` file restarts the app.
+
+Requirements and limits:
+
+- A .NET 10 SDK, and a debuggable build configuration (the default `Debug`).
+- Live edits need a Debug build. In an optimized build (for example `-c Release`) winapp says so once when the app starts, and every save rebuilds and restarts the app. Live XAML edits also need the `EnableXamlHotReload` project property, which is `true` by default in Debug; without it, C# edits still apply live and saving a `.xaml` file restarts the app. For a custom debug configuration, pass `-p EnableXamlHotReload=true`.
+- Runs locally only; it can't be combined with `--on`, `--no-launch`, `--detach`, `--no-build`, `--aot`, or `--json`.
+- One `--watch` per project at a time: a second one reports the PID of the winapp already watching it. Stopping winapp (Ctrl+C, closing its terminal, or ending its process) also stops the app.
+- Because a constructor body runs again on reload, work it does that isn't about the UI (for example starting a timer or writing a file) also happens again. Event subscriptions it makes to your view models and collections are not doubled, and collections it fills (in the constructor or a method it calls) start over from their initial value, so their items aren't added twice; items your code added to them while the app ran are dropped, and the `applied` line notes it.
+
 #### C++ projects (.vcxproj)
 
 Point `winapp run` at a `.vcxproj` — or at a folder or solution whose only runnable app is one — and it builds the project with Visual Studio's MSBuild, then launches it the same way as a .NET project:
@@ -997,12 +1032,13 @@ winapp run . --no-build --detach --json
 
 - A WinUI 3 C++/WinRT app from the Visual Studio **WinUI Blank App (Packaged)** template runs packaged. Other application projects, such as a console app or a WinUI app built with `-p WindowsPackageType=None`, run unpackaged from their built `.exe`.
 - A WinUI app starts with [DevTools](guides/devtools.md#turn-devtools-on-or-off) on, like a .NET WinUI project; pass `--devtools off` to skip it.
-- Builds `Debug` for the current architecture by default. `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture (passing both with different architectures is an error); a custom `-p Platform` name is passed through.
-- Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version they pin. Packaged apps also get the framework packages the build references, such as the Debug VC++ runtime, installed when missing.
+- Builds `Debug` for the current architecture by default. `-c Release` or `-p Configuration=Release` selects the configuration, and `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture. Passing `--arch` and `-p Platform` with different values is an error. A custom `-p Platform` name is passed through.
+- Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version the build uses, including when the Windows App SDK props are imported from a shared `.props` file rather than listed in the project's own `packages.config`. Packaged apps also get the framework packages the build references, such as the Debug VC++ runtime, installed when missing.
 - `--framework` and `--aot` apply only to .NET projects.
 - Build output shows MSBuild's warnings and errors only, with a spinner while it builds; `--verbose` shows MSBuild's full output and exact command.
 - In a folder or solution that also has a runnable C# app, the C# app is selected; use `--project <name>` to run the C++ app. C# libraries and test projects next to a C++ app don't get in the way.
 - A C# app that references a C++ project (for example a native DLL) can't be built with `dotnet`. Build it with Visual Studio or `MSBuild.exe`, then run `winapp run <app>.csproj --no-build`, or package its output folder with `winapp package <folder>`.
+- To create an MSIX from a C++ project, run `winapp package .\MyApp.vcxproj`. See [Packaging a project directly](#packaging-a-project-directly).
 
 **Prerequisites:** Visual Studio or Build Tools for Visual Studio 2022 version 17.8 or later, with the MSVC C++ build tools for the target architecture (the **Desktop development with C++** workload) and the Windows SDK the project targets. WinUI 3 apps also need **C++ WinUI app development tools**; with several installs, winapp uses the newest one that can build the project. The .NET SDK is not required. When the build tools, platform toolset (`MSB8020`), or Windows SDK (`MSB8036`) are missing, `winapp run` says what to install, including a `winget` command. A project with a `vcpkg.json` needs vcpkg integrated with MSBuild: run `vcpkg integrate install` once.
 
@@ -1025,6 +1061,7 @@ winapp run counter.cs
 ```
 
 Or run it with plain `dotnet run` — see [Running with `dotnet run`](#running-with-dotnet-run) below.
+For a complete example, see the [.NET file-based app sample](../samples/dotnet-file-app/README.md).
 
 You do not author a manifest. Describe the package with `#:property` directives instead:
 
@@ -1430,9 +1467,10 @@ winapp unregister [input] [options]
 - `--manifest <path>` - Path to Package.appxmanifest (default: auto-detect from current directory)
 - `--force` - For local unregister only, skip the install-location directory check and unregister even if the package was registered from a different project tree. It is rejected with `--on`; target ownership checks cannot be bypassed.
 - `--on <target>` - Remove the matching winapp-owned development registration from `sandbox`, not this machine. Takes a manifest, project, or folder (not a `.cs` file) and does not support `--force`. See [Sandbox app cleanup](sandbox-execution.md#removing-an-app-and-ending-the-sandbox).
+- `--expect-sandbox <id>` - Use only the Sandbox with this provider GUID, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 - `--prune` - Remove every development-mode registration whose files are gone. Cannot be combined with an input, `--manifest`, `--property`, `--configuration`, `--arch`, `--runtime`, or `--output-appx-directory`.
 - `-p, --property <Name=Value>` - MSBuild property used when resolving a `.cs` file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. `-p WinAppPackageName=...`), since a command-line property overrides the file's own `#:property` directives. Only applies to a `.cs` input.
-- `-c, --configuration <name>` - Build configuration used when resolving a `.cs` file-based app's identity. Default: `Debug`. Pass the same configuration the run used: a `Directory.Build.props` beside the `.cs` can set `WinAppPackageName` or `WinAppManifestPath` conditionally on `$(Configuration)`. Only applies to a `.cs` input.
+- `-c, --configuration <name>` - Build configuration used when resolving a `.cs` file-based app's identity. Default: `Debug`. Pass the same configuration the run used, with `-c` or `-p Configuration=<name>`: a `Directory.Build.props` beside the `.cs` can set `WinAppPackageName` or `WinAppManifestPath` conditionally on `$(Configuration)`. Only applies to a `.cs` input.
 - `--arch <x64|arm64|x86>` - Target architecture used when resolving a `.cs` file-based app's identity. Default: the current process architecture. Pass the same architecture the run used, since identity can also be keyed off `$(RuntimeIdentifier)`. Only applies to a `.cs` input.
 - `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`) used when resolving a `.cs` file-based app's identity. Only its architecture is used, and it overrides `--arch`. Only applies to a `.cs` input.
 - `--output-appx-directory <path>` - The AppX layout directory the package was registered from. Only needed when the run used `--output-appx-directory`, since nothing on the package records which run option produced its layout.
@@ -1664,6 +1702,7 @@ winapp az-sign <file-path> [options]
 - A machine-wide **x64 .NET 8 (or later) runtime** installed. The Azure signing client library is a managed assembly that `signtool.exe` loads in a separate process; winapp's own self-contained runtime does not satisfy it. Install it from https://dotnet.microsoft.com/download if signing fails with a runtime-load error.
 - The **Microsoft Visual C++ Redistributable (x64)**. The Azure signing client library depends on the VC++ runtime, and because winapp downloads the raw NuGet package rather than the official client-tools installer, this dependency is **not** installed automatically. A clean machine can load-fail even with .NET and SignTool present. Install the latest x64 redistributable from https://aka.ms/vs/17/release/vc_redist.x64.exe if signing fails with a `0xc000007b`, "The application was unable to start correctly", or missing-DLL error from the dlib.
 
+> [!TIP]
 > **Least-privilege CI:** Auto-discovery (listing subscriptions, resource groups, accounts, and profiles) needs read access at a parent scope. To avoid *every* collection-listing call, pass all four of `--subscription`, `--resource-group`, `--account`, and `--profile`: `az-sign` then validates the account and profile with direct resource reads (a GET on each named resource) instead of enumerating the parent collection, so a principal scoped to just that account and profile is sufficient. Omitting any one of them re-introduces a listing call — for example, leaving out `--subscription` makes `az-sign` list the subscriptions your identity can access — which a narrowly-scoped principal may not be permitted to do. A principal scoped only to a single certificate profile can skip validation entirely by passing a pre-generated `--metadata-file` (which specifies the account endpoint and profile directly).
 
 **Examples:**
@@ -1848,7 +1887,7 @@ and are separate from a project's `winapp.yaml`.
 
 | Setting | Values | Default | What it does |
 |---|---|---|---|
-| `run.devtools` | `on`, `off`, `headless` | `on` | How `winapp run` starts [DevTools](guides/devtools.md) for a WinUI project when `--devtools` isn't given. The toolbar's **When the app starts** menu changes the same setting. |
+| `run.devtools` | `on`, `off`, `headless` | `on` | How `winapp run` starts [DevTools](guides/devtools.md) for a WinUI project when `--devtools` isn't given. The toolbar's **Launch preferences** menu changes the same setting. |
 
 - `winapp config list` shows every setting with its value and whether it is your setting or the default.
 - `winapp config get <key>` shows one setting.
@@ -1867,6 +1906,11 @@ Run commands, copy files, inspect state, or capture the whole guest desktop.
 Every verb takes `sandbox` as its first argument. Except for `snapshot`, these commands
 can prepare or start the Sandbox. See [Windows Sandbox execution](sandbox-execution.md)
 for prerequisites, permissions, lifecycle, and recovery.
+
+Every `target` verb accepts `--expect-sandbox <GUID>` or `WINAPP_EXPECT_SANDBOX`
+to require an already-running Sandbox with that ID. The option overrides the
+environment variable; a missing or different instance fails without starting one.
+See [expected-instance binding](sandbox-execution.md#using-only-a-sandbox-you-started).
 
 #### target exec
 
@@ -1903,7 +1947,8 @@ for directory layout, link handling, and running a copied script.
 
 #### target snapshot
 
-Report readiness, deployments, and guest windows without starting a Sandbox.
+Report host prerequisites, readiness, deployments, and guest windows without starting a
+Sandbox. Failed host checks include the fix to apply.
 
 ```powershell
 winapp target snapshot <target> [--json]
@@ -1948,7 +1993,8 @@ and capture-readiness failures.
 
 ### find-ui
 
-> **Agent-first.** `find-ui` is built primarily for AI coding agents — it lets an agent pull real, compiling WinUI markup from the shipping galleries instead of inventing it, and `--json` makes every result (and every failure) machine-readable. It works just as well typed by hand.
+> [!NOTE]
+> **Agent-first.** `find-ui` is built primarily for AI coding agents — it lets an agent pull real WinUI markup from the shipping galleries instead of inventing it (anything you must supply, such as an event handler method the sample doesn't define, is called out on an `Undefined handlers:` line), and `--json` makes every result (and every failure) machine-readable. It works just as well typed by hand.
 
 Search **WinUI** controls and samples for a working code example. WinUI-only: the corpus is the [WinUI 3 Gallery](https://github.com/microsoft/WinUI-Gallery) and the [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows) (plus a few curated core patterns) — it does **not** cover WPF, WinForms, or other UI frameworks. A third source, the [microsoft-ui-reactor ReactorGallery](https://github.com/microsoft/microsoft-ui-reactor), is **opt-in**: it is excluded from a normal search and only searched when you pass `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app, so reach for it only when building a Reactor/MVU project).
 
@@ -2013,6 +2059,7 @@ winapp find-ui "navigation view" --refresh
 
 ### find-api
 
+> [!NOTE]
 > **Agent-first.** `find-api` is built primarily for AI coding agents — it grounds generated code in the API surface a project actually references instead of the model's recollection of it, and `--json` plus non-zero exit codes on missing symbols let an agent gate codegen on the answer. It works just as well typed by hand.
 
 Search and inspect the Windows/WinRT API surface (types, members, enums, namespaces) available to a project, resolved from its referenced `.winmd`/`.dll` metadata. The bare form searches; sub-verbs drill into a specific type, namespace, or the index itself.
@@ -2365,6 +2412,23 @@ per command must inject the same explicit value into each one. The value is opaq
 as a credential, and is only ever persisted as a SHA-256 hash. See
 [UI Automation → Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
 
+### perf
+
+```powershell
+$capture = winapp perf start --app 1234 --output .\traces\scenario --json | ConvertFrom-Json
+winapp perf stop $capture.id
+winapp perf analyze .\traces\scenario --json
+```
+
+Record and query WinUI 3 layout, frame, input and scrolling evidence. Stop the
+capture before analysis. The default analysis reports mutually exclusive observed
+activity on the primary UI thread, the hottest parsed XAML resources, and a
+detailed operation ranking. Process resources are summarized alongside timings;
+use `--view resources` for their timeline. Use `--view calls --family composition`
+for app-side commit and surface-update timings. Use marker or millisecond bounds for before/after
+comparisons. See the [performance guide](guides/winui-performance.md) for the
+complete start/mark/stop/query workflow and interpretation limits.
+
 ### ui
 
 Inspect and interact with running Windows app UIs using UI Automation (UIA). Run `winapp ui --help`
@@ -2383,14 +2447,14 @@ winapp ui [command] [options]
 - `screenshot` - Capture window/element as PNG (multiple windows form one labeled composite PNG; see [capture scope](ui-automation.md#screenshot))
 - `record` - Record a window/element region to an H.264 MP4 video (Windows Graphics Capture + Media Foundation)
 - `invoke` - Activate element (click, toggle, expand); `--action` selects an exact operation (see [invoke](ui-automation.md#invoke))
-- `click` - Click element via mouse simulation (for controls that don't support invoke)
-- `hover` - Move mouse to element to trigger tooltips, flyouts, and hover states (default dwell: 800ms)
+- `click` - Click element via mouse simulation (for controls that don't support invoke), or a screen point with `--at x,y`
+- `hover` - Move mouse to an element, or a screen point with `--at x,y`, to trigger tooltips, flyouts, and hover states (default dwell: 800ms)
 - `drag` - Drag the mouse from one point to another, by element selector or screen `x,y` coordinates (reorder, resize, sliders, drag-and-drop)
 - `touch` - Inject synthetic touch gestures (tap, double-tap, long-press, swipe, pinch, stretch) at an element center or screen `x,y` coordinates
 - `pen` - Inject synthetic pen/stylus input — taps and ink strokes with configurable pressure, tilt, and eraser mode
 - `send-keys` - Send synthetic keyboard input (named keys, combos, raw vk=0xNN, or literal text) to a window
 - `set-value` - Set value on editable element (text, number); falls back to LegacyIAccessible `put_accValue` for TextPattern-only rich-edit controls
-- `focus` - Move keyboard focus
+- `focus` - Move keyboard focus to an element, or restore and activate the window when no selector is given
 - `scroll-into-view` - Scroll element visible
 - `wait-for` - Wait for element state
 - `list-windows` - List all windows for an app
@@ -2399,9 +2463,10 @@ winapp ui [command] [options]
 
 **Options:**
 - `-a, --app <app>` - Target app (name, title, or PID)
-- `-w, --window <hwnd>` - Target window by HWND (stable)
+- `-w, --window <hwnd>` - Target window by HWND (stable), in decimal or `0x` hex
 - `--on <target>` - Run any `ui` verb in `sandbox`; names, PIDs, and window handles refer to the guest. Outputs are delivered to the host. See [Sandbox UI automation](sandbox-execution.md#automating-the-ui) for setup, workflow coordination, and client requirements.
-- `--type`, `--root`, `--class-name` - Narrow a selector on the commands listed in [Scoped and typed queries](ui-automation.md#scoped-and-typed-queries)
+- `--type`, `--root`, `--class-name` - Narrow a selector, or use `--type`/`--class-name` without one, on the commands listed in [Scoped and typed queries](ui-automation.md#scoped-and-typed-queries)
+- `--expect-sandbox <id>` - Use only the Sandbox with this provider GUID, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 
 #### ui record
 
@@ -2429,8 +2494,13 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 - `-o, --output <path>` - Output `.mp4` path (defaults to `recording-<timestamp>-<guid>.mp4`).
 - `--overwrite` - Replace existing recording outputs after the new take finishes; existing outputs are rejected by default. Previous frame bundles are retained. See [Recording output recovery](ui-automation.md#record).
 - `--frames` - Write timestamped JPEGs, `frames.ndjson`, and `manifest.json` to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280), with a 1 GiB frame-data cap.
+- `--cursor` - Draw the mouse pointer into the video, with a short ring where each click happens. With `--frames`, `frames.ndjson` also records the pointer position and clicks.
+- `--no-click-highlight` - With `--cursor`, draw the pointer but no click rings.
 
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
 stop reason, optional `frameArtifacts`, and warnings.
+
+Recordings draw open menus, flyouts and tooltips in place; see
+[Menus and flyouts in recordings](ui-automation.md#menus-and-flyouts-in-recordings).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).

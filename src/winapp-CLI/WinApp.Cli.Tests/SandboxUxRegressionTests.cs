@@ -23,6 +23,16 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public class SandboxUxRegressionTests
 {
+    private static readonly string[] ColdPreparationPhases =
+    [
+        "Preparing the Windows Sandbox guest agent...",
+        "Copying the Windows Sandbox guest-agent files...",
+        "Checking the Windows Sandbox interactive sign-in...",
+        "Connecting the Windows Sandbox interactive client...",
+        "Configuring the Windows Sandbox guest-agent firewall rule...",
+        "Starting the Windows Sandbox guest agent and waiting for readiness...",
+    ];
+
     public TestContext TestContext { get; set; } = null!;
 
     // ---- The guest agent must never trip the Windows Firewall consent dialog ----
@@ -80,10 +90,10 @@ public class SandboxUxRegressionTests
 
         var rule = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
 
-        StringAssert.Contains(rule, $"-LocalPort {material.Port}");
-        StringAssert.Contains(rule, "-Program $agent");
-        StringAssert.Contains(rule, "-Direction Inbound");
-        StringAssert.Contains(rule, "-Protocol TCP");
+        Assert.Contains($"-LocalPort {material.Port}", rule);
+        Assert.Contains("-Program $agent", rule);
+        Assert.Contains("-Direction Inbound", rule);
+        Assert.Contains("-Protocol TCP", rule);
     }
 
     /// <summary>The assigned port stays inside the dynamic range.</summary>
@@ -375,12 +385,24 @@ public class SandboxUxRegressionTests
     // ---- Slow phases must announce themselves ----
 
     [TestMethod]
+    public async Task ColdBootstrap_ReportsThePreparationPhasesInOrder()
+    {
+        var progress = new RecordingProgress();
+        using var harness = new BackendHarness(progress: progress);
+        harness.Cli.SetRunning("sandbox-existing");
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        Assert.AreSequenceEqual(ColdPreparationPhases, progress.Messages);
+    }
+
+    [TestMethod]
     public void TargetProgress_WritesToItsErrorStreamWhenInformationIsEnabled()
     {
         var logger = new CapturingLogger<LoggerTargetProgress>();
         using var error = new StringWriter();
         new LoggerTargetProgress(logger, () => error).Report("Starting Windows Sandbox...");
-        StringAssert.Contains(error.ToString(), "Starting Windows Sandbox...");
+        Assert.Contains("Starting Windows Sandbox...", error.ToString());
     }
 
     [TestMethod]
@@ -423,14 +445,14 @@ public class SandboxUxRegressionTests
                 "src", "winapp-CLI", "WinApp.Cli", "Commands", "ExecutionTargetUiRouter.cs"),
             TestContext.CancellationToken);
 
-        StringAssert.Contains(
-            source,
+        Assert.Contains(
             "requirements.RequiresRealInput",
+            source,
             "The guest request must carry the verb's own input requirement, not a constant.");
 
-        StringAssert.Contains(
-            source,
+        Assert.Contains(
             "PrepareTargetOptions.ReadOnly",
+            source,
             "A read-only verb must be able to prepare the target without an interactive desktop.");
 
         Assert.IsFalse(
@@ -451,9 +473,9 @@ public class SandboxUxRegressionTests
                 "src", "winapp-CLI", "WinApp.Cli", "Commands", "ExecutionTargetUiRouter.cs"),
             TestContext.CancellationToken);
 
-        StringAssert.Contains(
-            source,
+        Assert.Contains(
             "catch (OperationCanceledException) when (!interrupt.IsCancellationRequested)",
+            source,
             "An internal timeout must be distinguished from the user pressing Ctrl+C.");
     }
 
@@ -582,8 +604,9 @@ public class SandboxUxRegressionTests
         private readonly TargetStateStore _stateStore;
 
         private readonly IWindowsSandboxWindowController _windowController;
+        private readonly ITargetProgress? _progress;
 
-        public BackendHarness(IWindowsSandboxWindowController? windowController = null)
+        public BackendHarness(IWindowsSandboxWindowController? windowController = null, ITargetProgress? progress = null)
         {
             _root = new DirectoryInfo(TestPaths.TempRoot(nameof(SandboxUxRegressionTests)));
             _root.Create();
@@ -592,6 +615,7 @@ public class SandboxUxRegressionTests
             _stateStore = new TargetStateStore(_directories);
             Cli = new RecordingSandboxCli();
             _windowController = windowController ?? new NoOpWindowController();
+            _progress = progress;
 
             var binary = new FileInfo(Path.Join(_root.FullName, "winapp.exe"));
             File.WriteAllText(binary.FullName, "agent");
@@ -776,7 +800,8 @@ public class SandboxUxRegressionTests
                 // No setup runner: this harness models a host where wsb.exe is already usable, so
                 // the support probe short-circuits on IsAvailable before setup would be consulted.
                 setup: null,
-                _stateStore);
+                _stateStore,
+                _progress);
 
         public void Dispose()
         {
@@ -793,6 +818,12 @@ public class SandboxUxRegressionTests
 
     /// <summary>Marks the point the harness stops, rather than a failure under test.</summary>
     private sealed class AgentLaunchReached : Exception;
+
+    private sealed class RecordingProgress : ITargetProgress
+    {
+        public List<string> Messages { get; } = [];
+        public void Report(string message) => Messages.Add(message);
+    }
 
     /// <summary>A Sandbox CLI that records the order of everything it was asked to do.</summary>
     private sealed class RecordingSandboxCli : IWindowsSandboxCli

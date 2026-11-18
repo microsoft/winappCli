@@ -16,7 +16,7 @@ public sealed class NativeTestFixtureTests
         {
             Environment.SetEnvironmentVariable("WINAPP_NATIVE_TEST_FIXTURE", path);
             var error = Assert.ThrowsExactly<AssertFailedException>(() => NativeTestFixture.Resolve());
-            StringAssert.Contains(error.Message, path);
+            Assert.Contains(path, error.Message);
         }
         finally
         {

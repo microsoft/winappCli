@@ -84,7 +84,7 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
             var state = ReadString(root, "state");
 
             // ONE verdict for both shapes. "unavailable" means the question could not be answered, not that
-            // the binding is healthy — and `--json` used to report ok:true / exit 0 for exactly that, which is
+            // the binding is healthy, and `--json` used to report ok:true / exit 0 for exactly that, which is
             // the reading most likely to make an agent conclude a broken binding is fine.
             var diagnosed = state.Length > 0 && state != "unavailable";
 
@@ -154,8 +154,12 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
             ("mode", "mode"),
             ("segment", "failed segment"),
             ("reason", "reason"),
+            ("sourceValue", "source value"),
+            ("converterEvaluation", "converter"),
             ("resolvedValue", "resolved value"),
             ("resolvedType", "resolved type"),
+            ("targetValue", "target value"),
+            ("targetUnavailable", "target unavailable"),
             ("targetProperty", "target property"),
             ("targetType", "target type"),
         ];

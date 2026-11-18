@@ -19,7 +19,11 @@ namespace WinApp.Cli.Services.ApiSearch;
 /// </summary>
 internal static partial class NuGetResolver
 {
-    public static List<PackageWithWinMd> FindPackagesWithWinMd(string projectDir, string projectFile, string? winAppSdkRuntimePath, Action<string>? warn = null)
+    /// <param name="globalPackagesDir">
+    /// The NuGet global packages folder configured for <paramref name="projectDir"/>
+    /// (see <see cref="Services.INugetService.GetNuGetGlobalPackagesDir(string)"/>).
+    /// </param>
+    public static List<PackageWithWinMd> FindPackagesWithWinMd(string projectDir, string projectFile, string globalPackagesDir, string? winAppSdkRuntimePath, Action<string>? warn = null)
     {
         var packages = new List<PackageWithWinMd>();
 
@@ -42,7 +46,7 @@ internal static partial class NuGetResolver
             string configPath = Path.Combine(projectDir, "packages.config");
             if (File.Exists(configPath))
             {
-                packages.AddRange(FindPackagesFromConfig(configPath, projectDir));
+                packages.AddRange(FindPackagesFromConfig(configPath, projectDir, globalPackagesDir));
             }
         }
 
@@ -82,6 +86,7 @@ internal static partial class NuGetResolver
         // installed rather than anything the project declares.
         string? referencedWinAppSdkVersion = ReferencedWinAppSdkVersion(packages);
         packages.AddRange(CollectSdkPackages(
+            globalPackagesDir,
             winAppSdkRuntimePath,
             targetPlatformVersion,
             referencedWinAppSdkVersion is not null,
@@ -206,10 +211,11 @@ internal static partial class NuGetResolver
     /// a query runs outside any project, so it must not consult
     /// <c>project.assets.json</c>, <c>packages.config</c>, or project references.
     /// </summary>
-    public static List<PackageWithWinMd> FindSdkPackages(string? winAppSdkRuntimePath) =>
-        Deduplicate(CollectSdkPackages(winAppSdkRuntimePath));
+    public static List<PackageWithWinMd> FindSdkPackages(string globalPackagesDir, string? winAppSdkRuntimePath) =>
+        Deduplicate(CollectSdkPackages(globalPackagesDir, winAppSdkRuntimePath));
 
     private static List<PackageWithWinMd> CollectSdkPackages(
+        string globalPackagesDir,
         string? winAppSdkRuntimePath,
         string? preferredSdkVersion = null,
         bool includeWinAppSdkRuntime = true,
@@ -243,7 +249,7 @@ internal static partial class NuGetResolver
             }
         }
 
-        DiscoverSdkXmlDocs(packages);
+        DiscoverSdkXmlDocs(packages, globalPackagesDir);
         return packages;
     }
 
@@ -412,10 +418,8 @@ internal static partial class NuGetResolver
     /// (<c>microsoft.windows.sdk.net.ref</c>, <c>microsoft.windowsappsdk.winui</c>)
     /// that provide WinRT API docs, and attaches them to the matching package.
     /// </summary>
-    private static void DiscoverSdkXmlDocs(List<PackageWithWinMd> packages)
+    private static void DiscoverSdkXmlDocs(List<PackageWithWinMd> packages, string nugetPackagesDir)
     {
-        string nugetPackagesDir = GetNuGetPackagesDir();
-
         string sdkRefDir = Path.Combine(nugetPackagesDir, "microsoft.windows.sdk.net.ref");
         if (Directory.Exists(sdkRefDir))
         {
@@ -1283,7 +1287,7 @@ internal static partial class NuGetResolver
         return null;
     }
 
-    internal static List<PackageWithWinMd> FindPackagesFromConfig(string configPath, string projectDir)
+    internal static List<PackageWithWinMd> FindPackagesFromConfig(string configPath, string projectDir, string globalPackages)
     {
         var packages = new List<PackageWithWinMd>();
         try
@@ -1298,7 +1302,6 @@ internal static partial class NuGetResolver
             // id.version directory beneath it rather than the folder itself: a global
             // NuGet cache a developer junctioned onto another volume must keep working.
             string? packagesRoot = solutionPackages is null ? null : Path.GetDirectoryName(solutionPackages);
-            string globalPackages = GetNuGetPackagesDir();
             foreach (XElement entry in entries)
             {
                 string? id = entry.Attribute("id")?.Value;
@@ -1362,9 +1365,12 @@ internal static partial class NuGetResolver
         return null;
     }
 
-    internal static (List<string> Files, string Version) FindWindowsSdkWinMd(string? preferredVersion = null, Action<string>? warn = null)
+    /// <param name="kitsRoot">
+    /// The Windows Kits 10 root to search; defaults to <see cref="WindowsKitsRoot.Resolve"/>.
+    /// </param>
+    internal static (List<string> Files, string Version) FindWindowsSdkWinMd(string? preferredVersion = null, Action<string>? warn = null, string? kitsRoot = null)
     {
-        string unionMetadata = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Windows Kits", "10", "UnionMetadata");
+        string unionMetadata = Path.Combine(kitsRoot ?? WindowsKitsRoot.Resolve(), "UnionMetadata");
         if (!Directory.Exists(unionMetadata))
         {
             return (new List<string>(), "unknown");
@@ -1698,16 +1704,6 @@ internal static partial class NuGetResolver
             resolved = string.Empty;
             return false;
         }
-    }
-
-    private static string GetNuGetPackagesDir()
-    {
-        string? env = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
-        if (!string.IsNullOrWhiteSpace(env))
-        {
-            return env;
-        }
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
     }
 
     /// <summary>

@@ -43,6 +43,9 @@ menu and finish any client installation or update. winapp does not enable the fe
 install the client, request elevation, or restart Windows. If prerequisites are missing,
 it stops with setup instructions; an observed pending Windows restart is reported separately.
 
+To check these prerequisites without starting a Sandbox, run
+`winapp target snapshot sandbox`. See [Inspecting the Sandbox](#inspecting-the-sandbox).
+
 A cold connection or reconnect can briefly take focus. Once connected, winapp puts
 the Sandbox window behind the window you were using, without activating it; switch to
 **Windows Sandbox** in the taskbar to watch the guest. When winapp started the Sandbox,
@@ -64,6 +67,33 @@ you opened yourself. Preparing it adds winapp's shared bootstrap folders, guest 
 Developer Mode, and an inbound firewall rule. winapp does not stop an adopted instance
 or remove unrelated apps. There is **no silent host fallback**: a command requesting
 Sandbox runs there or fails.
+
+### Using only a Sandbox you started
+
+If your script starts its own Sandbox, pass its ID so winapp uses that instance or fails:
+
+```powershell
+$id = [guid]::NewGuid().ToString()
+wsb start --id $id
+winapp run . --on sandbox --expect-sandbox $id
+```
+
+With `--expect-sandbox`, winapp never starts a Sandbox or takes over a different one.
+The command fails with `sandbox_instance_mismatch` if the expected Sandbox isn't running
+or another Sandbox is running. An ID allows winapp to prepare that exact guest. If the
+guest agent stops answering, winapp may repair it without changing existing package
+ownership. `target snapshot` remains read-only and reports `attached: false` when the
+agent is unavailable.
+
+Pass only the provider GUID from `wsb list`, not `ExecutionTarget.Epoch`. This checks
+the Sandbox ID only: use a new GUID for each `wsb start`. Restarting a guest under the
+same GUID is not detected. This option does not provide owned-session creation or
+boot-identity guarantees.
+
+`--expect-sandbox` works with `run`, `unregister`, `ui`, `devtools`, and `target` commands. To apply it
+to every command in a script, set `WINAPP_EXPECT_SANDBOX` to the same value. The option
+overrides the environment variable without changing it or exporting the flag to child
+processes. Invalid IDs are rejected before host builds or Sandbox prerequisite checks.
 
 ## Running and rebuilding
 
@@ -99,9 +129,13 @@ does not launch; retrying rebuilds its guest copy. If build files change while w
 preparing them, finish the build and retry.
 
 
-Warm UI commands report only their result, without repeating a Sandbox preparation
-message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
-connection timings and diagnostic details; `--quiet` and `--json` suppress progress.
+Preparation reports separate steps on stderr: starting Sandbox when needed, copying
+the guest-agent files, configuring its firewall rule, and starting the agent.
+Attaching to a running Sandbox also reports checking sign-in. `target push` and
+`target pull` announce when file transfer starts.
+Warm UI commands report only their result, without repeating preparation messages.
+Connection recovery still reports progress. Use `--verbose` for connection timings
+and diagnostic details; `--quiet` and `--json` suppress progress.
 JSON runs include a guest process ID and target scope:
 
 ```json
@@ -288,6 +322,13 @@ This reports readiness, current deployments, and guest windows without creating 
 reconnecting the client, or repairing the agent. With no Sandbox running, it reports
 that fact and exits successfully. To start one, use `winapp run . --on sandbox --detach`.
 
+The report begins with host prerequisites: Windows version, the Windows Sandbox
+feature, the Sandbox client, the `wsb` command, and any pending Windows restart. Each
+check is `passed`, `failed`, or `not checked`; a failed check includes the fix to apply.
+These checks never install anything, request elevation, or restart Windows. In
+`--json` output they appear under `host`, which also appears in the error output
+when inspection fails.
+
 The report distinguishes what the guest supports from what the current client can do;
 a minimized client can prevent input or capture even when the guest supports both.
 Use the guest window list for UI PIDs, not a deployment's tracked launcher process.
@@ -376,6 +417,7 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_setup_requires_restart` | Windows reports a pending restart; save work and restart when ready, then retry |
 | `sandbox_setup_incomplete` | Open Windows Sandbox from Start and finish client setup/update, then retry |
 | `sandbox_unmanaged_instance`, `sandbox_target_ambiguous` | Inspect the reported instances/windows; do not stop unrelated work to resolve ambiguity |
+| `sandbox_instance_mismatch` | The GUID from `--expect-sandbox` or `WINAPP_EXPECT_SANDBOX` isn't the only running Sandbox. Run `wsb list` and compare IDs before retrying; do not remove the expectation or stop unrelated work to make the command pass |
 | `sandbox_input_not_ready`, `sandbox_no_interactive_session` | Restore the existing client or reconnect as directed, then retry |
 | `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested. If it asks you to stop the Sandbox, save any work you need, then run `wsb stop --id <id>` (with consent) and retry; it works however the Sandbox was started |
 | `sandbox_transport_failed` | Follow the error's `userAction`. If a folder share failed with `0x80070005`, Windows Sandbox (which shares folders as the SYSTEM account) can't read the reported folder; grant access, then retry: `icacls "<folder>" /grant "*S-1-5-18:(OI)(CI)F"` (`S-1-5-18` is SYSTEM) |

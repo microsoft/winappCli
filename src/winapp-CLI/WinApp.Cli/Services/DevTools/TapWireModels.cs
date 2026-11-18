@@ -10,7 +10,7 @@ namespace WinApp.Cli.Services.DevTools;
 /// Shared reader settings for the tap's wire replies. <c>System.Text.Json</c> defaults to a nesting ceiling of
 /// 64, but a <c>visualtree.enumerate</c> reply nests one object plus one <c>children</c> array PER VISUAL-TREE
 /// LEVEL, so the default only admits ~31 levels of UI. Real apps go far deeper (AI Dev Gallery measures 97 JSON
-/// levels), and past the ceiling every parse throws and the census reads as "the agent did not answer" — which
+/// levels), and past the ceiling every parse throws and the census reads as "the agent did not answer", which
 /// is how a comment came to be stored with an empty identity bundle. The tap's own walk is bounded by
 /// node budget, not depth, so the client must not impose a depth limit the server never promised to respect.
 /// </summary>

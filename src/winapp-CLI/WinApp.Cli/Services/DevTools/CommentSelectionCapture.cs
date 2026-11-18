@@ -351,7 +351,7 @@ internal static class CommentSelectionCapture
 
     /// <summary>
     /// The best content snippet for fuzzy re-anchoring: the element's <c>Text</c>, else <c>Content</c>. Object-
-    /// valued content (rendered <c>{TypeName}</c> by the tap) and empty values are rejected — they can't match
+    /// valued content (rendered <c>{TypeName}</c> by the tap) and empty values are rejected: they can't match
     /// a literal in source.
     /// </summary>
     internal static string? ExtractContent(string? propsJson)
@@ -391,7 +391,7 @@ internal static class CommentSelectionCapture
                 return null;
             }
 
-            // "{Grid}" / "{Binding}"-style placeholders are not literals present in source — skip them.
+            // "{Grid}" / "{Binding}"-style placeholders are not literals present in source, so skip them.
             if (v.Length >= 2 && v[0] == '{' && v[^1] == '}')
             {
                 return null;

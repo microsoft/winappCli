@@ -1,0 +1,17 @@
+{
+  "id": "calc-minimized-scientific",
+  "app": "calculator",
+  "description": "Calculator is minimized (so suspended) and in Scientific mode; the agent must restore it rather than open another.",
+  "prompt": "Calculator is open but minimized to the taskbar, and it's in Scientific mode. Use it to work out 123 + 456 so that the answer is showing in its display. Keep it in Scientific mode, and don't open another Calculator window.",
+  "setup": {
+    "instances": [
+      { "role": "main", "target": true, "mode": "scientific", "minimize": true }
+    ]
+  },
+  "checks": [
+    { "type": "instanceCount", "equals": 1 },
+    { "type": "alive", "instance": "main" },
+    { "type": "value", "instance": "main", "key": "display", "equals": "579" },
+    { "type": "value", "instance": "main", "key": "mode", "equals": "scientific" }
+  ]
+}

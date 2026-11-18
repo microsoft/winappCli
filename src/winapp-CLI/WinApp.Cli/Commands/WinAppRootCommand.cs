@@ -105,7 +105,8 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         GuestDevToolsLaunchCommand guestDevToolsLaunchCommand,
         GuestDevToolsHostCommand guestDevToolsHostCommand,
         TargetCommand targetCommand,
-        FindApiCommand findApiCommand) : base("Create, run, debug, test, and package Windows apps from the command line. Works with WinUI and any other (cross-platform) app framework targeting Windows, and manages Windows SDKs, package identity, manifests, and certificates.")
+        FindApiCommand findApiCommand,
+        PerfCommand? perfCommand = null) : base("Create, run, debug, test, and package Windows apps from the command line. Works with WinUI and any other (cross-platform) app framework targeting Windows, and manages Windows SDKs, package identity, manifests, and certificates.")
     {
         Subcommands.Add(initCommand);
         Subcommands.Add(newCommand);
@@ -129,6 +130,10 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(findUiCommand);
         Subcommands.Add(uiCommand);
         Subcommands.Add(findApiCommand);
+        if (perfCommand is not null)
+        {
+            Subcommands.Add(perfCommand);
+        }
         Subcommands.Add(completeCommand);
         Subcommands.Add(guestAgentCommand);
         Subcommands.Add(guestDesktopCaptureCommand);
@@ -149,7 +154,10 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         foreach (var targetAwareCommand in Subcommands.OfType<ITargetAwareCommand>().Cast<Command>())
         {
             targetAwareCommand.Options.Add(ExecutionTargetSelection.OnOption);
+            targetAwareCommand.Options.Add(ExecutionTargetSelection.ExpectSandboxOption);
         }
+
+        targetCommand.Options.Add(ExecutionTargetSelection.ExpectSandboxOption);
 
         // Reject unknown options/arguments so typos and removed flags fail loudly
         TreatUnmatchedTokensAsErrors = true;
@@ -160,10 +168,8 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         // Replace the default help with a custom categorized help screen
         var helpOption = Options.OfType<HelpOption>().First();
         helpOption.Action = new CustomHelpAction(this, ansiConsole,
-            ("Get Started", [typeof(NewCommand), typeof(InitCommand), typeof(RestoreCommand), typeof(UpdateCommand)]),
-            ("Run & Debug", [typeof(RunCommand), typeof(CreateDebugIdentityCommand), typeof(UnregisterCommand), typeof(TargetCommand), typeof(DevToolsCommand)]),
-            ("Discovery", [typeof(FindUiCommand), typeof(FindApiCommand)]),
-            ("UI Automation", [typeof(UiCommand)]),
+            ("Set Up & Run", [typeof(NewCommand), typeof(InitCommand), typeof(RestoreCommand), typeof(UpdateCommand), typeof(RunCommand), typeof(CreateDebugIdentityCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
+            ("Develop & Test", [typeof(FindUiCommand), typeof(FindApiCommand), typeof(DevToolsCommand), typeof(UiCommand), typeof(PerfCommand)]),
             ("Package, Sign & Publish", [typeof(PackageCommand), typeof(ManifestCommand), typeof(CertCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(MSStoreCommand)]),
             ("Advanced", [typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(ConfigCommand)])
         );

@@ -101,6 +101,7 @@ test('printInitWrapperOnlyHelp documents --add-js-bindings', () => {
   const joined = captured.join('\n');
   assert.match(joined, /--add-js-bindings/);
   assert.match(joined, /JS bindings/);
+  assert.equal(captured[1], 'npm wrapper', 'the wrapper option gets its own group heading');
 });
 
 test('formatJsBindingsImportsHints emits the added-hint when the map was written', () => {

@@ -1,0 +1,7 @@
+{
+  "name": "winapp",
+  "displayName": "winapp plugin + CLI",
+  "description": "The repo's winapp plugin (skills and agent) and the winapp CLI found on PATH.",
+  "plugins": ["../../../plugins/winapp"],
+  "requires": ["winapp"]
+}

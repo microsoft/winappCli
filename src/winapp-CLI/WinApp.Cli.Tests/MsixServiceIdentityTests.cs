@@ -287,7 +287,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var failure = await CaptureCopyFailureAsync(recipe, outputDir);
 
         Assert.IsInstanceOfType<InvalidOperationException>(failure, "A build that did not produce a listed file must fail materialization");
-        StringAssert.Contains(failure!.Message, "does-not-exist.dll", StringComparison.Ordinal);
+        Assert.Contains("does-not-exist.dll", failure!.Message, StringComparison.Ordinal);
         Assert.IsFalse(File.Exists(Path.Combine(outputDir.FullName, "appxmanifest.xml")),
             "Validation must fail before anything is written into the layout");
     }
@@ -456,7 +456,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var failure = await CaptureCopyFailureAsync(recipe, outputDir);
 
         Assert.IsInstanceOfType<InvalidOperationException>(failure, "Two sources mapped to one destination must fail");
-        StringAssert.Contains(failure!.Message, "two different files", StringComparison.Ordinal);
+        Assert.Contains("two different files", failure!.Message, StringComparison.Ordinal);
     }
 
     [TestMethod]
@@ -610,7 +610,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
             Assert.IsInstanceOfType<InvalidOperationException>(
                 failure, "a layout holding a link winapp will not remove is not an exact layout");
-            StringAssert.Contains(failure!.Message, "linked", StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("linked", failure!.Message, StringComparison.OrdinalIgnoreCase);
 
             Assert.IsTrue(File.Exists(outsideFile), "Pruning must not follow a junction out of the layout");
             Assert.IsTrue(Directory.Exists(junction), "The link itself must be left for the user to deal with");
@@ -823,9 +823,10 @@ public class MsixServiceIdentityTests : BaseCommandTests
             new FileInfo(WriteRecipe(srcManifest, (payload.FullName, "TestApp.dll"))), outputDir);
 
         var staged = outputDir.GetFiles("*", SearchOption.AllDirectories).Select(f => f.Name).ToList();
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             PayloadOnlyLayout,
             staged,
+            SequenceOrder.InAnyOrder,
             "The layout must contain only app payload");
     }
 
@@ -859,7 +860,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             new DirectoryInfo(outputDir.FullName));
 
         Assert.IsInstanceOfType<InvalidOperationException>(failure, "A junction inside the layout must be refused");
-        StringAssert.Contains(failure!.Message, "symbolic link or junction");
+        Assert.Contains("symbolic link or junction", failure!.Message);
         Assert.AreEqual("do not overwrite me", await File.ReadAllTextAsync(victim, TestContext.CancellationToken),
             "The file the junction pointed at must not have been written");
     }
@@ -1008,7 +1009,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             new DirectoryInfo(outputDir.FullName));
 
         Assert.IsInstanceOfType<InvalidOperationException>(failure);
-        StringAssert.Contains(failure!.Message, "symbolic link", StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("symbolic link", failure!.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1044,7 +1045,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
             Assert.IsInstanceOfType<InvalidOperationException>(failure,
                 "A stale file that cannot be removed must fail materialization, not warn and succeed");
-            StringAssert.Contains(failure!.Message, "dropped.dll", StringComparison.Ordinal);
+            Assert.Contains("dropped.dll", failure!.Message, StringComparison.Ordinal);
         }
 
         await InvokeCopyFilesFromRecipeAsync(
@@ -1118,7 +1119,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             TestContext.CancellationToken,
             TimeSpan.FromMilliseconds(200)));
 
-        StringAssert.Contains(second.Message, "--output-appx-directory", StringComparison.Ordinal);
+        Assert.Contains("--output-appx-directory", second.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Two different layouts are unrelated, so one must not block the other.</summary>
@@ -1372,7 +1373,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             () => InvokeSyncFilesToOutputDirectory(input, layout, manifest, "Additive"));
 
         Assert.IsInstanceOfType<InvalidOperationException>(failure.InnerException);
-        StringAssert.Contains(failure.InnerException!.Message, "contains the folder being packaged", StringComparison.Ordinal);
+        Assert.Contains("contains the folder being packaged", failure.InnerException!.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1412,7 +1413,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             Assert.IsInstanceOfType<InvalidOperationException>(failure.InnerException);
 
             var message = failure.InnerException!.Message;
-            StringAssert.Contains(message, junction, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(junction, message, StringComparison.OrdinalIgnoreCase);
 
             // Naming --output-appx-directory here would read as a lossless way out, and it is not:
             // that layout is missing everything behind the link too.
@@ -1467,7 +1468,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             () => InvokeSyncFilesToOutputDirectory(input, layout, manifest, reconciliation));
 
         Assert.IsInstanceOfType<InvalidOperationException>(failure.InnerException);
-        StringAssert.Contains(failure.InnerException!.Message, link, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(link, failure.InnerException!.Message, StringComparison.OrdinalIgnoreCase);
 
         Assert.AreEqual("the-real-bytes", await File.ReadAllTextAsync(target, TestContext.CancellationToken),
             "the link's target must not be written to");
@@ -1559,7 +1560,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
                     () => InvokeSyncFilesToOutputDirectory(aliasedInput, layout, manifest, "Additive"));
 
                 Assert.IsInstanceOfType<InvalidOperationException>(failure.InnerException);
-                StringAssert.Contains(failure.InnerException!.Message, alias, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(alias, failure.InnerException!.Message, StringComparison.OrdinalIgnoreCase);
             }
 
             Assert.IsFalse(Directory.Exists(Path.Combine(layout.FullName, "AppX")),
@@ -1572,7 +1573,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             var ancestorFailure = Assert.ThrowsExactly<TargetInvocationException>(
                 () => InvokeSyncFilesToOutputDirectory(nestedInput, layout, manifest, "Additive"));
             Assert.IsInstanceOfType<InvalidOperationException>(ancestorFailure.InnerException);
-            StringAssert.Contains(ancestorFailure.InnerException!.Message, alias, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(alias, ancestorFailure.InnerException!.Message, StringComparison.OrdinalIgnoreCase);
 
             // The control that matters: the ordinary project directory, with no link anywhere in its
             // path, is still packaged exactly as before.
@@ -1628,7 +1629,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
                 () => InvokeSyncFilesToOutputDirectory(payload, new DirectoryInfo(layout.FullName), manifest));
 
             Assert.IsInstanceOfType<InvalidOperationException>(failure.InnerException);
-            StringAssert.Contains(failure.InnerException!.Message, "stale-link", StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("stale-link", failure.InnerException!.Message, StringComparison.OrdinalIgnoreCase);
 
             Assert.IsTrue(File.Exists(outsideFile), "the link's target must not be deleted through");
             Assert.IsTrue(Directory.Exists(junction), "the link itself is left for the user to deal with");
@@ -1829,6 +1830,51 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.IsFalse(MsixService.IsPathInsideDirectory("bad\0path", _tempDirectory.FullName));
     }
 
+    // ---- EnsureLayoutIsNotVirtualized (issue #1049) -------------------------------
+
+    private static readonly string[] FakeAppDataFolders =
+        [@"C:\Users\dev\AppData\Local", @"C:\Users\dev\AppData\Roaming", @"C:\Users\dev\AppData\LocalLow"];
+    private const string FakeTemp = @"C:\Users\dev\AppData\Local\Temp\";
+
+    [TestMethod]
+    [DataRow(@"C:\Users\dev\AppData\Local\winapp-layout\repro")]
+    [DataRow(@"C:\Users\dev\AppData\Roaming\layout")]
+    [DataRow(@"C:\Users\dev\AppData\LocalLow\layout")]
+    public void EnsureLayoutIsNotVirtualized_PackagedUnderAppData_Throws(string layout)
+    {
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+            () => MsixService.EnsureLayoutIsNotVirtualized(layout, isPackaged: true, FakeAppDataFolders, FakeTemp));
+
+        Assert.Contains(layout, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("outside AppData", ex.Message, StringComparison.Ordinal);
+    }
+
+    [TestMethod]
+    [DataRow(@"C:\Users\dev\layout")]
+    [DataRow(@"C:\Users\dev\AppData\Local\Temp\winapp-package-1")]
+    [DataRow(@"C:\Users\dev\AppDataX\layout")]
+    [DataRow(@"C:\Users\dev\AppData\Other\layout")]
+    public void EnsureLayoutIsNotVirtualized_PackagedOutsideRedirectedAppData_DoesNotThrow(string layout)
+    {
+        MsixService.EnsureLayoutIsNotVirtualized(layout, isPackaged: true, FakeAppDataFolders, FakeTemp);
+    }
+
+    [TestMethod]
+    public void EnsureLayoutIsNotVirtualized_RelocatedLocalAppData_OnlyRejectsThatFolder()
+    {
+        string?[] folders = [@"D:\LocalAppData", @"C:\Users\dev\AppData\Roaming", null];
+
+        MsixService.EnsureLayoutIsNotVirtualized(@"D:\Projects\layout", isPackaged: true, folders, FakeTemp);
+        Assert.ThrowsExactly<InvalidOperationException>(
+            () => MsixService.EnsureLayoutIsNotVirtualized(@"D:\LocalAppData\layout", isPackaged: true, folders, FakeTemp));
+    }
+
+    [TestMethod]
+    public void EnsureLayoutIsNotVirtualized_NotPackaged_DoesNotThrow()
+    {
+        MsixService.EnsureLayoutIsNotVirtualized(@"C:\Users\dev\AppData\Local\layout", isPackaged: false, FakeAppDataFolders, FakeTemp);
+    }
+
     // ---- Register wrappers --------------------------------------------------------
 
     [TestMethod]
@@ -1998,7 +2044,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             .Select(e => e.Attribute("Alias")!.Value).ToArray();
         Assert.AreEqual(2, allAliases.Length);
         Assert.AreEqual(2, allAliases.Distinct(StringComparer.OrdinalIgnoreCase).Count());
-        CollectionAssert.AreEqual(sourceBytes, await File.ReadAllBytesAsync(manifest.FullName, TestContext.CancellationToken));
+        Assert.AreSequenceEqual(sourceBytes, await File.ReadAllBytesAsync(manifest.FullName, TestContext.CancellationToken));
         Assert.HasCount(1, _fakeRegistration.RegisterLooseLayoutCalls);
     }
 
@@ -2026,8 +2072,8 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.AreEqual(second.InspectorAlias.AliasName, repeated.InspectorAlias!.AliasName);
         Assert.IsFalse(repeated.InspectorAlias.RequiresRegistration);
         Assert.HasCount(2, _fakeRegistration.RegisterLooseLayoutCalls, "Unchanged Second must not register after First's old proxy disappears.");
-        CollectionAssert.AreEqual(secondBytes, await File.ReadAllBytesAsync(stagedPath, TestContext.CancellationToken));
-        CollectionAssert.AreEqual(sourceBytes, await File.ReadAllBytesAsync(manifest.FullName, TestContext.CancellationToken));
+        Assert.AreSequenceEqual(secondBytes, await File.ReadAllBytesAsync(stagedPath, TestContext.CancellationToken));
+        Assert.AreSequenceEqual(sourceBytes, await File.ReadAllBytesAsync(manifest.FullName, TestContext.CancellationToken));
 
         Task<MsixIdentityResult> Stage(string id) => _msixService.AddLooseLayoutIdentityAsync(
             manifest, source, output, TestTaskContext, selfContained: true,
@@ -2115,13 +2161,13 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.AreEqual(first.InspectorAlias.AliasName, second.InspectorAlias!.AliasName);
         Assert.IsFalse(second.InspectorAlias.RequiresRegistration);
         Assert.HasCount(1, _fakeRegistration.RegisterLooseLayoutCalls, "Healthy repeat must skip registration.");
-        CollectionAssert.AreEqual(firstBytes, await File.ReadAllBytesAsync(stagedFile, TestContext.CancellationToken));
+        Assert.AreSequenceEqual(firstBytes, await File.ReadAllBytesAsync(stagedFile, TestContext.CancellationToken));
 
         _msixService.AliasProxyExists = _ => false;
         var repaired = await Stage();
         Assert.IsTrue(repaired.InspectorAlias!.RequiresRegistration);
         Assert.HasCount(2, _fakeRegistration.RegisterLooseLayoutCalls, "A missing proxy vetoes the byte-identical skip.");
-        CollectionAssert.AreEqual(firstBytes, await File.ReadAllBytesAsync(stagedFile, TestContext.CancellationToken));
+        Assert.AreSequenceEqual(firstBytes, await File.ReadAllBytesAsync(stagedFile, TestContext.CancellationToken));
         Assert.AreEqual(sourceXml, await File.ReadAllTextAsync(manifest.FullName, TestContext.CancellationToken));
 
         Task<MsixIdentityResult> Stage() => _msixService.AddLooseLayoutIdentityAsync(
@@ -2148,6 +2194,61 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.IsEmpty(AppxManifestDocument.Load(Path.Join(output.FullName, "appxmanifest.xml")).GetExecutionAliases());
     }
 
+    // A common packaging pattern: the app's alias starts a launcher stub, not the app itself. DevTools can't launch
+    // through it, and a run that asked for DevTools must stop before registering anything.
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task InspectorAlias_LauncherStubAlias_FailsBeforeRegisteringWhenDevToolsWasRequested(bool required)
+    {
+        var source = _tempDirectory.CreateSubdirectory("inspector-launcher-source");
+        var output = _tempDirectory.CreateSubdirectory("inspector-launcher-layout");
+        var manifest = new FileInfo(Path.Join(source.FullName, "AppxManifest.xml"));
+        var xml = BuildMSBuildManifest(exe: "AppHost.exe")
+            .Replace("IgnorableNamespaces=\"uap build\"",
+                "xmlns:uap3=\"http://schemas.microsoft.com/appx/manifest/uap/windows10/3\" " +
+                "xmlns:desktop=\"http://schemas.microsoft.com/appx/manifest/desktop/windows10\" IgnorableNamespaces=\"uap build uap3 desktop\"",
+                StringComparison.Ordinal)
+            .Replace("<Application Id=\"App\" Executable=\"AppHost.exe\" EntryPoint=\"Windows.FullTrustApplication\" />",
+                """
+                <Application Id="App" Executable="AppHost.exe" EntryPoint="Windows.FullTrustApplication">
+                  <Extensions>
+                    <uap3:Extension Category="windows.appExecutionAlias" Executable="app-launcher.exe" EntryPoint="Windows.FullTrustApplication">
+                      <uap3:AppExecutionAlias><desktop:ExecutionAlias Alias="app-launcher.exe" /></uap3:AppExecutionAlias>
+                    </uap3:Extension>
+                  </Extensions>
+                </Application>
+                """, StringComparison.Ordinal);
+        await File.WriteAllTextAsync(manifest.FullName, xml, TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(source.FullName, "AppHost.exe"), "exe", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(source.FullName, "app-launcher.exe"), "exe", TestContext.CancellationToken);
+        _msixService.AliasProxyExists = _ => false;
+
+        Task<MsixIdentityResult> Stage() => _msixService.AddLooseLayoutIdentityAsync(
+            manifest, source, output, TestTaskContext, selfContained: true,
+            inspectorAlias: new InspectorAliasRequest(Required: required), cancellationToken: TestContext.CancellationToken);
+
+        const string expected = "The app's execution alias 'app-launcher.exe' starts 'app-launcher.exe', not 'AppHost.exe', " +
+            "so DevTools can't launch the app through it.\nTo inspect it, start it through its alias and attach:\n" +
+            "    $env:ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO = 1\n" +
+            "    app-launcher.exe\n" +
+            "    winapp devtools attach --pid <pid> --source-root <project folder>";
+        if (required)
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(Stage);
+            Assert.AreEqual(expected, error.Message);
+            Assert.IsEmpty(_fakeRegistration.RegisterLooseLayoutCalls, "nothing is registered");
+            Assert.IsEmpty(_fakeRegistration.UnregisterCalls, "and nothing already registered is removed");
+        }
+        else
+        {
+            // The default steps aside after registering, so the app still runs without DevTools.
+            var result = await Stage();
+            Assert.AreEqual(expected, result.InspectorAlias!.Error);
+            Assert.HasCount(1, _fakeRegistration.RegisterLooseLayoutCalls);
+        }
+    }
+
     [TestMethod]
     public async Task InspectorAlias_SelectedApplicationIsReturnedAndAuthoredAliasIsPreserved()
     {
@@ -2171,7 +2272,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             inspectorAlias: new InspectorAliasRequest("Second"), cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual("Second", result.ApplicationId);
         Assert.IsNull(result.InspectorAlias!.Error);
-        StringAssert.EndsWith(result.InspectorAlias.Target!.ApplicationUserModelId, "!Second");
+        Assert.EndsWith("!Second", result.InspectorAlias.Target!.ApplicationUserModelId);
         Assert.AreEqual(Path.Join(output.FullName, "Second.exe"), result.InspectorAlias.Target.TargetExecutable);
         var staged = AppxManifestDocument.Load(Path.Join(output.FullName, "appxmanifest.xml"));
         Assert.IsEmpty(staged.GetExecutionAliases("App"));
@@ -2196,7 +2297,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => _msixService.AddLooseLayoutIdentityAsync(
             manifest, _tempDirectory, equivalentOutput, TestTaskContext,
             inspectorAlias: new InspectorAliasRequest(), cancellationToken: TestContext.CancellationToken));
-        StringAssert.Contains(error.Message, "output directory separate from the source manifest");
+        Assert.Contains("output directory separate from the source manifest", error.Message);
         Assert.AreEqual(xml, await File.ReadAllTextAsync(manifest.FullName, TestContext.CancellationToken));
         Assert.IsEmpty(_fakeRegistration.RegisterLooseLayoutCalls);
     }
@@ -2240,7 +2341,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
         var staged = await File.ReadAllTextAsync(
             Path.Join(output.FullName, "appxmanifest.xml"), TestContext.CancellationToken);
-        StringAssert.Contains(staged, "winapp-TestApp_",
+        Assert.Contains("winapp-TestApp_", staged,
             "The staged recipe manifest must carry the family-name-derived alias");
 
         var source = await File.ReadAllTextAsync(srcManifest.FullName, TestContext.CancellationToken);
@@ -2359,8 +2460,8 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.IsFalse(File.Exists(Path.Join(output.FullName, "Package.appxmanifest")),
             "The stale manifest must not survive in the layout");
         Assert.HasCount(1, _fakeRegistration.RegisterLooseLayoutCalls);
-        StringAssert.EndsWith(
-            _fakeRegistration.RegisterLooseLayoutCalls[0], "appxmanifest.xml",
+        Assert.EndsWith(
+            "appxmanifest.xml", _fakeRegistration.RegisterLooseLayoutCalls[0],
             "Registration must use the manifest the recipe staged");
     }
 
@@ -2631,14 +2732,15 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var expectedFiles = Read(expected);
         var actualFiles = Read(actual);
 
-        CollectionAssert.AreEquivalent(
+        Assert.AreSequenceEqual(
             expectedFiles.Keys.ToList(),
             actualFiles.Keys.ToList(),
+            SequenceOrder.InAnyOrder,
             "Materialized layout should contain exactly the same files as the registered one");
 
         foreach (var (relativePath, content) in expectedFiles)
         {
-            CollectionAssert.AreEqual(content, actualFiles[relativePath], $"'{relativePath}' should be byte-identical");
+            Assert.AreSequenceEqual(content, actualFiles[relativePath], $"'{relativePath}' should be byte-identical");
         }
     }
 
@@ -2800,6 +2902,77 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.IsFalse(File.Exists(Path.Combine(output.FullName, "TestApp.pri")), "The original <exe>.pri should no longer exist after rename");
     }
 
+    [TestMethod]
+    public async Task AddLooseLayoutIdentityAsync_RenamedExePri_MergesManifestLogosIntoResourcesPri()
+    {
+        // A file-based WinUI app's build PRI only indexes XAML; the manifest logos must be added so the
+        // shell finds the unplated taskbar variant (#1077).
+        var srcDir = _tempDirectory.CreateSubdirectory("raw-input");
+        var srcManifest = new FileInfo(Path.Join(srcDir.FullName, "Package.appxmanifest"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildRawManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(srcDir.FullName, "TestApp.exe"), "pe", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(srcDir.FullName, "TestApp.pri"), "pri-bytes", TestContext.CancellationToken);
+        var assets = srcDir.CreateSubdirectory("Assets");
+        await File.WriteAllTextAsync(Path.Join(assets.FullName, "logo.png"), "png", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(assets.FullName, "logo.targetsize-24_altform-unplated.png"), "png", TestContext.CancellationToken);
+
+        var output = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "layout"));
+
+        await _msixService.AddLooseLayoutIdentityAsync(
+            srcManifest, srcDir, output, TestTaskContext, LayoutReconciliation.Exact, cancellationToken: TestContext.CancellationToken);
+
+        var merges = _fakeBuildTools.Invocations
+            .Where(i => i.Arguments.Contains("merge.xml", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        Assert.AreEqual(1, merges.Count, "The renamed build PRI should be merged with the manifest logos once.");
+        Assert.Contains("/in \"TestApp\"", merges[0].Arguments);
+        Assert.AreEqual("fake pri", await File.ReadAllTextAsync(Path.Join(output.FullName, "resources.pri"), TestContext.CancellationToken),
+            "resources.pri should be replaced by the merged PRI");
+    }
+
+    [TestMethod]
+    public async Task AddLooseLayoutIdentityAsync_NoExePri_GeneratesPriWithoutMerging()
+    {
+        var srcDir = _tempDirectory.CreateSubdirectory("raw-input");
+        var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "Package.appxmanifest"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildRawManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(srcDir.FullName, "TestApp.exe"), "pe", TestContext.CancellationToken);
+        var assets = srcDir.CreateSubdirectory("Assets");
+        await File.WriteAllTextAsync(Path.Combine(assets.FullName, "logo.png"), "png", TestContext.CancellationToken);
+
+        var output = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "layout"));
+
+        await _msixService.AddLooseLayoutIdentityAsync(
+            srcManifest, srcDir, output, TestTaskContext, LayoutReconciliation.Exact, cancellationToken: TestContext.CancellationToken);
+
+        Assert.IsFalse(
+            _fakeBuildTools.Invocations.Any(i => i.Arguments.Contains("merge.xml", StringComparison.OrdinalIgnoreCase)),
+            "A PRI that winapp generated from the manifest already indexes the logos.");
+    }
+
+    [TestMethod]
+    public async Task AddLooseLayoutIdentityAsync_PriMergeFails_WarnsAndKeepsBuildPri()
+    {
+        var srcDir = _tempDirectory.CreateSubdirectory("raw-input");
+        var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "Package.appxmanifest"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildRawManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(srcDir.FullName, "TestApp.exe"), "pe", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(srcDir.FullName, "TestApp.pri"), "pri-bytes", TestContext.CancellationToken);
+        var assets = srcDir.CreateSubdirectory("Assets");
+        await File.WriteAllTextAsync(Path.Combine(assets.FullName, "logo.png"), "png", TestContext.CancellationToken);
+        _fakeBuildTools.ThrowWhen = (tool, args) =>
+            tool.Contains("makepri", StringComparison.OrdinalIgnoreCase) && args.Contains("merge.xml", StringComparison.OrdinalIgnoreCase);
+
+        var output = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "layout"));
+
+        var result = await _msixService.AddLooseLayoutIdentityAsync(
+            srcManifest, srcDir, output, TestTaskContext, LayoutReconciliation.Exact, cancellationToken: TestContext.CancellationToken);
+
+        Assert.AreEqual("TestApp", result.PackageName);
+        Assert.AreEqual("pri-bytes", await File.ReadAllTextAsync(Path.Combine(output.FullName, "resources.pri"), TestContext.CancellationToken),
+            "A failed merge must leave the build's PRI in place so the app still launches");
+    }
+
     // ---- Executable manifest embedding (mt.exe) ----------------------------------
 
     private Task InvokeEmbedManifestFileToExeAsync(FileInfo exe, FileInfo manifest) =>
@@ -2931,8 +3104,8 @@ public class MsixServiceIdentityTests : BaseCommandTests
         RemoveMsixElementsMethod.Invoke(null, [manifestFile, TestTaskContext]);
 
         var content = File.ReadAllText(manifestFile.FullName);
-        StringAssert.DoesNotMatch(content, new Regex("<msix", RegexOptions.IgnoreCase), "the stale <msix> identity should be removed");
-        StringAssert.Contains(content, "assemblyIdentity", StringComparison.Ordinal);
+        Assert.DoesNotMatchRegex(new Regex("<msix", RegexOptions.IgnoreCase), content, "the stale <msix> identity should be removed");
+        Assert.Contains("assemblyIdentity", content, StringComparison.Ordinal);
     }
 
     // ---- PRI generation failure paths --------------------------------------------
@@ -3093,7 +3266,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             _msixService.EnsureWindowsAppRuntimeInstalledAsync(
                 csproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "could not be located");
+        Assert.Contains("could not be located", ex.Message);
     }
 
     [TestMethod]
@@ -3114,7 +3287,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
             _msixService.EnsureWindowsAppRuntimeInstalledAsync(
                 csproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "not registered");
+        Assert.Contains("not registered", ex.Message);
     }
 
     [TestMethod]
@@ -3133,6 +3306,62 @@ public class MsixServiceIdentityTests : BaseCommandTests
             csproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.HasCount(1, _fakeWindowsAppRuntime.InstallRuntimeCalls);
+    }
+
+    [TestMethod]
+    public async Task EnsureWindowsAppRuntimeInstalledAsync_ImportedWindowsAppSdk_InstallsItsRuntimeWithoutAPackageListReference()
+    {
+        // A C++ project that imports the Windows App SDK props from a shared .props file: its own
+        // packages.config doesn't name the Windows App SDK, but the build used it, so the runtime in the
+        // imported package folder must be installed.
+        _fakeDotNet.PackageListResult = new DotNetPackageListJson(
+            [new DotNetProject([new DotNetFramework("native", [new DotNetPackage("Microsoft.Windows.CppWinRT", "2.0.240405.15", "2.0.240405.15")], [])])]);
+        var packageDir = _tempDirectory.CreateSubdirectory(@"packages\Microsoft.WindowsAppSDK.Runtime.2.5.1");
+        var msixDir = packageDir.CreateSubdirectory(@"tools\MSIX");
+        _fakeWindowsAppRuntime.MsixDirectory = null; // the NuGet global cache has no copy
+        _fakeWindowsAppRuntime.InstallRuntimePackages =
+            [("Microsoft.WindowsAppRuntime.2", "2.5.1.0"), ("Microsoft.WinAppRuntime.DDLM", "2.5.1.0")];
+        _fakeWindowsAppRuntime.IsRuntimeRegisteredResult = true;
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+
+        var prepared = await _msixService.EnsureWindowsAppRuntimeInstalledAsync(
+            vcxproj, "x64", framework: null, noRestore: false, TestTaskContext,
+            windowsAppSdkPackageDirectory: packageDir, cancellationToken: TestContext.CancellationToken);
+
+        Assert.IsTrue(prepared);
+        Assert.AreEqual(msixDir.FullName, _fakeWindowsAppRuntime.InstallRuntimeCalls.Single().FullName);
+    }
+
+    [TestMethod]
+    public async Task EnsureWindowsAppRuntimeInstalledAsync_ImportedWindowsAppSdkWithoutRuntime_FailsClosed()
+    {
+        // The project imports the Windows App SDK, so skipping the runtime would launch an app that can't
+        // start. When neither the imported folder nor the package list locates the runtime, say so.
+        _fakeDotNet.PackageListResult = new DotNetPackageListJson([new DotNetProject([new DotNetFramework("native", [], [])])]);
+        var packageDir = _tempDirectory.CreateSubdirectory(@"packages\Microsoft.WindowsAppSDK.2.5.1");
+        _fakeWindowsAppRuntime.MsixDirectory = null;
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            _msixService.EnsureWindowsAppRuntimeInstalledAsync(
+                vcxproj, "x64", framework: null, noRestore: false, TestTaskContext,
+                windowsAppSdkPackageDirectory: packageDir, cancellationToken: TestContext.CancellationToken));
+
+        Assert.Contains("could not be located", ex.Message);
+        Assert.IsEmpty(_fakeWindowsAppRuntime.InstallRuntimeCalls);
+    }
+
+    [TestMethod]
+    public async Task EnsureWindowsAppRuntimeInstalledAsync_NoWindowsAppSdk_IsSkipped()
+    {
+        _fakeDotNet.PackageListResult = new DotNetPackageListJson([new DotNetProject([new DotNetFramework("native", [], [])])]);
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+
+        var prepared = await _msixService.EnsureWindowsAppRuntimeInstalledAsync(
+            vcxproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
+
+        Assert.IsFalse(prepared);
+        Assert.IsEmpty(_fakeWindowsAppRuntime.InstallRuntimeCalls);
     }
 
     [TestMethod]
@@ -3281,6 +3510,9 @@ internal sealed class ScriptedMtBuildToolsService : IBuildToolsService
 
     /// <summary>Recorded mt.exe argument strings.</summary>
     public List<string> MtInvocations { get; } = [];
+
+    /// <summary>Recorded non-mt tool invocations (makepri, makeappx, ...).</summary>
+    public List<(string ToolName, string Arguments)> Invocations => _inner.Invocations;
 
     /// <summary>
     /// When true, an mt.exe "-inputresource ... -out:PATH" invocation writes

@@ -1,0 +1,19 @@
+{
+  "name": "winapp",
+  "displayName": "winapp CLI",
+  "description": "The winapp CLI on PATH; one process per command, targeting the window by handle.",
+  "command": "winapp",
+  "operations": {
+    "version": ["--version"],
+    "list-windows": ["ui", "list-windows", "-a", "{pid}"],
+    "search": ["ui", "search", "{selector}", "-w", "{hwnd}", ["--type", "{type}"]],
+    "inspect": ["ui", "inspect", ["{selector}"], "-w", "{hwnd}"],
+    "get-property": ["ui", "get-property", "{selector}", "-w", "{hwnd}", ["-p", "{property}"]],
+    "get-value": ["ui", "get-value", "{selector}", "-w", "{hwnd}"],
+    "invoke": ["ui", "invoke", "{selector}", "-w", "{hwnd}", ["--type", "{type}"], ["--action", "{action}"]],
+    "set-value": ["ui", "set-value", "{selector}", "{value}", "-w", "{hwnd}"],
+    "wait-for": ["ui", "wait-for", "{selector}", "-w", "{hwnd}", ["-t", "{timeout}"], ["--value", "{value}"]],
+    "focus": ["ui", "focus", "{selector}", "-w", "{hwnd}"],
+    "screenshot": ["ui", "screenshot", "-w", "{hwnd}", "-o", "{output}"]
+  }
+}

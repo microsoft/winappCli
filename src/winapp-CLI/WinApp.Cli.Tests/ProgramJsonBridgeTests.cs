@@ -2,9 +2,11 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
+using WinApp.Cli.Services.DevTools.Comments;
 using System.Diagnostics.Tracing;
 using WinApp.Cli.Commands;
 using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Tests;
@@ -25,6 +27,135 @@ public class ProgramJsonBridgeTests : BaseCommandTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
+    public async Task MalformedSandboxEnvironment_IsRejectedBeforeHostChecks(bool run)
+    {
+        var original = Environment.GetEnvironmentVariable(SandboxExpectation.EnvironmentVariable);
+        Environment.SetEnvironmentVariable(SandboxExpectation.EnvironmentVariable, "not-a-provider-guid");
+        try
+        {
+            var arguments = run
+                ? new[] { "run", _tempDirectory.FullName, "--no-build", "--on", "sandbox", "--json" }
+                : ["target", "snapshot", "sandbox", "--json"];
+            var (stdout, stderr, exitCode) = await InvokeProgramAsync(arguments);
+
+            Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
+            Assert.Contains(SandboxExpectation.EnvironmentVariable, stdout + stderr);
+            Assert.Contains("provider GUID", stdout + stderr);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(SandboxExpectation.EnvironmentVariable, original);
+        }
+    }
+
+    [TestMethod]
+    public async Task SandboxFlag_DoesNotChangeTheEnvironmentInheritedByHostBuilds()
+    {
+        const string originalValue = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+        var original = Environment.GetEnvironmentVariable(SandboxExpectation.EnvironmentVariable);
+        Environment.SetEnvironmentVariable(SandboxExpectation.EnvironmentVariable, originalValue);
+        try
+        {
+            var (_, _, exitCode) = await InvokeProgramAsync(
+                ["run", _tempDirectory.FullName, "--no-build", "--on", "sandbox", "--json",
+                 "--expect-sandbox", "11111111-2222-4333-8444-555555555555"]);
+
+            Assert.AreNotEqual(0, exitCode, "The empty test directory is not a runnable project.");
+            Assert.AreEqual(originalValue, Environment.GetEnvironmentVariable(SandboxExpectation.EnvironmentVariable));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(SandboxExpectation.EnvironmentVariable, original);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("ui", "--help")]
+    [DataRow("devtools", "--help")]
+    [DataRow("target", "--help")]
+    public async Task MalformedSandboxEnvironment_DoesNotBreakHelp(params string[] arguments)
+    {
+        var original = Environment.GetEnvironmentVariable(SandboxExpectation.EnvironmentVariable);
+        Environment.SetEnvironmentVariable(SandboxExpectation.EnvironmentVariable, "not-a-provider-guid");
+        try
+        {
+            var (_, stderr, exitCode) = await InvokeProgramAsync(arguments);
+
+            Assert.AreEqual(0, exitCode);
+            Assert.AreEqual(string.Empty, stderr);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(SandboxExpectation.EnvironmentVariable, original);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task MissingSandboxExpectation_Json_UsesTheExistingParseErrorEnvelope(bool targetCommand)
+    {
+        var args = targetCommand
+            ? new[] { "target", "snapshot", "sandbox", "--json", "--expect-sandbox" }
+            : ["ui", "inspect", "--on", "sandbox", "--json", "--expect-sandbox"];
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);
+
+        Assert.AreNotEqual(0, exitCode);
+        Assert.AreEqual(string.Empty, stdout);
+        using var document = JsonDocument.Parse(stderr);
+        Assert.AreEqual(targetCommand ? ExecutionTargetErrorCodes.TargetInvalidArguments : UiJsonError.CodeInvalidArguments,
+            document.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [TestMethod]
+    public async Task LocalSandboxExpectation_Json_IsRejectedBeforeDispatch()
+    {
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(
+            ["ui", "inspect", "--on", "local", "--expect-sandbox", "11111111-2222-4333-8444-555555555555", "--json"]);
+
+        Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
+        Assert.AreEqual(string.Empty, stdout);
+        using var document = JsonDocument.Parse(stderr);
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetInvalid,
+            document.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [TestMethod]
+    public async Task SavedCommentDeletionWithoutApp_RejectsExpectationAndPreservesTheHostStore()
+    {
+        var storePath = Path.Combine(_tempDirectory.FullName, ".winapp", "ui-comments.json");
+        var store = new CommentStore();
+        var comment = new Comment
+        {
+            Id = "cmt_a91f0c31",
+            Text = "preserve this local comment",
+            Status = CommentStatus.Open,
+            CreatedAt = CommentTimestamps.Now(),
+            UpdatedAt = CommentTimestamps.Now(),
+            Anchor = new CommentAnchor
+            {
+                SourceFile = "MainWindow.xaml",
+                Identity = new CommentIdentity { Type = "Button", Name = "SaveButton" },
+            },
+        };
+        store.Add(storePath, comment);
+        var original = File.ReadAllBytes(storePath);
+
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(
+            ["devtools", "comments", "delete", comment.Id, "--source-root", _tempDirectory.FullName,
+             "--expect-sandbox", "11111111-2222-4333-8444-555555555555", "--json"]);
+
+        Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode, "An explicit expectation must not become a host deletion.");
+        Assert.AreSequenceEqual(original, File.ReadAllBytes(storePath));
+        Assert.AreEqual(string.Empty, stderr);
+        using var document = JsonDocument.Parse(stdout);
+        Assert.IsFalse(document.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Contains("--expect-sandbox", document.RootElement.GetProperty("error").GetString()!);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     public async Task Run_BareDevTools_IsOneLineNotTheRunHelp(bool json)
     {
         string[] args = json ? ["run", _tempDirectory.FullName, "--json", "--devtools"] : ["run", _tempDirectory.FullName, "--devtools"];
@@ -40,7 +171,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
         else
         {
             Assert.AreEqual(string.Empty, stdout.Trim());
-            StringAssert.Contains(stderr, "--devtools needs a value: on, off or headless");
+            Assert.Contains("--devtools needs a value: on, off or headless", stderr);
         }
     }
 
@@ -49,7 +180,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
     {
         var (stdout, _, exitCode) = await InvokeProgramAsync(["run", _tempDirectory.FullName, "--json", "--devtools", "yes"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(stdout, "not 'yes'", "relaxed escaping keeps ' instead of \\u0027");
+        Assert.Contains("not 'yes'", stdout, "relaxed escaping keeps ' instead of \\u0027");
     }
 
     [TestMethod]
@@ -58,7 +189,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(["run", _tempDirectory.FullName, "--devtools", "yes"]);
         Assert.AreEqual(1, exitCode);
         Assert.DoesNotContain("Usage:", stdout + stderr);
-        StringAssert.Contains(stderr, "--devtools must be on, off or headless, not 'yes'");
+        Assert.Contains("--devtools must be on, off or headless, not 'yes'", stderr);
     }
     [TestMethod]
     public async Task Pen_PressureInfinity_Rejected_NoInjection()
@@ -260,7 +391,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
         var error = JsonSerializer.Deserialize<JsonElement>(stdout.AsSpan(jsonStart).TrimEnd());
         var message = error.GetProperty("error").GetString();
         Assert.IsFalse(string.IsNullOrWhiteSpace(message), "the JSON error payload must carry a message");
-        StringAssert.Contains(message, "--max", "the error should name the offending option");
+        Assert.Contains("--max", message, "the error should name the offending option");
 
         // The human help text (description/usage) must NOT leak onto stdout.
         Assert.IsFalse(stdout.Contains("Usage:", StringComparison.Ordinal),
@@ -1042,7 +1173,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(string.Empty, stdout.Trim());
         Assert.IsFalse(stderr.Contains("Usage:", StringComparison.Ordinal), $"Help is not JSON; got: {stderr}");
-        StringAssert.Contains(stderr, ExecutionTargetErrorCodes.TargetInvalidArguments);
+        Assert.Contains(ExecutionTargetErrorCodes.TargetInvalidArguments, stderr);
     }
 
     [TestMethod]

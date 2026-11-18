@@ -183,20 +183,16 @@ export async function handleGenerateBindings(args: string[]): Promise<void> {
   await runJsBindingsOrchestrator(workspaceDir, isVerbose(args), quiet, resolveYamlPath(args, workspaceDir));
 }
 
-/** Append the wrapper-specific `init` notes the native `--help` doesn't know about. */
+/** Append the wrapper-specific `init` option the native `--help` doesn't know about, as its own group. */
 export function printInitWrapperOnlyHelp(): void {
-  // On TTY: move cursor up one line to eat the trailing blank line from native help.
-  // On pipe: skip ANSI escape, accept the blank line (harmless in piped output).
-  if (process.stdout.isTTY) {
-    process.stdout.write('\x1B[1A\x1B[2K');
-  }
+  console.log('');
+  console.log('npm wrapper');
   console.log(
     wrapHelpLine(
-      '  --add-js-bindings                                ',
+      '  --add-js-bindings             ',
       'Generate Windows App SDK JS bindings under .winapp/bindings/ for direct JavaScript access to WinRT APIs'
     )
   );
-  console.log('');
 }
 
 /**

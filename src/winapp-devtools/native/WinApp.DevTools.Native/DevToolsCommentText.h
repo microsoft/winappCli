@@ -106,6 +106,13 @@ inline const wchar_t* WriterFailureStage(unsigned long code)
     }
 }
 
+// A comment is saved in the app's project folder, which an app DevTools attached to after launch doesn't have.
+inline std::wstring NoProjectFolderStatus(unsigned long pid)
+{
+    return L"Comments need the app's project folder. Re-attach with: winapp devtools attach --pid " + std::to_wstring(pid) +
+        L" --source-root <project folder>";
+}
+
 inline std::wstring WriterFailureStatus(unsigned long code, const wchar_t* stage = nullptr, bool host = true)
 {
     return std::wstring(host ? L"Host save not confirmed (stage: " : L"Save not confirmed (stage: ") +

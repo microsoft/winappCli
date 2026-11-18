@@ -57,7 +57,7 @@ public sealed class FindApiUsageEventTests
         FindApiUsageEvent.Log("search", json: false, resultCount: 2, found: true);
 
         var names = listener.WaitForEvent("FindApiUsage_Event");
-        CollectionAssert.Contains(names, "FindApiUsage_Event", "the static Log method must emit through the WinAppDevCLI provider");
+        Assert.Contains("FindApiUsage_Event", names, "the static Log method must emit through the WinAppDevCLI provider");
     }
 
     private sealed class NameCapturingListener : EventListener

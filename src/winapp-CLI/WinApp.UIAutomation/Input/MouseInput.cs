@@ -174,7 +174,7 @@ internal static class MouseInput
         }
     }
 
-    public static void ScrollWheel(int screenX, int screenY, int delta, int settleMs = 30)
+    public static void ScrollWheel(int screenX, int screenY, int delta, int settleMs = 30, bool horizontal = false)
     {
         // Position the cursor over the target so the wheel message is routed to the element under it.
         // Pass settleMs: 0 when the caller already moved the cursor and confirmed the target is stable.
@@ -184,7 +184,7 @@ internal static class MouseInput
             s_sleep(settleMs);
         }
 
-        SendInputs([CreateWheelInput(delta)]);
+        SendInputs([CreateWheelInput(delta, horizontal)]);
     }
 
     private static void SendButton(MOUSE_EVENT_FLAGS flag)
@@ -243,14 +243,14 @@ internal static class MouseInput
     internal static INPUT[] CreateClickInputs(MOUSE_EVENT_FLAGS downFlag, MOUSE_EVENT_FLAGS upFlag)
         => [CreateButtonInput(downFlag), CreateButtonInput(upFlag)];
 
-    internal static INPUT CreateWheelInput(int delta)
+    internal static INPUT CreateWheelInput(int delta, bool horizontal = false)
         => new()
         {
             type = INPUT_TYPE.INPUT_MOUSE,
             Anonymous = { mi = new MOUSEINPUT
             {
                 mouseData = unchecked((uint)delta),
-                dwFlags = MOUSE_EVENT_FLAGS.MOUSEEVENTF_WHEEL
+                dwFlags = horizontal ? MOUSE_EVENT_FLAGS.MOUSEEVENTF_HWHEEL : MOUSE_EVENT_FLAGS.MOUSEEVENTF_WHEEL
             }}
         };
 

@@ -91,7 +91,7 @@ internal class UiInvokeCommand : Command, IShortDescription, IHelpExamples
                 return 1;
             }
 
-            if (string.IsNullOrWhiteSpace(selectorStr))
+            if (!UiQueryOptions.HasQuery(parseResult, selectorStr))
             {
                 UiErrors.MissingSelector(logger, "invoke", json);
                 return 1;
@@ -103,8 +103,8 @@ internal class UiInvokeCommand : Command, IShortDescription, IHelpExamples
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            // Preflight rejected a missing selector, so this is non-null by construction.
-            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var selectorArg = parseResult.GetValue(SharedUiOptions.SelectorArgument);
+            var selectorStr = UiQueryOptions.Describe(parseResult, selectorArg);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var requestedAction = parseResult.GetValue(ActionOption);
@@ -116,13 +116,13 @@ internal class UiInvokeCommand : Command, IShortDescription, IHelpExamples
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorArg);
                 var element = await uiAutomation.FindSingleElementAsync(
                     uiTarget, selector, requireUnique: action is not null || filtered, cancellationToken);
 
                 if (element is null)
                 {
-                    UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error);
+                    UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error, target: uiTarget);
                     return 1;
                 }
 
@@ -152,7 +152,7 @@ internal class UiInvokeCommand : Command, IShortDescription, IHelpExamples
                         element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
                         if (element is null)
                         {
-                            UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error);
+                            UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error, target: uiTarget);
                             return 1;
                         }
                     }

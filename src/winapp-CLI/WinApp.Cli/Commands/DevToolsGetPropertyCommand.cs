@@ -10,7 +10,7 @@ using WinApp.Cli.Services.DevTools;
 namespace WinApp.Cli.Commands;
 
 /// <summary>
-/// <c>winapp devtools get-property &lt;selector&gt;</c> — read an element's live dependency-property values and
+/// <c>winapp devtools get-property &lt;selector&gt;</c>: read an element's live dependency-property values and
 /// say WHERE each effective value came from (local set, style, theme resource, binding, default). That value
 /// source is the part a plain UI-Automation read cannot answer, and it is usually the answer to "why is this
 /// not the colour/size I wrote".
@@ -129,7 +129,7 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             // for: `-p Foreground --json` returned all 249 rows.
             // The document stays alive for the whole command so the JSON path can copy each RETAINED row
             // through verbatim. Rebuilding a row from the parsed record instead would drop every wire field
-            // the CLI does not model — editKind, chain, children, enumValues, valueState — and `chain` in
+            // the CLI does not model (editKind, chain, children, enumValues, valueState), and `chain` in
             // particular is the strongest "why did this value win?" evidence the protocol carries.
             using var doc = response.TryParseResult();
             if (doc is null
@@ -169,7 +169,7 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                         json,
                         target.Pid,
                         $"'{property}' is not among the {total} {(total == 1 ? "property" : "properties")} the agent reports for this element. " +
-                        "Run the command without --property to see which it reads."));
+                        DevToolsPropertyRow.UnknownPropertyHint(all.Select(p => p.Row.Name), property!, selector)));
                 }
             }
             else if (parseResult.GetValue(AllOption))
@@ -265,7 +265,7 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             if (selected.Count == 0)
             {
                 Console.MarkupLine(
-                    "[grey]Nothing is set on this element — every property the agent reads is at its default. " +
+                    "[grey]Nothing is set on this element. Every property the agent reads is at its default. " +
                     "Use --all to list them.[/]");
                 return Task.FromResult(0);
             }
@@ -274,7 +274,7 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             {
                 Console.WriteLine();
                 Console.MarkupLineInterpolated(
-                    $"[grey]Showing {selected.Count} of {total} {(total == 1 ? "property" : "properties")} — the ones something set. Use --all for the rest.[/]");
+                    $"[grey]Showing {selected.Count} of {total} {(total == 1 ? "property" : "properties")}: the ones something set. Use --all for the rest.[/]");
             }
 
             return Task.FromResult(0);

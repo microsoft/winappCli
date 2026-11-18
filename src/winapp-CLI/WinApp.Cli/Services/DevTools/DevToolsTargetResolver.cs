@@ -11,7 +11,7 @@ internal interface IDevToolsTargetResolver
 {
     /// <summary>
     /// Resolves a target from the shared <c>-a/--app</c> and <c>-w/--window</c> options, attaching the agent
-    /// only when explicitly authorized. Never throws for an ordinary targeting failure — the reason is returned so the caller can
+    /// only when explicitly authorized. Never throws for an ordinary targeting failure; the reason is returned so the caller can
     /// render it in its own human/JSON shape.
     /// </summary>
     /// <param name="attachIfNeeded">
@@ -72,10 +72,24 @@ internal sealed class DevToolsTargetResolver(
     IUiTargetResolver sessionService,
     IDevToolsService devToolsService,
     Func<IReadOnlyList<int>>? attachedPidLister = null,
-    ExecutionTargets.GuestAgent.GuestCommentContext? guestComments = null) : IDevToolsTargetResolver
+    ExecutionTargets.GuestAgent.GuestCommentContext? guestComments = null,
+    Func<int, string?>? whyNotAttachable = null) : IDevToolsTargetResolver
 {
     private readonly Func<IReadOnlyList<int>> _attachedPids =
         attachedPidLister ?? (() => DevToolsPipeDiscovery.EnumerateInjectedPids());
+
+    private readonly Func<int, string?> _whyNotAttachable = whyNotAttachable ?? (pid =>
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            return DevToolsAttachTarget.WhyNot(process);
+        }
+        catch (ArgumentException)
+        {
+            return null;   // gone: the attach reports it
+        }
+    });
 
     public async Task<DevToolsTarget> ResolveAsync(
         string? app,
@@ -163,8 +177,12 @@ internal sealed class DevToolsTargetResolver(
         }
 
         // An explicitly authorized target is attached now. Request mutation,
-        // because a posture is fixed for the process lifetime by the FIRST injection — attaching read-only here
+        // because a posture is fixed for the process lifetime by the FIRST injection, and attaching read-only here
         // would silently make `set-property` impossible until the app restarts.
+        if (_whyNotAttachable(pid) is { } notWinUi3)
+        {
+            return DevToolsTarget.Fail($"{notWinUi3} Nothing was loaded into that process.");
+        }
         var connection = await devToolsService.ConnectAsync(
             unchecked((uint)pid),
             showOverlay: false,

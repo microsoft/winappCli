@@ -232,8 +232,10 @@ struct OverlayBuildScope {
     OverlayBuildScope() : previous(g_overlayBuilding.exchange(true, std::memory_order_acq_rel)) {}
     ~OverlayBuildScope() { g_overlayBuilding.store(previous, std::memory_order_release); }
 };
+static void EvictLeakedOverlaySubtree(InstanceHandle root);
 static void OverlaySeed(InstanceHandle h) {
     AcquireSRWLockExclusive(&g_overlayLock); g_overlaySet.insert(h); ReleaseSRWLockExclusive(&g_overlayLock);
+    EvictLeakedOverlaySubtree(h);
 }
 size_t DevToolsTap_ExcludedElementCount() {
     AcquireSRWLockShared(&g_overlayLock);
@@ -263,8 +265,7 @@ static void EvictLeakedOverlaySubtree(InstanceHandle root)
     std::vector<InstanceHandle> evicted;
     std::vector<unsigned long long> removedWires;
     AcquireSRWLockExclusive(&g_censusLock);
-    std::vector<InstanceHandle> stack;
-    { auto it = g_children.find(root); if (it != g_children.end()) stack = it->second; }
+    std::vector<InstanceHandle> stack{root};
     while (!stack.empty()) {
         InstanceHandle h = stack.back(); stack.pop_back();
         auto ci = g_children.find(h);
@@ -337,7 +338,7 @@ struct RemovedHandler : DevToolsSinkBase
         WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::TapRemovedTurn);
         // Clear the latch BEFORE draining: a Remove that lands while we are draining must be able to
         // enqueue a fresh turn, or it would sit in g_removedPending until some later burst happened to
-        // flush it — which is the same "arrives eventually, or never" failure this replaces.
+        // flush it, which is the same "arrives eventually, or never" failure this replaces.
         g_removedEnqueued.store(false, std::memory_order_release);
         std::vector<InstanceHandle> batch;
         AcquireSRWLockExclusive(&g_removedLock);
@@ -527,7 +528,7 @@ struct TreeCb : IVisualTreeServiceCallback2
                 // Mint the generation-stamped slot under the census lock, after overlay self-exclusion.
                 MintSlot_nolock(e.Handle);
                 // Remember the outermost Panel (first StackPanel/Grid/Canvas in tree order) as the overlay
-                // insertion target — a real app panel we can append to without reparenting Window.Content.
+                // insertion target: a real app panel we can append to without reparenting Window.Content.
                 if (!g_firstPanel) {
                     std::wstring ty = e.Type;
                     if (ty.find(L"StackPanel") != std::wstring::npos ||

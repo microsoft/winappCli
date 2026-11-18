@@ -77,7 +77,7 @@ void DevToolsRead_RedactXaml(std::wstring& xaml)
                     const std::wstring value = xaml.substr(open + 1, close - open - 1);
                     const bool secret = nameStart < nameEnd && (nameStart == 0 || iswspace(out[nameStart - 1])) &&
                         DevToolsRead_IsSecretProperty(out.substr(nameStart, nameEnd - nameStart)) &&
-                        (value.empty() || value.front() != L'{');
+                        (value.empty() || DevToolsRead_ClassifyAuthored(value) == L"literal");
                     out.append(xaml, i, open + 1 - i);
                     out += secret ? std::wstring(kDevToolsRedacted) : value;
                     out += xaml[close];
@@ -116,7 +116,7 @@ void DevToolsRead_Redact(DevToolsReadProp& p)
     p.writeType.clear();
     p.editKind = L"none";
     // A binding or resource reference names where the value comes from, not the value itself.
-    if (!p.authored.empty() && p.authored.front() != L'{') p.authored = kDevToolsRedacted;
+    if (DevToolsRead_ClassifyAuthored(p.authored) == L"literal") p.authored = kDevToolsRedacted;
     for (auto& entry : p.chain) entry.value = kDevToolsRedacted;
     p.children.clear();
 }
@@ -168,6 +168,8 @@ static void AppendProp(std::wstring& out, const DevToolsReadProp& source, int de
     if (!p.authored.empty())    { out += L",\"authored\":\"";    out += DevToolsJsonEscape(p.authored);    out += L"\""; }
     if (!p.authoredKind.empty()) { out += L",\"authoredKind\":\""; out += DevToolsJsonEscape(p.authoredKind); out += L"\""; }
     if (!p.authoredKey.empty()) { out += L",\"authoredKey\":\""; out += DevToolsJsonEscape(p.authoredKey); out += L"\""; }
+    const std::wstring origin = DevToolsRead_OriginLabel(p.authoredKind, p.authored, p.authoredKey, p.binding, p.source, false);
+    if (!origin.empty())        { out += L",\"origin\":\"";      out += DevToolsJsonEscape(origin);        out += L"\""; }
     if (p.redacted) out += L",\"redacted\":true";
     if (!p.chain.empty())
     {
@@ -418,7 +420,11 @@ std::wstring DevToolsRead_DeriveWriteType(const std::wstring& declaredType, bool
     if (declaredType.empty()) return std::wstring();
     size_t dot = declaredType.find_last_of(L'.');
     std::wstring st = (dot == std::wstring::npos) ? declaredType : declaredType.substr(dot + 1);
-    if (isEnum) return st;
+    if (isEnum) {
+        // Core enums resolve by short name; Microsoft.UI.Xaml.Controls and app enums need the full name.
+        const bool core = declaredType.rfind(L"Microsoft.UI.Xaml.", 0) == 0 && dot == std::wstring(L"Microsoft.UI.Xaml").size();
+        return core || dot == std::wstring::npos ? st : declaredType;
+    }
     for (const auto& p : DevToolsRead_ParsableTypes())
         if (st == p) return st;
     if (st == L"Brush" || (st.size() > 5 && st.compare(st.size() - 5, 5, L"Brush") == 0))
@@ -430,7 +436,41 @@ bool DevToolsRead_ChildEditingIsSafe(const std::wstring& valueSource, const std:
 {
     // A resource-backed value is by definition shared with everything else that resolves the same key.
     if (authoredKind == L"themeResource" || authoredKind == L"staticResource") return false;
-    return valueSource == L"Local";
+    return valueSource == L"Local" || valueSource == kDevToolsReadLiveEditSource;
+}
+
+bool DevToolsRead_IsUnsetRuntimeLocal(const std::wstring& name, const std::wstring& value)
+{
+    // The display scale is computed for every element; its value says nothing about who set it.
+    if (name == L"RasterizationScale") return true;
+    std::vector<double> expected;
+    if (name == L"Translation" || name == L"CenterPoint") expected = { 0, 0, 0 };
+    else if (name == L"Scale") expected = { 1, 1, 1 };
+    else if (name == L"RotationAxis") expected = { 0, 0, 1 };
+    else if (name == L"Rotation") expected = { 0 };
+    else if (name == L"TransformMatrix") {
+        expected.assign(16, 0.0);
+        for (size_t i = 0; i < 16; i += 5) expected[i] = 1.0;
+    } else return false;
+
+    // Read the numbers in order, whatever separates them: vectors arrive as "0,0,0" and a Matrix4x4 as nested
+    // braces, possibly with member labels such as "M11:", which are skipped as words.
+    std::vector<double> parts;
+    for (size_t i = 0; i < value.size();) {
+        const wchar_t c = value[i];
+        if (iswalpha(c)) {
+            while (i < value.size() && iswalnum(value[i])) ++i;
+        } else if (iswdigit(c) || c == L'-' || c == L'+' || c == L'.') {
+            wchar_t* stop = nullptr;
+            const double number = wcstod(value.c_str() + i, &stop);
+            if (!stop || stop == value.c_str() + i) return false;
+            parts.push_back(number);
+            i = stop - value.c_str();
+        } else {
+            ++i;
+        }
+    }
+    return parts == expected;
 }
 
 std::wstring DevToolsRead_ExpandableKind(const std::wstring& valueType)
@@ -505,4 +545,21 @@ std::wstring DevToolsRead_ShortTypeName(const std::wstring& type)
         if (depth == 0 && c == L'.') dot = i;
     }
     return dot == std::wstring::npos ? name : name.substr(dot + 1);
+}
+
+std::wstring DevToolsRead_OriginLabel(const std::wstring& authoredKind, const std::wstring& authored,
+                                      const std::wstring& authoredKey, const std::wstring& binding,
+                                      const std::wstring& valueSource, bool compact)
+{
+    if (valueSource == kDevToolsReadLiveEditSource) return valueSource;
+    auto resource = [&](const wchar_t* kind) { return authoredKey.empty() ? std::wstring(kind) : std::wstring(kind) + L" " + authoredKey; };
+    auto or_ = [](const std::wstring& value, const wchar_t* fallback) { return value.empty() ? std::wstring(fallback) : value; };
+    if (authoredKind == L"themeResource")   return compact ? L"Theme resource" : resource(L"ThemeResource");
+    if (authoredKind == L"staticResource")  return compact ? L"Static resource" : resource(L"StaticResource");
+    if (authoredKind == L"xBind")           return compact ? L"x:Bind" : or_(authored, L"x:Bind");
+    if (authoredKind == L"binding")         return compact ? L"Binding" : or_(authored, binding.empty() ? L"Binding" : binding.c_str());
+    if (authoredKind == L"templateBinding") return compact ? L"TemplateBinding" : or_(authored, L"TemplateBinding");
+    if (authoredKind == L"customMarkup")    return compact ? L"Markup" : or_(authored, L"Markup");
+    // A literal authored on this element IS a local value, and the precedence slot says so in the runtime's words.
+    return compact || binding.empty() ? valueSource : binding;
 }

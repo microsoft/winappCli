@@ -7,13 +7,13 @@ namespace WinApp.Cli.Services.DevTools;
 
 /// <summary>
 /// The tap's app-authored classification (<c>VisualTree.getAppAuthored</c>): which live elements the
-/// classifier attributes to the app's own XAML, and — the part that matters when the answer is "none" —
+/// classifier attributes to the app's own XAML, and (the part that matters when the answer is "none")
 /// whether the build/launch carried the XAML source information the classification needs at all.
 /// </summary>
 /// <param name="Handles">The handles classified as app-authored.</param>
 /// <param name="SourceInstrumented">
 /// Whether the runtime reported source for any element. When <c>false</c>, an empty result means "we could
-/// not look", not "the app authored nothing" — and those two must never render the same way.
+/// not look", not "the app authored nothing", and those two must never render the same way.
 /// </param>
 /// <param name="Truncated">Whether the classifier's own node walk was cut short.</param>
 internal sealed record DevToolsAppAuthored(
@@ -63,11 +63,13 @@ internal sealed record DevToolsAppAuthored(
         }
     }
 
+    /// <summary>What to do when the app has no XAML source information: DevTools attached after it started.</summary>
+    public const string RelaunchForSource = "Launch it with `winapp run --devtools on`, which turns source information on.";
+
     public string? ExplainIfEmpty() =>
         Handles.Count > 0
             ? null
             : SourceInstrumented
                 ? "The agent classified no element as app-authored: every live element came from framework or template XAML."
-                : "This app reports no XAML source information, so nothing can be classified as app-authored. " +
-                  "Launch it with `winapp run --devtools on`, which turns source information on.";
+                : "This app reports no XAML source information, so nothing can be classified as app-authored. " + RelaunchForSource;
 }

@@ -57,6 +57,39 @@ public sealed class ProjectContextDetectorTests
         Assert.AreEqual(expected, context.Framework.ToString());
     }
 
+    // A legacy C++ app imports the Windows App SDK through its own shared .props and restores it from packages.config.
+    [TestMethod]
+    public void DetectProject_CppWinUIRestoredThroughPackagesConfig_IsWinUI()
+    {
+        var project = new FileInfo(Path.Join(_root.FullName, "AppHost.vcxproj"));
+        File.WriteAllText(project.FullName, """
+            <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <Import Project="..\common.props" />
+              <ItemGroup><Page Include="TabStrip.xaml" /></ItemGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Join(_root.FullName, "packages.config"), """
+            <?xml version="1.0" encoding="utf-8"?>
+            <packages><package id="Microsoft.WindowsAppSDK" version="1.8.250916003" targetFramework="native" /></packages>
+            """);
+
+        Assert.AreEqual(ProjectAppFramework.WinUI, _detector.DetectProject(project).Framework);
+    }
+
+    [TestMethod]
+    public void DetectProject_CppWinUIWithMalformedPackagesConfig_IsStillWinUI()
+    {
+        var project = new FileInfo(Path.Join(_root.FullName, "App.vcxproj"));
+        File.WriteAllText(project.FullName, """
+            <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <PropertyGroup><UseWinUI>true</UseWinUI></PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Join(_root.FullName, "packages.config"), "<packages><package id=");
+
+        Assert.AreEqual(ProjectAppFramework.WinUI, _detector.DetectProject(project).Framework);
+    }
+
     [TestMethod]
     public void DetectProject_ClassifiesTheCppWinUISample()
     {

@@ -17,20 +17,7 @@
 
 #include <cstdio>
 #include <string>
-
-static int g_failures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
-}
-
-static void CheckEqW(const std::wstring& got, const std::wstring& want, const char* what)
-{
-    if (got != want) { ++g_failures; std::printf("  FAIL  %s (want \"%ls\", got \"%ls\")\n", what, want.c_str(), got.c_str()); }
-    else             {              std::printf("  ok    %s (\"%ls\")\n", what, got.c_str()); }
-}
+#include "DevToolsTestCheck.h"
 
 // ---- verbatim answers from the fixture --------------------------------------------------------------
 static const wchar_t* kBadSegment =
@@ -210,6 +197,15 @@ static void Test_LiveEditOverridesAnXBind()
           "live edits are remembered per element and property");
     DevToolsBindingRow_ForgetLiveWrite(42, L"Content");
     Check(!DevToolsBindingRow_WasWrittenLive(42, L"Content"), "a restore forgets the edit");
+    DevToolsBindingRow_NoteLiveWrite(42, L"Content");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hi"), "the first read after an edit records what it wrote");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hi"), "and the edit keeps owning that value");
+    Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Count: 1"), "not one the app wrote after it");
+    Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hi") && !DevToolsBindingRow_WasWrittenLive(42, L"Content"),
+          "an app write ends the edit, even if the app later writes the same value back");
+    DevToolsBindingRow_NoteLiveWrite(42, L"Content");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hello"), "a new edit records its own value");
+    DevToolsBindingRow_ForgetLiveWrite(42, L"Content");
     CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2713 Works"), L"Works", "a screen reader hears the status, not the glyph");
     CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2715 Broken at Nope"), L"Broken at Nope", "including a broken one");
     const auto unanswered = DevToolsBindingRow_Summary(kUnavailable);
@@ -217,8 +213,10 @@ static void Test_LiveEditOverridesAnXBind()
           "an unanswered diagnosis (no managed agent) is not evidence that a binding was replaced");
     Check(DevToolsBindingRow_ShowsReplaced(unanswered, false, true) && DevToolsBindingRow_ShowsReplaced(unanswered, true, false),
           "our own edit of a bound property is");
-    Check(DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kNotBound), false, false),
-          "so is the runtime reporting no binding where the XAML declares one");
+    Check(!DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kNotBound), false, false),
+          "staging a binding on a known literal does not imply a lost binding or a Restore route");
+    Check(DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kNotBound), true, false),
+          "a known binding replacement still offers recovery when the runtime reports no binding");
     Check(!DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kHealthyXBind), false, true),
           "a binding that still works is not replaced (an overridden x:Bind is reported separately)");
 }
@@ -235,5 +233,5 @@ int RunBindingRowTests()
     Test_ScopeWarningsCannotBeHiddenByNativeFallback();
     Test_SummaryIsAFewLabelledLines();
     Test_LiveEditOverridesAnXBind();
-    return g_failures;
+    return g_testFailures;
 }

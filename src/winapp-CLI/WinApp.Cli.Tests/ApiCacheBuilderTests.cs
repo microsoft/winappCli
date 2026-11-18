@@ -57,7 +57,7 @@ public sealed class ApiCacheBuilderTests
         }
         var progress = new List<string>();
 
-        ApiCacheBuilder.BuildCache(root, Path.Combine(_dir, "cache"), scan: true, null, progress.Add);
+        ApiCacheBuilder.BuildCache(root, Path.Combine(_dir, "cache"), scan: true, null, _ => Path.Combine(_dir, "nuget"), progress.Add);
 
         Assert.AreEqual(
             1,
@@ -415,7 +415,7 @@ public sealed class ApiCacheBuilderTests
 
         List<string> found = ApiCacheBuilder.DiscoverProjectFiles(indirect, scan: true);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             Directory.GetFiles(indirect, "*.csproj", SearchOption.AllDirectories),
             found);
     }

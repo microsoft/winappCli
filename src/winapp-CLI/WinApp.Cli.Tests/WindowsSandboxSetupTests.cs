@@ -35,8 +35,8 @@ public class WindowsSandboxSetupTests
             "dism.exe /Online /Enable-Feature /FeatureName:Containers-DisposableClientVM /All /NoRestart",
             error.Error.NextCommand!.Command);
         Assert.IsTrue(error.Error.NextCommand.Advisory);
-        StringAssert.Contains(error.Error.UserAction!, "administrator terminal");
-        StringAssert.Contains(error.Error.UserAction!, "restart Windows when ready");
+        Assert.Contains("administrator terminal", error.Error.UserAction!);
+        Assert.Contains("restart Windows when ready", error.Error.UserAction!);
         Assert.AreEqual(1, probe.Calls, "A missing prerequisite must fail promptly, not poll an installer.");
         using var json = JsonDocument.Parse(ExecutionTargetErrorSerializer.Serialize(error.Error));
         Assert.IsTrue(json.RootElement.GetProperty("error").GetProperty("nextCommand").GetProperty("advisory").GetBoolean());
@@ -54,8 +54,8 @@ public class WindowsSandboxSetupTests
         Assert.AreEqual(ExecutionTargetErrorCodes.SetupRequiresRestart, error.Error.Code);
         Assert.IsNull(error.Error.NextCommand, "Restart timing belongs to the user, not an automatically offered command.");
         Assert.AreEqual("true", error.Error.Context!["restartPending"]);
-        StringAssert.Contains(error.Error.UserAction!, "Save your work");
-        StringAssert.Contains(error.Error.UserAction!, "when you are ready");
+        Assert.Contains("Save your work", error.Error.UserAction!);
+        Assert.Contains("when you are ready", error.Error.UserAction!);
         Assert.AreEqual(1, probe.Calls);
     }
 
@@ -83,7 +83,8 @@ public class WindowsSandboxSetupTests
             new WindowsSandboxSetup(probe) { SupportsSandboxCli = () => true }
                 .EnsureReadyAsync(TestContext.CancellationToken));
         Assert.AreEqual(ExecutionTargetErrorCodes.SetupIncomplete, error.Error.Code);
-        StringAssert.Contains(error.Error.UserAction!, "Start menu");
+        Assert.IsNotNull(error.Error.UserAction);
+        Assert.Contains("Start menu", error.Error.UserAction);
         Assert.IsNull(error.Error.NextCommand);
         Assert.IsFalse(error.Error.UserAction.Contains("Enable-Feature", StringComparison.Ordinal));
         Assert.AreEqual(1, probe.Calls);
@@ -135,6 +136,219 @@ public class WindowsSandboxSetupTests
     }
 
     [TestMethod]
+    public async Task DescribeHost_MissingFeature_FailsFeatureWithAdvisoryCommandAndDefersClientChecks()
+    {
+        var probe = new FixedProbe(Facts() with { RestartPending = false });
+        var setup = new WindowsSandboxSetup(probe) { SupportsSandboxCli = () => true, OsVersion = () => "10.0.26100.0" };
+
+        var host = await setup.DescribeHostAsync(TestContext.CancellationToken);
+
+        Assert.IsFalse(host.Ready);
+        Assert.AreSequenceEqual(
+            AllCheckNames,
+            host.Checks.Select(c => c.Name).ToArray());
+        Assert.AreEqual(TargetHostCheckStatus.Passed, Check(host, "osVersion").Status);
+        var feature = Check(host, "sandboxFeature");
+        Assert.AreEqual(TargetHostCheckStatus.Failed, feature.Status);
+        Assert.AreEqual(WindowsSandboxSetup.EnableFeatureCommand, feature.NextCommand!.Command);
+        Assert.IsTrue(feature.NextCommand.Advisory);
+        Assert.AreEqual(TargetHostCheckStatus.NotChecked, Check(host, "sandboxClient").Status);
+        Assert.AreEqual(TargetHostCheckStatus.NotChecked, Check(host, "wsb").Status);
+        Assert.AreEqual(TargetHostCheckStatus.Passed, Check(host, "restartPending").Status);
+        Assert.AreEqual(1, probe.Calls);
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            setup.EnsureReadyAsync(TestContext.CancellationToken));
+        Assert.AreEqual(error.Error.UserAction, feature.Fix, "Snapshot and run-time errors must give the same advice.");
+    }
+
+    [TestMethod]
+    public async Task DescribeHost_FeatureEnabledButClientMissing_FailsClientAndWsb()
+    {
+        var setup = new WindowsSandboxSetup(new FixedProbe(Facts() with { FeaturePayloadPresent = true }))
+            { SupportsSandboxCli = () => true };
+
+        var host = await setup.DescribeHostAsync(TestContext.CancellationToken);
+
+        Assert.IsFalse(host.Ready);
+        Assert.AreEqual(TargetHostCheckStatus.Passed, Check(host, "sandboxFeature").Status);
+        var client = Check(host, "sandboxClient");
+        Assert.AreEqual(TargetHostCheckStatus.Failed, client.Status);
+        Assert.Contains("Start menu", client.Fix!);
+        Assert.IsNull(client.NextCommand, "The client cannot be installed by a command winapp offers.");
+        var wsb = Check(host, "wsb");
+        Assert.AreEqual(TargetHostCheckStatus.Failed, wsb.Status);
+        Assert.Contains("not found", wsb.Detail!);
+        Assert.AreEqual(TargetHostCheckStatus.NotChecked, Check(host, "restartPending").Status);
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            setup.EnsureReadyAsync(TestContext.CancellationToken));
+        Assert.AreEqual(error.Error.UserAction, client.Fix);
+    }
+
+    [TestMethod]
+    public async Task DescribeHost_UnhealthyClient_ReportsItsStatus()
+    {
+        var facts = Facts() with
+        {
+            FeaturePayloadPresent = true,
+            PackageRegistered = true,
+            PackageStatus = "Servicing",
+            AliasPresent = true,
+        };
+        var host = await new WindowsSandboxSetup(new FixedProbe(facts)) { SupportsSandboxCli = () => true }
+            .DescribeHostAsync(TestContext.CancellationToken);
+
+        var client = Check(host, "sandboxClient");
+        Assert.AreEqual(TargetHostCheckStatus.Failed, client.Status);
+        Assert.Contains("Servicing", client.Detail!);
+        Assert.Contains("did not answer", Check(host, "wsb").Detail!);
+    }
+
+    [TestMethod]
+    public async Task DescribeHost_UnreadablePackage_IsNotCheckedRatherThanMissing()
+    {
+        var facts = Facts() with { FeaturePayloadPresent = true, Detail = "package query failed: boom" };
+        var host = await new WindowsSandboxSetup(new FixedProbe(facts)) { SupportsSandboxCli = () => true }
+            .DescribeHostAsync(TestContext.CancellationToken);
+
+        var client = Check(host, "sandboxClient");
+        Assert.AreEqual(TargetHostCheckStatus.NotChecked, client.Status);
+        Assert.Contains("boom", client.Detail!);
+        Assert.IsNull(client.Fix);
+    }
+
+    [TestMethod]
+    public async Task DescribeHost_ReadyHost_PassesEverythingAndSkipsRestart()
+    {
+        var facts = Facts() with
+        {
+            FeaturePayloadPresent = true,
+            PackageRegistered = true,
+            PackageStatus = "Ok",
+            AliasPresent = true,
+            Version = "0.8.107.0",
+        };
+        var host = await new WindowsSandboxSetup(new FixedProbe(facts)) { SupportsSandboxCli = () => true }
+            .DescribeHostAsync(TestContext.CancellationToken);
+
+        Assert.IsTrue(host.Ready);
+        Assert.IsTrue(host.Checks.Take(4).All(c => c.Status == TargetHostCheckStatus.Passed));
+        Assert.Contains("0.8.107.0", Check(host, "wsb").Detail!);
+        Assert.AreEqual(TargetHostCheckStatus.NotChecked, Check(host, "restartPending").Status);
+        Assert.IsTrue(host.Checks.All(c => c.Fix is null));
+    }
+
+    [TestMethod]
+    [DataRow(true, TargetHostCheckStatus.Failed)]
+    [DataRow(null, TargetHostCheckStatus.NotChecked)]
+    public async Task DescribeHost_RestartState_IsReportedAsObserved(bool? pending, string expected)
+    {
+        var host = await new WindowsSandboxSetup(new FixedProbe(Facts() with { RestartPending = pending }))
+            { SupportsSandboxCli = () => true }
+            .DescribeHostAsync(TestContext.CancellationToken);
+
+        var restart = Check(host, "restartPending");
+        Assert.AreEqual(expected, restart.Status);
+        Assert.AreEqual(pending == true, restart.Fix is not null);
+        Assert.IsNull(restart.NextCommand, "Restart timing belongs to the user.");
+    }
+
+    [TestMethod]
+    public async Task DescribeHost_PendingRestart_GivesTheSameFixAsRun()
+    {
+        var setup = new WindowsSandboxSetup(new FixedProbe(Facts() with { RestartPending = true }))
+            { SupportsSandboxCli = () => true };
+
+        var host = await setup.DescribeHostAsync(TestContext.CancellationToken);
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            setup.EnsureReadyAsync(TestContext.CancellationToken));
+
+        Assert.AreEqual(error.Error.UserAction, Check(host, "restartPending").Fix);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task DescribeHost_PendingRestart_IsTheOnlyFailureLikeRun(bool featurePresent, bool packageRegistered)
+    {
+        var setup = new WindowsSandboxSetup(new FixedProbe(Facts() with
+        {
+            FeaturePayloadPresent = featurePresent,
+            PackageRegistered = packageRegistered,
+            PackageStatus = packageRegistered ? "PackageOffline" : null,
+            RestartPending = true,
+        }))
+        { SupportsSandboxCli = () => true };
+
+        var host = await setup.DescribeHostAsync(TestContext.CancellationToken);
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            setup.EnsureReadyAsync(TestContext.CancellationToken));
+
+        var failed = host.Checks.Where(c => c.Status == TargetHostCheckStatus.Failed).ToArray();
+        Assert.HasCount(1, failed);
+        Assert.AreEqual("restartPending", failed[0].Name);
+        Assert.AreEqual(error.Error.UserAction, failed[0].Fix);
+        foreach (var name in new[] { "sandboxFeature", "sandboxClient", "wsb" })
+        {
+            Assert.AreEqual(TargetHostCheckStatus.NotChecked, Check(host, name).Status, name);
+            Assert.AreEqual("Restart Windows first.", Check(host, name).Detail, name);
+        }
+    }
+
+    [TestMethod]
+    public async Task DescribeHost_OldWindows_FailsOsVersion()
+    {
+        var host = await new WindowsSandboxSetup(new FixedProbe(Facts() with { RestartPending = true }))
+            { SupportsSandboxCli = () => false, OsVersion = () => "10.0.22631.0" }
+            .DescribeHostAsync(TestContext.CancellationToken);
+
+        var os = Check(host, "osVersion");
+        Assert.AreEqual(TargetHostCheckStatus.Failed, os.Status);
+        Assert.Contains("10.0.22631.0", os.Detail!);
+        Assert.Contains("24H2", os.Detail!);
+
+        foreach (var name in new[] { "sandboxFeature", "sandboxClient", "wsb", "restartPending" })
+        {
+            var check = Check(host, name);
+            Assert.AreEqual(TargetHostCheckStatus.NotChecked, check.Status, name);
+            Assert.IsNull(check.Fix, name);
+            Assert.IsNull(check.NextCommand, name);
+        }
+    }
+
+    [TestMethod]
+    public async Task DescribeHost_ReadyWithoutVisiblePayload_DoesNotAskToEnableTheFeature()
+    {
+        var host = await new WindowsSandboxSetup(new FixedProbe(Facts() with
+        {
+            PackageRegistered = true,
+            PackageStatus = "Ok",
+            AliasPresent = true,
+            Version = "0.8.107.0",
+        })).DescribeHostAsync(TestContext.CancellationToken);
+
+        Assert.IsTrue(host.Ready);
+        Assert.IsTrue(host.Checks.All(c => c.Status != TargetHostCheckStatus.Failed));
+        Assert.IsNull(Check(host, "sandboxFeature").NextCommand);
+    }
+
+    [TestMethod]
+    public async Task DescribeHost_NotWindows_ChecksNothingElse()
+    {
+        var host = await new WindowsSandboxSetup(new FixedProbe(Facts() with { IsWindows = false }))
+            .DescribeHostAsync(TestContext.CancellationToken);
+
+        Assert.IsFalse(host.Ready);
+        Assert.AreEqual(TargetHostCheckStatus.Failed, host.Checks[0].Status);
+        Assert.IsTrue(host.Checks.Skip(1).All(c => c.Status == TargetHostCheckStatus.NotChecked));
+    }
+
+    private static TargetHostCheck Check(TargetHostReadiness host, string name) =>
+        host.Checks.Single(c => c.Name == name);
+
+    [TestMethod]
     public async Task Probe_NotReady_RecordsPendingRestartWithoutLaunchingProvider()
     {
         var runner = new RecordingProcessRunner();
@@ -167,6 +381,8 @@ public class WindowsSandboxSetupTests
         Assert.AreEqual(WindowsSandboxSetupState.Ready, facts.State);
         Assert.AreEqual("--version", runner.Requests.Single().Arguments.Single());
     }
+
+    private static readonly string[] AllCheckNames = ["osVersion", "sandboxFeature", "sandboxClient", "wsb", "restartPending"];
 
     private static WindowsSandboxHostFacts Facts() => new()
     {

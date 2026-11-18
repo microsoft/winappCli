@@ -71,6 +71,18 @@ internal static partial class ScenarioSanitizer
         s.XmlnsImports = StripLineControlChars(s.XmlnsImports);
         s.RelatedControls = StripLineControlChars(s.RelatedControls);
 
+        // API names and their one-line descriptions are rendered inline next to each other
+        // for the same reason, and arrive from the same downloaded JSON.
+        if (s.Apis is { Length: > 0 })
+        {
+            foreach (var api in s.Apis)
+            {
+                api.Name = StripLineControlChars(api.Name) ?? "";
+                api.Description = StripLineControlChars(api.Description);
+                api.Uri = StripLineControlChars(api.Uri);
+            }
+        }
+
         // Usings are rendered on the single-line "**Namespace:** `…`" row, so a line break in
         // one would end the row and let the rest of the value be read as markdown prose that
         // looks like it came from winapp. A using is also a namespace name, never prose, so

@@ -1,0 +1,13 @@
+{
+  "prompt": "My WPF app (PingNotifier, in this folder) is supposed to pop a Windows toast notification at startup, but nothing ever shows up. ToastNotificationManager.CreateToastNotifier() throws \"Element not found\". From what I've read the app needs package identity for this. Can you set it up so the app runs with identity on this machine and the startup toast works? Run it once to confirm.",
+  "cluster": "Notifications and package identity",
+  "workspace": "C:\\src\\PingNotifier",
+  "timeoutMinutes": 25,
+  "pilot": true,
+  "lintAllow": ["package identity", "toast notification"],
+  "checks": [
+    "identity-registered (required): a new package is registered whose application is PingNotifier.exe (full MSIX, loose layout, or sparse/external location)",
+    "has-identity (required): launching the registered app, PingNotifier reports Package.Current (in C:\\ProgramData\\PingNotifier\\diagnostics.json)",
+    "toast-shown (required): the startup toast call succeeded in that launch"
+  ]
+}

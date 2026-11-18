@@ -344,7 +344,7 @@ internal class UiDragCommand : Command, IShortDescription, IHelpExamples
             var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
             if (element is null)
             {
-                UiErrors.ElementNotFound(logger, token, json);
+                UiErrors.ElementNotFound(logger, token, json, target: uiTarget);
                 return new Endpoint(false, 0, 0, 0, null, null, null);
             }
 

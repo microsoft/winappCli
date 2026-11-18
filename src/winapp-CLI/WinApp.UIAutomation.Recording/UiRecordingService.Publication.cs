@@ -54,6 +54,8 @@ internal sealed partial class UiRecordingService
                 Fps = options.Fps,
                 MaxEdge = options.MaxEdge,
                 CaptureScreen = options.CaptureScreen,
+                Cursor = options.Cursor,
+                ClickHighlight = options.ClickHighlight,
             }, ct, onRecordingStarted).ConfigureAwait(false);
 
             // Cancellation stops sampling, not publication of the finalized evidence.

@@ -14,7 +14,7 @@ using WinApp.Cli.Services.DevTools;
 namespace WinApp.Cli.Commands;
 
 /// <summary>
-/// <c>winapp devtools list</c> — discover already-injected DevTools apps and, when requested, running WinUI
+/// <c>winapp devtools list</c>: discover already-injected DevTools apps and, when requested, running WinUI
 /// candidates that can be attached by exact PID. Attached apps are probed through DevTools; available candidates
 /// are identified centrally by the loaded WinUI runtime module so external clients never scan processes.
 /// </summary>
@@ -163,7 +163,7 @@ internal class DevToolsListCommand : Command, IShortDescription, IHelpExamples
                     {
                         if (!process.HasExited &&
                             process.Id != Environment.ProcessId &&
-                            process.Modules.Cast<ProcessModule>().Any(module => IsWinUiModule(module.ModuleName)))
+                            DevToolsAttachTarget.IsCandidate(process))
                         {
                             candidatePid = process.Id;
                         }
@@ -182,9 +182,6 @@ internal class DevToolsListCommand : Command, IShortDescription, IHelpExamples
                 }
             }
         }
-
-        internal static bool IsWinUiModule(string? moduleName) =>
-            string.Equals(moduleName, "Microsoft.UI.Xaml.dll", StringComparison.OrdinalIgnoreCase);
 
         private static void PopulateIdentity(DevToolsAppInfo info, bool guestDiscovery)
         {

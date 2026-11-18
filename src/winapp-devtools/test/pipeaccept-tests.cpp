@@ -369,7 +369,7 @@ void TestPartialPostFailuresStillKeepTheNamePresent()
     // instance left by construction, so eight consumers legitimately take it and the posted count touches
     // zero; that is arithmetic, not the defect. The shipping depth of 32 always has slack, so CI always
     // asserts it -- this only relaxes under an explicit reduced-depth sweep.
-    if (DevToolsListenerPoolSize - DevToolsListenerPoolSize / 2 >= 2) {
+    if constexpr (DevToolsListenerPoolSize - DevToolsListenerPoolSize / 2 >= 2) {
         CheckEq(server.stats.zeroWindows.load(), 0, "the pool never drains to zero while some posts are failing");
     } else {
         std::printf("  n/a   zero-drain check needs a pool with slack; depth %lu leaves none by construction\n",

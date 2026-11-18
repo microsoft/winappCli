@@ -42,7 +42,7 @@ public class DevToolsJsonParityTests
         using var doc = JsonDocument.Parse(output);
         Assert.AreEqual(-32011, doc.RootElement.GetProperty("error").GetProperty("code").GetInt32());
         Assert.AreEqual("no-tree", doc.RootElement.GetProperty("error").GetProperty("token").GetString());
-        CollectionAssert.AreEqual(new List<string> { "VisualTree.find", "VisualTree.enumerate" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "VisualTree.find", "VisualTree.enumerate" }, agent.Received);
     }
 
     [TestMethod]
@@ -60,7 +60,7 @@ public class DevToolsJsonParityTests
             await handler.InvokeAsync(new DevToolsSetPropertyCommand().Parse(["button-cafebabe01", "after", "-p", "Text"]), cancel.Token);
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-        CollectionAssert.AreEqual(preCancelled ? new List<string>() : new List<string> { "VisualTree.find" }, agent.Received);
+        Assert.AreSequenceEqual(preCancelled ? new List<string>() : new List<string> { "VisualTree.find" }, agent.Received);
     }
 
     [TestMethod]
@@ -73,7 +73,7 @@ public class DevToolsJsonParityTests
         var args = withType ? new[] { "42", "Password", "x", "--type", "String", "--json" } : ["42", "Password", "x", "--json"];
         var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "holds a secret");
+        Assert.Contains("holds a secret", output);
         Assert.IsFalse(output.Contains("--type", StringComparison.Ordinal), output);
         Assert.IsFalse(agent.Received.Contains("HotReload.setProperty"), "A secret is never sent to the app.");
     }
@@ -107,14 +107,22 @@ public class DevToolsJsonParityTests
             await handler.InvokeAsync(new DevToolsSetPropertyCommand().Parse(["42", "after", "-p", "Text", "--json"]), cancel.Token);
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-        CollectionAssert.DoesNotContain(agent.Received, "HotReload.setProperty");
-        CollectionAssert.AreEqual(new List<string> { "Property.get" }, agent.Received);
+        Assert.DoesNotContain("HotReload.setProperty", agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "Property.get" }, agent.Received);
     }
 
     [TestMethod]
     [DataRow("SolidColorBrush", "#0067C0", "#FF0067C0", true)]
     [DataRow("SolidColorBrush", "#abc", "#FFAABBCC", true)]
     [DataRow("SolidColorBrush", "#1abc", "#11AABBCC", true)]
+    [DataRow("SolidColorBrush", "red", "#FFFF0000", true)]
+    [DataRow("SolidColorBrush", "  Blue\t", "#FF0000FF", true)]
+    [DataRow("SolidColorBrush", "AliceBlue", "#FFF0F8FF", true)]
+    [DataRow("SolidColorBrush", "Transparent", "#00000000", false)]
+    [DataRow("SolidColorBrush", "Blue", "#FFFF0000", false)]
+    [DataRow("SolidColorBrush", "NotAColor", "#00000000", false)]
+    [DataRow("SolidColorBrush", "Empty", "#00000000", false)]
+    [DataRow("String", "Red", "#FFFF0000", false)]
     [DataRow("String", "foo", "Foo", false)]
     [DataRow("String", "01", "1", false)]
     [DataRow("Int64", "9007199254740993", "9007199254740992", false)]
@@ -132,6 +140,147 @@ public class DevToolsJsonParityTests
         using var doc = JsonDocument.Parse(output);
         Assert.AreEqual(matches, doc.RootElement.GetProperty("matchesRequested").GetBoolean());
         Assert.AreEqual(matches ? 0 : 1, exit);
+    }
+
+    [TestMethod]
+    [DataRow("{ThemeResource AccentBrush}", false)]
+    [DataRow("{ThemeResource AccentBrush}", true)]
+    [DataRow("{StaticResource AccentBrush}", false)]
+    [DataRow("{StaticResource AccentBrush}", true)]
+    public async Task SetProperty_ResourceConversionFailure_ExplainsLiteralAlternative(string requested, bool json)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Property.get", """{"props":[{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","writeType":"SolidColorBrush"}]}""")
+            .Error("HotReload.setProperty", -32000, "invalid-value",
+                $"Cannot set property 'Background' to '{requested}' (type SolidColorBrush): conversion to the requested XAML type failed (0x8000FFFF)");
+        var args = new List<string> { "42", "Background", requested };
+        if (json) { args.Add("--json"); }
+
+        var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+        Assert.AreEqual(1, exit);
+        var message = output;
+        if (json)
+        {
+            using var document = JsonDocument.Parse(output);
+            Assert.IsFalse(document.RootElement.GetProperty("ok").GetBoolean());
+            var error = document.RootElement.GetProperty("error");
+            Assert.AreEqual(-32000, error.GetProperty("code").GetInt32());
+            Assert.AreEqual("invalid-value", error.GetProperty("token").GetString());
+            message = error.GetProperty("message").GetString()!;
+        }
+        Assert.Contains("does not support {ThemeResource key} or {StaticResource key}", message);
+        Assert.Contains("Use a literal value instead", message);
+        Assert.Contains("#FF0067C0", message);
+        Assert.Contains("XAML and rebuild", message);
+        Assert.IsFalse(message.Contains("0x8000FFFF", StringComparison.Ordinal), message);
+        Assert.AreSequenceEqual(new List<string> { "Property.get", "HotReload.setProperty" }, agent.Received);
+    }
+
+    [TestMethod]
+    [DataRow("{ThemeResource AccentBrush}", "String")]
+    [DataRow("{StaticResource AccentBrush}", "System.String")]
+    public async Task SetProperty_ResourceLookingString_IsWrittenLiterally(string requested, string type)
+    {
+        foreach (var json in new[] { false, true })
+        {
+            var before = JsonSerializer.Serialize(new { name = "Text", value = "Before", valueType = type, writeType = type });
+            var after = JsonSerializer.Serialize(new { name = "Text", value = requested, valueType = type, writeType = type });
+            var reads = 0;
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Property.get", $$"""{"props":[{{before}}]}""", _ => Interlocked.Increment(ref reads) == 1)
+                .Answer("Property.get", $$"""{"props":[{{after}}]}""")
+                .Answer("HotReload.setProperty", "null")
+                .Answer("VisualTree.enumerate", Tree);
+            var args = new List<string> { "42", "Text", requested };
+            if (json) { args.Add("--json"); }
+
+            var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+            Assert.AreEqual(0, exit, output);
+            using var request = JsonDocument.Parse(agent.ReceivedRequests.Single(line => line.Contains("HotReload.setProperty", StringComparison.Ordinal)));
+            Assert.AreEqual(requested, request.RootElement.GetProperty("params").GetProperty("value").GetString());
+            if (json)
+            {
+                using var result = JsonDocument.Parse(output);
+                Assert.IsTrue(result.RootElement.GetProperty("ok").GetBoolean());
+                Assert.AreEqual(requested, result.RootElement.GetProperty("after").GetString());
+            }
+            else
+            {
+                Assert.Contains(requested, output);
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow("{ThemeResource K}", true)]
+    [DataRow(" \t{StaticResource\tK}\r\n", true)]
+    [DataRow("{ThemeResource}", false)]
+    [DataRow("{ThemeResource }", false)]
+    [DataRow("{ThemeResource K", false)]
+    [DataRow("Text {ThemeResource K}", false)]
+    [DataRow("{Binding K}", false)]
+    [DataRow("#FF0067C0", false)]
+    public void ResourceConversionExplanation_RequiresAWholeResourceReference(string requested, bool explained)
+    {
+        const string message = "conversion to the requested XAML type failed (0x8000FFFF)";
+        var actual = DevToolsErrors.DescribePropertyWriteFailure(requested, message);
+        Assert.AreEqual(explained, actual != message);
+        Assert.AreEqual("the property setter rejected the value",
+            DevToolsErrors.DescribePropertyWriteFailure(requested, "the property setter rejected the value"));
+    }
+
+    [TestMethod]
+    [DataRow("Red", "#FFFF0000", false)]
+    [DataRow("Blue", "#FF0000FF", false)]
+    [DataRow("Transparent", "#00FFFFFF", false)]
+    [DataRow("Red", "#FFFF0000", true)]
+    [DataRow("Blue", "#FF0000FF", true)]
+    [DataRow("Transparent", "#00FFFFFF", true)]
+    public async Task SetProperty_NamedColor_MatchesHexReadback(string requested, string observed, bool changed)
+    {
+        foreach (var json in new[] { false, true })
+        {
+            string Row(string value) => JsonSerializer.Serialize(new
+            {
+                name = "Background",
+                value,
+                valueType = "Microsoft.UI.Xaml.Media.SolidColorBrush",
+                writeType = "Microsoft.UI.Xaml.Media.SolidColorBrush",
+                valueSource = "Style",
+            });
+            var before = changed ? "#FF000000" : observed;
+            var reads = 0;
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Property.get", $$"""{"props":[{{Row(before)}}]}""", _ => Interlocked.Increment(ref reads) == 1)
+                .Answer("Property.get", $$"""{"props":[{{Row(observed)}}]}""")
+                .Answer("HotReload.setProperty", "null")
+                .Answer("VisualTree.enumerate", Tree);
+            var args = new List<string> { "42", "Background", requested };
+            if (json) { args.Add("--json"); }
+
+            var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+            Assert.AreEqual(0, exit, output);
+            if (json)
+            {
+                using var doc = JsonDocument.Parse(output);
+                var result = doc.RootElement;
+                Assert.IsTrue(result.GetProperty("ok").GetBoolean());
+                Assert.IsTrue(result.GetProperty("matchesRequested").GetBoolean());
+                Assert.AreEqual(changed, result.GetProperty("changed").GetBoolean());
+                Assert.AreEqual(requested, result.GetProperty("requested").GetString());
+                Assert.AreEqual(before, result.GetProperty("before").GetString());
+                Assert.AreEqual(observed, result.GetProperty("after").GetString());
+                Assert.IsFalse(result.TryGetProperty("error", out _));
+            }
+            else
+            {
+                Assert.Contains(changed ? "->" : $"already {observed}, unchanged.", output);
+                Assert.IsFalse(output.Contains("normalized", StringComparison.Ordinal), output);
+            }
+        }
     }
 
     /// <summary>The tree the fake serves: a Grid with one named Button child.</summary>
@@ -176,7 +325,7 @@ public class DevToolsJsonParityTests
         using var doc = JsonDocument.Parse(jsonOut);
         Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean(), "ok:true with matchCount:0 is the bug.");
         Assert.AreEqual(0, doc.RootElement.GetProperty("matchCount").GetInt32());
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString()!, "__missing__",
+        Assert.Contains("__missing__", doc.RootElement.GetProperty("error").GetProperty("message").GetString()!,
             "The JSON payload must say WHY, not leave the caller to infer it from an empty array.");
     }
 
@@ -209,7 +358,7 @@ public class DevToolsJsonParityTests
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, ["--filter", "DeepLabel", "--depth", "1"]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "within --depth 1; deeper elements were not searched");
+        Assert.Contains("within --depth 1; deeper elements were not searched", output);
         Assert.IsFalse(output.Contains("No elements matched.", StringComparison.Ordinal), output);
     }
 
@@ -251,7 +400,27 @@ public class DevToolsJsonParityTests
         Assert.AreEqual("source-unavailable", error.GetProperty("token").GetString());
         const string message = "No XAML source is recorded for this element. Framework, template or generated elements may have no app-authored declaration.";
         Assert.AreEqual(message, error.GetProperty("message").GetString());
-        StringAssert.Contains(humanOut.Replace("\r", "").Replace("\n", " "), message);
+        Assert.Contains(message, humanOut.Replace("\r", "").Replace("\n", " "));
+    }
+
+    // After a late attach no element has a source, so blaming framework XAML sends the developer the wrong way.
+    [TestMethod]
+    public async Task GetSource_InAnAppWithNoSourceInformation_SaysToRelaunch()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", Find(SaveButtonMatch))
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Source.get", """{"handle":"42","fileName":"","lineNumber":0,"columnNumber":0,"authoredState":"noSourceInfo"}""")
+            .Answer("VisualTree.getAppAuthored", """{"appAuthored":[],"sourceInstrumented":false}""");
+
+        var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+        Assert.AreEqual(1, jsonExit);
+        using var doc = JsonDocument.Parse(jsonOut);
+        var message = doc.RootElement.GetProperty("error").GetProperty("message").GetString()!;
+        Assert.Contains("this app reports no XAML source information", message);
+        Assert.Contains("winapp run --devtools on", message);
+        Assert.IsFalse(message.Contains("Framework", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -289,7 +458,7 @@ public class DevToolsJsonParityTests
         var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
         Assert.AreEqual(0, humanExit);
         Assert.AreEqual(0, jsonExit);
-        StringAssert.Contains(humanOut, location + Environment.NewLine);
+        Assert.Contains(location + Environment.NewLine, humanOut);
         Assert.IsFalse(humanOut.Contains(":128", StringComparison.Ordinal), "The runtime end-of-tag position is not shown.");
         Assert.IsFalse(humanOut.Contains("hot reload", StringComparison.Ordinal), "An unchanged file needs no rebuild caveat.");
         using var document = JsonDocument.Parse(jsonOut);
@@ -309,7 +478,7 @@ public class DevToolsJsonParityTests
             .Answer("Source.get", """{"handle":"42","fileName":"ms-appx:///MainPage.xaml","lineNumber":20,"columnNumber":40,"authoredState":"stale"}""");
         var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(output, "MainPage.xaml: Not confirmed: MainPage.xaml changed since the app was built");
+        Assert.Contains("MainPage.xaml: Not confirmed: MainPage.xaml changed since the app was built", output);
     }
 
     [TestMethod]
@@ -327,9 +496,9 @@ public class DevToolsJsonParityTests
         var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
         Assert.AreEqual(0, humanExit);
         Assert.AreEqual(0, jsonExit);
-        StringAssert.Contains(humanOut, "likely");
-        StringAssert.Contains(humanOut, "Compiler line preservation is unverified.");
-        StringAssert.Contains(humanOut, "MainPage.xaml:48");
+        Assert.Contains("likely", humanOut);
+        Assert.Contains("Compiler line preservation is unverified.", humanOut);
+        Assert.Contains("MainPage.xaml:48", humanOut);
         using var document = JsonDocument.Parse(jsonOut);
         Assert.AreEqual("likely", document.RootElement.GetProperty("authoredState").GetString());
         Assert.AreEqual("likely", document.RootElement.GetProperty("provenance").GetString());
@@ -350,8 +519,8 @@ public class DevToolsJsonParityTests
         using var document = JsonDocument.Parse(output);
         Assert.AreEqual("unverifiedBuild", document.RootElement.GetProperty("authoredState").GetString());
         Assert.IsFalse(document.RootElement.TryGetProperty("xaml", out _));
-        StringAssert.Contains(document.RootElement.GetProperty("xamlUnavailable").GetString()!, "could not confirm that MainPage.xaml matches the running build");
-        StringAssert.Contains(document.RootElement.GetProperty("xamlUnavailable").GetString()!, "Rebuild and run again (without --no-build)");
+        Assert.Contains("could not confirm that MainPage.xaml matches the running build", document.RootElement.GetProperty("xamlUnavailable").GetString()!);
+        Assert.Contains("Rebuild and run again (without --no-build)", document.RootElement.GetProperty("xamlUnavailable").GetString()!);
     }
 
     [TestMethod]
@@ -369,7 +538,7 @@ public class DevToolsJsonParityTests
             "ok:true for state:unavailable is the reading most likely to make an agent call a broken binding fine.");
         using var doc = JsonDocument.Parse(jsonOut);
         Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean());
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString()!, "managed DevTools agent",
+        Assert.Contains("managed DevTools agent", doc.RootElement.GetProperty("error").GetProperty("message").GetString()!,
             "The agent's own reason must reach the caller.");
     }
 
@@ -381,7 +550,7 @@ public class DevToolsJsonParityTests
             .Answer("Binding.diagnose", """{"state":"none"}""");
         var (exit, output) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "IsEnabled"]);
         Assert.AreEqual(0, exit, output);
-        StringAssert.Contains(output, "No binding: the XAML sets this property to a literal value.");
+        Assert.Contains("No binding: the XAML sets this property to a literal value.", output);
     }
 
     [TestMethod]
@@ -411,14 +580,27 @@ public class DevToolsJsonParityTests
             var (_, human) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "IsEnabled"]);
             var (_, json) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "IsEnabled", "--json"]);
             Assert.IsFalse(human.Contains("Forward path", StringComparison.Ordinal), human);
-            StringAssert.Contains(json, "Forward path and CLR type evaluated only");
+            Assert.Contains("Forward path and CLR type evaluated only", json);
         }
 
         using var broken = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
             .Answer("Binding.diagnose", """{"state":"bad-segment","path":"Missing","reason":"no property or field 'Missing'"}""");
-        StringAssert.Contains((await RunAsync(new DevToolsDiagnoseBindingCommand(), broken, ["42", "IsEnabled"])).Output,
-            "reason: no property or field 'Missing'");
+        Assert.Contains("reason: no property or field 'Missing'",
+            (await RunAsync(new DevToolsDiagnoseBindingCommand(), broken, ["42", "IsEnabled"])).Output);
+    }
+
+    [TestMethod]
+    public async Task DiagnoseBinding_TextShowsSourceValueAndConverter()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Binding.diagnose", """{"state":"evaluated","path":"Age","sourceValue":"36","converterEvaluation":"executed","resolvedValue":"36 years","targetValue":"36 years"}""");
+        var (exit, output) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "Text"]);
+        Assert.AreEqual(0, exit, output);
+        Assert.Contains("source value: 36", output);
+        Assert.Contains("converter: executed", output);
+        Assert.Contains("target value: 36 years", output);
     }
 
     [TestMethod]
@@ -429,7 +611,7 @@ public class DevToolsJsonParityTests
             .Answer("Property.get", """{"props":[{"name":"Text","value":"a","valueType":"String"},{"name":"Width","value":"1","valueType":"Double"}]}""");
         var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent, ["42", "Missing"]);
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "among the 2 properties");
+        Assert.Contains("among the 2 properties", output);
         Assert.IsFalse(output.Contains("(ies)", StringComparison.Ordinal));
     }
 
@@ -447,7 +629,8 @@ public class DevToolsJsonParityTests
                 {"handle":"42","authoredState":"available","props":[
                   {"name":"Width","value":"120","valueType":"Double","valueSource":"Local","editKind":"text"},
                   {"name":"Foreground","value":"#C5FFFFFF","valueType":"SolidColorBrush","valueSource":"Local",
-                   "authored":"{ThemeResource K}","authoredKind":"themeResource","authoredKey":"K","editKind":"none"},
+                   "authored":"{ThemeResource K}","authoredKind":"themeResource","authoredKey":"K","editKind":"none",
+                   "origin":"ThemeResource K"},
                   {"name":"Opacity","value":"1","valueType":"Double","valueSource":"Default","editKind":"text"}]}
                 """);
 
@@ -487,7 +670,7 @@ public class DevToolsJsonParityTests
 
     /// <summary>
     /// a node-capped search that found one <c>x:Name</c> may simply not have looked at a duplicate, so a
-    /// WRITE through that name is refused outright. Warning-and-proceeding was not enough — <c>--json</c>
+    /// WRITE through that name is refused outright. Warning-and-proceeding was not enough: <c>--json</c>
     /// suppressed even the warning, and the write still landed.
     /// </summary>
     [TestMethod]
@@ -495,6 +678,7 @@ public class DevToolsJsonParityTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", Find(SaveButtonMatch, truncated: true))
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"42","preview":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
             .Answer("Property.get", """{"handle":"42","authoredState":"available","props":[{"name":"Width","value":"120","valueType":"Double","valueSource":"Local","editKind":"text","writeType":"Double"}]}""")
             .Answer("HotReload.setProperty", "null");
@@ -505,8 +689,8 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(1, exit);
         using var doc = JsonDocument.Parse(output);
         Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean());
-        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString()!, "Refusing to write");
-        CollectionAssert.DoesNotContain(agent.Received, "HotReload.setProperty",
+        Assert.Contains("Refusing to write", doc.RootElement.GetProperty("error").GetProperty("message").GetString()!);
+        Assert.DoesNotContain("HotReload.setProperty", agent.Received,
             "The write must not reach the app at all when the name could not be shown to be unique.");
     }
 
@@ -526,8 +710,8 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(0, exit);
         using var doc = JsonDocument.Parse(output);
         Assert.IsTrue(doc.RootElement.GetProperty("ok").GetBoolean());
-        CollectionAssert.Contains(agent.Received, "HotReload.setProperty");
-        CollectionAssert.DoesNotContain(agent.Received, "VisualTree.find",
+        Assert.Contains("HotReload.setProperty", agent.Received);
+        Assert.DoesNotContain("VisualTree.find", agent.Received,
             "A handle needs no name lookup at all.");
     }
 
@@ -537,6 +721,7 @@ public class DevToolsJsonParityTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", Find(SaveButtonMatch, truncated: true))
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"42","preview":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
             .Answer("Property.get", """{"handle":"42","authoredState":"available","props":[{"name":"Width","value":"120","valueType":"Double","valueSource":"Local","editKind":"text"}]}""");
 
@@ -544,12 +729,12 @@ public class DevToolsJsonParityTests
 
         Assert.AreEqual(0, exit, "A read is still useful; it just cannot promise the name was unique.");
         using var doc = JsonDocument.Parse(output);
-        StringAssert.Contains(doc.RootElement.GetProperty("warning").GetString()!, "node limit");
+        Assert.Contains("node limit", doc.RootElement.GetProperty("warning").GetString()!);
     }
 
     /// <summary>
     /// a truncated <c>x:Name</c> lookup resolved this root. Without the caveat, JSON hands back an
-    /// apparently unambiguous handle that a caller would then pass to <c>set-property</c> — routing straight
+    /// apparently unambiguous handle that a caller would then pass to <c>set-property</c>, routing straight
     /// around the name-based mutation refusal, which only fires when the NAME is what gets written through.
     /// </summary>
     [TestMethod]
@@ -557,6 +742,7 @@ public class DevToolsJsonParityTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", Find(SaveButtonMatch, truncated: true))
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"42","preview":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree);
 
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, ["SaveButton", "--json"]);
@@ -564,7 +750,7 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(0, exit);
         using var doc = JsonDocument.Parse(output);
         Assert.IsTrue(doc.RootElement.TryGetProperty("warning", out var warning), $"No warning in: {output}");
-        StringAssert.Contains(warning.GetString()!, "node limit");
+        Assert.Contains("node limit", warning.GetString()!);
     }
 
     [TestMethod]
@@ -572,6 +758,7 @@ public class DevToolsJsonParityTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", Find(SaveButtonMatch, truncated: true))
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"42","preview":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree);
 
         var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, ["SaveButton", "--ancestors", "--json"]);
@@ -579,7 +766,7 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(0, exit);
         using var doc = JsonDocument.Parse(output);
         Assert.IsTrue(doc.RootElement.TryGetProperty("warning", out var warning), $"No warning in: {output}");
-        StringAssert.Contains(warning.GetString()!, "node limit");
+        Assert.Contains("node limit", warning.GetString()!);
     }
 
     [TestMethod]
@@ -596,8 +783,8 @@ public class DevToolsJsonParityTests
 
     /// <summary>
     /// filtering must not narrow the protocol payload. Rebuilding each row from the CLI's own record
-    /// dropped every wire field it does not model — <c>editKind</c>, <c>chain</c>, <c>children</c>,
-    /// <c>enumValues</c>, <c>valueState</c> — and <c>chain</c> is the strongest "why did this value win?"
+    /// dropped every wire field it does not model (<c>editKind</c>, <c>chain</c>, <c>children</c>,
+    /// <c>enumValues</c>, <c>valueState</c>), and <c>chain</c> is the strongest "why did this value win?"
     /// evidence the protocol carries.
     /// </summary>
     [TestMethod]
@@ -611,6 +798,7 @@ public class DevToolsJsonParityTests
                   {"name":"Foreground","value":"#C5FFFFFF","valueType":"SolidColorBrush","valueSource":"Local",
                    "editKind":"brush","valueState":"set","enumValues":["a","b"],"fields":["A","R","G","B"],
                    "writeType":"SolidColorBrush","authored":"{ThemeResource K}","authoredKind":"themeResource","authoredKey":"K",
+                   "origin":"ThemeResource K",
                    "chain":[{"source":"Local","value":"#C5FFFFFF","winner":true},{"source":"Default","value":"#FF000000","winner":false}],
                    "children":[{"name":"Color","value":"#C5FFFFFF","valueType":"Color","editKind":"text"}]}]}
                 """);
@@ -635,6 +823,7 @@ public class DevToolsJsonParityTests
 
         // Derived fields are APPENDED, never a replacement for the wire view.
         Assert.AreEqual("ThemeResource K", row.GetProperty("source").GetString());
+        Assert.IsFalse(row.TryGetProperty("origin", out _), "The engine's origin is reported once, as source.");
         Assert.IsTrue(row.GetProperty("isSet").GetBoolean());
     }
 
@@ -689,7 +878,7 @@ public class DevToolsJsonParityTests
 
     /// <summary>
     /// <c>authoredState</c> is a per-element fact the result contract requires. Dropping it turns "we
-    /// could not look" into "there is nothing authored here" — the confidently-wrong answer it exists to stop.
+    /// could not look" into "there is nothing authored here", the confidently-wrong answer it exists to stop.
     /// </summary>
     [TestMethod]
     public async Task GetProperty_Json_CarriesAuthoredState()
@@ -758,7 +947,7 @@ public class DevToolsJsonParityTests
             Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean(), $"{label}: expected ok:false.");
             Assert.IsTrue(doc.RootElement.TryGetProperty("error", out var error), $"{label}: no error member.");
             Assert.AreEqual(JsonValueKind.Object, error.ValueKind,
-                $"{label}: error must be an object, not a bare string — an agent branches on error.token.");
+                $"{label}: error must be an object, not a bare string; an agent branches on error.token.");
             Assert.AreEqual(JsonValueKind.Number, error.GetProperty("code").ValueKind, $"{label}: no code.");
             Assert.AreEqual(expectedToken, error.GetProperty("token").GetString(), $"{label}: wrong token.");
             Assert.IsFalse(string.IsNullOrWhiteSpace(error.GetProperty("message").GetString()), $"{label}: empty message.");
@@ -858,8 +1047,8 @@ public class DevToolsJsonParityTests
             }
             else
             {
-                StringAssert.Contains(output, warning);
-                StringAssert.Contains(output, "Restart the app to restore the binding.");
+                Assert.Contains(warning, output);
+                Assert.Contains("Restart the app to restore the binding.", output);
             }
         }
     }
@@ -880,7 +1069,7 @@ public class DevToolsJsonParityTests
             new DevToolsSetPropertyCommand(), agent, ["42", "requested", "-p", "Text"]);
 
         Assert.AreEqual(1, exit);
-        StringAssert.Contains(output, "Its effective value comes from Local.");
+        Assert.Contains("Its effective value comes from Local.", output);
         Assert.IsFalse(output.Contains("OldTitle", StringComparison.Ordinal));
     }
 

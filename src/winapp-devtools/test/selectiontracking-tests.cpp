@@ -4,16 +4,9 @@
 #include "DevToolsSelectionTracking.h"
 
 #include <cstdio>
+#include "DevToolsTestCheck.h"
 
 using namespace DevToolsSelection;
-
-static int g_selectionTrackingFailures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_selectionTrackingFailures; std::printf("  FAIL  %s\n", what); }
-    else       {                                std::printf("  ok    %s\n", what); }
-}
 
 static TrackingRect TrackPreFix(const ScrollAnchor& anchor, double, double)
 {
@@ -61,5 +54,5 @@ int RunSelectionTrackingTests()
     TestScrollMovesTheRect();
     TestAbsoluteOffsetsDoNotAccumulateRounding();
     TestViewportIntersection();
-    return g_selectionTrackingFailures;
+    return g_testFailures;
 }

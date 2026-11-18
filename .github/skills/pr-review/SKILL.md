@@ -98,8 +98,10 @@ Also delete or downgrade it if you cannot show the smallest concrete command,
 input, tree, or code path and explain it to a junior developer with no prior
 conversation context.
 
-**Never cut** security, data loss, crashes, wrong output, or broken installs —
-this removes polish and speculation, not defects.
+**Never cut** in-scope security issues, data loss, crashes, wrong output, or
+broken installs — this removes polish and speculation, not defects. A security
+finding is in scope only if it names a realistic attacker and what they gain
+under the threat model in `dimensions/security.md`; cut the rest.
 
 **If more than about 6 findings survive on a normal PR, go again.** Cutting a
 real-but-minor finding is cheap; padding the list is expensive, because that is

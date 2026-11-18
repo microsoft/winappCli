@@ -73,7 +73,7 @@ export async function main(): Promise<void> {
     }
 
     // `init --help` — let native write directly to terminal (preserves wrap/indent),
-    // then append wrapper option. Eat the trailing blank line only when on a real TTY.
+    // then append the wrapper-only option as its own group.
     if (command === 'init' && commandArgs.some((a) => HELP_FLAGS.has(a))) {
       await callWinappCli(stripWrapperOnlyFlags(args), { exitOnError: true });
       printInitWrapperOnlyHelp();
@@ -307,6 +307,11 @@ async function showCombinedHelp(): Promise<void> {
   console.log(`  ${CLI_NAME} node add-electron-debug-identity`);
   console.log(`  ${CLI_NAME} node clear-electron-debug-identity`);
   console.log(`  ${CLI_NAME} node generate-bindings`);
+  console.log('');
+  console.log('Electron quick start:');
+  console.log(`  npx ${CLI_NAME} init                              add a manifest and Windows SDKs`);
+  console.log(`  npx ${CLI_NAME} node add-electron-debug-identity  run with package identity`);
+  console.log(`  npx ${CLI_NAME} node create-addon                 call Windows APIs from a native addon`);
 }
 
 async function showVersion(): Promise<void> {

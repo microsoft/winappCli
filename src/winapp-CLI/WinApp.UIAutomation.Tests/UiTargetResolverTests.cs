@@ -61,8 +61,8 @@ public class UiSessionServiceTests
         sys.ForegroundWindowResult = 200;
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             service.ResolveProcessAsync("Shared", CancellationToken.None));
-        StringAssert.Contains(error.Message, "500, 600");
-        StringAssert.Contains(error.Message, "--app with a PID");
+        Assert.Contains("500, 600", error.Message);
+        Assert.Contains("--app with a PID", error.Message);
         Assert.IsFalse(error.Message.Contains("--window", StringComparison.Ordinal));
     }
 
@@ -84,7 +84,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
             () => service.ResolveAsync(app: null, hwnd: 0x9999, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "not found or not accessible");
+        Assert.Contains("not found or not accessible", ex.Message);
     }
 
     [TestMethod]
@@ -130,7 +130,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ResolveAsync(app: null, hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Specify --app");
+        Assert.Contains("Specify --app", ex.Message);
     }
 
     [TestMethod]
@@ -153,7 +153,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
             () => service.ResolveAsync(app: "999999", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "No process found with PID 999999");
+        Assert.Contains("No process found with PID 999999", ex.Message);
     }
 
     [TestMethod]
@@ -251,9 +251,9 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ResolveAsync(app: "CalculatorApp", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Multiple 'CalculatorApp' windows found");
-        StringAssert.Contains(ex.Message, "PID 880: \"Calculatrice\"");
-        StringAssert.Contains(ex.Message, "PID 881: \"Calculatrice\"");
+        Assert.Contains("Multiple 'CalculatorApp' windows found", ex.Message);
+        Assert.Contains("PID 880: \"Calculatrice\"", ex.Message);
+        Assert.Contains("PID 881: \"Calculatrice\"", ex.Message);
     }
 
     [TestMethod]
@@ -278,6 +278,51 @@ public class UiSessionServiceTests
         uia.WindowsByPidResult = [];
 
         AssertHostedFrameTarget(await service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByPid_MinimizedHostedApp_UsesFrameNotDetachedContentWindow()
+    {
+        // While minimized, the app's CoreWindow detaches from the frame and becomes its only
+        // top-level window. That window is empty in UIA; the frame is the window to act on.
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys).ProcessesById[880] = new UiProcessInfo(880, "CalculatorApp", 0, "");
+        uia.WindowsByPidResult = [((nint)0x501, 880, "Calculatrice")];
+        sys.WindowClassNameByHwnd[0x501] = "Windows.UI.Core.CoreWindow";
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByPid_TwoMinimizedFrames_ReportsAmbiguityInsteadOfGuessing()
+    {
+        // Two minimized windows of the same app can't be tied to a process, so the resolver must
+        // surface the ambiguity rather than fall back to the detached content window.
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[880] = new UiProcessInfo(880, "CalculatorApp", 0, "");
+        sys.HostedFramesErrorByPid[880] = new AmbiguousHostedAppFrameException([0x302, 0x304]);
+        uia.WindowsByPidResult = [((nint)0x501, 880, "Calculatrice")];
+        sys.WindowClassNameByHwnd[0x501] = "Windows.UI.Core.CoreWindow";
+
+        var ex = await Assert.ThrowsExactlyAsync<AmbiguousHostedAppFrameException>(
+            () => service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None));
+
+        Assert.Contains("HWND 770, HWND 772", ex.Message);
+        Assert.Contains("--window <HWND>", ex.Message);
+    }
+
+    [TestMethod]
+    public async Task ResolveByPid_CoreWindowWithoutFrame_KeepsProcessWindow()
+    {
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[880] = new UiProcessInfo(880, "CalculatorApp", 0, "");
+        uia.WindowsByPidResult = [((nint)0x501, 880, "Calculatrice")];
+        sys.WindowClassNameByHwnd[0x501] = "Windows.UI.Core.CoreWindow";
+
+        var uiTarget = await service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None);
+
+        Assert.AreEqual(0x501L, uiTarget.WindowHandle);
+        Assert.AreEqual(880, uiTarget.ProcessId);
     }
 
     [TestMethod]
@@ -441,9 +486,9 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ResolveAsync(app: "ambig", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Multiple 'ambig' windows found");
-        StringAssert.Contains(ex.Message, "PID 820");
-        StringAssert.Contains(ex.Message, "PID 821");
+        Assert.Contains("Multiple 'ambig' windows found", ex.Message);
+        Assert.Contains("PID 820", ex.Message);
+        Assert.Contains("PID 821", ex.Message);
     }
 
     [TestMethod]
@@ -498,9 +543,9 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.ResolveAsync(app: "mp", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Multiple processes matching 'mp' found");
-        StringAssert.Contains(ex.Message, "PID 860 (mpa)");
-        StringAssert.Contains(ex.Message, "PID 861 (mpb)");
+        Assert.Contains("Multiple processes matching 'mp' found", ex.Message);
+        Assert.Contains("PID 860 (mpa)", ex.Message);
+        Assert.Contains("PID 861 (mpb)", ex.Message);
     }
 
     [TestMethod]
@@ -517,7 +562,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
             () => service.ResolveAsync(app: "pw", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "No running app found matching 'pw'");
+        Assert.Contains("No running app found matching 'pw'", ex.Message);
     }
 
     // ---- Title-search fallback ------------------------------------------
@@ -531,7 +576,7 @@ public class UiSessionServiceTests
         var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
             () => service.ResolveAsync(app: "ghost", hwnd: null, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "No running app found matching 'ghost'");
+        Assert.Contains("No running app found matching 'ghost'", ex.Message);
     }
 
     [TestMethod]
@@ -599,4 +644,56 @@ public class UiSessionServiceTests
     [TestMethod]
     public void ClassifyWindow_OrdinaryClass_ReturnsWindow()
         => Assert.AreEqual("window", UiTargetResolver.ClassifyWindow("Button"));
+
+    // ---- DevTools inspector and exact titles (#1147) -----------------------
+
+    [TestMethod]
+    public async Task ResolveByPid_ForegroundDevToolsInspector_TargetsAppWindow()
+    {
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[500] = new UiProcessInfo(500, "myapp", 100, "My App");
+        uia.WindowsByPidResult = [(100, 500, "My App"), (200, 500, "WinApp DevTools · PID 500")];
+        sys.ForegroundWindowResult = 200;
+
+        var target = await service.ResolveAsync("500", null, CancellationToken.None);
+
+        Assert.AreEqual(100L, target.WindowHandle);
+        Assert.AreEqual("My App", target.WindowTitle);
+    }
+
+    [TestMethod]
+    public async Task ResolveByPid_OnlyDevToolsInspector_StillTargetsIt()
+    {
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[500] = new UiProcessInfo(500, "myapp", 200, "WinApp DevTools · PID 500");
+        uia.WindowsByPidResult = [(200, 500, "WinApp DevTools · PID 500")];
+
+        var target = await service.ResolveAsync("500", null, CancellationToken.None);
+
+        Assert.AreEqual(200L, target.WindowHandle);
+    }
+
+    [TestMethod]
+    public async Task ResolveByTitle_ExactTitleWinsOverLongerTitle()
+    {
+        var (service, uia, sys) = NewService();
+        uia.WindowsByTitleResult = [(100, 500, "DevTools BB App"), (200, 600, "DevTools BB App 2")];
+        sys.ForegroundWindowResult = 200;
+
+        var target = await service.ResolveAsync("devtools bb app", null, CancellationToken.None);
+
+        Assert.AreEqual(100L, target.WindowHandle);
+        Assert.AreEqual(500, target.ProcessId);
+    }
+
+    [TestMethod]
+    public async Task ResolveProcessByTitle_ExactTitleIsNotAmbiguous()
+    {
+        var (service, uia, _) = NewService();
+        uia.WindowsByTitleResult = [(100, 500, "DevTools BB App"), (200, 600, "DevTools BB App 2")];
+
+        var target = await service.ResolveProcessAsync("DevTools BB App", CancellationToken.None);
+
+        Assert.AreEqual(500, target.ProcessId);
+    }
 }

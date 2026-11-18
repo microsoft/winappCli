@@ -45,7 +45,7 @@ internal static class RunFailure
             var manifest = Path.Combine(layout.FullName, "AppxManifest.xml");
             if (!File.Exists(manifest) ||
                 Services.AppxManifestDocument.Load(manifest).ApplicationExecutable is not { Length: > 0 } executable ||
-                executable.Contains('$'))
+                executable.Contains('$') || Path.IsPathRooted(executable))
             {
                 return [];
             }

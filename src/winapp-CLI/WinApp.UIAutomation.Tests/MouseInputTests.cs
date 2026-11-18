@@ -52,6 +52,10 @@ public class MouseInputTests
         var wheel = MouseInput.CreateWheelInput(-120);
         Assert.AreEqual(unchecked((uint)-120), wheel.Anonymous.mi.mouseData);
         Assert.AreEqual(MOUSE_EVENT_FLAGS.MOUSEEVENTF_WHEEL, wheel.Anonymous.mi.dwFlags);
+
+        var hwheel = MouseInput.CreateWheelInput(240, horizontal: true);
+        Assert.AreEqual(240u, hwheel.Anonymous.mi.mouseData);
+        Assert.AreEqual(MOUSE_EVENT_FLAGS.MOUSEEVENTF_HWHEEL, hwheel.Anonymous.mi.dwFlags);
     }
 
     [TestMethod]
@@ -160,9 +164,9 @@ public class MouseInputTests
         Assert.AreEqual(2, flags.Count);
         Assert.AreEqual(MOUSE_EVENT_FLAGS.MOUSEEVENTF_LEFTDOWN, flags[0]);
         Assert.AreEqual(MOUSE_EVENT_FLAGS.MOUSEEVENTF_LEFTUP, flags[1]);
-        CollectionAssert.Contains(sleeps, 9);
-        CollectionAssert.Contains(sleeps, 7);
-        CollectionAssert.Contains(sleeps, 8);
+        Assert.Contains(9, sleeps);
+        Assert.Contains(7, sleeps);
+        Assert.Contains(8, sleeps);
     }
 
     [TestMethod]
@@ -257,7 +261,7 @@ public class MouseInputTests
 
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() => MouseInput.ScrollWheel(1, 1, 120, settleMs: 0));
 
-        StringAssert.Contains(ex.Message, expected);
+        Assert.Contains(expected, ex.Message);
     }
 
     [TestMethod]
@@ -267,7 +271,7 @@ public class MouseInputTests
 
         var ex = Assert.ThrowsExactly<InvalidOperationException>(() => MouseInput.Click(1, 1, settleMs: 0));
 
-        StringAssert.Contains(ex.Message, "partially applied");
+        Assert.Contains("partially applied", ex.Message);
     }
 
     [TestMethod]
@@ -284,11 +288,14 @@ public class MouseInputTests
         real.Click(5, 6, doubleClick: false, rightClick: true, settleMs: 0);
         real.Drag(7, 8, 9, 10, rightButton: true, settleMs: 0);
         real.ScrollWheel(11, 12, 120, settleMs: 0);
+        real.ScrollWheelHorizontal(13, 14, -120, settleMs: 0);
 
-        CollectionAssert.Contains(cursorPositions, (1, 2));
-        CollectionAssert.Contains(cursorPositions, (5, 6));
+        Assert.Contains((1, 2), cursorPositions);
+        Assert.Contains((5, 6), cursorPositions);
         Assert.IsTrue(sent.Any(batch => batch[0].Anonymous.mi.dwFlags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_RIGHTDOWN));
         Assert.IsTrue(sent.Any(batch => batch[0].Anonymous.mi.dwFlags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_WHEEL));
+        Assert.IsTrue(sent.Any(batch => batch[0].Anonymous.mi.dwFlags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_HWHEEL
+            && batch[0].Anonymous.mi.mouseData == unchecked((uint)-120)));
         Assert.IsTrue(sent.Any(batch => (batch[0].Anonymous.mi.dwFlags & MOUSE_EVENT_FLAGS.MOUSEEVENTF_MOVE) != 0));
     }
     internal static void ResetSeams()

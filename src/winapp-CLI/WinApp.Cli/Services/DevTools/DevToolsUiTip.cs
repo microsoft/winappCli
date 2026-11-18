@@ -10,8 +10,9 @@ using WinApp.Cli.Commands;
 namespace WinApp.Cli.Services.DevTools;
 
 /// <summary>
-/// One stderr line for a <c>winapp ui</c> command whose target already has the DevTools agent: an agent
-/// that only knows UI automation otherwise never learns it could read and change the app's XAML live.
+/// One stderr line after a <c>winapp ui inspect</c> of an app that already has the DevTools agent: an agent
+/// that only knows UI automation otherwise never learns it could read and change the app's XAML live. Only
+/// <c>inspect</c> says it, because repeating it on every click and search costs a long session tokens.
 /// </summary>
 internal static class DevToolsUiTip
 {
@@ -21,7 +22,7 @@ internal static class DevToolsUiTip
     public static void WriteIfApplies(ParseResult parseResult, TextWriter error)
     {
         var command = parseResult.CommandResult.Command;
-        if (!command.Options.Contains(SharedUiOptions.AppOption))
+        if (!ShownAfter(command) || !command.Options.Contains(SharedUiOptions.AppOption))
         {
             return;
         }
@@ -47,6 +48,8 @@ internal static class DevToolsUiTip
             // The tip is best effort.
         }
     }
+
+    internal static bool ShownAfter(Command command) => command is UiInspectCommand;
 
     internal static bool Applies(string? app, long? window, IReadOnlyList<int> devToolsPids,
         Func<long, int?> windowProcess, Func<int, (string Name, string Title)?> describe)

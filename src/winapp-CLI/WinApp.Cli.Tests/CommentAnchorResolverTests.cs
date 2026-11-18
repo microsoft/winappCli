@@ -66,6 +66,27 @@ public class CommentAnchorResolverTests
     }
 
     [TestMethod]
+    public void KnownSource_AFlattenedAppPath_IsTheOneProjectFileWhosePathEndsWithIt()
+    {
+        // An app attached with the repository as its source root reports ms-appx:///TermControl.xaml for a file deep in
+        // the repository; the engine resolves it the same way, so the panel and the saved comment agree.
+        var control = Directory.CreateDirectory(Path.Combine(_root, "src", "Control"));
+        Directory.CreateDirectory(Path.Combine(control.FullName, "obj"));
+        Directory.CreateDirectory(Path.Combine(_root, "src", "Other"));
+        File.WriteAllText(Path.Combine(control.FullName, "TermControl.xaml"), "<UserControl />");
+        File.WriteAllText(Path.Combine(control.FullName, "obj", "TermControl.xaml"), "<UserControl />");
+        File.WriteAllText(Path.Combine(control.FullName, "Shared.xaml"), "<UserControl />");
+        File.WriteAllText(Path.Combine(_root, "src", "Other", "Shared.xaml"), "<UserControl />");
+
+        string? Resolve(string uri) => CommentAnchorResolver.ResolveKnownSourcePath(_root, new CommentAnchor { SourceUri = uri });
+
+        Assert.AreEqual(Path.Combine(control.FullName, "TermControl.xaml"), Resolve("ms-appx:///TermControl.xaml"));
+        Assert.AreEqual(Path.Combine(control.FullName, "TermControl.xaml"), Resolve("ms-appx:///Control/TermControl.xaml"));
+        Assert.IsNull(Resolve("ms-appx:///Shared.xaml"), "a name two project files share is not guessed");
+        Assert.IsNull(Resolve("ms-appx:///Missing.xaml"));
+    }
+
+    [TestMethod]
     [DataRow("ms-appx:///Views/Page.xaml", @"Views\Page.xaml")]
     [DataRow("ms-appx:///Views/../Page.xaml", null)]
     [DataRow("ms-appx:///Views/%2e%2e/Page.xaml", null)]
@@ -266,6 +287,58 @@ public class CommentAnchorResolverTests
         foreach (var h in hits)
         {
             Assert.AreEqual("MainWindow.xaml", h.File, "obj/ output must be excluded");
+        }
+    }
+
+    // A C++/WinRT app's repo holds a copy of every page under Generated Files and a restored package's XAML under
+    // packages; neither is where the developer edits, so neither is a candidate.
+    [TestMethod]
+    public void ReAnchor_SkipsGeneratedCopiesPackagesAndToolFolders()
+    {
+        foreach (var folder in new[] { "src", @"src\Generated Files", @"packages\Pkg.1.0", @"node_modules\pkg", ".git", ".vs" })
+        {
+            Directory.CreateDirectory(Path.Combine(_root, folder));
+            WriteXaml(Path.Combine(folder, "TabHeader.xaml"), "<Grid>\n<TextBlock x:Name=\"HeaderTextBlock\"/>\n</Grid>");
+        }
+        var anchor = new CommentAnchor
+        {
+            Weak = true,
+            Identity = new CommentIdentity { Type = "TextBlock", Name = "HeaderTextBlock" },
+        };
+
+        var hits = _resolver.ReAnchor(anchor, _root);
+
+        Assert.AreEqual(@"src\TabHeader.xaml", hits.Single().File);
+    }
+
+    [TestMethod]
+    public void ReAnchor_UnreadableFile_IsReportedOnceWithoutAStackTrace()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "Themes"));
+        File.WriteAllText(Path.Combine(_root, "Themes", "Huge.xaml"), "<Grid>" + new string(' ', 3 * 1024 * 1024) + "</Grid>");
+        var logger = new RecordingLogger();
+        var resolver = new CommentAnchorResolver(logger);
+        var anchor = new CommentAnchor { Weak = true, Identity = new CommentIdentity { Type = "Button", Name = "Save" } };
+
+        resolver.ReAnchor(anchor, _root);
+        resolver.ReAnchor(anchor, _root);
+
+        Assert.AreEqual(1, logger.Warnings.Count, string.Join("\n", logger.Warnings));
+        Assert.IsTrue(logger.Warnings[0].Message.Contains("Huge.xaml", StringComparison.Ordinal) && logger.Warnings[0].Exception is null);
+    }
+
+    private sealed class RecordingLogger : Microsoft.Extensions.Logging.ILogger<CommentAnchorResolver>
+    {
+        public List<(string Message, Exception? Exception)> Warnings { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning)
+            {
+                Warnings.Add((formatter(state, exception), exception));
+            }
         }
     }
 

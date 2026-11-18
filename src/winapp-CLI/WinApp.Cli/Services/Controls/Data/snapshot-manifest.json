@@ -1,9 +1,9 @@
 {
-  "bakedAtUtc": "2026-10-07T20:03:50.5918096Z",
-  "cacheVersion": "26",
+  "bakedAtUtc": "2026-10-28T12:52:34.1098041Z",
+  "cacheVersion": "28",
   "scenarioCounts": {
     "gallery": 344,
-    "reactor": 235,
+    "reactor": 244,
     "toolkit": 125
   }
 }

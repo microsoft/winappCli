@@ -121,6 +121,7 @@ run it by name from any terminal. The manifest registers an alias like `rust-app
 project's exe name), invoked as `rust-app` or `rust-app.exe`. The alias winapp stages for a development
 run is generated from your package identity instead, so it is not a name you'd want to publish.
 
+> [!NOTE]
 > **Skip this step if you're building a UI app** (a Rust app that renders its own window). Those apps work fine with the default AUMID launch.
 
 Add the alias:

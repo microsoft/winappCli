@@ -106,7 +106,7 @@ public class ExecutionAliasOwnershipTests
             verified++;
             if (target.ApplicationUserModelId is { } aumid && target.TargetExecutable is { } exe)
             {
-                StringAssert.StartsWith(aumid, owner + "!");
+                Assert.StartsWith(owner + "!", aumid);
                 Assert.IsTrue(Path.IsPathFullyQualified(exe));
                 richer++;
             }

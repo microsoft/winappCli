@@ -2,36 +2,12 @@
 // Licensed under the MIT License.
 
 #include "DevToolsBindingRow.h"
+#include "DevToolsPathSyntax.h"
 #include "DevToolsProtocol.h"   // the tap's JSON reader; the agent's answer arrives as one compact JSON object
 #include <algorithm>
 #include <cwchar>
 #include <utility>
 #include <vector>
-
-namespace {
-
-void SplitAroundSegment(const std::wstring& path, const std::wstring& segment,
-                        std::wstring* head, std::wstring* emph, std::wstring* tail)
-{
-    *head = *emph = *tail = L"";
-    if (segment.empty()) { *emph = path; return; }
-
-    for (size_t start = 0; start <= path.size();) {
-        size_t dot = path.find(L'.', start);
-        size_t len = (dot == std::wstring::npos ? path.size() : dot) - start;
-        if (path.compare(start, len, segment) == 0) {
-            *head = path.substr(0, start);
-            *emph = segment;
-            *tail = path.substr(start + segment.size());
-            return;
-        }
-        if (dot == std::wstring::npos) break;
-        start = dot + 1;
-    }
-    *emph = segment;
-}
-
-} // namespace
 
 const wchar_t* DevToolsBindingRow_PendingText() { return L"Checking this binding\u2026"; }
 
@@ -75,7 +51,7 @@ DevToolsBindingRowView DevToolsBindingRow_FromJson(const std::wstring& json)
     }
 
     if (state == L"bad-segment" || state == L"null-link") {
-        SplitAroundSegment(path, seg, &v.head, &v.headEmphasis, &v.headTail);
+        DevToolsPath_SplitAroundSegment(path, seg, &v.head, &v.headEmphasis, &v.headTail);
         v.subtitle = reason;
         v.isFault = true;
         return v;
@@ -185,21 +161,55 @@ DevToolsBindingSummary DevToolsBindingRow_Summary(const std::wstring& json)
     return s;
 }
 
-static std::vector<std::pair<unsigned long long, std::wstring>> g_liveWrites;
+namespace {
+struct LiveWrite
+{
+    unsigned long long wire = 0;
+    std::wstring prop;
+    bool valueKnown = false;
+    std::wstring value;
+};
+std::vector<LiveWrite> g_liveWrites;
+
+std::vector<LiveWrite>::iterator FindLiveWrite(unsigned long long wire, const std::wstring& prop)
+{
+    return std::find_if(g_liveWrites.begin(), g_liveWrites.end(),
+                        [&](const LiveWrite& w) { return w.wire == wire && w.prop == prop; });
+}
+}
 
 void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstring& prop)
 {
-    if (wire && !DevToolsBindingRow_WasWrittenLive(wire, prop)) g_liveWrites.emplace_back(wire, prop);
+    if (!wire) return;
+    auto it = FindLiveWrite(wire, prop);
+    if (it == g_liveWrites.end()) it = g_liveWrites.insert(g_liveWrites.end(), LiveWrite{ wire, prop });
+    it->valueKnown = false;
+    it->value.clear();
 }
 
 void DevToolsBindingRow_ForgetLiveWrite(unsigned long long wire, const std::wstring& prop)
 {
-    g_liveWrites.erase(std::remove(g_liveWrites.begin(), g_liveWrites.end(), std::make_pair(wire, prop)), g_liveWrites.end());
+    const auto it = FindLiveWrite(wire, prop);
+    if (it != g_liveWrites.end()) g_liveWrites.erase(it);
 }
 
 bool DevToolsBindingRow_WasWrittenLive(unsigned long long wire, const std::wstring& prop)
 {
-    return std::find(g_liveWrites.begin(), g_liveWrites.end(), std::make_pair(wire, prop)) != g_liveWrites.end();
+    return FindLiveWrite(wire, prop) != g_liveWrites.end();
+}
+
+bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& observed)
+{
+    const auto it = FindLiveWrite(wire, prop);
+    if (it == g_liveWrites.end()) return false;
+    if (!it->valueKnown) {
+        it->valueKnown = true;
+        it->value = observed;
+        return true;
+    }
+    if (it->value == observed) return true;
+    g_liveWrites.erase(it);
+    return false;
 }
 
 bool DevToolsBindingRow_ApplyLiveOverride(DevToolsBindingSummary& summary, bool writtenLive, const std::wstring& shown)
@@ -220,6 +230,6 @@ std::wstring DevToolsBindingRow_SpokenStatus(const std::wstring& status)
 
 bool DevToolsBindingRow_ShowsReplaced(const DevToolsBindingSummary& summary, bool replacedHere, bool writtenLive)
 {
-    if (replacedHere || summary.tone == DevToolsBindingTone::NotBound) return true;
-    return summary.tone == DevToolsBindingTone::Unknown && writtenLive;
+    if (replacedHere) return true;
+    return writtenLive && (summary.tone == DevToolsBindingTone::NotBound || summary.tone == DevToolsBindingTone::Unknown);
 }

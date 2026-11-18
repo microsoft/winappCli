@@ -8,7 +8,7 @@ namespace WinApp.Cli.Services.DevTools;
 
 /// <summary>
 /// The one-line renderings the agent-facing <c>winapp devtools</c> commands share. Every element line starts
-/// with its selector in brackets, because that bracketed token is what the next command accepts verbatim —
+/// with its selector in brackets, because that bracketed token is what the next command accepts verbatim:
 /// output and input are the same vocabulary. The selector is the element's <c>x:Name</c> when that names
 /// it uniquely, else a semantic slug, else the raw handle; see <see cref="DevToolsSelector.Display"/>.
 /// </summary>

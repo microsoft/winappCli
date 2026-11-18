@@ -1,0 +1,1048 @@
+// Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
+// Licensed under the MIT License.
+
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using WinApp.Cli.Services.Performance;
+
+namespace WinApp.Cli.Tests;
+
+[TestClass]
+public class PerfCallQueryTests
+{
+    [TestMethod]
+    public void TreeUsesExecutionParentsAndStablePagingWithAncestorContext()
+    {
+        using var fixture = new Fixture([
+            Call("c1", 0, 40), Call("c2", 2, 30, "c1"),
+            Call("c3", 5, 25, "c2"), Call("c4", 6, 20, "c3"),
+            Call("c5", 30, 40, "c1"),
+        ]);
+        var result = fixture.Query(new(View: "call", Id: "c1", Limit: 1, Offset: 2));
+        Assert.AreEqual("c1", result.RootCallId);
+        Assert.AreEqual(new PerfRange(0, 40), result.Range);
+        Assert.AreEqual("c3", result.Rows.Single().Id);
+        Assert.AreEqual("c1,c2", string.Join(',', result.Rows[0].AncestorIds));
+        Assert.IsTrue(result.Rows[0].DepthLimited);
+        Assert.AreEqual(1, result.Rows[0].ChildCount);
+        Assert.AreEqual(3, result.NextOffset);
+        var full = fixture.Query(new(View: "call", Id: "c1", Depth: 3));
+        Assert.AreEqual("c1,c2,c3,c4,c5", string.Join(',', full.Rows.Select(r => r.Id)));
+    }
+
+    [TestMethod]
+    public void CallsAreLongestFirstAndFamilyFiltered()
+    {
+        using var fixture = new Fixture([
+            Call("c1", 0, 10), Call("c2", 20, 50), Call("c3", 0, 100) with { Family = "frames" },
+        ]);
+        var result = fixture.Query(new(View: "calls", Family: "layout"));
+        Assert.AreEqual("c2,c1", string.Join(',', result.Rows.Select(r => r.Id)));
+    }
+
+    [TestMethod]
+    public void SummaryPartitionsPrimaryUiThreadWithoutDoubleCounting()
+    {
+        var parse = Call("parse", 25, 30, "layout") with
+        {
+            Name = "ParseXaml", Family = "parsing", BeginEvent = "parse-begin",
+        };
+        var calls = new[]
+        {
+            Frame("frame", 0, 100) with { Thread = 7 },
+            Frame("other-frame", 0, 40) with { Thread = 8 },
+            Call("input", 10, 60, "frame") with { Name = "ProcessPointerInput", Family = "input", Thread = 7 },
+            Call("layout", 20, 40, "input") with { Thread = 7 },
+            parse with { Thread = 7 },
+            Call("image", 40, 50, "input") with { Name = "ImageCacheDecode", Family = "images", Thread = 7 },
+            Call("off-thread-image", 0, 90) with { Name = "OffThreadDecode", Family = "images", Thread = 8 },
+            Call("render", 60, 80, "frame") with { Name = "RenderWalk", Family = "frames", Thread = 7 },
+            Call("framework", 80, 90, "frame") with { Name = "PublicApiCall:SetValue", Family = "framework", Thread = 7 },
+        };
+        var parseEvent = PerfGcTests.Event("ParseXaml", 25, thread: 7) with
+        {
+            Id = "parse-begin", Provider = PerfProviders.Xaml, Family = "parsing", Phase = "begin",
+            Fields = new() { ["URI"] = "Views/MainPage.xaml" },
+        };
+        using var fixture = new Fixture(calls, [parseEvent]);
+
+        var result = fixture.Query(new(View: "summary", Limit: 100));
+
+        Assert.AreEqual(7u, result.PrimaryUiThread);
+        Assert.AreEqual("Parsing,Layout,Render,Composition submission,Other observed XAML,Image decode/load,Unclassified",
+            string.Join(',', result.Activity!.Select(category => category.Category)));
+        Assert.AreEqual(100d, result.Activity!.Sum(category => category.ObservedMs), 0.000001);
+        AssertActivity(result, "Parsing", 5);
+        AssertActivity(result, "Layout", 15);
+        AssertActivity(result, "Render", 20);
+        AssertActivity(result, "Other observed XAML", 30);
+        AssertActivity(result, "Image decode/load", 10);
+        AssertActivity(result, "Unclassified", 20);
+        Assert.AreEqual("Views/MainPage.xaml", result.ParsingResources!.Single().Resource);
+        Assert.AreEqual(5d, result.ParsingResources!.Single().ObservedMs);
+        Assert.IsTrue(result.Rows.Any(row => row.Id == "phase:OffThreadDecode"),
+            "Automatic overview thread selection must not narrow the existing detailed summary.");
+    }
+
+    [TestMethod]
+    public void FrameCountSelectsPrimaryThreadBeforeFrameUnionAndThreadOverrideWins()
+    {
+        var calls = new[]
+        {
+            Frame("long", 0, 80) with { Thread = 20 },
+            Frame("first", 0, 10) with { Thread = 10 },
+            Frame("second", 20, 30) with { Thread = 10 },
+            Call("thread-10-layout", 0, 30, "first") with { Thread = 10 },
+            Call("thread-20-layout", 0, 80, "long") with { Thread = 20 },
+        };
+        using var fixture = new Fixture(calls);
+
+        Assert.AreEqual(10u, fixture.Query(new(View: "summary")).PrimaryUiThread);
+        Assert.AreEqual(20u, fixture.Query(new(View: "summary", Thread: 20)).PrimaryUiThread);
+        Assert.Throws<ArgumentException>(() => fixture.Query(new(View: "summary", Thread: 99)));
+    }
+
+    [TestMethod]
+    public void ImageOnlyWorkerCannotBecomeAutomaticPrimaryUiThread()
+    {
+        var calls = new[]
+        {
+            Call("ui-layout", 0, 10) with { Thread = 7 },
+            Call("worker-image", 0, 90) with { Name = "OffThreadDecode", Family = "images", Thread = 42 },
+        };
+        using var fixture = new Fixture(calls);
+
+        var result = fixture.Query(new(View: "summary"));
+
+        Assert.AreEqual(7u, result.PrimaryUiThread);
+        AssertActivity(result, "Image decode/load", 0);
+    }
+
+    [TestMethod]
+    public void CompositionSubmissionIsDistinctFromRenderAndDoesNotSelectAWorkerAsTheUiThread()
+    {
+        using var fixture = new Fixture([
+            Call("render", 0, 20) with { Name = "SubmitFrame", Family = "frames", Thread = 7 },
+            Call("commit", 10, 15, "render") with { Name = "CommitMainDevice", Family = "composition", Thread = 7 },
+            Call("surface", 0, 90) with { Name = "DCompBeginDraw", Family = "composition", Thread = 42 },
+        ]);
+        fixture.Capture.ProviderStates = [new(PerfProviders.DirectComposition, "enabled", false)];
+        var summary = fixture.Query(new(View: "summary"));
+        Assert.AreEqual(7u, summary.PrimaryUiThread);
+        AssertActivity(summary, "Render", 15);
+        AssertActivity(summary, "Composition submission", 5);
+        AssertActivity(summary, "Unclassified", 80);
+        Assert.AreEqual("enabled", summary.DirectCompositionProvider!.State);
+        var calls = fixture.Query(new(View: "calls", Family: "composition"));
+        Assert.AreEqual("surface,commit", string.Join(',', calls.Rows.Select(row => row.Id)));
+        Assert.IsTrue(calls.Rows.All(row => row.Call!.ElementId is null));
+        Assert.Throws<ArgumentException>(() => fixture.Query(new(View: "summary", Thread: 42)));
+    }
+
+    [TestMethod]
+    public void OptionalCompositionStatusDoesNotDiscardXamlEvidenceOrInventSupportInOldCaptures()
+    {
+        using var fixture = new Fixture([Call("layout", 0, 10)]);
+        fixture.Capture.ProviderStates = [new(PerfProviders.DirectComposition, "unavailable", null, "Access denied")];
+        var result = fixture.Query(new());
+        Assert.IsTrue(result.Coverage.Complete);
+        Assert.AreEqual("unavailable", result.DirectCompositionProvider!.State);
+        Assert.AreEqual("Access denied", result.DirectCompositionProvider.Error);
+        Assert.IsNotEmpty(result.Rows);
+        fixture.Capture.Providers = [PerfProviders.All.Single(provider => provider.Id == PerfProviders.Xaml)];
+        Assert.AreEqual("not-recorded", fixture.Query(new()).DirectCompositionProvider!.State);
+    }
+
+    [TestMethod]
+    public void ParsingPreviewIsBoundedAndParsingViewPagesAllResources()
+    {
+        var calls = new List<PerfCall>();
+        var events = new List<PerfEvent>();
+        for (var index = 0; index < 12; index++)
+        {
+            var id = "parse-" + index;
+            calls.Add(Call(id, index * 2, index * 2 + 1) with
+            {
+                Name = "ParseXaml", Family = "parsing", BeginEvent = id + "-begin",
+            });
+            events.Add(PerfGcTests.Event("ParseXaml", index * 2) with
+            {
+                Id = id + "-begin", Provider = PerfProviders.Xaml, Family = "parsing", Phase = "begin",
+                Fields = new() { ["URI"] = $"Resource-{index:D2}.xaml" },
+            });
+        }
+        using var fixture = new Fixture(calls, events.ToArray());
+
+        var summary = fixture.Query(new(View: "summary", Limit: 100));
+        var page = fixture.Query(new(View: "parsing", Limit: 5, Offset: 5));
+
+        Assert.AreEqual(10, summary.ParsingResources!.Count);
+        Assert.AreEqual(12, summary.ParsingResourcesTotal);
+        Assert.AreEqual(2, summary.ParsingResourcesOmitted);
+        Assert.AreEqual(12, page.Total);
+        Assert.AreEqual(5, page.Returned);
+        Assert.AreEqual(10, page.NextOffset);
+        Assert.IsTrue(page.Rows.All(row => row.Kind == "parsing-resource"));
+    }
+
+    [TestMethod]
+    public void NestedParsingScopesAreUnionedByResource()
+    {
+        var calls = new[]
+        {
+            Call("load", 0, 10) with
+            {
+                Name = "Application_LoadComponent", Family = "parsing", BeginEvent = "load-begin",
+            },
+            Call("parse", 2, 8, "load") with
+            {
+                Name = "ParseXaml", Family = "parsing", BeginEvent = "parse-begin",
+            },
+        };
+        var events = new[]
+        {
+            PerfGcTests.Event("Application_LoadComponent", 0) with
+            {
+                Id = "load-begin", Provider = PerfProviders.Xaml, Family = "parsing", Phase = "begin",
+                Fields = new() { ["Uri"] = "Views/MainPage.xaml" },
+            },
+            PerfGcTests.Event("ParseXaml", 2) with
+            {
+                Id = "parse-begin", Provider = PerfProviders.Xaml, Family = "parsing", Phase = "begin",
+                Fields = new() { ["URI"] = "Views/MainPage.xaml" },
+            },
+        };
+        using var fixture = new Fixture(calls, events);
+
+        var result = fixture.Query(new(View: "summary"));
+
+        AssertActivity(result, "Parsing", 10);
+        Assert.AreEqual(10d, result.ParsingResources!.Single().ObservedMs);
+        Assert.AreEqual(2, result.ParsingResources!.Single().Count);
+    }
+
+    [TestMethod]
+    public void InterleavedComponentLoadsUseOnlyTheModernPairAndRemainQueryable()
+    {
+        const string resource = "Views/MainPage.xaml";
+        static PerfEvent? Decode(ushort descriptor, byte opcode, double time, byte[] payload, string id) =>
+            WinUiEventDecoder.Decode(new PerfRawEvent((long)(time * 100), 1, 1, PerfProviders.Xaml,
+                descriptor, 0, opcode, Guid.Empty, 8, false, payload, null, null, null),
+                id, 0, 100000);
+        static PerfEvent Modern(bool begin, double time) =>
+            WinUiEventDecoder.Decode(new PerfRawEvent((long)(time * 100), 1, 1, PerfProviders.Xaml,
+                0, 0, 0, Guid.Empty, 8, true, [], "Application_LoadComponent",
+                begin ? new() { ["IsStart"] = "true", ["Uri"] = resource, ["FrameNumber"] = "42" } :
+                    new() { ["IsStart"] = "false", ["Uri"] = resource }, null),
+                begin ? "modern-begin" : "modern-end", 0, 100000)!;
+        var events = new[]
+        {
+            Decode(20, 1, 400.57, Encoding.Unicode.GetBytes(resource + "\0"), "legacy-begin"),
+            Modern(true, 400.57),
+            Decode(21, 2, 581.72, [], "legacy-end"),
+            Modern(false, 581.72),
+            Decode(146, 2, 581.73, Encoding.Unicode.GetBytes("Assets/Image.png\0"), "image-end"),
+        }.OfType<PerfEvent>().ToArray();
+        var calls = new List<PerfCall>();
+        var analyzer = new PerfAnalyzer(calls.Add);
+        foreach (var e in events)
+        {
+            analyzer.Accept(e);
+        }
+        analyzer.Complete();
+        using var fixture = new Fixture(calls.ToArray(), events);
+        fixture.Capture.StopQpc = 582;
+        fixture.Manifest.LastEventMs = 581.73;
+
+        var summary = fixture.Query(new(View: "summary", FromMs: 400.57, ToMs: 581.73));
+        Assert.AreEqual(3, events.Length);
+        Assert.AreEqual("42", events[0].Fields["FrameNumber"]);
+        Assert.AreEqual(1, calls.Count);
+        Assert.AreEqual("Application_LoadComponent", calls.Single().Name);
+        Assert.IsTrue(summary.Coverage.Complete);
+        AssertActivity(summary, "Parsing", 181.15);
+        Assert.AreEqual(resource, summary.ParsingResources!.Single().Resource);
+        Assert.AreEqual(181.15, summary.ParsingResources!.Single().ObservedMs, 0.000001);
+        foreach (var call in calls)
+        {
+            Assert.AreEqual(181.15, call.DurationMs!.Value, 0.000001);
+            var tree = fixture.Query(new(View: "call", Id: call.Id, Depth: 4));
+            Assert.AreEqual(1, tree.Rows.Count);
+            Assert.AreEqual("complete", tree.Rows.Single().Call!.Status);
+        }
+    }
+
+    [TestMethod]
+    public void MarkersClipActivityAndParsingTogether()
+    {
+        var parse = Call("parse", 10, 30) with
+        {
+            Name = "ParseXaml", Family = "parsing", BeginEvent = "parse-begin",
+        };
+        var parseEvent = PerfGcTests.Event("ParseXaml", 10) with
+        {
+            Id = "parse-begin", Provider = PerfProviders.Xaml, Family = "parsing", Phase = "begin",
+            Fields = new() { ["URI"] = "Views/MainPage.xaml" },
+        };
+        using var fixture = new Fixture([parse], [parseEvent]);
+        fixture.Capture.Markers.Add(new("start", 15));
+        fixture.Capture.Markers.Add(new("end", 25));
+
+        var result = fixture.Query(new(View: "summary", FromMarker: "start", ToMarker: "end"));
+
+        Assert.AreEqual(new PerfRange(15, 25), result.Range);
+        AssertActivity(result, "Parsing", 10);
+        Assert.AreEqual(10d, result.ParsingResources!.Single().ObservedMs);
+    }
+
+    [TestMethod]
+    public void ZeroLengthSummaryHasNoPercentages()
+    {
+        using var fixture = new Fixture([Frame("frame", 0, 10), Call("layout", 0, 10, "frame")]);
+
+        var result = fixture.Query(new(View: "summary", FromMs: 5, ToMs: 5));
+
+        Assert.IsTrue(result.Activity!.All(category => category.ObservedMs == 0));
+        Assert.IsTrue(result.Activity!.All(category => category.RangePercent is null));
+    }
+
+    [TestMethod]
+    public void OutOfRangeAndOtherThreadErrorsRemainCaptureContextNotLocalErrors()
+    {
+        using var fixture = new Fixture([Call("c1", 10, 20)],
+            [
+                PerfGcTests.Event("unrelated", 30) with { Provider = PerfProviders.Xaml, Family = "layout", DecodeError = "outside" },
+                PerfGcTests.Event("unrelated", 15, thread: 99) with { Provider = PerfProviders.Xaml, Family = "layout", DecodeError = "other thread" },
+            ]);
+        fixture.Manifest.DecodeErrors = 2;
+        fixture.Manifest.IncompleteReasons.Add("Two captured decoding errors.");
+        var result = fixture.Query(new(View: "call", Id: "c1"));
+        Assert.IsTrue(result.Coverage.Complete);
+        Assert.AreEqual(0, result.Coverage.DecodeErrors);
+        Assert.AreEqual(2, result.Coverage.CaptureDecodeErrors);
+        Assert.IsNotEmpty(result.Coverage.CaptureReasons!);
+    }
+
+    [TestMethod]
+    [DataRow("summary")]
+    [DataRow("calls")]
+    [DataRow("hotspots")]
+    [DataRow("elements")]
+    public void UnmatchedEventsCannotReportSuccessfulEmptyTimings(string view)
+    {
+        var unmatched = PerfGcTests.Event("Layout", 10) with
+        {
+            Provider = PerfProviders.Xaml, Family = "layout", Phase = "begin",
+        };
+        using var fixture = new Fixture([], [unmatched]);
+
+        Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: view)));
+        var events = fixture.Query(new(View: "events"));
+        Assert.IsTrue(events.Coverage.Complete);
+        Assert.AreEqual("begin", events.Rows.Single().Event!.Phase);
+    }
+
+    [TestMethod]
+    public void RetainedTreesAndHotspotsSkipUnmatchedScopes()
+    {
+        static PerfEvent Timed(string name, string phase, double time) =>
+            PerfGcTests.Event(name, time) with
+            {
+                Provider = PerfProviders.Xaml, Family = name == "Frame" ? "frames" : "layout", Phase = phase,
+            };
+        var events = new[]
+        {
+            Timed("Frame", "begin", 0), Timed("Layout", "begin", 1),
+            Timed("MeasureElement", "begin", 2), Timed("MeasureElement", "end", 3),
+            Timed("Frame", "end", 25),
+        };
+        var calls = new List<PerfCall>();
+        var analyzer = new PerfAnalyzer(calls.Add);
+        foreach (var e in events)
+        {
+            analyzer.Accept(e);
+        }
+        analyzer.Complete();
+        using var fixture = new Fixture(calls, events);
+        var frame = calls.Single(c => c.Name == "Frame");
+        var child = calls.Single(c => c.Name == "MeasureElement");
+
+        var tree = fixture.Query(new(View: "call", Id: frame.Id, Depth: 4));
+        Assert.IsTrue(tree.Coverage.Complete);
+        Assert.AreEqual(2, tree.Returned);
+        var childRow = tree.Rows.Single(r => r.Id == child.Id);
+        Assert.AreEqual(1, childRow.Depth);
+        Assert.AreSequenceEqual(new[] { frame.Id }, childRow.AncestorIds);
+        Assert.IsNull(tree.Rows.Single(r => r.Id == frame.Id).ExclusiveMs);
+        var hotspot = fixture.Query(new(View: "hotspots")).Rows.Single();
+        Assert.AreEqual(child.Id, hotspot.DominantOperations!.Single().Id);
+    }
+
+    [TestMethod]
+    public void UnknownSelfTimeRemainsUnknownInElementAndPhaseAggregates()
+    {
+        var incompleteChildren = Call("c1", 10, 20) with
+        {
+            Name = "MeasureElement", ElementId = "e1", SelfMs = null, ExclusiveMs = null,
+        };
+        var complete = Call("c2", 30, 40) with
+        {
+            Name = "MeasureElement", ElementId = "e1", SelfMs = 10, ExclusiveMs = 10,
+        };
+        using var fixture = new Fixture([incompleteChildren, complete],
+            elements: [new() { Id = "e1", ObjectId = "a", Type = "Panel" }]);
+
+        var element = fixture.Query(new(View: "elements")).Rows.Single();
+        Assert.AreEqual(2, element.Count);
+        Assert.AreEqual(20d, element.InclusiveMs);
+        Assert.IsNull(element.SelfMs);
+        var summary = fixture.Query(new(View: "summary"));
+        Assert.IsTrue(summary.Coverage.Complete);
+        Assert.IsNull(summary.Rows.Single(r => r.Kind == "phase").ExclusiveMs);
+    }
+
+    [TestMethod]
+    public void GcOverlapIsAUnionAndDoesNotChangeExclusiveTime()
+    {
+        var gc = new[]
+        {
+            Pause("gc1", 2, 8), Pause("gc2", 5, 12, instance: 2),
+            Pause("gc3", 15, 20, reason: 5),
+            new PerfGcInterval { Id = "gc4", Kind = "collection", StartMs = 0, EndMs = 35, CollectionType = "background" },
+        };
+        using var fixture = new Fixture([Call("c1", 0, 40)], [PerfGcTests.Event("GCStart", 0)], gc);
+        var result = fixture.Query(new(View: "call", Id: "c1"));
+        var row = result.Rows.Single();
+        Assert.AreEqual(10d, row.GcOverlap!.ObservedOverlapMs);
+        Assert.AreEqual(40d, row.ExclusiveMs);
+        Assert.AreEqual("gc1,gc2", string.Join(',', row.GcOverlap.IntervalIds));
+        Assert.IsTrue(result.GcCoverage!.Complete);
+    }
+
+    [TestMethod]
+    public void NoClrRecordsAreNotAZeroPauseReport()
+    {
+        using var fixture = new Fixture([Call("c1", 0, 10)]);
+        var result = fixture.Query(new(View: "call", Id: "c1"));
+        Assert.AreEqual("not-recorded", result.GcCoverage!.Availability);
+        Assert.IsNull(result.Rows[0].GcOverlap);
+        Assert.IsTrue(result.Coverage.Complete);
+        Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: "gc")));
+    }
+
+    [TestMethod]
+    public void GcOnlyCaptureCannotReportSuccessfulEmptyUiHotspots()
+    {
+        using var fixture = new Fixture([], [PerfGcTests.Event("GCStart", 1)]);
+        fixture.Manifest.Families.Clear();
+        fixture.Manifest.Families["gc"] = 1;
+
+        Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: "hotspots")));
+    }
+
+    [TestMethod]
+    [DataRow("summary")]
+    [DataRow("calls")]
+    [DataRow("hotspots")]
+    [DataRow("elements")]
+    public void FallbackDiagnosticDoesNotMakeTimingQueriesPartial(string view)
+    {
+        var diagnostic = WinUiEventDecoder.Decode(new PerfRawEvent(5, 1, 1, PerfProviders.Xaml,
+            0, 0, 0, Guid.Empty, 8, true, [], "FallbackError", null,
+            "Unsupported structured or variable-length TDH property."), "diagnostic", 0, 1000)!;
+        using var fixture = new Fixture([Frame("frame", 0, 20), Call("layout", 2, 10, "frame")], [diagnostic]);
+        fixture.Manifest.DecodeErrors = 1;
+
+        var result = fixture.Query(new(View: view));
+
+        Assert.IsTrue(result.Coverage.Complete);
+        Assert.AreEqual(0, result.Coverage.DecodeErrors);
+        Assert.AreEqual(1, result.Coverage.CaptureDecodeErrors);
+    }
+
+    [TestMethod]
+    [DataRow("summary")]
+    [DataRow("calls")]
+    [DataRow("hotspots")]
+    [DataRow("elements")]
+    public void DiagnosticOnlyCaptureCannotReportSuccessfulEmptyTimings(string view)
+    {
+        var diagnostic = WinUiEventDecoder.Decode(new PerfRawEvent(5, 1, 1, PerfProviders.Xaml,
+            0, 0, 0, Guid.Empty, 8, true, [], "FallbackError", [], null), "diagnostic", 0, 1000)!;
+        using var fixture = new Fixture([], [diagnostic]);
+        fixture.Manifest.Families.Clear();
+        fixture.Manifest.Families["diagnostics"] = 1;
+
+        Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: view)));
+    }
+
+    [TestMethod]
+    public void RecordingLossStillMakesMatchedTimingsPartial()
+    {
+        using var fixture = new Fixture([Call("c1", 10, 20)]);
+        fixture.Capture.EventsLost = 1;
+        fixture.Manifest.CaptureReasons.Add("Recording events were lost.");
+
+        var result = fixture.Query(new(View: "calls"));
+
+        Assert.IsFalse(result.Coverage.Complete);
+        Assert.AreEqual(1u, result.Coverage.EventsLost);
+        Assert.AreEqual(10d, result.Rows.Single().InclusiveMs);
+        Assert.Contains("Recording events were lost.", result.Coverage.Reasons);
+    }
+
+    [TestMethod]
+    [DataRow("UnknownDiagnostic")]
+    [DataRow("PublicApiCall")]
+    public void UnknownOrMalformedScopeDecodingStillMakesTimingQueriesPartial(string name)
+    {
+        var unsupported = WinUiEventDecoder.Decode(new PerfRawEvent(5, 1, 1, PerfProviders.Xaml,
+            0, 0, 0, Guid.Empty, 8, true, [], name, null,
+            "Unsupported structured or variable-length TDH property."), "unsupported", 0, 1000)!;
+        using var fixture = new Fixture([Call("c1", 0, 10)], [unsupported]);
+
+        var result = fixture.Query(new(View: "calls"));
+
+        Assert.IsFalse(result.Coverage.Complete);
+        Assert.AreEqual(1, result.Coverage.DecodeErrors);
+    }
+
+    [TestMethod]
+    public void EventsViewReturnsUnsupportedEvidenceForDiagnosis()
+    {
+        var unsupported = PerfGcTests.Event("UnknownEvent", 10) with
+        {
+            Provider = PerfProviders.Xaml,
+            Family = "unknown",
+            DecodeError = "unsupported descriptor",
+        };
+        using var fixture = new Fixture([], [unsupported]);
+        fixture.Manifest.Families.Clear();
+        fixture.Manifest.Families["unknown"] = 1;
+        fixture.Manifest.DecodeErrors = 1;
+
+        var result = fixture.Query(new(View: "events"));
+
+        Assert.AreEqual("v10UnknownEvent1", result.Rows.Single().Id);
+        Assert.IsFalse(result.Coverage.Complete);
+    }
+
+    [TestMethod]
+    public void KnownEventLossDoesNotCertifySpanningGcPauseOverlap()
+    {
+        var intervals = new List<PerfGcInterval>();
+        var analyzer = new PerfGcAnalyzer(intervals.Add);
+        analyzer.Accept(PerfGcTests.Event("GCSuspendEEBegin", 0, reason: 1));
+        analyzer.Accept(PerfGcTests.Event("GCSuspendEEEnd", 3));
+        analyzer.Accept(PerfGcTests.Event("GCRestartEEBegin", 97));
+        analyzer.Accept(PerfGcTests.Event("GCRestartEEEnd", 100));
+        analyzer.Complete();
+
+        using var fixture = new Fixture(
+            [Call("c1", 0, 100)],
+            [PerfGcTests.Event("GCStart", 0)],
+            [intervals.Single()]);
+        fixture.Capture.EventsLost = 1;
+        fixture.Manifest.CaptureReasons.Add("ETW loss is nonzero or unknown.");
+
+        var result = fixture.Query(new(View: "call", Id: "c1"));
+
+        Assert.IsNull(result.Rows.Single().GcOverlap,
+            "A pause reconstructed across known event loss cannot be used as certified overlap.");
+    }
+
+    [TestMethod]
+    public void PartialGcDoesNotInvalidateUsableXamlButGcQueryIsPartial()
+    {
+        using var fixture = new Fixture([Call("c1", 0, 10)],
+            [PerfGcTests.Event("GCStart", 1)], [
+                new PerfGcInterval { Id = "gc1", Kind = "suspension", StartMs = -1, Reason = 1, Status = "missing-end" },
+            ]);
+        var call = fixture.Query(new(View: "call", Id: "c1"));
+        Assert.IsTrue(call.Coverage.Complete);
+        Assert.IsFalse(call.GcCoverage!.Complete);
+        var gc = fixture.Query(new(View: "gc"));
+        Assert.IsFalse(gc.Coverage.Complete);
+        Assert.AreEqual(1, gc.GcCoverage!.IncompleteIntervals);
+    }
+
+    [TestMethod]
+    public void ReferencedGcIntervalCanBeQueriedDirectly()
+    {
+        using var fixture = new Fixture([Call("c1", 0, 40)], [PerfGcTests.Event("GCStart", 0)],
+            [Pause("gc1", 2, 8), Pause("gc2", 20, 25)]);
+        var result = fixture.Query(new(View: "gc", Id: "gc2"));
+        Assert.AreEqual(new PerfRange(20, 25), result.Range);
+        Assert.AreEqual("gc2", result.Rows.Single().Id);
+        Assert.Throws<ArgumentException>(() => fixture.Query(new(View: "gc", Id: "unknown")));
+    }
+
+    [TestMethod]
+    public void GcDurationSortIsLongestFirstWithIncompleteIntervalsLast()
+    {
+        var incomplete = new PerfGcInterval
+        {
+            Id = "gc0", Kind = "suspension", StartMs = 5, Reason = 1, Status = "missing-end",
+        };
+        using var fixture = new Fixture([Call("c1", 0, 40)], [PerfGcTests.Event("GCStart", 0)],
+            [Pause("gc1", 0, 2), incomplete, Pause("gc3", 10, 20), Pause("gc2", 30, 40)]);
+
+        var chronological = fixture.Query(new(View: "gc", Limit: 100));
+        Assert.AreEqual("gc1,gc0,gc3,gc2", string.Join(',', chronological.Rows.Select(r => r.Id)));
+
+        var duration = fixture.Query(new(View: "gc", Sort: "duration", Limit: 100));
+        Assert.AreEqual("gc3,gc2,gc1,gc0", string.Join(',', duration.Rows.Select(r => r.Id)));
+        Assert.IsNull(duration.Rows[^1].InclusiveMs);
+    }
+
+    [TestMethod]
+    public void HotspotsReturnSlowFramesWithRankedDirectOperationsAndGcOverlap()
+    {
+        var calls = new[]
+        {
+            Frame("f1", 0, 20),
+            Frame("f2", 30, 50),
+            Frame("fast", 60, 70),
+            Frame("phase", 0, 50) with { Name = "RenderWalk" },
+            Call("layout", 1, 6, "f1"),
+            Call("render", 6, 18, "f1") with { Name = "RenderWalk", Family = "frames" },
+            Call("nested", 7, 17, "render") with { Name = "MeasureElement" },
+            Call("submit", 18, 20, "f1") with { Name = "SubmitFrame", Family = "frames" },
+            Call("layout2", 32, 35, "f2"),
+        };
+        using var fixture = new Fixture(calls, [PerfGcTests.Event("GCStart", 0)], [Pause("gc1", 2, 8)]);
+
+        var result = fixture.Query(new(View: "hotspots", Limit: 100));
+        Assert.AreEqual("f1,f2", string.Join(',', result.Rows.Select(r => r.Id)));
+        Assert.AreEqual("render,layout,submit",
+            string.Join(',', result.Rows[0].DominantOperations!.Select(operation => operation.Id)));
+        Assert.IsFalse(result.Rows[0].DominantOperations!.Any(operation => operation.Id == "nested"));
+        Assert.AreEqual(6d, result.Rows[0].GcOverlap!.ObservedOverlapMs);
+        Assert.AreEqual(3, result.Rows[0].ChildCount);
+
+        var secondPage = fixture.Query(new(View: "hotspots", Limit: 1, Offset: 1));
+        Assert.AreEqual("f2", secondPage.Rows.Single().Id);
+        Assert.IsNull(secondPage.NextOffset);
+
+        var clipped = fixture.Query(new(View: "hotspots", FromMs: 10, ToMs: 15, MinFrameMs: 19));
+        Assert.AreEqual("f1", clipped.Rows.Single().Id);
+        Assert.AreEqual(5d, clipped.Rows.Single().ClippedOverlapMs);
+    }
+
+    [TestMethod]
+    public void HotspotByteBudgetProjectsEmbeddedOperationsAndMakesProgress()
+    {
+        var calls = new List<PerfCall> { Frame("f1", 0, 40) };
+        calls.AddRange(Enumerable.Range(0, 4).Select(i => Call("child" + i, i, 30 - i, "f1") with
+        {
+            Name = new string('\u0001', 10000),
+        }));
+        using var fixture = new Fixture(calls);
+
+        var result = fixture.Query(new(View: "hotspots", MaxBytes: 4096));
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(result, PerfJsonContext.Default.PerfQueryResult);
+        Assert.IsLessThanOrEqualTo(4096, bytes.Length + Encoding.UTF8.GetByteCount(Environment.NewLine));
+        Assert.AreEqual(1, result.Returned);
+        Assert.IsTrue(result.Rows[0].Projected);
+        var operations = result.Rows[0].DominantOperations;
+        Assert.IsNotNull(operations);
+        Assert.IsNotEmpty(operations!);
+        Assert.IsTrue(operations!.All(operation => operation.Name.Length <= 80));
+    }
+
+    [TestMethod]
+    public void RequestsBeyondCaptureBoundsCannotClaimCompleteCoverage()
+    {
+        using var fixture = new Fixture([Call("c1", 0, 40)]);
+        var result = fixture.Query(new(View: "calls", FromMs: -100, ToMs: 200));
+        Assert.IsFalse(result.Coverage.Complete);
+        Assert.IsTrue(result.Coverage.Reasons.Any(r => r.Contains("beyond", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void ElementParentsAreSelectedForTheRequestedInterval()
+    {
+        var root = new PerfElement { Id = "e1", ObjectId = "a" };
+        var child = new PerfElement
+        {
+            Id = "e2", ObjectId = "b", Parents = [new(0, "e1", "v1"), new(5, "e3", "v2")],
+        };
+        using var fixture = new Fixture([
+            Call("c1", 7, 8) with { Name = "MeasureElement", ElementId = "e2" },
+        ], elements: [root, child]);
+        var result = fixture.Query(new(View: "element", Id: "e1", Depth: 1, FromMs: 6, ToMs: 9));
+        Assert.AreEqual("e1", string.Join(',', result.Rows.Select(r => r.Id)));
+    }
+
+    [TestMethod]
+    public void TreeByteBudgetAlwaysMakesProgressAndPreservesIdentifiers()
+    {
+        var calls = Enumerable.Range(0, 30).Select(i => Call("c" + i, i, i + 1) with
+        {
+            Name = new string('\u0001', 512),
+        }).ToArray();
+        using var fixture = new Fixture(calls);
+        var ids = new HashSet<string>();
+        int? offset = 0;
+        while (offset is not null)
+        {
+            var result = fixture.Query(new(View: "calls", Offset: offset.Value, MaxBytes: 4096));
+            Assert.IsLessThanOrEqualTo(4096,
+                JsonSerializer.SerializeToUtf8Bytes(result, PerfJsonContext.Default.PerfQueryResult).Length +
+                Encoding.UTF8.GetByteCount(Environment.NewLine));
+            Assert.IsGreaterThan(0, result.Returned);
+            foreach (var row in result.Rows)
+            {
+                Assert.IsTrue(ids.Add(row.Id));
+                Assert.AreEqual(row.Id, row.Call!.Id);
+            }
+            offset = result.NextOffset;
+        }
+        Assert.AreEqual(30, ids.Count);
+    }
+
+    private static PerfCall Call(string id, double start, double end, string? parent = null) =>
+        new(id, "Layout", "layout", 1, null, parent, "v" + id + "b", "v" + id + "e", start, end,
+            end - start, end - start, "complete", end - start);
+
+    private static PerfCall Reactor(string id, string name, double start, double end, string? parent = null,
+        double? exclusive = null) =>
+        Call(id, start, end, parent) with { Name = name, Family = "reactor", ExclusiveMs = exclusive ?? end - start };
+
+    private static PerfEvent RenderBegin(PerfCall call, string componentId, string reason) =>
+        PerfGcTests.Event(call.Name, call.StartMs!.Value) with
+        {
+            Id = call.BeginEvent!, Thread = call.Thread, Provider = PerfProviders.Reactor, Family = "reactor", Phase = "begin",
+            Fields = new() { ["componentId"] = componentId, ["name"] = call.Name["ReactorRender:".Length..], ["reason"] = reason },
+        };
+
+    [TestMethod]
+    public void ComponentsViewRanksComponentsByExclusiveTimeWithReasonsInstancesAndCreatedElements()
+    {
+        var calls = new[]
+        {
+            Reactor("p1", "ReactorRenderPass", 0, 30),
+            Reactor("app", "ReactorRender:App", 1, 28, "p1", exclusive: 3),
+            Reactor("rec", "ReactorReconcile", 2, 27, "app"),
+            Reactor("row1", "ReactorRender:Row", 3, 10, "rec", exclusive: 2),
+            Reactor("nested", "ReactorRender:Row", 4, 8, "row1", exclusive: 4),
+            Reactor("row2", "ReactorRender:Row", 12, 20, "rec", exclusive: 8),
+            Reactor("slow", "ReactorRender:Slow", 20, 26, "rec", exclusive: 6),
+            // A virtualized row realized during layout, outside any pass.
+            Call("layout", 39, 46),
+            Reactor("mount", "ReactorReconcile", 40, 45, "layout"),
+            Reactor("row3", "ReactorRender:Row", 41, 44, "mount", exclusive: 3),
+            Reactor("p2", "ReactorRenderPass", 50, 55),
+        };
+        var byId = calls.ToDictionary(c => c.Id);
+        PerfEvent[] events =
+        [
+            RenderBegin(byId["app"], "1", "state"), RenderBegin(byId["row1"], "10", "parent"),
+            RenderBegin(byId["nested"], "11", "mount"), RenderBegin(byId["row2"], "12", "parent"),
+            RenderBegin(byId["slow"], "2", "parent"), RenderBegin(byId["row3"], "10", "props"),
+        ];
+        PerfElement[] elements =
+        [
+            new() { Id = "e1", ObjectId = "a", Component = "Slow", CreationObserved = true, FirstObservedMs = 21, CreatedMs = 21 },
+            new() { Id = "e2", ObjectId = "b", Component = "Slow", CreationObserved = true, FirstObservedMs = 22, CreatedMs = 22 },
+            new() { Id = "e3", ObjectId = "c", Component = null, CreationObserved = true, FirstObservedMs = 23, CreatedMs = 23 },
+        ];
+        using var fixture = new Fixture(calls, events, elements: elements);
+
+        var result = fixture.Query(new(View: "components", Limit: 100));
+
+        Assert.AreEqual("Row,Slow,App", string.Join(',', result.Rows.Select(r => r.Name)));
+        var row = result.Rows[0];
+        Assert.AreEqual("component", row.Kind);
+        Assert.AreEqual(4, row.Count);
+        Assert.AreEqual(7d + 8d + 3d, row.InclusiveMs, "A Row nested in a Row is already inside the outer Row's time.");
+        Assert.AreEqual(2d + 4d + 8d + 3d, row.ExclusiveMs);
+        Assert.AreEqual(3, row.Instances);
+        Assert.AreEqual("parent:2,mount:1,props:1",
+            string.Join(',', row.Reasons!.Select(reason => reason.Key + ":" + reason.Value)));
+        Assert.AreEqual(2, result.Rows[1].CreatedElements);
+        Assert.AreEqual(0, row.CreatedElements);
+        Assert.AreEqual("vrow1b", row.Evidence[0]);
+
+        var passes = result.ReactorPasses!;
+        Assert.AreEqual(2, passes.Count);
+        Assert.AreEqual(35d, passes.TotalMs);
+        Assert.AreEqual(30d, passes.MaxMs);
+        Assert.AreEqual("p1,p2", string.Join(',', passes.LongestPasses.Select(p => p.Id)));
+        Assert.IsNull(passes.LongestPasses[0].RequesterId, "Schema revision 1 passes have no recorded requester.");
+        Assert.IsNull(passes.Requesters, "Revision 1 must not report zero requesters.");
+        Assert.IsNull(passes.UnrequestedPasses);
+        Assert.IsNull(passes.ReconcileEdits);
+        Assert.IsNull(row.CallSites);
+        Assert.AreEqual(1, passes.OutsidePassReconciles);
+        Assert.AreEqual(5d, passes.OutsidePassReconcileMs);
+
+        Assert.AreEqual("App,Row,Slow", string.Join(',',
+            fixture.Query(new(View: "components", Sort: "inclusive")).Rows.Select(r => r.Name)));
+        Assert.AreEqual("Row", fixture.Query(new(View: "components", Sort: "count")).Rows[0].Name);
+        var clipped = fixture.Query(new(View: "components", FromMs: 0, ToMs: 15));
+        Assert.AreEqual(0, clipped.ReactorPasses!.Count, "Passes that cross the range boundary are not complete in it.");
+        Assert.AreEqual(2, clipped.Rows.Single(r => r.Name == "Row").Count);
+    }
+
+    [TestMethod]
+    public void ComponentsViewSummarizesRevisionTwoRequestersEditsAndCallSites()
+    {
+        Dictionary<string, string> Pass(string id, string name, string count) =>
+            new() { ["hostId"] = "1", ["requesterId"] = id, ["requesterName"] = name, ["requestCount"] = count };
+        Dictionary<string, string> Edits(int inserted, int removed, int moved, int replaced) => new()
+        {
+            ["inserted"] = inserted.ToString(), ["removed"] = removed.ToString(),
+            ["moved"] = moved.ToString(), ["replaced"] = replaced.ToString(),
+        };
+        var calls = new[]
+        {
+            Reactor("p1", "ReactorRenderPass", 0, 30) with { Attributes = Pass("7", "Counter", "3") },
+            Reactor("r1", "ReactorReconcile", 1, 29, "p1") with { Attributes = Edits(1, 1, 2, 0) },
+            Reactor("row1", "ReactorRender:Row", 2, 10, "r1"),
+            Reactor("row2", "ReactorRender:Row", 11, 12, "r1"),
+            Reactor("p2", "ReactorRenderPass", 40, 50) with { Attributes = Pass("7", "Counter", "1") },
+            Reactor("r2", "ReactorReconcile", 41, 49, "p2") with { Attributes = Edits(0, 3, 0, 1) },
+            Reactor("p3", "ReactorRenderPass", 60, 65) with { Attributes = Pass("0", "", "0") },
+            // A revision-1 pass in the same capture (older host) is not counted as unrequested.
+            Reactor("p4", "ReactorRenderPass", 70, 72),
+        };
+        var byId = calls.ToDictionary(c => c.Id);
+        PerfEvent[] events =
+        [
+            RenderBegin(byId["row1"], "10", "parent") with { Fields = new()
+            {
+                ["componentId"] = "10", ["name"] = "Row", ["reason"] = "parent",
+                ["callSiteFile"] = "MainPage.cs", ["callSiteLine"] = "40", ["callSiteColumn"] = "9",
+            } },
+            RenderBegin(byId["row2"], "11", "parent") with { Fields = new()
+            {
+                ["componentId"] = "11", ["name"] = "Row", ["reason"] = "parent",
+                ["callSiteFile"] = "", ["callSiteLine"] = "0", ["callSiteColumn"] = "0",
+            } },
+        ];
+        using var fixture = new Fixture(calls, events);
+
+        var result = fixture.Query(new(View: "components", Limit: 100));
+
+        var passes = result.ReactorPasses!;
+        Assert.AreEqual("p1,p2,p3", string.Join(',', passes.LongestPasses.Select(p => p.Id)));
+        Assert.AreEqual(new PerfReactorPass("p1", 30, "7", "Counter", 3), passes.LongestPasses[0]);
+        Assert.AreEqual(new PerfReactorPass("p3", 5, "0", "", 0), passes.LongestPasses[2]);
+        Assert.AreEqual(new PerfReactorRequester("Counter", 2, 40), passes.Requesters!.Single());
+        Assert.AreEqual(1, passes.UnrequestedPasses);
+        Assert.AreEqual("inserted:1,removed:4,moved:2,replaced:1",
+            string.Join(',', passes.ReconcileEdits!.Select(e => e.Key + ":" + e.Value)));
+        Assert.AreEqual("MainPage.cs:40", result.Rows.Single().CallSites!.Single(), "An empty call site is not reported.");
+    }
+
+    [TestMethod]
+    public void ComponentsViewFitsTheMinimumByteBudgetWithLongRequesterNamesAndCallSites()
+    {
+        var longName = new string('R', 512);
+        var calls = new List<PerfCall>();
+        var events = new List<PerfEvent>();
+        for (var i = 0; i < 6; i++)
+        {
+            var start = i * 20d;
+            var pass = Reactor($"p{i}", "ReactorRenderPass", start, start + 10d + i) with
+            {
+                Attributes = new() { ["hostId"] = "1", ["requesterId"] = $"{i + 1}", ["requesterName"] = longName + i, ["requestCount"] = "1" },
+            };
+            var render = Reactor($"r{i}", "ReactorRender:" + longName, start + 1d, start + 9d, pass.Id);
+            calls.Add(pass);
+            calls.Add(render);
+            events.Add(RenderBegin(render, $"{i + 10}", "state") with { Fields = new()
+            {
+                ["componentId"] = $"{i + 10}", ["name"] = longName, ["reason"] = "state",
+                ["callSiteFile"] = new string('F', 500) + (i % 3), ["callSiteLine"] = "40", ["callSiteColumn"] = "9",
+            } });
+        }
+        using var fixture = new Fixture(calls.ToArray(), events.ToArray());
+
+        var full = fixture.Query(new(View: "components", Limit: 1, MaxBytes: 1048576));
+        var result = fixture.Query(new(View: "components", Limit: 1, MaxBytes: 4096));
+
+        Assert.IsTrue(result.ByteBudgetLimited);
+        Assert.AreEqual(full.ReactorPasses!.Count, result.ReactorPasses!.Count, "Totals survive the projection.");
+        Assert.AreEqual(full.ReactorPasses.TotalMs, result.ReactorPasses.TotalMs);
+        Assert.AreEqual(5, result.ReactorPasses.Requesters!.Count);
+        Assert.IsTrue(result.ReactorPasses.Requesters.All(r => r.Name.Length <= 80));
+        Assert.AreEqual(full.ReactorPasses.LongestPasses[0].Id, result.ReactorPasses.LongestPasses[0].Id);
+        Assert.AreEqual(full.Rows.Single().Count, result.Rows.Single().Count);
+        Assert.IsLessThanOrEqualTo(4096, JsonSerializer.SerializeToUtf8Bytes(result, PerfJsonContext.Default.PerfQueryResult).Length);
+    }
+
+    [TestMethod]
+    public void ComponentsViewExplainsMissingReactorSpans()
+    {
+        using var fixture = new Fixture([Call("c1", 0, 10)]);
+        var error = Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: "components")));
+        Assert.Contains("Microsoft-UI-Reactor-Perf", error.Message);
+        fixture.Capture.Providers = fixture.Capture.Providers.Where(p => p.Id != PerfProviders.Reactor).ToArray();
+        error = Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: "components")));
+        Assert.Contains("Record it again", error.Message);
+    }
+
+    [TestMethod]
+    public void ComponentsViewKeepsUnknownExclusiveTimeAndClippedOrOtherThreadWorkSeparate()
+    {
+        var calls = new[]
+        {
+            Reactor("outer", "ReactorRender:Row", 0, 30),
+            Reactor("inner", "ReactorRender:Row", 10, 20, "outer"),
+            Reactor("open", "ReactorRender:Open", 12, 18) with { ExclusiveMs = null },
+            Reactor("other", "ReactorRender:Row", 12, 14) with { Thread = 8 },
+        };
+        var byId = calls.ToDictionary(c => c.Id);
+        PerfEvent[] events =
+        [
+            RenderBegin(byId["outer"], "1", "state"), RenderBegin(byId["inner"], "2", "mount"),
+            RenderBegin(byId["open"], "3", "mount"), RenderBegin(byId["other"], "4", "mount"),
+        ];
+        PerfElement[] elements =
+        [
+            new() { Id = "e1", ObjectId = "a", Component = "Row", ComponentId = "2", CreationObserved = true, FirstObservedMs = 15, CreatedMs = 15 },
+            new() { Id = "e2", ObjectId = "b", Component = "Row", ComponentId = "4", CreationObserved = true, FirstObservedMs = 13, CreatedMs = 13 },
+        ];
+        using var fixture = new Fixture(calls, events, elements: elements);
+
+        var clipped = fixture.Query(new(View: "components", FromMs: 5, ToMs: 25, Thread: 1));
+
+        var row = clipped.Rows.Single(r => r.Name == "Row");
+        Assert.AreEqual(1, row.Count);
+        Assert.AreEqual(10d, row.InclusiveMs, "A same-type parent cut by the range does not hide its complete child.");
+        Assert.AreEqual(1, row.CreatedElements, "Elements created on another UI thread are not counted.");
+        var open = clipped.Rows.Single(r => r.Name == "Open");
+        Assert.IsNull(open.ExclusiveMs, "Unknown exclusive time must not read as zero.");
+        Assert.AreEqual("Row,Open", string.Join(',', clipped.Rows.Select(r => r.Name)));
+        Assert.AreEqual(2, fixture.Query(new(View: "components", FromMs: 5, ToMs: 25)).Rows.Single(r => r.Name == "Row").CreatedElements);
+    }
+
+    [TestMethod]
+    public void ComponentsViewCountsElementsByCreationTimeNotFirstObservation()
+    {
+        var calls = new[] { Reactor("row", "ReactorRender:Row", 11, 14) };
+        PerfElement[] elements =
+        [
+            new() { Id = "e1", ObjectId = "a", Component = "Row", ComponentId = "1", CreationObserved = true, FirstObservedMs = 5, CreatedMs = 12 },
+            new() { Id = "e2", ObjectId = "b", Component = "Row", ComponentId = "1", CreationObserved = true, FirstObservedMs = 12, CreatedMs = 25 },
+        ];
+        using var fixture = new Fixture(calls, [RenderBegin(calls[0], "1", "mount")], elements: elements);
+
+        var row = fixture.Query(new(View: "components", FromMs: 10, ToMs: 20)).Rows.Single();
+
+        Assert.AreEqual(1, row.CreatedElements, "Only the element created inside the range counts, whenever it was first seen.");
+    }
+
+    [TestMethod]
+    public void HotspotsIncludeSlowReactorPassesRankedByTheirMostExpensiveDescendants()
+    {
+        var calls = new[]
+        {
+            Frame("f1", 0, 20),
+            Reactor("p1", "ReactorRenderPass", 30, 60),
+            Reactor("app", "ReactorRender:App", 31, 59, "p1") with { ExclusiveMs = null },
+            Reactor("rec", "ReactorReconcile", 32, 58, "app", exclusive: 2) with
+            {
+                Attributes = new() { ["inserted"] = "2", ["removed"] = "0", ["moved"] = "5", ["replaced"] = "0" },
+            },
+            Reactor("slow", "ReactorRender:Slow", 33, 53, "rec"),
+            Reactor("row", "ReactorRender:Row", 54, 57, "rec"),
+            Reactor("effects", "ReactorEffects", 59, 60, "p1"),
+            Reactor("fast", "ReactorRenderPass", 70, 75),
+        };
+        using var fixture = new Fixture(calls);
+
+        var result = fixture.Query(new(View: "hotspots", Limit: 100));
+
+        Assert.AreEqual("p1,f1", string.Join(',', result.Rows.Select(r => r.Id)));
+        Assert.AreEqual("ReactorRenderPass", result.Rows[0].Name);
+        Assert.AreEqual("slow,row,rec,effects", string.Join(',', result.Rows[0].DominantOperations!.Select(o => o.Id)),
+            "A render whose exclusive time is unknown ranks after measured operations, not by its inclusive time.");
+        Assert.AreEqual("5", result.Rows[0].DominantOperations!.Single(o => o.Id == "rec").Attributes!["moved"],
+            "Reconcile edit counts travel with the hotspot operation.");
+        Assert.AreEqual("p1", fixture.Query(new(View: "hotspots", MinFrameMs: 25)).Rows.Single().Id);
+    }
+
+    [TestMethod]
+    public void SummaryCategorizesReactorWorkAndKeepsNestedWinUiWorkInItsOwnCategory()
+    {
+        var calls = new[]
+        {
+            Frame("frame", 0, 100) with { Thread = 7 },
+            Reactor("pass", "ReactorRenderPass", 10, 40) with { Thread = 7 },
+            Reactor("render", "ReactorRender:App", 11, 39, "pass") with { Thread = 7 },
+            Call("layout", 20, 25, "render") with { Thread = 7 },
+        };
+        using var fixture = new Fixture(calls);
+
+        var result = fixture.Query(new(View: "summary", Limit: 100));
+
+        Assert.AreEqual("Parsing,Layout,Render,Composition submission,Other observed XAML,Image decode/load,Reactor,Unclassified",
+            string.Join(',', result.Activity!.Select(category => category.Category)));
+        AssertActivity(result, "Reactor", 25);
+        AssertActivity(result, "Layout", 5);
+        AssertActivity(result, "Unclassified", 70);
+        Assert.IsTrue(result.Rows.Any(row => row.Id == "phase:ReactorRender:App"));
+    }
+
+    private static PerfCall Frame(string id, double start, double end) =>
+        Call(id, start, end) with { Name = "Frame", Family = "frames" };
+
+    private static void AssertActivity(PerfQueryResult result, string category, double expected) =>
+        Assert.AreEqual(expected, result.Activity!.Single(row => row.Category == category).ObservedMs, 0.000001, category);
+
+    [TestMethod]
+    public void HalfMillionCompleteCallsRemainBoundedAndPageable()
+    {
+        using var fixture = new Fixture(Enumerable.Range(0, 500_000).Select(i => Call("c" + i, 0, 1)));
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var result = fixture.Query(new(View: "calls", Limit: 100, MaxBytes: 1048576));
+        timer.Stop();
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        Assert.AreEqual(500_000, result.Total);
+        Assert.AreEqual(100, result.Returned);
+        Assert.AreEqual(100, result.NextOffset);
+        Assert.IsLessThan(1024L * 1024 * 1024, allocated, "The maximum complete-call fixture should allocate less than 1 GiB.");
+        Assert.IsLessThanOrEqualTo(1048576, JsonSerializer.SerializeToUtf8Bytes(result, PerfJsonContext.Default.PerfQueryResult).Length);
+        Console.WriteLine($"500,000-call query: {timer.Elapsed.TotalMilliseconds:F0} ms; allocated {allocated / (1024 * 1024)} MiB.");
+    }
+
+    private static PerfGcInterval Pause(string id, double start, double end, ushort instance = 1, uint reason = 1) =>
+        new() { Id = id, Kind = "suspension", ClrInstanceId = instance, Reason = reason,
+            StartMs = start, SuspendCompleteMs = start, RestartBeginMs = end, EndMs = end };
+
+    private sealed class Fixture : IDisposable
+    {
+        private readonly DirectoryInfo directory = Directory.CreateTempSubdirectory("WinApp-Perf-Tree-");
+        private readonly PerfCaptureDocument capture;
+        public PerfCaptureDocument Capture => capture;
+        public PerfAnalysisManifest Manifest { get; }
+
+        public Fixture(IEnumerable<PerfCall> calls, PerfEvent[]? events = null, PerfGcInterval[]? gc = null, PerfElement[]? elements = null)
+        {
+            capture = new()
+            {
+                Id = Guid.NewGuid().ToString("N"), Directory = directory.FullName, SessionName = "fixture",
+                State = "completed", ReadyQpc = 0, StopQpc = 100, Frequency = 1000, EventsLost = 0, BuffersLost = 0,
+                Providers = events?.Any(e => e.Family == "gc") == true ? PerfProviders.All : PerfProviders.All.Where(p => p.Id != PerfProviders.Clr).ToArray(),
+            };
+            Manifest = new() { Fingerprint = "fixture", FirstEventMs = 0, LastEventMs = 100,
+                Families = new() { ["layout"] = 1 }, Events = events?.Length ?? 0 };
+            Write("calls.ndjson", calls, PerfJsonContext.Default.PerfCall);
+            Write("events.ndjson", events ?? [], PerfJsonContext.Default.PerfEvent);
+            Write("gc.ndjson", gc ?? [], PerfJsonContext.Default.PerfGcInterval);
+            Write("elements.ndjson", elements ?? [], PerfJsonContext.Default.PerfElement);
+        }
+
+        public PerfQueryResult Query(PerfQueryOptions options) => PerfQuery.Execute(new(capture, Manifest, directory.FullName), options);
+
+        private void Write<T>(string name, IEnumerable<T> values, JsonTypeInfo<T> type) =>
+            File.WriteAllLines(Path.Join(directory.FullName, name), values.Select(v => JsonSerializer.Serialize(v, type)));
+
+        public void Dispose() => directory.Delete(recursive: true);
+    }
+}

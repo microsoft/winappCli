@@ -13,6 +13,8 @@
 #include <shellapi.h>
 #include <shlwapi.h>
 #pragma comment(lib, "shlwapi.lib")
+#include <shcore.h>
+#pragma comment(lib, "shcore.lib")
 #include <commctrl.h>
 #pragma comment(lib, "comctl32.lib")
 #include <objidl.h>
@@ -20,6 +22,7 @@
 #include <winstring.h>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <cwctype>
 #include <climits>
 #include "DevToolsWindowXaml.g.h"
@@ -44,24 +47,9 @@
 #include "DevToolsText.h"
 #include "DevToolsShellOpen.h"
 #include "DevToolsLiveRows.h"
+#include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
 static const size_t kMaxRenderNodes = 1000;
-
-// Collapse framework chrome subtrees so template internals do not bury app-authored content.
-static bool IsChromeCollapseType(const std::wstring& shortType)
-{
-    return DevToolsTreeLayout::IsChromeCollapseType(shortType);
-}
-
-// DevToolsTreeLayout supplies view-relative expansion and indentation. Hidden framework ancestry
-// must not consume the app-content expansion budget; a committed pick expands its ancestors.
-static constexpr int kDefaultExpandDepth = DevToolsTreeLayout::kDefaultExpandDepth;
-static constexpr int kMaxAutoExpandDepth = DevToolsTreeLayout::kMaxAutoExpandDepth;
-
-static int IndentPxForLevel(int level)
-{
-    return DevToolsTreeLayout::IndentPxForLevel(level);
-}
 
 // Hand-rolled COM event sinks must answer delegate IIDs in QI; interface IIDs come from DevToolsIid<T>().
 static const GUID IID_RoutedEventHandler_Del =
@@ -255,6 +243,27 @@ static std::wstring InlineResourceLiterals(const std::wstring& markup, size_t* a
     return DevToolsResInline::Apply(markup, ResolveBrushLiteral, ResolveTextStyleAttrs, asked, leftBehind);
 }
 
+// After a theme change, re-resolve every brush literal the pane already inlined and return each color that
+// changed as old -> new, so the open pane can be repainted in place. The first mapping wins for a shared color.
+static std::vector<std::pair<std::wstring, std::wstring>> RefreshResourceLiterals()
+{
+    std::vector<std::pair<std::wstring, std::wstring>> changes;
+    const int theme = InspectorActualTheme();
+    if (theme == g_resLiteralTheme) return changes;
+    const auto previous = g_resLiteral;
+    g_resLiteral.clear(); g_resStyleAttr.clear(); g_resLiteralTheme = theme;
+    for (const auto& [key, before] : previous) {
+        if (before.empty()) continue;
+        const std::wstring after = ResolveBrushLiteral(L"ThemeResource", key);
+        if (after.empty() || after == before) continue;
+        bool seen = false;
+        for (const auto& change : changes) seen = seen || change.first == before;
+        if (!seen) changes.emplace_back(before, after);
+    }
+    DevToolsOverlayLog(L"route1.res theme is now %d; %zu inlined colors changed", theme, changes.size());
+    return changes;
+}
+
 static HRESULT ApplyMicaBackdrop(IInspectable* window)
 {
     if (!window) return E_INVALIDARG;
@@ -298,6 +307,14 @@ static std::wstring ShortType(const std::wstring& t)
     size_t dot = t.find_last_of(L'.');
     return dot == std::wstring::npos ? t : t.substr(dot + 1);
 }
+
+// Attribute runs the C++-built pane markup repeats, kept in one place. They are not keyed Styles in window-shell.xaml
+// because XamlReader.Load parses each pane fragment on its own, where only Application resources are in scope.
+#define DT_FG_SECONDARY L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
+#define DT_NOTE_TEXT L" FontSize=\"11\" TextWrapping=\"Wrap\"" DT_FG_SECONDARY
+#define DT_NOTE_BOX L" Margin=\"0,6,0,0\" Padding=\"8,6,8,6\" CornerRadius=\"4\"" \
+    L" Background=\"{ThemeResource CardBackgroundFillColorSecondaryBrush}\""
+#define DT_SECTION_CAPTION L" Style=\"{StaticResource CaptionTextBlockStyle}\"" DT_FG_SECONDARY L" CharacterSpacing=\"60\""
 
 #include "DevToolsWindow.State.inc"
 #include "DevToolsWindow.TreeView.inc"

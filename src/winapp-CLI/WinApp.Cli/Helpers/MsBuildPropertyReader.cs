@@ -95,7 +95,8 @@ internal static class MsBuildPropertyReader
     /// <c>Include</c> identities. The SDK emits <c>{ "Items": { "ItemName": [ { "Identity": "…" }, … ] } }</c>.
     /// Tolerant of a diagnostic preamble/trailer like <see cref="Parse"/>; pure and side-effect free.
     /// </summary>
-    public static IReadOnlyDictionary<string, IReadOnlyList<string>> ParseItems(string stdout)
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> ParseItems(
+        string stdout, Func<string, JsonElement, bool>? includeItem = null)
     {
         var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(stdout))
@@ -103,7 +104,7 @@ internal static class MsBuildPropertyReader
             return result;
         }
 
-        TryReadItemsObject(stdout.Trim(), result);
+        TryReadItemsObject(stdout.Trim(), result, includeItem);
         return result;
     }
 
@@ -111,7 +112,8 @@ internal static class MsBuildPropertyReader
     /// Scans <paramref name="text"/> for the first JSON object carrying an <c>"Items"</c> object and fills
     /// <paramref name="result"/> with each group's identities.
     /// </summary>
-    private static void TryReadItemsObject(string text, Dictionary<string, IReadOnlyList<string>> result)
+    private static void TryReadItemsObject(
+        string text, Dictionary<string, IReadOnlyList<string>> result, Func<string, JsonElement, bool>? includeItem)
     {
         TryScanJsonObject(text, root =>
         {
@@ -127,7 +129,8 @@ internal static class MsBuildPropertyReader
                 {
                     if (item.ValueKind == JsonValueKind.Object &&
                         item.TryGetProperty("Identity", out var id) &&
-                        id.ValueKind == JsonValueKind.String)
+                        id.ValueKind == JsonValueKind.String &&
+                        (includeItem is null || includeItem(group.Name, item)))
                     {
                         var value = id.GetString();
                         if (!string.IsNullOrEmpty(value))

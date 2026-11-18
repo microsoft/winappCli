@@ -50,10 +50,13 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var root = parseResult.GetValue(SharedDevToolsOptions.RootOption);
-            if (root is not null && (!ulong.TryParse(root, System.Globalization.NumberStyles.None,
-                System.Globalization.CultureInfo.InvariantCulture, out var rootHandle) || rootHandle == 0))
+            if (root is not null)
             {
-                return Fail(json, 0, "--root requires a nonzero opaque handle from DevTools inspect or Surface.list.", "bad-root");
+                if (!SharedUiOptions.TryParseHandle(root, out var rootHandle) || rootHandle == 0)
+                {
+                    return Fail(json, 0, "--root requires a nonzero opaque handle from DevTools inspect or Surface.list.", "bad-root");
+                }
+                root = rootHandle.ToString(System.Globalization.CultureInfo.InvariantCulture);
             }
 
             var target = await resolver.ResolveAsync(app, window, cancellationToken, AttachIfNeeded(parseResult));
@@ -106,7 +109,7 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
         /// command is a copy-paste away rather than another search.
         /// <para>
         /// The candidates travel in BOTH shapes. A <c>--json</c> caller that got only the message received a
-        /// sentence ending in a colon and nothing to act on — on the very workflow that produces ambiguity
+        /// sentence ending in a colon and nothing to act on, on the very workflow that produces ambiguity
         /// most often, a duplicated <c>x:Name</c>, where every candidate has a distinct working selector.
         /// </para>
         /// </summary>
@@ -190,7 +193,7 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
         /// Writes BOTH identities of the element a command is scoped to: the <c>selector</c> a human reads and
         /// retypes, and the <c>handle</c> every DevTools verb accepts. A payload carrying only one forces the
         /// caller to choose between readable and exact, and the handle is the escape hatch when a selector
-        /// has gone stale — so it is never dropped.
+        /// has gone stale, so it is never dropped.
         /// </summary>
         protected void WriteIdentity(Utf8JsonWriter writer, DevToolsTarget target, string handle, CancellationToken cancellationToken)
         {
@@ -237,7 +240,7 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
                         json,
                         target.Pid,
                         $"Refusing to write through the x:Name '{selector.Trim()}': {resolved.Warning} " +
-                        "Pass the selector `winapp devtools inspect` printed, or a handle — a write must not " +
+                        "Pass the selector `winapp devtools inspect` printed, or a handle. A write must not " +
                         "land on an element that was never examined.",
                         "ambiguous-selector");
                     return null;

@@ -4,14 +4,7 @@
 #include "DevToolsPickRoute.h"
 
 #include <cstdio>
-
-static int g_failures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
-}
+#include "DevToolsTestCheck.h"
 
 static void TestWindowPickCommitsOnlyOnRelease()
 {
@@ -63,5 +56,5 @@ int RunPickRouteTests()
     TestWindowPickCommitsOnlyOnRelease();
     TestOverlayPickKeepsItsInAppPanel();
     TestCancelAndArmAreIdempotent();
-    return g_failures;
+    return g_testFailures;
 }

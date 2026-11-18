@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "DevToolsTestCheck.h"
 
 // Narrow a wide test label for printf. Explicit rather than an iterator-pair std::string construction, which
 // is a lossy implicit conversion the build treats as an error.
@@ -18,14 +19,6 @@ static std::string Narrow(const std::wstring& w)
     s.reserve(w.size());
     for (wchar_t c : w) s.push_back(c < 128 ? (char)c : '?');
     return s;
-}
-
-static int g_failures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
 }
 
 // The cases the design page lists under "What syntax actually rejects", plus the ones this grammar adds.
@@ -121,5 +114,5 @@ int RunPathSyntaxTests()
     Test_IndexersAreCheckedRatherThanWaved();
     Test_ItDoesNotGreenLightWhatTheWalkCannotFollow();
     Test_ItNeverGreenLightsWhatTheWalkCannotFollow();
-    return g_failures;
+    return g_testFailures;
 }

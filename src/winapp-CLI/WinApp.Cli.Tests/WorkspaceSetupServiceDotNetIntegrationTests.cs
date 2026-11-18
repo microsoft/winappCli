@@ -269,7 +269,7 @@ public class WorkspaceSetupServiceDotNetIntegrationTests : BaseCommandTests
 
         Assert.AreEqual(0, result);
         var csprojText = await File.ReadAllTextAsync(csproj.FullName, TestContext.CancellationToken);
-        StringAssert.DoesNotMatch(csprojText, new System.Text.RegularExpressions.Regex("WindowsPackageType"));
+        Assert.DoesNotMatchRegex(new System.Text.RegularExpressions.Regex("WindowsPackageType"), csprojText);
     }
 
     [TestMethod]
@@ -283,7 +283,7 @@ public class WorkspaceSetupServiceDotNetIntegrationTests : BaseCommandTests
 
         Assert.AreEqual(0, result);
         var csprojText = await File.ReadAllTextAsync(csproj.FullName, TestContext.CancellationToken);
-        StringAssert.Contains(csprojText, "-windows");
+        Assert.Contains("-windows", csprojText);
     }
 
     #endregion

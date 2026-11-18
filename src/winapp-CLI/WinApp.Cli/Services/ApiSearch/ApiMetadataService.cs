@@ -66,6 +66,7 @@ internal sealed class ApiMetadataService(
     IWinappDirectoryService directoryService,
     ICurrentDirectoryProvider currentDirectory,
     ISdkPackageSource sdkPackages,
+    INugetService nugetService,
     ILogger<ApiMetadataService> logger) : IApiMetadataService
 {
     private string GetCacheDir() =>
@@ -156,7 +157,8 @@ internal sealed class ApiMetadataService(
             }
         }
 
-        ApiRefreshOutput output = ApiCacheBuilder.BuildCache(projectDir, cacheDir, scan, runtimePath, onProgress, force);
+        ApiRefreshOutput output = ApiCacheBuilder.BuildCache(
+            projectDir, cacheDir, scan, runtimePath, dir => nugetService.GetNuGetGlobalPackagesDir(dir).FullName, onProgress, force);
 
         // Nothing to index here means there is no project in this directory, which is
         // exactly when queries fall back to the SDK scope — so build that instead of

@@ -46,12 +46,15 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExa
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var id = parseResult.GetValue(IdArgument);
-            if (!CommentsSharedOptions.TryReadAppRoot(targets, parseResult.GetValue(CommentsSharedOptions.ReadAppOption), ReadSourceRoot,
-                cancellationToken, out var appRoot, out var appError))
+            var explicitSourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption);
+            string? appRoot = null;
+            if (explicitSourceRoot is null && !CommentsSharedOptions.TryReadAppRoot(targets,
+                parseResult.GetValue(CommentsSharedOptions.ReadAppOption), ReadSourceRoot,
+                cancellationToken, out appRoot, out var appError))
             {
                 return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, appError!));
             }
-            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? appRoot ?? currentDirectory.GetCurrentDirectory();
+            var sourceRoot = explicitSourceRoot ?? appRoot ?? currentDirectory.GetCurrentDirectory();
 
             if (string.IsNullOrWhiteSpace(id))
             {
@@ -109,7 +112,7 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExa
                     var candidates = CommentViewBuilder.AmbiguousCandidates(view);
                     if (candidates.Count > 1)
                     {
-                        DevToolsRender.WriteMarkupLine(ansiConsole, $"  [yellow]⚠ {Markup.Escape(CommentViewBuilder.CandidatesReason(view))} — {candidates.Count} candidates:[/] [grey]{Markup.Escape(string.Join(", ", candidates))}[/]");
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"  [yellow]⚠ {Markup.Escape(CommentViewBuilder.CandidatesReason(view))} ({candidates.Count} candidates):[/] [grey]{Markup.Escape(string.Join(", ", candidates))}[/]");
                     }
                     else if (CommentViewBuilder.AnchorHealthWarning(view) is string warning)
                     {

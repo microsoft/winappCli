@@ -58,6 +58,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
     private static readonly string[] ExpectedBuildTokens = ["-restore", "-p:RestorePackagesConfig=true", "-t:Build", "-p:Configuration=Debug", "-p:Platform=x64"];
     private static readonly string[] ExpectedArm64Tokens = ["-p:Foo=Bar", "-p:Configuration=Release", "-p:Platform=ARM64"];
+    private static readonly string[] ExpectedReleaseArm64Tokens = ["-p:Platform=ARM64", "-p:Configuration=Release"];
     private static readonly string[] ExpectedPackageIds = ["Microsoft.WindowsAppSDK", "Microsoft.WindowsAppSDK.Runtime"];
 
     private DirectoryInfo _tempDir = null!;
@@ -145,8 +146,8 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var resolution = await _service.ResolveInputAsync(_tempDir, CancellationToken.None);
 
         Assert.AreEqual(WinAppRunMode.Folder, resolution.Mode, "folder mode can still use --manifest or a manifest in the current directory");
-        StringAssert.Contains(ProjectRunService.DescribeCppLibraryOnlyFolder(_tempDir), "Lib.vcxproj");
-        StringAssert.Contains(ProjectRunService.DescribeCppLibraryOnlyFolder(_tempDir), "builds a library");
+        Assert.Contains("Lib.vcxproj", ProjectRunService.DescribeCppLibraryOnlyFolder(_tempDir)!);
+        Assert.Contains("builds a library", ProjectRunService.DescribeCppLibraryOnlyFolder(_tempDir)!);
     }
 
     [TestMethod]
@@ -167,8 +168,8 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Multiple runnable app projects found");
-        StringAssert.Contains(ex.Message, "Native.vcxproj", "the C++ app is a valid --project choice too");
+        Assert.Contains("Multiple runnable app projects found", ex.Message);
+        Assert.Contains("Native.vcxproj", ex.Message, "the C++ app is a valid --project choice too");
     }
 
     [TestMethod]
@@ -183,8 +184,8 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.ResolveInputAsync(solution, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "multiple runnable app projects");
-        StringAssert.Contains(ex.Message, "Native.vcxproj");
+        Assert.Contains("multiple runnable app projects", ex.Message);
+        Assert.Contains("Native.vcxproj", ex.Message);
         Assert.IsFalse(ex.Message.Contains("Lib.vcxproj", StringComparison.Ordinal), "a C++ library is not runnable");
     }
 
@@ -203,7 +204,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.ResolveInputAsync(_tempDir, CancellationToken.None, projectSelector: "Nope"));
-        StringAssert.Contains(ex.Message, "Foo.vcxproj");
+        Assert.Contains("Foo.vcxproj", ex.Message);
     }
 
     [TestMethod]
@@ -259,7 +260,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "One.vcxproj, Two.vcxproj");
+        Assert.Contains("One.vcxproj, Two.vcxproj", ex.Message);
 
         var selected = await _service.ResolveInputAsync(_tempDir, CancellationToken.None, projectSelector: "Two");
         Assert.AreEqual(two.FullName, selected.Csproj!.FullName);
@@ -387,9 +388,9 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var outcome = await _service.BuildAndResolveAsync(project, options, CancellationToken.None);
 
         Assert.AreEqual(2, _msbuild.Calls.Count);
-        CollectionAssert.IsSubsetOf(ExpectedBuildTokens, _msbuild.Calls[0].ToArray());
-        CollectionAssert.Contains(_msbuild.Calls[1].ToArray(), "-getProperty:OutDir");
-        CollectionAssert.DoesNotContain(_msbuild.Calls[1].ToArray(), "-t:Build");
+        Assert.ContainsAll(ExpectedBuildTokens, _msbuild.Calls[0].ToArray());
+        Assert.Contains("-getProperty:OutDir", _msbuild.Calls[1].ToArray());
+        Assert.DoesNotContain("-t:Build", _msbuild.Calls[1].ToArray());
         Assert.AreEqual(0, _dotnet.StringInvocations.Count + _dotnet.ArgumentListInvocations.Count, "C++ builds must not shell out to dotnet");
 
         var resolution = outcome.Resolution!;
@@ -419,8 +420,8 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
         var resolution = (await _service.BuildAndResolveAsync(project, options, CancellationToken.None)).Resolution!;
 
-        CollectionAssert.Contains(_msbuild.Calls[0].ToArray(), "-getItem:Page,ApplicationDefinition");
-        CollectionAssert.AreEquivalent(ExpectedXamlSources, resolution.DevToolsXamlSources!.ToArray());
+        Assert.Contains("-getItem:Page,ApplicationDefinition", _msbuild.Calls[0].ToArray());
+        Assert.AreSequenceEqual(ExpectedXamlSources, resolution.DevToolsXamlSources!.ToArray(), SequenceOrder.InAnyOrder);
         Assert.AreEqual(Path.Join(_tempDir.FullName, @"App\x64\Debug\XamlSaveStateFile.xml"), resolution.DevToolsCompilerArtifacts!.SavedState);
     }
 
@@ -434,7 +435,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var outcome = await _service.BuildAndResolveAsync(project, options, CancellationToken.None);
 
         Assert.AreEqual(1, _msbuild.Calls.Count);
-        CollectionAssert.DoesNotContain(_msbuild.Calls[0].ToArray(), "-t:Build");
+        Assert.DoesNotContain("-t:Build", _msbuild.Calls[0].ToArray());
         Assert.AreEqual(ProjectPackaging.Packaged, outcome.Resolution!.Packaging);
     }
 
@@ -448,7 +449,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
         await _service.BuildAndResolveAsync(project, options, CancellationToken.None);
 
-        CollectionAssert.DoesNotContain(_msbuild.Calls[0].ToArray(), "-restore");
+        Assert.DoesNotContain("-restore", _msbuild.Calls[0].ToArray());
     }
 
     [TestMethod]
@@ -462,8 +463,8 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.BuildAndResolveAsync(project, options, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "MSB8036");
-        StringAssert.Contains(ex.Message, "winget install Microsoft.WindowsSDK.10.0.99999", "suggest the SDK the project needs, not an arbitrary one");
+        Assert.Contains("MSB8036", ex.Message);
+        Assert.Contains("winget install Microsoft.WindowsSDK.10.0.99999", ex.Message, "suggest the SDK the project needs, not an arbitrary one");
     }
 
     [TestMethod]
@@ -479,8 +480,8 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.BuildAndResolveAsync(project, options, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "vcpkg integrate install");
-        CollectionAssert.Contains(_msbuild.Calls[1].ToArray(), "-getProperty:_ZVcpkgRoot");
+        Assert.Contains("vcpkg integrate install", ex.Message);
+        Assert.Contains("-getProperty:_ZVcpkgRoot", _msbuild.Calls[1].ToArray());
     }
 
     [TestMethod]
@@ -534,7 +535,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.BuildAndResolveAsync(project, options, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Desktop development with C++");
+        Assert.Contains("Desktop development with C++", ex.Message);
         Assert.AreEqual(0, _msbuild.Calls.Count);
     }
 
@@ -547,7 +548,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.BuildAndResolveAsync(project, options, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "-p Platform targets arm64, but --arch/--runtime selects x64");
+        Assert.Contains("-p Platform targets arm64, but --arch/--runtime selects x64", ex.Message);
         Assert.AreEqual(0, _msbuild.Calls.Count);
     }
 
@@ -561,6 +562,24 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
+    public void ConfigurationFromProperties_ReadsLastNonEmptyValue()
+    {
+        Assert.AreEqual("Release", ProjectRunService.ConfigurationFromProperties(["Configuration=Release"]));
+        Assert.AreEqual("Release", ProjectRunService.ConfigurationFromProperties(["Configuration=Debug", "configuration=Release", "Configuration="]));
+        Assert.IsNull(ProjectRunService.ConfigurationFromProperties(["Platform=ARM64"]));
+    }
+
+    [TestMethod]
+    public void BuildCppPropertyTokens_UserConfigurationProperty_EmitsOneConfiguration()
+    {
+        var options = new ProjectRunOptions("Release", "arm64", null, false, false, ["Configuration=Release", "Platform=ARM64"]);
+
+        var tokens = ProjectRunService.BuildCppPropertyTokens(options);
+
+        Assert.AreSequenceEqual(ExpectedReleaseArm64Tokens, tokens);
+    }
+
+    [TestMethod]
     public void BuildCppCommandDisplay_ShowsOnlyWhatChangesTheBuild()
     {
         var solution = WriteFile("App.slnx", Slnx("App/App.vcxproj"));
@@ -571,7 +590,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var outside = ProjectRunService.BuildCppCommandDisplay(project, options with { NoRestore = true }, Path.Join(_tempDir.FullName, "elsewhere"));
 
         Assert.AreEqual(@"MSBuild.exe App\App.vcxproj -restore -p:Foo=Bar -p:MyPassword=*** -p:Configuration=Debug -p:Platform=ARM64", display);
-        StringAssert.StartsWith(outside, $"MSBuild.exe {project.FullName} -p:Foo=Bar");
+        Assert.StartsWith($"MSBuild.exe {project.FullName} -p:Foo=Bar", outside);
     }
 
     [TestMethod]
@@ -583,7 +602,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
         await _service.BuildAndResolveAsync(project, new ProjectRunOptions("Debug", "x64", null, false, false, []), CancellationToken.None);
 
-        CollectionAssert.Contains(_msbuild.Calls[0].ToArray(), "-verbosity:quiet", "C++/WinRT floods minimal verbosity; only warnings and errors are shown by default");
+        Assert.Contains("-verbosity:quiet", _msbuild.Calls[0].ToArray(), "C++/WinRT floods minimal verbosity; only warnings and errors are shown by default");
     }
 
     [TestMethod]
@@ -607,8 +626,60 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => service.BuildAndResolveAsync(project, new ProjectRunOptions("Debug", "x64", null, false, false, []), CancellationToken.None));
 
-        StringAssert.Contains(console.Output, "warning C4100");
+        Assert.Contains("warning C4100", console.Output);
         Assert.IsFalse(console.Output.Contains("error MSB8020", StringComparison.Ordinal), "winapp's explanation replaces the raw MSB8020 line");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_Vcxproj_BuildFailure_PrintsTheExactMSBuildCommand()
+    {
+        var project = WriteFile("App.vcxproj", CppApp);
+        using var console = new TestConsole();
+        console.Profile.Width = 4000;
+        using var logger = new LevelLogger<ProjectRunService>(Microsoft.Extensions.Logging.LogLevel.Information);
+        var service = new ProjectRunService(
+            _dotnet, new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, _dotnet), new FakeCsWinRTMetadataShimService(),
+            console, logger, _msbuild)
+        {
+            NativeTerminalGateOverrideForTests = () => false,
+        };
+        _msbuild.Replies.Add((new ProcessRunResult(1, string.Empty, string.Empty), ["main.cpp(1): error C2065: 'x': undeclared identifier"]));
+
+        var outcome = await service.BuildAndResolveAsync(project, new ProjectRunOptions("Debug", "x64", null, false, false, []), CancellationToken.None);
+
+        Assert.AreEqual(1, outcome.ExitCode);
+        var command = console.Output.Split('\n').Single(line => line.Contains("Command:", StringComparison.Ordinal));
+        foreach (var argument in _msbuild.Calls[0])
+        {
+            Assert.Contains(argument, command, "the failure must show the exact invocation, not an abbreviation");
+        }
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error
+    public async Task BuildAndResolve_Vcxproj_JsonBuildFailure_PrintsTheExactMSBuildCommandOnStderr()
+    {
+        var project = WriteFile("App.vcxproj", CppApp);
+        _msbuild.Replies.Add((new ProcessRunResult(1, string.Empty, string.Empty), ["main.cpp(1): error C2065: 'x': undeclared identifier"]));
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: true);
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        try
+        {
+            var outcome = await _service.BuildAndResolveAsync(project, options, CancellationToken.None);
+            Assert.AreEqual(1, outcome.ExitCode);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        var command = stderr.ToString().Split('\n').Single(line => line.StartsWith("Command:", StringComparison.Ordinal));
+        foreach (var argument in _msbuild.Calls[0])
+        {
+            Assert.Contains(argument, command, "a --json failure must show the exact invocation on stderr");
+        }
     }
 
     [TestMethod]
@@ -621,11 +692,11 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var x86 = ProjectRunService.BuildCppPropertyTokens(new ProjectRunOptions("Debug", "x86", null, false, false, []));
         var userPlatform = ProjectRunService.BuildCppPropertyTokens(new ProjectRunOptions("Debug", "x64", null, false, false, ["Platform=Custom"]));
 
-        CollectionAssert.IsSubsetOf(ExpectedArm64Tokens, arm64);
-        CollectionAssert.DoesNotContain(arm64, "-p:Configuration=Debug", "-c wins over -p Configuration");
+        Assert.ContainsAll(ExpectedArm64Tokens, arm64);
+        Assert.DoesNotContain("-p:Configuration=Debug", arm64, "-c wins over -p Configuration");
         Assert.IsTrue(arm64.Any(t => t.StartsWith("-p:SolutionDir=", StringComparison.Ordinal)));
-        CollectionAssert.Contains(x86, "-p:Platform=Win32");
-        CollectionAssert.Contains(userPlatform, "-p:Platform=Custom");
+        Assert.Contains("-p:Platform=Win32", x86);
+        Assert.Contains("-p:Platform=Custom", userPlatform);
         Assert.IsFalse(userPlatform.Any(t => t == "-p:Platform=x64"), "a user -p Platform must not be overridden");
     }
 
@@ -659,7 +730,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = Assert.ThrowsExactly<ProjectRunException>(
             () => ProjectRunService.CreateCppResolution(project, new ProjectRunOptions("Debug", "x64", null, false, false, []), props));
 
-        StringAssert.Contains(ex.Message, "ConfigurationType='DynamicLibrary'");
+        Assert.Contains("ConfigurationType='DynamicLibrary'", ex.Message);
     }
 
     [TestMethod]
@@ -676,7 +747,173 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = Assert.ThrowsExactly<ProjectRunException>(
             () => ProjectRunService.CreateCppResolution(project, new ProjectRunOptions("Debug", "x64", null, NoBuild: true, false, []), props));
 
-        StringAssert.Contains(ex.Message, "Remove --no-build");
+        Assert.Contains("Remove --no-build", ex.Message);
+    }
+
+    [TestMethod]
+    public void CreateCppResolution_WindowsAppSdkFolderOnTheNetwork_IsIgnored()
+    {
+        var project = WriteFile("App.vcxproj", CppApp);
+        var exe = WriteFile(@"x64\Debug\App.exe", string.Empty);
+        var props = new Dictionary<string, string>
+        {
+            ["OutDir"] = exe.DirectoryName + Path.DirectorySeparatorChar,
+            ["TargetPath"] = exe.FullName,
+            ["ConfigurationType"] = "Application",
+            [ProjectRunService.WindowsAppSdkPackageDirProperty] = @"\\server\share\Microsoft.WindowsAppSDK.Runtime.2.5.1\",
+        };
+
+        var resolution = ProjectRunService.CreateCppResolution(project, new ProjectRunOptions("Debug", "x64", null, false, false, []), props);
+
+        Assert.IsNull(resolution.WindowsAppSdkPackageDir, "a project must not make winapp install from a network share");
+    }
+
+    #endregion
+
+    #region Windows App SDK imported through packages.config
+
+    /// <summary>
+    /// Lays out a <c>packages.config</c>-style solution: the Windows App SDK runtime package restored into
+    /// <c>packages\</c>, with props shaped like the real package's (<c>build\native</c> importing the shared
+    /// props that set <c>MicrosoftWindowsAppSDKPackageDir</c>).
+    /// </summary>
+    private DirectoryInfo WriteRestoredWindowsAppSdkRuntimePackage()
+    {
+        const string packageFolder = @"packages\Microsoft.WindowsAppSDK.Runtime.2.5.1";
+        WriteFile($@"{packageFolder}\build\native\Microsoft.WindowsAppSDK.Runtime.props", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <Import Project="$(MSBuildThisFileDirectory)..\Microsoft.WindowsAppSDK.Runtime.props" />
+            </Project>
+            """);
+        WriteFile($@"{packageFolder}\build\Microsoft.WindowsAppSDK.Runtime.props", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <PropertyGroup>
+                <MicrosoftWindowsAppSDKPackageDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)','..'))</MicrosoftWindowsAppSDKPackageDir>
+              </PropertyGroup>
+            </Project>
+            """);
+        WriteFile($@"{packageFolder}\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.2.msix", string.Empty);
+        return new DirectoryInfo(Path.Join(_tempDir.FullName, packageFolder));
+    }
+
+    private static string CppAppImporting(string import, string exeName) => $$"""
+        <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+          <PropertyGroup Label="Configuration">
+            <ConfigurationType>Application</ConfigurationType>
+          </PropertyGroup>
+          <Import Project="{{import}}" />
+          <PropertyGroup>
+            <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+            <TargetPath>$(OutDir){{exeName}}</TargetPath>
+          </PropertyGroup>
+        </Project>
+        """;
+
+    /// <summary>Evaluates with the real MSBuild engine (<c>dotnet msbuild</c>), so the project's imports are actually followed.</summary>
+    private async Task<ProjectRunResolution> EvaluateWithRealMSBuildAsync(FileInfo project)
+    {
+        var service = new ProjectRunService(
+            _dotnet,
+            new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, _dotnet),
+            new FakeCsWinRTMetadataShimService(),
+            _console,
+            NullLogger<ProjectRunService>.Instance,
+            new DotnetMSBuildEvaluator());
+
+        var outcome = await service.BuildAndResolveAsync(
+            project, new ProjectRunOptions("Debug", "x64", null, NoBuild: true, NoRestore: true, Properties: []), CancellationToken.None);
+
+        Assert.AreEqual(0, outcome.ExitCode);
+        return outcome.Resolution!;
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_PackagesConfigProjectImportingWindowsAppSdk_ReportsThePackageFolder()
+    {
+        var packageDir = WriteRestoredWindowsAppSdkRuntimePackage();
+        var project = WriteFile(@"App\App.vcxproj", CppAppImporting(
+            @"..\packages\Microsoft.WindowsAppSDK.Runtime.2.5.1\build\native\Microsoft.WindowsAppSDK.Runtime.props", "App.exe"));
+        WriteFile(@"App\packages.config", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <packages>
+              <package id="Microsoft.WindowsAppSDK.Runtime" version="2.5.1" targetFramework="native" />
+            </packages>
+            """);
+        WriteFile(@"App\x64\Debug\App.exe", string.Empty);
+
+        var resolution = await EvaluateWithRealMSBuildAsync(project);
+
+        Assert.AreEqual(ProjectPackaging.Unpackaged, resolution.Packaging);
+        Assert.AreEqual(
+            Path.TrimEndingDirectorySeparator(packageDir.FullName),
+            Path.TrimEndingDirectorySeparator(resolution.WindowsAppSdkPackageDir!));
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_WindowsAppSdkImportedFromSharedProps_ReportsThePackageFolder()
+    {
+        // The project's own packages.config doesn't list the Windows App SDK; a shared .props imports it.
+        var packageDir = WriteRestoredWindowsAppSdkRuntimePackage();
+        WriteFile(@"src\common.props", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <Import Project="$(MSBuildThisFileDirectory)..\packages\Microsoft.WindowsAppSDK.Runtime.2.5.1\build\native\Microsoft.WindowsAppSDK.Runtime.props"
+                      Condition="Exists('$(MSBuildThisFileDirectory)..\packages\Microsoft.WindowsAppSDK.Runtime.2.5.1\build\native\Microsoft.WindowsAppSDK.Runtime.props')" />
+            </Project>
+            """);
+        var project = WriteFile(@"src\host\AppHost.vcxproj", CppAppImporting(@"..\common.props", "AppHost.exe"));
+        WriteFile(@"src\host\packages.config", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <packages>
+              <package id="Microsoft.Windows.CppWinRT" version="2.0.240405.15" targetFramework="native" />
+            </packages>
+            """);
+        WriteFile(@"src\host\x64\Debug\AppHost.exe", string.Empty);
+
+        var resolution = await EvaluateWithRealMSBuildAsync(project);
+
+        Assert.AreEqual(
+            Path.TrimEndingDirectorySeparator(packageDir.FullName),
+            Path.TrimEndingDirectorySeparator(resolution.WindowsAppSdkPackageDir!));
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_CppAppWithoutWindowsAppSdk_ReportsNoPackageFolder()
+    {
+        var project = WriteFile(@"App\App.vcxproj", CppAppImporting(@"$(MSBuildThisFileDirectory)none.props", "App.exe"));
+        WriteFile(@"App\none.props", "<Project />");
+        WriteFile(@"App\x64\Debug\App.exe", string.Empty);
+
+        var resolution = await EvaluateWithRealMSBuildAsync(project);
+
+        Assert.IsNull(resolution.WindowsAppSdkPackageDir);
+    }
+
+    /// <summary>Runs the evaluate pass with the .NET SDK's MSBuild, which evaluates a C++ project's imports like Visual Studio's does.</summary>
+    private sealed class DotnetMSBuildEvaluator : IMSBuildService
+    {
+        public Task<string> LocateCppMSBuildAsync(string architecture, bool requiresWindowsStoreAppType, CancellationToken cancellationToken) =>
+            Task.FromResult("dotnet");
+
+        public async Task<ProcessRunResult> RunAsync(string msbuildPath, IReadOnlyList<string> arguments, Action<string>? onLine, CancellationToken cancellationToken)
+        {
+            var start = new System.Diagnostics.ProcessStartInfo("dotnet")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            start.ArgumentList.Add("msbuild");
+            foreach (var argument in arguments)
+            {
+                start.ArgumentList.Add(argument);
+            }
+
+            using var process = System.Diagnostics.Process.Start(start)!;
+            var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            return new ProcessRunResult(process.ExitCode, await stdout, await stderr);
+        }
     }
 
     #endregion
@@ -702,17 +939,22 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("x64", false, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "no Visual Studio or Build Tools for Visual Studio installation was found");
-        StringAssert.Contains(ex.Message, "winget install Microsoft.VisualStudio.BuildTools");
+        Assert.Contains("no Visual Studio or Build Tools for Visual Studio installation was found", ex.Message);
+        Assert.Contains("winget install Microsoft.VisualStudio.BuildTools", ex.Message);
     }
 
     // Creates a fake Visual Studio install with MSBuild.exe and, optionally, the "Windows Store" C++ application type.
-    private string FakeInstall(string name, bool windowsStore)
+    private string FakeInstall(string name, bool windowsStore, string architecture = "x64")
     {
         WriteFile($@"{name}\MSBuild\Current\Bin\MSBuild.exe", string.Empty);
         if (windowsStore)
         {
-            WriteFile($@"{name}\MSBuild\Microsoft\VC\v180\Application Type\Windows Store\10.0\Platforms.props", string.Empty);
+            var windowsStorePath = $@"{name}\MSBuild\Microsoft\VC\v180\Application Type\Windows Store\10.0";
+            var platform = ProjectRunService.ToCppPlatform(architecture);
+            WriteFile($@"{windowsStorePath}\Default.props", string.Empty);
+            WriteFile($@"{windowsStorePath}\Platforms\{platform}\Platform.Default.props", string.Empty);
+            WriteFile($@"{windowsStorePath}\Platforms\{platform}\Platform.props", string.Empty);
+            WriteFile($@"{windowsStorePath}\Platforms\{platform}\Platform.targets", string.Empty);
         }
 
         return Path.Join(_tempDir.FullName, name);
@@ -734,9 +976,9 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var located = await service.LocateCppMSBuildAsync(architecture, false, CancellationToken.None);
 
         Assert.AreEqual(Path.Join(install, @"MSBuild\Current\Bin\MSBuild.exe"), located);
-        CollectionAssert.Contains(runner.Calls[0].ToArray(), component);
-        CollectionAssert.Contains(runner.Calls[0].ToArray(), "[17.8,", "MSBuild must support -getProperty");
-        CollectionAssert.Contains(runner.Calls[0].ToArray(), "-sort", "installs are tried newest first");
+        Assert.Contains(component, runner.Calls[0].ToArray());
+        Assert.Contains("[17.8,", runner.Calls[0].ToArray(), "MSBuild must support -getProperty");
+        Assert.Contains("-sort", runner.Calls[0].ToArray(), "installs are tried newest first");
     }
 
     [TestMethod]
@@ -753,8 +995,61 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var winUi = await service.LocateCppMSBuildAsync("x64", requiresWindowsStoreAppType: true, CancellationToken.None);
         var console = await service.LocateCppMSBuildAsync("x64", requiresWindowsStoreAppType: false, CancellationToken.None);
 
-        StringAssert.StartsWith(winUi, visualStudio);
-        StringAssert.StartsWith(console, buildTools, "a project that isn't WinUI keeps using the newest install");
+        Assert.StartsWith(visualStudio, winUi);
+        Assert.StartsWith(buildTools, console, "a project that isn't WinUI keeps using the newest install");
+    }
+
+    [TestMethod]
+    [DataRow("arm64", "VS2022")]
+    [DataRow("x86", "VS2022")]
+    [DataRow("x64", "VS2026")]
+    public async Task LocateCppMSBuild_WinUiProject_SelectsNewestInstallWithTargetsForArchitecture(string architecture, string expectedInstall)
+    {
+        var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
+        var newer = FakeInstall("VS2026", windowsStore: true);
+        var older = FakeInstall("VS2022", windowsStore: true, architecture: architecture);
+        var runner = new ScriptedProcessRunner(_ => new ProcessRunResult(0,
+            VsWhereJson((newer, "Visual Studio Enterprise 2026"), (older, "Visual Studio Enterprise 2022")), string.Empty));
+        var service = new MSBuildService(runner) { VsWherePath = vswhere.FullName };
+
+        var winUi = await service.LocateCppMSBuildAsync(architecture, requiresWindowsStoreAppType: true, CancellationToken.None);
+        var console = await service.LocateCppMSBuildAsync(architecture, requiresWindowsStoreAppType: false, CancellationToken.None);
+
+        Assert.StartsWith(Path.Join(_tempDir.FullName, expectedInstall), winUi);
+        Assert.StartsWith(newer, console, "non-WinUI projects do not need Windows Store targets");
+    }
+
+    [TestMethod]
+    [DataRow("Default.props")]
+    [DataRow(@"Platforms\ARM64\Platform.Default.props")]
+    [DataRow(@"Platforms\ARM64\Platform.props")]
+    [DataRow(@"Platforms\ARM64\Platform.targets")]
+    public void SupportsWindowsStoreAppType_RequiresCompletePlatformTargets(string missingFile)
+    {
+        var install = FakeInstall("VS", windowsStore: true, architecture: "arm64");
+        Assert.IsTrue(MSBuildService.SupportsWindowsStoreAppType(install, "arm64"));
+        File.Delete(Path.Join(install, @"MSBuild\Microsoft\VC\v180\Application Type\Windows Store\10.0", missingFile));
+
+        Assert.IsFalse(MSBuildService.SupportsWindowsStoreAppType(install, "arm64"));
+    }
+
+    [TestMethod]
+    public async Task LocateCppMSBuild_WinUiProject_OnlyX64Targets_ExplainsMissingArm64Tools()
+    {
+        var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
+        var install = FakeInstall("VS2026", windowsStore: true);
+        var runner = new ScriptedProcessRunner(_ => new ProcessRunResult(0,
+            VsWhereJson((install, "Visual Studio Enterprise 2026")), string.Empty));
+        var service = new MSBuildService(runner) { VsWherePath = vswhere.FullName };
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("arm64", true, CancellationToken.None));
+
+        Assert.Contains("C++ WinUI app development tools for arm64", ex.Message);
+        Assert.Contains("modify Visual Studio Enterprise 2026 to add or repair", ex.Message);
+        Assert.Contains("Microsoft.VisualStudio.Component.VC.Tools.ARM64", ex.Message);
+        Assert.Contains("--add Microsoft.VisualStudio.Component.UWP.VC.ARM64", ex.Message);
+        Assert.Contains("C++ Universal Windows Platform support for v143 build tools (ARM64/ARM64EC)", ex.Message);
+        Assert.Contains("C++ Universal Windows Platform support for ARM64/ARM64EC build tools (Latest MSVC)", ex.Message);
     }
 
     [TestMethod]
@@ -767,9 +1062,9 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("x64", true, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Visual Studio Build Tools 2026 does not have them");
-        StringAssert.Contains(ex.Message, "C++ WinUI app development tools");
-        StringAssert.Contains(ex.Message, "Microsoft.VisualStudio.ComponentGroup.UWP.VC.BuildTools");
+        Assert.Contains("Visual Studio Build Tools 2026 does not have them", ex.Message);
+        Assert.Contains("C++ WinUI app development tools", ex.Message);
+        Assert.Contains("Microsoft.VisualStudio.ComponentGroup.UWP.VC.BuildTools", ex.Message);
     }
 
     [TestMethod]
@@ -783,9 +1078,10 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("arm64", false, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Visual Studio Community 2026 does not have them installed");
-        StringAssert.Contains(ex.Message, "modify Visual Studio Community 2026");
-        StringAssert.Contains(ex.Message, "Microsoft.VisualStudio.Component.VC.Tools.ARM64");
+        Assert.Contains("Visual Studio Community 2026 does not have them installed", ex.Message);
+        Assert.Contains("modify Visual Studio Community 2026", ex.Message);
+        Assert.Contains("Microsoft.VisualStudio.Component.VC.Tools.ARM64", ex.Message);
+        Assert.Contains("--add Microsoft.VisualStudio.Component.UWP.VC.ARM64", ex.Message);
     }
 
     [TestMethod]
@@ -893,7 +1189,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.PreparePackageAsync(app, options, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "winapp package <output folder>");
+        Assert.Contains("winapp package <output folder>", ex.Message);
         Assert.IsFalse(ex.Message.Contains("--no-build", StringComparison.Ordinal), "dotnet publish --no-build still loads the C++ reference");
     }
 
@@ -908,8 +1204,8 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.BuildAndResolveAsync(app, options, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "references the C++ project 'Native.vcxproj'");
-        StringAssert.Contains(ex.Message, "--no-build");
+        Assert.Contains("references the C++ project 'Native.vcxproj'", ex.Message);
+        Assert.Contains("--no-build", ex.Message);
         Assert.AreEqual(0, _dotnet.StringInvocations.Count + _dotnet.ArgumentListInvocations.Count + _dotnet.StreamingCalls.Count,
             "the guard must run before any dotnet restore/build");
     }
@@ -1009,7 +1305,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var list = PackagesConfigReader.Read(project)!;
 
         var packages = list.Projects.Single().Frameworks.Single().TopLevelPackages;
-        CollectionAssert.AreEqual(ExpectedPackageIds, packages.Select(p => p.Id).ToArray());
+        Assert.AreSequenceEqual(ExpectedPackageIds, packages.Select(p => p.Id).ToArray());
         Assert.AreEqual("2.3.1", packages[1].ResolvedVersion);
         Assert.IsTrue(MsixService.ReferencesWindowsAppSdk(list));
     }

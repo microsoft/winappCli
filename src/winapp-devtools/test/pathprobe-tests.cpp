@@ -18,20 +18,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
-
-static int g_failures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
-}
-
-static void CheckEqW(const std::wstring& got, const std::wstring& want, const char* what)
-{
-    if (got != want) { ++g_failures; std::printf("  FAIL  %s (want \"%ls\", got \"%ls\")\n", what, want.c_str(), got.c_str()); }
-    else             {              std::printf("  ok    %s (\"%ls\")\n", what, got.c_str()); }
-}
+#include "DevToolsTestCheck.h"
 
 static bool Has(const std::wstring& hay, const wchar_t* needle)
 {
@@ -218,5 +205,5 @@ int RunPathProbeTests()
     Test_AThrowSurvivesAsAThrow();
     Test_HealthyRoundTripsToSilence();
     Test_TheWindowCaseRefusesRatherThanGuessing();
-    return g_failures;
+    return g_testFailures;
 }

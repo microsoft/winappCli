@@ -4,9 +4,10 @@
 namespace WinApp.Cli.ExecutionTargets.Abstractions;
 
 /// <summary>What an inspect-only attach found, without changing anything to find it.</summary>
-/// <param name="Running">True when the target winapp manages is running right now.</param>
+/// <param name="Running">True when the observed managed or expected instance is running right now.</param>
 /// <param name="Epoch">
-/// Which generation is running. <see cref="ExecutionTargetEpoch.None"/> when nothing is.
+/// Which generation is running. <see cref="ExecutionTargetEpoch.None"/> when no managed
+/// generation is known, including an expected instance that has not been prepared.
 /// </param>
 /// <param name="Connection">
 /// A live command channel to the running agent, or null when there is no agent to talk to — the

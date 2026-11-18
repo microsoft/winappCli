@@ -18,12 +18,12 @@ internal static class UiQueryOptions
     };
     internal static readonly Option<string?> Type = new("--type")
     {
-        Description = "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+        Description = "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text). Works without a selector",
     };
     internal static readonly Option<string?> ClassName = new("--class-name")
     {
         HelpName = "name",
-        Description = "Only match this exact UIA ClassName (case-insensitive)",
+        Description = "Only match this exact UIA ClassName (case-insensitive). Works without a selector",
     };
 
     internal static void AddTo(Command command)
@@ -46,8 +46,9 @@ internal static class UiQueryOptions
         return 1;
     }
 
-    internal static UiSelector Parse(ParseResult result, IUiSelectorParser parser, string selector) =>
-        parser.Parse(selector) with
+    /// <summary>Builds the query. With no selector, <c>--type</c> and <c>--class-name</c> are the whole query.</summary>
+    internal static UiSelector Parse(ParseResult result, IUiSelectorParser parser, string? selector) =>
+        (string.IsNullOrWhiteSpace(selector) ? new UiSelector() : parser.Parse(selector)) with
         {
             Root = result.GetValue(Root) is { } root ? parser.Parse(root) : null,
             ControlType = result.GetValue(Type),
@@ -55,7 +56,28 @@ internal static class UiQueryOptions
         };
 
     internal static bool HasFilters(ParseResult result) =>
-        result.GetValue(Root) is not null || result.GetValue(Type) is not null || result.GetValue(ClassName) is not null;
+        result.GetValue(Root) is not null || HasElementFilters(result);
+
+    /// <summary>Whether <c>--type</c> or <c>--class-name</c> was given. Either can stand in for a selector.</summary>
+    internal static bool HasElementFilters(ParseResult result) =>
+        result.GetValue(Type) is not null || result.GetValue(ClassName) is not null;
+
+    /// <summary>
+    /// Whether there is something to look for: a selector, or <c>--type</c>/<c>--class-name</c> on their own.
+    /// <c>--root</c> alone is not a query, because it only says where to look.
+    /// </summary>
+    internal static bool HasQuery(ParseResult result, string? selector) =>
+        !string.IsNullOrWhiteSpace(selector) || HasElementFilters(result);
+
+    /// <summary>The selector for messages, or the filters that replace it when there is no selector.</summary>
+    internal static string Describe(ParseResult result, string? selector)
+    {
+        if (!string.IsNullOrWhiteSpace(selector)) { return selector; }
+        var parts = new List<string>(2);
+        if (result.GetValue(Type) is { } type) { parts.Add($"--type {type}"); }
+        if (result.GetValue(ClassName) is { } className) { parts.Add($"--class-name {className}"); }
+        return string.Join(" ", parts);
+    }
 
     /// <summary>
     /// Finds the one element a command acts on. With filters, the match must be unique across every
@@ -68,13 +90,14 @@ internal static class UiQueryOptions
             ? uiAutomation.FindSingleElementAsync(target, selector, requireUnique: true, ct)
             : uiAutomation.FindSingleElementAsync(target, selector, ct);
 
-    /// <summary><see cref="Validate"/> for commands whose selector is optional: filters narrow a
-    /// selector, so they are rejected when no selector was given.</summary>
+    /// <summary><see cref="Validate"/> for commands whose selector is optional. <c>--type</c> or
+    /// <c>--class-name</c> without a selector targets the one element they match; <c>--root</c> alone is
+    /// rejected, because it only scopes a query.</summary>
     internal static int? ValidateWithOptionalSelector(ParseResult result, string? selector, ILogger logger, bool json)
     {
-        if (string.IsNullOrWhiteSpace(selector) && HasFilters(result))
+        if (string.IsNullOrWhiteSpace(selector) && HasFilters(result) && !HasElementFilters(result))
         {
-            const string error = "--type, --root, and --class-name narrow a selector; pass a selector too.";
+            const string error = "--root only scopes a query; pass a selector, --type, or --class-name too.";
             logger.LogError("{Message}", error);
             UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, error, errorOut: result.InvocationConfiguration.Error);
             return 1;
@@ -95,7 +118,7 @@ internal static class UiQueryOptions
     /// <returns>The element whose selector to pass on, or <see langword="null"/> when no element matched.</returns>
     /// <exception cref="UiAmbiguousSelectorException">The filtered selector matched several elements.</exception>
     internal static async Task<UiElement?> ResolveExactSelectorAsync(
-        ParseResult result, IUiSelectorParser parser, IUiAutomation uiAutomation, UiTarget target, string selector,
+        ParseResult result, IUiSelectorParser parser, IUiAutomation uiAutomation, UiTarget target, string? selector,
         bool searchOtherWindows, CancellationToken ct)
     {
         if (!HasFilters(result))
@@ -123,6 +146,6 @@ internal static class UiQueryOptions
         return element.Selector is not null
             ? element
             : throw new InvalidOperationException(
-                $"The element matched by '{selector}' has no stable selector. Run 'winapp ui inspect' and pass its slug instead.");
+                $"The element matched by '{Describe(result, selector)}' has no stable selector. Run 'winapp ui inspect' and pass its slug instead.");
     }
 }

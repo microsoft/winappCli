@@ -5,7 +5,8 @@ using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Models;
 
-internal sealed record InspectorAliasRequest(string? ApplicationId = null);
+/// <param name="Required">DevTools was asked for, so an alias that can't be prepared stops the run before anything is registered.</param>
+internal sealed record InspectorAliasRequest(string? ApplicationId = null, bool Required = false);
 
 internal sealed record InspectorAlias(
     string? AliasName,

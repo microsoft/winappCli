@@ -70,16 +70,17 @@ public class CommentSelectionCaptureTests
                     "--file" => "Different.xaml",
                     "--source-uri" => "ms-appx:///Different.xaml",
                     "--source-root" => (selectedRoot = directory.CreateSubdirectory("other-project")).FullName,
-                    "--type" => "Button",
+                    "--type" => "TextBlock",
                     _ => "Other",
                 };
                 arguments.AddRange([overrideOption, value]);
             }
             var result = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(arguments.ToArray()));
-            Assert.AreEqual(confirm ? 0 : 1, result, console.Output);
+            var saves = confirm && overrideOption != "--name";
+            Assert.AreEqual(saves ? 0 : 1, result, console.Output);
             var storePath = store.GetStorePath(selectedRoot);
-            Assert.AreEqual(confirm, File.Exists(storePath));
-            if (confirm)
+            Assert.AreEqual(saves, File.Exists(storePath));
+            if (saves)
             {
                 var anchor = store.Load(storePath).Comments.Single().Anchor;
                 var overridesSource = overrideOption is "--file" or "--source-uri" or "--source-root" or "--line" or "--column";
@@ -93,8 +94,106 @@ public class CommentSelectionCaptureTests
             }
             else
             {
-                StringAssert.Contains(console.Output, "--confirm-likely-source");
+                Assert.Contains(overrideOption == "--name" ? "conflicts with the captured element" : "--confirm-likely-source", console.Output);
                 Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
+            }
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    [TestMethod]
+    [DataRow("positional", "", true)]
+    [DataRow("element", "", true)]
+    [DataRow("selection", "", true)]
+    [DataRow("positional", "RootPanel", true)]
+    [DataRow("element", "RootPanel", true)]
+    [DataRow("selection", "RootPanel", true)]
+    [DataRow("positional", "", false)]
+    [DataRow("element", "", false)]
+    [DataRow("selection", "", false)]
+    public async Task NameOverride_KnownUnnamedDeclarationRejects_UnknownMetadataAllows(
+        string mode, string runtimeName, bool declarationKnown)
+    {
+        var directory = Directory.CreateTempSubdirectory("winapp-unnamed-identity-");
+        try
+        {
+            File.WriteAllText(Path.Combine(directory.FullName, "MainPage.xaml"),
+                "<Page xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">\n" +
+                "<TextBlock Text=\"First\"/>\n<TextBlock x:Name=\"Other\" Text=\"Second\"/>\n</Page>");
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Selection.poll", """{"handle":"2"}""")
+                .Answer("VisualTree.enumerate", System.Text.Json.JsonSerializer.Serialize(new[]
+                {
+                    new { handle = "2", name = runtimeName, type = "TextBlock", children = Array.Empty<object>() },
+                    new { handle = "3", name = "Other", type = "TextBlock", children = Array.Empty<object>() },
+                }))
+                .Answer("Property.get", """{"props":[{"name":"Text","value":"First","valueType":"String"}]}""")
+                .Answer("Source.get", declarationKnown
+                    ? """
+                      {"fileName":"ms-appx:///MainPage.xaml","lineNumber":2,"columnNumber":1,
+                      "authoredState":"available","authoredFileName":"MainPage.xaml","authoredLineNumber":2,
+                      "authoredColumnNumber":1,"coordinateProvenance":"disk-matched-unique-declaration",
+                      "xaml":"<TextBlock Text=\"First\"/>"}
+                      """
+                    : """{"fileName":""}""")
+                .Answer("Internal.elementAnchor", """{"anchor":"first-element","unique":true}""")
+                .Answer("Internal.sourceRoot", System.Text.Json.JsonSerializer.Serialize(new { sourceRoot = directory.FullName }))
+                .Answer("Internal.setComments", """{"total":1,"placed":1}""");
+            var capture = CommentSelectionCapture.CaptureElement((uint)agent.Pid, "2");
+            Assert.AreEqual(CaptureStatus.Ok, capture.Status);
+            Assert.IsNull(capture.Element!.Name);
+            Assert.AreEqual(declarationKnown, capture.Element.Authored is not null);
+            var store = new CommentStore();
+            var path = store.GetStorePath(directory);
+            foreach (var replace in new[] { false, true })
+            {
+                byte[]? before = null;
+                if (replace)
+                {
+                    store.Add(path, new Comment
+                    {
+                        Id = "existing", Text = "Keep the original", ProjectRoot = directory.FullName,
+                        Anchor = new() { Weak = true },
+                    });
+                    before = File.ReadAllBytes(path);
+                }
+                using var console = new TestConsole();
+                var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(),
+                    new CommentPusher(store), new CommentTestTargetResolver(agent.Pid),
+                    new FixedDirectory(directory.FullName), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
+                string[] target = mode switch
+                {
+                    "positional" => ["2"],
+                    "element" => ["--from-element", "2"],
+                    _ => ["--from-selection"],
+                };
+                List<string> args = [.. target, "--app", agent.Pid.ToString(), "--name", "Other", "--text", "Change First", "--json"];
+                if (replace) { args.AddRange(["--id", "existing"]); }
+                var parsed = new DevToolsCommentsAddCommand().Parse(args.ToArray());
+                Assert.IsEmpty(parsed.Errors);
+                Assert.AreEqual(declarationKnown ? 1 : 0, await handler.InvokeAsync(parsed), console.Output);
+                var payload = System.Text.Json.JsonSerializer.Deserialize(console.Output, CommentsJsonContext.Default.CommentResultPayload)!;
+                if (declarationKnown)
+                {
+                    Assert.IsFalse(payload.Ok);
+                    Assert.Contains("--name", payload.Error!);
+                    Assert.Contains("conflicts with the captured element", payload.Error!);
+                    Assert.IsFalse(agent.Received.Contains("Internal.setComments"));
+                    if (before is not null)
+                    {
+                        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
+                    }
+                    else
+                    {
+                        Assert.IsFalse(File.Exists(path));
+                    }
+                }
+                else
+                {
+                    Assert.IsTrue(payload.Ok);
+                    Assert.AreEqual("Other", store.Get(path, payload.Comment!.Id)!.Anchor.Identity.Name);
+                    store.Delete(path, payload.Comment.Id);
+                }
             }
         }
         finally { directory.Delete(recursive: true); }
@@ -119,6 +218,7 @@ public class CommentSelectionCaptureTests
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.find", """{"matches":[{"handle":"2","name":"SameName","type":"Button"}],"truncated":true,"censusNodes":20001}""")
+            .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"2","automationId":""}],"truncated":false}""")
             .Answer("VisualTree.enumerate", Tree)
             .Answer("Property.get", """{"props":[]}""")
             .Answer("Source.get", """{"fileName":""}""")
@@ -126,7 +226,8 @@ public class CommentSelectionCaptureTests
             .Answer("Internal.sourceRoot", """{"sourceRoot":""}""");
         var result = CommentSelectionCapture.CaptureElement((uint)agent.Pid, "SameName");
         Assert.AreEqual(CaptureStatus.Failed, result.Status);
-        CollectionAssert.AreEqual(new List<string> { "VisualTree.find" }, agent.Received);
+        Assert.AreEqual("ambiguous-selector", result.Error?.Token);
+        Assert.AreSequenceEqual(new List<string> { "VisualTree.find", "VisualTree.getPreviews" }, agent.Received);
     }
 
     [TestMethod]
@@ -135,8 +236,9 @@ public class CommentSelectionCaptureTests
         var directory = Directory.CreateTempSubdirectory("winapp-correction-capture-");
         try
         {
-            using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.find",
-                """{"matches":[{"handle":"2","name":"SameName","type":"Button"}],"truncated":true,"censusNodes":20001}""");
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.find", """{"matches":[{"handle":"2","name":"SameName","type":"Button"}],"truncated":true,"censusNodes":20001}""")
+                .Answer("VisualTree.getPreviews", """{"previews":[{"handle":"2","automationId":""}],"truncated":false}""");
             var store = new CommentStore();
             var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(),
                 new CommentPusher(store), new CommentTestTargetResolver(agent.Pid),
@@ -145,7 +247,7 @@ public class CommentSelectionCaptureTests
                 ["--app", agent.Pid.ToString(), "--from-element", "SameName", "--text", "note", "--source-root", directory.FullName, "--json"]));
             Assert.AreEqual(1, exit);
             Assert.IsFalse(File.Exists(store.GetStorePath(directory)));
-            CollectionAssert.AreEqual(new List<string> { "VisualTree.find" }, agent.Received);
+            Assert.AreSequenceEqual(new List<string> { "VisualTree.find", "VisualTree.getPreviews" }, agent.Received);
         }
         finally { directory.Delete(recursive: true); }
     }
@@ -167,7 +269,7 @@ public class CommentSelectionCaptureTests
             CommentSelectionCapture.CaptureElement((uint)agent.Pid, "2", cancel.Token);
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
-        CollectionAssert.AreEqual(new List<string> { "VisualTree.enumerate" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "VisualTree.enumerate" }, agent.Received);
     }
 
     [TestMethod]
@@ -180,7 +282,7 @@ public class CommentSelectionCaptureTests
             .Answer("Property.get", $$"""{"props":[{{row}}]}""");
         var result = CommentSelectionCapture.CaptureElement((uint)agent.Pid, "2");
         Assert.AreEqual(CaptureStatus.Failed, result.Status);
-        CollectionAssert.AreEqual(new List<string> { "VisualTree.enumerate", "Property.get" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "VisualTree.enumerate", "Property.get" }, agent.Received);
     }
 
     private const string Tree = """
@@ -287,7 +389,7 @@ public class CommentSelectionCaptureTests
             var afterEdit = CommentViewBuilder.ToView(saved.Comments.Single(), new CommentAnchorResolver(), directory.FullName);
             Assert.IsTrue(afterEdit.AnchorConfirmed);
             Assert.AreEqual("AutomationId", afterEdit.Hits.Single().Via);
-            StringAssert.Contains(afterEdit.Anchor.Authored!.Declaration, "Vm.Title");
+            Assert.Contains("Vm.Title", afterEdit.Anchor.Authored!.Declaration);
             var marker = CommentPusher.ToTapComments(saved).Single();
             Assert.AreEqual(captured.ElementPath, marker.Anchor, "Host search confirmation does not gate marker transport.");
             Assert.AreEqual("MainPage.xaml", marker.File);
@@ -422,7 +524,7 @@ public class CommentSelectionCaptureTests
             Assert.AreEqual(CaptureStatus.Ok, result.Status);
             Assert.AreEqual("Label", result.Element!.Name);
             Assert.AreEqual(declaration, result.Element.Authored!.Declaration);
-            StringAssert.Contains(result.Element.Authored.Scope, "Root");
+            Assert.Contains("Root", result.Element.Authored.Scope);
         }
         finally { root.Delete(recursive: true); }
     }
@@ -460,7 +562,7 @@ public class CommentSelectionCaptureTests
 
     // the identity bundle is read out of the census, and the census of a real app nests far past
     // System.Text.Json's default 64-level ceiling (AI Dev Gallery: 97). A deserializer left at the default
-    // silently yields NO nodes, so every captured anchor gets an empty type/name — which then reads downstream
+    // silently yields NO nodes, so every captured anchor gets an empty type/name, which then reads downstream
     // as "the element was renamed or removed" for elements that are on screen.
     [TestMethod]
     public void FindNode_DeeplyNestedCensus_PastDefaultJsonDepth_StillResolves()
@@ -471,7 +573,7 @@ public class CommentSelectionCaptureTests
             deep = $"[{{\"handle\":\"{index}\",\"name\":\"Parent\",\"type\":\"Grid\",\"children\":{deep}}}]";
         }
         var node = CommentSelectionCapture.FindNode(deep, "119");
-        Assert.IsNotNull(node, "A census deeper than 64 JSON levels must still be walkable — otherwise identity capture is silently empty.");
+        Assert.IsNotNull(node, "A census deeper than 64 JSON levels must still be walkable, otherwise identity capture is silently empty.");
         Assert.AreEqual("Leaf", node.Name);
         Assert.AreEqual("Grid", node.Type);
     }
@@ -626,7 +728,7 @@ public class CommentSelectionCaptureTests
         Assert.AreEqual(35, result.Element.Line);
         Assert.AreEqual("Root/0", result.Element.ElementPath);
         Assert.AreEqual(@"C:\owned\project", result.Element.SourceRoot);
-        CollectionAssert.AreEqual(CaptureCalls, agent.Received);
+        Assert.AreSequenceEqual(CaptureCalls, agent.Received);
     }
 
     [TestMethod]

@@ -7,11 +7,11 @@ using Windows.Win32.UI.Accessibility;
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 
 /// <summary>
-/// Screenshot capture methods: window/screen capture, pixel extraction, and element cropping.
+/// Screenshot capture orchestration, screen capture, and element cropping.
 /// </summary>
 internal sealed partial class UiAutomationService
 {
-    internal static Func<global::Windows.Win32.Foundation.HWND, int, int, byte[]> s_captureFromWindow = CaptureFromWindow;
+    internal static Func<global::Windows.Win32.Foundation.HWND, int, int, byte[]> s_captureFromWindow = PrintWindowCaptureHelper.CapturePixels;
     internal static Func<int, int, int, int, int, int, byte[]> s_captureFromScreenScaled = CaptureFromScreenScaled;
     internal static Action<global::Windows.Win32.Foundation.HWND> s_foregroundWindowForBlankRetry = ForegroundWindowForBlankRetry;
     internal static Action<int> s_sleepForBlankRetry = Thread.Sleep;
@@ -141,6 +141,10 @@ internal sealed partial class UiAutomationService
             {
                 throw;
             }
+            catch (WindowCaptureException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "WGC capture failed; falling back to PrintWindow");
@@ -206,47 +210,6 @@ internal sealed partial class UiAutomationService
     }
 
     /// <remarks>
-    /// Coverage ceiling (issue #630): this is the innermost GDI/PrintWindow capture boundary. Tests
-    /// cover the blank-retry and caller orchestration through seams; the native DC/bitmap handles are
-    /// only safe to exercise against a real visible window.
-    /// </remarks>
-    private static unsafe byte[] CaptureFromWindow(global::Windows.Win32.Foundation.HWND hwnd, int width, int height)
-    {
-        var hdcWindow = global::Windows.Win32.PInvoke.GetDC(hwnd);
-        try
-        {
-            var hdcMem = global::Windows.Win32.PInvoke.CreateCompatibleDC(hdcWindow);
-            try
-            {
-                var hBitmap = global::Windows.Win32.PInvoke.CreateCompatibleBitmap(hdcWindow, width, height);
-                try
-                {
-                    var hOld = global::Windows.Win32.PInvoke.SelectObject(hdcMem, *(global::Windows.Win32.Graphics.Gdi.HGDIOBJ*)&hBitmap);
-
-                    // PW_RENDERFULLCONTENT = 2
-                    global::Windows.Win32.PInvoke.PrintWindow(hwnd, hdcMem, (global::Windows.Win32.Storage.Xps.PRINT_WINDOW_FLAGS)2);
-
-                    global::Windows.Win32.PInvoke.SelectObject(hdcMem, hOld);
-
-                    return ExtractPixels(hdcWindow, hBitmap, width, height);
-                }
-                finally
-                {
-                    global::Windows.Win32.PInvoke.DeleteObject(*(global::Windows.Win32.Graphics.Gdi.HGDIOBJ*)&hBitmap);
-                }
-            }
-            finally
-            {
-                global::Windows.Win32.PInvoke.DeleteDC(hdcMem);
-            }
-        }
-        finally
-        {
-            global::Windows.Win32.PInvoke.ReleaseDC(hwnd, hdcWindow);
-        }
-    }
-
-    /// <remarks>
     /// Coverage ceiling (issue #630): this is the innermost screen-DC BitBlt boundary. It reads the
     /// shared desktop and is intentionally covered only by gated real capture tests.
     /// </remarks>
@@ -269,7 +232,7 @@ internal sealed partial class UiAutomationService
 
                     global::Windows.Win32.PInvoke.SelectObject(hdcMem, hOld);
 
-                    return ExtractPixels(hdcScreen, hBitmap, width, height);
+                    return PrintWindowCaptureHelper.ReadBitmapPixels(hdcScreen, hBitmap, width, height);
                 }
                 finally
                 {
@@ -372,7 +335,7 @@ internal sealed partial class UiAutomationService
                         global::Windows.Win32.PInvoke.SelectObject(hdcMem, hOld);
                     }
 
-                    return ExtractPixels(hdcScreen, hBitmap, targetWidth, targetHeight);
+                    return PrintWindowCaptureHelper.ReadBitmapPixels(hdcScreen, hBitmap, targetWidth, targetHeight);
                 }
                 finally
                 {
@@ -392,40 +355,6 @@ internal sealed partial class UiAutomationService
 
     private static System.ComponentModel.Win32Exception ScreenCaptureFailure(string operation) =>
         new(System.Runtime.InteropServices.Marshal.GetLastWin32Error(), $"{operation} failed while capturing screen pixels.");
-
-    /// <remarks>
-    /// Coverage ceiling (issue #630): this is the innermost GetDIBits extraction from a native HBITMAP.
-    /// It is covered indirectly by real screenshot attempts and cannot be executed with managed-only
-    /// fakes without fabricating native GDI handles.
-    /// </remarks>
-    private static unsafe byte[] ExtractPixels(global::Windows.Win32.Graphics.Gdi.HDC hdc, global::Windows.Win32.Graphics.Gdi.HBITMAP hBitmap, int width, int height)
-    {
-        var bmi = new global::Windows.Win32.Graphics.Gdi.BITMAPINFO
-        {
-            bmiHeader = new global::Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER
-            {
-                biSize = (uint)sizeof(global::Windows.Win32.Graphics.Gdi.BITMAPINFOHEADER),
-                biWidth = width,
-                biHeight = -height, // top-down
-                biPlanes = 1,
-                biBitCount = 32,
-                biCompression = 0 // BI_RGB
-            }
-        };
-
-        var pixelData = new byte[checked(width * height * 4)];
-        fixed (byte* pPixels = pixelData)
-        {
-            var rows = global::Windows.Win32.PInvoke.GetDIBits(hdc, hBitmap, 0, (uint)height, pPixels, &bmi,
-                global::Windows.Win32.Graphics.Gdi.DIB_USAGE.DIB_RGB_COLORS);
-            if (rows != height)
-            {
-                throw ScreenCaptureFailure("GetDIBits");
-            }
-        }
-
-        return pixelData;
-    }
 
     internal static bool IsBlankCapture(byte[] pixels) => CapturedFrame.IsBlank(pixels);
 

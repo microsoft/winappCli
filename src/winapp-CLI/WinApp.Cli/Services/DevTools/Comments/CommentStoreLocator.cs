@@ -52,7 +52,7 @@ internal static class CommentStoreLocator
 
     /// <summary>
     /// Nearest ancestor (inclusive) containing <c>.git</c>. Matches a <b>file</b> as well as a directory, because
-    /// that is how git marks a linked worktree or a submodule — treating those as "not a repo" would drop the
+    /// that is how git marks a linked worktree or a submodule. Treating those as "not a repo" would drop the
     /// store back at the project root for anyone reviewing in a worktree.
     /// </summary>
     private static string? FindRepositoryRoot(string start)

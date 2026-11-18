@@ -41,6 +41,7 @@ public class ExecutionTargetErrorTests
         "sandbox_setup_required",
         "sandbox_setup_requires_restart",
         "sandbox_setup_incomplete",
+        "sandbox_instance_mismatch",
         "target_invalid",
         "target_invalid_arguments",
     ];
@@ -48,7 +49,7 @@ public class ExecutionTargetErrorTests
     [TestMethod]
     public void AllCodes_MatchTheSnapshot()
     {
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             ExpectedCodes,
             ExecutionTargetErrorCodes.All.ToArray(),
             "Execution-target error codes must match the expected public contract.");

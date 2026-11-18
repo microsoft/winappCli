@@ -152,6 +152,7 @@ static const wchar_t* EnsureOverlayForOwner_ui(unsigned long long ownerConn, std
 // this client armed would also clear whatever another client, or the user, had selected.
 static DevToolsOwnedReleaseOutcome ApplyOwnedRelease_ui(unsigned long long owner)
 {
+    if (owner != 0 && g_externalInspectorOwner == owner) ClearExternalInspector_ui();
     DevToolsOwnedReleaseOutcome outcome = g_ownedState.Release(owner);
     if (outcome.released.empty()) {
         outcome.revision = g_ownedState.Revision();
@@ -296,7 +297,7 @@ static std::wstring MutatePropertyTarget(const std::wstring& target,
     {
         CensusSharedLock lock;
         if (!target.empty() && target[0] == L'#') {
-            wire = wcstoull(target.c_str() + 1, nullptr, 10);
+            if (!DevToolsParseWireHandle(target.substr(1), false, &wire)) return L"ERR bad-args";
         } else {
             for (const auto& found : g_nameOf) {
                 if (found.second != target || (g_windowScope && !g_windowScope->members.count(found.first))) continue;

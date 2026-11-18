@@ -80,9 +80,9 @@ public class PriServiceTests
         await _service.CreatePriConfigAsync(_packageDir, _taskContext, candidates);
 
         var resfiles = await File.ReadAllTextAsync(Path.Combine(_packageDir.FullName, "pri.resfiles"));
-        StringAssert.Contains(resfiles, "Assets\\Logo.png");
-        StringAssert.Contains(resfiles, "Assets\\Splash.jpg");
-        StringAssert.Contains(resfiles, "Assets\\Icon.ico");
+        Assert.Contains("Assets\\Logo.png", resfiles);
+        Assert.Contains("Assets\\Splash.jpg", resfiles);
+        Assert.Contains("Assets\\Icon.ico", resfiles);
         Assert.IsFalse(resfiles.Contains("readme.txt", StringComparison.Ordinal));
         Assert.IsFalse(resfiles.Contains("app.dll", StringComparison.Ordinal));
     }
@@ -101,9 +101,9 @@ public class PriServiceTests
         Assert.AreEqual(1, _buildTools.Invocations.Count);
         var (tool, args) = _buildTools.Invocations[0];
         Assert.AreEqual("makepri.exe", tool);
-        StringAssert.Contains(args, "createconfig");
-        StringAssert.Contains(args, "lang-fr-FR");
-        StringAssert.Contains(args, "/pv 10.0.1");
+        Assert.Contains("createconfig", args);
+        Assert.Contains("lang-fr-FR", args);
+        Assert.Contains("/pv 10.0.1", args);
     }
 
     [TestMethod]
@@ -119,12 +119,12 @@ public class PriServiceTests
 
         var xml = await File.ReadAllTextAsync(configPath.FullName);
         // A resfiles indexer-config must be appended.
-        StringAssert.Contains(xml, "type=\"resfiles\"");
+        Assert.Contains("type=\"resfiles\"", xml);
         // startIndexAt must be rewritten to the relative resfiles path.
-        StringAssert.Contains(xml, ".\\pri.resfiles");
+        Assert.Contains(".\\pri.resfiles", xml);
         // Folder indexer must be augmented with both qualifier flags (created since they were absent).
-        StringAssert.Contains(xml, "foldernameAsQualifier=\"true\"");
-        StringAssert.Contains(xml, "filenameAsQualifier=\"true\"");
+        Assert.Contains("foldernameAsQualifier=\"true\"", xml);
+        Assert.Contains("filenameAsQualifier=\"true\"", xml);
     }
 
     [TestMethod]
@@ -146,8 +146,8 @@ public class PriServiceTests
         var configPath = await _service.CreatePriConfigAsync(_packageDir, _taskContext, ["Logo.png"]);
 
         var xml = await File.ReadAllTextAsync(configPath.FullName);
-        StringAssert.Contains(xml, "foldernameAsQualifier=\"true\"");
-        StringAssert.Contains(xml, "filenameAsQualifier=\"true\"");
+        Assert.Contains("foldernameAsQualifier=\"true\"", xml);
+        Assert.Contains("filenameAsQualifier=\"true\"", xml);
         Assert.IsFalse(xml.Contains("=\"false\"", StringComparison.Ordinal), "Existing false flags should have been flipped to true.");
     }
 
@@ -174,7 +174,7 @@ public class PriServiceTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             _service.CreatePriConfigAsync(_packageDir, _taskContext, ["a.png"]));
-        StringAssert.Contains(ex.Message, "Failed to create PRI configuration");
+        Assert.Contains("Failed to create PRI configuration", ex.Message);
     }
 
     #endregion
@@ -242,7 +242,7 @@ public class PriServiceTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             _service.GeneratePriFileAsync(_packageDir, _taskContext));
-        StringAssert.Contains(ex.Message, "Failed to generate PRI file");
+        Assert.Contains("Failed to generate PRI file", ex.Message);
     }
 
     [TestMethod]
@@ -257,8 +257,8 @@ public class PriServiceTests
         await _service.GeneratePriFileAsync(_packageDir, _taskContext, customConfig, customOutput);
 
         var (_, invokedArgs) = _buildTools.Invocations[0];
-        StringAssert.Contains(invokedArgs, "custom.xml");
-        StringAssert.Contains(invokedArgs, "custom.pri");
+        Assert.Contains("custom.xml", invokedArgs);
+        Assert.Contains("custom.pri", invokedArgs);
     }
 
     #endregion
@@ -288,7 +288,7 @@ public class PriServiceTests
         var languages = await _service.ExtractLanguagesFromPriAsync(priFile, _taskContext, CancellationToken.None);
 
         string[] expected = ["en-US", "fr-FR"];
-        CollectionAssert.AreEqual(expected, languages);
+        Assert.AreSequenceEqual(expected, languages);
     }
 
     [TestMethod]
@@ -307,7 +307,7 @@ public class PriServiceTests
         var languages = await _service.ExtractLanguagesFromPriAsync(priFile, _taskContext, CancellationToken.None);
 
         string[] expected = ["de-DE"];
-        CollectionAssert.AreEqual(expected, languages);
+        Assert.AreSequenceEqual(expected, languages);
         Assert.IsNotNull(dumpPath);
         Assert.IsFalse(File.Exists(dumpPath), "The temporary dump file should be deleted after parsing.");
     }
@@ -351,6 +351,131 @@ public class PriServiceTests
         var languages = await _service.ExtractLanguagesFromPriAsync(priFile, _taskContext, CancellationToken.None);
 
         Assert.AreEqual(0, languages.Count);
+    }
+
+    #endregion
+
+    #region MergeAssetsIntoPriAsync
+
+    private void WriteLayoutFile(string relativePath, string content = "x")
+    {
+        var path = Path.Combine(_packageDir.FullName, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
+
+    private static string ExtractPrPath(string arguments)
+    {
+        var match = Regex.Match(arguments, @"/pr\s+""([^""]+)""");
+        Assert.IsTrue(match.Success, $"Expected a quoted /pr argument in: {arguments}");
+        return match.Groups[1].Value;
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_IndexesExistingPriAndAssets_AndReplacesResourcesPri()
+    {
+        WriteLayoutFile("resources.pri", "build-pri");
+        WriteLayoutFile("Assets\\AppList.png");
+        WriteLayoutFile("Assets\\AppList.targetsize-24_altform-unplated.png");
+        string[]? resfiles = null;
+        bool originalCopied = false;
+        bool unplatedCopied = false;
+        _buildTools.Handler = (_, args) =>
+        {
+            var input = ExtractPrPath(args);
+            resfiles = File.ReadAllLines(Path.Combine(input, "assets.resfiles"));
+            originalCopied = File.ReadAllText(Path.Combine(input, "original.pri")) == "build-pri";
+            unplatedCopied = File.Exists(Path.Combine(input, "Assets", "AppList.targetsize-24_altform-unplated.png"));
+            File.WriteAllText(ExtractOfPath(args), "merged-pri");
+            return ("", "");
+        };
+
+        var merged = await _service.MergeAssetsIntoPriAsync(
+            _packageDir, "Contoso.App",
+            ["Assets/AppList.png", "Assets\\AppList.targetsize-24_altform-unplated.png"],
+            _taskContext);
+
+        Assert.IsTrue(merged);
+        Assert.AreEqual(1, _buildTools.Invocations.Count);
+        var (tool, args) = _buildTools.Invocations[0];
+        Assert.AreEqual("makepri.exe", tool);
+        Assert.StartsWith("new ", args);
+        Assert.Contains("/in \"Contoso.App\"", args);
+        Assert.IsTrue(originalCopied, "The existing resources.pri should be indexed as original.pri.");
+        Assert.IsTrue(unplatedCopied, "The unplated asset should be copied next to the resfiles list.");
+        string[] expected = ["Assets\\AppList.png", "Assets\\AppList.targetsize-24_altform-unplated.png"];
+        Assert.AreSequenceEqual(expected, resfiles);
+        Assert.AreEqual("merged-pri", File.ReadAllText(Path.Combine(_packageDir.FullName, "resources.pri")));
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_SkipsNonImagesMissingFilesAndPathsOutsideTheLayout()
+    {
+        WriteLayoutFile("resources.pri");
+        WriteLayoutFile("Assets\\Logo.png");
+        WriteLayoutFile("readme.txt");
+        File.WriteAllText(Path.Combine(_tempDir.FullName, "outside.png"), "x");
+        string[]? resfiles = null;
+        _buildTools.Handler = (_, args) =>
+        {
+            resfiles = File.ReadAllLines(Path.Combine(ExtractPrPath(args), "assets.resfiles"));
+            File.WriteAllText(ExtractOfPath(args), "merged");
+            return ("", "");
+        };
+
+        var merged = await _service.MergeAssetsIntoPriAsync(
+            _packageDir, "Contoso.App",
+            ["Assets\\Logo.png", "readme.txt", "Assets\\Missing.png", "..\\outside.png", Path.Combine(_tempDir.FullName, "outside.png")],
+            _taskContext);
+
+        Assert.IsTrue(merged);
+        string[] expected = ["Assets\\Logo.png"];
+        Assert.AreSequenceEqual(expected, resfiles);
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_NoResourcesPri_ReturnsFalseWithoutRunningMakePri()
+    {
+        WriteLayoutFile("Assets\\Logo.png");
+
+        var merged = await _service.MergeAssetsIntoPriAsync(_packageDir, "Contoso.App", ["Assets\\Logo.png"], _taskContext);
+
+        Assert.IsFalse(merged);
+        Assert.AreEqual(0, _buildTools.Invocations.Count);
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_NoUsableAssets_ReturnsFalseAndLeavesPriUntouched()
+    {
+        WriteLayoutFile("resources.pri", "build-pri");
+
+        var merged = await _service.MergeAssetsIntoPriAsync(_packageDir, "Contoso.App", ["Assets\\Missing.png", "notes.txt"], _taskContext);
+
+        Assert.IsFalse(merged);
+        Assert.AreEqual(0, _buildTools.Invocations.Count);
+        Assert.AreEqual("build-pri", File.ReadAllText(Path.Combine(_packageDir.FullName, "resources.pri")));
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_InvalidPackageName_Throws()
+    {
+        WriteLayoutFile("resources.pri");
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(
+            () => _service.MergeAssetsIntoPriAsync(_packageDir, "bad\" /o", ["Assets\\Logo.png"], _taskContext));
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_NoOutputProduced_ThrowsAndLeavesPriUntouched()
+    {
+        WriteLayoutFile("resources.pri", "build-pri");
+        WriteLayoutFile("Assets\\Logo.png");
+        _buildTools.Handler = (_, _) => ("", "");
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => _service.MergeAssetsIntoPriAsync(_packageDir, "Contoso.App", ["Assets\\Logo.png"], _taskContext));
+
+        Assert.AreEqual("build-pri", File.ReadAllText(Path.Combine(_packageDir.FullName, "resources.pri")));
     }
 
     #endregion

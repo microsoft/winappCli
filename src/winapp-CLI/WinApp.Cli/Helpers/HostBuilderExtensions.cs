@@ -75,6 +75,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<ICommentPusher, CommentPusher>()
             .AddSingleton<IPackageRegistrationService, PackageRegistrationService>()
             .AddSingleton<IDebugOutputService, DebugOutputService>()
+            .AddSingleton<Services.Performance.PerfCaptureService>()
             .AddSingleton<IXamlTriageService, XamlTriageService>()
             .AddSingleton<ICrashDumpService, CrashDumpService>()
             .AddSingleton(AnsiConsole.Console)
@@ -160,6 +161,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<DevToolsCommentsListCommand, DevToolsCommentsListCommand.Handler>()
                 .UseCommandHandler<DevToolsCommentsUpdateCommand, DevToolsCommentsUpdateCommand.Handler>()
                 .UseCommandHandler<DevToolsCommentsDeleteCommand, DevToolsCommentsDeleteCommand.Handler>()
+                .ConfigureCommand<PerfCommand>()
                 // GuestLaunchCommand shares RunCommand.Handler rather than a second handler
                 // instance: it is a structurally distinct, hidden verb (see
                 // RunCommand.GuestLaunch.cs) dispatched from the same class, because it reuses

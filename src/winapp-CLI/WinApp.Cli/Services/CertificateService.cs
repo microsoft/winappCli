@@ -395,7 +395,7 @@ internal partial class CertificateService(
             throw new FileNotFoundException($"Certificate file not found: {certificatePath}");
         }
 
-        var tokens = new List<string> { "/fd", "SHA256" };
+        var tokens = new List<string> { "/fd", PackageDigestAlgorithm.Detect(filePath) };
 
         if (!string.IsNullOrWhiteSpace(timestampUrl))
         {

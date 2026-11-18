@@ -11,7 +11,7 @@ internal interface IDevToolsService
     /// <c>--devtools</c> path) it also asks the agent to build the in-app overlay; the headless
     /// <c>--json</c> path passes <c>false</c> so no overlay is ever created there. The in-app Inspect
     /// button opens the in-process inspector window (a second WinUI window on the target's own UI thread,
-    /// shipping no extra process). Never throws — failures are returned as <see cref="DevToolsConnection"/>
+    /// shipping no extra process). Never throws: failures are returned as <see cref="DevToolsConnection"/>
     /// with <see cref="DevToolsConnection.Connected"/> == <c>false</c>.
     /// </summary>
     Task<DevToolsConnection> ConnectAsync(

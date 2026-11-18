@@ -36,8 +36,8 @@ public class UnregisterCommandTests : BaseCommandTests
         }
 
         Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
-        StringAssert.Contains(error.ToString(), "target_invalid_arguments");
-        StringAssert.Contains(error.ToString(), "manifest");
+        Assert.Contains("target_invalid_arguments", error.ToString());
+        Assert.Contains("manifest", error.ToString());
         Assert.IsEmpty(_fakeProjectRunService.ResolveSingleFileIdentityInputs);
         Assert.IsEmpty(_fakePackageRegistrationService.UnregisterByFullNameCalls);
     }
@@ -281,7 +281,7 @@ public class UnregisterCommandTests : BaseCommandTests
 
         Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
         var error = capturedError.ToString().Trim();
-        StringAssert.Contains(error, "--force");
+        Assert.Contains("--force", error);
         if (json)
         {
             var root = System.Text.Json.JsonDocument.Parse(error).RootElement;
@@ -351,7 +351,8 @@ public class UnregisterCommandTests : BaseCommandTests
 
         // Strict parsing, the way a caller would.
         var error = System.Text.Json.JsonDocument.Parse(output).RootElement.GetProperty("Error").GetString();
-        StringAssert.Contains(error, "does not exist");
+        Assert.IsNotNull(error);
+        Assert.Contains("does not exist", error);
     }
 
     [TestMethod]
@@ -367,7 +368,7 @@ public class UnregisterCommandTests : BaseCommandTests
         var output = TestAnsiConsole.Output.Trim();
         var root = System.Text.Json.JsonDocument.Parse(output).RootElement;
         Assert.IsTrue(root.TryGetProperty("Error", out var error), "JSON output should carry an Error property");
-        StringAssert.Contains(error.GetString(), "No manifest found");
+        Assert.Contains("No manifest found", error.GetString()!);
     }
 
     [TestMethod]
@@ -394,8 +395,8 @@ public class UnregisterCommandTests : BaseCommandTests
         Assert.IsFalse(
             error.Contains('\n', StringComparison.Ordinal) || error.Contains('\r', StringComparison.Ordinal),
             "The error value must not carry wrapping newlines");
-        StringAssert.Contains(error, "--prune sweeps by registration state");
-        StringAssert.Contains(error, "--output-appx-directory.", "The tail of the message must survive intact");
+        Assert.Contains("--prune sweeps by registration state", error);
+        Assert.Contains("--output-appx-directory.", error, "The tail of the message must survive intact");
     }
 
     #region Single-file apps
@@ -516,7 +517,7 @@ public class UnregisterCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count);
         Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count);
-        StringAssert.Contains(ambientOutput, "unpackaged app");
+        Assert.Contains("unpackaged app", ambientOutput);
     }
 
     [TestMethod]
@@ -529,7 +530,7 @@ public class UnregisterCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [notAnApp.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--manifest");
+        Assert.Contains("--manifest", ConsoleStdErr.ToString());
         Assert.AreEqual(0, _fakeProjectRunService.ResolveSingleFileIdentityCalls.Count);
     }
 
@@ -893,6 +894,36 @@ public class UnregisterCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task UnregisterCommand_SingleFile_PropertyConfigurationSelectsConfiguration()
+    {
+        // `run app.cs -p:Configuration=Release` registers the Release identity, so repeating the
+        // same property on unregister must resolve Release, not the Debug default.
+        var singleFile = CreateSingleFile();
+        var command = GetRequiredService<UnregisterCommand>();
+
+        _fakeProjectRunService.SingleFileIdentity =
+            new SingleFileIdentityResolution("counter", ProjectPackaging.Packaged, BuildRootDirectory: null);
+
+        await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "-p", "Configuration=Release"]);
+
+        Assert.AreEqual("Release", _fakeProjectRunService.ResolveSingleFileIdentityInputs.Single().Configuration);
+    }
+
+    [TestMethod]
+    public async Task UnregisterCommand_SingleFile_ConflictingConfigurationFails()
+    {
+        var singleFile = CreateSingleFile();
+        var command = GetRequiredService<UnregisterCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, [singleFile.FullName, "-c", "Debug", "-p", "Configuration=Release"]);
+
+        Assert.AreNotEqual(0, exitCode);
+        Assert.IsEmpty(_fakeProjectRunService.ResolveSingleFileIdentityInputs);
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count);
+    }
+
+    [TestMethod]
     public async Task UnregisterCommand_ConfigurationWithoutSingleFileInput_IsRejected()
     {
         var manifest = await CreateTestManifestAsync();
@@ -976,7 +1007,7 @@ public class UnregisterCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         var root = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
         Assert.IsTrue(root.TryGetProperty("Error", out var error));
-        StringAssert.Contains(error.GetString(), "without a value");
+        Assert.Contains("without a value", error.GetString()!);
     }
 
     #endregion
@@ -1037,7 +1068,7 @@ public class UnregisterCommandTests : BaseCommandTests
         Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count);
         var root = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
         Assert.IsTrue(root.TryGetProperty("Error", out var error));
-        StringAssert.Contains(error.GetString(), "--force");
+        Assert.Contains("--force", error.GetString()!);
     }
 
     [TestMethod]

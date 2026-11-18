@@ -33,7 +33,7 @@ static void FlattenCensusNode(const CensusSnapshot& cs, InstanceHandle h, int de
     }
 }
 
-// What must not happen is SILENT truncation: a header printing the truncated `nodes.size()` as "VISUAL TREE — N
+// What must not happen is SILENT truncation: a header printing the truncated `nodes.size()` as "VISUAL TREE · N
 // NODES" states a partial count as if it were the whole tree.
 static std::vector<DevToolsWindowNode> SnapshotFlatCensus(size_t* outTotal, CensusSnapshot* outSnapshot = nullptr)
 {
@@ -199,7 +199,7 @@ static void Route1ReadRows(InstanceHandle wire, std::wstring& outType, std::wstr
                            std::vector<DevToolsCardRow>& outRows, std::wstring& outAuthoredState,
                            std::wstring& outAuthoredXaml);
 static DevToolsWriteOutcome Route1Write(InstanceHandle wire, const std::wstring& prop, const std::wstring& type,
-                                   const std::wstring& value, bool confirmBindingReplace);
+                                   const std::wstring& value, bool confirmBindingReplace, std::wstring* reason);
 static bool Route1Clear(InstanceHandle wire, const std::wstring& prop);
 static bool Route1Resolve(InstanceHandle wire, const std::wstring& prop, const std::wstring& resourceName, bool asTheme);
 static bool Route1Bind(InstanceHandle wire, const std::wstring& op, const std::wstring& prop,
@@ -247,7 +247,7 @@ static void Route1Highlight(InstanceHandle wire, bool select)
         ReleaseSRWLockShared(&g_censusLock);
     }
     if (select) DevToolsOverlay_SelectHandle(g_diag, RootVisual(), ih, OverlaySeed, OverlayContains);
-    else        DevToolsOverlay_HighlightHandle(g_diag, RootVisual(), ih, OverlaySeed, OverlayContains);
+    else        DevToolsOverlay_HighlightHandle(g_diag, RootVisual(), ih, OverlaySeed, OverlayContains, /*preview*/ true);
 }
 
 // Written on the UI thread (PublishOverlayPick); plain atomics suffice (no cross-field invariant). Declared here so
@@ -289,7 +289,7 @@ static std::wstring TapQuoteArg(const std::wstring& in)
 
 // That is the ONLY form the DevTools window may use: it calls on the app UI thread, and blocking there for a CLI
 // process would freeze the app being inspected. A protocol verb runs on its own per-connection pipe thread, so it
-// waits and reports what the child actually did — "CreateProcess succeeded" is not evidence the comment was written.
+// waits and reports what the child actually did: "CreateProcess succeeded" is not evidence the comment was written.
 static int TapRunCli(const std::wstring& args, DWORD waitMs, const std::wstring& revision = L"")
 {
     if (!DevToolsTrust_MutationEnabled()) return -4;
@@ -348,7 +348,7 @@ static std::wstring TapMintCommentId()
 {
     GUID g{};
     if (FAILED(CoCreateGuid(&g))) {
-        // Not a security token — just an id. A clock+counter fallback keeps this from ever returning "cmt_".
+        // Not a security token, just an id. A clock+counter fallback keeps this from ever returning "cmt_".
         static std::atomic<unsigned long long> s_seq{0};
         wchar_t buf[32]{};
         swprintf_s(buf, L"cmt_%08llx%04llx", (unsigned long long)GetTickCount64() & 0xFFFFFFFFull,
@@ -367,12 +367,10 @@ static bool TapResolveComment(const wchar_t* id, std::function<void(int)> comple
         std::vector<DevToolsWindowComment> items;
         TapComments(&items);
         for (const auto& item : items) if (item.id == id)
-            return DevToolsOverlay_ResolveGuestComment(item.id, item.revision, std::move(completed));
+            return DevToolsOverlay_ResolveComment(item.id, item.revision, std::move(completed));
         return false;
     }
-    std::wstring args = L"devtools comments update --status resolved " + TapQuoteArg(id)
-                      + L" --app " + std::to_wstring(GetCurrentProcessId());
-    return TapRunCli(args, 0) == 0;   // UI-thread caller: spawn only, never wait
+    return DevToolsOverlay_ResolveComment(id, L"", std::move(completed));
 }
 
 static void Route1SnapshotTree(std::vector<DevToolsWindowNode>& outNodes, size_t& outCensusTotal)
@@ -477,13 +475,46 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     return hr;
 }
 
-static bool InprocInspect()
+// Presentation registration and routing are serialized with native window operations on the app UI thread.
+static unsigned long long g_externalInspectorOwner = 0;
+static std::wstring g_externalInspectorName;
+
+static void ClearExternalInspector_ui()
+{
+    g_externalInspectorOwner = 0;
+    g_externalInspectorName.clear();
+}
+
+static unsigned long long ExternalInspectorOwner_ui()
+{
+    return DevToolsEvents_IsOwnerLive(g_externalInspectorOwner) ? g_externalInspectorOwner : 0;
+}
+
+static bool RequestExternalInspector_ui(const DevToolsInspectRequest& request)
+{
+    const unsigned long long owner = ExternalInspectorOwner_ui();
+    if (!owner) return false;
+    unsigned long long wire = g_lastPickHandle.load(std::memory_order_relaxed);
+    if (request.element) {
+        AcquireSRWLockShared(&g_censusLock);
+        wire = PackWire_nolock(request.element);
+        ReleaseSRWLockShared(&g_censusLock);
+        if (wire) g_lastPickHandle.store(wire, std::memory_order_relaxed);
+    }
+    std::wstring params = std::wstring(L"{\"view\":\"") + (request.comments ? L"comments" : L"inspect") + L"\"";
+    if (wire) params += L",\"handle\":\"" + std::to_wstring(wire) + L"\"";
+    params += L"}";
+    return DevToolsEvents_SendToOwner(owner, DevToolsRpcEvent(L"Inspector.openRequested", params));
+}
+
+static bool InprocInspect(std::wstring* error)
 {
     const DevToolsInspectRequest& request = DevToolsOverlay_InspectRequest();
+    if (RequestExternalInspector_ui(request)) return true;
     // A pick has already selected its element in an inspector on screen; it only needs to be in view.
     if (!request.activate && !request.comments && DevToolsWindow_RevealWithoutFocus()) return true;
     g_ownedState.Reconcile(DevToolsStateAxis::Window, DevToolsWindow_IsOpen() ? 1ull : 0ull);
-    HRESULT hr = OpenInprocWindow();
+    HRESULT hr = OpenInprocWindow(error);
     const bool open = SUCCEEDED(hr) && DevToolsWindow_IsOpen();
     if (open && request.comments) DevToolsWindow_ShowComments();
     g_ownedState.Reconcile(DevToolsStateAxis::Window, open ? 1ull : 0ull);
@@ -609,7 +640,7 @@ static bool PublishOverlayPick(InstanceHandle h, bool releaseCommit) {
     // slot) is the window's "no selection" sentinel, matching the Selection.picked broadcast below.
     const bool claimedByWindow = DevToolsWindow_IsOpen() && DevToolsWindow_OnPicked(wire, releaseCommit);
 
-    // This runs on the UI thread, so it must only ENQUEUE — DevToolsEvents_Broadcast does exactly that (a slow
+    // This runs on the UI thread, so it must only ENQUEUE. DevToolsEvents_Broadcast does exactly that (a slow
     // client's writer thread does the blocking I/O).
     std::wstring params = L"{\"generation\":" + std::to_wstring(gen) +
                           L",\"handle\":\"" + std::to_wstring(wire) + L"\"}";
@@ -649,6 +680,71 @@ static bool IsDeclaredElement(InstanceHandle h)
     return !source.empty() && IsAuthoredSource(source) && !DevToolsAuthored_IsControlTemplatePart(source, line, column);
 }
 
+// Whether `node` was placed by whoever built the UI rather than by a control template: a ContentPresenter's
+// content, a UserControl's content, an item in an items panel or ItemsRepeater, a popup's child, or the window's
+// root. A ScrollViewer's content counts only when the ScrollViewer itself was placed: controls such as TextBox put
+// their template parts in a ScrollViewer of their own.
+static bool IsPlacedContent(DevToolsX::DependencyObject const& node, DevToolsX::DependencyObject const& parent);
+
+// A ScrollViewer the app placed, possibly inside its own plain panels: walking up reaches placed content before any
+// control. A template's ScrollViewer reaches the control that owns the template first.
+static bool IsAppPlacedScroller(DevToolsX::DependencyObject const& scroller)
+{
+    DevToolsX::DependencyObject node = scroller;
+    for (int depth = 0; node && depth < 64; ++depth) {
+        const auto parent = DevToolsXM::VisualTreeHelper::GetParent(node);
+        if (IsPlacedContent(node, parent)) return true;
+        if (parent.try_as<DevToolsXC::Control>()) return false;
+        node = parent;
+    }
+    return false;
+}
+
+static bool IsPlacedContent(DevToolsX::DependencyObject const& node, DevToolsX::DependencyObject const& parent)
+{
+    if (auto element = node.try_as<DevToolsX::UIElement>()) {
+        if (auto root = element.XamlRoot(); root && root.Content() == element) return true;
+    }
+    if (!parent) return true;
+    if (parent.try_as<DevToolsXC::ScrollContentPresenter>()) {
+        DevToolsX::DependencyObject scroller = parent;
+        for (int depth = 0; scroller && depth < 8 && !scroller.try_as<DevToolsXC::ScrollViewer>(); ++depth)
+            scroller = DevToolsXM::VisualTreeHelper::GetParent(scroller);
+        return scroller && scroller.try_as<DevToolsXC::ScrollViewer>() && IsAppPlacedScroller(scroller);
+    }
+    if (auto presenter = parent.try_as<DevToolsXC::ContentPresenter>()) return presenter.Content() == node;
+    if (parent.try_as<DevToolsXC::UserControl>() || parent.try_as<DevToolsXCP::Popup>() ||
+        parent.try_as<DevToolsXC::ItemsRepeater>()) return true;
+    if (auto panel = parent.try_as<DevToolsXC::Panel>()) return panel.IsItemsHost();
+    return false;
+}
+
+// UI built in code has no source to tell the app's elements from template parts. A hit in content the app placed
+// is kept (a TextBlock in a dialog's StackPanel). A hit in a control's template selects the outermost control that
+// owns the template (the TextBox, not the ScrollViewer inside it; the ComboBoxItem, not its text).
+static InstanceHandle CodeBuiltPickTarget(InstanceHandle hit)
+{
+    try {
+        winrt::com_ptr<IInspectable> object;
+        if (!g_diag || FAILED(g_diag->GetIInspectableFromHandle(hit, object.put())) || !object) return hit;
+        winrt::Windows::Foundation::IInspectable element{ nullptr };
+        winrt::copy_from_abi(element, object.get());
+        DevToolsX::DependencyObject owner{ nullptr };
+        auto node = element.try_as<DevToolsX::DependencyObject>();
+        for (int depth = 0; node && depth < 256; ++depth) {
+            if (node.try_as<DevToolsXC::Control>()) owner = node;
+            const auto parent = DevToolsXM::VisualTreeHelper::GetParent(node);
+            if (IsPlacedContent(node, parent)) break;
+            node = parent;
+        }
+        InstanceHandle handle = 0;
+        if (owner && SUCCEEDED(g_diag->GetHandleFromIInspectable(
+                         reinterpret_cast<IInspectable*>(winrt::get_abi(owner)), &handle)) && handle)
+            return handle;
+    } catch (const winrt::hresult_error&) {}
+    return hit;
+}
+
 // A pick selects the author's element, not a control template's part or runtime-generated text (a Button's string
 // content, a placeholder): any other hit resolves to its nearest declared ancestor. A hit with no such ancestor is
 // kept.
@@ -668,19 +764,8 @@ static InstanceHandle PickTarget(InstanceHandle hit)
     for (const InstanceHandle ancestor : ancestors) {
         if (IsDeclaredElement(ancestor)) return ancestor;
     }
-    // Nothing declared above it (a generated list item, a menu built in code): select the control the hit belongs
-    // to, such as the ComboBoxItem or MenuFlyoutItem, rather than a part of its template.
-    auto isControl = [](InstanceHandle h) {
-        winrt::com_ptr<IInspectable> object;
-        if (!g_diag || FAILED(g_diag->GetIInspectableFromHandle(h, object.put())) || !object) return false;
-        winrt::com_ptr<IUnknown> control;
-        return SUCCEEDED(object->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), control.put_void()));
-    };
-    if (isControl(hit)) return hit;
-    for (const InstanceHandle ancestor : ancestors) {
-        if (isControl(ancestor)) return ancestor;
-    }
-    return hit;
+    // Nothing declared above it (a generated list item, a menu or dialog built in code).
+    return CodeBuiltPickTarget(hit);
 }
 
 static bool OnOverlayReleasedPick(InstanceHandle h)

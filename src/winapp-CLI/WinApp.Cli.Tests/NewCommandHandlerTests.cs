@@ -181,7 +181,7 @@ public class NewCommandHandlerTests : BaseCommandTests
 
         var scaffold = ScaffoldInvocation();
         Assert.IsNotNull(scaffold, "A dotnet new scaffold command should have run.");
-        CollectionAssert.Contains(scaffold.ToArray(), "winui");
+        Assert.Contains("winui", scaffold.ToArray());
     }
 
     [TestMethod]
@@ -233,7 +233,7 @@ public class NewCommandHandlerTests : BaseCommandTests
         Assert.IsTrue(outIdx >= 0 && outIdx + 1 < tokens.Length, "Scaffold should pass -o <path>.");
         Assert.AreEqual(outDir, tokens[outIdx + 1],
             "A path with spaces must be a single verbatim token — proving ArgumentList prevents splitting/injection.");
-        CollectionAssert.DoesNotContain(tokens, "--force");
+        Assert.DoesNotContain("--force", tokens);
     }
 
     [TestMethod]
@@ -246,7 +246,7 @@ public class NewCommandHandlerTests : BaseCommandTests
 
         var scaffold = ScaffoldInvocation();
         Assert.IsNotNull(scaffold);
-        CollectionAssert.Contains(scaffold.ToArray(), "--force");
+        Assert.Contains("--force", scaffold.ToArray());
     }
 
     [TestMethod]
@@ -358,8 +358,8 @@ public class NewCommandHandlerTests : BaseCommandTests
             command, ["--use-defaults", "--json", "--template-version", "1.0 --add-source http://evil"]);
 
         Assert.AreEqual(NewCommand.ExitInvalidArgs, exitCode);
-        CollectionAssert.DoesNotContain(
-            _dotnet.ArgumentListInvocations.SelectMany(a => a).ToArray(), "--version",
+        Assert.DoesNotContain(
+            "--version", _dotnet.ArgumentListInvocations.SelectMany(a => a).ToArray(),
             "Invalid --template-version should fail fast before any dotnet call.");
     }
 
@@ -553,7 +553,7 @@ public class NewCommandHandlerTests : BaseCommandTests
         Assert.AreEqual(NewCommand.ExitTemplatePackFailed, exitCode);
         Assert.IsNull(ScaffoldInvocation(), "Nothing may be scaffolded when template ownership is unverifiable.");
         var json = ParseJson(TestAnsiConsole.Output);
-        StringAssert.Contains(json.GetProperty("Error").GetString()!, "Could not verify which templates",
+        Assert.Contains("Could not verify which templates", json.GetProperty("Error").GetString()!,
             "The failure must name the unverifiable ownership so the user can diagnose it.");
     }
 
@@ -669,9 +669,9 @@ public class NewCommandHandlerTests : BaseCommandTests
             command, ["--use-defaults", "--name", "VerboseApp"]);
 
         Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
-        StringAssert.Contains(ambientOutput, "Processing post-creation actions",
+        Assert.Contains("Processing post-creation actions", ambientOutput,
             $"Verbose scaffolding must surface dotnet new's post-creation action output. Output:\n{ambientOutput}");
-        StringAssert.Contains(ambientOutput, "Restoring packages",
+        Assert.Contains("Restoring packages", ambientOutput,
             $"Verbose scaffolding must surface post-action restore output so failures are diagnosable. Output:\n{ambientOutput}");
     }
 
@@ -713,10 +713,10 @@ public class NewCommandHandlerTests : BaseCommandTests
         Assert.AreEqual(NewCommand.ExitScaffoldFailed, exitCode);
         // The error detail (logged at Error level) routes to stderr; it must carry the stdout-borne
         // post-action reason so the failure is actionable rather than a bare exit code.
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Restore failed",
+        Assert.Contains("Restore failed", ConsoleStdErr.ToString(),
             $"A post-action failure written to stdout must surface in the error detail. Stderr:\n{ConsoleStdErr}");
         // Under --verbose the same output is also streamed live as it is produced.
-        StringAssert.Contains(ambientOutput, "Restore failed",
+        Assert.Contains("Restore failed", ambientOutput,
             $"Verbose scaffolding must stream the failing post-action output live. Output:\n{ambientOutput}");
     }
 
@@ -785,7 +785,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             "--force must allow scaffolding into a non-empty output directory.");
         var scaffold = ScaffoldInvocation();
         Assert.IsNotNull(scaffold);
-        CollectionAssert.Contains(scaffold.ToArray(), "--force");
+        Assert.Contains("--force", scaffold.ToArray());
     }
 
     [TestMethod]
@@ -987,10 +987,197 @@ public class NewCommandHandlerTests : BaseCommandTests
         var shortNames = json.GetProperty("Templates").EnumerateArray()
             .Select(t => t.GetProperty("ShortName").GetString())
             .ToArray();
-        CollectionAssert.Contains(shortNames, "winui", "The Microsoft pack's own templates must remain listed.");
-        CollectionAssert.Contains(shortNames, "winui-lib");
-        CollectionAssert.DoesNotContain(shortNames, "winui-foreign",
+        Assert.Contains("winui", shortNames, "The Microsoft pack's own templates must remain listed.");
+        Assert.Contains("winui-lib", shortNames);
+        Assert.DoesNotContain("winui-foreign", shortNames,
             "A template from another installed pack must be filtered out of the catalog.");
+    }
+
+    /// <summary>
+    /// Scripts two copies of the WinUI pack, as <c>dotnet new uninstall</c> shows them when one copy came
+    /// from NuGet and another from a local .nupkg (#1280). Each template is listed only under the copy
+    /// that supplies it, so the templates are split between the two blocks.
+    /// </summary>
+    private void ScriptTwoPackCopies(string firstVersion, string secondVersion)
+    {
+        var uninstall = BuildUninstallOutput(firstVersion, SampleTemplates[..2])
+            + BuildUninstallOutput(secondVersion, SampleTemplates[2..])
+                .Replace("Currently installed items:\n", string.Empty, StringComparison.Ordinal);
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count >= 1 && args[0] == "--version")
+            {
+                return (0, "9.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, uninstall, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
+            {
+                return (0, SampleListOutput, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
+            {
+                return (0, "All template packages are up-to-date.", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
+            {
+                return (0, "ok", string.Empty);
+            }
+            return (0, "The template was created successfully.", string.Empty);
+        };
+    }
+
+    private static readonly string[] AllSampleShortNames =
+        ["winui", "winui-lib", "winui-mvvm", "winui-navview", "winui-tabview", "winui-unittest"];
+
+    [TestMethod]
+    [DataRow("0.0.5-alpha", "0.0.7-alpha")]
+    [DataRow("0.0.7-alpha", "0.0.5-alpha")]
+    public async Task Handler_TwoPackCopies_ListsTemplatesFromBothCopies(string firstVersion, string secondVersion)
+    {
+        ScriptTwoPackCopies(firstVersion, secondVersion);
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--list", "--json"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        var json = ParseJson(TestAnsiConsole.Output);
+        var shortNames = json.GetProperty("Templates").EnumerateArray()
+            .Select(t => t.GetProperty("ShortName").GetString())
+            .ToArray();
+        Assert.AreSequenceEqual(
+            AllSampleShortNames,
+            shortNames,
+            SequenceOrder.InAnyOrder,
+            "Templates listed under either copy of the pack must all be offered.");
+        Assert.AreEqual(0, _dotnet.ArgumentListInvocations.Count(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
+            "The highest installed copy is already current, so nothing should be reinstalled.");
+        Assert.IsTrue(
+            !json.TryGetProperty("TemplateVersion", out var listVersion) || listVersion.ValueKind == JsonValueKind.Null,
+            "The templates come from two pack versions, so the list must not name just one.");
+    }
+
+    [TestMethod]
+    public async Task Handler_TwoPackCopies_ScaffoldsAndReportsTheCopyThatSuppliesTheTemplate()
+    {
+        // winui comes from the first (older) copy, so that is the version the result must report.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--template", "winui", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.AreEqual("winui", ScaffoldInvocation()?[1]);
+        var json = ParseJson(TestAnsiConsole.Output);
+        Assert.AreEqual("0.0.5-alpha", json.GetProperty("TemplateVersion").GetString());
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // InvokeWithAmbientConsoleCaptureAsync swaps the process-wide AnsiConsole.
+    public async Task Handler_TwoPackCopies_WarnsWithCleanupCommand()
+    {
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, ["--list"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        var output = string.Join(' ', ambientOutput
+            .Split((char[])[' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
+        Assert.Contains("0.0.5-alpha, 0.0.7-alpha", output);
+        Assert.Contains($"dotnet new uninstall {NewCommand.TemplatePackageId}", output);
+    }
+
+    [TestMethod]
+    public async Task Handler_TwoPackCopies_RejectsPinThatTheTemplatesCopyDoesNotMatch()
+    {
+        // winui comes from the 0.0.5-alpha copy, so a 0.0.7-alpha pin must not silently use it.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["--template", "winui", "--template-version", "0.0.7-alpha", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitTemplatePackFailed, exitCode, TestAnsiConsole.Output);
+        Assert.IsNull(ScaffoldInvocation(), "Nothing may be scaffolded from the wrong pack version.");
+        var error = ParseJson(TestAnsiConsole.Output).GetProperty("Error").GetString();
+        Assert.IsNotNull(error);
+        Assert.Contains("0.0.5-alpha", error);
+        Assert.Contains($"dotnet new uninstall {NewCommand.TemplatePackageId}", error);
+    }
+
+    [TestMethod]
+    public async Task Handler_TwoPackCopies_AcceptsPinThatTheTemplatesCopyMatches()
+    {
+        // winui-navview comes from the 0.0.7-alpha copy, which is what the pin asks for.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["--template", "winui-navview", "--template-version", "0.0.7-alpha", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.AreEqual("winui-navview", ScaffoldInvocation()?[1]);
+        Assert.AreEqual("0.0.7-alpha", ParseJson(TestAnsiConsole.Output).GetProperty("TemplateVersion").GetString());
+    }
+
+    [TestMethod]
+    [DataRow("winui", NewCommand.ExitTemplatePackFailed)]
+    [DataRow("winui-navview", NewCommand.ExitSuccess)]
+    public async Task Handler_TwoPackCopies_LatestRejectsTemplateFromOlderCopy(string template, int expectedExit)
+    {
+        // The feed reports 0.0.7-alpha as current. winui comes from the 0.0.5-alpha copy, so 'latest'
+        // must not scaffold it; winui-navview comes from the 0.0.7-alpha copy.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["--template", template, "--template-version", "latest", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(expectedExit, exitCode, TestAnsiConsole.Output);
+        var json = ParseJson(TestAnsiConsole.Output);
+        if (expectedExit == NewCommand.ExitSuccess)
+        {
+            Assert.AreEqual("0.0.7-alpha", json.GetProperty("TemplateVersion").GetString());
+        }
+        else
+        {
+            Assert.IsNull(ScaffoldInvocation(), "'latest' must not scaffold from an older copy of the pack.");
+            Assert.Contains($"dotnet new uninstall {NewCommand.TemplatePackageId}", json.GetProperty("Error").GetString()!);
+        }
+    }
+
+    [TestMethod]
+    public async Task Handler_TwoPackCopies_PinToOlderInstalledCopyUsesItWithoutReinstalling()
+    {
+        // The older copy may exist only as a local .nupkg, so reinstalling it from the feed can fail.
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["--template", "winui", "--template-version", "0.0.5-alpha", "--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.AreEqual(0, _dotnet.ArgumentListInvocations.Count(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
+            "The pinned version is already installed, so nothing should be reinstalled.");
+        Assert.AreEqual("winui", ScaffoldInvocation()?[1]);
+        Assert.AreEqual("0.0.5-alpha", ParseJson(TestAnsiConsole.Output).GetProperty("TemplateVersion").GetString());
+    }
+
+    [TestMethod]
+    public async Task Handler_TwoPackCopies_ListHeaderOmitsSinglePackVersion()
+    {
+        ScriptTwoPackCopies("0.0.5-alpha", "0.0.7-alpha");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--list"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.Contains("Available WinUI templates:", TestAnsiConsole.Output);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("(pack ", StringComparison.Ordinal),
+            "The templates come from two pack versions, so the header must not name just one.");
     }
 
     /// <summary>
@@ -1097,8 +1284,8 @@ public class NewCommandHandlerTests : BaseCommandTests
         var json = ParseJson(TestAnsiConsole.Output);
         Assert.IsFalse(json.GetProperty("Created").GetBoolean());
         var error = json.GetProperty("Error").GetString() ?? string.Empty;
-        StringAssert.Contains(error, "Microsoft.UI.Reactor.Templates");
-        StringAssert.Contains(error, "dotnet new uninstall Microsoft.UI.Reactor.Templates");
+        Assert.Contains("Microsoft.UI.Reactor.Templates", error);
+        Assert.Contains("dotnet new uninstall Microsoft.UI.Reactor.Templates", error);
         Assert.IsNull(ScaffoldInvocation(), "No scaffold may run when dotnet new can't select the template.");
     }
 
@@ -1116,6 +1303,8 @@ public class NewCommandHandlerTests : BaseCommandTests
             $"App templates should suggest 'winapp run' as the next step (it builds and launches the project). Output:\n{TestAnsiConsole.Output}");
         Assert.IsFalse(TestAnsiConsole.Output.Contains("dotnet run", StringComparison.Ordinal),
             $"App templates must not suggest 'dotnet run' now that 'winapp run' is the documented next step. Output:\n{TestAnsiConsole.Output}");
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("MyApp.cs", StringComparison.Ordinal),
+            $"Project-based apps run from their folder; the single-file hint must not appear. Output:\n{TestAnsiConsole.Output}");
     }
 
     [TestMethod]
@@ -1166,6 +1355,80 @@ public class NewCommandHandlerTests : BaseCommandTests
             "The unittest next step must not recommend 'dotnet test' — the packaged MSTest app runs its tests on launch.");
     }
 
+    /// <summary>
+    /// Scripts a pack holding the Reactor single-file template with <paramref name="tags"/> in the Tags
+    /// column. When <paramref name="createSingleFile"/> is set, the scaffold step writes
+    /// <c>MyApp\MyApp.cs</c> (and no project file), as the real template does.
+    /// </summary>
+    private void ScriptSingleFileTemplate(string tags, bool createSingleFile)
+    {
+        (string Name, string Short, string Lang, string Type, string Author, string Tags)[] templates =
+        [
+            ("Reactor Single-File App (Experimental)", "reactor-singlefile,winui-reactor-singlefile", "[C#]", "project", "Microsoft", tags),
+            ("WinUI Blank App", "winui,winui3,wasdk-single", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
+        ];
+        var list = BuildListTable(templates);
+        var uninstall = BuildUninstallOutput("0.0.6-alpha", templates);
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count >= 1 && args[0] == "--version")
+            {
+                return (0, "10.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, uninstall, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
+            {
+                return (0, list, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
+            {
+                return (0, "All template packages are up-to-date.", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
+            {
+                return (0, "ok", string.Empty);
+            }
+            if (createSingleFile)
+            {
+                var dir = Directory.CreateDirectory(Path.Join(_tempDirectory.FullName, "MyApp"));
+                File.WriteAllText(Path.Join(dir.FullName, "MyApp.cs"), "// file-based app");
+            }
+            return (0, "The template was created successfully.", string.Empty);
+        };
+    }
+
+    [TestMethod]
+    public async Task Handler_SingleFileTemplate_PrintsRunWithCsFileNextStep()
+    {
+        ScriptSingleFileTemplate("Windows/WinUI/Desktop/Reactor/SingleFile/Experimental", createSingleFile: false);
+        TestAnsiConsole.Profile.Width = 500;
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--template", "reactor-singlefile", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.IsTrue(TestAnsiConsole.Output.Contains("winapp run \"MyApp.cs\"", StringComparison.Ordinal),
+            $"A single-file app only runs with its .cs path, so the next step must be 'winapp run \"MyApp.cs\"'. Output:\n{TestAnsiConsole.Output}");
+    }
+
+    [TestMethod]
+    public async Task Handler_SingleFileTemplate_TruncatedTags_DetectsScaffoldedCsFile()
+    {
+        // dotnet new list can cut the Tags column short, dropping the SingleFile segment.
+        ScriptSingleFileTemplate("Windows/WinUI/Desktop/Re...", createSingleFile: true);
+        TestAnsiConsole.Profile.Width = 500;
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--template", "reactor-singlefile", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.IsTrue(TestAnsiConsole.Output.Contains("winapp run \"MyApp.cs\"", StringComparison.Ordinal),
+            $"A scaffolded MyApp.cs with no project file is a single-file app even when the tag is cut off. Output:\n{TestAnsiConsole.Output}");
+    }
+
     [TestMethod]
     public async Task Handler_ScaffoldPinsTargetFrameworkToInstalledSdk()
     {
@@ -1196,7 +1459,7 @@ public class NewCommandHandlerTests : BaseCommandTests
         Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
         var scaffold = ScaffoldInvocation();
         Assert.IsNotNull(scaffold);
-        CollectionAssert.DoesNotContain(scaffold.ToArray(), "--dotnet-version",
+        Assert.DoesNotContain("--dotnet-version", scaffold.ToArray(),
             "For an SDK newer than the templates' choices, omit --dotnet-version and let the template auto-detect.");
     }
 
@@ -1265,10 +1528,38 @@ public class NewCommandHandlerTests : BaseCommandTests
 
         Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
         var tokens = ScaffoldInvocation()!.ToArray();
-        CollectionAssert.DoesNotContain(tokens, "--dotnet-version",
+        Assert.DoesNotContain("--dotnet-version", tokens,
             "A pack without a host mapping must not be invoked with the hard-coded --dotnet-version option.");
         var idx = Array.IndexOf(tokens, "--dotnetVersion");
         Assert.IsTrue(idx >= 0, "The raw symbol name (--dotnetVersion) is what dotnet exposes for an unmapped symbol.");
+        Assert.AreEqual("net9.0", tokens[idx + 1]);
+    }
+
+    [TestMethod]
+    public async Task Handler_Scaffold_PrefersCacheForInstalledPackOverStaleSdkBandCache()
+    {
+        // Each SDK band keeps its own templatecache.json. An unused older band still describes the pack
+        // installed back then (here 0.0.5-alpha, whose option was --dotnetVersion). Even when that stale
+        // cache is read first, the cache describing the installed pack (0.0.6-alpha) must decide.
+        const string staleCache =
+            "{\"TemplateInfo\":[{" +
+            "\"MountPointUri\":\"C:\\\\pkgs\\\\Microsoft.WindowsAppSDK.WinUI.CSharp.Templates.0.0.5-alpha.nupkg\"," +
+            "\"ShortNameList\":[\"winui\"]," +
+            "\"Parameters\":[{\"Name\":\"dotnetVersion\",\"DataType\":\"choice\",\"Choices\":{\"net8.0\":{},\"net9.0\":{},\"net10.0\":{}}}]," +
+            "\"HostData\":\"{\\\"symbolInfo\\\":{}}\"}]}";
+        _templateCache.Documents.Add(staleCache);
+        _templateCache.Documents.Add(WinuiCacheJson);
+        ScriptHappyPath(sdkVersion: "9.0.100");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        var tokens = ScaffoldInvocation()!.ToArray();
+        Assert.DoesNotContain("--dotnetVersion", tokens,
+            "A stale cache for a previously installed pack must not choose the option name.");
+        var idx = Array.IndexOf(tokens, "--dotnet-version");
+        Assert.IsTrue(idx >= 0, "The installed pack's own metadata (--dotnet-version) must be used.");
         Assert.AreEqual("net9.0", tokens[idx + 1]);
     }
 
@@ -1401,7 +1692,7 @@ public class NewCommandHandlerTests : BaseCommandTests
         var scaffold = ScaffoldInvocation();
         Assert.IsNotNull(scaffold, "A non-interactive host must scaffold using defaults without prompting.");
         var tokens = scaffold.ToArray();
-        CollectionAssert.Contains(tokens, "winui", "The default 'winui' template must be scaffolded.");
+        Assert.Contains("winui", tokens, "The default 'winui' template must be scaffolded.");
         var nameIdx = Array.IndexOf(tokens, "-n");
         Assert.IsTrue(nameIdx >= 0 && nameIdx + 1 < tokens.Length, "The scaffold must pass a project name.");
         Assert.AreEqual("WinUIApp", tokens[nameIdx + 1],
@@ -1424,7 +1715,7 @@ public class NewCommandHandlerTests : BaseCommandTests
         var scaffold = ScaffoldInvocation();
         Assert.IsNotNull(scaffold);
         var tokens = scaffold.ToArray();
-        CollectionAssert.Contains(tokens, "winui");
+        Assert.Contains("winui", tokens);
         var nameIdx = Array.IndexOf(tokens, "-n");
         Assert.IsTrue(nameIdx >= 0 && nameIdx + 1 < tokens.Length);
         Assert.AreEqual("PromptedApp", tokens[nameIdx + 1],
@@ -1470,8 +1761,8 @@ public class NewCommandHandlerTests : BaseCommandTests
         var shortNames = json.GetProperty("Templates").EnumerateArray()
             .Select(t => t.GetProperty("ShortName").GetString())
             .ToArray();
-        CollectionAssert.Contains(shortNames, "winui", "The listed catalog must include the default template.");
-        CollectionAssert.Contains(shortNames, "winui-lib");
+        Assert.Contains("winui", shortNames, "The listed catalog must include the default template.");
+        Assert.Contains("winui-lib", shortNames);
     }
 
     [TestMethod]

@@ -52,8 +52,8 @@ public sealed class GuestCommentStoreTests
         {
             ExchangeAsync = (_, _, _) => throw new AssertFailedException("Unbound inspection must not contact another app's host store."),
         };
-        StringAssert.Contains(Assert.ThrowsExactly<InvalidOperationException>(() => store.Locate()).Message,
-            "Persistent host comments are unavailable");
+        Assert.Contains("Persistent host comments are unavailable",
+            Assert.ThrowsExactly<InvalidOperationException>(() => store.Locate()).Message);
         using var metadata = System.Text.Json.JsonDocument.Parse(
             $$"""{"mode":"unavailable","binding":"","epoch":"{{Epoch}}","start":"{{start}}"}""");
         Assert.IsTrue(context.MatchesAgent(metadata.RootElement));
@@ -206,7 +206,7 @@ public sealed class GuestCommentStoreTests
         fixture.Local.Update(path, "note", row => row.Text = "host changed");
         var error = Assert.ThrowsExactly<InvalidOperationException>(() =>
             store.AddOrReplace(path, fixture.Note("stale guest draft"), out _));
-        StringAssert.Contains(error.Message, "changed on the host");
+        Assert.Contains("changed on the host", error.Message);
         Assert.AreEqual("host changed", fixture.Local.Get(path, "note")!.Text);
         fixture.Context.Activate(fixture.Binding.Process, fixture.Guest, default);
         var racing = fixture.CreateStore(beforeApply: () =>
@@ -258,7 +258,7 @@ public sealed class GuestCommentStoreTests
         var parse = command.Parse(["--id", "note", "--text", "guest save", "--file", "Main.xaml", "--source-root", fixture.Guest, "--json"]);
         Assert.IsEmpty(parse.Errors);
         Assert.AreEqual(GuestCommentContext.SavedThenChangedExitCode, await handler.InvokeAsync(parse), output.Output);
-        StringAssert.Contains(output.Output, "newer host edit");
+        Assert.Contains("newer host edit", output.Output);
         Assert.AreEqual("newer host edit", fixture.Local.Get(path, "note")!.Text);
         Assert.IsNull(fixture.Local.Get(path, "note")!.Anchor.SourceProvenance);
         Assert.AreEqual(2, fixture.Local.Load(path).GuestReceipts!.Count);
@@ -284,7 +284,7 @@ public sealed class GuestCommentStoreTests
         Assert.IsEmpty(parse.Errors);
         Assert.AreEqual(nativeWriter ? GuestCommentContext.SavedRefreshFailedExitCode : 0, await handler.InvokeAsync(parse));
         Assert.IsNull(fixture.Local.Get(path, "note"));
-        StringAssert.Contains(output.Output, "warning");
+        Assert.Contains("warning", output.Output);
     }
 
     [TestMethod]
@@ -333,7 +333,7 @@ public sealed class GuestCommentStoreTests
         Assert.AreEqual(fixture.Host, persisted.ProjectRoot);
         Assert.AreEqual(verb == "add" ? exact : exact.Trim(), verb == "add" ? persisted.Text : persisted.Resolution!.Note);
         Assert.AreEqual(verb == "add" ? CommentStatus.Open : CommentStatus.Stale, persisted.Status);
-        CollectionAssert.AreEqual(new[] { checked((uint)process.Id) }, pusher.Processes);
+        Assert.AreSequenceEqual(new[] { checked((uint)process.Id) }, pusher.Processes);
         Assert.AreEqual(fixture.Guest, pusher.SourceRoot);
         using var result = System.Text.Json.JsonDocument.Parse(output.Output);
         Assert.IsTrue(result.RootElement.GetProperty("ok").GetBoolean());

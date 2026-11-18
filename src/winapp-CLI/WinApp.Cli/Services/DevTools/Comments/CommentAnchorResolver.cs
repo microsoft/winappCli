@@ -40,8 +40,7 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            (logger ?? NullLogger<CommentAnchorResolver>.Instance).LogWarning(ex,
-                "Could not search comment source locations under {SourceRoot}.", sourceRoot);
+            (logger ?? NullLogger<CommentAnchorResolver>.Instance).LogWarning("Could not search for comment sources under {SourceRoot}: {Reason}", sourceRoot, ex.Message);
             return [];
         }
         if (files.Count == 0)
@@ -112,7 +111,7 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Xml.XmlException)
             {
-                (logger ?? NullLogger<CommentAnchorResolver>.Instance).LogWarning(ex, "Could not read comment source file {File}.", file);
+                ReportUnreadable(file, ex);
             }
         }
 
@@ -174,7 +173,7 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
         foreach (var path in Directory.EnumerateFiles(sourceRoot, "*.xaml",
             new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false }))
         {
-            if (IsBuildOutput(path))
+            if (IsSkipped(sourceRoot, path))
             {
                 continue;
             }
@@ -251,17 +250,19 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
         {
             return null;
         }
-        if (fromUri is null && !relative.Contains('\\'))
-        {
-            var matches = Directory.EnumerateFiles(root, "*.xaml",
-                new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false })
-                .Where(p => !IsBuildOutput(p) && Path.GetFileName(p).Equals(relative, StringComparison.OrdinalIgnoreCase))
-                .Take(2).ToArray();
-            return matches.Length == 1 ? matches[0] : null;
-        }
         var candidate = Path.GetFullPath(Path.Combine(root, relative));
-        return !PathSafety.HasReparsePointOnPath(candidate, Path.GetFullPath(root)) && File.Exists(candidate)
-            ? candidate : null;
+        if (!PathSafety.HasReparsePointOnPath(candidate, Path.GetFullPath(root)) && File.Exists(candidate))
+        {
+            return candidate;
+        }
+        // A path the app reports flattened (ms-appx:///TermControl.xaml for src\Control\TermControl.xaml) is the one
+        // project file whose path ends with it. The engine resolves it the same way.
+        var suffix = "\\" + relative;
+        var matches = Directory.EnumerateFiles(root, "*.xaml",
+            new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false })
+            .Where(p => !IsSkipped(root, p) && p.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            .Take(2).ToArray();
+        return matches.Length == 1 ? matches[0] : null;
     }
 
     private static XElement? ParseCaptured(string declaration, XElement context)
@@ -276,11 +277,29 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
         }
     }
 
-    internal static bool IsBuildOutput(string path)
+    // Not the app's own source: build output, the copies the XAML compiler makes of each page, restored packages,
+    // and tool folders.
+    private static readonly string[] SkippedFolders = ["bin", "obj", "Generated Files", "packages", "node_modules", ".git", ".vs"];
+
+    internal static bool IsSkipped(string root, string path)
     {
-        var normalized = path.Replace('/', '\\');
-        return normalized.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase);
+        var parts = Path.GetRelativePath(root, path).Split('\\', '/');
+        return parts.Take(parts.Length - 1).Any(part => SkippedFolders.Contains(part, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static readonly HashSet<string> ReportedFiles = new(StringComparer.OrdinalIgnoreCase);
+
+    // A file that can't be read is said once, in one line: it is skipped for every comment, not just this one.
+    private void ReportUnreadable(string file, Exception ex)
+    {
+        lock (ReportedFiles)
+        {
+            if (!ReportedFiles.Add(file))
+            {
+                return;
+            }
+        }
+        (logger ?? NullLogger<CommentAnchorResolver>.Instance).LogWarning("Skipped {File} when matching comments: {Reason}", file, ex.Message);
     }
 
     private static bool IsMeaningfulAutomationId(string? automationId, string? name)

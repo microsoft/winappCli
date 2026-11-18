@@ -28,7 +28,7 @@ internal sealed record VisualTreeNode(
 
     public string? ShortFile => Facts?.File ?? DevToolsFormat.ShortFileName(File);
 
-    public string Selector => DevToolsSelector.Display(Handle, Type, Name, Id, UniqueName);
+    public string Selector => DevToolsSelector.Display(Handle, Type, Name, Id);
 
     public static IReadOnlyList<VisualTreeNode>? ParseForest(string? resultJson)
     {
@@ -167,13 +167,13 @@ internal sealed record AuthoredForest(
 
     /// <summary>
     /// Why this view has nothing to show, or <c>null</c> when it does. The three empty cases are different
-    /// facts and only one of them is about the app's markup, so they get different sentences — and the order
+    /// facts and only one of them is about the app's markup, so they get different sentences, and the order
     /// matters, because each one names a different next step.
     /// <para>
     /// "No source information at all" is decided FIRST, even mid-classification. The runtime banks a source
     /// file as each element is added, not only when the backfill reaches it, so an instrumented app reports
     /// <c>sourceInstrumented</c> on its very first pass. Absence is therefore strong evidence about the
-    /// LAUNCH rather than about how far the classifier has got — and leading with "still classifying" there
+    /// LAUNCH rather than about how far the classifier has got, and leading with "still classifying" there
     /// would tell a developer to wait for something that will never arrive, when the fix is to relaunch.
     /// The in-progress caveat is still stated, so the answer does not overclaim.
     /// </para>
@@ -188,8 +188,7 @@ internal sealed record AuthoredForest(
         if (!SourceInstrumented)
         {
             var why = "This app reports no XAML source information, so its own elements cannot be told apart " +
-                      "from the framework's. Showing the raw tree instead. Launch it with " +
-                      "`winapp run --devtools on`, which turns source information on.";
+                      "from the framework's. Showing the raw tree instead. " + DevToolsAppAuthored.RelaunchForSource;
             return ClassificationTruncated
                 ? why + " (The agent is still classifying, so run the command again if you did launch it that way.)"
                 : why;
@@ -214,7 +213,7 @@ internal sealed record VisualTreeSnapshot(IReadOnlyList<VisualTreeNode> Roots, i
     public int Count => Roots.Sum(CountNodes);
 
     /// <summary>
-    /// Whether the tap's node-walk limit truncated the reply — as opposed to the depth the caller asked for.
+    /// Whether the tap's node-walk limit truncated the reply, as opposed to the depth the caller asked for.
     /// <para>
     /// The tap returns each node's TRUE <c>childCount</c> even where it did not return those children, and its
     /// selection is breadth-first, so a node with hidden children ABOVE the level the request could reach can
@@ -236,7 +235,7 @@ internal sealed record VisualTreeSnapshot(IReadOnlyList<VisualTreeNode> Roots, i
     /// (<c>SelectBoundedBreadthFirst</c>: <c>for (depth = 0; depth &lt; maxDepth; ++depth)</c>), so
     /// <c>--depth D</c> returns levels 1..D+1 and every node at level ≤ D had its children ATTEMPTED. The
     /// edge is therefore D+1, not D. Getting this off by one would excuse real budget truncation at level D
-    /// as an expected cut-off AND tell the caller to rerun with a bigger depth that cannot reveal it — the
+    /// as an expected cut-off AND tell the caller to rerun with a bigger depth that cannot reveal it: the
     /// exact retry loop this derivation exists to prevent. Verified against a live tree: <c>--depth 4</c>
     /// returns five levels.
     /// </para>

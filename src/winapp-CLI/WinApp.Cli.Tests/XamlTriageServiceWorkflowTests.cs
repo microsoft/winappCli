@@ -118,8 +118,8 @@ public sealed class XamlTriageServiceWorkflowTests
 
         Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome);
         Assert.IsNotNull(result.LogText);
-        StringAssert.Contains(result.LogText, "authoritative");
-        StringAssert.Contains(result.LogText, "missing dbgeng.dll");
+        Assert.Contains("authoritative", result.LogText);
+        Assert.Contains("missing dbgeng.dll", result.LogText);
     }
 
     [TestMethod]
@@ -154,7 +154,7 @@ public sealed class XamlTriageServiceWorkflowTests
 
         Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome);
         Assert.IsNotNull(result.LogText);
-        StringAssert.Contains(result.LogText, "could not be obtained");
+        Assert.Contains("could not be obtained", result.LogText);
 
         // The engine bits were copied out of the seeded global cache into the first-use cache,
         // proving the NuGet acquisition ran and that HasEngine gated the JsProvider acquisition call.
@@ -192,8 +192,8 @@ public sealed class XamlTriageServiceWorkflowTests
 
         Assert.AreEqual(XamlTriageOutcome.Succeeded, result.Outcome);
         Assert.IsNotNull(result.LogText);
-        StringAssert.Contains(result.LogText, "source: unit-source");
-        StringAssert.Contains(result.LogText, "Error Code: 0x80004005");
+        Assert.Contains("source: unit-source", result.LogText);
+        Assert.Contains("Error Code: 0x80004005", result.LogText);
         Assert.AreEqual("0x80004005 — The parameter is incorrect.", result.Verdict);
 
         // The accepted extension bytes are cached to disk on success.
@@ -321,7 +321,7 @@ public sealed class XamlTriageServiceWorkflowTests
 
         Assert.AreEqual(XamlTriageOutcome.Succeeded, result.Outcome);
         Assert.IsNotNull(result.LogText);
-        StringAssert.Contains(result.LogText, "symsrv.dll was not found");
+        Assert.Contains("symsrv.dll was not found", result.LogText);
     }
 
     [TestMethod]
@@ -336,7 +336,7 @@ public sealed class XamlTriageServiceWorkflowTests
 
         Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome);
         Assert.IsNotNull(result.LogText);
-        StringAssert.Contains(result.LogText, "winui-dbgext.js");
+        Assert.Contains("winui-dbgext.js", result.LogText);
     }
 
     [TestMethod]
@@ -352,7 +352,7 @@ public sealed class XamlTriageServiceWorkflowTests
 
         Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome);
         Assert.IsNotNull(result.LogText);
-        StringAssert.Contains(result.LogText, "no output");
+        Assert.Contains("no output", result.LogText);
     }
 
     [TestMethod]
@@ -369,7 +369,62 @@ public sealed class XamlTriageServiceWorkflowTests
 
         Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome);
         Assert.IsNotNull(result.LogText);
-        StringAssert.Contains(result.LogText, "exited with code 5");
+        Assert.Contains("exited with code 5", result.LogText);
+    }
+
+    [TestMethod]
+    public async Task TryAnalyzeAsync_ChildCrashesAfterOutput_KeepsPartialOutputAndNamesStep()
+    {
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true);
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        // Simulates the bug-bash failure: !xamlstowed output reaches stdout, then the JavaScript engine
+        // fail-fasts during !xamltriage (-1073740791 == 0xC0000409).
+        service.TriageStartInfoFactory = (_, _, _, _) => BatchStartInfo(
+            "@echo off\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamlstowed 1>&2\r\n" +
+            "echo STOWED-BREAKDOWN\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamltriage 1>&2\r\n" +
+            "exit /b -1073740791\r\n");
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.Partial, result.Outcome);
+        Assert.IsNotNull(result.LogText);
+        Assert.Contains("STOWED-BREAKDOWN", result.LogText);
+        Assert.Contains("stopped early", result.LogText);
+        Assert.IsNotNull(result.Reason);
+        Assert.Contains("crashed (0xC0000409)", result.Reason);
+        Assert.Contains("'!xamltriage'", result.Reason);
+    }
+
+    [TestMethod]
+    public async Task TryAnalyzeAsync_ChildCrashesBeforeOutput_ReturnsSkippedWithReason()
+    {
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true);
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        service.TriageStartInfoFactory = (_, _, _, _) => BatchStartInfo(
+            "@echo off\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}.scriptload x 1>&2\r\n" +
+            "exit /b -1073740791\r\n");
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome);
+        Assert.IsNotNull(result.Reason);
+        Assert.Contains("0xC0000409", result.Reason);
+        Assert.Contains("'.scriptload x'", result.Reason);
+    }
+
+    [TestMethod]
+    public void DescribeChildExit_NoStepMarker_ReportsExitCodeOnly()
+    {
+        Assert.AreEqual(
+            "the triage child process exited with code 1.",
+            XamlTriageService.DescribeChildExit(1, "xaml-triage failed: boom\r\n"));
     }
 
     [TestMethod]
@@ -474,7 +529,7 @@ public sealed class XamlTriageServiceWorkflowTests
         using var held = await service.EnsureExtensionAsync(root, CancellationToken.None);
 
         Assert.IsNotNull(held);
-        CollectionAssert.AreEqual(genuine, File.ReadAllBytes(held.Path), "A cached script that fails the hash must be re-downloaded.");
+        Assert.AreSequenceEqual(genuine, File.ReadAllBytes(held.Path), "A cached script that fails the hash must be re-downloaded.");
         Assert.ThrowsExactly<IOException>(() => File.WriteAllText(held.Path, "evil"));
     }
 
@@ -584,7 +639,30 @@ public sealed class XamlTriageServiceWorkflowTests
 
         Assert.IsNull(output);
         Assert.IsNotNull(skipNote);
-        StringAssert.Contains(skipNote, "timed out");
+        Assert.Contains("timed out", skipNote);
+    }
+
+    [TestMethod]
+    public async Task RunTriageProcessAsync_TimeoutAfterOutput_KeepsPartialOutputAndNamesStep()
+    {
+        XamlTriageService.TriageTimeoutOverride = TimeSpan.FromSeconds(2);
+        var service = CreateService();
+        service.TriageStartInfoFactory = (_, _, _, _) => BatchStartInfo(
+            "@echo off\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamlstowed 1>&2\r\n" +
+            "echo stowed breakdown before hang\r\n" +
+            $"echo {XamlTriageRunner.StepMarker}!xamltriage 1>&2\r\n" +
+            "ping -n 30 127.0.0.1 >nul\r\n" +
+            "exit /b 0\r\n");
+
+        var (output, skipNote) = await service.RunTriageProcessAsync(
+            @"C:\crash.dmp", FakeBinaries(hasSymSrv: true), @"C:\ext.js", useSymbols: false, CancellationToken.None);
+
+        Assert.IsNotNull(output);
+        Assert.Contains("stowed breakdown before hang", output);
+        Assert.IsNotNull(skipNote);
+        Assert.Contains("timed out", skipNote);
+        Assert.Contains("while running '!xamltriage'", skipNote);
     }
 
     [TestMethod]
@@ -613,7 +691,7 @@ public sealed class XamlTriageServiceWorkflowTests
 
         Assert.IsNull(output);
         Assert.IsNotNull(skipNote);
-        StringAssert.Contains(skipNote, "STATUS_BREAKPOINT");
+        Assert.Contains("STATUS_BREAKPOINT", skipNote);
     }
 
     [TestMethod]
@@ -645,8 +723,8 @@ public sealed class XamlTriageServiceWorkflowTests
         Assert.IsFalse(string.IsNullOrEmpty(startInfo.FileName));
         Assert.IsTrue(startInfo.RedirectStandardOutput);
         Assert.IsTrue(startInfo.RedirectStandardError);
-        CollectionAssert.Contains(startInfo.ArgumentList.ToList(), XamlTriageRunner.InternalVerb);
-        CollectionAssert.Contains(startInfo.ArgumentList.ToList(), @"C:\crash.dmp");
+        Assert.Contains(XamlTriageRunner.InternalVerb, startInfo.ArgumentList.ToList());
+        Assert.Contains(@"C:\crash.dmp", startInfo.ArgumentList.ToList());
     }
 
     [TestMethod]
@@ -666,10 +744,10 @@ public sealed class XamlTriageServiceWorkflowTests
             Assert.AreEqual(@"C:\Program Files\dotnet\dotnet.exe", startInfo.FileName);
             // Under the dotnet host the managed entry assembly must be the FIRST argument, ahead of the verb.
             Assert.IsTrue(startInfo.ArgumentList.Count > 0);
-            StringAssert.EndsWith(startInfo.ArgumentList[0], ".dll");
-            StringAssert.StartsWith(startInfo.ArgumentList[0], AppContext.BaseDirectory);
+            Assert.EndsWith(".dll", startInfo.ArgumentList[0]);
+            Assert.StartsWith(AppContext.BaseDirectory, startInfo.ArgumentList[0]);
             Assert.AreEqual(XamlTriageRunner.InternalVerb, startInfo.ArgumentList[1]);
-            CollectionAssert.Contains(startInfo.ArgumentList.ToList(), @"C:\crash.dmp");
+            Assert.Contains(@"C:\crash.dmp", startInfo.ArgumentList.ToList());
         }
         finally
         {
@@ -684,8 +762,8 @@ public sealed class XamlTriageServiceWorkflowTests
 
         var note = XamlTriageService.UnavailableNote();
 
-        StringAssert.Contains(note, "could not be obtained");
-        StringAssert.Contains(note, "Debugging Tools for Windows");
+        Assert.Contains("could not be obtained", note);
+        Assert.Contains("Debugging Tools for Windows", note);
         // Without an override, DescribeOverrideGap is null, so the "authoritative" branch is not taken.
         Assert.IsFalse(note.Contains("authoritative", StringComparison.Ordinal));
     }
@@ -699,7 +777,7 @@ public sealed class XamlTriageServiceWorkflowTests
 
         var note = XamlTriageService.UnavailableNote();
 
-        StringAssert.Contains(note, "authoritative");
-        StringAssert.Contains(note, "missing dbgeng.dll");
+        Assert.Contains("authoritative", note);
+        Assert.Contains("missing dbgeng.dll", note);
     }
 }

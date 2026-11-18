@@ -240,6 +240,8 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
 
     public DevToolsProtocolResponse PollSelection(CancellationToken cancellationToken = default) => Request("Selection.poll", timeoutMs: 2000, cancellationToken: cancellationToken);
     public DevToolsProtocolResponse GetSourceRoot(CancellationToken cancellationToken = default) => Request("Internal.sourceRoot", timeoutMs: 4000, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse SetSourceRoot(string path, CancellationToken cancellationToken = default) =>
+        Request("Internal.setSourceRoot", w => w.WriteString("path", path), 4000, cancellationToken);
     public DevToolsProtocolResponse GetElementAnchor(string handle, CancellationToken cancellationToken = default) =>
         Request("Internal.elementAnchor", w => w.WriteString("handle", handle), 4000, cancellationToken);
 

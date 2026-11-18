@@ -46,7 +46,7 @@ public class CommentStoreTests
         Assert.Throws<CommentStoreCorruptException>(() => NewStore().AddOrReplace(StorePath, NewComment(), out _));
         Assert.Throws<CommentStoreCorruptException>(() => NewStore().Delete(StorePath, "x"));
         Assert.Throws<CommentStoreCorruptException>(() => NewStore().Update(StorePath, "x", c => c.Text = "changed"));
-        CollectionAssert.AreEqual(original, File.ReadAllBytes(StorePath));
+        Assert.AreSequenceEqual(original, File.ReadAllBytes(StorePath));
     }
 
     [TestMethod]
@@ -76,7 +76,7 @@ public class CommentStoreTests
         incoming.Id = old.Id;
         incoming.ProjectRoot = Path.Combine(_dir, "AppB");
         Assert.Throws<InvalidOperationException>(() => store.AddOrReplace(StorePath, incoming, out _));
-        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(StorePath));
+        Assert.AreSequenceEqual(bytes, File.ReadAllBytes(StorePath));
     }
 
     private static Comment NewComment(string text = "note") => new()
@@ -186,6 +186,32 @@ public class CommentStoreTests
         Assert.AreEqual(corrupt, File.ReadAllText(StorePath), "corrupt store must be left unchanged");
         Assert.IsTrue(File.Exists(StorePath + ".bak"), "a recovery copy should be written");
         Assert.AreEqual(corrupt, File.ReadAllText(StorePath + ".bak"));
+    }
+
+    [TestMethod]
+    public void CorruptStoreBackup_KeepsAnExistingBak_AndReportsTheNewCopy()
+    {
+        const string goodBackup = "{ \"version\":1, \"comments\":[] }";
+        const string corrupt = "{ not json";
+        File.WriteAllText(StorePath + ".bak", goodBackup);
+        File.WriteAllText(StorePath, corrupt);
+
+        var store = NewStore();
+        var first = Assert.ThrowsExactly<CommentStoreCorruptException>(() => store.Add(StorePath, NewComment("one")));
+        var second = Assert.ThrowsExactly<CommentStoreCorruptException>(() => store.Add(StorePath, NewComment("two")));
+
+        Assert.AreEqual(goodBackup, File.ReadAllText(StorePath + ".bak"), "an existing .bak must never be replaced");
+        Assert.AreEqual(corrupt, File.ReadAllText(StorePath));
+        var copies = Directory.GetFiles(_dir, Path.GetFileName(StorePath) + ".*.bak");
+        Assert.AreEqual(2, copies.Length, "each corruption gets its own recovery copy");
+        foreach (var copy in copies)
+        {
+            Assert.AreEqual(corrupt, File.ReadAllText(copy));
+        }
+        var names = copies.Select(Path.GetFileName).ToArray();
+        Assert.IsTrue(names.Any(n => first.Message.Contains(n!)), "the error names the copy it wrote: " + first.Message);
+        Assert.IsTrue(names.Any(n => second.Message.Contains(n!)), "the error names the copy it wrote: " + second.Message);
+        Assert.AreNotEqual(first.Message, second.Message, "each error names its own copy");
     }
 
     [TestMethod]
@@ -339,7 +365,7 @@ public class CommentStoreTests
         File.Delete(ignore);
         Directory.CreateDirectory(ignore);
         Assert.Throws<UnauthorizedAccessException>(() => NewStore().Add(path, NewComment("not written")));
-        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        Assert.AreSequenceEqual(before, File.ReadAllBytes(path));
     }
 
     [TestMethod]

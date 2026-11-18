@@ -81,6 +81,12 @@ internal sealed record WinUiTemplateEntry(
     /// </summary>
     public string? ScaffoldShortName
         => ShortNames.FirstOrDefault(a => !SharedAliases.Contains(a, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Version of the installed pack copy that supplies this template, when known. Differs between
+    /// templates only when more than one copy of the pack is installed.
+    /// </summary>
+    public string? PackVersion { get; init; }
 }
 
 /// <summary>
@@ -88,7 +94,11 @@ internal sealed record WinUiTemplateEntry(
 /// Unlike <c>dotnet new list</c>, that listing is not column-formatted, so <see cref="DisplayName"/>
 /// is never truncated and <see cref="Aliases"/> is authoritative for what the pack actually owns.
 /// </summary>
-internal sealed record PackTemplateRow(string DisplayName, IReadOnlyList<string> Aliases);
+internal sealed record PackTemplateRow(string DisplayName, IReadOnlyList<string> Aliases)
+{
+    /// <summary>The "Version:" of the pack block this row was listed under, when present.</summary>
+    public string? PackVersion { get; init; }
+}
 
 /// <summary>An installed template pack and the templates it owns, parsed from <c>dotnet new uninstall</c>.</summary>
 internal sealed record InstalledTemplatePack(string PackageId, IReadOnlyList<PackTemplateRow> Templates);
@@ -278,6 +288,12 @@ internal static class WinUiTemplateCatalog
     /// This is the authoritative record of what the exact package owns and how its templates are really
     /// named. Returns an empty list when the package or its Templates block isn't present, so callers
     /// can fall back to the unfiltered <c>dotnet new list</c> results.
+    /// <para>
+    /// The same package can be listed more than once, for example one copy installed from NuGet and
+    /// another from a local <c>.nupkg</c>. <c>dotnet new</c> then keeps each template from only one
+    /// copy and lists it under that copy, so rows are collected from every block and tagged with the
+    /// block's version.
+    /// </para>
     /// </summary>
     internal static IReadOnlyList<PackTemplateRow> ParsePackTemplates(string uninstallListOutput, string packageId)
     {
@@ -295,13 +311,15 @@ internal static class WinUiTemplateCatalog
                 continue;
             }
 
-            // Scan this package's block (lines indented deeper than the header) for its "Templates:"
-            // sub-header, then collect the template rows nested under it.
+            // Scan this package's block (lines indented deeper than the header) for its "Version:"
+            // line and "Templates:" sub-header, then collect the template rows nested under it.
             var headerIndent = IndentWidth(lines[i]);
+            string? version = null;
             for (var j = i + 1; j < lines.Length; j++)
             {
                 var raw = lines[j];
-                if (raw.Trim().Length == 0)
+                var line = raw.Trim();
+                if (line.Length == 0)
                 {
                     continue;
                 }
@@ -311,18 +329,23 @@ internal static class WinUiTemplateCatalog
                     break; // next package block
                 }
 
-                if (IsTemplatesHeader(raw))
+                if (version is null && line.StartsWith(VersionMarker, StringComparison.OrdinalIgnoreCase))
                 {
-                    rows.AddRange(ReadTemplateRows(lines, j));
+                    version = line[VersionMarker.Length..].Trim();
+                }
+                else if (IsTemplatesHeader(raw))
+                {
+                    var blockVersion = string.IsNullOrEmpty(version) ? null : version;
+                    rows.AddRange(ReadTemplateRows(lines, j).Select(r => r with { PackVersion = blockVersion }));
                     break;
                 }
             }
-
-            break;
         }
 
         return rows;
     }
+
+    private const string VersionMarker = "Version:";
 
     /// <summary>
     /// Parses every installed pack's "Templates:" block from a <c>dotnet new uninstall</c> listing.
@@ -503,7 +526,7 @@ internal static class WinUiTemplateCatalog
                 && NameMatches(entry.DisplayName, row.DisplayName));
             if (owner is not null)
             {
-                kept.Add(entry with { DisplayName = owner.DisplayName, ShortNames = owner.Aliases });
+                kept.Add(entry with { DisplayName = owner.DisplayName, ShortNames = owner.Aliases, PackVersion = owner.PackVersion });
             }
         }
 
@@ -588,11 +611,12 @@ internal static class WinUiTemplateCatalog
     /// <c>null</c> when the template declares no TFM choice (nothing to pin) or every choice is newer
     /// than the SDK. <c>Choices</c> carries every framework the template offers, so a caller that gets
     /// no <c>Tfm</c> can tell "this template has no framework knob" (empty) apart from "the installed
-    /// SDK is too old for every framework it supports" (non-empty).
+    /// SDK is too old for every framework it supports" (non-empty). When <paramref name="packVersion"/>
+    /// is given, only a template mounted from that exact pack version counts as found.
     /// </para>
     /// </summary>
     internal static (bool Found, string? OptionName, string? Tfm, IReadOnlyList<string> Choices) DeriveTfmOption(
-        string cacheJson, string packageId, string shortName, int sdkMajor)
+        string cacheJson, string packageId, string shortName, int sdkMajor, string? packVersion = null)
     {
         if (string.IsNullOrEmpty(cacheJson) || string.IsNullOrEmpty(shortName))
         {
@@ -619,7 +643,7 @@ internal static class WinUiTemplateCatalog
 
             foreach (var template in templates.EnumerateArray())
             {
-                if (!TemplateBelongsToPackage(template, packageId) || !TemplateHasShortName(template, shortName))
+                if (!TemplateBelongsToPackage(template, packageId, packVersion) || !TemplateHasShortName(template, shortName))
                 {
                     continue;
                 }
@@ -659,12 +683,40 @@ internal static class WinUiTemplateCatalog
         return lowest;
     }
 
-    /// <summary>True when the template's mount point is the nupkg of <paramref name="packageId"/>.</summary>
-    private static bool TemplateBelongsToPackage(JsonElement template, string packageId)
-        => !string.IsNullOrEmpty(packageId)
-            && template.TryGetProperty("MountPointUri", out var mount)
-            && mount.ValueKind == JsonValueKind.String
-            && (mount.GetString() ?? string.Empty).Contains(packageId, StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// True when the template's mount point is the nupkg of <paramref name="packageId"/> (and, when
+    /// <paramref name="packVersion"/> is given, of a NuGet-equivalent version, so <c>0.0.6.0-alpha</c>
+    /// matches a mounted <c>0.0.6-alpha</c>).
+    /// </summary>
+    private static bool TemplateBelongsToPackage(JsonElement template, string packageId, string? packVersion)
+    {
+        if (string.IsNullOrEmpty(packageId)
+            || !template.TryGetProperty("MountPointUri", out var mount)
+            || mount.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var mountPoint = mount.GetString() ?? string.Empty;
+        if (string.IsNullOrEmpty(packVersion))
+        {
+            return mountPoint.Contains(packageId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // The mounted nupkg is named "<PackageId>.<version>.nupkg"; compare that version semantically.
+        var fileName = mountPoint[(mountPoint.LastIndexOfAny(['/', '\\']) + 1)..];
+        const string extension = ".nupkg";
+        var prefix = packageId + ".";
+        if (!fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || !fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
+            || fileName.Length <= prefix.Length + extension.Length)
+        {
+            return false;
+        }
+
+        var mountedVersion = fileName[prefix.Length..^extension.Length];
+        return NuGetVersionHelper.NuGetVersionsEquivalent(mountedVersion, packVersion);
+    }
 
     /// <summary>True when <paramref name="shortName"/> is one of the template's short names.</summary>
     private static bool TemplateHasShortName(JsonElement template, string shortName)

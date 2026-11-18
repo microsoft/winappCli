@@ -11,7 +11,7 @@ namespace WinApp.Cli.Commands;
 
 internal class EmbedIdentityCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Embed sparse package identity into an app's manifest";
+    public string ShortDescription => "Add sparse package identity to an app's manifest";
 
     public static Argument<FileInfo> TargetArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }

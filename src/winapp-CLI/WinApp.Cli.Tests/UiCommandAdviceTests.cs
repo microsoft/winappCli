@@ -86,10 +86,10 @@ public class UiCommandAdviceTests
         UiErrors.GenericError(logger, failure, json: true, errorOut: errors);
 
         var message = ReadError(errors.ToString()).GetProperty("message").GetString()!;
-        StringAssert.Contains(message,
-            $"winapp ui send-keys --verbatim \"<value>\" --target \"SearchBox\" --via send-input -a <app> --on {target}");
-        StringAssert.Contains(message, $"'winapp ui send-keys --on {target}'");
-        StringAssert.Contains(message, "Element e1 (winapp ui inspect)", "Element data is not command advice.");
+        Assert.Contains($"winapp ui send-keys --verbatim \"<value>\" --target \"SearchBox\" --via send-input -a <app> --on {target}",
+            message);
+        Assert.Contains($"'winapp ui send-keys --on {target}'", message);
+        Assert.Contains("Element e1 (winapp ui inspect)", message, "Element data is not command advice.");
         Assert.IsTrue(logger.Has(LogLevel.Error, message));
         Assert.IsFalse(failure.Message.Contains("--on", StringComparison.Ordinal), "Library message stays local.");
     }
@@ -133,7 +133,7 @@ public class UiCommandAdviceTests
             var missing = ReadError(errors.ToString());
             Assert.AreEqual("missing_selector", missing.GetProperty("code").GetString());
             Assert.AreEqual(
-                $"A selector is required. Usage: winapp ui click <selector> -a <app>{suffix}. Use 'winapp ui search <text> -a <app>{suffix}' to find elements.",
+                $"A selector, --type, or --class-name is required. Usage: winapp ui click <selector> -a <app>{suffix}. Use 'winapp ui search <text> -a <app>{suffix}' to find elements.",
                 missing.GetProperty("message").GetString());
             errors.GetStringBuilder().Clear();
 
@@ -189,7 +189,7 @@ public class UiCommandAdviceTests
 
         Assert.AreEqual(0, process.ExitCode, errors);
         Assert.AreEqual("", errors);
-        CollectionAssert.AreEqual(new[] { "ui", "inspect", "--on", selector },
+        Assert.AreSequenceEqual(new[] { "ui", "inspect", "--on", selector },
             JsonSerializer.Deserialize<string[]>(output), command);
     }
 

@@ -66,6 +66,30 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    public void SearchGrouped_MatchesControlByDescriptionOnlyTerm()
+    {
+        // "tabular" appears ONLY in DataGrid's ControlDescription — not in its
+        // name, id, or scenario header. The description is the only control field
+        // carrying task vocabulary (what a control is *for* rather than what it is
+        // *called*), so if it is ever dropped from the BM25 document again, intent
+        // queries silently stop reaching their control and this test fails.
+        var engine = BuildEngine();
+        var groups = engine.SearchGrouped("tabular", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "expected the description term to match");
+        Assert.AreEqual("DataGrid", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void Search_MatchesControlByDescriptionOnlyTerm()
+    {
+        // Same guarantee for the ungrouped path, which builds its own BM25 document.
+        var engine = BuildEngine();
+        var results = engine.Search("tabular", maxResults: 5);
+        Assert.IsTrue(results.Count > 0, "expected the description term to match");
+        Assert.AreEqual("toolkit-datagrid-1", results[0].Id);
+    }
+
+    [TestMethod]
     public void SearchGrouped_ExactControlName_ShowsThatControlAloneWithMoreSamples()
     {
         // Typing a control's exact name is the most common query there is, and find-ui
@@ -167,14 +191,134 @@ public class FindUiSearchTests
         var engine = BuildEngine();
         var (formatted, found, _) = engine.GetPattern("reactor-flex-1");
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "[Reactor]");
-        StringAssert.Contains(formatted, "**Setup:** NuGet `Microsoft.UI.Reactor`");
+        Assert.Contains("[Reactor]", formatted);
+        Assert.Contains("**Setup:** NuGet `Microsoft.UI.Reactor`", formatted);
         // Reactor's apiNamespace is uniform across all its controls, so it is never emitted.
         // A reactor control that publishes its own `usings` still gets a **Namespace:** line
         // (see GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine); this one has none.
         Assert.IsFalse(formatted.Contains("**Namespace:**"), "the shared reactor apiNamespace is not a hint");
         // Reactor samples are C#-only — no XAML block.
         Assert.IsFalse(formatted.Contains("**XAML:**"), "reactor scenarios have no XAML");
+    }
+
+    [TestMethod]
+    public void GetPattern_UndefinedHandler_KeptInXamlAndDisclosed()
+    {
+        var scenario = Scn("gallery", "scrollview", "ScrollView", "scrollview-3", "Custom animation");
+        scenario.Xaml = "<ScrollView ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\" Background=\"Red\" />";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("gallery-scrollview-3");
+
+        Assert.IsTrue(found);
+        Assert.Contains("ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"", formatted, "the event is the point of the sample");
+        Assert.Contains("**Undefined handlers:** `ScrollAnimationStarting=\"ScrollView_ScrollAnimationStarting\"`", formatted);
+    }
+
+    [TestMethod]
+    public void GetPattern_HandlerDeclaredInCode_NotDisclosed()
+    {
+        var scenario = Scn("gallery", "tabview", "TabView", "tabview-9", "Add tab");
+        scenario.Xaml = "<TabView AddTabButtonClick=\"TabView_AddTabButtonClick\" />";
+        scenario.CSharp = "private void TabView_AddTabButtonClick(TabView sender, object args) { }";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, _, _) = engine.GetPattern("gallery-tabview-9");
+
+        Assert.IsFalse(formatted.Contains("**Undefined handlers:**"));
+    }
+
+    [TestMethod]
+    public void GetPattern_BindingsAndPlainAttributes_NotDisclosed()
+    {
+        var scenario = Scn("gallery", "button", "Button", "button-9", "Bound");
+        scenario.Xaml = "<Button Click=\"{x:Bind Run}\" Orientation=\"Horizontal\" Grid.Row=\"1\" x:Name=\"Animated_ScrollViewer\" />";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, _, _) = engine.GetPattern("gallery-button-9");
+
+        Assert.IsFalse(formatted.Contains("**Undefined handlers:**"));
+    }
+
+    [TestMethod]
+    public void GetUndefinedHandlers_ListsUndefinedOnly()
+    {
+        var scenario = Scn("gallery", "tabview", "TabView", "tabview-9", "Mixed");
+        scenario.Xaml = "<TabView AddTabButtonClick=\"TabView_Add\" TabCloseRequested=\"TabView_Close\" />";
+        scenario.CSharp = "private void TabView_Add(object s, object e) { }";
+        var engine = new SearchEngine([scenario], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var undefinedHandlers = engine.GetUndefinedHandlers("gallery-tabview-9");
+        Assert.AreEqual(1, undefinedHandlers.Length);
+        Assert.AreEqual("TabCloseRequested=\"TabView_Close\"", undefinedHandlers[0]);
+        Assert.AreEqual(0, engine.GetUndefinedHandlers("gallery-nope-1").Length);
+    }
+
+    [TestMethod]
+    [DataRow("KeyDown", "Grid_KeyDown")]
+    [DataRow("KeyUp", "OnKeyUp")]
+    [DataRow("PreviewKeyDown", "Page_PreviewKeyDown")]
+    [DataRow("DragEnter", "Drop_DragEnter")]
+    [DataRow("DragLeave", "Drop_DragLeave")]
+    [DataRow("ManipulationDelta", "Border_ManipulationDelta")]
+    [DataRow("ManipulationStarted", "Border_ManipulationStarted")]
+    [DataRow("ManipulationCompleted", "OnManipulationCompleted")]
+    [DataRow("PointerWheelChanged", "Root_PointerWheelChanged")]
+    [DataRow("ScrollAnimationStarting", "ScrollView_ScrollAnimationStarting")]
+    public void FindUndefinedEventHandlers_CatchesEventFamilies(string evt, string method)
+    {
+        var found = ControlSnippetText.FindUndefinedEventHandlers($"<Grid {evt}=\"{method}\" />", null);
+
+        Assert.AreSequenceEqual(new[] { $"{evt}=\"{method}\"" }, found);
+    }
+
+    [TestMethod]
+    public void FindUndefinedEventHandlers_IgnoresNonEvents()
+    {
+        var xaml = "<TextBlock TextWrapping=\"Wrap\" Text=\"Hello_World\" Orientation=\"Horizontal\" x:Name=\"Animated_ScrollViewer\" Name=\"Animated_ScrollViewer\" Click=\"{x:Bind Run}\" Grid.Row=\"1\" />";
+
+        Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, null).Length);
+    }
+
+    [TestMethod]
+    [DataRow("<TabView TabDroppedOutside=\"TabView_TabDroppedOutside\" />", "TabDroppedOutside=\"TabView_TabDroppedOutside\"")]
+    [DataRow("<Grid PointerCaptureLost=\"Grid_PointerCaptureLost\" />", "PointerCaptureLost=\"Grid_PointerCaptureLost\"")]
+    [DataRow("<Grid NoFocusCandidateFound=\"Grid_NoFocusCandidateFound\" />", "NoFocusCandidateFound=\"Grid_NoFocusCandidateFound\"")]
+    [DataRow("<Button Click = \"OnClick\" />", "Click=\"OnClick\"")]
+    [DataRow("<Button Click='OnClick' />", "Click=\"OnClick\"")]
+    [DataRow("<Button Click=\"Close\" />", "Click=\"Close\"")]
+    [DataRow("<Button IsEnabledChanged=\"OnEnabledChanged\" />", "IsEnabledChanged=\"OnEnabledChanged\"")]
+    [DataRow("<CheckBox Checked=\"Checked\" />", "Checked=\"Checked\"")]
+    public void FindUndefinedEventHandlers_DisclosesEdgeCases(string xaml, string expected)
+    {
+        var found = ControlSnippetText.FindUndefinedEventHandlers(xaml, null);
+
+        Assert.AreEqual(1, found.Length);
+        Assert.AreEqual(expected, found[0]);
+    }
+
+    [TestMethod]
+    [DataRow("<TextBlock TextWrapping=\"Wrap\" />")]
+    [DataRow("<StackPanel Orientation=\"Horizontal\" />")]
+    [DataRow("<NavigationView SelectionFollowsFocus=\"Enabled\" />")]
+    [DataRow("<Grid x:Name=\"Animated_ScrollViewer\" />")]
+    [DataRow("<Button IsEnabled=\"True\" />")]
+    [DataRow("<SwipeItem BehaviorOnInvoked=\"Close\" />")]
+    public void FindUndefinedEventHandlers_StillIgnoresNonEvents(string xaml)
+    {
+        Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, null).Length);
+    }
+
+    [TestMethod]
+    public void FindUndefinedEventHandlers_DisclosesPlainMethodNames()
+    {
+        var xaml = "<Button Click=\"AddItem\" /><TabView TabCloseRequested=\"CloseTab\" />";
+
+        var found = ControlSnippetText.FindUndefinedEventHandlers(xaml, null);
+        Assert.AreEqual(2, found.Length);
+        Assert.AreEqual("Click=\"AddItem\"", found[0]);
+        Assert.AreEqual("TabCloseRequested=\"CloseTab\"", found[1]);
+        Assert.AreEqual(0, ControlSnippetText.FindUndefinedEventHandlers(xaml, "void AddItem(object s, object e) { } void CloseTab(object s, object e) { }").Length);
     }
 
     [TestMethod]
@@ -190,7 +334,7 @@ public class FindUiSearchTests
         var (formatted, found, _) = engine.GetPattern("reactor-flex-1");
 
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Reactor.Flex`");
+        Assert.Contains("**Namespace:** `Microsoft.UI.Reactor.Flex`", formatted);
         // Ambient namespaces are filtered: a stock WinUI project already resolves this one.
         Assert.IsFalse(formatted.Contains("Microsoft.UI.Xaml.Controls"), "ambient namespaces are noise");
     }
@@ -206,10 +350,10 @@ public class FindUiSearchTests
 
         Assert.IsFalse(found);
         Assert.IsNull(canonicalId);
-        StringAssert.Contains(formatted, "not found.");
-        StringAssert.Contains(formatted, "winapp find-ui colorpickerbutton",
+        Assert.Contains("not found.", formatted);
+        Assert.Contains("winapp find-ui colorpickerbutton", formatted,
             "the suggested search drops the scenario number, which is the part that changed");
-        StringAssert.Contains(formatted, "--list");
+        Assert.Contains("--list", formatted);
     }
 
     [TestMethod]
@@ -224,7 +368,7 @@ public class FindUiSearchTests
 
         Assert.IsFalse(found);
         Assert.IsNull(canonicalId);
-        StringAssert.Contains(formatted, "winapp find-ui flexpanel --source reactor");
+        Assert.Contains("winapp find-ui flexpanel --source reactor", formatted);
         Assert.IsFalse(formatted.Contains("--list", StringComparison.Ordinal),
             "--list excludes Reactor and cannot be narrowed with --source, so it can't recover a reactor id");
     }
@@ -257,7 +401,7 @@ public class FindUiSearchTests
         var (formatted, found, _) = engine.GetPattern("gallery-appwindow-1");
 
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Windowing`");
+        Assert.Contains("**Namespace:** `Microsoft.UI.Windowing`", formatted);
     }
 
     [TestMethod]
@@ -274,7 +418,7 @@ public class FindUiSearchTests
         var engine = BuildEngine();
         var (formatted, found, canonicalId) = engine.GetPattern("gallery-tabview-1");
         Assert.IsTrue(found);
-        StringAssert.Contains(formatted, "TabView");
+        Assert.Contains("TabView", formatted);
         Assert.AreEqual("gallery-tabview-1", canonicalId, "an exact id resolves to itself");
     }
 
@@ -300,8 +444,8 @@ public class FindUiSearchTests
         var (toolkit, tFound, tId) = engine.GetPattern("toolkit-colorpicker-1");
         Assert.IsTrue(gFound);
         Assert.IsTrue(tFound);
-        StringAssert.Contains(gallery, "ColorPicker properties");
-        StringAssert.Contains(toolkit, "Basic usage");
+        Assert.Contains("ColorPicker properties", gallery);
+        Assert.Contains("Basic usage", toolkit);
         Assert.AreEqual("gallery-colorpicker-1", gId);
         Assert.AreEqual("toolkit-colorpicker-1", tId);
     }
@@ -316,7 +460,7 @@ public class FindUiSearchTests
 
         var (upper, upperFound, upperId) = engine.GetPattern("GALLERY-TABVIEW-1");
         Assert.IsTrue(upperFound, "an uppercase exact id must resolve");
-        StringAssert.Contains(upper, "TabView");
+        Assert.Contains("TabView", upper);
         Assert.AreEqual("gallery-tabview-1", upperId, "canonical id must be the lowercase form, not the caller's casing");
 
         var (_, bareFound, bareId) = engine.GetPattern("Gallery-TabView");
@@ -342,9 +486,9 @@ public class FindUiSearchTests
     {
         var engine = BuildEngine();
         var ids = engine.ListAll().Select(x => x.id).ToList();
-        CollectionAssert.Contains(ids, "gallery-tabview-1");
-        CollectionAssert.Contains(ids, "toolkit-datagrid-1");
-        CollectionAssert.Contains(ids, "reactor-flex-1");
+        Assert.Contains("gallery-tabview-1", ids);
+        Assert.Contains("toolkit-datagrid-1", ids);
+        Assert.Contains("reactor-flex-1", ids);
         Assert.AreEqual(5, ids.Count);
     }
 
@@ -364,7 +508,7 @@ public class FindUiSearchTests
     {
         var providers = ProviderRegistry.CreateProviders(Path.Combine(Path.GetTempPath(), "find-ui-test-cache"));
         var ids = providers.Select(p => p.Id).ToList();
-        CollectionAssert.AreEqual(ExpectedProviderIds, ids,
+        Assert.AreSequenceEqual(ExpectedProviderIds, ids,
             "the live provider factory must wire gallery, toolkit, and reactor in display order");
         Assert.IsInstanceOfType<ReactorProvider>(providers.Single(p => p.Id == "reactor"));
     }
@@ -438,11 +582,11 @@ public class FindUiSearchTests
     public void Stem_AbleAndIbleSuffixes_YieldVerbBase()
     {
         // Agents phrase intent adjectivally while the corpus indexes the verb.
-        CollectionAssert.Contains(Synonyms.Stem("swipeable").ToList(), "swipe");
-        CollectionAssert.Contains(Synonyms.Stem("scrollable").ToList(), "scroll");
-        CollectionAssert.Contains(Synonyms.Stem("resizable").ToList(), "resize");
-        CollectionAssert.Contains(Synonyms.Stem("collapsible").ToList(), "collapse");
-        CollectionAssert.Contains(Synonyms.Stem("draggable").ToList(), "drag");
+        Assert.Contains("swipe", Synonyms.Stem("swipeable").ToList());
+        Assert.Contains("scroll", Synonyms.Stem("scrollable").ToList());
+        Assert.Contains("resize", Synonyms.Stem("resizable").ToList());
+        Assert.Contains("collapse", Synonyms.Stem("collapsible").ToList());
+        Assert.Contains("drag", Synonyms.Stem("draggable").ToList());
     }
 
     [TestMethod]
@@ -469,8 +613,180 @@ public class FindUiSearchTests
 
         foreach (var control in new[] { "itemsrepeater", "gridview", "itemsview" })
         {
-            CollectionAssert.Contains(expanded, control, $"'image grid' must reach {control}");
+            Assert.Contains(control, expanded, $"'image grid' must reach {control}");
         }
+    }
+
+    [TestMethod]
+    public void SearchVocabulary_EmbeddedFileLoads()
+    {
+        var vocabulary = SearchVocabulary.LoadEmbedded();
+
+        Assert.AreEqual(SearchVocabulary.SupportedSchemaVersion, vocabulary.SchemaVersion);
+        Assert.IsTrue(vocabulary.Phrases.Length > 0, "phrases must not be empty");
+        Assert.IsTrue(vocabulary.Expansions.Length > 0, "expansions must not be empty");
+        Assert.IsTrue(Synonyms.Phrases.Count > 0 && Synonyms.ReplacePhrases.Length > 0 && Synonyms.Map.Count > 0,
+            "Synonyms must be built from the embedded vocabulary");
+    }
+
+    [TestMethod]
+    public void Preprocess_ReplacePhrase_SubstitutesToken()
+    {
+        var tokens = BM25.Tokenize(Synonyms.Preprocess("sign in page"));
+
+        Assert.Contains("login", tokens);
+        Assert.DoesNotContain("sign", tokens, "a replace phrase must drop its original words");
+    }
+
+    [TestMethod]
+    public void Preprocess_AddPhrase_KeepsOriginalWords()
+    {
+        var tokens = BM25.Tokenize(Synonyms.Preprocess("data grid"));
+
+        foreach (var expected in new[] { "data", "grid", "datagrid" })
+        {
+            Assert.Contains(expected, tokens);
+        }
+    }
+
+    [TestMethod]
+    public void Expand_SiteGroups_DoNotAddUnrelatedControlNames()
+    {
+        Assert.DoesNotContain("sound", Synonyms.Expand(["audio"]).ToList());
+        Assert.DoesNotContain("photo", Synonyms.Expand(["picture"]).ToList());
+        Assert.DoesNotContain("webcam", Synonyms.Expand(["camera"]).ToList());
+    }
+
+    [TestMethod]
+    public void Expand_Expansion_IsOneWay()
+    {
+        Assert.Contains("contentdialog", Synonyms.Expand(["modal"]).ToList());
+        Assert.DoesNotContain("modal", Synonyms.Expand(["contentdialog"]).ToList());
+    }
+
+    /// <summary>Common ways people describe a control without naming it must reach that control.</summary>
+    [TestMethod]
+    [DataRow("toolbar with icons", "commandbar")]
+    [DataRow("speed gauge", "radialgauge")]
+    [DataRow("battery meter", "radialgauge")]
+    [DataRow("editor with tabs", "tabview")]
+    [DataRow("tabbed documents", "tabview")]
+    [DataRow("notification badge", "infobadge")]
+    [DataRow("warning alert", "infobar")]
+    [DataRow("reorder items", "listview")]
+    [DataRow("chat messages", "listview")]
+    [DataRow("signup form", "textbox")]
+    [DataRow("text field", "textbox")]
+    [DataRow("option selector", "combobox")]
+    [DataRow("slide out panel", "splitview")]
+    [DataRow("slide-out panel", "splitview")]
+    [DataRow("side sheet", "splitview")]
+    [DataRow("range slider", "rangeselector")]
+    [DataRow("coach mark", "teachingtip")]
+    [DataRow("scale image to fit", "viewbox")]
+    [DataRow("file picker", "pickers")]
+    public void Expand_DescriptivePhrase_ReachesControl(string query, string control)
+    {
+        var expanded = Synonyms.Expand(BM25.Tokenize(Synonyms.Preprocess(query))).ToList();
+        Assert.Contains(control, expanded, $"'{query}' must reach {control}");
+    }
+
+    private static SearchEngine BuildEmbeddedEngine()
+    {
+        var scenarios = new List<Scenario>();
+        var tags = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var keywords = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var provider in ProviderRegistry.Descriptors.Where(p => !ProviderRegistry.IsReactorSource(p.Id)))
+        {
+            var data = EmbeddedSnapshot.TryLoad(provider.Id);
+            Assert.IsNotNull(data, $"the {provider.Id} snapshot must be available");
+            scenarios.AddRange(data.Scenarios);
+            foreach (var pair in data.Tags)
+            {
+                tags[$"{provider.Id}:{pair.Key}"] = pair.Value;
+            }
+            foreach (var pair in data.Keywords)
+            {
+                keywords[$"{provider.Id}:{pair.Key}"] = pair.Value;
+            }
+        }
+
+        return new SearchEngine(scenarios.ToArray(), DataLoader.LoadCorePatterns(), tags, keywords);
+    }
+
+    [TestMethod]
+    [DataRow("play audio", "MediaPlayerElement")]
+    [DataRow("play audio file", "MediaPlayerElement")]
+    [DataRow("range slider", "RangeSelector")]
+    [DataRow("coach mark", "TeachingTip")]
+    [DataRow("side sheet", "SplitView")]
+    [DataRow("slide-out", "SplitView")]
+    [DataRow("toolbar", "CommandBar")]
+    public void SearchGrouped_EmbeddedVocabulary_RanksIntendedControlFirst(string query, string expected)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual(expected, groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    /// <summary>TableView is the control built for tabular data, so table, grid and
+    /// spreadsheet wording must reach it ahead of ListView.</summary>
+    [TestMethod]
+    [DataRow("table")]
+    [DataRow("tables")]
+    [DataRow("data table")]
+    [DataRow("data grid")]
+    [DataRow("datagrid")]
+    [DataRow("spreadsheet")]
+    [DataRow("sortable table")]
+    [DataRow("editable table")]
+    [DataRow("table with sorting")]
+    [DataRow("table grouping")]
+    [DataRow("sortable columns")]
+    [DataRow("sort by column")]
+    [DataRow("resize columns")]
+    [DataRow("edit cells")]
+    [DataRow("table sort group resize edit")]
+    [DataRow("datagrid sort group resize columns edit cells")]
+    [DataRow("table view")]
+    [DataRow("tabular data")]
+    [DataRow("grid with sorting and grouping")]
+    public void SearchGrouped_EmbeddedVocabulary_RanksTableViewFirstForTabularData(string query)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual("TableView", groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    [TestMethod]
+    [DataRow("list view")]
+    [DataRow("reorder items")]
+    public void SearchGrouped_EmbeddedVocabulary_KeepsListViewFirstForLists(string query)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual("ListView", groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    [TestMethod]
+    [DataRow("picture grid", "GridView")]
+    [DataRow("camera", "CameraHelper")]
+    [DataRow("date field", "DatePicker")]
+    [DataRow("numeric field", "NumberBox")]
+    [DataRow("rows and columns", "Grid")]
+    [DataRow("toolbar with icons", "CommandBar")]
+    public void SearchGrouped_EmbeddedVocabulary_KeepsRelevantControls(string query, string expected)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsTrue(groups.Any(g => g.ControlName == expected),
+            $"'{query}' must include {expected}; returned {string.Join(", ", groups.Select(g => g.ControlName))}");
     }
 
     /// <summary>

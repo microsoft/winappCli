@@ -115,6 +115,7 @@ internal static class SampleIndexWriter
         // to per-sample keeps it lossless where samples genuinely differ, as Toolkit's do.
         var sharedDetails = AllAgree(group, s => s.Description ?? "") ? first.Description ?? "" : null;
         var sharedXmlns = AllAgree(group, s => string.Join("\u001f", s.XmlnsImports)) ? first.XmlnsImports : null;
+        var sharedApis = AllAgree(group, s => ApiKey(s.Apis)) ? first.Apis ?? [] : null;
 
         writer.WriteStartObject();
         writer.WriteString(SampleIndexSchema.Id, controlId);
@@ -156,6 +157,11 @@ internal static class SampleIndexWriter
             writer.WriteEndArray();
         }
 
+        if (sharedApis is { Length: > 0 })
+        {
+            WriteApis(writer, sharedApis);
+        }
+
         writer.WriteStartArray(SampleIndexSchema.Samples);
         foreach (var scenario in group)
         {
@@ -183,11 +189,42 @@ internal static class SampleIndexWriter
                 writer.WriteEndArray();
             }
 
+            // As with xmlnsImports: when the group disagrees, every sample states its own
+            // list — including an empty one — so a sample with no APIs doesn't inherit a
+            // sibling's through the control-level fallback.
+            if (sharedApis is null)
+            {
+                WriteApis(writer, scenario.Apis ?? []);
+            }
+
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
 
         writer.WriteEndObject();
+    }
+
+    /// <summary>Stable key for an API list, so <see cref="AllAgree"/> can tell whether a
+    /// control's samples share one list. Unit separators keep two different splits of the
+    /// same characters from colliding.</summary>
+    private static string ApiKey(ApiRef[]? apis)
+        => apis is null or { Length: 0 }
+            ? ""
+            : string.Join("\u001e", apis.Select(a => $"{a.Name}\u001f{a.Description}\u001f{a.Uri}"));
+
+    private static void WriteApis(Utf8JsonWriter writer, ApiRef[] apis)
+    {
+        writer.WriteStartArray(SampleIndexSchema.Apis);
+        foreach (var api in apis)
+        {
+            writer.WriteStartObject();
+            writer.WriteString(SampleIndexSchema.Name, api.Name);
+            WriteIfPresent(writer, SampleIndexSchema.Description, api.Description);
+            WriteIfPresent(writer, SampleIndexSchema.Uri, api.Uri);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
     }
 
     /// <summary>True when <paramref name="selector"/> returns the same value for every

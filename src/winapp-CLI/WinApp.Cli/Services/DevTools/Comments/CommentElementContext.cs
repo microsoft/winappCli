@@ -98,7 +98,7 @@ internal static partial class CommentElementContext
             foreach (var path in Directory.EnumerateFiles(sourceRoot, "*.xaml",
                 new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true }))
             {
-                if (CommentAnchorResolver.IsBuildOutput(path) || !File.ReadAllText(path).Contains($"\"{key}\"", StringComparison.Ordinal))
+                if (CommentAnchorResolver.IsSkipped(sourceRoot, path) || !File.ReadAllText(path).Contains($"\"{key}\"", StringComparison.Ordinal))
                 {
                     continue;
                 }

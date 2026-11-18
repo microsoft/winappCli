@@ -7,7 +7,7 @@ namespace WinApp.Cli.Tests;
 
 /// <summary>
 /// The store lives at the REPOSITORY root, so <c>comments list</c> finds the same comments from the
-/// repo root, a project directory, or a sibling — the working directory no longer decides whether your own
+/// repo root, a project directory, or a sibling. The working directory no longer decides whether your own
 /// comments exist. With no enclosing git working tree the start directory is the root, which is the case where
 /// running from ABOVE the project genuinely cannot see a store below it, and <c>--source-root</c> is the answer.
 /// </summary>
@@ -90,7 +90,7 @@ public class CommentStoreLocatorTests
 
     /// <summary>
     /// The trap named in the decision: with no git working tree, running from a directory ABOVE the project
-    /// cannot find a store that sits below it. That is not a bug to paper over — it is why <c>--source-root</c>
+    /// cannot find a store that sits below it. That is not a bug to paper over: it is why <c>--source-root</c>
     /// exists, and why the miss message has to name the path it looked at.
     /// </summary>
     [TestMethod]
@@ -102,8 +102,8 @@ public class CommentStoreLocatorTests
         var withSourceRoot = CommentStoreLocator.Resolve(Project);
 
         Assert.AreNotEqual(withSourceRoot.StorePath, fromAbove.StorePath);
-        StringAssert.Contains(fromAbove.Explain(), Repo);
-        StringAssert.Contains(fromAbove.Explain(), "not inside a git working tree");
+        Assert.Contains(Repo, fromAbove.Explain());
+        Assert.Contains("not inside a git working tree", fromAbove.Explain());
         Assert.AreEqual(Path.Combine(Project, ".winapp", "ui-comments.json"), withSourceRoot.StorePath,
             "--source-root is the escape hatch for exactly this case");
     }
@@ -115,8 +115,8 @@ public class CommentStoreLocatorTests
 
         var explanation = CommentStoreLocator.Resolve(Project).Explain();
 
-        StringAssert.Contains(explanation, Path.Combine(Repo, ".winapp", "ui-comments.json"));
-        StringAssert.Contains(explanation, "git repository root");
-        StringAssert.Contains(explanation, Project);
+        Assert.Contains(Path.Combine(Repo, ".winapp", "ui-comments.json"), explanation);
+        Assert.Contains("git repository root", explanation);
+        Assert.Contains(Project, explanation);
     }
 }

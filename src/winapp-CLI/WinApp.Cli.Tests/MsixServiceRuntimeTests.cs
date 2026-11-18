@@ -346,10 +346,10 @@ public class MsixServiceRuntimeTests : BaseCommandTests
             [$"Microsoft.WindowsAppRuntime.msix={runtimeIdentity}"]);
     }
 
-    private async Task<string> InvokeUpdateWinAppSdkDependencyAsync(string manifest, DotNetPackageListJson? packageList)
+    private async Task<string> InvokeUpdateWinAppSdkDependencyAsync(string manifest, DotNetPackageListJson? packageList, DirectoryInfo? windowsAppSdkPackageDirectory = null)
     {
         return await (Task<string>)UpdateWinAppSdkDependencyMethod.Invoke(
-            _msixService, [manifest, packageList, TestTaskContext, CancellationToken.None])!;
+            _msixService, [manifest, packageList, TestTaskContext, CancellationToken.None, windowsAppSdkPackageDirectory])!;
     }
 
     private static string ManifestWithDependencies(string dependencyElements) =>
@@ -391,6 +391,28 @@ public class MsixServiceRuntimeTests : BaseCommandTests
         Assert.Contains("6000.318.240.0", result);
         Assert.DoesNotContain("Microsoft.WindowsAppRuntime.1.5", result);
         Assert.DoesNotContain("5000.0.0.0", result);
+    }
+
+    [TestMethod]
+    public async Task UpdateWindowsAppSdkDependency_BuildPackageDirectory_WinsOverConfiguredVersion()
+    {
+        // The current folder resolves 1.6, but the C++ build imported a 1.8 Windows App SDK.
+        // The build's runtime must win so the packaged app depends on the runtime it was built against.
+        ArrangeRuntimeMsixCache("1.6.0", RuntimeIdentity);
+        var buildSdkDir = _tempDirectory.CreateSubdirectory("packages").CreateSubdirectory("Microsoft.WindowsAppSDK.1.8.0");
+        var msixArchDir = Directory.CreateDirectory(
+            Path.Join(buildSdkDir.FullName, "tools", "MSIX", $"win10-{WorkspaceSetupService.GetSystemArchitecture()}"));
+        File.WriteAllLines(
+            Path.Join(msixArchDir.FullName, "msix.inventory"),
+            ["Microsoft.WindowsAppRuntime.msix=Microsoft.WindowsAppRuntime.1.8_8000.616.304.0_x64__8wekyb3d8bbwe"]);
+        var manifest = ManifestWithDependencies(
+            "    <PackageDependency Name=\"Microsoft.WindowsAppRuntime.1.8\" MinVersion=\"8000.616.304.0\" Publisher=\"CN=Microsoft Corporation\" />");
+
+        var result = await InvokeUpdateWinAppSdkDependencyAsync(manifest, PackageListWith(SdkPackageId, "1.6.0"), buildSdkDir);
+
+        Assert.Contains("Microsoft.WindowsAppRuntime.1.8", result);
+        Assert.Contains("8000.616.304.0", result);
+        Assert.DoesNotContain("Microsoft.WindowsAppRuntime.1.6", result);
     }
 
     [TestMethod]
@@ -634,12 +656,12 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         // Asserted both ways so the result follows the supplied architecture regardless of the host arch.
         var arm64 = MsixService.CollectNativeFragmentDllNames([fragmentFile], "arm64");
-        CollectionAssert.Contains(arm64, "arm64only.dll");
-        CollectionAssert.DoesNotContain(arm64, "x64only.dll");
+        Assert.Contains("arm64only.dll", arm64);
+        Assert.DoesNotContain("x64only.dll", arm64);
 
         var x64 = MsixService.CollectNativeFragmentDllNames([fragmentFile], "x64");
-        CollectionAssert.Contains(x64, "x64only.dll");
-        CollectionAssert.DoesNotContain(x64, "arm64only.dll");
+        Assert.Contains("x64only.dll", x64);
+        Assert.DoesNotContain("arm64only.dll", x64);
     }
 
     [TestMethod]
@@ -745,7 +767,7 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         // A traversing --name must not redirect the artifact outside the requested output directory.
         Assert.AreEqual(outDir.FullName, result.Directory!.FullName, "sanitized --name must stay inside the output directory");
-        StringAssert.EndsWith(result.Name, "_1.0.0.0_arm64.msix", "the SDK version/arch suffix must be preserved");
+        Assert.EndsWith("_1.0.0.0_arm64.msix", result.Name, "the SDK version/arch suffix must be preserved");
         Assert.IsFalse(result.Name.Contains('\\') || result.Name.Contains('/'), "no path separators may survive in the filename");
     }
 

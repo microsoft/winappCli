@@ -57,7 +57,8 @@ public interface IUiAutomation
 
     /// <summary>Finds the one element matching <paramref name="selector"/>.</summary>
     /// <param name="uiTarget">The app or window to search.</param>
-    /// <param name="selector">What to match.</param>
+    /// <param name="selector">What to match. When a text query matches several elements, an exact AutomationId
+    /// match wins, then the only element whose Name equals the query (ignoring case).</param>
     /// <param name="ct">Cancels the search.</param>
     /// <returns>The match, or <see langword="null"/> when nothing matched.</returns>
     /// <exception cref="UiAmbiguousSelectorException">More than one element matched.</exception>
@@ -65,7 +66,8 @@ public interface IUiAutomation
 
     /// <summary>Finds one element, optionally requiring complete, unambiguous selection.</summary>
     /// <param name="uiTarget">The app or window to search.</param>
-    /// <param name="selector">What to match. Exact AutomationId matches take precedence over name or AutomationId substrings.</param>
+    /// <param name="selector">What to match. An exact AutomationId match takes precedence, then a single exact
+    /// (case-insensitive) Name match, then name or AutomationId substrings.</param>
     /// <param name="requireUnique">When true, checks the complete ControlView without preferring invokable matches.
     /// Slugs retain their exact resolution behavior. The returned element retains the selected provider for subsequent actions.</param>
     /// <param name="ct">Cancels the search.</param>

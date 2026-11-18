@@ -32,7 +32,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(command, ["--app", app, "--json"]));
         Assert.AreEqual(app, _targetResolver.LastApp);
         Assert.IsTrue(_targetResolver.ProcessOnlyRequested);
-        StringAssert.Contains(TestAnsiConsole.Output, "2000000000 is not running");
+        Assert.Contains("2000000000 is not running", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -41,7 +41,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         var command = GetRequiredService<DevToolsAttachCommand>();
         Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(command, ["--app", "Daylight", "--pid", "123", "--json"]));
         Assert.IsNull(_targetResolver.LastApp);
-        StringAssert.Contains(TestAnsiConsole.Output, "not both");
+        Assert.Contains("not both", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -53,8 +53,8 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exit);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"ok\": false", "Failure JSON must report ok:false.");
-        StringAssert.Contains(output, "Invalid --pid", "The message must name the bad pid so it is diagnosable.");
+        Assert.Contains("\"ok\": false", output, "Failure JSON must report ok:false.");
+        Assert.Contains("Invalid --pid", output, "The message must name the bad pid so it is diagnosable.");
     }
 
     [TestMethod]
@@ -68,8 +68,8 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exit);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "\"ok\": false");
-        StringAssert.Contains(output, "not running", "An absent process must be surfaced as not-running.");
+        Assert.Contains("\"ok\": false", output);
+        Assert.Contains("not running", output, "An absent process must be surfaced as not-running.");
     }
 
     [TestMethod]
@@ -96,11 +96,11 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         var command = GetRequiredService<DevToolsAttachCommand>();
         var names = command.Options.SelectMany(o => o.Aliases.Append(o.Name)).ToArray();
 
-        CollectionAssert.DoesNotContain(names, "--allow-mutation",
+        Assert.DoesNotContain("--allow-mutation", names,
             "Every DevTools connection is writable; there is no access-mode choice to expose.");
-        CollectionAssert.DoesNotContain(names, "--window",
+        Assert.DoesNotContain("--window", names,
             "--window/-w means an HWND across the CLI; the inspector-opening flag is --show-window.");
-        CollectionAssert.Contains(names, "--show-window");
+        Assert.Contains("--show-window", names);
     }
 
     [TestMethod]
@@ -122,7 +122,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         var exit = await handler.InvokeAsync(command.Parse(["--json"]));
 
         Assert.AreEqual(0, exit);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"apps\"", "list --json must emit an apps array.");
+        Assert.Contains("\"apps\"", TestAnsiConsole.Output, "list --json must emit an apps array.");
     }
 
     [TestMethod]
@@ -136,7 +136,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         Assert.AreEqual(0, await handler.InvokeAsync(command.Parse([])));
         var lines = console.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         Assert.HasCount(1, lines, console.Output);
-        StringAssert.StartsWith(lines[0], Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.StartsWith(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), lines[0]);
     }
 
     [TestMethod]
@@ -148,14 +148,158 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
         Assert.IsTrue(command.Parse(["--include-available"]).GetValue(DevToolsListCommand.IncludeAvailableOption));
     }
 
+    // WinUI 2 apps and the Windows shell load a Microsoft.UI.Xaml.dll too, so the file name alone offered explorer and
+    // Store apps as "ready to attach".
     [TestMethod]
-    public void List_WinUiCandidateDetection_UsesRuntimeModuleNotProcessName()
+    [DataRow(@"C:\Apps\Gallery\Gallery.exe", "Microsoft.UI.Xaml.dll,Microsoft.Internal.FrameworkUdk.dll", null)]
+    [DataRow(@"C:\Apps\Selfcontained\App.exe", "Microsoft.UI.Xaml.dll,Microsoft.WindowsAppRuntime.dll", null)]
+    [DataRow(@"C:\Windows\explorer.exe", "Microsoft.UI.Xaml.dll,Microsoft.Internal.FrameworkUdk.dll", "is part of Windows")]
+    [DataRow(@"C:\Windows\SystemApps\LockApp\LockApp.exe", "Microsoft.UI.Xaml.dll", "is part of Windows")]
+    [DataRow(@"C:\Program Files\WindowsApps\Store.App\App.exe", "Windows.UI.Xaml.dll,Microsoft.UI.Xaml.dll", "uses WinUI 2")]
+    [DataRow(@"C:\Apps\Wpf\Wpf.exe", "PresentationFramework.dll", "has not loaded WinUI 3")]
+    public void AttachTarget_IsOnlyAWinUi3AppFromTheWindowsAppSdk(string exe, string modules, string? refusal)
     {
-        Assert.IsTrue(DevToolsListCommand.Handler.IsWinUiModule("Microsoft.UI.Xaml.dll"));
-        Assert.IsTrue(DevToolsListCommand.Handler.IsWinUiModule("microsoft.ui.xaml.DLL"));
-        Assert.IsFalse(DevToolsListCommand.Handler.IsWinUiModule("WinUI-looking-process.exe"));
-        Assert.IsFalse(DevToolsListCommand.Handler.IsWinUiModule("PresentationFramework.dll"));
-        Assert.IsFalse(DevToolsListCommand.Handler.IsWinUiModule(null));
+        var why = DevToolsAttachTarget.WhyNot(42, "App", exe, modules.Split(','), @"C:\Windows");
+        if (refusal is null)
+        {
+            Assert.IsNull(why);
+        }
+        else
+        {
+            Assert.IsNotNull(why);
+            Assert.Contains(refusal, why);
+            Assert.Contains("App (PID 42)", why);
+        }
+    }
+
+    // An app attached after launch has no project folder, so a comment left in it has nowhere to be saved.
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task Attach_SourceRoot_GivesTheAttachedAppItsProjectFolder()
+    {
+        var root = Directory.CreateTempSubdirectory("winapp-attach-root-");
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("DevTools.negotiate", $$"""{"protocol":"winapp-devtools","protocolVersion":"0","processId":{{Environment.ProcessId}},"mutation":true,"posture":"mutation"}""")
+                .Answer("Internal.setSourceRoot", "null")
+                .Answer("Internal.setComments", """{"total":0,"placed":0}""");
+            var handler = new DevToolsAttachCommand.Handler(new DevToolsTargetResolverTests.FakeAttach(),
+                GetRequiredService<WinApp.Cli.Services.IStatusService>(), TestAnsiConsole,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<DevToolsAttachCommand>.Instance, _targetResolver,
+                new WinApp.Cli.Services.DevTools.Comments.CommentPusher(new WinApp.Cli.Services.DevTools.Comments.CommentStore()),
+                whyNotAttachable: _ => null);
+            var command = GetRequiredService<DevToolsAttachCommand>();
+
+            var exit = await handler.InvokeAsync(command.Parse(
+                ["--pid", agent.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture), "--source-root", root.FullName, "--json"]));
+
+            Assert.AreEqual(0, exit, TestAnsiConsole.Output);
+            using var request = JsonDocument.Parse(agent.ReceivedRequests.Single(r => r.Contains("Internal.setSourceRoot", StringComparison.Ordinal)));
+            Assert.AreEqual(root.FullName, request.RootElement.GetProperty("params").GetProperty("path").GetString());
+            Assert.IsTrue(agent.Received.Contains("Internal.setComments"), "comments saved there show as markers right away");
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task Attach_SourceRootInsideARepository_UsesTheRepositoryRootStoreLikeRun()
+    {
+        // `run` gives the app its project folder, and the writer saves to .winapp at the repository root containing
+        // it. Attach with the same folder must read and write that same store, so the same comments show as markers.
+        var repo = Directory.CreateTempSubdirectory("winapp-attach-repo-");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(repo.FullName, ".git"));
+            var project = Directory.CreateDirectory(Path.Combine(repo.FullName, "src", "App"));
+            var store = new WinApp.Cli.Services.DevTools.Comments.CommentStore();
+            var storePath = store.GetStorePath(project);
+            Assert.AreEqual(Path.Combine(repo.FullName, ".winapp", "ui-comments.json"), storePath);
+            store.Add(storePath, new WinApp.Cli.Services.DevTools.Comments.Comment
+            {
+                Id = "from-run", Text = "made while the app ran under winapp run", Status = WinApp.Cli.Services.DevTools.Comments.CommentStatus.Open, ProjectRoot = project.FullName,
+                Anchor = new WinApp.Cli.Services.DevTools.Comments.CommentAnchor
+                {
+                    SourceFile = "MainWindow.xaml", ElementPath = "Root/0",
+                    Identity = new WinApp.Cli.Services.DevTools.Comments.CommentIdentity { Type = "Button" },
+                },
+            });
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("DevTools.negotiate", $$"""{"protocol":"winapp-devtools","protocolVersion":"0","processId":{{Environment.ProcessId}},"mutation":true,"posture":"mutation"}""")
+                .Answer("Internal.setSourceRoot", "null")
+                .Answer("Internal.setComments", """{"total":1,"placed":1}""");
+            var handler = new DevToolsAttachCommand.Handler(new DevToolsTargetResolverTests.FakeAttach(),
+                GetRequiredService<WinApp.Cli.Services.IStatusService>(), TestAnsiConsole,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<DevToolsAttachCommand>.Instance, _targetResolver,
+                new WinApp.Cli.Services.DevTools.Comments.CommentPusher(store), whyNotAttachable: _ => null);
+
+            var exit = await handler.InvokeAsync(GetRequiredService<DevToolsAttachCommand>().Parse(
+                ["--pid", agent.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture), "--source-root", project.FullName, "--json"]));
+
+            Assert.AreEqual(0, exit, TestAnsiConsole.Output);
+            using var set = JsonDocument.Parse(agent.ReceivedRequests.Single(r => r.Contains("Internal.setSourceRoot", StringComparison.Ordinal)));
+            Assert.AreEqual(project.FullName, set.RootElement.GetProperty("params").GetProperty("path").GetString(),
+                "the in-app writer passes this folder to comments add, which resolves the same repository-root store");
+            using var pushed = JsonDocument.Parse(agent.ReceivedRequests.Single(r => r.Contains("Internal.setComments", StringComparison.Ordinal)));
+            var rows = pushed.RootElement.GetProperty("params").GetProperty("comments");
+            Assert.AreEqual(1, rows.GetArrayLength());
+            Assert.AreEqual("from-run", rows[0].GetProperty("id").GetString());
+        }
+        finally { repo.Delete(recursive: true); }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task Attach_WithoutAProjectFolder_SaysHowToGiveOne()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("DevTools.negotiate", $$"""{"protocol":"winapp-devtools","protocolVersion":"0","processId":{{Environment.ProcessId}},"mutation":true,"posture":"mutation"}""")
+            .Answer("Internal.sourceRoot", """{"sourceRoot":""}""");
+        var handler = new DevToolsAttachCommand.Handler(new DevToolsTargetResolverTests.FakeAttach(),
+            GetRequiredService<WinApp.Cli.Services.IStatusService>(), TestAnsiConsole,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<DevToolsAttachCommand>.Instance, _targetResolver,
+            whyNotAttachable: _ => null);
+        var pid = agent.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        var exit = await handler.InvokeAsync(GetRequiredService<DevToolsAttachCommand>().Parse(["--pid", pid]));
+
+        Assert.AreEqual(0, exit, TestAnsiConsole.Output);
+        var hints = TestAnsiConsole.Output.Split('\n').Where(l => l.Contains("--source-root", StringComparison.Ordinal)).ToList();
+        Assert.AreEqual(1, hints.Count, TestAnsiConsole.Output);
+        Assert.Contains("Run attach again with --source-root <project folder>.", hints[0]);
+    }
+
+    [TestMethod]
+    public async Task Attach_MissingSourceRoot_FailsBeforeLoadingAnything()
+    {
+        var devTools = new DevToolsTargetResolverTests.FakeAttach();
+        var handler = new DevToolsAttachCommand.Handler(devTools, GetRequiredService<WinApp.Cli.Services.IStatusService>(),
+            TestAnsiConsole, Microsoft.Extensions.Logging.Abstractions.NullLogger<DevToolsAttachCommand>.Instance, _targetResolver);
+        var missing = Path.Join(Path.GetTempPath(), "winapp-no-such-root-" + Guid.NewGuid().ToString("N"));
+
+        var exit = await handler.InvokeAsync(GetRequiredService<DevToolsAttachCommand>().Parse(["--pid", "42", "--source-root", missing, "--json"]));
+
+        Assert.AreEqual(1, exit);
+        Assert.Contains("The source root", TestAnsiConsole.Output);
+        Assert.IsFalse(devTools.WasCalled);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task Attach_RefusesAProcessThatIsNotAWinUi3App_BeforeLoadingAnything()
+    {
+        var devTools = new DevToolsTargetResolverTests.FakeAttach();
+        var handler = new DevToolsAttachCommand.Handler(devTools, GetRequiredService<WinApp.Cli.Services.IStatusService>(),
+            TestAnsiConsole, Microsoft.Extensions.Logging.Abstractions.NullLogger<DevToolsAttachCommand>.Instance, _targetResolver);
+        var command = GetRequiredService<DevToolsAttachCommand>();
+
+        var exit = await handler.InvokeAsync(command.Parse(["--pid", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), "--json"]));
+
+        Assert.AreEqual(1, exit);
+        Assert.Contains("has not loaded WinUI 3", TestAnsiConsole.Output);
+        Assert.Contains("Nothing was loaded into that process.", TestAnsiConsole.Output);
+        Assert.IsFalse(devTools.WasCalled, "a test host is not a WinUI 3 app, so nothing is injected");
     }
 
     [TestMethod]

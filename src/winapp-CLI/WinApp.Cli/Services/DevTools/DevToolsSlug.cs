@@ -11,8 +11,8 @@ internal static class DevToolsSlug
     /// <summary>
     /// Width of the tap's identity token. A UI Automation slug carries 4 hex digits over a tree of hundreds
     /// of elements; a DevTools census reaches 20,000, where 16 bits collides essentially always. The tap mints 40
-    /// bits (<c>DevToolsTreeLayout::kIdentityHexDigits</c>) and the two widths must agree — a slug the CLI cannot
-    /// parse would silently degrade to a text query and resolve the wrong element.
+    /// bits (<c>DevToolsTreeLayout::kIdentityHexDigits</c>) and the two widths must agree (a test reads that constant).
+    /// A slug the CLI cannot parse would silently degrade to a text query and resolve the wrong element.
     /// </summary>
     public const int IdentityHexDigits = 10;
 
@@ -70,7 +70,7 @@ internal static class DevToolsSlug
     /// <summary>
     /// Whether a live element matches a parsed slug. Type and name narrow; the identity DECIDES. A match on
     /// type and name with a different identity is the stale case and must be reported as such rather than
-    /// accepted — that element is at a different place in the tree than the one the selector named.
+    /// accepted: that element is at a different place in the tree than the one the selector named.
     /// </summary>
     public static bool Matches(Parsed slug, string type, string? name, string? id) =>
         string.Equals(id, slug.Identity, StringComparison.OrdinalIgnoreCase)

@@ -174,6 +174,8 @@ internal partial class MsixService
             throw new InvalidOperationException("Developer Mode is not enabled on this machine. Please enable Developer Mode and try again.");
         }
 
+        EnsureLayoutIsNotVirtualized(outputAppXDirectory.FullName, EngineStaging.IsPackaged, GetAppDataFolders(), Path.GetTempPath());
+
         taskContext.AddDebugMessage($"Using AppX manifest: {appxManifestPath}");
 
         var manifestContent = await File.ReadAllTextAsync(appxManifestPath.FullName, Encoding.UTF8, cancellationToken);
@@ -291,9 +293,13 @@ internal partial class MsixService
                 await InstallRecipeFrameworkPackagesAsync(recipeFile, registrationManifest, runtimeArch, taskContext, cancellationToken);
             }
 
-            await RemoveRegistrationOfAnotherIdentityAsync(previousPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
-
             var preparedAlias = inspectorAlias is null ? null : PrepareInspectorAlias(registrationManifest, inspectorAlias);
+            // Requested DevTools stops here, before anything is registered; the default steps aside after registration.
+            if (preparedAlias?.Error is { } aliasError && inspectorAlias!.Required)
+            {
+                throw new InvalidOperationException(aliasError);
+            }
+            await RemoveRegistrationOfAnotherIdentityAsync(previousPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
             if (preparedAlias?.Target?.ApplicationUserModelId is { } targetAumid)
             {
                 identity = identity with { ApplicationId = targetAumid[(targetAumid.IndexOf('!') + 1)..] };
@@ -372,10 +378,12 @@ internal partial class MsixService
 
         // If there is a pri file named after the executable, rename it to resources.pri
         var priFilePath = Path.Combine(outputAppXDirectory.FullName, Path.GetFileNameWithoutExtension(executableMatch.Name) + ".pri");
+        var renamedBuildPri = false;
         if (File.Exists(priFilePath))
         {
             var resourcesPriPath = Path.Combine(outputAppXDirectory.FullName, "resources.pri");
             File.Move(priFilePath, resourcesPriPath, overwrite: true);
+            renamedBuildPri = true;
             taskContext.AddDebugMessage($"{UiSymbols.Files} Renamed {Path.GetFileName(priFilePath)} to resources.pri");
         }
 
@@ -451,6 +459,14 @@ internal partial class MsixService
             taskContext.AddDebugMessage($"{UiSymbols.Warning} Manifest directory and target directory are the same, skipping assets copy");
         }
 
+        // The build's own PRI (e.g. a WinUI app's XAML resources) knows nothing about the manifest's logos.
+        // Without them indexed, the shell can't find the unplated taskbar variant and draws the logo on an
+        // accent-colored plate (#1077).
+        if (renamedBuildPri)
+        {
+            await MergeManifestAssetsIntoPriAsync(outputAppXDirectory, copiedAppxManifestPath, manifestContent, taskContext, cancellationToken);
+        }
+
         {
             var identity = ParseAppxManifestAsync(manifestContent);
 
@@ -467,9 +483,13 @@ internal partial class MsixService
             }
 
             // See MSBuild branch above for the rationale (issue #537).
-            await RemoveRegistrationOfAnotherIdentityAsync(previousRawPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
-
             var preparedAlias = inspectorAlias is null ? null : PrepareInspectorAlias(copiedAppxManifestPath, inspectorAlias);
+            // Requested DevTools stops here, before anything is registered; the default steps aside after registration.
+            if (preparedAlias?.Error is { } aliasError && inspectorAlias!.Required)
+            {
+                throw new InvalidOperationException(aliasError);
+            }
+            await RemoveRegistrationOfAnotherIdentityAsync(previousRawPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
             if (preparedAlias?.Target?.ApplicationUserModelId is { } targetAumid)
             {
                 identity = identity with { ApplicationId = targetAumid[(targetAumid.IndexOf('!') + 1)..] };
@@ -533,11 +553,7 @@ internal partial class MsixService
             return Failed($"Could not prepare an inspector execution alias: {ex.Message}");
         }
 
-        InspectorAlias Failed(string error)
-        {
-            logger.LogWarning("{UISymbol} {Error}", UiSymbols.Warning, error);
-            return new(null, null, RequiresRegistration: false, Error: error);
-        }
+        InspectorAlias Failed(string error) => new(null, null, RequiresRegistration: false, Error: error);
     }
 
     /// <summary>
@@ -556,6 +572,59 @@ internal partial class MsixService
 
     /// <summary>One validated recipe entry: an existing source file and where it goes in the layout.</summary>
     private readonly record struct RecipeEntry(string SourcePath, string PackagePath);
+
+    /// <summary>
+    /// Rejects a layout under AppData when winapp itself runs from its MSIX package.
+    /// </summary>
+    /// <remarks>
+    /// Windows redirects a packaged app's new files under AppData into the app's private
+    /// <c>Packages\&lt;family name&gt;\LocalCache</c> folder. Only winapp sees the redirected copy:
+    /// makepri and the deployment service look at the real path, find nothing, and registration
+    /// fails with a "file not found" error that points at the manifest. %TEMP% is not redirected.
+    /// </remarks>
+    internal static void EnsureLayoutIsNotVirtualized(string layoutPath, bool isPackaged, IEnumerable<string?> appDataFolders, string tempPath)
+    {
+        if (!isPackaged ||
+            (!string.IsNullOrEmpty(tempPath) && IsPathInsideDirectory(layoutPath, tempPath)) ||
+            !appDataFolders.Any(folder => !string.IsNullOrEmpty(folder) && IsPathInsideDirectory(layoutPath, folder)))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"The AppX layout directory '{layoutPath}' is under AppData. This winapp is installed as an MSIX " +
+            "package, and Windows redirects its writes under AppData to a private folder, so the app could not " +
+            "be registered from there. Point --output-appx-directory at a folder outside AppData, " +
+            "or move the project out of AppData.");
+    }
+
+    /// <summary>
+    /// The actual Local, Roaming and LocalLow folders. Each can be relocated on its own, so they
+    /// may not share a parent.
+    /// </summary>
+    private static string?[] GetAppDataFolders() =>
+    [
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+        GetLocalLowFolder(),
+    ];
+
+    private static unsafe string? GetLocalLowFolder()
+    {
+        var hr = Windows.Win32.PInvoke.SHGetKnownFolderPath(
+            Windows.Win32.PInvoke.FOLDERID_LocalAppDataLow,
+            Windows.Win32.UI.Shell.KNOWN_FOLDER_FLAG.KF_FLAG_DONT_VERIFY,
+            null,
+            out var path);
+        try
+        {
+            return hr.Succeeded ? path.ToString() : null;
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeCoTaskMem((nint)path.Value);
+        }
+    }
 
     /// <summary>
     /// Rejects a layout path that is, or sits beneath, a reparse point.
@@ -604,6 +673,10 @@ internal partial class MsixService
 
         return null;
     }
+
+    internal static bool RecipeContainsPackageFile(FileInfo recipeFile, DirectoryInfo outputDir, string packagePath) =>
+        ReadAndValidateRecipe(recipeFile, outputDir, File.ReadAllText(recipeFile.FullName))
+            .Any(entry => string.Equals(entry.PackagePath, NormalizePackagePath(packagePath), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Reads and fully validates a recipe before any file is written or deleted.
@@ -1442,6 +1515,27 @@ internal partial class MsixService
         RemoveCompetingLayoutManifests(outputAppXDirectory, taskContext);
     }
 
+    private async Task MergeManifestAssetsIntoPriAsync(
+        DirectoryInfo layout, FileInfo stagedManifest, string manifestContent, TaskContext taskContext, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var packageName = ParseAppxManifestAsync(manifestContent).PackageName;
+            var assets = MrtAssetHelper.GetExpandedManifestReferencedFiles(stagedManifest, taskContext)
+                .Select(file => file.RelativePath);
+            await priService.MergeAssetsIntoPriAsync(layout, packageName, assets, taskContext, cancellationToken);
+        }
+        // Best effort: a failed merge only costs the unplated taskbar icon, so warn and keep launching.
+        // An untrusted makepri still stops the run.
+        catch (Exception ex) when (ex is not BuildToolSignatureException
+            && ex is IOException or UnauthorizedAccessException or System.Xml.XmlException
+                or System.ComponentModel.Win32Exception or InvalidOperationException or ArgumentException)
+        {
+            logger.LogWarning(ex, "{UISymbol} Could not add the manifest's logos to resources.pri: {Message}. The taskbar and Start icons may show on a colored background. Re-run with --verbose for details.", UiSymbols.Warning, ex.Message);
+            taskContext.AddDebugMessage($"{UiSymbols.Warning} PRI merge error details: {ex}");
+        }
+    }
+
     /// <summary>
     /// Returns the package name the layout last held when it differs from <paramref name="packageName"/>
     /// (a switch to or from <c>--unique-identity</c>, or an edited <c>Identity/@Name</c>), and deletes
@@ -1678,31 +1772,51 @@ internal partial class MsixService
     /// list (or falls back to a cwd glob) and installs the Windows App Runtime framework packages for
     /// the given architecture. Callers gate on <c>WindowsAppSDKSelfContained</c> before calling.
     /// </summary>
-    public async Task<bool> EnsureWindowsAppRuntimeInstalledAsync(FileInfo? projectFile, string? architecture, string? framework, bool noRestore, TaskContext taskContext, PackageGraphSource? packageGraph = null, CancellationToken cancellationToken = default)
+    public async Task<bool> EnsureWindowsAppRuntimeInstalledAsync(FileInfo? projectFile, string? architecture, string? framework, bool noRestore, TaskContext taskContext, PackageGraphSource? packageGraph = null, DirectoryInfo? windowsAppSdkPackageDirectory = null, CancellationToken cancellationToken = default)
     {
-        var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
+        IReadOnlyList<(string Name, string Version)> expectedRuntimePackages;
+        bool referencesWindowsAppSdk;
 
-        // A framework-dependent app needs the Windows App Runtime only if it actually uses the Windows
-        // App SDK. A plain console/desktop Exe doesn't — preparing the runtime for it is wasted work and
-        // prints a noisy "could not determine runtime" warning. Skip only on a positive no-reference
-        // result; an unresolved list falls through to prep so a real WinUI app keeps its runtime.
-        //
-        // Callers that know the build's assets file pass it, which makes the graph exact. A caller that
-        // does not falls back to re-evaluating the project in the default Configuration/RID, where a
-        // Windows App SDK reference conditioned on a non-default one would be missed and prep wrongly
-        // skipped — bounded by the skip firing only on a positive no-reference result.
-        var referencesWindowsAppSdk = packageList is not null && ReferencesWindowsAppSdk(packageList);
-        if (packageList is not null && !referencesWindowsAppSdk)
+        // A C++ project that imports the Windows App SDK props (directly or from a shared .props, as
+        // packages.config projects do) names the exact package folder it built against. Its runtime MSIX is
+        // the one the app needs, so use it rather than inferring the version from a package list that may
+        // not mention the Windows App SDK at all.
+        var importedMsixDir = windowsAppSdkPackageDirectory is null
+            ? null
+            : new DirectoryInfo(Path.Join(windowsAppSdkPackageDirectory.FullName, "tools", "MSIX"));
+        if (importedMsixDir is { Exists: true })
         {
-            taskContext.AddDebugMessage(
-                $"{UiSymbols.Note} No Windows App SDK reference found; skipping Windows App Runtime preparation.");
-            return false;
+            taskContext.AddDebugMessage($"{UiSymbols.Package} Using the Windows App Runtime from the Windows App SDK the project imports: {windowsAppSdkPackageDirectory!.FullName}");
+            referencesWindowsAppSdk = true;
+            expectedRuntimePackages = await InstallWindowsAppRuntimeFromAsync(importedMsixDir, architecture, taskContext, cancellationToken);
         }
+        else
+        {
+            var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
 
-        // requireExactVersion:true — this unpackaged path must resolve the runtime the app was actually
-        // built against, never an unrelated cached WinAppSDK version, or the presence gate below could
-        // pass against the wrong runtime family.
-        var expectedRuntimePackages = await EnsureWindowsAppRuntimeInstalledAsync(packageList, architecture, taskContext, cancellationToken, requireExactVersion: true);
+            // A framework-dependent app needs the Windows App Runtime only if it actually uses the Windows
+            // App SDK. A plain console/desktop Exe doesn't — preparing the runtime for it is wasted work and
+            // prints a noisy "could not determine runtime" warning. Skip only on a positive no-reference
+            // result; an unresolved list falls through to prep so a real WinUI app keeps its runtime.
+            //
+            // Callers that know the build's assets file pass it, which makes the graph exact. A caller that
+            // does not falls back to re-evaluating the project in the default Configuration/RID, where a
+            // Windows App SDK reference conditioned on a non-default one would be missed and prep wrongly
+            // skipped — bounded by the skip firing only on a positive no-reference result.
+            referencesWindowsAppSdk = windowsAppSdkPackageDirectory is not null
+                || (packageList is not null && ReferencesWindowsAppSdk(packageList));
+            if (packageList is not null && !referencesWindowsAppSdk)
+            {
+                taskContext.AddDebugMessage(
+                    $"{UiSymbols.Note} No Windows App SDK reference found; skipping Windows App Runtime preparation.");
+                return false;
+            }
+
+            // requireExactVersion:true — this unpackaged path must resolve the runtime the app was actually
+            // built against, never an unrelated cached WinAppSDK version, or the presence gate below could
+            // pass against the wrong runtime family.
+            expectedRuntimePackages = await EnsureWindowsAppRuntimeInstalledAsync(packageList, architecture, taskContext, cancellationToken, requireExactVersion: true);
+        }
 
         // Callers gate on WindowsAppSDKSelfContained, so a framework-dependent app here always needs a
         // Framework + DDLM. An empty list means the exact runtime packages couldn't be located, so the
@@ -1842,6 +1956,15 @@ internal partial class MsixService
             return Array.Empty<(string, string)>();
         }
 
+        return await InstallWindowsAppRuntimeFromAsync(msixDir, architecture, taskContext, cancellationToken);
+    }
+
+    /// <summary>
+    /// Installs any missing or outdated Windows App Runtime packages from a Windows App SDK
+    /// <c>tools\MSIX</c> folder and returns the runtime package identities it describes.
+    /// </summary>
+    private async Task<IReadOnlyList<(string Name, string Version)>> InstallWindowsAppRuntimeFromAsync(DirectoryInfo msixDir, string? architecture, TaskContext taskContext, CancellationToken cancellationToken)
+    {
         var (installedCount, errorCount, runtimePackages) = await windowsAppRuntimeService.InstallWindowsAppRuntimeAsync(msixDir, taskContext, cancellationToken, architecture);
 
         if (errorCount > 0)

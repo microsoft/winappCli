@@ -187,7 +187,7 @@ public partial class RealUiAutomationTests
             Selector = tree.Slug, WindowHandle = sourceHwnd,
         }, UiInvokeAction.Invoke, default);
 
-        CollectionAssert.AreEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
+        Assert.AreSequenceEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
         Assert.AreEqual(1, tree.Invocations);
         Assert.AreEqual(1, svc.SerializedElementResolutionCount);
     }
@@ -206,7 +206,7 @@ public partial class RealUiAutomationTests
             ? svc.InvokeAsync(tree.AppTarget, new UiElement { Selector = tree.Slug }, UiInvokeAction.Invoke, default)
             : svc.FindSingleElementAsync(tree.AppTarget, new UiSelector { Slug = tree.Slug }, true, default));
 
-        CollectionAssert.AreEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
+        Assert.AreSequenceEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
         Assert.AreEqual(0, tree.PatternReads);
         Assert.AreEqual(0, tree.Invocations);
     }
@@ -232,7 +232,7 @@ public partial class RealUiAutomationTests
             await svc.InvokeAsync(tree.AppTarget, selected, UiInvokeAction.Invoke, default);
         }
 
-        CollectionAssert.AreEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
+        Assert.AreSequenceEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
         Assert.IsGreaterThan(0, tree.Comparisons);
         Assert.AreEqual(1, tree.Invocations);
         Assert.AreEqual(externalIdentity ? 1 : 0, svc.SerializedElementResolutionCount);
@@ -274,7 +274,7 @@ public partial class RealUiAutomationTests
             Assert.AreEqual(0, tree.PatternReads);
             Assert.AreEqual(0, tree.Invocations);
         }
-        CollectionAssert.AreEqual(new nint[] { (nint)hwnd }, tree.BoundHandles);
+        Assert.AreSequenceEqual(new nint[] { (nint)hwnd }, tree.BoundHandles);
     }
 
     [TestMethod]
@@ -317,7 +317,7 @@ public partial class RealUiAutomationTests
         {
             await Assert.ThrowsExactlyAsync<OperationCanceledException>(Act);
         }
-        CollectionAssert.AreEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
+        Assert.AreSequenceEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
         Assert.AreEqual(0, tree.PatternReads);
         Assert.AreEqual(0, tree.Invocations);
     }

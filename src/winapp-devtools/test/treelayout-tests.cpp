@@ -16,22 +16,9 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "DevToolsTestCheck.h"
 
 using namespace DevToolsTreeLayout;
-
-static int g_failures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
-}
-
-static void CheckEq(int got, int want, const char* what)
-{
-    if (got != want) { ++g_failures; std::printf("  FAIL  %s (want %d, got %d)\n", what, want, got); }
-    else             {              std::printf("  ok    %s (%d)\n", what, got); }
-}
 
 static void Test_VerticalRevealPreservesVisibleContext()
 {
@@ -259,7 +246,7 @@ static void Test_IndentIsMonotonicAndBounded()
 
 static void Test_BreadcrumbElision()
 {
-    std::printf("\nBreadcrumb: bounded, but the full chain is never lost\n");
+    std::printf("\nBreadcrumb: the two nearest ancestors, with the count of the full chain\n");
     const std::wstring sep = L" \u203A ";
     std::wstring longChain;
     for (int i = 0; i < 24; ++i) { if (i) longChain += sep; longChain += L"Node" + std::to_wstring(i); }
@@ -267,18 +254,20 @@ static void Test_BreadcrumbElision()
     size_t segs = 0;
     const std::wstring elided = ElideBreadcrumb(longChain, segs);
     CheckEq((int)segs, 24, "reports the true ancestor count");
-    Check(elided.size() < longChain.size(), "a 24-level chain is elided");
-    Check(elided.find(L"Node0") == 0, "keeps the root");
-    Check(elided.find(L"Node23") != std::wstring::npos, "keeps the immediate parent");
-    Check(elided.find(L"\u2026") != std::wstring::npos, "marks the elision honestly");
+    Check(elided == L"\u2026" + sep + L"Node22" + sep + L"Node23", "a 24-level chain keeps its two nearest ancestors");
+    Check(elided.find(L"Node0") == std::wstring::npos, "drops the root");
 
-    const std::wstring shortChain = L"A" + sep + L"B" + sep + L"C";
+    const std::wstring threeChain = L"A" + sep + L"B" + sep + L"C";
     size_t segs2 = 0;
-    Check(ElideBreadcrumb(shortChain, segs2) == shortChain, "a short chain is left whole, not mangled");
-    CheckEq((int)segs2, 3, "short chain segment count");
+    Check(ElideBreadcrumb(threeChain, segs2) == L"\u2026" + sep + L"B" + sep + L"C", "a 3-level chain is elided");
+    CheckEq((int)segs2, 3, "3-level chain segment count");
 
+    const std::wstring shortChain = L"A" + sep + L"B";
     size_t segs3 = 0;
-    Check(ElideBreadcrumb(L"", segs3).empty(), "an empty chain stays empty");
+    Check(ElideBreadcrumb(shortChain, segs3) == shortChain, "a 2-level chain is left whole, not mangled");
+
+    size_t segs4 = 0;
+    Check(ElideBreadcrumb(L"", segs4).empty(), "an empty chain stays empty");
 }
 
 static void Test_BuildRowsIsTheUntestedSeam()
@@ -348,6 +337,25 @@ static void Test_RenderCapSelectsTheRequestedViewFairly()
     Check(app[0] == appRow, "filtering before the cap reaches app content beyond the old prefix");
 }
 
+static void Test_VisibleParents()
+{
+    std::vector<Row> rows(8);
+    const int depths[] = {0, 1, 2, 1, 2, 0, 1, 2};
+    for (size_t i = 0; i < rows.size(); ++i) rows[i].depth = depths[i];
+    const auto all = ComputeVisibleParents(rows, std::vector<char>(8, 1));
+    Check(all == std::vector<size_t>{kNoRow, 0, 1, 0, 3, kNoRow, 5, 6},
+          "visible parents retain nested rows, siblings and separate roots");
+    const auto filtered = ComputeVisibleParents(rows, {1, 0, 1, 0, 1, 0, 1, 1});
+    Check(filtered == std::vector<size_t>{kNoRow, kNoRow, 0, kNoRow, 0, kNoRow, kNoRow, 6},
+          "filtered ancestors promote descendants without attaching across a hidden root");
+    const auto collapsed = ComputeVisibleParents(rows, {1, 1, 0, 1, 0, 1, 0, 0});
+    Check(collapsed == std::vector<size_t>{kNoRow, 0, kNoRow, 0, kNoRow, kNoRow, kNoRow, kNoRow},
+          "collapsed descendants are absent from the accessible hierarchy");
+    Check(ComputeVisibleParents({}, {}).empty(), "an empty tree has no accessible parents");
+    Check(ComputeVisibleParents(rows, {}) == std::vector<size_t>(8, kNoRow),
+          "rows without visibility entries are excluded");
+}
+
 static void Test_A11yRowsFollowTheVisibleHierarchy()
 {
     std::printf("\nAccessibility rows follow the hierarchy the filtered tree actually shows\n");
@@ -387,7 +395,7 @@ static void Test_A11yRowsFollowTheVisibleHierarchy()
 }
 
 // The identity a devtools selector is built on. A wire handle is exact but opaque; `id` is the readable
-// half — and the ONLY thing that lets the CLI refuse a selector that no longer names the element it named
+// half, and the ONLY thing that lets the CLI refuse a selector that no longer names the element it named
 // when it was printed. Three properties have to hold or the selector is worse than the bare handle it
 // replaced: it must depend on the whole path (so duplicate x:Names stay distinct), it must not move when an
 // unrelated sibling type is inserted, and it must be wide enough that a 20,000-node census does not collide.
@@ -395,8 +403,8 @@ static void Test_ElementIdentityIsPathDependentAndStable()
 {
     std::printf("\n[selectors] the stable element identity behind a devtools slug\n");
 
-    // The control: an identity that hashes only the element's own type+name — which is what a naive
-    // "type-name-hash" slug does — cannot tell two DataTemplate rows apart at all.
+    // The control: an identity that hashes only the element's own type+name (which is what a naive
+    // "type-name-hash" slug does) cannot tell two DataTemplate rows apart at all.
     Check(IdentitySegment(L"Microsoft.UI.Xaml.Controls.Button", L"DeleteButton", 0) ==
           IdentitySegment(L"Microsoft.UI.Xaml.Controls.Button", L"DeleteButton", 0),
           "the same element's segment is deterministic");
@@ -434,7 +442,7 @@ static void Test_ElementIdentityIsPathDependentAndStable()
     Check(IdentityToken(0) == L"0000000000", "a zero identity still renders full width");
 
     // Width: 16 bits (the UI Automation slug's 4 hex digits) collides essentially always over a DevTools census.
-    // This asserts the property that matters — that the token carries at least 40 bits — rather than
+    // This asserts the property that matters (that the token carries at least 40 bits) rather than
     // re-deriving the birthday bound at runtime.
     Check(kIdentityHexDigits >= 10, "the identity is at least 40 bits wide for a 20,000-node census");
     Check(IdentityToken(0xFFFFFFFFFFULL) == L"ffffffffff" &&
@@ -801,6 +809,7 @@ int main()
     Test_BuildRowsIsTheUntestedSeam();
     Test_RenderCapSelectsTheRequestedViewFairly();
     Test_A11yRowsFollowTheVisibleHierarchy();
+    Test_VisibleParents();
     Test_TreeFilterMatcherIsSharedWithTheProtocol();
     Test_ElementIdentityIsPathDependentAndStable();
     Test_CollapseStateSurvivesARowRebuild();
@@ -892,7 +901,7 @@ int main()
     std::printf("\n");
     const int eventsFailures = RunEventsTests();
 
-    const int total = g_failures + protocolFailures + trustFailures + crashFailures + sourcePathFailures + sinkFailures +
+    const int total = g_testFailures + protocolFailures + trustFailures + crashFailures + sourcePathFailures + sinkFailures +
                       cornerFailures + toolbarFailures + authoredFailures +
                       selectionPlacementFailures + inspectorAcceptanceFailures + selectionTrackingFailures + relayFailures +
                       bindingRowFailures + pathWalkFailures + pathProbeFailures + pathSyntaxFailures + readFailures + pickRouteFailures + perfFailures + uiDispatchFailures +

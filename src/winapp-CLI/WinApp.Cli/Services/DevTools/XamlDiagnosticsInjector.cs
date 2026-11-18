@@ -213,7 +213,7 @@ internal static unsafe partial class XamlDiagnosticsInjector
         }
 
         // Balance CoInitializeEx (S_OK/S_FALSE) with CoUninitialize, and free the UDK once the one-shot
-        // bootstrap has returned. Both are cleanup hygiene on this short-lived worker thread — the
+        // bootstrap has returned. Both are cleanup hygiene on this short-lived worker thread. The
         // diagnostics connection it establishes in the target is self-sustaining (the tap's pipe outlives
         // this process).
         try

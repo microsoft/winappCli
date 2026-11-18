@@ -128,7 +128,7 @@ internal sealed record PrepareTargetOptions(bool RequireInteractiveDesktop, bool
 /// <summary>What an inspect-only look at a target found.</summary>
 /// <param name="Running">True when the target winapp manages is running right now.</param>
 /// <param name="Epoch">
-/// Which generation is running. <see cref="ExecutionTargetEpoch.None"/> when nothing is.
+/// Which generation is running. <see cref="ExecutionTargetEpoch.None"/> when no managed generation is known.
 /// </param>
 /// <param name="Target">
 /// A prepared channel to the running agent, or null when the target is not running or its agent
@@ -208,6 +208,15 @@ internal sealed class ExecutionTargetOrchestrator(
 
         return rendered;
     }
+
+    /// <summary>
+    /// Reports whether this host meets the target's prerequisites, without changing anything.
+    /// </summary>
+    /// <returns>The readiness report, or null when this target does not describe its host.</returns>
+    public Task<TargetHostReadiness?> DescribeHostAsync(CancellationToken cancellationToken) =>
+        backend is IHostReadinessTarget host
+            ? host.DescribeHostAsync(cancellationToken)
+            : Task.FromResult<TargetHostReadiness?>(null);
 
     /// <summary>
     /// Reports what the target looks like right now, without creating or repairing anything.

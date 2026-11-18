@@ -1,0 +1,60 @@
+name: App Benchmark Check
+
+# Typecheck and unit tests for the app benchmark harness (benchmarks/apps). Runs no model
+# sessions. Always runs on PRs (safe as a required check) and skips quickly when nothing
+# under benchmarks/apps changed.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: benchmarks/apps
+    steps:
+      # The default PR checkout is the merge commit; depth 2 brings in its base parent,
+      # so HEAD^1..HEAD is exactly what the PR changes.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Detect changes
+        id: changes
+        working-directory: .
+        run: |
+          $changed = @(git diff --name-only HEAD^1 HEAD)
+          if ($LASTEXITCODE -ne 0) { throw "Could not list the files this PR changes." }
+          $relevant = @($changed | Where-Object { $_ -match '^(benchmarks/apps/|\.github/workflows/apps-benchmark-check\.yml$)' })
+          "relevant=$($relevant.Count -gt 0)" >> $env:GITHUB_OUTPUT
+          if (-not $relevant) { "No app benchmark changes; skipping." | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append }
+
+      - name: Setup Node
+        if: steps.changes.outputs.relevant == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Install
+        if: steps.changes.outputs.relevant == 'true'
+        run: npm ci
+
+      - name: Typecheck
+        if: steps.changes.outputs.relevant == 'true'
+        run: npm run typecheck
+
+      - name: Unit tests
+        if: steps.changes.outputs.relevant == 'true'
+        run: npm test
