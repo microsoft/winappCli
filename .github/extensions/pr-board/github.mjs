@@ -105,6 +105,72 @@ export async function fetchRepoData(repo) {
     };
 }
 
+// Issues in progress: open issues assigned to you with no open PR yet, plus issues
+// a session here is linked to. linked = issue numbers from the board's state.
+const ISSUE_FIELDS = "number,title,url,state,updatedAt,createdAt,author,labels,assignees,closedByPullRequestsReferences";
+export async function fetchIssues(repo, linked, openPrNumbers) {
+    const open = new Set(openPrNumbers);
+    const hasOpenPr = (i) => (i.closedByPullRequestsReferences || []).some((r) => open.has(r.number) && (!r.repository || `${r.repository.owner?.login}/${r.repository.name}`.toLowerCase() === repo.toLowerCase()));
+    let assigned = [];
+    try {
+        assigned = JSON.parse(await gh(["issue", "list", "-R", repo, "--assignee", "@me", "--state", "open", "--limit", "50", "--json", ISSUE_FIELDS]));
+    } catch {
+        assigned = [];
+    }
+    const out = new Map();
+    for (const i of assigned) if (!hasOpenPr(i)) out.set(i.number, { ...i, assignedToYou: true });
+    const missing = linked.filter((n) => !out.has(n) && !assigned.some((i) => i.number === n));
+    const viewed = await Promise.all(missing.slice(0, 20).map((n) => gh(["issue", "view", String(n), "-R", repo, "--json", ISSUE_FIELDS]).then((s) => JSON.parse(s)).catch(() => null)));
+    for (const i of viewed) if (i && i.state === "OPEN" && !hasOpenPr(i)) out.set(i.number, { ...i, assignedToYou: false });
+    return [...out.values()];
+}
+
+export function buildIssueCards(issues, localIssues) {
+    return issues.map((i) => {
+        const local = localIssues[String(i.number)] || {};
+        const status = local.status
+            || (local.session?.id ? `Being worked on in "${local.session.name || "a session here"}"` : i.assignedToYou ? "Assigned to you; no PR yet" : "Tracked here; no session or PR yet");
+        return {
+            kind: "issue",
+            number: i.number,
+            title: i.title,
+            url: i.url,
+            author: i.author?.login || "unknown",
+            createdAt: i.createdAt,
+            updatedAt: i.updatedAt,
+            labels: (i.labels || []).map((l) => l.name),
+            assignees: (i.assignees || []).map((a) => a.login),
+            assignedToYou: !!i.assignedToYou,
+            section: "issues",
+            group: "issue",
+            status,
+            waitingOn: status,
+            local,
+        };
+    });
+}
+
+// What changed since your last review: compare the commit you reviewed with the PR head.
+export async function fetchChangesSince(repo, number, viewer, fallbackSha) {
+    const reviews = JSON.parse(await gh(["api", `repos/${repo}/pulls/${number}/reviews?per_page=100`]));
+    const mine = reviews.filter((r) => r.user?.login === viewer && r.commit_id).sort((a, b) => String(a.submitted_at).localeCompare(String(b.submitted_at))).at(-1);
+    const base = mine?.commit_id || fallbackSha;
+    const pr = JSON.parse(await gh(["api", `repos/${repo}/pulls/${number}`]));
+    const head = pr.head?.sha;
+    if (!base) return { base: null, head, reviewedAt: null, commits: [], files: [], note: "You haven't reviewed this PR, and pr-review hasn't run here, so there's nothing to compare against." };
+    if (base === head) return { base, head, reviewedAt: mine?.submitted_at || null, commits: [], files: [], note: "Nothing changed: the PR is still on the commit you reviewed." };
+    const cmp = JSON.parse(await gh(["api", `repos/${repo}/compare/${base}...${head}`]));
+    return {
+        base,
+        head,
+        reviewedAt: mine?.submitted_at || null,
+        status: cmp.status, // "ahead", or "diverged" after a force push
+        commits: (cmp.commits || []).map((k) => ({ sha: k.sha, message: String(k.commit?.message || "").split("\n")[0].slice(0, 200), author: k.author?.login || k.commit?.author?.name || "", at: k.commit?.author?.date })),
+        files: (cmp.files || []).map((f) => ({ path: f.filename, status: f.status, additions: f.additions, deletions: f.deletions })).sort((a, b) => (b.additions + b.deletions) - (a.additions + a.deletions)),
+        note: cmp.status === "diverged" ? "The branch was rebased or force-pushed since your review, so this compares across the rewrite." : null,
+    };
+}
+
 // Conversation and files for one PR, fetched when the user selects it.
 export async function fetchDetail(repo, number) {
     const out = await gh(["pr", "view", String(number), "-R", repo, "--json", "comments,reviews,files"]);
@@ -380,6 +446,7 @@ function tracking(pr, data, local, ext) {
     const reviewWork = !!(local.prReview || local.draft || ["review", "post"].includes(local.agent?.kind));
     let section = "other";
     if (local.role === "author" || pr.author?.login === viewer) section = "yours";
+    else if (local.tracked === "reviewer") section = "reviewing";
     else if (local.role === "reviewer" || requested || viewerReviewAt || reviewWork) section = "reviewing";
     else if (local.session?.id) section = "yours";
 

@@ -24,7 +24,8 @@ not its position.
 | Section | Which PRs | Columns |
 |---------|-----------|---------|
 | **Yours** | You wrote it, or a session here is working on it (for example a Dependabot PR you're fixing) | Agent, Monitoring, pr-review, PR |
-| **Reviewing** | You're a requested reviewer, you reviewed it, or pr-review ran here | pr-review, PR, Last activity |
+| **Issues in progress** | Open issues a session here is working on, or assigned to you, with no open PR yet | Agent, Last activity |
+| **Reviewing** | You're a requested reviewer, added it with **Add to my reviews**, you reviewed it, or pr-review ran here | pr-review, PR, Last activity |
 | **Everything else** | Open PRs nobody is working on here | PR |
 
 - **Agent:** `Working`, `Waiting on you`, `Idle`, `Linked` (not synced yet), or
@@ -45,8 +46,26 @@ each choice, a box for a typed answer, and **Dismiss**. An answer goes to the
 agent, which answers the session for you. Dismiss only hides the question on the
 board; the session keeps waiting.
 
-Merged PRs are in a collapsed **Merged today** section at the bottom. Click a PR
-title to open its workspace; **← Overview** (or Esc) goes back.
+Merged PRs are in a collapsed **Merged today** section at the bottom.
+
+### The flyout
+
+Click any row to open a panel on the right, without leaving the Overview. It
+shows where the item is, quick commands that fit it, and its thread: type a
+question and the agent answers there, without starting a new session. Esc or ✕
+closes it; **Open details** goes to the full PR workspace (**← Overview** or Esc
+comes back).
+
+| Row | Quick commands |
+|-----|----------------|
+| Yours | Status update, Turn on/off monitoring, Summarize, Ask |
+| Issues | Status update, Start working on it (the agent creates a session), Ask |
+| Reviewing | **What changed since my review?** lists the commits and files changed since the commit you reviewed (read from GitHub right away), then asks the agent for a plain summary in the thread. Also Summarize the author's replies, Re-run review |
+| Everything else | Quick question, Add to my reviews (tracked on the board only; nothing changes on GitHub), Start review, Summarize |
+
+The ↗ icon on every row, and **Open in browser** in the flyout, open the PR or
+issue in your default browser. The extension opens it for you, because links
+inside the canvas may not leave the app.
 
 ### Sync
 

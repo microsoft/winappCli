@@ -20,26 +20,34 @@ export function stateFile(repo) {
 
 export function readState(repo) {
     const file = stateFile(repo);
-    if (!existsSync(file)) return { repo, prs: {}, meta: {} };
+    const empty = { repo, prs: {}, issues: {}, meta: {} };
+    if (!existsSync(file)) return empty;
     try {
         const data = JSON.parse(readFileSync(file, "utf8"));
-        return { repo, prs: data.prs && typeof data.prs === "object" ? data.prs : {}, meta: data.meta && typeof data.meta === "object" ? data.meta : {} };
+        const obj = (x) => (x && typeof x === "object" ? x : {});
+        return { repo, prs: obj(data.prs), issues: obj(data.issues), meta: obj(data.meta) };
     } catch {
-        return { repo, prs: {}, meta: {} };
+        return empty;
     }
 }
 
 // Read-modify-write against the file (not memory) so several extension
 // processes (one per session) don't overwrite each other's updates.
 export function updatePr(repo, number, mutate) {
+    return updateItem(repo, "pr", number, mutate);
+}
+
+// Same as updatePr, for either a PR ("pr") or an issue ("issue").
+export function updateItem(repo, kind, number, mutate) {
     const state = readState(repo);
+    const bucket = kind === "issue" ? state.issues : state.prs;
     const key = String(number);
-    const pr = state.prs[key] || { history: [] };
+    const pr = bucket[key] || { history: [] };
     mutate(pr);
     pr.history = (pr.history || []).slice(-HISTORY_LIMIT);
     pr.thread = (pr.thread || []).slice(-THREAD_LIMIT);
     pr.updatedAt = new Date().toISOString();
-    state.prs[key] = pr;
+    bucket[key] = pr;
     writeState(repo, state);
     return pr;
 }

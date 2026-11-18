@@ -274,6 +274,29 @@ body.ovnarrow .ov-main { grid-column: 1 / -1; }
 body.ovnarrow .ov-cell .k { display: block; }
 body.ovnarrow .ov { padding: var(--s3) var(--s4) var(--s5); }
 
+/* ---- Flyout: a right-side drawer over the Overview ---- */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.28); z-index: 30; }
+.fly { position: fixed; top: 0; right: 0; bottom: 0; width: min(600px, 94vw); z-index: 31; background: var(--bg); border-left: 1px solid var(--border); box-shadow: -12px 0 32px rgba(0,0,0,.22); display: flex; flex-direction: column; }
+.fly-head { padding: var(--s4) var(--s5) var(--s3); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--s2); }
+.fly-head .top { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-meta); color: var(--muted); }
+.fly-head .top .sp { flex: 1; }
+.fly-head h2 { margin: 0; font-size: var(--t-title); line-height: 22px; font-weight: var(--w-strong); }
+.fly-body { flex: 1; overflow-y: auto; padding: var(--s4) var(--s5); display: flex; flex-direction: column; gap: var(--s5); }
+.fly-cmds { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.fly .chips { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.changes { display: flex; flex-direction: column; gap: var(--s2); font-size: var(--t-small); }
+.changes ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.changes .sha { font-family: var(--mono); font-size: var(--t-meta); color: var(--muted); margin-right: 6px; }
+.changes .file { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--s2); font-family: var(--mono); font-size: var(--t-meta); }
+.changes .file span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.changes .add { color: var(--green); font-variant-numeric: tabular-nums; } .changes .del { color: var(--red); font-variant-numeric: tabular-nums; }
+.fly .composer { padding: var(--s3) var(--s5); }
+button.ico, a.ico { padding: 3px 6px; }
+.ov-title-row { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.ov-title-row .ov-title { min-width: 0; }
+.ov-title-row a.ico { border-color: transparent; color: var(--muted); }
+.ov-title-row a.ico:hover { color: var(--fg); }
+
 /* ---- Narrow panel: one pane at a time ---- */
 body.narrow aside { width: 100%; max-width: none; min-width: 0; }
 body.narrow .split { display: none; }
@@ -315,6 +338,7 @@ aside.tight .row .st { flex-direction: row; align-items: center; gap: var(--s2);
     </form>
   </section>
 </div>
+<div id="flyHost"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -847,6 +871,7 @@ const scheduleDetail = (c) => { clearTimeout(detailTimer); detailTimer = setTime
 const answers = new Map(); // pr -> typed answer, kept across live re-renders
 const SECTIONS = [
   ["yours", "Yours", "You wrote these, or a session here is working on them.", ["Agent", "Monitoring", "pr-review", "PR"]],
+  ["issues", "Issues in progress", "Open issues a session here is working on, or assigned to you, with no PR yet.", ["Agent", "Last activity"]],
   ["reviewing", "Reviewing", "You're a reviewer, you reviewed them, or pr-review ran here.", ["pr-review", "PR", "Last activity"]],
   ["other", "Everything else", "Open PRs nobody is working on here.", ["PR"]],
 ];
@@ -910,10 +935,126 @@ function askHtml(c) {
 function ovRow(c, sec) {
   const pin = pins.has(c.number) ? icon("pin", "sm tone-mute") : "";
   const sub = `<span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span title="${esc(c.size?.text)}">${esc(c.size?.label)}</span><span class="sep">·</span>${ciHtml(c)}<span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>`;
-  const main = `<div class="ov-main"><button class="ov-title" data-act="open" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button><div class="ov-sub">${sub}</div>`;
+  const kind = c.kind === "issue" ? "issue" : "pr";
+  const main = `<div class="ov-main"><div class="ov-title-row"><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${browserLink(c)}</div><div class="ov-sub">${sub}</div>`;
+  if (sec === "issues") return `<div class="ov-row" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div></div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
   if (sec === "yours") return `<div class="ov-row" style="--cols:4">${main}<div class="ov-where">${whereHtml(c)}</div></div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
   if (sec === "reviewing") return `<div class="ov-row" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
   return `<div class="ov-row" style="--cols:1">${main}<div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div></div>${prCell(c)}</div>`;
+}
+
+// ---- Flyout ----
+let fly = null; // { kind: "pr" | "issue", number }
+let flyReturnFocus = null;
+const changes = new Map(); // pr -> { loading } | { data } | { error }
+let flyDraft = "";
+const issuesOf = () => snap?.issues || [];
+const itemOf = (kind, n) => (kind === "issue" ? issuesOf() : cardsOf()).find((c) => c.number === n) || null;
+
+function browserLink(c, label = "") {
+  return `<a class="btn ico" href="${esc(c.url)}" target="_blank" rel="noopener" data-act="browser" data-url="${esc(c.url)}" title="Open #${c.number} in your browser" aria-label="Open #${c.number} on GitHub in your browser">${icon("external", "sm")}${label ? esc(label) : ""}</a>`;
+}
+
+function changesHtml(n) {
+  const ch = changes.get(n);
+  if (!ch) return "";
+  if (ch.loading) return `<section class="sec changes"><h3>What changed since your review</h3><div class="hint">Comparing commits…</div></section>`;
+  if (ch.error) return `<section class="sec changes"><h3>What changed since your review</h3><div class="hint">Couldn't compare: ${esc(ch.error)}</div></section>`;
+  const d = ch.data;
+  const add = d.files.reduce((s, f) => s + f.additions, 0), del = d.files.reduce((s, f) => s + f.deletions, 0);
+  return `<section class="sec changes"><h3>What changed since your review <span class="note">${d.reviewedAt ? `you reviewed ${esc(ago(d.reviewedAt))} ago` : ""}</span></h3>
+    ${d.note ? `<div class="hint">${esc(d.note)}</div>` : ""}
+    ${d.commits.length ? `<div><b>${d.commits.length} commit${d.commits.length === 1 ? "" : "s"}</b>, ${d.files.length} file${d.files.length === 1 ? "" : "s"} <span class="add">+${add}</span> <span class="del">−${del}</span></div>
+      <ul>${d.commits.slice(-12).map((k) => `<li><span class="sha">${esc(k.sha.slice(0, 7))}</span>${esc(k.message)} <span class="hint">· ${esc(k.author)} · ${esc(ago(k.at))}${ago(k.at) === "just now" ? "" : " ago"}</span></li>`).join("")}</ul>
+      <ul>${d.files.slice(0, 25).map((f) => `<li class="file"><span title="${esc(f.path)}">${esc(f.path)}</span><span class="add">+${f.additions}</span><span class="del">−${f.deletions}</span></li>`).join("")}${d.files.length > 25 ? `<li class="hint">…and ${d.files.length - 25} more</li>` : ""}</ul>
+      <div class="hint">The agent's plain-words summary of these changes will appear in the thread below.</div>` : ""}
+  </section>`;
+}
+
+function flyCommands(c, kind) {
+  const b = (act, label, extra = "") => `<button data-act="${act}" data-pr="${c.number}" data-kind="${kind}" ${extra}>${label}</button>`;
+  if (kind === "issue") {
+    return [b("status-update", "Status update"), c.local?.session?.id ? "" : b("start-issue", `${icon("sparkle", "sm")}Start working on it`), b("focus-ask", "Ask a question"), c.local?.tracked ? b("untrack", "Remove from board", 'class="quiet"') : ""].join("");
+  }
+  const busy = isBusy(c);
+  if (c.section === "yours") {
+    const am = c.local?.sync?.agentMerge;
+    return [b("status-update", "Status update"), am?.enabled ? b("monitor", "Turn off monitoring", 'data-enable="0"') : b("monitor", "Turn on monitoring", 'data-enable="1"'), b("summarize", `${icon("sparkle", "sm")}Summarize`), b("focus-ask", "Ask a question")].join("");
+  }
+  if (c.section === "reviewing") {
+    return [b("what-changed", "What changed since my review?", 'class="primary"'), b("summarize-replies", "Summarize the author's replies"), b("review", c.review?.state === "none" ? "Start review" : "Re-run review", busy ? "disabled" : ""), c.local?.tracked === "reviewer" ? b("untrack", "Remove from my reviews", 'class="quiet"') : ""].join("");
+  }
+  return [b("focus-ask", "Quick question", 'class="primary"'), b("track", "Add to my reviews"), b("review", "Start review", busy ? "disabled" : ""), b("summarize", `${icon("sparkle", "sm")}Summarize`)].join("");
+}
+
+function renderFlyout() {
+  const host = $("flyHost");
+  if (!fly) { host.innerHTML = ""; return; }
+  const c = itemOf(fly.kind, fly.number);
+  if (!c) { fly = null; host.innerHTML = ""; return; }
+  const prev = host.querySelector(".fly-body");
+  const scroll = prev ? prev.scrollTop : null;
+  const ta = host.querySelector("#flyInput");
+  if (ta) flyDraft = ta.value;
+  const hadFocus = ta && document.activeElement === ta;
+  const isIssue = fly.kind === "issue";
+  const chips = isIssue
+    ? `${agentCell(c).replace('class="ov-cell"', 'class="ov-cell" style="flex-direction:row;align-items:center"')}`
+    : `${chip(c)}${c.review ? mkChip(c.review.state === "done" ? "ok" : c.review.state === "stale" ? "you" : "neutral", c.review.state === "done" ? "checkCircle" : c.review.state === "stale" ? "reset" : "dash", "pr-review: " + c.review.label, c.review.text) : ""}${ciHtml(c)}`;
+  const summary = isIssue
+    ? `<div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div><div class="hint">Last activity ${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"} · opened by ${esc(c.author)}</div>`
+    : `${c.local?.summary ? `<div>${icon("sparkle", "sm tone-agent")} ${mdInline(c.local.summary.text)}</div>` : `<div class="tone-mute">${esc(c.fallbackSummary || "")}</div>`}
+       <div class="ov-where">${whereHtml(c)}</div>
+       ${c.section === "reviewing" ? `<div class="ov-story">${storyHtml(c)}</div>` : ""}`;
+  host.innerHTML = `<div class="scrim" data-act="fly-close"></div>
+    <aside class="fly" role="dialog" aria-modal="true" aria-labelledby="flyTitle">
+      <div class="fly-head">
+        <div class="top"><span>${isIssue ? "Issue" : "Pull request"} #${c.number}</span><span class="sp"></span>
+          ${browserLink(c, "Open in browser")}
+          ${isIssue ? "" : `<button data-act="open" data-pr="${c.number}">Open details</button>`}
+          <button class="quiet ico" data-act="fly-close" aria-label="Close">${icon("x", "sm")}</button></div>
+        <h2 id="flyTitle">${esc(c.title)}</h2>
+        <div class="chips">${chips}</div>
+      </div>
+      <div class="fly-body">
+        <section class="sec"><h3>Where it is</h3>${summary}</section>
+        ${!isIssue ? askHtml(c) : ""}
+        <section class="sec"><h3>Quick commands</h3><div class="fly-cmds">${flyCommands(c, fly.kind)}</div></section>
+        ${!isIssue ? changesHtml(c.number) : ""}
+        <section class="sec"><h3>Thread</h3>${threadHtml(c)}</section>
+      </div>
+      <form class="composer" id="flyComposer"><textarea id="flyInput" rows="1" placeholder="Ask anything about #${c.number}…" aria-label="Message about #${c.number}"></textarea><button class="primary" type="submit">Send</button></form>
+    </aside>`;
+  const nta = host.querySelector("#flyInput");
+  nta.value = flyDraft;
+  if (hadFocus) { nta.focus(); nta.setSelectionRange(nta.value.length, nta.value.length); }
+  const body = host.querySelector(".fly-body");
+  if (scroll !== null) body.scrollTop = scroll;
+}
+
+function openFlyout(kind, number, from) {
+  if (!fly || fly.kind !== kind || fly.number !== number) flyDraft = "";
+  fly = { kind, number };
+  flyReturnFocus = from || null;
+  renderFlyout();
+  $("flyHost").querySelector(".fly-cmds button, .fly-head button")?.focus();
+}
+function closeFlyout() {
+  fly = null;
+  renderFlyout();
+  flyReturnFocus?.isConnected ? flyReturnFocus.focus() : null;
+}
+
+async function loadChanges(n) {
+  changes.set(n, { loading: true });
+  renderFlyout();
+  try {
+    const res = await fetch(`/api/changes?repo=${encodeURIComponent(REPO)}&pr=${n}`);
+    const data = await res.json();
+    changes.set(n, res.ok ? { data } : { error: data.error || "HTTP " + res.status });
+    if (res.ok && data.base && data.base !== data.head && data.commits.length) await post("/api/action", { pr: n, action: "explain-changes" }).catch(() => {});
+  } catch (e) { changes.set(n, { error: e.message }); }
+  renderFlyout();
 }
 
 function renderOverview() {
@@ -930,9 +1071,9 @@ function renderOverview() {
     <div class="ov-bar"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select>
       <span>Rows keep their place when their state changes.</span></div>
     ${SECTIONS.map(([id, title, hint, cols]) => {
-      const rows = order(cards.filter((c) => c.section === id));
+      const rows = order((id === "issues" ? issuesOf() : cards).filter((c) => c.section === id));
       return `<section class="ov-sec" aria-label="${esc(title)}"><header><h2>${esc(title)}</h2><span class="n">${rows.length}</span><p>${esc(hint)}</p></header>
-        <div class="ov-cols" style="--cols:${cols.length}" aria-hidden="true"><span>Pull request</span>${cols.map((k) => `<span>${esc(k)}</span>`).join("")}</div>
+        <div class="ov-cols" style="--cols:${cols.length}" aria-hidden="true"><span>${id === "issues" ? "Issue" : "Pull request"}</span>${cols.map((k) => `<span>${esc(k)}</span>`).join("")}</div>
         <div role="list">${rows.map((c) => ovRow(c, id)).join("") || `<div class="ov-empty">Nothing here.</div>`}</div></section>`;
     }).join("")}
     ${merged.length ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${order(merged).map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
@@ -954,7 +1095,8 @@ function renderSyncInfo() {
   const asked = s.requestedAt && (!s.syncedAt || s.requestedAt > s.syncedAt);
   $("syncInfo").textContent = asked ? "Sync requested…" : s.syncedAt ? `Sessions synced ${ago(s.syncedAt)}${ago(s.syncedAt) === "just now" ? "" : " ago"}` : "Sessions not synced yet";
   const open = cards.filter((c) => c.section !== "merged").length;
-  if (view === "overview") $("meta").innerHTML = `<b>${open} open</b> · ${waiting} waiting on you · ${stuck} stuck · updated ${esc(ago(snap.fetchedAt))}${ago(snap.fetchedAt) === "just now" ? "" : " ago"}`;
+  const nIssues = issuesOf().length;
+  if (view === "overview") $("meta").innerHTML = `<b>${open} open</b>${nIssues ? ` · ${nIssues} issue${nIssues === 1 ? "" : "s"} in progress` : ""} · ${waiting} waiting on you · ${stuck} stuck · updated ${esc(ago(snap.fetchedAt))}${ago(snap.fetchedAt) === "just now" ? "" : " ago"}`;
 }
 
 async function requestSync() {
@@ -974,7 +1116,7 @@ function render(force = false) {
   if (!current() && cards.length) { const vis = visibleCards(); selected = (vis.find((c) => c.group === "you") || vis[0] || cards[0]).number; force = true; }
   document.body.classList.toggle("ovmode", view === "overview");
   renderSyncInfo();
-  if (view === "overview") { renderOverview(); return; }
+  if (view === "overview") { renderOverview(); renderFlyout(); return; }
   renderList();
   const c = current();
   $("wsHead").hidden = !c;
@@ -1018,11 +1160,19 @@ document.addEventListener("click", (e) => {
   const a = el.dataset.act;
   const rowPr = el.dataset.pr ? Number(el.dataset.pr) : null;
   if (a === "select") return select(rowPr ?? selected);
-  if (a === "open") { view = "detail"; return select(rowPr, { focus: true }); }
+  if (a === "browser") { e.preventDefault(); return post("/api/open", { url: el.dataset.url }).then(() => toast("Opened in your browser")).catch((err) => toast("Couldn't open it: " + err.message)); }
+  if (a === "flyout") return openFlyout(el.dataset.kind || "pr", rowPr, el);
+  if (a === "fly-close") return closeFlyout();
+  if (a === "focus-ask") return $("flyInput")?.focus();
+  if (a === "what-changed") { loadChanges(rowPr); return; }
+  if (el.dataset.kind === "issue") return post("/api/action", { pr: rowPr, action: a, kind: "issue" }).then(() => toast(a === "untrack" ? "Removed from the board" : "Asked the agent")).catch((err) => toast("Couldn't do that: " + err.message));
+  if (a === "track" || a === "untrack") return post("/api/action", { pr: rowPr, action: a }).then(() => toast(a === "track" ? "Added to your reviews" : "Removed from your reviews")).catch((err) => toast("Couldn't do that: " + err.message));
+  if (a === "status-update" || a === "summarize-replies") return post("/api/action", { pr: rowPr, action: a }).then(() => toast("Asked the agent; the answer will appear in the thread")).catch((err) => toast("Couldn't do that: " + err.message));
+  if (a === "open") { fly = null; renderFlyout(); view = "detail"; return select(rowPr, { focus: true }); }
   if (a === "to-overview") { view = "overview"; openMenu = null; armed = null; render(); return document.querySelector(`.ov-title[data-pr="${selected}"]`)?.focus(); }
   if (a === "sync") return requestSync();
   if (a === "answer" || a === "answer-text") {
-    const answer = a === "answer" ? el.dataset.answer : (document.querySelector(`.ov-ask input[data-pr="${rowPr}"]`)?.value || "").trim();
+    const answer = a === "answer" ? el.dataset.answer : (el.closest(".ov-ask")?.querySelector("input")?.value || "").trim();
     if (!answer) { toast("Type an answer first."); return; }
     answers.delete(rowPr);
     return post("/api/action", { pr: rowPr, action: "answer", answer }).then(() => toast("Answer sent to the agent")).catch((e) => toast("Couldn't send: " + e.message));
@@ -1040,7 +1190,7 @@ document.addEventListener("click", (e) => {
   if (a === "reload-detail") { loadDetail(c, { force: true }); return render(true); }
   if (a === "more-menu") return openMenuAndFocus("more");
   if (a === "pin") { openMenu = null; pins.has(pr) ? pins.delete(pr) : pins.add(pr); store.set(PIN_KEY, JSON.stringify([...pins])); toast(pins.has(pr) ? "Pinned to the top of the list" : "Unpinned"); return render(); }
-  if (a === "open-github") { openMenu = null; render(); return window.open(c.url, "_blank", "noopener"); }
+  if (a === "open-github") { openMenu = null; render(); return post("/api/open", { url: c.url }).then(() => toast("Opened in your browser")).catch((err) => toast("Couldn't open it: " + err.message)); }
   if (a === "open-chat-link") { openMenu = null; render(); location.href = "ghapp://sessions/" + encodeURIComponent(c.local.session.id); return; }
   if (a === "nudge") {
     const n = c.reason?.action?.nudge;
@@ -1065,6 +1215,8 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && fly) { e.preventDefault(); return closeFlyout(); }
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "flyInput") { e.preventDefault(); $("flyComposer").requestSubmit(); return; }
   if (e.key === "Escape") {
     if (openMenu) { const which = openMenu; openMenu = null; render(); return $("wsHead").querySelector(`[data-act="${which}-menu"]`)?.focus(); }
     if (armed) { clearTimeout(armed.timer); armed = null; return render(); }
@@ -1162,6 +1314,17 @@ $("sync").innerHTML = `${icon("reset", "sm")}Sync`;
 $("sync").dataset.act = "sync";
 $("toOverview").innerHTML = `${icon("chevLeft", "sm")}Overview`;
 new ResizeObserver(([entry]) => document.body.classList.toggle("ovnarrow", entry.contentRect.width < 900)).observe(document.body);
+document.addEventListener("submit", async (e) => {
+  if (e.target.id !== "flyComposer" || !fly) return;
+  e.preventDefault();
+  const ta = $("flyInput");
+  const text = ta.value.trim();
+  if (!text) return;
+  try {
+    await post("/api/message", { pr: fly.number, kind: fly.kind, text });
+    flyDraft = ""; ta.value = "";
+  } catch (err) { toast("Couldn't send: " + err.message); }
+});
 $("refresh").addEventListener("click", async () => { try { await post("/api/refresh", {}); } catch (e) { toast("Couldn't refresh: " + e.message); } });
 $("sumAll").addEventListener("click", async () => {
   try { const r = await post("/api/summarize-all", {}); toast(r.count ? `Asked the agent to summarize ${r.count} PR${r.count === 1 ? "" : "s"}` : "Every PR that needs you already has a summary"); }

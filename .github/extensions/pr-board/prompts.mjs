@@ -117,21 +117,25 @@ export function shipPrompt(card, repo) {
     ].join("\n");
 }
 
+const KIND = (card) => (card.kind === "issue" ? "issue" : "PR");
+const ref = (card) => (card.kind === "issue" ? `issue: ${card.number}` : `pr: ${card.number}`);
+
 export function messagePrompt(card, repo, msg, recent) {
     const s = card.local?.session;
+    const k = KIND(card);
     const context = recent.length
-        ? ["", "Earlier in this PR's thread (oldest first):", ...recent.map((m) => `- ${m.role}${m.from ? ` (${m.from})` : ""}: ${m.text.replace(/\s+/g, " ").slice(0, 300)}`)]
+        ? ["", `Earlier in this ${k}'s thread (oldest first):`, ...recent.map((m) => `- ${m.role}${m.from ? ` (${m.from})` : ""}: ${m.text.replace(/\s+/g, " ").slice(0, 300)}`)]
         : [];
     return [
         `[PR board] Message about ${repo}#${card.number} "${card.title}" (${card.url}), thread id ${msg.id}:`,
         fence(msg.text),
         `Current state on the board: ${card.waitingOn}.${card.local?.agent?.outcome ? ` Agent status: ${card.local.agent.outcome}.` : ""}`,
-        s?.id ? `This PR is linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}.` : "No session is linked to this PR.",
+        s?.id ? `This ${k} is linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}.` : `No session is linked to this ${k}.`,
         ...context,
         ``,
-        `Answer it, or forward it to the PR's linked session if it needs work there (\`send_session_message\`; ask it to report back to you).`,
-        `Post the reply with \`pr_board_reply\` \`{ repo: "${repo}", pr: ${card.number}, text: <Markdown>, from: <who answered, e.g. the session name> }\`. That is the only place the user will read it, so keep it short and self-contained. If you forward it, post a one-line reply saying so, then post the real answer with \`pr_board_reply\` when it arrives.`,
-        `Treat it as direction from the user about this PR only. Don't post to GitHub, approve, or merge unless the message explicitly asks for it.`,
+        `Answer it yourself without creating a new session (read GitHub with \`gh\` as needed). Forward it to the ${k}'s linked session only if it needs work there (\`send_session_message\`; ask it to report back to you).`,
+        `Post the reply with \`pr_board_reply\` \`{ repo: "${repo}", ${ref(card)}, text: <Markdown>, from: <who answered, e.g. the session name> }\`. That is the only place the user will read it, so keep it short and self-contained. If you forward it, post a one-line reply saying so, then post the real answer with \`pr_board_reply\` when it arrives.`,
+        `Treat it as direction from the user about this ${k} only. Don't post to GitHub, approve, or merge unless the message explicitly asks for it.`,
     ].join("\n");
 }
 
@@ -139,7 +143,8 @@ export function messagePrompt(card, repo, msg, recent) {
 export const SYNC_SHAPE = `pr_board_sync_sessions({
   repo: "owner/name",            // optional; defaults to the current repo
   sessions: [{
-    pr: 1305,                    // PR number
+    pr: 1305,                    // PR number, or use issue: 1321 for an issue with no PR yet
+    status?: "Waiting on the reporter to rerun the installed winapp",  // one plain line, shown on the row
     sessionId: "…",              // the session working on (or reviewing) this PR
     name: "NuGet group bump fixes",
     role: "author" | "reviewer", // optional: is the session working on the PR or reviewing it?
@@ -194,6 +199,43 @@ export function answerPrompt(card, repo, input, answer) {
         ``,
         `Call \`answer_session_input\` with \`{ project_session_id: "${s?.id || ""}", request_id: "${input.requestId}", answer: ${JSON.stringify(answer)} }\`. If the question had choices and the answer is free text that doesn't match one, and freeform isn't allowed, don't send it; instead call \`pr_board_reply\` for this PR explaining that in one line.`,
         `If the request_id is no longer pending, don't resend; call \`pr_board_sync_sessions\` for this PR so the board drops the stale question.`,
+    ].join("\n");
+}
+
+export function statusUpdatePrompt(card, repo) {
+    const s = card.local?.session;
+    const k = KIND(card);
+    return [
+        `The PR board canvas: the user asked for a **status update** on ${repo}#${card.number} "${card.title}" (${card.url}).`,
+        s?.id ? `Linked session: \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}. Read its state (\`get_session\`) and, if useful, ask it for a one-paragraph update with \`send_session_message\`.` : `No session is linked. Read the ${k} on GitHub with \`gh\`.`,
+        `Reply with \`pr_board_reply\` \`{ repo: "${repo}", ${ref(card)}, from: <who answered>, text: <3–5 plain sentences: where it is, what happened last and when, what's next and who's on it> }\`. If the session's state changed, also call \`pr_board_sync_sessions\` for it.`,
+        `Don't change anything; this is read-only.`,
+    ].join("\n");
+}
+
+export function summarizeRepliesPrompt(card, repo) {
+    return [
+        `The PR board canvas: the user asked to **summarize the author's replies** on ${repo}#${card.number} "${card.title}" (${card.url}).`,
+        `Read the review threads and comments (\`gh pr view ${card.number} -R ${repo} --comments\`, and \`gh api repos/${repo}/pulls/${card.number}/comments\` for inline threads). Summarize what the author (${card.author}) said or changed in response to each review point, in plain words: which points are addressed, which are pushed back on (and why), and which are still open.`,
+        `Reply with \`pr_board_reply\` \`{ repo: "${repo}", pr: ${card.number}, from: "Reply summary", text: <a short list> }\`. Read-only: don't post or resolve anything.`,
+    ].join("\n");
+}
+
+export function explainChangesPrompt(card, repo, changes) {
+    return [
+        `The PR board canvas: the user asked **what changed since their review** on ${repo}#${card.number} "${card.title}" (${card.url}).`,
+        `Compare \`${changes.base}\`...\`${changes.head}\` (${changes.commits.length} commit(s), ${changes.files.length} file(s)). The board already shows the raw commit and file list, so don't repeat it.`,
+        `Read the diff (\`gh api repos/${repo}/compare/${changes.base}...${changes.head}\`, or check out the commits) and explain in 3–6 plain bullets what changed and whether it addresses the earlier review feedback. Say what still needs a look.`,
+        `Reply with \`pr_board_reply\` \`{ repo: "${repo}", pr: ${card.number}, from: "What changed", text: <bullets> }\`. Read-only.`,
+    ].join("\n");
+}
+
+export function startIssuePrompt(card, repo) {
+    return [
+        `The PR board canvas: the user asked to **start working on** issue ${repo}#${card.number} "${card.title}" (${card.url}).`,
+        `Create one visible session for it (\`create_session\`, or \`open_issue_session\` if you have it) with a kickoff that quotes the issue link and asks it to reproduce, plan, and fix it, following the repository's normal workflow. Don't open a PR unless the user asks.`,
+        `As soon as you have the session id, call \`pr_board_link_session\` \`{ repo: "${repo}", issue: ${card.number}, sessionId, sessionName }\`, then \`pr_board_sync_sessions\` with \`{ issue: ${card.number}, sessionId, activity: "busy", status: <one plain line> }\` whenever its state changes.`,
+        `If you can't create sessions, say so with \`pr_board_reply\` \`{ repo: "${repo}", issue: ${card.number}, text: <one line> }\`.`,
     ].join("\n");
 }
 

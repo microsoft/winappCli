@@ -7,9 +7,10 @@ import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, detectRepo, fetchDetail, fetchRepoData, GhError, GROUPS } from "./github.mjs";
-import { addHistory, addMessage, readState, stateFile, updateMeta, updatePr } from "./store.mjs";
-import { answerPrompt, archReviewPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { buildCards, buildIssueCards, detectRepo, fetchChangesSince, fetchDetail, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
+import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
+import { spawn } from "node:child_process";
+import { answerPrompt, archReviewPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -41,6 +42,9 @@ class Board {
         this.inflight = (async () => {
             try {
                 this.data = await fetchRepoData(this.repo);
+                const st = readState(this.repo);
+                const linked = Object.entries(st.issues).filter(([, v]) => v.session?.id || v.tracked).map(([k]) => Number(k));
+                this.issues = await fetchIssues(this.repo, linked, this.data.open.map((p) => p.number));
                 this.error = null;
                 await refreshLiveSessions();
             } catch (e) {
@@ -66,10 +70,19 @@ class Board {
             groups: GROUPS,
             viewer: this.data?.viewer || null,
             cards: this.data ? buildCards(this.data, local) : [],
+            issues: buildIssueCards(this.issues || [], state.issues),
             error: this.error,
             fetchedAt: this.fetchedAt ? new Date(this.fetchedAt).toISOString() : null,
             loading: !!this.inflight,
         };
+    }
+
+    issueCard(number) {
+        return this.snapshot().issues.find((c) => c.number === number) || null;
+    }
+
+    item(kind, number) {
+        return kind === "issue" ? this.issueCard(number) : this.card(number);
     }
 
     card(number) {
@@ -132,7 +145,30 @@ function note(s, text) {
     addMessage(s, "system", text);
 }
 
+async function runIssueAction({ repo, number, action }) {
+    const b = board(repo);
+    if (!b.data) await b.refresh();
+    const card = b.issueCard(number);
+    if (!card) throw httpError(404, `Issue #${number} isn't on the board. Press Refresh.`);
+    const quiet = { quiet: true, kind: "issue" };
+    if (action === "status-update") {
+        updateItem(repo, "issue", number, (s) => { s.pending = { id: "status", at: nowIso() }; note(s, "You asked for a status update"); });
+        await send(statusUpdatePrompt(card, repo), repo, number, quiet);
+    } else if (action === "start-issue") {
+        if (card.local?.session?.id) throw httpError(409, "A session is already linked to this issue.");
+        updateItem(repo, "issue", number, (s) => { s.pending = { id: "start", at: nowIso() }; note(s, "You asked to start working on it"); });
+        await send(startIssuePrompt(card, repo), repo, number, quiet);
+    } else if (action === "untrack") {
+        updateItem(repo, "issue", number, (s) => { s.tracked = false; addHistory(s, "You removed it from the board"); });
+    } else {
+        throw httpError(400, `Unknown action ${action}`);
+    }
+    b.broadcast();
+    return { ok: true };
+}
+
 async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
+    if (extra.kind === "issue") return runIssueAction({ repo, number: pr, action });
     const b = board(repo);
     if (!b.data) await b.refresh();
     const card = b.card(pr);
@@ -176,6 +212,21 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
     } else if (action === "arch-review") {
         updatePr(repo, pr, (s) => note(s, "You asked for an architecture review (opens in its own panel)"));
         await send(archReviewPrompt(card, repo), repo, pr, { quiet: true });
+    } else if (action === "status-update") {
+        updatePr(repo, pr, (s) => { s.pending = { id: "status", at: nowIso() }; note(s, "You asked for a status update"); });
+        await send(statusUpdatePrompt(card, repo), repo, pr, { quiet: true });
+    } else if (action === "summarize-replies") {
+        updatePr(repo, pr, (s) => { s.pending = { id: "replies", at: nowIso() }; note(s, "You asked for a summary of the author's replies"); });
+        await send(summarizeRepliesPrompt(card, repo), repo, pr, { quiet: true });
+    } else if (action === "explain-changes") {
+        const changes = await fetchChangesSince(repo, pr, b.data.viewer, local.prReview?.headSha).catch((e) => { throw httpError(502, e.message); });
+        if (!changes.base || changes.base === changes.head) throw httpError(409, changes.note);
+        updatePr(repo, pr, (s) => { s.pending = { id: "changes", at: nowIso() }; note(s, "You asked what changed since your review"); });
+        await send(explainChangesPrompt(card, repo, changes), repo, pr, { quiet: true });
+    } else if (action === "track") {
+        updatePr(repo, pr, (s) => { s.tracked = "reviewer"; addHistory(s, "You added it to your reviews"); });
+    } else if (action === "untrack") {
+        updatePr(repo, pr, (s) => { s.tracked = null; addHistory(s, "You removed it from your reviews"); });
     } else if (action === "monitor") {
         const enable = extra.enable !== false;
         const actions = enable ? (extra.mergePr ? ["address_reviews", "fix_ci", "resolve_conflicts", "merge_pr"] : ["address_reviews", "fix_ci", "resolve_conflicts"]) : [];
@@ -273,17 +324,17 @@ async function summarizeAll(repo) {
     return { ok: true, count: targets.length };
 }
 
-async function sendMessage({ repo, pr, text }) {
+async function sendMessage({ repo, pr, text, kind = "pr" }) {
     text = String(text || "").trim();
     if (!text) throw httpError(400, "Type a message first.");
     if (text.length > MAX_MESSAGE) throw httpError(413, `Keep messages under ${MAX_MESSAGE} characters.`);
     const b = board(repo);
     if (!b.data) await b.refresh();
-    const card = b.card(pr);
-    if (!card) throw httpError(404, `PR #${pr} isn't on the board. Press Refresh.`);
+    const card = b.item(kind, pr);
+    if (!card) throw httpError(404, `#${pr} isn't on the board. Press Refresh.`);
     const recent = (card.local?.thread || []).filter((m) => m.role !== "system").slice(-6);
     let msg;
-    updatePr(repo, pr, (s) => {
+    updateItem(repo, kind, pr, (s) => {
         msg = addMessage(s, "user", text);
         s.pending = { id: msg.id, at: msg.at };
     });
@@ -291,7 +342,7 @@ async function sendMessage({ repo, pr, text }) {
     try {
         await session.send({ prompt: messagePrompt(card, repo, msg, recent) });
     } catch (e) {
-        updatePr(repo, pr, (s) => {
+        updateItem(repo, kind, pr, (s) => {
             s.pending = null;
             addMessage(s, "system", `Couldn't reach the agent: ${e.message}`);
         });
@@ -301,18 +352,29 @@ async function sendMessage({ repo, pr, text }) {
     return { ok: true, id: msg.id };
 }
 
-async function send(prompt, repo, pr, { quiet = false } = {}) {
+async function send(prompt, repo, pr, { quiet = false, kind = "pr" } = {}) {
     try {
         await session.send({ prompt });
     } catch (e) {
-        if (!quiet) {
-            updatePr(repo, pr, (s) => {
-                s.agent = { status: "failed", kind: s.agent?.kind, outcome: `Couldn't reach the agent: ${e.message}`, updatedAt: nowIso() };
-                note(s, "Couldn't send the request to the agent");
-            });
-        }
+        updateItem(repo, kind, pr, (s) => {
+            s.pending = null;
+            if (!quiet) s.agent = { status: "failed", kind: s.agent?.kind, outcome: `Couldn't reach the agent: ${e.message}`, updatedAt: nowIso() };
+            note(s, "Couldn't send the request to the agent");
+        });
         throw httpError(502, `Couldn't send to the agent: ${e.message}`);
     }
+}
+
+// Open a GitHub link for this repo in the system browser. The extension runs on the
+// user's machine, so it can do this directly; links in the canvas iframe may not.
+function openInBrowser(repo, url) {
+    const prefix = `https://github.com/${repo}/`;
+    if (!url.toLowerCase().startsWith(prefix.toLowerCase()) || /[\s"'<>^&|]/.test(url)) throw httpError(400, `Only links under ${prefix} can be opened.`);
+    const [cmd, args] = process.platform === "win32" ? ["explorer.exe", [url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true });
+    child.on("error", () => {});
+    child.unref();
+    return { ok: true };
 }
 
 function httpError(status, message) {
@@ -366,6 +428,16 @@ async function handle(req, res) {
         b.refresh();
         return;
     }
+    if (req.method === "GET" && url.pathname === "/api/changes") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const pr = Number(url.searchParams.get("pr"));
+        if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
+        const b = board(repo);
+        if (!b.data) await b.refresh();
+        const local = readState(repo).prs[String(pr)] || {};
+        try { return json(200, await fetchChangesSince(repo, pr, b.data.viewer, local.prReview?.headSha)); }
+        catch (e) { throw httpError(502, e.message); }
+    }
     if (req.method === "GET" && url.pathname === "/api/detail") {
         const repo = checkRepo(url.searchParams.get("repo"));
         const pr = Number(url.searchParams.get("pr"));
@@ -399,12 +471,15 @@ async function handle(req, res) {
         if (url.pathname === "/api/message") {
             const pr = Number(body.pr);
             if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
-            return json(200, await sendMessage({ repo, pr, text: body.text }));
+            return json(200, await sendMessage({ repo, pr, text: body.text, kind: body.kind === "issue" ? "issue" : "pr" }));
         }
         if (url.pathname === "/api/action") {
             const pr = Number(body.pr);
             if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
-            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer } }));
+            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer, kind: body.kind === "issue" ? "issue" : "pr" } }));
+        }
+        if (url.pathname === "/api/open") {
+            return json(200, openInBrowser(repo, String(body.url || "")));
         }
     }
     json(404, { error: "Not found" });
@@ -425,6 +500,22 @@ async function ensureServer() {
 }
 
 // ---- Agent tools --------------------------------------------------------------
+
+// Issues the board hasn't fetched yet need a GitHub read before they can show.
+function refreshIfNewIssues(repo, updated) {
+    const b = board(repo);
+    const known = new Set((b.issues || []).map((i) => i.number));
+    const fresh = updated.filter((u) => typeof u === "string").map((u) => Number(u.replace(/\D/g, ""))).filter((n) => !known.has(n));
+    if (fresh.length) { b.fetchedAt = 0; b.refresh(); }
+}
+
+// A tool call names either a PR (pr) or an issue (issue).
+function target(args) {
+    const issue = Number(args.issue), pr = Number(args.pr);
+    if (Number.isInteger(issue) && issue > 0) return ["issue", issue];
+    if (Number.isInteger(pr) && pr > 0) return ["pr", pr];
+    throw new Error("Pass pr (a PR number) or issue (an issue number).");
+}
 
 const repoProp = { type: "string", description: "GitHub repo as owner/name. Defaults to the current repo." };
 const prProp = { type: "number", description: "Pull request number." };
@@ -472,6 +563,8 @@ const tools = [
                         type: "object",
                         properties: {
                             pr: prProp,
+                            issue: { type: "number", description: "Issue number, for an issue with no PR yet. Use instead of pr." },
+                            status: { type: "string", description: "One plain line about where it is, shown on the row, e.g. 'Waiting on the reporter to rerun the installed winapp'." },
                             sessionId: { type: "string" },
                             name: { type: "string" },
                             role: { type: "string", enum: ["author", "reviewer"], description: "author = working on the PR; reviewer = reviewing it." },
@@ -492,7 +585,6 @@ const tools = [
                                 required: ["ranAt"],
                             },
                         },
-                        required: ["pr"],
                     },
                 },
             },
@@ -503,9 +595,11 @@ const tools = [
             const at = nowIso();
             const updated = [];
             for (const e of Array.isArray(args.sessions) ? args.sessions : []) {
-                const n = Number(e.pr);
-                if (!Number.isInteger(n) || n <= 0) continue;
-                updatePr(repo, n, (s) => {
+                let kind, n;
+                try { [kind, n] = target(e); } catch { continue; }
+                updateItem(repo, kind, n, (s) => {
+                    if (kind === "issue") s.tracked = true;
+                    if (e.status !== undefined) s.status = e.status ? String(e.status).slice(0, 200) : null;
                     if (e.sessionId) s.session = { id: String(e.sessionId), name: e.name ? String(e.name).slice(0, 120) : s.session?.name || null, linkedAt: s.session?.linkedAt || at };
                     if (e.role === "author" || e.role === "reviewer") s.role = e.role;
                     const input = e.awaitingInput?.requestId ? { requestId: String(e.awaitingInput.requestId), question: String(e.awaitingInput.question || "").slice(0, 2000), choices: (e.awaitingInput.choices || []).map((x) => String(x).slice(0, 200)).slice(0, 8) } : null;
@@ -520,9 +614,10 @@ const tools = [
                     if (input && s.dismissed && s.dismissed !== input.requestId) s.dismissed = null;
                     if (e.prReview?.ranAt) s.prReview = { ...(s.prReview || {}), result: e.prReview.result || s.prReview?.result || "drafted", at: e.prReview.ranAt, headSha: e.prReview.headSha || s.prReview?.headSha || null, event: e.prReview.event || s.prReview?.event || null, ...(e.prReview.result === "posted" ? { postedAt: e.prReview.ranAt } : { draftedAt: s.prReview?.draftedAt || e.prReview.ranAt }) };
                 });
-                updated.push(n);
+                updated.push(kind === "issue" ? `issue #${n}` : n);
             }
             updateMeta(repo, (m) => { m.syncedAt = at; });
+            refreshIfNewIssues(repo, updated);
             board(repo).broadcast();
             return { ok: true, repo, updated };
         },
@@ -564,46 +659,52 @@ const tools = [
             properties: {
                 repo: repoProp,
                 pr: prProp,
+                issue: { type: "number", description: "Issue number, for an issue with no PR yet. Use instead of pr." },
                 text: { type: "string", description: "The reply, in Markdown. Short and self-contained." },
                 from: { type: "string", description: "Who answered, e.g. \"Coordinator\" or the linked session's name." },
             },
-            required: ["pr", "text"],
+            required: ["text"],
         },
         handler: async (args) => {
             const repo = await resolveRepo(args.repo);
             if (!String(args.text || "").trim()) throw new Error("text is empty");
+            const [kind, n] = target(args);
             let msg;
-            updatePr(repo, args.pr, (s) => {
+            updateItem(repo, kind, n, (s) => {
                 msg = addMessage(s, "agent", String(args.text).trim(), args.from || null);
                 s.pending = null;
             });
             board(repo).broadcast();
-            return { ok: true, repo, pr: args.pr, id: msg.id };
+            return { ok: true, repo, [kind]: n, id: msg.id };
         },
     },
     {
         name: "pr_board_link_session",
-        description: "Link a Copilot session to a pull request card on the PR board, so the card shows it and 'Open chat' can open it. Call right after creating or reusing a session for a PR from a PR board request.",
+        description: "Link a Copilot session to a pull request (pr) or an issue (issue) on the PR board, so the board shows it and 'Open chat' can open it. Call right after creating or reusing a session from a PR board request.",
         parameters: {
             type: "object",
             properties: {
                 repo: repoProp,
                 pr: prProp,
+                issue: { type: "number", description: "Issue number, for an issue with no PR yet. Use instead of pr." },
                 sessionId: { type: "string", description: "The session's id (the id navigate_to / send_session_message accept)." },
                 sessionName: { type: "string", description: "Short display name of the session." },
             },
-            required: ["pr", "sessionId"],
+            required: ["sessionId"],
         },
         handler: async (args) => {
             const repo = await resolveRepo(args.repo);
             const name = args.sessionName ? String(args.sessionName).slice(0, 120) : null;
-            const pr = updatePr(repo, args.pr, (s) => {
+            const [kind, n] = target(args);
+            const pr = updateItem(repo, kind, n, (s) => {
+                if (kind === "issue") { s.tracked = true; s.pending = null; }
                 s.session = { id: String(args.sessionId), name, linkedAt: nowIso() };
                 if (s.agent?.status === "running") s.agent.outcome = `Session started: ${name || args.sessionId}`;
                 addHistory(s, `Linked session ${name || args.sessionId}`);
             });
             board(repo).broadcast();
-            return { ok: true, repo, pr: args.pr, session: pr.session };
+            if (kind === "issue") refreshIfNewIssues(repo, [`issue #${n}`]);
+            return { ok: true, repo, [kind]: n, session: pr.session };
         },
     },
     {
