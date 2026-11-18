@@ -100,7 +100,7 @@ Read the reference that matches the current phase:
 ## Completion Checklist
 
 - [ ] The WinUI application's project items and dependencies reflect the completed conversion.
-- [ ] Project-mode `winapp run` builds and launches the app; the expected window opens and responds to input.
+- [ ] Build and launch the app with project-mode `winapp run` by default. If activation depends on a separate packaging project (`.wapproj`), use that project's existing deployment and launch steps instead. Confirm the expected window opens and responds to input.
 - [ ] Startup, shutdown, window ownership, dialogs, and pickers preserve the required behavior.
 - [ ] Binding updates, commands, themes, localization, keyboard access, and automation remain correct.
 - [ ] Settings fixtures, CLI behavior, and both directions of any existing IPC integration remain compatible.
