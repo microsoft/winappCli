@@ -40,7 +40,7 @@
   /* Spacing scale (4px base). */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
 
-  --list-w: 520px;
+  --list-w: 300px;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -113,44 +113,39 @@ header.top h1 span { color: var(--muted); font-weight: 400; }
 .toast.show { opacity: .95; }
 .layout { flex: 1; display: flex; min-height: 0; }
 
-/* ---- Inbox list ---- */
-aside { width: var(--list-w); min-width: 340px; max-width: 70%; flex: none; overflow-y: auto; padding-bottom: var(--s4); }
+/* ---- Rail: a compact copy of the Overview's sections, beside the detail view ---- */
+aside { width: var(--list-w); min-width: 240px; max-width: 50%; flex: none; overflow-y: auto; padding-bottom: var(--s4); background: var(--bg); }
 .split { width: 5px; flex: none; cursor: col-resize; border-left: 1px solid var(--border); }
 .split:hover, .split.drag { background: var(--blue-muted); }
-/* List toolbar: filter chips (counts) + sort. Filtering never reorders rows. */
-.listbar { position: sticky; top: 0; z-index: 3; background: var(--bg); border-bottom: 1px solid var(--border); padding: var(--s2) var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
-.filters { display: flex; gap: 6px; flex-wrap: wrap; }
-.filters button { border-radius: 999px; padding: 1px 10px; font-size: var(--t-meta); line-height: 20px; gap: 5px; }
-.filters button .n { color: var(--muted); font-variant-numeric: tabular-nums; }
-.filters button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
-.filters button[aria-pressed="true"] .n { color: inherit; opacity: .75; }
-.filters button[aria-pressed="true"] .i { color: inherit !important; }
-.sortrow { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-meta); color: var(--muted); }
-.sortrow select { font: inherit; font-size: var(--t-meta); color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
-.sortrow .count { margin-left: auto; }
-#list .empty { color: var(--muted); font-size: var(--t-small); padding: var(--s4); }
-.row { position: relative; border-bottom: 1px solid var(--hairline); }
-.row:hover { background: var(--subtle); }
-.row.sel { background: var(--selected); }
-/* Each row: a fixed status column (scan it top to bottom), then the PR. */
-.row-main { all: unset; display: grid; grid-template-columns: var(--status-w, 156px) minmax(0, 1fr); column-gap: var(--s3); padding: var(--s3) var(--s2) var(--s3) var(--s4); cursor: pointer; min-width: 0; }
-.row-main:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 4px; }
-.row .st { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding-top: 1px; }
-.row .st .chip { max-width: 100%; }
-.row .st .chip > span:not(.age) { overflow: hidden; text-overflow: ellipsis; }
-.row .st .since { font-size: var(--t-meta); color: var(--muted); padding-left: 2px; font-variant-numeric: tabular-nums; }
-.row .st .since.stuck { color: var(--fg); font-weight: var(--w-strong); }
-.row .body { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
-.row .t { font-size: var(--t-body); font-weight: var(--w-strong); line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .t .i { color: var(--muted); margin-right: 4px; }
-.row .line2 { display: flex; align-items: center; gap: var(--s2); min-width: 0; font-size: var(--t-meta); color: var(--muted); }
-.row .line2 .facts { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; display: inline-flex; align-items: center; gap: 6px; }
-.row .sum { font-size: var(--t-small); line-height: 18px; color: var(--fg); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.row .sum .i { color: var(--purple); margin-right: 2px; }
-/* The row action floats over the title line, so hidden actions don't steal width. */
-.row .act { position: absolute; top: var(--s3); right: var(--s4); visibility: hidden; }
-.row.has-act .t { padding-right: 96px; }
-.row.you .act, .row:hover .act, .row.sel .act, .row:focus-within .act { visibility: visible; }
+.rail-head { position: sticky; top: 0; z-index: 3; background: var(--bg); display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border-bottom: 1px solid var(--border); font-size: var(--t-small); }
+.rail-head b { font-weight: var(--w-strong); }
+.rail-head .sp { flex: 1; }
+.rsec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: var(--s2) var(--s3) var(--s1); font-size: var(--t-meta); font-weight: var(--w-strong); color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
+.rsec > summary::-webkit-details-marker { display: none; }
+.rsec > summary .chev { transition: transform .15s ease-out; }
+.rsec[open] > summary .chev { transform: rotate(90deg); }
+.rsec > summary .n { font-weight: 400; font-variant-numeric: tabular-nums; }
+.rsec > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 4px; }
+.rrow { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 6px var(--s3) 7px; cursor: pointer; border-left: 3px solid transparent; }
+.rrow:hover { background: var(--subtle); }
+.rrow.sel { background: var(--selected); border-left-color: var(--blue); }
+.rrow:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.rrow .l1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: var(--t-small); }
+.rrow .num { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+.rrow .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rrow.unread .tt { font-weight: var(--w-strong); }
+.rrow .unread-dot { margin-right: 0; align-self: center; }
+.rrow .l2 { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.rrow .l2 .chip { max-width: 100%; }
+.rrow .l2 .chip > span:not(.age) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-empty { color: var(--muted); font-size: var(--t-meta); padding: 2px var(--s3) var(--s2) calc(var(--s3) + 3px); }
+#railToggle { display: none; }
+body:not(.ovmode) #railToggle { display: inline-flex; }
+body.rail-off aside, body.rail-off .split { display: none; }
+/* Narrow panels: the rail floats over the workspace and closes after you pick something. */
+body.railover .layout { position: relative; }
+body.railover aside { position: absolute; z-index: 15; top: 0; bottom: 0; left: 0; width: min(340px, 86vw); max-width: none; box-shadow: 0 8px 28px rgba(0,0,0,.28); border-right: 1px solid var(--border); }
+body.railover .split { display: none; }
 .avatar { width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; background: var(--subtle); }
 .sep { opacity: .6; }
 
@@ -169,7 +164,6 @@ aside { width: var(--list-w); min-width: 340px; max-width: 70%; flex: none; over
 .menu { position: absolute; top: 32px; z-index: 5; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); display: flex; flex-direction: column; padding: var(--s1); min-width: 220px; }
 .menu button { border: 0; justify-content: flex-start; padding: 6px 10px; }
 .menu button:focus-visible { outline-offset: -2px; }
-.back { display: none; }
 .tabs { display: flex; gap: var(--s1); margin-top: var(--s2); overflow-x: auto; }
 .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 10px 8px; color: var(--muted); background: none; }
 .tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--blue); font-weight: var(--w-strong); }
@@ -471,26 +465,19 @@ a.path { overflow-wrap: break-word; }
 .preview .inl { border-left: 3px solid var(--border); padding-left: var(--s3); }
 .empty-rv { display: flex; flex-direction: column; gap: var(--s3); align-items: flex-start; padding: var(--s4); border: 1px dashed var(--border); border-radius: 8px; }
 
-/* ---- Narrow panel: one pane at a time ---- */
-body.narrow aside { width: 100%; max-width: none; min-width: 0; }
-body.narrow .split { display: none; }
-body.narrow:not(.detail) .ws { display: none; }
-body.narrow.detail aside { display: none; }
-body.narrow .back { display: inline-flex; align-self: flex-start; }
+/* ---- Narrow panel ---- */
 body.narrow .ws-head { padding: var(--s3) var(--s4) 0; }
 body.narrow .scroll { padding: var(--s4); }
 body.narrow .composer { padding: var(--s3) var(--s4); }
 body.narrow .grid { grid-template-columns: 1fr; gap: 2px; }
 body.narrow .grid dd { margin-bottom: var(--s2); }
 body.narrow #sumAll .lbl { display: none; }
-/* A narrow list puts the status above the title instead of in its own column. */
-aside.tight .row-main { grid-template-columns: minmax(0, 1fr); row-gap: var(--s1); }
-aside.tight .row .st { flex-direction: row; align-items: center; gap: var(--s2); }
 </style>
 </head>
 <body>
 <header class="top">
   <button id="toOverview" class="quiet" data-act="to-overview"></button>
+  <button id="railToggle" class="quiet" data-act="rail-toggle" aria-controls="list"></button>
   <h1>Pull requests <span id="repo"></span></h1>
   <span class="meta" id="meta">Loading…</span>
   <span class="syncinfo" id="syncInfo"></span>
@@ -501,11 +488,11 @@ aside.tight .row .st { flex-direction: row; align-items: center; gap: var(--s2);
 <div id="banner" class="banner" hidden></div>
 <main class="ov" id="overview" aria-label="Pull request overview"></main>
 <div class="layout">
-  <aside id="list" aria-label="Pull requests"></aside>
+  <aside id="list" aria-label="All pull requests and issues"></aside>
   <div class="split" id="split" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
   <section class="ws" aria-label="Pull request workspace">
     <div class="ws-head" id="wsHead" hidden></div>
-    <div class="scroll" id="wsScroll" role="tabpanel" aria-labelledby=""><div class="empty-ws">Pick a pull request on the left.</div></div>
+    <div class="scroll" id="wsScroll" role="tabpanel" aria-labelledby=""><div class="empty-ws">Pick a pull request.</div></div>
     <form class="composer" id="composer">
       <textarea id="input" rows="1" placeholder="Ask a question or give direction…" aria-label="Message about this pull request" disabled></textarea>
       <button class="primary" id="send" type="submit" disabled>Send</button>
@@ -525,7 +512,12 @@ const SEL_KEY = "prb-sel:" + REPO;
 let snap = null;
 let selected = Number(store.get(SEL_KEY)) || null;
 let tab = store.get("prb-tab") || "overview";
-let filter = store.get("prb-filter") || "all";
+// The rail beside the detail view: open or not, and which of its sections are collapsed.
+const railMq = window.matchMedia("(max-width: 900px)");
+let railOpen = store.get("prb-rail") === null ? !railMq.matches : store.get("prb-rail") === "1";
+const railCollapsed = (() => { try { return JSON.parse(store.get("prb-rail-sec") || "{}"); } catch { return {}; } })();
+if (!("merged" in railCollapsed)) railCollapsed.merged = true;
+let railScrolledTo = null;
 let view = "overview"; // the Overview is the first screen; a row opens the detail view
 let sortBy = store.get("prb-sort") || "newest";
 const PIN_KEY = "prb-pins:" + REPO;
@@ -536,7 +528,7 @@ let lastKey = "";
 const drafts = new Map();
 const details = new Map(); // pr -> { data } | { error } | { loading }
 
-const listW = Number(store.get("prb-list-w"));
+const listW = Number(store.get("prb-rail-w"));
 if (listW) document.documentElement.style.setProperty("--list-w", listW + "px");
 
 // ---- Icons: one 16px stroke set, used everywhere ----
@@ -736,13 +728,6 @@ function ciHtml(c) {
   const tip = c.ci?.failing?.length ? "Failing: " + c.ci.failing.join(", ") : c.ci?.pending?.length ? "Running: " + c.ci.pending.join(", ") : label;
   return `<span title="${esc(tip)}">${icon(ic, "sm " + tone)} ${esc(label)}</span>`;
 }
-function reviewsInline(c) {
-  const rs = c.reviewers || [];
-  const pick = rs.filter((r) => r.state === "APPROVED" || r.state === "CHANGES_REQUESTED");
-  const show = pick.length ? pick : rs.filter((r) => r.state === "COMMENTED");
-  if (!show.length) return c.requested?.length ? `<span>${icon("person", "sm tone-mute")} ${esc(c.requested.join(", "))}</span>` : "";
-  return show.map((r) => { const [ic, tone, w] = REVIEW[r.state] || REVIEW.COMMENTED; return `<span title="${esc(r.login + " " + w)}">${icon(ic, "sm " + tone)} ${esc(r.login)}</span>`; }).join("");
-}
 
 // The one action that fits the PR's stage. Only "your move" actions are primary.
 function primaryAction(c) {
@@ -756,91 +741,12 @@ function primaryAction(c) {
   return null;
 }
 
-// ---- Left: inbox ----
-function rowHtml(c) {
-  const local = c.local || {};
-  const pa = primaryAction(c);
-  const agentLine = local.agent && ["running", "waiting", "waiting_on_others", "failed"].includes(local.agent.status) && local.agent.outcome;
-  const sum = agentLine ? `${icon("sparkle", "sm")}${esc(local.agent.outcome)}`
-    : local.summary ? `${icon("sparkle", "sm")}${mdInline(local.summary.text)}`
-    : local.summarizing ? `${icon("sparkle", "sm")}Summarizing…`
-    : esc(c.fallbackSummary || "No description.");
-  const risk = local.summary?.risk && local.summary.risk !== "low" ? (() => { const [ic, tone, l] = RISK[local.summary.risk]; return `<span class="sep">·</span><span>${icon(ic, "sm " + tone)} ${l}</span>`; })() : "";
-  const facts = [
-    `<span>#${c.number}</span>`,
-    `<span><img class="avatar" alt="" src="https://github.com/${encodeURIComponent(c.author)}.png?size=32" onerror="this.remove()"> ${esc(c.author)}</span>`,
-    `<span title="${esc(c.size?.text)}">${esc(c.size?.label)}</span>`,
-    c.group === "merged" ? "" : ciHtml(c),
-    reviewsInline(c),
-  ].filter(Boolean).join('<span class="sep">·</span>') + risk;
-  const isYou = c.group === "you";
-  const pinned = pins.has(c.number);
-  return `<div class="row${c.number === selected ? " sel" : ""}${isYou ? " you" : ""}${pa ? " has-act" : ""}" role="listitem">
-    <button class="row-main" data-act="select" data-pr="${c.number}" aria-current="${c.number === selected}" aria-label="#${c.number} ${esc(c.title)}. ${esc(statusOf(c).label)}${statusOf(c).stuck ? ", stuck" : ""}.">
-      <span class="st">${chip(c, { withAge: false })}${sinceLine(c)}</span>
-      <span class="body">
-        <span class="t">${pinned ? icon("pin", "sm") : ""}${esc(c.title)}</span>
-        <span class="line2"><span class="facts">${facts}</span></span>
-        <span class="sum">${sum}</span>
-      </span>
-    </button>
-    ${pa ? `<button class="act ${pa.primary ? "primary" : pa.confirm ? "confirm" : ""}" data-act="${pa.act}" data-pr="${c.number}">${esc(pa.label)}</button>` : ""}
-  </div>`;
-}
-
-// Filters narrow the list; they never change its order.
-const FILTERS = [
-  ["all", "All open", (c) => c.group !== "merged"],
-  ["you", "Needs you", (c) => c.group === "you"],
-  ["stuck", "Stuck", (c) => c.group !== "merged" && !!c.reason?.stuck],
-  ["others", "Waiting on others", (c) => c.group === "others" || c.group === "queue"],
-  ["agent", "Agent working", (c) => c.group === "agent"],
-  ["mine", "Mine", (c) => c.group !== "merged" && c.author === snap?.viewer],
-  ["drafts", "Drafts", (c) => c.group !== "merged" && c.isDraft],
-  ["merged", "Merged today", (c) => c.group === "merged"],
-];
-const FILTER_ICON = { you: ["person", "tone-you"], stuck: ["alert", "tone-bad"], agent: ["sparkle", "tone-agent"], merged: ["merged", "tone-ok"] };
 const SORTS = {
   newest: ["Newest", (a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || b.number - a.number],
   oldest: ["Oldest", (a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.number - b.number],
   updated: ["Recently updated", (a, b) => String(b.updatedAt || b.mergedAt).localeCompare(String(a.updatedAt || a.mergedAt))],
   number: ["Number", (a, b) => b.number - a.number],
 };
-
-function visibleCards() {
-  const pass = (FILTERS.find((f) => f[0] === filter) || FILTERS[0])[2];
-  const sort = (SORTS[sortBy] || SORTS.newest)[1];
-  const rows = cardsOf().filter(pass).sort(sort);
-  // Pinned PRs stay on top, in the same sort order among themselves.
-  return [...rows.filter((c) => pins.has(c.number)), ...rows.filter((c) => !pins.has(c.number))];
-}
-
-function renderList() {
-  const list = $("list");
-  const scroll = list.scrollTop;
-  const focused = document.activeElement?.closest?.("#list [data-pr], #list [data-filter], #list select");
-  const focusKey = focused ? (focused.dataset.filter ? "f:" + focused.dataset.filter : focused.tagName === "SELECT" ? "sort" : focused.dataset.pr + ":" + focused.dataset.act) : null;
-  const cards = cardsOf();
-  const rows = visibleCards();
-  const chips = FILTERS.map(([id, label, pass]) => {
-    const n = cards.filter(pass).length;
-    if (!n && id !== "all" && id !== filter) return "";
-    const [ic, tone] = FILTER_ICON[id] || [];
-    return `<button data-act="filter" data-filter="${id}" aria-pressed="${filter === id}">${ic ? icon(ic, "sm " + tone) : ""}${esc(label)} <span class="n">${n}</span></button>`;
-  }).join("");
-  const label = (FILTERS.find((f) => f[0] === filter) || FILTERS[0])[1];
-  list.innerHTML = `<div class="listbar">
-      <div class="filters" role="group" aria-label="Filter pull requests">${chips}</div>
-      <div class="sortrow"><label for="sortSel">Sort</label><select id="sortSel" aria-label="Sort pull requests">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select><span class="count">${rows.length} shown</span></div>
-    </div>
-    <div role="list" aria-label="${esc(label)}">${rows.map(rowHtml).join("") || `<div class="empty">${filter === "stuck" ? "Nothing is stuck." : "No pull requests match."}</div>`}</div>`;
-  list.scrollTop = scroll;
-  if (focusKey) {
-    if (focusKey === "sort") $("sortSel")?.focus();
-    else if (focusKey.startsWith("f:")) list.querySelector(`[data-filter="${focusKey.slice(2)}"]`)?.focus();
-    else { const [pr, a] = focusKey.split(":"); list.querySelector(`[data-pr="${pr}"][data-act="${a}"]`)?.focus(); }
-  }
-}
 
 // ---- Right: workspace ----
 function moreMenu(c) {
@@ -889,7 +795,6 @@ function renderHead(c) {
   const nextTone = c.who === "you" ? "you" : c.who === "agent" ? "agent" : "";
   const risk = local.summary?.risk ? (() => { const [ic, tone, l] = RISK[local.summary.risk]; return `<span>${icon(ic, "sm " + tone)} ${l}</span>`; })() : "";
   $("wsHead").innerHTML = `
-    <button class="back quiet" data-act="back">${icon("chevLeft", "sm")}All pull requests</button>
     <h2>${esc(c.title)} <a href="${esc(c.url)}" target="_blank" rel="noopener" title="Open on GitHub">#${c.number}</a></h2>
     <div class="ws-meta">
       <span><img class="avatar" alt="" src="https://github.com/${encodeURIComponent(c.author)}.png?size=32" onerror="this.remove()"> ${esc(c.author)}</span>
@@ -1302,6 +1207,17 @@ let detailTimer = null;
 const scheduleDetail = (c) => { clearTimeout(detailTimer); detailTimer = setTimeout(() => loadDetail(c), 250); };
 
 // ---- Overview ----
+// One place decides which section each PR or issue is in, and the order, for both the Overview and the rail.
+function sectionRows(keep = () => true) {
+  const sort = (SORTS[sortBy] || SORTS.newest)[1];
+  const order = (rows) => { rows.sort(sort); return [...rows.filter((c) => pins.has(c.number)), ...rows.filter((c) => !pins.has(c.number))]; };
+  const cards = cardsOf(), issues = issuesOf();
+  const pool = (id) => (id === "issues" ? issues : id === "yours" ? [...cards, ...issues] : cards);
+  return {
+    rows: SECTIONS.map(([id]) => order(pool(id).filter((c) => c.section === id && !(c.hidden || c.local?.hidden) && keep(c)))),
+    merged: order(cards.filter((c) => c.section === "merged")),
+  };
+}
 const answers = new Map(); // pr -> typed answer, kept across live re-renders
 const SECTIONS = [
   ["yours", "Yours", "PRs you wrote, and PRs and issues a session here is working on.", ["Agent", "Monitoring", "pr-review", "PR"]],
@@ -1379,6 +1295,63 @@ function ovRow(c, sec) {
   return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:1">${main}<div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${sec === "merged" ? "" : rowActs(c, kind)}</div></div>${prCell(c)}</div>`;
 }
 
+// ---- Rail ----
+function railRow(c, sec) {
+  const kind = c.kind === "issue" ? "issue" : "pr";
+  const sel = kind === "pr" && c.number === selected && view === "detail";
+  const state = kind === "issue" ? issuePrChipInner(c) : chip(c, { withAge: false });
+  const replying = isReplying(c) ? `<span class="chip agent" title="The agent is still answering">${icon("running", "sm")}<span>Replying…</span></span>` : "";
+  const label = `${kind === "issue" ? "Issue" : "Pull request"} #${c.number}: ${c.title}${isUnread(c) ? ", new reply" : ""}`;
+  return `<button class="rrow${sel ? " sel" : ""}${isUnread(c) ? " unread" : ""}" role="listitem" data-act="rail-open" data-kind="${kind}" data-pr="${c.number}" ${sel ? 'aria-current="true"' : ""} aria-label="${esc(label)}" title="${esc(c.title)}">
+    <span class="l1">${isUnread(c) ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><span class="tt">${esc(c.title)}</span></span>
+    <span class="l2">${state}${replying}</span>
+  </button>`;
+}
+
+function renderRail() {
+  const list = $("list");
+  if (!railOpen) { list.innerHTML = ""; return; }
+  const scroll = list.scrollTop;
+  const focused = document.activeElement?.closest?.("#list .rrow, #list summary");
+  const fk = focused ? (focused.matches("summary") ? "s:" + focused.parentElement.dataset.sec : focused.dataset.kind + ":" + focused.dataset.pr) : null;
+  const { rows, merged } = sectionRows();
+  const secs = SECTIONS.map(([id, title], i) => [id, title, rows[i]]);
+  if (merged.length) secs.push(["merged", "Merged today", merged]);
+  list.innerHTML = `<div class="rail-head"><b>All items</b><span class="sp"></span><button class="quiet ico" data-act="rail-toggle" aria-label="Hide the list" title="Hide the list">${icon("chevLeft", "sm")}</button></div>
+    ${secs.map(([id, title, items]) => `<details class="rsec" data-sec="${id}" ${railCollapsed[id] ? "" : "open"}><summary>${icon("chevRight", "sm chev")}${esc(title)} <span class="n">${items.length}</span></summary>
+      <div role="list" aria-label="${esc(title)}">${items.map((c) => railRow(c, id)).join("") || '<div class="rail-empty">Nothing here.</div>'}</div></details>`).join("")}`;
+  list.scrollTop = scroll;
+  const key = view + ":" + selected;
+  if (railScrolledTo !== key) { railScrolledTo = key; list.querySelector(".rrow.sel")?.scrollIntoView({ block: "nearest" }); }
+  if (fk) {
+    const [k, n] = fk.split(":");
+    (k === "s" ? list.querySelector(`.rsec[data-sec="${n}"] > summary`) : list.querySelector(`.rrow[data-kind="${k}"][data-pr="${n}"]`))?.focus();
+  }
+}
+
+function applyRail() {
+  document.body.classList.toggle("rail-off", !railOpen);
+  document.body.classList.toggle("railover", railMq.matches && railOpen);
+  const b = $("railToggle");
+  b.innerHTML = `${icon("queue", "sm")}List`;
+  b.setAttribute("aria-expanded", String(railOpen));
+  b.title = railOpen ? "Hide the list of pull requests and issues" : "Show the list of pull requests and issues";
+}
+function setRail(open, { remember = true } = {}) {
+  railOpen = open;
+  if (remember && !railMq.matches) store.set("prb-rail", open ? "1" : "0");
+  applyRail();
+  renderRail();
+  if (open) { railScrolledTo = null; renderRail(); ($("list").querySelector(".rrow.sel") || $("list").querySelector(".rrow"))?.focus(); }
+}
+railMq.addEventListener("change", () => { railOpen = railMq.matches ? false : store.get("prb-rail") !== "0"; applyRail(); render(); });
+document.addEventListener("toggle", (e) => {
+  const d = e.target;
+  if (!d.matches?.(".rsec")) return;
+  railCollapsed[d.dataset.sec] = !d.open;
+  store.set("prb-rail-sec", JSON.stringify(railCollapsed));
+}, true);
+
 // ---- Flyout ----
 let fly = null; // { kind: "pr" | "issue", number }
 let flyReturnFocus = null;
@@ -1391,9 +1364,15 @@ const issuesOf = () => snap?.issues || [];
 const itemOf = (kind, n) => (kind === "issue" ? issuesOf() : cardsOf()).find((c) => c.number === n) || null;
 
 // The PR state of an issue: No PR, Draft PR #n, PR #n open, Merged #n. Opens the PR when it's on the board.
-function issuePrChip(c) {
+function issuePrChipInner(c) {
   const p = c.pr;
   if (!p) return mkChip("neutral", "dash", "No PR", "No pull request for this issue yet");
+  const [tone, ic, label] = { draft: ["neutral", "pencil", `Draft PR #${p.number}`], open: ["info", "pr", `PR #${p.number} open`], merged: ["ok", "merged", `Merged #${p.number}`], closed: ["neutral", "xCircle", `PR #${p.number} closed`] }[p.state] || ["neutral", "pr", `PR #${p.number}`];
+  return mkChip(tone, ic, label);
+}
+function issuePrChip(c) {
+  const p = c.pr;
+  if (!p) return issuePrChipInner(c);
   const [tone, ic, label] = { draft: ["neutral", "pencil", `Draft PR #${p.number}`], open: ["info", "pr", `PR #${p.number} open`], merged: ["ok", "merged", `Merged #${p.number}`], closed: ["neutral", "xCircle", `PR #${p.number} closed`] }[p.state] || ["neutral", "pr", `PR #${p.number}`];
   const chipHtml = mkChip(tone, ic, label);
   return cardsOf().some((x) => x.number === p.number)
@@ -1564,14 +1543,11 @@ function renderOverview() {
   for (const inp of el.querySelectorAll(".ov-ask input")) answers.set(Number(inp.dataset.pr), inp.value);
   const f = document.activeElement?.closest?.("#overview [data-act], #overview input, #overview select");
   const fk = f ? [f.tagName, f.dataset.act || "", f.dataset.pr || "", f.dataset.answer || "", f.dataset.enable || ""].join("|") : null;
-  const sort = (SORTS[sortBy] || SORTS.newest)[1];
-  const order = (rows) => { rows.sort(sort); return [...rows.filter((c) => pins.has(c.number)), ...rows.filter((c) => !pins.has(c.number))]; };
   const cards = cardsOf();
-  const merged = cards.filter((c) => c.section === "merged");
   const unreadN = allItems().filter(isUnread).length;
   if (!unreadN && unreadOnly && !allItems().some(isReplying)) unreadOnly = false;
   const keep = (c) => !unreadOnly || isUnread(c) || isReplying(c);
-  const secRows = SECTIONS.map(([id]) => order((id === "issues" ? issuesOf() : id === "yours" ? [...cards, ...issuesOf()] : cards).filter((c) => c.section === id && !(c.hidden || c.local?.hidden) && keep(c))));
+  const { rows: secRows, merged } = sectionRows(keep);
   el.innerHTML = `<div class="ov-inner">
     <div class="ov-bar"><nav class="ov-jump" aria-label="Jump to a section">${unreadN || unreadOnly ? `<button class="unread-chip${unreadOnly ? " on" : ""}" data-act="unread-only" aria-pressed="${unreadOnly}" title="${unreadOnly ? "Show everything again" : "Show only items with a reply you haven't read, or one still being written"}"><span class="unread-dot" aria-hidden="true"></span>Unread <span class="n">${unreadN}</span></button>${unreadN ? `<button class="quiet" data-act="mark-all-read">Mark all read</button>` : ""}` : ""}${SECTIONS.map(([id, title], i) => `<button class="quiet" data-act="jump" data-sec="${id}">${esc(title)} <span class="n">${secRows[i].length}</span></button>`).join("")}</nav>
       <span class="right"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select></span></div>
@@ -1581,7 +1557,7 @@ function renderOverview() {
         <div class="ov-cols" style="--cols:${cols.length}" aria-hidden="true"><span>${id === "issues" ? "Issue" : "Pull request"}</span>${cols.map((k) => `<span>${esc(k)}</span>`).join("")}</div>
         <div role="list">${rows.map((c) => ovRow(c, id)).join("") || `<div class="ov-empty">Nothing here.</div>`}</div></section>`;
     }).join("")}
-    ${merged.length && !unreadOnly ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${order(merged).map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
+    ${merged.length && !unreadOnly ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${merged.map((c) => ovRow(c, "other")).join("")}</div></details>` : ""}
     ${(() => {
       const hidden = [...cards.filter((c) => c.section !== "merged" && c.local?.hidden), ...issuesOf().filter((c) => c.hidden)];
       return hidden.length && !unreadOnly ? `<details class="ov-hidden"><summary>${icon("chevRight", "sm chev")}Removed from the board <span class="n">${hidden.length}</span></summary><ul style="list-style:none;padding:0;margin:var(--s2) 0 0">${hidden.map((h) => `<li>${h.kind === "issue" ? "Issue" : "PR"} #${h.number} · ${esc(h.title)} <button data-act="unhide" data-pr="${h.number}" data-kind="${h.kind === "issue" ? "issue" : "pr"}">Put back</button></li>`).join("")}</ul></details>` : "";
@@ -1622,11 +1598,12 @@ function render(force = false) {
   const open = cards.filter((c) => c.group !== "merged").length;
   $("meta").textContent = snap.loading && !snap.fetchedAt ? "Loading…" : `${open} open · ${cards.length - open} merged today · ${snap.loading ? "refreshing…" : "updated " + ago(snap.fetchedAt) + (ago(snap.fetchedAt) === "just now" ? "" : " ago")}` + (snap.viewer ? ` · @${snap.viewer}` : "");
   $("meta").title = $("meta").textContent;
-  if (!current() && cards.length) { const vis = visibleCards(); selected = (vis.find((c) => c.group === "you") || vis[0] || cards[0]).number; force = true; }
+  if (!current() && cards.length) { const first = sectionRows().rows.flat().find((c) => c.kind !== "issue"); selected = (first || cards[0]).number; force = true; }
   document.body.classList.toggle("ovmode", view === "overview");
   renderSyncInfo();
+  applyRail();
   if (view === "overview") { renderOverview(); renderFlyout(); markViewed(); return; }
-  renderList();
+  renderRail();
   const c = current();
   $("wsHead").hidden = !c;
   $("input").disabled = $("send").disabled = !c;
@@ -1658,7 +1635,7 @@ function select(pr, { tabTo, focus } = {}) {
   openMenu = null;
   armed = null;
   render(true);
-  if (focus) document.querySelector(`.row-main[data-pr="${pr}"]`)?.focus();
+  if (focus) $("wsHead").querySelector("h2 a, [data-act]")?.focus();
 }
 
 function arm(key, label) {
@@ -1685,6 +1662,12 @@ document.addEventListener("click", (e) => {
   const a = el.dataset.act;
   const rowPr = el.dataset.pr ? Number(el.dataset.pr) : null;
   if (a === "select") return select(rowPr ?? selected);
+  if (a === "rail-toggle") return setRail(!railOpen);
+  if (a === "rail-open") {
+    if (railMq.matches) { railOpen = false; applyRail(); }
+    if (el.dataset.kind === "issue") { renderRail(); return openFlyout("issue", rowPr, $("railToggle")); }
+    return select(rowPr, { focus: false });
+  }
   if (a === "unread-only") { unreadOnly = !unreadOnly; return render(); }
   if (a === "mark-all-read") return post("/api/seen", { all: true }).then(() => toast("Marked everything as read")).catch((err) => toast("Couldn't do that: " + err.message));
   if (a === "mark-read") { openMenu = null; flyMore = false; const it = itemOf(el.dataset.kind || "pr", rowPr); if (!it) return; return post("/api/seen", { pr: rowPr, kind: el.dataset.kind || "pr" }).then(() => toast("Marked as read")).catch((err) => toast("Couldn't do that: " + err.message)); }
@@ -1723,8 +1706,6 @@ document.addEventListener("click", (e) => {
   }
   if (a === "monitor") return post("/api/action", { pr: rowPr, action: "monitor", enable: el.dataset.enable === "1" }).then(() => toast(el.dataset.enable === "1" ? "Asked the agent to turn monitoring on" : "Asked the agent to turn monitoring off")).catch((e) => toast("Couldn't do that: " + e.message));
   if (a === "dismiss") return post("/api/action", { pr: rowPr, action: "dismiss" }).then(() => toast("Hidden on the board. The question is still open in the session.")).catch((e) => toast("Couldn't do that: " + e.message));
-  if (a === "back") { document.body.classList.remove("detail"); return render(); }
-  if (a === "filter") { filter = el.dataset.filter; store.set("prb-filter", filter); return render(); }
   if (a === "tab") { tab = el.dataset.tab; store.set("prb-tab", tab); render(true); return $("wsHead").querySelector(`[data-tab="${tab}"]`)?.focus(); }
   if (a === "row-post") { select(rowPr ?? selected, { tabTo: "overview" }); return openMenuAndFocus("post"); }
   if (a === "row-answer") { select(rowPr ?? selected, { tabTo: "thread" }); return $("input").focus(); }
@@ -1771,7 +1752,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (openMenu) { const which = openMenu; openMenu = null; render(); return $("wsHead").querySelector(`[data-act="${which}-menu"]`)?.focus(); }
     if (armed) { clearTimeout(armed.timer); armed = null; return render(); }
-    if (document.body.classList.contains("narrow") && document.body.classList.contains("detail") && e.target.id !== "input") { document.body.classList.remove("detail"); render(); return document.querySelector(`.row-main[data-pr="${selected}"]`)?.focus(); }
+    if (railOpen && railMq.matches && view === "detail") { setRail(false, { remember: false }); return $("railToggle").focus(); }
   }
   // Overview: arrow keys move between PR titles; Enter opens one.
   const ovt = e.target.closest?.(".ov-title");
@@ -1782,14 +1763,13 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (e.target.matches?.(".ov-ask input") && e.key === "Enter") { e.preventDefault(); e.target.closest(".ov-ask").querySelector('[data-act="answer-text"]')?.click(); return; }
-  if (e.key === "Escape" && view === "detail" && !openMenu && !armed && e.target.id !== "input" && !document.body.classList.contains("narrow")) { $("toOverview").click(); return; }
-  // List: arrow keys move between rows.
-  const row = e.target.closest?.(".row-main");
-  if (row && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+  if (e.key === "Escape" && view === "detail" && !openMenu && !armed && e.target.id !== "input") { $("toOverview").click(); return; }
+  // Rail: arrow keys move between rows and section headers; Enter opens.
+  const rr = e.target.closest?.("#list .rrow, #list summary");
+  if (rr && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
     e.preventDefault();
-    const rows = [...document.querySelectorAll(".row-main")];
-    const next = rows[rows.indexOf(row) + (e.key === "ArrowDown" ? 1 : -1)];
-    if (next) { selected = Number(next.dataset.pr); store.set(SEL_KEY, String(selected)); openMenu = null; armed = null; render(true); document.querySelector(`.row-main[data-pr="${next.dataset.pr}"]`)?.focus(); }
+    const all = [...document.querySelectorAll("#list summary, #list details[open] .rrow")];
+    all[all.indexOf(rr) + (e.key === "ArrowDown" ? 1 : -1)]?.focus();
     return;
   }
   // Tabs: left/right arrows, Home/End.
@@ -1817,9 +1797,9 @@ $("split").addEventListener("pointerdown", (e) => {
   split.classList.add("drag");
   split.setPointerCapture(e.pointerId);
   const move = (ev) => {
-    const w = Math.max(340, Math.min(ev.clientX, window.innerWidth * 0.7));
+    const w = Math.max(240, Math.min(ev.clientX, window.innerWidth * 0.5));
     document.documentElement.style.setProperty("--list-w", w + "px");
-    store.set("prb-list-w", String(Math.round(w)));
+    store.set("prb-rail-w", String(Math.round(w)));
   };
   const up = () => { split.classList.remove("drag"); split.removeEventListener("pointermove", move); split.removeEventListener("pointerup", up); };
   split.addEventListener("pointermove", move);
@@ -1829,11 +1809,9 @@ $("split").addEventListener("pointerdown", (e) => {
 document.addEventListener("change", (e) => {
   const fid = e.target.dataset?.finding;
   if (fid && current()) { const cur = current(); cur.local.triage = { ...(cur.local.triage || {}), [fid]: { ...(cur.local.triage?.[fid] || {}), note: e.target.value } }; saveTriage(cur.number, fid, { note: e.target.value }); return; }
-  if (e.target.id === "sortSel" || e.target.id === "ovSort") { sortBy = e.target.value; store.set("prb-sort", sortBy); render(); }
+  if (e.target.id === "ovSort") { sortBy = e.target.value; store.set("prb-sort", sortBy); render(); }
 });
 
-// A narrow list stacks the status above the title.
-new ResizeObserver(([entry]) => $("list").classList.toggle("tight", entry.contentRect.width < 470)).observe($("list"));
 
 // Narrow panels show one pane at a time.
 const narrowMq = window.matchMedia("(max-width: 760px)");

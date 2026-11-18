@@ -134,44 +134,45 @@ to it or it's assigned to you; opening an issue yourself doesn't count. To stop
 tracking a linked issue, the agent calls `pr_board_sync_sessions` with
 `{ issue: 1349, untrack: true }`.
 
-## The full list
+## The list beside a PR
 
-In a PR's workspace, the left side shows one flat list of open pull requests, newest first. A row never moves when its
-status changes; the status is shown in the row. Each row has a status column on
-the left, so you can scan the states top to bottom:
+When a PR is open, a compact copy of the Overview sits on its left, with the
+same sections, the same rows and the same order:
 
 ```text
-[Your review]        Add winapp ask for WinUI samples and Microsoft Learn docs   [Review]
-for 22 days          #1187 · Jaylyn-Barbee · XL · ✓ CI passing · zateutsch
-                     ✦ Adds `winapp ask` so you can ask a WinUI question and get…
+All items                                   ‹
+▾ YOURS 5
+  #1322 Refuse --devtools before launch…
+        [Agent needs you] [Replying…]
+  Issue #1283 DevTools inspector still uses…
+        [No PR]
+▾ REVIEWING 6
+▌ #1316 DevTools: assign resources and…     ← the PR you're looking at
+        [Author: changes requested]
+› EVERYTHING ELSE 6                          ← collapsed
 ```
 
-- **Status chip:** an icon and a short label, such as `Your review`,
-  `Author: changes requested`, `Approved · CI`, `In queue #2`, or `Draft`.
-  Your move is a solid orange chip, and a stuck PR is a solid red chip, with
-  `Stuck · 12 days` under it. Other states are tinted: purple for an agent,
-  blue for CI or the merge queue, gray for the author or other reviewers.
-- **Second line:** the number, author, size, CI (icon and label), and reviews.
-- **Third line:** the agent's plain-words summary (✦), the agent's latest
-  status when it's working, or the first sentence of the description.
-- **The button** appears when it's your move (Review, Post review, Ship,
-  Answer), and on hover for other rows.
+- Click a PR to switch to it in place. You stay on the same tab, for example
+  Review. Click an issue to open its flyout.
+- Click a section header to collapse it. **‹** or **List** at the top hides the
+  whole list, so the PR gets the full width. The board remembers both choices.
+- In a panel narrower than about 900px, the list starts hidden. **List** opens
+  it over the PR, and it closes again once you pick something.
+- ↑ and ↓ move between rows and headers. Drag the line between the list and the
+  PR to resize it.
 
-Above the list:
+**Status chips** use one icon and a short label everywhere, such as
+`Your review`, `Author: changes requested`, `Approved · CI`, `In queue #2` or
+`Draft`. Your move is a solid orange chip, and a stuck PR is a solid red chip
+with `Stuck · 12 days` under it on the Overview. Other states are tinted:
+purple for an agent, blue for CI or the merge queue, gray for the author or
+other reviewers.
 
-- **Filters**, with counts: All open, Needs you, Stuck, Waiting on others,
-  Agent working, Mine, Drafts, and Merged today. Filters hide rows; they never
-  reorder them. Merged PRs appear only under **Merged today**.
-- **Sort:** Newest (default), Oldest, Recently updated, or Number. The board
-  remembers your choice.
-- **Pin:** pin a PR to the top with **More → Pin to top of the list**. Pins are
-  saved per repo in this board.
-
-Use ↑ and ↓ to move through the list. Drag the line between the list and the
-workspace to resize it. In a panel narrower than about 760px, the list and the
-workspace take turns; **← All pull requests** goes back. **Summarize all
-needing me** asks the agent to summarize every PR that needs you or an agent
-and doesn't have a summary yet.
+**Sort** (on the Overview) orders every section: Newest (default), Oldest,
+Recently updated, or Number. **More → Pin to top of the list** keeps a PR at the
+top of its section. Both are remembered. **Summarize all needing me** asks the
+agent to summarize every PR that needs you or an agent and doesn't have a
+summary yet.
 
 ## Why a PR is waiting, and for how long
 
