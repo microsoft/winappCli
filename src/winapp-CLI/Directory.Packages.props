@@ -26,12 +26,12 @@
          reflection-based Newtonsoft.Json path entirely and keeps the Native AOT publish clean.
          Do not downgrade below 7.9.0.
          See https://github.com/NuGet/NuGet.Client/blob/dev/docs/aot-compatibility.md -->
-    <PackageVersion Include="NuGet.Protocol" Version="7.9.0" />
-    <PackageVersion Include="NuGet.Packaging" Version="7.9.0" />
-    <PackageVersion Include="NuGet.Configuration" Version="7.9.0" />
-    <PackageVersion Include="NuGet.Versioning" Version="7.9.0" />
-    <PackageVersion Include="NuGet.Credentials" Version="7.9.0" />
-    <!-- NuGet.Packaging 7.9.0 brings in 8.0.1, which has CVE-2026-70162 and CVE-2026-84008. Drop this
+    <PackageVersion Include="NuGet.Protocol" Version="8.0.0" />
+    <PackageVersion Include="NuGet.Packaging" Version="8.0.0" />
+    <PackageVersion Include="NuGet.Configuration" Version="8.0.0" />
+    <PackageVersion Include="NuGet.Versioning" Version="8.0.0" />
+    <PackageVersion Include="NuGet.Credentials" Version="8.0.0" />
+    <!-- NuGet.Packaging 8.0.0 still brings in 8.0.1, which has CVE-2026-70162 and CVE-2026-84008. Drop this
          pin once NuGet.Packaging depends on a fixed version. -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <!-- Native debugging engine bits for WinUI stowed-exception triage (the run debug-output flag).
