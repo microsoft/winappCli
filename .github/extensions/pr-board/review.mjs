@@ -266,7 +266,8 @@ export function composeGithubReview(review, triage, event, headSha) {
         else inBody.push(f);
     }
     const lines = [];
-    const top = (tri._note?.note || "").trim();
+    // Until the user edits the note, it starts as the review's summary.
+    const top = (tri._note && typeof tri._note.note === "string" ? tri._note.note : review?.summary || "").trim();
     if (top) lines.push(top);
     if (inBody.length) {
         if (lines.length) lines.push("");

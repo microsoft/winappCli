@@ -463,6 +463,11 @@ a.path { overflow-wrap: break-word; }
 .expl { background: var(--purple-muted); border-radius: 6px; padding: var(--s2) var(--s3); font-size: var(--t-small); }
 .preview { border: 2px solid var(--blue); border-radius: 8px; padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
 .preview .inl { border-left: 3px solid var(--border); padding-left: var(--s3); }
+.split-btn { display: inline-flex; }
+.split-btn .i { color: inherit !important; }
+.split-btn > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-btn > button + button { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, var(--bg) 35%, transparent); padding: 3px 6px; }
+.empty-rv.rv-none { border-style: solid; border-color: var(--green); background: var(--green-muted); }
 .empty-rv { display: flex; flex-direction: column; gap: var(--s3); align-items: flex-start; padding: var(--s4); border: 1px dashed var(--border); border-radius: 8px; }
 
 /* ---- Narrow panel ---- */
@@ -719,6 +724,12 @@ const isBusy = (c) => c.local?.agent?.status === "running";
 const draftOf = (c) => (c.local?.draft && !c.local.draft.postedAt) ? c.local.draft : null;
 const canShip = (c) => c.group !== "merged" && !c.queue && c.reviewDecision === "APPROVED" && c.ci?.state !== "failing" && !isBusy(c);
 
+// A drafted review for the current commit means the next step is posting it, not reviewing.
+function waitingText(c) {
+  const r = rvOf(c);
+  if (r && c.group === "you" && c.review?.state !== "stale" && c.local?.prReview?.result !== "posted") return `Ready for you: post the ${/^approve/.test(r.verdict || "") ? "approval" : "review"}`;
+  return c.waitingOn;
+}
 function nextHtml(text) {
   const i = text.indexOf(":");
   return i > 0 ? `<b>${esc(text.slice(0, i))}</b>${esc(text.slice(i))}` : esc(text);
@@ -804,7 +815,7 @@ function renderHead(c) {
       ${risk}
       ${chip(c)}
     </div>
-    ${isOpen ? `<div class="next ${nextTone}">${icon(s.tone === "stuck" ? "alert" : nextTone === "you" ? "person" : nextTone === "agent" ? "sparkle" : "clock", "sm")}<span>${nextHtml(c.waitingOn)}</span></div>` : ""}
+    ${isOpen ? `<div class="next ${nextTone}">${icon(s.tone === "stuck" ? "alert" : nextTone === "you" ? "person" : nextTone === "agent" ? "sparkle" : "clock", "sm")}<span>${nextHtml(waitingText(c))}</span></div>` : ""}
     <div class="actions">${buttons.join("")}
       ${openMenu === "post" ? `<div class="menu" role="menu" aria-label="Post review as">
         <button data-act="post" data-event="approve" role="menuitem">${icon("checkCircle", "tone-ok")}Approve</button>
@@ -829,7 +840,7 @@ function overviewHtml(c) {
   const local = c.local || {};
   const s = local.summary;
   const isOpen = c.group !== "merged";
-  const steps = s?.nextSteps?.length ? s.nextSteps : [c.waitingOn];
+  const steps = s?.nextSteps?.length && !rvOf(c) ? s.nextSteps : [waitingText(c)];
   const agent = local.agent;
   const r = c.reason;
   const failing = c.ci?.failing?.length ? `<span class="sub">Failing: ${esc(c.ci.failing.join(", "))}</span>` : "";
@@ -1013,18 +1024,20 @@ function noReviewHtml(c, what) {
     ${running ? "" : `<button class="primary" data-act="review">Review this PR</button>`}</div>`;
 }
 
-function reviewHeadHtml(c) {
+function reviewHeadHtml(c, { compact = false } = {}) {
   const r = rvOf(c);
   if (!r) return "";
+  const sha = (r.headSha || "").slice(0, 7);
+  const stale = c.review?.state === "stale" || (r.headSha && c.headSha && r.headSha !== c.headSha);
   const [vi, vt, vl] = VERDICT[r.verdict] || ["dash", "tone-mute", "No verdict"];
   const rk = r.risk ? RISK[r.risk] : null;
   const n = r.findings.length, posted = r.findings.filter((f) => decisionOf(c, f.id) === "post").length;
-  return `<section class="sec"><h3>Review <span class="note">${icon("sparkle", "sm")} by the agent${c.local.reviewSetAt ? ` · ${esc(ago(c.local.reviewSetAt))} ago` : ""}${c.review?.state === "stale" ? " · new commits since" : ""}</span></h3>
+  return `<section class="sec"><h3>Review <span class="note">${icon("sparkle", "sm")} by the agent${c.local.reviewSetAt ? ` · ${esc(ago(c.local.reviewSetAt))} ago` : ""}${sha ? ` · on <code>${esc(sha)}</code>` : ""}${stale ? ` · <b class="tone-bad">new commits since</b>` : ""}</span></h3>
     <div class="verdict"><span>${icon(vi, "sm " + vt)} <b>${esc(vl)}</b></span>${rk ? `<span>${icon(rk[0], "sm " + rk[1])} ${rk[2]}</span>` : ""}
       <button class="quiet" data-act="tab" data-tab="review">${n} finding${n === 1 ? "" : "s"}${posted ? ` · ${posted} to post` : ""}</button>
       <button class="quiet" data-act="tab" data-tab="architecture">${r.diagrams.length} diagram${r.diagrams.length === 1 ? "" : "s"}</button></div>
     ${r.summary ? `<div class="md" style="margin-top:var(--s2)">${md(r.summary)}</div>` : ""}
-    ${r.functionality.length ? `<ul class="steps" style="list-style:disc;margin-top:var(--s2)">${r.functionality.map((x) => `<li><b>${esc(x.title)}</b>${x.detail ? ` — ${mdInline(x.detail)}` : ""}</li>`).join("")}</ul>` : ""}
+    ${!compact && r.functionality.length ? `<ul class="steps" style="list-style:disc;margin-top:var(--s2)">${r.functionality.map((x) => `<li><b>${esc(x.title)}</b>${x.detail ? ` — ${mdInline(x.detail)}` : ""}</li>`).join("")}</ul>` : ""}
   </section>`;
 }
 
@@ -1109,21 +1122,21 @@ function reviewTabHtml(c) {
   const expl = c.local?.explanations || {}, explaining = c.local?.explaining || {};
   const pv = rvPreview?.pr === c.number ? rvPreview : null;
   const isOpen = c.group !== "merged";
+  const defEv = /^approve/.test(r.verdict || "") ? "approve" : r.verdict === "request-changes" ? "request_changes" : "comment";
+  const evIcon = { approve: icon("checkCircle", "tone-ok"), request_changes: icon("xCircle", "tone-bad"), comment: icon("comment") };
   const preview = pv ? (pv.loading ? `<div class="preview"><div class="hint">Building the preview…</div></div>` : pv.error ? `<div class="preview"><div class="hint">${esc(pv.error)}</div></div>` : `<div class="preview" role="region" aria-label="Preview of the review to post">
       <div class="fh"><b>Preview: ${EVENT_WORD[pv.event]}</b> <span class="hint">${pv.data.counts.inline} inline comment${pv.data.counts.inline === 1 ? "" : "s"}, ${pv.data.counts.inBody} in the summary, ${pv.data.counts.ignored} ignored, ${pv.data.counts.undecided} undecided (not posted)</span></div>
       <div><div class="hint">Summary comment</div><div class="md">${md(pv.data.body) || `<span class="hint">(empty)</span>`}</div></div>
       ${pv.data.comments.map((x) => `<div class="inl"><div class="hint">Inline on <code>${esc(x.path)}:${x.line}</code></div><div class="md">${md(x.body)}</div></div>`).join("")}
       <div class="rv-bar"><button class="primary" data-act="rv-post" data-event="${pv.event}">Post this as ${EVENT_WORD[pv.event]}</button><button data-act="rv-cancel">Cancel</button><span class="hint">The agent posts exactly this with gh. Nothing else is posted.</span></div></div>`) : "";
-  return `<div class="rv-bar">
-      <span class="count"><b>${cnt.post}</b> to post · ${cnt.ignore} ignored · ${cnt.undecided} undecided</span><span style="flex:1"></span>
-      ${isOpen ? `<button class="${cnt.post ? "primary" : ""}" data-act="rv-menu" aria-haspopup="menu" aria-expanded="${openMenu === "rpost"}">Post review${icon("chevDown", "sm")}</button>` : ""}
-      ${openMenu === "rpost" ? `<div class="menu" role="menu" aria-label="Post review as" style="right:0;top:32px">
-        <button role="menuitem" data-act="rv-preview" data-event="comment">${icon("comment")}Comment</button>
-        <button role="menuitem" data-act="rv-preview" data-event="request_changes">${icon("xCircle", "tone-bad")}Request changes</button>
-        <button role="menuitem" data-act="rv-preview" data-event="approve">${icon("checkCircle", "tone-ok")}Approve</button></div>` : ""}
-    </div>
+  const postBtns = isOpen ? `<span class="split-btn"><button class="primary" data-act="rv-preview" data-event="${defEv}" title="Preview, then post it to GitHub">${evIcon[defEv]}${EVENT_WORD[defEv]}…</button><button class="primary" data-act="rv-menu" aria-haspopup="menu" aria-expanded="${openMenu === "rpost"}" aria-label="Post as something else">${icon("chevDown", "sm")}</button></span>
+      ${openMenu === "rpost" ? `<div class="menu" role="menu" aria-label="Post review as" style="right:0;top:32px">${["approve", "request_changes", "comment"].filter((e) => e !== defEv).map((e) => `<button role="menuitem" data-act="rv-preview" data-event="${e}">${evIcon[e]}${EVENT_WORD[e]}…</button>`).join("")}</div>` : ""}` : "";
+  const noteVal = tri._note && typeof tri._note.note === "string" ? tri._note.note : r.summary || "";
+  return `${reviewHeadHtml(c, { compact: true })}
+    ${fs.length ? `<div class="rv-bar"><span class="count"><b>${cnt.post}</b> to post · ${cnt.ignore} ignored · ${cnt.undecided} undecided</span><span style="flex:1"></span>${postBtns}</div>`
+      : `<div class="empty-rv rv-none"><div><b>No findings.</b> ${esc((VERDICT[r.verdict] || [, , "No verdict"])[2])}. Nothing needs to change before merge.</div><div class="rv-bar" style="width:100%">${postBtns}</div></div>`}
     ${preview}
-    <section class="sec"><h3>Your note <span class="note">goes at the top of the posted review</span></h3><textarea class="rv-note" data-finding="_note" placeholder="Optional overall comment">${esc(tri._note?.note || "")}</textarea></section>
+    <section class="sec"><h3>Your note <span class="note">goes at the top of the posted review; it starts as the review summary</span></h3><textarea class="rv-note" data-finding="_note" rows="4" placeholder="Optional overall comment">${esc(noteVal)}</textarea></section>
     ${fs.map((f) => {
       const d = decisionOf(c, f.id);
       const ex = expl[f.id];
@@ -1263,7 +1276,7 @@ function whereHtml(c) {
   if (q && local.answered?.requestId === q.requestId) return `${icon("sparkle", "sm")}<span>You answered "${esc(local.answered.answer.slice(0, 80))}". Waiting for the session to continue.</span>`;
   if (q) return `${icon("comment", "sm tone-you")}<span><b>Waiting on you:</b> the session asked a question. Answer it below.</span>`;
   if (local.agent?.outcome && local.agent.status !== "done") return `${icon("sparkle", "sm tone-agent")}<span>${esc(local.agent.outcome)}</span>`;
-  return `${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span>`;
+  return `${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(waitingText(c))}</span>`;
 }
 function storyHtml(c) {
   const st = c.story || [];
@@ -1291,8 +1304,8 @@ function ovRow(c, sec) {
   if (c.kind === "issue" && sec === "yours") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:4">${main.replace(`<div class="ov-sub">${sub}</div>`, issueSub)}<div class="ov-line"><div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div></div>${agentCell(c)}${cell("Monitoring", `<span class="tone-mute" title="Monitoring applies to a PR">—</span>`)}${cell("pr-review", `<span class="tone-mute" title="pr-review applies to a PR">—</span>`)}${cell("PR", issuePrChip(c))}</div>`;
   if (sec === "issues") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:2">${main.replace(`<div class="ov-sub">${sub}</div>`, `<div class="ov-sub"><span>#${c.number}</span><span class="sep">·</span><span>${esc(c.author)}</span><span class="sep">·</span><span>opened ${esc(ago(c.createdAt))} ago</span>${c.assignedToYou ? `<span class="sep">·</span><span>assigned to you</span>` : ""}</div>`)}<div class="ov-line"><div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div>${rowActs(c, kind)}</div></div>${agentCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
   if (sec === "yours") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:4">${main}<div class="ov-line"><div class="ov-where">${whereHtml(c)}</div>${rowActs(c, kind)}</div></div>${agentCell(c)}${monitorCell(c)}${reviewCell(c)}${prCell(c)}${askHtml(c)}</div>`;
-  if (sec === "reviewing") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${rowActs(c, kind)}</div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
-  return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:1">${main}<div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(c.waitingOn)}</span></div>${sec === "merged" ? "" : rowActs(c, kind)}</div></div>${prCell(c)}</div>`;
+  if (sec === "reviewing") return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:3">${main}<div class="ov-story">${storyHtml(c)}</div><div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(waitingText(c))}</span></div>${rowActs(c, kind)}</div></div>${reviewCell(c)}${prCell(c)}${cell("Last activity", `<span class="since">${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"}</span>`)}</div>`;
+  return `<div class="ov-row${isUnread(c) ? " unread" : ""}" style="--cols:1">${main}<div class="ov-line"><div class="ov-where">${icon(c.who === "you" ? "person" : "clock", "sm tone-mute")}<span>${nextHtml(waitingText(c))}</span></div>${sec === "merged" ? "" : rowActs(c, kind)}</div></div>${prCell(c)}</div>`;
 }
 
 // ---- Rail ----
@@ -1717,7 +1730,7 @@ document.addEventListener("click", (e) => {
   if (a === "goto-finding") { tab = "review"; store.set("prb-tab", tab); render(true); return document.getElementById("finding-" + el.dataset.id)?.scrollIntoView({ block: "center" }); }
   if (a === "triage") { const d = el.dataset.decision; c.local.triage = { ...(c.local.triage || {}), [el.dataset.id]: { ...(c.local.triage?.[el.dataset.id] || {}), decision: d } }; render(true); return saveTriage(c.number, el.dataset.id, { decision: d }); }
   if (a === "explain") return act(c.number, "explain", { findingId: el.dataset.id });
-  if (a === "rv-menu") { openMenu = openMenu === "rpost" ? null : "rpost"; render(true); return document.querySelector('#wsScroll .menu button')?.focus(); }
+  if (a === "rv-menu") { openMenu = openMenu === "rpost" ? null : "rpost"; render(true); return document.querySelector('#wsScroll .menu [role="menuitem"]')?.focus(); }
   if (a === "rv-preview") { openMenu = null; return loadPreview(c, el.dataset.event); }
   if (a === "rv-cancel") { rvPreview = null; return render(true); }
   if (a === "rv-post") { const ev = el.dataset.event; rvPreview = null; render(true); return act(c.number, "post-findings", { event: ev }); }

@@ -273,7 +273,8 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
         if (!local.review) throw httpError(409, "There's no structured review yet. Run Review first.");
         if (busy && !force) throw httpError(409, "An agent is already working on this PR.");
         const preview = composeGithubReview(local.review, local.triage, event, card.headSha);
-        if (!preview.counts.posted && !local.triage?._note?.note) throw httpError(409, "Mark at least one finding Post, or write a note, first.");
+        // GitHub accepts an approval with an empty body; a comment or change request needs something to say.
+        if (event !== "approve" && !preview.counts.posted && !preview.body) throw httpError(409, "To comment or request changes, mark at least one finding to post, or write a note.");
         const files = writePostPayload(repo, pr, preview);
         const word = event.replace("_", " ");
         updatePr(repo, pr, (s) => {
