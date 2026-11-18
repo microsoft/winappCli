@@ -55,8 +55,9 @@ public static class GlobalTestSetup
         CppWinrtService.SignatureVerifier = static (_, _) => true;
 
         // The debugger-package download in XamlTriageBinaries goes straight to api.nuget.org, which
-        // the CI network isolation policy (CFSClean) blocks. Fail any test that reaches it instead of
-        // making a real request; XamlTriageBinariesDownloadTests installs its own canned responses.
+        // the CI network isolation policy (CFSClean) blocks. Refuse that request so no test reaches the
+        // network; production code treats the refusal as a failed download. XamlTriageBinariesDownloadTests
+        // installs its own canned responses.
         XamlTriageBinaries.HttpGetAsync = static (_, url, _) =>
             throw new HttpRequestException($"Tests must not download from the network: {url}");
     }
