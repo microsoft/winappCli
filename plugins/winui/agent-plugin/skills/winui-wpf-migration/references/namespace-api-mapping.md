@@ -56,8 +56,8 @@ Examples include `Button`, `TextBox`, `TextBlock`, `PasswordBox`, `ComboBox`, `C
 | `ToolBar` / `ToolBarTray` | `CommandBar` + `AppBarButton` | No `ToolBarTray` counterpart. |
 | `StatusBar` | Custom `Grid`/`StackPanel` or `InfoBar` | No built-in `StatusBar`. |
 | `TabControl` | `TabView` or `NavigationView` in top mode | `TabView` supports closeable tabs. |
-| `DataGrid` | For read-only columns, use a `ListView` with a `Grid` in the `ItemTemplate` and a matching header `Grid` above it. | Preserve selection, editing, sorting, and column actions that the WPF app supports. See [Interactive tables](#interactive-tables) if the list alone is not enough. |
-| `ListView.View` with `GridView` / `GridViewColumn` | Use the same column layout as for `DataGrid`. | WinUI `GridView` displays tiles, not WPF-style columns. Keep existing column bindings and header actions. |
+| `DataGrid` | For a simple read-only table with a small, known set of columns, use a `ListView` with a `Grid` in the `ItemTemplate` and a matching header `Grid` above it. | Preserve selection, editing, sorting, and column actions that the WPF app supports. See [Interactive tables](#interactive-tables) if the list alone is not enough. |
+| `ListView.View` with `GridView` / `GridViewColumn` | For simple column display, use the `ListView` layout above. | WinUI `GridView` displays tiles, not WPF-style columns. Keep existing column bindings and header actions. |
 | `TreeView` | Native `TreeView` | Its hierarchy and data-binding model differ from WPF; port hierarchical templates and selection/expansion bindings explicitly. |
 | `WrapPanel` | Toolkit `WrapPanel` | See the package map below. |
 | `UniformGrid` | Toolkit `UniformGrid` | Lays out child elements in uniform rows/columns. |
