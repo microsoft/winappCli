@@ -796,7 +796,7 @@ export function buildCards(data, localPrs) {
 // ---- Readiness for human review (pr-lifecycle "Finish") -------------------------
 
 const READY_QUERY = `query($owner: String!, $name: String!, $n: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $n) {
-    number url headRefOid baseRefName isDraft mergeable mergeStateStatus body author { login }
+    number url headRefOid headRefName baseRefName isDraft mergeable mergeStateStatus body author { login }
     labels(first: 30) { nodes { name } }
     reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
     reviews(last: 100) { nodes { author { login } state submittedAt url body commit { oid } } }
@@ -849,7 +849,19 @@ export async function fetchReadinessRaw(repo, number) {
     let behind = null;
     try { behind = Number(await gh(["api", `repos/${repo}/compare/${encodeURIComponent(pr.baseRefName)}...${pr.headRefOid}`, "--jq", ".behind_by"])); } catch { behind = null; }
     const required = await fetchRequiredChecks(repo, pr.baseRefName);
-    return { ...pr, threads, behind, required, fetchedAt: new Date().toISOString() };
+    // Which "#n" in the body or branch name are issues (not PRs), for the description check.
+    const bodyNums = [...String(pr.body || "").replace(/<!--[\s\S]*?-->/g, "").matchAll(/(?<![\w/])#(\d{2,6})\b/g)].map((m) => Number(m[1]));
+    const branchNum = Number((String(pr.headRefName || "").match(/(?:^|[-/_])(\d{3,6})(?:[-/_]|$)/) || [])[1]) || null;
+    const nums = [...new Set([...bodyNums, branchNum])].filter((n) => n && n !== number).slice(0, 6);
+    const issueNums = [];
+    if (nums.length) {
+        try {
+            const sel = nums.map((n) => `n${n}: issueOrPullRequest(number: ${n}) { __typename }`).join(" ");
+            const d = JSON.parse(await gh(["api", "graphql", "-f", `query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${sel} } }`, "-f", `owner=${owner}`, "-f", `name=${name}`]));
+            for (const n of nums) if (d.data?.repository?.[`n${n}`]?.__typename === "Issue") issueNums.push(n);
+        } catch { /* no suggestion beats a wrong one */ }
+    }
+    return { ...pr, threads, behind, required, issueNums, fetchedAt: new Date().toISOString() };
 }
 
 const COPILOT = /^(copilot-pull-request-reviewer|copilot)(\[bot\])?$/i;
@@ -857,26 +869,19 @@ const LIFECYCLE = ["agent-preparing", "agent-blocked", "ready-for-review"];
 const PASS_CHECK = new Set(["SUCCESS"]);
 const SOFT_CHECK = new Set(["NEUTRAL", "SKIPPED"]);
 
-// The six pr-lifecycle gates for the PR's current head. state: "pass" | "pending" | "fail".
-export function computeReadiness(raw, local = {}) {
+// Readiness for the PR's current head. Four core gates decide "ready for human review"; the rest are extras:
+// pr-review (recommended, or a decision on blocking findings), the description (a warning), the label (info).
+const BLOCKING_SEV = new Set(["critical", "high", "medium"]);
+export const isBlockingFinding = (f) => BLOCKING_SEV.has(f.severity) && !["nit", "question"].includes(f.category) && !f.outOfScope;
+export function computeReadiness(raw, local = {}, ctx = {}) {
     if (!raw) return null;
     const head = raw.headRefOid;
     const author = raw.author?.login;
     const short = (s) => String(s || "").slice(0, 7);
-    const gates = [];
+    const gates = [], extras = [];
     const gate = (id, label, state, reason, url) => gates.push({ id, label, state, reason, url: url || null });
 
-    // 1. Independent review: pr-review on this head, and every finding fixed or given a disposition.
-    const rv = local.review, pv = local.prReview;
-    const rvHead = rv?.headSha || pv?.headSha || null;
-    if (!rv && !pv) gate("review", "Independent review", "fail", "No pr-review has run yet");
-    else if (rvHead && rvHead !== head) gate("review", "Independent review", "fail", `pr-review ran on ${short(rvHead)}; new commits since`);
-    else if (rv?.findings?.length) {
-        const open = rv.findings.filter((f) => !local.triage?.[f.id]?.decision || local.triage[f.id].decision === "undecided");
-        gate("review", "Independent review", open.length ? "fail" : "pass", open.length ? `${open.length} of ${rv.findings.length} finding${rv.findings.length === 1 ? "" : "s"} without a fix or disposition` : `Ran on ${short(head)}; all ${rv.findings.length} finding${rv.findings.length === 1 ? "" : "s"} handled`);
-    } else gate("review", "Independent review", "pass", `Ran on ${short(rvHead || head)}${rv ? "; no findings" : ""}`);
-
-    // 2. Copilot review on this head, with no unresolved Copilot threads.
+    // Copilot review on this head, with no unresolved Copilot threads.
     const cop = raw.reviews.nodes.filter((r) => COPILOT.test(r.author?.login || ""));
     const copNow = cop.filter((r) => r.commit?.oid === head);
     const copOpen = raw.threads.filter((t) => !t.isResolved && !t.isOutdated && COPILOT.test(t.comments.nodes[0]?.author?.login || ""));
@@ -887,7 +892,7 @@ export function computeReadiness(raw, local = {}) {
     else if (cop.length) gate("copilot", "Copilot review", "pending", `Copilot reviewed an older commit (${short(cop.at(-1).commit?.oid)}); only a review of ${short(head)} counts`, cop.at(-1)?.url);
     else gate("copilot", "Copilot review", "fail", "No Copilot review yet");
 
-    // 3. Discussion: every thread resolved or replied to, and no unanswered top-level request.
+    // Discussion: every thread resolved or replied to, and no unanswered top-level request.
     const human = (l) => l && l !== author && !COPILOT.test(l) && !BOT_LOGINS.test(l);
     const authorAt = maxIso(raw.commits.nodes[0]?.commit?.committedDate, ...raw.comments.nodes.filter((c) => c.author?.login === author).map((c) => c.createdAt),
         ...raw.threads.flatMap((t) => t.comments.nodes.filter((c) => c.author?.login === author).map((c) => c.createdAt)));
@@ -900,12 +905,12 @@ export function computeReadiness(raw, local = {}) {
     else if (asks.length) gate("discussion", "Discussion", "fail", `${asks[0].who} ${asks[0].what} after the last update; no answer yet`, asks[0].url);
     else gate("discussion", "Discussion", "pass", raw.threads.length ? `All ${raw.threads.length} thread${raw.threads.length === 1 ? "" : "s"} resolved or answered` : "No open threads or requests");
 
-    // 4. CI: every required check green on this head. Missing required checks are pending, never a pass.
-    const ctx = (raw.commits.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes || []).map((c) => ({ name: c.name || c.context, state: c.__typename === "StatusContext" ? c.state : c.status === "COMPLETED" ? c.conclusion : c.status, url: c.detailsUrl || c.targetUrl || null, required: !!c.isRequired }));
-    const reqNames = [...new Set([...(raw.required || []), ...ctx.filter((c) => c.required).map((c) => c.name)])];
+    // Required CI: every required check green on this head. Missing required checks are pending, never a pass.
+    const ctxs = (raw.commits.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes || []).map((c) => ({ name: c.name || c.context, state: c.__typename === "StatusContext" ? c.state : c.status === "COMPLETED" ? c.conclusion : c.status, url: c.detailsUrl || c.targetUrl || null, required: !!c.isRequired }));
+    const reqNames = [...new Set([...(raw.required || []), ...ctxs.filter((c) => c.required).map((c) => c.name)])];
     if (!reqNames.length) gate("ci", "Required CI", raw.required === null ? "pending" : "pass", raw.required === null ? "Couldn't read the required checks" : "No required checks on this branch");
     else {
-        const rows = reqNames.map((n) => ctx.find((c) => c.name === n) || { name: n, state: "MISSING" });
+        const rows = reqNames.map((n) => ctxs.find((c) => c.name === n) || { name: n, state: "MISSING" });
         const bad = rows.filter((r) => !PASS_CHECK.has(r.state) && !SOFT_CHECK.has(r.state) && !PENDING.has(r.state) && r.state !== "MISSING");
         const wait = rows.filter((r) => PENDING.has(r.state) || r.state === "MISSING");
         const soft = rows.filter((r) => SOFT_CHECK.has(r.state));
@@ -915,7 +920,7 @@ export function computeReadiness(raw, local = {}) {
         else gate("ci", "Required CI", "pass", `${rows.map((r) => r.name).join(", ")} passed on ${short(head)}`, rows[0].url);
     }
 
-    // 5. Up to date: no conflicts. Unknown mergeability is not ready.
+    // Up to date: no conflicts. Unknown mergeability is not ready.
     const behind = Number.isInteger(raw.behind) ? raw.behind : null;
     const behindText = behind === null ? "" : behind ? ` · ${behind} behind ${raw.baseRefName}` : ` · up to date with ${raw.baseRefName}`;
     if (raw.mergeable === "CONFLICTING" || raw.mergeStateStatus === "DIRTY") gate("uptodate", "Up to date", "fail", `Merge conflicts with ${raw.baseRefName}${behindText}`, `${raw.url}#partial-pull-merging`);
@@ -923,28 +928,42 @@ export function computeReadiness(raw, local = {}) {
     else if (raw.mergeStateStatus === "BEHIND") gate("uptodate", "Up to date", "fail", `Branch rules require updating it${behindText}`, `${raw.url}#partial-pull-merging`);
     else gate("uptodate", "Up to date", "pass", `No conflicts${behindText}`);
 
-    // 6. Description: the template's sections filled in, an issue link, and a testing note.
-    const body = String(raw.body || "").replace(/<!--[\s\S]*?-->/g, "").replace(/\r\n/g, "\n");
-    const section = (title) => { const m = body.match(new RegExp(`^##\\s*${title}[^\\n]*\\n([\\s\\S]*?)(?=^##\\s|$(?![\\s\\S]))`, "mi")); return m ? m[1].replace(/^\s*Fixes\s*#\s*$/gim, "").trim() : null; };
-    const fixes = /\b(fix(es|ed)?|close[sd]?|resolve[sd]?)\s+(#\d+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+|[\w.-]+\/[\w.-]+#\d+)/i.test(body);
-    const what = section("What and why"), risks = section("Not tested");
-    const missing = [];
-    if (what !== null ? !what : body.trim().length < 40) missing.push("what and why");
-    if (!fixes) missing.push("a Fixes #issue link");
-    if (risks !== null ? !risks : !/\btest/i.test(body)) missing.push("a testing note");
-    gate("description", "Description", missing.length ? "fail" : "pass", missing.length ? `Missing ${missing.join(", ")}` : "Template filled, with an issue link and a testing note", missing.length ? raw.url : null);
+    // Extra: pr-review. Recommended; blocking findings without a fix or disposition need a decision.
+    const rv = local.review, pv = local.prReview;
+    const rvHead = rv?.headSha || pv?.headSha || null;
+    const findings = { blocking: [], fixing: 0, other: 0 };
+    if (!rv && !pv) extras.push({ id: "review", label: "pr-review", state: "todo", reason: "Not run on this commit yet" });
+    else if (rvHead && rvHead !== head) extras.push({ id: "review", label: "pr-review", state: "todo", reason: `Ran on ${short(rvHead)}; new commits since` });
+    else {
+        for (const f of rv?.findings || []) {
+            const t = local.triage?.[f.id] || {};
+            if (!isBlockingFinding(f) || t.decision === "ignore" || t.decision === "post") { findings.other++; continue; }
+            if (t.fixRequestedAt) { findings.fixing++; continue; }
+            findings.blocking.push({ id: f.id, title: f.title, severity: f.severity, category: f.category });
+        }
+        const n = rv?.findings?.length || 0;
+        if (findings.blocking.length) extras.push({ id: "review", label: "pr-review", state: "decide", reason: `${findings.blocking.length} finding${findings.blocking.length === 1 ? "" : "s"} to fix or mark not needed`, items: findings.blocking });
+        else extras.push({ id: "review", label: "pr-review", state: "pass", reason: n ? `Ran on ${short(head)}; ${findings.fixing ? `${findings.fixing} being fixed, ` : ""}nothing blocking among ${n} finding${n === 1 ? "" : "s"}` : `Ran on ${short(rvHead || head)}${rv ? "; no findings" : ""}` });
+    }
 
-    // 7. The pr-lifecycle label the session set. It should agree with the six gates above.
+    // Extra: the description. Warn only when there's an issue it plausibly fixes but doesn't link.
+    const body = String(raw.body || "").replace(/<!--[\s\S]*?-->/g, "").replace(/\r\n/g, "\n");
+    const fixes = body.match(/\b(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?)\s+(?:#(\d+)|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/(\d+))/i);
+    const saysNone = /\bno (?:linked |related |tracking )?issue\b|\bnot tied to an issue\b|\bwithout an issue\b/i.test(body);
+    const candidate = (ctx.linkedIssues || [])[0] || (raw.issueNums || [])[0] || null;
+    if (fixes) extras.push({ id: "description", label: "Description", state: "pass", reason: `Links #${fixes[1] || fixes[2]}` });
+    else if (saysNone) extras.push({ id: "description", label: "Description", state: "pass", reason: "Says there's no related issue" });
+    else if (candidate) extras.push({ id: "description", label: "Description", state: "warn", reason: `Looks related to #${candidate} but doesn't say "Fixes #${candidate}"`, issue: candidate, url: raw.url });
+    else extras.push({ id: "description", label: "Description", state: "pass", reason: "No related issue found" });
+
+    // Extra: the pr-lifecycle label, for information. It should agree with the core gates.
     const label = LIFECYCLE.find((l) => raw.labels.nodes.some((x) => x.name === l)) || null;
-    const techGreen = gates.every((g) => g.state === "pass");
-    const outOfDate = (label === "ready-for-review" && !techGreen) ? "The label says ready, but not every gate passes for this commit"
-        : (label && label !== "ready-for-review" && techGreen) ? `Every gate passes, but the label still says ${label}` : null;
-    if (label === "ready-for-review") gate("label", "Lifecycle label", techGreen ? "pass" : "fail", techGreen ? "ready-for-review" : "Says ready-for-review, but the gates above aren't all green");
-    else if (label === "agent-blocked") gate("label", "Lifecycle label", "fail", "agent-blocked: the agent needs help to continue");
-    else if (label === "agent-preparing") gate("label", "Lifecycle label", "pending", "agent-preparing: the agent is still working on it");
-    else gate("label", "Lifecycle label", "pending", "No pr-lifecycle label yet");
     const passed = gates.filter((g) => g.state === "pass").length;
-    const allGreen = passed === gates.length;
+    const ready = passed === gates.length;
+    const outOfDate = (label === "ready-for-review" && !ready) ? "says ready-for-review, but a core gate isn't green"
+        : (label && label !== "ready-for-review" && ready) ? `still says ${label}, but every core gate is green` : null;
+    extras.push({ id: "label", label: "Lifecycle label", state: "info", reason: `${label || "none"}${outOfDate ? ` · out of date: ${outOfDate}` : ""}` });
+
     const humans = raw.reviewRequests.nodes.map((r) => r.requestedReviewer?.login || r.requestedReviewer?.name).filter((l) => l && !COPILOT.test(l));
-    return { head, label, gates, passed, total: gates.length, allGreen, techGreen, outOfDate, requestedHumans: humans, fetchedAt: raw.fetchedAt };
+    return { head, label, gates, extras, passed, total: gates.length, ready, allGreen: ready, outOfDate, findings, requestedHumans: humans, fetchedAt: raw.fetchedAt };
 }

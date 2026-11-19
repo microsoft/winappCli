@@ -360,12 +360,23 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 .rd h3 { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .rd .lbl { font-size: var(--t-meta); font-weight: 400; padding: 0 8px; border-radius: 999px; border: 1px solid var(--hairline); color: var(--muted); }
 .rd .lbl.l-ready-for-review { color: var(--green); border-color: currentColor; } .rd .lbl.l-agent-blocked { color: var(--red); border-color: currentColor; } .rd .lbl.l-agent-preparing { color: var(--purple); border-color: currentColor; }
+.rd-also { font-size: var(--t-meta); color: var(--muted); margin-top: var(--s2); }
+.gates.extras li { grid-template-columns: 22px 9.5em 1fr auto; }
+.gates .ga { display: inline-flex; gap: var(--s2); align-items: center; }
+.gates .tag { font-size: var(--t-meta); padding: 0 6px; border-radius: 999px; border: 1px solid var(--hairline); color: var(--muted); }
+.gates li.gs-info .why, .gates li.gs-todo .why { color: var(--muted); }
+.gates li.fitems { display: block; border-top: 0; padding: 0 0 4px 22px; }
+.gates li.fitems ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.gates li.fitems li { display: flex; align-items: center; gap: var(--s2); border: 0; padding: 0; }
+.gates .ft { flex: 1; min-width: 0; }
+.gates .sev { font-size: var(--t-meta); padding: 0 6px; border-radius: 999px; color: #fff; background: var(--orange); text-transform: capitalize; }
+.gates .sev.s-critical, .gates .sev.s-high { background: var(--red); }
 .rd-warn { padding: 6px var(--s3); border-radius: 6px; font-size: var(--t-small); background: color-mix(in srgb, var(--orange) 14%, transparent); }
 .gates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; font-size: var(--t-small); }
 .gates li { display: grid; grid-template-columns: 22px 9.5em 1fr auto; gap: var(--s2); align-items: baseline; padding: 5px 0; border-top: 1px solid var(--hairline); }
 .gates li:first-child { border-top: 0; }
 .gates .why { color: var(--muted); min-width: 0; }
-.gates li.g-fail .why { color: var(--fg); }
+.gates li.gs-fail .why { color: var(--fg); }
 .gates a { white-space: nowrap; font-size: var(--t-meta); }
 .gates a .i { vertical-align: -2px; }
 .rd .btns { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-top: var(--s2); }
@@ -1487,7 +1498,9 @@ function reviewTabHtml(c) {
         ${f.recommendation ? `<div class="md"><b>Suggestion:</b> ${mdInline(f.recommendation)}</div>` : ""}
         ${ex ? `<div class="expl">${icon("sparkle", "sm tone-agent")} <b>Explanation</b><div class="md">${md(ex.text)}</div></div>` : explaining[f.id] ? `<div class="expl hint">Explaining…</div>` : ""}
         <div class="rv-bar"><div class="seg" role="group" aria-label="Decision for ${esc(f.title)}">
-          ${["post", "ignore", "undecided"].map((k) => `<button data-act="triage" data-id="${esc(f.id)}" data-decision="${k}" aria-pressed="${d === k}">${{ post: "Post", ignore: "Ignore", undecided: "Undecided" }[k]}</button>`).join("")}</div>
+          ${c.lifecycle
+            ? `${triOf(c)[f.id]?.fixRequestedAt ? `<span class="hint">Fix requested</span>` : `<button data-act="finding-fix" data-pr="${c.number}" data-id="${esc(f.id)}">Fix</button>`}<button data-act="triage" data-id="${esc(f.id)}" data-decision="ignore" aria-pressed="${d === "ignore"}">Not needed</button><button data-act="triage" data-id="${esc(f.id)}" data-decision="undecided" aria-pressed="${d === "undecided"}">Undecided</button>`
+            : ["post", "ignore", "undecided"].map((k) => `<button data-act="triage" data-id="${esc(f.id)}" data-decision="${k}" aria-pressed="${d === k}">${{ post: "Post", ignore: "Ignore", undecided: "Undecided" }[k]}</button>`).join("")}</div>
           <button class="quiet" data-act="explain" data-id="${esc(f.id)}" ${explaining[f.id] ? "disabled" : ""}>${icon("sparkle", "sm")}Explain</button>
           ${askBtn(`the finding "${f.title}"`)}</div>
         <textarea data-finding="${esc(f.id)}" placeholder="Note to add when posting (optional)">${esc(tri[f.id]?.note || "")}</textarea>
@@ -1857,12 +1870,14 @@ function watchBadge(c, { compact = false } = {}) {
   const tip = `Agent merge is watching this PR. It handles ${what.join(", ") || "reviews, CI and conflicts"} as they come in.${merges ? "" : " It never merges."}${c.local.sync.at ? ` Last checked ${ago(c.local.sync.at)}${ago(c.local.sync.at) === "just now" ? "" : " ago"}.` : ""}`;
   return `<span class="watch" title="${esc(tip)}" aria-label="${esc(tip)}">${icon("eye", "sm")}${compact ? "" : "Watching"}</span>`;
 }
-const GATE_ICON = { pass: "✅", pending: "⏳", fail: "❌" };
+const GATE_ICON = { pass: "✅", pending: "⏳", fail: "❌", warn: "⚠️", decide: "⚠️", todo: "💡", info: "🏷️" };
+const warnsOf = (r) => (r?.extras || []).filter((x) => x.state === "warn" || x.state === "decide");
 function readyMeter(c) {
   const r = c.readiness;
   if (!r) return "";
-  const tip = r.gates.map((g) => `${GATE_ICON[g.state]} ${g.label}: ${g.reason}`).join("\n") + (r.outOfDate ? `\n⚠ Label out of date: ${r.outOfDate}` : "");
-  return `<span class="meter${r.allGreen ? " ok" : ""}${r.outOfDate ? " warn" : ""}" title="${esc(tip)}">${r.gates.map((g) => `<i class="m-${g.state}"></i>`).join("")}<span>${r.passed}/${r.total} ready</span>${r.outOfDate ? `<b title="${esc(r.outOfDate)}">⚠</b>` : ""}</span>`;
+  const w = warnsOf(r);
+  const tip = [...r.gates, ...(r.extras || [])].map((g) => `${GATE_ICON[g.state]} ${g.label}: ${g.reason}`).join("\n");
+  return `<span class="meter${r.ready ? " ok" : ""}" title="${esc(tip)}">${r.gates.map((g) => `<i class="m-${g.state}"></i>`).join("")}<span>${r.passed}/${r.total} ready</span>${w.length ? `<b title="${esc(w.map((x) => x.reason).join("; "))}">⚠${w.length > 1 ? w.length : ""}</b>` : ""}</span>`;
 }
 
 // People who review PRs on this board, for the "Request reviewer" menu.
@@ -1881,25 +1896,41 @@ function readinessHtml(c) {
   const r = c.readiness;
   const watchBtn = watched(c) ? `<button class="quiet" data-act="monitor" data-enable="0" data-pr="${c.number}">Stop watching</button>` : c.local?.monitorPending ? "" : `<button class="quiet" data-act="monitor" data-enable="1" data-pr="${c.number}" title="Agent merge addresses reviews, fixes CI and resolves conflicts as they come in. It never merges.">Watch with Agent merge</button>`;
   if (!r) return `<section class="sec rd"><h3>Ready for human review?</h3><div class="hint">${c.readinessError ? `Couldn't read it from GitHub: ${esc(c.readinessError)} <button data-act="readiness-refresh" data-pr="${c.number}">Try again</button>` : `${spinner("Checking")} Checking the gates on GitHub…`}</div></section>`;
-  const labelChip = r.label ? `<span class="lbl l-${r.label}">${esc(r.label)}</span>` : `<span class="lbl none" title="No pr-lifecycle label yet">no label</span>`;
-  const ready = r.allGreen && r.label === "ready-for-review";
+  const link = (g) => g.url ? `<a href="${esc(g.url)}" target="_blank" rel="noopener noreferrer">${g.id === "ci" ? "Log" : "Open"} ${icon("external", "sm")}</a>` : "";
+  const row = (g, extra = "", tail = "") => `<li class="gs-${g.state}"><span class="gi" aria-label="${g.state}">${GATE_ICON[g.state]}</span><b>${esc(g.label)}</b><span class="why">${esc(g.reason)}${extra}</span><span class="ga">${tail}${link(g)}</span></li>`;
+  const tri = c.local?.triage || {};
+  const extras = (r.extras || []).map((x) => {
+    if (x.id === "review" && x.state === "todo") return row(x, ` <span class="tag">Recommended</span>`, `<button class="quiet" data-act="review" data-pr="${c.number}" ${c.local?.pending || isBusy(c) ? "disabled" : ""}>Run pr-review</button>`);
+    if (x.id === "review" && x.state === "decide") return row(x) + `<li class="fitems"><ul>${x.items.map((f) => `<li><span class="sev s-${esc(f.severity)}">${esc(f.severity)}</span><span class="ft">${esc(f.title)}</span>${tri[f.id]?.fixRequestedAt ? `<span class="hint">Fix requested</span>` : `<button data-act="finding-fix" data-pr="${c.number}" data-id="${esc(f.id)}" title="Ask the PR's session to fix it">Fix</button><button class="quiet" data-act="finding-skip" data-pr="${c.number}" data-id="${esc(f.id)}" title="Record that this doesn't need a change">Not needed</button>`}</li>`).join("")}</ul></li>`;
+    if (x.id === "description" && x.state === "warn") return row(x, "", `<button data-act="fix-description" data-pr="${c.number}" data-issue="${x.issue}" title="Ask the agent to add &quot;Fixes #${x.issue}&quot; to the description">Fix</button>`);
+    if (x.id === "label") return `<li class="gs-info"><span class="gi" aria-hidden="true">${GATE_ICON.info}</span><b>Lifecycle label</b><span class="why">${esc(r.label || "none")}${r.outOfDate ? ` · <span class="tone-mute">out of date: ${esc(r.outOfDate)}</span>` : ""}</span><span></span></li>`;
+    return row(x);
+  }).join("");
+  const approved = c.reviewDecision === "APPROVED";
+  const next = c.queue ? `<span class="hint">In the merge queue at position ${c.queue.position}. Nothing to do unless it drops out.</span>`
+    : r.ready
+    ? (approved ? `<button class="primary" data-act="open" data-pr="${c.number}">Merge…</button>` : r.requestedHumans.length ? `<span class="hint">Review requested from ${esc(r.requestedHumans.join(", "))}</span>` : reviewerButtons(c))
+    : `<button class="primary" data-act="get-ready" data-pr="${c.number}" ${c.local?.pending ? "disabled" : ""} title="The agent runs pr-lifecycle in the PR's session until the core gates pass, fixing obvious findings, with Agent merge watching. It never merges.">Get it ready for review</button>`;
   return `<section class="sec rd">
-    <h3>Ready for human review? ${readyMeter(c)} ${labelChip} ${watchBadge(c)}</h3>
-    ${r.outOfDate ? `<div class="rd-warn">⚠ <b>Label out of date:</b> ${esc(r.outOfDate)}. Only the session or the coordinator changes labels.</div>` : ""}
-    <ul class="gates">${r.gates.map((g) => `<li class="g-${g.state}"><span class="gi" aria-label="${g.state}">${GATE_ICON[g.state]}</span><b>${esc(g.label)}</b><span class="why">${esc(g.reason)}</span>${g.url ? `<a href="${esc(g.url)}" target="_blank" rel="noopener noreferrer">${g.id === "ci" ? "Log" : "Open"} ${icon("external", "sm")}</a>` : ""}</li>`).join("")}</ul>
-    <div class="btns">${ready || r.allGreen ? (r.requestedHumans.length ? `<span class="hint">Review requested from ${esc(r.requestedHumans.join(", "))}</span>` : reviewerButtons(c)) : `<button class="primary" data-act="get-ready" data-pr="${c.number}" ${c.local?.pending ? "disabled" : ""} title="The agent runs pr-lifecycle in the PR's session until every gate passes and the label is ready-for-review, with Agent merge watching. It never merges.">Get it ready for review</button>`}
-      ${watchBtn}<button class="quiet" data-act="readiness-refresh" data-pr="${c.number}">${icon("refresh", "sm")}Recheck</button></div>
+    <h3>${c.queue ? `In merge queue #${c.queue.position}` : r.ready ? (approved ? "Approved and ready to merge" : "Ready for human review") : "Ready for human review?"} ${readyMeter(c)} ${watchBadge(c)}</h3>
+    <ul class="gates">${r.gates.map((g) => row(g)).join("")}</ul>
+    <div class="rd-also">Also, these don't block it</div>
+    <ul class="gates extras">${extras}</ul>
+    <div class="btns">${next}${watchBtn}<button class="quiet" data-act="readiness-refresh" data-pr="${c.number}">${icon("refresh", "sm")}Recheck</button></div>
     <div class="hint">For commit <code>${esc(String(r.head || "").slice(0, 7))}</code>, read from GitHub ${esc(ago(r.fetchedAt))}${ago(r.fetchedAt) === "just now" ? "" : " ago"}.</div>
   </section>`;
 }
 
 // A step about reviewers or readiness, as opposed to a real decision the user has to make.
 const isReadyish = (nx) => !nx.blocked && /\breview(er|ers)?\b|\bready\b|readiness|approv/i.test([nx.action, ...(nx.choices || [])].join(" "));
-// For a PR you're getting ready: the lifecycle label and Agent merge decide whose move it is.
+// For a PR you're getting ready: the merge queue, approval, Agent merge, the label and the core gates decide whose move it is.
 function lifecycleBall(c, skipYou, running) {
   const r = c.readiness, l = c.local || {};
+  if (c.queue) return { st: "waiting", owner: "merge queue", ask: `In merge queue #${c.queue.position}${c.queue.state && c.queue.state !== "QUEUED" ? ` (${c.queue.state.toLowerCase().replace(/_/g, " ")})` : ""}`, since: c.queue.enqueuedAt || c.updatedAt };
+  if (c.reason?.label === "Auto-merge on") return { st: "waiting", owner: "GitHub", ask: "Auto-merge is on; waiting to enter the merge queue", since: c.reason.since };
   const label = r?.label || (c.labels || []).find((x) => LIFECYCLE_LABELS.includes(x)) || null;
   const meter = r ? ` · ${r.passed}/${r.total} ready` : "";
+  if (r?.ready && c.reviewDecision === "APPROVED") return skipYou ? null : { st: "ready", ask: "Approved: merge it", ship: true, since: r.fetchedAt };
   if (r && watched(c)) {
     const g = Object.fromEntries(r.gates.map((x) => [x.id, x]));
     const fb = g.discussion?.state === "fail" ? `New feedback: agent addressing it (${g.discussion.reason})`
@@ -1909,11 +1940,18 @@ function lifecycleBall(c, skipYou, running) {
     if (fb) return { st: "agent", ask: fb, watch: true, since: r.fetchedAt };
   }
   if (label === "agent-blocked" && !skipYou) return { st: "blocked", ask: `Agent blocked: ${(l.next?.owner === "you" && l.next.action) || l.agent?.outcome || "it needs your help"}`, fix: true, since: l.agent?.updatedAt || c.updatedAt };
-  // Not ready for human review yet: a reviewer or readiness step for you waits until every gate passes.
+  // Blocking pr-review findings: the agent fixes them while it's preparing the PR; otherwise you decide.
+  const fx = (r?.extras || []).find((x) => x.id === "review" && x.state === "decide");
+  if (fx) {
+    const n = fx.items.length, s = n === 1 ? "" : "s";
+    if (watched(c) || label === "agent-preparing" || running) return { st: "agent", idle: !running, ask: `Addressing ${n} pr-review finding${s}${meter}`, since: l.reviewSetAt || r.fetchedAt };
+    if (!skipYou) return { st: "decide", ask: `Decide on ${n} pr-review finding${s}: fix or not needed`, findings: true, since: l.reviewSetAt || r.fetchedAt };
+  }
+  // Not ready for human review yet: a reviewer or readiness step for you waits until the core gates pass.
   const nx = l.next;
   const held = nx?.owner === "you" && isReadyish(nx) ? nx.action : null;
-  if (r && !r.allGreen && (label === "agent-preparing" || held)) return { st: "agent", idle: !running, ask: `Preparing it for review${meter}`, then: held ? `Then: ${held.charAt(0).toLowerCase()}${held.slice(1)}` : null, since: l.agent?.updatedAt || nx?.at || c.updatedAt };
-  if (r?.allGreen && !r.requestedHumans.length && !skipYou) return { st: "ready", ask: "Ready for human review: request a reviewer", reqReviewer: true, since: r.fetchedAt };
+  if (r && !r.ready && (label === "agent-preparing" || held)) return { st: "agent", idle: !running, ask: `Preparing it for review${meter}`, then: held ? `Then: ${held.charAt(0).toLowerCase()}${held.slice(1)}` : null, since: l.agent?.updatedAt || nx?.at || c.updatedAt };
+  if (r?.ready && !r.requestedHumans.length && !skipYou) return { st: "ready", ask: "Ready for human review: request a reviewer", reqReviewer: true, since: r.fetchedAt };
   return null;
 }
 
@@ -2027,10 +2065,12 @@ function moveButtons(c, b, { withDone = true } = {}) {
   const kind = c.kind === "issue" ? "issue" : "pr";
   const at = `data-pr="${c.number}" data-kind="${kind}"`;
   const out = [];
+  if (b.findings) out.push(`<button class="primary" data-act="flyout" ${at}>Decide…</button>`);
   if (b.st === "decide" && b.question) out.push(...(b.choices || []).slice(0, 3).map((x, i) => `<button class="${i ? "" : "primary"}" data-act="answer" ${at} data-answer="${esc(x)}">${esc(x)}</button>`));
   else if (b.st === "decide" && b.explicit) out.push(...(b.choices || []).slice(0, 3).map((x, i) => `<button class="${i ? "" : "primary"}" data-act="choose" ${at} data-choice="${esc(x)}">${esc(x)}</button>`));
-  if (b.st === "decide" && (b.reply || b.question || !b.choices?.length)) out.push(`<button class="${out.length ? "" : "primary"}" data-act="ball-reply" ${at}>Reply…</button>`);
+  if (b.st === "decide" && !b.findings && (b.reply || b.question || !b.choices?.length)) out.push(`<button class="${out.length ? "" : "primary"}" data-act="ball-reply" ${at}>Reply…</button>`);
   if (b.st === "ready" && b.reqReviewer) out.push(reviewerButtons(c));
+  else if (b.st === "ready" && b.ship) out.push(`<button class="primary" data-act="open" ${at}>Merge…</button>`);
   else if (b.st === "ready" && b.brSend) out.push(`<button class="primary" data-act="br-send" ${at}>Send ${b.brSend} comment${b.brSend === 1 ? "" : "s"}</button><button data-act="br-open" ${at}>Open the diff</button>`);
   else if (b.st === "ready" && b.brReview) out.push(`<button class="primary" data-act="br-open" ${at}>Re-review</button>`);
   else if (b.st === "ready" && b.post) out.push(`<button class="primary" data-act="ball-post" ${at}>Post review…</button>`);
@@ -2617,6 +2657,9 @@ document.addEventListener("click", (e) => {
   }
   if (a === "rev-menu") { revMenu = revMenu === rowPr ? null : rowPr; render(); return document.querySelector(`[data-act="request-reviewer"][data-pr="${rowPr}"]`)?.focus(); }
   if (a === "request-reviewer") { revMenu = null; return post("/api/action", { pr: rowPr, action: "request-reviewer", who: el.dataset.who }).then(() => toast(el.dataset.who === "*" ? "Asked the agent to pick and request a reviewer" : `Asked the agent to request ${el.dataset.who}`)).catch((e) => toast("Couldn't do that: " + e.message)); }
+  if (a === "finding-fix") return post("/api/action", { pr: rowPr, action: "fix-finding", findingId: el.dataset.id }).then(() => toast("Asked the agent to fix it")).catch((e) => toast("Couldn't do that: " + e.message));
+  if (a === "finding-skip") { const it = itemOf("pr", rowPr); if (it) { it.local.triage = { ...(it.local.triage || {}), [el.dataset.id]: { ...(it.local.triage?.[el.dataset.id] || {}), decision: "ignore" } }; render(true); } return saveTriage(rowPr, el.dataset.id, { decision: "ignore" }).then(() => toast("Marked not needed")); }
+  if (a === "fix-description") return post("/api/action", { pr: rowPr, action: "fix-description", issue: Number(el.dataset.issue) }).then(() => toast(`Asked the agent to add "Fixes #${el.dataset.issue}"`)).catch((e) => toast("Couldn't do that: " + e.message));
   if (a === "get-ready") return post("/api/action", { pr: rowPr, action: "get-ready" }).then(() => toast("Asked the agent to get it ready for review, with Agent merge watching")).catch((e) => toast("Couldn't do that: " + e.message));
   if (a === "readiness-refresh") { toast("Rechecking on GitHub…"); return post("/api/action", { pr: rowPr, action: "readiness-refresh" }).catch((e) => toast("Couldn't do that: " + e.message)); }
   if (a === "monitor") return post("/api/action", { pr: rowPr, action: "monitor", enable: el.dataset.enable === "1" }).then(() => toast(el.dataset.enable === "1" ? "Asked the agent to turn monitoring on" : "Asked the agent to turn monitoring off")).catch((e) => toast("Couldn't do that: " + e.message));

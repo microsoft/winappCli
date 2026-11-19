@@ -380,15 +380,39 @@ export function openBranchPrPrompt(card, repo, { draft, branch }) {
 // "Get it ready for review": run pr-lifecycle to the ready-for-review label, with Agent merge watching.
 export function readyForReviewPrompt(card, repo, readiness) {
     const s = card.local?.session;
-    const open = (readiness?.gates || []).filter((g) => g.state !== "pass").map((g) => `- ${g.label}: ${g.reason}${g.url ? ` (${g.url})` : ""}`);
+    const core = (readiness?.gates || []).filter((g) => g.state !== "pass").map((g) => `- ${g.label}: ${g.reason}${g.url ? ` (${g.url})` : ""}`);
+    const extra = (readiness?.extras || []).filter((x) => x.state === "todo" || x.state === "decide" || x.state === "warn").map((x) => `- ${x.label}: ${x.reason}${x.items?.length ? "\n" + x.items.map((f) => `  - [${f.severity}] ${f.title} (id ${f.id})`).join("\n") : ""}`);
     return [
         `The PR board canvas: the user asked to **get ${repo}#${card.number} "${card.title}" ready for human review** (${card.url}).`,
         s?.id
             ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\` to follow \`.github/skills/pr-lifecycle\` (Prepare, Present, Finish) to the \`ready-for-review\` label for the current head, and report back.`
             : `No session is linked. If you have \`open_pr_session\`, open one for this PR and ask it to follow \`.github/skills/pr-lifecycle\` to the \`ready-for-review\` label; otherwise do it yourself.`,
+        `As part of that, it should run pr-review on the current head if it hasn't, and **fix the obvious blocking findings itself**. For a finding it disagrees with or can't fix safely, it records why, and the board asks the user to decide.`,
         `Turn on Agent merge for the PR with \`manage_agent_merge\`: address_reviews, fix_ci and resolve_conflicts **on**, merge_pr **off**. Never merge, and never approve.`,
-        open.length ? `The board's live gates for head ${String(readiness?.head || "").slice(0, 7)} that aren't green yet:\n${open.join("\n")}` : `The board shows every gate green; the label is what's left.`,
+        core.length ? `Core gates for head ${String(readiness?.head || "").slice(0, 7)} that aren't green yet (these decide "ready"):\n${core.join("\n")}` : `Every core gate is green for head ${String(readiness?.head || "").slice(0, 7)}.`,
+        extra.length ? `Also worth doing (they don't block "ready"):\n${extra.join("\n")}` : "",
         `Then call \`pr_board_sync_sessions\` for this PR with the session's id, role "author" and its \`agentMerge\` state, and set the next step with \`pr_board_set_next_step\` (owner "agent" while it works). Report the outcome with \`pr_board_reply\`, and update the explainer (\`pr_board_set_explainer\`) if a decision was made.`,
+    ].filter(Boolean).join("\n");
+}
+
+export function fixFindingPrompt(card, repo, f) {
+    const s = card.local?.session;
+    return [
+        `The PR board canvas: on ${repo}#${card.number} "${card.title}" (${card.url}), the user asked to **fix this pr-review finding**:`,
+        `[${f.severity}] ${f.title}${f.file ? ` (${f.file}${f.line ? ":" + f.line : ""})` : ""}\n${f.description || ""}${f.recommendation ? `\nSuggested fix: ${f.recommendation}` : ""}`,
+        s?.id
+            ? `Send it to its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\`: fix it, validate, push, and report back.`
+            : `No session is linked: use \`open_pr_session\` if you have it, otherwise say what's needed with \`pr_board_reply\`.`,
+        `Set \`pr_board_set_next_step\` owner "agent" while it works, and report with \`pr_board_reply\`. Don't merge or approve.`,
+    ].join("\n");
+}
+
+export function fixDescriptionPrompt(card, repo, issue) {
+    const s = card.local?.session;
+    return [
+        `The PR board canvas: the user asked to link issue #${issue} in the description of ${repo}#${card.number} "${card.title}" (${card.url}).`,
+        `Add "Fixes #${issue}" to the PR body (keep the rest of the body unchanged), with \`gh pr edit ${card.number} -R ${repo} --body-file <file>\`${s?.id ? `, or ask its session \`${s.id}\` to do it` : ""}. If #${issue} isn't actually fixed by this PR, don't add it; say why with \`pr_board_reply\` instead.`,
+        `Confirm in one line with \`pr_board_reply\` \`{ repo: "${repo}", pr: ${card.number}, text }\`.`,
     ].join("\n");
 }
 
