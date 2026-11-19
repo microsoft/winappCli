@@ -383,13 +383,13 @@ export function readyForReviewPrompt(card, repo, readiness) {
     const core = (readiness?.gates || []).filter((g) => g.state !== "pass").map((g) => `- ${g.label}: ${g.reason}${g.url ? ` (${g.url})` : ""}`);
     const extra = (readiness?.extras || []).filter((x) => x.state === "todo" || x.state === "decide" || x.state === "warn").map((x) => `- ${x.label}: ${x.reason}${x.items?.length ? "\n" + x.items.map((f) => `  - [${f.severity}] ${f.title} (id ${f.id})`).join("\n") : ""}`);
     return [
-        `The PR board canvas: the user asked to **get ${repo}#${card.number} "${card.title}" ready for human review** (${card.url}).`,
+        `The PR board canvas: the user asked to **get ${repo}#${card.number} "${card.title}" ready for human review and keep it ready** (${card.url}).`,
         s?.id
             ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\` to follow \`.github/skills/pr-lifecycle\` (Prepare, Present, Finish) to the \`ready-for-review\` label for the current head, and report back.`
             : `No session is linked. If you have \`open_pr_session\`, open one for this PR and ask it to follow \`.github/skills/pr-lifecycle\` to the \`ready-for-review\` label; otherwise do it yourself.`,
-        `As part of that, it should run pr-review on the current head if it hasn't, and **fix the obvious blocking findings itself**. For a finding it disagrees with or can't fix safely, it records why, and the board asks the user to decide.`,
+        `As part of that, it should run pr-review on the latest non-merge commit and **fix the obvious blocking findings itself**. For a finding it disagrees with or can't fix safely, it records why, and the board asks the user to decide. While this is on, pr-review is a core gate: "ready" needs a clean pr-review of the latest non-merge commit, and the board requests a Copilot review of each new non-merge commit itself.`,
         `Turn on Agent merge for the PR with \`manage_agent_merge\`: address_reviews, fix_ci and resolve_conflicts **on**, merge_pr **off**. Never merge, and never approve.`,
-        core.length ? `Core gates for head ${String(readiness?.head || "").slice(0, 7)} that aren't green yet (these decide "ready"):\n${core.join("\n")}` : `Every core gate is green for head ${String(readiness?.head || "").slice(0, 7)}.`,
+        core.length ? `Core gates (Copilot, pr-review, discussion, CI, up to date) for head ${String(readiness?.head || "").slice(0, 7)} that aren't green yet (these decide "ready"):\n${core.join("\n")}` : `Every core gate is green for head ${String(readiness?.head || "").slice(0, 7)}.`,
         extra.length ? `Also worth doing (they don't block "ready"):\n${extra.join("\n")}` : "",
         `Then call \`pr_board_sync_sessions\` for this PR with the session's id, role "author" and its \`agentMerge\` state, and set the next step with \`pr_board_set_next_step\` (owner "agent" while it works). Report the outcome with \`pr_board_reply\`, and update the explainer (\`pr_board_set_explainer\`) if a decision was made.`,
     ].filter(Boolean).join("\n");
@@ -424,5 +424,17 @@ export function requestReviewerPrompt(card, repo, who) {
             ? `Pick a suitable reviewer (a CODEOWNER for the changed paths, or a maintainer who reviewed this area recently), tell the user who and why in one line, then request them with \`gh pr edit ${card.number} -R ${repo} --add-reviewer <login>\`.`
             : `Request **${who}** with \`gh pr edit ${card.number} -R ${repo} --add-reviewer ${who}\`.`,
         `Don't approve, merge or change labels. Confirm with \`pr_board_reply\` \`{ repo: "${repo}", pr: ${card.number}, text }\`, and set the next step to owner "reviewer" with \`pr_board_set_next_step\`.`,
+    ].join("\n");
+}
+
+// Keep it ready: a new non-merge commit landed on a watched PR, so pr-review needs to run on it again.
+export function rerunReviewPrompt(card, repo, sha) {
+    const s = card.local?.session;
+    return [
+        `The PR board canvas: ${repo}#${card.number} "${card.title}" (${card.url}) is being kept ready for review, and its latest non-merge commit is now ${String(sha).slice(0, 7)}. pr-review hasn't run on it.`,
+        s?.id
+            ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\` to run \`.github/skills/pr-review\` on ${String(sha).slice(0, 7)}, fix the obvious blocking findings, re-check the pr-lifecycle label for the current head, and report back.`
+            : `No session is linked: use \`open_pr_session\` if you have it, otherwise run pr-review yourself.`,
+        `Record the result with \`pr_board_set_review\` (headSha ${sha}) or \`pr_board_sync_sessions\` with \`prReview: { ranAt, headSha: "${sha}", result }\`. Set the next step (owner "agent" while it works), and report with \`pr_board_reply\`. Don't merge or approve.`,
     ].join("\n");
 }

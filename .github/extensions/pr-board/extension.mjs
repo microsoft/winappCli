@@ -8,13 +8,13 @@ import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, fetchBranchCompare, fetchChangesSince, fetchDetail, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
+import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchDetail, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
 import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
-import { readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -67,6 +67,8 @@ class Board {
         this.watching = false;
         this.ready = new Map(); // PR number -> { key, at, raw }: GitHub data for the readiness gates
         this.readyInflight = null;
+        this.headSeen = new Map(); // PR -> { sha, at }: when the board first saw its latest non-merge commit
+        this.ticking = false;
         // Replies older than this never count as unread, so a new install doesn't flag every old reply.
         if (!readState(repo).meta.readBaseline) updateMeta(repo, (m) => { m.readBaseline ??= new Date().toISOString(); });
     }
@@ -85,7 +87,7 @@ class Board {
                 this.issues = await fetchIssues(this.repo, { linked, prIndex, localIssues: st.issues });
                 this.error = null;
                 await refreshLiveSessions();
-                this.refreshReadiness();
+                if (!this.refreshReadiness()) this.keepReadyTick().catch(() => {});
             } catch (e) {
                 this.error = { code: e instanceof GhError ? e.code : "error", message: e.message };
             } finally {
@@ -120,8 +122,45 @@ class Board {
                     .then((raw) => this.ready.set(p.number, { key: `${p.headRefOid}|${p.updatedAt}`, at: Date.now(), raw }))
                     .catch((e) => this.ready.set(p.number, { key: null, at: Date.now(), raw: this.ready.get(p.number)?.raw || null, error: e.message }))));
             }
-        })().finally(() => { this.readyInflight = null; this.broadcast(); });
+        })().finally(() => { this.readyInflight = null; this.broadcast(); this.keepReadyTick().catch(() => {}); });
         return this.readyInflight;
+    }
+
+    // "Keep it ready" (Agent merge on): for each new non-merge commit, request a Copilot review once, and once the
+    // commit has been stable for 5 minutes, ask the agent once to rerun pr-review on it. Never when not watching.
+    async keepReadyTick() {
+        if (this.ticking || !this.data) return;
+        this.ticking = true;
+        try {
+            const st = readState(this.repo);
+            for (const p of this.data.open) {
+                const local = st.prs[String(p.number)] || {};
+                if (!local.sync?.agentMerge?.enabled || !this.lifecycleOf(p, st) || this.data.queue?.get?.(p.number)) continue;
+                const raw = this.ready.get(p.number)?.raw;
+                if (!raw || raw.headRefOid !== p.headRefOid) continue;
+                const r = computeReadiness(raw, local, { keepReady: true });
+                const sha = r.reviewHead;
+                if (this.headSeen.get(p.number)?.sha !== sha) this.headSeen.set(p.number, { sha, at: Date.now() });
+                if (!r.copilot.covered && !r.copilot.requested && !r.copilot.open && local.copilotAsked?.sha !== sha) {
+                    const res = await requestCopilotReview(this.repo, p.number);
+                    updatePr(this.repo, p.number, (s) => {
+                        s.copilotAsked = { sha, at: nowIso(), ok: res.ok, how: res.how || null, error: res.error || null };
+                        addHistory(s, res.ok ? `The board requested a Copilot review of ${sha.slice(0, 7)}` : `The board couldn't request a Copilot review of ${sha.slice(0, 7)}: ${res.error}`);
+                    });
+                    const h = this.ready.get(p.number);
+                    if (h) h.key = null;
+                }
+                const stable = Date.now() - this.headSeen.get(p.number).at >= 5 * 60_000;
+                if (!r.reviewCovered && local.reviewAsked?.sha !== sha && !local.pending && stable) {
+                    const card = this.card(p.number);
+                    updatePr(this.repo, p.number, (s) => { s.reviewAsked = { sha, at: nowIso() }; s.pending = { id: "rereview", at: nowIso() }; note(s, `The board asked the agent to run pr-review on ${sha.slice(0, 7)}`); });
+                    await send(rerunReviewPrompt(card, this.repo, sha), this.repo, p.number, { quiet: true });
+                }
+            }
+        } finally {
+            this.ticking = false;
+            this.broadcast();
+        }
     }
 
     snapshot() {
@@ -143,7 +182,8 @@ class Board {
                 const r = this.ready.get(card.number);
                 // Issues the board links to this PR, so the description check can suggest the right "Fixes #".
                 const linkedIssues = Object.entries(state.issues).filter(([, v]) => v.linkedPr === card.number || (v.branch && v.branch === r?.raw?.headRefName)).map(([k]) => Number(k));
-                return { ...out, lifecycle: true, readiness: r?.raw ? computeReadiness(r.raw, card.local || {}, { linkedIssues }) : null, readinessError: r?.error || null };
+                const keepReady = !!(card.local?.sync?.agentMerge?.enabled || card.local?.monitorPending?.enable);
+                return { ...out, lifecycle: true, keepReady, readiness: r?.raw ? computeReadiness(r.raw, card.local || {}, { linkedIssues, keepReady }) : null, readinessError: r?.error || null };
             }) : [], buildIssueCards(this.issues || [], state.issues)),
             streams: streamer.forRepo(this.repo),
             error: this.error,
@@ -463,7 +503,7 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
     } else if (action === "hide" || action === "unhide") {
         updatePr(repo, pr, (s) => { s.hidden = action === "hide"; addHistory(s, action === "hide" ? "You removed it from the board" : "You put it back on the board"); });
     } else if (action === "get-ready") {
-        updatePr(repo, pr, (s) => { s.pending = { id: "get-ready", at: nowIso() }; note(s, "You asked the agent to get it ready for review"); });
+        updatePr(repo, pr, (s) => { s.pending = { id: "get-ready", at: nowIso() }; s.monitorPending = { enable: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"], at: nowIso() }; note(s, "You asked the agent to get it ready for review and keep it ready"); });
         await send(readyForReviewPrompt(card, repo, card.readiness), repo, pr, { quiet: true });
     } else if (action === "request-reviewer") {
         const who = String(extra.who || "*").replace(/[^\w.*-]/g, "").slice(0, 60) || "*";

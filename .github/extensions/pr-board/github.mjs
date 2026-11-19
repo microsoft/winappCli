@@ -803,6 +803,8 @@ const READY_QUERY = `query($owner: String!, $name: String!, $n: Int!) { reposito
     reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
     reviews(last: 100) { nodes { author { login } state submittedAt url body commit { oid } } }
     comments(last: 60) { nodes { author { login } createdAt url } }
+    history: commits(last: 30) { nodes { commit { oid committedDate parents(first: 2) { totalCount nodes { oid } } } } }
+    reqEvents: timelineItems(last: 30, itemTypes: [REVIEW_REQUESTED_EVENT]) { nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { ... on Bot { login } ... on User { login } } } } }
     commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) { nodes { __typename
         ... on CheckRun { name status conclusion detailsUrl isRequired(pullRequestNumber: $n) }
         ... on StatusContext { context state targetUrl isRequired(pullRequestNumber: $n) } } } } } } }
@@ -850,6 +852,19 @@ export async function fetchReadinessRaw(repo, number) {
     }
     let behind = null;
     try { behind = Number(await gh(["api", `repos/${repo}/compare/${encodeURIComponent(pr.baseRefName)}...${pr.headRefOid}`, "--jq", ".behind_by"])); } catch { behind = null; }
+    // The latest commit that isn't only a merge of the base branch ("Update branch"). Reviews of it still count.
+    const hist = (pr.history?.nodes || []).map((n) => n.commit);
+    const baseMerges = [];
+    let at = hist.length - 1;
+    while (at > 0 && hist[at].parents.totalCount >= 2 && baseMerges.length < 5) {
+        const second = hist[at].parents.nodes[1]?.oid;
+        let inBase = false;
+        try { inBase = ["behind", "identical"].includes((await gh(["api", `repos/${repo}/compare/${encodeURIComponent(pr.baseRefName)}...${second}`, "--jq", ".status"])).trim()); } catch { inBase = false; }
+        if (!inBase) break;
+        baseMerges.push(hist[at].oid);
+        at--;
+    }
+    const reviewHead = hist[at]?.oid || pr.headRefOid;
     const required = await fetchRequiredChecks(repo, pr.baseRefName);
     // Which "#n" in the body or branch name are issues (not PRs), for the description check.
     const bodyNums = [...String(pr.body || "").replace(/<!--[\s\S]*?-->/g, "").matchAll(/(?<![\w/])#(\d{2,6})\b/g)].map((m) => Number(m[1]));
@@ -863,7 +878,20 @@ export async function fetchReadinessRaw(repo, number) {
             for (const n of nums) if (d.data?.repository?.[`n${n}`]?.__typename === "Issue") issueNums.push(n);
         } catch { /* no suggestion beats a wrong one */ }
     }
-    return { ...pr, threads, behind, required, issueNums, fetchedAt: new Date().toISOString() };
+    return { ...pr, threads, behind, required, issueNums, reviewHead, reviewShas: [reviewHead, ...baseMerges], fetchedAt: new Date().toISOString() };
+}
+
+// Ask Copilot to review the PR's current head. Uses the Copilot code review endpoint, falling back to requesting
+// the Copilot reviewer. "Already pending" counts as done.
+export async function requestCopilotReview(repo, number) {
+    const res = (out) => ({ ok: true, ...out });
+    try { await gh(["api", "-X", "POST", `repos/${repo}/pulls/${number}/copilot-code-review`]); return res({ how: "copilot-code-review" }); }
+    catch (e) {
+        if (/\b409\b/.test(e.message)) return res({ how: "already pending" });
+        if (!/\b404\b/.test(e.message)) return { ok: false, error: e.message.split("\n")[0].slice(0, 200) };
+    }
+    try { await gh(["api", "-X", "POST", `repos/${repo}/pulls/${number}/requested_reviewers`, "-f", "reviewers[]=copilot-pull-request-reviewer[bot]"]); return res({ how: "requested_reviewers" }); }
+    catch (e) { return { ok: false, error: e.message.split("\n")[0].slice(0, 200) }; }
 }
 
 const COPILOT = /^(copilot-pull-request-reviewer|copilot)(\[bot\])?$/i;
@@ -883,16 +911,26 @@ export function computeReadiness(raw, local = {}, ctx = {}) {
     const gates = [], extras = [];
     const gate = (id, label, state, reason, url) => gates.push({ id, label, state, reason, url: url || null });
 
-    // Copilot review on this head, with no unresolved Copilot threads.
+    // Reviews count when they cover the latest non-merge commit (or a base-only merge after it).
+    const reviewHead = raw.reviewHead || head;
+    const covers = (sha) => (raw.reviewShas || [head]).includes(sha);
+    const keepReady = !!ctx.keepReady;
+
+    // Copilot review of the latest non-merge commit, with no unresolved Copilot threads.
     const cop = raw.reviews.nodes.filter((r) => COPILOT.test(r.author?.login || ""));
-    const copNow = cop.filter((r) => r.commit?.oid === head);
+    const copNow = cop.filter((r) => covers(r.commit?.oid));
     const copOpen = raw.threads.filter((t) => !t.isResolved && !t.isOutdated && COPILOT.test(t.comments.nodes[0]?.author?.login || ""));
     const copRequested = raw.reviewRequests.nodes.some((r) => COPILOT.test(r.requestedReviewer?.login || ""));
+    const copReqAt = maxIso(...(raw.reqEvents?.nodes || []).filter((e) => COPILOT.test(e.requestedReviewer?.login || "")).map((e) => e.createdAt));
+    const boardAsked = local.copilotAsked?.sha === reviewHead ? local.copilotAsked : null;
+    const ago = (iso) => { const m = Math.max(1, Math.round((Date.now() - ts(iso)) / 60000)); return m < 60 ? `${m}m ago` : m < 2880 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`; };
     if (copOpen.length) gate("copilot", "Copilot review", "fail", `${copOpen.length} unresolved Copilot comment${copOpen.length === 1 ? "" : "s"}`, copOpen[0].comments.nodes[0]?.url);
-    else if (copNow.length) gate("copilot", "Copilot review", "pass", `Reviewed ${short(head)}; nothing open`, copNow.at(-1).url);
-    else if (copRequested) gate("copilot", "Copilot review", "pending", "Copilot review requested; not in yet");
-    else if (cop.length) gate("copilot", "Copilot review", "pending", `Copilot reviewed an older commit (${short(cop.at(-1).commit?.oid)}); only a review of ${short(head)} counts`, cop.at(-1)?.url);
-    else gate("copilot", "Copilot review", "fail", "No Copilot review yet");
+    else if (copNow.length) gate("copilot", "Copilot review", "pass", `Reviewed ${short(copNow.at(-1).commit?.oid)}: clean`, copNow.at(-1).url);
+    else if (copRequested) gate("copilot", "Copilot review", "pending", `Requested${copReqAt ? ` ${ago(copReqAt)}` : ""} (for ${short(reviewHead)})`);
+    else if (boardAsked?.ok) gate("copilot", "Copilot review", "pending", `Requested by the board ${ago(boardAsked.at)} (for ${short(reviewHead)})`);
+    else if (boardAsked && !boardAsked.ok) gate("copilot", "Copilot review", "fail", `The board couldn't request it: ${boardAsked.error || "unknown error"}`);
+    else if (cop.length) gate("copilot", "Copilot review", keepReady ? "pending" : "fail", `Reviewed an older commit (${short(cop.at(-1).commit?.oid)}); ${keepReady ? `the board will request ${short(reviewHead)}` : `not requested for ${short(reviewHead)}`}`, cop.at(-1)?.url);
+    else gate("copilot", "Copilot review", keepReady ? "pending" : "fail", keepReady ? "Not requested yet; the board will request it" : "Not requested");
 
     // Discussion: every thread resolved or replied to, and no unanswered top-level request.
     const human = (l) => l && l !== author && !COPILOT.test(l) && !BOT_LOGINS.test(l);
@@ -930,12 +968,15 @@ export function computeReadiness(raw, local = {}, ctx = {}) {
     else if (raw.mergeStateStatus === "BEHIND") gate("uptodate", "Up to date", "fail", `Branch rules require updating it${behindText}`, `${raw.url}#partial-pull-merging`);
     else gate("uptodate", "Up to date", "pass", `No conflicts${behindText}`);
 
-    // Extra: pr-review. Recommended; blocking findings without a fix or disposition need a decision.
+    // pr-review: a core gate while "keep it ready" is on, otherwise recommended. Blocking findings without a fix or
+    // disposition need a decision (or the agent fixes them while it keeps the PR ready).
     const rv = local.review, pv = local.prReview;
     const rvHead = rv?.headSha || pv?.headSha || null;
     const findings = { blocking: [], fixing: 0, other: 0 };
-    if (!rv && !pv) extras.push({ id: "review", label: "pr-review", state: "todo", reason: "Not run on this commit yet" });
-    else if (rvHead && rvHead !== head) extras.push({ id: "review", label: "pr-review", state: "todo", reason: `Ran on ${short(rvHead)}; new commits since` });
+    const askedRerun = local.reviewAsked?.sha === reviewHead ? local.reviewAsked : null;
+    let rvItem;
+    if (!rv && !pv) rvItem = { state: keepReady ? "pending" : "todo", reason: askedRerun ? `Asked the agent to run it on ${short(reviewHead)} ${ago(askedRerun.at)}` : `Not run on ${short(reviewHead)} yet` };
+    else if (rvHead && !covers(rvHead) && rvHead !== reviewHead) rvItem = { state: keepReady ? "pending" : "todo", reason: askedRerun ? `Asked the agent to rerun it on ${short(reviewHead)} ${ago(askedRerun.at)}` : `Ran on ${short(rvHead)}; not on ${short(reviewHead)} yet` };
     else {
         for (const f of rv?.findings || []) {
             const t = local.triage?.[f.id] || {};
@@ -944,9 +985,12 @@ export function computeReadiness(raw, local = {}, ctx = {}) {
             findings.blocking.push({ id: f.id, title: f.title, severity: f.severity, category: f.category });
         }
         const n = rv?.findings?.length || 0;
-        if (findings.blocking.length) extras.push({ id: "review", label: "pr-review", state: "decide", reason: `${findings.blocking.length} finding${findings.blocking.length === 1 ? "" : "s"} to fix or mark not needed`, items: findings.blocking });
-        else extras.push({ id: "review", label: "pr-review", state: "pass", reason: n ? `Ran on ${short(head)}; ${findings.fixing ? `${findings.fixing} being fixed, ` : ""}nothing blocking among ${n} finding${n === 1 ? "" : "s"}` : `Ran on ${short(rvHead || head)}${rv ? "; no findings" : ""}` });
+        rvItem = findings.blocking.length
+            ? { state: keepReady ? "fail" : "decide", reason: `${findings.blocking.length} finding${findings.blocking.length === 1 ? "" : "s"} to fix or mark not needed`, items: findings.blocking }
+            : { state: "pass", reason: n ? `Ran on ${short(rvHead || reviewHead)}; ${findings.fixing ? `${findings.fixing} being fixed, ` : ""}nothing blocking among ${n} finding${n === 1 ? "" : "s"}` : `Ran on ${short(rvHead || reviewHead)}${rv ? "; no findings" : ""}` };
     }
+    if (keepReady) gates.splice(1, 0, { id: "review", label: "pr-review", url: null, ...rvItem });
+    else extras.push({ id: "review", label: "pr-review", ...rvItem });
 
     // Extra: the description. Warn only when there's an issue it plausibly fixes but doesn't link.
     const body = String(raw.body || "").replace(/<!--[\s\S]*?-->/g, "").replace(/\r\n/g, "\n");
@@ -967,5 +1011,6 @@ export function computeReadiness(raw, local = {}, ctx = {}) {
     extras.push({ id: "label", label: "Lifecycle label", state: "info", reason: `${label || "none"}${outOfDate ? ` · out of date: ${outOfDate}` : ""}` });
 
     const humans = raw.reviewRequests.nodes.map((r) => r.requestedReviewer?.login || r.requestedReviewer?.name).filter((l) => l && !COPILOT.test(l));
-    return { head, label, gates, extras, passed, total: gates.length, ready, allGreen: ready, outOfDate, findings, requestedHumans: humans, fetchedAt: raw.fetchedAt };
+    return { head, reviewHead, keepReady, label, gates, extras, passed, total: gates.length, ready, allGreen: ready, outOfDate, findings, requestedHumans: humans,
+        copilot: { covered: copNow.length > 0, requested: copRequested, open: copOpen.length }, reviewCovered: rvItem.state === "pass" || !!rvItem.items, fetchedAt: raw.fetchedAt };
 }

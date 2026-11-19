@@ -997,7 +997,7 @@ function moreMenu(c) {
     local.agent ? `<button role="menuitem" data-act="reset">${icon("reset")}Reset agent status</button>` : "",
     isUnread(c) ? `<button role="menuitem" data-act="mark-read" data-pr="${c.number}">${icon("checkCircle")}Mark as read</button>` : "",
     trackItem(c, false),
-    c.section === "yours" ? `<button role="menuitem" data-act="monitor" data-enable="${watched(c) ? 0 : 1}" data-pr="${c.number}">${icon("eye")}${watched(c) ? "Stop watching (Agent merge off)" : "Watch with Agent merge"}</button>` : "",
+    c.section === "yours" ? (keepingReady(c) ? `<button role="menuitem" data-act="monitor" data-enable="0" data-pr="${c.number}">${icon("eye")}Stop keeping it ready</button>` : `<button role="menuitem" data-act="get-ready" data-pr="${c.number}">${icon("eye")}Get it ready &amp; keep it ready</button>`) : "",
   ];
   return `<div class="menu" role="menu" aria-label="More actions">${items.join("")}</div>`;
 }
@@ -1886,7 +1886,7 @@ function watchBadge(c, { compact = false } = {}) {
   const am = c.local.sync.agentMerge;
   const what = (am.actions || []).map((a) => WATCH_WHAT[a] || a.replace(/_/g, " "));
   const merges = (am.actions || []).includes("merge_pr");
-  const tip = `Agent merge is watching this PR. It handles ${what.join(", ") || "reviews, CI and conflicts"} as they come in.${merges ? "" : " It never merges."}${c.local.sync.at ? ` Last checked ${ago(c.local.sync.at)}${ago(c.local.sync.at) === "just now" ? "" : " ago"}.` : ""}`;
+  const tip = `Keeping it ready: Agent merge handles ${what.join(", ") || "reviews, CI and conflicts"} as they come in, and the board requests a Copilot review and a pr-review rerun for each new commit.${merges ? "" : " It never merges."}${c.local.sync.at ? ` Last checked ${ago(c.local.sync.at)}${ago(c.local.sync.at) === "just now" ? "" : " ago"}.` : ""}`;
   return `<span class="watch" title="${esc(tip)}" aria-label="${esc(tip)}">${icon("eye", "sm")}${compact ? "" : "Watching"}</span>`;
 }
 const GATE_ICON = { pass: "✅", pending: "⏳", fail: "❌", warn: "⚠️", decide: "⚠️", todo: "💡", info: "🏷️" };
@@ -1911,32 +1911,38 @@ function reviewerButtons(c, primary = true) {
   return `<span class="snooze-opts" role="group" aria-label="Request a review from">${reviewerChoices(c).map((l) => `<button data-act="request-reviewer" data-pr="${c.number}" data-who="${esc(l)}">${esc(l)}</button>`).join("")}<button data-act="request-reviewer" data-pr="${c.number}" data-who="*">Let the agent pick</button></span>`;
 }
 
+// "Get it ready & keep it ready" is one switch: it runs pr-lifecycle once and turns on Agent merge (Watching).
+const keepingReady = (c) => watched(c) || !!c.local?.monitorPending?.enable;
+const KEEP_BTN = (c, cls, label) => `<button class="${cls}" data-act="get-ready" data-pr="${c.number}" ${c.local?.pending ? "disabled" : ""} title="The agent runs pr-lifecycle in the PR's session until it's ready for human review, fixing obvious findings. Then Agent merge keeps it ready: it addresses reviews, fixes CI and resolves conflicts, and the board requests a Copilot review and a pr-review rerun for each new commit. It never merges.">${label}</button>`;
 function readinessHtml(c) {
   const r = c.readiness;
-  const watchBtn = watched(c) ? `<button class="quiet" data-act="monitor" data-enable="0" data-pr="${c.number}">Stop watching</button>` : c.local?.monitorPending ? "" : `<button class="quiet" data-act="monitor" data-enable="1" data-pr="${c.number}" title="Agent merge addresses reviews, fixes CI and resolves conflicts as they come in. It never merges.">Watch with Agent merge</button>`;
+  const keep = keepingReady(c);
+  const stopBtn = keep && !c.local?.monitorPending ? `<button class="quiet" data-act="monitor" data-enable="0" data-pr="${c.number}" title="Turn off Agent merge. The board stops requesting Copilot reviews and pr-review reruns.">Stop keeping it ready</button>` : "";
   if (!r) return `<section class="sec rd"><h3>Ready for human review?</h3><div class="hint">${c.readinessError ? `Couldn't read it from GitHub: ${esc(c.readinessError)} <button data-act="readiness-refresh" data-pr="${c.number}">Try again</button>` : `${spinner("Checking")} Checking the gates on GitHub…`}</div></section>`;
   const link = (g) => g.url ? `<a href="${esc(g.url)}" target="_blank" rel="noopener noreferrer">${g.id === "ci" ? "Log" : "Open"} ${icon("external", "sm")}</a>` : "";
   const row = (g, extra = "", tail = "") => `<li class="gs-${g.state}"><span class="gi" aria-label="${g.state}">${GATE_ICON[g.state]}</span><b>${esc(g.label)}</b><span class="why">${esc(g.reason)}${extra}</span><span class="ga">${tail}${link(g)}</span></li>`;
   const tri = c.local?.triage || {};
-  const extras = (r.extras || []).map((x) => {
+  const itemRow = (x) => {
     if (x.id === "review" && x.state === "todo") return row(x, ` <span class="tag">Recommended</span>`, `<button class="quiet" data-act="review" data-pr="${c.number}" ${c.local?.pending || isBusy(c) ? "disabled" : ""}>Run pr-review</button>`);
-    if (x.id === "review" && x.state === "decide") return row(x) + `<li class="fitems"><ul>${x.items.map((f) => `<li><span class="sev s-${esc(f.severity)}">${esc(f.severity)}</span><span class="ft">${esc(f.title)}</span>${tri[f.id]?.fixRequestedAt ? `<span class="hint">Fix requested</span>` : `<button data-act="finding-fix" data-pr="${c.number}" data-id="${esc(f.id)}" title="Ask the PR's session to fix it">Fix</button><button class="quiet" data-act="finding-skip" data-pr="${c.number}" data-id="${esc(f.id)}" title="Record that this doesn't need a change">Not needed</button>`}</li>`).join("")}</ul></li>`;
+    if (x.id === "review" && x.items?.length) return row(x) + `<li class="fitems"><ul>${x.items.map((f) => `<li><span class="sev s-${esc(f.severity)}">${esc(f.severity)}</span><span class="ft">${esc(f.title)}</span>${tri[f.id]?.fixRequestedAt ? `<span class="hint">Fix requested</span>` : `<button data-act="finding-fix" data-pr="${c.number}" data-id="${esc(f.id)}" title="Ask the PR's session to fix it">Fix</button><button class="quiet" data-act="finding-skip" data-pr="${c.number}" data-id="${esc(f.id)}" title="Record that this doesn't need a change">Not needed</button>`}</li>`).join("")}</ul></li>`;
     if (x.id === "description" && x.state === "warn") return row(x, "", `<button data-act="fix-description" data-pr="${c.number}" data-issue="${x.issue}" title="Ask the agent to add &quot;Fixes #${x.issue}&quot; to the description">Fix</button>`);
     if (x.id === "label") return `<li class="gs-info"><span class="gi" aria-hidden="true">${GATE_ICON.info}</span><b>Lifecycle label</b><span class="why">${esc(r.label || "none")}${r.outOfDate ? ` · <span class="tone-mute">out of date: ${esc(r.outOfDate)}</span>` : ""}</span><span></span></li>`;
     return row(x);
-  }).join("");
+  };
+  const extras = (r.extras || []).map(itemRow).join("");
   const approved = c.reviewDecision === "APPROVED";
   const next = c.queue ? `<span class="hint">In the merge queue at position ${c.queue.position}. Nothing to do unless it drops out.</span>`
     : r.ready
     ? (approved ? `<button class="primary" data-act="open" data-pr="${c.number}">Merge…</button>` : r.requestedHumans.length ? `<span class="hint">Review requested from ${esc(r.requestedHumans.join(", "))}</span>` : reviewerButtons(c))
-    : `<button class="primary" data-act="get-ready" data-pr="${c.number}" ${c.local?.pending ? "disabled" : ""} title="The agent runs pr-lifecycle in the PR's session until the core gates pass, fixing obvious findings, with Agent merge watching. It never merges.">Get it ready for review</button>`;
+    : keep ? `<span class="hint">${icon("eye", "sm")} Keeping it ready: the agent works through the gates, and the board requests a Copilot review and a pr-review rerun for each new commit.</span>`
+    : KEEP_BTN(c, "primary", "Get it ready & keep it ready");
   return `<section class="sec rd">
     <h3>${c.queue ? `In merge queue #${c.queue.position}` : r.ready ? (approved ? "Approved and ready to merge" : "Ready for human review") : "Ready for human review?"} ${readyMeter(c)} ${watchBadge(c)}</h3>
-    <ul class="gates">${r.gates.map((g) => row(g)).join("")}</ul>
+    <ul class="gates">${r.gates.map(itemRow).join("")}</ul>
     <div class="rd-also">Also, these don't block it</div>
     <ul class="gates extras">${extras}</ul>
-    <div class="btns">${next}${watchBtn}<button class="quiet" data-act="readiness-refresh" data-pr="${c.number}">${icon("refresh", "sm")}Recheck</button></div>
-    <div class="hint">For commit <code>${esc(String(r.head || "").slice(0, 7))}</code>, read from GitHub ${esc(ago(r.fetchedAt))}${ago(r.fetchedAt) === "just now" ? "" : " ago"}.</div>
+    <div class="btns">${next}${r.ready && !keep && !c.queue ? KEEP_BTN(c, "quiet", "Keep it ready") : ""}${stopBtn}<button class="quiet" data-act="readiness-refresh" data-pr="${c.number}">${icon("refresh", "sm")}Recheck</button></div>
+    <div class="hint">For commit <code>${esc(String(r.head || "").slice(0, 7))}</code>${r.reviewHead && r.reviewHead !== r.head ? ` (reviews count from <code>${esc(r.reviewHead.slice(0, 7))}</code>, the latest commit that isn't a merge of main)` : ""}, read from GitHub ${esc(ago(r.fetchedAt))}${ago(r.fetchedAt) === "just now" ? "" : " ago"}.</div>
   </section>`;
 }
 
@@ -1960,7 +1966,7 @@ function lifecycleBall(c, skipYou, running) {
   }
   if (label === "agent-blocked" && !skipYou) return { st: "blocked", ask: `Agent blocked: ${(l.next?.owner === "you" && l.next.action) || l.agent?.outcome || "it needs your help"}`, fix: true, since: l.agent?.updatedAt || c.updatedAt };
   // Blocking pr-review findings: the agent fixes them while it's preparing the PR; otherwise you decide.
-  const fx = (r?.extras || []).find((x) => x.id === "review" && x.state === "decide");
+  const fx = [...(r?.gates || []), ...(r?.extras || [])].find((x) => x.id === "review" && x.items?.length);
   if (fx) {
     const n = fx.items.length, s = n === 1 ? "" : "s";
     if (watched(c) || label === "agent-preparing" || running) return { st: "agent", idle: !running, ask: `Addressing ${n} pr-review finding${s}${meter}`, since: l.reviewSetAt || r.fetchedAt };
@@ -2427,7 +2433,7 @@ function renderFlyout() {
         ${flyMore ? `<div class="fly-menu" role="menu">
           ${isUnread(c) ? `<button role="menuitem" data-act="mark-read" data-pr="${c.number}" data-kind="${fly.kind}">Mark as read</button>` : ""}
           ${trackItem(c, isIssue)}
-          ${!isIssue && c.section === "yours" ? (watched(c) ? `<button role="menuitem" data-act="monitor" data-enable="0" data-pr="${c.number}">Stop watching (Agent merge off)</button>` : `<button role="menuitem" data-act="monitor" data-enable="1" data-pr="${c.number}" title="Agent merge addresses reviews, fixes CI and resolves conflicts as they come in. It never merges.">Watch with Agent merge</button>`) : ""}
+          ${!isIssue && c.section === "yours" ? (keepingReady(c) ? `<button role="menuitem" data-act="monitor" data-enable="0" data-pr="${c.number}">Stop keeping it ready</button>` : `<button role="menuitem" data-act="get-ready" data-pr="${c.number}">Get it ready &amp; keep it ready</button>`) : ""}
           <button role="menuitem" data-act="hide" data-pr="${c.number}" data-kind="${fly.kind}">Remove from board</button>
         </div>` : ""}
         <h2 id="flyTitle">${esc(c.title)}</h2>

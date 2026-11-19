@@ -278,71 +278,78 @@ you send it.
 
 Your PRs (you wrote them, or a session here works on them as the author) get a
 **Ready for human review?** checklist at the top of the flyout's Summary and the
-details Overview. It's read live from GitHub for the PR's current commit,
-following `.github/skills/pr-lifecycle`. Four **core gates** decide whether it's
-ready:
+details Overview, read live from GitHub and following `.github/skills/pr-lifecycle`.
+
+**Get it ready & keep it ready** is one switch. It asks the agent to run
+pr-lifecycle in the PR's session (or open one), including pr-review and fixing the
+obvious findings. Then it keeps the PR ready: Agent merge addresses new reviews,
+fixes CI and resolves conflicts, and for each new commit the board itself:
+
+- requests a Copilot review once (through GitHub's Copilot code review API). It
+  never does this for a PR that isn't being kept ready.
+- once the commit has been stable for 5 minutes, asks the agent once to rerun
+  pr-review on it.
+
+It never merges or approves. The PR's row and header show a purple **👁 Watching**
+badge while it's on. **Stop keeping it ready** is in the checklist and the **⋯**
+menu.
 
 ```text
-Ready for human review?  ●●○● 3/4 ready   Watching
-❌ Copilot review   1 unresolved Copilot comment                         Open ↗
+Ready for human review?  ●●●○○ 3/5 ready   Watching
+⏳ Copilot review   Requested by the board 1m ago (for 34bcf4e)
+⏳ pr-review        Not run on 34bcf4e yet
 ✅ Discussion       All 3 threads resolved or answered
-✅ Required CI      build-and-package passed on de87441                    Log ↗
-✅ Up to date       No conflicts · up to date with main
+✅ Required CI      build-and-package passed on daf3e2b                    Log ↗
+✅ Up to date       No conflicts · 2 behind main
 Also, these don't block it
-💡 pr-review        Not run on this commit yet  Recommended    [Run pr-review]
 ✅ Description      Links #1283
 🏷️ Lifecycle label  agent-preparing
-[Get it ready for review]  [Stop watching]  [Recheck]
+👁 Keeping it ready: …                [Stop keeping it ready]  [Recheck]
+For commit daf3e2b (reviews count from 34bcf4e, the latest commit that isn't a merge of main)
 ```
 
 | Core gate | Passes when |
 |-----------|-------------|
-| Copilot review | Copilot reviewed this commit and none of its comments are unresolved. A review of an older commit is ⏳ |
+| Copilot review | Copilot reviewed the latest commit that isn't a merge of main, and none of its comments are unresolved. It shows *Not requested*, *Requested 4m ago (for 0298fe1)*, *Reviewed 0298fe1: clean*, or *Reviewed an older commit* |
+| pr-review (only while keeping it ready) | pr-review ran on that commit, and every blocking finding has a fix or a decision |
 | Discussion | Every review thread is resolved or answered, and nobody asked something after the last update |
-| Required CI | Every required check from the branch rules passed on this commit. A missing check is ⏳, never a pass |
+| Required CI | Every required check from the branch rules passed on the PR's head. A missing check is ⏳, never a pass |
 | Up to date | No merge conflicts. "GitHub is still checking" is ⏳. Shows how far behind main it is |
+
+Reviews count for the latest commit that isn't only a merge of main, so pressing
+"Update branch" doesn't make Copilot or pr-review run again.
 
 The extras never block "ready":
 
-- **pr-review** is *Recommended* when it hasn't run on this commit, with **Run
-  pr-review**. If it found blocking issues (critical, high or medium, not a nit or
-  question) with no fix or decision, each one gets **Fix** (the session fixes it)
-  and **Not needed** (records that). The same buttons are on the Review tab.
+- **pr-review**, when the PR isn't being kept ready, is *Recommended* with **Run
+  pr-review**.
+- Blocking findings (critical, high or medium, not a nit or question) with no fix
+  or decision get **Fix** (the session fixes it) and **Not needed** (records that),
+  in the checklist and on the Review tab.
 - **Description** warns only when there's an issue the PR plausibly fixes but
-  doesn't link: an issue the board links to it, or an issue number in the body or
-  branch name. **Fix** asks the agent to add `Fixes #n`. If the body says there's
-  no issue, or nothing suggests one, it's fine.
+  doesn't link, with **Fix** to add `Fixes #n`.
 - **Lifecycle label** is for information, with a grey "out of date" note when it
   disagrees with the core gates. The board never changes labels.
 
-Rows show the core meter, `3/4 ready`, with ⚠ when an extra needs attention.
+Rows show the core meter (`3/5 ready` while keeping it ready, `3/4` otherwise),
+with ⚠ when an extra needs attention.
 
 Whose move it is:
 
 | Situation | Row says |
 |-----------|----------|
 | In the merge queue | *In merge queue #2* (waiting on the queue) |
-| Approved, 4/4 | *Approved: merge it* (your move, **Merge…**) |
-| Watched, and new feedback, failing CI or conflicts arrive | *New feedback: agent addressing it* (spinner) |
+| Approved, all core gates green | *Approved: merge it* (your move, **Merge…**) |
+| Kept ready, and new feedback, failing CI or conflicts arrive | *New feedback: agent addressing it* (spinner) |
 | Labeled `agent-blocked` | *Agent blocked: …* (your move) |
-| Blocking findings, and the agent is preparing or watching it | *Addressing N pr-review findings* (agent) |
+| Blocking findings, and the agent is preparing it or keeping it ready | *Addressing N pr-review findings* (agent) |
 | Blocking findings, and nobody is working on it | *Decide on N pr-review findings* (your move, **Decide…**) |
-| Not 4/4 yet, labeled `agent-preparing`, or a reviewer step is waiting | *Preparing it for review · 3/4 ready · Then: request a reviewer* (agent) |
-| 4/4, no reviewer requested | *Ready for human review: request a reviewer* (your move, **Request reviewer ▾**) |
+| Not all green yet, labeled `agent-preparing`, or a reviewer step is waiting | *Preparing it for review · 3/5 ready · Then: request a reviewer* (agent) |
+| All green, no reviewer requested | *Ready for human review: request a reviewer* (your move, **Request reviewer ▾**) |
 
-**Get it ready for review** asks the agent to run pr-lifecycle in the PR's
-session (or open one), including pr-review and fixing obvious findings, with Agent
-merge watching reviews, CI and conflicts. It never merges or approves. A real
-decision for you, such as a choice that isn't about reviewers, still shows as your
-move. A row never shows *Needs your decision* next to a spinner; if the agent is
-also working on it, the row says so in grey.
-
-**Watching.** A PR that Agent merge watches has a purple **👁 Watching** badge on
-its row and in its header. Hover it to see what it handles (new review comments,
-failing CI, merge conflicts), that it never merges, and when it last checked. When
-new feedback arrives on a watched PR, the row shows *New feedback: agent
-addressing it* with a spinner instead of asking you. Turn watching on or off from
-the checklist, or from the **⋯** menu.
+A real decision for you, such as a choice that isn't about reviewers, still shows
+as your move. A row never shows *Needs your decision* next to a spinner; if the
+agent is also working on it, the row says so in grey.
 
 ## Reviewing a branch before there's a PR
 
