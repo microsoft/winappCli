@@ -143,6 +143,19 @@ public class BuildToolsServiceResolverCoverageTests : BaseCommandTests
         Assert.IsNotNull(result);
         Assert.AreEqual(toolPath, result.FullName);
     }
+
+    [TestMethod]
+    public void GetBuildToolPath_ReadsCsprojPinWithoutRestoring()
+    {
+        // On SDK 10+ 'dotnet list package' restores unless told not to, which can block for minutes
+        // offline; resolving a build tool must only read the existing restore.
+        Directory.CreateDirectory(Path.Combine(BuildToolsPackageRoot(), "10.0.26100.1", "bin", "10.0.26100.0", "x64"));
+        File.WriteAllText(Path.Combine(_tempDirectory.FullName, "TestApp.csproj"), "<Project />");
+
+        _buildToolsService.GetBuildToolPath("makepri.exe");
+
+        Assert.IsTrue(_fakeDotNetService.LastGetPackageListNoRestore);
+    }
 }
 
 /// <summary>

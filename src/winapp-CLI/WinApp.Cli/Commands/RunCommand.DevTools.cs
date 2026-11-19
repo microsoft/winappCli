@@ -77,7 +77,7 @@ internal partial class RunCommand
 
     public partial class Handler
     {
-        private async Task<GuestSourceManifest> BindCoordinatePayloadAsync(
+        internal async Task<GuestSourceManifest> BindCoordinatePayloadAsync(
             GuestSourceManifest snapshot, string payloadRoot, CancellationToken cancellationToken)
         {
             if (snapshot.Coordinates is not { Count: > 0 } || snapshot.CoordinatesAdvisory ||
@@ -101,17 +101,17 @@ internal partial class RunCommand
                         context, token).ConfigureAwait(false);
                     return (0, "Compiled XAML resources matched on disk.");
                 }
+                // The app still launches without coordinates, so this isn't a failed step: the error travels in the
+                // returned manifest and the launch reports it once as a warning.
                 catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or System.Xml.XmlException)
                 {
                     error = $"Compiled XAML coordinates are unavailable: {ex.Message}";
-                    logger.LogWarning("{Message}", error);
-                    return (1, error);
+                    return (0, string.Empty);
                 }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested)
                 {
                     error = "Compiled XAML coordinates are unavailable: PRI validation exceeded 30 seconds.";
-                    logger.LogWarning("{Message}", error);
-                    return (1, error);
+                    return (0, string.Empty);
                 }
             }, cancellationToken).ConfigureAwait(false);
             return resources is null ? snapshot with { Coordinates = null, CoordinateError = error ?? "Compiled XAML resource validation did not complete." }

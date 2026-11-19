@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Models;
@@ -46,7 +47,12 @@ internal partial class RunCommand
             try
             {
                 var sources = await GuestSourceSnapshot.CreateAsync(run.Project, run.Sources, snapshot, cancellationToken, run.Compiler);
-                sources = await BindCoordinatePayloadAsync(sources, payload.FullName, cancellationToken);
+                var bound = await BindCoordinatePayloadAsync(sources, payload.FullName, cancellationToken);
+                if (bound.CoordinateError is { } coordinateError && coordinateError != sources.CoordinateError)
+                {
+                    logger.LogWarning("{Message}", coordinateError);
+                }
+                sources = bound;
                 LogSourceExclusions(sources.CoordinateExclusions);
                 sources = await GuestSourceSnapshot.DeployAsync(target, sources, snapshot, id, cancellationToken);
                 return new(id.ToString("N"), sources);
