@@ -1480,6 +1480,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
             Assert.AreEqual(1, code);
             var error = JsonDocument.Parse(TestAnsiConsole.Output).RootElement.GetProperty("Error").GetString()!;
             Assert.Contains($"DevTools requires WinUI 3; '{run.Output}' does not contain a WinUI 3 app", error);
+            Assert.Contains("Run with -p:WinAppRunDevTools=off", error);
             Assert.IsEmpty(_launcher.LaunchExecutableCalls);
             Assert.IsEmpty(_attach.Calls);
         }
