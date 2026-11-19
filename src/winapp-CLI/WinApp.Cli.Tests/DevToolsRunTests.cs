@@ -1455,21 +1455,34 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
-    [DataRow("wpf", "WPF")]
-    [DataRow("winforms", "Windows Forms")]
-    public async Task NuGetRun_ExplicitForWpfOrWinFormsWithWindowsAppSdkFiles_FailsBeforeLaunch(string framework, string name)
+    [DataRow("wpf", true)]
+    [DataRow("winforms", true)]
+    [DataRow("wpf", false)]
+    public async Task NuGetRun_ExplicitForWpfOrWinForms_DependsOnWinUIFiles(string framework, bool hasWinUIFiles)
     {
-        // A WPF or Windows Forms app that references the Windows App SDK ships Microsoft.WinUI.dll.
+        // A WPF or Windows Forms app can host WinUI content, so the label alone must not refuse DevTools.
         var run = NuGetWinUIRun();
+        if (!hasWinUIFiles)
+        {
+            File.Delete(Path.Combine(run.Output, "Microsoft.WinUI.dll"));
+        }
 
-        Assert.AreEqual(1, await DotnetRun(run.Output, framework, run.SourcesFile, "--devtools", "on", "--detach", "--json"));
-        var error = JsonDocument.Parse(TestAnsiConsole.Output).RootElement.GetProperty("Error").GetString()!;
-        Assert.Contains($"DevTools requires WinUI 3; '{run.Output}' is the output of a {name}-only project", error);
-        Assert.Contains("--devtools off", error);
-        Assert.IsEmpty(_environments);
-        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
-        Assert.IsEmpty(_launcher.LaunchCalls);
-        Assert.IsEmpty(_attach.Calls);
+        var code = await DotnetRun(run.Output, framework, run.SourcesFile, "--devtools", "on", "--detach", "--json");
+
+        if (hasWinUIFiles)
+        {
+            Assert.AreEqual(0, code, TestAnsiConsole.Output);
+            Assert.HasCount(1, _launcher.LaunchExecutableCalls);
+            Assert.HasCount(1, _attach.Calls);
+        }
+        else
+        {
+            Assert.AreEqual(1, code);
+            var error = JsonDocument.Parse(TestAnsiConsole.Output).RootElement.GetProperty("Error").GetString()!;
+            Assert.Contains($"DevTools requires WinUI 3; '{run.Output}' does not contain a WinUI 3 app", error);
+            Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+            Assert.IsEmpty(_attach.Calls);
+        }
     }
 
     [TestMethod]
