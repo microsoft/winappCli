@@ -295,7 +295,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
     if (m == L"VisualTree.enumerate") {
         std::wstring root = p.GetString(L"rootHandle", L"");
         unsigned long long rootWire = 0;
-        if (p.Find(L"rootHandle") && !DevToolsParseWireHandle(root, false, &rootWire))
+        if (!root.empty() && !DevToolsParseWireHandle(root, false, &rootWire))
             return DevToolsRpcError(id, DevToolsErr::InvalidParams,
                                L"rootHandle must be a canonical non-zero decimal string", L"bad-args");
         const DevToolsJson* authoredParam = p.Find(L"authored");

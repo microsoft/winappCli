@@ -1190,15 +1190,15 @@ static void CheckMalformedMutationHandles(const std::function<void(bool, const c
     const auto dispatchesBeforePipe = g_queryDispatches;
     checkMalformedRead(handle + L"|5");
     check(g_queryDispatches == dispatchesBeforePipe, "a handle containing '|' never dispatches a read");
-    for (const auto* present : {L"null", L"\"\""}) {
-        const auto response = HandleRpc(nullptr, DevToolsRpcParse(
-            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"VisualTree.enumerate\",\"params\":{\"rootHandle\":" +
-            std::wstring(present) + L"}}"));
-        DevToolsJson parsed;
-        check(DevToolsJsonParse(response, parsed) && parsed.Find(L"error") &&
-            parsed.Find(L"error")->GetInt(L"code", 0) == DevToolsErr::InvalidParams && !parsed.Find(L"result"),
-            "a present but empty rootHandle is rejected instead of enumerating the whole tree");
-    }
+    const auto enumerate = [](const std::wstring& params) {
+        return HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"VisualTree.enumerate\",\"params\":{" + params + L"}}"));
+    };
+    const auto wholeTree = enumerate(L"");
+    for (const auto* absent : {L"null", L"\"\""})
+        check(enumerate(L"\"rootHandle\":" + std::wstring(absent)) == wholeTree &&
+            wholeTree.find(L"canonical non-zero decimal") == std::wstring::npos,
+            "an empty or null rootHandle enumerates the whole tree, the same as omitting it");
     for (const auto* invalid : {L"0", L"null", L"true", L"[]"}) {
         for (const auto* method : {L"HotReload.setProperty", L"HotReload.clearProperty"}) {
             g_mutatedHandle = 0;
