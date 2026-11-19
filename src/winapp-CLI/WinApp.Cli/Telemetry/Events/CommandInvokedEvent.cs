@@ -120,8 +120,12 @@ internal class CommandInvokedEvent : EventBase
     {
         return !a.Errors.Any()
             ? GetValue(a.Argument.ValueType, a.Implicit, () => a.GetValueOrDefault<object?>())
-            : (a.Errors.Any(e => e.Message.StartsWith("Required argument missing for command:")) ? null : "[error]");
+            : (IsMissingRequiredArgument(a) ? null : "[error]");
     }
+
+    // Decided from the parse state, not the error text, which System.CommandLine 3 reworded.
+    private static bool IsMissingRequiredArgument(ArgumentResult a) =>
+        a.Tokens.Count == 0 && a.Argument.Arity.MinimumNumberOfValues > 0;
 
     private static string? GetValue(Type valueType, bool isImplicit, Func<object?> value)
     {
