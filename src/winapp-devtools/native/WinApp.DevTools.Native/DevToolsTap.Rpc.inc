@@ -294,6 +294,10 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         return HandleQuery(id, p, m == L"Property.setQuery");
     if (m == L"VisualTree.enumerate") {
         std::wstring root = p.GetString(L"rootHandle", L"");
+        unsigned long long rootWire = 0;
+        if (!root.empty() && !DevToolsParseWireHandle(root, false, &rootWire))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"rootHandle must be a canonical non-zero decimal string", L"bad-args");
         const DevToolsJson* authoredParam = p.Find(L"authored");
         if (authoredParam && authoredParam->type != DevToolsJsonType::Bool) {
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"authored must be a boolean", L"bad-args");
@@ -339,6 +343,13 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         return BridgeJson(id, L"visualtree.previews|" + list);
     }
 
+    if (m == L"Property.get" || m == L"Layout.get" || m == L"Source.get" || m == L"Resource.resolve") {
+        // Validate the whole handle before it is joined into a '|'-delimited bridge line.
+        unsigned long long wire = 0;
+        if (!DevToolsParseWireHandle(p.GetString(L"handle"), false, &wire))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"handle must be a canonical non-zero decimal string", L"bad-args");
+    }
     if (m == L"Property.get")      return BridgeJson(id, L"property.get|" + p.GetString(L"handle"));
     if (m == L"Layout.get")        return BridgeJson(id, L"layout.get|" + p.GetString(L"handle"));
     if (m == L"Source.get")        return BridgeJson(id, L"element.source|" + p.GetString(L"handle"));
