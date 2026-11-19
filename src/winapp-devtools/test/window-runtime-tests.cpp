@@ -1696,7 +1696,7 @@ int main()
         check(!SelectedElementComment(999, &found), "an element without a comment starts with an empty box");
         const auto savedSelection = g_selectedWire;
         const auto savedIndices = g_nodeIdxByWire;
-        const auto savedSinks = g_nodeSinks;
+        auto savedSinks = std::move(g_nodeSinks);
         auto* savedStatus = g_statusTb;
         g_statusTb = &testStatus;
         g_selectedWire = 246;
@@ -1713,7 +1713,7 @@ int main()
             "reselecting the already-selected live comment clears the previous unavailable-element error");
         g_selectedWire = savedSelection;
         g_nodeIdxByWire = savedIndices;
-        g_nodeSinks = savedSinks;
+        g_nodeSinks = std::move(savedSinks);
         g_statusTb = savedStatus;
         g_commentRows.clear();
         g_selectedCommentId.clear();
