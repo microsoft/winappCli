@@ -38,8 +38,8 @@ public partial class UiCommandTests
             using var document = JsonDocument.Parse(stderr[stderr.IndexOf('{')..]);
             var error = document.RootElement.GetProperty("error");
             var advice = error.GetProperty(verb == "yield" ? "recoveryHint" : "message").GetString()!;
-            StringAssert.Contains(advice, $"winapp ui {verb}");
-            StringAssert.Contains(advice, "--on test-provider:agent");
+            Assert.Contains($"winapp ui {verb}", advice);
+            Assert.Contains("--on test-provider:agent", advice);
         }
         finally
         {
@@ -79,8 +79,8 @@ public partial class UiCommandTests
                 Assert.AreEqual("InvalidOperationException", error.GetProperty("details").GetString());
                 message = error.GetProperty("message").GetString()!;
             }
-            StringAssert.Contains(message,
-                "winapp ui send-keys --verbatim \"<value>\" --target \"SearchBox\" --via send-input -a <app> --on test-provider:agent");
+            Assert.Contains("winapp ui send-keys --verbatim \"<value>\" --target \"SearchBox\" --via send-input -a <app> --on test-provider:agent",
+                message);
         }
         finally
         {

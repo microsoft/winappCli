@@ -191,17 +191,17 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
             ["run", app.Input, "--devtools", devToolsMode, "--detach", .. target, .. format, .. manifest, "--", "space value", "tail"]);
         Assert.AreEqual(0, exit, TestAnsiConsole.Output);
         Assert.AreEqual(0, _backend.Calls);
-        CollectionAssert.AreEqual(new List<string> { "environment", "launch", "attach" }, _order);
+        Assert.AreSequenceEqual(new List<string> { "environment", "launch", "attach" }, _order);
         Assert.AreEqual((app.Source, mode != "folder"), _environments.Single());
         Assert.AreEqual(LaunchStdioMode.Suppress, _launcher.LastLaunchStdioMode);
         Assert.AreEqual("1", _launcher.LastEnvironment!["ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO"]);
         Assert.IsNull(_launcher.LastEnvironment["WINAPP_WATCH_PID"]);
         Assert.IsFalse(_launcher.LastEnvironment.ContainsKey("DOTNET_MODIFIABLE_ASSEMBLIES"));
         var launch = _launcher.LaunchExecutableCalls.Single();
-        StringAssert.Contains(launch.Arguments!, "\"space value\"");
+        Assert.Contains("\"space value\"", launch.Arguments!);
         if (!packaged)
         {
-            StringAssert.StartsWith(launch.Arguments!, "--from-project ");
+            Assert.StartsWith("--from-project ", launch.Arguments!);
         }
         Assert.AreEqual(packaged ? app.Output : _tempDirectory.FullName, launch.WorkingDirectory);
         Assert.AreEqual(0, _launcher.LaunchCalls.Count);
@@ -227,8 +227,8 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         }
         else
         {
-            StringAssert.Contains(TestAnsiConsole.Output, "12345");
-            StringAssert.Contains(TestAnsiConsole.Output, "Next: winapp devtools inspect -a 12345");
+            Assert.Contains("12345", TestAnsiConsole.Output);
+            Assert.Contains("Next: winapp devtools inspect -a 12345", TestAnsiConsole.Output);
         }
     }
 
@@ -264,7 +264,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
             message = document.RootElement.GetProperty("Error").GetString()!;
             Assert.IsFalse(document.RootElement.TryGetProperty("ProcessId", out _));
         }
-        StringAssert.Contains(message, "does not support --with-alias, --debug-output or --unregister-on-exit");
+        Assert.Contains("does not support --with-alias, --debug-output or --unregister-on-exit", message);
     }
 
     private sealed class UnusedTargetBackend : IExecutionTargetBackend
@@ -324,10 +324,10 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
             using var document = JsonDocument.Parse(message);
             message = document.RootElement.GetProperty("Error").GetString()!;
         }
-        StringAssert.Contains(message, "DevTools attached to process 12345");
-        StringAssert.Contains(message, "AcrylicBackgroundFillColorDefaultBrush");
-        StringAssert.Contains(message, "winapp devtools inspect -a 12345");
-        StringAssert.Contains(message, "--devtools headless");
+        Assert.Contains("DevTools attached to process 12345", message);
+        Assert.Contains("AcrylicBackgroundFillColorDefaultBrush", message);
+        Assert.Contains("winapp devtools inspect -a 12345", message);
+        Assert.Contains("--devtools headless", message);
     }
     [TestMethod]
     public async Task Folder_ManagedRuntimeConfig_ArmsBindingHostWithoutInventingSourceRoot()
@@ -436,7 +436,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, _launcher.LaunchCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _attach.Calls.Count);
-        StringAssert.Contains(TestAnsiConsole.Output, "No existing instance was adopted");
+        Assert.Contains("No existing instance was adopted", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -450,7 +450,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, _attach.Calls.Count);
         Assert.IsTrue(_process.Disposed);
         Assert.IsFalse(_process.Killed);
-        StringAssert.Contains(TestAnsiConsole.Output, "Exit code: 0");
+        Assert.Contains("Exit code: 0", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -461,8 +461,8 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         GetRequiredService<RunCommand.Handler>().CloseRunningProcess = _ => false;
         Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach"));
         var output = TestAnsiConsole.Output + ConsoleStdErr + ConsoleStdOut;
-        StringAssert.Contains(output, "The app is already running (PID 4242)");
-        StringAssert.Contains(output, "close it, then run again");
+        Assert.Contains("The app is already running (PID 4242)", output);
+        Assert.Contains("close it, then run again", output);
         Assert.IsEmpty(_msix.AddLooseLayoutCalls);
         Assert.IsEmpty(_launcher.LaunchExecutableCalls);
     }
@@ -475,7 +475,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         GetRequiredService<RunCommand.Handler>().ProcessesRunningFrom = image =>
             image == _target.TargetExecutable ? [4242] : [];
         Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
-        StringAssert.Contains(TestAnsiConsole.Output, "already running (PID 4242)");
+        Assert.Contains("already running (PID 4242)", TestAnsiConsole.Output);
         Assert.IsFalse(TestAnsiConsole.Output.Contains("exited", StringComparison.Ordinal), TestAnsiConsole.Output);
         using var json = JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.AreEqual(4242u, json.RootElement.GetProperty("ProcessId").GetUInt32());
@@ -490,7 +490,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         handler.CloseRunningProcess = _ => true;
         handler.ProcessHasExited = pid => pid == 4242;
         Assert.AreEqual(0, await Run(app.Input, "--detach"), TestAnsiConsole.Output);
-        StringAssert.Contains(TestAnsiConsole.Output, "Closed the running instance (PID 4242)");
+        Assert.Contains("Closed the running instance (PID 4242)", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -501,7 +501,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         Assert.IsFalse(_process.Killed);
         Assert.IsTrue(_process.Disposed);
-        StringAssert.Contains(TestAnsiConsole.Output, "controlled attach failure");
+        Assert.Contains("controlled attach failure", TestAnsiConsole.Output);
         using var json = JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.AreEqual(12345u, json.RootElement.GetProperty("ProcessId").GetUInt32());
     }
@@ -540,7 +540,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         ResetOwnedProcess(12346);
         Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
-        CollectionAssert.AreEqual(new List<uint> { 12345, 12346 }, _attach.Calls.Select(c => c.Pid).ToList());
+        Assert.AreSequenceEqual(new List<uint> { 12345, 12346 }, _attach.Calls.Select(c => c.Pid).ToList());
         Assert.AreEqual(2, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchCalls.Count);
         Assert.IsTrue(first.Disposed);
@@ -571,7 +571,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchCalls.Count);
         Assert.AreEqual(0, _attach.Calls.Count);
-        StringAssert.Contains(TestAnsiConsole.Output, "controlled staging failure");
+        Assert.Contains("controlled staging failure", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -601,7 +601,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.IsEmpty(_launcher.LaunchCalls);
         Assert.IsEmpty(_attach.Calls);
         using var json = JsonDocument.Parse(TestAnsiConsole.Output);
-        StringAssert.Contains(json.RootElement.GetProperty("Error").GetString()!, "controlled staging failure");
+        Assert.Contains("controlled staging failure", json.RootElement.GetProperty("Error").GetString()!);
         Assert.IsFalse(json.RootElement.TryGetProperty("ProcessId", out _));
     }
 
@@ -617,7 +617,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(1, await Run(app.Input, ["--devtools", "on", "--detach", .. format]));
         Assert.IsEmpty(_launcher.LaunchExecutableCalls);
         Assert.IsEmpty(_attach.Calls);
-        StringAssert.Contains(TestAnsiConsole.Output + ConsoleStdErr, "controlled staging failure");
+        Assert.Contains("controlled staging failure", TestAnsiConsole.Output + ConsoleStdErr);
     }
 
     [TestMethod]
@@ -632,7 +632,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
         Assert.IsEmpty(_attach.Calls);
         Assert.AreEqual(1, _launcher.LaunchCalls.Count + _launcher.LaunchExecutableCalls.Count);
-        StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "controlled staging failure");
+        Assert.Contains("controlled staging failure", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!);
     }
 
     [TestMethod]
@@ -653,12 +653,12 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         };
 
         Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
-        CollectionAssert.AreEqual(new List<int> { 4242 }, closed);
+        Assert.AreSequenceEqual(new List<int> { 4242 }, closed);
         Assert.HasCount(1, _msix.AddLooseLayoutCalls);
         Assert.HasCount(1, _launcher.LaunchCalls);
         Assert.IsEmpty(_launcher.LaunchExecutableCalls);
         Assert.IsEmpty(_attach.Calls);
-        StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "controlled staging failure");
+        Assert.Contains("controlled staging failure", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!);
     }
 
     [TestMethod]
@@ -701,7 +701,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.IsFalse(probed.Contains(previousLayout.FullName));
         using var json = JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.IsFalse(json.RootElement.TryGetProperty("Error", out _));
-        StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "controlled staging failure");
+        Assert.Contains("controlled staging failure", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!);
     }
 
     [TestMethod]
@@ -745,7 +745,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
             Assert.AreEqual(preparationFails ? 0 : 1, _launcher.LaunchCalls.Count + _launcher.LaunchExecutableCalls.Count);
             if (preparationFails)
             {
-                StringAssert.Contains(TestAnsiConsole.Output, "controlled staging failure");
+                Assert.Contains("controlled staging failure", TestAnsiConsole.Output);
             }
         }
         finally
@@ -777,9 +777,9 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
 
         Assert.AreEqual(1, await Run(app.Input, ["--devtools", mode, "--detach", .. format]));
         var output = TestAnsiConsole.Output + ConsoleStdErr;
-        StringAssert.Contains(output, "DevTools requires WinUI 3");
-        StringAssert.Contains(output, "WPF-only");
-        StringAssert.Contains(output, "--devtools off");
+        Assert.Contains("DevTools requires WinUI 3", output);
+        Assert.Contains("WPF-only", output);
+        Assert.Contains("--devtools off", output);
         Assert.IsEmpty(_environments);
         Assert.IsEmpty(closed);
         Assert.IsEmpty(_msix.AddLooseLayoutCalls);
@@ -1075,7 +1075,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         _launcher.FakePackageFullName = null;
         var trace = Path.Join(app.Output, "trace");
         Assert.AreEqual(1, await Run(app.Input, "--profile", trace, "--profile-mode", "elevated", "--detach", "--json"));
-        StringAssert.Contains(TestAnsiConsole.Output, "--profile-mode attach");
+        Assert.Contains("--profile-mode attach", TestAnsiConsole.Output);
         Assert.IsFalse(Directory.Exists(trace));
         Assert.IsEmpty(_attach.Calls);
         Assert.IsEmpty(_environments);
@@ -1095,7 +1095,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         var message = json
             ? JsonDocument.Parse(TestAnsiConsole.Output).RootElement.GetProperty("Error").GetString()!
             : ConsoleStdErr.ToString() + TestAnsiConsole.Output;
-        StringAssert.Contains(message, "--profile measures the app without DevTools; remove --devtools or --profile.");
+        Assert.Contains("--profile measures the app without DevTools; remove --devtools or --profile.", message);
     }
 
     [TestMethod]
@@ -1138,7 +1138,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         using var document = JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.IsFalse(document.RootElement.TryGetProperty("Error", out _), TestAnsiConsole.Output);
         Assert.AreEqual(12345u, document.RootElement.GetProperty("ProcessId").GetUInt32());
-        StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "The agent did not answer.");
+        Assert.Contains("The agent did not answer.", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!);
         AssertTelemetry(DevToolsMode.On, DevToolsModeSource.Default, DevToolsOutcome.FellBack);
     }
 
@@ -1152,8 +1152,8 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, exit, TestAnsiConsole.Output);
         var output = System.Text.RegularExpressions.Regex.Replace($"{ambient}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
         Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(output, "DevTools unavailable"), output);
-        StringAssert.Contains(output,
-            "DevTools unavailable: Could not locate the target's Windows App Runtime: missing · the app runs without DevTools");
+        Assert.Contains("DevTools unavailable: Could not locate the target's Windows App Runtime: missing · the app runs without DevTools",
+            output);
         Assert.DoesNotContain("attach --pid", output);
     }
 
@@ -1206,7 +1206,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.HasCount(1, _launcher.LaunchCalls, "launched by AUMID, as a plain run");
         using var document = JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.IsFalse(document.RootElement.TryGetProperty("Error", out _), TestAnsiConsole.Output);
-        StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "aliases are turned off");
+        Assert.Contains("aliases are turned off", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!);
         AssertTelemetry(DevToolsMode.On, DevToolsModeSource.Default, DevToolsOutcome.FellBack);
     }
 
@@ -1221,7 +1221,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, await Run(app.Input, "--detach"), TestAnsiConsole.Output);
         Assert.AreEqual(4242, closed.Single());
         Assert.HasCount(1, _attach.Calls);
-        StringAssert.Contains(TestAnsiConsole.Output, "Closed 1 running instance(s) of this app (PID 4242) so DevTools starts cold.");
+        Assert.Contains("Closed 1 running instance(s) of this app (PID 4242) so DevTools starts cold.", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1234,7 +1234,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
         Assert.IsEmpty(_attach.Calls);
         Assert.HasCount(1, _launcher.LaunchCalls);
-        StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "4242");
+        Assert.Contains("4242", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!);
     }
 
     [TestMethod]
@@ -1251,9 +1251,9 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, await Run(app.Input, "--devtools", mode, "--detach"), TestAnsiConsole.Output);
         Assert.AreEqual(4242, closed.Single());
         Assert.HasCount(1, _attach.Calls);
-        CollectionAssert.AreEqual(new List<string> { "environment", "close", "launch", "attach" }, _order);
+        Assert.AreSequenceEqual(new List<string> { "environment", "close", "launch", "attach" }, _order);
         Assert.HasCount(1, _environments, "Launch must reuse the prepared engine environment.");
-        StringAssert.Contains(TestAnsiConsole.Output, "Closed 1 running instance(s) of this app (PID 4242) so DevTools starts cold.");
+        Assert.Contains("Closed 1 running instance(s) of this app (PID 4242) so DevTools starts cold.", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1268,7 +1268,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, await Run(app.Input, "--devtools", "off", "--detach"), TestAnsiConsole.Output);
         Assert.AreEqual(4242, closed.Single());
         Assert.IsEmpty(_attach.Calls);
-        StringAssert.Contains(TestAnsiConsole.Output, "Closed the running instance (PID 4242)");
+        Assert.Contains("Closed the running instance (PID 4242)", TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -1280,7 +1280,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         handler.CloseRunningProcess = _ => false;
         Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"), TestAnsiConsole.Output);
         Assert.IsEmpty(_attach.Calls);
-        StringAssert.Contains(TestAnsiConsole.Output, "already running (PID 4242) and could not be closed");
+        Assert.Contains("already running (PID 4242) and could not be closed", TestAnsiConsole.Output);
     }
 
     // A running instance is asked to close normally, so it can save its work, and is terminated only if it doesn't.
@@ -1304,7 +1304,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     {
         var parsed = GetRequiredService<WinAppRootCommand>().Parse(["run", ".", "--devtools", "headless"], WinAppParserConfiguration.Default);
         var context = new WinApp.Cli.Telemetry.Events.CommandInvokedEvent(parsed.CommandResult, DateTime.UnixEpoch).Context;
-        StringAssert.Contains(context, "Headless");
+        Assert.Contains("Headless", context);
         Assert.IsFalse(context.Contains("[string]", StringComparison.Ordinal), context);
     }
 

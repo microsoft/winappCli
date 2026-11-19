@@ -39,8 +39,8 @@ public class ProgramJsonBridgeTests : BaseCommandTests
             var (stdout, stderr, exitCode) = await InvokeProgramAsync(arguments);
 
             Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
-            StringAssert.Contains(stdout + stderr, SandboxExpectation.EnvironmentVariable);
-            StringAssert.Contains(stdout + stderr, "provider GUID");
+            Assert.Contains(SandboxExpectation.EnvironmentVariable, stdout + stderr);
+            Assert.Contains("provider GUID", stdout + stderr);
         }
         finally
         {
@@ -146,11 +146,11 @@ public class ProgramJsonBridgeTests : BaseCommandTests
              "--expect-sandbox", "11111111-2222-4333-8444-555555555555", "--json"]);
 
         Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode, "An explicit expectation must not become a host deletion.");
-        CollectionAssert.AreEqual(original, File.ReadAllBytes(storePath));
+        Assert.AreSequenceEqual(original, File.ReadAllBytes(storePath));
         Assert.AreEqual(string.Empty, stderr);
         using var document = JsonDocument.Parse(stdout);
         Assert.IsFalse(document.RootElement.GetProperty("ok").GetBoolean());
-        StringAssert.Contains(document.RootElement.GetProperty("error").GetString()!, "--expect-sandbox");
+        Assert.Contains("--expect-sandbox", document.RootElement.GetProperty("error").GetString()!);
     }
 
     [TestMethod]
@@ -171,7 +171,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
         else
         {
             Assert.AreEqual(string.Empty, stdout.Trim());
-            StringAssert.Contains(stderr, "--devtools needs a value: on, off or headless");
+            Assert.Contains("--devtools needs a value: on, off or headless", stderr);
         }
     }
 
@@ -180,7 +180,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
     {
         var (stdout, _, exitCode) = await InvokeProgramAsync(["run", _tempDirectory.FullName, "--json", "--devtools", "yes"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(stdout, "not 'yes'", "relaxed escaping keeps ' instead of \\u0027");
+        Assert.Contains("not 'yes'", stdout, "relaxed escaping keeps ' instead of \\u0027");
     }
 
     [TestMethod]
@@ -189,7 +189,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(["run", _tempDirectory.FullName, "--devtools", "yes"]);
         Assert.AreEqual(1, exitCode);
         Assert.DoesNotContain("Usage:", stdout + stderr);
-        StringAssert.Contains(stderr, "--devtools must be on, off or headless, not 'yes'");
+        Assert.Contains("--devtools must be on, off or headless, not 'yes'", stderr);
     }
     [TestMethod]
     public async Task Pen_PressureInfinity_Rejected_NoInjection()
@@ -391,7 +391,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
         var error = JsonSerializer.Deserialize<JsonElement>(stdout.AsSpan(jsonStart).TrimEnd());
         var message = error.GetProperty("error").GetString();
         Assert.IsFalse(string.IsNullOrWhiteSpace(message), "the JSON error payload must carry a message");
-        StringAssert.Contains(message, "--max", "the error should name the offending option");
+        Assert.Contains("--max", message, "the error should name the offending option");
 
         // The human help text (description/usage) must NOT leak onto stdout.
         Assert.IsFalse(stdout.Contains("Usage:", StringComparison.Ordinal),
@@ -1173,7 +1173,7 @@ public class ProgramJsonBridgeTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(string.Empty, stdout.Trim());
         Assert.IsFalse(stderr.Contains("Usage:", StringComparison.Ordinal), $"Help is not JSON; got: {stderr}");
-        StringAssert.Contains(stderr, ExecutionTargetErrorCodes.TargetInvalidArguments);
+        Assert.Contains(ExecutionTargetErrorCodes.TargetInvalidArguments, stderr);
     }
 
     [TestMethod]

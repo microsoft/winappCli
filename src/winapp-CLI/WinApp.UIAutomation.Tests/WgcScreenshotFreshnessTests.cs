@@ -95,9 +95,12 @@ public class WgcScreenshotFreshnessTests
         WgcCapture.s_startScreenshotGrabber = (_, _, _) => grabber;
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
 
-        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() =>
+        // Cancellation can surface from the frame delay (TaskCanceledException) or the loop's
+        // token check (OperationCanceledException), depending on timing.
+        var error = await Assert.ThrowsAsync<OperationCanceledException>(() =>
             WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, cancellation.Token));
 
+        Assert.AreEqual(cancellation.Token, error.CancellationToken);
         Assert.IsTrue(grabber.Disposed);
     }
 

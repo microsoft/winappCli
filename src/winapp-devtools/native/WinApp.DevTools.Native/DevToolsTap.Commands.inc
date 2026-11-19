@@ -495,8 +495,8 @@ static std::wstring HandleCommand(const std::wstring& line,
         // hotreload.clearprop|<target>|<prop> -> ClearProperty on the app UI thread, the same primitive the
         // in-process window's Clear value button uses. Addressing is identical to hotreload.setprop.
         auto p = Split(line, L'|');
-        if (p.size() < 3) return L"ERR bad-args";
-        // A property name cannot contain '|', so unlike the write there is no tail to rejoin here.
+        // A property name cannot contain '|', so unlike the write there is no tail; extra fields are malformed.
+        if (p.size() != 3) return L"ERR bad-args";
         std::wstring prop;
         if (!TryUnescapeField(p[2], prop) || prop.empty()) return L"ERR bad-args";
         return MutatePropertyTarget(p[1], [prop](InstanceHandle h) { return ClearPropertyByPath(h, prop); });
@@ -572,6 +572,10 @@ static std::wstring HandleCommand(const std::wstring& line,
         return CmdResourceResolve(Split(line, L'|'));
     }
     return L"ERR unknown";
+}
+
+static bool HasBridgeDelimiter(const std::wstring& s) {
+    return s.find(L'|') != std::wstring::npos;
 }
 
 static std::wstring BridgeEscape(const std::wstring& s) {

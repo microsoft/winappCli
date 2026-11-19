@@ -140,9 +140,9 @@ public class PublicApiSurfaceTests
             var docIds = anchor.Assembly.GetExportedTypes().Select(t => t.FullName!.Replace('+', '.'));
             foreach (var docId in docIds)
             {
-                StringAssert.Contains(
-                    documented,
+                Assert.Contains(
                     $"\"T:{docId}\"",
+                    documented,
                     $"{docId} is public but has no entry in the shipped documentation file.");
             }
         }

@@ -564,6 +564,13 @@ With `--on sandbox`, `--output` names the host destination. Successful plain out
 
 The default capture path uses **Windows.Graphics.Capture (WGC)**, reading the actual DWM-composited surface — preserving rounded corners, transparency, and working even while the window is occluded by other windows. If WGC is unavailable (older Windows builds) the CLI falls back to **PrintWindow**.
 
+If a captured window or element is entirely black, winapp writes a warning to stderr,
+including with `--json` or `--quiet`. The PNG is still saved and the exit code remains 0:
+a genuinely black window can produce the same result. If the window has visible content,
+retry with the suggested `winapp ui screenshot -w <hwnd> --capture-screen` command.
+This activates the window and can include overlapping windows. No automatic switch to
+screen capture occurs. Partly black images do not trigger this warning.
+
 Use `--capture-screen -w <hwnd>` when you need visible popups or tooltips in their on-screen positions, including overlays that aren't owned by the target window. It reads that window's screen region rather than composing labeled panels, and brings the window to the foreground first. With `-a`, it requires exactly one matching window; if several top-level or owned windows match, use `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. Use `--focus` if you just want to foreground the window without switching capture modes (e.g., to ensure the screenshot matches what the user is currently looking at).
 
 > Because the screen DC captures whatever is actually in front, `--capture-screen` **verifies the target reached the foreground immediately before capturing** and fails with **`foreground_not_target`** if it didn't (focus-stealing prevention, a UAC prompt, or another window activating itself). No image is written in that case — previously the command exited 0 and handed back a picture of the wrong window. `ui record --capture-screen` applies the same check before the first frame.

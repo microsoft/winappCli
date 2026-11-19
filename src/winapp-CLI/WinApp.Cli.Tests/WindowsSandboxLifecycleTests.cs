@@ -268,7 +268,7 @@ public class WindowsSandboxLifecycleTests
         Assert.AreEqual(SandboxInstanceOrigin.Created, lease.Origin);
         Assert.IsFalse(lease.IsWarm);
         Assert.IsFalse(lease.Epoch.IsNone);
-        CollectionAssert.AreEqual(new[] { WindowsSandboxLifecycle.StartingMessage }, _progress.Messages);
+        Assert.AreSequenceEqual(new[] { WindowsSandboxLifecycle.StartingMessage }, _progress.Messages);
 
         var persisted = _stateStore.Read(WindowsSandboxTarget.Default);
         Assert.AreEqual("sandbox-a", persisted!.InstanceId);
@@ -327,7 +327,7 @@ public class WindowsSandboxLifecycleTests
         Assert.AreEqual("someone-elses-sandbox", lease.InstanceId);
         Assert.AreEqual(SandboxInstanceOrigin.Adopted, lease.Origin);
         Assert.IsNull(lease.Client);
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             new[] { WindowsSandboxLifecycle.StartingMessage, WindowsSandboxLifecycle.AdoptingMessage },
             _progress.Messages);
 
@@ -444,7 +444,7 @@ public class WindowsSandboxLifecycleTests
         Assert.IsTrue(lease.IsAdopted);
         Assert.IsFalse(lease.IsWarm, "An adopted guest has nothing prepared under this epoch.");
         Assert.AreEqual(0, _cli.LaunchCount, "A running Sandbox must be used, not joined by another.");
-        CollectionAssert.AreEqual(Array.Empty<string>(), _cli.Stopped, "An adopted Sandbox is never stopped.");
+        Assert.AreSequenceEqual(Array.Empty<string>(), _cli.Stopped, "An adopted Sandbox is never stopped.");
     }
 
     [TestMethod]
@@ -475,7 +475,7 @@ public class WindowsSandboxLifecycleTests
         Assert.AreEqual(ExecutionTargetErrorCodes.UnmanagedInstance, failure.Error.Code);
         Assert.AreEqual("half-dead-sandbox", failure.Error.Context!["sandboxId"]);
         Assert.IsTrue(failure.Error.NextCommand!.Advisory, "Stopping an unowned Sandbox must be advisory.");
-        CollectionAssert.AreEqual(Array.Empty<string>(), _cli.Stopped);
+        Assert.AreSequenceEqual(Array.Empty<string>(), _cli.Stopped);
         Assert.IsNull(
             _stateStore.Read(WindowsSandboxTarget.Default)?.InstanceId,
             "An unusable instance must not be recorded as owned.");
@@ -520,7 +520,7 @@ public class WindowsSandboxLifecycleTests
         Assert.AreEqual(ExecutionTargetErrorCodes.UnmanagedInstance, failure.Error.Code);
         Assert.AreEqual("2", failure.Error.Context!["count"]);
         Assert.AreEqual(0, _cli.LaunchCount);
-        CollectionAssert.AreEqual(Array.Empty<string>(), _cli.Stopped);
+        Assert.AreSequenceEqual(Array.Empty<string>(), _cli.Stopped);
     }
 
     [TestMethod]
@@ -572,7 +572,7 @@ public class WindowsSandboxLifecycleTests
         var reused = await _lifecycle.EnsureInstanceAsync(OpenSandbox, TestContext.CancellationTokenSource.Token);
 
         Assert.AreEqual(SandboxInstanceOrigin.Reused, reused.Origin);
-        CollectionAssert.AreEqual(Array.Empty<string>(), _cli.Stopped);
+        Assert.AreSequenceEqual(Array.Empty<string>(), _cli.Stopped);
     }
 
     [TestMethod]
@@ -607,7 +607,7 @@ public class WindowsSandboxLifecycleTests
         await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => lifecycle.EnsureInstanceAsync(OpenSandbox, TestContext.CancellationTokenSource.Token));
 
-        CollectionAssert.AreEqual(Array.Empty<string>(), _cli.Stopped, "A live Sandbox must never be stopped.");
+        Assert.AreSequenceEqual(Array.Empty<string>(), _cli.Stopped, "A live Sandbox must never be stopped.");
 
         var lease = await NewLifecycle().EnsureInstanceAsync(OpenSandbox, TestContext.CancellationTokenSource.Token);
 
@@ -645,7 +645,7 @@ public class WindowsSandboxLifecycleTests
                 owned.Epoch,
                 adopted.Epoch,
                 "A separate manager must get its own epoch, so neither reuses the other's material or paths.");
-            CollectionAssert.AreEqual(
+            Assert.AreSequenceEqual(
                 Array.Empty<string>(),
                 _cli.Stopped,
                 "The other manager's live Sandbox must not be stopped.");

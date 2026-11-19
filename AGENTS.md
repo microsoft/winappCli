@@ -223,7 +223,7 @@ guide, and its TypeScript examples are checked against the public API by npm tes
 
 To measure which plugin skills Copilot CLI loads (and the tokens it uses) for realistic prompts, run the local agent benchmark: `pwsh benchmarks\agents\run.ps1 -Plan`. See [`benchmarks/agents/README.md`](benchmarks/agents/README.md).
 
-To measure whether the plugins help Copilot build complete, working WinUI apps (build, launch, requirements, quality checks, design), run the app benchmark: `cd benchmarks\apps; npm ci; npm run bench -- --scenario calc --agent "none,cli-only,cli-plus-plugins" --dry-run`. Trials cost real AI credits and take minutes each. See [`benchmarks/apps/README.md`](benchmarks/apps/README.md).
+To measure whether the plugins help Copilot build complete, working WinUI apps (build, launch, requirements, quality checks, design), run the app benchmark: `cd benchmarks\apps; npm ci; npm run bench -- --scenario calc --agent "barebones,cli-only,cli-plus-skills" --dry-run`. Trials cost real AI credits and take minutes each. See [`benchmarks/apps/README.md`](benchmarks/apps/README.md).
 
 ### Running tests on a Microsoft corporate machine
 
@@ -391,7 +391,7 @@ Each sample under `samples/` has a self-contained **Pester 5.x** test file (`tes
 `Build and Package` builds both CLI architectures and all packages together
 with `-SkipTests -SkipDocs`. Keep full git history in `build-artifacts` so the
 build number is calculated correctly. It uploads packages, then starts the full
-test suite, documentation validation, UI E2E, and (on PRs) sample tests as
+test suite, documentation validation, UI E2E, and (on PRs and merge queue runs) sample tests as
 independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it must
 not republish or delete the downloaded CLI and NuGet packages.
 CI runs `-TestSuite Cli -CliShard 1`, `-TestSuite Cli -CliShard 2`,

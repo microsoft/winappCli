@@ -51,7 +51,7 @@ public class FrameworkUdkSecurityTests
         var loaded = false;
         var error = Assert.ThrowsExactly<IOException>(() => XamlDiagnosticsInjector.WithAuthenticatedUdk(source,
             (_, _) => { loaded = true; return 0; }));
-        StringAssert.Contains(error.Message, "signature");
+        Assert.Contains("signature", error.Message);
         Assert.IsFalse(loaded);
     }
 
@@ -61,7 +61,7 @@ public class FrameworkUdkSecurityTests
         var error = Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(source, root,
             _ => false, _ => throw new AssertFailedException("Metadata accessed before trust"),
             _ => throw new AssertFailedException("Architecture accessed before trust")));
-        StringAssert.Contains(error.Message, "signature");
+        Assert.Contains("signature", error.Message);
         Assert.AreEqual(0, Directory.GetDirectories(root).Length);
     }
 
@@ -70,7 +70,7 @@ public class FrameworkUdkSecurityTests
     {
         var error = Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(source, root,
             _ => true, _ => "another.dll", _ => throw new AssertFailedException("Wrong product")));
-        StringAssert.Contains(error.Message, "not the Windows App Runtime");
+        Assert.Contains("not the Windows App Runtime", error.Message);
     }
 
     [TestMethod]
@@ -78,7 +78,7 @@ public class FrameworkUdkSecurityTests
     {
         var error = Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(source, root,
             _ => true, _ => FrameworkUdkSnapshot.FileName, _ => "x86"));
-        StringAssert.Contains(error.Message, "architecture");
+        Assert.Contains("architecture", error.Message);
     }
 
     [TestMethod]
@@ -227,7 +227,7 @@ public class FrameworkUdkSecurityTests
                 [XamlDiagnosticsInjector.InternalVerb, "123", "agent.dll", source,
                     "private-token-not-for-output" + new string('x', 260)]));
             Assert.AreEqual(string.Empty, output.ToString());
-            StringAssert.Contains(error.ToString(), "259 UTF-16");
+            Assert.Contains("259 UTF-16", error.ToString());
             Assert.DoesNotContain("private-token", error.ToString());
         }
         finally
@@ -315,7 +315,7 @@ public class FrameworkUdkSecurityTests
                 [XamlDiagnosticsInjector.InternalVerb, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     @"C:\Windows\System32\version.dll", source, "{}"]));
             Assert.AreEqual(string.Empty, output.ToString());
-            StringAssert.Contains(error.ToString(), "only loads the DevTools engine");
+            Assert.Contains("only loads the DevTools engine", error.ToString());
         }
         finally
         {
@@ -343,7 +343,7 @@ public class FrameworkUdkSecurityTests
         Assert.IsFalse(info.UseShellExecute);
         Assert.IsTrue(info.CreateNoWindow);
         Assert.AreEqual(Environment.SystemDirectory, info.WorkingDirectory);
-        CollectionAssert.AreEqual(new[] { XamlDiagnosticsInjector.InternalVerb, "123",
+        Assert.AreSequenceEqual(new[] { XamlDiagnosticsInjector.InternalVerb, "123",
             @"C:\agent folder\agent.dll", source, """{"quoted":"a b"}""" }, info.ArgumentList.ToArray());
     }
 
@@ -359,19 +359,19 @@ public class FrameworkUdkSecurityTests
         using (var installed = FrameworkUdkSnapshot.Create(runtime))
         {
             Assert.AreNotEqual(runtime, installed.Path);
-            CollectionAssert.AreEqual(File.ReadAllBytes(runtime), File.ReadAllBytes(installed.Path));
+            Assert.AreSequenceEqual(File.ReadAllBytes(runtime), File.ReadAllBytes(installed.Path));
         }
         File.Copy(runtime, source, overwrite: true);
         File.WriteAllText(Path.Combine(root, "profapi.dll"), "untrusted sibling must not be copied or loaded");
         using var selfContained = FrameworkUdkSnapshot.Create(source);
-        CollectionAssert.AreEqual(new[] { FrameworkUdkSnapshot.FileName },
+        Assert.AreSequenceEqual(new[] { FrameworkUdkSnapshot.FileName },
             Directory.GetFiles(Path.GetDirectoryName(selfContained.Path)!).Select(Path.GetFileName).ToArray());
         Assert.AreEqual(17, XamlDiagnosticsInjector.WithAuthenticatedUdk(source, (path, flags) =>
         {
             Assert.AreNotEqual(source, path);
             Assert.AreEqual(0x800u, flags, "No DLL_LOAD_DIR, application, user or current-directory search.");
             Assert.ThrowsExactly<IOException>(() => File.WriteAllText(path, "tamper"));
-            CollectionAssert.AreEqual(new[] { FrameworkUdkSnapshot.FileName },
+            Assert.AreSequenceEqual(new[] { FrameworkUdkSnapshot.FileName },
                 Directory.GetFiles(Path.GetDirectoryName(path)!).Select(Path.GetFileName).ToArray());
             return 17;
         }));
@@ -383,7 +383,7 @@ public class FrameworkUdkSecurityTests
         var directory = Directory.CreateDirectory(Path.Combine(root, "Microsoft.WindowsAppRuntime.attacker")).FullName;
         var path = Path.Combine(directory, FrameworkUdkSnapshot.FileName);
         File.Copy(source, path);
-        StringAssert.Contains(Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(path)).Message, "signature");
+        Assert.Contains("signature", Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(path)).Message);
     }
 
     [TestMethod]
@@ -400,14 +400,14 @@ public class FrameworkUdkSecurityTests
         Assert.AreEqual(embedded, AuthenticodeVerifier.IsTrustedMicrosoftSigned(runtime, NullLogger.Instance));
         using (var snapshot = FrameworkUdkSnapshot.Create(runtime))
         {
-            CollectionAssert.AreEqual(File.ReadAllBytes(runtime), File.ReadAllBytes(snapshot.Path));
+            Assert.AreSequenceEqual(File.ReadAllBytes(runtime), File.ReadAllBytes(snapshot.Path));
             Assert.ThrowsExactly<IOException>(() => File.WriteAllText(snapshot.Path, "tamper"));
         }
         var bytes = File.ReadAllBytes(runtime);
         Assert.IsGreaterThan(4096, bytes.Length);
         bytes[4096] ^= 0x5a;
         File.WriteAllBytes(source, bytes);
-        StringAssert.Contains(Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(source)).Message, "signature");
+        Assert.Contains("signature", Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(source)).Message);
         Assert.AreEqual(0, Directory.GetDirectories(root).Length);
     }
 
@@ -416,8 +416,8 @@ public class FrameworkUdkSecurityTests
     {
         File.Copy(Path.Combine(Environment.SystemDirectory, "kernel32.dll"), source, overwrite: true);
         Assert.IsTrue(AuthenticodeVerifier.IsTrustedMicrosoftSignedFileOrCatalog(source, NullLogger.Instance));
-        StringAssert.Contains(Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(source)).Message,
-            "not the Windows App Runtime");
+        Assert.Contains("not the Windows App Runtime",
+            Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(source)).Message);
     }
 
     [TestMethod]
@@ -432,7 +432,7 @@ public class FrameworkUdkSecurityTests
         Assert.AreNotEqual(RuntimeInformation.ProcessArchitecture.ToString(),
             PeHelper.DetectPeArchitecture(runtime), ignoreCase: true);
         Assert.IsTrue(AuthenticodeVerifier.IsTrustedMicrosoftSignedFileOrCatalog(runtime, NullLogger.Instance));
-        StringAssert.Contains(Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(runtime)).Message, "architecture");
+        Assert.Contains("architecture", Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.Create(runtime)).Message);
     }
 
     [TestMethod]
@@ -449,8 +449,8 @@ public class FrameworkUdkSecurityTests
         {
             Assert.IsNotNull(hint);
             var called = false;
-            StringAssert.Contains(Assert.ThrowsExactly<IOException>(() =>
-                XamlDiagnosticsInjector.WithAuthenticatedUdk(hint, (_, _) => { called = true; return 0; })).Message, "signature");
+            Assert.Contains("signature", Assert.ThrowsExactly<IOException>(() =>
+                XamlDiagnosticsInjector.WithAuthenticatedUdk(hint, (_, _) => { called = true; return 0; })).Message);
             Assert.IsFalse(called);
         }
     }
@@ -473,9 +473,8 @@ public class FrameworkUdkSecurityTests
             using var process = System.Diagnostics.Process.GetCurrentProcess();
             Environment.SetEnvironmentVariable(FrameworkUdkLocator.OverrideEnvironmentVariable, source);
             Assert.AreEqual(source, FrameworkUdkLocator.Resolve(process));
-            StringAssert.Contains(Assert.ThrowsExactly<IOException>(() =>
-                XamlDiagnosticsInjector.WithAuthenticatedUdk(source, (_, _) => throw new AssertFailedException("Loaded override"))).Message,
-                "signature");
+            Assert.Contains("signature", Assert.ThrowsExactly<IOException>(() =>
+                XamlDiagnosticsInjector.WithAuthenticatedUdk(source, (_, _) => throw new AssertFailedException("Loaded override"))).Message);
             Environment.SetEnvironmentVariable(FrameworkUdkLocator.OverrideEnvironmentVariable, @"\\attacker\share\Microsoft.Internal.FrameworkUdk.dll");
             Assert.ThrowsExactly<IOException>(() => FrameworkUdkLocator.Resolve(process));
         }

@@ -42,6 +42,12 @@ internal static class Program
                 });
                 Environment.SetEnvironmentVariable(Telemetry.Telemetry.OptOutEnvironmentVariable, "1");
             }
+            else if (Console.IsErrorRedirected && !Console.IsInputRedirected && !Console.IsOutputRedirected)
+            {
+                // Spectre.Console treats a redirected stderr as non-interactive, which would make
+                // `winapp init 2>errors.log` skip its prompts. Prompts only use stdin and stdout.
+                AnsiConsole.Profile.Capabilities.Interactive = true;
+            }
             return await RunCoreAsync(args, framedStdout, configureServices).ConfigureAwait(false);
         }
         finally

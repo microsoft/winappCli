@@ -64,7 +64,7 @@ public class UiOwnerResolverTests : IDisposable
                 () => ResolveWith(value), $"{description} must be refused");
 
             Assert.AreEqual(UiCoordinationErrorCodes.InvalidWorkflowId, ex.Code, description);
-            StringAssert.Contains(ex.Message, "surrogate", description);
+            Assert.Contains("surrogate", ex.Message, description);
         }
     }
 

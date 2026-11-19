@@ -35,7 +35,7 @@ public class DevToolsPipeClientTests
         var response = new VisualTreeTap((uint)agent.Pid).Request("echo");
         Assert.IsTrue(response.Ok, response.Error?.Message);
         Assert.AreEqual("""{"value":42}""", response.ResultJson);
-        CollectionAssert.AreEqual(new List<string> { "echo" }, agent.Received);
+        Assert.AreSequenceEqual(new List<string> { "echo" }, agent.Received);
     }
 
     [TestMethod]
@@ -113,7 +113,7 @@ public class DevToolsPipeClientTests
         {
             var response = new VisualTreeTap((uint)agent.Pid).Request("echo");
             Assert.AreEqual("internal", response.Error!.Token);
-            StringAssert.Contains(response.Error.Message, "64 MiB");
+            Assert.Contains("64 MiB", response.Error.Message);
         }
     }
 
