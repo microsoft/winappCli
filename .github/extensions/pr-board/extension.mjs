@@ -27,6 +27,34 @@ let session;
 
 // ---- Boards (one per repo, shared by every canvas instance) ---------------
 
+// An issue with an open, draft or merged PR on the board is "covered": it has no row of its own. The PR is the
+// item, with an "Fixes Issue #n" chip, and it carries the issue's thread, explainer, next step and session.
+function mergeCovered(cards, issues) {
+    const onBoard = new Set(cards.map((c) => c.number));
+    const byPr = new Map();
+    for (const ic of issues) {
+        ic.coveredBy = (ic.prs || []).filter((p) => p.state !== "closed" && onBoard.has(p.number)).map((p) => p.number);
+        ic.covered = ic.coveredBy.length > 0 || (ic.state !== "OPEN" && ic.pr?.state === "merged");
+        for (const n of ic.coveredBy) (byPr.get(n) || byPr.set(n, []).get(n)).push(ic);
+    }
+    const merged = cards.map((c) => {
+        const iss = byPr.get(c.number);
+        if (!iss) return c;
+        const l = { ...(c.local || {}) };
+        const extra = iss.flatMap((i) => (i.local?.thread || []).map((m) => ({ ...m, issue: i.number })));
+        if (extra.length) l.thread = [...(l.thread || []), ...extra].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+        const first = (k) => iss.map((i) => i.local?.[k]).find(Boolean);
+        if (!l.explainer && first("explainer")) l.explainer = { ...first("explainer"), fromIssue: iss.find((i) => i.local?.explainer).number };
+        for (const k of ["next", "session", "pending", "explainerPending"]) if (!l[k] && first(k)) l[k] = first(k);
+        if (!l.sync && first("sync")) l.sync = first("sync");
+        // Replies you already read on the issue stay read on the PR.
+        const seen = [l.lastSeenAt, ...iss.map((i) => i.local?.lastSeenAt)].filter(Boolean).sort().at(-1);
+        if (seen) l.lastSeenAt = seen;
+        return { ...c, issues: iss.map((i) => ({ number: i.number, title: i.title, url: i.url, state: i.state })), local: l };
+    });
+    return { cards: merged, issues };
+}
+
 class Board {
     constructor(repo) {
         this.repo = repo;
@@ -107,7 +135,7 @@ class Board {
             liveSessionsNote: liveSessions.note,
             groups: GROUPS,
             viewer: this.data?.viewer || null,
-            cards: this.data ? buildCards(this.data, local).map((card) => {
+            ...mergeCovered(this.data ? buildCards(this.data, local).map((card) => {
                 const out = card.local?.review ? { ...card, local: { ...card.local, review: withLinks(card.local.review, card.url) } } : card;
                 if (card.section === "merged") return out;
                 const raw = this.data.open.find((p) => p.number === card.number);
@@ -116,8 +144,7 @@ class Board {
                 // Issues the board links to this PR, so the description check can suggest the right "Fixes #".
                 const linkedIssues = Object.entries(state.issues).filter(([, v]) => v.linkedPr === card.number || (v.branch && v.branch === r?.raw?.headRefName)).map(([k]) => Number(k));
                 return { ...out, lifecycle: true, readiness: r?.raw ? computeReadiness(r.raw, card.local || {}, { linkedIssues }) : null, readinessError: r?.error || null };
-            }) : [],
-            issues: buildIssueCards(this.issues || [], state.issues),
+            }) : [], buildIssueCards(this.issues || [], state.issues)),
             streams: streamer.forRepo(this.repo),
             error: this.error,
             fetchedAt: this.fetchedAt ? new Date(this.fetchedAt).toISOString() : null,

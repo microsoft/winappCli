@@ -81,13 +81,27 @@ you pick under Sort). A row's state changes, but its position doesn't:
 | **Everything else** | Open PRs nobody is working on here |
 | **Issues assigned to you** | Open issues assigned to you that nobody here is working on yet, with no open PR |
 
-Each row shows the owner (avatar and name) and how long it's been that way. Hover
-a row for its quick commands. Issue rows show `Issue #n`, and their flyout shows
-the PR's state (`No PR`, `Draft PR #1322`, `PR #1340 open`, `Merged #1340`). The
-board finds that PR from GitHub's "Fixes #n" links, from the linked session's
-branch, or from a PR the agent names in `pr_board_sync_sessions`. An item appears
-in one section only, and a linked issue stays under Yours for two days after it
-closes.
+Each row starts with what it is: a PR icon and `PR #1359` (`Draft PR` for drafts),
+or an issue icon and `Issue #1321`. It also shows the owner (avatar and name) and
+how long it's been that way. Hover a row for its quick commands.
+
+**An issue and the PR that fixes it are one row.** Once a PR fixes an issue,
+the PR row stands for both, with a chip:
+
+```text
+PR #1359  Stop the DevTools inspector from growing app memory   [◉ Fixes Issue #1283]
+          Agent: Preparing it for review · 3/4 ready
+```
+
+The board links them when the PR says "Fixes #n", when the agent links them in
+`pr_board_sync_sessions`, or when the issue's session branch has a PR. The issue
+then has no row of its own anywhere: not in the Overview, the rail or Your move.
+The PR's thread includes the issue's messages, marked *from Issue #1283*. If the
+PR has no explanation of its own, it uses the issue's, and a session linked to
+either one counts for both. The chip opens the issue. When the PR merges, the pair
+moves to Merged together. An issue with no PR yet keeps its own row, showing
+`No PR` or a closed PR. An item appears in one section only, and a linked issue
+stays under Yours for two days after it closes.
 
 At the bottom, collapsed: **Merged today**, then **Removed from the board**.
 ### The flyout

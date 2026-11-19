@@ -150,6 +150,7 @@ export async function fetchIssues(repo, { linked = [], prIndex = new Map(), loca
     const rank = (p) => (p.state === "OPEN" ? (p.isDraft ? 1 : 0) : p.state === "MERGED" ? 2 : 3);
     for (const i of out.values()) {
         const prs = i.prNumbers.map((n) => prIndex.get(n)).filter(Boolean).sort((a, b) => rank(a) - rank(b) || b.number - a.number);
+        i.prs = prs.map((p) => ({ number: p.number, state: p.state === "OPEN" ? (p.isDraft ? "draft" : "open") : p.state === "MERGED" ? "merged" : "closed" }));
         i.pr = prs[0] ? { number: prs[0].number, url: prs[0].url, state: prs[0].state === "OPEN" ? (prs[0].isDraft ? "draft" : "open") : prs[0].state === "MERGED" ? "merged" : "closed" } : null;
     }
     // A branch with no open PR yet: read its head, so the board notices when the agent pushes.
@@ -176,6 +177,7 @@ export function buildIssueCards(issues, localIssues) {
             assignees: (i.assignees || []).map((a) => a.login),
             assignedToYou: !!i.assignedToYou,
             pr: i.pr || null,
+            prs: i.prs || [],
             branch: local.branch || null,
             branchHead: i.branchHead || null,
             // An issue someone is working on here belongs with your other work; assigned-only ones get their own list.

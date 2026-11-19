@@ -347,6 +347,16 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 .gh-tc + .gh-tc { border-top: 1px solid var(--hairline); }
 .gh-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .gh-loading { display: flex; align-items: center; gap: var(--s2); }
+.num { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); white-space: nowrap; }
+.num .i { flex: none; }
+.num.t-issue .i { color: var(--green); } .num.t-pr .i { color: var(--muted); }
+.issue-chip { display: inline-flex; align-items: center; gap: 3px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--hairline); background: none; color: var(--muted); font-size: var(--t-meta); line-height: 18px; white-space: nowrap; cursor: pointer; }
+.issue-chip .i { color: var(--green); }
+.issue-chip:hover { color: var(--fg); border-color: var(--border); }
+.rrow .ri { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); font-size: var(--t-meta); margin-left: 4px; flex: none; }
+.rrow .ri .i { color: var(--green); }
+.from-issue { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); font-weight: 400; }
+.from-issue .i { color: var(--green); }
 .watch { display: inline-flex; align-items: center; gap: 3px; padding: 0 8px; border-radius: 999px; font-size: var(--t-meta); line-height: 20px; font-weight: var(--w-strong); color: var(--purple); background: color-mix(in srgb, var(--purple) 13%, transparent); white-space: nowrap; }
 .watch.pend { color: var(--muted); background: color-mix(in srgb, var(--fg) 7%, transparent); }
 .g.g-watch { color: var(--purple); }
@@ -779,6 +789,8 @@ const ICONS = {
   reset: '<path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v3h3"/>',
   file: '<path d="M4 1.5h5.5l3 3v10H4z"/><path d="M9.5 1.5v3h3"/>',
   label: '<path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z"/><circle cx="5.3" cy="5.3" r=".9"/>',
+  issue: '<circle cx="8" cy="8" r="6.5"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/>',
+  prDraft: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="12.5" r="1.5"/><path d="M4.5 5v6M11.5 4v.5M11.5 7v.5M11.5 10v.5"/>',
   pin: '<path d="M6 2h4l-.5 4 2.5 2.5H4L6.5 6z"/><path d="M8 8.5v5.5"/>',
 };
 const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 16 16" aria-hidden="true">${ICONS[name] || ""}</svg>`;
@@ -1031,7 +1043,7 @@ function renderHead(c) {
       ${c.isDraft ? `<span>${icon("pencil", "sm tone-mute")} Draft PR</span>` : ""}
       ${risk}
       ${chip(c)}
-      ${watchBadge(c)}${readyMeter(c)}
+      ${watchBadge(c)}${readyMeter(c)}${issueChips(c)}
     </div>
     ${ballLine(c)}
     <div class="actions">${buttons.join("")}
@@ -1266,7 +1278,14 @@ function latestReplyAt(c) {
 const seenAt = (c) => Math.max(tms(c?.local?.lastSeenAt), tms(snap?.readBaseline));
 const isUnread = (c) => !!c && latestReplyAt(c) > seenAt(c);
 const isReplying = (c) => !!c?.local?.pending;
-const allItems = () => [...cardsOf().filter((c) => c.section !== "merged" && !c.local?.hidden), ...issuesOf().filter((c) => !c.hidden)];
+// An issue with a PR on the board has no row of its own: the PR row stands for both.
+const listIssues = () => issuesOf().filter((i) => !i.covered);
+// What an item is, in the same place on every row: a PR (or draft PR) or an issue.
+const typeTag = (c) => c.kind === "issue"
+  ? `<span class="num t-issue">${icon("issue", "sm")}Issue #${c.number}</span>`
+  : `<span class="num t-pr">${icon(c.isDraft ? "prDraft" : c.section === "merged" ? "merged" : "pr", "sm")}${c.isDraft ? "Draft PR" : "PR"} #${c.number}</span>`;
+const issueChips = (c) => (c.issues || []).map((i) => `<button class="issue-chip" data-act="issue-chip" data-pr="${i.number}" title="Issue #${i.number}: ${esc(i.title)}. Opens the issue.">${icon("issue", "sm")}Fixes Issue #${i.number}</button>`).join("");
+const allItems = () => [...cardsOf().filter((c) => c.section !== "merged" && !c.local?.hidden), ...listIssues().filter((c) => !c.hidden)];
 let unreadOnly = false;
 let ballFilter = null; // "you" | "agent" | "waiting" | "snoozed" | "backlog"
 // The item you're looking at, and where its unread part started when you opened it (for the "New" divider).
@@ -1330,7 +1349,7 @@ function explainerHtml(c) {
     return `<section class="sec explainer empty"><h3>Explain like I'm 5</h3><p class="hint">No plain-language explanation yet: what this is, why it matters, and where we are.</p>${btn("Explain this")}</section>`;
   }
   const stale = explainerStale(c);
-  const meta = `<span class="note">updated ${esc(ago(x.updatedAt))}${ago(x.updatedAt) === "just now" ? "" : " ago"}${stale ? ` · ${esc(stale)}` : ""}</span>`;
+  const meta = `<span class="note">${x.fromIssue ? `from Issue #${x.fromIssue} · ` : ""}updated ${esc(ago(x.updatedAt))}${ago(x.updatedAt) === "just now" ? "" : " ago"}${stale ? ` · ${esc(stale)}` : ""}</span>`;
   return `<section class="sec explainer">
     <div class="ex-head"><h3>Explain like I'm 5</h3>${meta}<span class="sp"></span>${stale || pending ? btn("Update") : ""}</div>
     ${x.eli5 ? `<div class="md">${md(x.eli5)}</div>` : ""}
@@ -1344,8 +1363,8 @@ function threadHtml(c) {
   let divDone = divAt === null;
   const divider = (m) => { if (divDone || m.role !== "agent" || tms(m.at) <= divAt) return ""; divDone = true; return `<div class="new-div" role="separator" aria-label="New replies"><span>New</span></div>`; };
   const msgs = (local.thread || []).map((m) => divider(m) + (m.role === "system"
-    ? `<div class="sys">${esc(m.text)} · ${esc(when(m.at))}</div>`
-    : `<div class="msg ${m.role === "user" ? "user" : "agent"}"><div class="who">${m.role === "user" ? "You" : esc(m.from || "Agent")} · ${esc(when(m.at))}</div><div class="md">${md(m.text)}</div></div>`)).join("");
+    ? `<div class="sys">${esc(m.text)}${m.issue ? ` · Issue #${m.issue}` : ""} · ${esc(when(m.at))}</div>`
+    : `<div class="msg ${m.role === "user" ? "user" : "agent"}"><div class="who">${m.role === "user" ? "You" : esc(m.from || "Agent")}${m.issue ? ` <span class="from-issue">${icon("issue", "sm")}from Issue #${m.issue}</span>` : ""} · ${esc(when(m.at))}</div><div class="md">${md(m.text)}</div></div>`)).join("");
   const sk = streamKey(c);
   const pending = local.pending ? `<div class="msg agent streaming" aria-live="polite" data-stream-key="${sk}">${streamInner(c, streams.get(sk))}</div>` : "";
   return `<div class="thread">${msgs || (pending ? "" : `<div class="hint">Ask anything about this PR, for example "What's still blocking this?" or "Explain the risky part in simple terms." The agent answers here.</div>`)}${pending}</div>`;
@@ -2112,7 +2131,7 @@ function yourMoveBox(items) {
     const q = b.question ? `<div class="ov-ask-inline"><input data-pr="${c.number}" data-kind="${kind}" placeholder="Or type an answer…" aria-label="Answer for #${c.number}" value="${esc(answers.get(c.number) || "")}"><button data-act="answer-text" data-pr="${c.number}">Send</button><button class="quiet" data-act="dismiss" data-pr="${c.number}" title="Hide this question on the board. It doesn't answer the session.">Dismiss</button></div>` : "";
     return `<article class="ym-card st-${b.st}" role="listitem">
       <div class="ym-h">${ballGlyph(b)}<span class="ym-kind">${esc(BALL[b.st].label)}</span>${isWorking(c) && b.st !== "agent" ? `<span class="row-hint">the agent is also working</span>` : ""}<span class="sp"></span>${agePill(b)}</div>
-      <div class="ym-t">${isUnread(c) ? '<span class="unread-dot" aria-label="Unread"></span>' : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${esc(c.title)}</button></div>
+      <div class="ym-t">${isUnread(c) ? '<span class="unread-dot" aria-label="Unread"></span>' : ""}${typeTag(c)}<button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${esc(c.title)}</button>${issueChips(c)}</div>
       <div class="ym-ask">${esc(b.ask)}</div>
       ${q}
       <div class="btns">${moveButtons(c, b)}</div>
@@ -2127,7 +2146,7 @@ function yourMoveBox(items) {
 function sectionRows(keep = () => true) {
   const sort = (SORTS[sortBy] || SORTS.newest)[1];
   const order = (rows) => { rows.sort(sort); return [...rows.filter((c) => pins.has(c.number)), ...rows.filter((c) => !pins.has(c.number))]; };
-  const cards = cardsOf(), issues = issuesOf();
+  const cards = cardsOf(), issues = listIssues();
   const pool = (id) => (id === "issues" ? issues : id === "yours" ? [...cards, ...issues] : cards);
   return {
     rows: SECTIONS.map(([id]) => order(pool(id).filter((c) => c.section === id && !(c.hidden || c.local?.hidden) && keep(c)))),
@@ -2208,7 +2227,7 @@ function ovRow(c, sec) {
   return `<div class="ov-row r2${mine ? " mine" : ""} st-${b.st}${isUnread(c) ? " unread" : ""}" role="listitem">
     <span class="rail">${ballGlyph(b)}</span>
     <div class="ov-main">
-      <div class="ov-title-row">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${isWorking(c) && b.st !== "agent" && !mine ? spinner("Agent working on something here") : ""}${browserLink(c)}</div>
+      <div class="ov-title-row">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}${typeTag(c)}<button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${issueChips(c)}${isWorking(c) && b.st !== "agent" && !mine ? spinner("Agent working on something here") : ""}${browserLink(c)}</div>
       <div class="ask">${lead}${esc(b.ask)}${b.then ? ` <span class="row-hint">· ${esc(b.then)}</span>` : ""}${mine && isWorking(c) ? ` <span class="row-hint">· the agent is also working on it</span>` : ""}${hintHtml(c)}</div>
     </div>
     <div class="right">${primary}${watchBadge(c)}${readyMeter(c)}${ownerHtml(b)}${agePill(b)}${sec === "merged" ? "" : rowActs(c, kind)}</div>
@@ -2224,7 +2243,7 @@ function railRow(c, sec) {
   const replying = "";
   const label = `${kind === "issue" ? "Issue" : "Pull request"} #${c.number}: ${c.title}${isUnread(c) ? ", new reply" : ""}`;
   return `<button class="rrow${sel ? " sel" : ""}${isUnread(c) ? " unread" : ""}" role="listitem" data-act="rail-open" data-kind="${kind}" data-pr="${c.number}" ${sel ? 'aria-current="true"' : ""} aria-label="${esc(label)}" title="${esc(c.title)}">
-    <span class="l1">${ballGlyph(b)}${isUnread(c) ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><span class="tt">${esc(c.title)}</span>${watched(c) ? `<span class="rw" title="Agent merge is watching it">${icon("eye", "sm")}</span>` : ""}</span>
+    <span class="l1">${ballGlyph(b)}${isUnread(c) ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}${typeTag(c)}<span class="tt">${esc(c.title)}</span>${(c.issues || []).map((i) => `<span class="ri" title="Fixes Issue #${i.number}">${icon("issue", "sm")}#${i.number}</span>`).join("")}${watched(c) ? `<span class="rw" title="Agent merge is watching it">${icon("eye", "sm")}</span>` : ""}</span>
     <span class="l2">${state}${replying}</span>
   </button>`;
 }
@@ -2391,7 +2410,7 @@ function renderFlyout() {
   const ft = flyTab === "changes" && !hasBranch(c) ? "summary" : flyTab;
   const chips = isIssue
     ? `${agentCell(c).replace('class="ov-cell"', 'class="ov-cell" style="flex-direction:row;align-items:center"')}${issuePrChip(c)}`
-    : `${chip(c)}${watchBadge(c)}${readyMeter(c)}${c.review ? mkChip(c.review.state === "done" ? "ok" : c.review.state === "stale" ? "you" : "neutral", c.review.state === "done" ? "checkCircle" : c.review.state === "stale" ? "reset" : "dash", "pr-review: " + c.review.label, c.review.text) : ""}${ciHtml(c)}`;
+    : `${issueChips(c)}${chip(c)}${watchBadge(c)}${readyMeter(c)}${c.review ? mkChip(c.review.state === "done" ? "ok" : c.review.state === "stale" ? "you" : "neutral", c.review.state === "done" ? "checkCircle" : c.review.state === "stale" ? "reset" : "dash", "pr-review: " + c.review.label, c.review.text) : ""}${ciHtml(c)}`;
   const summary = isIssue
     ? `<div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div><div class="hint">Last activity ${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"} · opened by ${esc(c.author)}</div>`
     : `${c.local?.summary ? `<div>${icon("sparkle", "sm tone-agent")} ${mdInline(c.local.summary.text)}</div>` : `<div class="tone-mute">${esc(c.fallbackSummary || "")}</div>`}
@@ -2498,7 +2517,7 @@ function renderOverview() {
     }).join("")}
     ${merged.length && !unreadOnly ? `<details class="ov-merged"><summary>${icon("chevRight", "sm chev")}Merged today <span class="n">${merged.length}</span></summary><div role="list">${merged.map((c) => ovRow(c, "merged")).join("")}</div></details>` : ""}
     ${(() => {
-      const hidden = [...cards.filter((c) => c.section !== "merged" && c.local?.hidden), ...issuesOf().filter((c) => c.hidden)];
+      const hidden = [...cards.filter((c) => c.section !== "merged" && c.local?.hidden), ...listIssues().filter((c) => c.hidden)];
       return hidden.length && !unreadOnly ? `<details class="ov-hidden"><summary>${icon("chevRight", "sm chev")}Removed from the board <span class="n">${hidden.length}</span></summary><ul style="list-style:none;padding:0;margin:var(--s2) 0 0">${hidden.map((h) => `<li>${h.kind === "issue" ? "Issue" : "PR"} #${h.number} · ${esc(h.title)} <button data-act="unhide" data-pr="${h.number}" data-kind="${h.kind === "issue" ? "issue" : "pr"}">Put back</button></li>`).join("")}</ul></details>` : "";
     })()}
   </div>`;
@@ -2519,7 +2538,7 @@ function renderSyncInfo() {
   const asked = s.requestedAt && (!s.syncedAt || s.requestedAt > s.syncedAt);
   $("syncInfo").textContent = asked ? "Sync requested…" : s.syncedAt ? `Sessions synced ${ago(s.syncedAt)}${ago(s.syncedAt) === "just now" ? "" : " ago"}` : "Sessions not synced yet";
   const open = cards.filter((c) => c.section !== "merged").length;
-  const nIssues = issuesOf().filter((i) => !i.hidden && i.state !== "CLOSED").length;
+  const nIssues = listIssues().filter((i) => !i.hidden && i.state !== "CLOSED").length;
   if (view === "overview") $("meta").innerHTML = `<b>${open} open</b>${nIssues ? ` · ${nIssues} issue${nIssues === 1 ? "" : "s"}` : ""} · ${waiting} your move · ${stuck} stuck · updated ${esc(ago(snap.fetchedAt))}${ago(snap.fetchedAt) === "just now" ? "" : " ago"}`;
 }
 
@@ -2612,6 +2631,7 @@ document.addEventListener("click", (e) => {
   if (a === "jump") { const s = document.getElementById("sec-" + el.dataset.sec); if (s) { s.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); s.querySelector(".ov-title")?.focus({ preventScroll: true }); } return; }
   if (a === "flyout") return openFlyout(el.dataset.kind || "pr", rowPr, el);
   if (a === "fly-close") return closeFlyout();
+  if (a === "issue-chip") { flyTab = "github"; store.set("prb-fly-tab", flyTab); return openFlyout("issue", rowPr, el); }
   if (a === "fly-tab") { flyTab = el.dataset.tab; store.set("prb-fly-tab", flyTab); const b = $("flyHost").querySelector(".fly-body"); if (b) b.scrollTop = 0; renderFlyout(); return $("flyHost").querySelector(`[data-act="fly-tab"][data-tab="${flyTab}"]`)?.focus(); }
   if (a.startsWith("br-")) return brClick(a, el, rowPr);
   if (a === "gh-refresh") return loadGitHubView(el.dataset.kind === "issue" ? "issue" : "pr", Number(el.dataset.pr), true);
