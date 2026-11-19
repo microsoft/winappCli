@@ -5,10 +5,9 @@
 .DESCRIPTION
     Run shards in separate workspaces. Shard 3 owns NativeIntegration and requires
     the native dispatcher fixture. Of the remaining tests, shard 1 contains
-    PackageCommandTests and shard 2 contains everything else, including new classes.
-    In run 35270954877 the original two groups
-    accounted for 1,781 and 1,719 summed test-seconds respectively (114 and 6,450 tests).
-    These weights guide the split, not an assertion about wall-clock savings.
+    PackageCommandTests and PerfFixtureTests, and shard 2 contains everything else,
+    including new classes. PerfFixtureTests is a single serial test that publishes two
+    fixture apps (3-5 minutes); shard 1 has slack for it while shard 2 sets the CI time.
 #>
 [CmdletBinding()]
 param(
@@ -43,10 +42,12 @@ if ($Shard -eq 3 -and (-not $env:WINAPP_NATIVE_TEST_FIXTURE -or
     throw 'Shard 3 requires WINAPP_NATIVE_TEST_FIXTURE pointing to the freshly built native-runtime-tests.exe.'
 }
 # Category and class predicates partition every discovered case exactly once.
-$className = 'WinApp.Cli.Tests.PackageCommandTests.'
+$shard1Classes = @('WinApp.Cli.Tests.PackageCommandTests.', 'WinApp.Cli.Tests.PerfFixtureTests.')
+$inShard1 = ($shard1Classes | ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+$notInShard1 = ($shard1Classes | ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
 $filters = @(
-    "TestCategory!=NativeIntegration&FullyQualifiedName~$className",
-    "TestCategory!=NativeIntegration&FullyQualifiedName!~$className",
+    "TestCategory!=NativeIntegration&($inShard1)",
+    "TestCategory!=NativeIntegration&$notInShard1",
     'TestCategory=NativeIntegration'
 )
 $runArgs = @('run', '--project', $TestProjectPath, '-c', 'Debug', '--no-build', '--')

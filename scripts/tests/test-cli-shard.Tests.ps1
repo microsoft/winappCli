@@ -18,7 +18,7 @@ function dotnet {
     $arguments | ConvertTo-Json -Compress | Add-Content "$PSScriptRoot\calls.jsonl"
     $filterIndex = [array]::IndexOf($arguments, '--filter')
     $filter = if ($filterIndex -ge 0) { $arguments[$filterIndex + 1] } else { '' }
-    $selected = if (-not $filter) { 10 } elseif ($filter -eq 'TestCategory!=NativeIntegration&FullyQualifiedName~WinApp.Cli.Tests.PackageCommandTests.') { 4 } elseif ($filter -eq 'TestCategory!=NativeIntegration&FullyQualifiedName!~WinApp.Cli.Tests.PackageCommandTests.') { 3 } elseif ($filter -eq 'TestCategory=NativeIntegration') { 3 } else { throw "Unexpected filter $filter" }
+    $selected = if (-not $filter) { 10 } elseif ($filter -eq 'TestCategory!=NativeIntegration&(FullyQualifiedName~WinApp.Cli.Tests.PackageCommandTests.|FullyQualifiedName~WinApp.Cli.Tests.PerfFixtureTests.)') { 4 } elseif ($filter -eq 'TestCategory!=NativeIntegration&FullyQualifiedName!~WinApp.Cli.Tests.PackageCommandTests.&FullyQualifiedName!~WinApp.Cli.Tests.PerfFixtureTests.') { 3 } elseif ($filter -eq 'TestCategory=NativeIntegration') { 3 } else { throw "Unexpected filter $filter" }
     $global:LASTEXITCODE = 0
     if ($arguments -contains '--list-tests') {
         if ($inputData.failure -eq 'discovery-exit') { $global:LASTEXITCODE = 4; return }
@@ -89,17 +89,18 @@ Describe 'CLI shard partition and reporting' {
 
     It 'assigns existing and new test names to exactly one side of the class predicate' {
         $source = Get-Content $shardScript -Raw
-        $source | Should -Match ([regex]::Escape('"TestCategory!=NativeIntegration&FullyQualifiedName~$className"'))
-        $source | Should -Match ([regex]::Escape('"TestCategory!=NativeIntegration&FullyQualifiedName!~$className"'))
+        $source | Should -Match ([regex]::Escape("`$shard1Classes = @('WinApp.Cli.Tests.PackageCommandTests.', 'WinApp.Cli.Tests.PerfFixtureTests.')"))
         $source | Should -Match "'TestCategory=NativeIntegration'"
+        $shard1Classes = @('WinApp.Cli.Tests.PackageCommandTests.', 'WinApp.Cli.Tests.PerfFixtureTests.')
         foreach ($name in @(
             'WinApp.Cli.Tests.PackageCommandTests.Existing',
             'WinApp.Cli.Tests.PackageCommandTests.NewDataRow',
+            'WinApp.Cli.Tests.PerfFixtureTests.Existing',
             'WinApp.Cli.Tests.BrandNewTests.NewMethod',
             'WinApp.Cli.Tests.PackageCommandTestsExtra.NotInTheSelectedClass'
         )) {
             foreach ($native in @($true, $false)) {
-                $first = -not $native -and $name.Contains('WinApp.Cli.Tests.PackageCommandTests.')
+                $first = -not $native -and @($shard1Classes | Where-Object { $name.Contains($_) }).Count -gt 0
                 $second = -not $native -and -not $first
                 (@($first, $second, $native) | Where-Object { $_ }).Count | Should -Be 1
             }
