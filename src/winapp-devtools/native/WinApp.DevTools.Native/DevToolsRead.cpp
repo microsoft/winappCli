@@ -168,7 +168,11 @@ static void AppendProp(std::wstring& out, const DevToolsReadProp& source, int de
     if (!p.authored.empty())    { out += L",\"authored\":\"";    out += DevToolsJsonEscape(p.authored);    out += L"\""; }
     if (!p.authoredKind.empty()) { out += L",\"authoredKind\":\""; out += DevToolsJsonEscape(p.authoredKind); out += L"\""; }
     if (!p.authoredKey.empty()) { out += L",\"authoredKey\":\""; out += DevToolsJsonEscape(p.authoredKey); out += L"\""; }
-    const std::wstring origin = DevToolsRead_OriginLabel(p.authoredKind, p.authored, p.authoredKey, p.binding, p.source, false);
+    if (!p.liveResourceKind.empty()) { out += L",\"liveResourceKind\":\""; out += DevToolsJsonEscape(p.liveResourceKind); out += L"\""; }
+    if (!p.liveResourceKey.empty())  { out += L",\"liveResourceKey\":\"";  out += DevToolsJsonEscape(p.liveResourceKey);  out += L"\""; }
+    std::wstring origin = DevToolsRead_OriginLabel(p.authoredKind, p.authored, p.authoredKey, p.binding, p.source, false);
+    if (p.source == kDevToolsReadLiveEditSource && !p.liveResourceKind.empty())
+        origin += (p.liveResourceKind == L"themeResource" ? L" ThemeResource " : L" StaticResource ") + p.liveResourceKey;
     if (!origin.empty())        { out += L",\"origin\":\"";      out += DevToolsJsonEscape(origin);        out += L"\""; }
     if (p.redacted) out += L",\"redacted\":true";
     if (!p.chain.empty())

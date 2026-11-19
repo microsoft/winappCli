@@ -32,9 +32,8 @@ internal static class DevToolsErrors
             return message;
         }
 
-        return "devtools set-property does not support {ThemeResource key} or {StaticResource key} references. " +
-            "Use a literal value instead (for example, '#FF0067C0' for a brush), " +
-            "or change the resource reference in XAML and rebuild the app.";
+        return "A {ThemeResource key} or {StaticResource key} value is written as a resource only without --type. " +
+            "Drop --type, or pass --resource theme|static with the key.";
     }
 
     public static string Describe(DevToolsProtocolError error) => error.Token switch

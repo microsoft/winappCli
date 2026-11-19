@@ -386,4 +386,15 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
             w.WriteString("type", type);
             w.WriteString("value", value);
         }, cancellationToken: cancellationToken);
+
+    /// <summary>Assigns <c>{ThemeResource key}</c> (<paramref name="kind"/> theme) or <c>{StaticResource key}</c> (static).</summary>
+    public DevToolsProtocolResponse RequestSetResource(string handle, string property, string kind, string key, CancellationToken cancellationToken = default) =>
+        Request("HotReload.setProperty", w =>
+        {
+            w.WriteString("handle", handle);
+            w.WriteString("prop", property);
+            w.WriteString("type", string.Empty);
+            w.WriteString("value", key);
+            w.WriteString("resource", kind);
+        }, cancellationToken: cancellationToken);
 }

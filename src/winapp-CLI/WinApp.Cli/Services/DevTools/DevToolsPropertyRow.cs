@@ -23,6 +23,8 @@ namespace WinApp.Cli.Services.DevTools;
 /// <param name="WriteType">The XAML type a write must create. Absent means the tap reports it as not settable.</param>
 /// <param name="Redacted">The property holds a secret (a password): DevTools neither shows nor writes it.</param>
 /// <param name="Origin">Where the value came from, in one label, as the engine reports it.</param>
+/// <param name="LiveResourceKind"><c>themeResource</c> or <c>staticResource</c> when DevTools assigned a resource to it.</param>
+/// <param name="LiveResourceKey">The key DevTools assigned, when <paramref name="LiveResourceKind"/> is set.</param>
 internal sealed record DevToolsPropertyRow(
     string Name,
     string Value,
@@ -34,7 +36,9 @@ internal sealed record DevToolsPropertyRow(
     string? AuthoredKey,
     string? WriteType,
     bool Redacted = false,
-    string? Origin = null)
+    string? Origin = null,
+    string? LiveResourceKind = null,
+    string? LiveResourceKey = null)
 {
     /// <summary>
     /// How this row's provenance reads in one bracketed token: the engine's <c>origin</c>, which names what the developer
@@ -152,7 +156,7 @@ internal sealed record DevToolsPropertyRow(
         {
             return null;
         }
-        foreach (var field in new[] { "valueSource", "binding", "authored", "authoredKind", "authoredKey", "writeType", "origin" })
+        foreach (var field in new[] { "valueSource", "binding", "authored", "authoredKind", "authoredKey", "writeType", "origin", "liveResourceKind", "liveResourceKey" })
         {
             if (row.TryGetProperty(field, out var optional) &&
                 optional.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
@@ -174,7 +178,9 @@ internal sealed record DevToolsPropertyRow(
                 NullIfEmpty(ReadString(row, "authoredKey")),
                 NullIfEmpty(ReadString(row, "writeType")),
                 row.TryGetProperty("redacted", out var redacted) && redacted.ValueKind == JsonValueKind.True,
-                NullIfEmpty(ReadString(row, "origin")));
+                NullIfEmpty(ReadString(row, "origin")),
+                NullIfEmpty(ReadString(row, "liveResourceKind")),
+                NullIfEmpty(ReadString(row, "liveResourceKey")));
     }
 
     public bool IsSet =>

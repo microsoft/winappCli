@@ -27,8 +27,8 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp devtools set-property <selector> Text \"<text>\" -a <app>",
-        "winapp devtools set-property <selector> Width 200 -a <app>",
-        "winapp devtools set-property <selector> Background \"#FF0067C0\" -a <app>",
+        "winapp devtools set-property <selector> Background \"{ThemeResource AccentFillColorDefaultBrush}\" -a <app>",
+        "winapp devtools set-property <selector> Style --resource static <styleKey> -a <app>",
     ];
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
@@ -45,7 +45,7 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
 
     public static Argument<string?> ValueArgument { get; } = new("value")
     {
-        Description = "The new value, e.g. 200, false, #FF0067C0, or \"Save changes\".",
+        Description = "The new value, e.g. 200, false, #FF0067C0, \"Save changes\", or {ThemeResource key}.",
         Arity = ArgumentArity.ZeroOrOne,
     };
 
@@ -57,6 +57,7 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
         Arguments.Add(ValueArgument);
         Options.Add(SharedDevToolsOptions.PropertyOption);
         Options.Add(SharedDevToolsOptions.TypeOption);
+        Options.Add(SharedDevToolsOptions.ResourceOption);
         DevToolsQueryOptions.Add(this, write: true);
     }
 
@@ -127,6 +128,13 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     "Provide the new value, e.g. `winapp devtools set-property SaveButton Width 200`."));
             }
 
+            var resourceError = DevToolsResourceReference.Resolve(
+                parseResult.GetValue(SharedDevToolsOptions.ResourceOption), type, value, out var resource);
+            if (resourceError is not null)
+            {
+                return Task.FromResult(Fail(json, target.Pid, resourceError, "bad-args"));
+            }
+
             var handle = RequireHandle(
                 target,
                 parseResult.GetValue(SelectorArgument),
@@ -166,13 +174,14 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             // The tap already knows the XAML type each property must be written as, so --type is a manual
             // override rather than something a caller has to supply. A property the tap reports no writeType
             // for is one it will not write; saying so now beats a refused write with a vaguer reason.
-            var writeType = !string.IsNullOrWhiteSpace(type) ? type! : beforeRow.WriteType;
+            var writeType = (!string.IsNullOrWhiteSpace(type) ? type : beforeRow.WriteType) ?? string.Empty;
             if (beforeRow.Redacted)
             {
                 return Task.FromResult(Fail(json, target.Pid,
                     $"'{beforeRow.Name}' holds a secret; DevTools does not read or write it."));
             }
-            if (string.IsNullOrWhiteSpace(writeType))
+            // A resource keeps its own type, so it can go to properties with no literal syntax, such as Style.
+            if (resource is null && string.IsNullOrWhiteSpace(writeType))
             {
                 return Task.FromResult(Fail(
                     json,
@@ -181,7 +190,9 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     "Pass --type <XamlType> to attempt the write anyway."));
             }
 
-            var writeResponse = tap.RequestSetProperty(handle, beforeRow.Name, writeType, value, cancellationToken);
+            var writeResponse = resource is null
+                ? tap.RequestSetProperty(handle, beforeRow.Name, writeType, value, cancellationToken)
+                : tap.RequestSetResource(handle, beforeRow.Name, resource.Kind, resource.Key, cancellationToken);
             if (!writeResponse.Ok)
             {
                 var error = writeResponse.Error!;
@@ -200,15 +211,17 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             var before = beforeRow.Value;
             var after = afterRow?.Value;
             var took = after is not null && !string.Equals(before, after, StringComparison.Ordinal);
-            var matchesRequested = after is not null
-                && MatchesRequested(after, value, beforeRow.ValueType, writeType);
+            var matchesRequested = after is not null && (resource is null
+                ? MatchesRequested(after, value, beforeRow.ValueType, writeType)
+                : afterRow?.LiveResourceKind == resource.RowKind && afterRow.LiveResourceKey == resource.Key);
 
             // ONE verdict, shared by both output shapes. A `--json` caller that got ok:true and exit 0 for a
             // write the human path calls a failure has no usable signal at all, and this is the agent-facing
             // mode. `took || matchesRequested` is the honest test: a value the framework normalized on the way
             // in (Thickness "10" -> "10,10,10,10") DID take, while a value that neither changed nor equals the
-            // request demonstrably did not.
-            var succeeded = after is not null && (took || matchesRequested);
+            // request demonstrably did not. A resource write has no literal to compare: the agent assigned the
+            // reference, and a readable value afterwards confirms it.
+            var succeeded = after is not null && (resource is not null || took || matchesRequested);
             // A local write replaces a {Binding} (confirmed by the read-back) and overrides an x:Bind.
             var replacedBinding = succeeded && (beforeRow.Binding is null || afterRow?.Binding is null)
                 ? BoundBy(beforeRow) : null;
@@ -221,7 +234,15 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     writer.WriteNumber("processId", target.Pid);
                     WriteIdentity(writer, target, handle, cancellationToken);
                     writer.WriteString("property", beforeRow.Name);
-                    writer.WriteString("type", writeType);
+                    if (resource is null)
+                    {
+                        writer.WriteString("type", writeType);
+                    }
+                    else
+                    {
+                        writer.WriteString("resourceKind", resource.RowKind);
+                        writer.WriteString("resourceKey", resource.Key);
+                    }
                     writer.WriteString("requested", value);
                     writer.WriteString("before", before);
                     if (after is null)
@@ -277,7 +298,13 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                 return Task.FromResult(1);
             }
 
-            if (took)
+            if (resource is not null)
+            {
+                DevToolsRender.WriteMarkupLine(Console, took
+                    ? $"{UiSymbols.Check} {label}: {Markup.Escape(before)} [grey]->[/] [green]{Markup.Escape(after)}[/] [grey](from {Markup.Escape(resource.Markup)})[/]"
+                    : $"{UiSymbols.Check} {label}: now {Markup.Escape(resource.Markup)}; the value is still {Markup.Escape(after)}.");
+            }
+            else if (took)
             {
                 DevToolsRender.WriteMarkupLine(Console,
                     $"{UiSymbols.Check} {label}: {Markup.Escape(before)} [grey]->[/] [green]{Markup.Escape(after)}[/]");

@@ -554,6 +554,13 @@ static void Test_OriginLabel()
     themed.authoredKey = L"TextFillColorSecondaryBrush";
     Check(Contains(DevToolsRead_SerializeProps(1, { themed }, L""), L"\"origin\":\"ThemeResource TextFillColorSecondaryBrush\""),
            "Property.get rows carry the label as origin");
+    themed.source = kDevToolsReadLiveEditSource;
+    themed.liveResourceKind = L"themeResource"; themed.liveResourceKey = L"TextFillColorPrimaryBrush";
+    const std::wstring live = DevToolsRead_SerializeProps(1, { themed }, L"");
+    Check(Contains(live, L"\"origin\":\"DevTools ThemeResource TextFillColorPrimaryBrush\"") &&
+          Contains(live, L"\"liveResourceKey\":\"TextFillColorPrimaryBrush\"") &&
+          Contains(live, L"\"authoredKey\":\"TextFillColorSecondaryBrush\""),
+          "a DevTools resource write names the key it assigned, and the XAML key stays as authored");
 }
 
 int RunReadTests()
