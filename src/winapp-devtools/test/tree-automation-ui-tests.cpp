@@ -89,11 +89,17 @@ static void CheckCaption(IUIAutomation* automation, IUIAutomationElement* row, c
     value.lVal = UIA_TextControlTypeId;
     ComPtr<IUIAutomationCondition> condition;
     Require(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, value, &condition));
+    ComPtr<IUIAutomationCacheRequest> cache;
+    Require(automation->CreateCacheRequest(&cache));
+    ComPtr<IUIAutomationCondition> rawView;
+    Require(automation->get_RawViewCondition(&rawView));
+    // Captions and decorative icons are raw-only so screen readers announce the tree item once.
+    Require(cache->put_TreeFilter(rawView.Get()));
     std::wstring actual;
     const ULONGLONG deadline = GetTickCount64() + 3000;
     do {
         ComPtr<IUIAutomationElementArray> captions;
-        Require(row->FindAll(TreeScope_Descendants, condition.Get(), &captions));
+        Require(row->FindAllBuildCache(TreeScope_Descendants, condition.Get(), cache.Get(), &captions));
         int count = 0;
         Require(captions->get_Length(&count));
         for (int index = 0; index < count; ++index) {
@@ -108,6 +114,8 @@ static void CheckCaption(IUIAutomation* automation, IUIAutomationElement* row, c
         if (actual == expected) break;
         Sleep(20);
     } while (GetTickCount64() < deadline);
+    if (actual != expected)
+        std::wprintf(L"Caption on %ls: actual '%ls', expected '%ls'\n", Id(row).c_str(), actual.c_str(), expected);
     Check(actual == expected, "rendered styled caption preserves the type, name and preview text");
 }
 
