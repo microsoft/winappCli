@@ -50,7 +50,7 @@ The ball is one of these states, checked top to bottom:
 | **Needs your decision** | orange `?` | A session is waiting on a question, the agent asked you something, or set a next step with choices |
 | **Agent working** | spinner | A session is busy, or the agent is answering you |
 | **Blocked** | red `!` | On your PR: CI failing, merge conflicts, or the agent failed |
-| **Ready for you** | orange `→` | Your review or re-review is wanted, a drafted review is ready to post, or the agent handed you a step |
+| **Ready for you** | orange `→` | Your review or re-review is wanted, a drafted review is ready to post, you have unsent branch comments, the agent pushed after your branch comments, or the agent handed you a step |
 | **Next: open a PR** | blue PR | An issue's fix is on a branch, the session is idle, and there's no PR yet |
 | **Waiting on others** | hollow ring | Someone else's move: the author, a reviewer, the merge queue, CI or the reporter, with their avatar and how long. The age turns red (`Stuck 28d`) when it's waited too long |
 | **Done / Not started** | check / dash | Merged or closed, or assigned to you but not started |
@@ -93,7 +93,7 @@ Overview. Each row also shows its first quick command as a button (for example
 **What changed?** on a PR you need to re-review); hover the row to see two more,
 or click **⋯**. Links and buttons inside a row do their own thing.
 
-The flyout has two tabs, and remembers the last one you used:
+The flyout has two tabs, and remembers the last one you used. An issue whose fix is on a branch also gets **Changes** (see [Reviewing a branch before there's a PR](#reviewing-a-branch-before-theres-a-pr)).
 
 - **Summary:** the move, quick commands, the plain-words explanation, and the
   item's thread. Type a question and the agent answers there, without starting a
@@ -256,6 +256,41 @@ Is anything blocking you, or should someone else pick this up?
 Edit it, then press Send to ask the agent to post it. Nothing is posted until
 you send it.
 
+## Reviewing a branch before there's a PR
+
+When a session here works on an issue, its fix sits on a branch before anyone
+opens a PR. You can review that branch privately on the board, the way you'd
+review a PR, without anything showing up on GitHub.
+
+The issue's flyout and its details view (**Open details**) get a **Changes**
+tab. It shows the branch against `main`: how far ahead and behind it is, a
+**Compare on GitHub** link, the commits, and every file's diff.
+
+```text
+nmetulev-devtools-inspector-pane-reuse → main · 3 commits ahead, 2 behind
+[Send 2 comments to the agent] [Open PR ▾]
+
+M scripts/test-e2e-winui-ui.ps1                       💬1  +33 −0
+ 880 +  # Each selection updates the details pane in place (#1283)...
+ 881 +  # selection, so the pane must be the same element afterwards
+ ┌ Not sent · test-e2e-winui-ui.ps1:881–883 ─────────────────────┐
+ │ Is this check still needed once the pool is shared?            │
+ └────────────────────────────────────────────────────────────────┘
+```
+
+1. **Comment:** click a line number, or drag over several, and write a comment
+   (Markdown; Ctrl+Enter adds it). **Add an overall note** comments on the whole
+   branch. Comments stay on the board.
+2. **Send N comments to the agent:** passes every unsent comment, with its file,
+   lines and code, to the linked session. The session fixes them and pushes.
+3. **Re-review:** when the branch moves, the item comes back to **Your move** as
+   *Re-review the changes*, and a banner says how many commits landed. Each
+   comment says whether its file **Changed since** or is **Not changed yet**.
+   A comment whose code is gone is **Outdated**. **Resolve** a comment once it's
+   handled, and press **Mark reviewed** when you've looked at the new commits.
+4. **Open PR ▾:** asks the session to open it as a **Draft PR** or **Ready for
+   review**. Once the PR exists, the issue shows it, and you review it as a PR.
+
 ## The workspace
 
 Buttons: the one that fits the stage is blue (Review, Post review…, Ship, or
@@ -364,7 +399,7 @@ a few minutes, because GitHub's image links expire).
 If `gh` is missing or signed out, the board says so and tells you what to run.
 
 What the board adds (summary, structured review, your Post/Ignore choices and
-notes, linked session, agent status, timeline, thread) is saved per PR in one file per repo:
+notes, private branch comments, linked session, agent status, timeline, thread) is saved per PR in one file per repo:
 
 ```text
 %USERPROFILE%\.copilot\extensions\pr-board\artifacts\microsoft__winappCli.json

@@ -152,6 +152,9 @@ export async function fetchIssues(repo, { linked = [], prIndex = new Map(), loca
         const prs = i.prNumbers.map((n) => prIndex.get(n)).filter(Boolean).sort((a, b) => rank(a) - rank(b) || b.number - a.number);
         i.pr = prs[0] ? { number: prs[0].number, url: prs[0].url, state: prs[0].state === "OPEN" ? (prs[0].isDraft ? "draft" : "open") : prs[0].state === "MERGED" ? "merged" : "closed" } : null;
     }
+    // A branch with no open PR yet: read its head, so the board notices when the agent pushes.
+    await Promise.all([...out.values()].filter((i) => { const l = localIssues[String(i.number)] || {}; return l.branch && l.session?.id && (!i.pr || i.pr.state === "closed"); }).slice(0, 10)
+        .map((i) => gh(["api", `repos/${repo}/branches/${encodeURIComponent(localIssues[String(i.number)].branch)}`, "--jq", ".commit.sha"]).then((s) => { i.branchHead = s.trim() || null; }).catch(() => {})));
     return [...out.values()];
 }
 
@@ -173,6 +176,8 @@ export function buildIssueCards(issues, localIssues) {
             assignees: (i.assignees || []).map((a) => a.login),
             assignedToYou: !!i.assignedToYou,
             pr: i.pr || null,
+            branch: local.branch || null,
+            branchHead: i.branchHead || null,
             // An issue someone is working on here belongs with your other work; assigned-only ones get their own list.
             section: local.session?.id ? "yours" : "issues",
             group: "issue",
@@ -373,6 +378,36 @@ export async function fetchGitHubView(repo, kind, number) {
         checks,
         timeline,
         truncated: !!page.hasNextPage,
+        fetchedAt: new Date().toISOString(),
+    };
+}
+
+// ---- Branch review: the diff of a branch that has no PR yet --------------------
+
+// The branch against the default branch (three-dot, like a PR), plus which files changed since each older
+// commit a private comment was made on, so comments can say "changed since" or "outdated".
+export async function fetchBranchCompare(repo, base, branch, commentShas = []) {
+    const cmp = JSON.parse(await gh(["api", `repos/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(branch)}`], { timeoutMs: 60000 }));
+    const head = cmp.commits?.at(-1)?.sha || null;
+    const changedSince = {};
+    for (const sha of [...new Set(commentShas)].filter((s) => s && s !== head).slice(0, 10)) {
+        try {
+            const d = JSON.parse(await gh(["api", `repos/${repo}/compare/${sha}...${head}`]));
+            changedSince[sha] = { files: (d.files || []).map((f) => f.filename), commits: d.ahead_by || 0, rewritten: d.status === "diverged" };
+        } catch {
+            changedSince[sha] = null; // the commit is gone: the branch was rewritten
+        }
+    }
+    return {
+        base,
+        branch,
+        head,
+        aheadBy: cmp.ahead_by || 0,
+        behindBy: cmp.behind_by || 0,
+        url: cmp.html_url || `https://github.com/${repo}/compare/${base}...${branch}`,
+        commits: (cmp.commits || []).map((k) => ({ sha: k.sha, message: String(k.commit?.message || "").split("\n")[0].slice(0, 200), author: k.author?.login || k.commit?.author?.name || "", avatar: k.author?.avatar_url || null, at: k.commit?.author?.date, url: k.html_url })),
+        files: (cmp.files || []).map((f) => ({ path: f.filename, previous: f.previous_filename || null, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch ?? null, url: f.blob_url || null })),
+        changedSince,
         fetchedAt: new Date().toISOString(),
     };
 }

@@ -343,3 +343,36 @@ export function fixPrompt(card, repo, what) {
         `Set \`pr_board_set_next_step\` owner "agent" while it works, and report the result with \`pr_board_reply\`. Don't merge.`,
     ].join("\n");
 }
+
+// Private branch review: comments the user wrote on a branch that has no PR yet. Nothing goes to GitHub.
+export function branchCommentsPrompt(card, repo, { branch, head, comments }) {
+    const s = card.local?.session;
+    const list = comments.map((c, i) => {
+        if (!c.file) return `${i + 1}. **Overall note:**\n${c.text}`;
+        const where = `\`${c.file}:${c.start}${c.end !== c.start ? `-${c.end}` : ""}\`${c.side === "old" ? " (removed lines)" : ""}`;
+        return `${i + 1}. ${where}\n\`\`\`diff\n${c.excerpt}\n\`\`\`\n${c.text}`;
+    }).join("\n\n");
+    return [
+        `The PR board canvas: the user reviewed branch \`${branch}\` for ${repo}#${card.number} "${card.title}" (${card.url}) **privately, before a PR exists**, and sent ${comments.length} comment${comments.length === 1 ? "" : "s"} on commit ${String(head || "").slice(0, 7)}. None of this is on GitHub.`,
+        s?.id
+            ? `Forward them to its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\`, quoted exactly. Ask it to address each one (or say why not), push to \`${branch}\`, and report back per comment. Don't open a PR unless the user asks.`
+            : `No session is linked to this issue. Say so with \`pr_board_reply\` and ask the user which session should take them.`,
+        `Then set \`pr_board_set_next_step\` \`{ repo: "${repo}", issue: ${card.number}, owner: "agent", action: "Addressing your ${comments.length} comment${comments.length === 1 ? "" : "s"}" }\`.`,
+        `When the session reports back, post a short per-comment summary with \`pr_board_reply\` \`{ repo: "${repo}", issue: ${card.number}, text, from }\`, clear the next step (the board shows "Re-review the changes" once the branch moves), and update the explainer with \`pr_board_set_explainer\` if a decision was made.`,
+        ``,
+        `The comments:`,
+        ``,
+        list,
+    ].join("\n");
+}
+
+export function openBranchPrPrompt(card, repo, { draft, branch }) {
+    const s = card.local?.session;
+    return [
+        `The PR board canvas: the user asked to **open a ${draft ? "draft " : ""}pull request** for ${repo}#${card.number} "${card.title}" (${card.url})${branch ? ` from branch \`${branch}\`` : ""}.`,
+        s?.id
+            ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\` to open it ${draft ? "as a **draft**" : "**ready for review**"}, following the repository's PR template and \`.github/skills/pr-lifecycle\`, with "Fixes #${card.number}" in the body.`
+            : `No session is linked; say so with \`pr_board_reply\` and ask the user which branch to use.`,
+        `Then link it: \`pr_board_sync_sessions\` with \`{ issue: ${card.number}, linkedPr: <number> }\`. Set the next step (\`pr_board_set_next_step\`, usually owner "reviewer"), reply with the PR link (\`pr_board_reply\`), and update the explainer (\`pr_board_set_explainer\`).`,
+    ].join("\n");
+}

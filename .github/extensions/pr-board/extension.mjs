@@ -8,13 +8,13 @@ import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, buildIssueCards, detectRepo, fetchChangesSince, fetchDetail, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
+import { buildCards, buildIssueCards, detectRepo, fetchBranchCompare, fetchChangesSince, fetchDetail, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
 import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
-import { choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -224,6 +224,7 @@ async function runIssueAction({ repo, number, action, extra = {} }) {
     const quiet = { quiet: true, kind: "issue" };
     if (BALL_ACTIONS.has(action)) return runBallAction({ repo, kind: "issue", number, action, extra, card });
     if (ACTING.has(action)) updateItem(repo, "issue", number, userActed);
+    if (BRANCH_ACTIONS.has(action)) return runBranchAction({ repo, number, action, extra, card });
     if (action === "explain-item") {
         updateItem(repo, "issue", number, (s) => { s.explainerPending = nowIso(); });
         await send(explainerPrompt(card, repo), repo, number, quiet);
@@ -242,6 +243,57 @@ async function runIssueAction({ repo, number, action, extra = {} }) {
         throw httpError(400, `Unknown action ${action}`);
     }
     b.broadcast();
+    return { ok: true };
+}
+
+// Private comments on an issue's branch before a PR exists. Stored on the board only; never posted to GitHub.
+const BRANCH_ACTIONS = new Set(["br-add", "br-delete", "br-resolve", "br-reviewed", "br-send", "br-open-pr"]);
+const clip = (v, n) => String(v ?? "").slice(0, n);
+async function runBranchAction({ repo, number, action, extra, card }) {
+    const upd = (fn) => updateItem(repo, "issue", number, (s) => { s.branchReview ??= { comments: [] }; fn(s.branchReview, s); });
+    const sha = /^[0-9a-f]{7,40}$/i.test(String(extra.head || "")) ? String(extra.head) : null;
+    if (action === "br-add") {
+        const c = extra.comment || {};
+        const text = clip(c.text, 4000).trim();
+        if (!text) throw httpError(400, "Write a comment first.");
+        if (!sha) throw httpError(400, "Load the branch first.");
+        const file = c.file ? clip(c.file, 400) : null;
+        const start = Number(c.start), end = Number(c.end);
+        if (file && !(Number.isInteger(start) && Number.isInteger(end) && start > 0 && end >= start)) throw httpError(400, "Pick a line.");
+        upd((r, s) => {
+            r.comments.push({ id: Math.random().toString(16).slice(2, 10), file, side: c.side === "old" ? "old" : "new", start: file ? start : null, end: file ? end : null, excerpt: clip(c.excerpt, 3000), text, sha, status: "pending", at: nowIso() });
+            s.ballDone = null;
+        });
+    } else if (action === "br-delete" || action === "br-resolve") {
+        upd((r) => {
+            const c = r.comments.find((x) => x.id === extra.id);
+            if (!c) throw httpError(404, "That comment is gone.");
+            if (action === "br-delete") r.comments = r.comments.filter((x) => x !== c);
+            else c.status = "resolved";
+        });
+    } else if (action === "br-reviewed") {
+        if (!sha) throw httpError(400, "Load the branch first.");
+        upd((r, s) => { r.reviewedHead = sha; s.snoozeUntil = null; addHistory(s, `You reviewed the branch at ${sha.slice(0, 7)}`); });
+    } else if (action === "br-send") {
+        const pending = (card.local?.branchReview?.comments || []).filter((c) => c.status === "pending");
+        if (!pending.length) throw httpError(400, "There are no unsent comments.");
+        if (!card.local?.session?.id) throw httpError(409, "No session is linked to this issue, so there's nobody to send them to.");
+        const ids = new Set(pending.map((c) => c.id));
+        upd((r, s) => {
+            for (const c of r.comments) if (ids.has(c.id)) { c.status = "sent"; c.sentAt = nowIso(); }
+            r.sentHead = sha || r.sentHead || null;
+            r.sentAt = nowIso();
+            userActed(s);
+            s.pending = { id: "br-send", at: nowIso() };
+            note(s, `You sent ${pending.length} branch comment${pending.length === 1 ? "" : "s"} to the agent`);
+        });
+        await send(branchCommentsPrompt(card, repo, { branch: card.local.branch, head: sha, comments: pending }), repo, number, { quiet: true, kind: "issue" });
+    } else if (action === "br-open-pr") {
+        const draft = extra.draft !== false;
+        upd((r, s) => { userActed(s); s.pending = { id: "open-pr", at: nowIso() }; note(s, `You asked the agent to open a ${draft ? "draft " : ""}PR`); });
+        await send(openBranchPrPrompt(card, repo, { draft, branch: card.local?.branch }), repo, number, { quiet: true, kind: "issue" });
+    }
+    board(repo).broadcast();
     return { ok: true };
 }
 
@@ -427,6 +479,31 @@ async function githubView(repo, kind, n, force) {
     return inflight;
 }
 
+// Private branch review: the diff of an issue's branch that has no PR yet. Cached briefly.
+const branchCache = new Map();
+async function branchView(repo, issue, force) {
+    const b = board(repo);
+    if (!b.data) await b.refresh();
+    const card = b.issueCard(issue);
+    const branch = card?.local?.branch;
+    if (!branch) throw httpError(404, `Issue #${issue} has no branch linked on the board.`);
+    const shas = (card.local.branchReview?.comments || []).map((c) => c.sha);
+    const key = `${repo}#${issue}:${branch}:${[...new Set(shas)].sort().join(",")}`;
+    const hit = branchCache.get(key);
+    if (hit?.inflight) return hit.inflight;
+    if (hit?.data && !force && Date.now() - hit.at < 60_000) return hit.data;
+    const inflight = fetchBranchCompare(repo, b.data.defaultBranch || "main", branch, shas).then((data) => {
+        branchCache.set(key, { data, at: Date.now() });
+        if (branchCache.size > 20) branchCache.delete(branchCache.keys().next().value);
+        return data;
+    }).catch((e) => {
+        branchCache.delete(key);
+        throw httpError(502, e.message);
+    });
+    branchCache.set(key, { ...(hit || {}), inflight });
+    return inflight;
+}
+
 async function requestSync(repo) {
     const b = board(repo);
     if (!b.data) await b.refresh();
@@ -584,6 +661,12 @@ async function handle(req, res) {
         if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
         return json(200, await prDetail(repo, pr));
     }
+    if (req.method === "GET" && url.pathname === "/api/branch") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const n = Number(url.searchParams.get("issue"));
+        if (!Number.isInteger(n) || n <= 0) throw httpError(400, "Invalid issue number");
+        return json(200, await branchView(repo, n, url.searchParams.get("force") === "1"));
+    }
     if (req.method === "GET" && url.pathname === "/api/github") {
         const repo = checkRepo(url.searchParams.get("repo"));
         const n = Number(url.searchParams.get("n"));
@@ -634,7 +717,7 @@ async function handle(req, res) {
         if (url.pathname === "/api/action") {
             const pr = Number(body.pr);
             if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
-            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer, findingId: body.findingId, key: body.key, until: body.until, choice: body.choice, what: body.what, kind: body.kind === "issue" ? "issue" : "pr" } }));
+            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer, findingId: body.findingId, key: body.key, until: body.until, choice: body.choice, what: body.what, comment: body.comment, id: body.id, draft: body.draft, head: body.head, kind: body.kind === "issue" ? "issue" : "pr" } }));
         }
         if (url.pathname === "/api/triage") {
             const pr = Number(body.pr);

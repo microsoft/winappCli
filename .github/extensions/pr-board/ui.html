@@ -347,6 +347,51 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 .gh-tc + .gh-tc { border-top: 1px solid var(--hairline); }
 .gh-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .gh-loading { display: flex; align-items: center; gap: var(--s2); }
+.br { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+.br-top { display: flex; flex-direction: column; gap: var(--s2); }
+.br-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--t-small); }
+.br-line code { font-size: var(--t-meta); }
+.br-line a .i, .br-line button .i { vertical-align: -2px; }
+.br-banner { display: flex; align-items: center; gap: 6px; padding: 6px var(--s3); border-radius: 6px; font-size: var(--t-small); background: color-mix(in srgb, var(--blue) 12%, transparent); }
+.br-acts { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+.br-sec { display: flex; flex-direction: column; gap: var(--s2); }
+.br-sec h3 { margin: 0; font-size: var(--t-small); font-weight: var(--w-strong); }
+details.br-sec > summary, .br-commits > summary, .df > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--s2); font-size: var(--t-small); min-width: 0; }
+details.br-sec > summary::-webkit-details-marker, .br-commits > summary::-webkit-details-marker, .df > summary::-webkit-details-marker { display: none; }
+.br-commits ul { list-style: none; margin: 6px 0 0 22px; padding: 0; font-size: var(--t-small); display: flex; flex-direction: column; gap: 2px; }
+.br-commits .sha { font-family: var(--font-mono, Consolas, monospace); font-size: var(--t-meta); margin-right: 6px; }
+.br-files { display: flex; flex-direction: column; gap: var(--s2); }
+.br .add { color: var(--green); font-size: var(--t-meta); } .br .del { color: var(--red); font-size: var(--t-meta); }
+.df { border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.df > summary { padding: 6px var(--s3); position: sticky; top: 0; background: var(--bg, var(--background-color-default)); border-radius: 8px; z-index: 1; }
+.df[open] > summary { border-bottom: 1px solid var(--hairline); border-radius: 8px 8px 0 0; }
+.df-k { font-family: var(--font-mono, Consolas, monospace); font-size: var(--t-meta); width: 16px; text-align: center; border-radius: 3px; color: var(--muted); border: 1px solid var(--hairline); }
+.df-k.k-A { color: var(--green); } .df-k.k-D { color: var(--red); }
+.df-p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-family: var(--font-mono, Consolas, monospace); font-size: var(--t-meta); }
+.dt-wrap { overflow-x: auto; container-type: inline-size; }
+.dt tr.cm-row .br-cm, .dt tr.cm-row .br-comp { position: sticky; left: var(--s3); max-width: min(80ch, calc(100cqw - 2 * var(--s3))); box-sizing: border-box; }
+.dt { border-collapse: collapse; width: 100%; font-family: var(--font-mono, Consolas, monospace); font-size: 12px; line-height: 18px; }
+.dt td { padding: 0; vertical-align: top; }
+.dt .ln { width: 1%; min-width: 34px; padding: 0 6px; text-align: right; color: var(--muted); user-select: none; cursor: pointer; white-space: nowrap; }
+.dt .ln:hover { color: var(--blue); background: color-mix(in srgb, var(--blue) 14%, transparent); }
+.dt .tx { white-space: pre; padding-right: var(--s3); }
+.dt .mk { display: inline-block; width: 14px; color: var(--muted); user-select: none; }
+.dt tr.a .tx, .dt tr.a .ln { background: color-mix(in srgb, var(--green) 14%, transparent); }
+.dt tr.d .tx, .dt tr.d .ln { background: color-mix(in srgb, var(--red) 14%, transparent); }
+.dt tr.sel td { background: color-mix(in srgb, var(--yellow) 26%, transparent) !important; }
+.dt tr.dh td { padding: 2px var(--s3); color: var(--muted); background: color-mix(in srgb, var(--blue) 7%, transparent); }
+.dt tr.cm-row > td { padding: 6px var(--s3); font-family: var(--font-sans, inherit); font-size: var(--t-small); line-height: 1.5; white-space: normal; background: color-mix(in srgb, var(--fg) 3%, transparent); }
+.br-cm { border: 1px solid var(--border); border-radius: 6px; padding: 6px var(--s3); background: var(--bg, var(--background-color-default)); display: flex; flex-direction: column; gap: 4px; max-width: 80ch; }
+.br-cm + .br-cm { margin-top: 6px; }
+.br-cm-h { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-size: var(--t-meta); }
+.br-cm-h .gh-when { margin-left: auto; }
+.br-cm.st-resolved, .br-cm.st-outdated { opacity: .75; }
+.br-cm .mono { font-family: var(--font-mono, Consolas, monospace); }
+.br-comp { display: flex; flex-direction: column; gap: 6px; max-width: 80ch; }
+.br-comp textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 6px var(--s2); border: 1px solid var(--border); border-radius: 6px; background: var(--bg, var(--background-color-default)); color: var(--fg); resize: vertical; }
+.br-comp .btns { display: flex; gap: var(--s2); }
+.br-early { display: flex; flex-direction: column; gap: 4px; }
+.br-nodiff { padding: var(--s2) var(--s3); }
 .files { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
 .files td { padding: 6px; border-bottom: 1px solid var(--hairline); }
 .files td.path { font-family: var(--mono); font-size: var(--t-meta); word-break: break-all; }
@@ -856,7 +901,7 @@ function sinceLine(c) {
 }
 
 const cardsOf = () => snap?.cards || [];
-const current = () => cardsOf().find((c) => c.number === selected) || null;
+const current = () => cardsOf().find((c) => c.number === selected) || issuesOf().find((c) => c.number === selected) || null;
 const isBusy = (c) => c.local?.agent?.status === "running";
 const draftOf = (c) => (c.local?.draft && !c.local.draft.postedAt) ? c.local.draft : null;
 const canShip = (c) => c.group !== "merged" && !c.queue && c.reviewDecision === "APPROVED" && c.ci?.state !== "failing" && !isBusy(c);
@@ -1061,7 +1106,7 @@ async function loadGitHubView(kind, n, force = false) {
 }
 function rerenderGitHub(kind, n) {
   if (fly && fly.kind === kind && fly.number === n) renderFlyout();
-  if (kind === "pr" && current()?.number === n) render();
+  if (current()?.number === n && view === "detail") render();
 }
 
 const GH_REVIEW = { APPROVED: ["checkCircle", "tone-ok", "approved these changes"], CHANGES_REQUESTED: ["xCircle", "tone-bad", "requested changes"], COMMENTED: ["comment", "tone-mute", "reviewed"], DISMISSED: ["dash", "tone-mute", "review was dismissed"], PENDING: ["clock", "tone-mute", "has a pending review"] };
@@ -1491,6 +1536,288 @@ let detailTimer = null;
 // Arrow-key browsing shouldn't fetch every PR it passes; wait until the selection settles.
 const scheduleDetail = (c) => { clearTimeout(detailTimer); detailTimer = setTimeout(() => loadDetail(c), 250); };
 
+// ---- Branch review: private comments on an issue's branch before a PR exists ----
+// Comments live on the board and go only to the agent. The diff is the branch against the default branch.
+const hasBranch = (c) => c?.kind === "issue" && !!c.branch && (!c.pr || c.pr.state === "closed");
+const branchViews = new Map(); // issue number -> { loading } | { data, at } | { error }
+const brHead = (c) => branchViews.get(c.number)?.data?.head || c.branchHead || null;
+const brComments = (c) => c.local?.branchReview?.comments || [];
+let brDraft = null; // { n, file, side, start, end, excerpt, text } or { n, note: true, text }
+let brSel = null;   // drag selection in progress: { n, file, side, a, b }
+let brPrMenu = null;
+async function loadBranch(n, force = false) {
+  const cur = branchViews.get(n);
+  if (cur?.loading) return;
+  if (cur?.data && !force && Date.now() - cur.at < 60_000) return;
+  branchViews.set(n, { ...(cur || {}), loading: true });
+  try {
+    const res = await fetch(`/api/branch?repo=${encodeURIComponent(REPO)}&issue=${n}${force ? "&force=1" : ""}`);
+    const data = await res.json();
+    branchViews.set(n, res.ok ? { data, at: Date.now() } : { error: data.error || "HTTP " + res.status, data: cur?.data, at: cur?.at });
+  } catch (e) { branchViews.set(n, { error: e.message, data: cur?.data, at: cur?.at }); }
+  if (fly?.kind === "issue" && fly.number === n) renderFlyout();
+  if (view === "detail" && current()?.kind === "issue" && current().number === n) render();
+}
+
+// Where a comment stands now that the branch may have moved on.
+function brState(cm, v) {
+  if (cm.status === "resolved") return "resolved";
+  if (!v || cm.sha === v.head) return cm.status === "pending" ? "pending" : "sent";
+  const cs = v.changedSince?.[cm.sha];
+  if (cs === null) return "outdated";
+  if (!cs) return cm.status === "pending" ? "pending" : "sent";
+  const touched = !cm.file || cs.files.includes(cm.file);
+  if (cm.status === "pending") return touched ? "outdated" : "pending";
+  return touched ? "changed" : "unchanged";
+}
+const BR_STATE = { pending: ["you", "Not sent"], sent: ["agent", "Sent to the agent"], changed: ["ok", "Changed since: check it"], unchanged: ["neutral", "Not changed yet"], outdated: ["neutral", "Outdated"], resolved: ["ok", "Resolved"] };
+
+function branchBall(c, running) {
+  const r = c.local?.branchReview;
+  if (!r) return null;
+  const cs = r.comments || [];
+  const pend = cs.filter((x) => x.status === "pending");
+  if (pend.length) return { st: "ready", ask: `Send ${pend.length} comment${pend.length === 1 ? "" : "s"} to the agent`, brSend: pend.length, since: pend.at(-1).at };
+  const sent = cs.filter((x) => x.status === "sent");
+  const head = brHead(c);
+  if (sent.length && r.sentHead && head && head !== r.sentHead && head !== r.reviewedHead) return { st: "ready", ask: "Re-review the changes: the agent pushed", brReview: true, since: r.sentAt };
+  if (sent.length && running && (!head || head === r.sentHead)) return { st: "agent", ask: `Addressing your ${sent.length} comment${sent.length === 1 ? "" : "s"}`, since: r.sentAt };
+  return null;
+}
+
+function parsePatch(p) {
+  const rows = [];
+  let o = 0, n = 0;
+  for (const line of String(p || "").split("\n")) {
+    const h = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (h) { o = +h[1]; n = +h[2]; rows.push({ t: "h", text: line }); continue; }
+    if (line.startsWith("\\")) continue;
+    if (line[0] === "+") rows.push({ t: "a", n: n++, text: line.slice(1) });
+    else if (line[0] === "-") rows.push({ t: "d", o: o++, text: line.slice(1) });
+    else rows.push({ t: "c", o: o++, n: n++, text: line.slice(1) });
+  }
+  return rows;
+}
+const rowLine = (r, side) => (side === "old" ? r.o : r.n);
+const rowSide = (r) => (r.t === "d" ? "old" : "new");
+
+function brCommentCard(c, cm, v) {
+  const st = brState(cm, v);
+  const [tone, label] = BR_STATE[st];
+  const where = cm.file ? `${cm.file.split("/").pop()}:${cm.start}${cm.end !== cm.start ? "–" + cm.end : ""}` : "";
+  return `<div class="br-cm st-${st}"><div class="br-cm-h"><span class="chip ${tone}">${esc(label)}</span>${where ? `<span class="tone-mute mono">${esc(where)}</span>` : ""}<span class="gh-when" title="${esc(new Date(cm.at).toLocaleString())}">${esc(ago(cm.at) === "just now" ? "just now" : ago(cm.at) + " ago")} · ${esc(String(cm.sha || "").slice(0, 7))}</span>
+    ${cm.status === "pending" ? `<button class="quiet" data-act="br-delete" data-pr="${c.number}" data-id="${esc(cm.id)}">Delete</button>` : st !== "resolved" ? `<button class="quiet" data-act="br-resolve" data-pr="${c.number}" data-id="${esc(cm.id)}" title="Mark it handled">Resolve</button>` : ""}</div>
+    <div class="md">${md(cm.text)}</div></div>`;
+}
+
+function brComposer(c, label) {
+  return `<div class="br-comp"><div class="hint">${esc(label)} · private, only the agent sees it</div>
+    <textarea id="brText" rows="3" placeholder="Write a comment (Markdown). Ctrl+Enter adds it." aria-label="${esc(label)}">${esc(brDraft?.text || "")}</textarea>
+    <div class="btns"><button class="primary" data-act="br-save" data-pr="${c.number}">Add comment</button><button class="quiet" data-act="br-cancel" data-pr="${c.number}">Cancel</button></div></div>`;
+}
+
+function brFileHtml(c, f, v, inline) {
+  const mine = inline.filter((cm) => cm.file === f.path);
+  const big = f.additions + f.deletions > 800;
+  const open = !big || mine.length || (brDraft?.n === c.number && brDraft.file === f.path);
+  const kind = { added: "A", removed: "D", renamed: "R", modified: "M" }[f.status] || "M";
+  let body;
+  if (!f.patch) body = `<div class="hint br-nodiff">No diff to show (binary or too large). ${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">View the file on GitHub</a>` : ""}</div>`;
+  else {
+    const rows = parsePatch(f.patch);
+    const ends = new Map();
+    for (const cm of mine) { const k = `${cm.side}:${cm.end}`; (ends.get(k) || ends.set(k, []).get(k)).push(cm); }
+    const draftHere = brDraft && !brDraft.note && brDraft.n === c.number && brDraft.file === f.path ? `${brDraft.side}:${brDraft.end}` : null;
+    const out = [];
+    rows.forEach((r, i) => {
+      if (r.t === "h") { out.push(`<tr class="dh"><td colspan="3">${esc(r.text)}</td></tr>`); return; }
+      const side = rowSide(r);
+      const sel = brDraft && !brDraft.note && brDraft.n === c.number && brDraft.file === f.path && ((r.t === "c" || side === brDraft.side) && rowLine(r, brDraft.side) >= brDraft.start && rowLine(r, brDraft.side) <= brDraft.end);
+      out.push(`<tr class="dl ${r.t}${sel ? " sel" : ""}" data-i="${i}" data-o="${r.o ?? ""}" data-n="${r.n ?? ""}"><td class="ln" title="Click or drag to comment">${r.o ?? ""}</td><td class="ln" title="Click or drag to comment">${r.n ?? ""}</td><td class="tx"><span class="mk">${r.t === "a" ? "+" : r.t === "d" ? "-" : " "}</span>${esc(r.text)}</td></tr>`);
+      for (const k of [r.t === "d" ? `old:${r.o}` : `new:${r.n}`, ...(r.t === "c" ? [`old:${r.o}`] : [])]) {
+        const list = ends.get(k);
+        if (list) { out.push(`<tr class="cm-row"><td colspan="3">${list.map((cm) => brCommentCard(c, cm, v)).join("")}</td></tr>`); ends.delete(k); }
+        if (draftHere === k) out.push(`<tr class="cm-row"><td colspan="3">${brComposer(c, `Comment on line${brDraft.start === brDraft.end ? ` ${brDraft.start}` : `s ${brDraft.start}–${brDraft.end}`}`)}</td></tr>`);
+      }
+    });
+    // Comments on lines outside the shown hunks still belong to this file: show them first.
+    const stray = [...ends.values()].flat();
+    if (stray.length) out.unshift(`<tr class="cm-row"><td colspan="3"><div class="hint">On lines outside the changes shown here:</div>${stray.map((cm) => brCommentCard(c, cm, v)).join("")}</td></tr>`);
+    body = `<div class="dt-wrap"><table class="dt" data-file="${esc(f.path)}" data-pr="${c.number}"><tbody>${out.join("")}</tbody></table></div>`;
+  }
+  return `<details class="df" ${open ? "open" : ""}><summary>${icon("chevRight", "sm chev")}<span class="df-k k-${kind}" title="${esc(f.status)}">${kind}</span><span class="df-p" title="${esc(f.path)}">${esc(f.path)}</span>${mine.length ? `<span class="chip you">${icon("comment", "sm")}${mine.length}</span>` : ""}<span class="add">+${f.additions}</span><span class="del">−${f.deletions}</span>${big && !open ? `<span class="tone-mute">large, click to show</span>` : ""}</summary>${body}</details>`;
+}
+
+function branchViewHtml(c) {
+  const n = c.number;
+  const bv = branchViews.get(n);
+  if (!bv || (!bv.data && bv.loading)) { setTimeout(() => loadBranch(n)); return `<div class="hint gh-loading">${spinner("Loading")} Loading branch <code>${esc(c.branch)}</code>…</div>`; }
+  if (!bv.data) return `<div class="hint">Couldn't load branch <code>${esc(c.branch)}</code>: ${esc(bv.error)} <button data-act="br-refresh" data-pr="${n}">Try again</button></div>`;
+  const v = bv.data;
+  if ((c.branchHead && c.branchHead !== v.head) || (Date.now() - bv.at > 60_000 && !bv.loading)) setTimeout(() => loadBranch(n, c.branchHead && c.branchHead !== v.head));
+  const r = c.local?.branchReview || {};
+  const cms = brComments(c);
+  const live = cms.filter((cm) => brState(cm, v) !== "resolved");
+  const resolved = cms.filter((cm) => brState(cm, v) === "resolved");
+  const paths = new Set(v.files.map((f) => f.path));
+  const isInline = (cm) => cm.file && paths.has(cm.file) && ["pending", "sent", "unchanged"].includes(brState(cm, v));
+  const inline = live.filter(isInline);
+  const notes = live.filter((cm) => !cm.file);
+  const earlier = live.filter((cm) => cm.file && !isInline(cm));
+  const pend = cms.filter((cm) => cm.status === "pending").length;
+  const lastSha = [...cms].reverse().find((cm) => cm.status !== "resolved" && cm.sha)?.sha;
+  const moved = lastSha && lastSha !== v.head ? v.changedSince?.[lastSha] : undefined;
+  const banner = moved === null ? `<div class="br-banner">${icon("reset", "sm")}<span>The branch was rewritten since your comments, so some may no longer line up.</span></div>`
+    : moved ? `<div class="br-banner">${icon("pr", "sm")}<span><b>${moved.commits} new commit${moved.commits === 1 ? "" : "s"}</b> since your comments. Files you commented on that changed say "Changed since".</span></div>` : "";
+  const reReview = branchBall(c, false)?.brReview;
+  const tot = v.files.reduce((a, f) => [a[0] + f.additions, a[1] + f.deletions], [0, 0]);
+  return `<div class="br">
+    <div class="br-top">
+      <div class="br-line">${icon("pr", "sm tone-mute")}<code>${esc(v.branch)}</code><span class="tone-mute">→</span><code>${esc(v.base)}</code><span class="tone-mute">· ${v.aheadBy} commit${v.aheadBy === 1 ? "" : "s"} ahead, ${v.behindBy} behind</span>
+        <a href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">Compare on GitHub ${icon("external", "sm")}</a><button class="quiet" data-act="br-refresh" data-pr="${n}">${icon("refresh", "sm")}Refresh</button></div>
+      ${banner}
+      <div class="br-acts">
+        <button class="${pend ? "primary" : ""}" data-act="br-send" data-pr="${n}" ${pend ? "" : "disabled"}>Send ${pend || ""} comment${pend === 1 ? "" : "s"} to the agent</button>
+        ${reReview ? `<button data-act="br-reviewed" data-pr="${n}" title="You've looked at the new commits">Mark reviewed</button>` : ""}
+        <span class="br-pr">${brPrMenu === n ? `<span class="snooze-opts" role="group" aria-label="Open the PR as"><button data-act="br-open-pr" data-pr="${n}" data-draft="1">Draft PR</button><button data-act="br-open-pr" data-pr="${n}" data-draft="0">Ready for review</button></span>` : `<button data-act="br-pr-menu" data-pr="${n}" aria-expanded="false">Open PR ▾</button>`}</span>
+      </div>
+      <div class="hint">Private review: nothing here goes to GitHub. Click a line number, or drag over several, to comment. <b>Send</b> passes your comments to the linked session, which fixes them and pushes.</div>
+    </div>
+    <section class="br-sec"><h3>Overall notes</h3>
+      ${notes.map((cm) => brCommentCard(c, cm, v)).join("")}
+      ${brDraft?.n === n && brDraft.note ? brComposer(c, "Overall note") : `<button class="quiet" data-act="br-note" data-pr="${n}">${icon("comment", "sm")}Add an overall note</button>`}
+    </section>
+    ${earlier.length ? `<section class="br-sec"><h3>Comments on earlier commits</h3>${earlier.map((cm) => `<div class="br-early">${cm.excerpt ? `<pre class="gh-hunk">${esc(cm.excerpt)}</pre>` : ""}${brCommentCard(c, cm, v)}</div>`).join("")}</section>` : ""}
+    <details class="br-commits"><summary>${icon("chevRight", "sm chev")}${v.commits.length} commit${v.commits.length === 1 ? "" : "s"}</summary><ul>${v.commits.map((k) => `<li><a class="sha" href="${esc(k.url)}" target="_blank" rel="noopener noreferrer">${esc(k.sha.slice(0, 7))}</a> ${esc(k.message)} <span class="tone-mute">· ${esc(k.author)} · ${esc(ago(k.at))} ago</span></li>`).join("")}</ul></details>
+    <div class="br-files"><div class="hint">${v.files.length} file${v.files.length === 1 ? "" : "s"} changed · <span class="add">+${tot[0]}</span> <span class="del">−${tot[1]}</span></div>
+      ${v.files.map((f) => brFileHtml(c, f, v, inline)).join("")}</div>
+    ${resolved.length ? `<details class="br-sec"><summary>${icon("chevRight", "sm chev")}${resolved.length} resolved comment${resolved.length === 1 ? "" : "s"}</summary>${resolved.map((cm) => brCommentCard(c, cm, v)).join("")}</details>` : ""}
+  </div>`;
+}
+
+// The diff is big, so keep its DOM (scroll, open files, a half-typed comment) across live re-renders.
+const brSlotKey = (c) => { const bv = branchViews.get(c.number); return [c.number, bv?.data?.fetchedAt || (bv?.error ? "err" : "loading"), JSON.stringify(brComments(c).map((x) => x.id + x.status)), c.local?.branchReview?.reviewedHead, c.local?.branchReview?.sentHead, c.branchHead, brDraft && brDraft.n === c.number ? [brDraft.file, brDraft.side, brDraft.start, brDraft.end, brDraft.note].join(",") : "", brPrMenu === c.number].join("|"); };
+const branchSlot = (c) => `<div class="br-slot" data-k="${esc(brSlotKey(c))}"></div>`;
+function fillBrSlot(container, oldSlot, c) {
+  const slot = container.querySelector(".br-slot");
+  if (!slot) return;
+  if (oldSlot && oldSlot.dataset.k === slot.dataset.k) slot.replaceWith(oldSlot);
+  else slot.innerHTML = branchViewHtml(c);
+  const ta = container.querySelector("#brText");
+  if (ta && brDraft?.focus) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); brDraft.focus = false; }
+}
+const rerenderBranch = () => render();
+
+async function brAct(c, action, extra = {}, okMsg) {
+  try { await post("/api/action", { pr: c.number, kind: "issue", action, head: brHead(c), ...extra }); if (okMsg) toast(okMsg); return true; }
+  catch (e) { toast("Couldn't do that: " + e.message); return false; }
+}
+
+// Click a line number, or drag across several, to start a comment.
+document.addEventListener("mousedown", (e) => {
+  const ln = e.target.closest?.(".dt .ln");
+  if (!ln || e.button !== 0) return;
+  const tr = ln.closest("tr.dl"), table = ln.closest("table.dt");
+  e.preventDefault();
+  const side = tr.classList.contains("d") ? "old" : "new";
+  brSel = { n: Number(table.dataset.pr), file: table.dataset.file, side, table, a: tr, b: tr };
+  paintSel();
+});
+document.addEventListener("mouseover", (e) => {
+  if (!brSel) return;
+  const tr = e.target.closest?.("tr.dl");
+  if (!tr || tr.closest("table") !== brSel.table) return;
+  if (!tr.classList.contains("c") && (tr.classList.contains("d") ? "old" : "new") !== brSel.side) return;
+  brSel.b = tr;
+  paintSel();
+});
+document.addEventListener("mouseup", () => {
+  if (!brSel) return;
+  const s = brSel; brSel = null;
+  const rows = selRows(s);
+  const key = s.side === "old" ? "o" : "n";
+  const nums = rows.map((r) => Number(r.dataset[key])).filter((x) => x > 0);
+  if (!nums.length) { paintSel(); return; }
+  const excerpt = rows.map((r) => r.querySelector(".tx").textContent).slice(0, 30).join("\n");
+  brDraft = { n: s.n, file: s.file, side: s.side, start: Math.min(...nums), end: Math.max(...nums), excerpt, text: brDraft?.text && brDraft.file === s.file ? brDraft.text : "", focus: true };
+  rerenderBranch();
+});
+function selRows(s) {
+  const all = [...s.table.querySelectorAll("tr.dl")];
+  let i = all.indexOf(s.a), j = all.indexOf(s.b);
+  if (i > j) [i, j] = [j, i];
+  return all.slice(i, j + 1).filter((r) => r.classList.contains("c") || (r.classList.contains("d") ? "old" : "new") === s.side);
+}
+function paintSel() {
+  for (const r of document.querySelectorAll("tr.dl.sel")) r.classList.remove("sel");
+  if (brSel) for (const r of selRows(brSel)) r.classList.add("sel");
+}
+document.addEventListener("input", (e) => { if (e.target.id === "brText" && brDraft) brDraft.text = e.target.value; });
+document.addEventListener("keydown", (e) => {
+  if (e.target.id !== "brText") return;
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.target.closest(".br-comp")?.querySelector('[data-act="br-save"]')?.click(); }
+  if (e.key === "Escape") { e.stopPropagation(); brDraft = null; rerenderBranch(); }
+}, true);
+
+async function brClick(a, el, n) {
+  const c = itemOf("issue", n);
+  if (!c) return;
+  if (a === "br-refresh") return loadBranch(n, true);
+  if (a === "br-note") { brDraft = { n, note: true, text: "", focus: true }; return rerenderBranch(); }
+  if (a === "br-cancel") { brDraft = null; return rerenderBranch(); }
+  if (a === "br-pr-menu") { brPrMenu = brPrMenu === n ? null : n; rerenderBranch(); return document.querySelector('[data-act="br-open-pr"]')?.focus(); }
+  if (a === "br-save") {
+    const d = brDraft;
+    const text = (document.getElementById("brText")?.value || d?.text || "").trim();
+    if (!d || !text) return toast("Write a comment first.");
+    const comment = d.note ? { text } : { file: d.file, side: d.side, start: d.start, end: d.end, excerpt: d.excerpt, text };
+    if (await brAct(c, "br-add", { comment })) { brDraft = null; toast("Comment saved. It stays private until you send it to the agent."); }
+    return;
+  }
+  if (a === "br-delete") return brAct(c, "br-delete", { id: el.dataset.id }, "Comment deleted");
+  if (a === "br-resolve") return brAct(c, "br-resolve", { id: el.dataset.id }, "Marked resolved");
+  if (a === "br-reviewed") return brAct(c, "br-reviewed", {}, "Marked the new commits reviewed");
+  if (a === "br-send") return brAct(c, "br-send", {}, "Sent your comments to the agent");
+  if (a === "br-open-pr") { brPrMenu = null; snoozeOpen = null; return brAct(c, "br-open-pr", { draft: el.dataset.draft !== "0" }, `Asked the agent to open a ${el.dataset.draft !== "0" ? "draft " : ""}PR`); }
+  if (a === "br-open") {
+    if (fly?.kind === "issue" && fly.number === n) { flyTab = "changes"; renderFlyout(); return; }
+    if (view === "detail") { tab = "changes"; store.set("prb-tab", tab); return select(n, { tabTo: "changes" }); }
+    flyTab = "changes"; return openFlyout("issue", n, el);
+  }
+}
+
+// ---- Issue detail view: Changes (the branch), GitHub and Thread ----
+const issueTabs = (c) => [...(hasBranch(c) ? [["changes", "Changes"]] : []), ["github", "GitHub"], ["thread", "Thread"]];
+const issueTabOf = (c) => { const ids = issueTabs(c).map(([id]) => id); return ids.includes(tab) ? tab : ids[0]; };
+function renderIssueHead(c) {
+  const t = issueTabOf(c);
+  const cnt = { changes: brComments(c).filter((x) => x.status !== "resolved").length || "", thread: (c.local?.thread || []).filter((m) => m.role !== "system").length || "" };
+  $("wsHead").innerHTML = `
+    <h2>${esc(c.title)} <a href="${esc(c.url)}" target="_blank" rel="noopener" title="Open on GitHub">#${c.number}</a></h2>
+    <div class="ws-meta">
+      <span><img class="avatar" alt="" src="https://github.com/${encodeURIComponent(c.author)}.png?size=32" onerror="this.remove()"> ${esc(c.author)}</span>
+      <span>Issue</span>
+      ${c.branch ? `<span>${icon("pr", "sm tone-mute")} <code>${esc(c.branch)}</code></span>` : ""}
+      ${issuePrChipInner(c)}
+    </div>
+    ${ballLine(c)}
+    <div class="tabs" role="tablist" aria-label="Issue views">${issueTabs(c).map(([id, label]) => `<button role="tab" aria-controls="wsScroll" aria-selected="${t === id}" tabindex="${t === id ? 0 : -1}" data-act="tab" data-tab="${id}">${label}${cnt[id] ? ` <span class="n">${cnt[id]}</span>` : ""}</button>`).join("")}</div>`;
+}
+let lastIssueKey = null;
+function renderIssueScroll(c, force) {
+  const t = issueTabOf(c);
+  const key = JSON.stringify([c.number, t, t === "changes" ? brSlotKey(c) : "", t === "github" ? ghSlotKey("issue", c.number) : "", (c.local?.thread || []).length, c.local?.pending?.id, c.updatedAt]);
+  if (!force && key === lastIssueKey) return;
+  lastIssueKey = key;
+  const sc = $("wsScroll");
+  const prevTop = sc.scrollTop;
+  const oldBr = sc.querySelector(".br-slot"), oldGh = sc.querySelector(".gh-slot");
+  sc.innerHTML = t === "changes" ? branchSlot(c) : t === "github" ? `<div class="gh-slot" data-k="${esc(ghSlotKey("issue", c.number))}"></div>` : threadHtml(c);
+  if (t === "changes") fillBrSlot(sc, oldBr, c);
+  if (t === "github") fillGhSlot(sc, oldGh, "issue", c.number);
+  sc.scrollTop = force ? (t === "thread" ? sc.scrollHeight : 0) : prevTop;
+}
+
 // ---- Who has the ball ----
 // Three signals per row: the ball (exactly one state), activity (a spinner) and unread (a dot). Opening an item
 // clears only the dot; "your move" states stay until you act, or press Done or Snooze.
@@ -1532,6 +1859,8 @@ function deriveBall(c, skipYou) {
   const running = l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending;
   if (c.section === "merged" || (issue && c.state && c.state !== "OPEN")) return { st: "quiet", ask: c.section === "merged" ? "Merged" : "Closed", since: c.mergedAt || c.updatedAt };
   if (!skipYou && q) return { st: "decide", ask: q.question, choices: q.choices || [], question: true, since: l.sync?.at };
+  // Private branch review: unsent comments, or new commits after you sent some, are your move.
+  if (issue && hasBranch(c)) { const bb = branchBall(c, running); if (bb && !(skipYou && BALL[bb.st].you)) return bb; }
   // A review you sent on GitHub after the agent handed you the step counts as acting on it.
   if (nx && !(skipYou && nx.owner === "you") && !(nx.owner === "you" && tsOf(c.myReviewAt) > tsOf(nx.at))) {
     if (nx.owner === "you") return { st: nx.blocked ? "blocked" : nx.choices?.length ? "decide" : "ready", ask: nx.action, choices: nx.choices || [], explicit: true, since: nx.at };
@@ -1598,12 +1927,15 @@ function moveButtons(c, b, { withDone = true } = {}) {
   if (b.st === "decide" && b.question) out.push(...(b.choices || []).slice(0, 3).map((x, i) => `<button class="${i ? "" : "primary"}" data-act="answer" ${at} data-answer="${esc(x)}">${esc(x)}</button>`));
   else if (b.st === "decide" && b.explicit) out.push(...(b.choices || []).slice(0, 3).map((x, i) => `<button class="${i ? "" : "primary"}" data-act="choose" ${at} data-choice="${esc(x)}">${esc(x)}</button>`));
   if (b.st === "decide" && (b.reply || b.question || !b.choices?.length)) out.push(`<button class="${out.length ? "" : "primary"}" data-act="ball-reply" ${at}>Reply…</button>`);
-  if (b.st === "ready" && b.post) out.push(`<button class="primary" data-act="ball-post" ${at}>Post review…</button>`);
+  if (b.st === "ready" && b.brSend) out.push(`<button class="primary" data-act="br-send" ${at}>Send ${b.brSend} comment${b.brSend === 1 ? "" : "s"}</button><button data-act="br-open" ${at}>Open the diff</button>`);
+  else if (b.st === "ready" && b.brReview) out.push(`<button class="primary" data-act="br-open" ${at}>Re-review</button>`);
+  else if (b.st === "ready" && b.post) out.push(`<button class="primary" data-act="ball-post" ${at}>Post review…</button>`);
   else if (b.st === "ready" && b.postDraft) out.push(`<button class="primary" data-act="row-post" ${at}>Post review</button>`);
   else if (b.st === "ready" && b.review) out.push(`<button class="primary" data-act="review" ${at} title="${esc(REVIEW_TIP)}">${/re-review/i.test(b.ask) ? "Re-review" : "Review"}</button>`);
   else if (b.st === "ready") out.push(`<button class="primary" data-act="flyout" ${at}>Open</button>`);
   if (b.st === "blocked") out.push(`<button class="primary" data-act="fix" ${at} data-what="${esc(b.ask)}">Ask the agent to fix</button>`);
-  if (b.st === "nextpr") out.push(`<button class="primary" data-act="open-pr" ${at}>Open a PR</button>`);
+  if (b.st === "nextpr" && kind === "issue") out.push(brPrMenu === c.number ? `<span class="snooze-opts" role="group" aria-label="Open the PR as"><button class="primary" data-act="br-open-pr" ${at} data-draft="1">Draft PR</button><button data-act="br-open-pr" ${at} data-draft="0">Ready for review</button></span>` : `<button class="primary" data-act="br-pr-menu" ${at}>Open a PR ▾</button>`);
+  else if (b.st === "nextpr") out.push(`<button class="primary" data-act="open-pr" ${at}>Open a PR</button>`);
   if (withDone && BALL[b.st].you) {
     out.push(`<button class="quiet" data-act="ball-done" ${at} data-key="${esc(ballKey(c, b))}" title="I've handled this. It comes back if something changes.">Done</button>`);
     out.push(snoozeOpen === `${kind}:${c.number}`
@@ -1742,7 +2074,7 @@ function ovRow(c, sec) {
 // ---- Rail ----
 function railRow(c, sec) {
   const kind = c.kind === "issue" ? "issue" : "pr";
-  const sel = kind === "pr" && c.number === selected && view === "detail";
+  const sel = c.number === selected && view === "detail";
   const b = ball(c);
   const state = `<span class="rask t-${BALL[b.st].tone}">${BALL[b.st].you ? `<b>${esc(BALL[b.st].label)}</b> · ` : b.st === "waiting" && b.owner ? `<b>${esc(b.owner)}</b> · ` : ""}${esc(b.ask)}</span>${kind === "issue" ? issuePrChipInner(c) : ""}`;
   const replying = "";
@@ -1911,7 +2243,8 @@ function renderFlyout() {
   if (ta) flyDraft = ta.value;
   const hadFocus = ta && document.activeElement === ta;
   const isIssue = fly.kind === "issue";
-  const oldGh = host.querySelector(".gh-slot");
+  const oldGh = host.querySelector(".gh-slot"), oldBr = host.querySelector(".br-slot");
+  const ft = flyTab === "changes" && !hasBranch(c) ? "summary" : flyTab;
   const chips = isIssue
     ? `${agentCell(c).replace('class="ov-cell"', 'class="ov-cell" style="flex-direction:row;align-items:center"')}${issuePrChip(c)}`
     : `${chip(c)}${c.review ? mkChip(c.review.state === "done" ? "ok" : c.review.state === "stale" ? "you" : "neutral", c.review.state === "done" ? "checkCircle" : c.review.state === "stale" ? "reset" : "dash", "pr-review: " + c.review.label, c.review.text) : ""}${ciHtml(c)}`;
@@ -1925,7 +2258,7 @@ function renderFlyout() {
       <div class="fly-head">
         <div class="top"><span>${isIssue ? "Issue" : "Pull request"} #${c.number}</span><span class="sp"></span>
           ${browserLink(c, "Open in browser")}
-          ${isIssue ? "" : `<button data-act="open" data-pr="${c.number}">Open details</button>`}
+          <button data-act="open" data-pr="${c.number}">Open details</button>
           <button class="quiet ico" data-act="fly-more" aria-haspopup="menu" aria-expanded="${flyMore}" aria-label="More">${icon("more", "sm")}</button>
           <button class="quiet ico" data-act="fly-close" aria-label="Close">${icon("x", "sm")}</button></div>
         ${flyMore ? `<div class="fly-menu" role="menu">
@@ -1935,9 +2268,9 @@ function renderFlyout() {
         </div>` : ""}
         <h2 id="flyTitle">${esc(c.title)}</h2>
         <div class="chips">${chips}</div>
-        <div class="tabs fly-tabs" role="tablist" aria-label="Views">${[["summary", "Summary"], ["github", "GitHub"]].map(([id, label]) => `<button role="tab" aria-selected="${flyTab === id}" tabindex="${flyTab === id ? 0 : -1}" data-act="fly-tab" data-tab="${id}">${label}</button>`).join("")}</div>
+        <div class="tabs fly-tabs" role="tablist" aria-label="Views">${[["summary", "Summary"], ...(hasBranch(c) ? [["changes", `Changes${brComments(c).filter((x) => x.status !== "resolved").length ? ` <span class="n">${brComments(c).filter((x) => x.status !== "resolved").length}</span>` : ""}`]] : []), ["github", "GitHub"]].map(([id, label]) => `<button role="tab" aria-selected="${ft === id}" tabindex="${ft === id ? 0 : -1}" data-act="fly-tab" data-tab="${id}">${label}</button>`).join("")}</div>
       </div>
-      <div class="fly-body">${flyTab === "github" ? `<div class="gh-slot" data-k="${esc(ghSlotKey(fly.kind, c.number))}"></div>` : `
+      <div class="fly-body">${ft === "github" ? `<div class="gh-slot" data-k="${esc(ghSlotKey(fly.kind, c.number))}"></div>` : ft === "changes" ? branchSlot(c) : `
         ${ballLine(c)}
         <section class="sec"><div class="fly-cmds" role="group" aria-label="Quick commands">${flyCommands(c, fly.kind)}</div></section>
         ${!isIssue ? askHtml(c) : ""}
@@ -1948,12 +2281,13 @@ function renderFlyout() {
       </div>
       <form class="composer" id="flyComposer"><textarea id="flyInput" rows="1" placeholder="Ask anything about #${c.number}…" aria-label="Message about #${c.number}"></textarea><button class="primary" type="submit">Send</button></form>
     </aside>`;
-  if (flyTab === "github") fillGhSlot(host, oldGh, fly.kind, c.number);
+  if (ft === "github") fillGhSlot(host, oldGh, fly.kind, c.number);
+  if (ft === "changes") fillBrSlot(host, oldBr, c);
   const nta = host.querySelector("#flyInput");
   nta.value = flyDraft;
   if (hadFocus) { nta.focus(); nta.setSelectionRange(nta.value.length, nta.value.length); }
   const body = host.querySelector(".fly-body");
-  if (flyTab === "summary" && (stickBottom || nearBottom)) { body.scrollTop = body.scrollHeight; stickBottom = false; }
+  if (ft === "summary" && (stickBottom || nearBottom)) { body.scrollTop = body.scrollHeight; stickBottom = false; }
   else if (scroll !== null) body.scrollTop = scroll;
   scrollToNew(body);
   markViewed();
@@ -2069,11 +2403,11 @@ function render(force = false) {
   if (!c) return;
   $("input").placeholder = `Ask a question or give direction on #${c.number}…`;
   const focusAct = document.activeElement?.closest?.("#wsHead [data-act]")?.dataset.act;
-  renderHead(c);
+  if (c.kind === "issue") renderIssueHead(c); else renderHead(c);
   if (focusAct) $("wsHead").querySelector(`[data-act="${focusAct}"]`)?.focus();
   if (["thread", "review", "overview"].includes(tab)) noteViewing(c);
-  renderScroll(c, force);
-  scheduleDetail(c);
+  if (c.kind === "issue") renderIssueScroll(c, force);
+  else { renderScroll(c, force); scheduleDetail(c); }
   if (fly) renderFlyout();
   markViewed();
   scrollToNew($("wsScroll"));
@@ -2124,7 +2458,6 @@ document.addEventListener("click", (e) => {
   if (a === "rail-toggle") return setRail(!railOpen);
   if (a === "rail-open") {
     if (railMq.matches) { railOpen = false; applyRail(); }
-    if (el.dataset.kind === "issue") { renderRail(); return openFlyout("issue", rowPr, $("railToggle")); }
     return select(rowPr, { focus: false });
   }
   if (a === "unread-only") { unreadOnly = !unreadOnly; return render(); }
@@ -2134,6 +2467,7 @@ document.addEventListener("click", (e) => {
   if (a === "flyout") return openFlyout(el.dataset.kind || "pr", rowPr, el);
   if (a === "fly-close") return closeFlyout();
   if (a === "fly-tab") { flyTab = el.dataset.tab; store.set("prb-fly-tab", flyTab); const b = $("flyHost").querySelector(".fly-body"); if (b) b.scrollTop = 0; renderFlyout(); return $("flyHost").querySelector(`[data-act="fly-tab"][data-tab="${flyTab}"]`)?.focus(); }
+  if (a.startsWith("br-")) return brClick(a, el, rowPr);
   if (a === "gh-refresh") return loadGitHubView(el.dataset.kind === "issue" ? "issue" : "pr", Number(el.dataset.pr), true);
   if (a === "focus-ask") return $("flyInput")?.focus();
   if (a === "fly-more") { flyMore = !flyMore; renderFlyout(); return $("flyHost").querySelector(".fly-menu button")?.focus(); }
@@ -2302,7 +2636,7 @@ $("composer").addEventListener("submit", async (e) => {
   $("send").disabled = true;
   input.value = ""; input.style.height = "auto"; stickBottom = true;
   try {
-    await post("/api/message", { pr: c.number, text });
+    await post("/api/message", { pr: c.number, kind: c.kind === "issue" ? "issue" : "pr", text });
     if (tab !== "thread") { tab = "thread"; store.set("prb-tab", tab); render(true); }
   } catch (err) { stickBottom = false; if (!input.value) input.value = text; toast("Couldn't send: " + err.message); }
   $("send").disabled = false;
