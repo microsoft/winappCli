@@ -292,7 +292,7 @@ public abstract class BaseCommandTests(bool configPaths = true, LogLevel logLeve
     /// <summary>
     /// Recursively copies a directory and all its contents to a new location.
     /// </summary>
-    private static void CopyDirectoryRecursive(DirectoryInfo source, DirectoryInfo target)
+    private protected static void CopyDirectoryRecursive(DirectoryInfo source, DirectoryInfo target)
     {
         target.Create();
         foreach (var file in source.EnumerateFiles("*", SearchOption.AllDirectories))

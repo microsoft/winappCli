@@ -897,7 +897,7 @@ public class PackageCommandTests : BaseCommandTests
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, configContent, TestContext.CancellationToken);
 
         // Restore
-        await _workspaceSetupService.SetupWorkspaceAsync(new WorkspaceSetupOptions
+        await SetupWorkspaceWithSharedPackagesAsync(new WorkspaceSetupOptions
         {
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
@@ -980,7 +980,7 @@ public class PackageCommandTests : BaseCommandTests
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, configContent, TestContext.CancellationToken);
 
         // Restore
-        await _workspaceSetupService.SetupWorkspaceAsync(new WorkspaceSetupOptions
+        await SetupWorkspaceWithSharedPackagesAsync(new WorkspaceSetupOptions
         {
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
@@ -1323,7 +1323,7 @@ public class PackageCommandTests : BaseCommandTests
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, configContent, TestContext.CancellationToken);
 
         // Restore workspace (downloads NuGet packages and build tools)
-        await _workspaceSetupService.SetupWorkspaceAsync(new WorkspaceSetupOptions
+        await SetupWorkspaceWithSharedPackagesAsync(new WorkspaceSetupOptions
         {
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
@@ -1435,7 +1435,7 @@ public class PackageCommandTests : BaseCommandTests
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, configContent, TestContext.CancellationToken);
 
         // Restore workspace
-        await _workspaceSetupService.SetupWorkspaceAsync(new WorkspaceSetupOptions
+        await SetupWorkspaceWithSharedPackagesAsync(new WorkspaceSetupOptions
         {
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
@@ -1501,7 +1501,7 @@ public class PackageCommandTests : BaseCommandTests
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, configContent, TestContext.CancellationToken);
 
         // Restore workspace
-        await _workspaceSetupService.SetupWorkspaceAsync(new WorkspaceSetupOptions
+        await SetupWorkspaceWithSharedPackagesAsync(new WorkspaceSetupOptions
         {
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
@@ -1574,7 +1574,7 @@ public class PackageCommandTests : BaseCommandTests
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, configContent, TestContext.CancellationToken);
 
         // Restore workspace
-        await _workspaceSetupService.SetupWorkspaceAsync(new WorkspaceSetupOptions
+        await SetupWorkspaceWithSharedPackagesAsync(new WorkspaceSetupOptions
         {
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
@@ -1636,7 +1636,7 @@ public class PackageCommandTests : BaseCommandTests
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, configContent, TestContext.CancellationToken);
 
         // Restore workspace
-        await _workspaceSetupService.SetupWorkspaceAsync(new WorkspaceSetupOptions
+        await SetupWorkspaceWithSharedPackagesAsync(new WorkspaceSetupOptions
         {
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
@@ -1827,6 +1827,90 @@ public class PackageCommandTests : BaseCommandTests
     }
 
     #endregion
+
+    /// <summary>
+    /// Runs workspace setup against this test's private package cache, first seeding it with
+    /// complete packages that earlier tests in this run already downloaded, then sharing any new
+    /// ones. Each test still restores, verifies, and generates its own projections; only repeated
+    /// downloads of the same Windows App SDK packages are avoided.
+    /// </summary>
+    private async Task SetupWorkspaceWithSharedPackagesAsync(WorkspaceSetupOptions options, CancellationToken cancellationToken)
+    {
+        var packagesDir = GetRequiredService<INugetService>().GetNuGetGlobalPackagesDir();
+        await s_sharedPackagesLock.WaitAsync(cancellationToken);
+        try
+        {
+            CopyCompletePackages(s_sharedPackagesDir, packagesDir);
+        }
+        finally
+        {
+            s_sharedPackagesLock.Release();
+        }
+
+        await _workspaceSetupService.SetupWorkspaceAsync(options, cancellationToken);
+
+        await s_sharedPackagesLock.WaitAsync(cancellationToken);
+        try
+        {
+            CopyCompletePackages(packagesDir, s_sharedPackagesDir);
+        }
+        finally
+        {
+            s_sharedPackagesLock.Release();
+        }
+    }
+
+    private static readonly SemaphoreSlim s_sharedPackagesLock = new(1, 1);
+    private static readonly DirectoryInfo s_sharedPackagesDir = new(
+        Path.Combine(Path.GetTempPath(), $"winapp-test-shared-packages-{Environment.ProcessId}"));
+
+    [ClassCleanup]
+    public static void CleanupSharedPackages()
+    {
+        try
+        {
+            s_sharedPackagesDir.Refresh();
+            if (s_sharedPackagesDir.Exists)
+            {
+                s_sharedPackagesDir.Delete(recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // Best effort: the folder is per-process under %TEMP%.
+        }
+    }
+
+    /// <summary>
+    /// Copies each packages/&lt;id&gt;/&lt;version&gt; folder that NuGet finished extracting (it has the
+    /// ".nupkg.metadata" marker) and that <paramref name="target"/> does not have yet.
+    /// </summary>
+    private static void CopyCompletePackages(DirectoryInfo source, DirectoryInfo target)
+    {
+        source.Refresh();
+        if (!source.Exists)
+        {
+            return;
+        }
+
+        foreach (var idDir in source.EnumerateDirectories())
+        {
+            foreach (var versionDir in idDir.EnumerateDirectories())
+            {
+                var destination = new DirectoryInfo(Path.Combine(target.FullName, idDir.Name, versionDir.Name));
+                if (destination.Exists || !File.Exists(Path.Combine(versionDir.FullName, ".nupkg.metadata")))
+                {
+                    continue;
+                }
+
+                // Stage then rename, so a failed copy never leaves a folder that looks installed.
+                var staging = new DirectoryInfo(destination.FullName + ".partial-" + Guid.NewGuid().ToString("N"));
+                CopyDirectoryRecursive(versionDir, staging);
+                Directory.CreateDirectory(destination.Parent!.FullName);
+                staging.MoveTo(destination.FullName);
+            }
+        }
+    }
 
     /// <summary>
     /// Installs the Windows App SDK and its critical transitive dependencies
