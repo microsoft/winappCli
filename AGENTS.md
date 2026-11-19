@@ -402,10 +402,11 @@ Auxiliary owns Node unit tests, analyzer tests/stand-down, and both Pester suite
 Both CLI shards prepare the Node CLI needed by integration tests, but do not
 rerun Node unit tests.
 
-`validate-devtools` verifies the downloaded engine payload, runs the native
+`validate-devtools` starts without waiting for the build. It runs the native
 security/ABI/protocol and inspector tests in a separate output directory, and
-runs managed binding/startup-hook contracts on .NET 8 and 10. It never overwrites
-`artifacts\cli`. The real native-element capture lifetime gate remains in the
+runs managed binding/startup-hook contracts on .NET 8 and 10. It never writes
+`artifacts\cli`; `validate-docs` checks the shipped engine payload in the downloaded
+CLI. The real native-element capture lifetime gate remains in the
 interactive UI job. Both jobs are required by `build-and-package`.
 
 `scripts\test-managed-devtools.ps1` runs the headless managed contracts with a

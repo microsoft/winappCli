@@ -96,7 +96,7 @@ Describe 'Artifact-first workflow dependencies' {
     }
 
     It 'starts validation, docs, UI E2E and samples from early artifacts, not the final gate' {
-        foreach ($job in @('validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples')) {
+        foreach ($job in @('validate-tests', 'validate-docs', 'e2e-test-ui', 'samples')) {
             $text = Get-JobText $buildWorkflow $job
             $text | Should -Match '(?m)^\s+needs: build-artifacts\r?$'
             $text | Should -Not -Match 'dotnet publish|needs: build-and-package'
@@ -105,6 +105,10 @@ Describe 'Artifact-first workflow dependencies' {
             Should -Match ([regex]::Escape('$testArgs.CliShard = [int]$env:CLI_SHARD'))
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-e2e-winui-ui\.ps1'
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-ui-coordination\.ps1'
+        # validate-devtools builds its own engine and fixtures, so it never waits for the build.
+        $devtools = Get-JobText $buildWorkflow 'validate-devtools'
+        $devtools | Should -Not -Match 'needs: build-artifacts|cli-binaries'
+        (Get-JobText $buildWorkflow 'validate-docs') | Should -Match 'test-devtools-engine\.ps1 -EngineRoot \.\\artifacts\\cli'
     }
 
     It 'runs both CLI shards, auxiliary suites once, and UI Automation on isolated runners' {
