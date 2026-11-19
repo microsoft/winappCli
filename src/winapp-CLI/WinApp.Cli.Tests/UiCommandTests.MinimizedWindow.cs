@@ -1,10 +1,13 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using Spectre.Console;
 using Spectre.Console.Testing;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Tests;
 
@@ -37,9 +40,9 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode("element_not_found");
         var error = ConsoleStdErr.ToString();
-        StringAssert.Contains(error, "\"recoveryHint\"");
-        StringAssert.Contains(error, "is minimized");
-        StringAssert.Contains(error, "focus -w 4242");
+        Assert.Contains("\"recoveryHint\"", error);
+        Assert.Contains("is minimized", error);
+        Assert.Contains("focus -w 4242", error);
         Assert.IsEmpty(_fakeDesktopForeground.RestoreRequests, "A failed lookup must not restore the window itself.");
     }
 
@@ -71,8 +74,8 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         var error = errCapture.ToString();
         AssertJsonErrorCodeIn(error, "element_not_found");
-        StringAssert.Contains(error, "\"recoveryHint\"");
-        StringAssert.Contains(error, "focus -w 4242");
+        Assert.Contains("\"recoveryHint\"", error);
+        Assert.Contains("focus -w 4242", error);
         Assert.IsEmpty(_fakeDesktopForeground.RestoreRequests, "A failed lookup must not restore the window itself.");
     }
 
@@ -107,7 +110,56 @@ public partial class UiCommandTests
         }
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ambient.Output, "\"Calculator\" (HWND 4242) is minimized");
-        StringAssert.Contains(ambient.Output, "focus -w 4242");
+        Assert.Contains("\"Calculator\" (HWND 4242) is minimized", ambient.Output);
+        Assert.Contains("focus -w 4242", ambient.Output);
+    }
+
+    [TestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    [DataRow(false, true)]
+    public async Task Search_Json_EmitsRecoveryOnlyForEmptyMinimizedTarget(bool minimized, bool hasMatches)
+    {
+        _fakeUia.SearchResult = hasMatches
+            ? [new UiElement { Type = "Button", Name = "Seven", Selector = "btn-seven-1" }]
+            : [];
+        var command = new UiSearchCommand();
+        var handler = new UiSearchCommand.Handler(
+            _fakeTargetResolver, _fakeUia, GetRequiredService<IUiSelectorParser>(),
+            TestAnsiConsole, _fakeDesktopLock, NullLogger<UiSearchCommand>.Instance);
+        command.SetAction((result, ct) => handler.InvokeAsync(result, ct));
+
+        var exitCode = await RunWithMinimizedTargetAsync(
+            command, ["Seven", "-a", "calculator", "--json"], minimized);
+
+        Assert.AreEqual(hasMatches ? 0 : 1, exitCode);
+        using var output = JsonDocument.Parse(TestAnsiConsole.Output);
+        var result = output.RootElement;
+        Assert.AreEqual(3, result.EnumerateObject().Count());
+        Assert.AreEqual(hasMatches ? 1 : 0, result.GetProperty("matchCount").GetInt32());
+        Assert.IsFalse(result.GetProperty("hasMore").GetBoolean());
+        Assert.AreEqual(hasMatches ? 1 : 0, result.GetProperty("matches").GetArrayLength());
+        if (hasMatches)
+        {
+            Assert.AreEqual("btn-seven-1", result.GetProperty("matches")[0].GetProperty("selector").GetString());
+        }
+
+        if (minimized && !hasMatches)
+        {
+            using var error = JsonDocument.Parse(ConsoleStdErr.ToString());
+            var info = error.RootElement.GetProperty("error");
+            Assert.AreEqual("element_not_found", info.GetProperty("code").GetString());
+            Assert.AreEqual("Seven", info.GetProperty("selector").GetString());
+            var hint = info.GetProperty("recoveryHint").GetString();
+            Assert.IsNotNull(hint);
+            Assert.Contains("is minimized", hint);
+            Assert.Contains("focus -w 4242", hint);
+        }
+        else
+        {
+            Assert.AreEqual("", ConsoleStdErr.ToString());
+        }
+        Assert.IsEmpty(_fakeDesktopForeground.RestoreRequests, "Search must not restore the window itself.");
     }
 }

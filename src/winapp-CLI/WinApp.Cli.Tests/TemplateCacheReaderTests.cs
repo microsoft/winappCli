@@ -68,7 +68,7 @@ public class TemplateCacheReaderTests
 
         var documents = reader.ReadTemplateCacheDocuments();
 
-        CollectionAssert.AreEqual(CliHomeCache, documents.ToArray(),
+        Assert.AreSequenceEqual(CliHomeCache, documents.ToArray(),
             "dotnet new keeps its hive under DOTNET_CLI_HOME, so the user profile's caches describe other packs.");
     }
 
@@ -79,7 +79,7 @@ public class TemplateCacheReaderTests
 
         var documents = reader.ReadTemplateCacheDocuments();
 
-        CollectionAssert.AreEqual(ProfileCache, documents.ToArray(),
+        Assert.AreSequenceEqual(ProfileCache, documents.ToArray(),
             "An empty DOTNET_CLI_HOME is ignored, and USERPROFILE wins over the OS profile folder like in the dotnet CLI.");
     }
 
@@ -90,7 +90,7 @@ public class TemplateCacheReaderTests
 
         var documents = reader.ReadTemplateCacheDocuments();
 
-        CollectionAssert.AreEqual(ProfileCache, documents.ToArray());
+        Assert.AreSequenceEqual(ProfileCache, documents.ToArray());
     }
 
     [TestMethod]

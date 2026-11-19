@@ -206,7 +206,7 @@ public class DotNetRuntimeInstallerTests
         var outcome = Ensure(Requirement(Core, "10.0.0", "never-transferred.zip"));
 
         Assert.IsFalse(outcome.Installed);
-        StringAssert.Contains(outcome.Detail!, "missing");
+        Assert.Contains("missing", outcome.Detail!);
     }
 
     [TestMethod]

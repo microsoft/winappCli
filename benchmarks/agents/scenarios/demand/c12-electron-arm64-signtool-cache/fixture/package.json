@@ -6,7 +6,7 @@
     "dist:win-arm64": "electron-builder --win --arm64"
   },
   "devDependencies": {
-    "electron": "44.9.1",
+    "electron": "45.3.2",
     "electron-builder": "26.0.12"
   }
 }

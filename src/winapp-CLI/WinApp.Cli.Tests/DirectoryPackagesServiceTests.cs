@@ -76,7 +76,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         Assert.IsTrue(result, "Should return true when update is successful");
 
         var updatedContent = File.ReadAllText(propsFilePath);
-        StringAssert.Contains(updatedContent, "10.0.22621.3233", "Should contain new version");
+        Assert.Contains("10.0.22621.3233", updatedContent, "Should contain new version");
         // Old version should be replaced
         Assert.IsFalse(updatedContent.Contains("10.0.22621.1000", StringComparison.Ordinal), "Should not contain old version");
     }
@@ -109,9 +109,9 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         Assert.IsTrue(result, "Should return true when update is successful");
 
         var updatedContent = File.ReadAllText(propsFilePath);
-        StringAssert.Contains(updatedContent, "10.0.22621.3233", "Should contain new BuildTools version");
-        StringAssert.Contains(updatedContent, "2.1.1", "Should contain new CsWinRT version");
-        StringAssert.Contains(updatedContent, "10.0.26100.1742", "Should contain new Contracts version");
+        Assert.Contains("10.0.22621.3233", updatedContent, "Should contain new BuildTools version");
+        Assert.Contains("2.1.1", updatedContent, "Should contain new CsWinRT version");
+        Assert.Contains("10.0.26100.1742", updatedContent, "Should contain new Contracts version");
     }
 
     [TestMethod]
@@ -141,8 +141,8 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         Assert.IsTrue(result, "Should return true when update is successful");
 
         var updatedContent = File.ReadAllText(propsFilePath);
-        StringAssert.Contains(updatedContent, "<!-- This is a comment -->", "Should preserve comments");
-        StringAssert.Contains(updatedContent, "10.0.22621.3233", "Should contain new version");
+        Assert.Contains("<!-- This is a comment -->", updatedContent, "Should preserve comments");
+        Assert.Contains("10.0.22621.3233", updatedContent, "Should contain new version");
     }
 
     [TestMethod]
@@ -198,8 +198,8 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         Assert.IsTrue(result, "Should return true when update is successful");
 
         var updatedContent = File.ReadAllText(propsFilePath);
-        StringAssert.Contains(updatedContent, "10.0.22621.3233", "Should update matching package");
-        StringAssert.Contains(updatedContent, @"<PackageVersion Include=""SomeOtherPackage"" Version=""1.0.0"" />",
+        Assert.Contains("10.0.22621.3233", updatedContent, "Should update matching package");
+        Assert.Contains(@"<PackageVersion Include=""SomeOtherPackage"" Version=""1.0.0"" />", updatedContent,
             "Should leave non-matching package unchanged");
     }
 
@@ -270,8 +270,8 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         Assert.IsTrue(result, "Should return true when update is successful");
 
         var updatedContent = File.ReadAllText(propsFilePath);
-        StringAssert.Contains(updatedContent, "10.0.22621.3233", "Should update first ItemGroup");
-        StringAssert.Contains(updatedContent, "2.1.1", "Should update second ItemGroup");
+        Assert.Contains("10.0.22621.3233", updatedContent, "Should update first ItemGroup");
+        Assert.Contains("2.1.1", updatedContent, "Should update second ItemGroup");
     }
 
     [TestMethod]
@@ -302,9 +302,9 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         Assert.IsTrue(result, "Should return true because the valid package was updated");
 
         var updatedContent = File.ReadAllText(propsFilePath);
-        StringAssert.Contains(updatedContent, "10.0.22621.3233", "Should update the fully-specified package");
+        Assert.Contains("10.0.22621.3233", updatedContent, "Should update the fully-specified package");
         // The attribute-less element must be left untouched (no Version added)
-        StringAssert.Contains(updatedContent, @"<PackageVersion Include=""MissingVersionPackage"" />",
+        Assert.Contains(@"<PackageVersion Include=""MissingVersionPackage"" />", updatedContent,
             "Should skip PackageVersion missing a Version attribute");
     }
 }

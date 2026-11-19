@@ -13,6 +13,7 @@ static void ResetCommentsViewState()
     drop(&g_treeControlsUi);
     g_shell = InspectorShellRefs{};
     g_openCommentBox = nullptr;
+    g_presentCommentBox = nullptr;
     g_navSyncing = false;
     ReleaseCommentRowUi();
     g_commentRows.clear();

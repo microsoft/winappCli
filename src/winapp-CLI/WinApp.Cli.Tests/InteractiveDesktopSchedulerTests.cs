@@ -785,7 +785,7 @@ public class InteractiveDesktopSchedulerTests
         seen.Add(_scheduler.BeginParticipating(
             state, _probe, OwnerB, Participant(200), UiTurnMode.DesktopExclusive).Ticket!.Value);
 
-        CollectionAssert.AreEqual(seen.OrderBy(t => t).ToList(), seen);
+        Assert.AreSequenceEqual(seen.OrderBy(t => t).ToList(), seen);
         Assert.AreEqual(seen.Count, seen.Distinct().Count());
     }
 

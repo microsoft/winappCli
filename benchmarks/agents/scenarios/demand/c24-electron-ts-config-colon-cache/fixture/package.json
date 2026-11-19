@@ -7,7 +7,7 @@
     "build:main": "tsc -p tsconfig.main.json"
   },
   "devDependencies": {
-    "electron": "42.11.16",
+    "electron": "45.3.2",
     "electron-builder": "24.3.0",
     "typescript": "5.0.4"
   }

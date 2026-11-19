@@ -297,7 +297,7 @@ public class SignCommandTests : BaseCommandTests
 #pragma warning disable SYSLIB0057
         using var signer = X509Certificate.CreateFromSignedFile(target.FullName);
 #pragma warning restore SYSLIB0057
-        StringAssert.Contains(signer.Subject, keyType == "ecdsa" ? "CN=WinappEcdsaTest" : "CN=WinappTestPublisher");
+        Assert.Contains(keyType == "ecdsa" ? "CN=WinappEcdsaTest" : "CN=WinappTestPublisher", signer.Subject);
 
         var leaked = SnapshotUserKeyContainers().Except(before, StringComparer.OrdinalIgnoreCase).ToList();
         Assert.IsEmpty(leaked, $"Signing left key containers behind: {string.Join(", ", leaked)}");

@@ -75,7 +75,7 @@ public partial class TargetUiRoutingTests
     {
         string[] expected = ["ui", verb, "--app", "App", option, value, "--", "--on=sandbox"];
         var routed = Rewrite(["ui", verb, "--on", "sandbox", "--app", "App", option, value, "--", "--on=sandbox"]);
-        CollectionAssert.AreEqual(expected, routed.Arguments);
+        Assert.AreSequenceEqual(expected, routed.Arguments);
         Assert.IsNull(routed.Artifact);
     }
 
@@ -84,7 +84,7 @@ public partial class TargetUiRoutingTests
     {
         var routed = Rewrite(["ui", "inspect", "--on", "sandbox", "-a", "MyApp", "--depth", "8", "--json"]);
 
-        CollectionAssert.AreEqual(InspectForwarded, routed.Arguments);
+        Assert.AreSequenceEqual(InspectForwarded, routed.Arguments);
 
         Assert.IsNull(routed.Artifact);
     }
@@ -98,7 +98,7 @@ public partial class TargetUiRoutingTests
 
             // A stranded 'sandbox' would arrive at the target as a positional argument and be
             // parsed as an element selector.
-            CollectionAssert.AreEqual(InspectApp, routed.Arguments, string.Join(' ', form));
+            Assert.AreSequenceEqual(InspectApp, routed.Arguments, string.Join(' ', form));
         }
     }
 
@@ -122,7 +122,7 @@ public partial class TargetUiRoutingTests
         // the target, or the reverse.
         var routed = Rewrite(["ui", "inspect", "--on", "sandbox", "-w", "123456"]);
 
-        CollectionAssert.AreEqual(InspectWindow, routed.Arguments);
+        Assert.AreSequenceEqual(InspectWindow, routed.Arguments);
     }
 
     [TestMethod]
@@ -175,8 +175,8 @@ public partial class TargetUiRoutingTests
         var spaced = Rewrite(["ui", "inspect", "--on", "sandbox", "--expect-sandbox", "11111111-2222-4333-8444-555555555555", "-a", "MyApp"]);
         var attached = Rewrite(["ui", "inspect", "--expect-sandbox=11111111-2222-4333-8444-555555555555", "--on", "sandbox", "-a", "MyApp"]);
 
-        CollectionAssert.AreEqual(InspectApp, spaced.Arguments);
-        CollectionAssert.AreEqual(InspectApp, attached.Arguments);
+        Assert.AreSequenceEqual(InspectApp, spaced.Arguments);
+        Assert.AreSequenceEqual(InspectApp, attached.Arguments);
     }
 
     [TestMethod]
@@ -184,7 +184,7 @@ public partial class TargetUiRoutingTests
     {
         var routed = Rewrite(["ui", "send-keys", "--on", "sandbox", "-a", "MyApp", "--", "--on", "sandbox"]);
 
-        CollectionAssert.AreEqual(SendKeysAfterSeparator, routed.Arguments);
+        Assert.AreSequenceEqual(SendKeysAfterSeparator, routed.Arguments);
     }
 
     [TestMethod]
@@ -205,7 +205,7 @@ public partial class TargetUiRoutingTests
     {
         var routed = Rewrite(["ui", "inspect", "-a", "MyApp", "--on"]);
 
-        CollectionAssert.AreEqual(InspectApp, routed.Arguments);
+        Assert.AreSequenceEqual(InspectApp, routed.Arguments);
     }
 
     // ---- Artifact copy-back --------------------------------------------------------

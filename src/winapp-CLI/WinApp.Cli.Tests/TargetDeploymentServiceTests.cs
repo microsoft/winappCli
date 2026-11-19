@@ -95,7 +95,7 @@ public class TargetDeploymentServiceTests
 
         Assert.AreEqual(0, second.Plan.Added.Count);
         Assert.AreEqual(1, second.Plan.Changed.Count);
-        CollectionAssert.AreEqual(RemovedStaleDll, second.Plan.Removed.ToArray());
+        Assert.AreSequenceEqual(RemovedStaleDll, second.Plan.Removed.ToArray());
 
         Assert.AreEqual("binary-v2", await ReadGuestFileAsync(second.DeploymentId, "app.exe"));
 

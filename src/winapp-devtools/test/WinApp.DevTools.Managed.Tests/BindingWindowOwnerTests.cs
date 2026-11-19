@@ -171,6 +171,6 @@ public sealed class BindingWindowOwnerTests
         var app = new AppFields { Array = new Window[257] };
         var error = Assert.ThrowsExactly<InvalidOperationException>(() =>
             BindingDiagnosis.ResolveWindowOwner(target, app, _ => true));
-        StringAssert.Contains(error.Message, "collection limit");
+        Assert.Contains("collection limit", error.Message);
     }
 }

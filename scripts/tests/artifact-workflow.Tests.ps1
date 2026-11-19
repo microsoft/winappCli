@@ -39,6 +39,7 @@ BeforeAll {
             Replace('needs.validate-tests.result', '$Validation').
             Replace('needs.validate-devtools.result', '$Native').
             Replace('!cancelled()', '(-not $Cancelled)').
+            Replace('!=', '-ne').
             Replace('==', '-eq').Replace('&&', '-and').Replace('||', '-or')
         & ([scriptblock]::Create("param(`$Event, `$Artifacts, `$Validation, `$Cancelled, `$Native) ($expression)")) $Event $Artifacts $Validation $Cancelled $Native
     }
@@ -46,7 +47,7 @@ BeforeAll {
     $script:buildGate = [scriptblock]::Create((Get-RunScript (Get-JobText $buildWorkflow 'build-and-package') 'Require all build and validation jobs'))
     $script:sampleGate = [scriptblock]::Create((Get-RunScript (Get-JobText $sampleWorkflow 'test-samples-result') 'Check results'))
     $script:sampleWrapperGate = [scriptblock]::Create((Get-RunScript (Get-JobText $buildWorkflow 'test-samples-result') 'Check results'))
-    $script:environmentNames = @('NEEDS_JSON', 'IS_PR', 'SAMPLE_RESULT', 'BUILD_RESULT', 'REUSE_ARTIFACTS')
+    $script:environmentNames = @('NEEDS_JSON', 'PRE_MERGE', 'SAMPLE_RESULT', 'BUILD_RESULT', 'REUSE_ARTIFACTS')
     $script:savedEnvironment = @{}
     foreach ($name in $environmentNames) {
         $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
@@ -137,7 +138,27 @@ Describe 'Artifact-first workflow dependencies' {
         $expected = 'cpp-app, cpp-winui-app, dotnet-app, dotnet-file-app, electron, flutter-app, maui-app, node-winui, packaging-cli, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app'
         $sampleWorkflow | Should -Match ([regex]::Escape("sample: [$expected]"))
         (Get-JobText $buildWorkflow 'validate-docs') |
-            Should -Match ([regex]::Escape("-FailOnDrift:(`$env:IS_PR -eq 'true')"))
+            Should -Match ([regex]::Escape("-FailOnDrift:(`$env:PRE_MERGE -eq 'true')"))
+    }
+
+    It 'holds merge queue runs to the PR bar: samples run and doc drift fails' {
+        $buildWorkflow | Should -Match '(?m)^  merge_group:\r?\n    types: \[ checks_requested \]\r?\n    branches: \[ "main" \]'
+        $samplesCondition = [regex]::Match((Get-JobText $buildWorkflow 'samples'), '(?m)^    if: (.+?)\r?$').Groups[1].Value
+        $preMerge = @(
+            foreach ($job in @('validate-docs', 'build-and-package')) {
+                [regex]::Match((Get-JobText $buildWorkflow $job), '(?m)^        PRE_MERGE: (.+?)\r?$').Groups[1].Value
+            }
+        )
+        $preMerge.Count | Should -Be 2
+        foreach ($event in @('pull_request', 'merge_group', 'push', 'workflow_dispatch')) {
+            $strict = $event -in @('pull_request', 'merge_group')
+            Test-MetricsCondition $samplesCondition $event 'success' 'success' | Should -Be $strict
+            foreach ($condition in $preMerge) {
+                Test-MetricsCondition $condition $event 'success' 'success' | Should -Be $strict
+            }
+        }
+        (Get-JobText $buildWorkflow 'test-samples-result') |
+            Should -Match ([regex]::Escape("if: `${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}"))
     }
 
     It 'cancels only superseded PR runs' {
@@ -218,8 +239,8 @@ Describe 'Failed validation reports without promoting the main baseline' {
         $script:reportCondition = [regex]::Match($reportStep, '(?m)^      if: (.+?)\r?$').Groups[1].Value
     }
 
-    It 'publishes complete reports for successful or failed validation on PR, main and manual runs' {
-        foreach ($event in @('pull_request', 'push', 'workflow_dispatch')) {
+    It 'publishes complete reports for successful or failed validation on PR, merge queue, main and manual runs' {
+        foreach ($event in @('pull_request', 'merge_group', 'push', 'workflow_dispatch')) {
             foreach ($validation in @('success', 'failure', 'cancelled', 'skipped')) {
                 foreach ($native in @('success', 'failure', 'cancelled', 'skipped')) {
                     $actual = Test-MetricsCondition $metricsCondition $event 'success' $validation -Native $native
@@ -236,11 +257,11 @@ Describe 'Failed validation reports without promoting the main baseline' {
 
     It 'permits failed PR metrics but only successful non-PR runs can invoke baseline promotion' {
         $reportCondition | Should -Not -BeNullOrEmpty
-        foreach ($event in @('pull_request', 'push', 'workflow_dispatch')) {
+        foreach ($event in @('pull_request', 'merge_group', 'push', 'workflow_dispatch')) {
             foreach ($validation in @('success', 'failure', 'cancelled', 'skipped')) {
                 foreach ($native in @('success', 'failure', 'cancelled', 'skipped')) {
                     $actual = Test-MetricsCondition $reportCondition $event 'success' $validation -Native $native
-                    $actual | Should -Be ($event -eq 'pull_request' -or ($validation -eq 'success' -and $native -eq 'success'))
+                    $actual | Should -Be ($event -ne 'merge_group' -and ($event -eq 'pull_request' -or ($validation -eq 'success' -and $native -eq 'success')))
                 }
             }
         }
@@ -257,7 +278,7 @@ Describe 'Required build check outcomes' {
         foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples', 'metrics')) {
             $results[$job] = @{ result = 'success' }
         }
-        $env:IS_PR = 'true'
+        $env:PRE_MERGE = 'true'
     }
 
     It 'passes a PR only when every dependency succeeds' {
@@ -277,7 +298,7 @@ Describe 'Required build check outcomes' {
     }
 
     It 'allows only the deliberate sample skip on main and manual runs' {
-        $env:IS_PR = 'false'
+        $env:PRE_MERGE = 'false'
         $results.samples.result = 'skipped'
         $env:NEEDS_JSON = $results | ConvertTo-Json -Compress
         { & $buildGate } | Should -Not -Throw

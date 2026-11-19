@@ -174,7 +174,7 @@ public class TargetSelectionParserTests : BaseCommandTests
 
         Assert.IsNotNull(error, $"'winapp {command}' must reject --on rather than ignore it.");
         Assert.AreEqual(ExecutionTargetErrorCodes.TargetInvalid, error.Code);
-        StringAssert.Contains(error.Message, "does not accept --on");
+        Assert.Contains("does not accept --on", error.Message);
     }
 
     /// <summary>
@@ -381,7 +381,7 @@ public class TargetSelectionParserTests : BaseCommandTests
     {
         var parsed = Parse(["target", "exec", "sandbox", "--", "dotnet", "--info", "--on", "sandbox"]);
 
-        CollectionAssert.AreEqual(
+        Assert.AreSequenceEqual(
             (string[])["dotnet", "--info", "--on", "sandbox"],
             parsed.GetValue(TargetExecCommand.CommandArgument));
     }
@@ -393,7 +393,7 @@ public class TargetSelectionParserTests : BaseCommandTests
         var parsed = Parse(["target", "exec", "sandbox", "dotnet"]);
 
         Assert.AreEqual("sandbox", parsed.GetValue(TargetExecCommand.SelectorArgument));
-        CollectionAssert.AreEqual((string[])["dotnet"], parsed.GetValue(TargetExecCommand.CommandArgument));
+        Assert.AreSequenceEqual((string[])["dotnet"], parsed.GetValue(TargetExecCommand.CommandArgument));
     }
 
     /// <summary>Paths with spaces and non-ASCII characters survive as ordinary values.</summary>
@@ -596,7 +596,7 @@ public class TargetSelectionParserTests : BaseCommandTests
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);
 
         Assert.AreEqual(0, exitCode, stderr);
-        StringAssert.Contains(stdout, expected);
+        Assert.Contains(expected, stdout);
         Assert.IsTrue(string.IsNullOrWhiteSpace(stderr), stderr);
     }
 
