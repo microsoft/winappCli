@@ -710,6 +710,10 @@ internal static class BindingDiagnosis
         var sb = new StringBuilder("{\"state\":\"wroteSource\"");
         Field(sb, "before", Str(element.GetValue(dp)));
         Field(sb, "sourceTarget", ShortName(owner!.GetType()) + "." + leaf.Name);
+        object? previous;
+        try { previous = leaf.CanRead ? leaf.GetValue(owner) : null; }
+        catch { previous = null; }
+        if (SourceUndoText(previous, leaf.PropertyType) is { } undo) Field(sb, "sourceBefore", undo);
         try { leaf.SetValue(owner, converted); }
         catch (Exception ex) { return Unavailable("writing the source threw " + Describe(ex)); }
 
@@ -717,6 +721,23 @@ internal static class BindingDiagnosis
         Field(sb, "bound", (ParentBindingOf(element.ReadLocalValue(dp)) is not null).ToString());
         sb.Append('}');
         return sb.ToString();
+    }
+
+    // The source's previous value as text that ConvertTo turns back into the same value, or null when it has none.
+    internal static string? SourceUndoText(object? value, Type target)
+    {
+        if (value is null) return null;
+        string? text = value switch
+        {
+            string s => s,
+            Enum e => e.ToString(),
+            bool or byte or short or int or long or float or double or decimal
+                => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture),
+            _ => null,
+        };
+        if (text is null) return null;
+        try { return Equals(ConvertTo(text, target), value) ? text : null; }
+        catch { return null; }
     }
 
     private static object? ConvertTo(string text, Type target)
