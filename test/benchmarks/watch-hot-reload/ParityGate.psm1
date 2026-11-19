@@ -97,8 +97,8 @@ function Get-ParitySnapshot {
                 try { $result = (Remove-Ansi $raw | ConvertFrom-Json).result } catch { $result = $null }
                 if ($result -and $result.ok) { return $result }
                 # "no-match": nothing under this element qualifies (an authored-only query under a template's own parts).
-                # That's an empty reading, not a failed one.
-                if ($result -and $result.error -eq 'no-match') { return [pscustomobject]@{ ok = $true; complete = $true; matches = @() } }
+                # That's an empty reading, not a failed one. The error is an object with a token since #1244.
+                if ($result -and ($result.error -eq 'no-match' -or $result.error.token -eq 'no-match')) { return [pscustomobject]@{ ok = $true; complete = $true; matches = @() } }
             }
             $script:LastQueryError = ((Remove-Ansi $raw) -replace '\s+', ' ').Trim()
             Start-Sleep -Milliseconds 300
