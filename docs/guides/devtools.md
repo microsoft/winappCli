@@ -35,6 +35,10 @@ version.
 
    ![The DevTools inspector window with the element tree and properties](../images/devtools-inspector.png)
 
+   Choose **Properties** to filter and edit values, or **Layout** to see the spacing
+   diagram and size details. The tab stays selected when you choose another element.
+   The element name, source and Comment action are shared by both tabs.
+
    Click anywhere in a property's header, such as **Height Auto**, to expand or
    collapse it. With the keyboard, Tab to the header and press Enter or Space.
    Tab again to reach its editors; editing does not collapse the property.
@@ -62,8 +66,14 @@ devtools` commands still work. With `dotnet run` and the
 dotnet run -p:WinAppRunDevTools=off      # or headless, or on
 ```
 
-To change the default for your user account (the toolbar's **⋯** menu changes the
-same setting):
+Open **⋯ > Settings** on the toolbar, or select **Settings** at the bottom of
+the DevTools window's navigation rail. Under **Launch preferences**, turn off
+**Start DevTools by default** to skip DevTools, or leave it on and turn off
+**Show toolbar on launch** to start headless. These choices apply to future
+`winapp run` launches across your projects, not the current app.
+
+The CLI changes the same setting. If DevTools is off and you can't reach Settings,
+turn it back on with `winapp config set run.devtools on`:
 
 ```powershell
 winapp config set run.devtools off    # or headless, or on
@@ -93,7 +103,7 @@ that check fails, the running app stays open and no replacement starts. Without
 - Saved comments show as markers on their elements; the arrow beside **Comments**
   lists them and hides or shows the markers.
 - **Ctrl+Shift+F12** brings back a hidden toolbar; **⋯** hides it, keeps it open, or
-  sets what happens when the app starts.
+  opens [Settings](#turn-devtools-on-or-off).
 - When collapsed, the toolbar reads **DevTools**. It reads **Picking** or **Commenting** while that mode is on,
   because then your clicks go to DevTools instead of the app.
 - `winapp ui screenshot` leaves the toolbar, markers and comment panel out of the image.

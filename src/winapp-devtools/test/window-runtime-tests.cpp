@@ -1367,13 +1367,13 @@ int main()
             "layout detail labels and values wrap without hiding their names behind ellipses");
         check(DetailGroup(L"ARRANGED BY MainPage",L"Gray").find(L"TextWrapping=\"Wrap\"")!=std::wstring::npos,
             "layout detail headings wrap when the parent name is long");
-        g_layoutSectionOpen=0;
+        g_detailLayoutSelected=false;
         const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noSourceInfo",L"",&stretched);
         const auto view=pane.find(L"x:Name=\"PropViewSelector\""), filter=pane.find(L"PropFilter"),
-            section=pane.find(L"WinAppDevToolsSizeSpacing"), box=pane.find(L"WinAppDevToolsBoxModel\"");
-        check(section<box && box<filter && filter<view && view!=std::wstring::npos,
-            "properties pane: the Size & spacing section, then the filter with Computed | Set on its right, then the grid");
+            tabs=pane.find(L"x:Name=\"DetailViewSelector\""), properties=pane.find(L"x:Name=\"DetailPropertiesPanel\"");
+        check(tabs<properties && properties<filter && filter<view && view!=std::wstring::npos,
+            "details tabs precede Properties, whose filter keeps Computed | Set on its right");
         const auto filterTag=filter==std::wstring::npos ? std::wstring() : pane.substr(filter,pane.find(L"/>",filter)-filter);
         check(!filterTag.empty() && filterTag.find(L"FontSize=")==std::wstring::npos && filterTag.find(L"Grid.Column=")==std::wstring::npos &&
             pane.find(L"<SelectorBar x:Name=\"PropViewSelector\" Grid.Column=\"1\"")!=std::wstring::npos,
@@ -1381,26 +1381,34 @@ int main()
         check(pane.find(L"Text=\"PROPERTIES\"")==std::wstring::npos && pane.find(L"x:Name=\"Status\"")==std::wstring::npos &&
             pane.find(L"WinAppDevToolsBreadcrumb")==std::wstring::npos && pane.find(L"Edits apply")==std::wstring::npos,
             "the pane has no PROPERTIES caption; the title, breadcrumb and messages live in the window around it");
-        check(pane.find(L"Text=\"Size &amp; spacing\"")!=std::wstring::npos && pane.find(L"Text=\"LAYOUT\"")==std::wstring::npos,
-            "the section is named apart from the grid's Layout category");
         check(pane.find(L"LayoutToggle\"")==std::wstring::npos && pane.find(L"x:Name=\"LayoutMore\"")==std::wstring::npos &&
             BuildLayoutSection(stretched,{}).find(L"WinAppDevToolsBoxModelDetail")!=std::wstring::npos,
-            "the section has no nested More disclosure; its details show when it is open");
-        check(pane.find(L"<Expander x:Name=\"LayoutSectionToggle\"")!=std::wstring::npos &&
-            pane.find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"False\"")!=std::wstring::npos &&
-            pane.find(L"LayoutSectionChev")==std::wstring::npos,
-            "Size & spacing uses a standard collapsed Expander, not a custom visibility toggle");
-        g_layoutSectionOpen=1;
-        check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"True\"")!=std::wstring::npos,
-            "an opened Size & spacing section stays open");
+            "Layout details have no nested More disclosure");
+        check(pane.find(L"<SelectorBarItem Text=\"Properties\" IsSelected=\"True\"")!=std::wstring::npos &&
+            pane.find(L"<SelectorBarItem Text=\"Layout\" IsSelected=\"False\"")!=std::wstring::npos &&
+            pane.find(L"DetailLayoutPanel\" Visibility=\"Collapsed\"")!=std::wstring::npos &&
+            pane.find(L"DetailPropertiesPanel\" Spacing=\"10\" Visibility=\"Visible\"")!=std::wstring::npos &&
+            pane.find(L"LayoutSectionToggle")==std::wstring::npos,
+            "Properties starts selected and Layout contains its diagram directly without an expander");
+        g_detailLayoutSelected=true;
+        const auto nextPane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.Button",L"Next",L"Button",L"Window > Grid",
+            L"",0,{text},L"noSourceInfo",L"",&stretched);
+        check(nextPane.find(L"<SelectorBarItem Text=\"Layout\" IsSelected=\"True\"")!=std::wstring::npos &&
+            nextPane.find(L"DetailLayoutPanel\" Visibility=\"Visible\"")!=std::wstring::npos &&
+            nextPane.find(L"DetailPropertiesPanel\" Spacing=\"10\" Visibility=\"Collapsed\"")!=std::wstring::npos,
+            "selecting another element keeps Layout active and Properties hidden");
+        const auto emptyPane=BuildPropsFragment(L"Unknown",L"",L"",L"",L"",0,{},L"",L"",nullptr);
+        check(emptyPane.find(L"Layout information is not available for this element.")!=std::wstring::npos &&
+            emptyPane.find(L"(no curated properties)")!=std::wstring::npos &&
+            emptyPane.find(L"WinAppDevToolsPropertiesTab")!=std::wstring::npos,
+            "elements without properties or layout retain both tabs with explicit empty messages");
         check(pane.find(L"x:Bind and resource sources not shown (why?)")!=std::wstring::npos &&
             pane.find(L"TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.Name=\"x:Bind and resource sources not shown\"")==std::wstring::npos,
             "without the XAML source, one line says x:Bind and resource sources are not shown; the reason is on hover");
         check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
             "the reason says an x:Bind value reads as Local");
-        g_layoutSectionOpen=-1;
+        g_detailLayoutSelected=false;
     }
     {
         const auto authoredPane = [] {

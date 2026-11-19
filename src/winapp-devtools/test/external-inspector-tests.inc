@@ -6,6 +6,7 @@
 
 void OverlayFixtureInspect(InstanceHandle element, bool comments);
 void OverlayFixturePick(InstanceHandle element, bool comments);
+void OverlayFixtureSettings();
 
 static IUnknown* TakeInspectorUiCallback()
 {
@@ -158,6 +159,9 @@ static void CheckExternalInspector(Check check)
     check(comments.find(L"\"view\":\"comments\"") != std::wstring::npos &&
         comments.find(L"\"handle\":\"" + std::to_wstring(wire) + L"\"") != std::wstring::npos,
         "comments-list request carries the selected element");
+    OverlayFixtureSettings();
+    check(!first.HasData() && ExternalInspectorOwner_ui() == firstId,
+        "Settings stays on the native path without sending an unsupported view or changing external ownership");
     DevToolsOverlay_SetPickedSink(&OnOverlayReleasedPick);
     OverlayFixturePick(707, false);
     const auto picked = first.ReadLine();

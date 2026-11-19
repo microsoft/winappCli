@@ -331,4 +331,5 @@ static std::wstring ShortType(const std::wstring& t)
 #include "DevToolsWindow.LiveProps.inc"
 #include "DevToolsWindow.Placement.inc"
 #include "DevToolsWindow.Comments.inc"
+#include "DevToolsWindow.Settings.inc"
 #include "DevToolsWindow.Lifecycle.inc"

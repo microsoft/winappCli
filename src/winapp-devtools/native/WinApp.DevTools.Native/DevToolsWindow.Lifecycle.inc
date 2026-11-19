@@ -17,7 +17,8 @@ static void ResetCommentsViewState()
     ReleaseCommentRowUi();
     g_commentRows.clear();
     g_commentRowLive.clear();
-    g_commentsView = false;
+    g_selectedCommentId.clear();
+    g_inspectorView = InspectorView::Tree;
 }
 
 void DevToolsWindow_SetCommentBridge(DevToolsWindowCommentsFn commentsFn,
@@ -34,13 +35,18 @@ void DevToolsWindow_SetPathWalk(DevToolsWindowWalkFn walkFn) { g_walkFn = walkFn
 void DevToolsWindow_RefreshComments()
 {
     if (!DevToolsWindow_IsOpen()) return;
-    if (g_commentsView) RefreshCommentsPane();
+    if (g_inspectorView == InspectorView::Comments) RefreshCommentsPane();
     else                UpdateCommentsCount(CountOpenComments());
 }
 
 void DevToolsWindow_ShowComments()
 {
-    if (DevToolsWindow_IsOpen()) SetCommentsView(true);
+    if (DevToolsWindow_IsOpen()) SetInspectorView(InspectorView::Comments);
+}
+
+void DevToolsWindow_ShowSettings()
+{
+    if (DevToolsWindow_IsOpen()) SetInspectorView(InspectorView::Settings);
 }
 
 bool DevToolsWindow_RevealWithoutFocus()
@@ -314,19 +320,38 @@ if (g_route1WindowHidden) {
                 g_shell.nav = find(L"InspectorNav").try_as<DevToolsXC::NavigationView>();
                 g_shell.treeTab = find(L"TreeTabBtn").try_as<DevToolsXC::NavigationViewItem>();
                 g_shell.commentsTab = find(L"CommentsTabBtn").try_as<DevToolsXC::NavigationViewItem>();
+                g_shell.inspectorCard = find(L"InspectorCard").try_as<DevToolsX::UIElement>();
+                g_shell.settingsPage = find(L"SettingsPage").try_as<DevToolsX::UIElement>();
+                g_shell.startToolbarPreference = find(L"StartToolbarPreference").try_as<DevToolsX::UIElement>();
+                g_shell.startEnabled = find(L"DevToolsStartEnabled").try_as<DevToolsXC::ToggleSwitch>();
+                g_shell.startShown = find(L"DevToolsStartShown").try_as<DevToolsXC::ToggleSwitch>();
+                g_shell.startEnabledState = find(L"StartDevToolsState").try_as<DevToolsXC::TextBlock>();
+                g_shell.startShownState = find(L"StartToolbarState").try_as<DevToolsXC::TextBlock>();
+                for (const auto name : { L"StartDevToolsCard", L"StartToolbarPreference" }) {
+                    if (const auto card = find(name).try_as<DevToolsXC::Grid>()) ConfigureSettingsCard(card);
+                }
+                g_shell.settingsError = find(L"SettingsError").try_as<DevToolsXC::TextBlock>();
                 g_shell.commentsBadge = find(L"CommentsBadge").try_as<DevToolsXC::InfoBadge>();
-                g_shell.commentsCount = find(L"CommentsCountLbl").try_as<DevToolsXC::TextBlock>();
                 g_shell.detailTitle = find(L"DetailTitle").try_as<DevToolsXC::TextBlock>();
                 g_shell.detailCrumb = find(L"DetailCrumb").try_as<DevToolsXC::TextBlock>();
-                g_shell.treeHeader = find(L"TreePanelHeader").try_as<DevToolsX::UIElement>();
                 g_shell.commentsHeader = find(L"CommentsPanelHeader").try_as<DevToolsX::UIElement>();
                 g_shell.detailsHeader = find(L"DetailsHeader").try_as<DevToolsX::UIElement>();
                 g_shell.showInTree = find(L"ShowInTreeBtn").try_as<DevToolsX::UIElement>();
                 g_shell.addComment = find(L"AddCommentBtn").try_as<DevToolsX::UIElement>();
                 if (const auto& nav = g_shell.nav) {
+                    ConfigureSettingsNavigation();
+                    nav.Loaded([gen = g_route1Gen](auto&&, auto&&) {
+                        if (gen != g_route1Gen) return;
+                        try { ConfigureSettingsNavigation(); }
+                        catch (const winrt::hresult_error& e) {
+                            g_navSyncing = false;
+                            DevToolsOverlayLog(L"route1.settings navigation failed hr=0x%08X", e.code().value);
+                        }
+                    });
                     nav.SelectionChanged([gen = g_route1Gen](auto&&, DevToolsXC::NavigationViewSelectionChangedEventArgs const& args) {
                         if (gen != g_route1Gen) return;
-                        OnInspectorRailSelection(g_shell.commentsTab && args.SelectedItem() == g_shell.commentsTab);
+                        OnInspectorRailSelection(args.IsSettingsSelected() ? InspectorView::Settings :
+                            g_shell.commentsTab && args.SelectedItem() == g_shell.commentsTab ? InspectorView::Comments : InspectorView::Tree);
                     });
                 } else {
                     DevToolsOverlayLog(L"route1.wire MISS: InspectorNav -- the Comments panel cannot be opened");
@@ -334,7 +359,7 @@ if (g_route1WindowHidden) {
                 if (auto button = g_shell.showInTree.try_as<DevToolsXCP::ButtonBase>()) {
                     button.Click([gen = g_route1Gen](auto&&, auto&&) {
                         if (gen != g_route1Gen) return;
-                        SetCommentsView(false);
+                        SetInspectorView(InspectorView::Tree);
                         if (!g_selWire) return;
                         if (g_selectedWire == g_selWire) RevealSelectedRowAfterViewChange();
                         else SelectNodeByWire(g_selWire, SelectCause::Comment);
@@ -345,13 +370,19 @@ if (g_route1WindowHidden) {
                         if (gen == g_route1Gen && g_openCommentBox) g_openCommentBox();
                     });
                 }
+                RefreshLaunchSettings();
+                for (const auto& toggle : { g_shell.startEnabled, g_shell.startShown }) {
+                    if (toggle) toggle.Toggled([gen = g_route1Gen](auto&&, auto&&) {
+                        if (gen == g_route1Gen) OnLaunchSettingsToggled();
+                    });
+                }
             } catch (const winrt::hresult_error& e) {
                 DevToolsOverlayLog(L"route1.wire shell controls failed hr=0x%08X -- the rail or details header may not respond",
                               e.code().value);
             }
             reinterpret_cast<IUnknown*>(feC)->Release();
         }
-        g_commentsView = false;
+        g_inspectorView = InspectorView::Tree;
         g_commentRows.clear();
         UpdateCommentsCount(CountOpenComments());
     }
@@ -706,9 +737,9 @@ bool DevToolsWindow_OnPicked(InstanceHandle wire, bool releaseCommit)
     if (fromWindow) {
         FocusInspectorAfterPick();
     }
-    if (g_commentsView) {
-        SetCommentsView(false);
-        DevToolsOverlayLog(L"route1.pick committed in comments view -> switched to the Visual tree tab");
+    if (g_inspectorView != InspectorView::Tree) {
+        SetInspectorView(InspectorView::Tree);
+        DevToolsOverlayLog(L"route1.pick -> switched to the Visual tree tab");
     }
     // Picking the element already shown re-reads it: the pane is a snapshot, and a pick is a request to look again.
     const bool reread = wire && wire == g_selWire;

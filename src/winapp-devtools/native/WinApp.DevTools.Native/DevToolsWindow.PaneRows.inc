@@ -235,10 +235,22 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L"<TextBlock Text=\"Resolve\" FontSize=\"12\"/></StackPanel></Button>"
              L"</Grid></Border>";
     }
+    m += L"<SelectorBar x:Name=\"DetailViewSelector\""
+         L" AutomationProperties.Name=\"Element details\" AutomationProperties.AutomationId=\"WinAppDevToolsDetailView\">";
+    m += L"<SelectorBarItem Text=\"Properties\" IsSelected=\"" +
+         std::wstring(g_detailLayoutSelected ? L"False" : L"True") +
+         L"\" AutomationProperties.AutomationId=\"WinAppDevToolsPropertiesTab\"/>";
+    m += L"<SelectorBarItem Text=\"Layout\" IsSelected=\"" +
+         std::wstring(g_detailLayoutSelected ? L"True" : L"False") +
+         L"\" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutTab\"/>";
+    m += L"</SelectorBar><Grid>";
+    m += BuildLayoutPanel(layout, rows);
+    m += L"<StackPanel x:Name=\"DetailPropertiesPanel\" Spacing=\"10\" Visibility=\"" +
+         std::wstring(g_detailLayoutSelected ? L"Collapsed" : L"Visible") +
+         L"\" AutomationProperties.AutomationId=\"WinAppDevToolsPropertiesPanel\">";
     if (rows.empty()) {
         m += L"<TextBlock Text=\"(no curated properties)\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>";
-        if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
-        m += L"</StackPanel>";
+        m += L"</StackPanel></Grid></StackPanel>";
         return m;
     }
 
@@ -289,8 +301,6 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(why) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredUnavailable\"/>";
     }
-    if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
-
     // Property toolbar: the filter box, with the Computed | Set choice to its right. ApplyPropViewSelection
     // rebuilds this fragment, so the selector's IsSelected state comes from the current view.
     const bool setView = ShowingSetView();
@@ -346,7 +356,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.AccessibilityView=\"Raw\"/>";
         m += L"</HyperlinkButton>";
     }
-    m += L"</StackPanel>";
+    m += L"</StackPanel></Grid></StackPanel>";
     return m;
 }
 

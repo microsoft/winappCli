@@ -31,9 +31,9 @@
       <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
       <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
 
-      <!-- FillBehavior="Stop" returns the glow to its local opacity, so the attach pulse does not keep running. -->
+      <!-- FillBehavior="Stop" restores the icon after the one-shot attach pulse. -->
       <Storyboard x:Name="DevToolsAttachPulse">
-        <DoubleAnimation Storyboard.TargetName="DevToolsGlowHalo" Storyboard.TargetProperty="Opacity"
+        <DoubleAnimation Storyboard.TargetName="DevToolsChipGrip" Storyboard.TargetProperty="Opacity"
                          From="0.22" To="0.66" Duration="0:0:0.5" AutoReverse="True" FillBehavior="Stop" />
       </Storyboard>
 
@@ -50,14 +50,14 @@
   <!-- NO fixed Width -- it auto-sizes to its label and the code re-anchors it from the selected corner.
        A Button, so UI Automation can invoke it; the template keeps the pill's own look. -->
   <Button x:Name="DevToolsChip" Style="{x:Null}" AllowFocusOnInteraction="False" Canvas.Left="$CHIPX$" Canvas.Top="$CHIPY$" Canvas.ZIndex="1000" MinHeight="$CHIPH$"
-          RequestedTheme="$TOOLBARTHEME$" CornerRadius="14" Padding="0"
+          RequestedTheme="$TOOLBARTHEME$" CornerRadius="8" Padding="0"
           UseSystemFocusVisuals="True"
           AutomationProperties.AutomationId="DevToolsProtoRailL"
           AutomationProperties.Name="DevTools (open toolbar)"
           AutomationProperties.AcceleratorKey="Ctrl+Shift+F12">
     <Button.Template>
       <ControlTemplate TargetType="Button">
-        <Border Background="$SURFACE$" CornerRadius="14" BorderBrush="$RIM$" BorderThickness="1"
+        <Border Background="$SURFACE$" CornerRadius="8" BorderBrush="$RIM$" BorderThickness="1"
                 BackgroundSizing="InnerBorderEdge">
           <ContentPresenter />
         </Border>
@@ -70,20 +70,10 @@
     </Button.Transitions>
     <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" Margin="12,4,13,4">
 
-      <!-- The container MUST be >= the halo: a 16px halo in a 10px Grid was clipped to the Grid's bounds and
-
-           rendered as a solid pale SQUARE around the dot. The ON pair is a second, accent-tinted dot+halo
-
-           toggled by Visibility rather than a runtime brush swap -- the ove. -->
       <Grid Width="18" Height="18" VerticalAlignment="Center">
-        <Ellipse x:Name="DevToolsGlowHalo" Width="16" Height="16" Fill="$LIVE$" Opacity="0.22"
-                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-        <Ellipse x:Name="DevToolsGlowHaloOn" Width="16" Height="16" Fill="$ACCENT$" Opacity="0.28" Visibility="Collapsed"
-                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-        <Ellipse x:Name="DevToolsChipDot" Width="8" Height="8" Fill="$LIVE$"
-                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-        <Ellipse x:Name="DevToolsChipDotOn" Width="8" Height="8" Fill="$ACCENT$" Visibility="Collapsed"
-                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+        <PathIcon x:Name="DevToolsChipGrip" FlowDirection="LeftToRight" Width="16" Height="16" Foreground="$TEXTDIM$"
+                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                  Data="F1 M6 5C6.55228 5 7 4.55228 7 4C7 3.44772 6.55228 3 6 3C5.44772 3 5 3.44772 5 4C5 4.55228 5.44772 5 6 5ZM6 9C6.55228 9 7 8.55228 7 8C7 7.44772 6.55228 7 6 7C5.44772 7 5 7.44772 5 8C5 8.55228 5.44772 9 6 9ZM7 12C7 12.5523 6.55228 13 6 13C5.44772 13 5 12.5523 5 12C5 11.4477 5.44772 11 6 11C6.55228 11 7 11.4477 7 12ZM10 5C10.5523 5 11 4.55228 11 4C11 3.44772 10.5523 3 10 3C9.44772 3 9 3.44772 9 4C9 4.55228 9.44772 5 10 5ZM11 8C11 8.55228 10.5523 9 10 9C9.44772 9 9 8.55228 9 8C9 7.44772 9.44772 7 10 7C10.5523 7 11 7.44772 11 8ZM10 13C10.5523 13 11 12.5523 11 12C11 11.4477 10.5523 11 10 11C9.44772 11 9 11.4477 9 12C9 12.5523 9.44772 13 10 13Z" />
       </Grid>
       <TextBlock x:Name="DevToolsChipLabel" Text="DevTools" FontSize="12" FontWeight="SemiBold"
                  VerticalAlignment="Center" Foreground="$TEXT$"
@@ -159,7 +149,7 @@
           </MenuFlyout>
         </ToggleSplitButton.Flyout>
         <Grid MinWidth="24" MinHeight="24">
-          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15" IsTextScaleFactorEnabled="True"
+          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="14" IsTextScaleFactorEnabled="True"
                     HorizontalAlignment="Center" VerticalAlignment="Center" />
           <Border x:Name="DevToolsCommentBadge" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top"
                   MinWidth="14" MinHeight="14" CornerRadius="7" Padding="4,1" Background="$ACCENT$"
@@ -235,14 +225,12 @@
                                  AutomationProperties.AutomationId="DevToolsProtoPin"
                                  AutomationProperties.Name="Keep toolbar open" />
             <MenuFlyoutSeparator />
-            <MenuFlyoutItem Text="LAUNCH PREFERENCES" IsEnabled="False" FontSize="12" Padding="11,4,11,0" Height="24"
-                            AutomationProperties.AutomationId="DevToolsStartModeHeading" />
-            <ToggleMenuFlyoutItem x:Name="DevToolsStartEnabled" Text="Start DevTools by default"
-                                 ToolTipService.ToolTip="When off, winapp run starts the app without DevTools. Same as: winapp config set run.devtools off. To turn it back on: winapp config set run.devtools on, or winapp run --devtools on"
-                                 AutomationProperties.AutomationId="DevToolsStartEnabled" />
-            <ToggleMenuFlyoutItem x:Name="DevToolsStartShown" Text="Show toolbar" IsChecked="True"
-                                 ToolTipService.ToolTip="When off, DevTools starts with nothing drawn in the app. Press Ctrl+Shift+F12 to show the toolbar."
-                                 AutomationProperties.AutomationId="DevToolsStartShown" />
+            <MenuFlyoutItem x:Name="DevToolsOpenSettings" Text="Settings"
+                            AutomationProperties.AutomationId="DevToolsOpenSettings">
+              <MenuFlyoutItem.Icon>
+                <FontIcon Glyph="&#xE713;"/>
+              </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
           </MenuFlyout>
         </Button.Flyout>
         <FontIcon FlowDirection="LeftToRight" Glyph="&#xE712;" FontSize="14" IsTextScaleFactorEnabled="True" Foreground="$TEXTDIM$" />

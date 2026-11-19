@@ -8,7 +8,9 @@ static size_t                         g_commentsResolvedHidden = 0;
 void DevToolsWindow_SetResolvedCommentCount(size_t resolved) { g_commentsResolvedHidden = resolved; }
 static DevToolsWindowAnchorWireFn     g_anchorWireFn;
 static DevToolsWindowCommentResolveFn g_commentResolveFn;
-static bool          g_commentsView = false;
+enum class InspectorView { Tree, Comments, Settings };
+static InspectorView g_inspectorView = InspectorView::Tree;
+static void RefreshLaunchSettings();
 static IInspectable* g_commentsHostChildren = nullptr;
 static void*         g_commentsScrollUi = nullptr;
 static void*         g_treeControlsUi = nullptr;
@@ -17,11 +19,15 @@ static void*         g_treeControlsUi = nullptr;
 struct InspectorShellRefs
 {
     DevToolsXC::NavigationView nav{nullptr};
-    DevToolsXC::NavigationViewItem treeTab{nullptr}, commentsTab{nullptr};
+    DevToolsXC::NavigationViewItem treeTab{nullptr}, commentsTab{nullptr}, settingsTab{nullptr};
     DevToolsXC::InfoBadge commentsBadge{nullptr};
-    DevToolsXC::TextBlock commentsCount{nullptr}, detailTitle{nullptr}, detailCrumb{nullptr};
-    DevToolsX::UIElement treeHeader{nullptr}, commentsHeader{nullptr}, detailsHeader{nullptr};
+    DevToolsXC::TextBlock detailTitle{nullptr}, detailCrumb{nullptr};
+    DevToolsX::UIElement commentsHeader{nullptr}, detailsHeader{nullptr};
     DevToolsX::UIElement showInTree{nullptr}, addComment{nullptr};
+    DevToolsX::UIElement inspectorCard{nullptr}, settingsPage{nullptr}, startToolbarPreference{nullptr};
+    DevToolsXC::ToggleSwitch startEnabled{nullptr}, startShown{nullptr};
+    DevToolsXC::TextBlock startEnabledState{nullptr}, startShownState{nullptr};
+    DevToolsXC::TextBlock settingsError{nullptr};
 };
 static InspectorShellRefs g_shell;
 static std::function<void()> g_openCommentBox; // opens the selected element's comment box; set per fragment
@@ -33,11 +39,33 @@ struct CommentPaneItem { CommentItemKind kind = CommentItemKind::Row; size_t row
 static std::vector<CommentPaneItem> g_commentItems;
 static std::vector<int> g_commentRowItem;   // row index -> item index
 static std::vector<char> g_commentRowLive;
+static std::wstring g_selectedCommentId;
 static void* g_commentRepeater = nullptr;
 static void* g_commentsOffNoteTb = nullptr;
 static void* g_commentsOffNoteUi = nullptr;
 static bool g_xamlHandlerPresent = false;
 static void RefreshCommentsPane();
+
+static void UpdateCommentSelection()
+{
+    for (size_t i = 0; i < g_commentRows.size(); ++i) {
+        IInspectable* element = nullptr;
+        if (!g_commentRepeater || i >= g_commentRowItem.size() ||
+            FAILED(DevToolsRepeaterTryGetElement(g_commentRepeater, g_commentRowItem[i], &element)) || !element) continue;
+        try {
+            const auto row = TreeObject<DevToolsX::FrameworkElement>(element);
+            const std::wstring n = std::to_wstring(i);
+            const bool selected = g_commentRows[i].id == g_selectedCommentId;
+            if (const auto button = row.FindName(L"K" + n).try_as<DevToolsXC::Button>())
+                DevToolsXA::AutomationProperties::SetItemStatus(button, selected ? L"Selected" : L"");
+            if (const auto outline = row.FindName(L"S" + n).try_as<DevToolsX::UIElement>())
+                outline.Visibility(selected ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.comments selection update failed hr=0x%08X", e.code().value);
+        }
+        element->Release();
+    }
+}
 
 static void ReleaseCommentRowUi()
 {
@@ -52,13 +80,14 @@ static void GoToComment(size_t idx)
 {
     if (idx >= g_commentRows.size()) return;
     const DevToolsWindowComment c = g_commentRows[idx];
+    g_selectedCommentId = c.id;
+    UpdateCommentSelection();
 
     InstanceHandle wire = (g_anchorWireFn && !c.anchor.empty()) ? g_anchorWireFn(c.anchor.c_str()) : 0;
     if (wire) {
         // SelectCause::Comment, not the default: this path must never write the "Just my XAML" filter, whose
         // toggle is not even on screen in this mode. SelectNodeByWire reports the collision instead.
         SelectNodeByWire(wire, SelectCause::Comment);
-        SetStatusText(L"Selected the element for " + c.id);
         return;
     }
     SetStatusText(L"That element isn't on this screen right now. " +
@@ -125,7 +154,7 @@ struct CommentOpenSourceSink : DevToolsSinkBase
         if (gen != g_route1Gen) return S_OK;
         if (idx >= g_commentRows.size()) return S_OK;
         const DevToolsWindowComment c = g_commentRows[idx];
-        HandOffSource(c.uri, c.line, L"That element isn't on this screen right now");
+        HandOffSource(c.uri, c.line, L"");
         return S_OK;
     }
     void Init(size_t i) { idx = i; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
@@ -189,89 +218,90 @@ static std::wstring CommentRowAccessibleName(const DevToolsWindowComment& c, boo
     return n;
 }
 
-// Put status and live-anchor chips before trimming text so stale/offscreen state remains visible.
+// Put status before trimming text so stale/offscreen state remains visible.
 static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowComment& c, bool live)
 {
     const bool done = (c.status == L"resolved");
     const std::wstring i = std::to_wstring(idx);
     const std::wstring where = CommentWhere(c, live && !done);
-    // Qualify every action's accessible name with its comment; the visible label stays the short verb.
+    // Qualify icon actions with their comment for assistive technology.
     const std::wstring subject = DevToolsXmlEscape(c.text.size() > 40 ? c.text.substr(0, 40) + L"\u2026" : c.text);
 
     std::wstring m;
-    m += L"<Border xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
-         L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" x:Name=\"H" + i + L"\" Margin=\"0,0,0,2\" CornerRadius=\"4\" Background=\"Transparent\">";
-    m += L"<StackPanel>";
+    m += L"<Grid xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
+         L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Margin=\"0,0,0,8\">";
+    m += L"<Border x:Name=\"H" + i + L"\" Padding=\"4\" CornerRadius=\"8\" BorderThickness=\"1\""
+         L" BorderBrush=\"{ThemeResource CardStrokeColorDefaultBrush}\""
+         L" Background=\"{ThemeResource CardBackgroundFillColorDefaultBrush}\">";
+    m += L"<Grid ColumnSpacing=\"4\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"*\"/>"
+         L"<ColumnDefinition Width=\"Auto\"/></Grid.ColumnDefinitions>";
 
     m += L"<Button x:Name=\"K" + i + L"\" HorizontalAlignment=\"Stretch\""
-         L" HorizontalContentAlignment=\"Left\" Padding=\"8,6\" Background=\"Transparent\" BorderThickness=\"0\""
+         L" HorizontalContentAlignment=\"Stretch\" Padding=\"8,4\" Background=\"Transparent\" BorderThickness=\"0\""
+         L" AutomationProperties.ItemStatus=\"" + (c.id == g_selectedCommentId ? L"Selected" : L"") + L"\""
          L" AutomationProperties.AutomationId=\"Comment" + i + L"\"";
     m += L" AutomationProperties.Name=\"" + DevToolsXmlEscape(CommentRowAccessibleName(c, live, done), true) + L"\"";
     const std::wstring absent = DevToolsCommentText::AbsentLabel(!c.anchor.empty());
     m += L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(live ? L"Select this element"
                                                      : L"Marker unavailable: " + absent + L". Use the actions on the row") + L"\">";
-    m += L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
-         L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
-    m += L"<Grid Grid.Column=\"0\" VerticalAlignment=\"Top\" Margin=\"0,6,0,0\">";
-    m += L"<Ellipse x:Name=\"D" + i + L"\" Width=\"8\" Height=\"8\" StrokeThickness=\"1\""
-         L" Fill=\"{ThemeResource AccentFillColorDefaultBrush}\""
-         L" Stroke=\"{ThemeResource AccentFillColorDefaultBrush}\" Visibility=\"" +
-         (live ? L"Visible" : L"Collapsed") + L"\"/>";
-    m += L"<Ellipse x:Name=\"N" + i + L"\" Width=\"8\" Height=\"8\" StrokeThickness=\"1\""
-         L" Fill=\"Transparent\" Stroke=\"{ThemeResource TextFillColorSecondaryBrush}\" Visibility=\"" +
-         (live ? L"Collapsed" : L"Visible") + L"\"/>";
-    m += L"</Grid>";
-    m += L"<StackPanel Grid.Column=\"1\">";
+    m += L"<StackPanel VerticalAlignment=\"Center\">";
     m += L"<TextBlock Text=\"" + DevToolsXmlEscape(c.text, true) + L"\" TextWrapping=\"Wrap\" MaxLines=\"2\""
          L" TextTrimming=\"CharacterEllipsis\" FontSize=\"13\"";
     m += done ? L" TextDecorations=\"Strikethrough\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>"
               : L" Foreground=\"{ThemeResource TextFillColorPrimaryBrush}\"/>";
-    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\" Margin=\"0,3,0,0\">";
+    m += L"<Grid Margin=\"0,3,0,0\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
+         L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
     if (!done) {
-        m += L"<Border x:Name=\"P" + i + L"\" CornerRadius=\"3\" Padding=\"5,1\" BorderThickness=\"1\""
+        m += L"<Border x:Name=\"P" + i + L"\" CornerRadius=\"3\" Padding=\"5,1\" Margin=\"0,0,6,0\" BorderThickness=\"1\""
              L" BorderBrush=\"{ThemeResource ControlStrokeColorDefaultBrush}\""
              L" Background=\"{ThemeResource ControlFillColorSecondaryBrush}\" VerticalAlignment=\"Center\""
              L" Visibility=\"" + (live ? L"Collapsed" : L"Visible") + L"\">"
              L"<TextBlock Text=\"" + absent + L"\" FontSize=\"10\""
              DT_FG_SECONDARY L"/></Border>";
     }
-    m += L"<TextBlock FontSize=\"11\" VerticalAlignment=\"Center\" TextTrimming=\"CharacterEllipsis\">";
+    m += L"<TextBlock Grid.Column=\"1\" FontSize=\"11\" VerticalAlignment=\"Center\" TextTrimming=\"CharacterEllipsis\">";
     if (!c.element.empty()) {
         m += L"<Run Text=\"" + DevToolsXmlEscape(c.element) + L"\"" DT_FG_SECONDARY L"/>";
         m += L"<Run Text=\"   \"/>";
     }
     if (!where.empty()) {
-        m += L"<Run Text=\"" + DevToolsXmlEscape(where) + L"\" Foreground=\"{ThemeResource AccentTextFillColorPrimaryBrush}\"/>";
+        m += L"<Run Text=\"" + DevToolsXmlEscape(where) + L"\"" DT_FG_SECONDARY L"/>";
     }
-    m += L"</TextBlock></StackPanel></StackPanel></Grid></Button>";
+    m += L"</TextBlock></Grid></StackPanel></Button>";
 
-    m += L"<StackPanel x:Name=\"A" + i + L"\" Orientation=\"Horizontal\""
-         L" Margin=\"16,0,0,4\" Spacing=\"4\">";
+    m += L"<StackPanel x:Name=\"A" + i + L"\" Grid.Column=\"1\" Orientation=\"Vertical\""
+         L" VerticalAlignment=\"Center\" Margin=\"2,0\" Spacing=\"0\">";
     if (!c.uri.empty()) {
         if (g_xamlHandlerPresent) {
-            m += L"<HyperlinkButton x:Name=\"O" + i + L"\" Content=\"Open source\" Padding=\"6,0\" FontSize=\"11\""
+            m += L"<HyperlinkButton x:Name=\"O" + i + L"\" Padding=\"6\" MinWidth=\"28\" MinHeight=\"28\""
                  L" AutomationProperties.AutomationId=\"CommentOpenSource" + i + L"\""
                  L" AutomationProperties.Name=\"Open source for: " + subject + L"\""
-                 L" ToolTipService.ToolTip=\"Hand this file to whatever opens .xaml on this machine\"/>";
+                 L" ToolTipService.ToolTip=\"Open source\">"
+                 L"<FontIcon Glyph=\"&#xE8A5;\" FontSize=\"14\"/></HyperlinkButton>";
         } else {
-            m += L"<HyperlinkButton x:Name=\"E" + i + L"\" Content=\"Show in File Explorer\" Padding=\"6,0\" FontSize=\"11\""
+            m += L"<HyperlinkButton x:Name=\"E" + i + L"\" Padding=\"6\" MinWidth=\"28\" MinHeight=\"28\""
                  L" AutomationProperties.Name=\"Show in File Explorer: " + subject + L"\""
                  L" AutomationProperties.AutomationId=\"CommentReveal" + i + L"\""
-                 L" ToolTipService.ToolTip=\"Nothing on this machine opens .xaml files. Show it in File Explorer instead\"/>";
-            m += L"<HyperlinkButton x:Name=\"C" + i + L"\" Content=\"Copy path\" Padding=\"6,0\" FontSize=\"11\""
+                 L" ToolTipService.ToolTip=\"Show in File Explorer\">"
+                 L"<FontIcon Glyph=\"&#xE838;\" FontSize=\"14\"/></HyperlinkButton>";
+            m += L"<HyperlinkButton x:Name=\"C" + i + L"\" Padding=\"6\" MinWidth=\"28\" MinHeight=\"28\""
                  L" AutomationProperties.AutomationId=\"CommentCopyPath" + i + L"\""
                  L" AutomationProperties.Name=\"Copy path for: " + subject + L"\""
-                 L" ToolTipService.ToolTip=\"Copy this file's full path\"/>";
+                 L" ToolTipService.ToolTip=\"Copy path\">"
+                 L"<FontIcon Glyph=\"&#xE8C8;\" FontSize=\"14\"/></HyperlinkButton>";
         }
     }
     if (!done && g_commentResolveFn) {
-        m += L"<HyperlinkButton x:Name=\"R" + i + L"\" Content=\"Resolve\" Padding=\"6,0\" FontSize=\"11\""
+        m += L"<HyperlinkButton x:Name=\"R" + i + L"\" Padding=\"6\" MinWidth=\"28\" MinHeight=\"28\""
              L" AutomationProperties.AutomationId=\"CommentResolve" + i + L"\""
              L" AutomationProperties.Name=\"Resolve: " + subject + L"\""
-             L" ToolTipService.ToolTip=\"Mark this comment resolved\"/>";
+             L" ToolTipService.ToolTip=\"Resolve comment\">"
+             L"<FontIcon Glyph=\"&#xE73E;\" FontSize=\"14\"/></HyperlinkButton>";
     }
     m += L"</StackPanel>";
-    m += L"</StackPanel></Border>";
+    m += L"</Grid></Border><Border x:Name=\"S" + i + L"\" CornerRadius=\"8\" BorderThickness=\"2\""
+         L" BorderBrush=\"{ThemeResource AccentFillColorDefaultBrush}\" IsHitTestVisible=\"False\""
+         L" Visibility=\"" + (c.id == g_selectedCommentId ? L"Visible" : L"Collapsed") + L"\"/></Grid>";
     return m;
 }
 
@@ -279,7 +309,7 @@ static std::wstring CommentCaptionMarkup(const std::wstring& text)
 {
     return L"<TextBlock xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Text=\"" + DevToolsXmlEscape(text) +
         L"\" Style=\"{StaticResource CaptionTextBlockStyle}\"" DT_FG_SECONDARY
-        L" CharacterSpacing=\"60\" Margin=\"4,10,4,6\" AutomationProperties.HeadingLevel=\"Level2\"/>";
+        L" CharacterSpacing=\"60\" Margin=\"4,0,4,6\" AutomationProperties.HeadingLevel=\"Level2\"/>";
 }
 
 // Fills the list model (captions grouped by file, then resolved comments) and returns the pane around it.
@@ -426,7 +456,7 @@ static std::wstring CommentsOffscreenNote(size_t offscreen)
 // built pick up the new state when it builds them. Run on the later UI dispatcher turn, not inside OnVisualTreeChange.
 static void RecomputeCommentLiveness()
 {
-    if (!g_commentsView || g_commentRows.empty()) return;
+    if (g_inspectorView != InspectorView::Comments || g_commentRows.empty()) return;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinCommentLive);
     size_t offscreen = 0, changed = 0;
     for (size_t i = 0; i < g_commentRows.size() && i < g_commentRowLive.size(); ++i) {
@@ -455,8 +485,6 @@ static void RecomputeCommentLiveness()
                     part->Release();
                 }
             };
-            show(L"D", live);
-            show(L"N", !live);
             show(L"P", !live);
             if (IInspectable* body = FindInRow(row, (L"K" + n).c_str())) {
                 HSTRING h = MakeStr(CommentRowAccessibleName(c, live, false));
@@ -488,7 +516,7 @@ static size_t CountOpenComments()
     return open;
 }
 
-// The rail badge and the Comments panel header both show how many comments are open.
+// The rail badge shows how many comments are open.
 static void UpdateCommentsCount(size_t open)
 {
     try {
@@ -496,7 +524,6 @@ static void UpdateCommentsCount(size_t open)
             badge.Value(static_cast<int32_t>(open));
             badge.Visibility(open > 0 ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
         }
-        if (const auto& count = g_shell.commentsCount) count.Text(std::to_wstring(open) + L" open");
         if (const auto& tab = g_shell.commentsTab)
             DevToolsXA::AutomationProperties::SetItemStatus(tab, std::to_wstring(open) + L" open");
     } catch (const winrt::hresult_error& e) {
@@ -565,20 +592,22 @@ static void RefreshCommentsPane()
     DevToolsOverlayLog(L"route1.comments rendered rows=%zu open=%zu ms=%llu", g_commentRows.size(), open, GetTickCount64() - began);
 }
 // Tree-scoped controls collapse with the tree; comments view must not leave filters/toggles acting on nothing.
-static void SetCommentsView(bool on)
+static void SetInspectorView(InspectorView view)
 {
-    g_commentsView = on;
+    g_inspectorView = view;
+    const bool on = view == InspectorView::Comments;
     if (g_treeScrollUi)     DevToolsPutVisibility(g_treeScrollUi, on ? 1 : 0);
     if (g_commentsScrollUi) DevToolsPutVisibility(g_commentsScrollUi, on ? 0 : 1);
     if (g_treeControlsUi)   DevToolsPutVisibility(g_treeControlsUi, on ? 1 : 0);
     try {
         const auto shown = [](bool v) { return v ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed; };
-        if (const auto& header = g_shell.treeHeader)     header.Visibility(shown(!on));
+        if (const auto& card = g_shell.inspectorCard) card.Visibility(shown(view != InspectorView::Settings));
+        if (const auto& page = g_shell.settingsPage) page.Visibility(shown(view == InspectorView::Settings));
         if (const auto& header = g_shell.commentsHeader) header.Visibility(shown(on));
         if (const auto& button = g_shell.showInTree)     button.Visibility(shown(on && g_selWire != 0));
         // Keep the rail in step when code switches the view (picking an element returns to the tree).
         const auto& nav = g_shell.nav;
-        const auto& item = on ? g_shell.commentsTab : g_shell.treeTab;
+        const auto& item = view == InspectorView::Settings ? g_shell.settingsTab : on ? g_shell.commentsTab : g_shell.treeTab;
         if (nav && item && nav.SelectedItem() != item) {
             g_navSyncing = true;
             nav.SelectedItem(item);
@@ -589,13 +618,14 @@ static void SetCommentsView(bool on)
         DevToolsOverlayLog(L"route1.comments view switch failed hr=0x%08X", e.code().value);
     }
     if (on) RefreshCommentsPane();
+    if (view == InspectorView::Settings) RefreshLaunchSettings();
 }
 
-// The rail picks the panel. A selection that SetCommentsView makes to keep the rail in step is not a user choice.
-static void OnInspectorRailSelection(bool comments)
+// A selection made to keep the rail in step is not a user choice.
+static void OnInspectorRailSelection(InspectorView view)
 {
-    if (g_navSyncing || comments == g_commentsView) return;
-    SetCommentsView(comments);
+    if (g_navSyncing || view == g_inspectorView) return;
+    SetInspectorView(view);
 }
 
 // The details header does not scroll: the element's title, its two nearest ancestors (the whole path is the
@@ -620,7 +650,7 @@ static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& na
             DevToolsXA::AutomationProperties::SetName(crumb, breadcrumb.empty() ? std::wstring() : L"Ancestors: " + breadcrumb);
         }
         if (const auto& button = g_shell.addComment) button.Visibility(shown(selected && g_ctx.writeFn));
-        if (const auto& button = g_shell.showInTree) button.Visibility(shown(selected && g_commentsView));
+        if (const auto& button = g_shell.showInTree)     button.Visibility(shown(selected && g_inspectorView == InspectorView::Comments));
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"route1.props details header update failed hr=0x%08X", e.code().value);
     }

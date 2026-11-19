@@ -35,6 +35,13 @@ static void ShowAllComments()
     Inspect(request);
 }
 
+static void ShowSettings()
+{
+    DevToolsInspectRequest request;
+    request.settings = true;
+    Inspect(request);
+}
+
 static void OnSelOpenClick(void*, void*) { InspectElement(g_selHandle); }
 // Tear down the morph anchor (idempotent): remove the subtree from the canvas, release the held parts, and
 // release the element-count oracle freeze (the panel's async TextBox parts are gone once the subtree leaves, so

@@ -10,6 +10,22 @@
 
 namespace DevToolsTreeLayout {
 
+const wchar_t* TypeIconGlyph(const std::wstring& shortType)
+{
+    if (shortType == L"Grid" || shortType == L"VariableSizedWrapGrid") return L"\uE80A";
+    if (shortType == L"StackPanel" || shortType == L"ItemsStackPanel" ||
+        shortType == L"VirtualizingStackPanel") return L"\uE8FD";
+    if (shortType == L"TextBlock" || shortType == L"RichTextBlock") return L"\uE8D2";
+    if (shortType == L"TextBox" || shortType == L"RichEditBox" || shortType == L"PasswordBox") return L"\uE70F";
+    if (shortType == L"Image" || shortType == L"BitmapIcon") return L"\uEB9F";
+    if (shortType == L"CheckBox") return L"\uE73A";
+    if (shortType == L"RadioButton") return L"\uE915";
+    if (shortType == L"ListView" || shortType == L"GridView" || shortType == L"ItemsRepeater" ||
+        shortType == L"TreeView") return L"\uE8FD";
+    if (shortType == L"ScrollViewer") return L"\uE8CB";
+    return L"\uE739";
+}
+
 int IndentPxForLevel(int level)
 {
     if (level <= 0) return 0;

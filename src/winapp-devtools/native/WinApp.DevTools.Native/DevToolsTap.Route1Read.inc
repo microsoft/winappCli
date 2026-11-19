@@ -454,7 +454,7 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     });
     // Hand the last in-app pick (published by PublishOverlayPick as a wire handle) to the window so it opens with
     // that element selected. 0 when nothing was picked (plain toolbar Inspect) -> window opens with no selection.
-    InstanceHandle preselect = g_lastPickHandle.load(std::memory_order_relaxed);
+    InstanceHandle preselect = DevToolsOverlay_InspectRequest().settings ? 0 : g_lastPickHandle.load(std::memory_order_relaxed);
     // "Open in DevTools" names its element, which a comment marker opens without a pick.
     if (const InstanceHandle reveal = DevToolsOverlay_InspectRequest().element) {
         unsigned long long wire;
@@ -510,13 +510,14 @@ static bool RequestExternalInspector_ui(const DevToolsInspectRequest& request)
 static bool InprocInspect(std::wstring* error)
 {
     const DevToolsInspectRequest& request = DevToolsOverlay_InspectRequest();
-    if (RequestExternalInspector_ui(request)) return true;
+    if (!request.settings && RequestExternalInspector_ui(request)) return true;
     // A pick has already selected its element in an inspector on screen; it only needs to be in view.
-    if (!request.activate && !request.comments && DevToolsWindow_RevealWithoutFocus()) return true;
+    if (!request.activate && !request.comments && !request.settings && DevToolsWindow_RevealWithoutFocus()) return true;
     g_ownedState.Reconcile(DevToolsStateAxis::Window, DevToolsWindow_IsOpen() ? 1ull : 0ull);
     HRESULT hr = OpenInprocWindow(error);
     const bool open = SUCCEEDED(hr) && DevToolsWindow_IsOpen();
     if (open && request.comments) DevToolsWindow_ShowComments();
+    if (open && request.settings) DevToolsWindow_ShowSettings();
     g_ownedState.Reconcile(DevToolsStateAxis::Window, open ? 1ull : 0ull);
     return open;
 }

@@ -632,26 +632,25 @@ static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
     }
 }
 
-// WinUI owns disclosure visibility and automation; callbacks only remember the user's choice.
-struct LayoutSectionSink : DevToolsSinkBase
+// Switch the existing panels in place, keeping property editors and their drafts intact.
+static void ApplyDetailViewSelection(DevToolsXC::SelectorBar const& selector)
 {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen) return S_OK;
-        g_layoutSectionOpen = open ? 1 : 0;
-        DevToolsSettingsSetBool(L"InspectorSizeSpacingOpen", open);
-        return S_OK;
+    try {
+        if (selector != g_detailViewSelector) return;
+        const auto items = selector.Items();
+        const auto selected = selector.SelectedItem();
+        if (!selected) {
+            selector.SelectedItem(items.GetAt(g_detailLayoutSelected ? 1 : 0));
+            return;
+        }
+        g_detailLayoutSelected = selected == items.GetAt(1);
+        g_detailPropertiesUi.Visibility(g_detailLayoutSelected ? DevToolsX::Visibility::Collapsed : DevToolsX::Visibility::Visible);
+        g_detailLayoutUi.Visibility(g_detailLayoutSelected ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.props details tab failed hr=0x%08X", e.code().value);
+        SetStatusText(L"Could not switch the details tab. Refresh the inspector and retry.");
     }
-    void Init(bool expanding)
-    {
-        open = expanding;
-        InitSink(expanding
-            ? DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderExpandingEventArgs>>()
-            : DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderCollapsedEventArgs>>(),
-            g_route1Gen);
-    }
-    bool open = false;
-};
+}
 
 struct AxmlToggleSink : DevToolsSinkBase
 {

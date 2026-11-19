@@ -69,8 +69,11 @@ static void CheckInspectorLayout(IUIAutomation* automation, IUIAutomationElement
             "each inspector toolbar control has visible bounds");
     }
     for (unsigned index : { 0u, 1u, 3u }) {
-        Check(bounds[index].top <= bounds[2].top && bounds[index].bottom >= bounds[2].bottom,
-            "inspector command buttons grow with the text-scaled filter");
+        Check(std::abs((bounds[index].top + bounds[index].bottom) -
+                       (bounds[2].top + bounds[2].bottom)) <= 2,
+            "standard inspector buttons stay vertically centered beside the filter");
+        Check(bounds[index].bottom - bounds[index].top <= bounds[2].bottom - bounds[2].top + 2,
+            "inspector buttons do not add height beyond the filter");
     }
     for (unsigned index = 1; index < 4; ++index) {
         Check(bounds[index - 1].right <= bounds[index].left, "inspector toolbar controls do not overlap");

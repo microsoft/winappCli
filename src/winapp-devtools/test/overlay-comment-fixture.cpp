@@ -59,6 +59,11 @@ void OverlayFixturePick(InstanceHandle element, bool comments)
     SetCommentMode(prior);
 }
 
+void OverlayFixtureSettings()
+{
+    ShowSettings();
+}
+
 // The overlay host falls back to Popups whenever any step of the UI-layer lookup does not answer, or when forced.
 bool OverlayFixtureHostFallsBack()
 {

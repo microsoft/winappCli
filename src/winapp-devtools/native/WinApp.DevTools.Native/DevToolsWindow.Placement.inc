@@ -163,8 +163,8 @@ static void PositionInspectorBesideApp()
     UINT dpi = GetDpiForWindow(self);
     if (dpi == 0) dpi = 96;
     const double s = dpi / 96.0;
-    int w = (int)(780 * s);
-    int h = (int)(620 * s);
+    int w = (int)(860 * s);
+    int h = (int)(680 * s);
 
     HWND app = FindTargetMainHwnd(self);
     HMONITOR mon = MonitorFromWindow(app ? app : self, MONITOR_DEFAULTTONEAREST);

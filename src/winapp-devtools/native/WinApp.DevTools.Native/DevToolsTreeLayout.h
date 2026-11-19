@@ -15,6 +15,7 @@ constexpr int kIndentTailStep   = 3;   // px per level beyond that
 constexpr int kIndentMaxPx      = 168;
 
 int IndentPxForLevel(int level);
+const wchar_t* TypeIconGlyph(const std::wstring& shortType);
 
 double RevealVerticalOffset(double offset, double viewport, double scrollable, double top, double height);
 

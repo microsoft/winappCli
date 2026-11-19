@@ -246,6 +246,7 @@ struct DevToolsInspectRequest
     InstanceHandle element = 0;   // the element to select; 0 keeps the last pick
     bool activate = true;         // false: an inspector already on screen is brought forward without focus
     bool comments = false;        // show the Comments pane
+    bool settings = false;        // show Settings in the native window, not an external inspector
 };
 const DevToolsInspectRequest& DevToolsOverlay_InspectRequest();
 

@@ -423,42 +423,63 @@ try {
         $restoredNodes = @($restored.windows | ForEach-Object { Nodes $_.elements })
         Check (@($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoPill' -and -not $_.isOffscreen }).Count -eq 1 -and
             @($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoRailL' -and -not $_.isOffscreen }).Count -eq 0) 'show restores the previously expanded toolbar state'
-        # Standard toggle menu items report their check state through TogglePattern.
+        # Launch preferences live in the native popout, not the toolbar menu.
         $defaultBefore = Invoke-Cli @('config', 'get', 'run.devtools')
         $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoMore', '-a', $app)
         try {
             foreach ($mode in @(@('headless', 'On', 'Off'), @('off', 'Off', $null), @('on', 'On', 'On'))) {
                 $null = Invoke-Cli @('config', 'set', 'run.devtools', $mode[0])
                 Open-ToolbarMenu More
+                $null = Invoke-Cli @('ui', 'invoke', 'DevToolsOpenSettings', '-a', $app)
+                $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartEnabled', '-a', $app, '-t', '5000')
                 $enabled = Invoke-Cli @('ui', 'get-property', 'DevToolsStartEnabled', '-a', $app, '-p', 'ToggleState')
-                Check ($enabled.properties.ToggleState -eq $mode[1]) "the menu reports Start DevTools as $($mode[1]) for the CLI default $($mode[0])"
+                Check ($enabled.properties.ToggleState -eq $mode[1]) "Settings reports Start DevTools as $($mode[1]) for the CLI default $($mode[0])"
                 if ($mode[2]) {
                     $shownState = (Invoke-Cli @('ui', 'get-property', 'DevToolsStartShown', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
-                    Check ($shownState -eq $mode[2]) "the menu reports Show toolbar as $($mode[2]) for the CLI default $($mode[0])"
+                    Check ($shownState -eq $mode[2]) "Settings reports Show toolbar as $($mode[2]) for the CLI default $($mode[0])"
                 } else {
-                    # Invoke-Cli fails the run if Show toolbar is still in the menu.
+                    # Invoke-Cli fails the run if the toolbar preference is still visible.
                     $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartShown', '-a', $app, '--gone', '-t', '3000')
-                    Check $true 'Show toolbar is hidden while DevTools is off'
+                    Check $true 'the launch toolbar preference is hidden while DevTools is off'
                 }
                 $unchanged = Invoke-Cli @('config', 'get', 'run.devtools')
-                Check ($unchanged.value -eq $mode[0]) 'opening More does not change the startup setting'
-                $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
-                $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '--gone', '-t', '3000')
+                Check ($unchanged.value -eq $mode[0]) 'opening Settings does not change the startup setting'
+                $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
+                $null = Invoke-Cli @('ui', 'focus', '-w', $window)
             }
             Open-ToolbarMenu More
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsOpenSettings', '-a', $app)
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartShown', '-a', $app, '-t', '5000')
+            Check ((Invoke-Cli @('ui', 'get-property', 'ViewTabSettings', '-a', $app, '-p', 'IsSelected')).properties.IsSelected -eq $true) 'More opens the reused popout directly on Settings'
             $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartShown', '-a', $app)
             $chosen = Invoke-Cli @('config', 'get', 'run.devtools')
-            Check ($chosen.value -eq 'headless' -and $chosen.source -eq 'setting') 'winapp config reads the default chosen in the menu'
+            Check ($chosen.value -eq 'headless' -and $chosen.source -eq 'setting') 'winapp config reads the default chosen in Settings'
             $shownAfter = (Invoke-Cli @('ui', 'get-property', 'DevToolsStartShown', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
-            Check ($shownAfter -eq 'Off') 'the menu stays open and shows the new Show toolbar state'
+            Check ($shownAfter -eq 'Off') 'Settings stays open and shows the new toolbar preference'
             $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartEnabled', '-a', $app)
             $off = Invoke-Cli @('config', 'get', 'run.devtools')
             Check ($off.value -eq 'off') 'unchecking Start DevTools turns DevTools off for the next run'
-            # Invoke-Cli fails the run if Show toolbar is still in the open menu.
             $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartShown', '-a', $app, '--gone', '-t', '3000')
-            Check ($null -ne (Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '-t', '3000'))) 'turning DevTools off keeps the menu open and hides Show toolbar'
-            $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
-            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsHideToolbar', '-a', $app, '--gone', '-t', '3000')
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartEnabled', '-a', $app)
+            Check ((Invoke-Cli @('config', 'get', 'run.devtools')).value -eq 'headless') 'reenabling DevTools remembers the toolbar choice'
+            $null = Invoke-Cli @('ui', 'invoke', 'ViewTabTree', '-a', $app, '--action', 'select')
+            $null = Invoke-Cli @('ui', 'set-value', 'TreeFilter', 'NarrowCommentProbe', '-a', $app)
+            $null = Invoke-Cli @('ui', 'invoke', 'ViewTabSettings', '-a', $app, '--action', 'select')
+            $null = Invoke-Cli @('ui', 'wait-for', 'TreeFilter', '-a', $app, '--gone', '-t', '3000')
+            $null = Invoke-Cli @('ui', 'invoke', 'ViewTabComments', '-a', $app, '--action', 'select')
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartEnabled', '-a', $app, '--gone', '-t', '3000')
+            $null = Invoke-Cli @('ui', 'invoke', 'ViewTabTree', '-a', $app, '--action', 'select')
+            $filter = Invoke-Cli @('ui', 'get-value', 'TreeFilter', '-a', $app)
+            Check ($filter.text -eq 'NarrowCommentProbe') 'Settings and Comments navigation preserve the tree filter'
+            $null = Invoke-Cli @('ui', 'set-value', 'TreeFilter', '', '-a', $app)
+            $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
+            $null = Invoke-Cli @('ui', 'focus', '-w', $window)
+            $toolbarNodes = @((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements } | Where-Object { -not $_.isOffscreen })
+            Check (@($toolbarNodes | Where-Object automationId -In @('DevToolsProtoPill', 'DevToolsProtoRailL')).Count -eq 1) 'changing launch preferences does not hide the current toolbar'
+            if (@($toolbarNodes | Where-Object automationId -EQ 'DevToolsProtoComments').Count -eq 0) {
+                $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
+                $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoComments', '-a', $app, '-t', '3000')
+            }
             $commentState = (Invoke-Cli @('ui', 'get-property', 'DevToolsProtoComments', '-a', $app, '-p', 'ToggleState')).properties.ToggleState
             Open-ToolbarMenu Comments
             $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoComments', '-a', $app, '-p', 'ExpandCollapseState', '--value', 'Expanded', '-t', '3000')
@@ -472,6 +493,9 @@ try {
             if ($defaultBefore.source -eq 'setting') { $null = Invoke-Cli @('config', 'set', 'run.devtools', [string]$defaultBefore.value) }
             else { $null = Invoke-Cli @('config', 'unset', 'run.devtools') }
         }
+        Enter-CommentMode
+        $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $blockedStore = Join-Path (Split-Path -Parent $project) '.winapp\ui-comments.json'
         Check (-not (Test-Path -LiteralPath $blockedStore)) 'comment failure probe has no existing store to overwrite'
         New-Item -ItemType Directory -Path $blockedStore -Force | Out-Null

@@ -446,18 +446,18 @@ static void PendingKindErase(const std::wstring& p)
 // the Collapsed confirm Button that replaces it in the same grid cell, `label` the Button's inner TextBlock so
 // the prompt can name the value being written. All AddRef'd; released on every pane rebuild.
 
-// The Size & spacing section's disclosure, remembered across panes and runs.
-static int g_layoutSectionOpen = -1;
-static bool LayoutSectionOpen()
-{
-    if (g_layoutSectionOpen < 0) g_layoutSectionOpen = DevToolsSettingsGetBool(L"InspectorSizeSpacingOpen", false) ? 1 : 0;
-    return g_layoutSectionOpen == 1;
-}
+// Keep the details tab across element selections, but start a new inspector on Properties.
+static bool g_detailLayoutSelected = false;
+static DevToolsXC::SelectorBar g_detailViewSelector{nullptr};
+static DevToolsX::UIElement g_detailPropertiesUi{nullptr}, g_detailLayoutUi{nullptr};
 static IInspectable* g_layoutBody = nullptr;
 static bool g_axmlExpanded = false;
 static void ReleaseLayoutSectionRefs()
 {
     if (g_layoutBody) { g_layoutBody->Release(); g_layoutBody = nullptr; }
+    g_detailViewSelector = nullptr;
+    g_detailPropertiesUi = nullptr;
+    g_detailLayoutUi = nullptr;
 }
 
 static std::vector<void*> g_treeRows;      // Node captions as IUIElement (AddRef'd).

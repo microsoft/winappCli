@@ -140,6 +140,7 @@ void DevToolsWindow_SetElementResolver(DevToolsWindowElementFn element, DevTools
 void DevToolsWindow_RefreshComments();
 // Switches an open inspector to its Comments pane. UI thread only.
 void DevToolsWindow_ShowComments();
+void DevToolsWindow_ShowSettings();
 // Brings an inspector that is on screen to the front without taking focus. False when it is closed or hidden.
 bool DevToolsWindow_RevealWithoutFocus();
 
