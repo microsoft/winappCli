@@ -1616,6 +1616,61 @@ int main()
         g_commentResolveFn = nullptr;
     }
     {
+        for (const int result : {0, 0x57410001, 1, 0x57410002}) {
+            for (const bool editing : {false, true}) {
+                auto saved = std::make_shared<CommentBoxSaved>();
+                saved->id = L"resolve-from-list"; saved->text = L"saved comment";
+                g_commentBoxSaved = saved;
+                unsigned hidden = 0;
+                g_presentCommentBox = [&](bool showEditor) { if (!showEditor) ++hidden; };
+                std::function<void(int)> acknowledge;
+                g_commentResolveFn = [&](const wchar_t*, std::function<void(int)> completed) {
+                    acknowledge = std::move(completed); return true;
+                };
+                DevToolsWindowComment comment; comment.id = saved->id;
+                g_commentRows = {comment};
+                CommentResolveSink sink; sink.Init(0);
+                sink.Invoke(nullptr, nullptr);
+                check(saved->resolving && saved->id == comment.id && hidden == 0,
+                    "resolving from the list blocks a card save without claiming success before acknowledgement");
+                saved->editing = editing;
+                acknowledge(result);
+                acknowledge(result);
+                const bool success = result == 0 || result == 0x57410001;
+                check(!saved->resolving && saved->id == (success ? L"" : comment.id) &&
+                      saved->text == (success ? L"" : L"saved comment"),
+                    "list resolution clears the card identity on confirmed success only, so an edit cannot reopen that ID");
+                check(hidden == (success && !editing ? 1u : 0u) && saved->editing == editing,
+                    "list resolution hides the saved card once, but leaves an editor opened during resolution intact");
+            }
+        }
+        auto saved = std::make_shared<CommentBoxSaved>();
+        saved->id = L"resolve-from-list"; saved->text = L"saved comment";
+        g_commentBoxSaved = saved;
+        unsigned hidden = 0;
+        g_presentCommentBox = [&](bool) { ++hidden; };
+        g_commentResolveFn = [](const wchar_t*, std::function<void(int)>) { return false; };
+        ResolveCommentById(saved->id);
+        check(!saved->resolving && saved->id == L"resolve-from-list" && hidden == 0,
+            "a list resolution that cannot start leaves the card editable for retry");
+        std::function<void(int)> acknowledge;
+        g_commentResolveFn = [&](const wchar_t*, std::function<void(int)> completed) {
+            acknowledge = std::move(completed); return true;
+        };
+        ResolveCommentById(saved->id);
+        auto other = std::make_shared<CommentBoxSaved>();
+        other->id = L"other-comment"; other->text = L"another element's draft"; other->editing = true;
+        g_commentBoxSaved = other;
+        acknowledge(0);
+        check(other->id == L"other-comment" && other->text == L"another element's draft" &&
+              other->editing && hidden == 0,
+            "switching elements before list resolution completes leaves the new card and draft untouched");
+        g_commentBoxSaved.reset();
+        g_presentCommentBox = nullptr;
+        g_commentResolveFn = nullptr;
+        g_commentRows.clear();
+    }
+    {
         // The inspector's comment box starts from the element's existing comment, found as the Comments pane finds it.
         DevToolsWindowComment todays; todays.id = L"cmt_a0dbf8f331a8"; todays.text = L"hello\rThis is a new comment";
         todays.status = L"open"; todays.anchor = L"source:today";
