@@ -92,13 +92,18 @@ static void CheckCaption(IUIAutomation* automation, IUIAutomationElement* row, c
     std::wstring actual;
     const ULONGLONG deadline = GetTickCount64() + 3000;
     do {
-        ComPtr<IUIAutomationElement> caption;
-        Require(row->FindFirst(TreeScope_Descendants, condition.Get(), &caption));
-        if (caption) {
+        ComPtr<IUIAutomationElementArray> captions;
+        Require(row->FindAll(TreeScope_Descendants, condition.Get(), &captions));
+        int count = 0;
+        Require(captions->get_Length(&count));
+        for (int index = 0; index < count; ++index) {
+            ComPtr<IUIAutomationElement> caption;
+            Require(captions->GetElement(index, &caption));
             BSTR text = nullptr;
             Require(caption->get_CurrentName(&text));
             actual = text ? text : L"";
             SysFreeString(text);
+            if (actual == expected) break;
         }
         if (actual == expected) break;
         Sleep(20);

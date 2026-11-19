@@ -1694,6 +1694,29 @@ int main()
             "the inspector finds the selected element's existing comment");
         check(!SelectedElementComment(300, &found), "a resolved comment does not refill the inspector's box");
         check(!SelectedElementComment(999, &found), "an element without a comment starts with an empty box");
+        const auto savedSelection = g_selectedWire;
+        const auto savedIndices = g_nodeIdxByWire;
+        const auto savedSinks = g_nodeSinks;
+        auto* savedStatus = g_statusTb;
+        g_statusTb = &testStatus;
+        g_selectedWire = 246;
+        g_nodeIdxByWire[246] = 0;
+        g_nodeSinks.resize(1);
+        auto unavailable = todays;
+        unavailable.id = L"unavailable"; unavailable.anchor = L"source:missing";
+        g_commentRows = { todays, unavailable };
+        GoToComment(1);
+        check(testStatus.text.find(L"isn't on this screen") != std::wstring::npos,
+            "an unavailable comment explains why its element cannot be selected");
+        GoToComment(0);
+        check(testStatus.text.empty() && g_selectedWire == 246 && g_selectedCommentId == todays.id,
+            "reselecting the already-selected live comment clears the previous unavailable-element error");
+        g_selectedWire = savedSelection;
+        g_nodeIdxByWire = savedIndices;
+        g_nodeSinks = savedSinks;
+        g_statusTb = savedStatus;
+        g_commentRows.clear();
+        g_selectedCommentId.clear();
         g_commentsFn = nullptr; g_anchorWireFn = nullptr;
     }
     {

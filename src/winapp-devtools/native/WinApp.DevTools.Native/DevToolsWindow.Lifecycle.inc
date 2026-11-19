@@ -111,7 +111,10 @@ if (g_route1WindowHidden) {
                 reinterpret_cast<IUnknown*>(win)->Release();
             }
             DevToolsOverlayLog(L"route1.open re-activate existing (live) window");
-            if (preselectWire) SelectNodeByWire(preselectWire);
+            if (preselectWire) {
+                if (g_inspectorView == InspectorView::Settings) SetInspectorView(InspectorView::Tree);
+                SelectNodeByWire(preselectWire);
+            }
             // The app may have changed this element since the window last read it.
             if (reopening || (preselectWire && preselectWire == g_selWire)) {
                 WalkForget();

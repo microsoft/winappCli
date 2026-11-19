@@ -110,14 +110,14 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
     }
 
     [TestMethod]
-    public void TheToolbarAndTheCliNameTheSameFile()
+    public void TheInspectorAndTheCliNameTheSameFile()
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", ".."));
         var native = Path.Combine(root, "src", "winapp-devtools", "native", "WinApp.DevTools.Native");
         Assert.Contains("return dir + L\"\\\\devtools-\" + name + L\".setting\";",
             File.ReadAllText(Path.Combine(native, "DevToolsSettings.h")));
         Assert.Contains("DevToolsSettingsGetText(L\"DefaultMode\")",
-            File.ReadAllText(Path.Combine(native, "DevToolsOverlay.Toolbar.inc")));
+            File.ReadAllText(Path.Combine(native, "DevToolsWindow.Settings.inc")));
         Assert.AreEqual("devtools-DefaultMode.setting", UserSettings.RunDevTools.FileName);
     }
 

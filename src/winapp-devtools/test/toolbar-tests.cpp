@@ -84,6 +84,11 @@ static void TestToolbarContract()
     const std::string overlay = ReadUnit(tapDir / "DevToolsOverlay.cpp");
     const std::string theme = ReadText(tapDir / "DevToolsTheme.h");
     const std::string window = ReadUnit(tapDir / "DevToolsWindow.cpp");
+    const std::string routing = ReadText(tapDir / "DevToolsTap.Route1Read.inc");
+    Check(routing.find("const bool claimedByWindow = !ExternalInspectorOwner_ui() &&") != std::string::npos &&
+          routing.find("if (!ExternalInspectorOwner_ui() && DevToolsWindow_IsOpen())") != std::string::npos &&
+          routing.find("if (!ExternalInspectorOwner_ui()) DevToolsWindow_RereadSelection(wire);") != std::string::npos,
+        "external inspector ownership suppresses native selection and reread updates without suppressing broadcasts");
     Check(!xaml.empty(), "toolbar.xaml is readable");
     Check(!selectionPanel.empty(), "selection-panel.xaml is readable");
     Check(!windowShell.empty(), "window-shell.xaml is readable");

@@ -82,6 +82,7 @@ static void GoToComment(size_t idx)
     const DevToolsWindowComment c = g_commentRows[idx];
     g_selectedCommentId = c.id;
     UpdateCommentSelection();
+    SetStatusText(L"");
 
     InstanceHandle wire = (g_anchorWireFn && !c.anchor.empty()) ? g_anchorWireFn(c.anchor.c_str()) : 0;
     if (wire) {

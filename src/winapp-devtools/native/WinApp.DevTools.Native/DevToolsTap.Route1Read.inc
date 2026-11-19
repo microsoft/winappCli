@@ -639,7 +639,8 @@ static bool PublishOverlayPick(InstanceHandle h, bool releaseCommit) {
 
     // PublishOverlayPick runs on the UI thread, as does the in-proc window, so the call is direct. wire==0 (no live
     // slot) is the window's "no selection" sentinel, matching the Selection.picked broadcast below.
-    const bool claimedByWindow = DevToolsWindow_IsOpen() && DevToolsWindow_OnPicked(wire, releaseCommit);
+    const bool claimedByWindow = !ExternalInspectorOwner_ui() &&
+        DevToolsWindow_IsOpen() && DevToolsWindow_OnPicked(wire, releaseCommit);
 
     // This runs on the UI thread, so it must only ENQUEUE. DevToolsEvents_Broadcast does exactly that (a slow
     // client's writer thread does the blocking I/O).
@@ -781,12 +782,13 @@ static bool PublishProtocolSelection(unsigned long long wire, const std::wstring
 {
     if (g_lastPickHandle.load(std::memory_order_relaxed) == wire) {
         // Selecting the element already shown is a request to look again.
-        DevToolsWindow_RereadSelection(wire);
+        if (!ExternalInspectorOwner_ui()) DevToolsWindow_RereadSelection(wire);
         return false;
     }
     g_lastPickHandle.store(wire, std::memory_order_relaxed);
     const unsigned long long gen = g_lastPickGen.fetch_add(1, std::memory_order_release) + 1;
-    if (DevToolsWindow_IsOpen()) DevToolsWindow_OnPicked(wire, /*releaseCommit*/ false);
+    if (!ExternalInspectorOwner_ui() && DevToolsWindow_IsOpen())
+        DevToolsWindow_OnPicked(wire, /*releaseCommit*/ false);
     const std::wstring params = L"{\"generation\":" + std::to_wstring(gen) +
                                 L",\"handle\":\"" + std::to_wstring(wire) + L"\"}";
     DevToolsEvents_Broadcast(DevToolsDomain_Selection, DevToolsRpcEvent(L"Selection.picked", params, origin),

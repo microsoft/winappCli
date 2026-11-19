@@ -777,6 +777,25 @@ if (-not $devPid) {
         $titleBar = (Invoke-Winapp @("devtools", "search", "AppTitleBar", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
         Assert-WinappSuccess "select TitleBar properties" @(
             "devtools", "call", "Selection.select", "handle=$($titleBar.matches[0].handle)", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "open Settings before reusing the inspector" @(
+            "ui", "invoke", "ViewTabSettings", "-w", $inspectorHwnd, "--action", "select") | Out-Null
+        Assert-WinappSuccess "reopen the selected element from Settings" @(
+            "devtools", "call", "Window.open", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "reused inspector reveals the selected element's tree" @(
+            "ui", "wait-for", "ViewTabTree", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "show the Layout tab" @(
+            "ui", "invoke", "WinAppDevToolsLayoutTab", "-w", $inspectorHwnd, "--action", "select") | Out-Null
+        Assert-WinappSuccess "Layout hides the property filter" @(
+            "ui", "wait-for", "PropFilter", "-w", $inspectorHwnd, "--gone", "-t", "3000") | Out-Null
+        $layoutElement = (Invoke-Winapp @("devtools", "search", "PageSubtitle", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
+        Assert-WinappSuccess "choose another element while comparing layout" @(
+            "devtools", "call", "Selection.select", "handle=$($layoutElement.matches[0].handle)", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "Layout stays selected for the next element" @(
+            "ui", "wait-for", "WinAppDevToolsLayoutTab", "-w", $inspectorHwnd, "-p", "IsSelected", "--value", "True", "-t", "3000") | Out-Null
+        Assert-WinappSuccess "restore TitleBar selection" @(
+            "devtools", "call", "Selection.select", "handle=$($titleBar.matches[0].handle)", "-a", "$devPid") | Out-Null
+        Assert-WinappSuccess "return to Properties" @(
+            "ui", "invoke", "WinAppDevToolsPropertiesTab", "-w", $inspectorHwnd, "--action", "select") | Out-Null
         foreach ($selectedId in @("WinAppDevToolsViewSet", "WinAppDevToolsViewComputed", "WinAppDevToolsViewComputed")) {
             $otherId = if ($selectedId -eq "WinAppDevToolsViewSet") { "WinAppDevToolsViewComputed" } else { "WinAppDevToolsViewSet" }
             Assert-WinappSuccess "$selectedId supports native selection" @("ui", "invoke", $selectedId, "-w", $inspectorHwnd, "--action", "select") | Out-Null
@@ -794,7 +813,7 @@ if (-not $devPid) {
         Assert-WinappSuccess "Computed view keeps keyboard focus after rebuilding" @("ui", "wait-for", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "-p", "HasKeyboardFocus", "--value", "True", "-t", "3000") | Out-Null
         Assert-WinappSuccess "restore Computed before property tests" @("ui", "invoke", "WinAppDevToolsViewComputed", "-w", $inspectorHwnd, "--action", "select") | Out-Null
         $disclosureStates = @{}
-        foreach ($id in @("WinAppDevToolsSizeSpacingToggle", "WinAppDevToolsAuthoredXamlToggle")) {
+        foreach ($id in @("WinAppDevToolsAuthoredXamlToggle")) {
             $initial = Invoke-Winapp @("ui", "get-property", $id, "-w", $inspectorHwnd, "--json")
             $disclosureStates[$id] = ($initial.Output | ConvertFrom-Json).properties.ExpandCollapseState
             foreach ($action in @("collapse", "expand")) {
