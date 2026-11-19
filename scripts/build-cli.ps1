@@ -37,7 +37,7 @@
     and Pester suites), UIAutomation, Cli, or Auxiliary (Node, analyzer, and Pester suites).
     Use separate workspaces when running suites concurrently.
 .PARAMETER CliShard
-    With -OnlyTests -UseExistingArtifacts -TestSuite Cli, run shard 1 or 2 via test-cli-shard.ps1.
+    With -OnlyTests -UseExistingArtifacts -TestSuite Cli, run shard 1, 2, or 4 via test-cli-shard.ps1.
     Both shards must pass. Without this switch, Cli runs the complete CLI suite.
 .PARAMETER Stable
     Use stable build configuration (default: false, uses prerelease config)
@@ -102,7 +102,7 @@ param(
     [switch]$UseExistingArtifacts = $false,
     [ValidateSet('All', 'Core', 'UIAutomation', 'Cli', 'Auxiliary')]
     [string]$TestSuite = 'All',
-    [ValidateSet(1, 2)]
+    [ValidateSet(1, 2, 4)]
     [int]$CliShard,
     [switch]$Stable = $false,
     [switch]$SkipBake = $false,

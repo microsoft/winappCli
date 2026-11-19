@@ -18,7 +18,7 @@ function dotnet {
     $arguments | ConvertTo-Json -Compress | Add-Content "$PSScriptRoot\calls.jsonl"
     $filterIndex = [array]::IndexOf($arguments, '--filter')
     $filter = if ($filterIndex -ge 0) { $arguments[$filterIndex + 1] } else { '' }
-    $selected = if (-not $filter) { 10 } elseif ($filter -eq 'TestCategory!=NativeIntegration&(FullyQualifiedName~WinApp.Cli.Tests.PackageCommandTests.|FullyQualifiedName~WinApp.Cli.Tests.PerfFixtureTests.)') { 4 } elseif ($filter -eq 'TestCategory!=NativeIntegration&FullyQualifiedName!~WinApp.Cli.Tests.PackageCommandTests.&FullyQualifiedName!~WinApp.Cli.Tests.PerfFixtureTests.') { 3 } elseif ($filter -eq 'TestCategory=NativeIntegration') { 3 } else { throw "Unexpected filter $filter" }
+    $selected = if (-not $filter) { 10 } elseif ($filter -eq 'TestCategory!=NativeIntegration&(FullyQualifiedName~WinApp.Cli.Tests.PackageCommandTests.|FullyQualifiedName~WinApp.Cli.Tests.PerfFixtureTests.)') { 4 } elseif ($filter -eq 'TestCategory!=NativeIntegration&FullyQualifiedName!~WinApp.Cli.Tests.PackageCommandTests.&FullyQualifiedName!~WinApp.Cli.Tests.PerfFixtureTests.&FullyQualifiedName!~WinApp.Cli.Tests.EndToEndTests.&FullyQualifiedName!~WinApp.Cli.Tests.UiCommandTests.&FullyQualifiedName!~WinApp.Cli.Tests.ProgramJsonBridgeTests.&FullyQualifiedName!~WinApp.Cli.Tests.ProgramDevToolsJsonBridgeTests.&FullyQualifiedName!~WinApp.Cli.Tests.RealRecordingTests.') { 2 } elseif ($filter -eq 'TestCategory=NativeIntegration') { 3 } elseif ($filter -eq 'TestCategory!=NativeIntegration&(FullyQualifiedName~WinApp.Cli.Tests.EndToEndTests.|FullyQualifiedName~WinApp.Cli.Tests.UiCommandTests.|FullyQualifiedName~WinApp.Cli.Tests.ProgramJsonBridgeTests.|FullyQualifiedName~WinApp.Cli.Tests.ProgramDevToolsJsonBridgeTests.|FullyQualifiedName~WinApp.Cli.Tests.RealRecordingTests.)') { 1 } else { throw "Unexpected filter $filter" }
     $global:LASTEXITCODE = 0
     if ($arguments -contains '--list-tests') {
         if ($inputData.failure -eq 'discovery-exit') { $global:LASTEXITCODE = 4; return }
@@ -76,13 +76,14 @@ Describe 'CLI shard partition and reporting' {
         @{ Shard = 1 }
         @{ Shard = 2 }
         @{ Shard = 3 }
+        @{ Shard = 4 }
     ) {
         $result = Invoke-ShardFixture $Shard
         $result.ExitCode | Should -Be 0 -Because $result.Output
         $manifest = Get-Content "$($result.Root)\results\cli-shard-$Shard.json" -Raw | ConvertFrom-Json
         $manifest.allTests | Should -Be 10
         ($manifest.shardCounts | Measure-Object -Sum).Sum | Should -Be 10
-        $manifest.expectedTests | Should -Be @(4, 3, 3)[$Shard - 1]
+        $manifest.expectedTests | Should -Be @(4, 2, 3, 1)[$Shard - 1]
         "$($result.Root)\results\WinApp.Cli.Tests.shard-$Shard.trx" | Should -Exist
         "$($result.Root)\results\WinApp.Cli.Tests.shard-$Shard.cobertura.xml" | Should -Exist
     }
@@ -92,17 +93,22 @@ Describe 'CLI shard partition and reporting' {
         $source | Should -Match ([regex]::Escape("`$shard1Classes = @('WinApp.Cli.Tests.PackageCommandTests.', 'WinApp.Cli.Tests.PerfFixtureTests.')"))
         $source | Should -Match "'TestCategory=NativeIntegration'"
         $shard1Classes = @('WinApp.Cli.Tests.PackageCommandTests.', 'WinApp.Cli.Tests.PerfFixtureTests.')
+        $shard4Classes = @('WinApp.Cli.Tests.EndToEndTests.', 'WinApp.Cli.Tests.UiCommandTests.', 'WinApp.Cli.Tests.ProgramJsonBridgeTests.', 'WinApp.Cli.Tests.ProgramDevToolsJsonBridgeTests.', 'WinApp.Cli.Tests.RealRecordingTests.')
+        foreach ($class in $shard4Classes) { $source | Should -Match ([regex]::Escape("'$class'")) }
         foreach ($name in @(
             'WinApp.Cli.Tests.PackageCommandTests.Existing',
             'WinApp.Cli.Tests.PackageCommandTests.NewDataRow',
             'WinApp.Cli.Tests.PerfFixtureTests.Existing',
+            'WinApp.Cli.Tests.UiCommandTests.Existing',
+            'WinApp.Cli.Tests.ProgramJsonBridgeTestsExtra.NotInTheSelectedClass',
             'WinApp.Cli.Tests.BrandNewTests.NewMethod',
             'WinApp.Cli.Tests.PackageCommandTestsExtra.NotInTheSelectedClass'
         )) {
             foreach ($native in @($true, $false)) {
                 $first = -not $native -and @($shard1Classes | Where-Object { $name.Contains($_) }).Count -gt 0
-                $second = -not $native -and -not $first
-                (@($first, $second, $native) | Where-Object { $_ }).Count | Should -Be 1
+                $fourth = -not $native -and @($shard4Classes | Where-Object { $name.Contains($_) }).Count -gt 0
+                $second = -not $native -and -not $first -and -not $fourth
+                (@($first, $second, $native, $fourth) | Where-Object { $_ }).Count | Should -Be 1
             }
         }
     }

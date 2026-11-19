@@ -122,15 +122,16 @@ Describe 'Artifact-first workflow dependencies' {
         (Get-JobText $buildWorkflow 'validate-docs') | Should -Match 'test-devtools-engine\.ps1 -EngineRoot \.\\artifacts\\cli'
     }
 
-    It 'runs both CLI shards, auxiliary suites once, and UI Automation on isolated runners' {
+    It 'runs three CLI shards, auxiliary suites once, and UI Automation on isolated runners' {
         $validation = Get-JobText $buildWorkflow 'validate-tests'
-        foreach ($lane in @('Cli-1', 'Cli-2', 'Auxiliary', 'UIAutomation')) {
+        foreach ($lane in @('Cli-1', 'Cli-2', 'Cli-4', 'Auxiliary', 'UIAutomation')) {
             ([regex]::Matches($validation, "(?m)^\s+- lane: $lane\r?$")).Count | Should -Be 1
         }
-        ([regex]::Matches($validation, '(?m)^\s+suite: Cli\r?$')).Count | Should -Be 2
+        ([regex]::Matches($validation, '(?m)^\s+suite: Cli\r?$')).Count | Should -Be 3
         ([regex]::Matches($validation, '(?m)^\s+suite: Auxiliary\r?$')).Count | Should -Be 1
         $validation | Should -Match 'shard: 1'
         $validation | Should -Match 'shard: 2'
+        $validation | Should -Match 'shard: 4'
         $validation | Should -Match 'fail-fast: false'
         $validation | Should -Match 'runs-on: windows-latest'
         $validation | Should -Match 'name: validation-results-\$\{\{ matrix.lane \}\}'
@@ -192,7 +193,7 @@ Describe 'Artifact-first workflow dependencies' {
         $metrics = Get-JobText $buildWorkflow 'metrics'
         $metrics | Should -Match 'needs: \[build-artifacts, validate-tests, validate-devtools\]'
         $metrics | Should -Match ([regex]::Escape("needs.validate-tests.result == 'success' || needs.validate-tests.result == 'failure'"))
-        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Cli-1', 'validation-results-Cli-2', 'devtools-validation-results', 'validation-results-Auxiliary', 'validation-results-UIAutomation', 'test-results')) {
+        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Cli-1', 'validation-results-Cli-2', 'validation-results-Cli-4', 'devtools-validation-results', 'validation-results-Auxiliary', 'validation-results-UIAutomation', 'test-results')) {
             $metrics | Should -Match "(?m)^\s+name: $artifact\r?$"
         }
         $metrics.IndexOf('name: test-results') | Should -BeLessThan $metrics.IndexOf('uses: ./.github/actions/collect-metrics')
@@ -231,7 +232,7 @@ Describe 'Partial reruns replace only owned artifacts' {
             $laneUpload = @(Get-UploadSteps (Get-JobText $buildWorkflow 'validate-tests'))
             $laneUpload.Count | Should -Be 1
             $laneName = [regex]::Match($laneUpload[0], '(?m)^        name: (.+?)\r?$').Groups[1].Value
-            foreach ($lane in @('Cli-1', 'Cli-2', 'Auxiliary', 'UIAutomation')) {
+            foreach ($lane in @('Cli-1', 'Cli-2', 'Cli-4', 'Auxiliary', 'UIAutomation')) {
                 $laneName.Replace('${{ matrix.lane }}', $lane)
             }
             $sampleUpload = @(Get-UploadSteps (Get-JobText $sampleWorkflow 'test-sample'))
@@ -245,7 +246,7 @@ Describe 'Partial reruns replace only owned artifacts' {
                 [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
             }
         )
-        $names.Count | Should -Be 36
+        $names.Count | Should -Be 37
         $names | Should -Contain 'binding-owner-test-results'
         $names | Should -Contain 'devtools-overlay-observations'
         @($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count | Should -Be 0
@@ -465,8 +466,8 @@ Describe 'Metrics consume actual validation reports' {
         Join-Path $metricsRoot 'test-summary.json' | Should -Not -Exist
     }
 
-    It 'combines all four CLI and UI reports, including failures, without double-counting' {
-        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.UIAutomation.Tests', 'devtools\WinApp.Cli.Tests.shard-3')) {
+    It 'combines all five CLI and UI reports, including failures, without double-counting' {
+        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.Cli.Tests.shard-4', 'WinApp.UIAutomation.Tests', 'devtools\WinApp.Cli.Tests.shard-3')) {
             @'
 <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
   <Times start="2026-09-17T00:00:00Z" finish="2026-09-17T00:00:01Z" />
@@ -476,17 +477,18 @@ Describe 'Metrics consume actual validation reports' {
         }
         & $parseMetrics
         $summary = Get-Content (Join-Path $metricsRoot 'test-summary.json') -Raw | ConvertFrom-Json
-        $summary.total | Should -Be 20
-        $summary.passed | Should -Be 12
-        $summary.failed | Should -Be 4
-        $summary.skipped | Should -Be 4
-        $summary.durationMs | Should -Be 4000
+        $summary.total | Should -Be 25
+        $summary.passed | Should -Be 15
+        $summary.failed | Should -Be 5
+        $summary.skipped | Should -Be 5
+        $summary.durationMs | Should -Be 5000
     }
 
     It 'rejects partial or malformed reports instead of declaring success' {
         '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.Cli.Tests.shard-1.trx')
         { & $parseMetrics } | Should -Throw -ExpectedMessage '*Missing test report*'
         '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.Cli.Tests.shard-2.trx')
+        '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.Cli.Tests.shard-4.trx')
         '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.UIAutomation.Tests.trx')
         { & $parseMetrics } | Should -Throw -ExpectedMessage '*Missing test report: devtools/WinApp.Cli.Tests.shard-3.trx*'
         '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\devtools\WinApp.Cli.Tests.shard-3.trx')
@@ -495,10 +497,10 @@ Describe 'Metrics consume actual validation reports' {
     }
 
     It 'rejects an extra unsharded report rather than double-counting the CLI suite' {
-        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.UIAutomation.Tests', 'WinApp.Cli.Tests', 'devtools\WinApp.Cli.Tests.shard-3')) {
+        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.Cli.Tests.shard-4', 'WinApp.UIAutomation.Tests', 'WinApp.Cli.Tests', 'devtools\WinApp.Cli.Tests.shard-3')) {
             '<TestRun />' | Set-Content (Join-Path $metricsRoot "TestResults\$name.trx")
         }
-        { & $parseMetrics } | Should -Throw -ExpectedMessage '*Expected exactly three test reports*'
+        { & $parseMetrics } | Should -Throw -ExpectedMessage '*Expected exactly four test reports*'
     }
 
     It 'unions overlapping CLI shard coverage instead of counting shared source lines twice' {

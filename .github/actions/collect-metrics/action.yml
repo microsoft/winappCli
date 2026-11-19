@@ -44,19 +44,19 @@ runs:
       shell: pwsh
       run: |
         $resultsPath = "${{ inputs.artifacts-path }}/TestResults"
-        # All three CLI shards and UI Automation must have reported before publishing combined metrics. An
+        # All four CLI shards and UI Automation must have reported before publishing combined metrics. An
         # empty or partial download must not become a green zero-test report.
-        foreach ($name in @('WinApp.Cli.Tests.shard-1.trx', 'WinApp.Cli.Tests.shard-2.trx', 'WinApp.UIAutomation.Tests.trx', 'devtools/WinApp.Cli.Tests.shard-3.trx')) {
+        foreach ($name in @('WinApp.Cli.Tests.shard-1.trx', 'WinApp.Cli.Tests.shard-2.trx', 'WinApp.Cli.Tests.shard-4.trx', 'WinApp.UIAutomation.Tests.trx', 'devtools/WinApp.Cli.Tests.shard-3.trx')) {
           if (-not (Test-Path "$resultsPath/$name")) {
             throw "Missing test report: $name. Metrics require the validation job's test-results artifact."
           }
         }
         $trxFiles = Get-ChildItem "$resultsPath/*.trx"
-        if ($trxFiles.Count -ne 3) {
-          throw "Expected exactly three test reports (two CLI shards and UI Automation); found $($trxFiles.Count)."
+        if ($trxFiles.Count -ne 4) {
+          throw "Expected exactly four test reports (three CLI shards and UI Automation); found $($trxFiles.Count)."
         }
         # Managed multi-target framework receipts stay in devtools for the report artifact;
-        # the CLI/UI Automation baseline counts the same test projects across all three shards.
+        # the CLI/UI Automation baseline counts the same test projects across all four shards.
         $trxFiles = @($trxFiles) + @(Get-Item "$resultsPath/devtools/WinApp.Cli.Tests.shard-3.trx")
         $totalTests = 0; $passed = 0; $failed = 0; $skipped = 0; $durationMs = 0
 
