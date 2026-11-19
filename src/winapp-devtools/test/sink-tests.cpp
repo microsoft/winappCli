@@ -224,6 +224,41 @@ static void Test_TheMarshalerIsBuiltOnceForRebindableSinks()
     Check(s.ftm == first, "a re-Init reuses the existing marshaler instead of stranding it");
 }
 
+static int g_ownedDestroyed = 0;
+struct OwnedTestSink : DevToolsOwnedSink
+{
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*) { ++g_invoked; return S_OK; }
+    ~OwnedTestSink() override { ++g_ownedDestroyed; }
+    void Init() { InitSink(kIidPrimary, g_testGen); }
+};
+
+static void Test_OwnedSinkIsFreedByItsLastReference()
+{
+    std::printf("DevToolsOwnedSink -- the control's reference keeps it alive and its release frees it once\n");
+
+    g_testGen = 5;
+    g_ownedDestroyed = 0;
+    auto* s = new OwnedTestSink();
+    s->Init();
+
+    g_invoked = 0;
+    Check(RawVtbl(s)->Invoke(s, nullptr, nullptr) == S_OK && g_invoked == 1, "Invoke stays at slot 3");
+
+    // What add_X does: keep the delegate interface; the creator then drops its own reference.
+    void* held = nullptr;
+    Check(s->QueryInterface(kIidPrimary, &held) == S_OK && held == s, "the delegate IID is answered");
+    void* marshal = nullptr;
+    Check(s->QueryInterface(__uuidof(IMarshal), &marshal) == S_OK && marshal, "IMarshal is answered");
+    s->Release();
+    Check(g_ownedDestroyed == 0, "the creator's release leaves it alive while a control holds it");
+
+    reinterpret_cast<IUnknown*>(marshal)->Release();
+    Check(g_ownedDestroyed == 0, "releasing the marshaler leaves it alive (IMarshal counted on the sink once)");
+
+    reinterpret_cast<IUnknown*>(held)->Release();
+    Check(g_ownedDestroyed == 1, "the control's final release destroys it exactly once");
+}
+
 int RunSinkTests()
 {
     std::printf("DevToolsSinkBase tests -- each check is paired with a control that must FAIL it\n");
@@ -238,6 +273,7 @@ int RunSinkTests()
     Test_TheProcessLifeLeakIsDeliberate();
     Test_TheGenerationStampGoesStale();
     Test_TheMarshalerIsBuiltOnceForRebindableSinks();
+    Test_OwnedSinkIsFreedByItsLastReference();
 
     if (SUCCEEDED(coHr)) CoUninitialize();
     return g_testFailures;
