@@ -21,7 +21,8 @@ export async function startBoard({ live = false } = {}) {
         if (existsSync(real)) copyFileSync(real, stateFile);
     }
     const world = live ? null : createWorld();
-    globalThis.__prBoardGh = world ? (args) => world.handle(args) : liveGh;
+    globalThis.__prBoardGh = world ? (args) => board.world.handle(args) : liveGh;
+    let board;
     const { host } = await import("./fake-sdk.mjs");
     await import("../../extension.mjs");
     const canvas = host.config.canvases[0];
@@ -39,7 +40,20 @@ export async function startBoard({ live = false } = {}) {
         if (!r.ok) throw new Error(`${path}: ${j.error}`);
         return j;
     };
-    const board = { url, repo, world, host, tool, api, home, stateFile, live, canvas, liveWrites };
+    board = { url, repo, world, host, tool, api, home, stateFile, live, canvas, liveWrites };
+    // Force a re-read from GitHub. The board allows one forced read every 5 seconds, so retry until it happens.
+    board.refresh = async () => {
+        const act = canvas.actions.find((a) => a.name === "refresh");
+        const before = board.world.calls;
+        for (let i = 0; i < 30; i++) {
+            await act.handler({ instanceId: "ui-test", input: {} });
+            if (board.world.calls > before) return;
+            await new Promise((r) => setTimeout(r, 250));
+        }
+        throw new Error("The board never re-read GitHub");
+    };
+    // A fresh fake repo, for after a test that changed it, and the board re-read from it.
+    board.resetWorld = async () => { board.world = createWorld(); await board.refresh(); };
     if (!live) {
         await waitUntil(async () => (await canvas.actions.find((a) => a.name === "get_board").handler({ instanceId: "ui-test", input: {} })).cards.length > 0, 20000, "board never loaded");
         await seed(board);

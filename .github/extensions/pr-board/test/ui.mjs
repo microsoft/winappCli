@@ -68,6 +68,8 @@ for (const t of selected) {
             writeFileSync(join(OUT, `${slug}.html`), await page.html());
             writeFileSync(join(OUT, `${slug}.txt`), `${String(e.stack || e)}\n\nPage problems:\n${page.problems.join("\n")}\n`);
         } catch { /* the page is gone */ }
+    } finally {
+        if (t.changesGitHub && board.world) await board.resetWorld().catch((e) => console.log(`      (couldn't reset the fake repo: ${e.message})`));
     }
 }
 await page.close();

@@ -219,6 +219,24 @@ export function statusUpdatePrompt(card, repo) {
     ].join("\n");
 }
 
+// Sent by the board itself (no click) when someone the item was waiting on replies on GitHub. Once per comment.
+export function partyReplyPrompt(card, repo, reply) {
+    const s = card.local?.session;
+    const k = KIND(card);
+    const what = reply.kind === "review" ? `review (${String(reply.state || "").toLowerCase().replace(/_/g, " ")})` : "comment";
+    const view = reply.issue ? `issue view ${reply.issue}` : `${card.kind === "issue" ? "issue" : "pr"} view ${card.number}`;
+    return [
+        `[PR board] New ${what} from ${reply.who} on ${repo}#${reply.issue || card.number} (${reply.url || card.url})${reply.issue ? `, the issue PR #${card.number} fixes` : ""}. The board was waiting on the ${reply.role} ("${card.local?.next?.action || ""}"), so it moved this to the user's **Your move**.`,
+        reply.preview ? `It starts: "${reply.preview}"` : "",
+        `Read it on GitHub (\`gh ${view} -R ${repo} --comments\`) and summarize it for the user with \`pr_board_reply\` \`{ repo: "${repo}", ${ref(card)}, from: <who answered>, text: <2-4 plain sentences: what ${reply.who} said or did, and what it means for us> }\`.`,
+        s?.id ? `This ${k} is linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}. If the reply needs work there (for example a new log to look at), tell that session with \`send_session_message\` and ask it to report back to you.` : "",
+        NEXT_STEP_LINE(card, repo),
+        EXPLAINER_LINE(card, repo),
+        `Don't post to GitHub, approve, or merge.`,
+        PROGRESS_LINE,
+    ].filter(Boolean).join("\n");
+}
+
 export function summarizeRepliesPrompt(card, repo) {
     return [
         `The PR board canvas: the user asked to **summarize the author's replies** on ${repo}#${card.number} "${card.title}" (${card.url}).`,

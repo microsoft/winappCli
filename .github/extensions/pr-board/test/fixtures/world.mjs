@@ -53,7 +53,7 @@ export function createWorld({ now = Date.now() } = {}) {
         202: { number: 202, title: "Dark mode icons are blurry", author: { login: "gina" }, state: "OPEN", closedByPullRequestsReferences: [], assignees: [{ login: VIEWER }], labels: [], created: 5000, updated: 400 },
         203: { number: 203, title: "Settings don't persist after restart", author: { login: "hank" }, state: "OPEN", closedByPullRequestsReferences: [], assignees: [], labels: [{ name: "bug" }], created: 4000, updated: 300 },
     };
-    const issueJson = (i) => ({ number: i.number, title: i.title, url: url("issues", i.number), state: i.state, updatedAt: ago(i.updated), createdAt: ago(i.created), closedAt: null, author: i.author, labels: i.labels, assignees: i.assignees, closedByPullRequestsReferences: i.closedByPullRequestsReferences });
+    const issueJson = (i) => ({ number: i.number, title: i.title, url: url("issues", i.number), state: i.state, updatedAt: ago(i.updated), createdAt: ago(i.created), closedAt: null, author: i.author, labels: i.labels, assignees: i.assignees, closedByPullRequestsReferences: i.closedByPullRequestsReferences, comments: i.comments || [] });
 
     const listJson = (p) => ({
         number: p.number, title: p.title, url: url("pull", p.number), author: { login: p.author, is_bot: false }, isDraft: p.isDraft, additions: 40, deletions: 12, changedFiles: 3,
@@ -63,7 +63,7 @@ export function createWorld({ now = Date.now() } = {}) {
     });
     const activityNode = (p) => ({
         number: p.number, mergeStateStatus: "BLOCKED", autoMergeRequest: null, commits: { nodes: [{ commit: { committedDate: ago(p.updated + 5) } }] },
-        timelineItems: { nodes: [{ __typename: "PullRequestCommit", commit: { committedDate: ago(p.updated + 5) } }, ...(p.requestedMin ? [{ __typename: "ReviewRequestedEvent", createdAt: ago(p.requestedMin) }] : []), ...p.reviews.map((r) => ({ __typename: "PullRequestReview", ...r }))] },
+        timelineItems: { nodes: [{ __typename: "PullRequestCommit", url: `${url("pull", p.number)}/commits/${HEAD[p.number]}`, commit: { oid: HEAD[p.number], committedDate: ago(p.updated + 5), messageHeadline: "Make the change" } }, ...(p.requestedMin ? [{ __typename: "ReviewRequestedEvent", createdAt: ago(p.requestedMin) }] : []), ...p.reviews.map((r, k) => ({ __typename: "PullRequestReview", id: `PRR_${p.number}_${k}`, url: `${url("pull", p.number)}#pullrequestreview-${k}`, bodyText: "", ...r })), ...(p.events || [])] },
     });
     const readinessJson = (p) => ({
         number: p.number, url: url("pull", p.number), headRefOid: HEAD[p.number], headRefName: p.headRefName, baseRefName: "main", isDraft: p.isDraft, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", body: p.body,
@@ -108,6 +108,25 @@ export function createWorld({ now = Date.now() } = {}) {
         now, prs, merged, queue, issues, viewer: VIEWER,
         mutations: [], unmocked: [], calls: 0,
         fault: null, // { match(args) -> bool, error?: string, delayMs?: number }
+        // Someone comments on an issue, or on a PR's conversation.
+        comment(n, login, body) {
+            const at = new Date().toISOString();
+            const id = `IC_${n}_${Math.random().toString(16).slice(2, 8)}`;
+            const issue = world.issues[n];
+            if (issue) { (issue.comments ||= []).push({ id, author: { login, is_bot: /\[bot\]$/.test(login) }, body, createdAt: at, url: `${url("issues", n)}#issuecomment-${id}` }); issue.updated = 0; return id; }
+            const p = world.prs.find((x) => x.number === n);
+            (p.events ||= []).push({ __typename: "IssueComment", id, url: `${url("pull", n)}#issuecomment-${id}`, author: { login }, createdAt: at, bodyText: body });
+            p.updated = 0;
+            return id;
+        },
+        // The PR's author pushes a commit.
+        push(n, message = "Address the review") {
+            const p = world.prs.find((x) => x.number === n);
+            const oid = sha(n, `push${(p.events || []).length}`);
+            (p.events ||= []).push({ __typename: "PullRequestCommit", url: `${url("pull", n)}/commits/${oid}`, commit: { oid, committedDate: new Date().toISOString(), messageHeadline: message } });
+            p.updated = 0;
+            return oid;
+        },
         allowMutations: false,
         async handle(args) {
             world.calls++;

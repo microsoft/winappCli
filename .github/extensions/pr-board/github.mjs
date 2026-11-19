@@ -67,12 +67,12 @@ const ACTIVITY_QUERY = `query($owner:String!,$name:String!){repository(owner:$ow
  commits(last:1){nodes{commit{committedDate}}}
  timelineItems(last:40,itemTypes:[PULL_REQUEST_REVIEW,ISSUE_COMMENT,READY_FOR_REVIEW_EVENT,REVIEW_REQUESTED_EVENT,HEAD_REF_FORCE_PUSHED_EVENT,PULL_REQUEST_COMMIT]){nodes{
   __typename
-  ... on PullRequestReview{author{login} state submittedAt}
-  ... on IssueComment{author{login} createdAt}
+  ... on PullRequestReview{id url author{login} state submittedAt bodyText}
+  ... on IssueComment{id url author{login} createdAt bodyText}
   ... on ReadyForReviewEvent{createdAt}
   ... on ReviewRequestedEvent{createdAt}
   ... on HeadRefForcePushedEvent{createdAt}
-  ... on PullRequestCommit{commit{committedDate}}
+  ... on PullRequestCommit{url commit{oid committedDate messageHeadline}}
  }}}}}}`;
 
 async function fetchActivity(repo) {
@@ -108,7 +108,7 @@ export async function fetchRepoData(repo) {
 // Issues on the board: open issues assigned to you with no open PR yet, plus every issue a session here is
 // linked to (shown under Yours with its PR's state). A linked issue that closed in the last two days stays,
 // so you can see it merged.
-const ISSUE_FIELDS = "number,title,url,state,updatedAt,createdAt,closedAt,author,labels,assignees,closedByPullRequestsReferences";
+const ISSUE_FIELDS = "number,title,url,state,updatedAt,createdAt,closedAt,author,labels,assignees,closedByPullRequestsReferences,comments";
 const RECENT_CLOSE_MS = 2 * 86400000;
 
 // prIndex: PR number -> { number, state: "OPEN" | "MERGED" | "CLOSED", isDraft, url } for PRs already loaded.
@@ -159,12 +159,12 @@ export async function fetchIssues(repo, { linked = [], prIndex = new Map(), loca
     return [...out.values()];
 }
 
-export function buildIssueCards(issues, localIssues) {
+export function buildIssueCards(issues, localIssues, viewer = null) {
     return issues.map((i) => {
         const local = localIssues[String(i.number)] || {};
         const status = local.status
             || (local.session?.id ? `Being worked on in "${local.session.name || "a session here"}"` : i.assignedToYou ? "Assigned to you; no PR yet" : "Linked here; no PR yet");
-        return {
+        const card = {
             kind: "issue",
             number: i.number,
             title: i.title,
@@ -186,9 +186,47 @@ export function buildIssueCards(issues, localIssues) {
             status,
             waitingOn: status,
             hidden: !!local.hidden,
+            activity: (i.comments || []).slice(-10).map((m) => ({ id: m.id, kind: "comment", who: m.author?.login || "ghost", bot: isBot(m.author), at: m.createdAt, url: m.url, preview: preview(m.body) })),
             local,
         };
+        card.replied = partyReply(card, viewer);
+        return card;
     });
+}
+
+// ---- Replies from the person we're waiting on --------------------------------------------------------
+
+const preview = (s) => String(s || "").replace(/<!--[\s\S]*?-->/g, " ").replace(/[#>*_`]+/g, "").replace(/\s+/g, " ").trim().slice(0, 160);
+
+// The latest GitHub activity from the person an item is waiting on, after the board started waiting:
+// - reporter (issues): a comment from anyone but you or a bot. The person who can rerun something is often
+//   not the one who opened the issue.
+// - author (PRs): a comment, review reply or push by the PR's author.
+// - reviewer (PRs): a review or comment from someone other than the author.
+export function partyReply(c, viewer) {
+    const nx = c.local?.next;
+    if (!nx?.at || !["reporter", "author", "reviewer"].includes(nx.owner)) return null;
+    const since = ts(nx.at);
+    const fits = (e) => {
+        if (e.bot || !e.who || e.who === viewer || BOT_LOGINS.test(e.who)) return false;
+        if (nx.owner === "author") return e.who === c.author;
+        if (nx.owner === "reviewer") return e.who !== c.author && e.kind !== "push";
+        return e.kind === "comment";
+    };
+    const hits = (c.activity || []).filter((e) => ts(e.at) > since && fits(e));
+    const last = hits.at(-1);
+    return last ? { ...last, role: nx.owner, count: hits.length } : null;
+}
+
+// PR activity for partyReply: comments, reviews and pushes, oldest first.
+function prActivity(pr, ext) {
+    const out = [];
+    for (const i of ext?.timelineItems?.nodes || []) {
+        if (i.__typename === "IssueComment") out.push({ id: i.id, kind: "comment", who: i.author?.login, at: i.createdAt, url: i.url, preview: preview(i.bodyText) });
+        else if (i.__typename === "PullRequestReview" && i.submittedAt) out.push({ id: i.id, kind: "review", state: i.state, who: i.author?.login, at: i.submittedAt, url: i.url, preview: preview(i.bodyText) });
+        else if (i.__typename === "PullRequestCommit" && i.commit?.oid) out.push({ id: i.commit.oid, kind: "push", who: pr.author?.login, at: i.commit.committedDate, url: i.url, preview: preview(i.commit.messageHeadline) });
+    }
+    return out.sort((a, b) => ts(a.at) - ts(b.at)).slice(-15);
 }
 
 // What changed since your last review: compare the commit you reviewed with the PR head.
@@ -763,6 +801,7 @@ export function buildCards(data, localPrs) {
             description: pr.body || "",
             fallbackSummary: fallbackSummary(pr.body),
             events: githubEvents(pr),
+            activity: prActivity(pr, data.activity?.get(pr.number)),
             local,
         });
     }
@@ -791,7 +830,10 @@ export function buildCards(data, localPrs) {
             local,
         });
     }
-    for (const c of cards) c.group = groupOf(c);
+    for (const c of cards) {
+        c.group = groupOf(c);
+        if (c.section !== "merged") c.replied = partyReply(c, data.viewer);
+    }
     return cards;
 }
 

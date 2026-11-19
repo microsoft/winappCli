@@ -208,6 +208,29 @@ message. The canvas title shows
 the count, for example `(2) PR board`. Read state is saved per PR and issue in
 the board's state file.
 
+### When someone you're waiting on replies
+
+When the next step is someone else's (the reporter, the PR's author or a reviewer)
+and they answer on GitHub, the item comes back to **Your move** as **New reply**,
+with the unread dot and the start of what they wrote:
+
+```text
+● New reply  Issue #1321 winapp cannot run a packaged WinUI app        [New reply]
+  PhilMinecraft replied: “i just came back home, booted up my laptop and…”   [Read it] [On GitHub]
+```
+
+- **Reporter** (issues): a comment from anyone except you or a bot. The person who
+  can rerun something isn't always the one who opened the issue.
+- **Author** (PRs): their comment, or a push, which asks you to **Re-review**.
+- **Reviewer** (PRs): a review or comment from someone other than the author. If the
+  board keeps that PR ready for review, the agent takes it instead of you.
+
+Only activity after the next step was set counts. For an item with a linked session,
+the board also asks the agent, once per comment, to summarize it in the item's
+thread. **Done** puts the item back to waiting until the next reply. Issues and PRs
+are read from GitHub on the same schedule: on open, on **Refresh**, and every 2
+minutes.
+
 ### Sync
 
 The board can't read other sessions by itself, so the agent in the session that
@@ -558,7 +581,7 @@ per user and isn't committed. When a PR merges, a leftover agent status shows as
 Run the UI tests from this folder before every push:
 
 ```powershell
-node test/ui.mjs                # every offline test, about a minute
+node test/ui.mjs                # every offline test, about two minutes
 node test/ui.mjs --grep peek    # only tests whose name contains "peek"
 node test/ui.mjs --live         # read-only smoke test of your real board
 ```
@@ -567,7 +590,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ peek: a drag or text selection that ends on the list doesn't close it (1289ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-47 passed, 0 failed, 47 total (57s)
+51 passed, 0 failed, 51 total (102s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

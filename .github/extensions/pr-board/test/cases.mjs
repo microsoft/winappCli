@@ -149,6 +149,65 @@ export function register(test) {
         assert.match(ctx.host.sends[0].prompt, /#105/);
     });
 
+    // ---- Replies from the person we're waiting on ----------------------------------------------------
+    const waitingRow = (n, kind) => `document.querySelector('#overview .ov-sec .ov-title[data-kind="${kind}"][data-pr="${n}"]')?.closest('.ov-row')`;
+    const replyPrompts = (ctx, who) => ctx.host.sends.filter((s) => s.prompt.includes(`from ${who} on`));
+
+    test("replies: a reporter's comment on an issue we wait on becomes Your move, unread, with a preview", async (ctx) => {
+        const { page, world } = ctx;
+        await ctx.board.tool("pr_board_set_next_step", { repo: REPO, issue: 203, owner: "reporter", action: "Confirm the fix on your machine" });
+        await page.waitFor(`/Waiting on others|Confirm the fix/.test(${waitingRow(203, "issue")}?.innerText || '')`, 4000, "#203 to wait on the reporter");
+        assert.equal(await page.eval(`!!${waitingRow(203, "issue")}.querySelector('.unread-dot')`), false);
+        world.comment(203, "hank", "Works now, thanks! My settings stay after a restart.");
+        await refresh(ctx);
+        await page.waitFor(`/hank replied: “Works now, thanks!/.test(${waitingRow(203, "issue")}?.innerText || '')`, 4000, "the reply on the row");
+        const row = await page.eval(`${waitingRow(203, "issue")}.innerText`);
+        assert.match(row, /New reply/);
+        assert.equal(await page.eval(`!!${waitingRow(203, "issue")}.querySelector('.unread-dot')`), true, "no unread dot");
+        assert.ok((await ymCards(page)).some((c) => c.kind === "issue" && c.n === 203), "it isn't in Your move");
+        await page.waitFor(() => true);
+        assert.equal(replyPrompts(ctx, "hank").length, 1, "the agent wasn't told once");
+        assert.match(replyPrompts(ctx, "hank")[0].prompt, /pr_board_reply/);
+        await refresh(ctx);
+        await sleep(300);
+        assert.equal(replyPrompts(ctx, "hank").length, 1, "the same comment was sent to the agent twice");
+    }, { changesGitHub: true });
+
+    test("replies: an author's push on a PR waiting on the author asks you to re-review", async (ctx) => {
+        const { page, world } = ctx;
+        await ctx.board.tool("pr_board_set_next_step", { repo: REPO, pr: 103, owner: "author", action: "Fix the failing check" });
+        await page.waitFor(`/Fix the failing check/.test(${waitingRow(103, "pr")}?.innerText || '')`, 4000, "#103 to wait on alice");
+        world.push(103, "Fix the cache test");
+        await refresh(ctx);
+        await page.waitFor(`/alice pushed new commits: re-review/.test(${waitingRow(103, "pr")}?.innerText || '')`, 4000, "the re-review on the row");
+        assert.equal(await page.eval(`${waitingRow(103, "pr")}.querySelector('.right [data-act="review"]')?.innerText.trim()`), "Re-review");
+        assert.equal(ctx.host.sends.length, 0, "a push needs no summary from the agent");
+    }, { changesGitHub: true });
+
+    test("replies: comments from bots or from you don't count", async (ctx) => {
+        const { page, world } = ctx;
+        await ctx.board.tool("pr_board_set_next_step", { repo: REPO, issue: 203, owner: "reporter", action: "Confirm the fix on your machine" });
+        world.comment(203, "github-actions[bot]", "This issue is stale.");
+        world.comment(203, "me", "Could you try the new build?");
+        await refresh(ctx);
+        await sleep(600);
+        const row = await page.eval(`${waitingRow(203, "issue")}.innerText`);
+        assert.match(row, /Confirm the fix on your machine/);
+        assert.doesNotMatch(row, /replied|New reply/);
+        assert.equal(await page.eval(`!!${waitingRow(203, "issue")}.querySelector('.unread-dot')`), false);
+        assert.equal(ctx.host.sends.length, 0);
+    }, { changesGitHub: true });
+
+    test("replies: a reply on an issue a PR fixes shows on the PR's row", async (ctx) => {
+        const { page, world } = ctx;
+        await ctx.board.tool("pr_board_set_next_step", { repo: REPO, issue: 201, owner: "reporter", action: "Check the draft build" });
+        world.comment(201, "frank", "The draft build fixes it for me.");
+        await refresh(ctx);
+        await page.waitFor(`/frank replied: “The draft build fixes it/.test(${waitingRow(108, "pr")}?.innerText || '')`, 4000, "the reply on PR #108's row");
+        assert.equal(replyPrompts(ctx, "frank").length, 1);
+        assert.match(replyPrompts(ctx, "frank")[0].prompt, /issue view 201/);
+    }, { changesGitHub: true });
+
     // ---- Peek and expand -------------------------------------------------------------------------------
     test("peek: opens over the list; Esc closes it and keeps scroll and focus", async ({ page }) => {
         await page.eval(`document.getElementById('overview').scrollTop = 300`);
@@ -549,17 +608,7 @@ export function register(test) {
     });
 }
 
-// Force a re-read from GitHub. The board allows one forced read every 5 seconds, so retry until it happens.
-async function refresh(ctx) {
-    const act = ctx.board.canvas.actions.find((a) => a.name === "refresh");
-    const before = ctx.world.calls;
-    for (let i = 0; i < 30; i++) {
-        await act.handler({ instanceId: "ui-test", input: {} });
-        if (ctx.world.calls > before) return;
-        await sleep(250);
-    }
-    throw new Error("The board never re-read GitHub");
-}
+const refresh = (ctx) => ctx.board.refresh();
 
 // Drop the page's live (SSE) connection on the server side, like a sleep/wake or network blip.
 function dropLiveConnections(ctx) {

@@ -81,7 +81,7 @@ code { font-family: var(--mono); font-size: var(--t-meta); background: var(--sub
 /* ---- Ball: one glyph per state, so color is never the only signal ---- */
 .g { width: 20px; height: 20px; flex: none; display: inline-grid; place-items: center; border-radius: 50%; }
 .g svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.g-decide, .g-ready { background: var(--orange); color: var(--bg); }
+.g-decide, .g-ready, .g-replied { background: var(--orange); color: var(--bg); }
 .g-blocked { background: var(--red); color: var(--bg); }
 .g-nextpr { background: var(--blue-muted); color: var(--blue); }
 .g-waiting { border: 1.5px solid var(--muted); width: 18px; height: 18px; margin: 1px; }
@@ -1328,7 +1328,8 @@ function latestReplyAt(c) {
   const l = c?.local || {};
   let at = 0;
   for (const m of l.thread || []) if (m.role === "agent") at = Math.max(at, tms(m.at));
-  return Math.max(at, tms(l.reviewSetAt), tms(l.draft?.attachedAt));
+  // A reply on GitHub from the person we were waiting on counts too.
+  return Math.max(at, tms(l.reviewSetAt), tms(l.draft?.attachedAt), tms(c?.replied?.at));
 }
 const seenAt = (c) => Math.max(tms(c?.local?.lastSeenAt), tms(snap?.readBaseline));
 const isUnread = (c) => !!c && latestReplyAt(c) > seenAt(c);
@@ -2040,6 +2041,7 @@ function lifecycleBall(c, skipYou, running) {
 // clears only the dot; "your move" states stay until you act, or press Done or Snooze.
 const BALL = {
   decide: { label: "Needs your decision", tone: "you", you: true },
+  replied: { label: "New reply", tone: "you", you: true },
   blocked: { label: "Blocked", tone: "stuck", you: true },
   ready: { label: "Ready for you", tone: "you", you: true },
   nextpr: { label: "Next: open a PR", tone: "info", you: true },
@@ -2052,6 +2054,7 @@ const BALL = {
 const BALL_GLYPH = {
   decide: '<path d="M6 6.2a2 2 0 1 1 2.8 1.8c-.6.3-.8.7-.8 1.3v.4"/><path d="M8 11.6v.1"/>',
   ready: '<path d="M4 8h7.5M8.5 5l3 3-3 3"/>',
+  replied: '<path d="M4 4.5h8a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H8l-2.5 2v-2H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z"/>',
   blocked: '<path d="M8 4.5v4.2M8 11.4v.1"/>',
   nextpr: '<circle cx="5" cy="4" r="1.4"/><circle cx="5" cy="12" r="1.4"/><circle cx="11" cy="12" r="1.4"/><path d="M5 5.4v5.2M11 10.6V6.8a2 2 0 0 0-2-2H7.4"/>',
   quiet: '<path d="M3.5 8.5l3 3 6-6.5"/>',
@@ -2076,6 +2079,14 @@ function deriveBall(c, skipYou) {
   const running = l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending;
   if (c.section === "merged" || (issue && c.state && c.state !== "OPEN")) return { st: "quiet", ask: c.section === "merged" ? "Merged" : "Closed", since: c.mergedAt || c.updatedAt };
   if (!skipYou && q) return { st: "decide", ask: q.question, choices: q.choices || [], question: true, since: l.sync?.at };
+  // Someone we were waiting on answered on GitHub: the ball comes back (to the agent, if it keeps this PR ready).
+  const rp = c.replied;
+  if (rp && !skipYou) {
+    const what = rp.kind === "push" ? `${rp.who} pushed new commits${issue ? "" : ": re-review"}` : rp.kind === "review" ? `${rp.who} ${rp.state === "APPROVED" ? "approved" : rp.state === "CHANGES_REQUESTED" ? "requested changes" : "reviewed"}` : `${rp.who} replied${rp.count > 1 ? ` (${rp.count} comments)` : ""}`;
+    const quote = rp.preview && rp.kind !== "push" ? `: “${rp.preview.length > 110 ? rp.preview.slice(0, 109) + "…" : rp.preview}”` : "";
+    if (!issue && c.keepReady && rp.role === "reviewer") return { st: "agent", ask: `${what}; the agent is addressing it`, since: rp.at, replied: rp };
+    return { st: "replied", ask: what + quote, replied: rp, since: rp.at };
+  }
   // Private branch review: unsent comments, or new commits after you sent some, are your move.
   if (issue && hasBranch(c)) { const bb = branchBall(c, running); if (bb && !(skipYou && BALL[bb.st].you)) return bb; }
   // Live lifecycle signals (label, gates, Agent merge) are fresher than a step the agent set for someone else;
@@ -2157,6 +2168,7 @@ function moveButtons(c, b, { withDone = true } = {}) {
   else if (b.st === "ready" && b.postDraft) out.push(`<button class="primary" data-act="row-post" ${at}>Post review</button>`);
   else if (b.st === "ready" && b.review) out.push(`<button class="primary" data-act="review" ${at} title="${esc(REVIEW_TIP)}">${/re-review/i.test(b.ask) ? "Re-review" : "Review"}</button>`);
   else if (b.st === "ready") out.push(`<button class="primary" data-act="flyout" ${at}>Open</button>`);
+  if (b.st === "replied") out.push(b.replied?.kind === "push" && kind === "pr" ? `<button class="primary" data-act="review" ${at} title="${esc(REVIEW_TIP)}">Re-review</button>` : `<button class="primary" data-act="flyout" ${at}>Read it</button>`, b.replied?.url ? `<a class="btn" href="${esc(b.replied.url)}" target="_blank" rel="noopener">On GitHub</a>` : "");
   if (b.st === "blocked") out.push(`<button class="primary" data-act="fix" ${at} data-what="${esc(b.ask)}">Ask the agent to fix</button>`);
   if (b.st === "nextpr" && kind === "issue") out.push(brPrMenu === c.number ? `<span class="snooze-opts" role="group" aria-label="Open the PR as"><button class="primary" data-act="br-open-pr" ${at} data-draft="1">Draft PR</button><button data-act="br-open-pr" ${at} data-draft="0">Ready for review</button></span>` : `<button class="primary" data-act="br-pr-menu" ${at}>Open a PR ▾</button>`);
   else if (b.st === "nextpr") out.push(`<button class="primary" data-act="open-pr" ${at}>Open a PR</button>`);

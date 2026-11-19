@@ -14,7 +14,7 @@ import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
-import { rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { partyReplyPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -50,7 +50,7 @@ function mergeCovered(cards, issues) {
         // Replies you already read on the issue stay read on the PR.
         const seen = [l.lastSeenAt, ...iss.map((i) => i.local?.lastSeenAt)].filter(Boolean).sort().at(-1);
         if (seen) l.lastSeenAt = seen;
-        return { ...c, issues: iss.map((i) => ({ number: i.number, title: i.title, url: i.url, state: i.state })), local: l };
+        return { ...c, replied: c.replied || iss.map((i) => i.replied && { ...i.replied, issue: i.number }).find(Boolean) || null, issues: iss.map((i) => ({ number: i.number, title: i.title, url: i.url, state: i.state })), local: l };
     });
     return { cards: merged, issues };
 }
@@ -88,6 +88,7 @@ class Board {
                 this.error = null;
                 await refreshLiveSessions();
                 if (!this.refreshReadiness()) this.keepReadyTick().catch(() => {});
+                this.notifyReplies().catch(() => {});
             } catch (e) {
                 this.error = { code: e instanceof GhError ? e.code : "error", message: e.message };
             } finally {
@@ -163,6 +164,22 @@ class Board {
         }
     }
 
+    // Someone we were waiting on replied on GitHub (see partyReply). For an item with a linked session, ask the
+    // agent once per comment to summarize it in the board thread. Pushes need no summary: the row says re-review.
+    async notifyReplies() {
+        const snap = this.snapshot();
+        const baseline = Date.parse(snap.readBaseline || 0) || 0;
+        for (const c of [...snap.cards, ...snap.issues.filter((i) => !i.covered)]) {
+            const r = c.replied;
+            const kind = c.kind === "issue" ? "issue" : "pr";
+            if (!r || r.kind === "push" || !c.local?.session?.id || c.local.replyNotified?.id === r.id) continue;
+            const at = Date.parse(r.at) || 0;
+            if (at < baseline || Date.now() - at > 3 * 86400_000) continue;
+            updateItem(this.repo, kind, c.number, (s) => { s.replyNotified = { id: r.id, at: nowIso() }; });
+            await send(partyReplyPrompt(c, this.repo, r), this.repo, c.number, { quiet: true, kind }).catch(() => {});
+        }
+    }
+
     snapshot() {
         const state = readState(this.repo);
         const local = state.prs;
@@ -184,7 +201,7 @@ class Board {
                 const linkedIssues = Object.entries(state.issues).filter(([, v]) => v.linkedPr === card.number || (v.branch && v.branch === r?.raw?.headRefName)).map(([k]) => Number(k));
                 const keepReady = !!(card.local?.sync?.agentMerge?.enabled || card.local?.monitorPending?.enable);
                 return { ...out, lifecycle: true, keepReady, readiness: r?.raw ? computeReadiness(r.raw, card.local || {}, { linkedIssues, keepReady }) : null, readinessError: r?.error || null };
-            }) : [], buildIssueCards(this.issues || [], state.issues)),
+            }) : [], buildIssueCards(this.issues || [], state.issues, this.data?.viewer || null)),
             streams: streamer.forRepo(this.repo),
             error: this.error,
             fetchedAt: this.fetchedAt ? new Date(this.fetchedAt).toISOString() : null,
