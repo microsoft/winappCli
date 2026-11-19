@@ -8,13 +8,13 @@ import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, buildIssueCards, detectRepo, fetchBranchCompare, fetchChangesSince, fetchDetail, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
+import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, fetchBranchCompare, fetchChangesSince, fetchDetail, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
 import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
-import { branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { readyForReviewPrompt, requestReviewerPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -37,6 +37,8 @@ class Board {
         this.clients = new Set();
         this.timer = null;
         this.watching = false;
+        this.ready = new Map(); // PR number -> { key, at, raw }: GitHub data for the readiness gates
+        this.readyInflight = null;
         // Replies older than this never count as unread, so a new install doesn't flag every old reply.
         if (!readState(repo).meta.readBaseline) updateMeta(repo, (m) => { m.readBaseline ??= new Date().toISOString(); });
     }
@@ -55,6 +57,7 @@ class Board {
                 this.issues = await fetchIssues(this.repo, { linked, prIndex, localIssues: st.issues });
                 this.error = null;
                 await refreshLiveSessions();
+                this.refreshReadiness();
             } catch (e) {
                 this.error = { code: e instanceof GhError ? e.code : "error", message: e.message };
             } finally {
@@ -65,6 +68,32 @@ class Board {
         })();
         this.broadcast();
         return this.inflight;
+    }
+
+    // PRs you're responsible for getting ready: you wrote them, or a session here works on them as the author.
+    lifecycleOf(p, st) {
+        return p.author?.login === this.data?.viewer || st.prs[String(p.number)]?.role === "author";
+    }
+
+    // Read the readiness gates' GitHub data in the background. Re-read when the PR changes, or every two minutes
+    // while a gate isn't green (CI finishing doesn't change the PR's updatedAt).
+    refreshReadiness({ only = null, force = false } = {}) {
+        if (this.readyInflight || !this.data) return this.readyInflight;
+        const st = readState(this.repo);
+        const due = this.data.open.filter((p) => (only ? p.number === only : this.lifecycleOf(p, st))).filter((p) => {
+            const h = this.ready.get(p.number);
+            if (force || !h || h.key !== `${p.headRefOid}|${p.updatedAt}`) return true;
+            return !computeReadiness(h.raw, st.prs[String(p.number)] || {})?.allGreen && Date.now() - h.at > 2 * 60_000;
+        });
+        if (!due.length) return null;
+        this.readyInflight = (async () => {
+            for (let i = 0; i < due.length; i += 3) {
+                await Promise.all(due.slice(i, i + 3).map((p) => fetchReadinessRaw(this.repo, p.number)
+                    .then((raw) => this.ready.set(p.number, { key: `${p.headRefOid}|${p.updatedAt}`, at: Date.now(), raw }))
+                    .catch((e) => this.ready.set(p.number, { key: null, at: Date.now(), raw: this.ready.get(p.number)?.raw || null, error: e.message }))));
+            }
+        })().finally(() => { this.readyInflight = null; this.broadcast(); });
+        return this.readyInflight;
     }
 
     snapshot() {
@@ -78,7 +107,14 @@ class Board {
             liveSessionsNote: liveSessions.note,
             groups: GROUPS,
             viewer: this.data?.viewer || null,
-            cards: this.data ? buildCards(this.data, local).map((card) => (card.local?.review ? { ...card, local: { ...card.local, review: withLinks(card.local.review, card.url) } } : card)) : [],
+            cards: this.data ? buildCards(this.data, local).map((card) => {
+                const out = card.local?.review ? { ...card, local: { ...card.local, review: withLinks(card.local.review, card.url) } } : card;
+                if (card.section === "merged") return out;
+                const raw = this.data.open.find((p) => p.number === card.number);
+                if (!raw || !this.lifecycleOf(raw, state)) return out;
+                const r = this.ready.get(card.number);
+                return { ...out, lifecycle: true, readiness: r?.raw ? computeReadiness(r.raw, card.local || {}) : null, readinessError: r?.error || null };
+            }) : [],
             issues: buildIssueCards(this.issues || [], state.issues),
             streams: streamer.forRepo(this.repo),
             error: this.error,
@@ -208,7 +244,7 @@ async function runBallAction({ repo, kind, number, action, extra, card }) {
 }
 const BALL_ACTIONS = new Set(["ball-done", "ball-snooze", "ball-unsnooze", "choose", "open-pr", "fix"]);
 // Actions that are the user acting on the item (they hand the ball to the agent or GitHub).
-const ACTING = new Set(["review", "post", "post-findings", "ship", "answer", "monitor", "status-update", "summarize-replies", "explain-changes", "start-issue"]);
+const ACTING = new Set(["get-ready", "request-reviewer", "review", "post", "post-findings", "ship", "answer", "monitor", "status-update", "summarize-replies", "explain-changes", "start-issue"]);
 
 // Record an event in both the timeline and the thread, so the thread reads as one story.
 function note(s, text) {
@@ -397,6 +433,15 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
         updatePr(repo, pr, (s) => { s.tracked = null; addHistory(s, "You stopped tracking it"); });
     } else if (action === "hide" || action === "unhide") {
         updatePr(repo, pr, (s) => { s.hidden = action === "hide"; addHistory(s, action === "hide" ? "You removed it from the board" : "You put it back on the board"); });
+    } else if (action === "get-ready") {
+        updatePr(repo, pr, (s) => { s.pending = { id: "get-ready", at: nowIso() }; note(s, "You asked the agent to get it ready for review"); });
+        await send(readyForReviewPrompt(card, repo, card.readiness), repo, pr, { quiet: true });
+    } else if (action === "request-reviewer") {
+        const who = String(extra.who || "*").replace(/[^\w.*-]/g, "").slice(0, 60) || "*";
+        updatePr(repo, pr, (s) => { s.pending = { id: "request-reviewer", at: nowIso() }; note(s, who === "*" ? "You asked the agent to request a reviewer" : `You asked the agent to request ${who} as reviewer`); });
+        await send(requestReviewerPrompt(card, repo, who), repo, pr, { quiet: true });
+    } else if (action === "readiness-refresh") {
+        await board(repo).refreshReadiness({ only: pr, force: true });
     } else if (action === "monitor") {
         const enable = extra.enable !== false;
         const actions = enable ? (extra.mergePr ? ["address_reviews", "fix_ci", "resolve_conflicts", "merge_pr"] : ["address_reviews", "fix_ci", "resolve_conflicts"]) : [];
@@ -717,7 +762,7 @@ async function handle(req, res) {
         if (url.pathname === "/api/action") {
             const pr = Number(body.pr);
             if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
-            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer, findingId: body.findingId, key: body.key, until: body.until, choice: body.choice, what: body.what, comment: body.comment, id: body.id, draft: body.draft, head: body.head, kind: body.kind === "issue" ? "issue" : "pr" } }));
+            return json(200, await runCardAction({ repo, pr, action: String(body.action), event: body.event, force: !!body.force, extra: { enable: body.enable, mergePr: !!body.mergePr, answer: body.answer, findingId: body.findingId, key: body.key, until: body.until, choice: body.choice, what: body.what, comment: body.comment, id: body.id, draft: body.draft, head: body.head, who: body.who, kind: body.kind === "issue" ? "issue" : "pr" } }));
         }
         if (url.pathname === "/api/triage") {
             const pr = Number(body.pr);

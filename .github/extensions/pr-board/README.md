@@ -48,8 +48,8 @@ The ball is one of these states, checked top to bottom:
 | State | Glyph | When |
 |---|---|---|
 | **Needs your decision** | orange `?` | A session is waiting on a question, the agent asked you something, or set a next step with choices |
-| **Agent working** | spinner | A session is busy, or the agent is answering you |
-| **Blocked** | red `!` | On your PR: CI failing, merge conflicts, or the agent failed |
+| **Agent working** | spinner (sparkle when no session is busy right now) | A session is busy, the agent is answering you, Agent merge is addressing new feedback on a watched PR, or your PR is labeled `agent-preparing` or isn't ready for human review yet |
+| **Blocked** | red `!` | On your PR: CI failing, merge conflicts, the `agent-blocked` label, or the agent failed |
 | **Ready for you** | orange `→` | Your review or re-review is wanted, a drafted review is ready to post, you have unsent branch comments, the agent pushed after your branch comments, or the agent handed you a step |
 | **Next: open a PR** | blue PR | An issue's fix is on a branch, the session is idle, and there's no PR yet |
 | **Waiting on others** | hollow ring | Someone else's move: the author, a reviewer, the merge queue, CI or the reporter, with their avatar and how long. The age turns red (`Stuck 28d`) when it's waited too long |
@@ -65,7 +65,11 @@ for a typed answer, **Review**, **Post review…**, **Ask the agent to fix**, or
 - **Snooze ▾:** for 1 hour, until tomorrow 9:00, or until Monday 9:00. Then it
   comes back by itself. **Unsnooze** is in its flyout.
 
-The chips at the top count each state and filter the list to it.
+The chips at the top count each state and filter the list to it. **Watching N**
+filters to the PRs Agent merge is watching.
+
+A row never shows *Needs your decision* and a spinner together. If the agent is
+also working on an item that needs you, the row says so in grey instead.
 
 Below the box, the sections keep their rows in place (newest first, or the order
 you pick under Sort). A row's state changes, but its position doesn't:
@@ -255,6 +259,58 @@ Is anything blocking you, or should someone else pick this up?
 
 Edit it, then press Send to ask the agent to post it. Nothing is posted until
 you send it.
+
+## Getting your PR ready for human review
+
+Your PRs (you wrote them, or a session here works on them as the author) get a
+**Ready for human review?** checklist at the top of the flyout's Summary and the
+details Overview. Each gate is read live from GitHub for the PR's current commit,
+following `.github/skills/pr-lifecycle`:
+
+```text
+Ready for human review?  ●●●○○●○ 3/7 ready   agent-preparing   👁 Watching
+❌ Independent review   pr-review ran on d54a57e; new commits since
+⏳ Copilot review       Copilot reviewed an older commit (4c6dd75)          Open ↗
+✅ Discussion           All 12 threads resolved or answered
+⏳ Required CI          build-and-package hasn't started
+✅ Up to date           No conflicts · 30 behind main
+✅ Description          Template filled, with an issue link and a testing note
+⏳ Lifecycle label      agent-preparing: the agent is still working on it
+[Get it ready for review]  [Stop watching]  [Recheck]
+```
+
+| Gate | Passes when |
+|------|-------------|
+| Independent review | pr-review ran on this commit, and every finding has a fix or a Post/Ignore decision |
+| Copilot review | Copilot reviewed this commit (an older commit is ⏳), and none of its comments are unresolved |
+| Discussion | Every review thread is resolved or answered, and nobody asked something after the last update |
+| Required CI | Every required check from the branch rules passed on this commit. A missing check is ⏳, never a pass |
+| Up to date | No merge conflicts. "GitHub is still checking" is ⏳. Shows how far behind main it is |
+| Description | The template's "What and why" and "Not tested / risks" are filled in, with a `Fixes #` link |
+| Lifecycle label | `ready-for-review` and the six gates above agree. `agent-preparing` is ⏳, `agent-blocked` is ❌ |
+
+The row shows the same meter, `3/7 ready`. A ⚠ means **Label out of date**: the
+label says ready but a gate isn't green (for example after a new commit), or every
+gate is green but the label still says `agent-preparing`. The board never changes
+labels; the session or the coordinator does.
+
+- **Get it ready for review** asks the agent to run pr-lifecycle in the PR's
+  session (or open one) until the label is `ready-for-review`, with Agent merge
+  watching reviews, CI and conflicts. It never merges or approves.
+- Until every gate passes, the PR is the agent's move (*Preparing it for review ·
+  3/7 ready*). A step like "Request a reviewer" waits there as *Then: request a
+  reviewer*. A real decision for you, such as a choice that isn't about reviewers,
+  still shows as Your move.
+- At 7/7 with no reviewer requested, it moves to **Your move** as *Ready for human
+  review: request a reviewer*, with **Request reviewer ▾**. Pick someone who reviews
+  on this board, or **Let the agent pick**. The agent adds them with `gh pr edit`.
+
+**Watching.** A PR that Agent merge watches has a purple **👁 Watching** badge on
+its row and in its header. Hover it to see what it handles (new review comments,
+failing CI, merge conflicts), that it never merges, and when it last checked. When
+new feedback arrives on a watched PR, the row shows *New feedback: agent
+addressing it* with a spinner instead of asking you. Turn watching on or off from
+the checklist, or from the **⋯** menu.
 
 ## Reviewing a branch before there's a PR
 

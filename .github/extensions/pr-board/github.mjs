@@ -792,3 +792,159 @@ export function buildCards(data, localPrs) {
     for (const c of cards) c.group = groupOf(c);
     return cards;
 }
+
+// ---- Readiness for human review (pr-lifecycle "Finish") -------------------------
+
+const READY_QUERY = `query($owner: String!, $name: String!, $n: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $n) {
+    number url headRefOid baseRefName isDraft mergeable mergeStateStatus body author { login }
+    labels(first: 30) { nodes { name } }
+    reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
+    reviews(last: 100) { nodes { author { login } state submittedAt url body commit { oid } } }
+    comments(last: 60) { nodes { author { login } createdAt url } }
+    commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) { nodes { __typename
+        ... on CheckRun { name status conclusion detailsUrl isRequired(pullRequestNumber: $n) }
+        ... on StatusContext { context state targetUrl isRequired(pullRequestNumber: $n) } } } } } } }
+    reviewThreads(first: 100) { pageInfo { hasNextPage endCursor } nodes { isResolved isOutdated path line comments(first: 50) { nodes { author { login } createdAt url } } } }
+} } }`;
+const THREADS_PAGE = `query($owner: String!, $name: String!, $n: Int!, $after: String!) { repository(owner: $owner, name: $name) { pullRequest(number: $n) {
+    reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { isResolved isOutdated path line comments(first: 50) { nodes { author { login } createdAt url } } } }
+} } }`;
+
+const requiredCache = new Map();
+// The base branch's required status checks, from rulesets and classic branch protection. null = couldn't read.
+export async function fetchRequiredChecks(repo, base) {
+    const key = `${repo}#${base}`;
+    const hit = requiredCache.get(key);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.value;
+    let value = null;
+    try {
+        const rules = JSON.parse(await gh(["api", `repos/${repo}/rules/branches/${encodeURIComponent(base)}`]));
+        value = [...new Set(rules.filter((r) => r.type === "required_status_checks").flatMap((r) => (r.parameters?.required_status_checks || []).map((c) => c.context)))];
+        try {
+            const prot = JSON.parse(await gh(["api", `repos/${repo}/branches/${encodeURIComponent(base)}/protection/required_status_checks`]));
+            for (const c of prot.contexts || []) if (!value.includes(c)) value.push(c);
+        } catch { /* no classic protection, or no permission to read it */ }
+    } catch { value = null; }
+    requiredCache.set(key, { value, at: Date.now() });
+    return value;
+}
+
+// Everything the readiness gates read, for one PR. Paginates every review thread.
+export async function fetchReadinessRaw(repo, number) {
+    const [owner, name] = repo.split("/");
+    const q = async (query, extra = []) => {
+        const d = JSON.parse(await gh(["api", "graphql", "-f", `query=${query}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `n=${number}`, ...extra], { timeoutMs: 60000 }));
+        const pr = d.data?.repository?.pullRequest;
+        if (!pr) throw new Error(d.errors?.[0]?.message || `PR #${number} not found`);
+        return pr;
+    };
+    const pr = await q(READY_QUERY);
+    const threads = [...pr.reviewThreads.nodes];
+    let page = pr.reviewThreads.pageInfo;
+    for (let i = 0; page.hasNextPage && i < 20; i++) {
+        const more = await q(THREADS_PAGE, ["-f", `after=${page.endCursor}`]);
+        threads.push(...more.reviewThreads.nodes);
+        page = more.reviewThreads.pageInfo;
+    }
+    let behind = null;
+    try { behind = Number(await gh(["api", `repos/${repo}/compare/${encodeURIComponent(pr.baseRefName)}...${pr.headRefOid}`, "--jq", ".behind_by"])); } catch { behind = null; }
+    const required = await fetchRequiredChecks(repo, pr.baseRefName);
+    return { ...pr, threads, behind, required, fetchedAt: new Date().toISOString() };
+}
+
+const COPILOT = /^(copilot-pull-request-reviewer|copilot)(\[bot\])?$/i;
+const LIFECYCLE = ["agent-preparing", "agent-blocked", "ready-for-review"];
+const PASS_CHECK = new Set(["SUCCESS"]);
+const SOFT_CHECK = new Set(["NEUTRAL", "SKIPPED"]);
+
+// The six pr-lifecycle gates for the PR's current head. state: "pass" | "pending" | "fail".
+export function computeReadiness(raw, local = {}) {
+    if (!raw) return null;
+    const head = raw.headRefOid;
+    const author = raw.author?.login;
+    const short = (s) => String(s || "").slice(0, 7);
+    const gates = [];
+    const gate = (id, label, state, reason, url) => gates.push({ id, label, state, reason, url: url || null });
+
+    // 1. Independent review: pr-review on this head, and every finding fixed or given a disposition.
+    const rv = local.review, pv = local.prReview;
+    const rvHead = rv?.headSha || pv?.headSha || null;
+    if (!rv && !pv) gate("review", "Independent review", "fail", "No pr-review has run yet");
+    else if (rvHead && rvHead !== head) gate("review", "Independent review", "fail", `pr-review ran on ${short(rvHead)}; new commits since`);
+    else if (rv?.findings?.length) {
+        const open = rv.findings.filter((f) => !local.triage?.[f.id]?.decision || local.triage[f.id].decision === "undecided");
+        gate("review", "Independent review", open.length ? "fail" : "pass", open.length ? `${open.length} of ${rv.findings.length} finding${rv.findings.length === 1 ? "" : "s"} without a fix or disposition` : `Ran on ${short(head)}; all ${rv.findings.length} finding${rv.findings.length === 1 ? "" : "s"} handled`);
+    } else gate("review", "Independent review", "pass", `Ran on ${short(rvHead || head)}${rv ? "; no findings" : ""}`);
+
+    // 2. Copilot review on this head, with no unresolved Copilot threads.
+    const cop = raw.reviews.nodes.filter((r) => COPILOT.test(r.author?.login || ""));
+    const copNow = cop.filter((r) => r.commit?.oid === head);
+    const copOpen = raw.threads.filter((t) => !t.isResolved && !t.isOutdated && COPILOT.test(t.comments.nodes[0]?.author?.login || ""));
+    const copRequested = raw.reviewRequests.nodes.some((r) => COPILOT.test(r.requestedReviewer?.login || ""));
+    if (copOpen.length) gate("copilot", "Copilot review", "fail", `${copOpen.length} unresolved Copilot comment${copOpen.length === 1 ? "" : "s"}`, copOpen[0].comments.nodes[0]?.url);
+    else if (copNow.length) gate("copilot", "Copilot review", "pass", `Reviewed ${short(head)}; nothing open`, copNow.at(-1).url);
+    else if (copRequested) gate("copilot", "Copilot review", "pending", "Copilot review requested; not in yet");
+    else if (cop.length) gate("copilot", "Copilot review", "pending", `Copilot reviewed an older commit (${short(cop.at(-1).commit?.oid)}); only a review of ${short(head)} counts`, cop.at(-1)?.url);
+    else gate("copilot", "Copilot review", "fail", "No Copilot review yet");
+
+    // 3. Discussion: every thread resolved or replied to, and no unanswered top-level request.
+    const human = (l) => l && l !== author && !COPILOT.test(l) && !BOT_LOGINS.test(l);
+    const authorAt = maxIso(raw.commits.nodes[0]?.commit?.committedDate, ...raw.comments.nodes.filter((c) => c.author?.login === author).map((c) => c.createdAt),
+        ...raw.threads.flatMap((t) => t.comments.nodes.filter((c) => c.author?.login === author).map((c) => c.createdAt)));
+    const unreplied = raw.threads.filter((t) => !t.isResolved && !t.isOutdated && !COPILOT.test(t.comments.nodes[0]?.author?.login || "") && t.comments.nodes.at(-1)?.author?.login !== author);
+    const asks = [
+        ...raw.comments.nodes.filter((c) => human(c.author?.login)).map((c) => ({ who: c.author.login, at: c.createdAt, url: c.url, what: "commented" })),
+        ...raw.reviews.nodes.filter((r) => human(r.author?.login) && (r.state === "CHANGES_REQUESTED" || (r.state === "COMMENTED" && r.body?.trim()))).map((r) => ({ who: r.author.login, at: r.submittedAt, url: r.url, what: r.state === "CHANGES_REQUESTED" ? "requested changes" : "commented" })),
+    ].filter((x) => ts(x.at) > ts(authorAt)).sort((a, b) => ts(b.at) - ts(a.at));
+    if (unreplied.length) gate("discussion", "Discussion", "fail", `${unreplied.length} review thread${unreplied.length === 1 ? "" : "s"} with no reply`, unreplied[0].comments.nodes[0]?.url);
+    else if (asks.length) gate("discussion", "Discussion", "fail", `${asks[0].who} ${asks[0].what} after the last update; no answer yet`, asks[0].url);
+    else gate("discussion", "Discussion", "pass", raw.threads.length ? `All ${raw.threads.length} thread${raw.threads.length === 1 ? "" : "s"} resolved or answered` : "No open threads or requests");
+
+    // 4. CI: every required check green on this head. Missing required checks are pending, never a pass.
+    const ctx = (raw.commits.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes || []).map((c) => ({ name: c.name || c.context, state: c.__typename === "StatusContext" ? c.state : c.status === "COMPLETED" ? c.conclusion : c.status, url: c.detailsUrl || c.targetUrl || null, required: !!c.isRequired }));
+    const reqNames = [...new Set([...(raw.required || []), ...ctx.filter((c) => c.required).map((c) => c.name)])];
+    if (!reqNames.length) gate("ci", "Required CI", raw.required === null ? "pending" : "pass", raw.required === null ? "Couldn't read the required checks" : "No required checks on this branch");
+    else {
+        const rows = reqNames.map((n) => ctx.find((c) => c.name === n) || { name: n, state: "MISSING" });
+        const bad = rows.filter((r) => !PASS_CHECK.has(r.state) && !SOFT_CHECK.has(r.state) && !PENDING.has(r.state) && r.state !== "MISSING");
+        const wait = rows.filter((r) => PENDING.has(r.state) || r.state === "MISSING");
+        const soft = rows.filter((r) => SOFT_CHECK.has(r.state));
+        if (bad.length) gate("ci", "Required CI", "fail", `${bad.map((r) => r.name).join(", ")} ${bad[0].state.toLowerCase().replace(/_/g, " ")}`, bad[0].url);
+        else if (wait.length) gate("ci", "Required CI", "pending", wait.map((r) => `${r.name} ${r.state === "MISSING" ? "hasn't started" : "is running"}`).join(", "), wait[0].url);
+        else if (soft.length) gate("ci", "Required CI", "pending", `${soft.map((r) => r.name).join(", ")} was ${soft[0].state.toLowerCase()}; check that's expected`, soft[0].url);
+        else gate("ci", "Required CI", "pass", `${rows.map((r) => r.name).join(", ")} passed on ${short(head)}`, rows[0].url);
+    }
+
+    // 5. Up to date: no conflicts. Unknown mergeability is not ready.
+    const behind = Number.isInteger(raw.behind) ? raw.behind : null;
+    const behindText = behind === null ? "" : behind ? ` · ${behind} behind ${raw.baseRefName}` : ` · up to date with ${raw.baseRefName}`;
+    if (raw.mergeable === "CONFLICTING" || raw.mergeStateStatus === "DIRTY") gate("uptodate", "Up to date", "fail", `Merge conflicts with ${raw.baseRefName}${behindText}`, `${raw.url}#partial-pull-merging`);
+    else if (raw.mergeable !== "MERGEABLE") gate("uptodate", "Up to date", "pending", `GitHub is still checking for conflicts${behindText}`);
+    else if (raw.mergeStateStatus === "BEHIND") gate("uptodate", "Up to date", "fail", `Branch rules require updating it${behindText}`, `${raw.url}#partial-pull-merging`);
+    else gate("uptodate", "Up to date", "pass", `No conflicts${behindText}`);
+
+    // 6. Description: the template's sections filled in, an issue link, and a testing note.
+    const body = String(raw.body || "").replace(/<!--[\s\S]*?-->/g, "").replace(/\r\n/g, "\n");
+    const section = (title) => { const m = body.match(new RegExp(`^##\\s*${title}[^\\n]*\\n([\\s\\S]*?)(?=^##\\s|$(?![\\s\\S]))`, "mi")); return m ? m[1].replace(/^\s*Fixes\s*#\s*$/gim, "").trim() : null; };
+    const fixes = /\b(fix(es|ed)?|close[sd]?|resolve[sd]?)\s+(#\d+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+|[\w.-]+\/[\w.-]+#\d+)/i.test(body);
+    const what = section("What and why"), risks = section("Not tested");
+    const missing = [];
+    if (what !== null ? !what : body.trim().length < 40) missing.push("what and why");
+    if (!fixes) missing.push("a Fixes #issue link");
+    if (risks !== null ? !risks : !/\btest/i.test(body)) missing.push("a testing note");
+    gate("description", "Description", missing.length ? "fail" : "pass", missing.length ? `Missing ${missing.join(", ")}` : "Template filled, with an issue link and a testing note", missing.length ? raw.url : null);
+
+    // 7. The pr-lifecycle label the session set. It should agree with the six gates above.
+    const label = LIFECYCLE.find((l) => raw.labels.nodes.some((x) => x.name === l)) || null;
+    const techGreen = gates.every((g) => g.state === "pass");
+    const outOfDate = (label === "ready-for-review" && !techGreen) ? "The label says ready, but not every gate passes for this commit"
+        : (label && label !== "ready-for-review" && techGreen) ? `Every gate passes, but the label still says ${label}` : null;
+    if (label === "ready-for-review") gate("label", "Lifecycle label", techGreen ? "pass" : "fail", techGreen ? "ready-for-review" : "Says ready-for-review, but the gates above aren't all green");
+    else if (label === "agent-blocked") gate("label", "Lifecycle label", "fail", "agent-blocked: the agent needs help to continue");
+    else if (label === "agent-preparing") gate("label", "Lifecycle label", "pending", "agent-preparing: the agent is still working on it");
+    else gate("label", "Lifecycle label", "pending", "No pr-lifecycle label yet");
+    const passed = gates.filter((g) => g.state === "pass").length;
+    const allGreen = passed === gates.length;
+    const humans = raw.reviewRequests.nodes.map((r) => r.requestedReviewer?.login || r.requestedReviewer?.name).filter((l) => l && !COPILOT.test(l));
+    return { head, label, gates, passed, total: gates.length, allGreen, techGreen, outOfDate, requestedHumans: humans, fetchedAt: raw.fetchedAt };
+}

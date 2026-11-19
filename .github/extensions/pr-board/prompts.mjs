@@ -113,7 +113,7 @@ const PROGRESS_LINE = `While you work, start each step with one short plain line
 const EXPLAINER_LINE = (card, repo) => `If this changes your understanding of ${repo}#${card.number} or a decision was made, update its explainer with \`pr_board_set_explainer\` \`{ repo: "${repo}", ${card.kind === "issue" ? "issue" : "pr"}: ${card.number}, eli5, progress }\`. eli5 = the problem or change in plain words, with background, one example, why it matters, and where it stands on GitHub; progress = what we've done, decisions with dates, and the next step with who takes it.`;
 
 // Ask the agent to say whose move it is after it answers.
-const NEXT_STEP_LINE = (card, repo) => `If your reply leaves a decision or an action with the user, say so on the board with \`pr_board_set_next_step\` \`{ repo: "${repo}", ${card.kind === "issue" ? "issue" : "pr"}: ${card.number}, owner: "you", action: <one plain line>, choices?: [<button labels>] }\`. If the next move is someone else's, use their role as owner (author, reviewer, reporter, ci) or "agent" while you work.`;
+const NEXT_STEP_LINE = (card, repo) => `If your reply leaves a decision or an action with the user, say so on the board with \`pr_board_set_next_step\` \`{ repo: "${repo}", ${card.kind === "issue" ? "issue" : "pr"}: ${card.number}, owner: "you", action: <one plain line>, choices?: [<button labels>] }\`. If the next move is someone else's, use their role as owner (author, reviewer, reporter, ci) or "agent" while you work. On a PR with readiness gates, the board holds a reviewer or readiness step for the user until every gate is green, so set those only as a follow-up, not as a decision.`;
 
 const KIND = (card) => (card.kind === "issue" ? "issue" : "PR");
 const ref = (card) => (card.kind === "issue" ? `issue: ${card.number}` : `pr: ${card.number}`);
@@ -374,5 +374,31 @@ export function openBranchPrPrompt(card, repo, { draft, branch }) {
             ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\` to open it ${draft ? "as a **draft**" : "**ready for review**"}, following the repository's PR template and \`.github/skills/pr-lifecycle\`, with "Fixes #${card.number}" in the body.`
             : `No session is linked; say so with \`pr_board_reply\` and ask the user which branch to use.`,
         `Then link it: \`pr_board_sync_sessions\` with \`{ issue: ${card.number}, linkedPr: <number> }\`. Set the next step (\`pr_board_set_next_step\`, usually owner "reviewer"), reply with the PR link (\`pr_board_reply\`), and update the explainer (\`pr_board_set_explainer\`).`,
+    ].join("\n");
+}
+
+// "Get it ready for review": run pr-lifecycle to the ready-for-review label, with Agent merge watching.
+export function readyForReviewPrompt(card, repo, readiness) {
+    const s = card.local?.session;
+    const open = (readiness?.gates || []).filter((g) => g.state !== "pass").map((g) => `- ${g.label}: ${g.reason}${g.url ? ` (${g.url})` : ""}`);
+    return [
+        `The PR board canvas: the user asked to **get ${repo}#${card.number} "${card.title}" ready for human review** (${card.url}).`,
+        s?.id
+            ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\` to follow \`.github/skills/pr-lifecycle\` (Prepare, Present, Finish) to the \`ready-for-review\` label for the current head, and report back.`
+            : `No session is linked. If you have \`open_pr_session\`, open one for this PR and ask it to follow \`.github/skills/pr-lifecycle\` to the \`ready-for-review\` label; otherwise do it yourself.`,
+        `Turn on Agent merge for the PR with \`manage_agent_merge\`: address_reviews, fix_ci and resolve_conflicts **on**, merge_pr **off**. Never merge, and never approve.`,
+        open.length ? `The board's live gates for head ${String(readiness?.head || "").slice(0, 7)} that aren't green yet:\n${open.join("\n")}` : `The board shows every gate green; the label is what's left.`,
+        `Then call \`pr_board_sync_sessions\` for this PR with the session's id, role "author" and its \`agentMerge\` state, and set the next step with \`pr_board_set_next_step\` (owner "agent" while it works). Report the outcome with \`pr_board_reply\`, and update the explainer (\`pr_board_set_explainer\`) if a decision was made.`,
+    ].join("\n");
+}
+
+export function requestReviewerPrompt(card, repo, who) {
+    const anyone = !who || who === "*";
+    return [
+        `The PR board canvas: the user asked to **request a human review** on ${repo}#${card.number} "${card.title}" (${card.url}); its readiness gates are green.`,
+        anyone
+            ? `Pick a suitable reviewer (a CODEOWNER for the changed paths, or a maintainer who reviewed this area recently), tell the user who and why in one line, then request them with \`gh pr edit ${card.number} -R ${repo} --add-reviewer <login>\`.`
+            : `Request **${who}** with \`gh pr edit ${card.number} -R ${repo} --add-reviewer ${who}\`.`,
+        `Don't approve, merge or change labels. Confirm with \`pr_board_reply\` \`{ repo: "${repo}", pr: ${card.number}, text }\`, and set the next step to owner "reviewer" with \`pr_board_set_next_step\`.`,
     ].join("\n");
 }

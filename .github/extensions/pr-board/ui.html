@@ -347,6 +347,28 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 .gh-tc + .gh-tc { border-top: 1px solid var(--hairline); }
 .gh-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .gh-loading { display: flex; align-items: center; gap: var(--s2); }
+.watch { display: inline-flex; align-items: center; gap: 3px; padding: 0 8px; border-radius: 999px; font-size: var(--t-meta); line-height: 20px; font-weight: var(--w-strong); color: var(--purple); background: color-mix(in srgb, var(--purple) 13%, transparent); white-space: nowrap; }
+.watch.pend { color: var(--muted); background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.g.g-watch { color: var(--purple); }
+.g.g-agent-idle { color: var(--purple); display: inline-flex; align-items: center; justify-content: center; }
+.rrow .rw { color: var(--purple); display: inline-flex; margin-left: 4px; flex: none; }
+.meter { display: inline-flex; align-items: center; gap: 2px; font-size: var(--t-meta); color: var(--muted); white-space: nowrap; }
+.meter i { width: 6px; height: 6px; border-radius: 50%; background: var(--hairline); }
+.meter i.m-pass { background: var(--green); } .meter i.m-pending { background: var(--yellow); } .meter i.m-fail { background: var(--red); }
+.meter > span { margin-left: 4px; } .meter.ok > span { color: var(--green); font-weight: var(--w-strong); }
+.meter b { color: var(--orange); margin-left: 3px; }
+.rd h3 { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.rd .lbl { font-size: var(--t-meta); font-weight: 400; padding: 0 8px; border-radius: 999px; border: 1px solid var(--hairline); color: var(--muted); }
+.rd .lbl.l-ready-for-review { color: var(--green); border-color: currentColor; } .rd .lbl.l-agent-blocked { color: var(--red); border-color: currentColor; } .rd .lbl.l-agent-preparing { color: var(--purple); border-color: currentColor; }
+.rd-warn { padding: 6px var(--s3); border-radius: 6px; font-size: var(--t-small); background: color-mix(in srgb, var(--orange) 14%, transparent); }
+.gates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; font-size: var(--t-small); }
+.gates li { display: grid; grid-template-columns: 22px 9.5em 1fr auto; gap: var(--s2); align-items: baseline; padding: 5px 0; border-top: 1px solid var(--hairline); }
+.gates li:first-child { border-top: 0; }
+.gates .why { color: var(--muted); min-width: 0; }
+.gates li.g-fail .why { color: var(--fg); }
+.gates a { white-space: nowrap; font-size: var(--t-meta); }
+.gates a .i { vertical-align: -2px; }
+.rd .btns { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-top: var(--s2); }
 .br { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
 .br-top { display: flex; flex-direction: column; gap: var(--s2); }
 .br-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--t-small); }
@@ -952,6 +974,7 @@ function moreMenu(c) {
     local.agent ? `<button role="menuitem" data-act="reset">${icon("reset")}Reset agent status</button>` : "",
     isUnread(c) ? `<button role="menuitem" data-act="mark-read" data-pr="${c.number}">${icon("checkCircle")}Mark as read</button>` : "",
     trackItem(c, false),
+    c.section === "yours" ? `<button role="menuitem" data-act="monitor" data-enable="${watched(c) ? 0 : 1}" data-pr="${c.number}">${icon("eye")}${watched(c) ? "Stop watching (Agent merge off)" : "Watch with Agent merge"}</button>` : "",
   ];
   return `<div class="menu" role="menu" aria-label="More actions">${items.join("")}</div>`;
 }
@@ -997,6 +1020,7 @@ function renderHead(c) {
       ${c.isDraft ? `<span>${icon("pencil", "sm tone-mute")} Draft PR</span>` : ""}
       ${risk}
       ${chip(c)}
+      ${watchBadge(c)}${readyMeter(c)}
     </div>
     ${ballLine(c)}
     <div class="actions">${buttons.join("")}
@@ -1019,7 +1043,8 @@ function actionButton(c) {
   return `<button data-act="nudge" title="Puts a draft comment in the message box. Edit it, then press Send to ask the agent to post it.">${esc(a.label)}…</button>`;
 }
 
-function overviewHtml(c) {
+function overviewHtml(c) { return (c.lifecycle ? readinessHtml(c) : "") + overviewHtmlBase(c); }
+function overviewHtmlBase(c) {
   const local = c.local || {};
   const s = local.summary;
   const isOpen = c.group !== "merged";
@@ -1818,6 +1843,80 @@ function renderIssueScroll(c, force) {
   sc.scrollTop = force ? (t === "thread" ? sc.scrollHeight : 0) : prevTop;
 }
 
+// ---- Readiness for human review, and Agent merge watching ----
+const LIFECYCLE_LABELS = ["agent-preparing", "agent-blocked", "ready-for-review"];
+const watched = (c) => !!c?.local?.sync?.agentMerge?.enabled;
+const WATCH_WHAT = { address_reviews: "new review comments", fix_ci: "failing CI", resolve_conflicts: "merge conflicts", merge_pr: "merging it when ready" };
+function watchBadge(c, { compact = false } = {}) {
+  const pend = c.local?.monitorPending;
+  if (pend) return `<span class="watch pend" title="Waiting for the agent to confirm">${icon("eye", "sm")}${pend.enable ? "Turning on…" : "Turning off…"}</span>`;
+  if (!watched(c)) return "";
+  const am = c.local.sync.agentMerge;
+  const what = (am.actions || []).map((a) => WATCH_WHAT[a] || a.replace(/_/g, " "));
+  const merges = (am.actions || []).includes("merge_pr");
+  const tip = `Agent merge is watching this PR. It handles ${what.join(", ") || "reviews, CI and conflicts"} as they come in.${merges ? "" : " It never merges."}${c.local.sync.at ? ` Last checked ${ago(c.local.sync.at)}${ago(c.local.sync.at) === "just now" ? "" : " ago"}.` : ""}`;
+  return `<span class="watch" title="${esc(tip)}" aria-label="${esc(tip)}">${icon("eye", "sm")}${compact ? "" : "Watching"}</span>`;
+}
+const GATE_ICON = { pass: "✅", pending: "⏳", fail: "❌" };
+function readyMeter(c) {
+  const r = c.readiness;
+  if (!r) return "";
+  const tip = r.gates.map((g) => `${GATE_ICON[g.state]} ${g.label}: ${g.reason}`).join("\n") + (r.outOfDate ? `\n⚠ Label out of date: ${r.outOfDate}` : "");
+  return `<span class="meter${r.allGreen ? " ok" : ""}${r.outOfDate ? " warn" : ""}" title="${esc(tip)}">${r.gates.map((g) => `<i class="m-${g.state}"></i>`).join("")}<span>${r.passed}/${r.total} ready</span>${r.outOfDate ? `<b title="${esc(r.outOfDate)}">⚠</b>` : ""}</span>`;
+}
+
+// People who review PRs on this board, for the "Request reviewer" menu.
+function reviewerChoices(c) {
+  const count = new Map();
+  for (const x of cardsOf()) for (const rv of x.reviewers || []) if (rv.login !== snap?.viewer && rv.login !== c.author && !/\[bot\]$|^copilot|github-|dependabot/i.test(rv.login)) count.set(rv.login, (count.get(rv.login) || 0) + 1);
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([l]) => l);
+}
+let revMenu = null;
+function reviewerButtons(c, primary = true) {
+  if (revMenu !== c.number) return `<button class="${primary ? "primary" : ""}" data-act="rev-menu" data-pr="${c.number}" aria-expanded="false">Request reviewer ▾</button>`;
+  return `<span class="snooze-opts" role="group" aria-label="Request a review from">${reviewerChoices(c).map((l) => `<button data-act="request-reviewer" data-pr="${c.number}" data-who="${esc(l)}">${esc(l)}</button>`).join("")}<button data-act="request-reviewer" data-pr="${c.number}" data-who="*">Let the agent pick</button></span>`;
+}
+
+function readinessHtml(c) {
+  const r = c.readiness;
+  const watchBtn = watched(c) ? `<button class="quiet" data-act="monitor" data-enable="0" data-pr="${c.number}">Stop watching</button>` : c.local?.monitorPending ? "" : `<button class="quiet" data-act="monitor" data-enable="1" data-pr="${c.number}" title="Agent merge addresses reviews, fixes CI and resolves conflicts as they come in. It never merges.">Watch with Agent merge</button>`;
+  if (!r) return `<section class="sec rd"><h3>Ready for human review?</h3><div class="hint">${c.readinessError ? `Couldn't read it from GitHub: ${esc(c.readinessError)} <button data-act="readiness-refresh" data-pr="${c.number}">Try again</button>` : `${spinner("Checking")} Checking the gates on GitHub…`}</div></section>`;
+  const labelChip = r.label ? `<span class="lbl l-${r.label}">${esc(r.label)}</span>` : `<span class="lbl none" title="No pr-lifecycle label yet">no label</span>`;
+  const ready = r.allGreen && r.label === "ready-for-review";
+  return `<section class="sec rd">
+    <h3>Ready for human review? ${readyMeter(c)} ${labelChip} ${watchBadge(c)}</h3>
+    ${r.outOfDate ? `<div class="rd-warn">⚠ <b>Label out of date:</b> ${esc(r.outOfDate)}. Only the session or the coordinator changes labels.</div>` : ""}
+    <ul class="gates">${r.gates.map((g) => `<li class="g-${g.state}"><span class="gi" aria-label="${g.state}">${GATE_ICON[g.state]}</span><b>${esc(g.label)}</b><span class="why">${esc(g.reason)}</span>${g.url ? `<a href="${esc(g.url)}" target="_blank" rel="noopener noreferrer">${g.id === "ci" ? "Log" : "Open"} ${icon("external", "sm")}</a>` : ""}</li>`).join("")}</ul>
+    <div class="btns">${ready || r.allGreen ? (r.requestedHumans.length ? `<span class="hint">Review requested from ${esc(r.requestedHumans.join(", "))}</span>` : reviewerButtons(c)) : `<button class="primary" data-act="get-ready" data-pr="${c.number}" ${c.local?.pending ? "disabled" : ""} title="The agent runs pr-lifecycle in the PR's session until every gate passes and the label is ready-for-review, with Agent merge watching. It never merges.">Get it ready for review</button>`}
+      ${watchBtn}<button class="quiet" data-act="readiness-refresh" data-pr="${c.number}">${icon("refresh", "sm")}Recheck</button></div>
+    <div class="hint">For commit <code>${esc(String(r.head || "").slice(0, 7))}</code>, read from GitHub ${esc(ago(r.fetchedAt))}${ago(r.fetchedAt) === "just now" ? "" : " ago"}.</div>
+  </section>`;
+}
+
+// A step about reviewers or readiness, as opposed to a real decision the user has to make.
+const isReadyish = (nx) => !nx.blocked && /\breview(er|ers)?\b|\bready\b|readiness|approv/i.test([nx.action, ...(nx.choices || [])].join(" "));
+// For a PR you're getting ready: the lifecycle label and Agent merge decide whose move it is.
+function lifecycleBall(c, skipYou, running) {
+  const r = c.readiness, l = c.local || {};
+  const label = r?.label || (c.labels || []).find((x) => LIFECYCLE_LABELS.includes(x)) || null;
+  const meter = r ? ` · ${r.passed}/${r.total} ready` : "";
+  if (r && watched(c)) {
+    const g = Object.fromEntries(r.gates.map((x) => [x.id, x]));
+    const fb = g.discussion?.state === "fail" ? `New feedback: agent addressing it (${g.discussion.reason})`
+      : g.copilot?.state === "fail" && /unresolved/.test(g.copilot.reason) ? `New Copilot comments: agent addressing them`
+      : g.ci?.state === "fail" ? `CI failing: agent fixing it (${g.ci.reason})`
+      : g.uptodate?.state === "fail" ? `Conflicts: agent resolving them` : null;
+    if (fb) return { st: "agent", ask: fb, watch: true, since: r.fetchedAt };
+  }
+  if (label === "agent-blocked" && !skipYou) return { st: "blocked", ask: `Agent blocked: ${(l.next?.owner === "you" && l.next.action) || l.agent?.outcome || "it needs your help"}`, fix: true, since: l.agent?.updatedAt || c.updatedAt };
+  // Not ready for human review yet: a reviewer or readiness step for you waits until every gate passes.
+  const nx = l.next;
+  const held = nx?.owner === "you" && isReadyish(nx) ? nx.action : null;
+  if (r && !r.allGreen && (label === "agent-preparing" || held)) return { st: "agent", idle: !running, ask: `Preparing it for review${meter}`, then: held ? `Then: ${held.charAt(0).toLowerCase()}${held.slice(1)}` : null, since: l.agent?.updatedAt || nx?.at || c.updatedAt };
+  if (r?.allGreen && !r.requestedHumans.length && !skipYou) return { st: "ready", ask: "Ready for human review: request a reviewer", reqReviewer: true, since: r.fetchedAt };
+  return null;
+}
+
 // ---- Who has the ball ----
 // Three signals per row: the ball (exactly one state), activity (a spinner) and unread (a dot). Opening an item
 // clears only the dot; "your move" states stay until you act, or press Done or Snooze.
@@ -1843,7 +1942,7 @@ const BALL_GLYPH = {
   waiting: "",
 };
 const spinner = (label = "Agent working") => `<svg class="spin" viewBox="0 0 16 16" role="img" aria-label="${esc(label)}"><circle cx="8" cy="8" r="6"/></svg>`;
-const ballGlyph = (b) => b.st === "agent" ? spinner() : `<span class="g g-${b.st}" role="img" aria-label="${esc(BALL[b.st].label)}"><svg viewBox="0 0 16 16" aria-hidden="true">${BALL_GLYPH[b.st] || ""}</svg></span>`;
+const ballGlyph = (b) => b.st === "agent" && !b.idle ? spinner() : b.st === "agent" ? `<span class="g g-agent-idle" role="img" aria-label="Agent's move">${icon("sparkle", "sm")}</span>` : `<span class="g g-${b.st}" role="img" aria-label="${esc(BALL[b.st].label)}"><svg viewBox="0 0 16 16" aria-hidden="true">${BALL_GLYPH[b.st] || ""}</svg></span>`;
 const tsOf = (s) => (s ? new Date(s).getTime() || 0 : 0);
 const isWorking = (c) => { const l = c.local || {}; return l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending || !!l.summarizing || !!l.explainerPending; };
 const whenText = (iso) => { const d = new Date(iso); const today = new Date(); const same = d.toDateString() === today.toDateString(); return (same ? "" : d.toLocaleDateString([], { weekday: "short" }) + " ") + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
@@ -1861,6 +1960,9 @@ function deriveBall(c, skipYou) {
   if (!skipYou && q) return { st: "decide", ask: q.question, choices: q.choices || [], question: true, since: l.sync?.at };
   // Private branch review: unsent comments, or new commits after you sent some, are your move.
   if (issue && hasBranch(c)) { const bb = branchBall(c, running); if (bb && !(skipYou && BALL[bb.st].you)) return bb; }
+  // Live lifecycle signals (label, gates, Agent merge) are fresher than a step the agent set for someone else;
+  // a decision the agent handed to you still stays until you act.
+  if (!issue && c.lifecycle && !(nx?.owner === "you" && !isReadyish(nx))) { const lb = lifecycleBall(c, skipYou, running); if (lb) return lb; }
   // A review you sent on GitHub after the agent handed you the step counts as acting on it.
   if (nx && !(skipYou && nx.owner === "you") && !(nx.owner === "you" && tsOf(c.myReviewAt) > tsOf(nx.at))) {
     if (nx.owner === "you") return { st: nx.blocked ? "blocked" : nx.choices?.length ? "decide" : "ready", ask: nx.action, choices: nx.choices || [], explicit: true, since: nx.at };
@@ -1869,6 +1971,7 @@ function deriveBall(c, skipYou) {
   }
   if (!skipYou && l.agent?.status === "waiting") return { st: "decide", ask: l.agent.outcome || "The agent needs your input", reply: true, since: l.agent.updatedAt };
   if (running) return { st: "agent", ask: (l.agent?.status === "running" && l.agent.outcome) || (l.pending ? "Answering your question" : issue ? c.status : l.agent?.outcome) || "Working", since: l.pending?.at || l.agent?.updatedAt || l.sync?.at };
+  if (!issue && c.lifecycle) { const lb = lifecycleBall(c, skipYou, running); if (lb) return lb; }
   if (!skipYou && l.agent?.status === "failed") return { st: "blocked", ask: l.agent.outcome || "The agent gave up", fix: true, since: l.agent.updatedAt };
   const mine = issue ? !!l.session?.id : c.section === "yours";
   if (!skipYou && !issue && mine && c.ci?.state === "failing") return { st: "blocked", ask: `CI failing: ${(c.ci.failing || []).slice(0, 2).join(", ") || "checks"}`, fix: true, since, stuck };
@@ -1927,7 +2030,8 @@ function moveButtons(c, b, { withDone = true } = {}) {
   if (b.st === "decide" && b.question) out.push(...(b.choices || []).slice(0, 3).map((x, i) => `<button class="${i ? "" : "primary"}" data-act="answer" ${at} data-answer="${esc(x)}">${esc(x)}</button>`));
   else if (b.st === "decide" && b.explicit) out.push(...(b.choices || []).slice(0, 3).map((x, i) => `<button class="${i ? "" : "primary"}" data-act="choose" ${at} data-choice="${esc(x)}">${esc(x)}</button>`));
   if (b.st === "decide" && (b.reply || b.question || !b.choices?.length)) out.push(`<button class="${out.length ? "" : "primary"}" data-act="ball-reply" ${at}>Reply…</button>`);
-  if (b.st === "ready" && b.brSend) out.push(`<button class="primary" data-act="br-send" ${at}>Send ${b.brSend} comment${b.brSend === 1 ? "" : "s"}</button><button data-act="br-open" ${at}>Open the diff</button>`);
+  if (b.st === "ready" && b.reqReviewer) out.push(reviewerButtons(c));
+  else if (b.st === "ready" && b.brSend) out.push(`<button class="primary" data-act="br-send" ${at}>Send ${b.brSend} comment${b.brSend === 1 ? "" : "s"}</button><button data-act="br-open" ${at}>Open the diff</button>`);
   else if (b.st === "ready" && b.brReview) out.push(`<button class="primary" data-act="br-open" ${at}>Re-review</button>`);
   else if (b.st === "ready" && b.post) out.push(`<button class="primary" data-act="ball-post" ${at}>Post review…</button>`);
   else if (b.st === "ready" && b.postDraft) out.push(`<button class="primary" data-act="row-post" ${at}>Post review</button>`);
@@ -1956,7 +2060,7 @@ const hintHtml = (c) => c.hint ? ` <span class="row-hint" title="GitHub still ne
 function ballLine(c, b = ball(c), { buttons = true } = {}) {
   const meta = BALL[b.st];
   const lead = BALL[b.st].you || b.st === "agent" ? `<b>${esc(meta.label)}:</b> ` : b.st === "waiting" && b.owner ? `<b>${esc(b.owner)}:</b> ` : b.st === "snoozed" ? `<b>Snoozed</b> ` : "";
-  return `<div class="ball-line t-${meta.tone}">${ballGlyph(b)}<span class="txt">${lead}${esc(b.ask)}${hintHtml(c)}</span>${agePill(b)}${buttons && (meta.you || b.st === "snoozed") ? `<span class="btns">${moveButtons(c, b.st === "snoozed" ? b.under : b, { withDone: b.st !== "snoozed" })}${b.st === "snoozed" ? `<button class="quiet" data-act="ball-unsnooze" data-pr="${c.number}" data-kind="${c.kind === "issue" ? "issue" : "pr"}">Unsnooze</button>` : ""}</span>` : ""}</div>`;
+  return `<div class="ball-line t-${meta.tone}">${ballGlyph(b)}<span class="txt">${lead}${esc(b.ask)}${b.then ? ` <span class="row-hint">· ${esc(b.then)}</span>` : ""}${BALL[b.st].you && isWorking(c) ? ` <span class="row-hint">· the agent is also working on it</span>` : ""}${hintHtml(c)}</span>${agePill(b)}${buttons && (meta.you || b.st === "snoozed") ? `<span class="btns">${moveButtons(c, b.st === "snoozed" ? b.under : b, { withDone: b.st !== "snoozed" })}${b.st === "snoozed" ? `<button class="quiet" data-act="ball-unsnooze" data-pr="${c.number}" data-kind="${c.kind === "issue" ? "issue" : "pr"}">Unsnooze</button>` : ""}</span>` : ""}</div>`;
 }
 
 // The "Your move" box: every item where the next step is yours, oldest first, with the move inline.
@@ -1967,7 +2071,7 @@ function yourMoveBox(items) {
     const kind = c.kind === "issue" ? "issue" : "pr";
     const q = b.question ? `<div class="ov-ask-inline"><input data-pr="${c.number}" data-kind="${kind}" placeholder="Or type an answer…" aria-label="Answer for #${c.number}" value="${esc(answers.get(c.number) || "")}"><button data-act="answer-text" data-pr="${c.number}">Send</button><button class="quiet" data-act="dismiss" data-pr="${c.number}" title="Hide this question on the board. It doesn't answer the session.">Dismiss</button></div>` : "";
     return `<article class="ym-card st-${b.st}" role="listitem">
-      <div class="ym-h">${ballGlyph(b)}<span class="ym-kind">${esc(BALL[b.st].label)}</span>${isWorking(c) && b.st !== "agent" ? spinner("Also working") : ""}<span class="sp"></span>${agePill(b)}</div>
+      <div class="ym-h">${ballGlyph(b)}<span class="ym-kind">${esc(BALL[b.st].label)}</span>${isWorking(c) && b.st !== "agent" ? `<span class="row-hint">the agent is also working</span>` : ""}<span class="sp"></span>${agePill(b)}</div>
       <div class="ym-t">${isUnread(c) ? '<span class="unread-dot" aria-label="Unread"></span>' : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${esc(c.title)}</button></div>
       <div class="ym-ask">${esc(b.ask)}</div>
       ${q}
@@ -2060,14 +2164,14 @@ function ovRow(c, sec) {
   const mine = BALL[b.st].you;
   const pin = pins.has(c.number) ? icon("pin", "sm tone-mute") : "";
   const lead = mine ? `<b class="tone-you-text">${esc(BALL[b.st].label)}:</b> ` : b.st === "agent" ? `<b class="tone-agent">Agent:</b> ` : b.st === "snoozed" ? `<b>Snoozed</b> ` : "";
-  const primary = mine ? moveButtons(c, b, { withDone: false }).split("</button>")[0] : "";
+  const primary = mine ? (b.reqReviewer ? reviewerButtons(c) : moveButtons(c, b, { withDone: false }).split("</button>")[0] + "</button>") : "";
   return `<div class="ov-row r2${mine ? " mine" : ""} st-${b.st}${isUnread(c) ? " unread" : ""}" role="listitem">
     <span class="rail">${ballGlyph(b)}</span>
     <div class="ov-main">
-      <div class="ov-title-row">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${isWorking(c) && b.st !== "agent" ? spinner("Agent working on something here") : ""}${browserLink(c)}</div>
-      <div class="ask">${lead}${esc(b.ask)}${hintHtml(c)}</div>
+      <div class="ov-title-row">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${isWorking(c) && b.st !== "agent" && !mine ? spinner("Agent working on something here") : ""}${browserLink(c)}</div>
+      <div class="ask">${lead}${esc(b.ask)}${b.then ? ` <span class="row-hint">· ${esc(b.then)}</span>` : ""}${mine && isWorking(c) ? ` <span class="row-hint">· the agent is also working on it</span>` : ""}${hintHtml(c)}</div>
     </div>
-    <div class="right">${primary ? primary + "</button>" : ""}${ownerHtml(b)}${agePill(b)}${sec === "merged" ? "" : rowActs(c, kind)}</div>
+    <div class="right">${primary}${watchBadge(c)}${readyMeter(c)}${ownerHtml(b)}${agePill(b)}${sec === "merged" ? "" : rowActs(c, kind)}</div>
   </div>`;
 }
 
@@ -2080,7 +2184,7 @@ function railRow(c, sec) {
   const replying = "";
   const label = `${kind === "issue" ? "Issue" : "Pull request"} #${c.number}: ${c.title}${isUnread(c) ? ", new reply" : ""}`;
   return `<button class="rrow${sel ? " sel" : ""}${isUnread(c) ? " unread" : ""}" role="listitem" data-act="rail-open" data-kind="${kind}" data-pr="${c.number}" ${sel ? 'aria-current="true"' : ""} aria-label="${esc(label)}" title="${esc(c.title)}">
-    <span class="l1">${ballGlyph(b)}${isUnread(c) ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><span class="tt">${esc(c.title)}</span></span>
+    <span class="l1">${ballGlyph(b)}${isUnread(c) ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}<span class="num">${kind === "issue" ? "Issue " : ""}#${c.number}</span><span class="tt">${esc(c.title)}</span>${watched(c) ? `<span class="rw" title="Agent merge is watching it">${icon("eye", "sm")}</span>` : ""}</span>
     <span class="l2">${state}${replying}</span>
   </button>`;
 }
@@ -2247,7 +2351,7 @@ function renderFlyout() {
   const ft = flyTab === "changes" && !hasBranch(c) ? "summary" : flyTab;
   const chips = isIssue
     ? `${agentCell(c).replace('class="ov-cell"', 'class="ov-cell" style="flex-direction:row;align-items:center"')}${issuePrChip(c)}`
-    : `${chip(c)}${c.review ? mkChip(c.review.state === "done" ? "ok" : c.review.state === "stale" ? "you" : "neutral", c.review.state === "done" ? "checkCircle" : c.review.state === "stale" ? "reset" : "dash", "pr-review: " + c.review.label, c.review.text) : ""}${ciHtml(c)}`;
+    : `${chip(c)}${watchBadge(c)}${readyMeter(c)}${c.review ? mkChip(c.review.state === "done" ? "ok" : c.review.state === "stale" ? "you" : "neutral", c.review.state === "done" ? "checkCircle" : c.review.state === "stale" ? "reset" : "dash", "pr-review: " + c.review.label, c.review.text) : ""}${ciHtml(c)}`;
   const summary = isIssue
     ? `<div class="ov-where">${icon(c.local?.session?.id ? "sparkle" : "clock", "sm tone-mute")}<span>${esc(c.status)}</span></div><div class="hint">Last activity ${esc(ago(c.updatedAt))}${ago(c.updatedAt) === "just now" ? "" : " ago"} · opened by ${esc(c.author)}</div>`
     : `${c.local?.summary ? `<div>${icon("sparkle", "sm tone-agent")} ${mdInline(c.local.summary.text)}</div>` : `<div class="tone-mute">${esc(c.fallbackSummary || "")}</div>`}
@@ -2264,6 +2368,7 @@ function renderFlyout() {
         ${flyMore ? `<div class="fly-menu" role="menu">
           ${isUnread(c) ? `<button role="menuitem" data-act="mark-read" data-pr="${c.number}" data-kind="${fly.kind}">Mark as read</button>` : ""}
           ${trackItem(c, isIssue)}
+          ${!isIssue && c.section === "yours" ? (watched(c) ? `<button role="menuitem" data-act="monitor" data-enable="0" data-pr="${c.number}">Stop watching (Agent merge off)</button>` : `<button role="menuitem" data-act="monitor" data-enable="1" data-pr="${c.number}" title="Agent merge addresses reviews, fixes CI and resolves conflicts as they come in. It never merges.">Watch with Agent merge</button>`) : ""}
           <button role="menuitem" data-act="hide" data-pr="${c.number}" data-kind="${fly.kind}">Remove from board</button>
         </div>` : ""}
         <h2 id="flyTitle">${esc(c.title)}</h2>
@@ -2273,6 +2378,7 @@ function renderFlyout() {
       <div class="fly-body">${ft === "github" ? `<div class="gh-slot" data-k="${esc(ghSlotKey(fly.kind, c.number))}"></div>` : ft === "changes" ? branchSlot(c) : `
         ${ballLine(c)}
         <section class="sec"><div class="fly-cmds" role="group" aria-label="Quick commands">${flyCommands(c, fly.kind)}</div></section>
+        ${!isIssue && c.lifecycle ? readinessHtml(c) : ""}
         ${!isIssue ? askHtml(c) : ""}
         ${explainerHtml(c)}
         <section class="sec"><h3>Where it is</h3>${summary}</section>
@@ -2333,16 +2439,16 @@ function renderOverview() {
   const all = allItems();
   const ballOf = new Map(all.map((c) => [(c.kind === "issue" ? "i" : "p") + c.number, ball(c)]));
   const bOf = (c) => ballOf.get((c.kind === "issue" ? "i" : "p") + c.number) || ball(c);
-  const GROUPS = [["you", "Your move", (b) => BALL[b.st].you], ["agent", "Agent working", (b) => b.st === "agent"], ["waiting", "Waiting on others", (b) => b.st === "waiting"], ["snoozed", "Snoozed", (b) => b.st === "snoozed"], ["backlog", "Not started", (b) => b.st === "backlog"]];
-  const gCount = Object.fromEntries(GROUPS.map(([id, , f]) => [id, all.filter((c) => f(bOf(c))).length]));
+  const GROUPS = [["you", "Your move", (b) => BALL[b.st].you], ["agent", "Agent working", (b) => b.st === "agent"], ["waiting", "Waiting on others", (b) => b.st === "waiting"], ["snoozed", "Snoozed", (b) => b.st === "snoozed"], ["backlog", "Not started", (b) => b.st === "backlog"], ["watching", "Watching", (b, c) => watched(c)]];
+  const gCount = Object.fromEntries(GROUPS.map(([id, , f]) => [id, all.filter((c) => f(bOf(c), c)).length]));
   if (ballFilter && !gCount[ballFilter]) ballFilter = null;
   const gPass = ballFilter ? GROUPS.find((g) => g[0] === ballFilter)[2] : null;
-  const keep = (c) => (!unreadOnly || isUnread(c) || isReplying(c)) && (!gPass || gPass(bOf(c)));
+  const keep = (c) => (!unreadOnly || isUnread(c) || isReplying(c)) && (!gPass || gPass(bOf(c), c));
   const yourMove = all.filter((c) => BALL[bOf(c).st].you).sort((a, b) => tsOf(bOf(a).since) - tsOf(bOf(b).since));
   const glyphFor = { you: "ready", agent: "agent", waiting: "waiting", snoozed: "snoozed", backlog: "backlog" };
   const { rows: secRows, merged } = sectionRows(keep);
   el.innerHTML = `<div class="ov-inner">
-    <div class="ov-bar"><nav class="ov-jump" aria-label="Filter by whose move it is">${unreadN || unreadOnly ? `<button class="unread-chip${unreadOnly ? " on" : ""}" data-act="unread-only" aria-pressed="${unreadOnly}" title="${unreadOnly ? "Show everything again" : "Show only items with a reply you haven't read, or one still being written"}"><span class="unread-dot" aria-hidden="true"></span>Unread <span class="n">${unreadN}</span></button>${unreadN ? `<button class="quiet" data-act="mark-all-read">Mark all read</button>` : ""}` : ""}${GROUPS.filter(([id]) => gCount[id] || ballFilter === id).map(([id, label]) => `<button class="state-chip${ballFilter === id ? " on" : ""}" data-act="ball-filter" data-g="${id}" aria-pressed="${ballFilter === id}">${ballGlyph({ st: glyphFor[id] })}${esc(label)} <span class="n">${gCount[id]}</span></button>`).join("")}</nav>
+    <div class="ov-bar"><nav class="ov-jump" aria-label="Filter by whose move it is">${unreadN || unreadOnly ? `<button class="unread-chip${unreadOnly ? " on" : ""}" data-act="unread-only" aria-pressed="${unreadOnly}" title="${unreadOnly ? "Show everything again" : "Show only items with a reply you haven't read, or one still being written"}"><span class="unread-dot" aria-hidden="true"></span>Unread <span class="n">${unreadN}</span></button>${unreadN ? `<button class="quiet" data-act="mark-all-read">Mark all read</button>` : ""}` : ""}${GROUPS.filter(([id]) => gCount[id] || ballFilter === id).map(([id, label]) => `<button class="state-chip${ballFilter === id ? " on" : ""}" data-act="ball-filter" data-g="${id}" aria-pressed="${ballFilter === id}" ${id === "watching" ? 'title="PRs Agent merge is watching: it addresses reviews, fixes CI and resolves conflicts as they come in"' : ""}>${id === "watching" ? `<span class="g g-watch">${icon("eye", "sm")}</span>` : ballGlyph({ st: glyphFor[id] })}${esc(label)} <span class="n">${gCount[id]}</span></button>`).join("")}</nav>
       <span class="right"><label for="ovSort">Sort</label><select id="ovSort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${l}</option>`).join("")}</select></span></div>
     ${ballFilter || unreadOnly ? "" : yourMoveBox(yourMove)}
     ${SECTIONS.map(([id, title, hint, cols], i) => {
@@ -2509,6 +2615,10 @@ document.addEventListener("click", (e) => {
     answers.delete(rowPr);
     return post("/api/action", { pr: rowPr, action: "answer", answer }).then(() => toast("Answer sent to the agent")).catch((e) => toast("Couldn't send: " + e.message));
   }
+  if (a === "rev-menu") { revMenu = revMenu === rowPr ? null : rowPr; render(); return document.querySelector(`[data-act="request-reviewer"][data-pr="${rowPr}"]`)?.focus(); }
+  if (a === "request-reviewer") { revMenu = null; return post("/api/action", { pr: rowPr, action: "request-reviewer", who: el.dataset.who }).then(() => toast(el.dataset.who === "*" ? "Asked the agent to pick and request a reviewer" : `Asked the agent to request ${el.dataset.who}`)).catch((e) => toast("Couldn't do that: " + e.message)); }
+  if (a === "get-ready") return post("/api/action", { pr: rowPr, action: "get-ready" }).then(() => toast("Asked the agent to get it ready for review, with Agent merge watching")).catch((e) => toast("Couldn't do that: " + e.message));
+  if (a === "readiness-refresh") { toast("Rechecking on GitHub…"); return post("/api/action", { pr: rowPr, action: "readiness-refresh" }).catch((e) => toast("Couldn't do that: " + e.message)); }
   if (a === "monitor") return post("/api/action", { pr: rowPr, action: "monitor", enable: el.dataset.enable === "1" }).then(() => toast(el.dataset.enable === "1" ? "Asked the agent to turn monitoring on" : "Asked the agent to turn monitoring off")).catch((e) => toast("Couldn't do that: " + e.message));
   if (a === "dismiss") return post("/api/action", { pr: rowPr, action: "dismiss" }).then(() => toast("Hidden on the board. The question is still open in the session.")).catch((e) => toast("Couldn't do that: " + e.message));
   if (a === "tab") { tab = el.dataset.tab; store.set("prb-tab", tab); render(true); return $("wsHead").querySelector(`[data-tab="${tab}"]`)?.focus(); }
