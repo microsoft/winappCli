@@ -4,6 +4,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using System.IO.Compression;
 using System.Text;
+using System.Xml.Linq;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
 
@@ -495,6 +496,10 @@ public class EndToEndTests : BaseCommandTests
         var csprojPath = Path.Combine(projectDir.FullName, $"{projectName}.csproj");
         Assert.IsTrue(File.Exists(csprojPath), "Project file should be created");
 
+        // The template's TFM follows whichever SDK the machine resolves (e.g. net11.0 under SDK 11).
+        var originalTargetFramework = XDocument.Load(csprojPath).Descendants("TargetFramework").Single().Value.Trim();
+        Assert.MatchesRegex(@"^net\d+\.\d+$", originalTargetFramework,
+            "dotnet new console should produce a plain netX.Y TargetFramework");
 
         // Step 2: Run 'winapp init --use-defaults' to detect csproj and set up the project
         var initCommand = GetRequiredService<InitCommand>();
@@ -520,13 +525,9 @@ public class EndToEndTests : BaseCommandTests
             updatedCsprojContent.Contains("-windows", StringComparison.OrdinalIgnoreCase),
             "csproj TargetFramework should be updated to Windows TFM");
 
-        // Verify the .NET version was preserved (should not downgrade from the project's original .NET version)
-        // A console app created with .NET 10 SDK should stay on net10.0, not downgrade to net8.0
-        Assert.IsTrue(
-            updatedCsprojContent.Contains("net10.0-windows", StringComparison.OrdinalIgnoreCase) ||
-            updatedCsprojContent.Contains("net9.0-windows", StringComparison.OrdinalIgnoreCase) ||
-            updatedCsprojContent.Contains("net8.0-windows", StringComparison.OrdinalIgnoreCase),
-            "csproj TargetFramework should preserve the .NET version with Windows SDK version added");
+        // Verify the .NET version was preserved: e.g. net10.0 -> net10.0-windows10.0.26100.0, never downgraded
+        Assert.Contains($"<TargetFramework>{originalTargetFramework}-windows", updatedCsprojContent,
+            $"csproj TargetFramework should keep {originalTargetFramework} and add the Windows SDK version");
 
         // Step 5: Verify manifest and assets were created
         var manifestPath = Path.Combine(projectDir.FullName, "Package.appxmanifest");
