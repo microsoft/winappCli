@@ -26,7 +26,15 @@ bool TreeFilterMatches(const std::wstring& type, const std::wstring& name,
 
 constexpr unsigned long long kIdentitySeed = 1469598103934665603ULL; // FNV-1a 64-bit offset basis
 
-std::wstring IdentitySegment(const std::wstring& type, const std::wstring& name, int sameTypeOrdinal);
+// `reactor` is the Reactor identity of the element (ReactorIdentity), empty for an element Reactor did not create, so
+// a XAML element's segment is unchanged.
+std::wstring IdentitySegment(const std::wstring& type, const std::wstring& name, int sameTypeOrdinal,
+                             const std::wstring& reactor = std::wstring());
+
+// What tells one Reactor element from another at the same place in the tree, stable across re-renders: the
+// component it mounts (or its element kind), then its key, or its call site when it has no key. A different component
+// rendered at the same position after navigation or a conditional therefore gets a different selector.
+std::wstring ReactorIdentity(const std::wstring& label, const std::wstring& key, const std::wstring& site);
 
 // Fold one segment into the parent's identity value (FNV-1a over the segment's UTF-16 code units).
 unsigned long long IdentityFold(unsigned long long parentValue, const std::wstring& segment);

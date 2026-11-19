@@ -725,6 +725,66 @@ int main()
     check(status.text == L"new inspector window", "closed or replaced inspector cannot receive old resolve completion");
     g_commentResolveFn = nullptr;
     g_commentRows.clear();
+    {
+        // A Reactor element's own C# (Reactor.element) tells the pane what XAML would: which rows follow a ThemeRef,
+        // which the C# sets, and that a re-render can put the C# value back.
+        const InstanceHandle wire = 0x5150;
+        g_selWire = wire;
+        g_reactorFactsWire = wire;
+        g_reactorFacts = DevToolsReactorElementFacts_Parse(LR"json({"state":"ok","tagged":true,"element":"TextBlock",
+            "file":"C:\\src\\App.cs","line":40,"owner":"ReleaseForm",
+            "modifiers":[{"modifier":"Width","property":"Width","value":"320"}],
+            "themeBindings":[{"property":"Foreground","resourceKey":"TextFillColorSecondaryBrush"}]})json");
+        std::vector<DevToolsCardRow> rows(4);
+        rows[0].name = L"Foreground";
+        rows[1].name = L"Width";
+        rows[2].name = L"Margin";
+        rows[3].name = L"Background"; rows[3].authoredKind = L"literal"; rows[3].authored = L"Red";
+        ApplyReactorFacts(rows);
+        check(rows[0].authoredKind == L"themeResource" && rows[0].authoredKey == L"TextFillColorSecondaryBrush" &&
+              rows[0].authored == L"{ThemeResource TextFillColorSecondaryBrush}",
+              "a ThemeRef row reads as a {ThemeResource} with its key");
+        check(CurrentKindOf(rows[0], L"Foreground") == DevToolsKind::Theme && std::wstring(OriginChip(rows[0])) == L"THEME",
+              "so its editor starts at ThemeResource and its row shows THEME");
+        check(rows[1].authoredKind.empty() && rows[2].authoredKind.empty() && rows[3].authoredKind == L"literal",
+              "rows with no ThemeRef, and a row its XAML authored, are unchanged");
+        check(ReactorOriginFor(rows[0], L"Foreground") == L"THEME  \u00B7  ThemeRef TextFillColorSecondaryBrush  \u00B7  App.cs:40",
+              "DERIVED FROM names the ThemeRef and its call site");
+        check(ReactorOriginFor(rows[1], L"Width") == L"C#  \u00B7  .Width(320)  \u00B7  App.cs:40",
+              "DERIVED FROM shows the C# value of a property the C# sets");
+        check(ReactorOriginFor(rows[2], L"Margin").empty() && ReactorOriginFor(rows[1], L"Width.Left").empty(),
+              "but not for a property the C# does not set, or a part of one");
+        {
+            // Opening a row, or saving it, reads the rows again; the re-read keeps what the C# says.
+            const auto rowsBefore = g_ctx.rowsFn;
+            g_ctx.rowsFn = [](InstanceHandle, std::wstring&, std::wstring&, std::vector<DevToolsCardRow>& out, std::wstring&, std::wstring&) {
+                out.assign(1, DevToolsCardRow{});
+                out[0].name = L"Foreground";
+            };
+            std::wstring t, n, s, x;
+            std::vector<DevToolsCardRow> reread;
+            ReadPaneRows(wire, t, n, reread, s, x);
+            check(reread.size() == 1 && reread[0].authoredKind == L"themeResource",
+                  "a re-read of the element's rows (opening or saving one) keeps its ThemeRef");
+            ReadPaneRows(wire + 7, t, n, reread, s, x);
+            check(reread.size() == 1 && reread[0].authoredKind.empty(), "another element's rows get nothing from these facts");
+            g_ctx.rowsFn = rowsBefore;
+        }
+        check(ReactorOwnedWarningFor(rows[1], L"Width") ==
+                  L"Width is set in C# (App.cs:40); Reactor reapplies its C# value when <ReleaseForm> re-renders with a changed value.",
+              "the editor of a C#-set property warns that a re-render can put the C# value back");
+        g_selWire = wire + 1;
+        check(ReactorOriginFor(rows[1], L"Width").empty() && ReactorOwnedWarningFor(rows[1], L"Width").empty(),
+              "facts read for another element say nothing about this one");
+        std::vector<DevToolsCardRow> xamlRows(1);
+        xamlRows[0].name = L"Foreground";
+        g_reactorFactsWire = 0;
+        g_reactorFacts = {};
+        ApplyReactorFacts(xamlRows);
+        check(xamlRows[0].authoredKind.empty() && ReactorOriginFor(xamlRows[0], L"Foreground").empty(),
+              "a XAML element, with no Reactor facts, keeps its rows as they are");
+        g_selWire = 0;
+    }
     g_statusTb = nullptr;
     std::printf("binding editor semantics: %u checks, %u failures\n", checks, failed);
     return failed ? 1 : 0;

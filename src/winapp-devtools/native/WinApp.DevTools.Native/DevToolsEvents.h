@@ -14,6 +14,7 @@ enum DevToolsDomainBit : uint32_t {
     DevToolsDomain_Selection  = 1u << 2,
     DevToolsDomain_Focus      = 1u << 3,
     DevToolsDomain_Overlay    = 1u << 4,   // Overlay.stateChanged (toolbar visibility/highlight/layout adorners)
+    DevToolsDomain_Reactor    = 1u << 5,   // Reactor.changed (Microsoft-UI-Reactor trace events)
 };
 
 enum DevToolsCoalesce {

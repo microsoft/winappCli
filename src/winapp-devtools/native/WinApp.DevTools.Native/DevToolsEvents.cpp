@@ -293,6 +293,7 @@ uint32_t DevToolsEvents_DomainBit(const std::wstring& domain) {
     if (domain == L"Selection")  return DevToolsDomain_Selection;
     if (domain == L"Focus")      return DevToolsDomain_Focus;
     if (domain == L"Overlay")    return DevToolsDomain_Overlay;
+    if (domain == L"Reactor")    return DevToolsDomain_Reactor;
     return 0;
 }
 

@@ -55,6 +55,37 @@ public class DevToolsLaunchEnvironmentTests
     }
 
     [TestMethod]
+    public void Environment_TurnsOnReactorSourceMap()
+    {
+        var environment = DevToolsArtifacts.ComposeLaunchEnvironment(null, null, Source, null);
+        Assert.AreEqual("1", environment["REACTOR_SOURCEMAP"]);
+    }
+
+    [TestMethod]
+    public void Environment_KeepsDeveloperReactorSourceMapChoice()
+    {
+        var environment = DevToolsArtifacts.ComposeLaunchEnvironment(null, null, Source, null, inheritedReactorSourceMap: "0");
+        Assert.IsFalse(environment.ContainsKey("REACTOR_SOURCEMAP"));
+    }
+
+    [TestMethod]
+    public void Environment_TurnsOnReactorDiagnosticsNextToTheSourceMap()
+    {
+        // Reactor publishes each control's diagnostics only when this is set, so Native AOT and trimmed apps can be read.
+        var environment = DevToolsArtifacts.ComposeLaunchEnvironment(null, null, Source, null);
+        Assert.AreEqual("1", environment["REACTOR_DIAGNOSTICS"]);
+        var managed = DevToolsArtifacts.ComposeLaunchEnvironment(@"C:\source", Staged, Source, null);
+        Assert.AreEqual("1", managed["REACTOR_DIAGNOSTICS"], "the managed agent does not replace what Reactor publishes");
+    }
+
+    [TestMethod]
+    public void Environment_KeepsDeveloperReactorDiagnosticsChoice()
+    {
+        var environment = DevToolsArtifacts.ComposeLaunchEnvironment(null, null, Source, null, inheritedReactorDiagnostics: "0");
+        Assert.IsFalse(environment.ContainsKey("REACTOR_DIAGNOSTICS"));
+    }
+
+    [TestMethod]
     public void WithoutAProject_CommentsLiveWhereWinappRan_NotInTheBuildOutput()
     {
         var unlinked = DevToolsArtifacts.ComposeLaunchEnvironment(null, null, Source, null, @"C:\src\Orders");
