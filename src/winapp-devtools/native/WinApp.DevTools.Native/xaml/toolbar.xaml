@@ -228,7 +228,7 @@
             <MenuFlyoutItem x:Name="DevToolsOpenSettings" Text="Settings"
                             AutomationProperties.AutomationId="DevToolsOpenSettings">
               <MenuFlyoutItem.Icon>
-                <FontIcon Glyph="&#xE713;"/>
+                <FontIcon Glyph="&#xE713;" IsTextScaleFactorEnabled="True"/>
               </MenuFlyoutItem.Icon>
             </MenuFlyoutItem>
           </MenuFlyout>
