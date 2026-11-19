@@ -881,17 +881,18 @@ export async function fetchReadinessRaw(repo, number) {
     return { ...pr, threads, behind, required, issueNums, reviewHead, reviewShas: [reviewHead, ...baseMerges], fetchedAt: new Date().toISOString() };
 }
 
-// Ask Copilot to review the PR's current head. Uses the Copilot code review endpoint, falling back to requesting
-// the Copilot reviewer. "Already pending" counts as done.
+// Ask Copilot to review the PR's current head: the Copilot code review endpoint first, then
+// `gh pr edit --add-reviewer @copilot`. "Already pending" counts as done.
 export async function requestCopilotReview(repo, number) {
     const res = (out) => ({ ok: true, ...out });
+    let first;
     try { await gh(["api", "-X", "POST", `repos/${repo}/pulls/${number}/copilot-code-review`]); return res({ how: "copilot-code-review" }); }
     catch (e) {
         if (/\b409\b/.test(e.message)) return res({ how: "already pending" });
-        if (!/\b404\b/.test(e.message)) return { ok: false, error: e.message.split("\n")[0].slice(0, 200) };
+        first = e.message.split("\n")[0].slice(0, 120);
     }
-    try { await gh(["api", "-X", "POST", `repos/${repo}/pulls/${number}/requested_reviewers`, "-f", "reviewers[]=copilot-pull-request-reviewer[bot]"]); return res({ how: "requested_reviewers" }); }
-    catch (e) { return { ok: false, error: e.message.split("\n")[0].slice(0, 200) }; }
+    try { await gh(["pr", "edit", String(number), "-R", repo, "--add-reviewer", "@copilot"]); return res({ how: "gh pr edit --add-reviewer @copilot" }); }
+    catch (e) { return { ok: false, error: `${e.message.split("\n")[0].slice(0, 120)} (API: ${first})` }; }
 }
 
 const COPILOT = /^(copilot-pull-request-reviewer|copilot)(\[bot\])?$/i;
