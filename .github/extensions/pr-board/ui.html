@@ -967,7 +967,10 @@ function statusOf(c) {
   if (agent?.status === "waiting") return { tone: "you", icon: "comment", label: "Agent needs you", since: agent.updatedAt };
   const r = c.reason;
   const [ic, label] = (r && SHORT[r.label]) || ["clock", r?.label || "Waiting"];
-  const s = { tone: c.reason?.label === "Ready to ship" ? "you" : (TONE[c.who] || "neutral"), icon: ic, label: r?.label === "In merge queue" && c.queue ? `In queue #${c.queue.position}` : label, since: r?.since };
+  // "Needs reviewer" reads as "nobody is asked yet", so name who is when someone is.
+  const asked = (c.requested || []).filter((l) => !/copilot/i.test(l));
+  const named = /^Waiting on (a|other) reviewers?$/.test(r?.label || "") && asked.length ? `Waiting on ${asked.join(", ")}` : null;
+  const s = { tone: c.reason?.label === "Ready to ship" ? "you" : (TONE[c.who] || "neutral"), icon: ic, label: named || (r?.label === "In merge queue" && c.queue ? `In queue #${c.queue.position}` : label), since: r?.since };
   if (r?.stuck) { s.tone = "stuck"; s.icon = "alert"; s.stuck = r.stuck; }
   return s;
 }
@@ -2189,7 +2192,7 @@ function yourMoveBox(items) {
     const q = b.question ? `<div class="ov-ask-inline"><input data-pr="${c.number}" data-kind="${kind}" placeholder="Or type an answer…" aria-label="Answer for #${c.number}" value="${esc(answers.get(c.number) || "")}"><button data-act="answer-text" data-pr="${c.number}">Send</button><button class="quiet" data-act="dismiss" data-pr="${c.number}" title="Hide this question on the board. It doesn't answer the session.">Dismiss</button></div>` : "";
     return `<article class="ym-card st-${b.st}" role="listitem">
       <div class="ym-h">${ballGlyph(b)}<span class="ym-kind">${esc(BALL[b.st].label)}</span>${isWorking(c) && b.st !== "agent" ? `<span class="row-hint">the agent is also working</span>` : ""}<span class="sp"></span>${agePill(b)}</div>
-      <div class="ym-t">${isUnread(c) ? '<span class="unread-dot" aria-label="Unread"></span>' : ""}${typeTag(c)}<button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${esc(c.title)}</button>${issueChips(c)}</div>
+      <div class="ym-t">${isUnread(c) ? '<span class="unread-dot" aria-label="Unread"></span>' : ""}${typeTag(c)}<button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">      ${esc(c.title)}</button>${issueChips(c)}${replyMarks(c)}</div>
       <div class="ym-ask">${esc(b.ask)}</div>
       ${q}
       <div class="btns">${moveButtons(c, b)}</div>
@@ -2285,7 +2288,7 @@ function ovRow(c, sec) {
   return `<div class="ov-row r2${mine ? " mine" : ""} st-${b.st}${isUnread(c) ? " unread" : ""}" role="listitem">
     <span class="rail">${ballGlyph(b)}</span>
     <div class="ov-main">
-      <div class="ov-title-row">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}${typeTag(c)}<button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${issueChips(c)}${isWorking(c) && b.st !== "agent" && !mine ? spinner("Agent working on something here") : ""}${browserLink(c)}</div>
+      <div class="ov-title-row">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}${typeTag(c)}<button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${issueChips(c)}${replyMarks(c)}${isWorking(c) && b.st !== "agent" && !mine ? spinner("Agent working on something here") : ""}${browserLink(c)}</div>
       <div class="ask">${lead}${esc(b.ask)}${b.then ? ` <span class="row-hint">· ${esc(b.then)}</span>` : ""}${mine && isWorking(c) ? ` <span class="row-hint">· the agent is also working on it</span>` : ""}${hintHtml(c)}</div>
     </div>
     <div class="right">${primary}${watchBadge(c)}${readyMeter(c)}${ownerHtml(b)}${agePill(b)}${sec === "merged" ? "" : rowActs(c, kind)}</div>
@@ -2488,6 +2491,8 @@ function expandItem(kind, n, tabTo) {
   const ta = $("flyInput");
   if (ta?.dataset.k) composerDrafts.set(ta.dataset.k, ta.value);
   if (!navList.length) captureNav(null);
+  // The sheet can change the list's height under it (a narrow sheet covers it), so keep its scroll to put back.
+  if (view !== "detail") listScroll = $("overview").scrollTop;
   fly = null; flyMore = false; renderFlyout();
   view = "detail"; openedAt = Date.now();
   store.set("prb-open-mode", "expanded");
@@ -2499,13 +2504,20 @@ function collapseItem() {
   composerDrafts.set(keyOf(c), $("input").value);
   view = "overview"; store.set("prb-open-mode", "peek");
   render();
+  restoreListScroll();
   openFlyout(c.kind === "issue" ? "issue" : "pr", c.number);
+}
+let listScroll = null;
+function restoreListScroll() {
+  if (listScroll !== null) $("overview").scrollTop = listScroll;
+  listScroll = null;
 }
 function dismissSheet() {
   const c = current();
   if (c) composerDrafts.set(keyOf(c), $("input").value);
   view = "overview"; viewing = null; openMenu = null; armed = null;
   render();
+  restoreListScroll();
   document.querySelector(`.ov-title[data-pr="${selected}"]`)?.focus({ preventScroll: true });
 }
 function navigate(dir) {
@@ -2538,8 +2550,13 @@ function nodeLabel(val) {
   const d = (rvOf(it || {})?.diagrams || []).find((x) => x.id === dg);
   return d?.nodes?.find((n) => n.id === node)?.label || node.replace(/^n-/, "").replace(/-/g, " ");
 }
+function findingLabel(val) {
+  const it = view === "detail" ? current() : fly ? itemOf(fly.kind, fly.number) : null;
+  const t = (rvOf(it || {})?.findings || []).find((f) => f.id === val)?.title;
+  return t ? (t.length > 48 ? t.slice(0, 47) + "…" : t) : `finding ${val}`;
+}
 function anchorChip(kind, val) {
-  const label = kind === "finding" ? `finding ${val}` : kind === "file" ? (() => { const [p, l] = val.split("#"); return p.split("/").pop() + (l ? ":" + l.replace(/^L/, "").replace("-L", "–") : ""); })()
+  const label = kind === "finding" ? findingLabel(val) : kind === "file" ? (() => { const [p, l] = val.split("#"); return p.split("/").pop() + (l ? ":" + l.replace(/^L/, "").replace("-L", "–") : ""); })()
     : kind === "node" ? nodeLabel(val) : kind === "gate" ? `${val} check` : "review thread";
   return `<button class="anchor" data-act="anchor" data-a="${esc(kind + ":" + val)}" title="Show it">${icon(ANCHOR_ICON[kind], "sm")}${esc(label)}</button>`;
 }
@@ -2675,7 +2692,8 @@ function renderFlyout() {
   const body = host.querySelector(".fly-body");
   if (ft === "summary" && (stickBottom || nearBottom)) { body.scrollTop = body.scrollHeight; stickBottom = false; }
   else if (scroll !== null) body.scrollTop = scroll;
-  scrollToNew(body);
+  // The peek panel opens at the top: the explanation and checklist matter more than jumping to the thread's
+  // New line, which the row's New reply chip already flags. Only the sheet's Thread tab jumps to it.
   markViewed();
 }
 

@@ -202,8 +202,9 @@ and a **New reply** chip:
 
 The **Unread 2** chip at the top shows only those rows, and **Mark all read**
 clears them. A new draft or structured review also counts as a reply. Opening
-the item, or the PR's Story, Review or Thread tab, marks it read and
-scrolls to a **New** line above the first unread message. The canvas title shows
+the item, or the PR's Story, Review or Thread tab, marks it read. The peek panel
+opens at the top; the Thread tab scrolls to a **New** line above the first unread
+message. The canvas title shows
 the count, for example `(2) PR board`. Read state is saved per PR and issue in
 the board's state file.
 
@@ -550,6 +551,48 @@ per user and isn't committed. When a PR merges, a leftover agent status shows as
 | `review.mjs` | The structured review schema, guide, and how picked findings become a GitHub review |
 | `diagram.js` | Draws the architecture diagrams as SVG |
 | `ui.html` | The inbox page (no build step, no dependencies) |
+| `test/` | UI tests: see [Testing](#testing) |
+
+## Testing
+
+Run the UI tests from this folder before every push:
+
+```powershell
+node test/ui.mjs                # every offline test, about a minute
+node test/ui.mjs --grep peek    # only tests whose name contains "peek"
+node test/ui.mjs --live         # read-only smoke test of your real board
+```
+
+```text
+  ✓ peek: a drag or text selection that ends on the list doesn't close it (1289ms)
+  ✓ composer: a failed send puts the text back (921ms)
+  ...
+47 passed, 0 failed, 47 total (57s)
+```
+
+The offline tests run the real extension and page in headless Edge (or Chrome; set
+`PR_BOARD_BROWSER` to use another Chromium browser). Nothing real is touched:
+
+- **GitHub is fake.** `test/fixtures/world.mjs` is a small repo, `contoso/widgets`,
+  where each PR and issue sets up one situation: a PR that's waiting on a reviewer, one
+  with failing CI, one in the merge queue, an issue covered by a PR, a branch with no PR
+  yet, and so on. A test fails if the board tries to write to GitHub, or makes a `gh`
+  call the fake repo doesn't answer.
+- **The agent is fake.** Prompts the board sends are recorded, so tests can check them.
+- **State is temporary.** Each run uses its own `COPILOT_HOME`, and each test starts
+  from the same seeded board.
+- **The page is offline.** It may only talk to the board's own server.
+
+A test also fails on any console error, uncaught exception or failed request. On
+failure, `test/output/` gets a screenshot, the page's HTML and the error. Screenshots of
+the main views in light and dark, at 1040px and 600px, are saved in `test/output/screens/`
+on every run.
+
+`--live` reads your real repo with `gh` and a copy of your real board state. It refuses
+any GitHub write, so it's safe to run any time.
+
+When you fix a bug, add a test that fails without the fix, next to the related tests in
+`test/cases.mjs`.
 
 ## Credits
 
