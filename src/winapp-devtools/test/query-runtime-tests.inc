@@ -741,6 +741,9 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
     field.valueState.clear(); field.type = L"Microsoft.UI.Xaml.Controls.StackPanel"; field.value = L"Not text";
     check(QueryValueJson(&field, field.name, L"").find(L"\"valueState\":\"object\"") != std::wstring::npos,
         "projected object is not an invented string");
+    field.type = L"Microsoft.UI.Xaml.Media.SolidColorBrush"; field.value = L"#B3FFFFFF";
+    check(QueryValueJson(&field, field.name, L"").find(L"\"value\":\"#B3FFFFFF\"") != std::wstring::npos,
+        "projected solid brush is its color");
     g_type[902] = L"Custom.TextBlock";
     check(query(L"{\"ofType\":\"TextBlock\"}").find(L"ambiguous-type") != std::wstring::npos, "short type collision refuses first-match choice");
     g_type[902] = L"Microsoft.UI.Xaml.Controls.TextBox";
