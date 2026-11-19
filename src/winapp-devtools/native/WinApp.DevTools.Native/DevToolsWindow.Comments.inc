@@ -82,10 +82,14 @@ struct CommentRowSink : DevToolsSinkBase
 static void ResolveCommentById(const std::wstring& id, std::function<void(int)> done = nullptr)
 {
     if (id.empty()) return;
+    if (g_commentBoxSaved && g_commentBoxSaved->id == id) {
+        if (g_commentBoxSaved->resolving) return;
+        g_commentBoxSaved->resolving = true;
+    }
     const auto generation = g_route1Gen;
     const auto answered = std::make_shared<bool>(false);
     SetStatusText(L"Resolving " + id + L"\u2026");
-    if (!g_commentResolveFn || !g_commentResolveFn(id.c_str(), [generation, id, answered, done](int result) {
+    const auto complete = [generation, id, answered, done](int result) {
         if (*answered) return;
         *answered = true;
         if (generation != g_route1Gen) return;
@@ -93,12 +97,18 @@ static void ResolveCommentById(const std::wstring& id, std::function<void(int)> 
             result == 0x57410001 ? L"Resolved on the host; comment markers could not refresh: " + id :
             result == 0x57410002 ? L"The host comment changed after the earlier save. Refresh: " + id :
             L"Host resolution was not confirmed. Refresh before retrying: " + id);
+        // Both Resolve buttons retire the matching card's identity, never an unrelated element's draft.
+        if (g_commentBoxSaved && g_commentBoxSaved->id == id && g_commentBoxSaved->FinishResolve(result)) {
+            if (auto box = g_commentBox.get()) box.Text(L"");
+            if (g_presentCommentBox) g_presentCommentBox(false);
+        }
         if (done) done(result);
-    })) {
+    };
+    if (!g_commentResolveFn || !g_commentResolveFn(id.c_str(), complete)) {
         if (!*answered) {
-            *answered = true;
-            SetStatusText(L"Resolution could not start. Finish any pending comment save and check the CLI/host connection.");
-            if (done) done(1);
+            complete(1);
+            if (generation == g_route1Gen)
+                SetStatusText(L"Resolution could not start. Finish any pending comment save and check the CLI/host connection.");
         }
     }
 }
@@ -673,6 +683,7 @@ static void WireCommentBox(void* frameworkElement)
 {
     g_openCommentBox = nullptr;
     g_commentUi = {};
+    g_presentCommentBox = nullptr;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, frameworkElement);
@@ -705,12 +716,7 @@ static void WireCommentBox(void* frameworkElement)
                 const auto text = g_commentUi.text;
                 const auto saved = g_commentBoxSaved;
                 if (!text || !saved || saved->id.empty() || saved->resolving || text.IsReadOnly()) return;
-                saved->resolving = true;
-                ResolveCommentById(saved->id, [gen = g_addCommentGen, saved](int result) {
-                    if (gen != g_addCommentGen || !saved->FinishResolve(result)) return;
-                    if (const auto& box = g_commentUi.text) box.Text(L"");
-                    PresentCommentBox(false);
-                });
+                ResolveCommentById(saved->id);
             });
         }
         ui.text.PreviewKeyDown([](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
@@ -765,6 +771,7 @@ static void ShowSelectionComment()
         auto saved = std::make_shared<CommentBoxSaved>();
         g_commentBoxSaved = saved;
         g_commentBox = ui.text;
+        g_presentCommentBox = PresentCommentBox;
         ui.text.IsReadOnly(false);
         ui.text.Text(L"");
         ui.status.Text(kAddCommentHint);
@@ -793,4 +800,5 @@ static void ReleaseCommentBoxUi()
     g_commentBoxSaved = nullptr;
     g_commentBox = nullptr;
     g_openCommentBox = nullptr;
+    g_presentCommentBox = nullptr;
 }
