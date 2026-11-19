@@ -34,6 +34,11 @@ Describe "maui-app sample" {
         Install-WinappGlobal -PackagePath $resolvedPkg
         $script:tempDir = New-TempTestDirectory -Prefix "maui-guide"
         $script:projectDir = Join-Path $script:tempDir $script:projectName
+
+        # Workloads are installed per SDK band. CI installs maui-windows from the repo root, where
+        # global.json selects the SDK, so the temp project must resolve that same SDK.
+        $repoGlobalJson = Join-Path $script:sampleDir "..\..\global.json"
+        if (Test-Path $repoGlobalJson) { Copy-Item $repoGlobalJson $script:tempDir }
     }
 
     AfterAll {
