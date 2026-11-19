@@ -20,7 +20,69 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Docs-only PRs and merge groups skip the build and test lanes. docs\npm-usage.md is
+  # checked by npm tests, so it counts as code. Push and manual runs always build.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Classify changed files
+      id: classify
+      shell: pwsh
+      env:
+        EVENT: ${{ github.event_name }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        MQ_BASE: ${{ github.event.merge_group.base_sha }}
+        MQ_HEAD: ${{ github.event.merge_group.head_sha }}
+      run: |
+        $range = switch ($env:EVENT) {
+          'pull_request' { "$env:PR_BASE...$env:PR_HEAD" }
+          'merge_group' { "$env:MQ_BASE..$env:MQ_HEAD" }
+          default { $null }
+        }
+        $code = $true
+        if ($range) {
+          $files = @(git diff --name-only $range)
+          if ($LASTEXITCODE -ne 0) { throw "git diff $range failed" }
+          $codeFiles = @($files | Where-Object {
+            $_ -eq 'docs/npm-usage.md' -or -not ($_ -like 'docs/*' -or ($_ -notlike '*/*' -and $_ -like '*.md'))
+          })
+          # An empty diff is not evidence of a docs-only change.
+          $code = $files.Count -eq 0 -or $codeFiles.Count -gt 0
+          Write-Host "$($files.Count) changed file(s); $($codeFiles.Count) need the full build."
+        }
+        "code=$($code.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  # The scripts Pester suite ports the real docs and checks their links and tables.
+  docs-tests:
+    needs: changes
+    if: needs.changes.outputs.code != 'true'
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Run docs port tests
+      run: |
+        $pester = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $pester) { throw 'Pester 5 is required.' }
+        Import-Module $pester -Force
+        $config = New-PesterConfiguration
+        $config.Run.Path = 'scripts/tests/validate-mslearn-docs.Tests.ps1'
+        $config.Run.Exit = $true
+        $config.Output.Verbosity = 'Detailed'
+        Invoke-Pester -Configuration $config
+
   build-artifacts:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -211,6 +273,8 @@ jobs:
 
   # Builds its own engine and test fixtures, so it starts without waiting for build-artifacts.
   validate-devtools:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -280,16 +344,19 @@ jobs:
   # Keep the existing branch-protection check name outside the reusable workflow.
   test-samples-result:
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
-    needs: samples
+    needs: [changes, samples]
     runs-on: ubuntu-latest
     steps:
     - name: Check results
       shell: pwsh
       env:
+        CHANGES_RESULT: ${{ needs.changes.result }}
+        CODE: ${{ needs.changes.outputs.code }}
         SAMPLE_RESULT: ${{ needs.samples.result }}
       run: |
-        if ($env:SAMPLE_RESULT -ne 'success') {
-          throw "Sample validation did not succeed ($env:SAMPLE_RESULT)"
+        $expected = if ($env:CODE -eq 'true') { 'success' } else { 'skipped' }
+        if ($env:CHANGES_RESULT -ne 'success' -or $env:SAMPLE_RESULT -ne $expected) {
+          throw "Sample validation did not meet the required outcome ($env:SAMPLE_RESULT, expected $expected)"
         }
 
   metrics:
@@ -504,9 +571,10 @@ jobs:
 
   # Retain the original required check, but only turn it green after every lane.
   # metrics only reports results, so the check does not wait for it.
+  # Docs-only changes expect every build and test lane to be skipped and docs-tests to pass.
   build-and-package:
     if: always()
-    needs: [build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples]
+    needs: [changes, docs-tests, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs
@@ -516,8 +584,13 @@ jobs:
         PRE_MERGE: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
       run: |
         $results = $env:NEEDS_JSON | ConvertFrom-Json -AsHashtable
+        $code = $results['changes'].outputs.code -eq 'true'
         foreach ($job in $results.Keys) {
-          $expected = if ($job -eq 'samples' -and $env:PRE_MERGE -ne 'true') { 'skipped' } else { 'success' }
+          $expected = if ($job -eq 'changes') { 'success' }
+            elseif ($job -eq 'docs-tests') { if ($code) { 'skipped' } else { 'success' } }
+            elseif (-not $code) { 'skipped' }
+            elseif ($job -eq 'samples' -and $env:PRE_MERGE -ne 'true') { 'skipped' }
+            else { 'success' }
           if ($results[$job].result -ne $expected) {
             throw "$job did not meet the required outcome: $($results[$job].result) (expected $expected)"
           }
