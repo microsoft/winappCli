@@ -416,7 +416,7 @@ uploads partial results even on failure or cancellation.
 
 `scripts\test-cli-shard.ps1` partitions the CLI suite into three disjoint sets:
 native integration tests (shard 3, in `validate-devtools` after its fixture build),
-then package-command tests (shard 1) and all remaining tests (shard 2).
+then package-command and perf-fixture tests (shard 1) and all remaining tests (shard 2).
 The native lane sets `WINAPP_NATIVE_TEST_FIXTURE` to its freshly built dispatcher
 fixture; ordinary artifact-reuse lanes do not build or require native test fixtures.
 New tests always enter one shard. Each invocation requires at least one executed test,
