@@ -622,7 +622,8 @@ static std::wstring CmdResourceResolve(const std::vector<std::wstring>& p)
 {
     if (p.size() < 3 || p[1].empty() || p[2].empty()) return L"ERR bad-args";
     // Validate the opaque handle, then re-resolve in the UI closure before the live read.
-    unsigned long long wire = wcstoull(p[1].c_str(), nullptr, 10);
+    unsigned long long wire = 0;
+    if (!DevToolsParseWireHandle(p[1], false, &wire)) return L"ERR bad-args";
     std::wstring prop = p[2];
     { InstanceHandle ih0 = 0; const wchar_t* e = nullptr; bool ok;
       AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih0, &e); ReleaseSRWLockShared(&g_censusLock);

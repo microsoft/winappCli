@@ -131,16 +131,16 @@ internal class DevToolsCallCommand : DevToolsLiveCommand, IHelpExamples
 
             if (!response.Ok)
             {
-                var invalidHandle = parsed.Values.Any(value => value.Name == "handle" &&
+                var invalidHandle = parsed.Values.FirstOrDefault(value => value.Name is "handle" or "rootHandle" &&
                     (value.Value.Kind != JsonValueKind.String ||
                     !DevToolsSelector.IsHandle(value.Value.Raw?.GetString() ?? value.Value.Text)));
-                if (response.Error!.Token == "bad-args" && invalidHandle)
+                if (response.Error!.Token == "bad-args" && invalidHandle.Name is not null)
                 {
                     return Task.FromResult(Fail(json, target.Pid, response.Error with
                     {
                         Message = response.Error.Message +
                             " Raw call does not resolve element selectors. Copy the numeric handle string from " +
-                            "'winapp devtools inspect --json' and pass handle=<handle>; do not use the selector or name.",
+                            $"'winapp devtools inspect --json' and pass {invalidHandle.Name}=<handle>; do not use the selector or name.",
                     }));
                 }
                 // A method that wanted a boolean or a number and got a string says `bad-args`. That token

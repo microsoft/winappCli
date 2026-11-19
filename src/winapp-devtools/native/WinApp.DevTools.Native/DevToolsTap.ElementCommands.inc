@@ -8,7 +8,8 @@ static std::wstring CmdElementProps(const std::vector<std::wstring>& p)
     if (p.size() < 2 || p[1].empty()) return L"ERR bad-args";
     // Prevalidate the opaque handle, then resolve it again inside the UI closure immediately
     // before access. Never carry a raw diagnostics handle across that hop.
-    unsigned long long wire = wcstoull(p[1].c_str(), nullptr, 10);
+    unsigned long long wire = 0;
+    if (!DevToolsParseWireHandle(p[1], false, &wire)) return L"ERR bad-args";
     { InstanceHandle ih0 = 0; const wchar_t* e = nullptr; bool ok;
       AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih0, &e); ReleaseSRWLockShared(&g_censusLock);
       if (!ok) return std::wstring(L"ERR ") + e; }
@@ -338,7 +339,8 @@ static void ReadElementScreenRect_ui(InstanceHandle ih, DevToolsReadLayout& out)
 static std::wstring CmdElementLayout(const std::vector<std::wstring>& p)
 {
     if (p.size() < 2 || p[1].empty()) return L"ERR bad-args";
-    unsigned long long wire = wcstoull(p[1].c_str(), nullptr, 10);
+    unsigned long long wire = 0;
+    if (!DevToolsParseWireHandle(p[1], false, &wire)) return L"ERR bad-args";
     { InstanceHandle ih0 = 0; const wchar_t* e = nullptr; bool ok;
       AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih0, &e); ReleaseSRWLockShared(&g_censusLock);
       if (!ok) return std::wstring(L"ERR ") + e; }
@@ -409,7 +411,8 @@ static std::wstring TapReactorSourceAnswer(unsigned long long wire);
 static std::wstring CmdElementSource(const std::vector<std::wstring>& p)
 {
     if (p.size() < 2 || p[1].empty()) return L"ERR bad-args";
-    unsigned long long wire = wcstoull(p[1].c_str(), nullptr, 10);
+    unsigned long long wire = 0;
+    if (!DevToolsParseWireHandle(p[1], false, &wire)) return L"ERR bad-args";
     { InstanceHandle ih0 = 0; const wchar_t* e = nullptr; bool ok;
       AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih0, &e); ReleaseSRWLockShared(&g_censusLock);
       if (!ok) return std::wstring(L"ERR ") + e; }

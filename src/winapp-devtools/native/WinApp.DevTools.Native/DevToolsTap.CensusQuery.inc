@@ -713,7 +713,8 @@ static std::wstring CmdEnumerate(const std::vector<std::wstring>& p)
 {
     bool hasRoot = (p.size() >= 2 && !p[1].empty());
     // Resolve the opaque root handle under the census lock together with the snapshot.
-    unsigned long long rootWire = hasRoot ? wcstoull(p[1].c_str(), nullptr, 10) : 0ull;
+    unsigned long long rootWire = 0;
+    if (hasRoot && !DevToolsParseWireHandle(p[1], false, &rootWire)) return L"ERR bad-args";
     InstanceHandle root = 0;
     const wchar_t* rootErr = nullptr;
     int depth = -1;

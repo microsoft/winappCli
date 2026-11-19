@@ -1241,6 +1241,20 @@ static void CheckMalformedMutationHandles(const std::function<void(bool, const c
     g_dispatcher = reinterpret_cast<IInspectable*>(1);
     g_testEnqueueUiOperation = QueryEnqueue;
     g_testPropertyMutation = ObserveMutation;
+    const auto checkMalformedRead = [&check](const std::wstring& malformed) {
+        for (const auto& [method, key, extra] : std::initializer_list<std::tuple<const wchar_t*, const wchar_t*, const wchar_t*>>{
+                {L"Property.get", L"handle", L""}, {L"Layout.get", L"handle", L""}, {L"Source.get", L"handle", L""},
+                {L"Resource.resolve", L"handle", L",\"prop\":\"Text\""}, {L"VisualTree.enumerate", L"rootHandle", L""}}) {
+            const auto response = HandleRpc(nullptr, DevToolsRpcParse(
+                L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + std::wstring(method) + L"\",\"params\":{\"" +
+                key + L"\":\"" + malformed + L"\"" + extra + L"}}"));
+            DevToolsJson parsed;
+            check(DevToolsJsonParse(response, parsed) && parsed.Find(L"error") &&
+                parsed.Find(L"error")->GetInt(L"code", 0) == DevToolsErr::InvalidParams && !parsed.Find(L"result") &&
+                response.find(L"canonical non-zero decimal") != std::wstring::npos,
+                "malformed read handle returns invalid parameters with the handle rule, not another element's data");
+        }
+    };
     for (const auto& malformed : {handle + L"abc", handle + L",456", L"0" + handle, L" " + handle,
         handle + L" ", L"+" + handle, L"-" + handle, std::wstring(L"0x123"),
         std::wstring(L"18446744073709551616"), std::wstring(L"")}) {
@@ -1264,7 +1278,23 @@ static void CheckMalformedMutationHandles(const std::function<void(bool, const c
             check(HandleCommand(command) == L"ERR bad-args", "private mutation bridge rejects the full malformed handle");
         check(g_mutatedHandle == 0 && g_queryDispatches == dispatches,
             "malformed targeting never dispatches UI work or invokes a mutation callback");
+        if (malformed.empty()) continue;
+        checkMalformedRead(malformed);
+        check(g_queryDispatches == dispatches, "malformed read handles never dispatch UI work");
     }
+    // '|' separates bridge fields, so a read must reject it before the line is split.
+    const auto dispatchesBeforePipe = g_queryDispatches;
+    checkMalformedRead(handle + L"|5");
+    check(g_queryDispatches == dispatchesBeforePipe, "a handle containing '|' never dispatches a read");
+    const auto enumerate = [](const std::wstring& params) {
+        return HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"VisualTree.enumerate\",\"params\":{" + params + L"}}"));
+    };
+    const auto wholeTree = enumerate(L"");
+    for (const auto* absent : {L"null", L"\"\""})
+        check(enumerate(L"\"rootHandle\":" + std::wstring(absent)) == wholeTree &&
+            wholeTree.find(L"canonical non-zero decimal") == std::wstring::npos,
+            "an empty or null rootHandle enumerates the whole tree, the same as omitting it");
     for (const auto* invalid : {L"0", L"null", L"true", L"[]"}) {
         for (const auto* method : {L"HotReload.setProperty", L"HotReload.clearProperty"}) {
             g_mutatedHandle = 0;
