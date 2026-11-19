@@ -709,9 +709,10 @@ static void NameKindItems(IInspectable* combo, const std::wstring& path)
     reinterpret_cast<IUnknown*>(items)->Release();
 }
 
+// An empty text clears the placeholder: a reused editor may still show the previous property's.
 static void SetPlaceholderOn(IInspectable* el, const std::wstring& text)
 {
-    if (!el || text.empty()) return;
+    if (!el) return;
     void* tx = nullptr;
     if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
         HSTRING h = MakeStr(text);

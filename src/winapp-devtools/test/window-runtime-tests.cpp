@@ -91,6 +91,8 @@ static HRESULT TestGetArgsData(void* args, IInspectable** data)
     return S_OK;
 }
 #define DevToolsGetArgsData TestGetArgsData
+static HRESULT PutTestPlaceholder(void*, HSTRING);
+#define DevToolsPutPlaceholderText PutTestPlaceholder
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsSetAutomationName PutTestAutomationName
@@ -142,6 +144,7 @@ struct TestElement : IInspectable {
     int visibility = 1;
     int selectedIndex = -1;
     std::wstring automationName, automationId;
+    std::wstring placeholder;
     std::vector<IInspectable*> children;
     IInspectable* foreground = nullptr;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** value) override {
@@ -360,6 +363,13 @@ static HRESULT PutTestText(void* element, HSTRING value)
     const auto* chars=WindowsGetStringRawBuffer(value,&length);
     static_cast<TestElement*>(element)->text.assign(chars ? chars : L"",length);
     if (element == &testHex && reentrantHexCommit) reentrantHexCommit->Invoke(nullptr,nullptr);
+    return S_OK;
+}
+static HRESULT PutTestPlaceholder(void* element, HSTRING value)
+{
+    UINT32 length=0;
+    const auto* chars=WindowsGetStringRawBuffer(value,&length);
+    static_cast<TestElement*>(element)->placeholder.assign(chars ? chars : L"",length);
     return S_OK;
 }
 static HRESULT PutTestAutomationName(void*, void* element, HSTRING value)
@@ -2270,6 +2280,14 @@ int main()
         TestClearChildren(&host);
         g_propRows.clear(); g_paneItems.clear(); g_paneEditMap = {}; g_selWire = 0;
         check(rowFe.refs == 1 && expansion.refs == 1, "the factory test releases the row and its expansion");
-    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    }
+    {
+        // A reused editor moves from an unset property, which shows a placeholder, to one that has none.
+        TestElement editor;
+        SetPlaceholderOn(&editor, L"not set - type a value");
+        SetPlaceholderOn(&editor, L"");
+        check(editor.placeholder.empty(), "a reused editor drops the previous property's placeholder");
+    }
+    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }
