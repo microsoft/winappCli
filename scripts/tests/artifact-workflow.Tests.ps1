@@ -75,7 +75,7 @@ Describe 'Artifact-first workflow dependencies' {
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
         # metrics only reports results, so the required check does not wait for it.
-        $gate | Should -Match 'needs: \[changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples\]'
+        $gate | Should -Match 'needs: \[changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, e2e-project-references, samples\]'
     }
 
     It 'builds each CLI and engine part on its own runner and packages them once' {
@@ -107,7 +107,7 @@ Describe 'Artifact-first workflow dependencies' {
     }
 
     It 'starts validation, docs, UI E2E and samples from early artifacts, not the final gate' {
-        foreach ($job in @('validate-tests', 'validate-docs', 'e2e-test-ui', 'samples')) {
+        foreach ($job in @('validate-tests', 'validate-docs', 'e2e-test-ui', 'e2e-project-references', 'samples')) {
             $text = Get-JobText $buildWorkflow $job
             $text | Should -Match '(?m)^\s+needs: build-artifacts\r?$'
             $text | Should -Not -Match 'dotnet publish|needs: build-and-package'
@@ -116,6 +116,7 @@ Describe 'Artifact-first workflow dependencies' {
             Should -Match ([regex]::Escape('$testArgs.CliShard = [int]$env:CLI_SHARD'))
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-e2e-winui-ui\.ps1'
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-ui-coordination\.ps1'
+        (Get-JobText $buildWorkflow 'e2e-project-references') | Should -Match 'ProjectReferences\.Tests\.ps1'
         # validate-devtools builds its own engine and fixtures, so it never waits for the build.
         $devtools = Get-JobText $buildWorkflow 'validate-devtools'
         $devtools | Should -Not -Match 'needs: build-artifacts|cli-binaries'
@@ -299,7 +300,7 @@ Describe 'Failed validation reports without promoting the main baseline' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('build-parts', 'build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples')) {
+        foreach ($job in @('build-parts', 'build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'e2e-project-references', 'samples')) {
             $results[$job] = @{ result = 'success' }
         }
         $results['changes'] = @{ result = 'success'; outputs = @{ code = 'true' } }

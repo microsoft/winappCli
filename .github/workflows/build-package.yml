@@ -531,6 +531,48 @@ jobs:
   # has moved to .github/workflows/mark-metrics-stale.yml so it can run on
   # `pull_request_target` and obtain write permissions for fork PRs.
 
+  # Real builds of packaged WinUI apps with project references (see tests/project-references/README.md).
+  e2e-project-references:
+    runs-on: windows-latest
+    needs: build-artifacts
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Enable Windows Developer Mode
+      run: |
+        reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v "AllowDevelopmentWithoutDevLicense" /d 1 /f
+
+    - name: Cache NuGet packages
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ github.job }}-${{ matrix.lane }}-${{ hashFiles('global.json', 'nuget.config', 'src/**/*.csproj', 'src/**/Directory.*.props', 'tests/**/*.csproj') }}
+        restore-keys: nuget-${{ runner.os }}-${{ github.job }}-${{ matrix.lane }}-
+
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+      with:
+        dotnet-version: "10.0.x"
+
+    - name: Download CLI binaries
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: cli-binaries
+        path: artifacts/cli
+
+    - name: Run project-reference build tests
+      run: |
+        $pester = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $pester) { throw 'Pester 5 is required.' }
+        Import-Module $pester -Force
+        $platform = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
+        $config = New-PesterConfiguration
+        $config.Run.Container = New-PesterContainer -Path tests/project-references/ProjectReferences.Tests.ps1 -Data @{ WinappPath = "artifacts/cli/win-$platform/winapp.exe" }
+        $config.Run.Exit = $true
+        $config.Output.Verbosity = 'Detailed'
+        Invoke-Pester -Configuration $config
+
   # E2E test for winapp ui commands against WinUI 3 sample app
   e2e-test-ui:
     runs-on: windows-latest
@@ -560,19 +602,6 @@ jobs:
       with:
         name: cli-binaries
         path: artifacts/cli
-
-    # Real builds of packaged WinUI apps with project references (see tests/project-references/README.md).
-    - name: Run project-reference build tests
-      run: |
-        $pester = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Sort-Object Version -Descending | Select-Object -First 1
-        if (-not $pester) { throw 'Pester 5 is required.' }
-        Import-Module $pester -Force
-        $platform = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
-        $config = New-PesterConfiguration
-        $config.Run.Container = New-PesterContainer -Path tests/project-references/ProjectReferences.Tests.ps1 -Data @{ WinappPath = "artifacts/cli/win-$platform/winapp.exe" }
-        $config.Run.Exit = $true
-        $config.Output.Verbosity = 'Detailed'
-        Invoke-Pester -Configuration $config
 
     - name: Run WinUI UI E2E test
       run: |
@@ -651,7 +680,7 @@ jobs:
   # Docs-only changes expect every build and test lane to be skipped and docs-tests to pass.
   build-and-package:
     if: always()
-    needs: [changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples]
+    needs: [changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, e2e-project-references, samples]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs

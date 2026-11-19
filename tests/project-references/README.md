@@ -21,4 +21,4 @@ Invoke-Pester -Path .\tests\project-references\ProjectReferences.Tests.ps1 -Outp
 
 Pass `-WinappPath` (through `New-PesterContainer -Data`) to test another `winapp.exe`. Requires Windows with Developer Mode, the .NET 10 SDK, Pester 5, and access to nuget.org. The suite is skipped when Developer Mode is off.
 
-CI runs it in the `e2e-test-ui` job.
+CI runs it in the `e2e-project-references` job.
