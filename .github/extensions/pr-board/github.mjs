@@ -63,7 +63,7 @@ async function mergeQueue(repo, branch) {
 // Timing signals for every open PR in one GraphQL call: pushes, author replies,
 // ready-for-review and review-requested events, and auto-merge.
 const ACTIVITY_QUERY = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN,first:60,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{
- number mergeStateStatus autoMergeRequest{enabledAt}
+ number mergeStateStatus baseRefName autoMergeRequest{enabledAt}
  commits(last:1){nodes{commit{committedDate}}}
  timelineItems(last:40,itemTypes:[PULL_REQUEST_REVIEW,ISSUE_COMMENT,READY_FOR_REVIEW_EVENT,REVIEW_REQUESTED_EVENT,HEAD_REF_FORCE_PUSHED_EVENT,PULL_REQUEST_COMMIT]){nodes{
   __typename
@@ -72,7 +72,7 @@ const ACTIVITY_QUERY = `query($owner:String!,$name:String!){repository(owner:$ow
   ... on ReadyForReviewEvent{createdAt}
   ... on ReviewRequestedEvent{createdAt}
   ... on HeadRefForcePushedEvent{createdAt}
-  ... on PullRequestCommit{url commit{oid committedDate messageHeadline}}
+  ... on PullRequestCommit{url commit{oid committedDate messageHeadline parents(first:2){totalCount nodes{oid}}}}
  }}}}}}`;
 
 async function fetchActivity(repo) {
@@ -95,6 +95,7 @@ export async function fetchRepoData(repo) {
         fetchActivity(repo),
     ]);
     const queue = await mergeQueue(repo, defaultBranch);
+    await markBaseMerges(repo, activity);
     return {
         open: JSON.parse(openJson),
         merged: JSON.parse(mergedJson),
@@ -103,6 +104,28 @@ export async function fetchRepoData(repo) {
         queue,
         activity,
     };
+}
+
+// Pushes that only merge the base branch in ("Update branch") don't change what a review covered. Walk back from
+// each PR's newest commit over merge commits whose second parent is already on the base branch, and mark them
+// baseOnly. Same rule as the readiness gates (fetchReadinessRaw). The answer per commit never changes, so cache it.
+const baseOnlyCache = new Map(); // merge commit oid -> true | false
+async function markBaseMerges(repo, activity) {
+    for (const ext of activity.values()) {
+        const commits = (ext?.timelineItems?.nodes || []).filter((i) => i.__typename === "PullRequestCommit" && i.commit?.oid);
+        for (let i = commits.length - 1; i >= 0; i--) {
+            const k = commits[i].commit;
+            const second = k.parents?.totalCount >= 2 ? k.parents.nodes?.[1]?.oid : null;
+            if (!second) break;
+            if (!baseOnlyCache.has(k.oid)) {
+                let only = false;
+                try { only = ["behind", "identical"].includes((await gh(["api", `repos/${repo}/compare/${encodeURIComponent(ext.baseRefName || "main")}...${second}`, "--jq", ".status"])).trim()); } catch { only = false; }
+                baseOnlyCache.set(k.oid, only);
+            }
+            if (!baseOnlyCache.get(k.oid)) break;
+            k.baseOnly = true;
+        }
+    }
 }
 
 // Issues on the board: open issues assigned to you with no open PR yet, plus every issue a session here is
@@ -218,13 +241,30 @@ export function partyReply(c, viewer) {
     return last ? { ...last, role: nx.owner, count: hits.length } : null;
 }
 
-// PR activity for partyReply: comments, reviews and pushes, oldest first.
+// The commits a review still covers: the latest real commit, then the base-only merges after it (newest last).
+// A review of any of them counts for the current head.
+function reviewShasOf(pr, ext) {
+    const commits = (ext?.timelineItems?.nodes || []).filter((i) => i.__typename === "PullRequestCommit" && i.commit?.oid).map((i) => i.commit);
+    if (!commits.length || commits.at(-1).oid !== pr.headRefOid || !commits.at(-1).baseOnly) return [pr.headRefOid];
+    let i = commits.length - 1;
+    const merges = [];
+    while (i >= 0 && commits[i].baseOnly) merges.unshift(commits[i--].oid);
+    return i >= 0 ? [commits[i].oid, ...merges] : [pr.headRefOid];
+}
+// When the author last pushed real work: base-only merges and their dates don't count.
+function realLastPush(ext) {
+    const items = ext?.timelineItems?.nodes || [];
+    const commits = items.filter((i) => i.__typename === "PullRequestCommit");
+    const headIsMerge = !!commits.at(-1)?.commit?.baseOnly;
+    return maxIso(...commits.filter((i) => !i.commit?.baseOnly).map((i) => i.commit?.committedDate), ...items.filter((i) => i.__typename === "HeadRefForcePushedEvent").map((i) => i.createdAt), headIsMerge ? null : ext?.commits?.nodes?.[0]?.commit?.committedDate);
+}
+// PR activity for partyReply and proactive mode: comments, reviews and pushes, oldest first.
 function prActivity(pr, ext) {
     const out = [];
     for (const i of ext?.timelineItems?.nodes || []) {
         if (i.__typename === "IssueComment") out.push({ id: i.id, kind: "comment", who: i.author?.login, at: i.createdAt, url: i.url, preview: preview(i.bodyText) });
         else if (i.__typename === "PullRequestReview" && i.submittedAt) out.push({ id: i.id, kind: "review", state: i.state, who: i.author?.login, at: i.submittedAt, url: i.url, preview: preview(i.bodyText) });
-        else if (i.__typename === "PullRequestCommit" && i.commit?.oid) out.push({ id: i.commit.oid, kind: "push", who: pr.author?.login, at: i.commit.committedDate, url: i.url, preview: preview(i.commit.messageHeadline) });
+        else if (i.__typename === "PullRequestCommit" && i.commit?.oid) out.push({ id: i.commit.oid, kind: "push", who: pr.author?.login, at: i.commit.committedDate, url: i.url, preview: preview(i.commit.messageHeadline), ...(i.commit.baseOnly ? { baseMerge: true } : {}) });
     }
     return out.sort((a, b) => ts(a.at) - ts(b.at)).slice(-15);
 }
@@ -530,8 +570,8 @@ export function duration(sinceIso, now = Date.now()) {
 function activity(pr, ext) {
     const author = pr.author?.login;
     const items = ext?.timelineItems?.nodes || [];
-    const pushes = items.map((i) => i.__typename === "PullRequestCommit" ? i.commit?.committedDate : i.__typename === "HeadRefForcePushedEvent" ? i.createdAt : null);
-    const lastPush = maxIso(...pushes, ext?.commits?.nodes?.[0]?.commit?.committedDate);
+    // Merging the base branch in isn't new work, so it doesn't count as the author responding.
+    const lastPush = realLastPush(ext);
     const authorTalk = items.filter((i) => i.author?.login === author && (i.__typename === "IssueComment" || i.__typename === "PullRequestReview")).map((i) => i.createdAt || i.submittedAt);
     const readyAt = maxIso(...items.filter((i) => i.__typename === "ReadyForReviewEvent").map((i) => i.createdAt)) || pr.createdAt;
     const requestedAt = maxIso(...items.filter((i) => i.__typename === "ReviewRequestedEvent").map((i) => i.createdAt));
@@ -729,7 +769,8 @@ function tracking(pr, data, local, ext) {
     const items = ext?.timelineItems?.nodes || [];
     const viewerReviewAt = maxIso(...items.filter((i) => i.__typename === "PullRequestReview" && i.author?.login === viewer).map((i) => i.submittedAt),
         ...(pr.latestReviews || []).filter((r) => r.author?.login === viewer).map((r) => r.submittedAt));
-    const lastPush = maxIso(...items.map((i) => i.__typename === "PullRequestCommit" ? i.commit?.committedDate : i.__typename === "HeadRefForcePushedEvent" ? i.createdAt : null), ext?.commits?.nodes?.[0]?.commit?.committedDate);
+    const reviewShas = reviewShasOf(pr, ext);
+    const lastPush = realLastPush(ext);
     const requested = (pr.reviewRequests || []).some((r) => r.login === viewer);
     const reviewWork = !!(local.prReview || local.draft || ["review", "post"].includes(local.agent?.kind));
     let section = "other";
@@ -741,7 +782,7 @@ function tracking(pr, data, local, ext) {
     // pr-review state: ran here (and on which commit), or a human review on GitHub.
     let review;
     const pv = local.prReview;
-    if (pv?.headSha && pr.headRefOid && pv.headSha !== pr.headRefOid) review = { state: "stale", label: "Re-run needed", text: `pr-review ran on an older commit (${pv.headSha.slice(0, 7)}); new commits landed since.`, at: pv.at };
+    if (pv?.headSha && pr.headRefOid && !reviewShas.includes(pv.headSha)) review = { state: "stale", label: "Re-run needed", text: `pr-review ran on an older commit (${pv.headSha.slice(0, 7)}); new commits landed since.`, at: pv.at };
     else if (pv) review = { state: "done", label: pv.result === "posted" ? "Posted" : "Drafted", text: pv.result === "posted" ? `Review posted${pv.event ? ` (${pv.event.replace("_", " ")})` : ""}.` : "A pr-review draft is ready.", at: pv.at };
     else if (local.draft) review = { state: "done", label: local.draft.postedAt ? "Posted" : "Drafted", text: local.draft.postedAt ? "Review posted." : "A pr-review draft is ready.", at: local.draft.postedAt || local.draft.attachedAt };
     else if (local.agent?.kind === "post" && local.agent.status === "done") review = { state: "done", label: "Posted", text: local.agent.outcome || "Review posted.", at: local.agent.updatedAt };
@@ -762,7 +803,7 @@ function tracking(pr, data, local, ext) {
     if (!pv && local.draft?.postedAt) story.push({ at: local.draft.postedAt, text: "Review posted" });
     if (lastPush) story.push({ at: lastPush, text: `${pr.author?.login || "Author"} pushed` });
     story.sort((a, b) => String(a.at).localeCompare(String(b.at)));
-    return { section, review, story: story.slice(-3), headSha: pr.headRefOid || null, viewerReviewAt };
+    return { section, review, story: story.slice(-3), headSha: pr.headRefOid || null, reviewShas, viewerReviewAt };
 }
 
 export function buildCards(data, localPrs) {
@@ -792,6 +833,7 @@ export function buildCards(data, localPrs) {
             review: t.review,
             story: t.story,
             headSha: t.headSha,
+            reviewShas: t.reviewShas,
             who: c.who,
             shippable: !!c.shippable,
             myReviewAt: maxIso(t.viewerReviewAt, my?.submittedAt),

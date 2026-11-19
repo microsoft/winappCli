@@ -2858,8 +2858,8 @@ function unseenEvents(c, since = null) {
 }
 function eventsText(evs) {
   const by = new Map();
-  for (const e of evs) { const x = by.get(e.who) || { push: 0, comment: null, review: null }; if (e.kind === "push") x.push++; else if (e.kind === "review") x.review = e; else x.comment = e; by.set(e.who, x); }
-  return [...by].map(([who, x]) => [x.push ? `pushed ${x.push} commit${x.push === 1 ? "" : "s"}` : "", x.review ? `${x.review.state === "APPROVED" ? "approved" : x.review.state === "CHANGES_REQUESTED" ? "requested changes" : "reviewed"}` : "", x.comment ? `commented “${(x.comment.preview || "").slice(0, 80)}${(x.comment.preview || "").length > 80 ? "…" : ""}”` : ""].filter(Boolean).join(", ").replace(/^/, `${who} `)).join("; ");
+  for (const e of evs) { const x = by.get(e.who) || { push: 0, merged: false, comment: null, review: null }; if (e.kind === "push" && e.baseMerge) x.merged = true; else if (e.kind === "push") x.push++; else if (e.kind === "review") x.review = e; else x.comment = e; by.set(e.who, x); }
+  return [...by].map(([who, x]) => [x.push ? `pushed ${x.push} commit${x.push === 1 ? "" : "s"}` : "", x.merged ? "merged main" : "", x.review ? `${x.review.state === "APPROVED" ? "approved" : x.review.state === "CHANGES_REQUESTED" ? "requested changes" : "reviewed"}` : "", x.comment ? `commented “${(x.comment.preview || "").slice(0, 80)}${(x.comment.preview || "").length > 80 ? "…" : ""}”` : ""].filter(Boolean).join(", ").replace(/^/, `${who} `)).join("; ");
 }
 const plainLine = (s) => String(s || "").replace(/\[\[[^\]]+\]\]/g, "").replace(/[*_`#>]/g, "").replace(/\s+/g, " ").trim();
 function whatChangedLine(c) {

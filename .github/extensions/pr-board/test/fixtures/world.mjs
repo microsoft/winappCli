@@ -63,7 +63,7 @@ export function createWorld({ now = Date.now() } = {}) {
     });
     const activityNode = (p) => ({
         number: p.number, mergeStateStatus: "BLOCKED", autoMergeRequest: null, commits: { nodes: [{ commit: { committedDate: ago(p.updated + 5) } }] },
-        timelineItems: { nodes: [{ __typename: "PullRequestCommit", url: `${url("pull", p.number)}/commits/${(p.head || HEAD[p.number])}`, commit: { oid: (p.head || HEAD[p.number]), committedDate: ago(p.updated + 5), messageHeadline: "Make the change" } }, ...(p.requestedMin ? [{ __typename: "ReviewRequestedEvent", createdAt: ago(p.requestedMin) }] : []), ...p.reviews.map((r, k) => ({ __typename: "PullRequestReview", id: `PRR_${p.number}_${k}`, url: `${url("pull", p.number)}#pullrequestreview-${k}`, bodyText: "", ...r })), ...(p.events || [])] },
+        timelineItems: { nodes: [{ __typename: "PullRequestCommit", url: `${url("pull", p.number)}/commits/${HEAD[p.number] || p.head}`, commit: { oid: HEAD[p.number] || p.head, committedDate: ago(p.updated + 5), messageHeadline: "Make the change" } }, ...(p.requestedMin ? [{ __typename: "ReviewRequestedEvent", createdAt: ago(p.requestedMin) }] : []), ...p.reviews.map((r, k) => ({ __typename: "PullRequestReview", id: `PRR_${p.number}_${k}`, url: `${url("pull", p.number)}#pullrequestreview-${k}`, bodyText: "", ...r })), ...(p.events || [])] },
     });
     const readinessJson = (p) => ({
         number: p.number, url: url("pull", p.number), headRefOid: (p.head || HEAD[p.number]), headRefName: p.headRefName, baseRefName: "main", isDraft: p.isDraft, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", body: p.body,
@@ -123,6 +123,19 @@ export function createWorld({ now = Date.now() } = {}) {
         addPr({ number, title, author, requested = [], ci = "SUCCESS" }) {
             world.prs.push({ number, title, author, requested, isDraft: false, reviewDecision: "REVIEW_REQUIRED", labels: [], reviews: [], headRefName: `branch-${number}`, head: sha(number), body: "New PR.", created: 30, updated: 20, checks: [check("build-and-package", ci)] });
         },
+        otherMerges: new Set(), // second parents of merges that bring in more than the base branch
+        // The author merges main into the PR ("Update branch"): a merge commit whose second parent is on main.
+        mergeMain(n) { return world.merge(n, `m${n}`.padEnd(40, "0"), "Merge branch 'main' into the PR"); },
+        // A merge of something that isn't on main yet (or with conflict fixes): it's real work.
+        mergeOther(n) { const second = `e${n}`.padEnd(40, "0"); world.otherMerges.add(second); return world.merge(n, second, "Merge branch 'feature-x'"); },
+        merge(n, second, message) {
+            const p = world.prs.find((x) => x.number === n);
+            const oid = sha(n, `merge${second[0]}${(p.events || []).length}`);
+            (p.events ||= []).push({ __typename: "PullRequestCommit", url: `${url("pull", n)}/commits/${oid}`, commit: { oid, committedDate: new Date().toISOString(), messageHeadline: message, parents: { totalCount: 2, nodes: [{ oid: p.head || HEAD[n] }, { oid: second }] } } });
+            p.head = oid;
+            p.updated = 0;
+            return oid;
+        },
         // The PR's author pushes a commit.
         push(n, message = "Address the review") {
             const p = world.prs.find((x) => x.number === n);
@@ -162,7 +175,7 @@ export function createWorld({ now = Date.now() } = {}) {
             if (a === `api repos/${REPO}/rules/branches/main`) return [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "build-and-package" }] } }];
             if (a === `api repos/${REPO}/branches/main/protection/required_status_checks`) throw new Error("HTTP 404: Branch not protected");
             if (a.startsWith(`api repos/${REPO}/compare/`) && a.endsWith("--jq .behind_by")) return "0\n";
-            if (a.startsWith(`api repos/${REPO}/compare/`) && a.endsWith("--jq .status")) return "behind\n";
+            if (a.startsWith(`api repos/${REPO}/compare/`) && a.endsWith("--jq .status")) return world.otherMerges.has(a.split("...")[1].split(" ")[0]) ? "diverged\n" : "behind\n";
             if (a === `api repos/${REPO}/compare/main...fix-203-settings`) return branchCompare;
             if (a.startsWith(`api repos/${REPO}/compare/ffffffff`)) throw new Error("HTTP 404: No common ancestor (the commit is gone)");
             if (a.startsWith(`api repos/${REPO}/compare/`)) return { status: "ahead", ahead_by: 1, commits: [{ sha: "c".repeat(40), author: { login: "bob" }, commit: { message: "Address review", author: { date: ago(30) } } }], files: [{ filename: "src/auth.js", status: "modified", additions: 5, deletions: 2 }] };

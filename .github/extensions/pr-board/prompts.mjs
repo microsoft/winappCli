@@ -227,7 +227,7 @@ const LAYER_NAME = { notice: "layer 1: notice and summarize", rereview: "layer 2
 const VERB = { notice: "summarize what changed on", rereview: "re-review", firstReview: "first review of", issues: "follow up on" };
 
 function eventLines(events = []) {
-    return events.slice(-8).map((e) => `- ${e.at} ${e.who} ${e.kind === "push" ? `pushed ${String(e.id).slice(0, 7)}` : e.kind === "review" ? `reviewed (${String(e.state || "").toLowerCase().replace(/_/g, " ")})` : "commented"}${e.preview ? `: "${e.preview}"` : ""}${e.url ? ` (${e.url})` : ""}`);
+    return events.slice(-8).map((e) => `- ${e.at} ${e.who} ${e.kind === "push" ? (e.baseMerge ? `merged the base branch in (${String(e.id).slice(0, 7)}, nothing else changed)` : `pushed ${String(e.id).slice(0, 7)}`) : e.kind === "review" ? `reviewed (${String(e.state || "").toLowerCase().replace(/_/g, " ")})` : "commented"}${e.preview ? `: "${e.preview}"` : ""}${e.url ? ` (${e.url})` : ""}`);
 }
 const WHAT_CHANGED_LINE = (card, repo) => `Write "What changed since you last looked" with \`pr_board_set_what_changed\` \`{ repo: "${repo}", ${ref(card)}, text }\`: 2-4 plain sentences (Markdown) on who did what, which files changed and how, and which of our earlier asks (review findings, thread) are addressed or still open. For example: "zateutsch kept empty/null rootHandle meaning the whole tree, as #1338 asked, and fixed the call hint. 2 files; the test now expects the whole tree."`;
 

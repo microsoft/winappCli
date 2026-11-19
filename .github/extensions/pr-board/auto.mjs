@@ -107,15 +107,18 @@ export function candidates(snap, settings, now = Date.now()) {
         }
 
         if (kind === "pr" && !mine && !c.isDraft && !c.queue) {
-            // Layer 2: a PR we reviewed has a newer head than the one we reviewed.
+            // Layer 2: a PR we reviewed has new real commits. Merges that only bring the base branch in (and
+            // their pushes) don't count: a review of the latest real commit still covers the head.
             const reviewed = l.prReview?.headSha || l.review?.headSha || null;
-            const pushes = (c.activity || []).filter((e) => e.kind === "push");
+            const covers = c.reviewShas?.length ? c.reviewShas : [c.headSha];
+            const realHead = covers[0];
+            const pushes = (c.activity || []).filter((e) => e.kind === "push" && !e.baseMerge);
             const lastPush = pushes.at(-1);
             const pushedSinceGitHubReview = c.myReviewAt && lastPush && ts(lastPush.at) > ts(c.myReviewAt);
-            if (settings.layers.rereview && c.headSha && ((reviewed && reviewed !== c.headSha) || (!reviewed && pushedSinceGitHubReview))) {
+            if (settings.layers.rereview && realHead && ((reviewed && !covers.includes(reviewed)) || (!reviewed && pushedSinceGitHubReview))) {
                 const who = lastPush?.who || c.author;
-                add({ layer: "rereview", key: `rereview:${c.headSha}`, priority: 1,
-                    reason: `${who} pushed ${short(c.headSha)}`, readyAt: ts(lastPush?.at) + settings.stableMin * 60_000, head: c.headSha, events: fresh });
+                add({ layer: "rereview", key: `rereview:${realHead}`, priority: 1,
+                    reason: `${who} pushed ${short(realHead)}`, readyAt: ts(lastPush?.at) + settings.stableMin * 60_000, head: realHead, events: fresh });
                 picked = true;
             }
             // Layer 3: a ready PR nobody here has reviewed.
@@ -141,7 +144,8 @@ export function candidates(snap, settings, now = Date.now()) {
         if (!picked && settings.layers.notice && involved(c) && knows && fresh.length) {
             const last = fresh.at(-1);
             const who = [...new Set(fresh.map((e) => e.who))].join(", ");
-            add({ layer: "notice", key: `notice:${last.id}`, priority: 0, reason: `new activity from ${who}`, readyAt: ts(last.at) + settings.stableMin * 60_000, events: fresh });
+            const why = fresh.every((e) => e.baseMerge) ? `${who} merged the base branch in (no new changes of their own)` : `new activity from ${who}`;
+            add({ layer: "notice", key: `notice:${last.id}`, priority: 0, reason: why, readyAt: ts(last.at) + settings.stableMin * 60_000, events: fresh });
         }
     }
     return out;

@@ -265,6 +265,23 @@ export function register(test) {
         assert.ok(await exists(page, '#overview .ym-card [data-act="ball-post"][data-pr="104"]'), "no Post review… button");
     }, { changesGitHub: true });
 
+    test("layer 2: merging main into a PR you reviewed isn't new work; a merge with other changes is", async (ctx) => {
+        const { page, world } = ctx;
+        await autoOn(ctx);
+        const m = world.mergeMain(104);
+        await refresh(ctx);
+        await waitForSend(ctx, /\(layer 1/);
+        await sleep(400);
+        assert.equal(autoPrompts(ctx).filter((s) => /\(layer 2/.test(s.prompt)).length, 0, "a merge of main started a re-review");
+        assert.match(autoPrompts(ctx)[0].prompt, /merged the base branch in/);
+        assert.match(autoPrompts(ctx)[0].prompt, new RegExp(`merged the base branch in \\(${m.slice(0, 7)}, nothing else changed\\)`));
+        await ctx.board.tool("pr_board_set_what_changed", { repo: REPO, pr: 104, text: "bob merged main in; nothing else changed." });
+        await page.waitFor(`!/Re-run needed|Needs re-review/.test(${waitingRow(104, "pr")}?.innerText || '')`, 3000);
+        const other = world.mergeOther(104);
+        await refresh(ctx);
+        await waitForSend(ctx, new RegExp(`re-review contoso/widgets#104 .*pushed ${other.slice(0, 7)} \\(layer 2`));
+    }, { changesGitHub: true });
+
     test("layer 3: off by default; turned on, it drafts a first review of a ready PR you're asked on", async (ctx) => {
         const { world } = ctx;
         world.addPr({ number: 109, title: "Add a retry budget", author: "dana", requested: ["me"] });
