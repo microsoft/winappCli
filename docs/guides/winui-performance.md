@@ -263,6 +263,9 @@ Longest passes (expand with --view call --id <id>):
   c4688 235.465 ms; requested by App (component 1), 1 request
 Passes requested by: App 186 (3773.696 ms); not requested by a component: 1
 Reconcile edits: inserted 188, removed 178, moved 182, replaced 9
+Updates that changed nothing: 120 of 280; memo hit rate 41.2% (68 skipped, 97 rendered past the memo); setState calls in renders and effects: 214
+  Wasted renders: SlowPanel, 88 of 92 updates changed nothing
+  SetState fan-out: Loader, 12 setState calls in one render or effects pass (36 in range)
 
 ── Components ─────────────────────────────────────────
 Component                                  Inclusive  Exclusive   Renders
@@ -270,6 +273,7 @@ SlowPanel                                   2791.181   2791.181        97
   mean=28.775; max=86.277; p95=42.264 ms; instances=5; elements created=6
   reasons: props 92, mount 5
   created at: Program.cs:51
+  changed nothing=88; memo hit rate=0.0% (0 skipped, 92 rendered past the memo); setState calls=0 (max 0 in one pass)
 ```
 
 - **Inclusive** is a component's render, effects, and the reconcile of the subtree
@@ -280,6 +284,16 @@ SlowPanel                                   2791.181   2791.181        97
 - **Reasons** say why it rendered: `mount`, `state`, `props`, `context`,
   `parent` (nothing let it skip the render), `hotReload`, or `forced`. Many
   `parent` or `props` renders of a cheap component can point to a missing memo.
+- **Changed nothing** counts updates (renders other than the first mount) after
+  which no control was created, updated, removed, or moved, so the render was
+  wasted. Reactor errs toward reporting a change, so a count here is never a
+  false alarm. **Memo hit rate** is the share of memo checks that skipped the
+  render. A component that renders past its memo and then changes nothing usually
+  gets a new lambda, array, or record instance in its props on every render.
+- **setState calls** count the state writes a component's renders and effects
+  made (for a window's root, its effects too), and the most made in one pass. Many
+  writes in one pass is a fan-out worth batching. The pass summary calls out
+  components with at least 3 wasted updates, or with 5 or more writes in one pass.
 - **Elements created** counts WinUI elements created while that component's
   render was the innermost one. The `elements` view also shows the owning component.
 - Rows that a virtualized list realizes during layout run outside any render
@@ -300,11 +314,13 @@ SlowPanel                                   2791.181   2791.181        97
 
 Reactor passes run between frames, so a slow pass can leave every frame fast.
 `hotspots` lists long passes next to long frames, and `--view calls --family reactor`
-lists every pass, component render, and reconcile.
+lists every pass, component render, and reconcile. Both mark a render that
+changed nothing and show its setState calls.
 
 The spans require a Reactor version that writes the `Microsoft-UI-Reactor-Perf`
-events. Requesters, reconcile edits, call sites, and render-function names need a
-newer Reactor; without them those lines are left out. With an older Reactor, the
+events. Requesters, reconcile edits, call sites, render-function names, and the
+changed-nothing, memo, and setState counts need a newer Reactor; without them
+those lines are left out. With an older Reactor, the
 report is the same as for any WinUI app and
 `--view components` explains that no Reactor spans were recorded. Recordings made
 before winapp supported Reactor spans cannot gain them; record again.
@@ -474,7 +490,7 @@ checks fail, remove **only** that capture's `analysis` directory and analyze aga
 
 Recording uses the target PID and native XAML, XAML diagnostics, XAML operational,
 and Controls.Perf providers, plus optional CLR GC, DirectComposition, and Reactor
-(`Microsoft-UI-Reactor-Perf`, render passes and component renders only) events. Controls.Debug, kernel
+(`Microsoft-UI-Reactor-Perf`, render passes, component renders, and memo skips only) events. Controls.Debug, kernel
 tracing, CPU sampling, and EventPipe are not enabled. Where Windows rejects a
 narrower event-ID filter, PID filtering stays enabled and the corresponding
 `providerStates` entry has `eventIdFilterApplied: false`.

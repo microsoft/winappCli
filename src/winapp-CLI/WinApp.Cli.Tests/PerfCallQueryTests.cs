@@ -835,6 +835,76 @@ public class PerfCallQueryTests
         Assert.AreEqual("inserted:1,removed:4,moved:2,replaced:1",
             string.Join(',', passes.ReconcileEdits!.Select(e => e.Key + ":" + e.Value)));
         Assert.AreEqual("MainPage.cs:40", result.Rows.Single().CallSites!.Single(), "An empty call site is not reported.");
+        Assert.IsNull(passes.WastedWork, "Revision 2 must not report zero wasted work.");
+        Assert.IsNull(result.Rows.Single().WastedRenders);
+        Assert.IsNull(result.Rows.Single().MemoHitRate);
+    }
+
+    [TestMethod]
+    public void ComponentsViewReportsRevisionThreeWastedWorkPerComponentAndInTotal()
+    {
+        Dictionary<string, string> Rev3(string id, string reason, bool memoMiss, int changes, int stateSets) => new()
+        {
+            ["componentId"] = id, ["reason"] = reason, ["memoMiss"] = memoMiss ? "true" : "false",
+            ["changes"] = changes.ToString(), ["stateSets"] = stateSets.ToString(),
+        };
+        var calls = new List<PerfCall>
+        {
+            Reactor("p1", "ReactorRenderPass", 0, 50),
+            Reactor("app", "ReactorRender:App", 1, 40, "p1") with { Attributes = Rev3("1", "state", false, 2, 1) },
+            Reactor("mount", "ReactorRender:Row", 2, 3, "app") with { Attributes = Rev3("10", "mount", false, 0, 0) },
+            Reactor("loader", "ReactorRender:Loader", 30, 35, "app") with { Attributes = Rev3("30", "parent", false, 1, 7) },
+            // A revision-2 component in the same capture (older host) reports no revision 3 fields.
+            Reactor("legacy", "ReactorRender:Legacy", 36, 37, "app"),
+            Reactor("effects", "ReactorEffects", 41, 42, "p1") with { Attributes = new() { ["componentId"] = "1", ["stateSets"] = "2" } },
+        };
+        for (var i = 0; i < 4; i++)
+        {
+            calls.Add(Reactor($"row{i}", "ReactorRender:Row", 4 + i * 5, 8 + i * 5, "app") with
+            {
+                Attributes = Rev3("10", "props", true, i == 3 ? 1 : 0, 0),
+            });
+        }
+        PerfEvent Skip(double time, string id, string name) => PerfGcTests.Event("ReactorComponentSkip", time) with
+        {
+            Id = "vskip" + time, Provider = PerfProviders.Reactor, Family = "reactor",
+            Fields = new() { ["componentId"] = id, ["name"] = name },
+        };
+        var byId = calls.ToDictionary(c => c.Id);
+        PerfEvent[] events =
+        [
+            RenderBegin(byId["app"], "1", "state"), RenderBegin(byId["mount"], "10", "mount"),
+            RenderBegin(byId["loader"], "30", "parent"), RenderBegin(byId["legacy"], "40", "parent"),
+            .. Enumerable.Range(0, 4).Select(i => RenderBegin(byId[$"row{i}"], "10", "props")),
+            Skip(20, "10", "Row"), Skip(21, "10", "Row"), Skip(22, "99", "Header"), Skip(80, "10", "Row"),
+        ];
+        using var fixture = new Fixture(calls, events);
+
+        var result = fixture.Query(new(View: "components", Limit: 100, ToMs: 60));
+
+        var rows = result.Rows.ToDictionary(r => r.Name!);
+        var row = rows["Row"];
+        Assert.AreEqual(3, row.WastedRenders, "Three props updates changed nothing; the mount is not an update.");
+        Assert.AreEqual(4, row.MemoMisses);
+        Assert.AreEqual(2, row.MemoSkips, "The skip after the range is not counted.");
+        Assert.AreEqual(0.3333, row.MemoHitRate);
+        Assert.AreEqual(3, rows["App"].StateSets, "The root's effects count toward the root.");
+        Assert.AreEqual(2, rows["App"].MaxStateSets);
+        Assert.IsNull(rows["App"].MemoHitRate, "No memo gate ran for App.");
+        Assert.AreEqual(0, rows["Header"].Count);
+        Assert.AreEqual(1d, rows["Header"].MemoHitRate);
+        Assert.IsNull(rows["Legacy"].WastedRenders);
+        Assert.IsNull(rows["Legacy"].StateSets);
+
+        var waste = result.ReactorPasses!.WastedWork!;
+        Assert.AreEqual(6, waste.Updates);
+        Assert.AreEqual(3, waste.WastedRenders);
+        Assert.AreEqual(3, waste.MemoSkips);
+        Assert.AreEqual(4, waste.MemoMisses);
+        Assert.AreEqual(10, waste.StateSets);
+        Assert.AreEqual(
+            "wasted-renders:Row:3/4,setstate-fan-out:Loader:7/7",
+            string.Join(',', waste.Insights.Select(i => $"{i.Kind}:{i.Component}:{i.Count}/{i.Total}")));
     }
 
     [TestMethod]
@@ -850,7 +920,10 @@ public class PerfCallQueryTests
             {
                 Attributes = new() { ["hostId"] = "1", ["requesterId"] = $"{i + 1}", ["requesterName"] = longName + i, ["requestCount"] = "1" },
             };
-            var render = Reactor($"r{i}", "ReactorRender:" + longName, start + 1d, start + 9d, pass.Id);
+            var render = Reactor($"r{i}", "ReactorRender:" + longName, start + 1d, start + 9d, pass.Id) with
+            {
+                Attributes = new() { ["componentId"] = $"{i + 10}", ["reason"] = "state", ["changes"] = "0", ["stateSets"] = "5" },
+            };
             calls.Add(pass);
             calls.Add(render);
             events.Add(RenderBegin(render, $"{i + 10}", "state") with { Fields = new()
@@ -869,6 +942,8 @@ public class PerfCallQueryTests
         Assert.AreEqual(full.ReactorPasses.TotalMs, result.ReactorPasses.TotalMs);
         Assert.AreEqual(5, result.ReactorPasses.Requesters!.Count);
         Assert.IsTrue(result.ReactorPasses.Requesters.All(r => r.Name.Length <= 80));
+        Assert.HasCount(2, result.ReactorPasses.WastedWork!.Insights);
+        Assert.IsTrue(result.ReactorPasses.WastedWork.Insights.All(i => i.Component.Length <= 80));
         Assert.AreEqual(full.ReactorPasses.LongestPasses[0].Id, result.ReactorPasses.LongestPasses[0].Id);
         Assert.AreEqual(full.Rows.Single().Count, result.Rows.Single().Count);
         Assert.IsLessThanOrEqualTo(4096, JsonSerializer.SerializeToUtf8Bytes(result, PerfJsonContext.Default.PerfQueryResult).Length);

@@ -21,11 +21,24 @@ internal sealed record PerfActivityRow(string Category, double ObservedMs, doubl
 /// <summary>Reactor render passes wholly inside the selected range, plus rows reconciled outside any pass.</summary>
 internal sealed record PerfReactorPassSummary(int Count, double TotalMs, double? MeanMs, double? MaxMs, double? P95Ms,
     List<PerfReactorPass> LongestPasses, int OutsidePassReconciles, double OutsidePassReconcileMs,
-    List<PerfReactorRequester>? Requesters = null, int? UnrequestedPasses = null, Dictionary<string, int>? ReconcileEdits = null);
+    List<PerfReactorRequester>? Requesters = null, int? UnrequestedPasses = null, Dictionary<string, int>? ReconcileEdits = null,
+    PerfReactorWastedWork? WastedWork = null);
 /// <summary>Requester fields are null when the Reactor version did not record them (schema revision 1).</summary>
 internal sealed record PerfReactorPass(string Id, double DurationMs, string? RequesterId, string? RequesterName, int? RequestCount);
 /// <summary>A component whose re-render request scheduled passes in the range.</summary>
 internal sealed record PerfReactorRequester(string Name, int Passes, double TotalMs);
+/// <summary>
+/// Reactor schema revision 3 totals for the range: updates (non-mount renders) that changed no control, memo
+/// hits and misses, and state-setter calls made by renders and effects. Null for older Reactor versions.
+/// </summary>
+internal sealed record PerfReactorWastedWork(int Updates, int WastedRenders, int MemoSkips, int MemoMisses, double? MemoHitRate,
+    int StateSets, List<PerfReactorInsight> Insights);
+/// <summary>
+/// A component worth a look. <c>wasted-renders</c>: <see cref="Count"/> of its <see cref="Total"/> updates changed
+/// nothing. <c>setstate-fan-out</c>: one render or effects pass made <see cref="Count"/> state-setter calls,
+/// <see cref="Total"/> in the range.
+/// </summary>
+internal sealed record PerfReactorInsight(string Kind, string Component, int Count, int Total);
 
 internal sealed class PerfParsingResource
 {
@@ -81,6 +94,18 @@ internal sealed class PerfQueryRow
     public int? CreatedElements { get; init; }
     /// <summary>Components view: the most common C# call sites that created this component (Reactor source map).</summary>
     public string[]? CallSites { get; set; }
+    /// <summary>Components view (Reactor schema revision 3): updates (non-mount renders) that changed no control.</summary>
+    public int? WastedRenders { get; init; }
+    /// <summary>Components view (revision 3): renders its memo gate skipped.</summary>
+    public int? MemoSkips { get; init; }
+    /// <summary>Components view (revision 3): renders its memo gate evaluated and let through.</summary>
+    public int? MemoMisses { get; init; }
+    /// <summary>Components view (revision 3): memo skips / (skips + misses); null when no memo gate ran.</summary>
+    public double? MemoHitRate { get; init; }
+    /// <summary>Components view (revision 3): state-setter calls made by its renders and, for a root, its effects.</summary>
+    public int? StateSets { get; init; }
+    /// <summary>Components view (revision 3): the most state-setter calls made by one of its render or effects passes.</summary>
+    public int? MaxStateSets { get; init; }
     public string[] Evidence { get; set; } = [];
     public bool Projected { get; set; }
 }
@@ -221,6 +246,7 @@ internal static class PerfQuery
         var gcDecoded = 0;
         var parsingEvents = new Dictionary<string, PerfEvent>(StringComparer.Ordinal);
         var renderEvents = new Dictionary<string, PerfEvent>(StringComparer.Ordinal);
+        var skipEvents = new List<PerfEvent>();
         foreach (var e in PerfAnalysisStore.Read(analysis, "events.ndjson", PerfJsonContext.Default.PerfEvent))
         {
             if (e.Family == "parsing" && e.Phase == "begin" &&
@@ -232,6 +258,11 @@ internal static class PerfQuery
                 ReactorEventDecoder.ComponentName(e.Name) is not null)
             {
                 renderEvents[e.Id] = e;
+            }
+            if (options.View == "components" && e.Name == ReactorEventDecoder.Skip && e.Family == ReactorEventDecoder.Family &&
+                e.DecodeError is null && e.TimeMs >= from && e.TimeMs <= to && (options.Thread is null || e.Thread == options.Thread))
+            {
+                skipEvents.Add(e);
             }
             if (e.Family == "gc")
             {
@@ -311,7 +342,7 @@ internal static class PerfQuery
         }
         else if (options.View == "components")
         {
-            rows = ComponentRows(calls, renderEvents, elements.Values, options, range, out passSummary);
+            rows = ComponentRows(calls, renderEvents, skipEvents, elements.Values, options, range, out passSummary);
         }
         else if (options.View == "parsing")
         {
@@ -853,10 +884,37 @@ internal static class PerfQuery
         public double? Exclusive { get; set; } = 0;
         public int Overlaps { get; set; }
         public double Clipped { get; set; }
+        /// <summary>True once a Reactor schema revision 3 field or event was recorded for this component.</summary>
+        public bool Revision3 { get; set; }
+        public int Updates { get; set; }
+        public int Wasted { get; set; }
+        public int MemoSkips { get; set; }
+        public int MemoMisses { get; set; }
+        public int StateSets { get; set; }
+        public int MaxStateSets { get; set; }
+
+        public void AddStateSets(int? count)
+        {
+            if (count is { } value)
+            {
+                Revision3 = true;
+                StateSets += value;
+                MaxStateSets = Math.Max(MaxStateSets, value);
+            }
+        }
     }
 
+    /// <summary>A component is called out for wasted renders once this many of its updates changed nothing.</summary>
+    internal const int WastedRenderInsightMinimum = 3;
+    /// <summary>
+    /// A component is called out for setState fan-out when one render or effects pass makes at least this many
+    /// state-setter calls (Reactor spec 023's PERF005 leaves the threshold to the tool).
+    /// </summary>
+    internal const int StateSetFanOutThreshold = 5;
+
     private static List<PerfQueryRow> ComponentRows(List<PerfCall> calls, Dictionary<string, PerfEvent> renderEvents,
-        IEnumerable<PerfElement> elements, PerfQueryOptions options, PerfRange range, out PerfReactorPassSummary passes)
+        List<PerfEvent> skipEvents, IEnumerable<PerfElement> elements, PerfQueryOptions options, PerfRange range,
+        out PerfReactorPassSummary passes)
     {
         var byId = calls.ToDictionary(c => c.Id, StringComparer.Ordinal);
         var reactor = calls.Where(c => c.Family == ReactorEventDecoder.Family &&
@@ -881,6 +939,25 @@ internal static class PerfQuery
         bool Inside(PerfCall call) => call.DurationMs is not null && call.StartMs >= range.FromMs && call.EndMs <= range.ToMs;
 
         var aggregates = new Dictionary<string, ComponentAggregate>(StringComparer.Ordinal);
+        ComponentAggregate AggregateFor(string name)
+        {
+            if (!aggregates.TryGetValue(name, out var aggregate))
+            {
+                aggregate = new(name);
+                aggregates.Add(name, aggregate);
+            }
+            return aggregate;
+        }
+        // Effects and ComponentSkip carry a componentId; its render Starts carry the name that joins them to a row.
+        var componentNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var start in renderEvents.Values)
+        {
+            if (start.Fields.GetValueOrDefault("componentId") is { } componentId &&
+                ReactorEventDecoder.ComponentName(start.Name) is { } componentName)
+            {
+                componentNames.TryAdd(componentId, componentName);
+            }
+        }
         var passCalls = new List<PerfCall>();
         var outsideCount = 0;
         var outsideMs = 0d;
@@ -921,15 +998,21 @@ internal static class PerfQuery
                 }
                 continue;
             }
+            if (call.Name == ReactorEventDecoder.Effects)
+            {
+                // A host root's effects run outside its render span, so their state writes are added to the root's row.
+                if (inside && ReactorEventDecoder.Count(call.Attributes, "stateSets") is { } effectSets &&
+                    call.Attributes!.GetValueOrDefault("componentId") is { } rootId && componentNames.TryGetValue(rootId, out var rootName))
+                {
+                    AggregateFor(rootName).AddStateSets(effectSets);
+                }
+                continue;
+            }
             if (ReactorEventDecoder.ComponentName(call.Name) is not { } name)
             {
                 continue;
             }
-            if (!aggregates.TryGetValue(name, out var aggregate))
-            {
-                aggregate = new(name);
-                aggregates.Add(name, aggregate);
-            }
+            var aggregate = AggregateFor(name);
             if (call.DurationMs is null)
             {
                 continue;
@@ -947,6 +1030,25 @@ internal static class PerfQuery
             {
                 aggregate.Inclusive += call.DurationMs.Value;
             }
+            // Schema revision 3: what the render achieved, whether a memo gate let it through, and its state writes.
+            if (ReactorEventDecoder.Count(call.Attributes, "changes") is { } changes)
+            {
+                aggregate.Revision3 = true;
+                if (call.Attributes!.GetValueOrDefault("reason") != "mount")
+                {
+                    aggregate.Updates++;
+                    if (changes == 0)
+                    {
+                        aggregate.Wasted++;
+                    }
+                }
+            }
+            if (ReactorEventDecoder.Flag(call.Attributes, "memoMiss") is { } memoMiss)
+            {
+                aggregate.Revision3 = true;
+                aggregate.MemoMisses += memoMiss ? 1 : 0;
+            }
+            aggregate.AddStateSets(ReactorEventDecoder.Count(call.Attributes, "stateSets"));
             if (call.BeginEvent is { } begin && renderEvents.TryGetValue(begin, out var start))
             {
                 if (start.Fields.GetValueOrDefault("componentId") is { } instance)
@@ -975,7 +1077,16 @@ internal static class PerfQuery
                 (threadInstances is null || e.ComponentId is not null && threadInstances.Contains(e.ComponentId)))
             .GroupBy(e => e.Component!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-        passes = PassSummary(passCalls, outsideCount, outsideMs, edits);
+        foreach (var skip in skipEvents)
+        {
+            var skipped = skip.Fields.GetValueOrDefault("componentId") is { } skippedId && componentNames.TryGetValue(skippedId, out var known) ? known
+                : skip.Fields.GetValueOrDefault("name") is { } recordedName && !string.IsNullOrWhiteSpace(recordedName) ? recordedName
+                : "(unnamed)";
+            var aggregate = AggregateFor(skipped);
+            aggregate.Revision3 = true;
+            aggregate.MemoSkips++;
+        }
+        passes = PassSummary(passCalls, outsideCount, outsideMs, edits) with { WastedWork = WastedWork(aggregates.Values) };
         var rows = aggregates.Values.Select(a =>
         {
             a.Durations.Sort();
@@ -994,6 +1105,12 @@ internal static class PerfQuery
                 CallSites = a.CallSites.Count > 0
                     ? a.CallSites.OrderByDescending(s => s.Value).ThenBy(s => s.Key, StringComparer.Ordinal).Take(3).Select(s => s.Key).ToArray()
                     : null,
+                WastedRenders = a.Revision3 ? a.Wasted : null,
+                MemoSkips = a.Revision3 ? a.MemoSkips : null,
+                MemoMisses = a.Revision3 ? a.MemoMisses : null,
+                MemoHitRate = HitRate(a.MemoSkips, a.MemoMisses),
+                StateSets = a.Revision3 ? a.StateSets : null,
+                MaxStateSets = a.Revision3 ? a.MaxStateSets : null,
                 Evidence = a.Evidence.ToArray(),
             };
         });
@@ -1006,6 +1123,29 @@ internal static class PerfQuery
     }
 
     internal static readonly string[] ReconcileEditNames = ["inserted", "removed", "moved", "replaced"];
+
+    private static double? HitRate(int skips, int misses) =>
+        skips + misses > 0 ? Math.Round((double)skips / (skips + misses), 4) : null;
+
+    private static PerfReactorWastedWork? WastedWork(IEnumerable<ComponentAggregate> components)
+    {
+        var recorded = components.Where(a => a.Revision3).ToList();
+        if (recorded.Count == 0)
+        {
+            return null;
+        }
+        var insights = recorded.Where(a => a.Wasted >= WastedRenderInsightMinimum)
+            .OrderByDescending(a => a.Wasted).ThenBy(a => a.Name, StringComparer.Ordinal).Take(3)
+            .Select(a => new PerfReactorInsight("wasted-renders", a.Name, a.Wasted, a.Updates))
+            .Concat(recorded.Where(a => a.MaxStateSets >= StateSetFanOutThreshold)
+                .OrderByDescending(a => a.MaxStateSets).ThenBy(a => a.Name, StringComparer.Ordinal).Take(3)
+                .Select(a => new PerfReactorInsight("setstate-fan-out", a.Name, a.MaxStateSets, a.StateSets)))
+            .ToList();
+        var skips = recorded.Sum(a => a.MemoSkips);
+        var misses = recorded.Sum(a => a.MemoMisses);
+        return new(recorded.Sum(a => a.Updates), recorded.Sum(a => a.Wasted), skips, misses, HitRate(skips, misses),
+            recorded.Sum(a => a.StateSets), insights);
+    }
 
     private static PerfReactorPassSummary PassSummary(List<PerfCall> passCalls, int outsideCount, double outsideMs,
         Dictionary<string, int>? edits)
@@ -1136,12 +1276,16 @@ internal static class PerfQuery
                 resource.Projected = true;
             }
             else if (result.ReactorPasses is { } passes && (passes.LongestPasses.Any(p => p.RequesterName is { Length: > 80 }) ||
-                passes.Requesters?.Any(r => r.Name.Length > 80) == true))
+                passes.Requesters?.Any(r => r.Name.Length > 80) == true ||
+                passes.WastedWork?.Insights.Any(i => i.Component.Length > 80) == true))
             {
                 result.ReactorPasses = passes with
                 {
                     LongestPasses = passes.LongestPasses.Select(p => p with { RequesterName = Clip(p.RequesterName, 80) }).ToList(),
                     Requesters = passes.Requesters?.Select(r => r with { Name = Clip(r.Name, 80)! }).ToList(),
+                    WastedWork = passes.WastedWork is { } waste
+                        ? waste with { Insights = waste.Insights.Select(i => i with { Component = Clip(i.Component, 80)! }).ToList() }
+                        : null,
                 };
             }
             else if (result.Limitations.Length > 1)

@@ -47,6 +47,7 @@ public class ReactorPerfTests
                 new() { ["inserted"] = "1", ["removed"] = "0", ["moved"] = "2", ["replaced"] = "0" }),
             (11, 0, "StateChange", "ReactorStateChange", "info", new() { ["componentId"] = "4", ["hook"] = "UseState", ["changed"] = "true" }),
             (12, 0, "KeyedListDiagnostic", "ReactorKeyedListDiagnostic", "info", new() { ["kind"] = "duplicateKey", ["bailedOut"] = "false" }),
+            (13, 0, "ComponentSkip", "ReactorComponentSkip", "info", new() { ["componentId"] = "5", ["name"] = "Header" }),
         };
         foreach (var (id, opcode, eventName, name, phase, fields) in expected)
         {
@@ -250,6 +251,40 @@ public class ReactorPerfTests
         Assert.IsFalse(calls.Single(c => c.Name == "ReactorRenderPass").Attributes!.ContainsKey("requesterId"));
         Assert.IsFalse(calls.Single(c => c.Name == "ReactorReconcile").Attributes!.ContainsKey("inserted"));
         Assert.IsNull(ReactorEventDecoder.CallSite(new() { ["componentId"] = "1" }));
+    }
+
+    [TestMethod]
+    public void RevisionThreeFieldsTravelOnCallsAndOlderRevisionsReadAsNotRecorded()
+    {
+        var calls = new List<PerfCall>();
+        var analyzer = new PerfAnalyzer(calls.Add);
+        foreach (var e in new[]
+        {
+            Decode(Raw(3, 1, "ComponentRender", new()
+            {
+                ["componentId"] = "2", ["name"] = "Row", ["reason"] = "props", ["memoMiss"] = "true",
+            }, 0)),
+            Decode(Raw(4, 2, "ComponentRender", new() { ["componentId"] = "2", ["changes"] = "0", ["stateSets"] = "3" }, 1)),
+            Decode(Raw(7, 1, "Effects", new() { ["componentId"] = "1" }, 2)),
+            Decode(Raw(8, 2, "Effects", new() { ["componentId"] = "1", ["stateSets"] = "4" }, 3)),
+        })
+        {
+            Assert.IsNull(e.DecodeError);
+            analyzer.Accept(e);
+        }
+        analyzer.Complete();
+
+        var row = calls.Single(c => c.Name == "ReactorRender:Row").Attributes!;
+        Assert.IsTrue(ReactorEventDecoder.Flag(row, "memoMiss"));
+        Assert.AreEqual(0, ReactorEventDecoder.Count(row, "changes"));
+        Assert.AreEqual(3, ReactorEventDecoder.Count(row, "stateSets"));
+        Assert.AreEqual(4, ReactorEventDecoder.Count(calls.Single(c => c.Name == ReactorEventDecoder.Effects).Attributes, "stateSets"));
+
+        Assert.IsFalse(ReactorEventDecoder.Flag(new() { ["memoMiss"] = "FALSE" }, "memoMiss"));
+        Assert.IsTrue(ReactorEventDecoder.Flag(new() { ["memoMiss"] = "1" }, "memoMiss"));
+        Assert.IsNull(ReactorEventDecoder.Flag(new() { ["componentId"] = "1" }, "memoMiss"), "Revision 2 has no memoMiss.");
+        Assert.IsNull(ReactorEventDecoder.Count(new() { ["componentId"] = "1" }, "changes"), "Revision 2 has no changes count.");
+        Assert.IsNull(ReactorEventDecoder.Count(new() { ["changes"] = "-1" }, "changes"));
     }
 
     [TestMethod]
