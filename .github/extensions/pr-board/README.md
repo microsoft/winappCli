@@ -225,11 +225,10 @@ with the unread dot and the start of what they wrote:
 - **Reviewer** (PRs): a review or comment from someone other than the author. If the
   board keeps that PR ready for review, the agent takes it instead of you.
 
-Only activity after the next step was set counts. For an item with a linked session,
-the board also asks the agent, once per comment, to summarize it in the item's
-thread. **Done** puts the item back to waiting until the next reply. Issues and PRs
-are read from GitHub on the same schedule: on open, on **Refresh**, and every 2
-minutes.
+Only activity after the next step was set counts. **Done** puts the item back to
+waiting until the next reply. Issues and PRs are read from GitHub on the same
+schedule: on open, on **Refresh**, and every 2 minutes. To have the agent summarize
+the reply and try what the reporter said, see [Proactive mode](#proactive-mode).
 
 ### Sync
 
@@ -504,6 +503,55 @@ human." **Post this as …** asks the agent to post it with
 `gh api repos/{owner}/{repo}/pulls/{n}/reviews`. If GitHub rejects an inline
 line, it posts everything in the summary instead.
 
+## Proactive mode
+
+The board can start work on its own, so that when you come back, things have
+already been read, re-reviewed and tried, and you only decide. **⚙ Auto** in the
+header shows what's running and up next, for example `Auto · 1 running · 2 up next`.
+**Pause auto** stops everything it would start on its own.
+
+It works in layers, each one on or off in the Auto panel:
+
+| Layer | On by default | Starts when | You get |
+|-------|---------------|-------------|---------|
+| 1 · Notice and summarize | Yes | Someone else comments, reviews or pushes on an item you're in | A **What changed** line on the row, and a box at the top of the panel: who did what, which files and how, and which of our asks are addressed |
+| 2 · Re-review after a push | Yes | A PR you reviewed has a newer commit | pr-review runs again, and the result lands in Your move, for example "Re-review done: both asks fixed → approve?" with **Post review…** |
+| 3 · First review | No | A ready PR (CI green, not a draft) that you're asked on, or that nobody here is on | A drafted review to post or not |
+| 4 · Issue follow-through | Yes | The reporter replies on an issue you're in | A summary, then an attempt to reproduce or validate it: "Reproduced", "Not reproduced" or "Fixed by #n", with evidence |
+| 5 · Keep ready | Per PR | Your own PRs, with **Get it ready & keep it ready** | As described above |
+
+```text
+Row:    PR #104 Rework auth token refresh
+          Agent: Auto: re-review because bob pushed 104aaaa
+          ↻ New: bob pushed 1 commit
+Panel:  What changed since you last looked · 12m ago
+          bob moved the refresh lock into TokenStore, which fixes "Two refreshes can race".
+```
+
+**When things start:**
+- After every GitHub read while the board is open.
+- When the board is closed, from `pr_board_tick`, which the coordinator can call on a schedule.
+
+**Limits**, set in the Auto panel:
+- How many run at a time (default 2). Sessions that are busy also count.
+- Runs per day (10).
+- The wait between runs on one item (30 min).
+- How long new commits or comments must be quiet before starting (5 min).
+- A machine check: skip when CPU is over 70% or free memory is under 4 GB.
+- Optional active hours.
+
+Summaries (layer 1) don't count against the first two limits. Each run starts once:
+once per commit for reviews, once per comment for issues.
+
+The panel lists each queued run with why it's waiting, for example "waiting for a
+free slot (2 of 2 busy)". **Run now** starts it anyway, even while paused, and
+**Skip** drops it.
+
+**Guardrails, always on:** auto work never posts, approves, requests changes,
+merges, labels or comments on GitHub, and never pushes to someone else's branch. It
+drafts, and you decide. Every run is logged on the item's timeline, for example
+`Auto · re-review after a push because bob pushed 104aaaa (layer 2)`.
+
 ## What the buttons do
 
 Nothing is posted, approved, or merged unless you click the button for it.
@@ -540,6 +588,9 @@ Every request from the board tells the agent which of these to call.
 | `pr_board_set_explanation` | Put the answer to **Explain** under a finding |
 | `pr_board_attach_draft` | Attach a Markdown draft review file and its recommendation (older flow) |
 | `pr_board_get_state` | Read the board, or one PR, including its summary and recent thread messages |
+| `pr_board_set_what_changed` | Write "What changed since you last looked" for a PR or issue (`{ pr \| issue, text }`, Markdown) |
+| `pr_board_tick` | Run the proactive scheduler once: re-read GitHub and start what's due within the limits. Returns each started run with its prompt instead of sending it. `dryRun: true` only shows what would start |
+| `pr_board_get_queue` | Read the proactive queue without starting anything: settings, capacity, up next (and why it waits), running, and today's runs |
 
 The canvas also has `refresh` and `get_board` actions for `invoke_canvas_action`.
 
@@ -572,6 +623,7 @@ per user and isn't committed. When a PR merges, a leftover agent status shows as
 | `store.mjs` | The per-repo state file |
 | `stream.mjs` | Turns the agent's notes and tool steps into the live progress line in a reply bubble |
 | `review.mjs` | The structured review schema, guide, and how picked findings become a GitHub review |
+| `auto.mjs` | Proactive mode: settings, what each layer starts, and the queue with its limits |
 | `diagram.js` | Draws the architecture diagrams as SVG |
 | `ui.html` | The inbox page (no build step, no dependencies) |
 | `test/` | UI tests: see [Testing](#testing) |
@@ -581,8 +633,8 @@ per user and isn't committed. When a PR merges, a leftover agent status shows as
 Run the UI tests from this folder before every push:
 
 ```powershell
-node test/ui.mjs                # every offline test, about two minutes
-node test/ui.mjs --grep peek    # only tests whose name contains "peek"
+node test/ui.mjs                # every offline test, about four minutes
+node test/ui.mjs --grep "peek|layer"  # only tests whose name contains "peek" or "layer"
 node test/ui.mjs --live         # read-only smoke test of your real board
 ```
 
@@ -590,7 +642,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ peek: a drag or text selection that ends on the list doesn't close it (1289ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-51 passed, 0 failed, 51 total (102s)
+61 passed, 0 failed, 61 total (220s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

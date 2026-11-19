@@ -16,7 +16,7 @@ import { launch } from "./harness/browser.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, "output");
 const args = process.argv.slice(2);
-const grep = args.includes("--grep") ? args[args.indexOf("--grep") + 1].toLowerCase() : null;
+const grep = args.includes("--grep") ? args[args.indexOf("--grep") + 1].toLowerCase().split("|") : null;
 const live = args.includes("--live");
 
 const tests = [];
@@ -27,7 +27,7 @@ register(test);
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(join(OUT, "screens"), { recursive: true });
-const selected = tests.filter((t) => !grep || t.name.toLowerCase().includes(grep));
+const selected = tests.filter((t) => !grep || grep.some((g) => t.name.toLowerCase().includes(g)));
 const started = Date.now();
 const board = await startBoard({ live });
 const page = await launch();

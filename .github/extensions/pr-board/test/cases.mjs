@@ -151,7 +151,6 @@ export function register(test) {
 
     // ---- Replies from the person we're waiting on ----------------------------------------------------
     const waitingRow = (n, kind) => `document.querySelector('#overview .ov-sec .ov-title[data-kind="${kind}"][data-pr="${n}"]')?.closest('.ov-row')`;
-    const replyPrompts = (ctx, who) => ctx.host.sends.filter((s) => s.prompt.includes(`from ${who} on`));
 
     test("replies: a reporter's comment on an issue we wait on becomes Your move, unread, with a preview", async (ctx) => {
         const { page, world } = ctx;
@@ -165,12 +164,7 @@ export function register(test) {
         assert.match(row, /New reply/);
         assert.equal(await page.eval(`!!${waitingRow(203, "issue")}.querySelector('.unread-dot')`), true, "no unread dot");
         assert.ok((await ymCards(page)).some((c) => c.kind === "issue" && c.n === 203), "it isn't in Your move");
-        await page.waitFor(() => true);
-        assert.equal(replyPrompts(ctx, "hank").length, 1, "the agent wasn't told once");
-        assert.match(replyPrompts(ctx, "hank")[0].prompt, /pr_board_reply/);
-        await refresh(ctx);
-        await sleep(300);
-        assert.equal(replyPrompts(ctx, "hank").length, 1, "the same comment was sent to the agent twice");
+        assert.equal(ctx.host.sends.length, 0, "proactive mode is paused, so nothing is sent");
     }, { changesGitHub: true });
 
     test("replies: an author's push on a PR waiting on the author asks you to re-review", async (ctx) => {
@@ -204,8 +198,191 @@ export function register(test) {
         world.comment(201, "frank", "The draft build fixes it for me.");
         await refresh(ctx);
         await page.waitFor(`/frank replied: “The draft build fixes it/.test(${waitingRow(108, "pr")}?.innerText || '')`, 4000, "the reply on PR #108's row");
-        assert.equal(replyPrompts(ctx, "frank").length, 1);
-        assert.match(replyPrompts(ctx, "frank")[0].prompt, /issue view 201/);
+        await autoOn(ctx);
+        await waitForSend(ctx, /Auto: follow up on contoso\/widgets#201 .*because frank replied/);
+        assert.match(autoPrompts(ctx).at(-1).prompt, /issue view 201/);
+    }, { changesGitHub: true });
+
+    // ---- Proactive mode ----------------------------------------------------------------------------------
+    test("auto panel: opens from the header, saves layers and limits, pauses, and closes with Esc", async (ctx) => {
+        const { page } = ctx;
+        assert.match(await text(page, "#autoBtn"), /Auto/);
+        assert.match(await text(page, "#pauseBtn"), /Resume auto/, "the fixture starts paused");
+        await page.click("#autoBtn");
+        await page.waitFor(`!!document.querySelector('#autoHost .auto-panel')`, 2000, "the panel");
+        assert.equal(await page.eval(`document.getElementById('auto-layer-firstReview').checked`), false, "first review is off by default");
+        assert.equal(await page.eval(`document.getElementById('auto-layer-rereview').checked`), true);
+        await page.click("#auto-layer-firstReview");
+        await page.waitFor(() => true);
+        await sleep(400);
+        assert.equal(state(ctx).meta.auto.settings.layers.firstReview, true, "the layer wasn't saved");
+        await page.eval(`(() => { const i = document.getElementById('auto-maxConcurrent'); i.value = '3'; i.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await sleep(400);
+        assert.equal(state(ctx).meta.auto.settings.maxConcurrent, 3);
+        await page.click('#autoHost header [data-act="auto-pause"]');
+        await page.waitFor(`/Pause auto/.test(document.getElementById('pauseBtn').innerText)`, 3000, "resume from the panel");
+        assert.equal(state(ctx).meta.auto.settings.paused, false);
+        assert.match(await text(page, "#autoHost .guard"), /never posts, approves, requests changes, merges, labels or comments on GitHub/);
+        await ctx.shot(`auto-panel-light`);
+        await page.theme("dark");
+        await ctx.shot(`auto-panel-dark`);
+        await page.key("Escape");
+        await page.waitFor(`!document.querySelector('#autoHost .auto-panel')`, 2000, "Esc to close it");
+    });
+
+    test("layer 1: new activity on a PR you review shows on the row, and the agent summarizes it once", async (ctx) => {
+        const { page, world } = ctx;
+        await autoOn(ctx);
+        world.comment(104, "bob", "I moved the lock into TokenStore.");
+        await refresh(ctx);
+        await waitForSend(ctx, /Auto: summarize what changed on contoso\/widgets#104 .*\(layer 1/);
+        await page.waitFor(`/New: bob commented “I moved the lock/.test(${waitingRow(104, "pr")}?.innerText || '')`, 4000, "the New line on the row");
+        await ctx.board.tool("pr_board_set_what_changed", { repo: REPO, pr: 104, text: "bob moved the refresh lock into **TokenStore**, which fixes [[finding:f1]]." });
+        await page.waitFor(`/What changed: bob moved the refresh lock into TokenStore/.test(${waitingRow(104, "pr")}?.innerText || '')`, 4000, "the summary on the row");
+        assert.equal(state(ctx).prs["104"].auto.running, null, "the summary didn't finish the run");
+        await openRow(page, 104);
+        assert.match(await text(page, "#flyHost .wc-box"), /What changed since you last looked.*bob moved the refresh lock/);
+        await ctx.shot("what-changed-panel");
+        await refresh(ctx);
+        await sleep(300);
+        assert.equal(autoPrompts(ctx).length, 1, "the same activity was summarized twice");
+    }, { changesGitHub: true });
+
+    test("layer 2: a push on a PR you reviewed starts one re-review, which lands as your decision", async (ctx) => {
+        const { page, world } = ctx;
+        await autoOn(ctx);
+        const head = world.push(104, "Take a lock around refresh");
+        await refresh(ctx);
+        await waitForSend(ctx, new RegExp(`Auto: re-review contoso/widgets#104 .*because bob pushed ${head.slice(0, 7)} \\(layer 2`));
+        await page.waitFor(`/Auto: re-review because bob pushed/.test(${waitingRow(104, "pr")}?.innerText || '')`, 4000, "the agent state on the row");
+        assert.match(JSON.stringify(state(ctx).prs["104"].history), /Auto · re-review after a push because bob pushed/);
+        await refresh(ctx);
+        await sleep(300);
+        assert.equal(autoPrompts(ctx).filter((s) => /re-review/.test(s.prompt)).length, 1, "the same commit was re-reviewed twice");
+        await ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 104, review: { headSha: head, verdict: "approve", risk: "low", summary: "The race is fixed.", findings: [] } });
+        await ctx.board.tool("pr_board_set_next_step", { repo: REPO, pr: 104, owner: "you", action: "Re-review done: the race is fixed, no new findings → approve?" });
+        await page.waitFor(`/Re-review done: the race is fixed/.test([...document.querySelectorAll('#overview .ym-card')].map((c) => c.innerText).join(' '))`, 4000, "the decision in Your move");
+        assert.ok(await exists(page, '#overview .ym-card [data-act="ball-post"][data-pr="104"]'), "no Post review… button");
+    }, { changesGitHub: true });
+
+    test("layer 3: off by default; turned on, it drafts a first review of a ready PR you're asked on", async (ctx) => {
+        const { world } = ctx;
+        world.addPr({ number: 109, title: "Add a retry budget", author: "dana", requested: ["me"] });
+        await autoOn(ctx);
+        await refresh(ctx);
+        await sleep(500);
+        assert.equal(autoPrompts(ctx).filter((s) => /#109/.test(s.prompt)).length, 0, "first review ran while off");
+        await autoOn(ctx, { layers: { firstReview: true } });
+        await waitForSend(ctx, /Auto: first review of contoso\/widgets#109 .*because dana asked you to review it \(layer 3/);
+    }, { changesGitHub: true });
+
+    test("layer 4: a reporter's reply starts a follow-up that reproduces and validates, with no separate summary", async (ctx) => {
+        const { world } = ctx;
+        await ctx.board.tool("pr_board_set_next_step", { repo: REPO, issue: 203, owner: "reporter", action: "Confirm the fix on your machine" });
+        await autoOn(ctx);
+        world.comment(203, "hank", "Still broken on 0.8.1 after a restart.");
+        await refresh(ctx);
+        const p = await waitForSend(ctx, /Auto: follow up on contoso\/widgets#203 .*because hank replied \(layer 4/);
+        assert.match(p, /reproduce or validate/);
+        assert.match(p, /Reproduced", "Not reproduced" or "Fixed by #n"/);
+        assert.equal(autoPrompts(ctx).filter((s) => /#203/.test(s.prompt)).length, 1, "the issue also got a separate summary run");
+    }, { changesGitHub: true });
+
+    test("capacity: busy sessions count, so with 2 slots and 1 busy session only 1 of 2 re-reviews starts", async (ctx) => {
+        const { world } = ctx;
+        await autoOn(ctx, { maxConcurrent: 2 });
+        world.push(104);
+        world.push(105);
+        await refresh(ctx);
+        await waitForSend(ctx, /\(layer 2/);
+        await sleep(500);
+        assert.equal(autoPrompts(ctx).length, 1, "both started although #102's session is busy");
+        const q = (await ctx.board.tool("pr_board_get_queue", { repo: REPO })).queue;
+        assert.match(q.find((x) => x.layer === "rereview")?.why || "", /waiting for a free slot \(2 of 2 busy\)/);
+        const first = autoPrompts(ctx)[0].prompt.match(/#(10[45])/)[1];
+        await ctx.board.tool("pr_board_reply", { repo: REPO, pr: Number(first), text: "Re-review done." });
+        await refresh(ctx);
+        await waitForSend(ctx, new RegExp(`re-review contoso/widgets#${first === "104" ? 105 : 104}`));
+    }, { changesGitHub: true });
+
+    test("limits: low memory, the daily cap, and active hours each hold a run back", async (ctx) => {
+        const { world } = ctx;
+        await autoOn(ctx, { machineCheck: true, cpuMax: 100, minFreeGB: 100000 });
+        world.push(104);
+        await refresh(ctx);
+        await sleep(400);
+        const why = async () => (await ctx.board.tool("pr_board_get_queue", { repo: REPO })).queue.find((x) => x.number === 104)?.why || "";
+        assert.equal(autoPrompts(ctx).length, 0);
+        assert.match(await why(), /free memory is low/);
+        await autoOn(ctx, { minFreeGB: 0, dailyCap: 0 });
+        await sleep(300);
+        assert.match(await why(), /daily cap \(0\) is reached/);
+        const h = new Date().getHours();
+        await autoOn(ctx, { dailyCap: 10, hoursFrom: (h + 2) % 24, hoursTo: (h + 3) % 24 });
+        await sleep(300);
+        assert.match(await why(), /outside active hours/);
+        assert.equal(autoPrompts(ctx).length, 0);
+        await autoOn(ctx, { hoursFrom: null, hoursTo: null });
+        await waitForSend(ctx, /re-review contoso\/widgets#104/);
+    }, { changesGitHub: true });
+
+    test("pause: nothing starts on its own; Run now still works; Skip drops a run for good", async (ctx) => {
+        const { page, world } = ctx;
+        await autoOn(ctx, { paused: true });
+        world.push(104);
+        world.push(105);
+        await refresh(ctx);
+        await sleep(500);
+        assert.equal(autoPrompts(ctx).length, 0, "something started while paused");
+        await page.click("#autoBtn");
+        await page.waitFor(`document.querySelectorAll('#autoHost .q [data-act="auto-run"]').length === 2`, 3000, "two queued runs");
+        assert.match(await text(page, "#autoHost"), /proactive mode is paused/);
+        await ctx.shot("auto-queue-paused");
+        const keys = await page.eval(`[...document.querySelectorAll('#autoHost [data-act="auto-run"]')].map((b) => b.dataset.key)`);
+        await page.click(`#autoHost [data-act="auto-run"][data-key="${keys[0]}"]`);
+        await waitForSend(ctx, /Auto: re-review/);
+        assert.match(JSON.stringify(state(ctx).meta.auto.log.at(-1)), /"by":"user"/);
+        await page.waitFor(`!!document.querySelector('#autoHost [data-act="auto-skip"][data-key="${keys[1]}"]')`, 3000);
+        await page.click(`#autoHost [data-act="auto-skip"][data-key="${keys[1]}"]`);
+        await sleep(500);
+        await autoOn(ctx);
+        await refresh(ctx);
+        await sleep(500);
+        assert.equal(autoPrompts(ctx).length, 1, "the skipped run started after resuming");
+    }, { changesGitHub: true });
+
+    test("pr_board_tick hands the prompts back instead of sending them; pr_board_get_queue starts nothing", async (ctx) => {
+        const { world } = ctx;
+        await autoOn(ctx);
+        world.push(104);
+        const q = await ctx.board.tool("pr_board_get_queue", { repo: REPO });
+        assert.equal(ctx.host.sends.length, 0);
+        const dry = await ctx.board.tool("pr_board_tick", { repo: REPO, dryRun: true });
+        assert.equal(dry.started.length, 0);
+        assert.equal(dry.wouldStart.length, 1, `dry run: ${JSON.stringify(dry.wouldStart)} (queue before: ${q.queue.length})`);
+        const t = await ctx.board.tool("pr_board_tick", { repo: REPO });
+        assert.equal(t.started.length, 1);
+        assert.match(t.started[0].prompt, /Auto: re-review contoso\/widgets#104/);
+        assert.equal(ctx.host.sends.length, 0, "the tick also sent the prompt");
+        const again = await ctx.board.tool("pr_board_tick", { repo: REPO });
+        assert.equal(again.started.length, 0, "the same run started twice");
+    }, { changesGitHub: true });
+
+    test("guardrails: every auto prompt forbids GitHub writes, and nothing is written", async (ctx) => {
+        const { world } = ctx;
+        await ctx.board.tool("pr_board_set_next_step", { repo: REPO, issue: 203, owner: "reporter", action: "Confirm" });
+        await autoOn(ctx, { maxConcurrent: 5, layers: { firstReview: true } });
+        world.addPr({ number: 109, title: "Add a retry budget", author: "dana", requested: ["me"] });
+        world.push(104);
+        world.comment(203, "hank", "Fixed for me.");
+        world.comment(107, "zed", "Nice, one question on the CSV header.");
+        await refresh(ctx);
+        await waitForSend(ctx, /layer 1/);
+        await sleep(500);
+        const ps = autoPrompts(ctx);
+        assert.deepEqual([...new Set(ps.map((s) => s.prompt.match(/\(layer (\d)/)[1]))].sort(), ["1", "2", "3", "4"]);
+        for (const s of ps) assert.match(s.prompt, /never post, approve, request changes, merge, label or comment on GitHub, and never push to someone else's branch/);
+        assert.equal(world.mutations.length, 0);
     }, { changesGitHub: true });
 
     // ---- Peek and expand -------------------------------------------------------------------------------
@@ -609,6 +786,19 @@ export function register(test) {
 }
 
 const refresh = (ctx) => ctx.board.refresh();
+
+// Proactive mode, on and with no waiting, unless a test says otherwise.
+const autoOn = (ctx, extra = {}) => ctx.board.api("/api/settings", { settings: { paused: false, stableMin: 0, cooldownMin: 0, machineCheck: false, ...extra } });
+const autoPrompts = (ctx) => ctx.host.sends.filter((s) => s.prompt.startsWith("[PR board] Auto:"));
+async function waitForSend(ctx, re, ms = 6000) {
+    const end = Date.now() + ms;
+    for (;;) {
+        const hit = ctx.host.sends.find((s) => re.test(s.prompt));
+        if (hit) return hit.prompt;
+        if (Date.now() > end) throw new Error(`No prompt matched ${re}. Sent: ${ctx.host.sends.map((s) => s.prompt.split("\n")[0]).join(" | ") || "nothing"}`);
+        await sleep(100);
+    }
+}
 
 // Drop the page's live (SSE) connection on the server side, like a sleep/wake or network blip.
 function dropLiveConnections(ctx) {

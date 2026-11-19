@@ -114,7 +114,12 @@ async function seed(b) {
     await tool("pr_board_set_next_step", { repo: REPO, pr: 105, owner: "you", action: "Approve now, or wait for the changelog?", choices: ["Approve now", "Wait for the changelog"] });
     // Everything is read except the last reply on #102, so exactly one item is unread.
     await b.api("/api/seen", { pr: 104 });
+    // Proactive mode starts paused in the fixture; its tests turn it on.
+    await b.api("/api/settings", { settings: { paused: true } });
     const st = JSON.parse(readFileSync(b.stateFile, "utf8"));
+    const now = new Date().toISOString();
+    for (const n of [101, 103, 105, 106, 107, 108]) (st.prs[String(n)] ||= { history: [] }).lastSeenAt = now;
+    for (const n of [202, 203]) (st.issues[String(n)] ||= { history: [] }).lastSeenAt = now;
     const last = st.prs["102"].thread.filter((m) => m.role === "agent").at(-1);
     st.prs["102"].lastSeenAt = new Date(new Date(last.at).getTime() - 1).toISOString();
     st.meta.readBaseline = minutesAgo(600);

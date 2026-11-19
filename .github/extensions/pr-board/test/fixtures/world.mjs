@@ -59,19 +59,19 @@ export function createWorld({ now = Date.now() } = {}) {
         number: p.number, title: p.title, url: url("pull", p.number), author: { login: p.author, is_bot: false }, isDraft: p.isDraft, additions: 40, deletions: 12, changedFiles: 3,
         reviewDecision: p.reviewDecision, mergeStateStatus: "BLOCKED", mergeable: "MERGEABLE", statusCheckRollup: p.checks, latestReviews: p.reviews,
         reviewRequests: p.requested.map((login) => ({ __typename: "User", login })), labels: p.labels.map((name) => ({ name })), updatedAt: ago(p.updated), createdAt: ago(p.created),
-        autoMergeRequest: null, baseRefName: "main", body: p.body, headRefOid: HEAD[p.number],
+        autoMergeRequest: null, baseRefName: "main", body: p.body, headRefOid: (p.head || HEAD[p.number]),
     });
     const activityNode = (p) => ({
         number: p.number, mergeStateStatus: "BLOCKED", autoMergeRequest: null, commits: { nodes: [{ commit: { committedDate: ago(p.updated + 5) } }] },
-        timelineItems: { nodes: [{ __typename: "PullRequestCommit", url: `${url("pull", p.number)}/commits/${HEAD[p.number]}`, commit: { oid: HEAD[p.number], committedDate: ago(p.updated + 5), messageHeadline: "Make the change" } }, ...(p.requestedMin ? [{ __typename: "ReviewRequestedEvent", createdAt: ago(p.requestedMin) }] : []), ...p.reviews.map((r, k) => ({ __typename: "PullRequestReview", id: `PRR_${p.number}_${k}`, url: `${url("pull", p.number)}#pullrequestreview-${k}`, bodyText: "", ...r })), ...(p.events || [])] },
+        timelineItems: { nodes: [{ __typename: "PullRequestCommit", url: `${url("pull", p.number)}/commits/${(p.head || HEAD[p.number])}`, commit: { oid: (p.head || HEAD[p.number]), committedDate: ago(p.updated + 5), messageHeadline: "Make the change" } }, ...(p.requestedMin ? [{ __typename: "ReviewRequestedEvent", createdAt: ago(p.requestedMin) }] : []), ...p.reviews.map((r, k) => ({ __typename: "PullRequestReview", id: `PRR_${p.number}_${k}`, url: `${url("pull", p.number)}#pullrequestreview-${k}`, bodyText: "", ...r })), ...(p.events || [])] },
     });
     const readinessJson = (p) => ({
-        number: p.number, url: url("pull", p.number), headRefOid: HEAD[p.number], headRefName: p.headRefName, baseRefName: "main", isDraft: p.isDraft, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", body: p.body,
+        number: p.number, url: url("pull", p.number), headRefOid: (p.head || HEAD[p.number]), headRefName: p.headRefName, baseRefName: "main", isDraft: p.isDraft, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", body: p.body,
         author: { login: p.author }, labels: { nodes: p.labels.map((name) => ({ name })) },
         reviewRequests: { nodes: p.requested.map((login) => ({ requestedReviewer: { login } })) },
         reviews: { nodes: p.reviews.map((r) => ({ ...r, url: `${url("pull", p.number)}#pullrequestreview-${p.number}` })) },
         comments: { nodes: [] },
-        history: { nodes: [{ commit: { oid: HEAD[p.number], committedDate: ago(p.updated + 5), parents: { totalCount: 1, nodes: [{ oid: sha(p.number, "p") }] } } }] },
+        history: { nodes: [{ commit: { oid: (p.head || HEAD[p.number]), committedDate: ago(p.updated + 5), parents: { totalCount: 1, nodes: [{ oid: sha(p.number, "p") }] } } }] },
         reqEvents: { nodes: p.requestedMin ? p.requested.map((login) => ({ createdAt: ago(p.requestedMin), requestedReviewer: { login } })) : [] },
         commits: { nodes: [{ commit: { committedDate: ago(p.updated + 5), statusCheckRollup: { contexts: { nodes: p.checks.map((c) => ({ __typename: "CheckRun", name: c.name, status: c.status, conclusion: c.conclusion, detailsUrl: c.detailsUrl, isRequired: c.name === "build-and-package" })) } } } }] },
         reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
@@ -87,7 +87,7 @@ export function createWorld({ now = Date.now() } = {}) {
         commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: p.checks.map((c) => ({ __typename: "CheckRun", name: c.name, status: c.status, conclusion: c.conclusion, detailsUrl: c.detailsUrl, startedAt: c.startedAt, completedAt: c.completedAt, checkSuite: { workflowRun: { workflow: { name: "Build" } } } })) } } } }] },
         reviewThreads: { nodes: p.number === 102 ? [{ isResolved: false, isOutdated: false, path: "src/config.js", line: 12, originalLine: 12, comments: { nodes: [{ author: { login: "zed", avatarUrl: null }, createdAt: ago(100), bodyHTML: "<p>Why not default to <code>{}</code>?</p>", url: `${url("pull", 102)}#discussion_r777`, diffHunk: "@@ -10,3 +10,4 @@\n const raw = read();\n+if (!raw) return {};", pullRequestReview: { id: "R1" } }] } }] : [] },
         timelineItems: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
-            { __typename: "PullRequestCommit", url: `${url("pull", p.number)}/commits/${HEAD[p.number]}`, commit: { abbreviatedOid: HEAD[p.number].slice(0, 7), messageHeadline: "Make the change", committedDate: ago(p.updated + 5), author: { name: p.author, user: { login: p.author, avatarUrl: null } } } },
+            { __typename: "PullRequestCommit", url: `${url("pull", p.number)}/commits/${(p.head || HEAD[p.number])}`, commit: { abbreviatedOid: (p.head || HEAD[p.number]).slice(0, 7), messageHeadline: "Make the change", committedDate: ago(p.updated + 5), author: { name: p.author, user: { login: p.author, avatarUrl: null } } } },
             { __typename: "IssueComment", author: { login: "zed", avatarUrl: null }, createdAt: ago(p.updated + 2), bodyHTML: "<p>Looks reasonable. <img src=x onerror=\"window.__xss=4\"></p>", url: `${url("pull", p.number)}#issuecomment-1` },
             ...(p.number === 102 ? [{ __typename: "PullRequestReview", id: "R1", author: { login: "zed", avatarUrl: null }, submittedAt: ago(100), createdAt: ago(100), state: "COMMENTED", bodyHTML: "", url: `${url("pull", 102)}#pullrequestreview-1` }] : []),
         ] },
@@ -119,11 +119,16 @@ export function createWorld({ now = Date.now() } = {}) {
             p.updated = 0;
             return id;
         },
+        // A new PR shows up (author, CI state, who's asked to review).
+        addPr({ number, title, author, requested = [], ci = "SUCCESS" }) {
+            world.prs.push({ number, title, author, requested, isDraft: false, reviewDecision: "REVIEW_REQUIRED", labels: [], reviews: [], headRefName: `branch-${number}`, head: sha(number), body: "New PR.", created: 30, updated: 20, checks: [check("build-and-package", ci)] });
+        },
         // The PR's author pushes a commit.
         push(n, message = "Address the review") {
             const p = world.prs.find((x) => x.number === n);
             const oid = sha(n, `push${(p.events || []).length}`);
             (p.events ||= []).push({ __typename: "PullRequestCommit", url: `${url("pull", n)}/commits/${oid}`, commit: { oid, committedDate: new Date().toISOString(), messageHeadline: message } });
+            p.head = oid;
             p.updated = 0;
             return oid;
         },

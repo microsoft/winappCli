@@ -219,24 +219,52 @@ export function statusUpdatePrompt(card, repo) {
     ].join("\n");
 }
 
-// Sent by the board itself (no click) when someone the item was waiting on replies on GitHub. Once per comment.
-export function partyReplyPrompt(card, repo, reply) {
+// ---- Proactive mode: runs the board starts on its own ----------------------------------------------------
+
+// Hard rules for every auto run. Tests check that every auto prompt carries them.
+export const AUTO_GUARDRAILS = `Guardrails for auto runs (always): never post, approve, request changes, merge, label or comment on GitHub, and never push to someone else's branch. Drafts only. The user decides on the board.`;
+const LAYER_NAME = { notice: "layer 1: notice and summarize", rereview: "layer 2: re-review after a push", firstReview: "layer 3: first review", issues: "layer 4: issue follow-through" };
+const VERB = { notice: "summarize what changed on", rereview: "re-review", firstReview: "first review of", issues: "follow up on" };
+
+function eventLines(events = []) {
+    return events.slice(-8).map((e) => `- ${e.at} ${e.who} ${e.kind === "push" ? `pushed ${String(e.id).slice(0, 7)}` : e.kind === "review" ? `reviewed (${String(e.state || "").toLowerCase().replace(/_/g, " ")})` : "commented"}${e.preview ? `: "${e.preview}"` : ""}${e.url ? ` (${e.url})` : ""}`);
+}
+const WHAT_CHANGED_LINE = (card, repo) => `Write "What changed since you last looked" with \`pr_board_set_what_changed\` \`{ repo: "${repo}", ${ref(card)}, text }\`: 2-4 plain sentences (Markdown) on who did what, which files changed and how, and which of our earlier asks (review findings, thread) are addressed or still open. For example: "zateutsch kept empty/null rootHandle meaning the whole tree, as #1338 asked, and fixed the call hint. 2 files; the test now expects the whole tree."`;
+
+export function autoPrompt(job, card, repo) {
     const s = card.local?.session;
     const k = KIND(card);
-    const what = reply.kind === "review" ? `review (${String(reply.state || "").toLowerCase().replace(/_/g, " ")})` : "comment";
-    const view = reply.issue ? `issue view ${reply.issue}` : `${card.kind === "issue" ? "issue" : "pr"} view ${card.number}`;
-    return [
-        `[PR board] New ${what} from ${reply.who} on ${repo}#${reply.issue || card.number} (${reply.url || card.url})${reply.issue ? `, the issue PR #${card.number} fixes` : ""}. The board was waiting on the ${reply.role} ("${card.local?.next?.action || ""}"), so it moved this to the user's **Your move**.`,
-        reply.preview ? `It starts: "${reply.preview}"` : "",
-        `Read it on GitHub (\`gh ${view} -R ${repo} --comments\`) and summarize it for the user with \`pr_board_reply\` \`{ repo: "${repo}", ${ref(card)}, from: <who answered>, text: <2-4 plain sentences: what ${reply.who} said or did, and what it means for us> }\`.`,
-        s?.id ? `This ${k} is linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}. If the reply needs work there (for example a new log to look at), tell that session with \`send_session_message\` and ask it to report back to you.` : "",
-        NEXT_STEP_LINE(card, repo),
-        EXPLAINER_LINE(card, repo),
-        `Don't post to GitHub, approve, or merge.`,
-        PROGRESS_LINE,
-    ].filter(Boolean).join("\n");
+    const gh = card.kind === "issue" ? "issue" : "pr";
+    const head = `[PR board] Auto: ${VERB[job.layer]} ${repo}#${card.number} "${card.title}" because ${job.reason} (${LAYER_NAME[job.layer]}). ${card.url}`;
+    const events = eventLines(job.events);
+    const lines = [head, AUTO_GUARDRAILS, ""];
+    if (events.length) lines.push(`New since the user last looked (oldest first):`, ...events, "");
+    if (job.layer === "notice") {
+        lines.push(
+            `Read the activity (\`gh ${gh} view ${card.number} -R ${repo} --comments\`; for pushes, \`gh api repos/${repo}/compare/<old>...<new>\` or \`gh pr diff ${card.number} -R ${repo}\`). Do it here; don't start a session.`,
+            WHAT_CHANGED_LINE(card, repo),
+            `Then, only if it changes what the user should do, set the next step (rules below).`,
+            NEXT_STEP_LINE(card, repo),
+        );
+    } else if (job.layer === "rereview" || job.layer === "firstReview") {
+        const again = job.layer === "rereview";
+        lines.push(
+            `1. ${again ? "Re-run" : "Run"} \`.github/skills/pr-review\` on head ${String(job.head || "").slice(0, 7)} in the PR's session: ${s?.id ? `it's linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}; message it with \`send_session_message\`` : `use \`open_pr_session\` if you have it, else \`create_session\` (name it "PR #${card.number} review"), and link it with \`pr_board_link_session\``}. If you have none of these tools, do it here.`,
+            `2. Put the result on the board with \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, review })\` (call \`pr_board_review_guide\` first), with headSha ${job.head || "<head>"}.${again ? " Keep finding ids stable for findings that are still there, so the user's Post/Ignore choices stay." : ""}`,
+            `3. ${WHAT_CHANGED_LINE(card, repo)}`,
+            `4. Set the next step with \`pr_board_set_next_step\` \`{ repo: "${repo}", pr: ${card.number}, owner: "you", action }\`, where action is the decision in one line, for example ${again ? `"Re-review done: both asks fixed, no new findings → approve?"` : `"Review drafted: 1 blocking finding → request changes?"`}. The board shows a Post review… button for the draft.`,
+        );
+    } else if (job.layer === "issues") {
+        lines.push(
+            `1. Read the reply (\`gh issue view ${card.number} -R ${repo} --comments\`). ${WHAT_CHANGED_LINE(card, repo)}`,
+            `2. Try to reproduce or validate what the reporter says, with evidence (the commands you ran and their output). ${s?.id ? `The issue is linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}: ask it with \`send_session_message\` and have it report back.` : `Use a session for it (\`create_session\`, then \`pr_board_link_session\` with issue ${card.number}) if you can; else do it here.`} Don't change code or open a PR unless the issue's session was already doing that.`,
+            `3. Report with \`pr_board_reply\` \`{ repo: "${repo}", issue: ${card.number}, from: <who did it>, text }\`. Start with one of "Reproduced", "Not reproduced" or "Fixed by #n", then the evidence in a few lines.`,
+            `4. Set the next step with \`pr_board_set_next_step\` \`{ repo: "${repo}", issue: ${card.number}, owner: "you", action, choices? }\`: what the user should decide, for example "Not reproduced on 0.8.1: ask for logs, or close?".`,
+        );
+    }
+    lines.push("", `Keep the card current with \`pr_board_set_status\` ("running" while you work, "failed" with a reason if you give up). ${PROGRESS_LINE}`, EXPLAINER_LINE(card, repo), AUTO_GUARDRAILS);
+    return lines.join("\n");
 }
-
 export function summarizeRepliesPrompt(card, repo) {
     return [
         `The PR board canvas: the user asked to **summarize the author's replies** on ${repo}#${card.number} "${card.title}" (${card.url}).`,

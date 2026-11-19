@@ -14,7 +14,8 @@ import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
-import { partyReplyPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { candidates, LAYERS, normalizeSettings, plan, sampleMachine, today } from "./auto.mjs";
+import { autoPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -88,7 +89,7 @@ class Board {
                 this.error = null;
                 await refreshLiveSessions();
                 if (!this.refreshReadiness()) this.keepReadyTick().catch(() => {});
-                this.notifyReplies().catch(() => {});
+                if (!this.noAuto) this.autoTick().catch(() => {});
             } catch (e) {
                 this.error = { code: e instanceof GhError ? e.code : "error", message: e.message };
             } finally {
@@ -164,26 +165,54 @@ class Board {
         }
     }
 
-    // Someone we were waiting on replied on GitHub (see partyReply). For an item with a linked session, ask the
-    // agent once per comment to summarize it in the board thread. Pushes need no summary: the row says re-review.
-    async notifyReplies() {
-        const snap = this.snapshot();
-        const baseline = Date.parse(snap.readBaseline || 0) || 0;
-        for (const c of [...snap.cards, ...snap.issues.filter((i) => !i.covered)]) {
-            const r = c.replied;
-            const kind = c.kind === "issue" ? "issue" : "pr";
-            if (!r || r.kind === "push" || !c.local?.session?.id || c.local.replyNotified?.id === r.id) continue;
-            const at = Date.parse(r.at) || 0;
-            if (at < baseline || Date.now() - at > 3 * 86400_000) continue;
-            updateItem(this.repo, kind, c.number, (s) => { s.replyNotified = { id: r.id, at: nowIso() }; });
-            await send(partyReplyPrompt(c, this.repo, r), this.repo, c.number, { quiet: true, kind }).catch(() => {});
+    // Proactive mode: start what's due (see auto.mjs). how: "send" prompts the hosting agent, "return" hands the
+    // prompts back to the caller (pr_board_tick), "none" only plans. Runs are deduped through the state file, so
+    // several sessions with the board open never start the same run twice.
+    async autoTick({ how = "send" } = {}) {
+        if (!this.data || this.autoBusy) return { started: [], plan: null };
+        this.autoBusy = true;
+        try {
+            this.machine = sampleMachine();
+            const snap = this.snapshot();
+            const p = plan(snap, readState(this.repo).meta, { machine: this.machine });
+            const started = [];
+            if (how !== "none") for (const job of p.start) started.push(await this.startRun(job, snap, how));
+            return { started, plan: p };
+        } finally {
+            this.autoBusy = false;
+            this.broadcast();
         }
     }
 
+    // Start one run: record it (timeline, today's count, the item's running run), then prompt the agent.
+    async startRun(job, snap, how, by = "auto") {
+        const card = [...snap.cards, ...snap.issues].find((c) => c.number === job.number && (c.kind === "issue") === (job.kind === "issue"));
+        const layer = LAYERS.find((l) => l.id === job.layer);
+        const heavy = job.layer !== "notice";
+        const line = `Auto · ${layer.title.toLowerCase()} because ${job.reason} (layer ${layer.n})${by === "user" ? ", started by you" : ""}`;
+        updateItem(this.repo, job.kind, job.number, (s) => {
+            s.auto ??= {};
+            s.auto.done = { ...(s.auto.done || {}), [job.key]: nowIso() };
+            s.auto.lastAt = nowIso();
+            s.auto.running = { key: job.key, layer: job.layer, reason: job.reason, at: nowIso() };
+            note(s, line);
+        });
+        updateMeta(this.repo, (m) => {
+            m.auto ??= {};
+            if (heavy) m.auto.counts = { [today()]: ((m.auto.counts || {})[today()] || 0) + 1 };
+            m.auto.log = [...(m.auto.log || []), { at: nowIso(), kind: job.kind, number: job.number, layer: job.layer, key: job.key, reason: job.reason, by }].slice(-50);
+        });
+        const prompt = autoPrompt(job, card, this.repo);
+        if (how === "send") {
+            try { await session.send({ prompt }); }
+            catch (e) { updateItem(this.repo, job.kind, job.number, (s) => { s.auto.running = null; note(s, `Auto · couldn't reach the agent: ${e.message}`); }); }
+        }
+        return { repo: this.repo, kind: job.kind, number: job.number, layer: job.layer, key: job.key, reason: job.reason, prompt };
+    }
     snapshot() {
         const state = readState(this.repo);
         const local = state.prs;
-        return {
+        const out = {
             repo: this.repo,
             sync: { syncedAt: state.meta.syncedAt || null, requestedAt: state.meta.syncRequestedAt || null },
             readBaseline: state.meta.readBaseline || null,
@@ -207,6 +236,8 @@ class Board {
             fetchedAt: this.fetchedAt ? new Date(this.fetchedAt).toISOString() : null,
             loading: !!this.inflight,
         };
+        if (this.data) { const { start, ...auto } = plan(out, state.meta, { machine: this.machine }); out.auto = { ...auto, layers: LAYERS }; }
+        return out;
     }
 
     issueCard(number) {
@@ -268,6 +299,11 @@ const streamer = createStreamer({
 function board(repo) {
     if (!boards.has(repo)) boards.set(repo, new Board(repo));
     return boards.get(repo);
+}
+
+// The full queued run (with its events) for a key, for Run now.
+function candidatesFor(b, key) {
+    return candidates(b.snapshot(), normalizeSettings({}, readState(b.repo).meta.auto?.settings)).find((q) => q.key === key) || null;
 }
 
 let defaultRepoPromise = null;
@@ -874,6 +910,33 @@ async function handle(req, res) {
             board(repo).broadcast();
             return json(200, { ok: true });
         }
+        if (url.pathname === "/api/settings") {
+            const b = board(repo);
+            const settings = updateMeta(repo, (m) => { m.auto ??= {}; m.auto.settings = normalizeSettings(body.settings || {}, m.auto.settings); }).auto.settings;
+            b.broadcast();
+            b.autoTick().catch(() => {});
+            return json(200, { ok: true, settings });
+        }
+        if (url.pathname === "/api/auto") {
+            // The user's Run now or Skip on a queued run. Run now ignores pause, waits and limits: it's a click.
+            const b = board(repo);
+            if (!b.data) await b.refresh();
+            const snap = b.snapshot();
+            const job = (snap.auto?.queue || []).find((q) => q.key === String(body.key || ""));
+            if (!job) throw httpError(404, "That run isn't in the queue any more. Press Refresh.");
+            if (body.op === "skip") {
+                updateItem(repo, job.kind, job.number, (s) => { s.auto ??= {}; s.auto.done = { ...(s.auto.done || {}), [job.key]: "skipped" }; addHistory(s, `Auto · you skipped: ${job.reason}`); });
+                updateMeta(repo, (m) => { m.auto ??= {}; m.auto.log = [...(m.auto.log || []), { at: nowIso(), kind: job.kind, number: job.number, layer: job.layer, key: job.key, reason: job.reason, by: "user", skipped: true }].slice(-50); });
+                b.broadcast();
+                return json(200, { ok: true });
+            }
+            if (body.op !== "run") throw httpError(400, "op must be run or skip");
+            const full = candidatesFor(b, job.key);
+            if (!full) throw httpError(404, "That run isn't due any more. Press Refresh.");
+            await b.startRun(full, snap, "send", "user");
+            b.broadcast();
+            return json(200, { ok: true });
+        }
         if (url.pathname === "/api/review-preview") {
             const pr = Number(body.pr);
             const local = readState(repo).prs[String(pr)] || {};
@@ -1241,6 +1304,61 @@ const tools = [
         },
     },
     {
+        name: "pr_board_set_what_changed",
+        description: "Write the \"What changed since you last looked\" summary for a PR (pr) or issue (issue) on the PR board: 2-4 plain sentences (Markdown) on who did what, which files changed and how, and which of our earlier asks are addressed. The board shows it on the row and at the top of the item's panel. Use it when an Auto prompt asks for it.",
+        parameters: {
+            type: "object",
+            properties: {
+                repo: repoProp,
+                pr: prProp,
+                issue: { type: "number", description: "Issue number. Use instead of pr." },
+                text: { type: "string", description: "The summary, Markdown, at most about 600 characters." },
+            },
+            required: ["text"],
+        },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const [kind, n] = target(args);
+            const text = String(args.text || "").trim().slice(0, 2000);
+            if (!text) throw new Error("Pass text.");
+            const b = board(repo);
+            const item = b.data ? b.item(kind, n) : null;
+            const upTo = (item?.activity || []).map((e) => e.at).filter(Boolean).sort().at(-1) || nowIso();
+            updateItem(repo, kind, n, (s) => { s.whatChanged = { text, at: nowIso(), upTo }; });
+            b.broadcast();
+            return { ok: true, repo, [kind]: n };
+        },
+    },
+    {
+        name: "pr_board_tick",
+        description: "Run the PR board's proactive scheduler once: re-read GitHub, work out which auto runs are due (notice and summarize, re-review after a push, first review, issue follow-through), and start the ones that fit the user's limits. Returns each started run with its prompt: do what each prompt says (they never post to GitHub). Call it on a schedule (for example every 30 minutes) so work starts while the board is closed. dryRun: plan only, start nothing.",
+        parameters: { type: "object", properties: { repo: repoProp, dryRun: { type: "boolean", description: "Only show what would start." } } },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const b = board(repo);
+            // A tick must see GitHub as it is now; forced reads are spaced 5 s apart, so wait out the gap.
+            const gap = MIN_FORCED_GAP_MS - (Date.now() - b.fetchedAt);
+            if (b.data && gap > 0) await new Promise((r) => setTimeout(r, gap + 50));
+            b.noAuto = true;
+            try { await b.refresh({ force: true }); } finally { b.noAuto = false; }
+            if (b.error) throw new Error(`Couldn't read GitHub: ${b.error.message}`);
+            const { started, plan: p } = await b.autoTick({ how: args.dryRun ? "none" : "return" });
+            return { repo, paused: !!p?.settings.paused, started, wouldStart: args.dryRun ? (p?.start || []).map(({ events, reply, ...j }) => j) : undefined, queue: p?.queue || [], running: p?.running || [], capacity: p?.capacity || null };
+        },
+    },
+    {
+        name: "pr_board_get_queue",
+        description: "Read the PR board's proactive queue without starting anything: settings (layers, limits, paused), capacity, what's up next and why it's waiting, what's running, and today's auto runs.",
+        parameters: { type: "object", properties: { repo: repoProp } },
+        handler: async (args) => {
+            const repo = await resolveRepo(args.repo);
+            const b = board(repo);
+            if (!b.data) { b.noAuto = true; try { await b.refresh(); } finally { b.noAuto = false; } }
+            const a = b.snapshot().auto || null;
+            return { repo, ...(a ? { settings: a.settings, capacity: a.capacity, queue: a.queue, running: a.running, log: a.log } : { error: b.error?.message || "No GitHub data yet" }) };
+        },
+    },
+    {
         name: "pr_board_link_session",
         description: "Link a Copilot session to a pull request (pr) or an issue (issue) on the PR board, so the board shows it and 'Open chat' can open it. Call right after creating or reusing a session from a PR board request.",
         parameters: {
@@ -1362,12 +1480,28 @@ function instanceRepo(ctx) {
     return repo;
 }
 
+// An auto run is finished when the agent reports on that item. A next step for the agent, or a "running"
+// status, is progress, not the end. A "What changed" summary only finishes a summary run.
+async function finishAuto(name, args) {
+    if (!["pr_board_reply", "pr_board_set_review", "pr_board_set_next_step", "pr_board_set_what_changed", "pr_board_set_status"].includes(name)) return;
+    if (name === "pr_board_set_next_step" && (args.owner === "agent" || args.clear)) return;
+    if (name === "pr_board_set_status" && ["running", "clear"].includes(args.status)) return;
+    let repo, kind, n;
+    try { repo = await resolveRepo(args.repo); [kind, n] = target(args); } catch { return; }
+    const run = (readState(repo)[kind === "issue" ? "issues" : "prs"][String(n)] || {}).auto?.running;
+    if (!run || (name === "pr_board_set_what_changed" && run.layer !== "notice")) return;
+    updateItem(repo, kind, n, (s) => { addHistory(s, `Auto · done: ${run.reason}`); s.auto.running = null; });
+    board(repo).broadcast();
+}
+
 // The SDK reports a thrown error only as "Tool execution failed", so return the real message instead.
 const readableTools = tools.map((tool) => ({
     ...tool,
     handler: async (...a) => {
         try {
-            return await tool.handler(...a);
+            const out = await tool.handler(...a);
+            await finishAuto(tool.name, a[0] || {}).catch(() => {});
+            return out;
         } catch (e) {
             const message = e?.message || String(e);
             return { textResultForLlm: `Error: ${message}`, resultType: "failure", error: message };

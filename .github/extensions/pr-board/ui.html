@@ -729,13 +729,48 @@ tr.anchor-hi td { background: color-mix(in srgb, var(--blue) 22%, transparent) !
   .pager span { display: none; }
 }
 
+/* ---- Proactive mode: header, panel, What changed ---- */
+.auto-btn .n { font-variant-numeric: tabular-nums; }
+.auto-btn.paused { color: var(--muted); }
+.auto-btn.on .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green, #1a7f37); display: inline-block; }
+.auto-btn.paused .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); display: inline-block; }
+#autoHost .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .28); z-index: 60; }
+.auto-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100vw); z-index: 61; background: var(--bg); border-left: 1px solid var(--hairline); box-shadow: -8px 0 24px rgba(0, 0, 0, .18); display: flex; flex-direction: column; }
+.auto-panel header { display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); border-bottom: 1px solid var(--hairline); }
+.auto-panel header h2 { margin: 0; font-size: var(--t-title, 16px); flex: 1; }
+.auto-panel .body { overflow: auto; padding: var(--s3) var(--s4) var(--s5); display: flex; flex-direction: column; gap: var(--s4); }
+.auto-panel h3 { margin: 0 0 var(--s2); font-size: var(--t-meta); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.auto-panel .state { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.auto-panel .state .facts { color: var(--muted); font-size: var(--t-meta); }
+.auto-panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.auto-panel .q { display: grid; grid-template-columns: 1fr auto; gap: 2px var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--hairline); border-radius: 8px; }
+.auto-panel .q .t { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auto-panel .q .why { grid-column: 1; color: var(--muted); font-size: var(--t-meta); }
+.auto-panel .q .acts { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: var(--s1, 4px); align-items: center; }
+.auto-panel .lay { display: grid; grid-template-columns: auto 1fr; gap: 0 var(--s2); align-items: start; padding: var(--s1, 4px) 0; }
+.auto-panel .lay .hint { grid-column: 2; color: var(--muted); font-size: var(--t-meta); }
+.auto-panel .limits { display: grid; grid-template-columns: 1fr auto; gap: var(--s2) var(--s3); align-items: center; }
+.auto-panel .limits input[type=number] { width: 72px; }
+.auto-panel .guard { font-size: var(--t-meta); color: var(--muted); border-left: 3px solid var(--hairline); padding-left: var(--s3); }
+.auto-panel .log li { font-size: var(--t-meta); color: var(--muted); }
+.auto-panel .empty { color: var(--muted); font-size: var(--t-meta); }
+.wc-line { color: var(--muted); font-size: var(--t-meta); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wc-line b { color: var(--fg); font-weight: 600; }
+.wc-box { border: 1px solid var(--hairline); border-left: 3px solid var(--blue, #0969da); border-radius: 8px; padding: var(--s2) var(--s3); margin-bottom: var(--s3); }
+.wc-box h4 { margin: 0 0 var(--s1, 4px); font-size: var(--t-meta); display: flex; gap: var(--s2); align-items: center; }
+.wc-box h4 .when { color: var(--muted); font-weight: normal; }
+.wc-box ul { margin: var(--s1, 4px) 0 0; padding-left: 18px; font-size: var(--t-meta); color: var(--muted); }
+
 /* ---- Narrow panel ---- */
 body.narrow .ws-head { padding: var(--s3) var(--s4) 0; }
 body.narrow .scroll { padding: var(--s4); }
 body.narrow .composer { padding: var(--s3) var(--s4); }
 body.narrow .grid { grid-template-columns: 1fr; gap: 2px; }
 body.narrow .grid dd { margin-bottom: var(--s2); }
-body.narrow #sumAll .lbl { display: none; }
+body.narrow #sumAll .lbl, body.narrow #autoBtn .lbl, body.narrow #pauseBtn .lbl { display: none; }
+/* In a narrow panel, Pause lives in the Auto panel, and the header wraps rather than scroll sideways. */
+body.narrow #pauseBtn, body.narrow .syncinfo { display: none; }
+body.narrow header.top { flex-wrap: wrap; row-gap: var(--s2); gap: var(--s2); }
 </style>
 </head>
 <body>
@@ -747,6 +782,8 @@ body.narrow #sumAll .lbl { display: none; }
   <span class="syncinfo" id="syncInfo"></span>
   <button id="sync" title="Ask the agent to refresh which sessions are working on these PRs, and their state"></button>
   <button id="sumAll" title="Ask the agent for plain-words summaries of the PRs that need you or an agent"></button>
+  <button id="autoBtn" class="auto-btn" data-act="auto-open" title="Proactive mode: what the board runs on its own, the queue, and its limits"></button>
+  <button id="pauseBtn" class="quiet" data-act="auto-pause" title="Pause or resume everything the board starts on its own"></button>
   <button id="refresh" title="Re-read pull requests from GitHub"></button>
 </header>
 <div id="banner" class="banner" hidden></div>
@@ -766,6 +803,7 @@ body.narrow #sumAll .lbl { display: none; }
   </section>
 </div>
 <div id="flyHost"></div>
+<div id="autoHost"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -831,6 +869,9 @@ const ICONS = {
   expand: '<path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"/>',
   collapse: '<path d="M13 3L9.5 6.5M9.5 3.5v3h3M3 13l3.5-3.5M6.5 12.5v-3h-3"/>',
   pin: '<path d="M6 2h4l-.5 4 2.5 2.5H4L6.5 6z"/><path d="M8 8.5v5.5"/>',
+  gear: '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>',
+  pause: '<path d="M5.5 3.5v9M10.5 3.5v9"/>',
+  play: '<path d="M5 3l8 5-8 5z"/>',
 };
 const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 16 16" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -1118,7 +1159,7 @@ function overviewHtml(c) {
     : `<div class="hint">${esc(c.size?.text || "")}</div><div class="btns"><button data-act="tab" data-tab="changes">See the files</button></div>`;
   const found = r ? reviewHeadHtml(c) : `<div class="hint">pr-review hasn't run on this PR yet.</div><div class="btns"><button data-act="review" ${isBusy(c) ? "disabled" : ""}>Run pr-review</button></div>`;
   const stands = c.lifecycle ? readinessHtml(c) : `<div class="ov-where">${whereHtml(c)}</div>`;
-  return step(1, "What this is", explainerHtml(c)) + step(2, "What changed", changed) + step(3, "What we found", found) + step(4, "Where it stands", stands)
+  return step(1, "What this is", whatChangedBox(c) + explainerHtml(c)) + step(2, "What changed", changed) + step(3, "What we found", found) + step(4, "Where it stands", stands)
     + step(5, "What's needed from you", ballLine(c, ball(c), { buttons: false }))
     + `<details class="panel" data-k="story-more"><summary>${icon("chevRight", "sm chev")}More: status, description, timeline</summary><div class="body">${overviewHtmlBase(c, { story: true })}</div></details>`;
 }
@@ -1353,8 +1394,10 @@ function noteViewing(c) {
 const seenBusy = new Set();
 function markSeen(c) {
   const key = streamKey(c);
-  if (!isUnread(c) || seenBusy.has(key) || document.visibilityState !== "visible") return;
+  if (!(isUnread(c) || unseenEvents(c).length) || seenBusy.has(key) || document.visibilityState !== "visible") return;
   seenBusy.add(key);
+  // Keep showing what was new when you opened it, even though it's read now.
+  if (!openSeen.has(key)) openSeen.set(key, seenAt(c));
   post("/api/seen", { pr: c.number, kind: c.kind === "issue" ? "issue" : "pr" }).catch(() => {}).finally(() => setTimeout(() => seenBusy.delete(key), 1500));
 }
 function viewedItem() {
@@ -2065,7 +2108,7 @@ const BALL_GLYPH = {
 const spinner = (label = "Agent working") => `<svg class="spin" viewBox="0 0 16 16" role="img" aria-label="${esc(label)}"><circle cx="8" cy="8" r="6"/></svg>`;
 const ballGlyph = (b) => b.st === "agent" && !b.idle ? spinner() : b.st === "agent" ? `<span class="g g-agent-idle" role="img" aria-label="Agent's move">${icon("sparkle", "sm")}</span>` : `<span class="g g-${b.st}" role="img" aria-label="${esc(BALL[b.st].label)}"><svg viewBox="0 0 16 16" aria-hidden="true">${BALL_GLYPH[b.st] || ""}</svg></span>`;
 const tsOf = (s) => (s ? new Date(s).getTime() || 0 : 0);
-const isWorking = (c) => { const l = c.local || {}; return l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending || !!l.summarizing || !!l.explainerPending; };
+const isWorking = (c) => { const l = c.local || {}; return l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending || !!l.summarizing || !!l.explainerPending || !!autoRun(c); };
 const whenText = (iso) => { const d = new Date(iso); const today = new Date(); const same = d.toDateString() === today.toDateString(); return (same ? "" : d.toLocaleDateString([], { weekday: "short" }) + " ") + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
 
 function deriveBall(c, skipYou) {
@@ -2079,6 +2122,9 @@ function deriveBall(c, skipYou) {
   const running = l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending;
   if (c.section === "merged" || (issue && c.state && c.state !== "OPEN")) return { st: "quiet", ask: c.section === "merged" ? "Merged" : "Closed", since: c.mergedAt || c.updatedAt };
   if (!skipYou && q) return { st: "decide", ask: q.question, choices: q.choices || [], question: true, since: l.sync?.at };
+  // The board started an auto run here: the agent has it until it reports back.
+  const ar = autoRun(c);
+  if (ar) return { st: "agent", ask: `Auto: ${LAYER_VERB[ar.layer].toLowerCase()} because ${ar.reason}`, since: ar.at, auto: true };
   // Someone we were waiting on answered on GitHub: the ball comes back (to the agent, if it keeps this PR ready).
   const rp = c.replied;
   if (rp && !skipYou) {
@@ -2094,7 +2140,12 @@ function deriveBall(c, skipYou) {
   if (!issue && c.lifecycle && !(nx?.owner === "you" && !isReadyish(nx))) { const lb = lifecycleBall(c, skipYou, running); if (lb) return lb; }
   // A review you sent on GitHub after the agent handed you the step counts as acting on it.
   if (nx && !(skipYou && nx.owner === "you") && !(nx.owner === "you" && tsOf(c.myReviewAt) > tsOf(nx.at))) {
-    if (nx.owner === "you") return { st: nx.blocked ? "blocked" : nx.choices?.length ? "decide" : "ready", ask: nx.action, choices: nx.choices || [], explicit: true, since: nx.at };
+    if (nx.owner === "you") {
+      // A drafted review on the current head (an auto re-review, say) gets its Post review… button.
+      const r = !issue ? rvOf(c) : null;
+      const post = !!r && c.review?.state !== "stale" && l.prReview?.result !== "posted" && !nx.choices?.length;
+      return { st: nx.blocked ? "blocked" : nx.choices?.length ? "decide" : "ready", ask: nx.action, choices: nx.choices || [], explicit: true, since: nx.at, post };
+    }
     if (nx.owner === "agent") return { st: "agent", ask: nx.action, since: nx.at };
     if (!running) return { st: "waiting", owner: nx.owner === "author" || nx.owner === "reporter" ? c.author || nx.owner : nx.owner === "ci" ? "CI" : nx.owner, ask: nx.action, since: nx.at, stuck: !!nx.blocked };
   }
@@ -2206,6 +2257,7 @@ function yourMoveBox(items) {
       <div class="ym-h">${ballGlyph(b)}<span class="ym-kind">${esc(BALL[b.st].label)}</span>${isWorking(c) && b.st !== "agent" ? `<span class="row-hint">the agent is also working</span>` : ""}<span class="sp"></span>${agePill(b)}</div>
       <div class="ym-t">${isUnread(c) ? '<span class="unread-dot" aria-label="Unread"></span>' : ""}${typeTag(c)}<button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">      ${esc(c.title)}</button>${issueChips(c)}${replyMarks(c)}</div>
       <div class="ym-ask">${esc(b.ask)}</div>
+      ${whatChangedLine(c)}
       ${q}
       <div class="btns">${moveButtons(c, b)}</div>
     </article>`;
@@ -2302,6 +2354,7 @@ function ovRow(c, sec) {
     <div class="ov-main">
       <div class="ov-title-row">${isUnread(c) ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}${typeTag(c)}<button class="ov-title" data-act="flyout" data-kind="${kind}" data-pr="${c.number}" title="${esc(c.title)}">${pin}${esc(c.title)}</button>${issueChips(c)}${replyMarks(c)}${isWorking(c) && b.st !== "agent" && !mine ? spinner("Agent working on something here") : ""}${browserLink(c)}</div>
       <div class="ask">${lead}${esc(b.ask)}${b.then ? ` <span class="row-hint">· ${esc(b.then)}</span>` : ""}${mine && isWorking(c) ? ` <span class="row-hint">· the agent is also working on it</span>` : ""}${hintHtml(c)}</div>
+      ${whatChangedLine(c)}
     </div>
     <div class="right">${primary}${watchBadge(c)}${readyMeter(c)}${ownerHtml(b)}${agePill(b)}${sec === "merged" ? "" : rowActs(c, kind)}</div>
   </div>`;
@@ -2526,7 +2579,7 @@ function restoreListScroll() {
 }
 function dismissSheet() {
   const c = current();
-  if (c) composerDrafts.set(keyOf(c), $("input").value);
+  if (c) { composerDrafts.set(keyOf(c), $("input").value); openSeen.delete(streamKey(c)); }
   view = "overview"; viewing = null; openMenu = null; armed = null;
   render();
   restoreListScroll();
@@ -2685,6 +2738,7 @@ function renderFlyout() {
       </div>
       <div class="fly-body">${ft === "github" ? `<div class="gh-slot" data-k="${esc(ghSlotKey(fly.kind, c.number))}"></div>` : ft === "changes" ? branchSlot(c) : `
         ${ballLine(c, ball(c), { buttons: false })}
+        ${whatChangedBox(c)}
         <section class="sec"><div class="fly-cmds" role="group" aria-label="Quick commands">${flyCommands(c, fly.kind)}</div></section>
         ${!isIssue && c.lifecycle ? readinessHtml(c) : ""}
         ${!isIssue ? askHtml(c) : ""}
@@ -2720,6 +2774,7 @@ function openFlyout(kind, number, from) {
 function closeFlyout() {
   const ta = $("flyInput");
   if (ta?.dataset.k) composerDrafts.set(ta.dataset.k, ta.value);
+  if (fly && view !== "detail") openSeen.delete(`${fly.kind}:${fly.number}`);
   fly = null;
   viewing = null;
   flyMore = false;
@@ -2783,6 +2838,101 @@ function renderOverview() {
   }
 }
 
+// ---- Proactive mode (Auto) --------------------------------------------------------------------------------
+let autoOpen = false;
+const openSeen = new Map(); // item -> when you had last seen it, captured as you open it
+const autoOf = () => snap?.auto || null;
+const LAYER_N = { notice: 1, rereview: 2, firstReview: 3, issues: 4 };
+const LAYER_VERB = { notice: "Summarize what changed", rereview: "Re-review", firstReview: "First review", issues: "Follow up" };
+const autoRun = (c) => { const r = c?.local?.auto?.running; return r && Date.now() - tms(r.at) < 3 * 3600e3 ? r : null; };
+const itemLabel = (kind, n) => `${kind === "issue" ? "Issue" : "PR"} #${n}`;
+const BOT_WHO = /\[bot\]$|^(copilot-pull-request-reviewer|copilot|github-code-quality|github-actions|microsoft-github-policy-service|dependabot)$/i;
+const involvedItem = (c) => (c.kind === "issue" ? !!(c.local?.session?.id || (c.local?.thread || []).length) : ["yours", "reviewing"].includes(c.section));
+
+// GitHub activity you haven't seen on an item you're in: not yours, not a bot.
+function unseenEvents(c, since = null) {
+  if (!c || !involvedItem(c)) return [];
+  const l = c.local || {};
+  const from = since !== null ? since : Math.max(seenAt(c), tms(l.whatChanged?.upTo));
+  return (c.activity || []).filter((e) => e.who && e.who !== snap?.viewer && !e.bot && !BOT_WHO.test(e.who) && tms(e.at) > from);
+}
+function eventsText(evs) {
+  const by = new Map();
+  for (const e of evs) { const x = by.get(e.who) || { push: 0, comment: null, review: null }; if (e.kind === "push") x.push++; else if (e.kind === "review") x.review = e; else x.comment = e; by.set(e.who, x); }
+  return [...by].map(([who, x]) => [x.push ? `pushed ${x.push} commit${x.push === 1 ? "" : "s"}` : "", x.review ? `${x.review.state === "APPROVED" ? "approved" : x.review.state === "CHANGES_REQUESTED" ? "requested changes" : "reviewed"}` : "", x.comment ? `commented “${(x.comment.preview || "").slice(0, 80)}${(x.comment.preview || "").length > 80 ? "…" : ""}”` : ""].filter(Boolean).join(", ").replace(/^/, `${who} `)).join("; ");
+}
+const plainLine = (s) => String(s || "").replace(/\[\[[^\]]+\]\]/g, "").replace(/[*_`#>]/g, "").replace(/\s+/g, " ").trim();
+function whatChangedLine(c) {
+  if (!involvedItem(c)) return "";
+  const w = c.local?.whatChanged;
+  if (w && tms(w.at) > seenAt(c)) return `<div class="wc-line" title="${esc(plainLine(w.text))}">${icon("refresh", "sm")} <b>What changed:</b> ${esc(plainLine(w.text))}</div>`;
+  const ev = unseenEvents(c);
+  return ev.length ? `<div class="wc-line" title="${esc(eventsText(ev))}">${icon("refresh", "sm")} <b>New:</b> ${esc(eventsText(ev))}</div>` : "";
+}
+function whatChangedBox(c) {
+  const w = c.local?.whatChanged;
+  const ev = unseenEvents(c, openSeen.get(streamKey(c)) ?? null);
+  if (!w && !ev.length) return "";
+  if (w && !ev.length && Date.now() - tms(w.at) > 3 * 86400e3) return "";
+  const evName = (e) => (e.kind === "push" ? `pushed ${esc(String(e.id).slice(0, 7))}` : e.kind === "review" ? "reviewed" : "commented");
+  return `<section class="wc-box" aria-label="What changed since you last looked"><h4>${icon("refresh", "sm")}What changed since you last looked${w ? `<span class="when">${esc(ago(w.at))}</span>` : ""}</h4>${w ? `<div class="md">${md(w.text)}</div>` : ""}${ev.length ? `<ul>${ev.slice(-6).map((e) => `<li>${esc(e.who)} ${evName(e)}${e.preview ? `: “${esc(e.preview.slice(0, 120))}”` : ""}${e.url ? ` <a href="${esc(e.url)}" target="_blank" rel="noopener" aria-label="Open on GitHub">↗</a>` : ""}</li>`).join("")}</ul>` : ""}</section>`;
+}
+
+function renderAutoHeader() {
+  const a = autoOf(), btn = $("autoBtn"), pb = $("pauseBtn");
+  btn.hidden = pb.hidden = !a;
+  if (!a) return;
+  const paused = a.settings.paused;
+  btn.className = `auto-btn ${paused ? "paused" : "on"}`;
+  const bits = [a.running.length ? `${a.running.length} running` : "", a.queue.length ? `${a.queue.length} up next` : ""].filter(Boolean);
+  btn.innerHTML = `${icon("gear", "sm")}<span class="lbl">Auto</span>${paused ? `<span class="n"> · paused</span>` : bits.length ? `<span class="n"> · ${esc(bits.join(" · "))}</span>` : ""}`;
+  btn.setAttribute("aria-expanded", String(autoOpen));
+  pb.innerHTML = paused ? `${icon("play", "sm")}<span class="lbl">Resume auto</span>` : `${icon("pause", "sm")}<span class="lbl">Pause auto</span>`;
+  pb.setAttribute("aria-pressed", String(paused));
+}
+const whenIn = (ms) => { const m = Math.round((ms - Date.now()) / 60000); return m <= 0 ? "now" : m < 60 ? `in ${m} min` : `in ${Math.round(m / 60)} h`; };
+function renderAutoPanel() {
+  const host = $("autoHost");
+  const a = autoOf();
+  if (!autoOpen || !a) { host.innerHTML = ""; return; }
+  const f = document.activeElement;
+  if (f?.closest?.("#autoHost") && f.matches("input, select")) return; // don't redraw under the user's typing
+  const s = a.settings, cap = a.capacity;
+  const num = (id, label, min, max, unit = "") => `<label for="auto-${id}">${label}</label><span><input type="number" id="auto-${id}" data-set="${id}" min="${min}" max="${max}" value="${esc(String(s[id]))}">${unit ? ` ${unit}` : ""}</span>`;
+  const hourSel = (id) => `<select id="auto-${id}" data-set="${id}"><option value="">Any</option>${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${s[id] === h ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`).join("")}</select>`;
+  const m = cap.machine || {};
+  const facts = [`${a.running.length} running`, `${a.queue.length} up next`, `${cap.runsToday} of ${cap.dailyCap} runs today`, `${cap.used} of ${cap.max} slots busy`, m.cpu !== null && m.cpu !== undefined ? `CPU ${m.cpu}%` : "", m.freeGB !== null && m.freeGB !== undefined ? `${m.freeGB} GB free` : ""].filter(Boolean).join(" · ");
+  const q = a.queue.map((x) => `<li class="q"><span class="t" title="${esc(x.title)}">${esc(itemLabel(x.kind, x.number))} ${esc(x.title)}</span><span class="why">${esc(LAYER_VERB[x.layer])} (layer ${LAYER_N[x.layer]}): ${esc(x.reason)} · ${x.why ? `${esc(x.why)}${x.startsAt > Date.now() ? ` · ${whenIn(x.startsAt)}` : ""}` : "starting"}</span><span class="acts"><button data-act="auto-run" data-key="${esc(x.key)}">Run now</button><button class="quiet" data-act="auto-skip" data-key="${esc(x.key)}">Skip</button></span></li>`).join("");
+  const run = a.running.map((x) => `<li class="q"><span class="t">${esc(itemLabel(x.kind, x.number))} ${esc(x.title || "")}</span><span class="why">${esc(LAYER_VERB[x.layer])}: ${esc(x.reason)} · started ${esc(ago(x.at))}</span></li>`).join("");
+  const log = [...a.log].reverse().slice(0, 10).map((x) => `<li>${esc(whenText(x.at))} · ${esc(itemLabel(x.kind, x.number))}: ${x.skipped ? "skipped" : esc(LAYER_VERB[x.layer].toLowerCase())} because ${esc(x.reason)}${x.by === "user" ? " (you)" : ""}</li>`).join("");
+  host.dataset.rendered = "1";
+  host.innerHTML = `<div class="scrim" data-act="auto-close" aria-hidden="true"></div>
+  <aside class="auto-panel" role="dialog" aria-modal="true" aria-label="Proactive mode">
+    <header><h2>${icon("gear", "sm")} Auto</h2><button data-act="auto-pause" aria-pressed="${s.paused}">${s.paused ? `${icon("play", "sm")}Resume` : `${icon("pause", "sm")}Pause`}</button><button class="quiet ico" data-act="auto-close" aria-label="Close">${icon("x", "sm")}</button></header>
+    <div class="body">
+      <section><div class="state"><b>${s.paused ? "Paused: nothing starts on its own" : "On: the board starts work for you"}</b><span class="facts">${esc(facts)}</span></div>${cap.machineWhy ? `<div class="hint">Waiting: ${esc(cap.machineWhy)}</div>` : ""}</section>
+      <section><h3>Up next</h3>${q ? `<ul>${q}</ul>` : `<div class="empty">Nothing is waiting.</div>`}</section>
+      ${run ? `<section><h3>Running</h3><ul>${run}</ul></section>` : ""}
+      <section><h3>What it does on its own</h3>${a.layers.map((l) => `<label class="lay"><input type="checkbox" id="auto-layer-${l.id}" data-set="layer" data-layer="${l.id}" ${s.layers[l.id] ? "checked" : ""}><b>${l.n} · ${esc(l.title)}</b><span class="hint">${esc(l.hint)}</span></label>`).join("")}<div class="lay"><span></span><b>5 · Keep ready</b><span class="hint">Your own PRs. Turn it on per PR with Get it ready &amp; keep it ready.</span></div></section>
+      <section><h3>Limits</h3><div class="limits">
+        ${num("maxConcurrent", "At most this many at a time (busy sessions count)", 0, 8)}
+        ${num("dailyCap", "Runs per day", 0, 200)}
+        ${num("cooldownMin", "Wait between runs on one item", 0, 1440, "min")}
+        ${num("stableMin", "Wait until new commits or comments are quiet for", 0, 1440, "min")}
+        <label for="auto-machineCheck">Check the machine first</label><span><input type="checkbox" id="auto-machineCheck" data-set="machineCheck" ${s.machineCheck ? "checked" : ""}></span>
+        ${num("cpuMax", "Skip when CPU is over", 1, 100, "%")}
+        ${num("minFreeGB", "Skip when free memory is under", 0, 512, "GB")}
+        <label>Only between</label><span>${hourSel("hoursFrom")} and ${hourSel("hoursTo")}</span>
+      </div></section>
+      <section><h3>Guardrails (always on)</h3><p class="guard">Auto work never posts, approves, requests changes, merges, labels or comments on GitHub, and never pushes to someone else's branch. It drafts, and you decide. Every run is logged on the item's timeline.</p></section>
+      <section><h3>Recent runs</h3>${log ? `<ul class="log">${log}</ul>` : `<div class="empty">None yet.</div>`}</section>
+    </div>
+  </aside>`;
+}
+async function saveAuto(patch) {
+  try { await post("/api/settings", { settings: patch }); } catch (e) { toast("Couldn't save: " + e.message); }
+}
+
 function renderSyncInfo() {
   const s = snap?.sync || {};
   const cards = cardsOf();
@@ -2813,6 +2963,8 @@ function render(force = false) {
   document.body.classList.toggle("ovmode", true);
   document.body.classList.toggle("sheet", view === "detail");
   renderSyncInfo();
+  renderAutoHeader();
+  renderAutoPanel();
   applyRail();
   renderOverview();
   if (view !== "detail") { renderFlyout(); markViewed(); return; }
@@ -2882,6 +3034,13 @@ document.addEventListener("click", (e) => {
   }
   const a = el.dataset.act;
   const rowPr = el.dataset.pr ? Number(el.dataset.pr) : null;
+  if (a === "auto-open") { autoOpen = !autoOpen; renderAutoHeader(); renderAutoPanel(); if (autoOpen) $("autoHost").querySelector("[data-act=auto-pause]")?.focus(); return; }
+  if (a === "auto-close") { autoOpen = false; renderAutoHeader(); renderAutoPanel(); return $("autoBtn").focus(); }
+  if (a === "auto-pause") return saveAuto({ paused: !autoOf()?.settings.paused });
+  if (a === "auto-run" || a === "auto-skip") {
+    el.disabled = true;
+    return post("/api/auto", { op: a === "auto-run" ? "run" : "skip", key: el.dataset.key }).then(() => toast(a === "auto-run" ? "Started it" : "Skipped it")).catch((err) => { el.disabled = false; toast("Couldn't do that: " + err.message); });
+  }
   if (a === "select") return select(rowPr ?? selected);
   if (a === "rail-toggle") return setRail(!railOpen);
   if (a === "rail-open") {
@@ -2993,6 +3152,7 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && autoOpen) { e.preventDefault(); autoOpen = false; renderAutoHeader(); renderAutoPanel(); return $("autoBtn").focus(); }
   if (e.key === "Escape" && fly) { e.preventDefault(); return closeFlyout(); }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "flyInput") { e.preventDefault(); $("flyComposer").requestSubmit(); return; }
   if (e.key === "Escape") {
@@ -3053,6 +3213,13 @@ $("split").addEventListener("pointerdown", (e) => {
 });
 
 document.addEventListener("change", (e) => {
+  const set = e.target.closest?.("#autoHost") ? e.target.dataset.set : null;
+  if (set) {
+    const t = e.target;
+    const patch = set === "layer" ? { layers: { [t.dataset.layer]: t.checked } } : t.type === "checkbox" ? { [set]: t.checked } : { [set]: t.value === "" ? null : Number(t.value) };
+    saveAuto(patch).then(() => { t.blur(); renderAutoPanel(); });
+    return;
+  }
   const fid = e.target.dataset?.finding;
   if (fid && current()) { const cur = current(); cur.local.triage = { ...(cur.local.triage || {}), [fid]: { ...(cur.local.triage?.[fid] || {}), note: e.target.value } }; saveTriage(cur.number, fid, { note: e.target.value }); return; }
   if (e.target.id === "ovSort") { sortBy = e.target.value; store.set("prb-sort", sortBy); render(); }
