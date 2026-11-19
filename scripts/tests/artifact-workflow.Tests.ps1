@@ -63,9 +63,9 @@ AfterAll {
 Describe 'Artifact-first workflow dependencies' {
     It 'publishes packages without tests and keeps the original check as a strict aggregate' {
         $producer = Get-JobText $buildWorkflow 'build-artifacts'
-        $producer | Should -Match 'build-cli\.ps1 -SkipTests -SkipDocs'
-        $producer | Should -Match '(?m)^\s+needs: changes\r?$'
-        $producer | Should -Match ([regex]::Escape("if: needs.changes.outputs.code == 'true'"))
+        $producer | Should -Match 'build-cli\.ps1 -Stage Package -SkipTests -SkipDocs'
+        $producer | Should -Match '(?m)^\s+needs: build-parts\r?$'
+        (Get-JobText $buildWorkflow 'build-parts') | Should -Match ([regex]::Escape("if: needs.changes.outputs.code == 'true'"))
         $producer | Should -Not -Match 'collect-metrics|test-results'
         $producer | Should -Match 'Downloads - awaiting validation'
         foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages')) {
@@ -75,14 +75,23 @@ Describe 'Artifact-first workflow dependencies' {
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
         # metrics only reports results, so the required check does not wait for it.
-        $gate | Should -Match 'needs: \[changes, docs-tests, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples\]'
+        $gate | Should -Match 'needs: \[changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples\]'
     }
 
-    It 'builds both architectures in one producer without intermediate publish artifacts' {
+    It 'builds each CLI and engine part on its own runner and packages them once' {
+        $parts = Get-JobText $buildWorkflow 'build-parts'
+        $parts | Should -Match 'stage: \[Cli, Engine\]'
+        $parts | Should -Match 'arch: \[x64, arm64\]'
+        $parts | Should -Match 'fetch-depth: 0'
+        $parts | Should -Match ([regex]::Escape('build-cli.ps1 -Stage $env:STAGE -Architecture $env:ARCH -SkipTests -SkipDocs'))
+        $parts | Should -Match 'name: part-\$\{\{ matrix.stage \}\}-\$\{\{ matrix.arch \}\}'
         $producer = Get-JobText $buildWorkflow 'build-artifacts'
         $producer | Should -Match 'fetch-depth: 0'
         $producer | Should -Match 'path: artifacts/cli/'
-        $buildWorkflow | Should -Not -Match 'cli-publish-|OnlyPackage| -Architecture '
+        foreach ($part in @('Cli-x64', 'Cli-arm64', 'Engine-x64', 'Engine-arm64')) {
+            $producer | Should -Match "(?m)^\s+name: part-$part\r?$"
+        }
+        $producer | Should -Not -Match 'dotnet publish|build-devtools\.ps1'
     }
 
     It 'keeps formatting, lint and compilation gates on freshly generated npm commands' {
@@ -198,7 +207,7 @@ Describe 'Partial reruns replace only owned artifacts' {
             Get-UploadSteps $sampleWorkflow
             Get-UploadSteps $reportAction
         )
-        $uploads.Count | Should -Be 16
+        $uploads.Count | Should -Be 17
         foreach ($upload in $uploads) {
             $upload | Should -Match '(?m)^        overwrite: true\r?$' -Because $upload
         }
@@ -209,6 +218,14 @@ Describe 'Partial reruns replace only owned artifacts' {
             foreach ($job in @('build-artifacts', 'metrics', 'validate-devtools', 'e2e-test-ui')) {
                 foreach ($step in (Get-UploadSteps (Get-JobText $buildWorkflow $job))) {
                     [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
+                }
+            }
+            $partUpload = @(Get-UploadSteps (Get-JobText $buildWorkflow 'build-parts'))
+            $partUpload.Count | Should -Be 1
+            $partName = [regex]::Match($partUpload[0], '(?m)^        name: (.+?)\r?$').Groups[1].Value
+            foreach ($stage in 'Cli', 'Engine') {
+                foreach ($arch in 'x64', 'arm64') {
+                    $partName.Replace('${{ matrix.stage }}', $stage).Replace('${{ matrix.arch }}', $arch)
                 }
             }
             $laneUpload = @(Get-UploadSteps (Get-JobText $buildWorkflow 'validate-tests'))
@@ -228,7 +245,7 @@ Describe 'Partial reruns replace only owned artifacts' {
                 [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
             }
         )
-        $names.Count | Should -Be 32
+        $names.Count | Should -Be 36
         $names | Should -Contain 'binding-owner-test-results'
         $names | Should -Contain 'devtools-overlay-observations'
         @($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count | Should -Be 0
@@ -281,7 +298,7 @@ Describe 'Failed validation reports without promoting the main baseline' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples')) {
+        foreach ($job in @('build-parts', 'build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples')) {
             $results[$job] = @{ result = 'success' }
         }
         $results['changes'] = @{ result = 'success'; outputs = @{ code = 'true' } }

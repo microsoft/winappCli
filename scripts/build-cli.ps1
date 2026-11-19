@@ -48,6 +48,14 @@
     it, a bake that fails on a stable build fails the build.
 .PARAMETER Bake
     Refresh the find-ui corpus even on a prerelease build. Requires network access to GitHub.
+.PARAMETER Stage
+    Split the package build across machines. All (default) does everything below in one run.
+    Cli publishes the CLI for -Architecture; Engine builds the DevTools engine for -Architecture
+    into artifacts\devtools. Package expects both published CLIs in artifacts\cli and both engines
+    in artifacts\devtools, combines them, and creates the npm, NuGet, and MSIX packages.
+    Cli, Engine, and Package require -SkipTests -SkipDocs.
+.PARAMETER Architecture
+    x64 or arm64. Required with -Stage Cli or Engine; not valid otherwise.
 .EXAMPLE
     .\scripts\build-cli.ps1
 .EXAMPLE
@@ -98,7 +106,11 @@ param(
     [int]$CliShard,
     [switch]$Stable = $false,
     [switch]$SkipBake = $false,
-    [switch]$Bake = $false
+    [switch]$Bake = $false,
+    [ValidateSet('All', 'Cli', 'Engine', 'Package')]
+    [string]$Stage = 'All',
+    [ValidateSet('x64', 'arm64')]
+    [string]$Architecture
 )
 
 # Validate compound flag usage
@@ -120,6 +132,22 @@ if ($TestSuite -ne 'All' -and -not ($OnlyTests -and $UseExistingArtifacts)) {
 if ($PSBoundParameters.ContainsKey('CliShard') -and -not ($OnlyTests -and $UseExistingArtifacts -and $TestSuite -eq 'Cli')) {
     Write-Error "-CliShard requires -OnlyTests -UseExistingArtifacts -TestSuite Cli."
     exit 1
+}
+if ($Stage -ne 'All' -and ((-not $SkipTests) -or (-not $SkipDocs) -or $UseExistingArtifacts -or $CompoundFlagsCount -gt 0)) {
+    Write-Error "-Stage $Stage requires -SkipTests -SkipDocs and rejects -UseExistingArtifacts, -SkipAll, -OnlyDocs, and -OnlyTests."
+    exit 1
+}
+if (($Stage -in @('Cli', 'Engine')) -ne [bool]$Architecture) {
+    Write-Error "-Architecture is required with -Stage Cli or Engine and not valid otherwise."
+    exit 1
+}
+$BuildArchitectures = if ($Architecture) { @($Architecture) } else { @('x64', 'arm64') }
+$PublishesCli = $Stage -in @('All', 'Cli')
+$CombinesEngine = $Stage -in @('All', 'Package')
+if ($Stage -in @('Cli', 'Engine')) {
+    $SkipNpm = $true
+    $SkipNuGet = $true
+    $SkipMsix = $true
 }
 $RunCliTests = $TestSuite -in @('All', 'Core', 'Cli')
 $RunAuxiliaryTests = $TestSuite -in @('All', 'Core', 'Auxiliary')
@@ -234,9 +262,13 @@ try
         Write-Host "Build mode: PRERELEASE (with prerelease suffix)" -ForegroundColor Cyan
     }
 
-    Write-Host "[CLEAN] Cleaning $(if ($UseExistingArtifacts) { 'test results only' } else { 'artifacts and test results' })..." -ForegroundColor Yellow
-    if (-not $UseExistingArtifacts -and (Test-Path $ArtifactsPath)) {
+    Write-Host "[CLEAN] Cleaning $(if ($UseExistingArtifacts -or $Stage -eq 'Package') { 'test results only' } else { 'artifacts and test results' })..." -ForegroundColor Yellow
+    if (-not $UseExistingArtifacts -and $Stage -ne 'Package' -and (Test-Path $ArtifactsPath)) {
         Remove-Item $ArtifactsPath -Recurse -Force
+    }
+    if ($Stage -eq 'Package' -and (Test-Path $ArtifactsPath)) {
+        # Keep the parts this stage combines; replace every package it produces.
+        Get-ChildItem $ArtifactsPath | Where-Object Name -NotIn @('cli', 'devtools') | Remove-Item -Recurse -Force
     }
     foreach ($ResultsDirectory in @($TestResultsPath, "$ArtifactsPath\TestResults", "$CliSolutionDir\TestResults")) {
         if (Test-Path $ResultsDirectory) {
@@ -324,7 +356,7 @@ try
     # find-ui is non-functional offline, the exact regression the embedded snapshot exists
     # to prevent (issue #704).
     $SnapshotDataPath = "$CliSolutionDir\WinApp.Cli\Services\Controls\Data"
-    $ShouldBake = ($Stable -or $Bake) -and (-not $SkipBake)
+    $ShouldBake = ($Stable -or $Bake) -and (-not $SkipBake) -and $PublishesCli
 
     if ($ShouldBake) {
         Write-Host "[BAKE] Refreshing find-ui corpus from GitHub..." -ForegroundColor Blue
@@ -421,7 +453,7 @@ try
                 }
             }
         }
-    } elseif ($Stable) {
+    } elseif ($Stable -and $PublishesCli) {
         Write-Warning "[BAKE] Skipped (-SkipBake); shipping the committed find-ui corpus as-is. It may be several releases behind upstream."
     }
 
@@ -433,7 +465,7 @@ try
     # "no embedded corpus" -- silently reinstating issue #704 in a shipped build. So the
     # blobs are actually decompressed and parsed here, and cross-checked against the
     # manifest that the CLI, the drift job and the release all read.
-    if ($Stable) {
+    if ($Stable -and $PublishesCli) {
         $RequiredSnapshots = @("snapshot-manifest.json", "snapshot-gallery.json.br", "snapshot-toolkit.json.br", "snapshot-reactor.json.br")
         $MissingSnapshots = @(
             $RequiredSnapshots | Where-Object {
@@ -495,8 +527,8 @@ try
     }
 
     # Step 2: Publish CLI (implicitly builds the CLI project).
-    if (-not $UseExistingArtifacts) {
-        foreach ($PublishArchitecture in @('x64', 'arm64')) {
+    if (-not $UseExistingArtifacts -and $PublishesCli) {
+        foreach ($PublishArchitecture in $BuildArchitectures) {
             $RuntimeId = "win-$PublishArchitecture"
             Write-Host "[PUBLISH] Publishing CLI for $PublishArchitecture..." -ForegroundColor Blue
             dotnet publish $CliProjectPath -c Release -r $RuntimeId --self-contained -o "$ArtifactsPath\cli\$RuntimeId" `
@@ -513,22 +545,28 @@ try
     }
 
     # Native intermediates are shared: retain each architecture before building the next.
+    # The Package stage combines engines that Engine stages built on other machines.
     Import-Module (Join-Path $PSScriptRoot 'DevToolsEngine.psm1') -Force
-    if (-not $UseExistingArtifacts) {
-        foreach ($arch in 'x64', 'arm64') {
+    if (-not $UseExistingArtifacts -and $Stage -ne 'Cli') {
+        foreach ($arch in $BuildArchitectures) {
             $EngineOut = Join-Path $ProjectRoot "$ArtifactsPath\devtools\win-$arch"
-            & (Join-Path $ProjectRoot 'src\winapp-devtools\build-devtools.ps1') `
-                -Configuration Release -Arch $arch -EngineOut $EngineOut -SkipNativeUnitTests:$SkipTests
-            if (-not $? -or $LASTEXITCODE -ne 0) { throw "DevTools engine build failed for $arch" }
+            if ($Stage -ne 'Package') {
+                & (Join-Path $ProjectRoot 'src\winapp-devtools\build-devtools.ps1') `
+                    -Configuration Release -Arch $arch -EngineOut $EngineOut -SkipNativeUnitTests:$SkipTests
+                if (-not $? -or $LASTEXITCODE -ne 0) { throw "DevTools engine build failed for $arch" }
+            }
             Assert-DevToolsEnginePayload -Directory $EngineOut
+            if (-not $CombinesEngine) { continue }
             $CliOut = Join-Path $ProjectRoot "$ArtifactsPath\cli\win-$arch"
             foreach ($name in @((Get-DevToolsEnginePayload) + @('WinApp.DevTools.Native.pdb', 'winapp-devtools-schema.json'))) {
                 Copy-Item -LiteralPath (Join-Path $EngineOut $name) -Destination $CliOut -Force -ErrorAction Stop
             }
         }
     }
-    & (Join-Path $PSScriptRoot 'test-devtools-engine.ps1') -EngineRoot (Join-Path $ProjectRoot "$ArtifactsPath\cli")
-    if (-not $?) { throw 'Published DevTools engine verification failed' }
+    if ($CombinesEngine -or $UseExistingArtifacts) {
+        & (Join-Path $PSScriptRoot 'test-devtools-engine.ps1') -EngineRoot (Join-Path $ProjectRoot "$ArtifactsPath\cli")
+        if (-not $?) { throw 'Published DevTools engine verification failed' }
+    }
 
     # Step 3: Build the solution in Debug to compile the tests. Coverage is collected on
     # this Debug build (Step 5) -- optimized Release builds under-count line coverage (many
@@ -932,6 +970,8 @@ try
     Write-Host ""
     if ($SkipAll) {
         Write-Host "[DONE] CLI publish completed; packaging and validation were skipped." -ForegroundColor Yellow
+    } elseif ($Stage -in @('Cli', 'Engine')) {
+        Write-Host "[DONE] $Stage $Architecture built; combine both architectures with -Stage Package." -ForegroundColor Yellow
     } elseif ($SkipTests) {
         Write-Host "[DONE] Packages built; awaiting validation (tests skipped)." -ForegroundColor Yellow
     } elseif ($UseExistingArtifacts) {

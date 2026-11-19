@@ -388,9 +388,11 @@ Each sample under `samples/` has a self-contained **Pester 5.x** test file (`tes
 
 ### CI integration
 
-`Build and Package` builds both CLI architectures and all packages together
-with `-SkipTests -SkipDocs`. Keep full git history in `build-artifacts` so the
-build number is calculated correctly. It uploads packages, then starts the full
+`Build and Package` publishes each CLI architecture and builds each DevTools engine
+on its own runner (`build-parts`, `build-cli.ps1 -Stage Cli|Engine -Architecture`),
+then `build-artifacts` combines them and creates every package (`-Stage Package`).
+The default `-Stage All` still does everything in one run. Keep full git history in
+these jobs so the build number, and so the version, is the same in each. It uploads packages, then starts the full
 test suite, documentation validation, UI E2E, and (on PRs and merge queue runs) sample tests as
 independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it must
 not republish or delete the downloaded CLI and NuGet packages.

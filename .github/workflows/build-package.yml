@@ -80,9 +80,45 @@ jobs:
         $config.Output.Verbosity = 'Detailed'
         Invoke-Pester -Configuration $config
 
-  build-artifacts:
+  # Publish each CLI architecture and build each DevTools engine on its own runner;
+  # build-artifacts then combines and packages them.
+  build-parts:
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        stage: [Cli, Engine]
+        arch: [x64, arm64]
+    name: build-parts (${{ matrix.stage }} ${{ matrix.arch }})
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0  # Required for build number calculation
+
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Build ${{ matrix.stage }} ${{ matrix.arch }}
+      env:
+        STAGE: ${{ matrix.stage }}
+        ARCH: ${{ matrix.arch }}
+      run: .\scripts\build-cli.ps1 -Stage $env:STAGE -Architecture $env:ARCH -SkipTests -SkipDocs
+
+    - name: Upload part
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: part-${{ matrix.stage }}-${{ matrix.arch }}
+        path: artifacts/${{ matrix.stage == 'Cli' && 'cli' || 'devtools' }}/win-${{ matrix.arch }}/
+        if-no-files-found: error
+        overwrite: true
+
+  build-artifacts:
+    needs: build-parts
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -99,11 +135,35 @@ jobs:
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: '24'
+
+    - name: Download CLI x64
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: part-Cli-x64
+        path: artifacts/cli/win-x64
+
+    - name: Download CLI arm64
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: part-Cli-arm64
+        path: artifacts/cli/win-arm64
+
+    - name: Download engine x64
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: part-Engine-x64
+        path: artifacts/devtools/win-x64
+
+    - name: Download engine arm64
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: part-Engine-arm64
+        path: artifacts/devtools/win-arm64
     
-    # Build both architectures and packages together; validation consumes these
+    # Combine both architectures and package them; validation consumes these
     # same-run artifacts on separate runners without republishing.
     - name: Build and package (awaiting validation)
-      run: .\scripts\build-cli.ps1 -SkipTests -SkipDocs
+      run: .\scripts\build-cli.ps1 -Stage Package -SkipTests -SkipDocs
     
     - name: Upload CLI binaries
       id: cli
@@ -542,7 +602,7 @@ jobs:
   # Docs-only changes expect every build and test lane to be skipped and docs-tests to pass.
   build-and-package:
     if: always()
-    needs: [changes, docs-tests, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples]
+    needs: [changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs
