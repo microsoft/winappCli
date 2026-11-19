@@ -47,7 +47,7 @@ BeforeAll {
     $script:buildGate = [scriptblock]::Create((Get-RunScript (Get-JobText $buildWorkflow 'build-and-package') 'Require all build and validation jobs'))
     $script:sampleGate = [scriptblock]::Create((Get-RunScript (Get-JobText $sampleWorkflow 'test-samples-result') 'Check results'))
     $script:sampleWrapperGate = [scriptblock]::Create((Get-RunScript (Get-JobText $buildWorkflow 'test-samples-result') 'Check results'))
-    $script:environmentNames = @('NEEDS_JSON', 'PRE_MERGE', 'SAMPLE_RESULT', 'BUILD_RESULT', 'REUSE_ARTIFACTS')
+    $script:environmentNames = @('NEEDS_JSON', 'PRE_MERGE', 'SAMPLE_RESULT', 'BUILD_RESULT', 'REUSE_ARTIFACTS', 'CHANGES_RESULT', 'CODE')
     $script:savedEnvironment = @{}
     foreach ($name in $environmentNames) {
         $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
@@ -64,7 +64,8 @@ Describe 'Artifact-first workflow dependencies' {
     It 'publishes packages without tests and keeps the original check as a strict aggregate' {
         $producer = Get-JobText $buildWorkflow 'build-artifacts'
         $producer | Should -Match 'build-cli\.ps1 -SkipTests -SkipDocs'
-        $producer | Should -Not -Match '(?m)^\s+needs:'
+        $producer | Should -Match '(?m)^\s+needs: changes\r?$'
+        $producer | Should -Match ([regex]::Escape("if: needs.changes.outputs.code == 'true'"))
         $producer | Should -Not -Match 'collect-metrics|test-results'
         $producer | Should -Match 'Downloads - awaiting validation'
         foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages')) {
@@ -74,7 +75,7 @@ Describe 'Artifact-first workflow dependencies' {
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
         # metrics only reports results, so the required check does not wait for it.
-        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples\]'
+        $gate | Should -Match 'needs: \[changes, docs-tests, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples\]'
     }
 
     It 'builds both architectures in one producer without intermediate publish artifacts' {
@@ -283,33 +284,87 @@ Describe 'Required build check outcomes' {
         foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples')) {
             $results[$job] = @{ result = 'success' }
         }
+        $results['changes'] = @{ result = 'success'; outputs = @{ code = 'true' } }
+        $results['docs-tests'] = @{ result = 'skipped' }
         $env:PRE_MERGE = 'true'
     }
 
     It 'passes a PR only when every dependency succeeds' {
-        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
         { & $buildGate } | Should -Not -Throw
     }
 
     It 'rejects every failed, canceled, or skipped dependency' {
         foreach ($job in @($results.Keys)) {
-            foreach ($outcome in @('failure', 'cancelled', 'skipped')) {
+            $passing = $results[$job].result
+            foreach ($outcome in @('success', 'failure', 'cancelled', 'skipped') | Where-Object { $_ -ne $passing }) {
                 $results[$job].result = $outcome
-                $env:NEEDS_JSON = $results | ConvertTo-Json -Compress
+                $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
                 { & $buildGate } | Should -Throw -ExpectedMessage "*$job did not meet*"
             }
-            $results[$job].result = 'success'
+            $results[$job].result = $passing
         }
     }
 
     It 'allows only the deliberate sample skip on main and manual runs' {
         $env:PRE_MERGE = 'false'
         $results.samples.result = 'skipped'
-        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
         { & $buildGate } | Should -Not -Throw
         $results.'validate-tests'.result = 'skipped'
-        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
         { & $buildGate } | Should -Throw
+    }
+
+    It 'passes a docs-only change only when every lane is skipped and the docs tests pass' {
+        foreach ($job in @($results.Keys)) { $results[$job].result = 'skipped' }
+        $results.changes = @{ result = 'success'; outputs = @{ code = 'false' } }
+        $results.'docs-tests'.result = 'success'
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
+        { & $buildGate } | Should -Not -Throw
+        $results.'docs-tests'.result = 'failure'
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
+        { & $buildGate } | Should -Throw -ExpectedMessage '*docs-tests did not meet*'
+        $results.'docs-tests'.result = 'success'
+        $results.'validate-tests'.result = 'failure'
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
+        { & $buildGate } | Should -Throw -ExpectedMessage '*validate-tests did not meet*'
+    }
+
+    It 'fails closed when the change classification fails' {
+        foreach ($job in @($results.Keys)) { $results[$job].result = 'skipped' }
+        $results.changes = @{ result = 'failure'; outputs = @{} }
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
+        { & $buildGate } | Should -Throw -ExpectedMessage '*changes did not meet*'
+    }
+}
+
+Describe 'Docs-only change classification' {
+    BeforeAll {
+        $script:classify = Get-RunScript (Get-JobText $buildWorkflow 'changes') 'Classify changed files'
+    }
+
+    It 'classifies <Case> as code=<Code>' -ForEach @(
+        @{ Case = 'docs pages and root markdown'; Files = @('docs/usage.md', 'docs/guides/electron.md', 'README.md'); Code = 'false' }
+        @{ Case = 'the npm usage guide that npm tests check'; Files = @('docs/usage.md', 'docs/npm-usage.md'); Code = 'true' }
+        @{ Case = 'plugin skills'; Files = @('plugins/winapp/skills/winapp-cli/SKILL.md'); Code = 'true' }
+        @{ Case = 'a script beside docs'; Files = @('docs/usage.md', 'scripts/build-cli.ps1'); Code = 'true' }
+        @{ Case = 'a non-markdown root file'; Files = @('version.json'); Code = 'true' }
+        @{ Case = 'an empty diff'; Files = @(); Code = 'true' }
+    ) {
+        $output = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $runner = [scriptblock]::Create("param(`$files, `$output) function git { `$global:LASTEXITCODE = 0; `$files }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'pull_request'; `$env:PR_BASE = 'a'; `$env:PR_HEAD = 'b'
+" + $classify)
+        & $runner $Files $output | Out-Null
+        (Get-Content $output) | Should -Be "code=$Code"
+    }
+
+    It 'always builds push and manual runs' {
+        $output = Join-Path $TestDrive 'push-output'
+        $runner = [scriptblock]::Create("param(`$output) function git { throw 'no diff on push' }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'push'
+" + $classify)
+        & $runner $output | Out-Null
+        (Get-Content $output) | Should -Be 'code=true'
     }
 }
 
@@ -360,14 +415,22 @@ $runScript
     }
 
     It 'preserves the top-level required check and rejects skipped or canceled reusable workflows' {
-        foreach ($outcome in @('success', 'failure', 'cancelled', 'skipped')) {
-            $env:SAMPLE_RESULT = $outcome
-            if ($outcome -eq 'success') {
-                { & $sampleWrapperGate } | Should -Not -Throw
-            } else {
-                { & $sampleWrapperGate } | Should -Throw
+        $env:CHANGES_RESULT = 'success'
+        foreach ($code in @('true', 'false')) {
+            $env:CODE = $code
+            $expected = if ($code -eq 'true') { 'success' } else { 'skipped' }
+            foreach ($outcome in @('success', 'failure', 'cancelled', 'skipped')) {
+                $env:SAMPLE_RESULT = $outcome
+                if ($outcome -eq $expected) {
+                    { & $sampleWrapperGate } | Should -Not -Throw
+                } else {
+                    { & $sampleWrapperGate } | Should -Throw
+                }
             }
         }
+        $env:CHANGES_RESULT = 'failure'
+        $env:SAMPLE_RESULT = 'skipped'
+        { & $sampleWrapperGate } | Should -Throw
     }
 }
 

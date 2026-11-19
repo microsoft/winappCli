@@ -396,6 +396,9 @@ independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it mus
 not republish or delete the downloaded CLI and NuGet packages.
 Jobs that restore .NET or npm packages cache `~/.nuget/packages` and the npm
 cache, keyed per job on the project files.
+PRs and merge groups that change only `docs\` pages or root `*.md` files skip
+every build and test lane and run only the docs port tests (`docs-tests`).
+`docs\npm-usage.md` is checked by npm tests, so changing it runs everything.
 CI runs `-TestSuite Cli -CliShard 1`, `-TestSuite Cli -CliShard 2`,
 `-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never
 concurrently in one workspace. Together with the native integration shard below,
