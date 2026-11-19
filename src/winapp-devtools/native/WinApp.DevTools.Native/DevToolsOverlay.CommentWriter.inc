@@ -669,8 +669,8 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
     }
     if (write.editor == GuestCommentEditor::WindowResolve) {
         auto completed = std::move(write.completed);
-        const bool current = write.authority == g_guestCommentAuthority.load() && write.root == g_pickRoot &&
-            write.generation == g_selGen;
+        // Resolution targets a comment ID; selecting another element does not invalidate its acknowledgement.
+        const bool current = write.authority == g_guestCommentAuthority.load() && write.root == g_pickRoot;
         if (!write.authority && saved && !write.superseded && !g_commentSnapshotAuthoritative)
             RemovePinById(write.id);
         if (!write.authority) write = {};
