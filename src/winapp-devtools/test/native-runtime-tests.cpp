@@ -28,6 +28,7 @@ static HRESULT ObserveBindingAgile(AgileReferenceOptions, REFIID, IUnknown*, IAg
 #undef DevToolsGetTextBoxHeader
 #undef DevToolsGetPlaceholderText
 #include <condition_variable>
+#include <future>
 #include <iomanip>
 #include <sstream>
 
@@ -2100,6 +2101,15 @@ int wmain(int argc, wchar_t** argv)
             std::lock_guard<std::mutex> lock(g_reactorStatusLock);
             g_reactorStatus = TapReactorStatus{};
             g_reactorStatusAt = 0;
+            g_reactorKnownAbsent.store(false);
+        }
+        {
+            // The UI thread asks this on every tree change; a probe holds the status lock across a pipe exchange.
+            std::unique_lock<std::mutex> probe(g_reactorStatusLock);
+            auto asked = std::async(std::launch::async, [] { return TapReactorMaybePresent(); });
+            const bool answered = asked.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+            probe.unlock();
+            check(answered && asked.get(), "TapReactorMaybePresent answers while a Reactor probe holds the status lock");
         }
     }
     {

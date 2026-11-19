@@ -32,6 +32,8 @@ static bool TapReactorDeployed()
 static std::mutex g_reactorStatusLock;
 static TapReactorStatus g_reactorStatus;
 static ULONGLONG g_reactorStatusAt = 0;
+// What the last probe said, readable without g_reactorStatusLock, which a probe holds across its pipe exchange.
+static std::atomic<bool> g_reactorKnownAbsent{false};
 
 // What DevTools.negotiate advertises. A probe is one in-process pipe exchange that does not touch the UI thread;
 // the answer is reused briefly so a burst of requests asks once.
@@ -77,15 +79,15 @@ static TapReactorStatus TapReactorStatusNow()
     }
     g_reactorStatus = status;
     g_reactorStatusAt = now;
+    g_reactorKnownAbsent.store(!status.present, std::memory_order_release);
     return status;
 }
 
 // Whether the app may use Reactor: true until the first probe answers, then what it said. Lets UI-thread callers
-// skip refreshing the Reactor cache in apps known not to use it.
+// skip refreshing the Reactor cache in apps known not to use it, without waiting on a probe in progress.
 static bool TapReactorMaybePresent()
 {
-    std::lock_guard<std::mutex> lock(g_reactorStatusLock);
-    return !g_reactorStatusAt || g_reactorStatus.present;
+    return !g_reactorKnownAbsent.load(std::memory_order_acquire);
 }
 
 // The `reactor` object of DevTools.negotiate and VisualTree.enumerate, without its closing brace so a caller can

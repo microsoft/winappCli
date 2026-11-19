@@ -154,9 +154,12 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
             new(element.Selector!, window, !string.IsNullOrEmpty(element.AutomationId) && element.Selector == element.AutomationId);
     }
 
+    // `#name` names a Reactor element's C# variable only: in a XAML app it keeps its `winapp ui` meaning (text), rather
+    // than also matching an x:Name or AutomationId, which plain `winapp ui` already searches without the `#`.
     private async Task<Resolved?> TranslateTextAsync(UiTarget target, string text, CancellationToken ct) =>
-        IsDevToolsSelector(text) ? await ResolveSlugAsync(target, text.Trim(), csharpNameOnly: false, ct)
-        : IsCSharpName(text) ? await ResolveSlugAsync(target, text.Trim(), csharpNameOnly: true, ct)
+        text.Trim() is var trimmed && IsHashName(trimmed) ? await ResolveSlugAsync(target, trimmed[1..], csharpNameOnly: true, ct, hashed: true)
+        : IsDevToolsSelector(trimmed) ? await ResolveSlugAsync(target, trimmed, csharpNameOnly: false, ct)
+        : IsCSharpName(trimmed) ? await ResolveSlugAsync(target, trimmed, csharpNameOnly: true, ct)
         : null;
 
     /// <summary>
@@ -165,17 +168,17 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
     /// <paramref name="csharpNameOnly"/>, the text is a Reactor element's C# name only when one rendered element has
     /// it, and otherwise also keeps its <c>winapp ui</c> meaning.
     /// </summary>
-    private async Task<Resolved?> ResolveSlugAsync(UiTarget target, string selector, bool csharpNameOnly, CancellationToken ct)
+    private async Task<Resolved?> ResolveSlugAsync(UiTarget target, string selector, bool csharpNameOnly, CancellationToken ct, bool hashed = false)
     {
         var tap = new VisualTreeTap(unchecked((uint)target.ProcessId), window: target.IsExplicitWindow && target.WindowHandle != 0 ? target.WindowHandle : null);
-        if (!File.Exists(@"\\.\pipe\" + DevToolsPipeDiscovery.PipeNameFor(target.ProcessId)) || !tap.Hello(cancellationToken: ct).Ok)
+        if (!File.Exists(@"\\.\pipe\" + DevToolsPipeDiscovery.PipeNameFor(target.ProcessId)) || tap.Hello(cancellationToken: ct) is not { Ok: true } hello)
         {
             return null;
         }
         string handle;
         if (csharpNameOnly)
         {
-            if (ResolveCSharpName(tap, selector, ct) is not { } named)
+            if (ResolveCSharpName(tap, selector, ReactorPresent(hello), hashed, ct) is not { } named)
             {
                 return null;
             }
@@ -262,6 +265,15 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
 
     private static string? NonEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
+    /// <summary>Whether <c>DevTools.negotiate</c> says the app uses Microsoft.UI.Reactor (<c>reactor.present</c>).</summary>
+    private static bool ReactorPresent(DevToolsProtocolResponse hello)
+    {
+        using var doc = hello.TryParseResult();
+        return doc?.RootElement is { ValueKind: JsonValueKind.Object } root &&
+            root.TryGetProperty("reactor", out var reactor) && reactor.ValueKind == JsonValueKind.Object &&
+            reactor.TryGetProperty("present", out var present) && present.ValueKind == JsonValueKind.True;
+    }
+
     /// <summary>
     /// The name UI Automation gives the element: its <c>AutomationProperties.Name</c>, or else the <c>Label</c> of a
     /// command (<c>AppBarButton</c>) or the <c>Text</c> of a menu item or text, which those controls take their name from.
@@ -275,17 +287,33 @@ internal sealed partial class DevToolsSelectorUiAutomation(IUiAutomation inner) 
 
     /// <summary>
     /// The one rendered Reactor element whose C# variable is <paramref name="name"/>; null when none is, or several
-    /// are, so the text keeps its <c>winapp ui</c> meaning (<c>winapp ui search button</c> lists them all). One match
-    /// from a search the node limit cut short may not be the only one, so it is refused rather than acted on.
+    /// are, so the text keeps its <c>winapp ui</c> meaning (<c>winapp ui search button</c> lists them all). A
+    /// <c>#name</c> (<paramref name="hashed"/>) that several elements have is ambiguous instead. When the app uses
+    /// Reactor, a search that failed or that the node limit cut short is refused rather than read as "no such
+    /// element": a C# name is never a UI Automation name, so searching it as text would report a visible element gone.
     /// </summary>
-    private static string? ResolveCSharpName(VisualTreeTap tap, string name, CancellationToken ct)
+    private static string? ResolveCSharpName(VisualTreeTap tap, string name, bool reactorPresent, bool hashed, CancellationToken ct)
     {
         var (result, error) = DevToolsSelector.Find(tap, name, appAuthoredOnly: false, ct);
-        if (error is not null || result is null)
+        var named = result?.Matches.Where(m => m.IsReactor && string.Equals(m.ReactorName, name, StringComparison.Ordinal)).ToArray() ?? [];
+        if (error is not null || result is null || (result.Truncated && named.Length == 0))
         {
-            return null;
+            if (!reactorPresent)
+            {
+                return null;
+            }
+            var incomplete = new InvalidOperationException(error is not null
+                ? $"DevTools could not search this app for an element named '{name}': {error.Message.TrimEnd('.')}. Run the command again."
+                : $"DevTools could not search this app for an element named '{name}'. Run the command again.");
+            incomplete.Data[IncompleteKey] = true;
+            throw incomplete;
         }
-        var named = result.Matches.Where(m => m.IsReactor && string.Equals(m.ReactorName, name, StringComparison.Ordinal)).ToArray();
+        if (named.Length > 1 && hashed)
+        {
+            var ambiguous = Ambiguous($"{named.Length} rendered Reactor elements are named '{name}'. Pass one of their slugs:", named);
+            ambiguous.Data[DevToolsKey] = true;
+            throw ambiguous;
+        }
         if (named.Length != 1)
         {
             return null;

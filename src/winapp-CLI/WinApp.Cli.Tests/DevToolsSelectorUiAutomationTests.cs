@@ -364,18 +364,94 @@ public class DevToolsSelectorUiAutomationTests
     }
 
     [TestMethod]
-    public async Task HashName_ThatATruncatedSearchMissed_StillFails_SoGoneIsNotReported()
+    public async Task HashName_ThatATruncatedSearchMissed_InAReactorApp_IsRefused_SoGoneIsNotReported()
     {
         using var agent = new FakeDevToolsProtocolAgent()
-            .Answer("VisualTree.find", """{"matches":[],"truncated":true}""")
-            .Answer("VisualTree.getPreviews", """{"previews":[],"truncated":false}""");
+            .Answer("DevTools.negotiate", ReactorNegotiation)
+            .Answer("VisualTree.find", """{"matches":[],"truncated":true}""");
         var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
         var bridge = new DevToolsSelectorUiAutomation(inner);
         var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
 
-        await Assert.ThrowsExactlyAsync<UiElementNotFoundException>(() =>
+        var failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             bridge.FindSingleElementAsync(target, new UiSelector { Query = "#doesNotExist", ControlType = "Button" }, CancellationToken.None));
+        Assert.IsTrue(DevToolsSelectorUiAutomation.IsIncomplete(failure));
     }
+
+    [TestMethod]
+    [DataRow("loadingRing")]
+    [DataRow("#loadingRing")]
+    public async Task CSharpName_WhenTheSearchFailsInAReactorApp_IsRefused_NotSearchedAsText(string text)
+    {
+        // A C# name is never a UI Automation name, so searching it as text would make `wait-for --gone` say a visible
+        // element is gone.
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("DevTools.negotiate", ReactorNegotiation)
+            .Error("VisualTree.find", -32000, "window-scope-changed", "The window changed while searching.");
+        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        var failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            bridge.FindSingleElementAsync(target, new UiSelector { Query = text }, CancellationToken.None));
+        Assert.IsTrue(DevToolsSelectorUiAutomation.IsIncomplete(failure));
+    }
+
+    [TestMethod]
+    public async Task CSharpName_WhenTheSearchFailsInAXamlApp_KeepsItsUiMeaning()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Error("VisualTree.find", -32000, "window-scope-changed", "The window changed while searching.");
+        UiSelector? searched = null;
+        var inner = Proxy((method, args) =>
+        {
+            if (method.Name != nameof(IUiAutomation.FindSingleElementAsync)) { throw new NotSupportedException(method.Name); }
+            searched = (UiSelector)args![1]!;
+            return Task.FromResult<UiElement?>(null);
+        });
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        Assert.IsNull(await bridge.FindSingleElementAsync(target, new UiSelector { Query = "Save" }, CancellationToken.None));
+        Assert.AreEqual("Save", searched?.Query);
+    }
+
+    [TestMethod]
+    public async Task HashName_InAXamlApp_IsSearchedAsText_NotMatchedToAnXName()
+    {
+        // A `#general` channel button and a settings item with x:Name="General": `#` must not pick the settings item.
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", """{"matches":[{"handle":"42","name":"General","type":"Microsoft.UI.Xaml.Controls.NavigationViewItem","uniqueName":true}]}""");
+        UiSelector? searched = null;
+        var inner = Proxy((method, args) => method.Name == nameof(IUiAutomation.FindSingleElementAsync)
+            ? Task.FromResult<UiElement?>(new UiElement { Selector = "btn-general-1111", Name = (searched = (UiSelector)args![1]!).Query })
+            : throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        var found = await bridge.FindSingleElementAsync(target, new UiSelector { Query = "#general" }, CancellationToken.None);
+
+        Assert.AreEqual("btn-general-1111", found?.Selector);
+        Assert.AreEqual("#general", searched?.Query);
+        Assert.IsNull(searched?.Slug);
+    }
+
+    [TestMethod]
+    public async Task HashName_ThatSeveralReactorElementsHave_IsAmbiguous()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("DevTools.negotiate", ReactorNegotiation)
+            .Answer("VisualTree.find", """{"matches":[{"handle":"42","name":"","type":"Microsoft.UI.Xaml.Controls.Button","reactor":{"element":"Button","name":"button"}},{"handle":"43","name":"","type":"Microsoft.UI.Xaml.Controls.Button","reactor":{"element":"Button","name":"button"}}]}""");
+        var inner = Proxy((method, _) => throw new NotSupportedException(method.Name));
+        var bridge = new DevToolsSelectorUiAutomation(inner);
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 0 };
+
+        var failure = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(() =>
+            bridge.FindSingleElementAsync(target, new UiSelector { Query = "#button" }, CancellationToken.None));
+        Assert.IsTrue(DevToolsSelectorUiAutomation.IsDevToolsFailure(failure), "so ui wait-for --gone does not report it gone");
+    }
+
+    private const string ReactorNegotiation = """{"protocolVersion":"0","reactor":{"present":true,"agent":"ok"}}""";
 
     [TestMethod]
     public async Task CSharpName_ThatSeveralReactorElementsHave_KeepsItsUiMeaning()

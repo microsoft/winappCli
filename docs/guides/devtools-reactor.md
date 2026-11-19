@@ -248,8 +248,10 @@ diagnosed as before.
 
 `winapp ui` commands accept the same Reactor selectors when the app runs with
 DevTools, including `#incrementButton`, a C# name such as `incrementButton`, and the
-bracketed selectors an ambiguity error lists. Text that no element matches, or a C# name
-that several elements share, is searched by name and AutomationId as usual:
+bracketed selectors an ambiguity error lists. Here `#name` means a Reactor element's C#
+name only, not an x:Name. Text that no Reactor element is named, or a bare C# name that
+several elements share, is searched by name and AutomationId as usual, so
+`winapp ui click "#general"` in a XAML app still clicks the button labeled `#general`:
 
 ```powershell
 winapp ui invoke "<Counter>/Button" -a TaskBoard

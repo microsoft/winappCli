@@ -225,7 +225,8 @@ happened: read back with `get-state`, never retry blindly. `get-resource` and
 `set-resource --scope app|element` read and live-edit XAML resources in .NET apps with the
 managed agent loaded, not in Native AOT or C++ apps.
 `winapp ui` commands accept the same Reactor selectors when DevTools is attached, including
-`#name`, a C# name and the bracketed selectors an ambiguity error lists.
+`#name` (a Reactor C# name only, not an x:Name), a C# name and the bracketed selectors an
+ambiguity error lists.
 `get-property <selector>` (no property name) also lists **References**: the
 `LabeledBy`, `DescribedBy`, `FlowsTo`, `FlowsFrom` and `XYFocus*` targets from and to the
 element (`references` in `--json`), with `cycle: true` when following one comes back.
