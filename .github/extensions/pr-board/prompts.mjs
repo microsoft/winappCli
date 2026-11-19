@@ -107,6 +107,8 @@ export function shipPrompt(card, repo) {
 }
 
 // The board shows the agent's short narration and tool steps live in the thread while it works.
+// Anchors let a reply point at a spot on the board; the board turns them into chips that scroll there.
+export const ANCHOR_LINE = `To point at something, put an anchor in the reply text: [[finding:f1]], [[file:path#L12-L20]], [[node:diagramId/nodeId]], [[gate:ci]] or [[thread:<review thread id>]]. Pass the most important one as \`focus\` too, so the board scrolls there when the reply arrives.`;
 const PROGRESS_LINE = `While you work, start each step with one short plain line about what you're doing (for example "Reading the commits since the review"). The board shows these lines live in the thread until your reply arrives.`;
 
 // Ask the agent to keep the plain-language explainer current whenever its understanding or our decisions change.
@@ -135,6 +137,7 @@ export function messagePrompt(card, repo, msg, recent) {
         `Post the reply with \`pr_board_reply\` \`{ repo: "${repo}", ${ref(card)}, text: <Markdown>, from: <who answered, e.g. the session name> }\`. That is the only place the user will read it, so keep it short and self-contained. If you forward it, post a one-line reply saying so, then post the real answer with \`pr_board_reply\` when it arrives.`,
         `Treat it as direction from the user about this ${k} only. Don't post to GitHub, approve, or merge unless the message explicitly asks for it.`,
         PROGRESS_LINE,
+        ANCHOR_LINE,
         EXPLAINER_LINE(card, repo),
         NEXT_STEP_LINE(card, repo),
     ].join("\n");

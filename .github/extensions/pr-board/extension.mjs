@@ -1196,7 +1196,7 @@ const tools = [
     },
     {
         name: "pr_board_reply",
-        description: "Post a reply in a PR's thread on the PR board. Use it to answer every \"[PR board] Message about ...\" request; the user reads replies only in the board, not in chat. Markdown: bold, italics, inline code, code blocks, lists and links.",
+        description: "Post a reply in a PR's thread on the PR board. Use it to answer every \"[PR board] Message about ...\" request; the user reads replies only in the board, not in chat. Markdown: bold, italics, inline code, code blocks, lists and links. To point at something on the board, write an anchor: [[finding:f1]] (a pr-review finding id), [[file:src/x.cs#L12-L20]] (lines in the changes), [[node:d-flow/n-rpc]] (diagramId/nodeId in an architecture diagram), [[gate:ci]] (a readiness gate: copilot, review, discussion, ci, uptodate) or [[thread:r4622965814]] (a GitHub review thread). Each becomes a chip that scrolls the board there and highlights it.",
         parameters: {
             type: "object",
             properties: {
@@ -1205,6 +1205,7 @@ const tools = [
                 issue: { type: "number", description: "Issue number, for an issue with no PR yet. Use instead of pr." },
                 text: { type: "string", description: "The reply, in Markdown. Short and self-contained." },
                 from: { type: "string", description: "Who answered, e.g. \"Coordinator\" or the linked session's name." },
+                focus: { type: "string", description: "Optional anchor (same forms as in text, without brackets, e.g. \"finding:f1\") to scroll to when the reply arrives while the item is open." },
             },
             required: ["text"],
         },
@@ -1215,6 +1216,7 @@ const tools = [
             let msg;
             updateItem(repo, kind, n, (s) => {
                 msg = addMessage(s, "agent", String(args.text).trim(), args.from || null);
+                if (/^(finding|file|node|gate|thread):\S{1,300}$/.test(String(args.focus || ""))) msg.focus = String(args.focus);
                 s.pending = null;
             });
             board(repo).broadcast();

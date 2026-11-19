@@ -694,6 +694,41 @@ a.path { overflow-wrap: break-word; }
 .empty-rv.rv-none { border-style: solid; border-color: var(--green); background: var(--green-muted); }
 .empty-rv { display: flex; flex-direction: column; gap: var(--s3); align-items: flex-start; padding: var(--s4); border: 1px dashed var(--border); border-radius: 8px; }
 
+/* ---- The workspace over the list: drawer (peek) or sheet (expanded) ---- */
+#sheetScrim { display: none; }
+body.sheet #sheetScrim { display: block; }
+body.sheet .layout { display: flex !important; position: fixed !important; z-index: 31; top: 40px; left: 40px; right: 40px; bottom: 0; background: var(--bg); border: 1px solid var(--border); border-bottom: 0; border-radius: 12px 12px 0 0; box-shadow: 0 -10px 44px rgba(0,0,0,.30); overflow: hidden; }
+body.sheet #list, body.sheet .split { display: none !important; }
+.move-bar { flex: none; display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding: var(--s2) var(--s5); border-top: 1px solid var(--border); background: color-mix(in srgb, var(--orange) 8%, var(--bg)); font-size: var(--t-small); }
+.move-bar.t-stuck { background: color-mix(in srgb, var(--red) 8%, var(--bg)); }
+.move-bar .mb-l { display: inline-flex; align-items: center; gap: 6px; }
+.move-bar .btns { display: inline-flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+.fly .move-bar { padding: var(--s2) var(--s4); }
+.sheet-bar { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-meta); color: var(--muted); }
+.sheet-bar .sp { flex: 1; }
+.sheet-bar .back span { display: none; }
+.sheet-bar .back { display: none; }
+.pager { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-meta); color: var(--muted); white-space: nowrap; }
+.pager button { padding: 1px 6px; }
+.fly-grip { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 2; }
+.fly-grip:hover { background: var(--blue-muted); }
+.fly { transition: width .12s ease-out; }
+.story-step { display: flex; flex-direction: column; gap: var(--s2); padding-left: var(--s3); border-left: 2px solid var(--hairline); margin-bottom: var(--s4); }
+.story-n { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-meta); font-weight: var(--w-strong); text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+.story-n span { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: var(--blue); color: #fff; letter-spacing: 0; }
+.story-step > .sec { margin: 0; }
+.fn-item { font-size: var(--t-small); display: flex; flex-direction: column; gap: 2px; }
+.story-step .btns { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.anchor { display: inline-flex; align-items: center; gap: 3px; font-size: var(--t-meta); padding: 0 8px; border-radius: 999px; border: 0; background: var(--blue-muted); color: var(--blue); cursor: pointer; vertical-align: 1px; line-height: 18px; }
+.anchor:hover { text-decoration: underline; }
+.anchor-hi { outline: 3px solid var(--blue); outline-offset: 2px; border-radius: 6px; transition: outline-color .4s; }
+tr.anchor-hi td { background: color-mix(in srgb, var(--blue) 22%, transparent) !important; }
+@media (max-width: 700px) {
+  body.sheet .layout { inset: 0; border-radius: 0; border: 0; }
+  .sheet-bar .back { display: inline-flex; } .sheet-bar .back span { display: inline; } .sheet-bar .close { display: none; }
+  .pager span { display: none; }
+}
+
 /* ---- Narrow panel ---- */
 body.narrow .ws-head { padding: var(--s3) var(--s4) 0; }
 body.narrow .scroll { padding: var(--s4); }
@@ -716,12 +751,14 @@ body.narrow #sumAll .lbl { display: none; }
 </header>
 <div id="banner" class="banner" hidden></div>
 <main class="ov" id="overview" aria-label="Pull request overview"></main>
+<div id="sheetScrim" class="scrim" data-act="sheet-close" aria-hidden="true"></div>
 <div class="layout">
   <aside id="list" aria-label="All pull requests and issues"></aside>
   <div class="split" id="split" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
   <section class="ws" aria-label="Pull request workspace">
     <div class="ws-head" id="wsHead" hidden></div>
     <div class="scroll" id="wsScroll" role="tabpanel" aria-labelledby=""><div class="empty-ws">Pick a pull request.</div></div>
+    <div class="move-bar" id="wsActs" hidden></div>
     <form class="composer" id="composer">
       <textarea id="input" rows="1" placeholder="Ask a question or give direction…" aria-label="Message about this pull request" disabled></textarea>
       <button class="primary" id="send" type="submit" disabled>Send</button>
@@ -791,6 +828,8 @@ const ICONS = {
   label: '<path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z"/><circle cx="5.3" cy="5.3" r=".9"/>',
   issue: '<circle cx="8" cy="8" r="6.5"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/>',
   prDraft: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="12.5" r="1.5"/><path d="M4.5 5v6M11.5 4v.5M11.5 7v.5M11.5 10v.5"/>',
+  expand: '<path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"/>',
+  collapse: '<path d="M13 3L9.5 6.5M9.5 3.5v3h3M3 13l3.5-3.5M6.5 12.5v-3h-3"/>',
   pin: '<path d="M6 2h4l-.5 4 2.5 2.5H4L6.5 6z"/><path d="M8 8.5v5.5"/>',
 };
 const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 16 16" aria-hidden="true">${ICONS[name] || ""}</svg>`;
@@ -825,6 +864,7 @@ function md(src) {
   const inline = (s) => {
     const codes = [];
     s = esc(s).replace(/`([^`]+)`/g, (_, c) => { codes.push(`<code>${c}</code>`); return `\u0001${codes.length - 1}\u0001`; });
+    s = s.replace(/\[\[(finding|file|node|gate|thread):([^\]\s]+)\]\]/g, (_, k, v) => anchorChip(k, v));
     s = s.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">Image: ${t || "open"}</a>`)
          .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`)
          .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -1018,7 +1058,7 @@ function renderHead(c) {
   counts.architecture = rv?.diagrams.length || "";
   counts.review = rv?.findings.length || "";
   counts.changes = counts.files;
-  const TABS = [["overview", "Overview"], ["architecture", "Architecture"], ["changes", "Changes"], ["review", "Review"], ["github", "GitHub"], ["thread", "Thread"]];
+  const TABS = [["overview", "Story"], ["architecture", "Architecture"], ["changes", "Changes"], ["review", "Review"], ["github", "GitHub"], ["thread", "Thread"]];
 
   const buttons = [];
   if (isOpen) {
@@ -1034,7 +1074,7 @@ function renderHead(c) {
 
   const nextTone = c.who === "you" ? "you" : c.who === "agent" ? "agent" : "";
   const risk = local.summary?.risk ? (() => { const [ic, tone, l] = RISK[local.summary.risk]; return `<span>${icon(ic, "sm " + tone)} ${l}</span>`; })() : "";
-  $("wsHead").innerHTML = `
+  $("wsHead").innerHTML = `${sheetBar(c)}
     <h2>${esc(c.title)} <a href="${esc(c.url)}" target="_blank" rel="noopener" title="Open on GitHub">#${c.number}</a></h2>
     <div class="ws-meta">
       <span><img class="avatar" alt="" src="https://github.com/${encodeURIComponent(c.author)}.png?size=32" onerror="this.remove()"> ${esc(c.author)}</span>
@@ -1045,7 +1085,7 @@ function renderHead(c) {
       ${chip(c)}
       ${watchBadge(c)}${readyMeter(c)}${issueChips(c)}
     </div>
-    ${ballLine(c)}
+    ${ballLine(c, ball(c), { buttons: false })}
     <div class="actions">${buttons.join("")}
       ${openMenu === "post" ? `<div class="menu" role="menu" aria-label="Post review as">
         <button data-act="post" data-event="approve" role="menuitem">${icon("checkCircle", "tone-ok")}Approve</button>
@@ -1066,8 +1106,20 @@ function actionButton(c) {
   return `<button data-act="nudge" title="Puts a draft comment in the message box. Edit it, then press Send to ask the agent to post it.">${esc(a.label)}…</button>`;
 }
 
-function overviewHtml(c) { return (c.lifecycle ? readinessHtml(c) : "") + overviewHtmlBase(c); }
-function overviewHtmlBase(c) {
+// The Story tab: what this is, what changed, what we found, where it stands, and what's needed from you.
+function overviewHtml(c) {
+  const r = rvOf(c);
+  const step = (n, title, body) => `<section class="story-step"><div class="story-n"><span>${n}</span>${title}</div>${body}</section>`;
+  const changed = r
+    ? `${(r.functionality || []).slice(0, 4).map((x) => `<div class="fn-item"><b>${mdInline(x.title)}</b>${x.detail ? `<div class="hint">${mdInline(String(x.detail).slice(0, 240))}</div>` : ""}</div>`).join("")}<div class="btns"><button data-act="tab" data-tab="architecture">${icon("arch", "sm")}See the diagrams</button><button data-act="tab" data-tab="changes">Changes by file</button></div>`
+    : `<div class="hint">${esc(c.size?.text || "")}</div><div class="btns"><button data-act="tab" data-tab="changes">See the files</button></div>`;
+  const found = r ? reviewHeadHtml(c) : `<div class="hint">pr-review hasn't run on this PR yet.</div><div class="btns"><button data-act="review" ${isBusy(c) ? "disabled" : ""}>Run pr-review</button></div>`;
+  const stands = c.lifecycle ? readinessHtml(c) : `<div class="ov-where">${whereHtml(c)}</div>`;
+  return step(1, "What this is", explainerHtml(c)) + step(2, "What changed", changed) + step(3, "What we found", found) + step(4, "Where it stands", stands)
+    + step(5, "What's needed from you", ballLine(c, ball(c), { buttons: false }))
+    + `<details class="panel" data-k="story-more"><summary>${icon("chevRight", "sm chev")}More: status, description, timeline</summary><div class="body">${overviewHtmlBase(c, { story: true })}</div></details>`;
+}
+function overviewHtmlBase(c, { story = false } = {}) {
   const local = c.local || {};
   const s = local.summary;
   const isOpen = c.group !== "merged";
@@ -1082,8 +1134,8 @@ function overviewHtmlBase(c) {
   const stuck = isOpen && r?.stuck;
   return `
     ${stuck ? `<div class="callout" role="note">${icon("alert")}<div class="body"><div>${esc(r.stuck.replace(/^⚠️\s*/, ""))}. ${esc(r.text)}</div>${actionButton(c)}${r.action?.nudge ? `<span class="hint">Pre-fills a draft comment below. Nothing is posted until you send it.</span>` : ""}</div></div>` : ""}
-    ${explainerHtml(c)}
-    ${reviewHeadHtml(c)}
+    ${story ? "" : explainerHtml(c)}
+    ${story ? "" : reviewHeadHtml(c)}
     ${rvOf(c) ? "" : `<section class="sec"><h3>What this PR does <span class="note">${s ? `${icon("sparkle", "sm")} Agent summary · ${esc(ago(s.at))}${ago(s.at) === "just now" ? "" : " ago"}` : "From the description"}</span></h3>
       <div class="summary">${s ? mdInline(s.text) : esc(local.summarizing ? "Summarizing…" : (c.fallbackSummary || "No description."))}</div>
       ${s || local.summarizing ? "" : `<div style="margin-top:var(--s3)"><button data-act="summarize">${icon("sparkle", "sm")}Get a plain-words summary and next steps</button></div>`}
@@ -1545,7 +1597,7 @@ async function loadPreview(c, event) {
 function renderScroll(c, force) {
   const local = c.local || {};
   const det = details.get(c.number);
-  const key = JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, local.explainer?.updatedAt, local.explainerPending, det?.data?.fetchedAt, det?.error, tab === "github" ? ghSlotKey("pr", c.number) : "", drafts.has(draftKey(c)), (c.local?.thread || []).length]);
+  const key = JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, local.explainer?.updatedAt, local.explainerPending, det?.data?.fetchedAt, det?.error, JSON.stringify(c.readiness?.gates?.map((g) => g.state) || []), tab === "github" ? ghSlotKey("pr", c.number) : "", drafts.has(draftKey(c)), (c.local?.thread || []).length]);
   if (!force && key === lastKey) return;
   lastKey = key;
   const sc = $("wsScroll");
@@ -1849,7 +1901,7 @@ const issueTabOf = (c) => { const ids = issueTabs(c).map(([id]) => id); return i
 function renderIssueHead(c) {
   const t = issueTabOf(c);
   const cnt = { changes: brComments(c).filter((x) => x.status !== "resolved").length || "", thread: (c.local?.thread || []).filter((m) => m.role !== "system").length || "" };
-  $("wsHead").innerHTML = `
+  $("wsHead").innerHTML = `${sheetBar(c)}
     <h2>${esc(c.title)} <a href="${esc(c.url)}" target="_blank" rel="noopener" title="Open on GitHub">#${c.number}</a></h2>
     <div class="ws-meta">
       <span><img class="avatar" alt="" src="https://github.com/${encodeURIComponent(c.author)}.png?size=32" onerror="this.remove()"> ${esc(c.author)}</span>
@@ -1857,7 +1909,7 @@ function renderIssueHead(c) {
       ${c.branch ? `<span>${icon("pr", "sm tone-mute")} <code>${esc(c.branch)}</code></span>` : ""}
       ${issuePrChipInner(c)}
     </div>
-    ${ballLine(c)}
+    ${ballLine(c, ball(c), { buttons: false })}
     <div class="tabs" role="tablist" aria-label="Issue views">${issueTabs(c).map(([id, label]) => `<button role="tab" aria-controls="wsScroll" aria-selected="${t === id}" tabindex="${t === id ? 0 : -1}" data-act="tab" data-tab="${id}">${label}${cnt[id] ? ` <span class="n">${cnt[id]}</span>` : ""}</button>`).join("")}</div>`;
 }
 let lastIssueKey = null;
@@ -1920,7 +1972,7 @@ function readinessHtml(c) {
   const stopBtn = keep && !c.local?.monitorPending ? `<button class="quiet" data-act="monitor" data-enable="0" data-pr="${c.number}" title="Turn off Agent merge. The board stops requesting Copilot reviews and pr-review reruns.">Stop keeping it ready</button>` : "";
   if (!r) return `<section class="sec rd"><h3>Ready for human review?</h3><div class="hint">${c.readinessError ? `Couldn't read it from GitHub: ${esc(c.readinessError)} <button data-act="readiness-refresh" data-pr="${c.number}">Try again</button>` : `${spinner("Checking")} Checking the gates on GitHub…`}</div></section>`;
   const link = (g) => g.url ? `<a href="${esc(g.url)}" target="_blank" rel="noopener noreferrer">${g.id === "ci" ? "Log" : "Open"} ${icon("external", "sm")}</a>` : "";
-  const row = (g, extra = "", tail = "") => `<li class="gs-${g.state}"><span class="gi" aria-label="${g.state}">${GATE_ICON[g.state]}</span><b>${esc(g.label)}</b><span class="why">${esc(g.reason)}${extra}</span><span class="ga">${tail}${link(g)}</span></li>`;
+  const row = (g, extra = "", tail = "") => `<li class="gs-${g.state}" data-gate="${esc(g.id)}"><span class="gi" aria-label="${g.state}">${GATE_ICON[g.state]}</span><b>${esc(g.label)}</b><span class="why">${esc(g.reason)}${extra}</span><span class="ga">${tail}${link(g)}</span></li>`;
   const tri = c.local?.triage || {};
   const itemRow = (x) => {
     if (x.id === "review" && x.state === "todo") return row(x, ` <span class="tag">Recommended</span>`, `<button class="quiet" data-act="review" data-pr="${c.number}" ${c.local?.pending || isBusy(c) ? "disabled" : ""}>Run pr-review</button>`);
@@ -2304,7 +2356,7 @@ let flyReturnFocus = null;
 const changes = new Map(); // pr -> { loading } | { data } | { error }
 let stickBottom = false; // after you send, the next render scrolls the thread to the bottom
 let lastFlyKey = null;
-let flyDraft = "";
+
 let flyMore = false;
 const issuesOf = () => snap?.issues || [];
 const itemOf = (kind, n) => (kind === "issue" ? issuesOf() : cardsOf()).find((c) => c.number === n) || null;
@@ -2396,6 +2448,168 @@ function trackItem(c, isIssue) {
     : c.section === "reviewing" ? "" : `<button role="menuitem" data-act="track" data-pr="${c.number}" title="${esc(TRACK_TIP)}">Track under Reviewing</button>`;
 }
 
+// ---- One workspace over the list: peek (the drawer) or expanded (a sheet with the full detail) ----
+// The Overview never changes underneath. Opening an item captures the list it came from, for the pager and J/K.
+const composerDrafts = new Map(); // "pr:123" -> unsent text, kept across close, reopen and peek/expand
+const keyOf = (c) => `${c.kind === "issue" ? "issue" : "pr"}:${c.number}`;
+let navList = [], navLabel = "the list", openedAt = 0, downEl = null, pendingAnchor = null;
+const focusDone = new Set();
+document.addEventListener("pointerdown", (e) => { downEl = e.target; }, true);
+// A backdrop click counts only if it started on the backdrop, nothing is selected, and the panel has been open a moment.
+const realBackdropClick = (el) => downEl === el && Date.now() - openedAt > 350 && !String(getSelection?.() || "").trim();
+function captureNav(from) {
+  const box = from?.closest?.(".ym") || $("overview");
+  const seen = new Set();
+  navList = [...box.querySelectorAll(".ov-title[data-pr]")].map((b) => `${b.dataset.kind || "pr"}:${b.dataset.pr}`).filter((k) => !seen.has(k) && seen.add(k));
+  navLabel = from?.closest?.(".ym") ? "Your move" : ballFilter ? ({ you: "Your move", agent: "Agent working", waiting: "Waiting on others", snoozed: "Snoozed", backlog: "Not started", watching: "Watching" }[ballFilter] || "the list") : "the list";
+}
+function pagerHtml(c, compact = false) {
+  if (!c || navList.length < 2) return "";
+  const i = navList.indexOf(keyOf(c));
+  if (i < 0) return "";
+  const pos = compact ? `${i + 1}/${navList.length}` : `${i + 1} of ${navList.length} in ${esc(navLabel)}`;
+  return `<span class="pager" role="group" aria-label="Move through ${esc(navLabel)}" title="${i + 1} of ${navList.length} in ${esc(navLabel)}"><button class="quiet" data-act="nav" data-dir="-1" title="Previous (K)" aria-label="Previous">${compact ? "‹" : "‹ prev"}</button><span>${pos}</span><button class="quiet" data-act="nav" data-dir="1" title="Next (J)" aria-label="Next">${compact ? "›" : "next ›"}</button></span>`;
+}
+// What the expanded sheet opens on, from whose move it is.
+function landingTab(c) {
+  if (!c) return tab;
+  const b = ball(c);
+  if (c.kind === "issue") return hasBranch(c) && (b.brSend || b.brReview) ? "changes" : issueTabOf(c);
+  if (b.findings || b.post || b.postDraft) return "review";
+  if (b.st === "agent") return "thread";
+  return "overview";
+}
+function openItem(kind, n, from) {
+  captureNav(from);
+  if (store.get("prb-open-mode") === "expanded") return expandItem(kind, n);
+  openFlyout(kind, n, from);
+}
+function expandItem(kind, n, tabTo) {
+  const ta = $("flyInput");
+  if (ta?.dataset.k) composerDrafts.set(ta.dataset.k, ta.value);
+  if (!navList.length) captureNav(null);
+  fly = null; flyMore = false; renderFlyout();
+  view = "detail"; openedAt = Date.now();
+  store.set("prb-open-mode", "expanded");
+  select(n, { tabTo: tabTo || landingTab(itemOf(kind, n)), focus: true });
+}
+function collapseItem() {
+  const c = current();
+  if (!c) return;
+  composerDrafts.set(keyOf(c), $("input").value);
+  view = "overview"; store.set("prb-open-mode", "peek");
+  render();
+  openFlyout(c.kind === "issue" ? "issue" : "pr", c.number);
+}
+function dismissSheet() {
+  const c = current();
+  if (c) composerDrafts.set(keyOf(c), $("input").value);
+  view = "overview"; viewing = null; openMenu = null; armed = null;
+  render();
+  document.querySelector(`.ov-title[data-pr="${selected}"]`)?.focus({ preventScroll: true });
+}
+function navigate(dir) {
+  const cur = view === "detail" ? current() : fly ? itemOf(fly.kind, fly.number) : null;
+  if (!cur || navList.length < 2) return;
+  const i = navList.indexOf(keyOf(cur));
+  const [kind, n] = navList[(i + dir + navList.length) % navList.length].split(":");
+  if (view === "detail") { composerDrafts.set(keyOf(cur), $("input").value); select(Number(n), { tabTo: landingTab(itemOf(kind, Number(n))) }); }
+  else openFlyout(kind, Number(n));
+}
+// The pinned action bar: the move as buttons, always visible next to the message box.
+function moveBar(c) {
+  const b = ball(c);
+  const show = BALL[b.st].you || b.st === "snoozed";
+  if (!show) return "";
+  const btns = moveButtons(c, b.st === "snoozed" ? b.under : b, { withDone: b.st !== "snoozed" }) + (b.st === "snoozed" ? `<button class="quiet" data-act="ball-unsnooze" data-pr="${c.number}" data-kind="${c.kind === "issue" ? "issue" : "pr"}">Unsnooze</button>` : "");
+  return `<div class="move-bar t-${BALL[b.st].tone}"><span class="mb-l">${ballGlyph(b)}<b>${esc(BALL[b.st].label)}</b></span><span class="btns">${btns}</span></div>`;
+}
+function sheetBar(c) {
+  return `<div class="sheet-bar"><button class="quiet back" data-act="sheet-close" title="Back to the list (Esc)">${icon("chevLeft", "sm")}<span>Back</span></button>${typeTag(c)}<span class="sp"></span>${pagerHtml(c)}
+    <button class="quiet ico" data-act="collapse" title="Peek: a narrow panel beside the list (E)" aria-label="Peek">${icon("collapse", "sm")}</button>
+    <button class="quiet ico close" data-act="sheet-close" title="Close (Esc)" aria-label="Close">${icon("x", "sm")}</button></div>`;
+}
+
+// Anchors in agent replies point at a spot: [[finding:f1]], [[file:path#L12-L20]], [[node:diagram/node]], [[gate:ci]], [[thread:id]].
+const ANCHOR_ICON = { finding: "alert", file: "file", node: "arch", gate: "checkCircle", thread: "comment" };
+function nodeLabel(val) {
+  const [dg, node] = val.split("/");
+  const it = view === "detail" ? current() : fly ? itemOf(fly.kind, fly.number) : null;
+  const d = (rvOf(it || {})?.diagrams || []).find((x) => x.id === dg);
+  return d?.nodes?.find((n) => n.id === node)?.label || node.replace(/^n-/, "").replace(/-/g, " ");
+}
+function anchorChip(kind, val) {
+  const label = kind === "finding" ? `finding ${val}` : kind === "file" ? (() => { const [p, l] = val.split("#"); return p.split("/").pop() + (l ? ":" + l.replace(/^L/, "").replace("-L", "–") : ""); })()
+    : kind === "node" ? nodeLabel(val) : kind === "gate" ? `${val} check` : "review thread";
+  return `<button class="anchor" data-act="anchor" data-a="${esc(kind + ":" + val)}" title="Show it">${icon(ANCHOR_ICON[kind], "sm")}${esc(label)}</button>`;
+}
+function goAnchor(spec) {
+  const m = String(spec || "").match(/^(finding|file|node|gate|thread):(.+)$/);
+  if (!m) return;
+  const [, kind, val] = m;
+  const it = view === "detail" ? current() : fly ? itemOf(fly.kind, fly.number) : null;
+  if (!it) return;
+  const issue = it.kind === "issue";
+  const to = issue ? (kind === "file" ? "changes" : kind === "thread" ? "github" : issueTabOf(it)) : { finding: "review", file: "changes", node: "architecture", gate: "overview", thread: "github" }[kind];
+  if (kind === "node") { const [diagram, node] = val.split("/"); archSel = { pr: it.number, diagram, node }; }
+  pendingAnchor = { kind, val };
+  if (view === "detail") { tab = to; store.set("prb-tab", tab); render(true); }
+  else expandItem(issue ? "issue" : "pr", it.number, to);
+  for (const ms of [80, 500, 1500]) setTimeout(applyAnchor, ms);
+}
+// Find what an anchor points at in the open sheet. Live re-renders replace the DOM, so the highlight is
+// re-applied on each render for a couple of seconds.
+let hiAnchor = null, hiUntil = 0;
+function findAnchor(a) {
+  const sc = $("wsScroll");
+  if (a.kind === "finding") return sc.querySelector(`#finding-${CSS.escape(a.val)}`);
+  if (a.kind === "gate") return sc.querySelector(`.gates li[data-gate="${CSS.escape(a.val)}"]`);
+  if (a.kind === "thread") return sc.querySelector(`a[href*="${CSS.escape(a.val)}"]`)?.closest(".gh-th, .gh-card, li");
+  if (a.kind === "node") return sc.querySelector(".arch-host, .diagram, svg")?.closest("section, div");
+  const [path, lines] = a.val.split("#");
+  const el = [...sc.querySelectorAll("a.path, .df-p")].find((x) => (x.getAttribute("title") || x.textContent || "").includes(path))?.closest("li, .df");
+  const r = (lines || "").match(/L(\d+)(?:-L?(\d+))?/);
+  if (el?.matches(".df") && r) { el.open = true; for (const tr of el.querySelectorAll("tr.dl")) { const n = Number(tr.dataset.n); if (n >= +r[1] && n <= +(r[2] || r[1])) tr.classList.add("anchor-hi"); } }
+  return el;
+}
+function applyAnchor() {
+  if (pendingAnchor) {
+    const el = findAnchor(pendingAnchor);
+    if (el) { el.scrollIntoView({ block: "center" }); hiAnchor = pendingAnchor; hiUntil = Date.now() + 2400; pendingAnchor = null; setTimeout(() => { for (const x of document.querySelectorAll(".anchor-hi")) x.classList.remove("anchor-hi"); }, 2500); }
+  }
+  if (hiAnchor && Date.now() < hiUntil) findAnchor(hiAnchor)?.classList.add("anchor-hi");
+}
+// A reply that arrives while its item is open can carry a focus anchor: scroll there once.
+function checkFocus(c) {
+  if (!c) return;
+  const m = [...(c.local?.thread || [])].reverse().find((x) => x.role === "agent" && x.focus);
+  if (!m || focusDone.has(m.id) || tms(m.at) < openedAt) return;
+  focusDone.add(m.id);
+  goAnchor(m.focus);
+}
+
+// The drawer's left edge: drag it left to expand.
+document.addEventListener("pointerdown", (e) => {
+  const grip = e.target.closest?.(".fly-grip");
+  if (!grip || !fly) return;
+  e.preventDefault();
+  const aside = grip.closest(".fly");
+  const move = (ev) => { aside.style.width = Math.max(360, window.innerWidth - ev.clientX) + "px"; };
+  const up = (ev) => {
+    document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up);
+    const w = window.innerWidth - ev.clientX;
+    aside.style.width = "";
+    if (w > Math.min(860, window.innerWidth * 0.72) && fly) expandItem(fly.kind, fly.number);
+  };
+  document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  if ((e.key === "e" || e.key === "E") && fly) { e.preventDefault(); return expandItem(fly.kind, fly.number); }
+  if ((e.key === "e" || e.key === "E") && view === "detail") { e.preventDefault(); return collapseItem(); }
+  if ((e.key === "j" || e.key === "k") && (fly || view === "detail")) { e.preventDefault(); return navigate(e.key === "j" ? 1 : -1); }
+});
+
 let flyTab = store.get("prb-fly-tab") === "github" ? "github" : "summary";
 function renderFlyout() {
   const host = $("flyHost");
@@ -2409,7 +2623,7 @@ function renderFlyout() {
   const nearBottom = !!prev && lastFlyKey === flyKey && prev.scrollHeight - prev.scrollTop - prev.clientHeight < 60;
   lastFlyKey = flyKey;
   const ta = host.querySelector("#flyInput");
-  if (ta) flyDraft = ta.value;
+  if (ta?.dataset.k) composerDrafts.set(ta.dataset.k, ta.value);
   const hadFocus = ta && document.activeElement === ta;
   const isIssue = fly.kind === "issue";
   const oldGh = host.querySelector(".gh-slot"), oldBr = host.querySelector(".br-slot");
@@ -2423,11 +2637,11 @@ function renderFlyout() {
        <div class="ov-where">${whereHtml(c)}</div>
        ${c.section === "reviewing" ? `<div class="ov-story">${storyHtml(c)}</div>` : ""}`;
   host.innerHTML = `<div class="scrim" data-act="fly-close"></div>
-    <aside class="fly" role="dialog" aria-modal="true" aria-labelledby="flyTitle">
+    <aside class="fly" role="dialog" aria-modal="true" aria-labelledby="flyTitle"><div class="fly-grip" title="Drag left to expand" aria-hidden="true"></div>
       <div class="fly-head">
-        <div class="top"><span>${isIssue ? "Issue" : "Pull request"} #${c.number}</span><span class="sp"></span>
-          ${browserLink(c, "Open in browser")}
-          <button data-act="open" data-pr="${c.number}">Open details</button>
+        <div class="top">${typeTag(c)}<span class="sp"></span>${pagerHtml(c, true)}
+          ${browserLink(c)}
+          <button data-act="expand" title="Expand to the full detail (E, or drag the left edge)">${icon("expand", "sm")}Expand</button>
           <button class="quiet ico" data-act="fly-more" aria-haspopup="menu" aria-expanded="${flyMore}" aria-label="More">${icon("more", "sm")}</button>
           <button class="quiet ico" data-act="fly-close" aria-label="Close">${icon("x", "sm")}</button></div>
         ${flyMore ? `<div class="fly-menu" role="menu">
@@ -2441,7 +2655,7 @@ function renderFlyout() {
         <div class="tabs fly-tabs" role="tablist" aria-label="Views">${[["summary", "Summary"], ...(hasBranch(c) ? [["changes", `Changes${brComments(c).filter((x) => x.status !== "resolved").length ? ` <span class="n">${brComments(c).filter((x) => x.status !== "resolved").length}</span>` : ""}`]] : []), ["github", "GitHub"]].map(([id, label]) => `<button role="tab" aria-selected="${ft === id}" tabindex="${ft === id ? 0 : -1}" data-act="fly-tab" data-tab="${id}">${label}</button>`).join("")}</div>
       </div>
       <div class="fly-body">${ft === "github" ? `<div class="gh-slot" data-k="${esc(ghSlotKey(fly.kind, c.number))}"></div>` : ft === "changes" ? branchSlot(c) : `
-        ${ballLine(c)}
+        ${ballLine(c, ball(c), { buttons: false })}
         <section class="sec"><div class="fly-cmds" role="group" aria-label="Quick commands">${flyCommands(c, fly.kind)}</div></section>
         ${!isIssue && c.lifecycle ? readinessHtml(c) : ""}
         ${!isIssue ? askHtml(c) : ""}
@@ -2450,12 +2664,13 @@ function renderFlyout() {
         ${!isIssue ? changesHtml(c.number) : ""}
         <section class="sec"><h3>Thread</h3>${threadHtml(c)}</section>`}
       </div>
-      <form class="composer" id="flyComposer"><textarea id="flyInput" rows="1" placeholder="Ask anything about #${c.number}…" aria-label="Message about #${c.number}"></textarea><button class="primary" type="submit">Send</button></form>
+      ${moveBar(c)}
+      <form class="composer" id="flyComposer"><textarea id="flyInput" data-k="${esc(flyKey)}" rows="1" placeholder="Ask anything about #${c.number}…" aria-label="Message about #${c.number}"></textarea><button class="primary" type="submit">Send</button></form>
     </aside>`;
   if (ft === "github") fillGhSlot(host, oldGh, fly.kind, c.number);
   if (ft === "changes") fillBrSlot(host, oldBr, c);
   const nta = host.querySelector("#flyInput");
-  nta.value = flyDraft;
+  nta.value = composerDrafts.get(flyKey) || "";
   if (hadFocus) { nta.focus(); nta.setSelectionRange(nta.value.length, nta.value.length); }
   const body = host.querySelector(".fly-body");
   if (ft === "summary" && (stickBottom || nearBottom)) { body.scrollTop = body.scrollHeight; stickBottom = false; }
@@ -2465,7 +2680,7 @@ function renderFlyout() {
 }
 
 function openFlyout(kind, number, from) {
-  if (!fly || fly.kind !== kind || fly.number !== number) flyDraft = "";
+  openedAt = Date.now();
   fly = { kind, number };
   flyMore = false;
   flyReturnFocus = from || null;
@@ -2473,6 +2688,8 @@ function openFlyout(kind, number, from) {
   $("flyHost").querySelector(".fly-cmds button, .fly-head button")?.focus();
 }
 function closeFlyout() {
+  const ta = $("flyInput");
+  if (ta?.dataset.k) composerDrafts.set(ta.dataset.k, ta.value);
   fly = null;
   viewing = null;
   flyMore = false;
@@ -2563,11 +2780,12 @@ function render(force = false) {
   $("meta").textContent = snap.loading && !snap.fetchedAt ? "Loading…" : `${open} open · ${cards.length - open} merged today · ${snap.loading ? "refreshing…" : "updated " + ago(snap.fetchedAt) + (ago(snap.fetchedAt) === "just now" ? "" : " ago")}` + (snap.viewer ? ` · @${snap.viewer}` : "");
   $("meta").title = $("meta").textContent;
   if (!current() && cards.length) { const first = sectionRows().rows.flat().find((c) => c.kind !== "issue"); selected = (first || cards[0]).number; force = true; }
-  document.body.classList.toggle("ovmode", view === "overview");
+  document.body.classList.toggle("ovmode", true);
+  document.body.classList.toggle("sheet", view === "detail");
   renderSyncInfo();
   applyRail();
-  if (view === "overview") { renderOverview(); renderFlyout(); markViewed(); return; }
-  renderRail();
+  renderOverview();
+  if (view !== "detail") { renderFlyout(); markViewed(); return; }
   const c = current();
   $("wsHead").hidden = !c;
   $("input").disabled = $("send").disabled = !c;
@@ -2582,6 +2800,11 @@ function render(force = false) {
   if (fly) renderFlyout();
   markViewed();
   scrollToNew($("wsScroll"));
+  const bar = $("wsActs"), mb = moveBar(c);
+  bar.hidden = !mb;
+  if (mb) { const inner = mb.replace(/^<div class="move-bar[^"]*">|<\/div>$/g, ""); if (bar.innerHTML !== inner) bar.innerHTML = inner; bar.className = mb.match(/class="([^"]+)"/)[1]; }
+  applyAnchor();
+  checkFocus(c);
 }
 function scrollToNew(box) {
   const d = box?.querySelector(".new-div");
@@ -2594,8 +2817,12 @@ function select(pr, { tabTo, focus } = {}) {
   if (tabTo) { tab = tabTo; store.set("prb-tab", tab); }
   document.body.classList.add("detail");
   if (pr === selected && !tabTo) { render(); return; }
+  const before = current();
+  if (before && view === "detail") composerDrafts.set(keyOf(before), $("input").value);
   selected = pr;
   store.set(SEL_KEY, String(pr));
+  const after = current();
+  $("input").value = after ? composerDrafts.get(keyOf(after)) || "" : "";
   openMenu = null;
   armed = null;
   render(true);
@@ -2635,8 +2862,13 @@ document.addEventListener("click", (e) => {
   if (a === "mark-all-read") return post("/api/seen", { all: true }).then(() => toast("Marked everything as read")).catch((err) => toast("Couldn't do that: " + err.message));
   if (a === "mark-read") { openMenu = null; flyMore = false; const it = itemOf(el.dataset.kind || "pr", rowPr); if (!it) return; return post("/api/seen", { pr: rowPr, kind: el.dataset.kind || "pr" }).then(() => toast("Marked as read")).catch((err) => toast("Couldn't do that: " + err.message)); }
   if (a === "jump") { const s = document.getElementById("sec-" + el.dataset.sec); if (s) { s.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); s.querySelector(".ov-title")?.focus({ preventScroll: true }); } return; }
-  if (a === "flyout") return openFlyout(el.dataset.kind || "pr", rowPr, el);
-  if (a === "fly-close") return closeFlyout();
+  if (a === "flyout") return openItem(el.dataset.kind || "pr", rowPr, el);
+  if (a === "fly-close") { if (el.classList.contains("scrim") && !realBackdropClick(el)) return; return closeFlyout(); }
+  if (a === "sheet-close") { if (el.id === "sheetScrim" && !realBackdropClick(el)) return; return dismissSheet(); }
+  if (a === "expand") return fly && expandItem(fly.kind, fly.number);
+  if (a === "collapse") return collapseItem();
+  if (a === "nav") return navigate(Number(el.dataset.dir));
+  if (a === "anchor") return goAnchor(el.dataset.a);
   if (a === "issue-chip") { flyTab = "github"; store.set("prb-fly-tab", flyTab); return openFlyout("issue", rowPr, el); }
   if (a === "fly-tab") { flyTab = el.dataset.tab; store.set("prb-fly-tab", flyTab); const b = $("flyHost").querySelector(".fly-body"); if (b) b.scrollTop = 0; renderFlyout(); return $("flyHost").querySelector(`[data-act="fly-tab"][data-tab="${flyTab}"]`)?.focus(); }
   if (a.startsWith("br-")) return brClick(a, el, rowPr);
@@ -2666,14 +2898,14 @@ document.addEventListener("click", (e) => {
     return post("/api/action", body).then(() => toast(msg)).catch((err) => toast("Couldn't do that: " + err.message));
   }
   if (a === "ball-reply") { const kind = el.dataset.kind || "pr"; openFlyout(kind, rowPr, el); return $("flyInput")?.focus(); }
-  if (a === "ball-post") { fly = null; renderFlyout(); view = "detail"; tab = "review"; store.set("prb-tab", tab); return select(rowPr, { tabTo: "review" }); }
+  if (a === "ball-post") return expandItem("pr", rowPr, "review");
   if (a === "explain-item") return post("/api/action", { pr: rowPr, action: "explain-item", kind: el.dataset.kind || "pr" }).then(() => toast("Asked the agent to explain it; it appears here when ready")).catch((err) => toast("Couldn't ask: " + err.message));
   if (el.dataset.kind === "issue") return post("/api/action", { pr: rowPr, action: a, kind: "issue" }).then(() => toast(a === "untrack" ? "Removed from the board" : "Asked the agent")).catch((err) => toast("Couldn't do that: " + err.message));
   if (a === "track" || a === "untrack") { openMenu = null; flyMore = false; }
   if (a === "track" || a === "untrack") return post("/api/action", { pr: rowPr, action: a }).then(() => toast(a === "track" ? "Tracking it under Reviewing. Nothing changed on GitHub." : "Stopped tracking it")).catch((err) => toast("Couldn't do that: " + err.message));
   if (a === "status-update" || a === "summarize-replies") return post("/api/action", { pr: rowPr, action: a }).then(() => toast("Asked the agent; the answer will appear in the thread")).catch((err) => toast("Couldn't do that: " + err.message));
-  if (a === "open") { fly = null; renderFlyout(); view = "detail"; return select(rowPr, { focus: true }); }
-  if (a === "to-overview") { view = "overview"; viewing = null; openMenu = null; armed = null; render(); return document.querySelector(`.ov-title[data-pr="${selected}"]`)?.focus(); }
+  if (a === "open") return expandItem(el.dataset.kind || "pr", rowPr);
+  if (a === "to-overview") return dismissSheet();
   if (a === "sync") return requestSync();
   if (a === "answer" || a === "answer-text") {
     const answer = a === "answer" ? el.dataset.answer : (el.closest(".ov-ask, .ov-ask-inline")?.querySelector("input")?.value || "").trim();
@@ -2736,7 +2968,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (openMenu) { const which = openMenu; openMenu = null; render(); return $("wsHead").querySelector(`[data-act="${which}-menu"]`)?.focus(); }
     if (armed) { clearTimeout(armed.timer); armed = null; return render(); }
-    if (railOpen && railMq.matches && view === "detail") { setRail(false, { remember: false }); return $("railToggle").focus(); }
   }
   // Overview: arrow keys move between PR titles; Enter opens one.
   const ovt = e.target.closest?.(".ov-title");
@@ -2805,7 +3036,7 @@ narrowMq.addEventListener("change", () => { applyNarrow(); render(); });
 applyNarrow();
 
 const input = $("input");
-input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; });
+input.addEventListener("input", () => { const c = current(); if (c && view === "detail") composerDrafts.set(keyOf(c), input.value); input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; });
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("composer").requestSubmit(); } });
 $("composer").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -2813,7 +3044,7 @@ $("composer").addEventListener("submit", async (e) => {
   const text = input.value.trim();
   if (!c || !text) return;
   $("send").disabled = true;
-  input.value = ""; input.style.height = "auto"; stickBottom = true;
+  composerDrafts.delete(keyOf(c)); input.value = ""; input.style.height = "auto"; stickBottom = true;
   try {
     await post("/api/message", { pr: c.number, kind: c.kind === "issue" ? "issue" : "pr", text });
     if (tab !== "thread") { tab = "thread"; store.set("prb-tab", tab); render(true); }
@@ -2837,12 +3068,12 @@ document.addEventListener("submit", async (e) => {
   const text = ta.value.trim();
   if (!text) return;
   // Clear first: the board update that follows a send re-renders the flyout and would restore the old text.
-  flyDraft = ""; ta.value = ""; stickBottom = true;
+  composerDrafts.delete(fly.kind + ":" + fly.number); ta.value = ""; stickBottom = true;
   try {
     await post("/api/message", { pr: fly.number, kind: fly.kind, text });
   } catch (err) {
     stickBottom = false;
-    const box = $("flyInput"); if (box && !box.value) { box.value = text; flyDraft = text; }
+    const box = $("flyInput"); if (box && !box.value) { box.value = text; composerDrafts.set(fly.kind + ":" + fly.number, text); }
     toast("Couldn't send: " + err.message);
     return;
   }

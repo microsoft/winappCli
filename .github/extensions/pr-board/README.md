@@ -63,7 +63,7 @@ for a typed answer, **Review**, **Post review…**, **Ask the agent to fix**, or
 - **Done:** you handled it elsewhere. It returns if something changes, for
   example new commits or a new question.
 - **Snooze ▾:** for 1 hour, until tomorrow 9:00, or until Monday 9:00. Then it
-  comes back by itself. **Unsnooze** is in its flyout.
+  comes back by itself. **Unsnooze** is in its panel.
 
 The chips at the top count each state and filter the list to it. **Watching N**
 filters to the PRs Agent merge is watching.
@@ -95,7 +95,7 @@ PR #1359  Stop the DevTools inspector from growing app memory   [◉ Fixes Issue
 
 The board links them when the PR says "Fixes #n", when the agent links them in
 `pr_board_sync_sessions`, or when the issue's session branch has a PR. The issue
-then has no row of its own anywhere: not in the Overview, the rail or Your move.
+then has no row of its own anywhere: not in the Overview or Your move.
 The PR's thread includes the issue's messages, marked *from Issue #1283*. If the
 PR has no explanation of its own, it uses the issue's, and a session linked to
 either one counts for both. The chip opens the issue. When the PR merges, the pair
@@ -104,14 +104,42 @@ moves to Merged together. An issue with no PR yet keeps its own row, showing
 stays under Yours for two days after it closes.
 
 At the bottom, collapsed: **Merged today**, then **Removed from the board**.
-### The flyout
+### Opening an item: peek or expand
 
-Click anywhere on a row to open a panel on the right, without leaving the
-Overview. Each row also shows its first quick command as a button (for example
-**What changed?** on a PR you need to re-review); hover the row to see two more,
-or click **⋯**. Links and buttons inside a row do their own thing.
+Click anywhere on a row to open the item over the list. The list stays exactly
+as it was underneath, dimmed. Each row also shows its first quick command as a
+button (for example **What changed?** on a PR you need to re-review); hover the
+row to see two more, or click **⋯**. Links and buttons inside a row do their own
+thing.
 
-The flyout has two tabs, and remembers the last one you used. An issue whose fix is on a branch also gets **Changes** (see [Reviewing a branch before there's a PR](#reviewing-a-branch-before-theres-a-pr)).
+```text
+┌ Overview (dimmed) ───────────┬ PR #1350          ‹ 7/24 ›  ↗  ⤢ Expand ⋯ ✕ ┐
+│ Your move                    │ Reject malformed element handles…           │
+│  PR #1322 Refuse --devtools… │ Summary   GitHub                            │
+│ Reviewing                    │ …                                           │
+│  PR #1350 Reject malformed…  │ [Ready for you  Request reviewer ▾  Done]   │
+│                              │ [Ask a question or give direction…]  Send   │
+└──────────────────────────────┴─────────────────────────────────────────────┘
+```
+
+- **Peek** is the panel on the right, for a quick look.
+- **Expand** (**⤢**, the `E` key, or drag the panel's left edge) grows it into
+  a large sheet with the full workspace (see [The workspace](#the-workspace)).
+  The list stays visible, dimmed, around its edges. In a panel narrower than
+  about 700px, the sheet fills the width and has **← Back**. **⤡** goes back to
+  peek. The board remembers which one you used last.
+- **Close** with Esc, ✕, or a click on the dimmed list. You're back on the list
+  with the same scroll position and the same row selected. A drag or text
+  selection that starts inside the panel never closes it.
+- **‹ 7/24 ›** (or `J` and `K`) moves to the next or previous item in the list
+  or filter you opened it from, without closing.
+- What you type in the message box is kept per item. Close the panel or move
+  to another item, and it's still there when you come back.
+- The move that's yours (for example **Request reviewer ▾**, **Fix**, or the
+  agent's choices) is pinned just above the message box, so it's always in
+  reach.
+
+The peek panel has two tabs, and remembers the last one you used. An issue whose fix is on a branch also gets **Changes** (see [Reviewing a branch before there's a PR](#reviewing-a-branch-before-theres-a-pr)).
 
 - **Summary:** the move, quick commands, the plain-words explanation, and the
   item's thread. Type a question and the agent answers there, without starting a
@@ -124,9 +152,7 @@ The flyout has two tabs, and remembers the last one you used. An issue whose fix
   Outdated), commits, labels, review requests, force-pushes and merge-queue
   events. Links open in a new tab.
 
-The message box stays at the bottom on both tabs. Esc or ✕
-closes it; **Open details** goes to the full PR workspace (**← Overview** or Esc
-comes back). Its **⋯** menu has:
+The message box stays at the bottom on both tabs. Its **⋯** menu has:
 
 - **Track under Reviewing** (PRs in Everything else): keeps the PR in your
   Reviewing list. It doesn't run a review or change anything on GitHub.
@@ -142,12 +168,12 @@ comes back). Its **⋯** menu has:
 | Reviewing | **What changed since my review?** lists the commits and files changed since the commit you reviewed (read from GitHub right away), then asks the agent for a plain summary in the thread. Also Summarize the author's replies, Re-run review |
 | Everything else | **Review** runs `.github/skills/pr-review` in a session and drafts findings for you to post; it also moves the PR to Reviewing. Also Quick question, Summarize |
 
-The ↗ icon on every row, and **Open in browser** in the flyout, open the PR or
-issue on GitHub in a new tab in the app.
+The ↗ icon on every row and in the panel's header opens the PR or issue on
+GitHub in a new tab in the app.
 
 ### Explain like I'm 5
 
-The top of every flyout and every PR's Overview tab has two plain-language
+The top of every peek panel and every PR's Story tab has two plain-language
 sections the agent writes for you:
 
 - **Explain like I'm 5:** what the feature is, the problem or change with a
@@ -165,7 +191,7 @@ review, or when an answer in the thread changes the picture.
 
 ### Unread replies
 
-You can ask something, close the flyout, and keep going. Until the answer
+You can ask something, close the panel, and keep going. Until the answer
 arrives, the row shows **Replying…**. When it arrives, the row gets a blue dot
 and a **New reply** chip:
 
@@ -176,7 +202,7 @@ and a **New reply** chip:
 
 The **Unread 2** chip at the top shows only those rows, and **Mark all read**
 clears them. A new draft or structured review also counts as a reply. Opening
-the flyout, or the PR's Overview, Review or Thread tab, marks it read and
+the item, or the PR's Story, Review or Thread tab, marks it read and
 scrolls to a **New** line above the first unread message. The canvas title shows
 the count, for example `(2) PR board`. Read state is saved per PR and issue in
 the board's state file.
@@ -193,32 +219,7 @@ to it or it's assigned to you; opening an issue yourself doesn't count. To stop
 tracking a linked issue, the agent calls `pr_board_sync_sessions` with
 `{ issue: 1349, untrack: true }`.
 
-## The list beside a PR
-
-When a PR is open, a compact copy of the Overview sits on its left, with the
-same sections, the same rows and the same order:
-
-```text
-All items                                   ‹
-▾ YOURS 5
-  #1322 Refuse --devtools before launch…
-        [Agent needs you] [Replying…]
-  Issue #1283 DevTools inspector still uses…
-        [No PR]
-▾ REVIEWING 6
-▌ #1316 DevTools: assign resources and…     ← the PR you're looking at
-        [Author: changes requested]
-› EVERYTHING ELSE 6                          ← collapsed
-```
-
-- Click a PR to switch to it in place. You stay on the same tab, for example
-  Review. Click an issue to open its flyout.
-- Click a section header to collapse it. **‹** or **List** at the top hides the
-  whole list, so the PR gets the full width. The board remembers both choices.
-- In a panel narrower than about 900px, the list starts hidden. **List** opens
-  it over the PR, and it closes again once you pick something.
-- ↑ and ↓ move between rows and headers. Drag the line between the list and the
-  PR to resize it.
+## Status chips and sorting
 
 **Status chips** use one icon and a short label everywhere, such as
 `Your review`, `Author: changes requested`, `Approved · CI`, `In queue #2` or
@@ -277,8 +278,8 @@ you send it.
 ## Getting your PR ready for human review
 
 Your PRs (you wrote them, or a session here works on them as the author) get a
-**Ready for human review?** checklist at the top of the flyout's Summary and the
-details Overview, read live from GitHub and following `.github/skills/pr-lifecycle`.
+**Ready for human review?** checklist at the top of the peek panel's Summary and the
+expanded Story tab, read live from GitHub and following `.github/skills/pr-lifecycle`.
 
 **Get it ready & keep it ready** is one switch. It asks the agent to run
 pr-lifecycle in the PR's session (or open one), including pr-review and fixing the
@@ -357,7 +358,7 @@ When a session here works on an issue, its fix sits on a branch before anyone
 opens a PR. You can review that branch privately on the board, the way you'd
 review a PR, without anything showing up on GitHub.
 
-The issue's flyout and its details view (**Open details**) get a **Changes**
+The issue's panel, peeked or expanded, gets a **Changes**
 tab. It shows the branch against `main`: how far ahead and behind it is, a
 **Compare on GitHub** link, the commits, and every file's diff.
 
@@ -388,17 +389,31 @@ M scripts/test-e2e-winui-ui.ps1                       💬1  +33 −0
 
 ## The workspace
 
+The expanded sheet holds everything about one item. It opens on the tab that
+matters for whose move it is: **Review** when there are findings to decide or a
+review to post, **Thread** while an agent works, and **Story** otherwise.
+
+**Story** reads top to bottom in five steps:
+
+1. **What this is:** the plain-words explanation.
+2. **What changed:** what the PR does, with links to the diagram and changes.
+3. **What we found:** the review's verdict and risk.
+4. **Where it stands:** the readiness checklist, or who it's waiting on.
+5. **What's needed from you:** the current move.
+
+Everything else (next steps, status, the PR description) is under **More**.
+
 Buttons: the one that fits the stage is blue (Review, Post review…, Ship, or
 Answer). **Summarize** is next to it, and **More** holds Open full chat, Pin to
 top, Open on GitHub, and Reset agent status. Tabs:
 
 | Tab | Shows |
 |-----|-------|
-| Overview | The review's verdict, risk and plain-words summary, with what the PR does for users; next steps; status (who's next, CI, reviews, merge queue, agent, session, size, labels); and the PR description. GitHub events are under **Timeline** |
+| Story | The five steps above, then **More**: next steps, status (who's next, CI, reviews, merge queue, agent, session, size, labels), and the PR description. GitHub events are under **Timeline** |
 | Architecture | Diagrams of what the PR touches. Green is new, orange is changed, red dashed is removed. A number on a box counts its findings. Click a box to see its files, its findings, and **Ask about this** |
 | Changes | By system: each area the PR touches, with one plain line and +/− counts. By file: one plain line per file. Without a review it lists the files with +/− counts |
 | Review | The findings, most severe first, each with what's wrong, the suggested fix, and the file and lines. Mark each one **Post**, **Ignore** or **Undecided**, and add a note. **Explain** asks the agent to explain the finding in plain words; the answer appears under it |
-| GitHub | The PR as GitHub shows it, the same view as the flyout's **GitHub** tab |
+| GitHub | The PR as GitHub shows it, the same view as the peek panel's **GitHub** tab |
 | Thread | Your conversation with the agent about this PR |
 
 Until a review has run, Architecture, Changes and Review offer **Review this
@@ -422,6 +437,24 @@ lines come from the agent's own short notes and the tools it runs. The answer
 itself appears all at once when the agent posts it with `pr_board_reply`.
 Extensions don't get the answer text while it's being written, so it can't
 appear word by word.
+
+### The agent can point at things
+
+A reply can link to a spot in the workspace. The agent writes an anchor in its
+`pr_board_reply` text, and the board shows it as a chip. Clicking the chip
+opens the right tab, scrolls to the spot, and highlights it.
+
+| Anchor | Goes to |
+|--------|---------|
+| `[[finding:f1]]` | Finding f1 on the Review tab |
+| `[[file:src/a.cs#L12-L20]]` | Those lines on the Changes tab |
+| `[[node:diagramId/nodeId]]` | A box on the Architecture tab |
+| `[[gate:ci]]` | A readiness check (`copilot`, `review`, `discussion`, `ci`, `uptodate`, `description`, `label`) |
+| `[[thread:r4622965814]]` | A GitHub review thread on the GitHub tab |
+
+The chip shows the item's name, for example "HandleRpc" for a finding. A reply
+can also pass `focus` (one anchor) to jump there as soon as it arrives, while
+the item is open.
 
 ### Posting the findings you picked
 
@@ -473,7 +506,7 @@ Every request from the board tells the agent which of these to call.
 | `pr_board_set_next_step` | Say whose move it is: `{ pr` or `issue, owner, action, choices?, blocked? }` (owner: `you`, `agent`, `author`, `reviewer`, `reporter` or `ci`), or `clear: true`. Owner `you` puts it in **Your move** (choices become buttons that come back to the agent); `agent` shows the spinner |
 | `pr_board_set_explainer` | Write the "Explain like I'm 5" and "Where we are" sections for a PR or issue (`{ pr \| issue, eli5, progress }`, Markdown) |
 | `pr_board_set_summary` | Set the plain-words summary (≤140 characters), next steps, and risk (`low`, `medium`, `high`) |
-| `pr_board_reply` | Post a reply in a PR's thread (Markdown) |
+| `pr_board_reply` | Post a reply in a PR's thread (Markdown, with optional [anchors](#the-agent-can-point-at-things) and `focus`) |
 | `pr_board_link_session` | Link a session to a PR or issue (pass `branch` for an issue) |
 | `pr_board_set_status` | Set the agent status with a one-line outcome: `running`, `waiting` (needs you), `waiting_on_others` (blocked on another approver or the author; the outcome becomes the ⏭ line), `posted`, `done`, `failed`, or `clear` |
 | `pr_board_review_guide` | Read first: the review workflow, plain-words rules, diagram conventions and schema |
