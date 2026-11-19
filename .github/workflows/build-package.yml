@@ -471,9 +471,10 @@ jobs:
         overwrite: true
 
   # Retain the original required check, but only turn it green after every lane.
+  # metrics only reports results, so the check does not wait for it.
   build-and-package:
     if: always()
-    needs: [build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples, metrics]
+    needs: [build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs

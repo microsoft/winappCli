@@ -437,7 +437,8 @@ how `winapp run` or `winapp package` build .NET projects; see its README.
 
 Keep `build-and-package` and `test-samples-result` as top-level aggregate check
 names for branch protection. They must fail on failures, cancellations, and
-unexpected skips, not just test failures. Metrics join package artifacts with
+unexpected skips, not just test failures. `metrics` only reports, so
+`build-and-package` does not wait for it. Metrics join package artifacts with
 the validation job's TRX and coverage reports; never report zero tests just
 because the packages were uploaded first. Publish combined test results even
 when validation fails on main, but promote metrics to the main baseline only

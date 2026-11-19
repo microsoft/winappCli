@@ -73,7 +73,8 @@ Describe 'Artifact-first workflow dependencies' {
 
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
-        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples, metrics\]'
+        # metrics only reports results, so the required check does not wait for it.
+        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples\]'
     }
 
     It 'builds both architectures in one producer without intermediate publish artifacts' {
@@ -279,7 +280,7 @@ Describe 'Failed validation reports without promoting the main baseline' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples', 'metrics')) {
+        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples')) {
             $results[$job] = @{ result = 'success' }
         }
         $env:PRE_MERGE = 'true'
