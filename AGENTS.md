@@ -401,12 +401,12 @@ cache, keyed per job on the project files.
 PRs and merge groups that change only `docs\` pages or root `*.md` files skip
 every build and test lane and run only the docs port tests (`docs-tests`).
 `docs\npm-usage.md` is checked by npm tests, so changing it runs everything.
-CI runs `-TestSuite Cli -CliShard 1`, `-TestSuite Cli -CliShard 2`,
+CI runs `-TestSuite Cli -CliShard 1`, `-CliShard 2`, `-CliShard 4`,
 `-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never
 concurrently in one workspace. Together with the native integration shard below,
 they cover the default `All` suite.
 Auxiliary owns Node unit tests, analyzer tests/stand-down, and both Pester suites.
-Both CLI shards prepare the Node CLI needed by integration tests, but do not
+All three CLI lanes prepare the Node CLI needed by integration tests, but do not
 rerun Node unit tests.
 
 `validate-devtools` starts without waiting for the build. It runs the native
@@ -422,9 +422,10 @@ the desktop lifetime gate. Restore, build, discovery and execution each retain
 bounded phase logs under `artifacts\TestResults\devtools`. The validation job
 uploads partial results even on failure or cancellation.
 
-`scripts\test-cli-shard.ps1` partitions the CLI suite into three disjoint sets:
+`scripts\test-cli-shard.ps1` partitions the CLI suite into four disjoint sets:
 native integration tests (shard 3, in `validate-devtools` after its fixture build),
-then package-command and perf-fixture tests (shard 1) and all remaining tests (shard 2).
+package-command and perf-fixture tests (shard 1), end-to-end tests and the slowest
+one-at-a-time classes (shard 4), and all remaining tests (shard 2).
 The native lane sets `WINAPP_NATIVE_TEST_FIXTURE` to its freshly built dispatcher
 fixture; ordinary artifact-reuse lanes do not build or require native test fixtures.
 New tests always enter one shard. Each invocation requires at least one executed test,

@@ -504,6 +504,7 @@ Describe 'build-cli.ps1 control flow' {
     It 'runs CLI shard <Shard> through the helper and collects uniquely named reports' -ForEach @(
         @{ Shard = 1 }
         @{ Shard = 2 }
+        @{ Shard = 4 }
     ) {
         $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Cli'; CliShard = $Shard }
 
@@ -518,11 +519,12 @@ Describe 'build-cli.ps1 control flow' {
         Join-Path $root 'artifacts\TestResults\WinApp.Cli.Tests.trx' | Should -Not -Exist
     }
 
-    It 'merges the four validation lanes without filename collisions and with exactly three TRX reports' {
+    It 'merges the five validation lanes without filename collisions and with exactly four TRX reports' {
         $files = @(
             foreach ($lane in @(
                 @{ TestSuite = 'Cli'; CliShard = 1 },
                 @{ TestSuite = 'Cli'; CliShard = 2 },
+                @{ TestSuite = 'Cli'; CliShard = 4 },
                 @{ TestSuite = 'Auxiliary' },
                 @{ TestSuite = 'UIAutomation' }
             )) {
@@ -535,9 +537,9 @@ Describe 'build-cli.ps1 control flow' {
         )
         @($files | Group-Object Name | Where-Object Count -GT 1).Count | Should -Be 0
         (($files | Where-Object Extension -EQ '.trx' | Sort-Object Name).Name -join ',') |
-            Should -BeExactly 'WinApp.Cli.Tests.shard-1.trx,WinApp.Cli.Tests.shard-2.trx,WinApp.UIAutomation.Tests.trx'
+            Should -BeExactly 'WinApp.Cli.Tests.shard-1.trx,WinApp.Cli.Tests.shard-2.trx,WinApp.Cli.Tests.shard-4.trx,WinApp.UIAutomation.Tests.trx'
         (($files | Where-Object Name -Like 'cli-schema-*' | Sort-Object Name).Name -join ',') |
-            Should -BeExactly 'cli-schema-Auxiliary.json,cli-schema-Cli-1.json,cli-schema-Cli-2.json'
+            Should -BeExactly 'cli-schema-Auxiliary.json,cli-schema-Cli-1.json,cli-schema-Cli-2.json,cli-schema-Cli-4.json'
     }
 
     It 'fails shard validation for <Step> and preserves any produced reports' -ForEach @(
