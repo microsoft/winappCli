@@ -84,6 +84,13 @@ static HRESULT TestGetIsExpanded(void*, bool*);
 #define DevToolsVecGetSize TestVecSize
 #define DevToolsVecGetAt TestVecAt
 #define DevToolsGetIsExpanded TestGetIsExpanded
+static HRESULT TestGetArgsData(void* args, IInspectable** data)
+{
+    winrt::Windows::Foundation::IInspectable boxed = winrt::box_value(*static_cast<int*>(args));
+    *data = static_cast<IInspectable*>(winrt::detach_abi(boxed));
+    return S_OK;
+}
+#define DevToolsGetArgsData TestGetArgsData
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsSetAutomationName PutTestAutomationName
@@ -2228,6 +2235,41 @@ int main()
               otherEditorUi.refs == 1,
             "closing the window releases the pooled rows and everything they held");
     }
-    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // A reused row that is open fills in its kept expansion while the factory fills in the row. The row must
+        // stay marked current afterwards, or reopening it rebuilds the editor with the old handlers still wired.
+        TestElement rowFe, host, expansion;
+        host.children.push_back(&expansion); expansion.AddRef();
+        DevToolsCardRow height; height.name = L"Height"; height.type = L"Double"; height.editKind = L"number";
+        g_selWire = 42;
+        g_propRows = { height };
+        g_paneEditMap.rowIdx = { 0 };
+        DevToolsPaneItem item; item.kind = DevToolsPaneItemKind::Row; item.rowIndex = 0;
+        g_paneItems = { item };
+        PropSetExpanded(L"Height", true);
+        const int pool = RowPoolKey(height, L"Height", 0);
+        g_pooledRows[PaneIdentity(&rowFe)] = { pool, L"Width", false };
+        rowFe.AddRef();
+        winrt::com_ptr<IInspectable> pooledRow; pooledRow.attach(&rowFe);
+        g_rowPools[pool].push_back(std::move(pooledRow));
+        rowExpandHost = &host;
+        int index = 0;
+        void* handedOut = nullptr;
+        check(g_propRowFactory.GetElement(&index, &handedOut) == S_OK && handedOut == &rowFe &&
+              host.children.size() == 1 && FindPooledRow(&rowFe)->path == L"Height" &&
+              FindPooledRow(&rowFe)->expansionCurrent,
+            "a reused open row keeps its refilled expansion marked current for the new property");
+        if (handedOut) static_cast<IUnknown*>(handedOut)->Release();
+        rowExpandHost = nullptr;
+        PropSetExpanded(L"Height", false);
+        RetireKindEditors();
+        RevokePaneEvents();
+        ReleasePaneEditors(false);
+        ReleaseFieldBoxes(L"");
+        ReleaseRowPools();
+        TestClearChildren(&host);
+        g_propRows.clear(); g_paneItems.clear(); g_paneEditMap = {}; g_selWire = 0;
+        check(rowFe.refs == 1 && expansion.refs == 1, "the factory test releases the row and its expansion");
+    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

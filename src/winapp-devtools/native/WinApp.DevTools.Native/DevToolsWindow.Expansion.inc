@@ -697,7 +697,7 @@ static bool EnsureExpansion(void* rowFe, const DevToolsCardRow& r, const std::ws
     return ok;
 }
 
-static void* BuildRowElement(const DevToolsCardRow& r, const std::wstring& path, int edit)
+static void* LoadRowElement(const std::wstring& path)
 {
     IInspectable* tmpl = g_tmplRow;
     if (!tmpl) { DevToolsOverlayLog(L"route1.props no row template for '%s'", path.c_str()); return nullptr; }
@@ -713,9 +713,15 @@ static void* BuildRowElement(const DevToolsCardRow& r, const std::wstring& path,
         return nullptr;
     }
     void* fe = nullptr;
-    if (SUCCEEDED(content->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe)
-        PopulateRowLine(fe, r, path, edit);
+    content->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe);
     content->Release();
+    return fe;
+}
+
+static void* BuildRowElement(const DevToolsCardRow& r, const std::wstring& path, int edit)
+{
+    void* fe = LoadRowElement(path);
+    if (fe) PopulateRowLine(fe, r, path, edit);
     return fe;
 }
 
@@ -770,19 +776,25 @@ HRESULT STDMETHODCALLTYPE GetElement(void* args, void** element) noexcept overri
             pooled.key = RowPoolKey(row, row.name, edit);
             pooled.path = row.name;
             if (IInspectable* reused = TakePooledRow(pooled.key)) {
-                if (SUCCEEDED(reused->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+                if (SUCCEEDED(reused->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe)
                     ResetPooledRow(fe);
-                    PopulateRowLine(fe, row, row.name, edit);
-                }
                 reused->Release();
             } else {
-                fe = BuildRowElement(row, row.name, edit);
+                fe = LoadRowElement(row.name);
+            }
+            // Registered before the row is filled in: filling in an open row builds its expansion, which marks
+            // this entry current. Registering afterwards would mark it stale and rebuild the editor on reopen.
+            if (fe) {
+                g_pooledRows[PaneIdentity(reinterpret_cast<IUnknown*>(fe))] = pooled;
+                PopulateRowLine(fe, row, row.name, edit);
             }
         }
         if (!fe) return E_FAIL;
         void* ui = nullptr;
         const HRESULT hrElem = reinterpret_cast<IUnknown*>(fe)->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui);
-        if (SUCCEEDED(hrElem) && ui) g_pooledRows[PaneIdentity(reinterpret_cast<IUnknown*>(fe))] = std::move(pooled);
+        void* const identity = PaneIdentity(reinterpret_cast<IUnknown*>(fe));
+        if (SUCCEEDED(hrElem) && ui) g_pooledRows.emplace(identity, std::move(pooled));
+        else g_pooledRows.erase(identity);
         reinterpret_cast<IUnknown*>(fe)->Release();
         if (FAILED(hrElem) || !ui) return E_FAIL;
         *element = ui;
