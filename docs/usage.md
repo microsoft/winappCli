@@ -2469,3 +2469,5 @@ Recordings draw open menus, flyouts and tooltips in place; see
 [Menus and flyouts in recordings](ui-automation.md#menus-and-flyouts-in-recordings).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
+
+<!-- CI experiment: docs-only change -->
