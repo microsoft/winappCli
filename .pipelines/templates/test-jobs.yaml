@@ -39,6 +39,10 @@ parameters:
         displayName: CLI tests (shard 2)
         suite: Cli
         shard: 2
+      - name: Cli4
+        displayName: CLI tests (shard 4)
+        suite: Cli
+        shard: 4
       - name: UIAutomation
         displayName: UI Automation tests
         suite: UIAutomation
