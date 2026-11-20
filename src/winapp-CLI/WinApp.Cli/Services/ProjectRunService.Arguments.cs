@@ -209,7 +209,8 @@ internal sealed partial class ProjectRunService
             "-c",
             options.Configuration,
         };
-        if (!options.OmitRuntimeIdentifier)
+        // SPIKE: WINAPP_SPIKE_WATCH_NO_RID=1 leaves -r out (dotnet watch then applies referenced-library edits live).
+        if (!options.OmitRuntimeIdentifier && Environment.GetEnvironmentVariable("WINAPP_SPIKE_WATCH_NO_RID") != "1")
         {
             tokens.Add("-r");
             tokens.Add(options.EffectiveRuntimeIdentifier);

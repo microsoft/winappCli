@@ -84,6 +84,18 @@ internal static class XamlAgent
         }
         Log($"update applied: {string.Join(", ", names)}");
         Send(new JsonObject { ["op"] = "updated", ["types"] = new JsonArray([.. names.Select(n => (JsonNode?)n)]) });
+        if (s_pending is null && s_service is not null && types is { Length: > 0 })
+        {
+            // A C# save: a shown page (or UserControl) whose class changed is built again, so its constructor and
+            // OnNavigatedTo run the new code (as a restart would show it).
+            var classes = types.Where(t => typeof(FrameworkElement).IsAssignableFrom(t)).Select(t => t.FullName!).ToHashSet(StringComparer.Ordinal);
+            if (classes.Count > 0)
+            {
+                var code = new Pending { Id = -1, Items = [.. classes.Select(c => (s_classUris.GetValueOrDefault(c) ?? "", "code", c, Array.Empty<byte>()))] };
+                s_pending = code;
+                RebuildPending(code, "C# update");
+            }
+        }
         if (s_pending is { Written: true } pending)
         {
             // dotnet watch can apply a save's files as one update or several (seen: 2 files, 2 updates 260 ms apart). Rebuild
@@ -328,6 +340,10 @@ internal static class XamlAgent
         // Markup that failed to load is replaced by the last that loaded, so a later navigation doesn't fail on it.
         foreach (var (uri, kind, _, xbf) in pending.Items)
         {
+            if (kind == "code")
+            {
+                continue;
+            }
             if (errors.Count == 0)
             {
                 s_lastGood[uri] = xbf;

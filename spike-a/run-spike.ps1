@@ -1,7 +1,7 @@
-param([Parameter(Mandatory)][string]$Journey, [string]$Parity = 'Off', [int]$MaxActions = 0, [string]$Packaging = 'Unpackaged', [string]$AppSource, [switch]$KeepRunning, [string]$Tag = '', [ValidateSet('11','10')][string]$Sdk = '11', [string[]]$ExtraProp = @())
+param([Parameter(Mandatory)][string]$Journey, [string]$Parity = 'Off', [int]$MaxActions = 0, [string]$Packaging = 'Unpackaged', [string]$AppSource, [switch]$KeepRunning, [string]$Tag = '', [ValidateSet('11','10')][string]$Sdk = '11', [string[]]$ExtraProp = @(), [switch]$NoRid)
 $ErrorActionPreference = 'Stop'
 if ($Sdk -eq '11') { $env:PATH = "C:\dotnet11;$env:PATH"; $env:DOTNET_ROOT = 'C:\dotnet11'; $env:DOTNET_MULTILEVEL_LOOKUP = '0' } else { $Tag += '-sdk10'; $env:DOTNET_ROOT = $null }
-$env:NUGET_PACKAGES = 'C:\hr-spike-a\nuget'
+$env:NUGET_PACKAGES = 'C:\hr-spike-a\nuget'; $env:WINAPP_SPIKE_WATCH_NO_RID = if ($NoRid) { '1' } else { $null }; if ($NoRid) { $Tag += '-norid' }
 $out = "C:\hr-spike-a\runs\$Journey$Tag"
 New-Item -ItemType Directory $out -Force | Out-Null
 $stamp = Get-Date -Format 'HHmmss'
@@ -22,6 +22,7 @@ finally {
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     & C:\hr-spike-a\lock.ps1 release
 }
+
 
 
 
