@@ -187,6 +187,7 @@ Describe 'Artifact-first workflow dependencies' {
         $report | Should -Match ([regex]::Escape("if: github.event.workflow_run.conclusion != 'cancelled'"))
         $report | Should -Not -Match "conclusion == 'success'"
         $report | Should -Match 'artifact: test-results'
+        $report | Should -Match 'fail-on-empty: false'
     }
 
     It 'joins package and test artifacts before collecting and reporting metrics' {

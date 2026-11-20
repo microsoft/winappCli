@@ -21,3 +21,5 @@ jobs:
         name: Test - Results
         path: '**/*.trx'
         reporter: dotnet-trx
+        # Docs-only changes skip every test lane, so their runs have no test-results artifact.
+        fail-on-empty: false
