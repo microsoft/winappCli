@@ -3,6 +3,10 @@
 
 using System.Security.Cryptography;
 using System.Xml.Linq;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
@@ -124,5 +128,41 @@ public sealed class PriXamlResourceTests
         other.Element("Base64Value")!.Value = Convert.ToBase64String("different"u8);
         named.Add(other);
         Assert.ThrowsExactly<InvalidDataException>(() => PriService.VerifyXamlResourcesDump(dump, Expected));
+    }
+}
+
+[TestClass]
+public sealed class PriXamlVerificationRunTests() : BaseCommandTests(logLevel: LogLevel.Warning)
+{
+    private readonly FakePriService _pri = new();
+
+    protected override IServiceCollection ConfigureServices(IServiceCollection services) =>
+        services.AddSingleton<IPriService>(_pri);
+
+    private GuestSourceManifest Snapshot() => new(Path.Combine(_tempDirectory.FullName, "App.csproj"), [],
+        Coordinates: [new("MainPage.xaml", "MainPage.xaml", "src", "xbf", [], "gen", "in", "out", "state", "Debug")]);
+
+    // The app still launches without source coordinates, so a failed PRI check must not print an error, and
+    // must leave reporting to the launch (one warning), rather than logging its own warning and error too.
+    [TestMethod]
+    [DoNotParallelize] // Warnings go to the process-wide ambient console, which this test swaps to capture them.
+    [DataRow(true, "PRI validation exceeded 30 seconds.")]
+    [DataRow(false, "bad PRI")]
+    public async Task FailedVerification_CarriesTheReasonWithoutLoggingIt(bool timeout, string reason)
+    {
+        File.WriteAllText(Path.Combine(_tempDirectory.FullName, "resources.pri"), "pri");
+        _pri.VerifyXamlResources = (_, _) => timeout
+            ? throw new OperationCanceledException()
+            : throw new InvalidDataException("bad PRI");
+
+        var (result, ambient) = await InvokeWithAmbientConsoleCaptureAsync(() => GetRequiredService<RunCommand.Handler>()
+            .BindCoordinatePayloadAsync(Snapshot(), _tempDirectory.FullName, TestContext.CancellationToken));
+
+        Assert.IsNull(result.Coordinates);
+        Assert.AreEqual($"Compiled XAML coordinates are unavailable: {reason}", result.CoordinateError);
+        var output = ConsoleStdOut.ToString() + ConsoleStdErr + TestAnsiConsole.Output + ambient;
+        // The message's start fits on one console line; the reason can wrap onto the next.
+        Assert.DoesNotContain("Compiled XAML coordinates are unavailable", output);
+        Assert.DoesNotContain("ERROR", output);
     }
 }
