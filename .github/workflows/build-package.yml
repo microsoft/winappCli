@@ -49,7 +49,8 @@ jobs:
         }
         $code = $true
         if ($range) {
-          $files = @(git diff --name-only $range)
+          # --no-renames lists a moved file's old path too, so moving code into docs\ still builds.
+          $files = @(git diff --name-only --no-renames $range)
           if ($LASTEXITCODE -ne 0) { throw "git diff $range failed" }
           $codeFiles = @($files | Where-Object {
             $_ -eq 'docs/npm-usage.md' -or -not ($_ -like 'docs/*' -or ($_ -notlike '*/*' -and $_ -like '*.md'))

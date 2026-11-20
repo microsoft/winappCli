@@ -372,7 +372,7 @@ Describe 'Docs-only change classification' {
         @{ Case = 'an empty diff'; Files = @(); Code = 'true' }
     ) {
         $output = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
-        $runner = [scriptblock]::Create("param(`$files, `$output) function git { `$global:LASTEXITCODE = 0; `$files }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'pull_request'; `$env:PR_BASE = 'a'; `$env:PR_HEAD = 'b'
+        $runner = [scriptblock]::Create("param(`$files, `$output) function git { if (`$args -notcontains '--no-renames') { throw 'Renames into docs/ would hide the moved file''s old path' }; `$global:LASTEXITCODE = 0; `$files }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'pull_request'; `$env:PR_BASE = 'a'; `$env:PR_HEAD = 'b'
 " + $classify)
         & $runner $Files $output | Out-Null
         (Get-Content $output) | Should -Be "code=$Code"
