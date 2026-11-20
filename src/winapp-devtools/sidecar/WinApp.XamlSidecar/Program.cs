@@ -66,6 +66,7 @@ internal sealed class Sidecar(string project, string pipeName, string rspArgumen
     private readonly object _writeLock = new();
     private XamlCompilerHost? _xaml;
     private Task _ready = Task.CompletedTask;
+    private Task _starting = Task.CompletedTask;
     private string _intermediate = "";
     private readonly HashSet<string> _inputs = new(StringComparer.OrdinalIgnoreCase);
     private Version? _localVersion;
@@ -110,10 +111,13 @@ internal sealed class Sidecar(string project, string pipeName, string rspArgumen
     {
         _ = Task.Run(ServeAgentsAsync);
         _ = Task.Run(WatchdogAsync);
-        await StartCompilerAsync(firstTime: true).ConfigureAwait(false);
+        // Saves are watched from the start (the watchdog needs them even when XAML hot reload isn't available); XAML saves
+        // wait for the compiler.
+        _starting = StartCompilerAsync(firstTime: true);
         if (Environment.GetEnvironmentVariable("WINAPP_XAML_SIDECAR_SELFTEST") is { Length: > 0 } selfTest)
         {
             // Offline check of the compile path (no app): compile one saved XAML file and report what would be written.
+            await _starting.ConfigureAwait(false);
             await _ready.ConfigureAwait(false);
             for (var round = 0; round < 2; round++)
             {
@@ -294,6 +298,7 @@ internal sealed class Sidecar(string project, string pipeName, string rspArgumen
 
     private async Task ProcessXamlAsync(List<string> xaml, List<string> deleted, bool codeSaved, DateTime started)
     {
+        await _starting.ConfigureAwait(false);
         await _ready.ConfigureAwait(false);
         if (deleted.Count > 0)
         {
