@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A new way to call Windows Runtime APIs from Python</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: #060a13;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .banner {
+      position: relative;
+      width: 1200px;
+      height: 630px;
+      overflow: hidden;
+      border-radius: 10px;
+      color: #fff;
+      background:
+        radial-gradient(ellipse at 91% 8%, #0d3b64 0%, transparent 59%),
+        radial-gradient(ellipse at 8% 100%, #30264e 0%, transparent 55%),
+        linear-gradient(135deg, #050910, #0d182b 65%, #131329);
+    }
+    .banner::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(#ffffff08 1px, transparent 1px),
+        linear-gradient(90deg, #ffffff08 1px, transparent 1px);
+      background-size: 40px 40px;
+      mask-image: linear-gradient(135deg, #000, transparent);
+      pointer-events: none;
+    }
+    .content {
+      position: relative;
+      display: grid;
+      grid-template-columns: 540px 424px;
+      gap: 60px;
+      align-items: center;
+      height: 100%;
+      padding: 64px 88px;
+    }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 24px;
+      color: #79c6ff;
+      font-size: 14px;
+      font-weight: 650;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4cc2ff;
+      box-shadow: 0 0 12px #4cc2ffb3;
+    }
+    h1 {
+      margin: 0 0 24px;
+      font-size: 42px;
+      line-height: 1.16;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      background: linear-gradient(120deg, #fff, #b5dbff 65%, #d4c5ff);
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+    }
+    .lead {
+      margin: 0 0 22px;
+      color: #7cc2ff;
+      font-size: 26px;
+      line-height: 1.3;
+      font-weight: 600;
+    }
+    .subtitle {
+      margin: 0;
+      color: #bbc8df;
+      font-size: 20px;
+      line-height: 1.45;
+    }
+    .badges {
+      display: flex;
+      gap: 10px;
+      margin: 28px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .badges li {
+      padding: 8px 14px;
+      border: 1px solid #4cc2ff59;
+      border-radius: 999px;
+      background: #0078d41f;
+      color: #d0e8ff;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badges .highlight {
+      border-color: #ffd16666;
+      background: #ffd1660d;
+      color: #ffe3a3;
+    }
+    .card {
+      overflow: hidden;
+      border: 1px solid #ffffff16;
+      border-radius: 16px;
+      background: linear-gradient(160deg, #16233d, #0c1427);
+      box-shadow: 0 26px 70px #0008, inset 0 0 0 1px #0078d429;
+    }
+    .titlebar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 44px;
+      padding: 0 16px;
+      border-bottom: 1px solid #ffffff10;
+      background: #ffffff05;
+    }
+    .file-icon {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: linear-gradient(135deg, #387db3 55%, #ffd166 55%);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+    }
+    .filename {
+      color: #9badcc;
+      font: 13px "Cascadia Code", Consolas, monospace;
+    }
+    .controls {
+      display: flex;
+      gap: 26px;
+      margin-left: auto;
+      color: #8c9bb4;
+      font: 17px Consolas, monospace;
+    }
+    pre {
+      margin: 0;
+      padding: 24px 16px 26px;
+      color: #d6e2f5;
+      font: 15px/1.6 "Cascadia Code", Consolas, monospace;
+      white-space: pre;
+    }
+    pre code { font: inherit; }
+    .comment { color: #8497ba; font-style: italic; }
+    .keyword { color: #ff7ab6; }
+    .type { color: #7cc2ff; }
+    .method { color: #ffd479; }
+    .note {
+      margin: 18px 2px 0;
+      color: #97aac8;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <main class="banner" aria-label="Python dynamic WinRT projections blog banner">
+    <div class="content">
+      <section>
+        <p class="eyebrow">DynWinRT + WinApp CLI</p>
+        <h1>A new way to call Windows Runtime APIs from Python</h1>
+        <p class="lead">Introducing dynamic WinRT projections with DynWinRT</p>
+        <p class="subtitle">Typed Python bindings. One shared native runtime.</p>
+        <ul class="badges">
+          <li class="highlight">Notifications</li>
+          <li>WinUI 3</li>
+          <li>On-device AI</li>
+        </ul>
+      </section>
+      <section>
+        <div class="card">
+          <div class="titlebar">
+            <span class="file-icon" aria-hidden="true">Py</span>
+            <span class="filename">rewrite.py</span>
+            <span class="controls" aria-hidden="true"><span>-</span><span>&#9633;</span><span>&times;</span></span>
+          </div>
+<pre><code><span class="comment"># A sentence, a formal tone</span>
+<span class="keyword">with await</span> (
+    <span class="type">LanguageModel</span>.<span class="method">create_async</span>()
+) <span class="keyword">as</span> model:
+    rewriter = (
+        <span class="type">TextRewriter</span>
+        .<span class="method">create_instance</span>(model)
+    )
+    result = <span class="keyword">await</span> (
+        rewriter.<span class="method">rewrite_async</span>(
+            text, <span class="type">TextRewriteTone</span>.Formal
+        )
+    )
+
+    <span class="method">print</span>(result.text)</code></pre>
+        </div>
+        <p class="note">Windows capabilities, in your Python workflow.</p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
