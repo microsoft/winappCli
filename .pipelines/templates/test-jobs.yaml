@@ -114,7 +114,8 @@ jobs:
       condition: succeededOrFailed()
       inputs:
         path: $(System.DefaultWorkingDirectory)\artifacts\TestResults
-        artifactName: test-results-${{ lane.name }}
+        # The attempt keeps the name unique, so "Rerun failed jobs" can upload again.
+        artifactName: test-results-${{ lane.name }}-$(System.JobAttempt)
 
 # The DevTools engine's native tests and the CLI tests that drive its native dispatcher. They
 # build their own x64 engine, so this lane starts with the build instead of after it.
@@ -174,4 +175,4 @@ jobs:
     condition: succeededOrFailed()
     inputs:
       path: $(System.DefaultWorkingDirectory)\artifacts\TestResults\devtools
-      artifactName: test-results-DevToolsNative
+      artifactName: test-results-DevToolsNative-$(System.JobAttempt)

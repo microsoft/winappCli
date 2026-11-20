@@ -155,6 +155,19 @@ extends:
               # weekly rehearsal ESRP-sign real binaries.
               DoEsrp: ${{ and(parameters.DoEsrp, startsWith(variables['Build.SourceBranch'], 'refs/heads/rel/v')) }}
               signingIdentity: ${{ parameters.signingIdentity }}
+          # The stable build above refreshed ("baked") the find-ui corpus that ships in winapp.exe.
+          # The test jobs build from a fresh checkout with the committed corpus, so check the
+          # baked one here, before anything publishes it.
+          - task: PowerShell@2
+            displayName: Test the baked find-ui corpus
+            inputs:
+              pwsh: true
+              targetType: inline
+              errorActionPreference: stop
+              script: |
+                dotnet run --project src\winapp-CLI\WinApp.Cli.Tests\WinApp.Cli.Tests.csproj -c Debug -- `
+                  --filter "FullyQualifiedName~WinApp.Cli.Tests.EmbeddedSnapshotTests" --minimum-expected-tests 1 --no-ansi
+                if ($LASTEXITCODE -ne 0) { throw 'The baked find-ui corpus failed its tests.' }
           - task: PowerShell@2
             name: SetMeta
             displayName: Export version
@@ -395,7 +408,8 @@ extends:
             inputs:
               pwsh: true
               filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
-              arguments: -Stable -SkipTests -SkipDocs -SkipMsix -SkipNpm
+              # -SkipBake: the corpus that ships is baked and tested in the Build job.
+              arguments: -Stable -SkipBake -SkipTests -SkipDocs -SkipMsix -SkipNpm
           # Publish from the staging directory with the same layout as templates/build.yaml: the
           # Guardian baselines in .config/guardian match binaries by that relative path.
           - task: CopyFiles@2
