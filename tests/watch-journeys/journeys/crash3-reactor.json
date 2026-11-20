@@ -1,0 +1,51 @@
+{
+  "id": "crash3-reactor",
+  "title": "Reactor app: tracker #3 (add a method, edit a comment inside a line, edit the method)",
+  "app": "reactor",
+  "project": "RApp",
+  "process": "RApp",
+  "setup": [
+    { "file": "RApp/Helpers.cs", "op": "create-file", "text": [ "namespace RApp;", "", "internal static class Helpers", "{", "    public static string Tag() => \"tag\";", "}" ] },
+    { "file": "RApp/App.cs", "op": "replace", "find": "$\"{Label()} count={count}\"", "text": "$\"{Label()} {RApp.Helpers.Tag()} count={count}\"" }
+  ],
+  "steps": [
+    {
+      "id": "c1-add-method", "row": 64, "title": "Round 1: add a method",
+      "file": "RApp/Helpers.cs", "op": "insert-after", "find": "    public static string Tag() => \"tag\";", "text": "    public static string Added1() => \"a1\";",
+      "expect": { "v1": "live", "today": "applied" }
+    },
+    {
+      "id": "c1-comment-in-line", "row": 64, "title": "Round 1: a comment edit inside an existing line",
+      "file": "RApp/Helpers.cs", "op": "replace", "find": "namespace RApp;", "text": "namespace RApp; // r1",
+      "expect": { "v1": "unchanged", "today": "unchanged" }
+    },
+    {
+      "id": "c1-edit-method", "row": 64, "title": "Round 1: edit the added method (dotnet watch crashes)",
+      "file": "RApp/Helpers.cs", "op": "replace", "find": "Added1() => \"a1\";", "text": "Added1() => \"a2\";",
+      "expect": { "v1": "restart", "today": "restart", "reason": "stopped unexpectedly" },
+      "checks": [ { "assert": "exists", "target": "label-v1 tag count=0" } ]
+    },
+    {
+      "id": "c2-add-method", "row": 64, "title": "Round 2: add a method",
+      "file": "RApp/Helpers.cs", "op": "insert-after", "find": "    public static string Tag() => \"tag\";", "text": "    public static string Added2() => \"b1\";",
+      "expect": { "v1": "live", "today": "applied" }
+    },
+    {
+      "id": "c2-comment-in-line", "row": 64, "title": "Round 2: a comment edit inside an existing line",
+      "file": "RApp/Helpers.cs", "op": "replace", "find": "namespace RApp; // r1", "text": "namespace RApp; // r2",
+      "expect": { "v1": "unchanged", "today": "unchanged" }
+    },
+    {
+      "id": "c2-edit-method", "row": 64, "title": "Round 2: edit the added method (dotnet watch crashes)",
+      "file": "RApp/Helpers.cs", "op": "replace", "find": "Added2() => \"b1\";", "text": "Added2() => \"b2\";",
+      "expect": { "v1": "restart", "today": "restart", "reason": "stopped unexpectedly" },
+      "checks": [ { "assert": "exists", "target": "label-v1 tag count=0" } ]
+    },
+    {
+      "id": "c3-still-live", "row": 63, "title": "After the relaunch, edits are live again",
+      "file": "RApp/App.cs", "op": "replace", "find": "\"label-v1\"", "text": "\"label-v2\"",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "Add" }, { "assert": "exists", "target": "label-v2 tag count=1" } ]
+    }
+  ]
+}

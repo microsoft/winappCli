@@ -1,0 +1,70 @@
+{
+  "id": "crash3",
+  "title": "Tracker #3 in a XAML app: a no-change save between adding a method and editing it (rows 33-35)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "steps": [
+    {
+      "id": "r33-add-method", "row": 33, "title": "Add a method",
+      "file": "App/ContactsPage.xaml.cs", "op": "insert-before", "find": "    private void OnHello(", "text": "    private static string Added1() => \"a1\";\n",
+      "expect": { "v1": "live", "today": "applied" }
+    },
+    {
+      "id": "r33-comment-in-line", "row": 33, "title": "A comment edit inside an existing line",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "namespace TodoBench;", "text": "namespace TodoBench; // r33",
+      "expect": { "v1": "unchanged", "today": "unchanged" }
+    },
+    {
+      "id": "r33-edit-method", "row": 33, "title": "Edit the added method",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "Added1() => \"a1\";", "text": "Added1() => \"a2\";",
+      "expect": { "v1": "live", "today": "restart" }
+    },
+    {
+      "id": "r34-add-method", "row": 34, "title": "Add another method",
+      "file": "App/ContactsPage.xaml.cs", "op": "insert-before", "find": "    private void OnHello(", "text": "    private static string Added2() => \"b1\";\n",
+      "expect": { "v1": "live", "today": "applied" }
+    },
+    {
+      "id": "r34-whitespace-only", "row": 34, "title": "A whitespace-only edit inside a line",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "private int _clicks;", "text": "private int  _clicks;",
+      "expect": { "v1": "unchanged", "today": "unchanged" }
+    },
+    {
+      "id": "r34-edit-method", "row": 34, "title": "Edit the added method",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "Added2() => \"b1\";", "text": "Added2() => \"b2\";",
+      "expect": { "v1": "live", "today": "restart" }
+    },
+    {
+      "id": "r34-xaml-between-add", "row": 34, "title": "Add a method, then a .xaml save",
+      "edits": [ { "file": "App/ContactsPage.xaml.cs", "op": "insert-before", "find": "    private void OnHello(", "text": "    private static string Added3() => \"c1\";\n" } ],
+      "expect": { "v1": "live", "today": "applied" }
+    },
+    {
+      "id": "r34-xaml-save", "row": 34, "title": "(the .xaml save)",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"ready\"", "text": "Text=\"steady\"",
+      "expect": { "v1": "live+note", "today": "unchanged" }
+    },
+    {
+      "id": "r34-xaml-then-edit", "row": 34, "title": "Then edit the added method",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "Added3() => \"c1\";", "text": "Added3() => \"c2\";",
+      "expect": { "v1": "live", "today": "applied" }
+    },
+    {
+      "id": "r35-add-method", "row": 35, "title": "Add a method, then a new comment line",
+      "file": "App/ContactsPage.xaml.cs", "op": "insert-before", "find": "    private void OnHello(", "text": "    private static string Added4() => \"d1\";\n",
+      "expect": { "v1": "live", "today": "applied" }
+    },
+    {
+      "id": "r35-new-comment-line", "row": 35, "title": "A new comment line (a real update)",
+      "file": "App/ContactsPage.xaml.cs", "op": "insert-before", "find": "    private int  _clicks;", "text": "    // r35",
+      "expect": { "v1": "live", "today": "applied" }
+    },
+    {
+      "id": "r35-edit-method", "row": 35, "title": "Edit the added method",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "Added4() => \"d1\";", "text": "Added4() => \"d2\";",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v1" } ]
+    }
+  ]
+}

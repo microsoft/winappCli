@@ -1,0 +1,54 @@
+{
+  "id": "saves",
+  "title": "How saves arrive: agents, bursts, failures (rows 51-55)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "steps": [
+    {
+      "id": "r53-failing-save", "row": 53, "title": "A save that doesn't compile",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"hello-v2\"",
+      "expect": { "v1": "error", "today": "error" }
+    },
+    {
+      "id": "r53-next-save-fixes-it", "row": 53, "title": "The next save fixes it",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v2\"", "text": "return \"hello-v2\";",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ]
+    },
+    {
+      "id": "r52-burst", "row": 52, "title": "Saves 20 ms apart: the final value wins",
+      "delayMs": 20,
+      "edits": [
+        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v2\";", "text": "return \"burst-1\";" },
+        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"burst-1\";", "text": "return \"burst-2\";" },
+        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"burst-2\";", "text": "return \"burst-3\";" },
+        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"burst-3\";", "text": "return \"burst-4\";" },
+        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"burst-4\";", "text": "return \"burst-5\";" }
+      ],
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "burst-5" } ]
+    },
+    {
+      "id": "r54-save-while-starting", "row": 54, "title": "A save while the app is starting",
+      "pending": "needs a save timed into the launch; the runner saves only once the app is up",
+      "expect": { "v1": "live", "today": "untested" }
+    },
+    {
+      "id": "r55-hundred-saves", "row": 55, "title": "100+ saves without drift",
+      "pending": "a long run; a benchmark rather than a journey step",
+      "expect": { "v1": "live", "today": "untested" }
+    },
+    {
+      "id": "r51-agent-writes", "row": 51, "title": "An agent moves a class to a new file, writing files 1 s apart",
+      "delayMs": 1000,
+      "edits": [
+        { "file": "App/Models.cs", "op": "replace", "find": "public sealed partial class Contact\n{\n    public string Name { get; set; } = \"\";\n    public string Email { get; set; } = \"\";\n}\n", "text": "" },
+        { "file": "App/Contact.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "public sealed partial class Contact", "{", "    public string Name { get; set; } = \"\";", "    public string Email { get; set; } = \"\";", "}" ] }
+      ],
+      "expect": { "v1": "live", "today": "stuck|restart-no-reason" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "burst-5" } ],
+      "note": "last on purpose: it adds a file, and on dotnet watch a project reload can fail and stop the session"
+    }
+  ]
+}

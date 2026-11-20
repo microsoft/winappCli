@@ -1,0 +1,51 @@
+{
+  "id": "environment",
+  "title": "Stock WinUI, engine limits and environment (rows 58-62, 66-67)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "steps": [
+    {
+      "id": "r62-stock-csharp", "row": 62, "title": "Stock WinUI: a C# save",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"hello-v2\";",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ]
+    },
+    {
+      "id": "r62-stock-xaml", "row": 62, "title": "Stock WinUI: a XAML save restarts, with a reason",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\"", "text": "Text=\"People\"",
+      "expect": { "v1": "restart", "today": "unchanged" },
+      "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" } ]
+    },
+    {
+      "id": "r58-restart-compiler-warm", "row": 58, "title": "Restart while the XAML compiler service is warm",
+      "pending": "engine B and the WinUI compiler service (session 2 onward)",
+      "expect": { "v1": "restart", "today": "untested" }
+    },
+    {
+      "id": "r59-private-api-missing", "row": 59, "title": "The SDK's hot reload API fails to load (SDK 9, or a changed SDK)",
+      "pending": "engine B (session 2: api-missing on SDK 9)",
+      "expect": { "v1": "restart", "today": "untested" }
+    },
+    {
+      "id": "r60-loose-system-dlls", "row": 60, "title": "Helper started from a folder with loose System.*.dll",
+      "pending": "engine B's helper (session 2)",
+      "expect": { "v1": "error", "today": "untested" }
+    },
+    {
+      "id": "r61-sdk-matrix", "row": 61, "title": "SDK 11 + net10.0 app; SDK 11 + net11.0 app; SDK 10 only",
+      "pending": "covered by running every journey with -DotnetRoot C:\\dotnet11 and on SDK 10; no net11.0 app yet",
+      "expect": { "v1": "live", "today": "untested" }
+    },
+    {
+      "id": "r66-devtools-off", "row": 66, "title": "--watch --devtools off is refused",
+      "pending": "a command check, covered by DevToolsRunTests",
+      "expect": { "v1": "error", "today": "untested" }
+    },
+    {
+      "id": "r67-arm64-windows", "row": 67, "title": "ARM64; several windows",
+      "pending": "needs an ARM64 machine and a multi-window app",
+      "expect": { "v1": "untested", "today": "untested" }
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "checkout",
+  "title": "A branch switch: 20 files change at once (row 50)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "steps": [
+    {
+      "id": "r50-checkout", "row": 50, "title": "19 new files and an edit in one save",
+      "edits": [
+        { "file": "App/Gen01.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen01 { public static int V => 1; }" },
+        { "file": "App/Gen02.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen02 { public static int V => 2; }" },
+        { "file": "App/Gen03.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen03 { public static int V => 3; }" },
+        { "file": "App/Gen04.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen04 { public static int V => 4; }" },
+        { "file": "App/Gen05.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen05 { public static int V => 5; }" },
+        { "file": "App/Gen06.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen06 { public static int V => 6; }" },
+        { "file": "App/Gen07.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen07 { public static int V => 7; }" },
+        { "file": "App/Gen08.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen08 { public static int V => 8; }" },
+        { "file": "App/Gen09.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen09 { public static int V => 9; }" },
+        { "file": "App/Gen10.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen10 { public static int V => 10; }" },
+        { "file": "App/Gen11.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen11 { public static int V => 11; }" },
+        { "file": "App/Gen12.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen12 { public static int V => 12; }" },
+        { "file": "App/Gen13.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen13 { public static int V => 13; }" },
+        { "file": "App/Gen14.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen14 { public static int V => 14; }" },
+        { "file": "App/Gen15.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen15 { public static int V => 15; }" },
+        { "file": "App/Gen16.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen16 { public static int V => 16; }" },
+        { "file": "App/Gen17.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen17 { public static int V => 17; }" },
+        { "file": "App/Gen18.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen18 { public static int V => 18; }" },
+        { "file": "App/Gen19.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen19 { public static int V => 19; }" },
+        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"sum \" + (Gen01.V + Gen02.V + Gen03.V + Gen04.V + Gen05.V + Gen06.V + Gen07.V + Gen08.V + Gen09.V + Gen10.V + Gen11.V + Gen12.V + Gen13.V + Gen14.V + Gen15.V + Gen16.V + Gen17.V + Gen18.V + Gen19.V);" }
+      ],
+      "expect": { "v1": "live", "today": "error" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "sum 190" } ],
+      "note": "one direction only; the switch back is not scripted yet"
+    }
+  ]
+}

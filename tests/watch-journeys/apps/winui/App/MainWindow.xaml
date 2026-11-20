@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="TodoBench.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="TodoBench">
+    <Grid RowSpacing="4">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Frame x:Name="Nav" />
+        <TextBlock x:Name="WindowStatus" Grid.Row="1" Margin="12,0,12,8" Text="window-v1" />
+    </Grid>
+</Window>

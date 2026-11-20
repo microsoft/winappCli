@@ -1,0 +1,29 @@
+{
+  "id": "reactor",
+  "title": "Reactor app: C# through dotnet watch",
+  "app": "reactor",
+  "project": "RApp",
+  "process": "RApp",
+  "steps": [
+    {
+      "id": "r63-method-body", "row": 63, "title": "Edit a method the component renders",
+      "file": "RApp/App.cs", "op": "replace", "find": "\"label-v1\"", "text": "\"label-v2\"",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "Add" }, { "assert": "exists", "target": "label-v2 count=1" } ]
+    },
+    {
+      "id": "r63-new-method", "row": 63, "title": "Add a method and use it",
+      "edits": [
+        { "file": "RApp/App.cs", "op": "insert-after", "find": "    static string Label() => \"label-v2\";", "text": "    static string Suffix() => \"!\";" },
+        { "file": "RApp/App.cs", "op": "replace", "find": "$\"{Label()} count={count}\"", "text": "$\"{Label()}{Suffix()} count={count}\"" }
+      ],
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "Add" }, { "assert": "exists", "target": "label-v2! count=2" } ]
+    },
+    {
+      "id": "r65-rename-6-files", "row": 65, "title": "Rename a method across 6 files",
+      "pending": "the Reactor test app is one file; tracker #11 is covered for XAML apps by rename-6files",
+      "expect": { "v1": "untested", "today": "untested" }
+    }
+  ]
+}

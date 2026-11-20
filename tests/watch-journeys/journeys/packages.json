@@ -1,0 +1,46 @@
+{
+  "id": "packages",
+  "title": "Packages and project references (rows 38-40)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "steps": [
+    {
+      "id": "r38-add-package", "row": 38, "title": "Add a NuGet package",
+      "file": "App/TodoBench.csproj", "op": "replace", "find": "    <ProjectReference Include=\"..\\Core\\Core.csproj\" />", "text": "    <ProjectReference Include=\"..\\Core\\Core.csproj\" />\n    <PackageReference Include=\"CommunityToolkit.WinUI.Controls.Segmented\" Version=\"8.2.250402\" />",
+      "expect": { "v1": "live", "today": "error" }
+    },
+    {
+      "id": "r38-use-its-control", "row": 38, "title": "Use its control",
+      "edits": [
+        { "file": "App/ContactsPage.xaml", "op": "replace", "find": "    xmlns:local=\"using:TodoBench\">", "text": "    xmlns:local=\"using:TodoBench\"\n    xmlns:toolkit=\"using:CommunityToolkit.WinUI.Controls\">" },
+        { "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <local:ContactCard x:Name=\"Card\" />", "text": "            <toolkit:Segmented x:Name=\"Picker\"><toolkit:SegmentedItem Content=\"One\" /><toolkit:SegmentedItem Content=\"Two\" /></toolkit:Segmented>" }
+      ],
+      "expect": { "v1": "live", "today": "restart" },
+      "checks": [ { "assert": "exists", "target": "Picker" } ]
+    },
+    {
+      "id": "r38-use-it-from-csharp", "row": 38, "title": "Use the package from C#",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        StatusText.Text = Greeting();", "text": "        StatusText.Text = Greeting() + \" \" + typeof(CommunityToolkit.WinUI.Controls.Segmented).Name;",
+      "expect": { "v1": "live", "today": "error" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v1 Segmented" } ]
+    },
+    {
+      "id": "r39-remove-package-in-use", "row": 39, "title": "Remove a package still in use",
+      "file": "App/TodoBench.csproj", "op": "replace", "find": "\n    <PackageReference Include=\"CommunityToolkit.WinUI.Controls.Segmented\" Version=\"8.2.250402\" />", "text": "",
+      "expect": { "v1": "error", "today": "error" }
+    },
+    {
+      "id": "r40-add-project-reference", "row": 40, "title": "Add a ProjectReference and use it",
+      "edits": [
+        { "file": "Extra/Extra.csproj", "op": "create-file", "text": [ "<Project Sdk=\"Microsoft.NET.Sdk\">", "  <PropertyGroup>", "    <TargetFramework>net10.0</TargetFramework>", "  </PropertyGroup>", "</Project>" ] },
+        { "file": "Extra/Extra.cs", "op": "create-file", "text": [ "namespace Extra;", "", "public static class Info", "{", "    public static string Name => \"extra-v1\";", "}" ] },
+        { "file": "App/TodoBench.csproj", "op": "replace", "find": "    <ProjectReference Include=\"..\\Core\\Core.csproj\" />", "text": "    <ProjectReference Include=\"..\\Core\\Core.csproj\" />\n    <ProjectReference Include=\"..\\Extra\\Extra.csproj\" />\n    <PackageReference Include=\"CommunityToolkit.WinUI.Controls.Segmented\" Version=\"8.2.250402\" />" },
+        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "typeof(CommunityToolkit.WinUI.Controls.Segmented).Name;", "text": "Extra.Info.Name;" }
+      ],
+      "expect": { "v1": "live", "today": "restart" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v1 extra-v1" } ],
+      "note": "the design's row uses a control from the referenced project; this uses a C# class until the test app has a WinUI library"
+    }
+  ]
+}

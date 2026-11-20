@@ -1,0 +1,34 @@
+{
+  "id": "rude-packaged",
+  "title": "Rude edits in a packaged app: relaunch through the alias, DevTools attaches again (row 56)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "packaged": true,
+  "steps": [
+    {
+      "id": "r56-rude-1", "row": 56, "title": "Rude edit 1: unseal the page class",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "public sealed partial class ContactsPage", "text": "public partial class ContactsPage",
+      "expect": { "v1": "restart", "today": "restart-no-reason" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v1" } ]
+    },
+    {
+      "id": "r56-rude-2", "row": 56, "title": "Rude edit 2: change a field's type",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "private int _clicks;", "text": "private long _clicks;",
+      "expect": { "v1": "restart", "today": "restart-no-reason" },
+      "checks": [ { "assert": "invoke", "target": "CountButton" }, { "assert": "text-equals", "target": "CountText", "value": "clicks 1" } ]
+    },
+    {
+      "id": "r56-rude-3", "row": 56, "title": "Rude edit 3: unseal the UserControl",
+      "file": "App/ContactCard.xaml.cs", "op": "replace", "find": "public sealed partial class ContactCard", "text": "public partial class ContactCard",
+      "expect": { "v1": "restart", "today": "restart-no-reason" },
+      "checks": [ { "assert": "text-equals", "target": "CardText", "value": "card-v1" } ]
+    },
+    {
+      "id": "r56-live-after", "row": 28, "title": "After the restarts, C# is live again",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"hello-v2\";",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ]
+    }
+  ]
+}

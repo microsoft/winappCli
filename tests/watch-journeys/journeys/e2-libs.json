@@ -1,0 +1,100 @@
+{
+  "id": "e2-libs",
+  "title": "C# in referenced class libraries (App -> Core -> Data)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "parity": {
+    "root": "ContactsPage",
+    "navigate": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "invoke", "target": "LibButton" } ],
+    "probes": [ { "assert": "invoke", "target": "LibButton" } ]
+  },
+  "steps": [
+    {
+      "id": "l00-app-body", "row": 28, "title": "App method body (baseline)",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"hello-v2\";",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ]
+    },
+    {
+      "id": "r41-core-body", "row": 41, "title": "Library method body (Core)",
+      "file": "Core/Greeter.cs", "op": "replace", "find": "\"core-v1|\"", "text": "\"core-v2|\"",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-equals", "target": "Header", "value": "core-v2|data-v1" } ]
+    },
+    {
+      "id": "r41-data-body", "row": 41, "title": "Library method body two references away (Data)",
+      "file": "Data/Store.cs", "op": "replace", "find": "\"data-v1\"", "text": "\"data-v2\"",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-equals", "target": "Header", "value": "core-v2|data-v2" } ]
+    },
+    {
+      "id": "r42-two-libs-new-code", "row": 42, "title": "New type and new method across two libraries in one save (no new file)",
+      "edits": [
+        { "file": "Data/Store.cs", "op": "insert-after", "find": "    public static string Greeting() => \"data-v2\";", "text": "\n    public static string Extra() => \"x1\";" },
+        { "file": "Core/Greeter.cs", "op": "insert-after", "find": "namespace Core;", "text": "\npublic static class Fmt\n{\n    public static string Wrap(string s) => $\"[{s}]\";\n}" },
+        { "file": "Core/Greeter.cs", "op": "replace", "find": "return \"core-v2|\" + Data.Store.Greeting();", "text": "return Fmt.Wrap(\"core-v3\") + \"|\" + Data.Store.Greeting() + \"|\" + Data.Store.Extra();" }
+      ],
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-equals", "target": "Header", "value": "[core-v3]|data-v2|x1" } ],
+      "parity": true
+    },
+    {
+      "id": "r43-multi-targeted", "row": 43, "title": "Multi-targeted library",
+      "pending": "the test app has no multi-targeted library yet (dotnet-watch-probes.md: restart with -r, live without)",
+      "expect": { "v1": "live", "today": "untested" }
+    },
+    {
+      "id": "r48-new-static-initializer", "row": 48, "title": "New static field with an initializer in a library",
+      "edits": [
+        { "file": "Data/Store.cs", "op": "insert-after", "find": "public static class Store\n{", "text": "    public static string Tag = \"tag-v1\";\n" },
+        { "file": "Core/Greeter.cs", "op": "replace", "find": "+ \"|\" + Data.Store.Extra();", "text": "+ \"|\" + Data.Store.Extra() + \"|\" + Data.Store.Tag;" }
+      ],
+      "expect": { "v1": "live+note", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-equals", "target": "Header", "value": "[core-v3]|data-v2|x1|" } ]
+    },
+    {
+      "id": "r44-comment-in-line", "row": 44, "title": "Tracker #3 in a library: a comment edit inside a line",
+      "file": "Data/Store.cs", "op": "replace", "find": "namespace Data;", "text": "namespace Data; // r44",
+      "expect": { "v1": "unchanged", "today": "unchanged" }
+    },
+    {
+      "id": "r44-edit-added-method", "row": 44, "title": "Tracker #3 in a library: then edit the method added earlier",
+      "file": "Data/Store.cs", "op": "replace", "find": "Extra() => \"x1\";", "text": "Extra() => \"x2\";",
+      "expect": { "v1": "live", "today": "restart" },
+      "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-contains", "target": "Header", "value": "|x2" } ]
+    },
+    {
+      "id": "r45-rude-in-library", "row": 45, "title": "Rude edit in a library (a field's type)",
+      "file": "Data/Store.cs", "op": "replace", "find": "public static string Tag = ", "text": "public static object Tag = ",
+      "expect": { "v1": "restart", "today": "restart-no-reason", "reason": "Store" },
+      "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-contains", "target": "Header", "value": "data-v2" } ]
+    },
+    {
+      "id": "r46-library-not-loaded", "row": 46, "title": "Library the app hasn't loaded yet",
+      "pending": "the test app has no library it loads late yet",
+      "expect": { "v1": "live", "today": "untested" }
+    },
+    {
+      "id": "r47-library-csproj", "row": 47, "title": "Library .csproj edit (a new package)",
+      "file": "Core/Core.csproj", "op": "replace", "find": "    <ProjectReference Include=\"..\\Data\\Data.csproj\" />", "text": "    <ProjectReference Include=\"..\\Data\\Data.csproj\" />\n    <PackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.3\" />",
+      "expect": { "v1": "restart", "today": "error", "reason": "csproj|project|package" },
+      "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-contains", "target": "Header", "value": "[core-v3]" } ]
+    },
+    {
+      "id": "r42-new-file", "row": 42, "title": "A new file in a library",
+      "edits": [
+        { "file": "Core/Extra.cs", "op": "create-file", "text": [ "namespace Core;", "", "public static class Extra", "{", "    public static string Mark => \"+\";", "}" ] },
+        { "file": "Core/Greeter.cs", "op": "replace", "find": "return Fmt.Wrap(", "text": "return Extra.Mark + Fmt.Wrap(" }
+      ],
+      "expect": { "v1": "live", "today": "restart" },
+      "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-contains", "target": "Header", "value": "+[core-v3]" } ],
+      "note": "last on purpose: on dotnet watch a project reload can fail and stop the session"
+    },
+    {
+      "id": "r49-xaml-in-library", "row": 49, "title": "XAML in a library",
+      "pending": "the test app has no WinUI library yet (design: restart until E3)",
+      "expect": { "v1": "restart", "today": "untested" }
+    }
+  ]
+}
