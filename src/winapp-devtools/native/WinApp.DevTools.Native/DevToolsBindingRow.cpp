@@ -235,7 +235,10 @@ bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstri
         it->theme = elementTheme;
         return true;
     }
-    if (it->value == observed) return true;
+    if (it->value == observed) {
+        if (elementTheme >= 0) it->theme = elementTheme;
+        return true;
+    }
     // A {ThemeResource} changes value with the theme by design; only a change under the same theme is the app's.
     if (it->resourceKind == L"themeResource" && it->theme >= 0 && elementTheme >= 0 && elementTheme != it->theme) {
         it->value = observed;

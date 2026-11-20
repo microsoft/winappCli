@@ -216,6 +216,13 @@ static void Test_LiveEditOverridesAnXBind()
     Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FFFF0000", 2) &&
           !DevToolsBindingRow_LiveResource(42, L"Foreground", nullptr, nullptr),
           "a different value under the same theme is the app's write");
+    DevToolsBindingRow_NoteLiveResourceWrite(42, L"Foreground", true, L"SomeFixedBrush");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FF102030", 1) &&
+          DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FF102030", 2),
+          "a theme resource that resolves the same in both themes keeps owning the value");
+    Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FFFF0000", 2) &&
+          !DevToolsBindingRow_LiveResource(42, L"Foreground", nullptr, nullptr),
+          "an unchanged read records the new theme, so a later app write under it is the app's");
     DevToolsBindingRow_NoteLiveResourceWrite(42, L"Foreground", false, L"AccentBrush");
     Check(DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FF0078D4", 1), "a static resource edit records its value");
     Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FF4CC2FF", 2),
