@@ -241,6 +241,15 @@ static bool EnsurePaneShell()
     }
 }
 
+// Each time the pane asks the agent for pending references. The panel is reused, so only the latest request's answer
+// may fill it: an earlier one for the same element (a refresh) would add its rows again.
+static unsigned long long g_pendingReferencesRequest = 0;
+static unsigned long long NextPendingReferencesRequest() { return ++g_pendingReferencesRequest; }
+static bool PendingReferencesCurrent(unsigned long long request, unsigned long long gen, InstanceHandle selected)
+{
+    return request == g_pendingReferencesRequest && gen == g_route1Gen && selected == g_selWire;
+}
+
 // The References section (LabeledBy, XYFocus*, ...) and, for a Reactor element, the component that renders it.
 // References the agent knows only later, and the component, arrive after the pane is shown.
 static void UpdateReferencesAndReactor(const std::vector<DevToolsCardRow>& rows, const std::wstring& authoredState)
@@ -255,7 +264,8 @@ static void UpdateReferencesAndReactor(const std::vector<DevToolsCardRow>& rows,
     if (g_referencesSlot.host) g_referencesSlot.host.Visibility(shown(references != nullptr));
 
     // Reactor targets that aren't shown yet: only the agent knows, and it can't be asked on the UI thread, so they
-    // are appended when the answer arrives, unless the selection has moved on by then.
+    // are appended when the answer arrives, unless the selection has moved on or the pane asked again by then.
+    const unsigned long long request = NextPendingReferencesRequest();
     if (const auto& pending = g_paneShell.pendingReferences) {
         auto children = pending.Children();
         if (children.Size()) children.Clear();
@@ -263,11 +273,11 @@ static void UpdateReferencesAndReactor(const std::vector<DevToolsCardRow>& rows,
             winrt::weak_ref<DevToolsXC::Panel> weakHost = pending;
             auto queue = DevToolsD::DispatcherQueue::GetForCurrentThread();
             std::thread([fetch = g_pendingReferencesFn, selected = wire, withHeader = references == nullptr, queue, weakHost,
-                         gen = g_route1Gen]() {
+                         gen = g_route1Gen, request]() {
                 const std::wstring markup = fetch(selected, withHeader);
                 if (markup.empty() || !queue) return;
-                queue.TryEnqueue([markup, weakHost, selected, gen]() {
-                    if (gen != g_route1Gen || selected != g_selWire) return;
+                queue.TryEnqueue([markup, weakHost, selected, gen, request]() {
+                    if (!PendingReferencesCurrent(request, gen, selected)) return;
                     auto panel = weakHost.get();
                     if (!panel) return;
                     try { panel.Children().Append(DevToolsXMk::XamlReader::Load(markup).as<DevToolsX::UIElement>()); }

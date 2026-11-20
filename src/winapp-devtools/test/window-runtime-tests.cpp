@@ -2327,6 +2327,20 @@ int main()
         check(editor.placeholder.empty(), "a reused editor drops the previous property's placeholder");
     }
     {
+        // Two refreshes of the same element ask for its pending references twice; only the second answer fills the
+        // reused panel, so its rows don't appear twice.
+        const InstanceHandle savedSel = g_selWire;
+        g_selWire = 700;
+        const auto gen = g_route1Gen;
+        const auto first = NextPendingReferencesRequest();
+        const auto second = NextPendingReferencesRequest();
+        check(!PendingReferencesCurrent(first, gen, 700) && PendingReferencesCurrent(second, gen, 700),
+            "an earlier pending-references answer for the same element is dropped after a refresh");
+        g_selWire = 701;
+        check(!PendingReferencesCurrent(second, gen, 700), "and an answer for an element no longer selected is dropped");
+        g_selWire = savedSel;
+    }
+    {
         // The live tree refresh follows a tree that never settles at a steady pace.
         check(TreeRefreshDueAt(10000, 10000, 0) == 10250, "a single change refreshes after the debounce");
         check(TreeRefreshDueAt(10300, 10000, 0) == 10550, "a burst keeps pushing the refresh back");
