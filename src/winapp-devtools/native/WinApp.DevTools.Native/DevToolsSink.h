@@ -32,3 +32,26 @@ struct DevToolsSinkBase
     const GUID* iid2 = nullptr;
     unsigned    gen  = 0; // generation this sink was wired in; compared against its owner's counter in Invoke
 };
+
+// A delegate owned by the control it subscribes to: the control's release frees it. Use it for handlers that
+// are wired again on every pane rebuild and hold no reference back to that control.
+struct DevToolsOwnedSink : DevToolsSinkBase
+{
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** p) override
+    {
+        const HRESULT hr = DevToolsSinkBase::QueryInterface(r, p);
+        if (SUCCEEDED(hr) && r != __uuidof(IMarshal)) AddRef();
+        return hr;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&refs); }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG left = InterlockedDecrement(&refs);
+        if (!left) delete this;
+        return left;
+    }
+    // Declared before the destructor so Invoke stays in the delegate's vtable slot after Release.
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*) = 0;
+    virtual ~DevToolsOwnedSink() { if (ftm) ftm->Release(); }
+    long refs = 1;
+};

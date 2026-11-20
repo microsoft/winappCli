@@ -241,6 +241,7 @@ g_propRows = rows;
                         ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
                         : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
                     if (FAILED(hr)) DevToolsOverlayLog(L"route1.props layout disclosure wiring failed hr=0x%08X", hr);
+                    sink->Release();
                 }
                 reinterpret_cast<IUnknown*>(ex)->Release();
             }
@@ -256,6 +257,7 @@ g_propRows = rows;
                         ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
                         : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
                     if (FAILED(hr)) DevToolsOverlayLog(L"route1.props XAML disclosure wiring failed hr=0x%08X", hr);
+                    sink->Release();
                 }
                 reinterpret_cast<IUnknown*>(ex)->Release();
             }
@@ -289,6 +291,7 @@ g_propRows = rows;
                     __int64 tok = 0;
                     const HRESULT hrS = DevToolsAddClick(bb, ps, &tok);
                     if (FAILED(hrS)) DevToolsOverlayLog(L"route1.wire PropShowAll add_Click FAILED hr=0x%08X -- the full list is unreachable", hrS);
+                    ps->Release();
                     reinterpret_cast<IUnknown*>(bb)->Release();
                 }
                 sa->Release();
@@ -301,6 +304,7 @@ g_propRows = rows;
                     __int64 tok = 0;
                     HRESULT hrF = DevToolsAddTextChanged(tbx, fs, &tok);
                     if (FAILED(hrF)) DevToolsOverlayLog(L"route1.wire propfilter add_TextChanged FAILED hr=0x%08X -- the filter will do nothing", hrF);
+                    fs->Release();
                 }
                 pf->Release();
             }
@@ -320,6 +324,7 @@ g_propRows = rows;
                     __int64 tok = 0;
                     const HRESULT hrC = DevToolsAddClick(bb, cs, &tok);
                     if (FAILED(hrC)) DevToolsOverlayLog(L"route1.wire PropClearFilter add_Click FAILED hr=0x%08X -- the empty pane has no way back", hrC);
+                    cs->Release();
                     reinterpret_cast<IUnknown*>(bb)->Release();
                 }
                 cf->Release();
@@ -347,6 +352,7 @@ g_propRows = rows;
                         __int64 token = 0;
                         const HRESULT hr = DevToolsAddClick(bb, sink, &token);
                         if (FAILED(hr)) DevToolsOverlayLog(L"route1.source %s add_Click failed hr=0x%08X", button, hr);
+                        sink->Release();
                         reinterpret_cast<IUnknown*>(bb)->Release();
                     }
                     ob->Release();
