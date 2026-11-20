@@ -127,7 +127,7 @@ internal sealed class Sidecar(string project, string pipeName, string rspArgumen
                 var p2 = await _xaml.Pass2Async([file], img, false, CancellationToken.None).ConfigureAwait(false);
                 var all = p1.GeneratedText.Concat(p2.GeneratedText).GroupBy(x => x.Key).ToDictionary(g => g.Key, g => g.Last().Value);
                 var ch = GeneratedFiles.Changes(all, _xaml.OutputDirectory, _intermediate, stems, false);
-                Say($"selftest round {round}: pass1 {t1} ms ({Failed(p1) ?? "ok"}), image {t2 - t1} ms ({ie ?? img.Length + " bytes"}), pass2 {clock.ElapsedMilliseconds - t2} ms ({Failed(p2) ?? "ok"}), xbf {p2.GeneratedXbf.Count}, changes: {string.Join(", ", ch.Select(x => Path.GetFileName(x.ObjPath) + (x.CodeChanged ? " [code]" : " [checksum]")))}");
+                Say($"selftest round {round}: pass1 {t1} ms ({Failed(p1) ?? "ok"}), image {t2 - t1} ms [{_image.LastTiming}] ({ie ?? img.Length + " bytes"}), pass2 {clock.ElapsedMilliseconds - t2} ms ({Failed(p2) ?? "ok"}), xbf {p2.GeneratedXbf.Count}, changes: {string.Join(", ", ch.Select(x => Path.GetFileName(x.ObjPath) + (x.CodeChanged ? " [code]" : " [checksum]")))}");
             }
             return 0;
         }

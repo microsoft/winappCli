@@ -45,7 +45,9 @@ internal sealed class AppImage
             {
                 try
                 {
-                    return new AnalyzerFileReference(path, Loader.Instance).GetGenerators(LanguageNames.CSharp);
+                    // CsWinRT's AOT generator (seconds on a large app) only emits interop plumbing the XAML compiler never reads.
+                    return new AnalyzerFileReference(path, Loader.Instance).GetGenerators(LanguageNames.CSharp)
+                        .Where(g => g.GetGeneratorType().Name != "WinRTAotSourceGenerator").ToImmutableArray();
                 }
                 catch (Exception)
                 {
@@ -62,18 +64,23 @@ internal sealed class AppImage
     {
         var args = File.ReadAllLines(rspPath).Where(l => l.Length > 0).ToArray();
         var parsed = CSharpCommandLineParser.Default.Parse(args, projectDirectory, sdkDirectory: null);
-        return new AppImage(projectDirectory, parsed, version);
+        return new AppImage(projectDirectory, parsed, version) { _recorded = File.GetLastWriteTimeUtc(rspPath) };
     }
+
+    private DateTime _recorded;
+
+    public string LastTiming { get; private set; } = "";
 
     /// <summary>The app's metadata (private members included) with <paramref name="overrides"/> (path to text) in place of the files on disk.</summary>
     public byte[] Emit(IReadOnlyDictionary<string, string> overrides, out string? error)
     {
         var paths = _arguments.SourceFiles.Select(f => Path.GetFullPath(Path.Combine(_projectDirectory, f.Path))).ToList();
-        // C# files created since the build (a new page's code-behind) and the generated parts of new pages.
+        // C# files created since the build recorded its arguments (a new page's code-behind); older files not in the
+        // arguments are left out on purpose (sample code, excluded folders).
         foreach (var file in Directory.EnumerateFiles(_projectDirectory, "*.cs", SearchOption.AllDirectories))
         {
             if (!file.Contains(@"\bin\", StringComparison.OrdinalIgnoreCase) && !file.Contains(@"\obj\", StringComparison.OrdinalIgnoreCase) &&
-                !paths.Contains(file, StringComparer.OrdinalIgnoreCase))
+                File.GetCreationTimeUtc(file) > _recorded && !paths.Contains(file, StringComparer.OrdinalIgnoreCase))
             {
                 paths.Add(file);
             }
@@ -100,14 +107,20 @@ internal sealed class AppImage
             }
             trees.Add(cached.Tree);
         }
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         Compilation compilation = CSharpCompilation.Create(_arguments.CompilationName, trees, _references, _arguments.CompilationOptions);
+        var parsed = clock.ElapsedMilliseconds;
         _driver = _driver.RunGeneratorsAndUpdateCompilation(compilation, out compilation, out _);
+        var generated = clock.ElapsedMilliseconds;
+        var slow = string.Join(", ", _driver.GetTimingInfo().GeneratorTimes.OrderByDescending(t => t.ElapsedTime).Take(3)
+            .Select(t => $"{t.Generator.GetGeneratorType().Name} {t.ElapsedTime.TotalMilliseconds:0} ms"));
         if (_version is { } version && compilation.Assembly.Identity.Version != version)
         {
             compilation = WithAssemblyVersion(compilation, version);
         }
         using var image = new MemoryStream();
         var result = compilation.Emit(image, options: new EmitOptions(metadataOnly: true, includePrivateMembers: true));
+        LastTiming = $"trees {parsed} ms, generators {generated - parsed} ms ({slow}), emit {clock.ElapsedMilliseconds - generated} ms";
         if (!result.Success)
         {
             error = string.Join(Environment.NewLine + "  ", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Take(3).Select(Format));
