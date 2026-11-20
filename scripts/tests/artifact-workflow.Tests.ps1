@@ -366,6 +366,8 @@ Describe 'Docs-only change classification' {
     It 'classifies <Case> as code=<Code>' -ForEach @(
         @{ Case = 'docs pages and root markdown'; Files = @('docs/usage.md', 'docs/guides/electron.md', 'README.md'); Code = 'false' }
         @{ Case = 'the npm usage guide that npm tests check'; Files = @('docs/usage.md', 'docs/npm-usage.md'); Code = 'true' }
+        @{ Case = 'the sample index schema that CLI tests read'; Files = @('docs/winui-sample-index.schema.json'); Code = 'true' }
+        @{ Case = 'a code file moved into docs'; Files = @('docs/version.json', 'version.json'); Code = 'true' }
         @{ Case = 'plugin skills'; Files = @('plugins/winapp/skills/winapp-cli/SKILL.md'); Code = 'true' }
         @{ Case = 'a script beside docs'; Files = @('docs/usage.md', 'scripts/build-cli.ps1'); Code = 'true' }
         @{ Case = 'a non-markdown root file'; Files = @('version.json'); Code = 'true' }

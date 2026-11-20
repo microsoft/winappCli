@@ -398,9 +398,10 @@ and merge queue runs) sample tests start as independent jobs. The test suite use
 `-OnlyTests -UseExistingArtifacts`; it must not republish or delete the downloaded
 CLI and NuGet packages.
 
-PRs and merge groups that change only `docs\` pages or root `*.md` files skip
+PRs and merge groups that change only Markdown files in `docs\` or the repo root skip
 every build and test lane and run only the docs port tests (`docs-tests`).
-`docs\npm-usage.md` is checked by npm tests, so changing it runs everything.
+`docs\npm-usage.md` is checked by npm tests, and other files in `docs\` (such as
+`winui-sample-index.schema.json`) are read by CLI tests, so changing them runs everything.
 
 CI runs `-TestSuite Cli -CliShard 1`, `-CliShard 2`, `-CliShard 4`,
 `-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never

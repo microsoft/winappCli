@@ -20,8 +20,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Docs-only PRs and merge groups skip the build and test lanes. docs\npm-usage.md is
-  # checked by npm tests, so it counts as code. Push and manual runs always build.
+  # PRs and merge groups that change only Markdown in docs\ or the repo root skip the build
+  # and test lanes. docs\npm-usage.md is checked by npm tests, so it counts as code, and so
+  # does every non-Markdown file (docs\ holds a schema that CLI tests read). Push and manual
+  # runs always build.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -53,7 +55,7 @@ jobs:
           $files = @(git diff --name-only --no-renames $range)
           if ($LASTEXITCODE -ne 0) { throw "git diff $range failed" }
           $codeFiles = @($files | Where-Object {
-            $_ -eq 'docs/npm-usage.md' -or -not ($_ -like 'docs/*' -or ($_ -notlike '*/*' -and $_ -like '*.md'))
+            $_ -eq 'docs/npm-usage.md' -or $_ -notlike '*.md' -or ($_ -like '*/*' -and $_ -notlike 'docs/*')
           })
           # An empty diff is not evidence of a docs-only change.
           $code = $files.Count -eq 0 -or $codeFiles.Count -gt 0
