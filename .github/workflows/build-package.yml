@@ -20,7 +20,108 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # PRs and merge groups that change only Markdown in docs\ or the repo root skip the build
+  # and test lanes. docs\npm-usage.md is checked by npm tests, so it counts as code, and so
+  # does every non-Markdown file (docs\ holds a schema that CLI tests read). Push and manual
+  # runs always build.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Classify changed files
+      id: classify
+      shell: pwsh
+      env:
+        EVENT: ${{ github.event_name }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        MQ_BASE: ${{ github.event.merge_group.base_sha }}
+        MQ_HEAD: ${{ github.event.merge_group.head_sha }}
+      run: |
+        $range = switch ($env:EVENT) {
+          'pull_request' { "$env:PR_BASE...$env:PR_HEAD" }
+          'merge_group' { "$env:MQ_BASE..$env:MQ_HEAD" }
+          default { $null }
+        }
+        $code = $true
+        if ($range) {
+          # --no-renames lists a moved file's old path too, so moving code into docs\ still builds.
+          $files = @(git diff --name-only --no-renames $range)
+          if ($LASTEXITCODE -ne 0) { throw "git diff $range failed" }
+          $codeFiles = @($files | Where-Object {
+            $_ -eq 'docs/npm-usage.md' -or $_ -notlike '*.md' -or ($_ -like '*/*' -and $_ -notlike 'docs/*')
+          })
+          # An empty diff is not evidence of a docs-only change.
+          $code = $files.Count -eq 0 -or $codeFiles.Count -gt 0
+          Write-Host "$($files.Count) changed file(s); $($codeFiles.Count) need the full build."
+        }
+        "code=$($code.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  # The scripts Pester suite ports the real docs and checks their links and tables.
+  docs-tests:
+    needs: changes
+    if: needs.changes.outputs.code != 'true'
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Run docs port tests
+      run: |
+        $pester = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $pester) { throw 'Pester 5 is required.' }
+        Import-Module $pester -Force
+        $config = New-PesterConfiguration
+        $config.Run.Path = 'scripts/tests/validate-mslearn-docs.Tests.ps1'
+        $config.Run.Exit = $true
+        $config.Output.Verbosity = 'Detailed'
+        Invoke-Pester -Configuration $config
+
+  # Publish each CLI architecture and build each DevTools engine on its own runner;
+  # build-artifacts then combines and packages them.
+  build-parts:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        stage: [Cli, Engine]
+        arch: [x64, arm64]
+    name: build-parts (${{ matrix.stage }} ${{ matrix.arch }})
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0  # Required for build number calculation
+
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Build ${{ matrix.stage }} ${{ matrix.arch }}
+      env:
+        STAGE: ${{ matrix.stage }}
+        ARCH: ${{ matrix.arch }}
+      run: .\scripts\build-cli.ps1 -Stage $env:STAGE -Architecture $env:ARCH -SkipTests -SkipDocs
+
+    - name: Upload part
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: part-${{ matrix.stage }}-${{ matrix.arch }}
+        path: artifacts/${{ matrix.stage == 'Cli' && 'cli' || 'devtools' }}/win-${{ matrix.arch }}/
+        if-no-files-found: error
+        overwrite: true
+
   build-artifacts:
+    needs: build-parts
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -37,11 +138,35 @@ jobs:
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: '24'
+
+    - name: Download CLI x64
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: part-Cli-x64
+        path: artifacts/cli/win-x64
+
+    - name: Download CLI arm64
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: part-Cli-arm64
+        path: artifacts/cli/win-arm64
+
+    - name: Download engine x64
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: part-Engine-x64
+        path: artifacts/devtools/win-x64
+
+    - name: Download engine arm64
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: part-Engine-arm64
+        path: artifacts/devtools/win-arm64
     
-    # Build both architectures and packages together; validation consumes these
+    # Combine both architectures and package them; validation consumes these
     # same-run artifacts on separate runners without republishing.
     - name: Build and package (awaiting validation)
-      run: .\scripts\build-cli.ps1 -SkipTests -SkipDocs
+      run: .\scripts\build-cli.ps1 -Stage Package -SkipTests -SkipDocs
     
     - name: Upload CLI binaries
       id: cli
@@ -113,6 +238,9 @@ jobs:
         - lane: Cli-2
           suite: Cli
           shard: 2
+        - lane: Cli-4
+          suite: Cli
+          shard: 4
         - lane: Auxiliary
           suite: Auxiliary
           shard: 0
@@ -186,8 +314,15 @@ jobs:
         PRE_MERGE: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
       run: .\scripts\validate-llm-docs.ps1 -FailOnDrift:($env:PRE_MERGE -eq 'true')
 
+    - name: Validate shipped DevTools engines
+      run: |
+        .\scripts\test-devtools-engine.ps1 -EngineRoot .\artifacts\cli
+        if (-not $?) { throw 'Published engine validation failed' }
+
+  # Builds its own engine and test fixtures, so it starts without waiting for build-artifacts.
   validate-devtools:
-    needs: build-artifacts
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -200,17 +335,9 @@ jobs:
           8.0.x
           10.0.x
 
-    - name: Download CLI binaries
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-      with:
-        name: cli-binaries
-        path: artifacts/cli
-
-    - name: Validate shipped engines and native source contracts
+    - name: Validate native source contracts
       run: |
-        .\scripts\test-devtools-engine.ps1 -EngineRoot .\artifacts\cli
-        if (-not $?) { throw 'Published engine validation failed' }
-        # Test builds never replace the downloaded payload consumed by other gates.
+        # Test builds never write to artifacts\cli, which other gates consume.
         .\src\winapp-devtools\build-devtools.ps1 -Configuration Release -Arch x64 -EngineOut .\artifacts\validation-devtools\win-x64
         if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Native DevTools validation failed' }
 
@@ -258,16 +385,19 @@ jobs:
   # Keep the existing branch-protection check name outside the reusable workflow.
   test-samples-result:
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
-    needs: samples
+    needs: [changes, samples]
     runs-on: ubuntu-latest
     steps:
     - name: Check results
       shell: pwsh
       env:
+        CHANGES_RESULT: ${{ needs.changes.result }}
+        CODE: ${{ needs.changes.outputs.code }}
         SAMPLE_RESULT: ${{ needs.samples.result }}
       run: |
-        if ($env:SAMPLE_RESULT -ne 'success') {
-          throw "Sample validation did not succeed ($env:SAMPLE_RESULT)"
+        $expected = if ($env:CODE -eq 'true') { 'success' } else { 'skipped' }
+        if ($env:CHANGES_RESULT -ne 'success' -or $env:SAMPLE_RESULT -ne $expected) {
+          throw "Sample validation did not meet the required outcome ($env:SAMPLE_RESULT, expected $expected)"
         }
 
   metrics:
@@ -316,6 +446,13 @@ jobs:
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: validation-results-Cli-2
+        path: artifacts/TestResults
+
+    - name: Download CLI shard 4 results
+      if: ${{ !cancelled() }}
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: validation-results-Cli-4
         path: artifacts/TestResults
 
     - name: Download native integration and managed test results
@@ -474,9 +611,11 @@ jobs:
         overwrite: true
 
   # Retain the original required check, but only turn it green after every lane.
+  # metrics only reports results, so the check does not wait for it.
+  # Docs-only changes expect every build and test lane to be skipped and docs-tests to pass.
   build-and-package:
     if: always()
-    needs: [build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples, metrics]
+    needs: [changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs
@@ -486,8 +625,13 @@ jobs:
         PRE_MERGE: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
       run: |
         $results = $env:NEEDS_JSON | ConvertFrom-Json -AsHashtable
+        $code = $results['changes'].outputs.code -eq 'true'
         foreach ($job in $results.Keys) {
-          $expected = if ($job -eq 'samples' -and $env:PRE_MERGE -ne 'true') { 'skipped' } else { 'success' }
+          $expected = if ($job -eq 'changes') { 'success' }
+            elseif ($job -eq 'docs-tests') { if ($code) { 'skipped' } else { 'success' } }
+            elseif (-not $code) { 'skipped' }
+            elseif ($job -eq 'samples' -and $env:PRE_MERGE -ne 'true') { 'skipped' }
+            else { 'success' }
           if ($results[$job].result -ne $expected) {
             throw "$job did not meet the required outcome: $($results[$job].result) (expected $expected)"
           }

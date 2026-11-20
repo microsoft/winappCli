@@ -1,19 +1,19 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Run one of three disjoint CLI test shards from an existing Debug build.
+    Run one of four disjoint CLI test shards from an existing Debug build.
 .DESCRIPTION
     Run shards in separate workspaces. Shard 3 owns NativeIntegration and requires
     the native dispatcher fixture. Of the remaining tests, shard 1 contains
-    PackageCommandTests and shard 2 contains everything else, including new classes.
-    In run 35270954877 the original two groups
-    accounted for 1,781 and 1,719 summed test-seconds respectively (114 and 6,450 tests).
-    These weights guide the split, not an assertion about wall-clock savings.
+    PackageCommandTests and PerfFixtureTests, shard 4 contains EndToEndTests and the
+    slowest classes that must run one at a time, and shard 2 contains everything else,
+    including new classes. Tests marked [DoNotParallelize] run after all parallel tests,
+    so spreading them across shards shortens the slowest lane. Rebalance from TRX timings.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet(1, 2, 3)]
+    [ValidateSet(1, 2, 3, 4)]
     [int]$Shard,
 
     [Parameter(Mandatory)]
@@ -43,11 +43,20 @@ if ($Shard -eq 3 -and (-not $env:WINAPP_NATIVE_TEST_FIXTURE -or
     throw 'Shard 3 requires WINAPP_NATIVE_TEST_FIXTURE pointing to the freshly built native-runtime-tests.exe.'
 }
 # Category and class predicates partition every discovered case exactly once.
-$className = 'WinApp.Cli.Tests.PackageCommandTests.'
+$shard1Classes = @('WinApp.Cli.Tests.PackageCommandTests.', 'WinApp.Cli.Tests.PerfFixtureTests.')
+$shard4Classes = @(
+    'WinApp.Cli.Tests.EndToEndTests.', 'WinApp.Cli.Tests.UiCommandTests.',
+    'WinApp.Cli.Tests.ProgramJsonBridgeTests.', 'WinApp.Cli.Tests.ProgramDevToolsJsonBridgeTests.',
+    'WinApp.Cli.Tests.RealRecordingTests.'
+)
+function Join-ClassFilter([string[]]$Classes, [string]$Operator, [string]$Separator) {
+    ($Classes | ForEach-Object { "FullyQualifiedName$Operator$_" }) -join $Separator
+}
 $filters = @(
-    "TestCategory!=NativeIntegration&FullyQualifiedName~$className",
-    "TestCategory!=NativeIntegration&FullyQualifiedName!~$className",
-    'TestCategory=NativeIntegration'
+    "TestCategory!=NativeIntegration&($(Join-ClassFilter $shard1Classes '~' '|'))",
+    "TestCategory!=NativeIntegration&$(Join-ClassFilter ($shard1Classes + $shard4Classes) '!~' '&')",
+    'TestCategory=NativeIntegration',
+    "TestCategory!=NativeIntegration&($(Join-ClassFilter $shard4Classes '~' '|'))"
 )
 $runArgs = @('run', '--project', $TestProjectPath, '-c', 'Debug', '--no-build', '--')
 
