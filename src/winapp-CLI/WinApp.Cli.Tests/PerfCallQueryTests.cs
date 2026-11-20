@@ -865,17 +865,27 @@ public class PerfCallQueryTests
                 Attributes = Rev3("10", "props", true, i == 3 ? 1 : 0, 0),
             });
         }
+        // Its Start (a memo miss) is inside the range but its Stop is not: the miss still counts, like a skip.
+        calls.Add(Reactor("edge", "ReactorRender:Row", 58, 62, "p1") with { Attributes = Rev3("10", "props", true, 0, 0) });
         PerfEvent Skip(double time, string id, string name) => PerfGcTests.Event("ReactorComponentSkip", time) with
         {
             Id = "vskip" + time, Provider = PerfProviders.Reactor, Family = "reactor",
             Fields = new() { ["componentId"] = id, ["name"] = name },
         };
         var byId = calls.ToDictionary(c => c.Id);
+        PerfEvent Begin(string call, string componentId, string reason)
+        {
+            var begin = RenderBegin(byId[call], componentId, reason);
+            if (byId[call].Attributes?.GetValueOrDefault("memoMiss") is { } memoMiss)
+            {
+                begin.Fields["memoMiss"] = memoMiss;
+            }
+            return begin;
+        }
         PerfEvent[] events =
         [
-            RenderBegin(byId["app"], "1", "state"), RenderBegin(byId["mount"], "10", "mount"),
-            RenderBegin(byId["loader"], "30", "parent"), RenderBegin(byId["legacy"], "40", "parent"),
-            .. Enumerable.Range(0, 4).Select(i => RenderBegin(byId[$"row{i}"], "10", "props")),
+            Begin("app", "1", "state"), Begin("mount", "10", "mount"), Begin("loader", "30", "parent"), Begin("legacy", "40", "parent"),
+            Begin("edge", "10", "props"), .. Enumerable.Range(0, 4).Select(i => Begin($"row{i}", "10", "props")),
             Skip(20, "10", "Row"), Skip(21, "10", "Row"), Skip(22, "99", "Header"), Skip(80, "10", "Row"),
         ];
         using var fixture = new Fixture(calls, events);
@@ -885,9 +895,9 @@ public class PerfCallQueryTests
         var rows = result.Rows.ToDictionary(r => r.Name!);
         var row = rows["Row"];
         Assert.AreEqual(3, row.WastedRenders, "Three props updates changed nothing; the mount is not an update.");
-        Assert.AreEqual(4, row.MemoMisses);
+        Assert.AreEqual(5, row.MemoMisses);
         Assert.AreEqual(2, row.MemoSkips, "The skip after the range is not counted.");
-        Assert.AreEqual(0.3333, row.MemoHitRate);
+        Assert.AreEqual(0.2857, row.MemoHitRate);
         Assert.AreEqual(3, rows["App"].StateSets, "The root's effects count toward the root.");
         Assert.AreEqual(0, rows["App"].WastedRenders, "App's changes include its children's, so a changed subtree is not wasted.");
         Assert.AreEqual(2, rows["App"].MaxStateSets);
@@ -901,11 +911,11 @@ public class PerfCallQueryTests
         Assert.AreEqual(6, waste.Updates);
         Assert.AreEqual(3, waste.WastedRenders);
         Assert.AreEqual(3, waste.MemoSkips);
-        Assert.AreEqual(4, waste.MemoMisses);
+        Assert.AreEqual(5, waste.MemoMisses);
         Assert.AreEqual(10, waste.StateSets);
         Assert.AreEqual(
             "wasted-renders:Row:3/4,setstate-fan-out:Loader:7/7",
-            string.Join(',', waste.Insights.Select(i => $"{i.Kind}:{i.Component}:{i.Count}/{i.Total}")));
+            string.Join(',', waste.Insights.Select(i => $"{i.Kind}:{i.Component}:{i.WastedRenders ?? i.MaxStateSets}/{i.Updates ?? i.StateSets}")));
     }
 
     [TestMethod]
@@ -947,6 +957,32 @@ public class PerfCallQueryTests
         Assert.IsTrue(result.ReactorPasses.WastedWork.Insights.All(i => i.Component.Length <= 80));
         Assert.AreEqual(full.ReactorPasses.LongestPasses[0].Id, result.ReactorPasses.LongestPasses[0].Id);
         Assert.AreEqual(full.Rows.Single().Count, result.Rows.Single().Count);
+        Assert.IsLessThanOrEqualTo(4096, JsonSerializer.SerializeToUtf8Bytes(result, PerfJsonContext.Default.PerfQueryResult).Length);
+    }
+
+    [TestMethod]
+    public void ComponentsViewDropsInsightsBeforeFailingTheMinimumByteBudget()
+    {
+        var calls = new List<PerfCall>();
+        for (var c = 0; c < 3; c++)
+        {
+            // Wide characters take three UTF-8 bytes, so even names clipped to 80 characters are large.
+            var name = new string('漢', 200) + c;
+            for (var i = 0; i < 3; i++)
+            {
+                calls.Add(Reactor($"r{c}-{i}", "ReactorRender:" + name, c * 10 + i, c * 10 + i + 0.5) with
+                {
+                    Attributes = new() { ["componentId"] = $"{c}", ["reason"] = "state", ["changes"] = "0", ["ownStateSets"] = "5" },
+                });
+            }
+        }
+        using var fixture = new Fixture(calls);
+
+        var result = fixture.Query(new(View: "components", Limit: 1, MaxBytes: 4096));
+
+        Assert.IsTrue(result.ByteBudgetLimited);
+        Assert.AreEqual(9, result.ReactorPasses!.WastedWork!.WastedRenders, "Totals survive when insights are dropped.");
+        Assert.IsLessThan(6, result.ReactorPasses.WastedWork.Insights.Count);
         Assert.IsLessThanOrEqualTo(4096, JsonSerializer.SerializeToUtf8Bytes(result, PerfJsonContext.Default.PerfQueryResult).Length);
     }
 

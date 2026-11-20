@@ -265,7 +265,7 @@ Passes requested by: App 186 (3773.696 ms); not requested by a component: 1
 Reconcile edits: inserted 188, removed 178, moved 182, replaced 9
 Updates that changed nothing: 120 of 280; memo hit rate 41.2% (68 skipped, 97 rendered past the memo); setState calls in renders and effects: 214
   Wasted renders: SlowPanel, 88 of 92 updates changed nothing
-  SetState fan-out: Loader, 12 setState calls in one render or effects pass (36 in range)
+  SetState fan-out: Loader, 12 setState calls in one render or effects run (36 in range)
 
 ── Components ─────────────────────────────────────────
 Component                                  Inclusive  Exclusive   Renders
@@ -273,7 +273,7 @@ SlowPanel                                   2791.181   2791.181        97
   mean=28.775; max=86.277; p95=42.264 ms; instances=5; elements created=6
   reasons: props 92, mount 5
   created at: Program.cs:51
-  changed nothing=88; memo hit rate=0.0% (0 skipped, 92 rendered past the memo); setState calls=0 (max 0 in one pass)
+  changed nothing=88; memo hit rate=0.0% (0 skipped, 92 rendered past the memo); setState calls=0 (max 0 in one run)
 ```
 
 - **Inclusive** is a component's render, effects, and the reconcile of the subtree
@@ -294,10 +294,12 @@ SlowPanel                                   2791.181   2791.181        97
   value created fresh on every render in its props, such as a lambda, a list, or
   a record holding one.
 - **setState calls** count the state writes made by a component's own renders
-  and effects, not its children's, and the most made in one pass. For a window's
-  root, its effects count too. Many writes in one pass is a fan-out worth
-  batching. The pass summary calls out components with at least 3 wasted updates,
-  or with 5 or more writes in one pass.
+  and effects, not its children's, and the most made in one render or effects
+  run. For a window's root, its effects count too. Writes made in one run
+  already merge into one re-render. Writes spread over several passes each cost
+  one, so check the request counts on the passes that follow. The pass summary
+  calls out components with at least 3 wasted updates, or with 5 or more writes
+  in one run.
 - **Elements created** counts WinUI elements created while that component's
   render was the innermost one. The `elements` view also shows the owning component.
 - Rows that a virtualized list realizes during layout run outside any render

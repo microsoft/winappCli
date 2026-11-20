@@ -34,11 +34,12 @@ internal sealed record PerfReactorRequester(string Name, int Passes, double Tota
 internal sealed record PerfReactorWastedWork(int Updates, int WastedRenders, int MemoSkips, int MemoMisses, double? MemoHitRate,
     int StateSets, List<PerfReactorInsight> Insights);
 /// <summary>
-/// A component worth a look. <c>wasted-renders</c>: <see cref="Count"/> of its <see cref="Total"/> updates changed
-/// nothing. <c>setstate-fan-out</c>: one render or effects pass made <see cref="Count"/> state-setter calls,
-/// <see cref="Total"/> in the range.
+/// A component worth a look. <c>wasted-renders</c> sets <see cref="WastedRenders"/> of its <see cref="Updates"/>;
+/// <c>setstate-fan-out</c> sets <see cref="MaxStateSets"/> (the most in one render or effects pass) and
+/// <see cref="StateSets"/> (all in the range). The names match the component row's fields.
 /// </summary>
-internal sealed record PerfReactorInsight(string Kind, string Component, int Count, int Total);
+internal sealed record PerfReactorInsight(string Kind, string Component, int? WastedRenders = null, int? Updates = null,
+    int? MaxStateSets = null, int? StateSets = null);
 
 internal sealed class PerfParsingResource
 {
@@ -1046,11 +1047,6 @@ internal static class PerfQuery
                     }
                 }
             }
-            if (ReactorEventDecoder.Flag(call.Attributes, "memoMiss") is { } memoMiss)
-            {
-                aggregate.Revision3 = true;
-                aggregate.MemoMisses += memoMiss ? 1 : 0;
-            }
             aggregate.AddStateSets(ReactorEventDecoder.Count(call.Attributes, "ownStateSets"));
             if (call.BeginEvent is { } begin && renderEvents.TryGetValue(begin, out var start))
             {
@@ -1080,6 +1076,20 @@ internal static class PerfQuery
                 (threadInstances is null || e.ComponentId is not null && threadInstances.Contains(e.ComponentId)))
             .GroupBy(e => e.Component!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        // Memo checks are instants: a skip at its event, a miss at its render's Start. Count both by time, so a
+        // render that crosses the range boundary cannot leave its skips counted without its miss.
+        foreach (var start in renderEvents.Values)
+        {
+            if (start.TimeMs >= range.FromMs && start.TimeMs <= range.ToMs &&
+                (options.Thread is null || start.Thread == options.Thread) &&
+                ReactorEventDecoder.Flag(start.Fields, "memoMiss") is { } memoMiss &&
+                ReactorEventDecoder.ComponentName(start.Name) is { } missed)
+            {
+                var aggregate = AggregateFor(missed);
+                aggregate.Revision3 = true;
+                aggregate.MemoMisses += memoMiss ? 1 : 0;
+            }
+        }
         foreach (var skip in skipEvents)
         {
             var skipped = skip.Fields.GetValueOrDefault("componentId") is { } skippedId && componentNames.TryGetValue(skippedId, out var known) ? known
@@ -1139,10 +1149,10 @@ internal static class PerfQuery
         }
         var insights = recorded.Where(a => a.Wasted >= WastedRenderInsightMinimum)
             .OrderByDescending(a => a.Wasted).ThenBy(a => a.Name, StringComparer.Ordinal).Take(3)
-            .Select(a => new PerfReactorInsight("wasted-renders", a.Name, a.Wasted, a.Updates))
+            .Select(a => new PerfReactorInsight("wasted-renders", a.Name, WastedRenders: a.Wasted, Updates: a.Updates))
             .Concat(recorded.Where(a => a.MaxStateSets >= StateSetFanOutThreshold)
                 .OrderByDescending(a => a.MaxStateSets).ThenBy(a => a.Name, StringComparer.Ordinal).Take(3)
-                .Select(a => new PerfReactorInsight("setstate-fan-out", a.Name, a.MaxStateSets, a.StateSets)))
+                .Select(a => new PerfReactorInsight("setstate-fan-out", a.Name, MaxStateSets: a.MaxStateSets, StateSets: a.StateSets)))
             .ToList();
         var skips = recorded.Sum(a => a.MemoSkips);
         var misses = recorded.Sum(a => a.MemoMisses);
@@ -1294,6 +1304,14 @@ internal static class PerfQuery
             else if (result.Limitations.Length > 1)
             {
                 result.Limitations = ["Projected to fit the byte budget; interpretation limits are in the WinUI performance guide and capture/cache manifests."];
+            }
+            else if (result.ReactorPasses?.WastedWork is { Insights.Count: > 0 } waste)
+            {
+                // Insights repeat row fields; the totals and the rows themselves are kept.
+                result.ReactorPasses = result.ReactorPasses with
+                {
+                    WastedWork = waste with { Insights = waste.Insights.Take(waste.Insights.Count - 1).ToList() },
+                };
             }
             else
             {

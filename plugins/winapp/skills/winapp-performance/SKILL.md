@@ -48,12 +48,14 @@ description: Investigate slow WinUI 3 layout, scrolling and virtualization using
    `--view components` over the same marker range to rank components by exclusive
    time with render counts and reasons, and expect slow render passes in `hotspots`
    with the component that requested them. To find wasted work, read
-   `reactorPasses.wastedWork` (totals and `insights`) and each row's
-   `wastedRenders` (updates after which nothing in the component's subtree
-   changed), `memoHitRate`, `stateSets` (its own writes, not its children's)
-   and `maxStateSets`: renders that
-   changed nothing after missing their memo point to unstable props (new lambdas,
-   arrays or records), and many state writes in one pass point to batching; see
+   `reactorPasses.wastedWork` (totals, and `insights` that name components using
+   the same fields as rows) and each row's `wastedRenders` (updates after which
+   nothing in the component's subtree changed), `memoHitRate`, `stateSets` (its
+   own writes, not its children's) and `maxStateSets`. Renders that changed
+   nothing after missing their memo point to unstable props (new lambdas, arrays
+   or records). Many writes in one render or effects run already merge into one
+   re-render; suggest combining them only when the passes that follow show
+   several requests. See
    [Reactor components](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/winui-performance.md#find-expensive-reactor-components).
 7. Report observed cost, supporting event IDs, coverage gaps, and one concrete next
    experiment. Preserve stdout when partial results accompany a nonzero exit code.
@@ -76,8 +78,9 @@ description: Investigate slow WinUI 3 layout, scrolling and virtualization using
 - Reactor `created at` call sites appear only when source mapping is on
   (`REACTOR_SOURCEMAP=1`). It adds cost, so don't compare timings between
   recordings with and without it.
-- Missing `wastedWork`, `wastedRenders` or `memoHitRate` means the Reactor version
-  doesn't record them, not zero waste. A null `memoHitRate` means no memo check ran.
+- Missing `wastedWork` or `wastedRenders` means the Reactor version doesn't
+  record them, not zero waste. When they are present but a row has no
+  `memoHitRate`, no memo check ran for that component (for example the root).
 - Process CPU counters include all target threads but do not attribute functions,
   modules, or waits. Sampled memory/thread maxima can miss brief spikes; missing
   samples are not zero resource use.

@@ -199,8 +199,8 @@ internal sealed class PerfCommand : Command, IShortDescription
                         foreach (var insight in waste.Insights)
                         {
                             console.WriteLine(insight.Kind == "wasted-renders"
-                                ? $"  Wasted renders: {insight.Component}, {insight.Count} of {insight.Total} updates changed nothing"
-                                : $"  SetState fan-out: {insight.Component}, {insight.Count} setState calls in one render or effects pass ({insight.Total} in range)");
+                                ? $"  Wasted renders: {insight.Component}, {insight.WastedRenders} of {insight.Updates} updates changed nothing"
+                                : $"  SetState fan-out: {insight.Component}, {insight.MaxStateSets} setState calls in one render or effects run ({insight.StateSets} in range)");
                         }
                     }
                     if (passes.OutsidePassReconciles > 0)
@@ -245,7 +245,7 @@ internal sealed class PerfCommand : Command, IShortDescription
                         {
                             console.WriteLine($"  changed nothing={wasted}; " +
                                 (row.MemoHitRate is { } hitRate ? $"memo hit rate={Percent(hitRate)} ({row.MemoSkips} skipped, {row.MemoMisses} rendered past the memo); " : "") +
-                                $"setState calls={row.StateSets} (max {row.MaxStateSets} in one pass)");
+                                $"setState calls={row.StateSets} (max {row.MaxStateSets} in one run)");
                         }
                         if (row.BoundaryOverlaps is > 0)
                         {

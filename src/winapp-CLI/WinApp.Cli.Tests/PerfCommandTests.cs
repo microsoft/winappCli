@@ -447,13 +447,15 @@ public class PerfCommandTests : BaseCommandTests
                 var insight = waste.GetProperty("insights").EnumerateArray().Single();
                 Assert.AreEqual("setstate-fan-out", insight.GetProperty("kind").GetString());
                 Assert.AreEqual("App", insight.GetProperty("component").GetString());
+                Assert.AreEqual(6, insight.GetProperty("maxStateSets").GetInt32());
+                Assert.IsFalse(insight.TryGetProperty("wastedRenders", out _), "A fan-out insight carries only its own fields.");
             }
 
             TestAnsiConsole.Profile.Width = 4096;
             Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
                 ["analyze", directory.FullName, "--view", "components"]));
             Assert.Contains("Updates that changed nothing: 2 of 2", TestAnsiConsole.Output);
-            Assert.Contains("SetState fan-out: App, 6 setState calls in one render or effects pass", TestAnsiConsole.Output);
+            Assert.Contains("SetState fan-out: App, 6 setState calls in one render or effects run", TestAnsiConsole.Output);
             Assert.Contains("changed nothing=1; memo hit rate=0.0% (0 skipped, 1 rendered past the memo); setState calls=2", TestAnsiConsole.Output);
             Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
                 ["analyze", directory.FullName, "--view", "calls", "--family", "reactor", "--limit", "100"]));
