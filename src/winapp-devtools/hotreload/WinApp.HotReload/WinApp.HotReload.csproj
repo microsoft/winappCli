@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The hot reload helper of 'winapp run' in watch mode (engine B). Roslyn is not shipped: it is loaded at runtime from the
+    .NET SDK that builds the app (its compiler and dotnet-watch's hot reload service), so analyzers and generators match
+    the build. The Roslyn package below is compile-time only, at the oldest version a supported SDK (10.0.100) ships.
+    It targets net8.0 and rolls forward, so it also starts on an older SDK and says why C# hot reload can't run there.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>LatestMajor</RollForward>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>WinApp.HotReload</AssemblyName>
+    <RootNamespace>WinApp.HotReload</RootNamespace>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <IsPackable>false</IsPackable>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\HotReloadProtocol.cs" Link="HotReloadProtocol.cs" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.0.0" ExcludeAssets="runtime" PrivateAssets="all" />
+    <InternalsVisibleTo Include="WinApp.HotReload.Tests" />
+  </ItemGroup>
+</Project>

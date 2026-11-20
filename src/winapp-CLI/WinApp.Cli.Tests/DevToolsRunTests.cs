@@ -959,6 +959,42 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.Contains("DevTools attached again", TestAnsiConsole.Output);
     }
 
+    /// <summary>
+    /// Decision P1: a project with XAML pages runs under engine B, whose build records the app's compiler arguments for
+    /// the hot reload helper. A project without XAML keeps dotnet watch, with its build unchanged.
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Watch_PicksEngineB_OnlyForAProjectWithXamlPages(bool xamlPages)
+    {
+        var app = Prepare("project", false);
+        if (xamlPages)
+        {
+            File.WriteAllText(Path.Combine(app.Source!, "MainPage.xaml"), "<Page />");
+            _projects.BuildOutcome = new(_projects.BuildOutcome!.Resolution! with { DevToolsXamlSources = ["MainPage.xaml"] }, 0);
+        }
+        _launcher.LaunchOverride = () => { _process.HasExited = true; return _process; };
+
+        var exit = await Run(app.Input, "--devtools", "headless", "--watch");
+
+        var captured = _projects.BuildOptions.Single().Properties.Any(p => p.StartsWith("WinAppHotReloadProject=", StringComparison.Ordinal));
+        Assert.AreEqual(xamlPages, captured, "only engine B's build records the compiler arguments");
+        if (xamlPages)
+        {
+            // This test host ships no hot reload helper, so engine B stops before launching anything.
+            Assert.AreNotEqual(0, exit);
+            Assert.Contains("could not find its hot reload helper", TestAnsiConsole.Output + ConsoleStdErr);
+            Assert.IsEmpty(_launcher.LaunchExecutableCalls, "engine B doesn't start dotnet watch");
+        }
+        else
+        {
+            Assert.AreEqual(0, exit, TestAnsiConsole.Output + ConsoleStdErr);
+            Assert.AreEqual("dotnet", _launcher.LaunchExecutableCalls.Single().ExePath);
+            Assert.DoesNotContain("WinAppHotReload", _launcher.LaunchExecutableCalls.Single().Arguments!);
+        }
+    }
+
     [TestMethod]
     public async Task Watch_Packaged_RunsDotnetWatch_ThatRelaunchesThroughWinapp()
     {

@@ -104,7 +104,7 @@ foreach ($arch in @('x64', 'arm64')) {
         Assert-Engine (@($schema.methods).Count -gt 0 -and @($schema.events).Count -gt 0) "win-$arch compiled public contract shape"
     }
 }
-$neutralFiles = @('WinApp.DevTools.Managed.dll')
+$neutralFiles = @('WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json')
 if (-not $RuntimeOnly) { $neutralFiles += 'winapp-devtools-schema.json' }
 foreach ($name in $neutralFiles) {
     $left = Join-Path $EngineRoot "win-x64\$name"

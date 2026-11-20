@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 function Get-DevToolsEnginePayload {
-    @('WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll')
+    @('WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json')
 }
 
 function Get-MissingDevToolsEnginePayload {

@@ -87,7 +87,9 @@ steps:
       errorActionPreference: stop
       script: |
         $cli = "$(System.DefaultWorkingDirectory)\artifacts\cli"
-        Copy-Item "$cli\win-x64\WinApp.DevTools.Managed.dll" "$cli\win-arm64\WinApp.DevTools.Managed.dll" -Force
+        foreach ($name in 'WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json') {
+          Copy-Item "$cli\win-x64\$name" "$cli\win-arm64\$name" -Force
+        }
   - task: EsrpCodeSigning@6
     displayName: Code Sign ESRP - managed libraries
     inputs:

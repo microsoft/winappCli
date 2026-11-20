@@ -442,7 +442,7 @@ extends:
                   }
                   $archive = [IO.Compression.ZipFile]::OpenRead($zip)
                   try {
-                    foreach ($name in 'winapp.exe', 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'winapp-devtools-schema.json', 'WinApp.DevTools.Native.pdb') {
+                    foreach ($name in 'winapp.exe', 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json', 'winapp-devtools-schema.json', 'WinApp.DevTools.Native.pdb') {
                       $entries = @($archive.Entries | Where-Object { $_.FullName -ieq $name })
                       if ($entries.Count -ne 1 -or $entries[0].FullName -cne $name -or $entries[0].Length -le 0) {
                         throw "Portable archive winappcli-$arch.zip must contain exactly one nonempty root $name."

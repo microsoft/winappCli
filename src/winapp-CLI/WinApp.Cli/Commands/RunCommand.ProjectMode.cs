@@ -10,6 +10,7 @@ using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.HotReload;
 
 namespace WinApp.Cli.Commands;
 
@@ -293,6 +294,14 @@ internal partial class RunCommand
             // SDK lacks. Probe the SDK dotnet watch will use (it starts in the current directory); when it's too old,
             // refuse before building if the project already evaluates as packaged, and otherwise after the build.
             var watch = parseResult.GetValue(WatchOption);
+            // A WinUI app with XAML pages runs under winapp's own C# hot reload engine (engine B), which needs the build to
+            // record the app's compiler arguments. Reactor and other apps without XAML keep dotnet watch, unchanged.
+            using var hotReload = watch && devToolsRun.Enabled && !aot && !isCpp && executionTarget.IsLocal && HotReloadCapture.MayHaveXaml(csproj)
+                ? HotReloadCapture.Create(csproj) : null;
+            if (hotReload is not null)
+            {
+                buildOptions = buildOptions with { Properties = [.. buildOptions.Properties, .. hotReload.BuildProperties] };
+            }
             var packagedWatchSdkError = watch
                 ? await projectRunService.CheckPackagedWatchSdkAsync(
                     new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory()), cancellationToken)
@@ -348,6 +357,22 @@ internal partial class RunCommand
 
             if (watch)
             {
+                if (hotReload is not null && resolution.DevToolsXamlSources is { Count: > 0 })
+                {
+                    return await RunHotReloadAsync(csproj, resolution, buildOptions, hotReload, (built, first, token) => built.Packaging == ProjectPackaging.Packaged
+                        ? RunPackagedProjectAsync(built, csproj, manifest, layoutOutput, appArgs, noLaunch: false, withAlias, withoutAlias, debugOutput: false,
+                            unregisterOnExit, detach: false, clean: clean && first, useSymbols: false, executable, noBuild: false, isJson: false, executionTarget,
+                            token, devTools: true, showOverlay: devToolsRun.ShowToolbar)
+                        : RunUnpackagedProjectAsync(built, csproj, appArgs, noLaunch: false, withAlias: false, withoutAlias: false, debugOutput: false,
+                            unregisterOnExit: false, detach: false, clean: false, useSymbols: false, executable: null, manifest: null, outputAppXDirectory: null,
+                            isJson: false, executionTarget, token, devTools: true, showOverlay: devToolsRun.ShowToolbar),
+                        cancellationToken);
+                }
+                if (hotReload is not null && resolution.BuildOptions is { } watchOptions)
+                {
+                    // dotnet watch builds the way the user's build does, without engine B's capture.
+                    resolution = resolution with { BuildOptions = watchOptions with { Properties = [.. watchOptions.Properties.Except(hotReload.BuildProperties)] } };
+                }
                 if (resolution.Packaging == ProjectPackaging.Packaged && packagedWatchSdkError is not null)
                 {
                     return Fail(packagedWatchSdkError, isJson);
@@ -512,8 +537,8 @@ internal partial class RunCommand
                         resolution.DevToolsCompilerArtifacts, cancellationToken,
                         (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(exePath)!, token));
                     var managed = !resolution.IsAot && !ProjectRunService.IsCppProject(csproj);
-                    environment = Services.DevTools.ReactorBuildFacts.ApplyEnvironment(
-                        CreateDevToolsEnvironment(csproj.DirectoryName, managed), devToolsReactor);
+                    environment = WithHotReloadEnvironment(Services.DevTools.ReactorBuildFacts.ApplyEnvironment(
+                        CreateDevToolsEnvironment(csproj.DirectoryName, managed), devToolsReactor), watchAppEnvironment);
                     if (managed &&
                         Services.DevTools.DevToolsStartupHooks.DisabledByRuntimeConfig(Path.ChangeExtension(exePath, ".runtimeconfig.json")))
                     {

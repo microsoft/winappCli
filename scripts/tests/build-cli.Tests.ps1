@@ -49,7 +49,7 @@ $global:LASTEXITCODE = 0
             $cliPath = Join-Path $root "artifacts\cli\$arch\winapp.exe"
             Set-Content $cliPath "downloaded $arch"
             Set-Content (Join-Path $root "artifacts\cli\$arch\winapp.pdb") 'normal PDB output'
-            foreach ($name in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll') {
+            foreach ($name in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json') {
                 Set-Content (Join-Path $root "artifacts\cli\$arch\$name") "downloaded $arch $name"
             }
             Set-Content (Join-Path $root "src\winapp-npm\bin\$arch\winapp.exe") 'stale npm binary'
@@ -133,7 +133,7 @@ function Add-Trace {
         ConvertTo-Json -Depth 10 -Compress | Add-Content "$PSScriptRoot\trace.jsonl"
 }
 function Get-DevToolsEnginePayload {
-    @('WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll')
+    @('WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json')
 }
 function Assert-DevToolsEnginePayload {
     param($Directory)

@@ -8,7 +8,7 @@ BeforeAll {
     function New-EngineInputs([string]$Root) {
         foreach ($arch in 'x64', 'arm64') {
             $dir = New-Item "$Root\win-$arch" -ItemType Directory -Force
-            foreach ($name in 'winapp.exe', 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'winapp-devtools-schema.json', 'WinApp.DevTools.Native.pdb') {
+            foreach ($name in 'winapp.exe', 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json', 'winapp-devtools-schema.json', 'WinApp.DevTools.Native.pdb') {
                 [IO.File]::WriteAllText((Join-Path $dir $name), "$arch/$name synthetic, not a PE")
             }
         }
@@ -25,7 +25,7 @@ BeforeAll {
                 NuGet { "tools/win-$arch/" }
                 default { '' }
             }
-            $names = @('winapp.exe', 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll')
+            $names = @('winapp.exe', 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json')
             if ($Format -ne 'Npm') { $names += 'winapp-devtools-schema.json' }
             if ($Format -eq 'Portable') { $names += 'WinApp.DevTools.Native.pdb' }
             foreach ($name in $names) {
@@ -102,7 +102,7 @@ BeforeAll {
         }
         if ($command -eq 'run generate-commands') {
             foreach ($arch in 'x64', 'arm64') {
-                foreach ($name in 'winapp.exe', 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll') {
+                foreach ($name in 'winapp.exe', 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json') {
                     if ((Get-FileHash "bin\win-$arch\$name").Hash -ne
                         (Get-FileHash "..\..\artifacts\cli\win-$arch\$name").Hash) {
                         throw "Stale generation input: $arch/$name"
@@ -286,8 +286,8 @@ exit 0
 }
 
 Describe 'DevTools shipping payload' -Tag 'DevToolsShipping' {
-    It 'owns exactly the two runtime DLLs' {
-        (Get-DevToolsEnginePayload) -join ',' | Should -Be 'WinApp.DevTools.Native.dll,WinApp.DevTools.Managed.dll'
+    It 'owns exactly the runtime DLLs and the hot reload helper' {
+        (Get-DevToolsEnginePayload) -join ',' | Should -Be 'WinApp.DevTools.Native.dll,WinApp.DevTools.Managed.dll,WinApp.HotReload.dll,WinApp.HotReload.runtimeconfig.json'
     }
     It 'rejects a zero-length runtime file' {
         $root = Join-Path $TestDrive 'empty'
@@ -340,7 +340,7 @@ Describe 'Package preflight before external actions' -Tag 'DevToolsShipping' {
     It '<Script> refuses missing <Arch>/<Name> before external actions' -ForEach @(
         foreach ($script in 'package-npm.ps1', 'package-nuget.ps1', 'package-msix.ps1') {
             foreach ($arch in 'x64', 'arm64') {
-                foreach ($name in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll') {
+                foreach ($name in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json') {
                     @{ Script = $script; Arch = $arch; Name = $name }
                 }
 
@@ -398,7 +398,7 @@ Describe 'NuGet and MSIX package boundary archive failures' -Tag 'DevToolsShippi
         $actions.Count | Should -Be 2
         $actions[0] | Should -Match '^CLI package .*\\msix-layout\\x64 --name '
         $actions[1] | Should -Match '^CLI package .*\\msix-layout\\arm64 --name '
-        @($output | Where-Object { "$_" -match '^\[VALIDATE\] Msix archive: 4 matching' }).Count | Should -Be 2
+        @($output | Where-Object { "$_" -match '^\[VALIDATE\] Msix archive: 6 matching' }).Count | Should -Be 2
         foreach ($arch in 'x64', 'arm64') {
             Test-Path "$root\artifacts\msix-packages\winappcli_1.2.3.0_$arch.msix" | Should -BeTrue
         }

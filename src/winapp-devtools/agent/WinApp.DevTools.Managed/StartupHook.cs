@@ -24,6 +24,9 @@ internal sealed class StartupHook
         // Watch Reactor's events from startup, so `winapp devtools logs` has the warnings and errors since launch.
         try { WinApp.DevTools.Managed.ReactorEvents.Start(); }
         catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Reactor event listener failed: {0}", ex.GetType().Name); }
+        // 'winapp run --watch' (engine B) names a hot reload pipe in the launch environment; other launches don't.
+        try { WinApp.DevTools.Managed.HotReload.Agent.Start(); }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Hot reload agent failed: {0}", ex.GetType().Name); }
         for (int i = 0; i < Listeners; i++) _ = Task.Run(ServeAsync);
     }
 

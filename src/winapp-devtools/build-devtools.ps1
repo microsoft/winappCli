@@ -186,6 +186,18 @@ dotnet build $agentProject -c $Configuration --nologo
 Assert-BuildSucceeded 'Managed binding host'
 $agent = Join-Path $PSScriptRoot "agent\WinApp.DevTools.Managed\bin\$Configuration\net8.0-windows10.0.19041.0\win-x64\WinApp.DevTools.Managed.dll"
 Copy-Item $agent (Join-Path $EngineOut 'WinApp.DevTools.Managed.dll') -Force
+
+# The hot reload helper of 'winapp run --watch' (architecture-neutral; it loads the user's SDK's compiler at runtime).
+$helperProject = Join-Path $PSScriptRoot 'hotreload\WinApp.HotReload\WinApp.HotReload.csproj'
+dotnet build $helperProject -c $Configuration --nologo
+Assert-BuildSucceeded 'Hot reload helper'
+if (-not $SkipNativeUnitTests) {
+    dotnet test --project (Join-Path $PSScriptRoot 'test\WinApp.HotReload.Tests\WinApp.HotReload.Tests.csproj') -c $Configuration
+    Assert-BuildSucceeded 'Hot reload helper tests'
+}
+foreach ($name in 'WinApp.HotReload.dll', 'WinApp.HotReload.runtimeconfig.json') {
+    Copy-Item (Join-Path $PSScriptRoot "hotreload\WinApp.HotReload\bin\$Configuration\net8.0\$name") (Join-Path $EngineOut $name) -Force
+}
 Import-Module (Join-Path $repoRoot 'scripts\DevToolsEngine.psm1') -Force
 $missing = Get-MissingDevToolsEnginePayload -Directory $EngineOut
 if ($missing) { throw "Missing staged engine files: $($missing -join ', ')" }
