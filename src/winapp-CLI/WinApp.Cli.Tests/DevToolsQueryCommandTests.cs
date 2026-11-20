@@ -207,14 +207,14 @@ public class DevToolsQueryCommandTests
     [DataRow("{ThemeResource AccentBrush}", true)]
     [DataRow("{StaticResource AccentBrush}", false)]
     [DataRow("{StaticResource AccentBrush}", true)]
-    public async Task Set_ResourceConversionFailure_ExplainsLiteralAlternativeAndPreservesStatus(string requested, bool json)
+    public async Task Set_ResourceConversionFailure_WithType_ExplainsResourceWriteAndPreservesStatus(string requested, bool json)
     {
         var failure = $"invalid-value|Cannot set property 'Background' to '{requested}' (type SolidColorBrush): conversion to the requested XAML type failed (0x8000FFFF)";
         var field = """{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","valueState":"value","bindingState":"unknown"}""";
         var reply = Result(ok: false, error: failure).Replace("\"status\":\"read\"",
             "\"status\":\"indeterminate\",\"before\":" + field + ",\"after\":" + field, StringComparison.Ordinal);
         using var agent = new FakeDevToolsProtocolAgent().Answer("Property.setQuery", reply);
-        var args = new List<string> { "--of-type", "Button", "--property", "Background", "--value", requested };
+        var args = new List<string> { "--of-type", "Button", "--property", "Background", "--value", requested, "--type", "SolidColorBrush" };
         if (json) { args.Add("--json"); }
 
         var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent, args.ToArray());
@@ -233,18 +233,13 @@ public class DevToolsQueryCommandTests
             Assert.AreEqual("invalid-value", result.GetProperty("error").GetProperty("token").GetString());
             Assert.AreEqual(0, result.GetProperty("error").GetProperty("code").GetInt32());
             message = result.GetProperty("error").GetProperty("message").GetString()!;
-            Assert.StartsWith("devtools set-property does not support", message);
         }
         else
         {
             Assert.Contains("Write status: indeterminate", output);
-            Assert.Contains("Error: devtools set-property does not support", output);
             Assert.IsFalse(output.Contains("invalid-value|", StringComparison.Ordinal), output);
         }
-        Assert.Contains("does not support {ThemeResource key} or {StaticResource key}", message);
-        Assert.Contains("Use a literal value instead", message);
-        Assert.Contains("#FF0067C0", message);
-        Assert.Contains("XAML and rebuild", message);
+        Assert.Contains("written as a resource only without --type", message);
         Assert.IsFalse(message.Contains("0x8000FFFF", StringComparison.Ordinal), message);
         Assert.AreEqual("Property.setQuery", agent.Received.Single());
     }
@@ -254,17 +249,17 @@ public class DevToolsQueryCommandTests
     [DataRow("{ThemeResource AccentBrush}", true)]
     [DataRow("{StaticResource AccentBrush}", false)]
     [DataRow("{StaticResource AccentBrush}", true)]
-    public async Task Set_ResourceConversionRpcFailure_ExplainsLiteralAlternative(string requested, bool json)
+    public async Task Set_ResourceConversionRpcFailure_WithType_ExplainsResourceWrite(string requested, bool json)
     {
         using var agent = new FakeDevToolsProtocolAgent().Error("Property.setQuery", -32000, "invalid-value",
             "conversion to the requested XAML type failed (0x8000FFFF)");
-        var args = new List<string> { "--of-type", "Button", "--property", "Background", "--value", requested };
+        var args = new List<string> { "--of-type", "Button", "--property", "Background", "--value", requested, "--type", "SolidColorBrush" };
         if (json) { args.Add("--json"); }
 
         var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent, args.ToArray());
 
         Assert.AreEqual(1, exit);
-        Assert.Contains("does not support {ThemeResource key} or {StaticResource key}", output);
+        Assert.Contains("written as a resource only without --type", output);
         Assert.IsFalse(output.Contains("0x8000FFFF", StringComparison.Ordinal), output);
         if (json)
         {
@@ -273,6 +268,52 @@ public class DevToolsQueryCommandTests
             Assert.AreEqual("invalid-value", result.RootElement.GetProperty("error").GetProperty("token").GetString());
         }
         Assert.AreEqual("Property.setQuery", agent.Received.Single());
+    }
+
+    [TestMethod]
+    [DataRow(new[] { "--value", "{ThemeResource AccentBrush}" }, "theme")]
+    [DataRow(new[] { "--value", "AccentBrush", "--resource", "static" }, "static")]
+    public async Task Set_ResourceReference_SendsKeyAndReportsIt(string[] valueArgs, string kind)
+    {
+        foreach (var json in new[] { false, true })
+        {
+            var before = """{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","valueState":"value","bindingState":"unknown"}""";
+            var after = before.Replace("#FF808080", "#FF0067C0", StringComparison.Ordinal);
+            using var agent = new FakeDevToolsProtocolAgent().Answer("Property.setQuery", Result().Replace("\"status\":\"read\"",
+                "\"status\":\"applied\",\"before\":" + before + ",\"after\":" + after, StringComparison.Ordinal));
+            string[] args = ["--of-type", "Button", "--property", "Background", .. valueArgs];
+
+            var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent, json ? [.. args, "--json"] : args);
+
+            Assert.AreEqual(0, exit, output);
+            using var request = JsonDocument.Parse(agent.ReceivedRequests.Single());
+            var sent = request.RootElement.GetProperty("params");
+            Assert.AreEqual("AccentBrush", sent.GetProperty("value").GetString());
+            Assert.AreEqual(kind, sent.GetProperty("resource").GetString());
+            Assert.IsFalse(sent.TryGetProperty("writeType", out _));
+            if (json)
+            {
+                using var result = JsonDocument.Parse(output);
+                Assert.AreEqual(kind + "Resource", result.RootElement.GetProperty("resourceKind").GetString());
+                Assert.AreEqual("AccentBrush", result.RootElement.GetProperty("resourceKey").GetString());
+            }
+            else
+            {
+                Assert.Contains("Resource AccentBrush})", output);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task Set_ResourceWithType_FailsBeforeDispatch()
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Answer("Property.setQuery", Result());
+        var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent,
+            ["--of-type", "Button", "--property", "Background", "--value", "K", "--resource", "theme", "--type", "SolidColorBrush", "--json"]);
+
+        Assert.AreEqual(1, exit);
+        Assert.Contains("can't be used together", output);
+        Assert.IsEmpty(agent.Received);
     }
 
     [TestMethod]
@@ -290,7 +331,7 @@ public class DevToolsQueryCommandTests
             var reply = Result().Replace("\"status\":\"read\"",
                 "\"status\":\"applied\",\"before\":" + field + ",\"after\":" + field, StringComparison.Ordinal);
             using var agent = new FakeDevToolsProtocolAgent().Answer("Property.setQuery", reply);
-            var args = new List<string> { "--of-type", "TextBlock", "--property", property, "--value", requested };
+            var args = new List<string> { "--of-type", "TextBlock", "--property", property, "--value", requested, "--type", type };
             if (json) { args.Add("--json"); }
 
             var (exit, output) = await Run(new DevToolsSetPropertyCommand(), agent, args.ToArray());

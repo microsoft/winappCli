@@ -8,6 +8,8 @@ static TreeCb g_treeCb;
 static HRESULT (*g_testEnqueueUiOperation)(void*, IUnknown*, bool*) = nullptr;
 static HRESULT (*g_testPropertyMutation)(InstanceHandle, const std::wstring&, const std::wstring&,
     const std::wstring&, bool) = nullptr;
+static HRESULT (*g_testResourceAssignment)(InstanceHandle, const std::wstring& prop, const std::wstring& key,
+    bool asTheme, std::wstring* error) = nullptr;
 #endif
 
 static HRESULT EnqueueUiOperation(void* dispatcher, IUnknown* handler, bool* enqueued)
@@ -233,13 +235,19 @@ struct PriorLocalValue
     bool had = false;            // a local value was set
     bool restorable = true;      // false for a binding, which cannot be re-created from the chain
     InstanceHandle object = 0;   // an object value, by diagnostics handle
+    winrt::com_ptr<IInspectable> objectRef; // keeps the object alive: a failed resource write can release it
     std::wstring type, value;    // a literal value
     std::wstring owner;          // the property's declaring type, for the message
+    std::wstring prop;           // the property, for re-applying a resource
+    std::wstring themeResourceKey; // a ThemeResource DevTools assigned; restoring its resolved object would stop theme updates
 };
 
-static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx)
+static HRESULT ResolveResourceApply(InstanceHandle h, const std::wstring& prop, const std::wstring& resourceName, bool asTheme);
+
+static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx, const std::wstring& prop)
 {
     PriorLocalValue prior;
+    prior.prop = prop;
     unsigned int sc = 0, pc = 0;
     PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
     if (g_vts3 && SUCCEEDED(ReadPropChain(h, &sc, &s, &pc, &v)) && v) {
@@ -255,15 +263,30 @@ static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx)
         }
     }
     FreePropChain(sc, s, pc, v);
+    if (prior.object && g_diag) g_diag->GetIInspectableFromHandle(prior.object, prior.objectRef.put());
+    std::wstring kind, key;
+    if (prior.had && prior.restorable && TryAcquireSRWLockShared(&g_censusLock)) {
+        const unsigned long long wire = PackWire_nolock(h);
+        ReleaseSRWLockShared(&g_censusLock);
+        if (DevToolsBindingRow_LiveResource(wire, prop, &kind, &key) && kind == L"themeResource")
+            prior.themeResourceKey = key;
+    }
     return prior;
 }
 
 static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const PriorLocalValue& prior)
 {
     if (!prior.restorable || !WindowElementCurrent_ui(h)) return;
-    HRESULT hr = S_OK;
-    if (!prior.had) hr = g_vts3->ClearProperty(h, idx);
-    else if (prior.object) hr = g_vts3->SetProperty(h, prior.object, idx);
+    HRESULT hr = prior.themeResourceKey.empty() ? E_FAIL
+                                                : ResolveResourceApply(h, prior.prop, prior.themeResourceKey, true);
+    if (SUCCEEDED(hr)) {
+        // Re-applied the resource, so the property keeps following the theme.
+    } else if (!prior.had) hr = g_vts3->ClearProperty(h, idx);
+    else if (prior.object) {
+        InstanceHandle object = prior.object;
+        if (prior.objectRef) g_diag->GetHandleFromIInspectable(prior.objectRef.get(), &object);
+        hr = g_vts3->SetProperty(h, object, idx);
+    }
     else {
         BSTR tn = SysAllocString(prior.type.c_str()), vv = SysAllocString(prior.value.c_str());
         InstanceHandle valH = 0;
@@ -271,7 +294,8 @@ static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const Pri
         if (SUCCEEDED(hr) && valH) hr = g_vts3->SetProperty(h, valH, idx);
         SysFreeString(tn); SysFreeString(vv);
     }
-    Log(L"setprop: restored the previous value after a rejected write (hr=0x%08X)", hr);
+    Log(L"setprop: restored the previous value after a rejected write (hr=0x%08X had=%d object=%llu type='%s' resource='%s')",
+        hr, prior.had ? 1 : 0, prior.object, prior.type.c_str(), prior.themeResourceKey.c_str());
 }
 
 // Takes (and so clears) the error WinUI originated on this thread. Left in place, a later failure on this thread, for
@@ -299,7 +323,7 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
 #endif
     unsigned int idx = FindPropIndex(h, prop);
     if (idx == 0xFFFFFFFF) { Log(L"setprop: '%s' not found on %llu", prop.c_str(), h); return E_INVALIDARG; }
-    const PriorLocalValue prior = ReadPriorLocalValue(h, idx);
+    const PriorLocalValue prior = ReadPriorLocalValue(h, idx, prop);
     BSTR tn = SysAllocString(type.c_str()), vv = SysAllocString(value.c_str());
     InstanceHandle valH = 0;
     bool attempted = false;
@@ -398,4 +422,138 @@ static HRESULT ResolveResourceApply(InstanceHandle h, const std::wstring& prop, 
             resourceName.c_str(), (unsigned long long)after.elem, (unsigned long long)h, after.context.c_str());
     if (SUCCEEDED(hr) && notFound) return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     return hr;
+}
+
+// Looks a resource key up the way XAML does for one element: the element's and each ancestor's Resources, then the
+// app's. Each dictionary is checked directly, then its active theme dictionary, then its merged dictionaries, last
+// first. Found means the key exists; Unknown means the walk hit a limit or failed, so the runtime has the last word.
+enum class ResourceLookup { Found, NotFound, Unknown };
+
+struct ResourceProbe
+{
+    std::set<void*> seen;
+    size_t dictionaries = 0;
+    bool partial = false;
+};
+
+static bool FindInResourceDictionary(const DevToolsX::ResourceDictionary& dictionary,
+                                     const winrt::Windows::Foundation::IInspectable& key, const wchar_t* theme,
+                                     ResourceProbe& probe, winrt::Windows::Foundation::IInspectable& found)
+{
+    if (!dictionary || !probe.seen.insert(winrt::get_abi(dictionary)).second) return false;
+    if (++probe.dictionaries > 128) { probe.partial = true; return false; }
+    if (dictionary.HasKey(key)) { found = dictionary.Lookup(key); return true; }
+    const auto themes = dictionary.ThemeDictionaries();
+    auto themeKey = winrt::box_value(theme);
+    if (!themes.HasKey(themeKey)) themeKey = winrt::box_value(L"Default");
+    if (themes.HasKey(themeKey) &&
+        FindInResourceDictionary(themes.Lookup(themeKey).try_as<DevToolsX::ResourceDictionary>(), key, theme, probe, found))
+        return true;
+    const auto merged = dictionary.MergedDictionaries();
+    for (uint32_t i = merged.Size(); i > 0 && !probe.partial; --i)
+        if (FindInResourceDictionary(merged.GetAt(i - 1), key, theme, probe, found)) return true;
+    return false;
+}
+
+static ResourceLookup FindResourceInScope_ui(InstanceHandle h, const std::wstring& key, std::wstring* valueType)
+{
+    if (!g_diag) return ResourceLookup::Unknown;
+    try {
+        winrt::com_ptr<IInspectable> raw;
+        if (FAILED(g_diag->GetIInspectableFromHandle(h, raw.put())) || !raw) return ResourceLookup::Unknown;
+        winrt::Windows::Foundation::IInspectable element;
+        winrt::copy_from_abi(element, raw.get());
+        HIGHCONTRASTW contrast{ sizeof(contrast) };
+        const bool highContrast = SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+                                  (contrast.dwFlags & HCF_HIGHCONTRASTON);
+        const auto fe = element.try_as<DevToolsX::FrameworkElement>();
+        const wchar_t* theme = highContrast ? L"HighContrast"
+            : fe && fe.ActualTheme() == DevToolsX::ElementTheme::Dark ? L"Dark" : L"Light";
+        const auto boxedKey = winrt::box_value(key);
+        ResourceProbe probe;
+        winrt::Windows::Foundation::IInspectable found{ nullptr };
+        bool hit = false;
+        auto node = element.try_as<DevToolsX::DependencyObject>();
+        for (size_t ancestors = 0; node && !hit && !probe.partial; ++ancestors) {
+            if (ancestors > 128) { probe.partial = true; break; }
+            const auto current = node.try_as<DevToolsX::FrameworkElement>();
+            if (current) hit = FindInResourceDictionary(current.Resources(), boxedKey, theme, probe, found);
+            node = current && current.Parent() ? current.Parent() : DevToolsXM::VisualTreeHelper::GetParent(node);
+        }
+        if (!hit && !probe.partial && DevToolsX::Application::Current())
+            hit = FindInResourceDictionary(DevToolsX::Application::Current().Resources(), boxedKey, theme, probe, found);
+        if (hit) {
+            if (valueType && found) {
+                std::wstring type(winrt::get_class_name(found));
+                const std::wstring boxed = L"Windows.Foundation.IReference`1<";
+                if (type.starts_with(boxed) && type.back() == L'>') type = type.substr(boxed.size(), type.size() - boxed.size() - 1);
+                *valueType = type;
+            }
+            return ResourceLookup::Found;
+        }
+        return probe.partial ? ResourceLookup::Unknown : ResourceLookup::NotFound;
+    } catch (const winrt::hresult_error& e) {
+        Log(L"setres: resource lookup for '%s' failed hr=0x%08X", key.c_str(), static_cast<unsigned>(e.code()));
+        return ResourceLookup::Unknown;
+    }
+}
+
+// Returned when the key was checked and refused before anything was written.
+static const HRESULT kResourceNotInScope = HRESULT_FROM_WIN32(ERROR_RESOURCE_NAME_NOT_FOUND);
+
+// Assign {ThemeResource key} or {StaticResource key} to a property. UI thread. A key that is not in the element's
+// scope is refused before anything is written, because a failed lookup can clear the property. If the runtime still
+// rejects the assignment, the previous value is put back, as SetLiteral does.
+static HRESULT AssignResource(InstanceHandle h, const std::wstring& prop, const std::wstring& key, bool asTheme,
+                              std::wstring* error = nullptr)
+{
+    if (!WindowElementCurrent_ui(h)) return E_ACCESSDENIED;
+    if (RefuseSecretWrite(prop, error)) return E_ACCESSDENIED;
+#ifdef WINAPP_DEVTOOLS_NATIVE_RUNTIME_TESTS
+    if (g_testResourceAssignment) return g_testResourceAssignment(h, prop, key, asTheme, error);
+#endif
+    const unsigned int idx = FindPropIndex(h, prop);
+    if (idx == 0xFFFFFFFF) { Log(L"setres: '%s' not found on %llu", prop.c_str(), h); return E_INVALIDARG; }
+    const std::wstring markup = std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}";
+    std::wstring valueType;
+    const ResourceLookup lookup = FindResourceInScope_ui(h, key, &valueType);
+    Log(L"setres: '%s' <- %s lookup=%d type='%s'", prop.c_str(), markup.c_str(), static_cast<int>(lookup), valueType.c_str());
+    if (lookup == ResourceLookup::NotFound) {
+        if (error) *error = L"resource-not-found|Resource '" + key + L"' was not found in this element's resources, "
+                            L"its parents' resources, or the app's resources. " + prop + L" was not changed.";
+        return kResourceNotInScope;
+    }
+    const PriorLocalValue prior = ReadPriorLocalValue(h, idx, prop);
+    const HRESULT hr = ResolveResourceApply(h, prop, key, asTheme);
+    if (FAILED(hr)) {
+        ClearOriginatedError();
+        RestorePriorLocalValue(h, idx, prior);
+        ClearOriginatedError();
+        if (error) {
+            wchar_t hex[16]{};
+            swprintf_s(hex, L"0x%08X", static_cast<unsigned int>(hr));
+            const std::wstring kept = prior.restorable ? L" The previous value was kept." : L"";
+            if (hr == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) && lookup == ResourceLookup::Found)
+                // The key exists, so the runtime refused it because its type doesn't fit the property.
+                *error = L"property-write-failed|Resource '" + key + L"'" +
+                         (valueType.empty() ? std::wstring() : L" is a " + DevToolsRead_ShortTypeName(valueType) + L", which") +
+                         L" can't be assigned to " + prop + L"." + kept;
+            else if (hr == HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
+                *error = L"resource-not-found|Resource '" + key + L"' could not be resolved for " + prop + L"." + kept;
+            else
+                *error = L"property-write-failed|Couldn't set " + prop + L" to " + markup +
+                         (valueType.empty() ? std::wstring() : L" (the resource is a " + DevToolsRead_ShortTypeName(valueType) + L")") +
+                         L" (" + hex + L")." + kept;
+        }
+        return hr;
+    }
+    if (TryAcquireSRWLockShared(&g_censusLock)) {
+        const unsigned long long wire = PackWire_nolock(h);
+        ReleaseSRWLockShared(&g_censusLock);
+        DevToolsBindingRow_NoteLiveResourceWrite(wire, prop, asTheme, key);
+        std::vector<DevToolsReadProp> written;
+        const std::set<std::wstring> only{ prop };
+        ReadCuratedProps(h, &written, nullptr, nullptr, &only, nullptr, nullptr);
+    }
+    return S_OK;
 }

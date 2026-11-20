@@ -59,6 +59,12 @@ struct DevToolsReadProp
 
     std::wstring authoredKey;
 
+    // A DevTools write that assigned a resource and still owns the value: "themeResource"/"staticResource" and its
+    // key. Kept apart from authored*, which always describe the XAML file.
+    std::wstring liveResourceKind;
+
+    std::wstring liveResourceKey;
+
     // Supported complex values expose one level of ordinary child rows, sharing top-level rendering.
     std::vector<DevToolsReadProp> children;
 

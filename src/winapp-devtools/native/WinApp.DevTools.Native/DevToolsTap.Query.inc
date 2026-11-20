@@ -5,7 +5,7 @@
 
 struct TapQueryRequest
 {
-    std::wstring type, text, filter, property, value, writeType;
+    std::wstring type, text, filter, property, value, writeType, resource;
     std::vector<DevToolsQuery::Predicate> predicates;
     std::vector<std::wstring> fields;
     unsigned long long root = 0;
@@ -410,7 +410,8 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         auto& match = matches.front();
         const auto* selected = QueryProperty(match, request.property);
         before = QueryValueJson(selected, request.property, match.readError);
-        if (!selected || selected->writeType.empty()) failure = L"property-not-writable";
+        // A resource can be assigned to a property that has no literal syntax, such as Style.
+        if (!selected || (request.resource.empty() && selected->writeType.empty())) failure = L"property-not-writable";
         else {
             std::vector<DevToolsReadProp> current;
             size_t currentMatches = 0;
@@ -442,7 +443,8 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
             }
             TapQueryRow currentRow{match.raw, match.node, std::move(current), {}};
             const auto* currentProperty = QueryProperty(currentRow, request.property);
-            if (currentMatches != 1 || !QuerySnapshotCurrent(cs) || !currentProperty || currentProperty->writeType.empty())
+            if (currentMatches != 1 || !QuerySnapshotCurrent(cs) || !currentProperty ||
+                (request.resource.empty() && currentProperty->writeType.empty()))
                 failure = L"target-changed";
             if (std::chrono::steady_clock::now() - recheckStarted > kQueryBudget) {
                 failure = L"incomplete"; writeTimedOut = true;
@@ -451,8 +453,10 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
                 before = QueryValueJson(currentProperty, request.property, L"");
                 const auto type = request.writeType.empty() ? currentProperty->writeType : request.writeType;
                 std::wstring detail;
-                const HRESULT written = SetLiteral(match.raw, request.property, type, request.value, &detail);
-                status = SUCCEEDED(written) ? L"applied" : L"indeterminate";
+                const HRESULT written = request.resource.empty()
+                    ? SetLiteral(match.raw, request.property, type, request.value, &detail)
+                    : AssignResource(match.raw, request.property, request.value, request.resource == L"theme", &detail);
+                status = SUCCEEDED(written) ? L"applied" : written == kResourceNotInScope ? L"not-applied" : L"indeterminate";
                 if (FAILED(written)) failure = detail.empty() ? HrStr(written) : detail;
                 TapQueryRow observed{match.raw, match.node, {}, {}};
                 ++propertyReads;
@@ -468,7 +472,8 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
                 const auto* afterProperty = QueryProperty(observed, request.property);
                 after = QueryValueJson(afterProperty, request.property, observed.readError);
                 if (SUCCEEDED(written) && (FAILED(readback) || !afterProperty ||
-                    (afterProperty->value == currentProperty->value &&
+                    (request.resource.empty() &&
+                     afterProperty->value == currentProperty->value &&
                      afterProperty->value != request.value &&
                      DevToolsQuery::Compare(afterProperty, {request.property, L"==", request.value}).verdict != DevToolsQuery::Verdict::Match)))
                     failure = L"write-unconfirmed";
@@ -548,10 +553,10 @@ static std::wstring HandleQuery(const std::wstring& id, const DevToolsJson& para
     if (!params.IsObject()) return bad(L"Query parameters must be an object.");
     for (const auto& item : params.obj) {
         if (item.first == L"ofType" || item.first == L"text" || item.first == L"filter" || item.first == L"property" ||
-            item.first == L"value" || item.first == L"writeType" || item.first == L"rootHandle" || item.first == L"mode" ||
+            item.first == L"value" || item.first == L"writeType" || item.first == L"resource" || item.first == L"rootHandle" || item.first == L"mode" ||
             item.first == kDevToolsReservedParamWindow || item.first == kDevToolsReservedParamRoot) {
             if (item.second.type != DevToolsJsonType::String) return bad(L"Query string parameters must be strings.");
-            if (!write && (item.first == L"value" || item.first == L"writeType")) return bad(L"A read cannot carry a new value.");
+            if (!write && (item.first == L"value" || item.first == L"writeType" || item.first == L"resource")) return bad(L"A read cannot carry a new value.");
             if (write && (item.first == L"text" || item.first == L"filter" || item.first == L"mode")) return bad(L"A write uses structured exact-one criteria.");
         } else if (item.first == L"with" || (!write && item.first == L"fields")) {
             if (item.second.type != DevToolsJsonType::Array) return bad(L"with and fields must be arrays.");
@@ -574,6 +579,7 @@ static std::wstring HandleQuery(const std::wstring& id, const DevToolsJson& para
     request.property = params.GetString(L"property", L"");
     request.value = params.GetString(L"value", L"");
     request.writeType = params.GetString(L"writeType", L"");
+    request.resource = params.GetString(L"resource", L"");
     request.depth = static_cast<int>(params.GetInt(L"depth", -1));
     const auto* authored = params.Find(L"authored");
     request.authored = authored && authored->type == DevToolsJsonType::Bool && authored->b;
@@ -602,6 +608,10 @@ static std::wstring HandleQuery(const std::wstring& id, const DevToolsJson& para
     if (request.exact && (!request.text.empty() || !request.filter.empty())) error = L"Exact targeting uses only structured criteria.";
     if (request.exact && request.type.empty() && request.predicates.empty()) error = L"Exact targeting requires ofType or with.";
     if (write && (!DevToolsQuery::PropertyName(request.property) || !params.HasKey(L"value"))) error = L"Writes require property and value.";
+    if (params.HasKey(L"resource") && request.resource != L"theme" && request.resource != L"static") error = L"resource must be theme or static.";
+    if (!request.resource.empty() && !request.writeType.empty()) error = L"A resource write cannot also set writeType.";
+    if (!request.resource.empty() && (request.value.empty() || request.value.find_first_of(L" \t\r\n{},|") != std::wstring::npos))
+        error = L"A resource key cannot be empty or contain spaces, braces, commas or '|'.";
     if (!error.empty()) return DevToolsRpcError(id, DevToolsErr::InvalidParams, error, L"bad-args");
     // Reactor element kinds and keys are query criteria too; the UI-thread query reads the refreshed cache.
     TapReactorRefreshAuthored();

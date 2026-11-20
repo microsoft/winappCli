@@ -168,6 +168,9 @@ struct LiveWrite
     std::wstring prop;
     bool valueKnown = false;
     std::wstring value;
+    std::wstring resourceKind; // "themeResource" or "staticResource" when the edit assigned a resource
+    std::wstring resourceKey;
+    int theme = -1;            // the element's ActualTheme when `value` was recorded
 };
 std::vector<LiveWrite> g_liveWrites;
 
@@ -185,6 +188,29 @@ void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstrin
     if (it == g_liveWrites.end()) it = g_liveWrites.insert(g_liveWrites.end(), LiveWrite{ wire, prop });
     it->valueKnown = false;
     it->value.clear();
+    it->resourceKind.clear();
+    it->resourceKey.clear();
+    it->theme = -1;
+}
+
+void DevToolsBindingRow_NoteLiveResourceWrite(unsigned long long wire, const std::wstring& prop, bool theme,
+                                              const std::wstring& key)
+{
+    DevToolsBindingRow_NoteLiveWrite(wire, prop);
+    const auto it = FindLiveWrite(wire, prop);
+    if (it == g_liveWrites.end()) return;
+    it->resourceKind = theme ? L"themeResource" : L"staticResource";
+    it->resourceKey = key;
+}
+
+bool DevToolsBindingRow_LiveResource(unsigned long long wire, const std::wstring& prop, std::wstring* kind,
+                                     std::wstring* key)
+{
+    const auto it = FindLiveWrite(wire, prop);
+    if (it == g_liveWrites.end() || it->resourceKind.empty()) return false;
+    if (kind) *kind = it->resourceKind;
+    if (key) *key = it->resourceKey;
+    return true;
 }
 
 void DevToolsBindingRow_ForgetLiveWrite(unsigned long long wire, const std::wstring& prop)
@@ -198,16 +224,27 @@ bool DevToolsBindingRow_WasWrittenLive(unsigned long long wire, const std::wstri
     return FindLiveWrite(wire, prop) != g_liveWrites.end();
 }
 
-bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& observed)
+bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& observed,
+                                       int elementTheme)
 {
     const auto it = FindLiveWrite(wire, prop);
     if (it == g_liveWrites.end()) return false;
     if (!it->valueKnown) {
         it->valueKnown = true;
         it->value = observed;
+        it->theme = elementTheme;
         return true;
     }
-    if (it->value == observed) return true;
+    if (it->value == observed) {
+        if (elementTheme >= 0) it->theme = elementTheme;
+        return true;
+    }
+    // A {ThemeResource} changes value with the theme by design; only a change under the same theme is the app's.
+    if (it->resourceKind == L"themeResource" && it->theme >= 0 && elementTheme >= 0 && elementTheme != it->theme) {
+        it->value = observed;
+        it->theme = elementTheme;
+        return true;
+    }
     g_liveWrites.erase(it);
     return false;
 }

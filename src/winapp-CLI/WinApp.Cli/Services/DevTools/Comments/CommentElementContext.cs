@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 namespace WinApp.Cli.Services.DevTools.Comments;
@@ -12,7 +11,7 @@ namespace WinApp.Cli.Services.DevTools.Comments;
 /// the resource instead of searching for it. Built from one <c>Property.get</c> reply; a resource key is reported
 /// only where it is known: authored on the element, or on a setter of a style declared in the project.
 /// </summary>
-internal static partial class CommentElementContext
+internal static class CommentElementContext
 {
     private static readonly string[] BrushProperties = ["Foreground", "Background", "BorderBrush", "Fill", "Stroke"];
     private static readonly XNamespace Xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
@@ -197,14 +196,8 @@ internal static partial class CommentElementContext
     private static string? PropertyName(string? property) =>
         property is null ? null : property[(property.LastIndexOf('.') + 1)..].Trim();
 
-    private static (string? Kind, string? Key) ResourceReference(string? value)
-    {
-        var match = value is null ? null : ResourceMarkup().Match(value);
-        return match is { Success: true }
-            ? (match.Groups[1].Value == "ThemeResource" ? "themeResource" : "staticResource", match.Groups[2].Value)
+    private static (string? Kind, string? Key) ResourceReference(string? value) =>
+        DevToolsResourceReference.Parse(value) is { } reference
+            ? (reference.RowKind, reference.Key)
             : (null, null);
-    }
-
-    [GeneratedRegex(@"^\s*\{\s*(ThemeResource|StaticResource)\s+(?:ResourceKey\s*=\s*)?([^\s,}]+)\s*\}\s*$")]
-    private static partial Regex ResourceMarkup();
 }
