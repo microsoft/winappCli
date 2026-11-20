@@ -53,7 +53,7 @@ public class SandboxUxRegressionTests
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
-        var firewall = harness.Cli.Operations.FindIndex(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var firewall = harness.Cli.Operations.FindIndex(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
         var launch = harness.Cli.Operations.FindIndex(op => op.StartsWith("launch-agent", StringComparison.Ordinal));
 
         Assert.IsGreaterThanOrEqualTo(0, firewall, "The inbound allow rule must be created.");
@@ -88,12 +88,11 @@ public class SandboxUxRegressionTests
             "The agent port must be assigned by the host, not left as 0.");
         Assert.IsLessThanOrEqualTo(WindowsSandboxBackend.MaxAgentPort, material.Port);
 
-        var rule = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var rule = harness.Cli.Operations.Single(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
 
-        Assert.Contains($"-LocalPort {material.Port}", rule);
-        Assert.Contains("-Program $agent", rule);
-        Assert.Contains("-Direction Inbound", rule);
-        Assert.Contains("-Protocol TCP", rule);
+        Assert.Contains($"localport={material.Port} ", rule);
+        Assert.Contains("program=\"", rule);
+        Assert.Contains("dir=in action=allow protocol=TCP", rule);
     }
 
     /// <summary>The assigned port stays inside the dynamic range.</summary>
