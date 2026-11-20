@@ -590,18 +590,47 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
     {
         try
         {
-            process.Refresh();
-            if (process.HasExited || process.MainWindowHandle == 0)
+            var handle = process.HasExited ? 0 : FindViewerWindow(process.Id);
+            if (handle == 0)
             {
                 return null;
             }
 
-            return new SandboxClientWindow(process.MainWindowHandle, process.Id, TryReadStartTicks(process));
+            return new SandboxClientWindow(handle, process.Id, TryReadStartTicks(process));
         }
         catch (InvalidOperationException ex)
         {
             Trace.TraceWarning($"Sandbox client exited while reading its window identity: {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>The client's visible viewer window, or 0 when it has none.</summary>
+    /// <remarks>
+    /// Not <see cref="Process.MainWindowHandle"/>, which is the first visible unowned window of the
+    /// process in z-order. When the viewer shows a tooltip, such as on its full-screen connection
+    /// bar, Windows gives it an unowned drop-shadow window above the viewer, so that property
+    /// returns the shadow.
+    /// </remarks>
+    private static unsafe nint FindViewerWindow(int processId)
+    {
+        var window = HWND.Null;
+        while (true)
+        {
+            window = PInvoke.FindWindowEx(HWND.Null, window, SandboxClientErrorProbe.ViewerWindowClass, null);
+            if (window.IsNull)
+            {
+                return 0;
+            }
+
+            uint windowProcessId = 0;
+            _ = PInvoke.GetWindowThreadProcessId(window, &windowProcessId);
+            if (windowProcessId == (uint)processId &&
+                PInvoke.IsWindowVisible(window) &&
+                PInvoke.GetWindow(window, GET_WINDOW_CMD.GW_OWNER).IsNull)
+            {
+                return (nint)window.Value;
+            }
         }
     }
 
