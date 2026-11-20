@@ -846,7 +846,7 @@ public class PerfCallQueryTests
         Dictionary<string, string> Rev3(string id, string reason, bool memoMiss, int changes, int stateSets) => new()
         {
             ["componentId"] = id, ["reason"] = reason, ["memoMiss"] = memoMiss ? "true" : "false",
-            ["changes"] = changes.ToString(), ["stateSets"] = stateSets.ToString(),
+            ["changes"] = changes.ToString(), ["ownStateSets"] = stateSets.ToString(),
         };
         var calls = new List<PerfCall>
         {
@@ -856,7 +856,7 @@ public class PerfCallQueryTests
             Reactor("loader", "ReactorRender:Loader", 30, 35, "app") with { Attributes = Rev3("30", "parent", false, 1, 7) },
             // A revision-2 component in the same capture (older host) reports no revision 3 fields.
             Reactor("legacy", "ReactorRender:Legacy", 36, 37, "app"),
-            Reactor("effects", "ReactorEffects", 41, 42, "p1") with { Attributes = new() { ["componentId"] = "1", ["stateSets"] = "2" } },
+            Reactor("effects", "ReactorEffects", 41, 42, "p1") with { Attributes = new() { ["componentId"] = "1", ["ownStateSets"] = "2" } },
         };
         for (var i = 0; i < 4; i++)
         {
@@ -889,6 +889,7 @@ public class PerfCallQueryTests
         Assert.AreEqual(2, row.MemoSkips, "The skip after the range is not counted.");
         Assert.AreEqual(0.3333, row.MemoHitRate);
         Assert.AreEqual(3, rows["App"].StateSets, "The root's effects count toward the root.");
+        Assert.AreEqual(0, rows["App"].WastedRenders, "App's changes include its children's, so a changed subtree is not wasted.");
         Assert.AreEqual(2, rows["App"].MaxStateSets);
         Assert.IsNull(rows["App"].MemoHitRate, "No memo gate ran for App.");
         Assert.AreEqual(0, rows["Header"].Count);
@@ -922,7 +923,7 @@ public class PerfCallQueryTests
             };
             var render = Reactor($"r{i}", "ReactorRender:" + longName, start + 1d, start + 9d, pass.Id) with
             {
-                Attributes = new() { ["componentId"] = $"{i + 10}", ["reason"] = "state", ["changes"] = "0", ["stateSets"] = "5" },
+                Attributes = new() { ["componentId"] = $"{i + 10}", ["reason"] = "state", ["changes"] = "0", ["ownStateSets"] = "5" },
             };
             calls.Add(pass);
             calls.Add(render);

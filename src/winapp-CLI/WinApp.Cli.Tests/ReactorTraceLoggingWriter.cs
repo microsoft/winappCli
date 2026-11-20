@@ -42,13 +42,13 @@ internal sealed unsafe partial class ReactorTraceLoggingWriter : IDisposable
         ("callSiteFile", InUnicodeString), ("callSiteLine", InUInt32), ("callSiteColumn", InUInt32));
     private static readonly byte[] ReconcileStopV2Metadata = Event("Reconcile",
         ("inserted", InUInt32), ("removed", InUInt32), ("moved", InUInt32), ("replaced", InUInt32));
-    // Schema revision 3 appends memoMiss, changes and stateSets, and adds ComponentSkip (event 13).
+    // Schema revision 3 appends memoMiss, changes and ownStateSets, and adds ComponentSkip (event 13).
     private static readonly byte[] ComponentRenderStartV3Metadata = Event("ComponentRender",
         ("componentId", InUInt64), ("name", InUnicodeString), ("reason", InUnicodeString),
         ("callSiteFile", InUnicodeString), ("callSiteLine", InUInt32), ("callSiteColumn", InUInt32), ("memoMiss", InBool32));
     private static readonly byte[] ComponentRenderStopV3Metadata = Event("ComponentRender",
-        ("componentId", InUInt64), ("changes", InUInt32), ("stateSets", InUInt32));
-    private static readonly byte[] EffectsStopV3Metadata = Event("Effects", ("componentId", InUInt64), ("stateSets", InUInt32));
+        ("componentId", InUInt64), ("changes", InUInt32), ("ownStateSets", InUInt32));
+    private static readonly byte[] EffectsStopV3Metadata = Event("Effects", ("componentId", InUInt64), ("ownStateSets", InUInt32));
     private static readonly byte[] ComponentSkipMetadata = Event("ComponentSkip", ("componentId", InUInt64), ("name", InUnicodeString));
 
     private ulong handle;
@@ -92,11 +92,11 @@ internal sealed unsafe partial class ReactorTraceLoggingWriter : IDisposable
             new Payload().UInt64(componentId).String16(name).String16(reason).String16(callSiteFile).UInt32(line).UInt32(column)
                 .UInt32(memoMiss ? 1u : 0u));
 
-    public void ComponentRenderStop(ulong componentId, uint changes, uint stateSets) =>
-        Write(4, 4, 2, Component, ComponentRenderStopV3Metadata, new Payload().UInt64(componentId).UInt32(changes).UInt32(stateSets));
+    public void ComponentRenderStop(ulong componentId, uint changes, uint ownStateSets) =>
+        Write(4, 4, 2, Component, ComponentRenderStopV3Metadata, new Payload().UInt64(componentId).UInt32(changes).UInt32(ownStateSets));
 
-    public void EffectsStop(ulong componentId, uint stateSets) =>
-        Write(8, 4, 2, Pass, EffectsStopV3Metadata, new Payload().UInt64(componentId).UInt32(stateSets));
+    public void EffectsStop(ulong componentId, uint ownStateSets) =>
+        Write(8, 4, 2, Pass, EffectsStopV3Metadata, new Payload().UInt64(componentId).UInt32(ownStateSets));
 
     public void ComponentSkip(ulong componentId, string name) =>
         Write(13, 4, 0, Component, ComponentSkipMetadata, new Payload().UInt64(componentId).String16(name));

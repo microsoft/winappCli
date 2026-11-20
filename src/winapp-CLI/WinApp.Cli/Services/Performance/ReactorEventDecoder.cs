@@ -24,7 +24,7 @@ internal static class ReactorEventDecoder
     // Required fields are schema revision 1's. Later revisions only append fields, so they are read when
     // present and older Reactor builds still decode. Revision 2: RenderPass Start requesterId, requesterName,
     // requestCount; ComponentRender Start callSiteFile/Line/Column; Reconcile Stop edit counts. Revision 3:
-    // ComponentRender Start memoMiss; ComponentRender Stop changes, stateSets; Effects Stop stateSets; and
+    // ComponentRender Start memoMiss; ComponentRender Stop changes, ownStateSets; Effects Stop ownStateSets; and
     // the ComponentSkip event.
     private static readonly Dictionary<ushort, Schema> Schemas = new()
     {
@@ -86,7 +86,7 @@ internal static class ReactorEventDecoder
     public static string? ComponentName(string name) =>
         name.StartsWith(Render + ":", StringComparison.Ordinal) ? name[(Render.Length + 1)..] : null;
 
-    /// <summary>A recorded UInt32 field such as <c>changes</c> or <c>stateSets</c>, or null when this Reactor version did not write it.</summary>
+    /// <summary>A recorded UInt32 field such as <c>changes</c> or <c>ownStateSets</c>, or null when this Reactor version did not write it.</summary>
     public static int? Count(Dictionary<string, string>? fields, string key) =>
         fields?.GetValueOrDefault(key) is { } value && int.TryParse(value, System.Globalization.NumberStyles.None,
             System.Globalization.CultureInfo.InvariantCulture, out var count) ? count : null;

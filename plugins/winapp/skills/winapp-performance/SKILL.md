@@ -49,7 +49,9 @@ description: Investigate slow WinUI 3 layout, scrolling and virtualization using
    time with render counts and reasons, and expect slow render passes in `hotspots`
    with the component that requested them. To find wasted work, read
    `reactorPasses.wastedWork` (totals and `insights`) and each row's
-   `wastedRenders`, `memoHitRate`, `stateSets` and `maxStateSets`: renders that
+   `wastedRenders` (updates after which nothing in the component's subtree
+   changed), `memoHitRate`, `stateSets` (its own writes, not its children's)
+   and `maxStateSets`: renders that
    changed nothing after missing their memo point to unstable props (new lambdas,
    arrays or records), and many state writes in one pass point to batching; see
    [Reactor components](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/winui-performance.md#find-expensive-reactor-components).

@@ -397,11 +397,11 @@ public class PerfCommandTests : BaseCommandTests
                 reactor.ReconcileStart("reconcile", "StackElement");
                 reactor.ComponentSkip(3, "Header");
                 reactor.ComponentRenderStart(2, "SlowPanel", "props", "MainPage.cs", 40, 9, memoMiss: true);
-                reactor.ComponentRenderStop(2, changes: 0, stateSets: 2);
+                reactor.ComponentRenderStop(2, changes: 0, ownStateSets: 2);
                 reactor.ReconcileStop(0, 0, 0, 0);
-                reactor.ComponentRenderStop(1, changes: 0, stateSets: 0);
+                reactor.ComponentRenderStop(1, changes: 0, ownStateSets: 0);
                 reactor.EffectsStart(1);
-                reactor.EffectsStop(1, stateSets: 6);
+                reactor.EffectsStop(1, ownStateSets: 6);
                 reactor.RenderPassStop(1);
                 trace.Stop();
                 capture.StopQpc = Stopwatch.GetTimestamp();

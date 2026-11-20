@@ -264,9 +264,9 @@ public class ReactorPerfTests
             {
                 ["componentId"] = "2", ["name"] = "Row", ["reason"] = "props", ["memoMiss"] = "true",
             }, 0)),
-            Decode(Raw(4, 2, "ComponentRender", new() { ["componentId"] = "2", ["changes"] = "0", ["stateSets"] = "3" }, 1)),
+            Decode(Raw(4, 2, "ComponentRender", new() { ["componentId"] = "2", ["changes"] = "0", ["ownStateSets"] = "3" }, 1)),
             Decode(Raw(7, 1, "Effects", new() { ["componentId"] = "1" }, 2)),
-            Decode(Raw(8, 2, "Effects", new() { ["componentId"] = "1", ["stateSets"] = "4" }, 3)),
+            Decode(Raw(8, 2, "Effects", new() { ["componentId"] = "1", ["ownStateSets"] = "4" }, 3)),
         })
         {
             Assert.IsNull(e.DecodeError);
@@ -277,8 +277,8 @@ public class ReactorPerfTests
         var row = calls.Single(c => c.Name == "ReactorRender:Row").Attributes!;
         Assert.IsTrue(ReactorEventDecoder.Flag(row, "memoMiss"));
         Assert.AreEqual(0, ReactorEventDecoder.Count(row, "changes"));
-        Assert.AreEqual(3, ReactorEventDecoder.Count(row, "stateSets"));
-        Assert.AreEqual(4, ReactorEventDecoder.Count(calls.Single(c => c.Name == ReactorEventDecoder.Effects).Attributes, "stateSets"));
+        Assert.AreEqual(3, ReactorEventDecoder.Count(row, "ownStateSets"));
+        Assert.AreEqual(4, ReactorEventDecoder.Count(calls.Single(c => c.Name == ReactorEventDecoder.Effects).Attributes, "ownStateSets"));
 
         Assert.IsFalse(ReactorEventDecoder.Flag(new() { ["memoMiss"] = "FALSE" }, "memoMiss"));
         Assert.IsTrue(ReactorEventDecoder.Flag(new() { ["memoMiss"] = "1" }, "memoMiss"));

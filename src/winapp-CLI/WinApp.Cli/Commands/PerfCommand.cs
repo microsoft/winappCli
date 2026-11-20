@@ -534,7 +534,7 @@ internal sealed class PerfCommand : Command, IShortDescription
             {
                 details.Add(changes == 0 && attributes.GetValueOrDefault("reason") != "mount"
                     ? "changed nothing"
-                    : $"{changes} {(changes == 1 ? "control" : "controls")} changed");
+                    : $"{changes} {(changes == 1 ? "control" : "controls")} changed in its subtree");
             }
             if (ReactorEventDecoder.Flag(attributes, "memoMiss") == true)
             {
@@ -542,7 +542,7 @@ internal sealed class PerfCommand : Command, IShortDescription
             }
         }
         if ((ReactorEventDecoder.ComponentName(name) is not null || name == ReactorEventDecoder.Effects) &&
-            ReactorEventDecoder.Count(attributes, "stateSets") is { } stateSets && stateSets > 0)
+            ReactorEventDecoder.Count(attributes, "ownStateSets") is { } stateSets && stateSets > 0)
         {
             details.Add($"{stateSets} setState {(stateSets == 1 ? "call" : "calls")}");
         }

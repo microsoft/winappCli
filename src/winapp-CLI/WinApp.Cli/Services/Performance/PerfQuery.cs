@@ -94,7 +94,7 @@ internal sealed class PerfQueryRow
     public int? CreatedElements { get; init; }
     /// <summary>Components view: the most common C# call sites that created this component (Reactor source map).</summary>
     public string[]? CallSites { get; set; }
-    /// <summary>Components view (Reactor schema revision 3): updates (non-mount renders) that changed no control.</summary>
+    /// <summary>Components view (Reactor schema revision 3): updates (non-mount renders) after which nothing in the component's subtree changed.</summary>
     public int? WastedRenders { get; init; }
     /// <summary>Components view (revision 3): renders its memo gate skipped.</summary>
     public int? MemoSkips { get; init; }
@@ -1001,7 +1001,7 @@ internal static class PerfQuery
             if (call.Name == ReactorEventDecoder.Effects)
             {
                 // A host root's effects run outside its render span, so their state writes are added to the root's row.
-                if (inside && ReactorEventDecoder.Count(call.Attributes, "stateSets") is { } effectSets &&
+                if (inside && ReactorEventDecoder.Count(call.Attributes, "ownStateSets") is { } effectSets &&
                     call.Attributes!.GetValueOrDefault("componentId") is { } rootId && componentNames.TryGetValue(rootId, out var rootName))
                 {
                     AggregateFor(rootName).AddStateSets(effectSets);
@@ -1031,6 +1031,9 @@ internal static class PerfQuery
                 aggregate.Inclusive += call.DurationMs.Value;
             }
             // Schema revision 3: what the render achieved, whether a memo gate let it through, and its state writes.
+            // `changes` is inclusive of nested components, so a wasted render is one whose whole subtree changed
+            // nothing. A parent whose own output is unchanged but whose children changed did useful work passing
+            // them new props, so it is not counted. `ownStateSets` is already exclusive to this component.
             if (ReactorEventDecoder.Count(call.Attributes, "changes") is { } changes)
             {
                 aggregate.Revision3 = true;
@@ -1048,7 +1051,7 @@ internal static class PerfQuery
                 aggregate.Revision3 = true;
                 aggregate.MemoMisses += memoMiss ? 1 : 0;
             }
-            aggregate.AddStateSets(ReactorEventDecoder.Count(call.Attributes, "stateSets"));
+            aggregate.AddStateSets(ReactorEventDecoder.Count(call.Attributes, "ownStateSets"));
             if (call.BeginEvent is { } begin && renderEvents.TryGetValue(begin, out var start))
             {
                 if (start.Fields.GetValueOrDefault("componentId") is { } instance)

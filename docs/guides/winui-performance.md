@@ -285,15 +285,19 @@ SlowPanel                                   2791.181   2791.181        97
   `parent` (nothing let it skip the render), `hotReload`, or `forced`. Many
   `parent` or `props` renders of a cheap component can point to a missing memo.
 - **Changed nothing** counts updates (renders other than the first mount) after
-  which no control was created, updated, removed, or moved, so the render was
-  wasted. Reactor errs toward reporting a change, so a count here is never a
-  false alarm. **Memo hit rate** is the share of memo checks that skipped the
-  render. A component that renders past its memo and then changes nothing usually
-  gets a new lambda, array, or record instance in its props on every render.
-- **setState calls** count the state writes a component's renders and effects
-  made (for a window's root, its effects too), and the most made in one pass. Many
-  writes in one pass is a fan-out worth batching. The pass summary calls out
-  components with at least 3 wasted updates, or with 5 or more writes in one pass.
+  which no control in the component's subtree was created, updated, removed, or
+  moved, so the render was wasted. A parent whose own output stayed the same but
+  whose children changed is not counted: it passed them new props. A new event
+  handler lambda or a new item list equal to the old one is not a change.
+  **Memo hit rate** is the share of memo checks that skipped the render. A
+  component that renders past its memo and then changes nothing usually gets a
+  value created fresh on every render in its props, such as a lambda, a list, or
+  a record holding one.
+- **setState calls** count the state writes made by a component's own renders
+  and effects, not its children's, and the most made in one pass. For a window's
+  root, its effects count too. Many writes in one pass is a fan-out worth
+  batching. The pass summary calls out components with at least 3 wasted updates,
+  or with 5 or more writes in one pass.
 - **Elements created** counts WinUI elements created while that component's
   render was the innermost one. The `elements` view also shows the owning component.
 - Rows that a virtualized list realizes during layout run outside any render
