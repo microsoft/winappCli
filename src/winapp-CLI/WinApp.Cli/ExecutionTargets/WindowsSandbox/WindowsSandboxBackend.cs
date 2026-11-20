@@ -1202,18 +1202,25 @@ internal sealed class WindowsSandboxBackend(
     /// </para>
     /// <para>
     /// The rule is scoped to the agent program <em>and</em> the single port it was told to use, so
-    /// nothing else in the guest gains inbound reachability. The rule has a per-generation name.
-    /// An exact program-filter query also finds older unnamed rules and consent-dialog block
-    /// rules, so repair replaces the previous port without querying every rule in the guest.
+    /// nothing else in the guest gains inbound reachability. The rule's display name is per
+    /// generation. Deleting by exact program also removes consent-dialog block rules and an
+    /// earlier attempt's rule, so repair replaces the previous port without listing every rule.
     /// The generation's named rule is also replaced when a rebuilt bundle has a different path.
+    /// </para>
+    /// <para>
+    /// <c>netsh</c> rather than the NetSecurity cmdlets: starting PowerShell and loading that
+    /// module in a guest that is still booting took about 7 s of every cold start, while the
+    /// same three <c>netsh</c> calls take under a second. <c>netsh</c> writes the local
+    /// persistent store, not the in-memory one, so the rule would survive a guest restart; it is
+    /// still scoped to this payload's program and port, and the Sandbox discards it on exit.
+    /// It cannot remove in-memory rules that earlier winapp versions created, but those name an
+    /// earlier payload's program path, so they never authorise this agent.
     /// </para>
     /// <para>
     /// Both the program path and rule name are per generation, so this cannot remove a rule
     /// belonging to a different generation — including one created by a second winapp whose
     /// state root was redirected, which under the old fixed path would have had its live agent's
-    /// rule deleted underneath it. A rule left behind by a generation that is gone names a program
-    /// path that no longer exists, lives only in the volatile <c>ActiveStore</c>, and disappears
-    /// with the Sandbox, so it authorises nothing.
+    /// rule deleted underneath it.
     /// </para>
     /// </remarks>
     private async Task AllowGuestAgentConnectionAsync(
@@ -1238,20 +1245,15 @@ internal sealed class WindowsSandboxBackend(
         var portText = port.ToString(CultureInfo.InvariantCulture);
         var agentPath = $@"{guestBootstrapPath}\{GuestAgentCommandNames.BinaryName}";
         var ruleName = $"WinApp-Sandbox-Agent-{EpochToken(epoch)}";
+        // cmd.exe returns the exit code of the last command, so only a failed `add` fails the step.
+        // A `delete` that matches nothing exits 1 and is expected on a fresh guest.
+        const string Firewall = "netsh advfirewall firewall";
         var command =
-            @"powershell.exe -NoProfile -NonInteractive -Command " +
-            $@"""$agent='{agentPath}'; $rule='{ruleName}'; " +
-            @"$existing=Get-NetFirewallApplicationFilter -Program $agent -PolicyStore ActiveStore -ErrorAction SilentlyContinue | " +
-            @"Get-NetFirewallRule -ErrorAction Stop; " +
-            @"foreach ($existingRule in $existing) { " +
-            @"Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore ActiveStore -ErrorAction SilentlyContinue; " +
-            @"Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore PersistentStore -ErrorAction SilentlyContinue }; " +
+            $@"cmd.exe /d /c {Firewall} delete rule name=all program=""{agentPath}"" " +
             // A rebuilt payload has a new immutable path within the same generation.
-            @"Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore -ErrorAction SilentlyContinue; " +
-            @"Remove-NetFirewallRule -Name $rule -PolicyStore PersistentStore -ErrorAction SilentlyContinue; " +
-            $@"New-NetFirewallRule -Name $rule -DisplayName 'WinApp Sandbox Agent {portText}' " +
-            $@"-Direction Inbound -Action Allow -Protocol TCP -LocalPort {portText} -Program $agent " +
-            @"-Profile Any -EdgeTraversalPolicy Allow -PolicyStore ActiveStore -ErrorAction Stop | Out-Null""";
+            $@"& {Firewall} delete rule name=""{ruleName}"" " +
+            $@"& {Firewall} add rule name=""{ruleName}"" dir=in action=allow protocol=TCP " +
+            $@"localport={portText} program=""{agentPath}"" profile=any edge=yes enable=yes";
 
         var exitCode = await cli.ExecuteAsync(
             instanceId,
