@@ -396,15 +396,29 @@ extends:
               pwsh: true
               filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
               arguments: -Stable -SkipTests -SkipDocs -SkipMsix -SkipNpm
+          # Publish from the staging directory with the same layout as templates/build.yaml: the
+          # Guardian baselines in .config/guardian match binaries by that relative path.
+          - task: CopyFiles@2
+            displayName: Copy Artifacts - CLI Binaries (unsigned, for tests)
+            inputs:
+              sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/cli/'
+              contents: '**'
+              targetFolder: '$(Build.ArtifactStagingDirectory)/cli'
           - task: 1ES.PublishPipelineArtifact@1
             displayName: Upload Artifact - CLI Binaries (unsigned, for tests)
             inputs:
-              path: $(System.DefaultWorkingDirectory)\artifacts\cli
+              path: '$(Build.ArtifactStagingDirectory)/cli'
               artifactName: test-cli-binaries
+          - task: CopyFiles@2
+            displayName: Copy Artifacts - NuGet packages (unsigned, for tests)
+            inputs:
+              sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/nuget/'
+              contents: '*.nupkg'
+              targetFolder: '$(Build.ArtifactStagingDirectory)/nuget-packages'
           - task: 1ES.PublishPipelineArtifact@1
             displayName: Upload Artifact - NuGet packages (unsigned, for tests)
             inputs:
-              path: $(System.DefaultWorkingDirectory)\artifacts\nuget
+              path: '$(Build.ArtifactStagingDirectory)/nuget-packages'
               artifactName: test-nuget-packages
 
       - template: ./.pipelines/templates/test-jobs.yaml@self
