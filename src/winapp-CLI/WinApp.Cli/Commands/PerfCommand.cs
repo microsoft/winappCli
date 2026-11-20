@@ -142,6 +142,35 @@ internal sealed class PerfCommand : Command, IShortDescription
                 {
                     PrintResources(console, processResources);
                 }
+                if (result.WindowExperience is { } window)
+                {
+                    WriteSection(console, "Window experience");
+                    if (window.Status == "not-recorded")
+                    {
+                        console.WriteLine("Window evidence was not recorded for this capture.");
+                    }
+                    else if (window.Status == "not-observed")
+                    {
+                        console.WriteLine("No target top-level window was observed in the selected range.");
+                    }
+                    else
+                    {
+                        console.WriteLine($"First window observed: {Timing(window.FirstWindowObservedMs)} ms");
+                        console.WriteLine($"First visible observation: {Timing(window.FirstVisibleMs)} ms");
+                        console.WriteLine($"First responsive observation: {Timing(window.FirstResponsiveMs)} ms");
+                        console.WriteLine(
+                            $"Response delays: {window.ResponseDelayCount}; " +
+                            $"longest sampled interval: {Timing(window.LongestObservedResponseDelayMs)} ms; " +
+                            $"unrecovered: {window.UnrecoveredResponseDelayCount}");
+                        console.WriteLine(
+                            $"Sampling cadence: {window.RequestedCadenceMs} ms; " +
+                            $"response-probe timeout: {window.ProbeTimeoutMs} ms");
+                        if (window.ProbeErrorCount > 0)
+                        {
+                            console.WriteLine($"Response probe errors: {window.ProbeErrorCount}");
+                        }
+                    }
+                }
                 if (result.Activity is { } activity)
                 {
                     WriteSection(console, "Observed UI-thread activity");

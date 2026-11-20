@@ -71,6 +71,9 @@ GetMonitorInfo
 MONITORINFO
 GetWindowRect
 GetWindowThreadProcessId
+FindWindowEx
+IsWindowVisible
+SendMessageTimeout
 SHOW_WINDOW_CMD
 MiniDumpWriteDump
 MINIDUMP_TYPE
