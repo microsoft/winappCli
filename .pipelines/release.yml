@@ -156,7 +156,8 @@ extends:
               DoEsrp: ${{ and(parameters.DoEsrp, startsWith(variables['Build.SourceBranch'], 'refs/heads/rel/v')) }}
               signingIdentity: ${{ parameters.signingIdentity }}
           # The stable build above refreshed ("baked") the find-ui corpus that ships in winapp.exe.
-          # The test jobs build from a fresh checkout with the committed corpus, so check the
+          # The test jobs build from a fresh checkout with the committed corpus, so run the tests
+          # that read the embedded corpus (its floors, and find-ui search and ranking) on the
           # baked one here, before anything publishes it.
           - task: PowerShell@2
             displayName: Test the baked find-ui corpus
@@ -165,8 +166,10 @@ extends:
               targetType: inline
               errorActionPreference: stop
               script: |
+                $tests = 'EmbeddedSnapshotTests', 'FindUi', 'Controls', 'GalleryProvider', 'ToolkitProvider'
+                $filter = ($tests | ForEach-Object { "FullyQualifiedName~WinApp.Cli.Tests.$_" }) -join '|'
                 dotnet run --project src\winapp-CLI\WinApp.Cli.Tests\WinApp.Cli.Tests.csproj -c Debug -- `
-                  --filter "FullyQualifiedName~WinApp.Cli.Tests.EmbeddedSnapshotTests" --minimum-expected-tests 1 --no-ansi
+                  --filter $filter --minimum-expected-tests 1 --no-ansi
                 if ($LASTEXITCODE -ne 0) { throw 'The baked find-ui corpus failed its tests.' }
           - task: PowerShell@2
             name: SetMeta
