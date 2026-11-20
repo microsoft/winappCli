@@ -510,12 +510,14 @@ static bool RequestExternalInspector_ui(const DevToolsInspectRequest& request)
 static bool InprocInspect(std::wstring* error)
 {
     const DevToolsInspectRequest& request = DevToolsOverlay_InspectRequest();
+    DevToolsOverlayLog(L"route1.inspect request settings=%d comments=%d activate=%d", request.settings, request.comments, request.activate);
     if (!request.settings && RequestExternalInspector_ui(request)) return true;
     // A pick has already selected its element in an inspector on screen; it only needs to be in view.
     if (!request.activate && !request.comments && !request.settings && DevToolsWindow_RevealWithoutFocus()) return true;
     g_ownedState.Reconcile(DevToolsStateAxis::Window, DevToolsWindow_IsOpen() ? 1ull : 0ull);
     HRESULT hr = OpenInprocWindow(error);
     const bool open = SUCCEEDED(hr) && DevToolsWindow_IsOpen();
+    DevToolsOverlayLog(L"route1.inspect opened=%d settings=%d comments=%d", open, request.settings, request.comments);
     if (open && request.comments) DevToolsWindow_ShowComments();
     if (open && request.settings) DevToolsWindow_ShowSettings();
     g_ownedState.Reconcile(DevToolsStateAxis::Window, open ? 1ull : 0ull);

@@ -605,6 +605,8 @@ static void RefreshCommentsPane()
 // Tree-scoped controls collapse with the tree; comments view must not leave filters/toggles acting on nothing.
 static void SetInspectorView(InspectorView view)
 {
+    DevToolsOverlayLog(L"route1.view %d -> %d settingsPage=%d settingsToggle=%d settingsTab=%d",
+        static_cast<int>(g_inspectorView), static_cast<int>(view), !!g_shell.settingsPage, !!g_shell.startEnabled, !!g_shell.settingsTab);
     g_inspectorView = view;
     const bool on = view == InspectorView::Comments;
     if (g_treeScrollUi)     DevToolsPutVisibility(g_treeScrollUi, on ? 1 : 0);
@@ -635,6 +637,8 @@ static void SetInspectorView(InspectorView view)
 // A selection made to keep the rail in step is not a user choice.
 static void OnInspectorRailSelection(InspectorView view)
 {
+    DevToolsOverlayLog(L"route1.rail selected=%d current=%d syncing=%d",
+        static_cast<int>(view), static_cast<int>(g_inspectorView), g_navSyncing);
     if (g_navSyncing || view == g_inspectorView) return;
     SetInspectorView(view);
 }
