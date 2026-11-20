@@ -159,6 +159,16 @@ internal interface IProjectRunService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Evaluates the project without <c>-r</c> and reports whether it selects the same RuntimeIdentifier on its own
+    /// (the WinUI templates do). <c>false</c> when it selects another or none, or the evaluation failed.
+    /// </summary>
+    Task<bool> SelectsOwnRuntimeIdentifierAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        string? csWinRTMetadata,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Builds a .NET file-based app (a single <c>.cs</c>, unless <see cref="SingleFileRunOptions.NoBuild"/>)
     /// and resolves the evaluated MSBuild properties needed to synthesize a manifest and launch it.
     /// </summary>

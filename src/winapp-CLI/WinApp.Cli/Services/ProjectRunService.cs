@@ -967,11 +967,25 @@ internal sealed partial class ProjectRunService(
         return await EvaluatePreparedPropertiesAsync(csproj, options, workingDir, csWinRTMetadata, cancellationToken);
     }
 
-    private async Task<IReadOnlyDictionary<string, string>?> EvaluatePreparedPropertiesAsync(
-        FileInfo csproj, ProjectRunOptions options, DirectoryInfo workingDir, string? csWinRTMetadata,
+    /// <inheritdoc />
+    public async Task<bool> SelectsOwnRuntimeIdentifierAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        string? csWinRTMetadata,
         CancellationToken cancellationToken)
     {
-        var evaluateArgs = BuildEvaluateArguments(csproj, options, csWinRTMetadata);
+        var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+        var props = await EvaluatePreparedPropertiesAsync(csproj, options with { CaptureDevToolsSources = false }, workingDir,
+            csWinRTMetadata, cancellationToken, includeRuntimeIdentifier: false);
+        return props is not null && string.Equals(GetProp(props, "RuntimeIdentifier"), options.EffectiveRuntimeIdentifier,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<IReadOnlyDictionary<string, string>?> EvaluatePreparedPropertiesAsync(
+        FileInfo csproj, ProjectRunOptions options, DirectoryInfo workingDir, string? csWinRTMetadata,
+        CancellationToken cancellationToken, bool includeRuntimeIdentifier = true)
+    {
+        var evaluateArgs = BuildEvaluateArguments(csproj, options, csWinRTMetadata, includeRuntimeIdentifier);
         int exitCode;
         string stdout;
         try

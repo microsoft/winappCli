@@ -3564,6 +3564,25 @@ public class ProjectRunServiceTests
     #endregion
 
     [TestMethod]
+    [DataRow("win-x64", true)]
+    [DataRow("WIN-X64", true)]
+    [DataRow("win-arm64", false)]
+    [DataRow("", false)]
+    public async Task SelectsOwnRuntimeIdentifierAsync_EvaluatesWithoutTheRid_AndComparesWhatTheProjectPicks(string evaluated, bool expected)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        string? arguments = null;
+        var json = $$"""{ "Properties": { "TargetDir": "", "RuntimeIdentifier": "{{evaluated}}", "OutputType": "WinExe" } }""";
+        var dotnet = new FakeDotNetService { RunDotnetCommandHandler = args => { arguments = args; return (0, json, string.Empty); } };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], CaptureDevToolsSources: true);
+
+        Assert.AreEqual(expected, await service.SelectsOwnRuntimeIdentifierAsync(csproj, options, null, CancellationToken.None));
+        Assert.DoesNotContain("RuntimeIdentifier=", arguments!);
+        Assert.DoesNotContain("--getItem", arguments!);
+    }
+
+    [TestMethod]
     public async Task IsDefinitivelyUnpackagedAsync_WindowsPackageTypeNone_ReturnsTrue()
     {
         // Issue #676: an explicit WindowsPackageType=None is the one definitive unpackaged signal, so

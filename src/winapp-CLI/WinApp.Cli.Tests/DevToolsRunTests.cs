@@ -991,6 +991,26 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     /// <summary>
+    /// With <c>-r</c>, dotnet watch can't map class libraries to their projects, so every library edit restarts the
+    /// app. It gets <c>-r</c> only when the project doesn't select the same RID on its own.
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Watch_PassesTheRuntimeIdentifier_OnlyWhenTheProjectDoesNotSelectIt(bool projectSelectsIt)
+    {
+        var app = Prepare("project", true);
+        GetRequiredService<RunCommand.Handler>().WinappExecutable = () => @"C:\tools\winapp.exe";
+        _launcher.LaunchOverride = () => { _process.HasExited = true; return _process; };
+        _projects.SelectsOwnRuntimeIdentifier = projectSelectsIt;
+
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "headless", "--watch"), TestAnsiConsole.Output + ConsoleStdErr);
+
+        var tokens = WindowsCommandLine.SplitArguments(_launcher.LaunchExecutableCalls.Single().Arguments!);
+        Assert.AreEqual(!projectSelectsIt, tokens.Contains("-r"));
+    }
+
+    /// <summary>
     /// A two-framework app: <c>winapp run . --watch</c> built the first framework, so <c>dotnet watch</c> must build
     /// that one too, with the same publish profile and CsWinRT metadata, instead of stopping at "Specify which
     /// framework to run using '--framework'".

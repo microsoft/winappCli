@@ -106,6 +106,12 @@ internal sealed class FakeProjectRunService : IProjectRunService
     public Task<bool> IsPackagedBeforeBuildAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
         => Task.FromResult(PackagedBeforeBuild);
 
+    /// <summary>Returned from <see cref="SelectsOwnRuntimeIdentifierAsync"/>.</summary>
+    public bool SelectsOwnRuntimeIdentifier { get; set; }
+
+    public Task<bool> SelectsOwnRuntimeIdentifierAsync(FileInfo csproj, ProjectRunOptions options, string? csWinRTMetadata, CancellationToken cancellationToken)
+        => Task.FromResult(SelectsOwnRuntimeIdentifier);
+
     public Task<ProjectBuildOutcome> BuildAndResolveAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
         BuildAndResolveCalls.Add(csproj);

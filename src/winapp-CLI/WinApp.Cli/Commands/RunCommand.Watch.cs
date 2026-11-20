@@ -55,7 +55,7 @@ internal partial class RunCommand
             try
             {
                 // The options the build pass resolved, so dotnet watch builds into, and starts, the same output.
-                watchArguments = WatchArguments(resolution, csproj, options, appArgs);
+                watchArguments = await WatchArgumentsAsync(resolution, csproj, options, appArgs, cancellationToken);
             }
             catch (ProjectRunException ex)
             {
@@ -96,7 +96,7 @@ internal partial class RunCommand
             try
             {
                 var launchTargets = WriteWatchLaunchTargets(winappDirectoryService.GetGlobalWinappDirectory());
-                watchArguments = WatchArguments(resolution, csproj, options, null,
+                watchArguments = await WatchArgumentsAsync(resolution, csproj, options, null, cancellationToken,
                 [
                     $"CustomAfterMicrosoftCommonTargets={EscapeMSBuildProperty(launchTargets)}",
                     $"WinAppDevToolsWatchRunCommand={EscapeMSBuildProperty(winapp)}",
@@ -121,9 +121,19 @@ internal partial class RunCommand
 
         // dotnet watch gets the build's resolved inputs, not only what the user typed: the pinned framework of a
         // multi-targeted project, the injected Platform, the inferred publish profile and the CsWinRT metadata.
-        private static string WatchArguments(ProjectRunResolution resolution, FileInfo csproj, ProjectRunOptions options, string? appArgs,
-            IReadOnlyList<string>? launchProperties = null) =>
-            ProjectRunService.BuildWatchArguments(csproj, resolution.BuildOptions ?? options, appArgs, launchProperties, resolution.CsWinRTMetadata);
+        // It gets -r only when the project doesn't select that RID itself: with -r, dotnet watch can't map class
+        // libraries to their projects, so every library edit restarts the app.
+        private async Task<string> WatchArgumentsAsync(ProjectRunResolution resolution, FileInfo csproj, ProjectRunOptions options, string? appArgs,
+            CancellationToken cancellationToken, IReadOnlyList<string>? launchProperties = null)
+        {
+            var buildOptions = resolution.BuildOptions ?? options;
+            if (!buildOptions.OmitRuntimeIdentifier &&
+                await projectRunService.SelectsOwnRuntimeIdentifierAsync(csproj, buildOptions, resolution.CsWinRTMetadata, cancellationToken))
+            {
+                buildOptions = buildOptions with { OmitRuntimeIdentifier = true };
+            }
+            return ProjectRunService.BuildWatchArguments(csproj, buildOptions, appArgs, launchProperties, resolution.CsWinRTMetadata);
+        }
 
         /// <summary>Starts <c>dotnet watch</c> in this terminal and runs <paramref name="whileWatching"/> until it exits or Ctrl+C.</summary>
         private async Task<int> RunWatcherAsync(FileInfo csproj, string watchArguments, IReadOnlyDictionary<string, string?> environment,
