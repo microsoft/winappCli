@@ -66,6 +66,13 @@ int RunQueryTests()
     check(Compare(&row, {L"Visibility", L"==", L"Hidden"}).verdict == Verdict::Unevaluated, "unknown enum member refused");
     row.enumValues.clear(); row.type = L"Microsoft.UI.Xaml.Controls.StackPanel"; row.value = L"Save";
     check(Compare(&row, {L"Content", L"*=", L"Save"}).verdict == Verdict::Unevaluated, "object display text not scalar");
+    row.type = L"Microsoft.UI.Xaml.Media.SolidColorBrush"; row.value = L"#B3FFFFFF";
+    check(Compare(&row, {L"Background", L"==", L"#b3ffffff"}).verdict == Verdict::Match, "brush compares its color");
+    check(Compare(&row, {L"Background", L"!=", L"#FFF"}).verdict == Verdict::Match, "brush color literal is normalized");
+    check(Compare(&row, {L"Background", L"*=", L"FF"}).verdict == Verdict::Unevaluated, "brush color has no contains");
+    check(Compare(&row, {L"Background", L"==", L"White"}).verdict == Verdict::Unevaluated, "brush needs a hex color literal");
+    row.type = L"Microsoft.UI.Xaml.Media.LinearGradientBrush"; row.value = L"{LinearGradientBrush}";
+    check(Compare(&row, {L"Background", L"==", L"#B3FFFFFF"}).verdict == Verdict::Unevaluated, "non-solid brush not scalar");
     row.name = L"Text"; row.type = L"String"; row.value = L"Today";
     check(Match({row}, {{L"Text", L"==", L"Today"}, {L"Text", L"*=", L"day"}}).verdict == Verdict::Match, "AND both true");
     check(Match({row}, {{L"Text", L"==", L"Today"}, {L"Text", L"==", L"Upcoming"}}).verdict == Verdict::NoMatch, "AND false");
