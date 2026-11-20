@@ -127,10 +127,10 @@ extends:
     - stage: Build
       jobs:
       - job: Build
-        # NativeAOT for two architectures plus tests, all under CodeQL tracing on this Official
-        # template, took 149 minutes in Build CLI alone (November 2026). Signing and SDL binary
-        # analysis add another ~35 minutes after it on a release.
-        timeoutInMinutes: 240
+        # NativeAOT for two architectures, the DevTools engine, signing and SDL binary analysis.
+        # Tests run in the parallel jobs below. Under CodeQL tracing the build alone took ~95
+        # minutes in November 2026, so this leaves room.
+        timeoutInMinutes: 180
         pool:
           name: Azure-Pipelines-1ESPT-ExDShared
           # Match the VS 18 compiler that GitHub Actions uses; windows-latest still has VS 2022.
@@ -363,6 +363,57 @@ extends:
             inputs:
               path: '$(Build.ArtifactStagingDirectory)/mslearn-source'
               artifactName: mslearn-source
+
+      # The same stable build, unsigned, for the test lanes. It runs alongside Build so the tests
+      # don't wait for signing; 1ES uploads Build's artifacts only when that whole job ends.
+      - job: BuildForTests
+        displayName: Build for tests (unsigned)
+        timeoutInMinutes: 120
+        pool:
+          name: Azure-Pipelines-1ESPT-ExDShared
+          image: windows-2025
+          os: windows
+          hostArchitecture: amd64
+        templateContext:
+          sdl:
+            codeql:
+              compiled:
+                enabled: false
+                justificationForDisabling: Test-only rebuild of the same sources the Build job traces and ships.
+        steps:
+          - checkout: self
+          - template: ./.pipelines/templates/build-env.yaml@self
+          - task: PowerShell@2
+            displayName: Replace Stubbed Files
+            inputs:
+              filePath: '.pipelines/Unstub.ps1'
+              arguments: '-TelemetryProviderGuid "$(TelemetryProviderGuid)"'
+          - task: PowerShell@2
+            displayName: Build CLI and NuGet packages
+            env:
+              NPM_CONFIG_USERCONFIG: $(System.DefaultWorkingDirectory)\.npmrc
+            inputs:
+              pwsh: true
+              filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
+              arguments: -Stable -SkipTests -SkipDocs -SkipMsix -SkipNpm
+          - task: 1ES.PublishPipelineArtifact@1
+            displayName: Upload Artifact - CLI Binaries (unsigned, for tests)
+            inputs:
+              path: $(System.DefaultWorkingDirectory)\artifacts\cli
+              artifactName: test-cli-binaries
+          - task: 1ES.PublishPipelineArtifact@1
+            displayName: Upload Artifact - NuGet packages (unsigned, for tests)
+            inputs:
+              path: $(System.DefaultWorkingDirectory)\artifacts\nuget
+              artifactName: test-nuget-packages
+
+      - template: ./.pipelines/templates/test-jobs.yaml@self
+        parameters:
+          artifactsJob: BuildForTests
+          cliArtifact: test-cli-binaries
+          nugetArtifact: test-nuget-packages
+          unstub: true
+          disableCodeQL: true
 
     - stage: Release_GitHub
       displayName: Create GitHub Release

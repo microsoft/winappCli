@@ -36,9 +36,8 @@ extends:
     - stage: Build
       jobs:
       - job: Build
-        # Same build as the release pipeline. It runs 98-111 minutes here and has already
-        # exceeded 120 once, so it gets the same limit.
-        timeoutInMinutes: 240
+        # Builds and packages without running tests; the test lanes below run them in parallel.
+        timeoutInMinutes: 120
         pool:
           name: Azure-Pipelines-1ESPT-ExDShared
           # Match the VS 18 compiler that GitHub Actions uses; windows-latest still has VS 2022.
@@ -53,3 +52,6 @@ extends:
               stable: 'false'
               DoEsrp: false
               signingIdentity: {}
+      - template: ./.pipelines/templates/test-jobs.yaml@self
+        parameters:
+          artifactsJob: Build
