@@ -15,12 +15,17 @@ internal static class ReactorEventDecoder
     /// <summary>A component render begins as <c>ReactorRender:&lt;name&gt;</c>; its Stop carries only the ID.</summary>
     public const string Render = "ReactorRender";
     public const string Reconcile = "ReactorReconcile";
+    public const string Effects = "ReactorEffects";
+    /// <summary>A memo hit: the component's memo gate skipped its render (schema revision 3).</summary>
+    public const string Skip = "ReactorComponentSkip";
 
     private sealed record Schema(string EventName, string Name, byte Opcode, string[] Fields);
 
-    // Required fields are schema revision 1's. Revision 2 only appends fields (RenderPass Start requesterId,
-    // requesterName, requestCount; ComponentRender Start callSiteFile/Line/Column; Reconcile Stop edit counts),
-    // so they are read when present and older Reactor builds still decode.
+    // Required fields are schema revision 1's. Later revisions only append fields, so they are read when
+    // present and older Reactor builds still decode. Revision 2: RenderPass Start requesterId, requesterName,
+    // requestCount; ComponentRender Start callSiteFile/Line/Column; Reconcile Stop edit counts. Revision 3:
+    // ComponentRender Start memoMiss; ComponentRender Stop changes, ownStateSets; Effects Stop ownStateSets; and
+    // the ComponentSkip event.
     private static readonly Dictionary<ushort, Schema> Schemas = new()
     {
         [1] = new("RenderPass", RenderPass, 1, ["hostId"]),
@@ -29,12 +34,13 @@ internal static class ReactorEventDecoder
         [4] = new("ComponentRender", Render, 2, ["componentId"]),
         [5] = new("Reconcile", Reconcile, 1, ["entry", "element"]),
         [6] = new("Reconcile", Reconcile, 2, []),
-        [7] = new("Effects", "ReactorEffects", 1, ["componentId"]),
-        [8] = new("Effects", "ReactorEffects", 2, ["componentId"]),
+        [7] = new("Effects", Effects, 1, ["componentId"]),
+        [8] = new("Effects", Effects, 2, ["componentId"]),
         [9] = new("ChildReconcile", "ReactorChildReconcile", 1, ["oldCount", "newCount"]),
         [10] = new("ChildReconcile", "ReactorChildReconcile", 2, ["inserted", "removed", "moved", "replaced"]),
         [11] = new("StateChange", "ReactorStateChange", 0, ["componentId", "hook", "changed"]),
         [12] = new("KeyedListDiagnostic", "ReactorKeyedListDiagnostic", 0, ["kind", "bailedOut"]),
+        [13] = new("ComponentSkip", Skip, 0, ["componentId", "name"]),
     };
 
     public static PerfEvent? Decode(PerfRawEvent raw, string id, long origin, long frequency)
@@ -79,6 +85,21 @@ internal static class ReactorEventDecoder
     /// <summary>The component type name of a <see cref="Render"/> scope or call, or null for other names.</summary>
     public static string? ComponentName(string name) =>
         name.StartsWith(Render + ":", StringComparison.Ordinal) ? name[(Render.Length + 1)..] : null;
+
+    /// <summary>A recorded UInt32 field such as <c>changes</c> or <c>ownStateSets</c>, or null when this Reactor version did not write it.</summary>
+    public static int? Count(Dictionary<string, string>? fields, string key) =>
+        fields?.GetValueOrDefault(key) is { } value && int.TryParse(value, System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out var count) ? count : null;
+
+    /// <summary>A recorded Bool32 field such as <c>memoMiss</c>, or null when this Reactor version did not write it.</summary>
+    public static bool? Flag(Dictionary<string, string>? fields, string key) =>
+        fields?.GetValueOrDefault(key) switch
+        {
+            null => null,
+            "1" => true,
+            "0" => false,
+            var value => bool.TryParse(value, out var flag) ? flag : null,
+        };
 
     /// <summary>
     /// <c>File.cs:line</c> from a ComponentRender Start, or null when the app recorded no call site
