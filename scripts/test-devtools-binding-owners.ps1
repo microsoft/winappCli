@@ -153,14 +153,12 @@ function Invoke-Cli([string[]]$Arguments, [bool]$Success = $true, [bool]$MayExit
     $stdout = Join-Path $evidence "$script:sequence-stdout.json"
     $stderr = Join-Path $evidence "$script:sequence-stderr.txt"
     $clock = [Diagnostics.Stopwatch]::StartNew()
-    $diagnostic = $Arguments -contains '--verbose'
-    [string[]]$format = if ($diagnostic) { @() } else { @('--json') }
-    & $Cli @Arguments @format 1> $stdout 2> $stderr
+    & $Cli @Arguments --json 1> $stdout 2> $stderr
     $exit = $LASTEXITCODE
     $clock.Stop()
     [ordered]@{ arguments = $Arguments; milliseconds = $clock.ElapsedMilliseconds; exitCode = $exit } |
         ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidence "$script:sequence-call.json")
-    $result = if ($diagnostic) { Get-Content -LiteralPath $stdout -Raw } else { Get-Content -LiteralPath $stdout -Raw | ConvertFrom-Json }
+    $result = Get-Content -LiteralPath $stdout -Raw | ConvertFrom-Json
     $allowed = $AllowedError -and $exit -ne 0 -and (Get-Content -LiteralPath $stderr -Raw) -match "`"code`":`"$AllowedError`""
     if (($exit -eq 0) -ne $Success -and -not $allowed) {
         throw "Unexpected exit $exit from $($Arguments -join ' '): $(Get-Content -LiteralPath $stdout -Raw)"
@@ -612,7 +610,7 @@ try {
 
         # Comment status also shows on a second element.
         Enter-CommentMode
-        $null = Invoke-Cli @('ui', 'click', 'NarrowCommentProbe', '-w', $window, '--verbose')
+        $null = Invoke-Cli @('ui', 'click', 'NarrowCommentProbe', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', 'Owned unbound draft', '-a', $app)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--value', 'Owned unbound draft', '-t', '5000')
