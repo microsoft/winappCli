@@ -235,13 +235,19 @@ struct PriorLocalValue
     bool had = false;            // a local value was set
     bool restorable = true;      // false for a binding, which cannot be re-created from the chain
     InstanceHandle object = 0;   // an object value, by diagnostics handle
+    winrt::com_ptr<IInspectable> objectRef; // keeps the object alive: a failed resource write can release it
     std::wstring type, value;    // a literal value
     std::wstring owner;          // the property's declaring type, for the message
+    std::wstring prop;           // the property, for re-applying a resource
+    std::wstring themeResourceKey; // a ThemeResource DevTools assigned; restoring its resolved object would stop theme updates
 };
 
-static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx)
+static HRESULT ResolveResourceApply(InstanceHandle h, const std::wstring& prop, const std::wstring& resourceName, bool asTheme);
+
+static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx, const std::wstring& prop)
 {
     PriorLocalValue prior;
+    prior.prop = prop;
     unsigned int sc = 0, pc = 0;
     PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
     if (g_vts3 && SUCCEEDED(ReadPropChain(h, &sc, &s, &pc, &v)) && v) {
@@ -257,15 +263,30 @@ static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx)
         }
     }
     FreePropChain(sc, s, pc, v);
+    if (prior.object && g_diag) g_diag->GetIInspectableFromHandle(prior.object, prior.objectRef.put());
+    std::wstring kind, key;
+    if (prior.had && prior.restorable && TryAcquireSRWLockShared(&g_censusLock)) {
+        const unsigned long long wire = PackWire_nolock(h);
+        ReleaseSRWLockShared(&g_censusLock);
+        if (DevToolsBindingRow_LiveResource(wire, prop, &kind, &key) && kind == L"themeResource")
+            prior.themeResourceKey = key;
+    }
     return prior;
 }
 
 static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const PriorLocalValue& prior)
 {
     if (!prior.restorable || !WindowElementCurrent_ui(h)) return;
-    HRESULT hr = S_OK;
-    if (!prior.had) hr = g_vts3->ClearProperty(h, idx);
-    else if (prior.object) hr = g_vts3->SetProperty(h, prior.object, idx);
+    HRESULT hr = prior.themeResourceKey.empty() ? E_FAIL
+                                                : ResolveResourceApply(h, prior.prop, prior.themeResourceKey, true);
+    if (SUCCEEDED(hr)) {
+        // Re-applied the resource, so the property keeps following the theme.
+    } else if (!prior.had) hr = g_vts3->ClearProperty(h, idx);
+    else if (prior.object) {
+        InstanceHandle object = prior.object;
+        if (prior.objectRef) g_diag->GetHandleFromIInspectable(prior.objectRef.get(), &object);
+        hr = g_vts3->SetProperty(h, object, idx);
+    }
     else {
         BSTR tn = SysAllocString(prior.type.c_str()), vv = SysAllocString(prior.value.c_str());
         InstanceHandle valH = 0;
@@ -273,7 +294,8 @@ static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const Pri
         if (SUCCEEDED(hr) && valH) hr = g_vts3->SetProperty(h, valH, idx);
         SysFreeString(tn); SysFreeString(vv);
     }
-    Log(L"setprop: restored the previous value after a rejected write (hr=0x%08X)", hr);
+    Log(L"setprop: restored the previous value after a rejected write (hr=0x%08X had=%d object=%llu type='%s' resource='%s')",
+        hr, prior.had ? 1 : 0, prior.object, prior.type.c_str(), prior.themeResourceKey.c_str());
 }
 
 // Takes (and so clears) the error WinUI originated on this thread. Left in place, a later failure on this thread, for
@@ -301,7 +323,7 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
 #endif
     unsigned int idx = FindPropIndex(h, prop);
     if (idx == 0xFFFFFFFF) { Log(L"setprop: '%s' not found on %llu", prop.c_str(), h); return E_INVALIDARG; }
-    const PriorLocalValue prior = ReadPriorLocalValue(h, idx);
+    const PriorLocalValue prior = ReadPriorLocalValue(h, idx, prop);
     BSTR tn = SysAllocString(type.c_str()), vv = SysAllocString(value.c_str());
     InstanceHandle valH = 0;
     bool attempted = false;
@@ -501,7 +523,7 @@ static HRESULT AssignResource(InstanceHandle h, const std::wstring& prop, const 
                             L"its parents' resources, or the app's resources. " + prop + L" was not changed.";
         return kResourceNotInScope;
     }
-    const PriorLocalValue prior = ReadPriorLocalValue(h, idx);
+    const PriorLocalValue prior = ReadPriorLocalValue(h, idx, prop);
     const HRESULT hr = ResolveResourceApply(h, prop, key, asTheme);
     if (FAILED(hr)) {
         ClearOriginatedError();
