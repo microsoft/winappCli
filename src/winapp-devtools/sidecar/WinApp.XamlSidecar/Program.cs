@@ -109,6 +109,7 @@ internal sealed class Sidecar(string project, string pipeName, string rspArgumen
     public async Task<int> RunAsync()
     {
         _ = Task.Run(ServeAgentsAsync);
+        _ = Task.Run(WatchdogAsync);
         await StartCompilerAsync(firstTime: true).ConfigureAwait(false);
         if (Environment.GetEnvironmentVariable("WINAPP_XAML_SIDECAR_SELFTEST") is { Length: > 0 } selfTest)
         {
@@ -245,6 +246,7 @@ internal sealed class Sidecar(string project, string pipeName, string rspArgumen
         var xaml = files.Where(f => f.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase)).ToList();
         var cs = files.Where(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)).ToList();
         Log($"batch: {string.Join(", ", files.Select(Relative))}");
+        _lastSave = DateTime.UtcNow;
         if (cs.Count > 0)
         {
             _imageStale = true;
@@ -505,6 +507,85 @@ internal sealed class Sidecar(string project, string pipeName, string rspArgumen
         return null;
     }
 
+    // ---- watchdog (the rename freeze: dotnet watch's agent can block the app's UI thread forever) ----
+
+    private DateTime _lastPong = DateTime.UtcNow;
+    private DateTime _lastSave = DateTime.MinValue;
+    private volatile bool _stallReported;
+
+    /// <summary>
+    /// Pings the agent every second; it answers from the UI thread. No answer for 6 s within a minute of a save means the
+    /// UI thread is stuck in an update (a debugger pause or a long UI-thread task outside that window isn't counted).
+    /// dotnet watch waits for that update forever, so it's stopped and winapp starts it again.
+    /// </summary>
+    private async Task WatchdogAsync()
+    {
+        if (Environment.GetEnvironmentVariable("WINAPP_XAML_WATCHDOG_OFF") == "1")
+        {
+            return;
+        }
+        long id = 0;
+        while (true)
+        {
+            await Task.Delay(1000).ConfigureAwait(false);
+            if (_agent is null)
+            {
+                _lastPong = DateTime.UtcNow;
+                continue;
+            }
+            Send(new JsonObject { ["op"] = "ping", ["id"] = ++id });
+            var now = DateTime.UtcNow;
+            if (!_stallReported && now - _lastPong > TimeSpan.FromSeconds(6) && now - _lastSave < TimeSpan.FromSeconds(60))
+            {
+                _stallReported = true;
+                Say($"[watch] restart the app stopped responding after a hot reload update ({(now - _lastPong).TotalSeconds:0} s; a known .NET hot reload hang); restarting dotnet watch");
+                StopDotnetWatch();
+            }
+        }
+    }
+
+    private void StopDotnetWatch()
+    {
+        var host = int.TryParse(Environment.GetEnvironmentVariable("WINAPP_XAML_SIDECAR_HOST") ?? "", out var pid) ? pid : ParentProcessId(Environment.ProcessId);
+        foreach (var process in Process.GetProcessesByName("dotnet"))
+        {
+            if (process.Id != Environment.ProcessId && ParentProcessId(process.Id) == host)
+            {
+                Log($"watchdog: stopping dotnet watch (PID {process.Id})");
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                }
+            }
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(IntPtr process, int infoClass, ref ProcessBasicInformation info, int size, out int returned);
+
+    private struct ProcessBasicInformation
+    {
+        public IntPtr ExitStatus, PebBaseAddress, AffinityMask, BasePriority, UniqueProcessId, InheritedFromUniqueProcessId;
+    }
+
+    private static int ParentProcessId(int pid)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            var info = new ProcessBasicInformation();
+            return NtQueryInformationProcess(process.Handle, 0, ref info, System.Runtime.InteropServices.Marshal.SizeOf(info), out _) == 0
+                ? (int)info.InheritedFromUniqueProcessId : -1;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return -1;
+        }
+    }
+
     // ---- the in-app agent ----
 
     private async Task ServeAgentsAsync()
@@ -539,6 +620,9 @@ internal sealed class Sidecar(string project, string pipeName, string rspArgumen
                     case "applied":
                         _replies.TryRemove((int)message["id"]! + 100_000, out var done);
                         done?.TrySetResult(message);
+                        break;
+                    case "pong":
+                        _lastPong = DateTime.UtcNow;
                         break;
                     case "updated":
                         var types = message["types"]!.AsArray().Select(t => (string)t!).ToArray();
@@ -596,6 +680,8 @@ internal sealed class Sidecar(string project, string pipeName, string rspArgumen
 
     private async Task OnHelloAsync(JsonObject message, StreamWriter writer)
     {
+        _lastPong = DateTime.UtcNow;
+        _stallReported = false;
         var restarted = Interlocked.Increment(ref _hellos) > 1;
         _csSaved = null;
         _csTimer?.Dispose();

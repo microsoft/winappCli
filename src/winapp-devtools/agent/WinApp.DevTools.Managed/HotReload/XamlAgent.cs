@@ -167,6 +167,11 @@ internal static class XamlAgent
     {
         switch ((string?)message["op"])
         {
+            case "ping":
+                // Watchdog: answered from the UI thread, so a UI thread stuck in an update handler never answers.
+                var ping = (long)message["id"]!;
+                FindDispatcher()?.TryEnqueue(() => Send(new JsonObject { ["op"] = "pong", ["id"] = ping }));
+                break;
             case "markup":
                 var pending = new Pending { Id = (int)message["id"]! };
                 foreach (var item in message["items"]!.AsArray())
