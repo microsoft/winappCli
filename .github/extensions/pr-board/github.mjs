@@ -492,6 +492,72 @@ export async function fetchBranchCompare(repo, base, branch, commentShas = []) {
     };
 }
 
+// ---- Code tab: a PR's diff, and the code an issue refers to ------------------------------------------
+
+// The PR's changed files with their patches (the first 100 files).
+export async function fetchPrFiles(repo, number) {
+    const files = JSON.parse(await gh(["api", `repos/${repo}/pulls/${number}/files?per_page=100`], { timeoutMs: 60000 }));
+    return {
+        files: files.map((f) => ({ path: f.filename, previous: f.previous_filename || null, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch ?? null, url: f.blob_url || null })),
+        truncated: files.length >= 100,
+        fetchedAt: new Date().toISOString(),
+    };
+}
+
+// File paths (with optional lines) mentioned in text: GitHub links to this repo's files, and paths such as
+// src/app/Main.cs, src/app/Main.cs:12, src/app/Main.cs:12-20 or src/app/Main.cs#L12-L20.
+export function codeRefsIn(text, repo) {
+    const refs = new Map();
+    const add = (path, start, end) => {
+        path = String(path || "").replace(/^\.?\//, "").replace(/[).,;:]+$/, "");
+        if (!path || refs.has(path) || refs.size >= 12) return;
+        refs.set(path, { path, start: start ? Number(start) : null, end: end ? Number(end) : start ? Number(start) : null });
+    };
+    const blob = new RegExp(`https://github\\.com/${repo.replace(/\./g, "\\.")}/blob/[^/\\s]+/([^\\s#)\\]>]+)(?:#L(\\d+)(?:-L(\\d+))?)?`, "gi");
+    for (const m of String(text).matchAll(blob)) add(decodeURIComponent(m[1]), m[2], m[3]);
+    const plain = String(text).replace(/https?:\/\/\S+/g, " ");
+    for (const m of plain.matchAll(/(?:^|[\s`'"(\[])((?:[\w.-]+\/)+[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,7})(?:(?::|#L)(\d+)(?:-L?(\d+))?)?/g)) add(m[1], m[2], m[3]);
+    return [...refs.values()];
+}
+
+const STOP_WORDS = new Set("that this with when from have does into after before about while your what which there their they them then than also just only some more most very will would should could cannot doesn isn using used uses fail fails failed error errors issue when bug".split(" "));
+// A few distinctive words for a GitHub code search: `code` spans from the body first, then words from the title.
+export function searchTerms(title, body) {
+    const ticks = [...String(body || "").matchAll(/`([A-Za-z_][\w.]{3,40})`/g)].map((m) => m[1]).filter((t) => !t.includes("/"));
+    const words = String(title || "").split(/[^A-Za-z0-9_.-]+/).filter((w) => w.length >= 4 && !STOP_WORDS.has(w.toLowerCase()));
+    return [...new Set([...ticks.slice(0, 2), ...words])].slice(0, 4);
+}
+
+// The code an issue points at, read-only: paths and lines from the issue and its comments, then the files of
+// its PRs. Each file is read from the default branch; a path that isn't there is listed as not found.
+export async function fetchCodeRefs(repo, number, { prs = [], branch = "main" } = {}) {
+    const issue = JSON.parse(await gh(["issue", "view", String(number), "-R", repo, "--json", "title,body,comments"]));
+    const text = [issue.body || "", ...(issue.comments || []).map((m) => m.body || "")].join("\n");
+    const refs = codeRefsIn(text, repo).map((r) => ({ ...r, from: "the issue" }));
+    for (const n of prs.slice(0, 2)) {
+        try {
+            const d = JSON.parse(await gh(["pr", "view", String(n), "-R", repo, "--json", "files"]));
+            for (const f of (d.files || []).slice(0, 10)) if (!refs.some((r) => r.path === f.path)) refs.push({ path: f.path, start: null, end: null, from: `PR #${n}` });
+        } catch { /* the PR is gone */ }
+    }
+    const out = [];
+    for (const r of refs.slice(0, 10)) {
+        let lines = null, exists = true, total = 0;
+        try {
+            const raw = await gh(["api", `repos/${repo}/contents/${r.path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(branch)}`, "-H", "Accept: application/vnd.github.raw"]);
+            const all = String(raw).split("\n");
+            total = all.length;
+            const from = r.start ? Math.max(1, r.start - 3) : 1;
+            const to = r.start ? Math.min(all.length, (r.end || r.start) + 3) : Math.min(all.length, 40);
+            lines = all.slice(from - 1, to).map((t, i) => ({ n: from + i, text: t.slice(0, 400), hit: !!r.start && from + i >= r.start && from + i <= (r.end || r.start) }));
+        } catch { exists = false; }
+        const anchor = r.start ? `#L${r.start}${r.end && r.end !== r.start ? `-L${r.end}` : ""}` : "";
+        out.push({ ...r, exists, total, lines, url: `https://github.com/${repo}/blob/${branch}/${r.path}${anchor}` });
+    }
+    const terms = searchTerms(issue.title, issue.body);
+    return { refs: out, branch, terms, searchUrl: `https://github.com/search?q=${encodeURIComponent(`repo:${repo} ${terms.join(" ")}`)}&type=code`, fetchedAt: new Date().toISOString() };
+}
+
 // First real sentence of a PR description: no template comments, headings, images or HTML.
 export function fallbackSummary(body) {
     const text = String(body || "")

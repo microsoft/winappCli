@@ -104,63 +104,63 @@ moves to Merged together. An issue with no PR yet keeps its own row, showing
 stays under Yours for two days after it closes.
 
 At the bottom, collapsed: **Merged today**, then **Removed from the board**.
-### Opening an item: peek or expand
+### Opening an item
 
-Click anywhere on a row to open the item over the list. The list stays exactly
-as it was underneath, dimmed. Each row also shows its first quick command as a
-button (for example **What changed?** on a PR you need to re-review); hover the
-row to see two more, or click **⋯**. Links and buttons inside a row do their own
-thing.
+Click anywhere on a row to open the item in a large sheet over the list. The
+list stays exactly as it was underneath, dimmed around the sheet's edges. Each
+row also shows its first quick command as a button (for example **What
+changed?** on a PR you need to re-review); hover the row to see two more, or
+click **⋯**. Links and buttons inside a row do their own thing.
 
 ```text
-┌ Overview (dimmed) ───────────┬ PR #1350          ‹ 7/24 ›  ↗  ⤢ Expand ⋯ ✕ ┐
-│ Your move                    │ Reject malformed element handles…           │
-│  PR #1322 Refuse --devtools… │ Summary   GitHub                            │
-│ Reviewing                    │ …                                           │
-│  PR #1350 Reject malformed…  │ [Ready for you  Request reviewer ▾  Done]   │
-│                              │ [Ask a question or give direction…]  Send   │
-└──────────────────────────────┴─────────────────────────────────────────────┘
+┌ PR #1350 Reject malformed element handles…     ‹ 7/24 ›  ↗  ⋯  ✕ ┐
+│ Story  Architecture  Code  Review  GitHub      ┃ Thread  3        │
+│                                                ┃ You · 10:02      │
+│ 1. What this is                                ┃ What's left?     │
+│ 2. What changed                                ┃ Agent · 10:04    │
+│ …                                              ┃ Only one finding │
+│                                                ┃ [Approve…  Done] │
+│                                                ┃ [Ask…]     Send  │
+└────────────────────────────────────────────────┸──────────────────┘
 ```
 
-- **Peek** is the panel on the right, for a quick look.
-- **Expand** (**⤢**, the `E` key, or drag the panel's left edge) grows it into
-  a large sheet with the full workspace (see [The workspace](#the-workspace)).
-  The list stays visible, dimmed, around its edges. In a panel narrower than
-  about 700px, the sheet fills the width and has **← Back**. **⤡** goes back to
-  peek. The board remembers which one you used last.
+- **The thread is always visible.** The tabs are on the left; your
+  conversation with the agent is a column on the right, with your move (for
+  example **Request reviewer ▾**, **Fix**, or the agent's choices) and the
+  message box at its bottom. Drag the line between them to resize the thread
+  (300px up to half the sheet); the board remembers the width.
+  - In a medium panel (about 800–1100px), **›** collapses the thread to a slim
+    rail that shows the message count and an unread dot. Click the rail to bring
+    it back. The board remembers your choice. While the thread is a rail, your
+    move sits under the tabs.
+  - In a narrow panel (under about 800px), the sheet fills the width and has
+    **← Back**. The thread is a drawer under the tabs: click **Thread** to open
+    or close it. The message box is always visible.
 - **Close** with Esc, ✕, or a click on the dimmed list. You're back on the list
   with the same scroll position and the same row selected. A drag or text
-  selection that starts inside the panel never closes it.
+  selection that starts inside the sheet never closes it.
 - **‹ 7/24 ›** (or `J` and `K`) moves to the next or previous item in the list
   or filter you opened it from, without closing.
-- What you type in the message box is kept per item. Close the panel or move
+- What you type in the message box is kept per item. Close the sheet or move
   to another item, and it's still there when you come back.
-- The move that's yours (for example **Request reviewer ▾**, **Fix**, or the
-  agent's choices) is pinned just above the message box, so it's always in
-  reach.
 
-The peek panel has two tabs, and remembers the last one you used. An issue whose fix is on a branch also gets **Changes** (see [Reviewing a branch before there's a PR](#reviewing-a-branch-before-theres-a-pr)).
-
-- **Summary:** the move, quick commands, the plain-words explanation, and the
-  item's thread. Type a question and the agent answers there, without starting a
-  new session.
-- **GitHub:** the PR or issue exactly as GitHub shows it, read-only. The header
-  has the state, author, `head` → `base`, labels, assignees, requested reviewers
-  and linked issues or PRs. Then the description, every check with a **Details**
-  link to its log, and the full timeline, oldest first: comments, reviews with
-  their inline threads (file and line, the diff lines, replies, Resolved and
-  Outdated), commits, labels, review requests, force-pushes and merge-queue
-  events. Links open in a new tab.
-
-The message box stays at the bottom on both tabs. Its **⋯** menu has:
+The header has the item's move (Done, Snooze), its quick commands, chips for the
+linked session, the pr-review result, **Watching** and **Fixes Issue #n**, and
+the **⋯** menu:
 
 - **Track under Reviewing** (PRs in Everything else): keeps the PR in your
   Reviewing list. It doesn't run a review or change anything on GitHub.
   **Stop tracking** takes it out again.
+- **Get it ready & keep it ready** or **Stop keeping it ready** (your PRs).
 - **Mark as read**, when there's an unread reply.
 - **Remove from board**: hides the PR or issue on this board only. Find it again
   under **Removed from the board** at the bottom of the Overview.
+- **Pin to top**, **Open full chat** and **Reset agent status** (PRs).
 
+An issue's sheet has three tabs: **Summary** (what changed since you last
+looked, the plain-words explanation, and where it is), **Code** (see
+[The Code tab](#the-code-tab)) and **GitHub**. A PR's tabs are described in
+[The workspace](#the-workspace).
 | Row | Quick commands |
 |-----|----------------|
 | Yours | Status update, Turn on/off monitoring, Summarize, Ask |
@@ -168,12 +168,12 @@ The message box stays at the bottom on both tabs. Its **⋯** menu has:
 | Reviewing | **What changed since my review?** lists the commits and files changed since the commit you reviewed (read from GitHub right away), then asks the agent for a plain summary in the thread. Also Summarize the author's replies, Re-run review |
 | Everything else | **Review** runs `.github/skills/pr-review` in a session and drafts findings for you to post; it also moves the PR to Reviewing. Also Quick question, Summarize |
 
-The ↗ icon on every row and in the panel's header opens the PR or issue on
+The ↗ icon on every row and in the sheet's header opens the PR or issue on
 GitHub in a new tab in the app.
 
 ### Explain like I'm 5
 
-The top of every peek panel and every PR's Story tab has two plain-language
+The top of every issue's Summary tab and every PR's Story tab has two plain-language
 sections the agent writes for you:
 
 - **Explain like I'm 5:** what the feature is, the problem or change with a
@@ -191,7 +191,7 @@ review, or when an answer in the thread changes the picture.
 
 ### Unread replies
 
-You can ask something, close the panel, and keep going. Until the answer
+You can ask something, close the sheet, and keep going. Until the answer
 arrives, the row shows **Replying…**. When it arrives, the row gets a blue dot
 and a **New reply** chip:
 
@@ -202,9 +202,9 @@ and a **New reply** chip:
 
 The **Unread 2** chip at the top shows only those rows, and **Mark all read**
 clears them. A new draft or structured review also counts as a reply. Opening
-the item, or the PR's Story, Review or Thread tab, marks it read. The peek panel
-opens at the top; the Thread tab scrolls to a **New** line above the first unread
-message. The canvas title shows
+the item marks it read while its thread is on screen (not while it's a rail or a
+closed drawer). The tabs open at the top; the thread scrolls to a **New** line
+above the first unread message. The canvas title shows
 the count, for example `(2) PR board`. Read state is saved per PR and issue in
 the board's state file.
 
@@ -301,8 +301,7 @@ you send it.
 ## Getting your PR ready for human review
 
 Your PRs (you wrote them, or a session here works on them as the author) get a
-**Ready for human review?** checklist at the top of the peek panel's Summary and the
-expanded Story tab, read live from GitHub and following `.github/skills/pr-lifecycle`.
+**Ready for human review?** checklist on the Story tab, read live from GitHub and following `.github/skills/pr-lifecycle`.
 
 **Get it ready & keep it ready** is one switch. It asks the agent to run
 pr-lifecycle in the PR's session (or open one), including pr-review and fixing the
@@ -375,14 +374,35 @@ A real decision for you, such as a choice that isn't about reviewers, still show
 as your move. A row never shows *Needs your decision* next to a spinner; if the
 agent is also working on it, the row says so in grey.
 
+## The Code tab
+
+Every item has a **Code** tab, even an issue with no PR:
+
+| The item | The Code tab shows |
+|----------|--------------------|
+| A PR | Its diff against the base branch, read-only |
+| An issue whose fix is on a branch | The branch against `main`, where you can comment privately (see below) |
+| An issue with no branch | The code the issue mentions: file paths and line ranges in the issue and its comments, and files of linked PRs, read from the default branch with the lines highlighted and a link to GitHub |
+
+```text
+src/icons/render.js:3–4                       from the issue  ↗
+  3  const ratio = window.devicePixelRatio;     ← highlighted
+  4  draw(icon, ratio);                          ← highlighted
+docs/old/notes.md                             Not found on main
+Search the code on GitHub for "icons blurry"
+```
+
+When the issue mentions no files, the tab links to a GitHub code search for
+the issue's key words. When a session later pushes a branch for the issue, the
+tab switches to the branch.
+
 ## Reviewing a branch before there's a PR
 
 When a session here works on an issue, its fix sits on a branch before anyone
 opens a PR. You can review that branch privately on the board, the way you'd
 review a PR, without anything showing up on GitHub.
 
-The issue's panel, peeked or expanded, gets a **Changes**
-tab. It shows the branch against `main`: how far ahead and behind it is, a
+The issue's **Code** tab shows the branch. It shows the branch against `main`: how far ahead and behind it is, a
 **Compare on GitHub** link, the commits, and every file's diff.
 
 ```text
@@ -412,9 +432,9 @@ M scripts/test-e2e-winui-ui.ps1                       💬1  +33 −0
 
 ## The workspace
 
-The expanded sheet holds everything about one item. It opens on the tab that
-matters for whose move it is: **Review** when there are findings to decide or a
-review to post, **Thread** while an agent works, and **Story** otherwise.
+The sheet holds everything about one item. It opens on the tab that matters for
+whose move it is: **Review** when there are findings to decide or a review to
+post, and **Story** otherwise. The thread is always beside it.
 
 **Story** reads top to bottom in five steps:
 
@@ -434,19 +454,18 @@ top, Open on GitHub, and Reset agent status. Tabs:
 |-----|-------|
 | Story | The five steps above, then **More**: next steps, status (who's next, CI, reviews, merge queue, agent, session, size, labels), and the PR description. GitHub events are under **Timeline** |
 | Architecture | Diagrams of what the PR touches. Green is new, orange is changed, red dashed is removed. A number on a box counts its findings. Click a box to see its files, its findings, and **Ask about this** |
-| Changes | By system: each area the PR touches, with one plain line and +/− counts. By file: one plain line per file. Without a review it lists the files with +/− counts |
+| Code | By system: each area the PR touches, with one plain line and +/− counts. By file: one plain line per file. Below that, the diff against the base branch, read-only, with a link to each file on GitHub |
 | Review | The findings, most severe first, each with what's wrong, the suggested fix, and the file and lines. Mark each one **Post**, **Ignore** or **Undecided**, and add a note. **Explain** asks the agent to explain the finding in plain words; the answer appears under it |
-| GitHub | The PR as GitHub shows it, the same view as the peek panel's **GitHub** tab |
-| Thread | Your conversation with the agent about this PR |
+| GitHub | The PR exactly as GitHub shows it, read-only: state, author, `head` → `base`, labels, reviewers, linked issues, the description, every check with a **Details** link, and the full timeline (comments, reviews with their inline threads, commits, force-pushes, merge-queue events). Links open in a new tab |
 
-Until a review has run, Architecture, Changes and Review offer **Review this
+Until a review has run, Architecture and Review offer **Review this
 PR**.
 
-The message box at the bottom works from any tab. Type a question or a
+The message box under the thread works from any tab. Type a question or a
 direction and press Enter, for example `What's still blocking this?` or
 `Explain the risky part in simple terms`. **Ask about this** on a finding,
 diagram box, system or file fills it in with a question about that item. The
-agent in the session that opened the board answers in the Thread tab, or
+agent in the session that opened the board answers in the thread, or
 forwards the question to the PR's own session and posts the answer when it comes
 back.
 
@@ -465,12 +484,13 @@ appear word by word.
 
 A reply can link to a spot in the workspace. The agent writes an anchor in its
 `pr_board_reply` text, and the board shows it as a chip. Clicking the chip
-opens the right tab, scrolls to the spot, and highlights it.
+opens the right tab on the left, scrolls to the spot, and highlights it. The
+thread stays where it is.
 
 | Anchor | Goes to |
 |--------|---------|
 | `[[finding:f1]]` | Finding f1 on the Review tab |
-| `[[file:src/a.cs#L12-L20]]` | Those lines on the Changes tab |
+| `[[file:src/a.cs#L12-L20]]` | Those lines on the Code tab |
 | `[[node:diagramId/nodeId]]` | A box on the Architecture tab |
 | `[[gate:ci]]` | A readiness check (`copilot`, `review`, `discussion`, `ci`, `uptodate`, `description`, `label`) |
 | `[[thread:r4622965814]]` | A GitHub review thread on the GitHub tab |
@@ -634,15 +654,15 @@ Run the UI tests from this folder before every push:
 
 ```powershell
 node test/ui.mjs                # every offline test, about four minutes
-node test/ui.mjs --grep "peek|layer"  # only tests whose name contains "peek" or "layer"
+node test/ui.mjs --grep "sheet|layer"  # only tests whose name contains "sheet" or "layer"
 node test/ui.mjs --live         # read-only smoke test of your real board
 ```
 
 ```text
-  ✓ peek: a drag or text selection that ends on the list doesn't close it (1289ms)
+  ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-61 passed, 0 failed, 61 total (220s)
+77 passed, 0 failed, 77 total (258s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

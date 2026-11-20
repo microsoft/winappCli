@@ -22,19 +22,19 @@ export function register(test) {
         assert.deepEqual(r.filter((x) => x.spin && /Needs your decision/.test(x.text)).map((x) => x.n), []);
     });
 
-    test("live: open the first PR, expand it, read its GitHub tab, and come back", async ({ page, shot }) => {
+    test("live: open the first PR, read its GitHub tab beside the thread, and come back", async ({ page, shot }) => {
         const n = await page.eval(`document.querySelector('#overview .ov-sec .ov-title[data-kind="pr"]')?.dataset.pr`);
         assert.ok(n, "no PR rows");
         await page.click(`#overview .ov-sec .ov-title[data-kind="pr"][data-pr="${n}"]`);
-        await page.waitFor(`!!document.querySelector('#flyHost .fly')`, 3000, "the panel");
-        await new Promise((r) => setTimeout(r, 400));
-        assert.equal(await page.eval(`document.querySelector('#flyHost .fly-body').scrollTop`), 0, "opened scrolled down");
-        await page.click('#flyHost [data-act="fly-tab"][data-tab="github"]');
-        await page.waitFor(`!!document.querySelector('#flyHost .fly-body .gh-card, #flyHost .fly-body .gh-head, #flyHost .fly-body .gh-tl')`, 30000, "the GitHub view");
-        await shot("live-github-tab");
-        await page.key("e");
         await page.waitFor(`document.body.classList.contains('sheet')`, 3000, "the sheet");
+        await new Promise((r) => setTimeout(r, 400));
+        assert.equal(await page.eval(`document.getElementById('wsScroll').scrollTop`), 0, "opened scrolled down");
         await shot("live-sheet");
+        await page.click('#wsHead [data-act="tab"][data-tab="github"]');
+        await page.waitFor(`!!document.querySelector('#wsScroll .gh-card, #wsScroll .gh-head, #wsScroll .gh-tl')`, 30000, "the GitHub view");
+        assert.equal(await page.eval(`!!document.getElementById('tCol').offsetParent`), true, "the thread column");
+        await shot("live-github-tab");
+        await page.eval(`document.activeElement?.blur()`);
         await page.key("Escape");
         await page.waitFor(`!document.body.classList.contains('sheet')`, 3000, "back to the list");
     });

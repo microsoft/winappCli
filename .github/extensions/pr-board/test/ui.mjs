@@ -46,6 +46,8 @@ for (const t of selected) {
         board.host.sends.length = 0;
         board.host.sendError = null;
         page.clear();
+        // A test that clicks a link which opens a new tab leaves this page in the background, where timers slow down.
+        await page.send("Page.bringToFront");
         await page.size(t.width || 1040, t.height || 1000);
         await page.send("Page.navigate", { url: "about:blank" });
         await page.goto(board.url);
@@ -54,6 +56,7 @@ for (const t of selected) {
         await page.theme(t.theme || "light");
         const ctx = { page, board, world: board.world, host: board.host, origin, shot: async (name) => writeFileSync(join(OUT, "screens", `${name}.png`), await page.screenshot()) };
         await t.fn(ctx);
+        if (await page.eval(`document.visibilityState`) !== "visible") throw new Error("The board went to the background: something opened a new tab (a click landed on a link?)");
         if (page.problems.length) throw new Error(`The page reported problems:\n  ${page.problems.join("\n  ")}`);
         if (board.world?.unmocked.length) throw new Error(`Unmocked GitHub calls:\n  ${board.world.unmocked.map((a) => "gh " + a.join(" ").slice(0, 140)).join("\n  ")}`);
         if (board.world?.mutations.length && !t.allowMutations) throw new Error(`The board tried to write to GitHub:\n  ${board.world.mutations.map((a) => "gh " + a.join(" ").slice(0, 140)).join("\n  ")}`);

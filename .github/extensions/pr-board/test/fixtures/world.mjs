@@ -50,10 +50,11 @@ export function createWorld({ now = Date.now() } = {}) {
     const queue = [{ position: 1, state: "AWAITING_CHECKS", enqueuedAt: ago(8), pullRequest: { number: 106 } }];
     const issues = {
         201: { number: 201, title: "Uploads of empty files fail", author: { login: "frank" }, state: "OPEN", closedByPullRequestsReferences: [{ number: 108, repository: { name: "widgets", owner: { login: "contoso" } } }], assignees: [{ login: VIEWER }], labels: [{ name: "bug" }], created: 3000, updated: 200 },
-        202: { number: 202, title: "Dark mode icons are blurry", author: { login: "gina" }, state: "OPEN", closedByPullRequestsReferences: [], assignees: [{ login: VIEWER }], labels: [], created: 5000, updated: 400 },
+        202: { number: 202, title: "Dark mode icons are blurry", author: { login: "gina" }, state: "OPEN", closedByPullRequestsReferences: [], assignees: [{ login: VIEWER }], labels: [], created: 5000, updated: 400,
+            body: "The icons drawn in `src/icons/render.js:3-4` look blurry in dark mode. The colors come from https://github.com/contoso/widgets/blob/main/src/theme/dark.css#L2, and docs/old/notes.md says it was fixed once." },
         203: { number: 203, title: "Settings don't persist after restart", author: { login: "hank" }, state: "OPEN", closedByPullRequestsReferences: [], assignees: [], labels: [{ name: "bug" }], created: 4000, updated: 300 },
     };
-    const issueJson = (i) => ({ number: i.number, title: i.title, url: url("issues", i.number), state: i.state, updatedAt: ago(i.updated), createdAt: ago(i.created), closedAt: null, author: i.author, labels: i.labels, assignees: i.assignees, closedByPullRequestsReferences: i.closedByPullRequestsReferences, comments: i.comments || [] });
+    const issueJson = (i) => ({ number: i.number, title: i.title, url: url("issues", i.number), state: i.state, updatedAt: ago(i.updated), createdAt: ago(i.created), closedAt: null, author: i.author, labels: i.labels, assignees: i.assignees, closedByPullRequestsReferences: i.closedByPullRequestsReferences, comments: i.comments || [], body: i.body || "" });
 
     const listJson = (p) => ({
         number: p.number, title: p.title, url: url("pull", p.number), author: { login: p.author, is_bot: false }, isDraft: p.isDraft, additions: 40, deletions: 12, changedFiles: 3,
@@ -107,6 +108,11 @@ export function createWorld({ now = Date.now() } = {}) {
     const world = {
         now, prs, merged, queue, issues, viewer: VIEWER,
         mutations: [], unmocked: [], calls: 0,
+        // Files on main, for the Code tab of an issue with no branch.
+        files: {
+            "src/icons/render.js": ["import { theme } from \"../theme\";", "export function draw(icon) {", "  const scale = window.devicePixelRatio;", "  return icon.render({ scale: Math.round(scale) });", "}", "export const SIZE = 16;"].join("\n"),
+            "src/theme/dark.css": [":root {", "  --icon: #c9d1d9;", "}"].join("\n"),
+        },
         fault: null, // { match(args) -> bool, error?: string, delayMs?: number }
         // Someone comments on an issue, or on a PR's conversation.
         comment(n, login, body) {
@@ -179,6 +185,15 @@ export function createWorld({ now = Date.now() } = {}) {
             if (a === `api repos/${REPO}/compare/main...fix-203-settings`) return branchCompare;
             if (a.startsWith(`api repos/${REPO}/compare/ffffffff`)) throw new Error("HTTP 404: No common ancestor (the commit is gone)");
             if (a.startsWith(`api repos/${REPO}/compare/`)) return { status: "ahead", ahead_by: 1, commits: [{ sha: "c".repeat(40), author: { login: "bob" }, commit: { message: "Address review", author: { date: ago(30) } } }], files: [{ filename: "src/auth.js", status: "modified", additions: 5, deletions: 2 }] };
+            if (new RegExp(`^api repos/${REPO}/pulls/\\d+/files\\?per_page=100$`).test(a)) return [
+                { filename: "src/main.js", status: "modified", additions: 3, deletions: 1, blob_url: `https://github.com/${REPO}/blob/x/src/main.js`, patch: "@@ -1,4 +1,6 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n+// done\n const d = 5;" },
+                { filename: "assets/logo.png", status: "added", additions: 0, deletions: 0, blob_url: `https://github.com/${REPO}/blob/x/assets/logo.png` },
+            ];
+            if (a.startsWith(`api repos/${REPO}/contents/`)) {
+                const path = decodeURIComponent(a.slice(`api repos/${REPO}/contents/`.length).split("?")[0]);
+                if (world.files[path] === undefined) throw new Error("HTTP 404: Not Found");
+                return world.files[path];
+            }
             const pullRe = new RegExp(`^api repos/${REPO}/pulls/(\\d+)(/reviews\\?per_page=100)?$`);
             if (pullRe.test(a)) { const [, num, revs] = a.match(pullRe); return revs ? [{ user: { login: VIEWER }, commit_id: sha(Number(num), "r"), submitted_at: ago(200) }] : { head: { sha: HEAD[Number(num)] } }; }
             if (a.startsWith("api graphql")) {

@@ -12,24 +12,31 @@ const J = JSON.stringify;
 const rows = (page) => page.eval(`[...document.querySelectorAll('#overview .ov-sec')].flatMap((s) => [...s.querySelectorAll('.ov-row')].map((r) => { const t = r.querySelector('.ov-title'); return { sec: s.id.replace('sec-', ''), kind: t.dataset.kind, n: Number(t.dataset.pr), text: r.innerText.replace(/\\s+/g, ' '), unread: !!r.querySelector('.unread-dot'), spin: !!r.querySelector('svg.spin') }; }))`);
 const ymCards = (page) => page.eval(`[...document.querySelectorAll('#overview .ym-card')].map((c) => ({ n: Number(c.querySelector('.ov-title').dataset.pr), kind: c.querySelector('.ov-title').dataset.kind, text: c.innerText.replace(/\\s+/g, ' ') }))`);
 const rowText = async (page, n, kind = "pr") => (await rows(page)).find((r) => r.n === n && r.kind === kind)?.text || null;
-const flyOpen = (page) => page.eval(`!!document.querySelector('#flyHost .fly')`);
 const sheetOpen = (page) => page.eval(`document.body.classList.contains('sheet')`);
 const text = (page, sel) => page.eval(`(document.querySelector(${J(sel)})?.innerText || '').replace(/\\s+/g, ' ').trim()`);
 const exists = (page, sel) => page.eval(`!!document.querySelector(${J(sel)})`);
 
 async function openRow(page, n, kind = "pr") {
     await page.click(`#overview .ov-sec .ov-title[data-kind="${kind}"][data-pr="${n}"]`);
-    await page.waitFor(`!!document.querySelector('#flyHost .fly') || document.body.classList.contains('sheet')`, 3000, `#${n} to open`);
+    await page.waitFor(`document.body.classList.contains('sheet')`, 3000, `#${n} to open`);
     await sleep(400); // the backdrop ignores clicks for 350ms after opening
 }
 // A board update from the server, like the agent replying somewhere else.
 const poke = (ctx, n = 103) => ctx.board.tool("pr_board_set_summary", { repo: REPO, pr: n, summary: `Summary ${Date.now()}`, nextSteps: [], risk: "low" });
 const state = (ctx) => JSON.parse(fs.readFileSync(ctx.board.stateFile, "utf8"));
-const backdrop = async (page) => {
-    // A point on the dimmed list: the left edge for the drawer, the top margin for the sheet.
-    const sheet = await sheetOpen(page);
-    return sheet ? { x: 520, y: 12 } : { x: 60, y: 500 };
-};
+// A point on the dimmed list: the sheet's top margin.
+const backdrop = async () => ({ x: 520, y: 12 });
+// Close the sheet the way a user does: Esc (from outside the message box, which keeps Esc for itself).
+// An open menu takes the first Esc.
+async function closeSheet(page) {
+    await page.eval(`document.activeElement?.blur()`);
+    for (let i = 0; i < 3 && (await sheetOpen(page)); i++) { await page.key("Escape"); await sleep(80); }
+    await page.waitFor(`!document.body.classList.contains('sheet')`, 3000, "the sheet to close");
+}
+async function tabTo(page, id) {
+    await page.click(`#wsHead [data-act="tab"][data-tab="${id}"]`);
+    await page.waitFor(`document.querySelector('#wsHead [data-act="tab"][data-tab="${id}"]')?.getAttribute('aria-selected') === 'true'`, 3000, `the ${id} tab`);
+}
 
 export function register(test) {
     // ---- Overview, in both themes and both widths ----------------------------------------------------
@@ -53,12 +60,9 @@ export function register(test) {
             await ctx.shot(`overview-${theme}-${width}`);
         }, { theme, width });
 
-        test(`peek and expand render cleanly (${theme}, ${width}px)`, async (ctx) => {
+        test(`the sheet renders cleanly (${theme}, ${width}px)`, async (ctx) => {
             const { page } = ctx;
             await openRow(page, 102);
-            await ctx.shot(`peek-${theme}-${width}`);
-            await page.key("e");
-            await page.waitFor(`document.body.classList.contains('sheet')`, 2000, "the sheet");
             await ctx.shot(`sheet-${theme}-${width}`);
             assert.equal(await page.eval(`document.documentElement.scrollWidth <= innerWidth + 1`), true, "the sheet scrolls sideways");
             if (width < 700) assert.equal(await page.eval(`getComputedStyle(document.querySelector('#wsHead .sheet-bar .back')).display !== 'none'`), true, "narrow sheet shows Back");
@@ -84,11 +88,6 @@ export function register(test) {
 
     test("regression: a requested reviewer shows as 'Waiting on zed', not 'Needs reviewer'", async ({ page }) => {
         await openRow(page, 101);
-        const head = await text(page, "#flyHost .fly-head");
-        assert.doesNotMatch(head, /Needs reviewer/);
-        assert.match(head, /Waiting on zed/);
-        await page.key("e");
-        await page.waitFor(`document.body.classList.contains('sheet')`);
         assert.doesNotMatch(await text(page, "#wsHead"), /Needs reviewer/);
         assert.match(await text(page, "#wsHead"), /Waiting on zed/);
     });
@@ -241,7 +240,8 @@ export function register(test) {
         await page.waitFor(`/What changed: bob moved the refresh lock into TokenStore/.test(${waitingRow(104, "pr")}?.innerText || '')`, 4000, "the summary on the row");
         assert.equal(state(ctx).prs["104"].auto.running, null, "the summary didn't finish the run");
         await openRow(page, 104);
-        assert.match(await text(page, "#flyHost .wc-box"), /What changed since you last looked.*bob moved the refresh lock/);
+        await tabTo(page, "overview");
+        assert.match(await text(page, "#wsScroll .wc-box"), /What changed since you last looked.*bob moved the refresh lock/);
         await ctx.shot("what-changed-panel");
         await refresh(ctx);
         await sleep(300);
@@ -403,77 +403,58 @@ export function register(test) {
     }, { changesGitHub: true });
 
     // ---- Peek and expand -------------------------------------------------------------------------------
-    test("peek: opens over the list; Esc closes it and keeps scroll and focus", async ({ page }) => {
+    test("sheet: clicking a row opens it over the list; Esc closes it and keeps scroll and focus", async ({ page }) => {
         await page.eval(`document.getElementById('overview').scrollTop = 300`);
         await sleep(100);
         await openRow(page, 104);
-        assert.equal(await flyOpen(page), true);
-        assert.match(await text(page, "#flyHost .pager"), /^‹ \d+\/\d+ ›$/);
-        await page.key("Escape");
-        await page.waitFor(`!document.querySelector('#flyHost .fly')`);
-        assert.equal(await page.eval(`document.getElementById('overview').scrollTop`), 300);
+        const before = await page.eval(`document.getElementById('overview').scrollTop`);
+        assert.equal(await sheetOpen(page), true);
+        assert.match(await text(page, "#wsHead .pager"), /^‹ prev \d+ of \d+ in the list next ›$/);
+        await closeSheet(page);
+        assert.equal(await page.eval(`document.getElementById('overview').scrollTop`), before);
         assert.equal(await page.eval(`document.activeElement?.dataset?.pr`), "104");
     });
 
-    test("peek: a real click on the dimmed list closes it", async ({ page }) => {
+    test("sheet: a real click on the dimmed margin closes it", async ({ page }) => {
         await openRow(page, 104);
         await page.click(null, { at: await backdrop(page) });
-        await page.waitFor(`!document.querySelector('#flyHost .fly')`, 2000, "the panel to close");
+        await page.waitFor(`!document.body.classList.contains('sheet')`, 2000, "the sheet to close");
     });
 
-    test("peek: a drag or text selection that ends on the list doesn't close it", async ({ page }) => {
+    test("sheet: a drag or text selection that ends on the margin doesn't close it", async ({ page }) => {
         await openRow(page, 102);
-        const inside = await page.box("#flyHost .fly-body p");
+        await tabTo(page, "overview");
+        const inside = await page.box("#wsScroll .story-step p");
         await page.drag({ x: inside.x - 60, y: inside.y }, await backdrop(page));
         await sleep(200);
-        assert.equal(await flyOpen(page), true, "a drag from inside closed it");
+        assert.equal(await sheetOpen(page), true, "a drag from inside closed it");
         assert.ok((await page.eval(`String(getSelection())`)).length > 0, "the drag selected text");
-        const grip = await page.box("#flyHost .fly-head");
-        await page.drag(grip, await backdrop(page), 3);
-        assert.equal(await flyOpen(page), true, "a drag from the header closed it");
+        const head = await page.box("#wsHead h2");
+        await page.drag(head, await backdrop(page), 3);
+        assert.equal(await sheetOpen(page), true, "a drag from the header closed it");
     });
 
-    test("peek: clicks on the backdrop right after opening are ignored", async ({ page }) => {
+    test("sheet: clicks on the margin right after opening are ignored", async ({ page }) => {
         await page.click(`#overview .ov-sec .ov-title[data-kind="pr"][data-pr="104"]`);
-        await page.waitFor(`!!document.querySelector('#flyHost .fly')`);
-        await page.click(null, { at: await backdrop(page) });
-        assert.equal(await flyOpen(page), true, "a click within 350ms of opening closed it");
-    });
-
-    test("expand: E, the expand button and dragging the edge all open the sheet; collapse goes back", async ({ page }) => {
-        await openRow(page, 104);
-        await page.key("e");
-        await page.waitFor(`document.body.classList.contains('sheet')`, 2000, "E to expand");
-        await page.click('#wsHead [data-act="collapse"]');
-        await page.waitFor(`!document.body.classList.contains('sheet') && !!document.querySelector('#flyHost .fly')`, 2000, "collapse to peek");
-        await page.click('#flyHost [data-act="expand"]');
-        await page.waitFor(`document.body.classList.contains('sheet')`, 2000, "the button to expand");
-        await page.click('#wsHead [data-act="collapse"]');
-        await page.waitFor(`!!document.querySelector('#flyHost .fly-grip')`);
-        const grip = await page.box("#flyHost .fly-grip");
-        await page.drag(grip, { x: 80, y: grip.y }, 10);
-        await page.waitFor(`document.body.classList.contains('sheet')`, 2000, "dragging the edge to expand");
-    });
-
-    test("expand: the last mode is remembered for the next item", async ({ page }) => {
-        await openRow(page, 104);
-        await page.key("e");
         await page.waitFor(`document.body.classList.contains('sheet')`);
-        await page.key("Escape");
-        await page.waitFor(`!document.body.classList.contains('sheet')`);
-        await openRow(page, 103);
-        assert.equal(await sheetOpen(page), true, "opened as a sheet again");
-        await page.click('#wsHead [data-act="collapse"]');
-        await page.key("Escape");
-        await page.waitFor(`!document.querySelector('#flyHost .fly')`);
-        await openRow(page, 104);
-        assert.equal(await flyOpen(page), true, "peek is remembered too");
+        await page.click(null, { at: await backdrop(page) });
+        assert.equal(await sheetOpen(page), true, "a click within 350ms of opening closed it");
     });
+
+    test("sheet: there's one view: no peek panel, no Expand or Collapse, and E does nothing", async ({ page }) => {
+        await openRow(page, 104);
+        assert.equal(await exists(page, "#flyHost, .fly, [data-act='expand'], [data-act='collapse'], .fly-grip"), false, "a peek control is left");
+        await page.key("e");
+        await sleep(200);
+        assert.equal(await sheetOpen(page), true);
+        await closeSheet(page);
+        await page.click('#overview .ov-sec .ov-acts [data-act="open-item"][data-pr="103"]');
+        await page.waitFor(`document.body.classList.contains('sheet')`, 2000, "⋯ to open the sheet too");
+    });
+
 
     test("pager: J and K walk the list, and the pager follows", async ({ page }) => {
         await openRow(page, 104);
-        await page.key("e");
-        await page.waitFor(`document.body.classList.contains('sheet')`);
         const order = await page.eval(`navList`);
         const at = (await page.eval(`selected`));
         const i = order.indexOf(`pr:${at}`) >= 0 ? order.indexOf(`pr:${at}`) : order.findIndex((k) => k.endsWith(`:${at}`));
@@ -488,9 +469,9 @@ export function register(test) {
 
     test("narrow: the sheet fills the width and Back returns to the list", async ({ page }) => {
         await page.eval(`document.getElementById('overview').scrollTop = 200`);
-        await openRow(page, 104);
+        const row = await page.box(`#overview .ov-sec .ov-title[data-kind="pr"][data-pr="104"]`);
         const before = await page.eval(`document.getElementById('overview').scrollTop`);
-        await page.key("e");
+        await page.click(null, { at: row });
         await page.waitFor(`document.body.classList.contains('sheet')`);
         assert.equal(await page.eval(`Math.round(document.querySelector('.layout').getBoundingClientRect().width)`), 600);
         await page.click("#wsHead .sheet-bar .back");
@@ -498,41 +479,280 @@ export function register(test) {
         assert.equal(await page.eval(`document.getElementById('overview').scrollTop`), before);
     }, { width: 600 });
 
-    test("regression: peek opens at the top, not at the thread's New line", async ({ page }) => {
-        await openRow(page, 102);
+    test("regression: the sheet opens at the top of its landing tab", async ({ page }) => {
+        await openRow(page, 107);
         await sleep(300);
-        assert.equal(await page.eval(`document.querySelector('#flyHost .fly-body').scrollTop`), 0, "Summary opened scrolled down");
-        assert.equal(await page.eval(`(() => { const b = document.querySelector('#flyHost .fly-body'); const r = b.querySelector('.gates')?.getBoundingClientRect(); return !!r && r.top < b.getBoundingClientRect().bottom; })()`), true, "the readiness checklist is in view");
+        assert.match(await text(page, '#wsHead [aria-selected="true"]'), /Story/);
+        assert.equal(await page.eval(`document.getElementById('wsScroll').scrollTop`), 0, "Story opened scrolled down");
+        assert.equal(await page.eval(`(() => { const b = document.getElementById('wsScroll'); const r = b.querySelector('.gates')?.getBoundingClientRect(); return !!r; })()`), true, "no readiness checklist");
     });
 
-    test("the Thread tab still lands on the New line", async ({ page }) => {
-        await page.eval(`localStorage.setItem('prb-open-mode', 'expanded'); localStorage.setItem('prb-tab', 'thread')`);
-        await page.eval(`location.reload()`);
-        await page.waitFor(`!!document.querySelector('.ov-title')`, 10000);
-        await page.click(`#overview .ov-sec .ov-title[data-kind="pr"][data-pr="102"]`);
-        await page.waitFor(`document.body.classList.contains('sheet') && !!document.querySelector('#wsScroll .new-div')`, 3000, "the sheet's thread");
+    test("the thread column lands on the New line while the tabs stay at the top", async ({ page }) => {
+        await openRow(page, 102);
+        await page.waitFor(`!!document.querySelector('#tScroll .new-div')`, 3000, "the thread column");
         await sleep(400);
-        const tabName = await text(page, '#wsHead [aria-selected="true"]');
-        assert.match(tabName, /Thread/);
-        assert.equal(await page.eval(`(() => { const s = document.getElementById('wsScroll'), d = s.querySelector('.new-div').getBoundingClientRect(), r = s.getBoundingClientRect(); return d.top >= r.top && d.bottom <= r.bottom; })()`), true, "the New line is in view");
+        assert.match(await text(page, '#wsHead [aria-selected="true"]'), /Story/);
+        assert.equal(await page.eval(`document.getElementById('wsScroll').scrollTop`), 0, "Story opened scrolled down");
+        assert.equal(await page.eval(`(() => { const s = document.getElementById('tScroll'), d = s.querySelector('.new-div').getBoundingClientRect(), r = s.getBoundingClientRect(); return d.top >= r.top && d.bottom <= r.bottom; })()`), true, "the New line is in view");
+    });
+
+    // ---- The thread column -----------------------------------------------------------------------------
+    const tcolBox = (page) => page.eval(`(() => { const r = document.getElementById('tCol').getBoundingClientRect(), m = document.getElementById('wsMain').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), top: Math.round(r.top), mainRight: Math.round(m.right), mainBottom: Math.round(m.bottom) }; })()`);
+    const visible = (page, sel) => page.eval(`(() => { const e = document.querySelector(${J(sel)}); if (!e || !e.offsetParent) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; })()`);
+
+    test("thread column: wide sheets show tabs and the thread side by side; the divider resizes it and is remembered", async (ctx) => {
+        const { page } = ctx;
+        await openRow(page, 104);
+        let b = await tcolBox(page);
+        assert.ok(Math.abs(b.w - 380) <= 6, `default width ${b.w}`);
+        assert.ok(b.left >= b.mainRight - 1, "the thread is to the right of the tabs");
+        assert.equal(await exists(page, '#wsHead [data-tab="thread"]'), false, "there's still a Thread tab");
+        assert.equal(await visible(page, "#tScroll"), true, "the messages");
+        assert.equal(await visible(page, "#input"), true, "the composer");
+        assert.match(await text(page, "#tCol"), /Thread/);
+        const div = await page.box("#tDiv");
+        await page.drag(div, { x: div.x - 120, y: div.y });
+        b = await tcolBox(page);
+        assert.ok(Math.abs(b.w - 500) <= 8, `dragged width ${b.w}`);
+        await page.drag(await page.box("#tDiv"), { x: 200, y: div.y });
+        b = await tcolBox(page);
+        const half = await page.eval(`Math.round(document.querySelector('.ws').clientWidth / 2)`);
+        assert.ok(b.w <= half + 2, `wider than half: ${b.w} > ${half}`);
+        await page.drag(await page.box("#tDiv"), { x: div.x - 120, y: div.y });
+        await closeSheet(page);
+        await page.goto(ctx.board.url);
+        await openRow(page, 103);
+        b = await tcolBox(page);
+        assert.ok(Math.abs(b.w - 500) <= 8, `remembered width ${b.w}`);
+        await ctx.shot("thread-wide");
+    }, { width: 1300 });
+
+    test("thread column: medium sheets collapse it to a rail with an unread count, and remember that", async (ctx) => {
+        const { page } = ctx;
+        await openRow(page, 103);
+        assert.equal(await visible(page, "#tScroll"), true, "open by default");
+        await page.click('#tHead [data-act="tcol-toggle"][aria-expanded="true"]');
+        await page.waitFor(`document.body.classList.contains('tc-collapsed')`, 2000, "the rail");
+        let b = await tcolBox(page);
+        assert.ok(b.w <= 60, `rail width ${b.w}`);
+        assert.equal(await visible(page, "#tScroll"), false, "messages hidden");
+        assert.equal(await page.eval(`document.getElementById('wsActs').parentElement.id`), "wsMain", "the move bar moves under the tabs");
+        await closeSheet(page);
+        // #102 is unread; with the thread on a rail, opening it doesn't read it.
+        await openRow(page, 102);
+        assert.equal(await visible(page, '#tHead .tcol-rail .unread-dot'), true, "the rail shows the unread dot");
+        assert.match(await text(page, "#tHead .tcol-rail"), /\d/, "the rail shows the message count");
+        await ctx.shot("thread-rail");
+        await closeSheet(page);
+        assert.equal((await rows(page)).find((r) => r.n === 102 && r.kind === "pr").unread, true, "#102 was marked read while the thread was on a rail");
+        await page.goto(ctx.board.url);
+        await openRow(page, 102);
+        assert.equal(await page.eval(`document.body.classList.contains('tc-collapsed')`), true, "the rail wasn't remembered");
+        await page.click('#tHead .tcol-rail');
+        await page.waitFor(`!document.body.classList.contains('tc-collapsed')`, 2000, "the column");
+        assert.equal(await visible(page, "#tScroll"), true, "messages back");
+        await closeSheet(page);
+        await page.waitFor(`!document.querySelector('#overview .ov-sec .ov-title[data-pr="102"]').closest('.ov-row').querySelector('.unread-dot')`, 4000, "#102 to be read once the thread showed");
+    }, { width: 950 });
+
+    test("thread column: narrow sheets stack the tabs over a thread drawer with the composer always visible", async (ctx) => {
+        const { page } = ctx;
+        await openRow(page, 104);
+        const b = await tcolBox(page);
+        assert.ok(b.top >= b.mainBottom - 1, "the thread is under the tabs: " + JSON.stringify(b) + " " + await page.eval(`document.body.className`));
+        assert.equal(await visible(page, "#input"), true, "the composer");
+        assert.equal(await visible(page, "#tScroll"), false, "the drawer starts closed");
+        await page.click('#tHead [data-act="tcol-toggle"]');
+        await page.waitFor(`document.body.classList.contains('tc-open')`, 2000, "the drawer");
+        assert.equal(await visible(page, "#tScroll"), true, "the messages");
+        assert.equal(await page.eval(`document.documentElement.scrollWidth <= innerWidth + 1`), true, "the page scrolls sideways");
+        await ctx.shot("thread-narrow");
+    }, { width: 600 });
+
+    test("thread column: an anchor chip switches the tab on the left while the thread stays put", async ({ page }) => {
+        await openRow(page, 104);
+        await page.waitFor(`!!document.querySelector('#tScroll .anchor[data-a="finding:f1"]')`, 3000, "the chip");
+        await page.eval(`document.getElementById('tScroll').scrollTop = 0`);
+        const before = await page.eval(`document.getElementById('tScroll').scrollTop`);
+        await page.click('#tScroll .anchor[data-a="finding:f1"]');
+        await page.waitFor(`document.querySelector('#wsScroll #finding-f1')?.classList.contains('anchor-hi')`, 3000, "f1 highlighted");
+        assert.match(await text(page, '#wsHead [aria-selected="true"]'), /Review/);
+        assert.equal(await visible(page, '#tScroll .anchor[data-a="finding:f1"]'), true, "the thread went away");
+        assert.equal(await page.eval(`document.getElementById('tScroll').scrollTop`), before, "the thread scrolled");
+    }, { width: 1300 });
+
+    test("thread column: a draft in the composer survives tab switches, the rail and closing the sheet", async ({ page }) => {
+        await openRow(page, 105);
+        await page.click("#input");
+        await page.type("half-written thought");
+        await tabTo(page, "changes");
+        await tabTo(page, "github");
+        assert.equal(await page.eval(`document.getElementById('input').value`), "half-written thought");
+        await page.click('#tHead [data-act="tcol-toggle"][aria-expanded="true"]');
+        await page.click('#tHead .tcol-rail');
+        assert.equal(await page.eval(`document.getElementById('input').value`), "half-written thought");
+        await closeSheet(page);
+        await openRow(page, 105);
+        assert.equal(await page.eval(`document.getElementById('input').value`), "half-written thought");
+    }, { width: 950 });
+
+    // ---- Parity: everything the peek panel had is in the sheet ------------------------------------------
+    test("parity: your PR's sheet has the move, quick commands, ⋯ actions, Story sections, GitHub, and the thread with its composer", async ({ page }) => {
+        await openRow(page, 107);
+        assert.match(await text(page, "#wsHead .ball-line"), /Approved: merge it/, "the ball line");
+        assert.match(await text(page, "#wsActs"), /Merge….*Done.*Snooze/, "the pinned move with Done and Snooze");
+        const cmds = await text(page, "#wsHead .quick-cmds");
+        for (const c of ["Status update", "Ask a question", "Turn on monitoring"]) assert.match(cmds, new RegExp(c), `quick command ${c}`);
+        assert.match(await text(page, "#wsHead .actions"), /Summarize/);
+        await page.click('#wsHead [data-act="more-menu"]');
+        const menu = await text(page, "#wsHead .menu");
+        for (const c of ["Get it ready & keep it ready", "Remove from board", "Pin to top", "Open on GitHub"]) assert.ok(menu.includes(c), `⋯ has ${c}: ${menu}`);
+        await page.key("Escape"); // the open menu covers the tabs
+        await tabTo(page, "overview");
+        const story = await text(page, "#wsScroll");
+        for (const c of ["Explain like I'm 5", "Where it is", "Required CI", "WHAT'S NEEDED FROM YOU"]) assert.ok(story.toUpperCase().includes(c.toUpperCase()), `Story has ${c}`);
+        const tabs = await page.eval(`[...document.querySelectorAll('#wsHead [role=tab]')].map((t) => t.innerText.replace(/\\s+\\d+$/, '').trim())`);
+        assert.deepEqual(tabs, ["Story", "Architecture", "Code", "Review", "GitHub"]);
+        assert.equal(await exists(page, "#tCol #composer #input"), true, "the composer in the thread column");
+    });
+
+    test("parity: Watching, the pr-review chip, Fixes Issue, and Stop keeping it ready are in the sheet", async ({ page }) => {
+        await openRow(page, 101);
+        const head = await text(page, "#wsHead");
+        assert.match(head, /Watching/);
+        assert.match(head, /pr-review: Drafted/);
+        await page.click('#wsHead [data-act="more-menu"]');
+        assert.match(await text(page, "#wsHead .menu"), /Stop keeping it ready/);
+        await closeSheet(page);
+        await openRow(page, 108);
+        assert.match(await text(page, "#wsHead"), /Fixes Issue #201/);
+    });
+
+    test("parity: a PR you review has its review commands, and What changed since my review shows the commits", async ({ page }) => {
+        await openRow(page, 104);
+        const cmds = await text(page, "#wsHead .quick-cmds");
+        for (const c of ["What changed since my review?", "Summarize the author's replies", "Ask a question"]) assert.ok(cmds.includes(c), `quick command ${c}: ${cmds}`);
+        assert.match(await text(page, "#wsHead .actions"), /Re-review/);
+        await page.click('#wsHead .quick-cmds [data-act="what-changed"]');
+        await page.waitFor(`/What changed since your review/.test(document.getElementById('wsScroll').innerText) && /Address review/.test(document.getElementById('wsScroll').innerText)`, 4000, "the commits since the review");
+        assert.match(await text(page, '#wsHead [aria-selected="true"]'), /Story/);
+    });
+
+    test("parity: someone else's PR offers Track under Reviewing; an unread item offers Mark as read", async ({ page }) => {
+        await openRow(page, 103);
+        assert.match(await text(page, "#wsHead .quick-cmds"), /Quick question/);
+        await page.click('#wsHead [data-act="more-menu"]');
+        assert.match(await text(page, "#wsHead .menu"), /Track under Reviewing/);
+        // With the thread on a rail, opening #102 doesn't read it.
+        await page.key("Escape");
+        await page.click('#tHead [data-act="tcol-toggle"][aria-expanded="true"]');
+        await closeSheet(page);
+        await page.eval(`expandItem("pr", 102, "github")`);
+        await page.waitFor(`document.body.classList.contains('sheet')`);
+        await page.click('#wsHead [data-act="more-menu"]');
+        assert.match(await text(page, "#wsHead .menu"), /Mark as read/);
+        await page.click('#wsHead .menu [data-act="mark-read"]');
+        await page.waitFor(`!document.querySelector('#overview .ov-sec .ov-title[data-pr="102"]').closest('.ov-row').querySelector('.unread-dot')`, 4000, "#102 to be read");
+    });
+
+    test("parity: an issue's sheet has Summary (explainer, where it is), quick commands, its session and PR chips, and ⋯", async ({ page }) => {
+        await openRow(page, 203, "issue");
+        const tabs = await page.eval(`[...document.querySelectorAll('#wsHead [role=tab]')].map((t) => t.innerText.replace(/\\s+\\d+$/, '').trim())`);
+        assert.deepEqual(tabs, ["Summary", "Code", "GitHub"]);
+        await tabTo(page, "overview");
+        const sum = await text(page, "#wsScroll");
+        assert.match(sum, /Explain like I'm 5/);
+        assert.match(sum, /Where it is/);
+        assert.match(await text(page, "#wsHead .quick-cmds"), /Status update.*Ask a question/);
+        assert.match(await text(page, "#wsHead .ws-meta"), /No PR/);
+        assert.match(await text(page, "#wsHead .ws-meta"), /Idle|Linked|Working/);
+        await page.click('#wsHead [data-act="more-menu"]');
+        assert.match(await text(page, "#wsHead .menu"), /Remove from board/);
+    });
+
+    test("parity: row shortcuts run the same command in the sheet", async (ctx) => {
+        const { page } = ctx;
+        const row = await page.box('#overview .ov-sec .ov-title[data-kind="pr"][data-pr="101"]');
+        await page.mouse("mouseMoved", row.x, row.y, 0); // the shortcuts show on hover
+        await page.click('#overview .ov-sec .ov-acts [data-act="row-status-update"][data-pr="101"]');
+        await page.waitFor(`document.body.classList.contains('sheet')`, 2000, "the sheet");
+        await sleep(400);
+        assert.match(ctx.host.sends.at(-1)?.prompt || "", /status update/i);
+    });
+
+    // ---- Code tab --------------------------------------------------------------------------------------
+    test("code tab: a PR shows its diff, read-only", async ({ page }) => {
+        await openRow(page, 104);
+        await tabTo(page, "changes");
+        await page.waitFor(`/const c = 4;/.test(document.getElementById('wsScroll').innerText)`, 4000, "the diff");
+        const code = await text(page, "#wsScroll .code-diff");
+        assert.match(code, /src\/main\.js/);
+        assert.match(code, /No diff to show/, "the binary file");
+        await page.click("#wsScroll .code-diff tr.dl.a td.ln");
+        await sleep(200);
+        assert.equal(await exists(page, "#wsScroll .br-comp"), false, "a PR diff line opened a private comment box");
+    });
+
+    test("code tab: an issue with a branch shows the branch against main", async ({ page }) => {
+        await openRow(page, 203, "issue");
+        await tabTo(page, "changes");
+        await page.waitFor(`/fix-203-settings/.test(document.getElementById('wsScroll').innerText) && !!document.querySelector('#wsScroll tr.dl')`, 4000, "the branch compare");
+        assert.match(await text(page, "#wsScroll"), /2 commits ahead, 1 behind/);
+    });
+
+    test("code tab: an issue with no branch shows the code it mentions, with links to GitHub", async ({ page }) => {
+        await openRow(page, 202, "issue");
+        await tabTo(page, "changes");
+        await page.waitFor(`!!document.querySelector('#wsScroll .code-ref')`, 4000, "the code references");
+        const refs = await page.eval(`[...document.querySelectorAll('#wsScroll .code-ref')].map((d) => ({ path: d.querySelector('.df-p').innerText, text: d.innerText, hits: d.querySelectorAll('tr.hit').length, link: d.querySelector('summary a')?.href }))`);
+        const r = (p) => refs.find((x) => x.path.startsWith(p));
+        assert.equal(r("src/icons/render.js").path, "src/icons/render.js:3–4");
+        assert.equal(r("src/icons/render.js").hits, 2, "lines 3-4 are highlighted");
+        assert.match(r("src/icons/render.js").text, /devicePixelRatio/);
+        assert.match(r("src/icons/render.js").link, /blob\/main\/src\/icons\/render\.js#L3-L4$/);
+        assert.equal(r("src/theme/dark.css").path, "src/theme/dark.css:2", "the GitHub link in the issue");
+        assert.match(r("docs/old/notes.md").text, /Not found on main/);
+        assert.match(await page.eval(`document.querySelector('#wsScroll .code-empty a').href`), /github\.com\/search\?q=repo%3Acontoso%2Fwidgets/);
+    });
+
+    test("code tab: with nothing mentioned, it links to a code search", async (ctx) => {
+        const { page, world } = ctx;
+        world.issues[202].body = "Icons look odd sometimes.";
+        world.issues[202].updated = 0;
+        await refresh(ctx);
+        await openRow(page, 202, "issue");
+        await tabTo(page, "changes");
+        await page.waitFor(`/doesn't mention any files/.test(document.getElementById('wsScroll').innerText)`, 4000, "the empty state");
+        assert.match(await page.eval(`document.querySelector('#wsScroll .code-empty a').href`), /type=code/);
+        assert.match(await text(page, "#wsScroll .code-empty a"), /Dark mode icons blurry|Dark icons blurry|icons blurry/i);
+    }, { changesGitHub: true });
+
+    test("code tab: when a session gets a branch for the issue, it switches to the branch", async (ctx) => {
+        const { page } = ctx;
+        await openRow(page, 202, "issue");
+        await tabTo(page, "changes");
+        await page.waitFor(`!!document.querySelector('#wsScroll .code-ref')`, 4000, "the code references");
+        await ctx.board.tool("pr_board_sync_sessions", { repo: REPO, sessions: [{ issue: 202, sessionId: "s-202", name: "Blurry icons", branch: "fix-203-settings", activity: "idle" }] });
+        await refresh(ctx);
+        await page.waitFor(`!document.querySelector('#wsScroll .code-ref') && /fix-203-settings/.test(document.getElementById('wsScroll').innerText)`, 5000, "the branch compare");
     });
 
     // ---- Composer ------------------------------------------------------------------------------------
     test("composer: Send clears the box, shows Replying…, then the reply arrives unread and reads", async (ctx) => {
         const { page } = ctx;
         await openRow(page, 104);
-        await page.click("#flyInput");
+        await page.click("#input");
         await page.type("What's left?");
-        await page.click('#flyComposer button[type="submit"]');
-        await page.waitFor(`document.getElementById('flyInput')?.value === ''`, 2000, "the box to clear");
-        await page.waitFor(`(() => { const b = document.querySelector('#flyHost .fly-body'); return b.scrollHeight - b.scrollTop - b.clientHeight < 40; })()`, 2000, "the thread to scroll to the bottom");
+        await page.click('#send');
+        await page.waitFor(`document.getElementById('input')?.value === ''`, 2000, "the box to clear");
+        await page.waitFor(`(() => { const b = document.getElementById('tScroll'); return b.scrollHeight - b.scrollTop - b.clientHeight < 40; })()`, 2000, "the thread to scroll to the bottom");
         assert.match(ctx.host.sends.at(-1)?.prompt || "", /What's left\?/);
-        await page.key("Escape");
+        await closeSheet(page);
         await page.waitFor(`/Replying/.test(document.querySelector('#overview .ov-sec .ov-title[data-pr="104"]').closest('.ov-row').innerText)`, 3000, "the row to say Replying…");
         await ctx.board.tool("pr_board_reply", { repo: REPO, pr: 104, text: "Only [[finding:f1]] is left.", from: "PR #104 review" });
         await page.waitFor(`/New reply/.test(document.querySelector('#overview .ov-sec .ov-title[data-pr="104"]').closest('.ov-row').innerText) && !!document.querySelector('#overview .ov-sec .ov-title[data-pr="104"]').closest('.ov-row').querySelector('.unread-dot')`, 4000, "the New reply chip and unread dot");
         await openRow(page, 104);
-        await page.key("Escape");
+        await closeSheet(page);
         await page.waitFor(`!document.querySelector('#overview .ov-sec .ov-title[data-pr="104"]').closest('.ov-row').querySelector('.unread-dot')`, 4000, "the reply to be read");
     });
 
@@ -541,37 +761,35 @@ export function register(test) {
         ctx.host.sendError = new Error("agent offline");
         page.allowStatus.add("POST /api/message 502");
         await openRow(page, 104);
-        await page.click("#flyInput");
+        await page.click("#input");
         await page.type("Please re-check");
-        await page.click('#flyComposer button[type="submit"]');
-        await page.waitFor(`document.getElementById('flyInput')?.value === 'Please re-check'`, 3000, "the text to come back");
+        await page.click('#send');
+        await page.waitFor(`document.getElementById('input')?.value === 'Please re-check'`, 3000, "the text to come back");
         assert.match(await text(page, "#toast"), /Couldn't send/);
     });
 
     test("composer: a draft survives live updates, closing, and switching items", async (ctx) => {
         const { page } = ctx;
         await openRow(page, 104);
-        await page.click("#flyInput");
+        await page.click("#input");
         await page.type("half-written thought");
         for (let i = 0; i < 3; i++) await poke(ctx);
         await sleep(600);
-        assert.equal(await page.eval(`document.getElementById('flyInput').value`), "half-written thought", "a live update wiped it");
-        assert.equal(await page.eval(`document.activeElement?.id`), "flyInput", "a live update took focus away");
-        await page.key("Escape");
+        assert.equal(await page.eval(`document.getElementById('input').value`), "half-written thought", "a live update wiped it");
+        assert.equal(await page.eval(`document.activeElement?.id`), "input", "a live update took focus away");
+        await closeSheet(page);
         await openRow(page, 103);
-        assert.equal(await page.eval(`document.getElementById('flyInput').value`), "", "another item shows the draft");
-        await page.key("Escape");
+        assert.equal(await page.eval(`document.getElementById('input').value`), "", "another item shows the draft");
+        await closeSheet(page);
         await openRow(page, 104);
-        assert.equal(await page.eval(`document.getElementById('flyInput').value`), "half-written thought");
-        await page.key("e");
-        await page.waitFor(`document.body.classList.contains('sheet')`);
-        assert.equal(await page.eval(`document.getElementById('input').value`), "half-written thought", "the draft didn't follow into the sheet");
+        assert.equal(await page.eval(`document.getElementById('input').value`), "half-written thought");
     });
 
     // ---- Readiness -------------------------------------------------------------------------------------
     test("readiness: core gates, recommended pr-review, and the label as a muted hint", async ({ page }) => {
         await openRow(page, 102);
-        const gates = await page.eval(`[...document.querySelectorAll('#flyHost .gates li')].map((l) => ({ id: l.dataset.gate || 'label', cls: l.className, text: l.innerText.replace(/\\s+/g, ' ') }))`);
+        await tabTo(page, "overview");
+        const gates = await page.eval(`[...document.querySelectorAll('#wsScroll .gates li')].map((l) => ({ id: l.dataset.gate || 'label', cls: l.className, text: l.innerText.replace(/\\s+/g, ' ') }))`);
         const g = (id) => gates.find((x) => x.id === id);
         assert.match(g("copilot").cls, /gs-fail/);
         assert.match(g("copilot").text, /Reviewed an older commit/);
@@ -580,27 +798,29 @@ export function register(test) {
         assert.match(g("uptodate").cls, /gs-pass/);
         assert.match(g("review").text, /Recommended/);
         assert.match(g("label").cls, /gs-info/);
-        assert.match(await text(page, "#flyHost .fly-head"), /2\/4 ready/, "the meter counts only core gates");
+        assert.match(await text(page, "#wsHead"), /2\/4 ready/, "the meter counts only core gates");
     });
 
     test("readiness: keep-ready makes pr-review a core gate", async ({ page }) => {
         await openRow(page, 101);
-        const ids = await page.eval(`[...document.querySelectorAll('#flyHost .gates li[data-gate]')].map((l) => l.dataset.gate)`);
+        await tabTo(page, "overview");
+        const ids = await page.eval(`[...document.querySelectorAll('#wsScroll .gates li[data-gate]')].map((l) => l.dataset.gate)`);
         assert.ok(ids.includes("review"));
-        assert.match(await text(page, "#flyHost .fly-head"), /5\/5 ready/);
-        await page.key("Escape");
+        assert.match(await text(page, "#wsHead"), /5\/5 ready/);
+        await closeSheet(page);
         await openRow(page, 107);
-        assert.match(await text(page, "#flyHost .fly-head"), /4\/4 ready/);
+        assert.match(await text(page, "#wsHead"), /4\/4 ready/);
     });
 
     test("readiness: a blocking finding offers Fix and Not needed", async (ctx) => {
         const { page } = ctx;
         await ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 107, review: { headSha: HEAD[107], verdict: "request-changes", risk: "medium", summary: "One real problem.", findings: [{ id: "f9", title: "Export drops the header row", category: "risk", severity: "high", what: "x", fix: "y", files: [{ path: "src/csv.js", line: 3 }] }] } });
         await openRow(page, 107);
-        await page.waitFor(`!!document.querySelector('#flyHost .gates [data-act="finding-fix"][data-id="f9"]')`, 4000, "Fix on the finding");
-        await page.click('#flyHost .gates [data-act="finding-fix"][data-id="f9"]');
+        await tabTo(page, "overview");
+        await page.waitFor(`!!document.querySelector('#wsScroll .gates [data-act="finding-fix"][data-id="f9"]')`, 4000, "Fix on the finding");
+        await page.click('#wsScroll .gates [data-act="finding-fix"][data-id="f9"]');
         // Asking for a fix takes it off the blocking list: the item now counts it as being fixed.
-        await page.waitFor(`!document.querySelector('#flyHost .gates [data-id="f9"]') && /1 being fixed/.test(document.querySelector('#flyHost .gates li[data-gate="review"]')?.innerText || '')`, 4000, "the finding to show as being fixed");
+        await page.waitFor(`!document.querySelector('#wsScroll .gates [data-id="f9"]') && /1 being fixed/.test(document.querySelector('#wsScroll .gates li[data-gate="review"]')?.innerText || '')`, 4000, "the finding to show as being fixed");
         assert.equal(state(ctx).prs["107"].triage.f9.fixRequestedAt !== undefined, true);
         assert.match(ctx.host.sends.at(-1)?.prompt || "", /Export drops the header row/);
     });
@@ -609,9 +829,10 @@ export function register(test) {
         const { page } = ctx;
         await ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 107, review: { headSha: HEAD[107], verdict: "request-changes", risk: "medium", summary: "One real problem.", findings: [{ id: "f9", title: "Export drops the header row", category: "risk", severity: "high", what: "x", fix: "y", files: [{ path: "src/csv.js", line: 3 }] }] } });
         await openRow(page, 107);
-        await page.waitFor(`!!document.querySelector('#flyHost .gates [data-act="finding-skip"][data-id="f9"]')`, 4000, "Not needed on the finding");
-        await page.click('#flyHost .gates [data-act="finding-skip"][data-id="f9"]');
-        await page.waitFor(`!document.querySelector('#flyHost .gates [data-id="f9"]') && document.querySelector('#flyHost .gates li[data-gate="review"]')?.classList.contains('gs-pass')`, 4000, "the pr-review item to pass");
+        await tabTo(page, "overview");
+        await page.waitFor(`!!document.querySelector('#wsScroll .gates [data-act="finding-skip"][data-id="f9"]')`, 4000, "Not needed on the finding");
+        await page.click('#wsScroll .gates [data-act="finding-skip"][data-id="f9"]');
+        await page.waitFor(`!document.querySelector('#wsScroll .gates [data-id="f9"]') && document.querySelector('#wsScroll .gates li[data-gate="review"]')?.classList.contains('gs-pass')`, 4000, "the pr-review item to pass");
         assert.equal(state(ctx).prs["107"].triage.f9.decision, "ignore");
         assert.equal(ctx.host.sends.length, 0);
     });
@@ -629,8 +850,6 @@ export function register(test) {
     // ---- Review tab and posting --------------------------------------------------------------------
     test("review tab: verdict header and findings; posting preselects the verdict's event", async ({ page }) => {
         await openRow(page, 104);
-        await page.key("e");
-        await page.waitFor(`document.body.classList.contains('sheet')`);
         await page.click('#wsHead [data-act="tab"][data-tab="review"]');
         await page.waitFor(`!!document.querySelector('#wsScroll #finding-f1')`, 3000, "the findings");
         assert.match(await text(page, "#wsScroll"), /Recommends changes/);
@@ -639,10 +858,7 @@ export function register(test) {
     });
 
     test("review tab: 0 findings offers Approve", async ({ page }) => {
-        await page.eval(`localStorage.setItem('prb-open-mode', 'expanded')`);
-        await page.eval(`location.reload()`);
-        await page.waitFor(`!!document.querySelector('.ov-title')`, 10000);
-        await page.click(`#overview .ov-sec .ov-title[data-kind="pr"][data-pr="105"]`);
+            await page.click(`#overview .ov-sec .ov-title[data-kind="pr"][data-pr="105"]`);
         await page.waitFor(`document.body.classList.contains('sheet')`);
         await page.click('#wsHead [data-act="tab"][data-tab="review"]');
         await page.waitFor(`!!document.querySelector('#wsScroll [data-act="rv-preview"]')`, 3000, "the post button");
@@ -652,10 +868,7 @@ export function register(test) {
 
     test("review tab: the preview shows exactly what will post, and posting goes through the agent", async (ctx) => {
         const { page } = ctx;
-        await page.eval(`localStorage.setItem('prb-open-mode', 'expanded')`);
-        await page.eval(`location.reload()`);
-        await page.waitFor(`!!document.querySelector('.ov-title')`, 10000);
-        await page.click(`#overview .ov-sec .ov-title[data-kind="pr"][data-pr="104"]`);
+            await page.click(`#overview .ov-sec .ov-title[data-kind="pr"][data-pr="104"]`);
         await page.waitFor(`document.body.classList.contains('sheet')`);
         await page.click('#wsHead [data-act="tab"][data-tab="review"]');
         await page.waitFor(`!!document.querySelector('#wsScroll #finding-f1')`);
@@ -671,17 +884,17 @@ export function register(test) {
     test("changes tab: comment on a line, then send it to the agent", async (ctx) => {
         const { page } = ctx;
         await openRow(page, 203, "issue");
-        await page.click('#flyHost [data-act="fly-tab"][data-tab="changes"]');
-        await page.waitFor(`!!document.querySelector('#flyHost tr.dl td.ln')`, 4000, "the diff");
-        await page.click(`#flyHost tr.dl.a td.ln:nth-child(2)`);
-        await page.waitFor(`!!document.querySelector('#flyHost .br-comp textarea')`, 2000, "the comment box");
-        await page.click("#flyHost .br-comp textarea");
+        await tabTo(page, "changes");
+        await page.waitFor(`!!document.querySelector('#wsScroll tr.dl td.ln')`, 4000, "the diff");
+        await page.click(`#wsScroll tr.dl.a td.ln:nth-child(2)`);
+        await page.waitFor(`!!document.querySelector('#wsScroll .br-comp textarea')`, 2000, "the comment box");
+        await page.click("#wsScroll .br-comp textarea");
         await page.type("Handle a corrupt file too");
         await page.key("Enter", { code: "Enter", keyCode: 13, text: "\r" }).catch(() => {});
-        await page.click('#flyHost [data-act="br-save"]').catch(() => {});
-        await page.waitFor(`/Handle a corrupt file too/.test(document.querySelector('#flyHost .fly-body').innerText) && !document.querySelector('#flyHost .br-comp textarea')`, 4000, "the saved comment");
-        assert.match(await text(page, '#flyHost [data-act="br-send"]'), /Send 1 comment/);
-        await page.click('#flyHost [data-act="br-send"]');
+        await page.click('#wsScroll [data-act="br-save"]').catch(() => {});
+        await page.waitFor(`/Handle a corrupt file too/.test(document.querySelector('#wsScroll').innerText) && !document.querySelector('#wsScroll .br-comp textarea')`, 4000, "the saved comment");
+        assert.match(await text(page, '#wsScroll [data-act="br-send"]'), /Send 1 comment/);
+        await page.click('#wsScroll [data-act="br-send"]');
         await page.waitFor(() => true);
         await sleep(500);
         assert.match(ctx.host.sends.at(-1)?.prompt || "", /Handle a corrupt file too/);
@@ -694,45 +907,43 @@ export function register(test) {
         fs.writeFileSync(ctx.board.stateFile, JSON.stringify(st));
         await page.goto(ctx.board.url);
         await openRow(page, 203, "issue");
-        await page.click('#flyHost [data-act="fly-tab"][data-tab="changes"]');
-        await page.waitFor(`/Why cache this\\?/.test(document.querySelector('#flyHost .fly-body').innerText)`, 4000, "the old comment");
-        assert.match(await text(page, "#flyHost .fly-body"), /Outdated/);
+        await tabTo(page, "changes");
+        await page.waitFor(`/Why cache this\\?/.test(document.querySelector('#wsScroll').innerText)`, 4000, "the old comment");
+        assert.match(await text(page, "#wsScroll"), /Outdated/);
     });
 
     // ---- GitHub tab --------------------------------------------------------------------------------
     test("GitHub tab: renders the timeline and never runs markup from GitHub", async ({ page }) => {
         await openRow(page, 102);
-        await page.click('#flyHost [data-act="fly-tab"][data-tab="github"]');
-        await page.waitFor(`/Why not default to/.test(document.querySelector('#flyHost .fly-body')?.innerText || '')`, 5000, "the GitHub view");
-        const body = await text(page, "#flyHost .fly-body");
+        await tabTo(page, "github");
+        await page.waitFor(`/Why not default to/.test(document.querySelector('#wsScroll')?.innerText || '')`, 5000, "the GitHub view");
+        const body = await text(page, "#wsScroll");
         assert.match(body, /src\/config\.js/);
         assert.match(body, /build-and-package/);
         assert.match(body, /Looks reasonable/);
         await sleep(300);
         assert.equal(await page.eval(`window.__xss`), undefined, "GitHub markup ran in the board");
-        assert.equal(await page.eval(`document.querySelectorAll('#flyHost .fly-body script, #flyHost .fly-body [onerror], #flyHost .fly-body a[href^="javascript:"]').length`), 0);
+        assert.equal(await page.eval(`document.querySelectorAll('#wsScroll script, #wsScroll [onerror], #wsScroll a[href^="javascript:"]').length`), 0);
     });
 
     test("GitHub tab: a failed or slow GitHub read shows an error, not a broken panel", async (ctx) => {
         const { page, world } = ctx;
+        // The board keeps GitHub reads for 4 minutes, so no other test may open #103's GitHub tab.
         world.fault = { match: (a) => a.some((x) => x.includes("closingIssuesReferences")), delayMs: 800, error: "HTTP 502: Bad Gateway" };
         page.allowStatus.add("GET /api/github 502");
         await openRow(page, 103);
-        await page.click('#flyHost [data-act="fly-tab"][data-tab="github"]');
-        await page.waitFor(`/Bad Gateway|couldn't|Couldn't/.test(document.querySelector('#flyHost .fly-body')?.innerText || '')`, 6000, "an error message");
-        assert.equal(await flyOpen(page), true);
-        assert.equal(await exists(page, '#flyHost [data-act="gh-refresh"]'), true, "there's a way to retry");
+        await tabTo(page, "github");
+        await page.waitFor(`/Bad Gateway|couldn't|Couldn't/.test(document.querySelector('#wsScroll')?.innerText || '')`, 6000, "an error message");
+        assert.equal(await sheetOpen(page), true);
+        assert.equal(await exists(page, '#wsScroll [data-act="gh-refresh"]'), true, "there's a way to retry");
     });
 
     // ---- Anchors -----------------------------------------------------------------------------------
     test("anchors: a finding chip opens the Review tab and highlights it", async ({ page }) => {
         await openRow(page, 104);
-        await page.key("e");
-        await page.waitFor(`document.body.classList.contains('sheet')`);
-        await page.click('#wsHead [data-act="tab"][data-tab="thread"]');
-        await page.waitFor(`!!document.querySelector('#wsScroll .anchor[data-a="finding:f1"]')`, 3000, "the chip");
-        assert.match(await text(page, '#wsScroll .anchor[data-a="finding:f1"]'), /Two refreshes can race/);
-        await page.click('#wsScroll .anchor[data-a="finding:f1"]');
+        await page.waitFor(`!!document.querySelector('#tScroll .anchor[data-a="finding:f1"]')`, 3000, "the chip");
+        assert.match(await text(page, '#tScroll .anchor[data-a="finding:f1"]'), /Two refreshes can race/);
+        await page.click('#tScroll .anchor[data-a="finding:f1"]');
         await page.waitFor(`document.querySelector('#finding-f1')?.classList.contains('anchor-hi')`, 3000, "f1 highlighted");
         assert.match(await text(page, '#wsHead [aria-selected="true"]'), /Review/);
     });
@@ -740,8 +951,6 @@ export function register(test) {
     test("anchors: a reply with focus jumps there while the item is open", async (ctx) => {
         const { page } = ctx;
         await openRow(page, 104);
-        await page.key("e");
-        await page.waitFor(`document.body.classList.contains('sheet')`);
         await ctx.board.tool("pr_board_reply", { repo: REPO, pr: 104, text: "Look at [[finding:f2]].", focus: "finding:f2" });
         await page.waitFor(`document.querySelector('#finding-f2')?.classList.contains('anchor-hi')`, 4000, "f2 highlighted");
     });
@@ -764,7 +973,7 @@ export function register(test) {
         assert.match(await text(page, "#banner"), /Bad Gateway/);
         assert.ok((await rows(page)).length >= 8, "the rows stayed");
         await openRow(page, 104);
-        await page.key("Escape");
+        await closeSheet(page);
         world.fault = null;
         await refresh(ctx);
         await page.waitFor(`document.getElementById('banner').hidden`, 4000, "the banner to clear");
@@ -774,8 +983,6 @@ export function register(test) {
         const { page } = ctx;
         await page.eval(`document.getElementById('overview').scrollTop = 350`);
         await openRow(page, 104);
-        await page.key("e");
-        await page.waitFor(`document.body.classList.contains('sheet')`);
         await page.click('#wsHead [data-act="tab"][data-tab="review"]');
         await page.waitFor(`!!document.querySelector('#wsScroll #finding-f2')`);
         await page.eval(`document.getElementById('wsScroll').scrollTop = 80`);
@@ -788,9 +995,9 @@ export function register(test) {
         assert.equal(await page.eval(`document.activeElement?.id`), "input", "focus moved");
         assert.equal(await page.eval(`document.getElementById('input').value`), "typing while it updates");
         assert.equal(await page.eval(`document.getElementById('wsScroll').scrollTop`), scrolled, "the sheet scrolled");
-        await page.key("Escape");
+        await closeSheet(page);
         await page.eval(`document.activeElement.blur()`);
-        await page.key("Escape");
+        await closeSheet(page);
         await page.waitFor(`!document.body.classList.contains('sheet')`);
         assert.equal(await page.eval(`document.getElementById('overview').scrollTop`), 350, "the list scrolled");
     });

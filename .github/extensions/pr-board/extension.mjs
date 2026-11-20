@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchDetail, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
+import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchCodeRefs, fetchDetail, fetchPrFiles, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
 import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
@@ -658,6 +658,24 @@ async function githubView(repo, kind, n, force) {
 
 // Private branch review: the diff of an issue's branch that has no PR yet. Cached briefly.
 const branchCache = new Map();
+
+// The Code tab's reads (a PR's diff, an issue's code references), cached per key for ttl ms.
+const codeCache = new Map();
+async function cached(map, key, ttl, force, load) {
+    const hit = map.get(key);
+    if (hit?.inflight) return hit.inflight;
+    if (hit?.data && !force && Date.now() - hit.at < ttl) return hit.data;
+    const inflight = load().then((data) => {
+        map.set(key, { data, at: Date.now() });
+        if (map.size > 40) map.delete(map.keys().next().value);
+        return data;
+    }).catch((e) => {
+        map.delete(key);
+        throw httpError(502, e.message);
+    });
+    map.set(key, { ...(hit || {}), inflight });
+    return inflight;
+}
 async function branchView(repo, issue, force) {
     const b = board(repo);
     if (!b.data) await b.refresh();
@@ -843,6 +861,24 @@ async function handle(req, res) {
         const n = Number(url.searchParams.get("issue"));
         if (!Number.isInteger(n) || n <= 0) throw httpError(400, "Invalid issue number");
         return json(200, await branchView(repo, n, url.searchParams.get("force") === "1"));
+    }
+    if (req.method === "GET" && url.pathname === "/api/pr-files") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const n = Number(url.searchParams.get("pr"));
+        if (!Number.isInteger(n) || n <= 0) throw httpError(400, "Invalid PR number");
+        const b = board(repo);
+        if (!b.data) await b.refresh();
+        return json(200, await cached(codeCache, `${repo}#pr${n}@${b.card(n)?.headSha || ""}`, 10 * 60_000, url.searchParams.get("force") === "1", () => fetchPrFiles(repo, n)));
+    }
+    if (req.method === "GET" && url.pathname === "/api/code-refs") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const n = Number(url.searchParams.get("issue"));
+        if (!Number.isInteger(n) || n <= 0) throw httpError(400, "Invalid issue number");
+        const b = board(repo);
+        if (!b.data) await b.refresh();
+        const it = b.issueCard(n);
+        const prs = (it?.prs || []).map((p) => p.number);
+        return json(200, await cached(codeCache, `${repo}#issue${n}@${it?.updatedAt || ""}`, 5 * 60_000, url.searchParams.get("force") === "1", () => fetchCodeRefs(repo, n, { prs, branch: b.data.defaultBranch || "main" })));
     }
     if (req.method === "GET" && url.pathname === "/api/github") {
         const repo = checkRepo(url.searchParams.get("repo"));

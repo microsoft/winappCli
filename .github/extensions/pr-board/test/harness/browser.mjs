@@ -45,7 +45,8 @@ export async function launch() {
         if (d.method === "Fetch.requestPaused") {
             if (p.request.url.startsWith(page.origin)) send("Fetch.continueRequest", { requestId: p.requestId }).catch(() => {});
             else {
-                if (p.resourceType !== "Image") page.problems.push(`the page tried to reach ${p.request.url.slice(0, 120)}`);
+                // Avatars come from github.com/<login>.png; Chrome doesn't always report them as images.
+                if (p.resourceType !== "Image" && !/^https:\/\/github\.com\/[\w-]+\.png/.test(p.request.url)) page.problems.push(`the page tried to reach ${p.request.url.slice(0, 120)}`);
                 send("Fetch.failRequest", { requestId: p.requestId, errorReason: "BlockedByClient" }).catch(() => {});
             }
         }
