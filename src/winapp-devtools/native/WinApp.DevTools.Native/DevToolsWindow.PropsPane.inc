@@ -370,12 +370,12 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropPane);
     if (!g_ctx.propsHostChildren || !g_ctx.rowsFn) return;
     if (!force && wire != 0 && wire == g_selWire) return;
-    // Save the focused editor before its pane goes away, while g_selWire still names the element it edits. Its
-    // focus-out would otherwise arrive after the selection moved.
+    // Save the pane's editors before the pane is reused, while g_selWire still names the element they edit. Their
+    // focus-out would otherwise arrive after the selection moved, with its handler already removed.
     std::wstring flushed;
     if (!g_flushingEditor) {
         const bool leaving = g_selWire != 0 && wire != g_selWire;
-        const std::wstring saved = FlushFocusedEditor(leaving);
+        const std::wstring saved = leaving ? FlushLeavingEditors() : FlushFocusedEditor();
         if (leaving) flushed = saved;
         ReleasePaneEditors(/*retire*/ !leaving);
     }

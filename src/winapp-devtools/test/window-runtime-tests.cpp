@@ -2003,6 +2003,27 @@ int main()
             check(live[500]==L"Before", "Restore retains the original value after a detached original-target save");
             g_ctx.readInputFn=priorReader;
         }
+        {
+            // The user types into A's box, then clicks another element before WinUI delivers the box's focus-out.
+            // Moving the selection removes that handler, so the edit is saved to A first.
+            const auto priorReader=g_ctx.readInputFn;
+            g_ctx.readInputFn=[](IInspectable* box,std::wstring& text) { text=static_cast<TestElement*>(box)->text; return true; };
+            g_editRecords.clear(); g_appChanged.clear();
+            const std::wstring priorLabel=g_selLabel;
+            g_selWire=g_dirtyNode=500; g_selLabel=L"TextBlock"; live[500]=L"Before"; live[501]=L"Other";
+            testInput.text=L"Before";
+            LostFocusSink typed;
+            typed.Init(500,L"Text",L"String",L"Before",&testInput);
+            testInput.text=L"Typed, then clicked away";
+            RegisterPaneEditor(L"Text",&testInput,&typed.retired,&typed,[&typed]{ typed.Invoke(nullptr,nullptr); },&testExpansion);
+            const std::wstring said=FlushLeavingEditors();
+            ReleasePaneEditors(false);
+            check(live[500]==L"Typed, then clicked away" && live[501]==L"Other" && said.find(L"Saved Text")!=std::wstring::npos,
+                "an edit typed just before selecting another element is saved to its own element");
+            g_selWire=g_dirtyNode=500;
+            RestoreRowValue(500,L"Text",L"String");
+            g_selLabel=priorLabel; g_ctx.readInputFn=priorReader;
+        }
         // A late save to an element that is no longer selected records the original captured while it was selected,
         // and reads that element back right away so a later app change there still drops Restore.
         g_editRecords.clear(); g_appChanged.clear();

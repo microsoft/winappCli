@@ -410,6 +410,28 @@ static std::wstring FlushFocusedEditor(bool leaving = false)
     return FlushPaneEditor(picked, leaving);
 }
 
+// Save every pane editor as the selection moves to another element. The pane's focus-out handlers are removed before
+// the move, so a focus-out WinUI delivers late (the user typed, then clicked another element) can no longer save the
+// edit. Returns what happened to the first editor that had an edit.
+static std::wstring FlushLeavingEditors()
+{
+    if (g_flushingEditor || g_paneEditors.empty()) return std::wstring();
+    // A copy: saving can rebuild the pane and change the registry.
+    std::vector<PaneEditor> editors = g_paneEditors;
+    for (auto& e : editors) {
+        e.ident = nullptr;
+        if (e.text) e.text->AddRef();
+    }
+    std::wstring said;
+    for (const auto& e : editors) {
+        const std::wstring outcome = FlushPaneEditor(e, /*leaving*/ true);
+        if (said.empty()) said = outcome;
+    }
+    for (auto& e : editors)
+        if (e.text) e.text->Release();
+    return said;
+}
+
 // Defined once the row model is available (DevToolsWindow.KindModel.inc).
 static void ClearRowValue(InstanceHandle wire, const std::wstring& prop);
 static void RestoreRowValue(InstanceHandle wire, const std::wstring& prop, const std::wstring& type);
