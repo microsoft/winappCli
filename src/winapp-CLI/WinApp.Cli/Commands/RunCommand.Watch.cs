@@ -62,6 +62,7 @@ internal partial class RunCommand
                 return Fail(ex.Message, false);
             }
 
+            var attachedBefore = false;
             return await RunWatcherAsync(csproj, watchArguments, watchEnvironment, async (watcher, token) =>
             {
                 var watcherId = unchecked((int)watcher.ProcessId);
@@ -78,11 +79,19 @@ internal partial class RunCommand
                         // The first app has its own handles on the .xbf files now; winapp's would make every restart's
                         // rebuild after a .xaml save fail (MSB3027), leaving no app.
                         coordinates?.ReleasePayload();
-                        ReportWatchAttach(pid, connection, restart);
+                        // A relaunched dotnet watch starts a new session, but for the developer it's a restart.
+                        ReportWatchAttach(pid, connection, restart || attachedBefore);
+                        attachedBefore |= connection.Connected;
                     },
                 };
                 await session.RunAsync(token);
-            }, cancellationToken);
+            }, cancellationToken, stopLeftoverApp: () =>
+            {
+                foreach (var pid in ProcessesRunningFrom(exePath))
+                {
+                    CloseRunningProcess(pid);
+                }
+            });
         }
 
         /// <summary>
@@ -143,7 +152,7 @@ internal partial class RunCommand
 
         /// <summary>Starts <c>dotnet watch</c> in this terminal and runs <paramref name="whileWatching"/> until it exits or Ctrl+C.</summary>
         private async Task<int> RunWatcherAsync(FileInfo csproj, string watchArguments, IReadOnlyDictionary<string, string?> environment,
-            Func<ILaunchedProcess, CancellationToken, Task> whileWatching, CancellationToken cancellationToken)
+            Func<ILaunchedProcess, CancellationToken, Task> whileWatching, CancellationToken cancellationToken, Action? stopLeftoverApp = null)
         {
             // dotnet watch rebuilds the app, so it imports the same packaging targets winapp's own build did.
             if (ProjectRunService.WithPackagingReferenceTargets(null) is { } buildEnvironment)
@@ -155,38 +164,63 @@ internal partial class RunCommand
                 }
                 environment = merged;
             }
-            ILaunchedProcess watcher;
-            try
+            var launches = new List<DateTime>();
+            while (true)
             {
-                watcher = appLauncherService.LaunchExecutable("dotnet", watchArguments,
-                    currentDirectoryProvider.GetCurrentDirectory(), LaunchStdioMode.Inherit, environment);
-            }
-            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-            {
-                return Fail($"Could not start 'dotnet watch': {RunFailure.Describe(ex)}", false);
-            }
-
-            using (watcher)
-            {
-                logger.LogInformation("{Symbol} Watching {Project}: edits apply through Hot Reload, and DevTools attaches again when the app restarts. Press Ctrl+C to stop.",
-                    UiSymbols.Search, csproj.Name);
+                ILaunchedProcess watcher;
                 try
                 {
-                    await whileWatching(watcher, cancellationToken);
+                    watcher = appLauncherService.LaunchExecutable("dotnet", watchArguments,
+                        currentDirectoryProvider.GetCurrentDirectory(), LaunchStdioMode.Inherit, environment);
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
                 {
-                    // Ctrl+C stops dotnet watch and the app below.
+                    return Fail($"Could not start 'dotnet watch': {RunFailure.Describe(ex)}", false);
                 }
-                if (!watcher.HasExited)
+                launches.Add(DateTime.UtcNow);
+
+                using (watcher)
                 {
-                    watcher.Kill();
-                    return -1;
+                    if (launches.Count == 1)
+                    {
+                        logger.LogInformation("{Symbol} Watching {Project}: edits apply through Hot Reload, and DevTools attaches again when the app restarts. Press Ctrl+C to stop.",
+                            UiSymbols.Search, csproj.Name);
+                    }
+                    try
+                    {
+                        await whileWatching(watcher, cancellationToken);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        // Ctrl+C stops dotnet watch and the app below.
+                    }
+                    if (!watcher.HasExited)
+                    {
+                        watcher.Kill();
+                        return -1;
+                    }
+                    await watcher.WaitForExitAsync(CancellationToken.None);
+                    if (cancellationToken.IsCancellationRequested || watcher.ExitCode == 0)
+                    {
+                        return watcher.ExitCode;
+                    }
+                    // dotnet watch ends on its own only when it fails, for example .NET's hot reload crash after some
+                    // edits (dotnet/roslyn#79898). Relaunch it, unless it keeps failing right away.
+                    if (launches.Count(launch => DateTime.UtcNow - launch < WatchRelaunchWindow) >= MaxWatchLaunches)
+                    {
+                        logger.LogError("{Symbol} dotnet watch stopped unexpectedly {Count} times within {Minutes} minutes (exit code {Code}); stopping.",
+                            UiSymbols.Error, MaxWatchLaunches, WatchRelaunchWindow.TotalMinutes, watcher.ExitCode);
+                        return watcher.ExitCode;
+                    }
+                    // A dotnet watch that crashed can leave its app running, holding the files the relaunch rebuilds (MSB3027).
+                    stopLeftoverApp?.Invoke();
+                    ansiConsole.WriteLine($"[watch] restart dotnet watch stopped unexpectedly (exit code {watcher.ExitCode}; a known .NET hot reload bug can do this). Relaunching it.");
                 }
-                await watcher.WaitForExitAsync(CancellationToken.None);
-                return watcher.ExitCode;
             }
         }
+
+        private const int MaxWatchLaunches = 3;
+        private static readonly TimeSpan WatchRelaunchWindow = TimeSpan.FromMinutes(2);
 
         /// <summary>
         /// Carries the packaged watch's run (input, build selection, overlay, app arguments) to each launch step, so

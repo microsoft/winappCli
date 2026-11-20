@@ -1011,6 +1011,34 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     /// <summary>
+    /// dotnet watch ends on its own only when it fails, such as .NET's hot reload crash after some edits. winapp says
+    /// so and relaunches it, but stops when it keeps failing right away.
+    /// </summary>
+    [TestMethod]
+    [DataRow(new[] { 1, 0 }, 0)]
+    [DataRow(new[] { 1, 1, 1, 0 }, 1)]
+    public async Task Watch_RelaunchesDotnetWatch_WhenItStopsUnexpectedly(int[] exitCodes, int expectedExit)
+    {
+        var app = Prepare("project", false);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ProcessDescendants = _ => [];
+        handler.ProcessesRunningFrom = _ => [4243];
+        var closed = new List<int>();
+        handler.CloseRunningProcess = pid => { closed.Add(pid); return true; };
+        var launches = 0;
+        _launcher.LaunchOverride = () => new FakeLaunchedProcess(100, exitCodes[launches++]);
+
+        var exit = await Run(app.Input, "--devtools", "headless", "--watch");
+
+        Assert.AreEqual(expectedExit, exit, TestAnsiConsole.Output + ConsoleStdErr);
+        Assert.AreEqual(Math.Min(exitCodes.Length, 3), _launcher.LaunchExecutableCalls.Count);
+        Assert.Contains("[watch] restart dotnet watch stopped unexpectedly (exit code 1;", TestAnsiConsole.Output);
+        Assert.AreEqual(expectedExit == 0, !(TestAnsiConsole.Output + ConsoleStdErr).Contains("3 times within 2 minutes", StringComparison.Ordinal));
+        // The app the crashed dotnet watch left running goes before each relaunch, so the rebuild can replace its files.
+        Assert.AreSequenceEqual(Enumerable.Repeat(4243, _launcher.LaunchExecutableCalls.Count - 1).ToArray(), closed.ToArray());
+    }
+
+    /// <summary>
     /// A two-framework app: <c>winapp run . --watch</c> built the first framework, so <c>dotnet watch</c> must build
     /// that one too, with the same publish profile and CsWinRT metadata, instead of stopping at "Specify which
     /// framework to run using '--framework'".
