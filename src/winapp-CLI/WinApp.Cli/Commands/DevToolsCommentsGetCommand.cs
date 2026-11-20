@@ -95,6 +95,10 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExa
                     {
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]Captured declaration:[/] {Markup.Escape(authored.Declaration)}");
                     }
+                    else if (view.Anchor.CSharp is { LineText: { Length: > 0 } statement })
+                    {
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]Captured declaration:[/] {Markup.Escape(statement.Trim())}");
+                    }
                     if (idn.Content is { Length: > 0 } content)
                     {
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]Captured runtime text (context):[/] {Markup.Escape(content)}");

@@ -118,6 +118,7 @@ static std::function<void(bool)> g_presentCommentBox;
 static std::wstring BuildSourceSection(const std::wstring& sourceUri, unsigned int sourceLine,
                                        const std::wstring& authoredState, const std::wstring& authoredXaml)
 {
+    const bool csharp = authoredState == L"csharp";
     std::wstring m;
     // Show a source link only with actual XBF/source instrumentation and a file resolved under
     // the configured source root. Environment delivery is the host's responsibility.
@@ -163,11 +164,14 @@ static std::wstring BuildSourceSection(const std::wstring& sourceUri, unsigned i
     const std::wstring sourceIcon = L"<FontIcon Glyph=\"&#xE8A5;\" FontSize=\"12\" VerticalAlignment=\"Center\"" DT_FG_SECONDARY L"/>";
     if (!authoredXaml.empty()) {
         const bool likely = authoredState == L"likely";
-        const std::wstring note = likely
+        const std::wstring note = csharp
+            ? L"C# on disk at the Reactor call site that created this element. The running app may differ after a rebuild or hot reload."
+            : likely
             ? L"Likely source: unique line and identity match; compiled identity and line preservation are unverified."
             : L"Read from the file on disk. The running app may differ after a rebuild or hot reload.";
         m += L"<Expander x:Name=\"AxmlToggle\" HorizontalAlignment=\"Stretch\""
-             L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.Name=\"Source XAML\""
+             L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.Name=\"" +
+             std::wstring(csharp ? L"C# source" : L"Source XAML") + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlToggle\" IsExpanded=\"" +
              std::wstring(g_axmlExpanded ? L"True" : L"False") + L"\"><Expander.Header>";
         m += L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
@@ -178,7 +182,7 @@ static std::wstring BuildSourceSection(const std::wstring& sourceUri, unsigned i
              L" BorderBrush=\"{ThemeResource ControlStrokeColorDefaultBrush}\""
              L" Background=\"{ThemeResource ControlFillColorSecondaryBrush}\""
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(note) + L"\">";
-        m += L"<TextBlock Text=\"" + std::wstring(likely ? L"likely match" : L"on disk") + L"\" FontSize=\"11\""
+        m += L"<TextBlock Text=\"" + std::wstring(csharp ? L"C# on disk" : likely ? L"likely match" : L"on disk") + L"\" FontSize=\"11\""
              DT_FG_SECONDARY L" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(note) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceNote\"/></Border>";
         m += L"</Grid></Expander.Header>";
@@ -198,7 +202,8 @@ static std::wstring BuildSourceSection(const std::wstring& sourceUri, unsigned i
 // Why the x:Bind and resource sources of an element's properties can't be shown, or empty when they can.
 static std::wstring AuthoredUnavailableReason(const std::wstring& sourceUri, const std::wstring& authoredState)
 {
-    if (authoredState == L"available") return std::wstring();
+    // A Reactor element's C# is its authored source.
+    if (authoredState == L"available" || authoredState == L"csharp") return std::wstring();
     // Framework source with no readable app declaration is not missing app instrumentation.
     // Do not recommend changing a correct build for that case.
     const bool frameworkDeclared = !sourceUri.empty() && !DevToolsAppXaml_IsAppAuthored(sourceUri);
@@ -282,6 +287,17 @@ static std::wstring BuildPaneShell()
     }
     m += L"<TextBlock x:Name=\"NoProps\" Visibility=\"Collapsed\" Text=\"(no curated properties)\""
          L" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>";
+    // LabeledBy / DescribedBy / FlowsTo / FlowsFrom / XYFocus* edges from and to this element, above the (long)
+    // Reactor component section so they stay in view. Pending ones arrive later from the agent.
+    m += L"<StackPanel x:Name=\"ReferencesSlot\" Visibility=\"Collapsed\"/>";
+    m += L"<StackPanel x:Name=\"PendingReferences\"/>";
+    // A Reactor element: the component that renders it (props, state, contexts, handlers), filled in after load.
+    m += L"<StackPanel x:Name=\"ReactorSection\" Visibility=\"Collapsed\" Spacing=\"4\" Margin=\"0,8,0,0\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsReactorSection\">";
+    m += L"<TextBlock Text=\"Reactor component\" Style=\"{StaticResource CaptionTextBlockStyle}\""
+         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/>";
+    m += L"<StackPanel x:Name=\"ReactorSectionBody\" Spacing=\"4\"><TextBlock x:Name=\"ReactorReading\" Text=\"Reading the component\u2026\" FontSize=\"12\""
+         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></StackPanel></StackPanel>";
     // One line in the header; the full reason is on hover and for screen readers. It names what is missing, so a
     // Local value set by a compiled binding is not read as a plain literal. ShowPropsForNode sets the reason.
     m += L"<TextBlock x:Name=\"AuthoredUnavailable\" Visibility=\"Collapsed\""
@@ -444,12 +460,37 @@ static void ShowCommentDraftNotice(const wchar_t* text, const std::wstring& draf
 // arriving inside the window produce exactly one rebuild, once the app has settled.
 static const UINT_PTR kRefreshTimerId  = 0xD72; // unique on the inspector HWND (see kPlaceTimerId / kWatchTimerId)
 static const UINT     kRefreshDebounceMs = 250;
+// A tree that never settles (a list re-created on a timer) is followed at a steady pace instead of after every change:
+// at most one rebuild every two seconds, and none later than three seconds after the first change it shows. Each row
+// rebuild costs the app memory it does not give back, so a list that changes several times a second must not set
+// the pace.
+static const ULONGLONG kRefreshMinGapMs = 2000;
+static const ULONGLONG kRefreshMaxWaitMs = 3000;
+static ULONGLONG g_treeRefreshFirstPending = 0, g_treeRefreshLast = 0;
 static HWND Route1WindowHwnd();
+
+// When the live tree refresh runs, for a change at `now`: the debounce, held to the pace above.
+static ULONGLONG TreeRefreshDueAt(ULONGLONG now, ULONGLONG firstPending, ULONGLONG lastRefresh)
+{
+    ULONGLONG due = now + kRefreshDebounceMs;
+    if (lastRefresh) due = (std::max)(due, lastRefresh + kRefreshMinGapMs);
+    if (firstPending) due = (std::min)(due, firstPending + kRefreshMaxWaitMs);
+    return (std::max)(due, now);
+}
+
+// A new Reactor description changes which rows are the app's own; it is applied with the next paced refresh.
+static bool g_treeReclassifyPending = false;
 
 static VOID CALLBACK RefreshTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD)
 {
     KillTimer(hwnd, id);
-    RefreshTreeFromApp();
+    g_treeRefreshFirstPending = 0;
+    g_treeRefreshLast = GetTickCount64();
+    if (!g_treeReclassifyPending) { RefreshTreeFromApp(); return; }
+    g_treeReclassifyPending = false;
+    g_reclassifying = true;
+    struct Reset { ~Reset() { g_reclassifying = false; } } reset;
+    RefreshTreeFromApp(true);
 }
 
 static void ArmTreeRefresh()
@@ -468,7 +509,10 @@ static void ArmTreeRefresh()
     }
     // SetTimer returns 0 on failure. A refresh that never got scheduled must say so rather than leave the
     // window sitting on a stale tree looking like it is about to update.
-    if (!SetTimer(h, kRefreshTimerId, kRefreshDebounceMs, RefreshTimerProc))
+    const ULONGLONG now = GetTickCount64();
+    if (!g_treeRefreshFirstPending) g_treeRefreshFirstPending = now;
+    const UINT wait = static_cast<UINT>(TreeRefreshDueAt(now, g_treeRefreshFirstPending, g_treeRefreshLast) - now);
+    if (!SetTimer(h, kRefreshTimerId, (std::max)(wait, static_cast<UINT>(USER_TIMER_MINIMUM)), RefreshTimerProc))
         DevToolsOverlayLog(L"route1.refresh SetTimer FAILED (err=%lu) -- the tree will stay out of date", GetLastError());
 }
 

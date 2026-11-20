@@ -14,11 +14,27 @@ internal sealed class StartupHook
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetNamedPipeClientProcessId(SafePipeHandle pipe, out uint processId);
 
-    public static void Initialize() => _ = Task.Run(ServeAsync);
+    private static int initialized;
 
-    // The relay treats a missing pipe name as a missing host, so a listening instance always exists: the next one is
-    // created before the current one is handed off or dropped. Instances are uncapped because one lives until both
-    // ends close, and a refused listener would leave the name missing.
+    public static void Initialize()
+    {
+        // Runs once per process: at startup through DOTNET_STARTUP_HOOKS, or later through the runtime's diagnostics
+        // port when DevTools attaches to a running app. A second request (both, or two attaches) is ignored.
+        if (Interlocked.Exchange(ref initialized, 1) != 0) return;
+        // Watch Reactor's events from startup, so `winapp devtools logs` has the warnings and errors since launch.
+        try { WinApp.DevTools.Managed.ReactorEvents.Start(); }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Reactor event listener failed: {0}", ex.GetType().Name); }
+        for (int i = 0; i < Listeners; i++) _ = Task.Run(ServeAsync);
+    }
+
+    // Several listeners wait at once, so concurrent callers in this process (the inspector, CLI requests, the event
+    // stream) each find a free instance instead of queuing behind a single one. Every connection is still checked to
+    // come from this process.
+    internal const int Listeners = 4;
+
+    // The relay treats a missing pipe name as a missing host, so a listening instance always exists: each listener
+    // creates its next one before the current one is handed off or dropped. Instances are uncapped because one lives
+    // until both ends close, and a refused listener would leave the name missing.
     private static NamedPipeServerStream Listen(string pipeName) =>
         new(pipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
@@ -80,6 +96,19 @@ internal sealed class StartupHook
         using var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         while (ReadLine(stream) is string command)
         {
+            // A probe carries no element: it answers whether Reactor is loaded, off the UI thread.
+            if (command == "PROBE1")
+            {
+                await writer.WriteLineAsync("PROBE1 " + WinApp.DevTools.Managed.ReactorProvider.Probe().Replace("\r", "").Replace("\n", " "));
+                continue;
+            }
+            // A long-lived stream of Reactor events for the native inspector (Reactor.changed, devtools logs).
+            if (command.StartsWith("EVENTS1", StringComparison.Ordinal))
+            {
+                var mask = command.Length > 8 && int.TryParse(command.AsSpan(8), out var requested) ? requested : 0;
+                await WinApp.DevTools.Managed.ReactorEvents.ServeAsync(stream, mask, ReadLine);
+                return;
+            }
             if (command != "BINDING2")
             {
                 await writer.WriteLineAsync("BINDING2 {\"state\":\"unavailable\",\"reason\":\"incompatible binding protocol\"}");
@@ -92,10 +121,22 @@ internal sealed class StartupHook
                 string op = ReadString(reader);
                 string property = ReadString(reader);
                 string authored = ReadString(reader);
-                if (op is not ("diagnose" or "capture" or "restore" or "restoreconfirmed" or "clear" or "writesource"))
+                if (op is not ("diagnose" or "capture" or "restore" or "restoreconfirmed" or "clear" or "writesource" or "reactor" or "reactorelement"
+                    or "reactorcomponent" or "reactorsetstate" or "reactorrerender" or "reactorinvoke" or "resourceget" or "resourceset"
+                    or "reactorreferences"))
                     throw new InvalidDataException("unsupported binding operation");
                 using var apartment = new WinApp.DevTools.Managed.BindingTarget.Apartment();
-                result = WinApp.DevTools.Managed.BindingDiagnosis.Run(WinApp.DevTools.Managed.BindingTarget.Consume(packet), op, property, authored);
+                var target = WinApp.DevTools.Managed.BindingTarget.Consume(packet);
+                result = op switch
+                {
+                    "reactor" => WinApp.DevTools.Managed.ReactorProvider.Run(target),
+                    "reactorelement" => WinApp.DevTools.Managed.ReactorProvider.RunElement(target),
+                    "reactorreferences" => WinApp.DevTools.Managed.ReactorProvider.RunReferences(target),
+                    "reactorcomponent" or "reactorsetstate" or "reactorrerender" or "reactorinvoke" =>
+                        WinApp.DevTools.Managed.ReactorComponentOps.Run(target, op, property, authored),
+                    "resourceget" or "resourceset" => WinApp.DevTools.Managed.ResourceOps.Run(target, op, property, authored),
+                    _ => WinApp.DevTools.Managed.BindingDiagnosis.Run(target, op, property, authored),
+                };
             }
             catch (Exception ex) when (ex is EndOfStreamException or InvalidDataException or DecoderFallbackException)
             {

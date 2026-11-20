@@ -55,7 +55,8 @@ bool TreeFilterMatches(const std::wstring& type, const std::wstring& name,
     return BuildTreeFilterLabel(type, name, preview).find(normalizedQuery) != std::wstring::npos;
 }
 
-std::wstring IdentitySegment(const std::wstring& type, const std::wstring& name, int sameTypeOrdinal)
+std::wstring IdentitySegment(const std::wstring& type, const std::wstring& name, int sameTypeOrdinal,
+                             const std::wstring& reactor)
 {
     const size_t dot = type.find_last_of(L'.');
     std::wstring segment = dot == std::wstring::npos ? type : type.substr(dot + 1);
@@ -63,7 +64,16 @@ std::wstring IdentitySegment(const std::wstring& type, const std::wstring& name,
     segment += L'[';
     segment += std::to_wstring(sameTypeOrdinal < 0 ? 0 : sameTypeOrdinal);
     segment += L']';
+    if (!reactor.empty()) { segment += L'@'; segment += reactor; }
     return segment;
+}
+
+std::wstring ReactorIdentity(const std::wstring& label, const std::wstring& key, const std::wstring& site)
+{
+    std::wstring identity = label;
+    if (!key.empty()) { identity += L"|key="; identity += key; }
+    else if (!site.empty()) { identity += L'|'; identity += site; }
+    return identity;
 }
 
 unsigned long long IdentityFold(unsigned long long parentValue, const std::wstring& segment)

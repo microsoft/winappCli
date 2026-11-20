@@ -348,8 +348,28 @@ std::wstring DevToolsRead_SerializeLayout(const DevToolsReadLayout& L)
         if (!L.gridColumnSpan.empty()) { out += L",\"columnSpan\":\""; out += DevToolsJsonEscape(L.gridColumnSpan); out += L"\""; }
         out += L"}";
     }
+    if (L.haveScreen)
+    {
+        out += L",\"screen\":{\"x\":" + LayoutNum(L.screenX) + L",\"y\":" + LayoutNum(L.screenY) +
+               L",\"w\":" + LayoutNum(L.screenW) + L",\"h\":" + LayoutNum(L.screenH) + L"}";
+    }
     out += L"}";
     return out;
+}
+
+bool DevToolsRead_LogicalToPhysical(double logicalLeft, double logicalTop, double logicalRight, double logicalBottom,
+                                    double physicalLeft, double physicalTop, double physicalRight, double physicalBottom,
+                                    double& x, double& y, double& w, double& h)
+{
+    if (logicalRight <= logicalLeft || logicalBottom <= logicalTop) return false;
+    const double sx = (physicalRight - physicalLeft) / (logicalRight - logicalLeft);
+    const double sy = (physicalBottom - physicalTop) / (logicalBottom - logicalTop);
+    if (!(sx > 0) || !(sy > 0)) return false;
+    x = physicalLeft + (x - logicalLeft) * sx;
+    y = physicalTop + (y - logicalTop) * sy;
+    w *= sx;
+    h *= sy;
+    return true;
 }
 
 bool DevToolsRead_IsCoreProp(const std::wstring& name)

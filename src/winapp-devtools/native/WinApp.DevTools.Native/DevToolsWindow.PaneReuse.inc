@@ -168,7 +168,7 @@ static const size_t kPaneSlotShapes = 6;
 static const wchar_t* const kPaneSectionOpen =
     L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
     L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">";
-static PaneSlot g_sourceSlot, g_layoutSlot;
+static PaneSlot g_sourceSlot, g_layoutSlot, g_referencesSlot;
 
 static void ShowPaneSlotTree(PaneSlot& slot, size_t shown)
 {
