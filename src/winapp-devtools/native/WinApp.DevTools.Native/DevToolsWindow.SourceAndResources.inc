@@ -107,7 +107,7 @@ static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, co
     const std::wstring message = sourceRootMissing ? std::wstring(kSourceRootMissing)
         : DevToolsShellOpen::Describe(r, display, line, path, offScreenPrefix, extension);
     if (feedback) feedback(message);
-    else SetStatusText(message);
+    else SetStatusText(r.outcome == DevToolsShellOpen::Outcome::Handed ? L"" : message);
     DevToolsOverlayLog(L"route1.opensource outcome=%d handler='%s' path='%s'",
                   (int)r.outcome, r.handler.c_str(), path.c_str());
     return (r.outcome == DevToolsShellOpen::Outcome::NoPath) ? std::wstring() : path;

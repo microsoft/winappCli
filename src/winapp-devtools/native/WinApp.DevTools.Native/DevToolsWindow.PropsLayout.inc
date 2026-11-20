@@ -150,9 +150,7 @@ static std::wstring LayoutLine(const std::wstring& label, const std::wstring& va
     return m;
 }
 
-// Fixed box-model rings: margin, border, padding, content. Render nonzero, zero and unavailable
-// as distinct states, preserving four edge positions. Derive inward sizes from RenderSize;
-// only margin lies outside it. Stroke patterns preserve ring identity in High Contrast.
+// Derive inward sizes from RenderSize; only margin lies outside it.
 struct DevToolsRing
 {
     bool present = false;
@@ -195,27 +193,25 @@ static bool SystemHighContrast()
 
 // One ring around `inner`. The numbers sit in REAL CELLS of a 3x3 grid whose outer tracks are the band
 // widths, so a number is centred in the band it measures and cannot overdraw the ring inside it.
-static std::wstring RingMarkup(const wchar_t* label, const DevToolsRing& g, const wchar_t* dash, double strokeW,
+static std::wstring RingMarkup(const wchar_t* label, const DevToolsRing& g,
                                const std::wstring& ink, const std::wstring& dim, const std::wstring& tint,
-                               const std::wstring& boxSize, bool hc, const std::wstring& inner)
+                               bool hc, const std::wstring& inner)
 {
     // Callers do not build a ring for a property the type lacks, so `present` is always true here.
     const bool zero = g.Zero();
     // Wide enough for the widest side value, and never so narrow that a two-digit number touches a stroke.
     const size_t widest = (std::max)(LayoutNumW(g.l).size(), LayoutNumW(g.r).size());
-    const double bandW = (std::max)(20.0, 5.0 * (double)widest + 10.0);
+    const double bandW = (std::max)(28.0, 6.0 * (double)widest + 12.0);
     const std::wstring bw = LayoutNumW(bandW);
-    const std::wstring numInk = zero ? dim : ink;
+    const std::wstring numInk = ink;
 
     std::wstring autoName = zero
         ? std::wstring(label) + L" 0 on all sides"
         : std::wstring(label) + L" " + LayoutNumW(g.l) + L" left, " + LayoutNumW(g.t) + L" top, " +
           LayoutNumW(g.r) + L" right, " + LayoutNumW(g.b) + L" bottom";
-    if (!boxSize.empty()) autoName += L", box " + boxSize;
-
     auto cell = [&numInk](int row, int col, const std::wstring& text) {
         return L"<TextBlock Grid.Row=\"" + std::to_wstring(row) + L"\" Grid.Column=\"" + std::to_wstring(col) +
-               L"\" Text=\"" + DevToolsXmlEscape(text) + L"\" FontSize=\"9\" FontFamily=\"Consolas\" Foreground=\"" + numInk +
+               L"\" Text=\"" + DevToolsXmlEscape(text) + L"\" FontSize=\"11\" FontFamily=\"Consolas\" Foreground=\"" + numInk +
                L"\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\""
                L" AutomationProperties.AccessibilityView=\"Raw\"/>";
     };
@@ -223,108 +219,20 @@ static std::wstring RingMarkup(const wchar_t* label, const DevToolsRing& g, cons
     std::wstring body = L"<Grid AutomationProperties.Name=\"" + DevToolsXmlEscape(autoName) + L"\">"
         L"<Grid.ColumnDefinitions><ColumnDefinition Width=\"" + bw + L"\"/><ColumnDefinition Width=\"*\"/>"
         L"<ColumnDefinition Width=\"" + bw + L"\"/></Grid.ColumnDefinitions>"
-        L"<Grid.RowDefinitions><RowDefinition Height=\"14\"/><RowDefinition Height=\"*\"/>"
-        L"<RowDefinition Height=\"12\"/></Grid.RowDefinitions>";
-    body += L"<TextBlock Grid.Row=\"0\" Grid.ColumnSpan=\"3\" Text=\"" + std::wstring(label) +
-            L"\" FontSize=\"9\" Foreground=\"" + dim + L"\" HorizontalAlignment=\"Left\""
-            L" VerticalAlignment=\"Center\" Margin=\"4,0,0,0\""
+        L"<Grid.RowDefinitions><RowDefinition Height=\"24\"/><RowDefinition Height=\"*\"/>"
+        L"<RowDefinition Height=\"20\"/></Grid.RowDefinitions>";
+    body += L"<TextBlock Grid.Row=\"0\" Grid.Column=\"0\" Grid.ColumnSpan=\"3\" Text=\"" + std::wstring(label) +
+            L"\" FontSize=\"10\" Foreground=\"" + dim + L"\" HorizontalAlignment=\"Left\""
+            L" VerticalAlignment=\"Top\" Margin=\"5,3,0,0\""
             L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    if (!boxSize.empty())
-        body += L"<TextBlock Grid.Row=\"0\" Grid.ColumnSpan=\"3\" Text=\"" + DevToolsXmlEscape(boxSize) +
-                L"\" FontSize=\"9\" FontFamily=\"Consolas\" Foreground=\"" + dim + L"\" Opacity=\"0.85\""
-                L" HorizontalAlignment=\"Right\" VerticalAlignment=\"Center\" Margin=\"0,0,5,0\""
-                L" AutomationProperties.AccessibilityView=\"Raw\"/>";
     body += cell(0, 1, LayoutNumW(g.t));
     body += cell(2, 1, LayoutNumW(g.b));
     body += cell(1, 0, LayoutNumW(g.l));
     body += cell(1, 2, LayoutNumW(g.r));
     body += L"<Grid Grid.Row=\"1\" Grid.Column=\"1\">" + inner + L"</Grid></Grid>";
 
-    // In High Contrast, emit NO fill at all: no tint and no opaque base. The window's own background shows
-    // through and the strokes carry the ring identity, which is what the design claimed and what the first
-    // rendering disproved. Outside HC the opaque base is required, because nested translucent fills compound
-    // and the innermost box ends up wearing every ring's tint at once.
-    std::wstring fill;
-    if (!hc) {
-        fill = L"<Rectangle Fill=\"{ThemeResource SolidBackgroundFillColorBaseBrush}\""
-               L" HorizontalAlignment=\"Stretch\" VerticalAlignment=\"Stretch\" IsHitTestVisible=\"False\"/>";
-        if (!tint.empty() && !zero)
-            fill += L"<Rectangle Fill=\"" + tint + L"\" Opacity=\"0.15\" HorizontalAlignment=\"Stretch\""
-                    L" VerticalAlignment=\"Stretch\" IsHitTestVisible=\"False\"/>";
-    }
-
-    const double op = zero ? 0.62 : 1.0;
-    std::wstring open = L"<Grid Opacity=\"" + LayoutNumW(op) + L"\">";
-    if (dash) {
-        return open + fill + L"<Rectangle Stroke=\"" + ink + L"\" StrokeThickness=\"" + LayoutNumW(strokeW) +
-               L"\" StrokeDashArray=\"" + dash + L"\" StrokeDashCap=\"Flat\""
-               L" HorizontalAlignment=\"Stretch\" VerticalAlignment=\"Stretch\"/>" + body + L"</Grid>";
-    }
-    return open + L"<Border BorderThickness=\"" + LayoutNumW(strokeW) + L"\" BorderBrush=\"" + ink + L"\">"
-           L"<Grid>" + fill + body + L"</Grid></Border></Grid>";
-}
-
-// MinWidth/MinHeight keep tiny boxes visible while star sizing preserves relative position.
-static std::wstring BuildFitThumb(const DevToolsWindowLayout& L, const std::wstring& ink, const std::wstring& dim)
-{
-    if (!L.haveParentBox || !L.haveRender || L.parentW <= 0.5 || L.parentH <= 0.5) return std::wstring();
-    const double aw = (double)L.parentW, ah = (double)L.parentH;
-    const double w = (double)L.renderW, h = (double)L.renderH;
-    const double x = L.haveInParent ? (double)L.inParentX : 0.0;
-    const double y = L.haveInParent ? (double)L.inParentY : 0.0;
-
-    auto star = [](double v, double total, int floorU) {
-        double u = (total > 0 ? (v / total) : 0) * 1000.0;
-        if (u < 0) u = 0;
-        if (u > 1000) u = 1000;
-        int i = (int)(u + 0.5);
-        return i < floorU ? floorU : i;
-    };
-    const int cx = star(x, aw, 0), cw = star(w, aw, 40);
-    const int ca = (std::max)(1000 - cx - cw, 0);
-    const int ry = star(y, ah, 0), rh = star(h, ah, 40);
-    const int rb = (std::max)(1000 - ry - rh, 0);
-
-    const bool fills = fabs(w - aw) < 0.5 && fabs(h - ah) < 0.5 && x < 0.5 && y < 0.5;
-    std::wstring name = fills
-        ? L"This element fills the " + BoxSizeText(aw, ah) + L" its parent offered"
-        : L"This element occupies " + BoxSizeText(w, h) + L" of the " + BoxSizeText(aw, ah) +
-          L" its parent offered, at " + LayoutNumW(x) + L", " + LayoutNumW(y);
-
-    std::wstring m = L"<Grid Width=\"46\" Height=\"46\" VerticalAlignment=\"Top\""
-                     L" AutomationProperties.Name=\"" + DevToolsXmlEscape(name) + L"\">";
-    m += L"<Rectangle Stroke=\"" + dim + L"\" StrokeThickness=\"1\" StrokeDashArray=\"2,2\""
-         L" StrokeDashCap=\"Flat\" HorizontalAlignment=\"Stretch\" VerticalAlignment=\"Stretch\"/>";
-    m += L"<Grid Margin=\"2\"><Grid.ColumnDefinitions>"
-         L"<ColumnDefinition Width=\"" + std::to_wstring(cx) + L"*\"/>"
-         L"<ColumnDefinition Width=\"" + std::to_wstring(cw) + L"*\"/>"
-         L"<ColumnDefinition Width=\"" + std::to_wstring(ca) + L"*\"/></Grid.ColumnDefinitions>"
-         L"<Grid.RowDefinitions>"
-         L"<RowDefinition Height=\"" + std::to_wstring(ry) + L"*\"/>"
-         L"<RowDefinition Height=\"" + std::to_wstring(rh) + L"*\"/>"
-         L"<RowDefinition Height=\"" + std::to_wstring(rb) + L"*\"/></Grid.RowDefinitions>";
-    m += L"<Border Grid.Column=\"1\" Grid.Row=\"1\" Background=\"" + ink + L"\" Opacity=\"0.85\""
-         L" MinWidth=\"3\" MinHeight=\"3\"/>";
-    m += L"</Grid></Grid>";
-
-    std::wstring t = L"<TextBlock FontSize=\"11\" TextWrapping=\"Wrap\" Foreground=\"" + dim + L"\">";
-    auto run = [&](const wchar_t* k, const std::wstring& v) {
-        return L"<Run Text=\"" + std::wstring(k) + L" \"/><Run Text=\"" + DevToolsXmlEscape(v) +
-               L"\" FontFamily=\"Consolas\" FontWeight=\"SemiBold\" Foreground=\"" + ink + L"\"/>";
-    };
-    t += run(L"offered", BoxSizeText(aw, ah));
-    t += L"<LineBreak/>";
-    if (fills) t += L"<Run Text=\"this fills it\"/>";
-    else {
-        t += run(L"this took", BoxSizeText(w, h));
-        if (x > 0.5 || y > 0.5) t += run(L" at", LayoutNumW(x) + L", " + LayoutNumW(y));
-    }
-    t += L"</TextBlock>";
-
-    return L"<Grid Margin=\"0,9,0,0\" ColumnSpacing=\"10\"><Grid.ColumnDefinitions>"
-           L"<ColumnDefinition Width=\"Auto\"/><ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>" +
-           m + L"<ContentControl Grid.Column=\"1\" VerticalAlignment=\"Top\" IsTabStop=\"False\">" + t +
-           L"</ContentControl></Grid>";
+    return L"<Border BorderThickness=\"1\" BorderBrush=\"" + dim +
+           (hc ? L"\"" : L"\" Background=\"" + tint + L"\"") + L">" + body + L"</Border>";
 }
 
 static std::wstring DetailRow(const std::wstring& term, const std::wstring& value,
@@ -343,8 +251,7 @@ static std::wstring DetailGroup(const std::wstring& caption, const std::wstring&
            L" Foreground=\"" + dim + L"\" TextWrapping=\"Wrap\" Margin=\"0,0,0,5\"/>";
 }
 
-// Draw the box model and fit thumbnail, with details behind More. Resolve each theme key once
-// before parsing and inline its current literal; invalidate on theme changes for High Contrast.
+// The diagram is compact, not to scale; the values remain exact. Details stay behind More.
 static std::wstring BuildBoxModel(const DevToolsWindowLayout& L, const std::vector<DevToolsCardRow>& rows,
                                   const std::wstring& ink, const std::wstring& dim, std::wstring& more)
 {
@@ -355,44 +262,43 @@ static std::wstring BuildBoxModel(const DevToolsWindowLayout& L, const std::vect
     const double rw = (double)L.renderW, rh = (double)L.renderH;
     const double bw = border.present  ? border.l + border.r : 0,  bh = border.present  ? border.t + border.b : 0;
     const double pw = padding.present ? padding.l + padding.r : 0, ph = padding.present ? padding.t + padding.b : 0;
-    const double mw = margin.present  ? margin.l + margin.r : 0,  mh = margin.present  ? margin.t + margin.b : 0;
-    const std::wstring sMargin  = BoxSizeText(rw + mw, rh + mh);
     const std::wstring sBorder  = BoxSizeText(rw, rh);
-    const std::wstring sPadding = BoxSizeText(rw - bw, rh - bh);
     const std::wstring sContent = BoxSizeText(rw - bw - pw, rh - bh - ph);
     const bool degenerate = (rw - bw - pw) < 0 || (rh - bh - ph) < 0;
 
-    const std::wstring tintMargin  = L"{ThemeResource SystemFillColorCautionBrush}";
-    const std::wstring tintPadding = L"{ThemeResource SystemFillColorSuccessBrush}";
-    const std::wstring tintContent = L"{ThemeResource AccentFillColorDefaultBrush}";
+    const std::wstring tintMargin  = L"{ThemeResource DevToolsMarginFill}";
+    const std::wstring tintPadding = L"{ThemeResource DevToolsPaddingFill}";
+    const std::wstring tintContent = L"{ThemeResource DevToolsContentFill}";
 
     const bool hc = SystemHighContrast();
     std::wstring m = L"<Grid MinHeight=\"32\">";
     if (!hc) {
-        m += L"<Rectangle Fill=\"{ThemeResource SolidBackgroundFillColorBaseBrush}\""
-             L" HorizontalAlignment=\"Stretch\" VerticalAlignment=\"Stretch\"/>";
-        m += L"<Rectangle Fill=\"" + tintContent + L"\" Opacity=\"0.17\""
+        m += L"<Rectangle Fill=\"" + tintContent + L"\""
              L" HorizontalAlignment=\"Stretch\" VerticalAlignment=\"Stretch\"/>";
     }
     m += L"<Border BorderThickness=\"1\" BorderBrush=\"" + ink + L"\"/>";
     m += L"<StackPanel Spacing=\"1\" Margin=\"6,4,6,4\" HorizontalAlignment=\"Center\""
          L" VerticalAlignment=\"Center\">";
-    m += L"<TextBlock Text=\"content\" FontSize=\"9\" Foreground=\"" + dim +
-         L"\" HorizontalAlignment=\"Center\" AutomationProperties.AccessibilityView=\"Raw\"/>";
     m += L"<TextBlock Text=\"" + DevToolsXmlEscape(degenerate ? std::wstring(L"n/a") : sContent) +
          L"\" FontSize=\"12\" FontFamily=\"Consolas\" FontWeight=\"SemiBold\" Foreground=\"" + ink +
          L"\" HorizontalAlignment=\"Center\" TextTrimming=\"CharacterEllipsis\" TextWrapping=\"NoWrap\""
          L" AutomationProperties.Name=\"content box " + DevToolsXmlEscape(sContent) + L"\"/>";
     m += L"</StackPanel></Grid>";
 
-    if (padding.present) m = RingMarkup(L"padding", padding, L"2,2",  1, ink, dim, tintPadding, sPadding, hc, m);
-    if (border.present)  m = RingMarkup(L"border",  border,  nullptr, 2, ink, dim, L"",         sBorder,  hc, m);
-    if (margin.present)  m = RingMarkup(L"margin",  margin,  L"1,3",  1, ink, dim, tintMargin,  sMargin,  hc, m);
+    if (padding.present) m = RingMarkup(L"padding", padding, ink, dim, tintPadding, hc, m);
+    if (margin.present) m = RingMarkup(L"margin", margin, ink, dim, tintMargin, hc, m);
 
     std::wstring out = L"<StackPanel Spacing=\"0\" Margin=\"0,8,0,0\""
                        L" AutomationProperties.AutomationId=\"WinAppDevToolsBoxModel\">";
+    out += LR"(<StackPanel.Resources><ResourceDictionary><ResourceDictionary.ThemeDictionaries>
+<ResourceDictionary x:Key="Light"><SolidColorBrush x:Key="DevToolsMarginFill" Color="#F3DAC8"/>
+<SolidColorBrush x:Key="DevToolsPaddingFill" Color="#DFE8CD"/><SolidColorBrush x:Key="DevToolsContentFill" Color="#BBDAD6"/></ResourceDictionary>
+<ResourceDictionary x:Key="Dark"><SolidColorBrush x:Key="DevToolsMarginFill" Color="#5C4235"/>
+<SolidColorBrush x:Key="DevToolsPaddingFill" Color="#334D3C"/><SolidColorBrush x:Key="DevToolsContentFill" Color="#315459"/></ResourceDictionary>
+<ResourceDictionary x:Key="HighContrast"><SolidColorBrush x:Key="DevToolsMarginFill" Color="{ThemeResource SystemColorWindowColor}"/>
+<SolidColorBrush x:Key="DevToolsPaddingFill" Color="{ThemeResource SystemColorWindowColor}"/><SolidColorBrush x:Key="DevToolsContentFill" Color="{ThemeResource SystemColorWindowColor}"/></ResourceDictionary>
+</ResourceDictionary.ThemeDictionaries></ResourceDictionary></StackPanel.Resources>)";
     out += m;
-    out += BuildFitThumb(L, ink, dim);
     out += L"</StackPanel>";
 
     more = DetailGroup(L"THIS ELEMENT", dim);
@@ -400,6 +306,10 @@ static std::wstring BuildBoxModel(const DevToolsWindowLayout& L, const std::vect
         more += DetailRow(L"asked for", BoxSizeText(L.desiredW, L.desiredH) +
                           (margin.present && !margin.Zero() ? std::wstring(L" with margin") : std::wstring()), ink, dim);
     if (L.haveRender)  more += DetailRow(L"arranged",  sBorder, ink, dim);
+    if (border.present)
+        more += DetailRow(L"border (left, top, right, bottom)",
+            LayoutNumW(border.l) + L", " + LayoutNumW(border.t) + L", " +
+            LayoutNumW(border.r) + L", " + LayoutNumW(border.b), ink, dim);
     if (L.haveOffset)  more += DetailRow(L"placed at", LayoutNumW(L.offsetX) + L", " + LayoutNumW(L.offsetY), ink, dim);
     if (L.haveActual && L.haveRender &&
         (fabs(L.actualW - rw) > 0.5 || fabs(L.actualH - rh) > 0.5))
@@ -426,9 +336,6 @@ static std::wstring BuildBoxModel(const DevToolsWindowLayout& L, const std::vect
             more += DetailRow(L"grid cell", cell, ink, dim);
         }
     }
-    more += L"<TextBlock Text=\"Ring thickness is schematic. The numbers are exact, the thickness is "
-            L"not. The thumbnail is to scale.\" FontSize=\"10\" TextWrapping=\"Wrap\" Margin=\"0,6,0,0\""
-            L" Foreground=\"" + dim + L"\"/>";
     return out;
 }
 
@@ -572,22 +479,18 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
     return m;
 }
 
-// Size & spacing: the box model and the offered/took explanation, after the header and collapsed unless opened
-// before. Named apart from the property grid's "Layout" category.
-static std::wstring BuildLayoutDisclosure(const DevToolsWindowLayout& L, const std::vector<DevToolsCardRow>& rows)
+static std::wstring BuildLayoutPanel(const DevToolsWindowLayout* layout, const std::vector<DevToolsCardRow>& rows)
 {
-    const bool open = LayoutSectionOpen();
-    std::wstring m = L"<StackPanel Margin=\"0,8,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacing\">";
-    m += L"<Expander x:Name=\"LayoutSectionToggle\" HorizontalAlignment=\"Stretch\""
-         L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.Name=\"Size and spacing\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"" +
-         std::wstring(open ? L"True" : L"False") + L"\"><Expander.Header>";
-    m += L"<TextBlock Text=\"Size &amp; spacing\" Style=\"{StaticResource BodyTextBlockStyle}\""
-         L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    m += L"</Expander.Header>";
-    m += L"<StackPanel x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\""
+    std::wstring m = L"<StackPanel x:Name=\"DetailLayoutPanel\" Visibility=\"" +
+        std::wstring(g_detailLayoutSelected ? L"Visible" : L"Collapsed") +
+        L"\" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutPanel\">";
+    m += L"<StackPanel x:Name=\"LayoutSectionBody\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\">";
-    m += BuildLayoutSection(L, rows);
-    m += L"</StackPanel></Expander></StackPanel>";
+    if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset))
+        m += BuildLayoutSection(*layout, rows);
+    else
+        m += L"<TextBlock Text=\"Layout information is not available for this element.\" TextWrapping=\"Wrap\""
+             DT_FG_SECONDARY L"/>";
+    m += L"</StackPanel></StackPanel>";
     return m;
 }

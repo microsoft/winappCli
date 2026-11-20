@@ -231,20 +231,26 @@ g_propRows = rows;
             lb->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutBody);
             lb->Release();
         }
-        if (IInspectable* lt = findByName(L"LayoutSectionToggle")) {
-            void* ex = nullptr;
-            if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
-                for (bool open : {true, false}) {
-                    auto* sink = new LayoutSectionSink(); sink->Init(open);
-                    __int64 tok = 0;
-                    const HRESULT hr = open
-                        ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
-                        : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
-                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.props layout disclosure wiring failed hr=0x%08X", hr);
-                }
-                reinterpret_cast<IUnknown*>(ex)->Release();
+        if (IInspectable* dv = findByName(L"DetailViewSelector")) {
+            try {
+                winrt::Windows::Foundation::IInspectable object{nullptr};
+                winrt::copy_from_abi(object, dv);
+                g_detailViewSelector = object.as<DevToolsXC::SelectorBar>();
+                auto panel = [&](const wchar_t* panelName) {
+                    winrt::Windows::Foundation::IInspectable found{nullptr};
+                    winrt::attach_abi(found, findByName(panelName));
+                    return found.as<DevToolsX::UIElement>();
+                };
+                g_detailPropertiesUi = panel(L"DetailPropertiesPanel");
+                g_detailLayoutUi = panel(L"DetailLayoutPanel");
+                g_detailViewSelector.SelectionChanged([gen = g_route1Gen](auto const& sender, auto&&) {
+                    if (gen == g_route1Gen) ApplyDetailViewSelection(sender);
+                });
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.props details tab wiring failed hr=0x%08X", e.code().value);
+                SetStatusText(L"Could not prepare the details tabs. Refresh the inspector and retry.");
             }
-            lt->Release();
+            dv->Release();
         }
         if (IInspectable* at = findByName(L"AxmlToggle")) {
             void* ex = nullptr;
@@ -483,6 +489,7 @@ static void ResetRoute1State()
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
     if (g_statusHostUi) { reinterpret_cast<IUnknown*>(g_statusHostUi)->Release(); g_statusHostUi = nullptr; }
     ReleaseLayoutSectionRefs(); ReleasePropFilterState();
+    g_detailLayoutSelected = false;
     g_propViewSelector = nullptr;
     g_axmlExpanded = false;
     g_propFilterQuery.clear(); g_propFilterRaw.clear();

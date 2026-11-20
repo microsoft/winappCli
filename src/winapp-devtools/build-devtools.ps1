@@ -126,6 +126,28 @@ Assert-BuildSucceeded 'DevTools agreement and generation'
 & (Join-Path $PSScriptRoot 'gen-xaml-resources.ps1') `
     -XamlDir (Join-Path $nativeDir 'xaml-window') -OutFile (Join-Path $nativeDir 'DevToolsWindowXaml.g.h')
 $projectionInclude = Ensure-CppWinRTProjection -NativeDir $nativeDir
+# Wrap the existing logo PNG in an ICO directory without duplicating or redrawing the source artwork.
+$logo = [System.IO.File]::ReadAllBytes((Join-Path $repoRoot 'src\winapp-NuGet\icon.png'))
+$logoWidth = [int]$logo[18] * 256 + [int]$logo[19]
+$logoHeight = [int]$logo[22] * 256 + [int]$logo[23]
+if ($logo[16] -ne 0 -or $logo[17] -ne 0 -or $logo[20] -ne 0 -or $logo[21] -ne 0 -or
+    $logoWidth -lt 1 -or $logoWidth -gt 256 -or $logoWidth -ne $logoHeight) {
+    throw 'The inspector logo must be a square PNG no larger than 256 pixels.'
+}
+$icon = [System.IO.BinaryWriter]::new([System.IO.File]::Create((Join-Path $projectionInclude 'WinApp.ico')))
+try {
+    foreach ($value in @(0, 1, 1)) { $icon.Write([uint16]$value) }
+    $icon.Write([byte]($logoWidth % 256))
+    $icon.Write([byte]($logoHeight % 256))
+    $icon.Write([uint16]0)
+    $icon.Write([uint16]1)
+    $icon.Write([uint16]32)
+    $icon.Write([uint32]$logo.Length)
+    $icon.Write([uint32]22)
+    $icon.Write($logo)
+} finally {
+    $icon.Dispose()
+}
 # /Gy /Gw with /OPT:REF /OPT:ICF below drop unreferenced code and fold identical C++/WinRT instantiations;
 # /DEBUG alone would turn that folding off. Halves the engine's size.
 $optFlags = if ($Configuration -eq 'Release') { '/O2 /Gy /Gw /DNDEBUG' } else { '/Od' }

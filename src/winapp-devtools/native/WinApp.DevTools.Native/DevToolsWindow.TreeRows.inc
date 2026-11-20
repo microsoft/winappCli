@@ -98,7 +98,19 @@ static std::wstring TreeRowAccessibleName(size_t index)
 static void NameTreeContainer(size_t index, DevToolsXC::TreeViewItem const& container)
 {
     if (index >= g_treeParents.size() || index >= g_treeIncluded.size()) return;
-    if (const auto caption = container.ContentTemplateRoot().try_as<DevToolsXC::TextBlock>()) {
+    // WinUI hard-codes 14-DIP chevron padding instead of exposing a resource for it.
+    // Keep its native input surface and glyphs, with a compact 24-DIP-wide hit target.
+    if (DevToolsXM::VisualTreeHelper::GetChildrenCount(container) > 0) {
+        const auto root = DevToolsXM::VisualTreeHelper::GetChild(container, 0).try_as<DevToolsX::FrameworkElement>();
+        if (root) {
+            if (const auto chevron = root.FindName(L"ExpandCollapseChevron").try_as<DevToolsXC::Grid>())
+                chevron.Padding({6, 0, 6, 0});
+        }
+    }
+    if (const auto row = container.ContentTemplateRoot().try_as<DevToolsXC::Grid>()) {
+        const auto icon = row.FindName(L"TypeIcon").as<DevToolsXC::FontIcon>();
+        icon.Glyph(DevToolsTreeLayout::TypeIconGlyph(g_treeShortType[index]));
+        const auto caption = row.FindName(L"Caption").as<DevToolsXC::TextBlock>();
         const auto source = g_treeNodes[index].Content().as<DevToolsXC::TextBlock>();
         caption.FontFamily(source.FontFamily());
         const auto segments = source.Inlines().Size();
@@ -287,8 +299,12 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
         g_treeView = DevToolsXC::TreeView{};
         winrt::com_ptr<IInspectable> itemTemplate;
         winrt::check_hresult(LoadMarkupWin(
-            LR"(<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">)"
-            LR"(<TextBlock FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">)"
+            LR"(<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">)"
+            LR"(<Grid ColumnSpacing="6" AutomationProperties.AccessibilityView="Raw"><Grid.ColumnDefinitions>)"
+            LR"(<ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>)"
+            LR"(<FontIcon x:Name="TypeIcon" FontSize="12" MinWidth="16" VerticalAlignment="Center" FlowDirection="LeftToRight")"
+            LR"( Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw"/>)"
+            LR"(<TextBlock x:Name="Caption" Grid.Column="1" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw">)"
             LR"(<Run Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>)"
             LR"(<Run Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>)"
             LR"(<Run Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>)"
@@ -296,7 +312,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
             LR"(<Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontStyle="Italic"/>)"
             LR"(<Run Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>)"
             LR"(<Run Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>)"
-            LR"(</TextBlock></DataTemplate>)",
+            LR"(</TextBlock></Grid></DataTemplate>)",
             itemTemplate.put()));
         g_treeView.ItemTemplate(itemTemplate.as<DevToolsX::DataTemplate>());
         g_treeView.SelectionMode(DevToolsXC::TreeViewSelectionMode::Single);

@@ -69,8 +69,11 @@ static void CheckInspectorLayout(IUIAutomation* automation, IUIAutomationElement
             "each inspector toolbar control has visible bounds");
     }
     for (unsigned index : { 0u, 1u, 3u }) {
-        Check(bounds[index].top <= bounds[2].top && bounds[index].bottom >= bounds[2].bottom,
-            "inspector command buttons grow with the text-scaled filter");
+        Check(std::abs((bounds[index].top + bounds[index].bottom) -
+                       (bounds[2].top + bounds[2].bottom)) <= 2,
+            "standard inspector buttons stay vertically centered beside the filter");
+        Check(bounds[index].bottom - bounds[index].top <= bounds[2].bottom - bounds[2].top + 2,
+            "inspector buttons do not add height beyond the filter");
     }
     for (unsigned index = 1; index < 4; ++index) {
         Check(bounds[index - 1].right <= bounds[index].left, "inspector toolbar controls do not overlap");
@@ -86,20 +89,33 @@ static void CheckCaption(IUIAutomation* automation, IUIAutomationElement* row, c
     value.lVal = UIA_TextControlTypeId;
     ComPtr<IUIAutomationCondition> condition;
     Require(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, value, &condition));
+    ComPtr<IUIAutomationCacheRequest> cache;
+    Require(automation->CreateCacheRequest(&cache));
+    ComPtr<IUIAutomationCondition> rawView;
+    Require(automation->get_RawViewCondition(&rawView));
+    // Captions and decorative icons are raw-only so screen readers announce the tree item once.
+    Require(cache->put_TreeFilter(rawView.Get()));
     std::wstring actual;
     const ULONGLONG deadline = GetTickCount64() + 3000;
     do {
-        ComPtr<IUIAutomationElement> caption;
-        Require(row->FindFirst(TreeScope_Descendants, condition.Get(), &caption));
-        if (caption) {
+        ComPtr<IUIAutomationElementArray> captions;
+        Require(row->FindAllBuildCache(TreeScope_Descendants, condition.Get(), cache.Get(), &captions));
+        int count = 0;
+        Require(captions->get_Length(&count));
+        for (int index = 0; index < count; ++index) {
+            ComPtr<IUIAutomationElement> caption;
+            Require(captions->GetElement(index, &caption));
             BSTR text = nullptr;
             Require(caption->get_CurrentName(&text));
             actual = text ? text : L"";
             SysFreeString(text);
+            if (actual == expected) break;
         }
         if (actual == expected) break;
         Sleep(20);
     } while (GetTickCount64() < deadline);
+    if (actual != expected)
+        std::wprintf(L"Caption on %ls: actual '%ls', expected '%ls'\n", Id(row).c_str(), actual.c_str(), expected);
     Check(actual == expected, "rendered styled caption preserves the type, name and preview text");
 }
 

@@ -323,10 +323,9 @@ static void SnapTargetPos(int c, double* x, double* y)
 
 static bool g_dragging = false;
 static const wchar_t* g_toolbarMenu = nullptr;
-static bool g_keepToolbarMenuOpen = false;
 static bool CloseToolbarMenu(bool focusAnchor = false);
 
-static void ShowARow(bool open)
+static void ShowARow(bool open, bool animate = true)
 {
     if (!open || !g_toolbarVisible) CloseToolbarMenu();
     g_aRowOpen = open;
@@ -334,7 +333,7 @@ static void ShowARow(bool open)
     MoveOverlayElement(g_railL, ChipX(), ChipY());
     SetOverlayElementVisible(g_aRow, g_toolbarVisible && open);
     SetOverlayElementVisible(g_railL, g_toolbarVisible && !open);
-    if (open && g_toolbarVisible) BeginNamedStoryboard(g_protoRoot, L"DevToolsBarReveal");
+    if (animate && open && g_toolbarVisible) BeginNamedStoryboard(g_protoRoot, L"DevToolsBarReveal");
     DevToolsOverlayLog(L"overlay.toolbar bar %s corner=%d", open ? L"open" : L"closed", g_corner);
     HostYieldToWindowedPopups();
 }
@@ -774,8 +773,6 @@ static void SeedToolbarMenuObject(winrt::Windows::Foundation::IInspectable const
     else DevToolsOverlayLog(L"overlay.toolbar menu exclusion failed hr=0x%08X", hr);
 }
 
-static std::string DefaultMode();
-static void SetStartModeUi(const std::string& mode);
 static DevToolsXCP::FlyoutPlacementMode ToolbarMenuPlacement()
 {
     return CornerIsTop(g_corner) ? DevToolsXCP::FlyoutPlacementMode::Bottom : DevToolsXCP::FlyoutPlacementMode::Top;
@@ -795,7 +792,6 @@ static void PrepareToolbarMenu(const wchar_t* name, const wchar_t* anchor)
         ProtoSetToggle(L"DevToolsToggleMarkers", L"", L"", CommentsShown());
     } else {
         ProtoSetToggle(L"DevToolsProtoPin", L"", L"", g_pinned);
-        SetStartModeUi(DefaultMode());
     }
     g_toolbarMenu = name;
     g_toolbarMenuAnchor = anchor;
@@ -835,11 +831,6 @@ static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
                 DevToolsOverlayLog(L"overlay.toolbar menu opened failed hr=0x%08X", e.code().value);
             }
         });
-        menu.Closing([](auto&&, DevToolsXCP::FlyoutBaseClosingEventArgs const& e) {
-            if (!g_keepToolbarMenuOpen) return;
-            g_keepToolbarMenuOpen = false;
-            e.Cancel(true);
-        });
         menu.Closed([name](auto&&, auto&&) {
             if (g_toolbarMenu && wcscmp(g_toolbarMenu, name) == 0)
                 g_toolbarMenu = g_toolbarMenuAnchor = nullptr;
@@ -856,6 +847,8 @@ static void WireToolbarMenu(const wchar_t* name, const wchar_t* anchor)
 static void SetCommentsShown(bool on);
 static void ShowAllComments();
 static void OnShowAllCommentsClick(void*, void*) { CloseToolbarMenu(); ShowAllComments(); }
+static void ShowSettings();
+static void OnSettingsClick(void*, void*) { CloseToolbarMenu(); ShowSettings(); }
 // Hidden markers stay hidden on the next launch; showing them again clears that.
 static void OnToggleMarkersClick(void*, void*)
 {
@@ -863,31 +856,6 @@ static void OnToggleMarkersClick(void*, void*)
     const bool now = !CommentsShown();
     DevToolsSettingsSetBool(L"CommentMarkersHidden", !now);
     SetCommentsShown(now);
-}
-
-// The mode winapp run starts a WinUI project in when --devtools isn't given: on, headless or off. One per-user
-// setting, shared with `winapp config` (run.devtools); unset means on.
-static std::string DefaultMode()
-{
-    const std::wstring mode = DevToolsSettingsGetText(L"DefaultMode");
-    return mode == L"headless" ? "headless" : mode == L"off" ? "off" : "on";
-}
-
-// "Launch preferences" is a view of that setting: Start DevTools off is off; with it on, Show toolbar picks on or
-// headless. Show toolbar is hidden while DevTools is off and keeps its last state for when it's turned back on.
-static void SetStartModeUi(const std::string& mode)
-{
-    ProtoSetToggle(L"DevToolsStartEnabled", L"", L"", mode != "off");
-    if (mode != "off") ProtoSetToggle(L"DevToolsStartShown", L"", L"", mode == "on");
-    ProtoSetPartVisible(L"DevToolsStartShown", mode != "off");
-}
-
-static bool StartShownChecked()
-{
-    try {
-        if (auto item = ToolbarPart(L"DevToolsStartShown").try_as<DevToolsXC::ToggleMenuFlyoutItem>()) return item.IsChecked();
-    } catch (const winrt::hresult_error&) {}
-    return true;
 }
 
 // Hidden for this run: DevTools stays attached, and Ctrl+Shift+F12 or Overlay.show brings the toolbar back. A mode
@@ -901,26 +869,6 @@ static void OnHideToolbarClick(void*, void*)
     DevToolsOverlayLog(L"overlay.toolbar hidden from its menu");
 }
 
-// The launch preference toggles update in place: WinUI closes a menu after any item's Click, so the menu's
-// Closing handler cancels that one close.
-static void SetDefaultMode(const char* mode)
-{
-    g_keepToolbarMenuOpen = true;
-    SetTimer(nullptr, 0, 0, [](HWND, UINT, UINT_PTR id, DWORD) { KillTimer(nullptr, id); g_keepToolbarMenuOpen = false; });
-    DevToolsSettingsSetText(L"DefaultMode", mode);
-    SetStartModeUi(mode);
-    DevToolsOverlayLog(L"overlay.toolbar default mode -> %S (persisted)", mode);
-}
-// Each toggle flips the saved mode; the menu's own check state is only used to remember Show toolbar while off.
-static void OnStartEnabledClick(void*, void*)
-{
-    SetDefaultMode(DefaultMode() != "off" ? "off" : StartShownChecked() ? "on" : "headless");
-}
-static void OnStartShownClick(void*, void*)
-{
-    const std::string mode = DefaultMode();
-    if (mode != "off") SetDefaultMode(mode == "on" ? "headless" : "on");
-}
 static std::wstring ChipSurfaceLabel()
 {
     const std::vector<DevToolsSurface>& all = DevToolsOverlay_AllSurfaces();
@@ -946,10 +894,6 @@ static void UpdateChipLabel()
     const std::wstring surface = ChipSurfaceLabel();
     ProtoSetPartText(L"DevToolsChipLabel", ChipLabel(picking, commentMode, surface));
     ProtoSetPartAutomationName(L"DevToolsChip", ChipAutomationName(picking, commentMode));
-    ProtoSetPartVisible(L"DevToolsChipDotOn", picking);
-    ProtoSetPartVisible(L"DevToolsGlowHaloOn", picking);
-    ProtoSetPartVisible(L"DevToolsChipDot", !picking);
-    ProtoSetPartVisible(L"DevToolsGlowHalo", !picking);
     DevToolsOverlayLog(L"overlay.pill label picking=%d commentMode=%d surface='%s'", (int)picking, (int)commentMode,
                        surface.c_str());
 }
@@ -1173,7 +1117,7 @@ static void RepositionToolbar()
     g_protoW = (double)wDip; g_protoH = (double)hDip;
     g_titleBarInsetDip = MeasureTitleBarInsetDip();
     ConstrainToolbarWidth();
-    ShowARow(g_aRowOpen);
+    ShowARow(g_aRowOpen, /*animate*/ false);
     if (g_pinned)       ProtoSetPinned(true);
     if (g_dragging)     ShowSnapTargets(true);
 }
@@ -1408,8 +1352,7 @@ static void WirePrototype(IInspectable* canvas)
         wireNamedClick(L"DevToolsToggleMarkers", g_protoSink[17], &OnToggleMarkersClick);
         WireToolbarMenu(L"DevToolsCommentsMenu", L"DevToolsProtoComments");
         wireNamedClick(L"DevToolsHideToolbar", g_protoSink[19], &OnHideToolbarClick);
-        wireNamedClick(L"DevToolsStartEnabled", g_protoSink[20], &OnStartEnabledClick);
-        wireNamedClick(L"DevToolsStartShown", g_protoSink[21], &OnStartShownClick);
+        wireNamedClick(L"DevToolsOpenSettings", g_protoSink[20], &OnSettingsClick);
         WireToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore");
         wireNamedClick(L"DevToolsProtoInspect", g_protoSink[4], &ThenReturnFocus<&OnInspectClick>);
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &ThenReturnFocus<&OnLayoutToggleClick>);

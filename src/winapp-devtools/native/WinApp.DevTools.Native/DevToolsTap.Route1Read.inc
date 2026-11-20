@@ -486,7 +486,7 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     });
     // Hand the last in-app pick (published by PublishOverlayPick as a wire handle) to the window so it opens with
     // that element selected. 0 when nothing was picked (plain toolbar Inspect) -> window opens with no selection.
-    InstanceHandle preselect = g_lastPickHandle.load(std::memory_order_relaxed);
+    InstanceHandle preselect = DevToolsOverlay_InspectRequest().settings ? 0 : g_lastPickHandle.load(std::memory_order_relaxed);
     // "Open in DevTools" names its element, which a comment marker opens without a pick.
     if (const InstanceHandle reveal = DevToolsOverlay_InspectRequest().element) {
         unsigned long long wire;
@@ -543,13 +543,14 @@ static bool RequestExternalInspector_ui(const DevToolsInspectRequest& request)
 static bool InprocInspect(std::wstring* error)
 {
     const DevToolsInspectRequest& request = DevToolsOverlay_InspectRequest();
-    if (RequestExternalInspector_ui(request)) return true;
+    if (!request.settings && RequestExternalInspector_ui(request)) return true;
     // A pick has already selected its element in an inspector on screen; it only needs to be in view.
-    if (!request.activate && !request.comments && DevToolsWindow_RevealWithoutFocus()) return true;
+    if (!request.activate && !request.comments && !request.settings && DevToolsWindow_RevealWithoutFocus()) return true;
     g_ownedState.Reconcile(DevToolsStateAxis::Window, DevToolsWindow_IsOpen() ? 1ull : 0ull);
     HRESULT hr = OpenInprocWindow(error);
     const bool open = SUCCEEDED(hr) && DevToolsWindow_IsOpen();
     if (open && request.comments) DevToolsWindow_ShowComments();
+    if (open && request.settings) DevToolsWindow_ShowSettings();
     g_ownedState.Reconcile(DevToolsStateAxis::Window, open ? 1ull : 0ull);
     return open;
 }
@@ -672,7 +673,8 @@ static bool PublishOverlayPick(InstanceHandle h, bool releaseCommit) {
 
     // PublishOverlayPick runs on the UI thread, as does the in-proc window, so the call is direct. wire==0 (no live
     // slot) is the window's "no selection" sentinel, matching the Selection.picked broadcast below.
-    const bool claimedByWindow = DevToolsWindow_IsOpen() && DevToolsWindow_OnPicked(wire, releaseCommit);
+    const bool claimedByWindow = !ExternalInspectorOwner_ui() &&
+        DevToolsWindow_IsOpen() && DevToolsWindow_OnPicked(wire, releaseCommit);
 
     // This runs on the UI thread, so it must only ENQUEUE. DevToolsEvents_Broadcast does exactly that (a slow
     // client's writer thread does the blocking I/O).
@@ -819,12 +821,13 @@ static bool PublishProtocolSelection(unsigned long long wire, const std::wstring
 {
     if (g_lastPickHandle.load(std::memory_order_relaxed) == wire) {
         // Selecting the element already shown is a request to look again.
-        DevToolsWindow_RereadSelection(wire);
+        if (!ExternalInspectorOwner_ui()) DevToolsWindow_RereadSelection(wire);
         return false;
     }
     g_lastPickHandle.store(wire, std::memory_order_relaxed);
     const unsigned long long gen = g_lastPickGen.fetch_add(1, std::memory_order_release) + 1;
-    if (DevToolsWindow_IsOpen()) DevToolsWindow_OnPicked(wire, /*releaseCommit*/ false);
+    if (!ExternalInspectorOwner_ui() && DevToolsWindow_IsOpen())
+        DevToolsWindow_OnPicked(wire, /*releaseCommit*/ false);
     const std::wstring params = L"{\"generation\":" + std::to_wstring(gen) +
                                 L",\"handle\":\"" + std::to_wstring(wire) + L"\"}";
     DevToolsEvents_Broadcast(DevToolsDomain_Selection, DevToolsRpcEvent(L"Selection.picked", params, origin),
