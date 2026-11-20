@@ -389,16 +389,19 @@ Each sample under `samples/` has a self-contained **Pester 5.x** test file (`tes
 ### CI integration
 
 `Build and Package` publishes each CLI architecture and builds each DevTools engine
-on its own runner (`build-parts`, `build-cli.ps1 -Stage Cli|Engine -Architecture`),
-then `build-artifacts` combines them and creates every package (`-Stage Package`).
+on its own runner (`build-parts`, `build-cli.ps1 -Stage Cli|Engine -Architecture`).
+`build-artifacts` then combines them and creates every package (`-Stage Package`).
 The default `-Stage All` still does everything in one run. Keep full git history in
-these jobs so the build number, and so the version, is the same in each. It uploads packages, then starts the full
-test suite, documentation validation, UI E2E, and (on PRs and merge queue runs) sample tests as
-independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it must
-not republish or delete the downloaded CLI and NuGet packages.
+these jobs so they all calculate the same build number and version. After the
+packages are uploaded, the test suite, documentation validation, UI E2E, and (on PRs
+and merge queue runs) sample tests start as independent jobs. The test suite uses
+`-OnlyTests -UseExistingArtifacts`; it must not republish or delete the downloaded
+CLI and NuGet packages.
+
 PRs and merge groups that change only `docs\` pages or root `*.md` files skip
 every build and test lane and run only the docs port tests (`docs-tests`).
 `docs\npm-usage.md` is checked by npm tests, so changing it runs everything.
+
 CI runs `-TestSuite Cli -CliShard 1`, `-CliShard 2`, `-CliShard 4`,
 `-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never
 concurrently in one workspace. Together with the native integration shard below,
