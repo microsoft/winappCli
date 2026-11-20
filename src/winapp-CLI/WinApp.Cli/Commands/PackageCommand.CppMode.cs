@@ -88,6 +88,7 @@ internal partial class PackageCommand
 
             var certPath = parseResult.GetValue(CertOption);
             var generateCert = parseResult.GetValue(GenerateCertOption);
+            var certIfExists = parseResult.GetValue(IfExistsOption);
             var noSign = parseResult.GetValue(NoSignOption);
             if (noSign && (certPath != null || generateCert))
             {
@@ -215,7 +216,8 @@ internal partial class PackageCommand
                         runtimeAlreadyBundled: resolution.SelfContained,
                         appxRecipe: appxRecipe,
                         windowsAppSdkPackageDirectory: resolution.WindowsAppSdkPackageDir is { } sdkDir ? new DirectoryInfo(sdkDir) : null,
-                        cancellationToken: ct);
+                        cancellationToken: ct,
+                        certIfExists: certIfExists);
 
                     taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
                     if (result.Signed)

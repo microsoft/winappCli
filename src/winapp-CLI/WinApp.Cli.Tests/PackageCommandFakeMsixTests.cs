@@ -103,6 +103,17 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task PackageCommand_IfExistsWithoutGenerateCert_Rejected()
+    {
+        var packageCommand = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(packageCommand, new[] { _tempDirectory.FullName, "--if-exists", "skip" });
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "--if-exists only applies together with --generate-cert");
+    }
+
+    [TestMethod]
     public async Task PackageCommand_SingleFolder_ServiceThrows_ReturnsError()
     {
         // Arrange — package creation blows up inside the service.

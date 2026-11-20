@@ -341,6 +341,7 @@ internal partial class MsixService(
         string? timestampUrl = null,
         FileInfo? appxRecipe = null,
         DirectoryInfo? windowsAppSdkPackageDirectory = null,
+        IfExists certIfExists = IfExists.Overwrite,
         CancellationToken cancellationToken = default)
     {
         // Validate input folder and manifest
@@ -634,7 +635,7 @@ internal partial class MsixService(
                 try
                 {
                     await CreateMsixPackageFromFolderAsync(stagingDir, stagingMsix, taskContext, cancellationToken);
-                    await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, stagingMsix, certificatePath, resolvedManifestPath, taskContext, cancellationToken, timestampUrl);
+                    await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, stagingMsix, certificatePath, resolvedManifestPath, taskContext, cancellationToken, timestampUrl, certIfExists);
                     File.Move(stagingMsix.FullName, outputMsixPath.FullName, overwrite: true);
                 }
                 catch
@@ -716,7 +717,19 @@ internal partial class MsixService(
         return new FileInfo(Path.Combine(directory, $"{stem}.winapp-{Guid.NewGuid():N}{extension}"));
     }
 
-    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext, CancellationToken cancellationToken, string? timestampUrl = null)
+    private static FileInfo GetGeneratedCertPath(DirectoryInfo outputFolder, string packageName)
+        => new(Path.Join(outputFolder.FullName, $"{packageName}_cert.pfx"));
+
+    // Called before packing too, so a refused certificate never replaces an existing signed package.
+    private static void ThrowIfGeneratedCertExists(FileInfo certPath, IfExists certIfExists)
+    {
+        if (certPath.Exists && certIfExists == IfExists.Error)
+        {
+            throw new InvalidOperationException($"Certificate file already exists: {certPath.FullName}{Environment.NewLine}To continue, add one of these flags to the same command:{Environment.NewLine}  Reuse it:    --if-exists skip{Environment.NewLine}  Replace it:  --if-exists overwrite{Environment.NewLine}Or use the existing file by replacing --generate-cert with:{Environment.NewLine}  --cert \"{certPath.FullName}\"");
+        }
+    }
+
+    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext,     CancellationToken cancellationToken, string? timestampUrl = null, IfExists certIfExists = IfExists.Overwrite)
     {
         if (certPath == null && generateDevCert)
         {
@@ -727,8 +740,30 @@ internal partial class MsixService(
 
             taskContext.AddDebugMessage($"{UiSymbols.Package} Generating certificate for publisher: {extractedPublisher}");
 
-            certPath = new FileInfo(Path.Combine(outputFolder.FullName, $"{finalPackageName}_cert.pfx"));
-            await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, taskContext, certificatePassword, cancellationToken: cancellationToken);
+            certPath = GetGeneratedCertPath(outputFolder, finalPackageName);
+            ThrowIfGeneratedCertExists(certPath, certIfExists);
+
+            if (certPath.Exists && certIfExists == IfExists.Skip)
+            {
+                taskContext.AddStatusMessage($"{UiSymbols.Warning} Certificate file already exists, reusing it: {certPath.FullName}");
+            }
+            else
+            {
+                var existed = certPath.Exists;
+                if (existed)
+                {
+                    taskContext.AddStatusMessage($"{UiSymbols.Warning} Overwriting existing certificate file: {certPath.FullName}");
+                }
+
+                try
+                {
+                    await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, taskContext, certificatePassword, cancellationToken: cancellationToken);
+                }
+                catch (InvalidOperationException ex) when (existed)
+                {
+                    throw new InvalidOperationException($"Unable to replace the existing certificate {certPath.FullName}.{Environment.NewLine}{ex.Message}{Environment.NewLine}To keep the existing certificate, add --if-exists skip, or delete the file.");
+                }
+            }
         }
 
         if (certPath == null)
