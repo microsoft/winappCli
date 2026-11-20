@@ -284,9 +284,12 @@ static DevToolsCardRow ToCardRow(const DevToolsReadProp& p)
     row.enumValues = p.enumValues;
     row.valueState = p.valueState;
     row.editKind = p.editKind;
+    row.defaultMayBeInherited = p.defaultMayBeInherited;
     for (const auto& c : p.chain) {
         DevToolsCardChainEntry e;
-        e.source = c.source; e.value = c.value; e.file = c.file; e.line = c.line; e.winner = c.winner;
+        e.source = DevToolsRead_OriginLabel(L"", L"", L"", L"", c.source, true,
+            c.winner && p.defaultMayBeInherited);
+        e.value = c.value; e.file = c.file; e.line = c.line; e.winner = c.winner;
         row.chain.push_back(std::move(e));
     }
     for (const auto& c : p.children) row.children.push_back(ToCardRow(c));

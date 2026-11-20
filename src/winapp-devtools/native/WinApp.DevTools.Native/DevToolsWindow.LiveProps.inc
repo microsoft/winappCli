@@ -157,6 +157,7 @@ static void OverlayLiveValues(DevToolsCardRow& row, const DevToolsCardRow& live)
     row.value = live.value;
     row.valueState = live.valueState;
     row.source = live.source;
+    row.defaultMayBeInherited = live.defaultMayBeInherited;
     std::vector<DevToolsCardRow> children;
     for (auto& child : row.children)
         for (const auto& lc : live.children)

@@ -522,6 +522,13 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
             bool readable = false;
             prop.value  = ResolveDisplayValue(name, prop.type, rawValue, isHandle, &prop.type, &readable);
             prop.source = ValueSourceLabel(v[i], s, sc);
+            // These framework properties inherit while retaining the Default slot. A matching parent value
+            // cannot prove inheritance, and a custom property named FontSize need not inherit at all.
+            const std::wstring owner = v[i].DeclaringType ? v[i].DeclaringType : L"";
+            prop.defaultMayBeInherited = name == L"FontSize" &&
+                (owner == L"Microsoft.UI.Xaml.Controls.TextBlock" ||
+                 owner == L"Microsoft.UI.Xaml.Controls.RichTextBlock" ||
+                 owner == L"Microsoft.UI.Xaml.Controls.Control");
 
             if (isBinding)     prop.valueState = L"binding";
             else if (isNull)   prop.valueState = L"null";
