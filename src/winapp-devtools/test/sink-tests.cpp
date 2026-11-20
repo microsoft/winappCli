@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 //
-// COM sink tests: Invoke at slot 3, required QI identities, and process-lifetime reference semantics.
+// COM sink tests: Invoke at slot 3, required QI identities, and reference counting.
 // Deliberately broken sinks must fail the same checks as the real base passes. No desktop is needed.
 
 #include "DevToolsSink.h"
@@ -33,6 +33,14 @@ struct TwoIidSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*) { return S_OK; }
     void Init() { InitSink(kIidPrimary, g_testGen, &kIidSecondary); }
+};
+
+static int g_destroyed = 0;
+struct CountedSink : DevToolsSinkBase
+{
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*) { return S_OK; }
+    ~CountedSink() { ++g_destroyed; }
+    void Init() { InitSink(kIidPrimary, g_testGen); }
 };
 
 // The dispatcher-queue sinks (RemovedHandler / TreeWatchHandler / UiHandler in DevToolsTap.cpp) sit on the same
@@ -174,17 +182,28 @@ static void Test_QueryInterfaceAnswersEveryIidTheFrameworkAsks(){
     Check(bad.QueryInterface(__uuidof(IMarshal), &p) != S_OK, "control: a QI missing IMarshal is detected");
 }
 
-static void Test_TheProcessLifeLeakIsDeliberate()
+static void Test_ReferencesAreCounted()
 {
-    std::printf("AddRef=2 / Release=1 -- sinks outlive the subtree that raises into them, on purpose\n");
+    std::printf("References are counted; only sinks from DevToolsNewSink free themselves\n");
 
     g_testGen = 1;
-    TestSink s;
-    s.Init();
+    g_destroyed = 0;
+    CountedSink* s = DevToolsNewSink<CountedSink>();
+    s->Init();
+    void* p = nullptr;
+    Check(s->QueryInterface(kIidPrimary, &p) == S_OK && s->refs == 2, "QueryInterface adds a reference");
+    void* marshal = nullptr;
+    Check(s->QueryInterface(__uuidof(IMarshal), &marshal) == S_OK && s->refs == 3,
+          "the marshaler's reference is counted on the sink");
+    reinterpret_cast<IUnknown*>(marshal)->Release();
+    reinterpret_cast<IUnknown*>(p)->Release();
+    Check(s->refs == 1 && g_destroyed == 0, "balanced references leave the creator's reference");
+    Check(s->Release() == 0 && g_destroyed == 1, "the last Release frees the sink");
 
-    Check(s.AddRef() == 2, "AddRef reports 2 so the caller never believes it owns the last reference");
-    Check(s.Release() == 1, "Release reports 1 so a balanced release never destroys the sink");
-    Check(s.Release() == 1 && s.Release() == 1, "repeated Release stays at 1 (no refcount to drive to zero)");
+    // Control: static sinks and sinks made with plain `new` are rebound and reused, so they must never be freed.
+    CountedSink kept;
+    kept.Init();
+    Check(kept.Release() == 0 && g_destroyed == 1, "control: a sink not made by DevToolsNewSink survives its last Release");
 }
 
 static void Test_TheGenerationStampGoesStale()
@@ -235,7 +254,7 @@ int RunSinkTests()
     Test_InvokeIsAtVtableSlotThree();
     Test_NoArgInvokeIsAlsoAtSlotThree();
     Test_QueryInterfaceAnswersEveryIidTheFrameworkAsks();
-    Test_TheProcessLifeLeakIsDeliberate();
+    Test_ReferencesAreCounted();
     Test_TheGenerationStampGoesStale();
     Test_TheMarshalerIsBuiltOnceForRebindableSinks();
 

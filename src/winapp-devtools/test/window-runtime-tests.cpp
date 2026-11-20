@@ -68,6 +68,31 @@ static HRESULT TestAddLoaded(void*, void* handler, __int64* token)
 static HRESULT TestAddRowEvent(void*, void*, __int64*);
 static HRESULT TestRemoveRowEvent(void*, __int64);
 static HRESULT TestRecycleElement(void*, IInspectable**);
+// Work the pane posts to the dispatcher; tests run it to simulate the end of the current event.
+static std::vector<DevToolsD::DispatcherQueueHandler> postedWork;
+static bool dispatcherAvailable = false;
+static bool TestPostLowPriority(const DevToolsD::DispatcherQueueHandler& work)
+{
+    if (!dispatcherAvailable) return false;
+    postedWork.push_back(work);
+    return true;
+}
+#define DevToolsPostLowPriority TestPostLowPriority
+static HRESULT TestVecSize(void*, unsigned int*);
+static HRESULT TestVecAt(void*, unsigned int, IInspectable**);
+static HRESULT TestGetIsExpanded(void*, bool*);
+#define DevToolsVecGetSize TestVecSize
+#define DevToolsVecGetAt TestVecAt
+#define DevToolsGetIsExpanded TestGetIsExpanded
+static HRESULT TestGetArgsData(void* args, IInspectable** data)
+{
+    winrt::Windows::Foundation::IInspectable boxed = winrt::box_value(*static_cast<int*>(args));
+    *data = static_cast<IInspectable*>(winrt::detach_abi(boxed));
+    return S_OK;
+}
+#define DevToolsGetArgsData TestGetArgsData
+static HRESULT PutTestPlaceholder(void*, HSTRING);
+#define DevToolsPutPlaceholderText PutTestPlaceholder
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsSetAutomationName PutTestAutomationName
@@ -119,6 +144,7 @@ struct TestElement : IInspectable {
     int visibility = 1;
     int selectedIndex = -1;
     std::wstring automationName, automationId;
+    std::wstring placeholder;
     std::vector<IInspectable*> children;
     IInspectable* foreground = nullptr;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** value) override {
@@ -270,6 +296,21 @@ static HRESULT TestBorderBackground(void* border, void* brush)
     return S_OK;
 }
 static bool exposeHeader = false, exposeTitleBar = false;
+// A row's expansion host for the row pool tests.
+static TestElement* rowExpandHost = nullptr;
+static HRESULT TestVecSize(void* vector, unsigned int* size)
+{
+    *size = static_cast<unsigned int>(static_cast<TestElement*>(vector)->children.size());
+    return S_OK;
+}
+static HRESULT TestVecAt(void* vector, unsigned int index, IInspectable** item)
+{
+    const auto& children = static_cast<TestElement*>(vector)->children;
+    *item = index < children.size() ? children[index] : nullptr;
+    if (*item) (*item)->AddRef();
+    return *item ? S_OK : E_BOUNDS;
+}
+static HRESULT TestGetIsExpanded(void*, bool* expanded) { *expanded = false; return S_OK; }
 static TestElement testAppWindow, testCaption;
 static HRESULT appWindowResult = S_OK, captionResult = S_OK, addThemeResult = S_OK, putThemeResult = S_OK;
 static unsigned themeAdds = 0;
@@ -313,6 +354,7 @@ static HRESULT FindTestName(void*, HSTRING name, IInspectable** found)
         if (*found && *found != &testValue && *found != &testHeader) (*found)->AddRef();
     }
     if(exposeTitleBar && std::wstring(chars,length)==L"InspectorTitleBar") { *found=&testTitleBar; testTitleBar.AddRef(); }
+    if(rowExpandHost && std::wstring(chars,length)==L"PExpand") { *found=rowExpandHost; rowExpandHost->AddRef(); }
     return S_OK;
 }
 static HRESULT PutTestText(void* element, HSTRING value)
@@ -321,6 +363,13 @@ static HRESULT PutTestText(void* element, HSTRING value)
     const auto* chars=WindowsGetStringRawBuffer(value,&length);
     static_cast<TestElement*>(element)->text.assign(chars ? chars : L"",length);
     if (element == &testHex && reentrantHexCommit) reentrantHexCommit->Invoke(nullptr,nullptr);
+    return S_OK;
+}
+static HRESULT PutTestPlaceholder(void* element, HSTRING value)
+{
+    UINT32 length=0;
+    const auto* chars=WindowsGetStringRawBuffer(value,&length);
+    static_cast<TestElement*>(element)->placeholder.assign(chars ? chars : L"",length);
     return S_OK;
 }
 static HRESULT PutTestAutomationName(void*, void* element, HSTRING value)
@@ -1368,11 +1417,10 @@ int main()
         check(DetailGroup(L"ARRANGED BY MainPage",L"Gray").find(L"TextWrapping=\"Wrap\"")!=std::wstring::npos,
             "layout detail headings wrap when the parent name is long");
         g_layoutSectionOpen=0;
-        const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noSourceInfo",L"",&stretched);
+        const auto pane=BuildPaneShell();
         const auto view=pane.find(L"x:Name=\"PropViewSelector\""), filter=pane.find(L"PropFilter"),
-            section=pane.find(L"WinAppDevToolsSizeSpacing"), box=pane.find(L"WinAppDevToolsBoxModel\"");
-        check(section<box && box<filter && filter<view && view!=std::wstring::npos,
+            section=pane.find(L"WinAppDevToolsSizeSpacing");
+        check(section<filter && filter<view && view!=std::wstring::npos,
             "properties pane: the Size & spacing section, then the filter with Computed | Set on its right, then the grid");
         const auto filterTag=filter==std::wstring::npos ? std::wstring() : pane.substr(filter,pane.find(L"/>",filter)-filter);
         check(!filterTag.empty() && filterTag.find(L"FontSize=")==std::wstring::npos && filterTag.find(L"Grid.Column=")==std::wstring::npos &&
@@ -1391,20 +1439,18 @@ int main()
             pane.find(L"LayoutSectionChev")==std::wstring::npos,
             "Size & spacing uses a standard collapsed Expander, not a custom visibility toggle");
         g_layoutSectionOpen=1;
-        check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"True\"")!=std::wstring::npos,
+        check(BuildPaneShell().find(L"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"True\"")!=std::wstring::npos,
             "an opened Size & spacing section stays open");
         check(pane.find(L"x:Bind and resource sources not shown (why?)")!=std::wstring::npos &&
             pane.find(L"TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.Name=\"x:Bind and resource sources not shown\"")==std::wstring::npos,
             "without the XAML source, one line says x:Bind and resource sources are not shown; the reason is on hover");
-        check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
+        check(AuthoredUnavailableReason(L"",L"noFile").find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos &&
+            AuthoredUnavailableReason(L"",L"available").empty(),
             "the reason says an x:Bind value reads as Local");
         // A Reactor element: its component badge, the C# source with the statement, and no "authored values
         // unavailable" note, because the C# is its authored source.
         g_selReactorLabel=L"<Counter>";
-        const auto csharp=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border",L"Window > StackPanel",
-            L"C:\\src\\App.cs",36,{text},L"csharp",L"Component<Counter>(),",nullptr);
+        const auto csharp=BuildSourceSection(L"C:\\src\\App.cs",36,L"csharp",L"Component<Counter>(),");
         check(DetailsTitleText(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border")==L"<Counter>  \u00B7  Border",
             "a component row's details header names the component before its WinUI type");
         g_selTreeName=L"incrementButton";
@@ -1414,15 +1460,18 @@ int main()
         check(csharp.find(L"AutomationProperties.Name=\"C# source\"")!=std::wstring::npos &&
             csharp.find(L"Component&lt;Counter&gt;(),")!=std::wstring::npos && csharp.find(L"Text=\"C# on disk\"")!=std::wstring::npos,
             "the properties pane shows the C# statement at the Reactor call site");
-        check(csharp.find(L"x:Bind and resource sources not shown")==std::wstring::npos && csharp.find(L"App.cs : 36")!=std::wstring::npos,
+        check(AuthoredUnavailableReason(L"C:\\src\\App.cs",L"csharp").empty() && csharp.find(L"App.cs : 36")!=std::wstring::npos,
             "a C# element shows its call site and no missing-XAML note");
+        check(pane.find(L"x:Name=\"ReactorSectionBody\"")!=std::wstring::npos &&
+            pane.find(L"x:Name=\"ReactorSection\" Visibility=\"Collapsed\"")!=std::wstring::npos &&
+            pane.find(L"x:Name=\"ReferencesSlot\"")!=std::wstring::npos && pane.find(L"x:Name=\"PendingReferences\"")!=std::wstring::npos,
+            "the pane has a collapsed Reactor section and References slots that each selection fills");
         g_selReactorLabel.clear();
         g_layoutSectionOpen=-1;
     }
     {
         const auto authoredPane = [] {
-            return BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock", L"Title", L"TextBlock", L"Window > Grid",
-                L"", 0, {}, L"verified", L"<TextBlock\n Text=\"Hello\"/>", nullptr);
+            return BuildSourceSection(L"", 0, L"verified", L"<TextBlock\n Text=\"Hello\"/>");
         };
         g_axmlExpanded = false;
         const auto collapsed = authoredPane();
@@ -1465,7 +1514,7 @@ int main()
         if (required) GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", savedRoot.data(), required);
         SetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", directory);
         const auto buildSourcePane = [](const std::wstring& uri) {
-            return BuildPropsFragment(L"TextBlock", L"", L"TextBlock", L"", uri, 55, {}, L"", L"", nullptr);
+            return BuildSourceSection(uri, 55, L"", L"");
         };
         const auto pane = buildSourcePane(L"ms-appx:///Main&Window.xaml");
         const auto location = pane.find(L"WinAppDevToolsSource\"");
@@ -1621,7 +1670,7 @@ int main()
                 saved.resolving = true; saved.editing = editing;
                 std::wstring draft = editing ? L"new draft while resolving" : saved.text;
                 const bool closeEditor = saved.FinishResolve(result);
-                if (closeEditor) draft.clear(); // WireAddComment clears text only when this returns true.
+                if (closeEditor) draft.clear(); // The comment box clears its text only when this returns true.
                 const bool success = result == 0 || result == 0x57410001;
                 check(!saved.resolving, "resolve completion permits the next save or retry");
                 check(saved.id == (success ? L"" : L"resolve-card"),
@@ -1954,6 +2003,27 @@ int main()
             check(live[500]==L"Before", "Restore retains the original value after a detached original-target save");
             g_ctx.readInputFn=priorReader;
         }
+        {
+            // The user types into A's box, then clicks another element before WinUI delivers the box's focus-out.
+            // Moving the selection removes that handler, so the edit is saved to A first.
+            const auto priorReader=g_ctx.readInputFn;
+            g_ctx.readInputFn=[](IInspectable* box,std::wstring& text) { text=static_cast<TestElement*>(box)->text; return true; };
+            g_editRecords.clear(); g_appChanged.clear();
+            const std::wstring priorLabel=g_selLabel;
+            g_selWire=g_dirtyNode=500; g_selLabel=L"TextBlock"; live[500]=L"Before"; live[501]=L"Other";
+            testInput.text=L"Before";
+            LostFocusSink typed;
+            typed.Init(500,L"Text",L"String",L"Before",&testInput);
+            testInput.text=L"Typed, then clicked away";
+            RegisterPaneEditor(L"Text",&testInput,&typed.retired,&typed,[&typed]{ typed.Invoke(nullptr,nullptr); },&testExpansion);
+            const std::wstring said=FlushLeavingEditors();
+            ReleasePaneEditors(false);
+            check(live[500]==L"Typed, then clicked away" && live[501]==L"Other" && said.find(L"Saved Text")!=std::wstring::npos,
+                "an edit typed just before selecting another element is saved to its own element");
+            g_selWire=g_dirtyNode=500;
+            RestoreRowValue(500,L"Text",L"String");
+            g_selLabel=priorLabel; g_ctx.readInputFn=priorReader;
+        }
         // A late save to an element that is no longer selected records the original captured while it was selected,
         // and reads that element back right away so a later app change there still drops Restore.
         g_editRecords.clear(); g_appChanged.clear();
@@ -2152,13 +2222,152 @@ int main()
         }
         g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr; g_valuesFn=nullptr;
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
-    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // Each selection rebuilds the pane with new event sinks. They must be freed once the pane is replaced.
+        auto drain = [] { auto work = std::move(postedWork); postedWork.clear(); for (auto& w : work) w(); };
+        dispatcherAvailable = true;
+        ReleasePaneSinks(); drain();
+        auto* filter = NewPaneSink<PropFilterSink>(); filter->Init();
+        filter->AddRef(); // the reference XAML holds while the old pane's filter box is alive
+        TestElement editorBox, editorUi;
+        auto* commit = NewPaneSink<LostFocusSink>();
+        commit->Init(0, L"Text", L"String", L"", &editorBox);
+        RegisterPaneEditor(L"Text", &editorUi, &commit->retired, commit, [commit] { commit->Invoke(nullptr, nullptr); });
+        check(g_paneSinks.size() == 2 && filter->refs == 2 && commit->refs == 2,
+            "the pane and the editor registry each own a reference to the pane's sinks");
+        ReleasePaneSinks();
+        check(g_paneSinks.empty() && filter->refs == 2 && commit->refs == 2 && postedWork.size() == 1,
+            "a replaced pane's sinks stay alive until the event that replaced it returns");
+        drain();
+        check(filter->refs == 1 && commit->refs == 1, "after that event, the replaced pane no longer owns its sinks");
+        commit->AddRef();
+        ReleasePaneEditors(false);
+        check(editorUi.refs == 1 && commit->Release() == 0, "releasing the pane's editors drops their sink references");
+        check(filter->Release() == 0, "a pane sink is freed when XAML releases the last reference");
+
+        dispatcherAvailable = false;
+        auto* kept = NewPaneSink<PropFilterSink>(); kept->Init(); kept->AddRef();
+        ReleasePaneSinks();
+        check(kept->refs == 2 && g_paneSinksToRelease.size() == 1,
+            "without a dispatcher the sinks are kept rather than freed while one may be running");
+        dispatcherAvailable = true;
+        ReleasePaneSinks(); drain();
+        check(g_paneSinksToRelease.empty() && kept->Release() == 0, "kept sinks are released with the next pane");
+        dispatcherAvailable = false;
+    }
+    {
+        // Rows the repeater recycles are pooled by the editor they show and reused, expansion included, so a
+        // selection adds no elements to the window (#1283). Nothing of the old property may survive the reuse.
+        TestElement rowFe, otherRow, host, expansion, otherExpansion, editorUi, otherEditorUi, box, otherBox;
+        host.children.push_back(&expansion); expansion.AddRef();
+        g_pooledRows[PaneIdentity(&rowFe)] = { 24, L"Width", true };
+        unsigned revokedWidth = 0, revokedOther = 0;
+        TrackPaneEvent(L"Width", [&] { ++revokedWidth; });
+        TrackPaneEvent(L"Width.Left", [&] { ++revokedWidth; });
+        TrackPaneEvent(L"Height", [&] { ++revokedOther; });
+        RegisterPaneEditor(L"Width", &editorUi, nullptr, nullptr, [] {}, &expansion);
+        RegisterPaneEditor(L"Height", &otherEditorUi, nullptr, nullptr, [] {}, &otherExpansion);
+        box.AddRef(); otherBox.AddRef();
+        g_fieldBoxes.push_back({ L"Width", 0, &box, &expansion });
+        g_fieldBoxes.push_back({ L"Height", 0, &otherBox, &otherExpansion });
+
+        rowExpandHost = &host;
+        check(g_propRowFactory.RecycleElement(&rowFe) == S_OK && revokedWidth == 2 && revokedOther == 0 &&
+              g_paneEventRevokers.size() == 1,
+            "recycling a row removes the handlers of its property and child properties, and no other row's");
+        check(g_paneEditors.size() == 1 && g_paneEditors[0].owner == &otherExpansion && editorUi.refs == 1 &&
+              g_fieldBoxes.size() == 1 && g_fieldBoxes[0].owner == &otherExpansion && box.refs == 1 && otherBox.refs == 2,
+            "a recycled row's expansion keeps no editor or field box of the property it showed");
+        check(g_rowPools[24].size() == 1 && rowFe.refs == 2 && host.children.size() == 1 &&
+              !FindPooledRow(&rowFe)->expansionCurrent,
+            "the recycled row is pooled with its expansion, which must be filled in again before it is shown");
+        check(g_propRowFactory.RecycleElement(&otherRow) == S_OK && otherRow.refs == 1 && g_rowPools[24].size() == 1,
+            "an element the factory did not hand out is not pooled");
+        check(!TakePooledRow(20) && g_rowPools[24].size() == 1, "a pooled row is not handed out for another editor kind");
+        IInspectable* reused = TakePooledRow(24);
+        check(reused == &rowFe && !TakePooledRow(24), "a pooled row is handed out again for the same editor kind");
+        if (reused) reused->Release();
+
+        FindPooledRow(&rowFe)->path = L"Height";
+        DevToolsCardRow height; height.name = L"Height"; height.type = L"Double"; height.editKind = L"number";
+        check(EnsureExpansion(&rowFe, height, L"Height", 0) && host.children.size() == 1 && host.children[0] == &expansion &&
+              FindPooledRow(&rowFe)->expansionCurrent && revokedOther == 1 && g_paneEventRevokers.empty(),
+            "a reused row fills in the expansion it kept for the new property instead of loading another");
+        rowExpandHost = nullptr;
+
+        RevokePaneEvents();
+        ReleasePaneEditors(false);
+        ReleaseFieldBoxes(L"");
+        ReleaseRowPools();
+        TestClearChildren(&host);
+        check(g_rowPools.empty() && g_pooledRows.empty() && expansion.refs == 1 && otherBox.refs == 1 &&
+              otherEditorUi.refs == 1,
+            "closing the window releases the pooled rows and everything they held");
+    }
+    {
+        // A reused row that is open fills in its kept expansion while the factory fills in the row. The row must
+        // stay marked current afterwards, or reopening it rebuilds the editor with the old handlers still wired.
+        TestElement rowFe, host, expansion;
+        host.children.push_back(&expansion); expansion.AddRef();
+        DevToolsCardRow height; height.name = L"Height"; height.type = L"Double"; height.editKind = L"number";
+        g_selWire = 42;
+        g_propRows = { height };
+        g_paneEditMap.rowIdx = { 0 };
+        DevToolsPaneItem item; item.kind = DevToolsPaneItemKind::Row; item.rowIndex = 0;
+        g_paneItems = { item };
+        PropSetExpanded(L"Height", true);
+        const int pool = RowPoolKey(height, L"Height", 0);
+        g_pooledRows[PaneIdentity(&rowFe)] = { pool, L"Width", false };
+        rowFe.AddRef();
+        winrt::com_ptr<IInspectable> pooledRow; pooledRow.attach(&rowFe);
+        g_rowPools[pool].push_back(std::move(pooledRow));
+        rowExpandHost = &host;
+        int index = 0;
+        void* handedOut = nullptr;
+        check(g_propRowFactory.GetElement(&index, &handedOut) == S_OK && handedOut == &rowFe &&
+              host.children.size() == 1 && FindPooledRow(&rowFe)->path == L"Height" &&
+              FindPooledRow(&rowFe)->expansionCurrent,
+            "a reused open row keeps its refilled expansion marked current for the new property");
+        if (handedOut) static_cast<IUnknown*>(handedOut)->Release();
+        rowExpandHost = nullptr;
+        PropSetExpanded(L"Height", false);
+        RetireKindEditors();
+        RevokePaneEvents();
+        ReleasePaneEditors(false);
+        ReleaseFieldBoxes(L"");
+        ReleaseRowPools();
+        TestClearChildren(&host);
+        g_propRows.clear(); g_paneItems.clear(); g_paneEditMap = {}; g_selWire = 0;
+        check(rowFe.refs == 1 && expansion.refs == 1, "the factory test releases the row and its expansion");
+    }
+    {
+        // A reused editor moves from an unset property, which shows a placeholder, to one that has none.
+        TestElement editor;
+        SetPlaceholderOn(&editor, L"not set - type a value");
+        SetPlaceholderOn(&editor, L"");
+        check(editor.placeholder.empty(), "a reused editor drops the previous property's placeholder");
+    }
+    {
+        // Two refreshes of the same element ask for its pending references twice; only the second answer fills the
+        // reused panel, so its rows don't appear twice.
+        const InstanceHandle savedSel = g_selWire;
+        g_selWire = 700;
+        const auto gen = g_route1Gen;
+        const auto first = NextPendingReferencesRequest();
+        const auto second = NextPendingReferencesRequest();
+        check(!PendingReferencesCurrent(first, gen, 700) && PendingReferencesCurrent(second, gen, 700),
+            "an earlier pending-references answer for the same element is dropped after a refresh");
+        g_selWire = 701;
+        check(!PendingReferencesCurrent(second, gen, 700), "and an answer for an element no longer selected is dropped");
+        g_selWire = savedSel;
+    }
     {
         // The live tree refresh follows a tree that never settles at a steady pace.
         check(TreeRefreshDueAt(10000, 10000, 0) == 10250, "a single change refreshes after the debounce");
         check(TreeRefreshDueAt(10300, 10000, 0) == 10550, "a burst keeps pushing the refresh back");
         check(TreeRefreshDueAt(12900, 10000, 0) == 13000, "but no later than three seconds after its first change");
         check(TreeRefreshDueAt(20300, 20300, 20000) == 22000, "and no sooner than two seconds after the last refresh");
-    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    }
+    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

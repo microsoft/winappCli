@@ -309,28 +309,12 @@ static bool SameLayout(const DevToolsWindowLayout& a, const DevToolsWindowLayout
            a.gridRowSpan == b.gridRowSpan && a.gridColumnSpan == b.gridColumnSpan;
 }
 
-// Replaces only the Size & spacing section's contents, so the property rows, focus and scroll are untouched.
+// Updates only the Size & spacing section, so the property rows, focus and scroll are untouched.
 static bool ReplaceLayoutSection(const DevToolsWindowLayout& layout)
 {
     if (!g_layoutBody) return false;
-    const std::wstring markup = InlineResourceLiterals(
-        L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
-        L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">" + BuildLayoutSection(layout, g_propRows) +
-        L"</StackPanel>", nullptr, nullptr);
-    IInspectable* frag = nullptr;
-    if (FAILED(LoadMarkupWin(markup, &frag)) || !frag) return false;
-    winrt::Windows::Foundation::IInspectable fresh{ nullptr };
-    winrt::attach_abi(fresh, frag);
-    try {
-        winrt::Windows::Foundation::IInspectable body{ nullptr };
-        winrt::copy_from_abi(body, g_layoutBody);
-        auto children = body.as<DevToolsXC::Panel>().Children();
-        children.Clear();
-        children.Append(fresh.as<DevToolsX::UIElement>());
-        return true;
-    } catch (...) {
-        return false;
-    }
+    return ShowInPaneSlot(g_layoutSlot, kPaneSectionOpen + BuildLayoutSection(layout, g_propRows) + L"</StackPanel>",
+                          nullptr) != nullptr;
 }
 
 // The section is drawn from the property rows too, so redraw it after one it reads changed, even when the

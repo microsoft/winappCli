@@ -707,6 +707,8 @@ inline HRESULT DevToolsTogglePutIsOn(void* toggleSwitch, bool on) noexcept
 { return DevToolsAbi<DevToolsXC::IToggleSwitch>(toggleSwitch)->put_IsOn(on); }
 inline HRESULT DevToolsAddToggled(void* toggleSwitch, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXC::IToggleSwitch>(toggleSwitch)->add_Toggled(handler, DevToolsAbiTok(token)); }
+inline HRESULT DevToolsRemoveToggled(void* toggleSwitch, __int64 token) noexcept
+{ return DevToolsAbi<DevToolsXC::IToggleSwitch>(toggleSwitch)->remove_Toggled(*DevToolsAbiTok(&token)); }
 
 inline HRESULT DevToolsAddClick(void* buttonBase, void* handler, __int64* token) noexcept
 { return DevToolsAbi<DevToolsXCP::IButtonBase>(buttonBase)->add_Click(handler, DevToolsAbiTok(token)); }
@@ -820,3 +822,13 @@ inline HRESULT DevToolsBorderGetChild(void* border, ::IInspectable** child) noex
 // Projected DispatcherQueue access for live XAML reads/mutations on the app UI thread.
 inline HRESULT DevToolsDispatcherTryEnqueue(void* dispatcher, ::IUnknown* handler, bool* enqueued) noexcept
 { return DevToolsAbi<DevToolsD::IDispatcherQueue>(dispatcher)->TryEnqueue(handler, enqueued); }
+// Run `work` on this thread's dispatcher after the current event returns. False when the thread has no dispatcher.
+inline bool DevToolsPostLowPriority(const DevToolsD::DispatcherQueueHandler& work) noexcept
+{
+    try {
+        const auto queue = DevToolsD::DispatcherQueue::GetForCurrentThread();
+        return queue && queue.TryEnqueue(DevToolsD::DispatcherQueuePriority::Low, work);
+    } catch (...) {
+        return false;
+    }
+}

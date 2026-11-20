@@ -116,12 +116,11 @@ static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, co
 enum class SourceAction { Open, Reveal, Copy };
 
 // XAML's visual ownership does not keep this WinRT wrapper's weak references alive.
-// Retain it for the pane's lifetime; the sinks still hold only weak references.
+// Retain it while its source line is on screen; the sinks still hold only weak references.
 static DevToolsXC::TextBlock g_sourceStatus{ nullptr };
-// The same for the comment box's elements: its handlers hold them weakly, so the pane holds them here.
-static std::vector<winrt::Windows::Foundation::IInspectable> g_commentBoxParts;
 
-// Keep feedback with the source header that owns these actions, not the current selection's status line.
+// Keep feedback with the source header that owns these actions, not the window's status line. The source line is
+// reused across selections, so the actions read the selected element's file when clicked.
 struct SourceActionSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
@@ -141,10 +140,10 @@ struct SourceActionSink : DevToolsSinkBase
             }
         };
         if (action == SourceAction::Open) {
-            HandOffSource(uri, line, L"", report);
+            HandOffSource(g_selSourceFile, g_selSourceLine, L"", report);
         } else {
             bool sourceRootMissing = false;
-            const std::wstring path = ResolveSourcePath(uri, &sourceRootMissing);
+            const std::wstring path = ResolveSourcePath(g_selSourceFile, &sourceRootMissing);
             if (path.empty()) {
                 report(sourceRootMissing ? kSourceRootMissing
                     : L"Source file unavailable. Check that it still exists under the project's source folder.");
@@ -159,12 +158,10 @@ struct SourceActionSink : DevToolsSinkBase
     }
     void Init(SourceAction a, const DevToolsXC::TextBlock& status)
     {
-        action = a; uri = g_selSourceFile; line = g_selSourceLine; feedback = status;
+        action = a; feedback = status;
         InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
     }
     SourceAction action = SourceAction::Open;
-    std::wstring uri;
-    unsigned int line = 0;
     winrt::weak_ref<DevToolsXC::TextBlock> feedback;
 };
 
@@ -174,7 +171,7 @@ static std::wstring CurrentEditSeed(const std::wstring& path, const std::wstring
 // member name to the live app element via the in-process write bridge. Self-contained (captures the node handle
 // + property + write type + the ordered member-value list + a NON-owning ISelector pointer). Non-owning is safe
 // for the same reason LostFocusSink's box is: SelectionChanged only fires while the ComboBox is live in the
-// tree, and a torn-down window's sinks go inert (gen guard). Leaked for the process lifetime. UI thread only.
+// tree, and a torn-down window's sinks go inert (gen guard). Owned by the pane (NewPaneSink). UI thread only.
 struct EnumSelectSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
@@ -216,7 +213,8 @@ struct EnumSelectSink : DevToolsSinkBase
     std::wstring              prop, type, original;
     std::vector<std::wstring> members;
     void*                     selector = nullptr;
-    LostFocusSink*            textEditor = nullptr; // Same expansion lifetime as the preset selector.
+    LostFocusSink*            textEditor = nullptr; // Owned reference: the colour preset's hex box.
+    ~EnumSelectSink() { if (textEditor) textEditor->Release(); }
 };
 
 // Theme brush order matches the ComboBox item order; SelectedIndex maps directly to a resource name.

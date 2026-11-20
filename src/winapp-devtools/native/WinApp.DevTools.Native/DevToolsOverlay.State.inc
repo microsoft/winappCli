@@ -571,7 +571,7 @@ static const GUID IID_KeyEventHandler_Del =
 
 // One agile COM delegate implementation for BOTH handler types (RoutedEventHandler and DragDeltaEventHandler
 // share the IUnknown + Invoke(void*, void*) ABI shape; only the QI'd IID differs). Static, process-lifetime
-// (AddRef/Release are no-ops via DevToolsSinkBase), agile like the existing UiHandler.
+// (static sinks are never deleted by DevToolsSinkBase), agile like the existing UiHandler.
 // The sink is agile/free-threaded through DevToolsSinkBase, matching the other event sinks.
 struct EventSink : DevToolsSinkBase
 {
