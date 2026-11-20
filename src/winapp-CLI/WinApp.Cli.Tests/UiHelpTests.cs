@@ -240,11 +240,12 @@ public class UiHelpTests : BaseCommandTests
     [DoNotParallelize]
     public async Task DevToolsMissingRequiredOption_PointsToHelpInsteadOfPrintingIt()
     {
-        var (stdout, stderr, exitCode) = await InvokeProgramAsync(["devtools", "comments", "add", "-a", "1"]);
+        // `comments add` accepts no --text when --id re-anchors, so `update --status` is the required-option case.
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(["devtools", "comments", "update", "c1", "-a", "1"]);
 
         Assert.AreEqual(1, exitCode);
-        Assert.Contains("'--text'", stderr);
-        Assert.Contains("Run 'winapp devtools comments add --help' for usage.", stderr);
+        Assert.Contains("'--status'", stderr);
+        Assert.Contains("Run 'winapp devtools comments update --help' for usage.", stderr);
         Assert.DoesNotContain("Usage:", stdout + stderr);
     }
 

@@ -26,11 +26,17 @@ internal static class GuestSourceSnapshot
     // About 70 bytes per mapped element; the native tap reads the same bound (DevToolsAuthored.cpp).
     internal const int MaximumInventoryBytes = 16 * 1024 * 1024;
 
-    internal static Dictionary<string, string> ValidateSources(FileInfo project, IReadOnlyList<string> evaluatedXamlFiles)
+    /// <param name="allowEmpty">
+    /// A Microsoft.UI.Reactor project may have no XAML: it is inspected without a source snapshot, and its launch
+    /// has no comment sources (comments are off for it).
+    /// </param>
+    internal static Dictionary<string, string> ValidateSources(FileInfo project, IReadOnlyList<string> evaluatedXamlFiles,
+        bool allowEmpty = false)
     {
-        if (!project.Exists || project.DirectoryName is null || evaluatedXamlFiles.Count is 0 or > MaximumFiles)
+        if (!project.Exists || project.DirectoryName is null || evaluatedXamlFiles.Count > MaximumFiles ||
+            (evaluatedXamlFiles.Count == 0 && !allowEmpty))
         {
-            throw new InvalidOperationException("Host-backed Sandbox comments require a verified project with 1-2048 evaluated XAML source files.");
+            throw new InvalidOperationException("Host-backed Sandbox comments require a verified project with 1-2048 evaluated XAML or C# source files.");
         }
         if (PathSafety.HasReparsePointOnPath(project.FullName, project.DirectoryName))
         {
@@ -44,7 +50,7 @@ internal static class GuestSourceSnapshot
             var relative = GuestCommentBinding.ValidateRelativeSource(Path.GetRelativePath(project.DirectoryName, path));
             if (PathSafety.HasReparsePointOnPath(path, project.DirectoryName) || !File.Exists(path))
             {
-                throw new InvalidOperationException($"XAML source '{relative}' is missing or outside the verified project. Linked external source is not copied.");
+                throw new InvalidOperationException($"Source '{relative}' is missing or outside the verified project. Linked external source is not copied.");
             }
             if (admitted.TryAdd(relative, path))
             {
@@ -52,19 +58,49 @@ internal static class GuestSourceSnapshot
                 total += length;
                 if (length > MaximumFileBytes || total > MaximumTotalBytes)
                 {
-                    throw new IOException("The XAML source snapshot exceeds its 2 MiB/file or 32 MiB/launch limit.");
+                    throw new IOException("The source snapshot exceeds its 2 MiB/file or 32 MiB/launch limit.");
                 }
             }
         }
         return admitted;
     }
 
+    /// <summary>
+    /// The C# files of a Microsoft.UI.Reactor project, for its comments in a Sandbox launch: every <c>.cs</c> file under
+    /// the project folder (the SDK's default compile items), without build output, hidden or redirected folders.
+    /// </summary>
+    internal static IReadOnlyList<string> ReactorCSharpSources(FileInfo project)
+    {
+        var root = project.DirectoryName ?? throw new InvalidOperationException("The project has no folder.");
+        var files = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(root, "*.cs", new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System,
+            IgnoreInaccessible = true,
+        }))
+        {
+            var parts = Path.GetRelativePath(root, path).Split(Path.DirectorySeparatorChar);
+            if (parts.Any(part => part.StartsWith('.') || part.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("obj", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+            if (files.Count == MaximumFiles)
+            {
+                throw new InvalidOperationException($"The project has more than {MaximumFiles} C# files to copy for Sandbox comments.");
+            }
+            files.Add(path);
+        }
+        return files;
+    }
+
     // A null destination hashes the sources in place; only a Sandbox launch needs copies to deploy.
     internal static async Task<GuestSourceManifest> CreateAsync(
         FileInfo project, IReadOnlyList<string> evaluatedXamlFiles, DirectoryInfo? destination,
-        CancellationToken cancellationToken, XamlCompilerArtifacts? compiler = null)
+        CancellationToken cancellationToken, XamlCompilerArtifacts? compiler = null, bool allowEmpty = false)
     {
-        var admitted = ValidateSources(project, evaluatedXamlFiles);
+        var admitted = ValidateSources(project, evaluatedXamlFiles, allowEmpty);
         if (destination?.Exists == true)
         {
             throw new IOException("The launch source snapshot destination already exists.");
@@ -78,14 +114,14 @@ internal static class GuestSourceSnapshot
             cancellationToken.ThrowIfCancellationRequested();
             if (PathSafety.HasReparsePointOnPath(original, project.DirectoryName!))
             {
-                throw new IOException("A XAML source path changed while preparing the snapshot.");
+                throw new IOException("A source path changed while preparing the snapshot.");
             }
             await using var input = new FileStream(original, FileMode.Open, FileAccess.Read, FileShare.Read);
             var length = input.Length;
             var lastWrite = File.GetLastWriteTimeUtc(input.SafeFileHandle);
             if (length > MaximumFileBytes || total + length > MaximumTotalBytes)
             {
-                throw new IOException("The XAML source snapshot exceeds its 2 MiB/file or 32 MiB/launch limit.");
+                throw new IOException("The source snapshot exceeds its 2 MiB/file or 32 MiB/launch limit.");
             }
             if (destination is null)
             {
@@ -109,7 +145,7 @@ internal static class GuestSourceSnapshot
             }
             if (input.Length != length || File.GetLastWriteTimeUtc(input.SafeFileHandle) != lastWrite)
             {
-                throw new IOException("A XAML source changed while preparing the snapshot.");
+                throw new IOException("A source changed while preparing the snapshot.");
             }
         }
         var manifest = new GuestSourceManifest(project.FullName, files);
@@ -253,7 +289,7 @@ internal static class GuestSourceSnapshot
     {
         if (files is null || files.Count is 0 or > MaximumFiles)
         {
-            throw new InvalidDataException("A source snapshot must contain 1-2048 evaluated XAML files.");
+            throw new InvalidDataException("A source snapshot must contain 1-2048 evaluated XAML or C# files.");
         }
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         long total = 0;

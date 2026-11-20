@@ -47,8 +47,8 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
     internal static readonly (string Category, Type[] CommandTypes)[] HelpCategories =
     [
         ("Discover", [typeof(DevToolsListCommand), typeof(DevToolsAttachCommand), typeof(DevToolsInspectCommand), typeof(DevToolsSearchCommand)]),
-        ("Read", [typeof(DevToolsGetPropertyCommand), typeof(DevToolsGetLayoutCommand), typeof(DevToolsGetSourceCommand), typeof(DevToolsDiagnoseBindingCommand)]),
-        ("Change live", [typeof(DevToolsSetPropertyCommand)]),
+        ("Read", [typeof(DevToolsGetPropertyCommand), typeof(DevToolsGetLayoutCommand), typeof(DevToolsGetSourceCommand), typeof(DevToolsDiagnoseBindingCommand), typeof(DevToolsGetStateCommand), typeof(DevToolsGetResourceCommand), typeof(DevToolsLogsCommand)]),
+        ("Change live", [typeof(DevToolsSetPropertyCommand), typeof(DevToolsSetStateCommand), typeof(DevToolsRerenderCommand), typeof(DevToolsInvokeHandlerCommand), typeof(DevToolsSetResourceCommand)]),
         ("Comments", [typeof(DevToolsCommentsCommand)]),
         ("More", [typeof(DevToolsCallCommand)]),
     ];
@@ -64,6 +64,13 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         DevToolsGetSourceCommand getSourceCommand,
         DevToolsDiagnoseBindingCommand diagnoseBindingCommand,
         DevToolsSetPropertyCommand setPropertyCommand,
+        DevToolsGetStateCommand getStateCommand,
+        DevToolsSetStateCommand setStateCommand,
+        DevToolsRerenderCommand rerenderCommand,
+        DevToolsInvokeHandlerCommand invokeHandlerCommand,
+        DevToolsGetResourceCommand getResourceCommand,
+        DevToolsSetResourceCommand setResourceCommand,
+        DevToolsLogsCommand logsCommand,
         DevToolsCallCommand callCommand)
         : base("devtools", Summary)
     {
@@ -77,6 +84,13 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         Subcommands.Add(getSourceCommand);
         Subcommands.Add(diagnoseBindingCommand);
         Subcommands.Add(setPropertyCommand);
+        Subcommands.Add(getStateCommand);
+        Subcommands.Add(setStateCommand);
+        Subcommands.Add(rerenderCommand);
+        Subcommands.Add(invokeHandlerCommand);
+        Subcommands.Add(getResourceCommand);
+        Subcommands.Add(setResourceCommand);
+        Subcommands.Add(logsCommand);
         Subcommands.Add(callCommand);
         Subcommands.Add(commentsCommand);
         Subcommands.Add(listCommand);
@@ -112,6 +126,12 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         ["source"] = "get-source",
         ["layout"] = "get-layout",
         ["apps"] = "list",
+        ["state"] = "get-state",
+        ["hooks"] = "get-state",
+        ["resource"] = "get-resource",
+        ["fire"] = "invoke-handler",
+        ["log"] = "logs",
+        ["errors"] = "logs",
     };
 
     IReadOnlyList<string> ICompactHelpGroup.CommonCommands { get; } =

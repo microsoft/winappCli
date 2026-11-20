@@ -140,13 +140,21 @@ internal static class DevToolsPreviews
         return true;
     }
 
-    public static string Format(IReadOnlyList<DevToolsPreviewValue> values)
+    /// <summary>
+    /// The compact values a tree line ends with. <paramref name="defaultAutomationName"/> is Reactor saying the accessible
+    /// name is its own default copy of a caption, which adds nothing; any other accessible name is the app's and is shown.
+    /// </summary>
+    public static string Format(IReadOnlyList<DevToolsPreviewValue> values, bool defaultAutomationName = false)
     {
         var parts = new List<string>();
         var labels = new HashSet<string>(StringComparer.Ordinal);
         foreach (var value in values)
         {
             if (value.ValueState == "value" && value.Value.Length == 0)
+            {
+                continue;
+            }
+            if (defaultAutomationName && value.Name == "AutomationProperties.Name" && value.ValueState == "value")
             {
                 continue;
             }

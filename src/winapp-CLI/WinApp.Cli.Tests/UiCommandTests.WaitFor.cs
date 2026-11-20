@@ -50,6 +50,31 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    public async Task WaitFor_Gone_DevToolsAmbiguity_IsNotDisappearance()
+    {
+        var ambiguous = new UiAmbiguousSelectorException("key=save matches 2 rendered elements.");
+        ambiguous.Data[Services.DevTools.DevToolsSelectorUiAutomation.DevToolsKey] = true;
+        _fakeUia.FindSingleThrow = ambiguous;
+        var command = GetRequiredService<UiWaitForCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["key=save", "-a", "TestApp", "--gone", "--json", "--timeout", "1000"]);
+        Assert.AreEqual(1, exitCode);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("\"found\": false", StringComparison.Ordinal), TestAnsiConsole.Output);
+    }
+
+    [TestMethod]
+    public async Task WaitFor_Gone_IncompleteDevToolsSearch_KeepsLookingUntilTheTimeout()
+    {
+        var incomplete = new InvalidOperationException("Not every window answered.");
+        incomplete.Data[Services.DevTools.DevToolsSelectorUiAutomation.IncompleteKey] = true;
+        _fakeUia.FindSingleThrow = incomplete;
+        var command = GetRequiredService<UiWaitForCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["key=save", "-a", "TestApp", "--gone", "--json", "--timeout", "150"]);
+        Assert.AreNotEqual(0, exitCode);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("\"timedOut\": false", StringComparison.Ordinal), TestAnsiConsole.Output);
+        Assert.IsTrue(_fakePollDelay.CallCount >= 1, "an incomplete search is looked at again");
+    }
+
+    [TestMethod]
     public async Task WaitFor_Value_WithProperty_NonJson_Matches()
     {
         _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Edit", Name = "Field", Selector = "edit-1" };

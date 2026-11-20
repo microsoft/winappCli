@@ -94,6 +94,18 @@ internal sealed class FakeProjectRunService : IProjectRunService
     public Task<string?> CheckSingleFileSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
         => Task.FromResult(SingleFileSdkError);
 
+    /// <summary>Returned from <see cref="CheckPackagedWatchSdkAsync"/>. Null = the SDK can relaunch a packaged app under --watch.</summary>
+    public string? PackagedWatchSdkError { get; set; }
+
+    /// <summary>Returned from <see cref="IsPackagedBeforeBuildAsync"/>.</summary>
+    public bool PackagedBeforeBuild { get; set; }
+
+    public Task<string?> CheckPackagedWatchSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
+        => Task.FromResult(PackagedWatchSdkError);
+
+    public Task<bool> IsPackagedBeforeBuildAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+        => Task.FromResult(PackagedBeforeBuild);
+
     public Task<ProjectBuildOutcome> BuildAndResolveAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
         BuildAndResolveCalls.Add(csproj);

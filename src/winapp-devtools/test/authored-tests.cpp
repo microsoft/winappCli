@@ -811,6 +811,32 @@ static void Test_SourceUnderTheRootIsFoundByItsPath()
         RemoveDirectoryW((root + dir).c_str());
 }
 
+// A C# call site is read from disk and redacted the way get-source redacts it: a literal on a line that names a
+// password is hidden, other literals are kept.
+static void Test_CSharpCallSiteIsRedacted()
+{
+    const auto root = MakeFixture();
+    const auto project = root + L"\\csharp";
+    CreateDirectoryW(project.c_str(), nullptr);
+    const auto login = project + L"\\Login.cs";
+    { std::ofstream output(login, std::ios::binary);
+      output << "class Login\r\n{\r\n    void Render()\r\n    {\r\n        var name = TextBox(\"alice\");\r\n"
+                "        var pwd = PasswordBox(\"hunter2\");\r\n    }\r\n}\r\n"; }
+    std::wstring code;
+
+    DevToolsAuthored_Init(root, 0);
+    Check(DevToolsAuthored_ReadCSharp(login, 5, 0, &code), "a call site is read");
+    CheckEqW(code, L"var name = TextBox(\"alice\");", "a literal on a line without a password is kept");
+    Check(DevToolsAuthored_ReadCSharp(login, 6, 0, &code), "a password call site is read");
+    CheckEqW(code, L"var pwd = PasswordBox(\"<redacted>\");", "a literal on a password line is redacted");
+
+    DevToolsAuthored_Init(L"", 0);
+    DeleteFileW(login.c_str());
+    RemoveDirectoryW(project.c_str());
+    DeleteFileW((root + L"\\MainWindow.xaml").c_str());
+    RemoveDirectoryW(root.c_str());
+}
+
 int RunAuthoredTests()
 {
     std::printf("DevToolsAuthored tests -- one source read serves property values and full XAML\n");
@@ -823,6 +849,7 @@ int RunAuthoredTests()
     Test_SourceQualifiedAnchors();
     Test_ExactCommentTextAndHistoricalLabels();
     Test_SourceUnderTheRootIsFoundByItsPath();
+    Test_CSharpCallSiteIsRedacted();
     return g_testFailures;
 }
 
