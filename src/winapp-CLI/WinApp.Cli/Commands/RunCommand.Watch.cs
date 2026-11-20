@@ -51,11 +51,18 @@ internal partial class RunCommand
                 LogSourceExclusions(coordinates.Exclusions);
             }
             var watchEnvironment = WatchEnvironment(environment, Environment.GetEnvironmentVariable(DevToolsStartupHooks.EnvVarName));
+            using var sidecar = StartXamlSidecar(csproj);
+            if (sidecar is not null)
+            {
+                // SPIKE workaround for a #1197 bug: the held .xbf payload makes every restart rebuild after a XAML save fail (MSB3027).
+                coordinates?.ReleasePayload();
+            }
+            watchEnvironment = WithSidecar(watchEnvironment, sidecar);
             string watchArguments;
             try
             {
                 // The options the build pass resolved, so dotnet watch builds into, and starts, the same output.
-                watchArguments = WatchArguments(resolution, csproj, options, appArgs);
+                watchArguments = WatchArguments(resolution, csproj, options, appArgs, [.. SidecarProperties(sidecar, null)]);
             }
             catch (ProjectRunException ex)
             {
@@ -93,12 +100,13 @@ internal partial class RunCommand
                 return Fail("--watch could not find winapp.exe, which 'dotnet watch' runs to relaunch the packaged app.", false);
             }
             string watchArguments;
+            using var sidecar = StartXamlSidecar(csproj);
             try
             {
                 var launchTargets = WriteWatchLaunchTargets(winappDirectoryService.GetGlobalWinappDirectory());
                 watchArguments = WatchArguments(resolution, csproj, options, null,
                 [
-                    $"CustomAfterMicrosoftCommonTargets={EscapeMSBuildProperty(launchTargets)}",
+                    .. sidecar is null ? [$"CustomAfterMicrosoftCommonTargets={EscapeMSBuildProperty(launchTargets)}"] : SidecarProperties(sidecar, launchTargets),
                     $"WinAppDevToolsWatchRunCommand={EscapeMSBuildProperty(winapp)}",
                     $"WinAppDevToolsWatchRunArguments={WatchLaunchRunArguments(parseResult)}",
                 ]);
@@ -115,7 +123,7 @@ internal partial class RunCommand
             {
                 [WatchLaunchVariable] = WindowsCommandLine.JoinArguments(WatchLaunchTokens(parseResult, csproj, solution, appArgs, devToolsRun.ShowToolbar)),
             };
-            return await RunWatcherAsync(csproj, watchArguments, environment,
+            return await RunWatcherAsync(csproj, watchArguments, WithSidecar(environment, sidecar),
                 (watcher, token) => watcher.WaitForExitAsync(token), cancellationToken);
         }
 
@@ -139,6 +147,9 @@ internal partial class RunCommand
                 }
                 environment = merged;
             }
+            var launches = new List<DateTime>();
+            while (true)
+            {
             ILaunchedProcess watcher;
             try
             {
@@ -149,11 +160,15 @@ internal partial class RunCommand
             {
                 return Fail($"Could not start 'dotnet watch': {RunFailure.Describe(ex)}", false);
             }
+            launches.Add(DateTime.UtcNow);
 
             using (watcher)
             {
-                logger.LogInformation("{Symbol} Watching {Project}: edits apply through Hot Reload, and DevTools attaches again when the app restarts. Press Ctrl+C to stop.",
-                    UiSymbols.Search, csproj.Name);
+                if (launches.Count == 1)
+                {
+                    logger.LogInformation("{Symbol} Watching {Project}: edits apply through Hot Reload, and DevTools attaches again when the app restarts. Press Ctrl+C to stop.",
+                        UiSymbols.Search, csproj.Name);
+                }
                 try
                 {
                     await whileWatching(watcher, cancellationToken);
@@ -168,7 +183,16 @@ internal partial class RunCommand
                     return -1;
                 }
                 await watcher.WaitForExitAsync(CancellationToken.None);
-                return watcher.ExitCode;
+                // SPIKE (E10): dotnet watch ending on its own (not Ctrl+C) is a crash, such as .NET's hot reload bug
+                // (tracker #3): relaunch it with a visible reason, unless it keeps failing right away.
+                var recent = launches.Count(l => DateTime.UtcNow - l < TimeSpan.FromMinutes(2));
+                if (cancellationToken.IsCancellationRequested || watcher.ExitCode == 0 || recent >= 3)
+                {
+                    return watcher.ExitCode;
+                }
+                Console.Out.WriteLine($"[watch] restart dotnet watch stopped unexpectedly (exit code {watcher.ExitCode}; a known .NET hot reload bug can do this); relaunching it");
+                Console.Out.Flush();
+            }
             }
         }
 

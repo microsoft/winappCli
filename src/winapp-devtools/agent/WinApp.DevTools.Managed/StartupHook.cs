@@ -24,6 +24,9 @@ internal sealed class StartupHook
         // Watch Reactor's events from startup, so `winapp devtools logs` has the warnings and errors since launch.
         try { WinApp.DevTools.Managed.ReactorEvents.Start(); }
         catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Reactor event listener failed: {0}", ex.GetType().Name); }
+        // SPIKE (hot reload option A): the XAML side-car's in-app agent, only under 'winapp run --watch' for XAML apps.
+        try { WinApp.DevTools.Managed.HotReload.XamlAgent.Start(); }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("XAML agent failed: {0}", ex.GetType().Name); }
         for (int i = 0; i < Listeners; i++) _ = Task.Run(ServeAsync);
     }
 

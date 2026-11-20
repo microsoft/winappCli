@@ -411,6 +411,13 @@ struct DevToolsTap : IObjectWithSite
         if (site) { site->Release(); site = nullptr; }
         if (!s) return S_OK;
         s->AddRef(); site = s;
+        {
+            IUnknown* service = nullptr;
+            const HRESULT hr = s->QueryInterface(IID_DevToolsXamlHotReloadService, reinterpret_cast<void**>(&service));
+            if (IUnknown* previous = g_hotReloadService.exchange(SUCCEEDED(hr) ? service : nullptr)) previous->Release();
+            g_hotReloadQueried.store(true);
+            Log(L"IXamlHotReloadService hr=0x%08X", hr);
+        }
         IXamlDiagnostics* diag = nullptr;
         if (FAILED(s->QueryInterface(__uuidof(IXamlDiagnostics), reinterpret_cast<void**>(&diag))) || !diag) { Log(L"no IXamlDiagnostics"); return S_OK; }
 

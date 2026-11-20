@@ -113,6 +113,9 @@ internal static class XamlSourceCoordinates
             _inventory.Dispose();
             _payload?.Dispose();
         }
+
+        // SPIKE: lets dotnet watch's restart rebuild overwrite the deployed .xbf (see RunWatchedProjectAsync).
+        internal void ReleasePayload() => _payload?.Dispose();
     }
 
     internal sealed class PayloadLease : IDisposable

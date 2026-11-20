@@ -172,6 +172,24 @@ static IVisualTreeService3* g_vts3 = nullptr;
 static std::atomic<int> g_elemCount{0};
 static std::atomic<bool> g_adviseFailed{false};
 
+// SPIKE (hot reload option A): WinUI's IXamlHotReloadService, offered on the diagnostics site by a WinUI with the
+// hot reload runtime hook. The in-app XAML agent gets it through DevToolsTap_GetXamlHotReloadService.
+static const IID IID_DevToolsXamlHotReloadService = { 0x73A07052, 0x1BFE, 0x40CD, { 0x8D, 0xC4, 0xFB, 0x3D, 0x7A, 0x5B, 0xCE, 0xCF } };
+static std::atomic<IUnknown*> g_hotReloadService{nullptr};
+static std::atomic<bool> g_hotReloadQueried{false};
+
+extern "C" HRESULT __stdcall DevToolsTap_GetXamlHotReloadService(IUnknown** service)
+{
+    if (!service) return E_POINTER;
+    *service = nullptr;
+    if (!g_hotReloadQueried.load()) return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+    IUnknown* current = g_hotReloadService.load();
+    if (!current) return E_NOINTERFACE;
+    current->AddRef();
+    *service = current;
+    return S_OK;
+}
+
 #include "DevToolsTap.Census.inc"
 #include "DevToolsTap.UiDispatch.inc"
 #include "DevToolsTap.CensusQuery.inc"

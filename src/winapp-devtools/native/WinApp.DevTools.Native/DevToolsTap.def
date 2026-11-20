@@ -3,3 +3,4 @@
 EXPORTS
   DllGetClassObject PRIVATE
   DllCanUnloadNow   PRIVATE
+  DevToolsTap_GetXamlHotReloadService
