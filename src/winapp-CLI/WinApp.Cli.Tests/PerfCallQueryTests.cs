@@ -857,10 +857,12 @@ public class PerfCallQueryTests
             // A revision-2 component in the same capture (older host) reports no revision 3 fields.
             Reactor("legacy", "ReactorRender:Legacy", 36, 37, "app"),
             Reactor("effects", "ReactorEffects", 41, 42, "p1") with { Attributes = new() { ["componentId"] = "1", ["ownStateSets"] = "2" } },
+            // Effects of a root whose render Start the capture missed keep their writes under the root's ID.
+            Reactor("orphan", "ReactorEffects", 43, 44) with { Attributes = new() { ["componentId"] = "77", ["ownStateSets"] = "3" } },
         };
         for (var i = 0; i < 4; i++)
         {
-            calls.Add(Reactor($"row{i}", "ReactorRender:Row", 4 + i * 5, 8 + i * 5, "app") with
+            calls.Add(Reactor($"row{i}", "ReactorRender:Row", 4d + i * 5d, 8d + i * 5d, "app") with
             {
                 Attributes = Rev3("10", "props", true, i == 3 ? 1 : 0, 0),
             });
@@ -912,7 +914,8 @@ public class PerfCallQueryTests
         Assert.AreEqual(3, waste.WastedRenders);
         Assert.AreEqual(3, waste.MemoSkips);
         Assert.AreEqual(5, waste.MemoMisses);
-        Assert.AreEqual(10, waste.StateSets);
+        Assert.AreEqual(13, waste.StateSets);
+        Assert.AreEqual(3, rows["(component 77)"].StateSets);
         Assert.AreEqual(
             "wasted-renders:Row:3/4,setstate-fan-out:Loader:7/7",
             string.Join(',', waste.Insights.Select(i => $"{i.Kind}:{i.Component}:{i.WastedRenders ?? i.MaxStateSets}/{i.Updates ?? i.StateSets}")));
@@ -970,7 +973,7 @@ public class PerfCallQueryTests
             var name = new string('漢', 200) + c;
             for (var i = 0; i < 3; i++)
             {
-                calls.Add(Reactor($"r{c}-{i}", "ReactorRender:" + name, c * 10 + i, c * 10 + i + 0.5) with
+                calls.Add(Reactor($"r{c}-{i}", "ReactorRender:" + name, c * 10d + i, c * 10d + i + 0.5) with
                 {
                     Attributes = new() { ["componentId"] = $"{c}", ["reason"] = "state", ["changes"] = "0", ["ownStateSets"] = "5" },
                 });

@@ -1002,10 +1002,12 @@ internal static class PerfQuery
             if (call.Name == ReactorEventDecoder.Effects)
             {
                 // A host root's effects run outside its render span, so their state writes are added to the root's row.
+                // A capture that started after the root's last render has no name for it; keep the writes under its ID.
                 if (inside && ReactorEventDecoder.Count(call.Attributes, "ownStateSets") is { } effectSets &&
-                    call.Attributes!.GetValueOrDefault("componentId") is { } rootId && componentNames.TryGetValue(rootId, out var rootName))
+                    call.Attributes!.GetValueOrDefault("componentId") is { } rootId)
                 {
-                    AggregateFor(rootName).AddStateSets(effectSets);
+                    AggregateFor(componentNames.TryGetValue(rootId, out var rootName) ? rootName : $"(component {rootId})")
+                        .AddStateSets(effectSets);
                 }
                 continue;
             }
