@@ -23,10 +23,12 @@ internal static class DiagnosticIds
     public const string FeatureMappingHint  = "WUI1010"; // Migration feature-area hint (Info, gated by context)
 
     // ─── WUI2xxx — Runtime / layout / XAML pitfalls ──────────────────────────
-    // 200x = layout/control-content
+    // 200x = layout/control-content/lifecycle/virtualization
     public const string TabViewRawContent          = "WUI2001"; // ex-WUI001
     public const string TabViewRawContentXaml      = "WUI2002"; // ex-WUI021 (cross-file variant)
     public const string UwpOnlyXamlControl         = "WUI2003"; // UWP-only XAML control with no WinUI 3 equivalent
+    public const string ParameterlessAsyncVoid     = "WUI2004"; // non-event async void can terminate the app
+    public const string VirtualizedResetDropsCache = "WUI2005"; // range cache rebuilt without replaying tracked ranges
     // 201x = XAML binding (x:Bind)
     public const string XBindNestedNoFallback      = "WUI2010"; // ex-WUI007
     public const string XBindMissingMode           = "WUI2011"; // ex-WUI011

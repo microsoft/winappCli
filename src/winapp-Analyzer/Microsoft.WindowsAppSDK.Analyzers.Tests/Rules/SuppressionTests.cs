@@ -79,6 +79,44 @@ class C { void M() {
             .RunAsync();
     }
 
+    // ─── WUI2004 — non-event async void method ───────────────────────────────
+    [Fact]
+    public async Task SuppressWui2004()
+    {
+        await new AnalyzerTest<AsyncVoidAnalyzer>()
+            .WithSource(@"
+using System.Threading.Tasks;
+class Page {
+#pragma warning disable WUI2004
+    private async void InitializeDataAsync() { await Task.Delay(1); }
+#pragma warning restore WUI2004
+}")
+            .RunAsync();
+    }
+
+    // ─── WUI2005 — virtualized reset drops rebuilt range cache ───────────────
+    [Fact]
+    public async Task SuppressWui2005()
+    {
+        await new AnalyzerTest<VirtualizedCollectionResetAnalyzer>()
+            .WithSource(@"
+using System.Collections.Specialized;
+namespace Microsoft.UI.Xaml.Data { public interface IItemsRangeInfo { } }
+class Cache { public void UpdateRanges(object ranges) { } }
+class Source : Microsoft.UI.Xaml.Data.IItemsRangeInfo {
+    private Cache cache = new();
+    public event NotifyCollectionChangedEventHandler? CollectionChanged;
+    public void RangesChanged(object ranges) { cache.UpdateRanges(ranges); }
+#pragma warning disable WUI2005
+    public void ResetCollection() {
+        cache = new Cache();
+        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+    }
+#pragma warning restore WUI2005
+}")
+            .RunAsync();
+    }
+
     // ─── WUI3001 — Old MVVM syntax ───────────────────────────────────────────
     [Fact]
     public async Task SuppressWui3001()
