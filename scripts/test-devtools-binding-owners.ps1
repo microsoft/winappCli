@@ -154,7 +154,7 @@ function Invoke-Cli([string[]]$Arguments, [bool]$Success = $true, [bool]$MayExit
     $stderr = Join-Path $evidence "$script:sequence-stderr.txt"
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $diagnostic = $Arguments -contains '--verbose'
-    $format = if ($diagnostic) { @() } else { @('--json') }
+    [string[]]$format = if ($diagnostic) { @() } else { @('--json') }
     & $Cli @Arguments @format 1> $stdout 2> $stderr
     $exit = $LASTEXITCODE
     $clock.Stop()
