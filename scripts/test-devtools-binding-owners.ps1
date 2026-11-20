@@ -678,6 +678,9 @@ try {
         Check (@((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements } |
             Where-Object automationId -eq 'DevToolsSelComment').Count -eq 0) 'pick mode opens no comment flyout'
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
+        # Picking opens the inspector and leaves the toolbar collapsed; its buttons are not in the UIA tree.
+        $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-w', $window)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoPick', '-w', $window, '-t', '5000')
         Check ((Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPick', '-a', $app, '-p', 'ToggleState')).properties.ToggleState -eq 'Off') 'Select element reports its Off state to UI Automation'
         $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
 

@@ -232,7 +232,6 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {
-                Console.Error.WriteLine(comEx.ToString());
                 logger.LogDebug("COM error: {HResult} {StackTrace}", comEx.HResult, comEx.StackTrace);
                 UiErrors.StaleElement(logger, json);
                 return 1;
