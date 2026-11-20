@@ -73,7 +73,13 @@ internal partial class RunCommand
                     () => watcher.HasExited,
                     pid => !ProcessHasExited(pid))
                 {
-                    Attached = ReportWatchAttach,
+                    Attached = (pid, connection, restart) =>
+                    {
+                        // The first app has its own handles on the .xbf files now; winapp's would make every restart's
+                        // rebuild after a .xaml save fail (MSB3027), leaving no app.
+                        coordinates?.ReleasePayload();
+                        ReportWatchAttach(pid, connection, restart);
+                    },
                 };
                 await session.RunAsync(token);
             }, cancellationToken);

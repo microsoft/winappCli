@@ -359,6 +359,22 @@ public sealed class XamlSourceCoordinatesTests
     }
 
     [TestMethod]
+    public async Task ReleasedPayload_CanBeRebuilt_WhileTheInventoryStays()
+    {
+        var compiler = new XamlCompilerArtifacts(Path.Combine(_intermediate, "input.json"),
+            Path.Combine(_intermediate, "output.json"), Path.Combine(_intermediate, "state.xml"));
+        using var launch = await XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(
+            _project, ["Main.xaml"], compiler, TestContext.CancellationToken);
+        var inventoryPath = launch!.Apply(new Dictionary<string, string?>(), _intermediate)["WINAPP_DEVTOOLS_SOURCE_INVENTORY"]!;
+        Assert.ThrowsExactly<IOException>(() => File.WriteAllText(Path.Combine(_intermediate, "Main.xbf"), "rebuilt"));
+
+        launch.ReleasePayload();
+
+        File.WriteAllText(Path.Combine(_intermediate, "Main.xbf"), "rebuilt");
+        Assert.IsTrue(File.Exists(inventoryPath), "a restarted app still reads the launch inventory");
+    }
+
+    [TestMethod]
     public async Task GuestInventory_CarriesTheSameTable_AndMissingPayloadNeverClaimsAuthority()
     {
         var manifest = await SnapshotAsync();

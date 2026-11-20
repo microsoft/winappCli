@@ -113,6 +113,13 @@ internal static class XamlSourceCoordinates
             _inventory.Dispose();
             _payload?.Dispose();
         }
+
+        /// <summary>
+        /// Lets a rebuild overwrite the deployed <c>.xbf</c> files (<c>--watch</c> rebuilds before each restart). Safe once the
+        /// app has attached: its DevTools agent verified each file by hash and keeps its own read-only handle, and a
+        /// later launch verifies again, so a rebuilt file is never mistaken for the one the inventory describes.
+        /// </summary>
+        internal void ReleasePayload() => _payload?.Dispose();
     }
 
     internal sealed class PayloadLease : IDisposable
