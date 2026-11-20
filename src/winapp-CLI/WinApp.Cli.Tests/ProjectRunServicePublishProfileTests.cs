@@ -534,6 +534,7 @@ public sealed class ProjectRunServicePublishProfileTests
         Assert.AreEqual(1, dotnet.StreamingCalls.Count);
         Assert.Contains("-p:PublishProfile=win-arm64.pubxml", dotnet.StreamingCalls[0]);
         Assert.Contains("-p:PublishProfile=win-arm64.pubxml", dotnet.StringInvocations.Last());
+        Assert.AreEqual("win-arm64.pubxml", outcome.Resolution.BuildOptions?.PublishProfile, "--watch builds with the same profile");
     }
 
     [TestMethod]

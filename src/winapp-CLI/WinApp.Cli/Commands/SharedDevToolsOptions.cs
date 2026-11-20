@@ -19,12 +19,12 @@ internal static class SharedDevToolsOptions
 
     public static Option<bool> AllOption { get; } = new("--all")
     {
-        Description = "Include framework and control-template elements, not just the ones your XAML declares.",
+        Description = "Include framework and control-template elements, not just the ones your XAML or Reactor code created.",
     };
 
     public static Option<string?> FilterOption { get; } = new("--filter")
     {
-        Description = "Keep only elements whose type, x:Name, or source file matches this text (ancestors are kept for context).",
+        Description = "Keep only elements whose type, x:Name, Reactor component, key, or source file matches this text (ancestors are kept for context).",
     };
 
     public static Option<string?> PropertyOption { get; } = new("--property", "-p")

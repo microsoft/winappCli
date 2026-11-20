@@ -44,6 +44,7 @@ static void* g_commentRepeater = nullptr;
 static void* g_commentsOffNoteTb = nullptr;
 static void* g_commentsOffNoteUi = nullptr;
 static bool g_xamlHandlerPresent = false;
+static bool g_csHandlerPresent = false;
 static void RefreshCommentsPane();
 
 static void UpdateCommentSelection()
@@ -283,7 +284,9 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
     m += L"<StackPanel x:Name=\"A" + i + L"\" Grid.Column=\"1\" Orientation=\"Vertical\""
          L" VerticalAlignment=\"Center\" Margin=\"2,0\" Spacing=\"0\">";
     if (!c.uri.empty()) {
-        if (g_xamlHandlerPresent) {
+        const bool csharp = IsCSharpPath(c.uri);
+        const std::wstring extension = csharp ? L".cs" : L".xaml";
+        if (csharp ? g_csHandlerPresent : g_xamlHandlerPresent) {
             m += L"<HyperlinkButton x:Name=\"O" + i + L"\" Padding=\"6\" MinWidth=\"28\" MinHeight=\"28\""
                  L" AutomationProperties.AutomationId=\"CommentOpenSource" + i + L"\""
                  L" AutomationProperties.Name=\"Open source for: " + subject + L"\""
@@ -293,7 +296,7 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
             m += L"<HyperlinkButton x:Name=\"E" + i + L"\" Padding=\"6\" MinWidth=\"28\" MinHeight=\"28\""
                  L" AutomationProperties.Name=\"Show in File Explorer: " + subject + L"\""
                  L" AutomationProperties.AutomationId=\"CommentReveal" + i + L"\""
-                 L" ToolTipService.ToolTip=\"Show in File Explorer\">"
+                L" ToolTipService.ToolTip=\"Nothing on this machine opens " + extension + L" files. Show it in File Explorer instead\">"
                  L"<FontIcon Glyph=\"&#xE838;\" FontSize=\"14\"/></HyperlinkButton>";
             m += L"<HyperlinkButton x:Name=\"C" + i + L"\" Padding=\"6\" MinWidth=\"28\" MinHeight=\"28\""
                  L" AutomationProperties.AutomationId=\"CommentCopyPath" + i + L"\""
@@ -335,6 +338,7 @@ static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowCommen
     g_commentRowItem.clear();
     g_commentItems.clear();
     g_xamlHandlerPresent = !ShellAssocFor(L".xaml").empty();
+    g_csHandlerPresent = !ShellAssocFor(L".cs").empty();
     size_t open = 0;
     for (const auto& c : all) if (c.status != L"resolved") ++open;
 
@@ -360,6 +364,8 @@ static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowCommen
         g_commentRowItem.push_back(static_cast<int>(g_commentItems.size()));
         g_commentItems.push_back({ CommentItemKind::Row, g_commentRows.size(), L"" });
         g_commentRows.push_back(c);
+        // A C# comment has no ms-appx URI; its row actions use the file's full path, which they accept directly.
+        if (auto& added = g_commentRows.back(); added.uri.empty()) added.uri = ResolveProjectCSharpFile(added.file);
         g_commentRowLive.push_back(live ? 1 : 0);
     };
     std::vector<std::wstring> files;
@@ -605,8 +611,6 @@ static void RefreshCommentsPane()
 // Tree-scoped controls collapse with the tree; comments view must not leave filters/toggles acting on nothing.
 static void SetInspectorView(InspectorView view)
 {
-    DevToolsOverlayLog(L"route1.view %d -> %d settingsPage=%d settingsToggle=%d settingsTab=%d",
-        static_cast<int>(g_inspectorView), static_cast<int>(view), !!g_shell.settingsPage, !!g_shell.startEnabled, !!g_shell.settingsTab);
     g_inspectorView = view;
     const bool on = view == InspectorView::Comments;
     if (g_treeScrollUi)     DevToolsPutVisibility(g_treeScrollUi, on ? 1 : 0);
@@ -637,10 +641,19 @@ static void SetInspectorView(InspectorView view)
 // A selection made to keep the rail in step is not a user choice.
 static void OnInspectorRailSelection(InspectorView view)
 {
-    DevToolsOverlayLog(L"route1.rail selected=%d current=%d syncing=%d",
-        static_cast<int>(view), static_cast<int>(g_inspectorView), g_navSyncing);
     if (g_navSyncing || view == g_inspectorView) return;
     SetInspectorView(view);
+}
+
+// The details header's title: `Button #SaveButton`, or for a Reactor element its component or element kind first
+// (`<Counter>  ·  Border`), named by its x:Name or the C# variable it was assigned to.
+static std::wstring DetailsTitleText(const std::wstring& type, const std::wstring& name, const std::wstring& label)
+{
+    std::wstring text = type.empty() ? label : ShortType(type);
+    if (!g_selReactorLabel.empty()) text = g_selReactorLabel + L"  \u00B7  " + text;
+    if (!name.empty()) text += L" #" + name;
+    else if (!g_selTreeName.empty()) text += L" #" + g_selTreeName;
+    return text;
 }
 
 // The details header does not scroll: the element's title, its two nearest ancestors (the whole path is the
@@ -652,11 +665,7 @@ static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& na
         const auto shown = [](bool v) { return v ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed; };
         const bool selected = g_selWire != 0;
         if (const auto& header = g_shell.detailsHeader) header.Visibility(shown(selected));
-        if (const auto& title = g_shell.detailTitle) {
-            std::wstring text = type.empty() ? label : ShortType(type);
-            if (!name.empty()) text += L" #" + name;
-            title.Text(text);
-        }
+        if (const auto& title = g_shell.detailTitle) title.Text(DetailsTitleText(type, name, label));
         if (const auto& crumb = g_shell.detailCrumb) {
             size_t segments = 0;
             crumb.Text(ElideBreadcrumb(breadcrumb, segments));

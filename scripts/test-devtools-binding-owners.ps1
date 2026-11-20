@@ -327,6 +327,14 @@ try {
         Check (-not $tree.truncated -and $tree.depthLimitedElements -eq 0) 'overlay probe has a complete owned source tree'
         $heading = @(Nodes $tree.elements | Where-Object name -eq 'WindowHeading')
         Check ($heading.Count -eq 1) 'overlay probe selects one exact authored heading'
+        # Reading another element's references must not write AutomationProperties onto this one.
+        $other = @(Nodes $tree.elements | Where-Object { $_.handle -ne $heading[0].handle -and $_.type -like '*TextBlock' }) | Select-Object -First 1
+        $describedBefore = Invoke-Cli @('devtools', 'get-property', [string]$heading[0].handle, 'AutomationProperties.DescribedBy', '-w', $window)
+        $null = Invoke-Cli @('devtools', 'call', 'Property.references', "handle=$($other.handle)", '-a', $app)
+        $null = Invoke-Cli @('devtools', 'call', 'Property.references', "handle=$($heading[0].handle)", '-a', $app)
+        $describedAfter = Invoke-Cli @('devtools', 'get-property', [string]$heading[0].handle, 'AutomationProperties.DescribedBy', '-w', $window)
+        Check ($null -ne $other -and $describedBefore.properties[0].isSet -eq $false -and $describedAfter.properties[0].isSet -eq $false -and
+            $describedAfter.properties[0].valueSource -ne 'Local') 'reading references leaves an unset DescribedBy unset'
         $null = Invoke-Cli @('ui', 'focus', 'ShortcutOther', '-a', $app)
         Enter-CommentMode
         $null = Invoke-Cli @('ui', 'focus', 'ShortcutOther', '-a', $app)
@@ -442,6 +450,7 @@ try {
                 $settingsWindow = [string]$inspectorWindows[0].hwnd
                 # App targeting excludes the inspector; read its controls through its own window.
                 $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartEnabled', '-w', $settingsWindow, '-t', '5000')
+                Check ((Invoke-Cli @('ui', 'get-property', 'ViewTabSettings', '-w', $settingsWindow, '-p', 'IsSelected')).properties.IsSelected -eq $true) 'Settings remains selected after the inspector rail loads'
                 $enabled = Invoke-Cli @('ui', 'get-property', 'DevToolsStartEnabled', '-w', $settingsWindow, '-p', 'ToggleState')
                 Check ($enabled.properties.ToggleState -eq $mode[1]) "Settings reports Start DevTools as $($mode[1]) for the CLI default $($mode[0])"
                 if ($mode[2]) {

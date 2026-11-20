@@ -51,9 +51,13 @@ internal partial class RunCommand
             bool nativeAot = false,
             Services.DevTools.XamlCompilerArtifacts? devToolsCompilerArtifacts = null)
         {
-            if (devTools && (projectFile is null || devToolsSources is not { Count: > 0 }))
+            if (devTools && projectFile is null)
             {
                 return Fail("Sandbox DevTools requires a project with evaluated XAML sources; output-only input cannot establish a persistent host comment owner.", isJson);
+            }
+            if (devTools && SandboxDevToolsSourceGate(projectFile!, devToolsSources, devToolsReactor) is { } refused)
+            {
+                return Fail(refused, isJson);
             }
             FileInfo resolvedManifest;
             DirectoryInfo layout;
@@ -169,8 +173,8 @@ internal partial class RunCommand
                     applicationArchitecture: runtimeArch,
                     packageGraph: selfContained ? null : packageGraph,
                     framework: framework,
-                    inspector: devTools ? new(projectFile!, devToolsSources!, string.Empty, appArgs, showOverlay, detach, identity,
-                        Managed: !nativeAot, Compiler: devToolsCompilerArtifacts) : null);
+                    inspector: devTools ? new(projectFile!, WithReactorSources(projectFile!, devToolsSources), string.Empty, appArgs, showOverlay, detach, identity,
+                        Managed: !nativeAot, Compiler: devToolsCompilerArtifacts, AllowNoXamlSources: devToolsReactor is not null) : null);
             }
             finally
             {
@@ -207,9 +211,9 @@ internal partial class RunCommand
             {
                 GuestRunPlanner.EnsureSupportedForUnpackaged(debugOutput);
                 executableRelativePath = ResolveGuestRelativeExecutable(targetDir, resolution.RunCommand!, csproj);
-                if (devTools && resolution.DevToolsXamlSources is not { Count: > 0 })
+                if (devTools && SandboxDevToolsSourceGate(csproj, resolution.DevToolsXamlSources, devToolsReactor) is { } refused)
                 {
-                    return Fail("Sandbox DevTools requires evaluated project XAML sources for its read-only snapshot and persistent host comments.", isJson);
+                    return Fail(refused, isJson);
                 }
             }
             catch (ExecutionTargetException ex)
@@ -249,10 +253,37 @@ internal partial class RunCommand
                     ? new PackageGraphSource(new FileInfo(assetsFile), resolution.ProjectAssetsRuntimeIdentifier)
                     : null,
                 framework: resolution.Framework,
-                inspector: devTools ? new(csproj, resolution.DevToolsXamlSources ?? [],
+                inspector: devTools ? new(csproj, WithReactorSources(csproj, resolution.DevToolsXamlSources),
                     executableRelativePath, WindowsCommandLine.JoinArguments(launchArguments), showOverlay, detach,
-                    Managed: !resolution.IsAot && !ProjectRunService.IsCppProject(csproj), Compiler: resolution.DevToolsCompilerArtifacts) : null);
+                    Managed: !resolution.IsAot && !ProjectRunService.IsCppProject(csproj), Compiler: resolution.DevToolsCompilerArtifacts,
+                    AllowNoXamlSources: devToolsReactor is not null) : null);
         }
+
+        /// <summary>
+        /// Why a Sandbox DevTools launch cannot start for want of XAML sources, or null when it can. A
+        /// Microsoft.UI.Reactor project with no XAML still starts: its C# files anchor comments, and only when it
+        /// has none either are comments off (said once, here).
+        /// </summary>
+        internal string? SandboxDevToolsSourceGate(FileInfo project, IReadOnlyList<string>? xamlSources, Services.DevTools.ReactorBuildFacts? reactor)
+        {
+            if (xamlSources is { Count: > 0 })
+            {
+                return null;
+            }
+            if (reactor is null)
+            {
+                return "Sandbox DevTools requires evaluated project XAML sources for its read-only snapshot and persistent host comments.";
+            }
+            if (SandboxCommentsOff(project, xamlSources, reactor))
+            {
+                logger.LogWarning("{Message}", GuestCommentBinding.CommentsDisabledMessage);
+            }
+            return null;
+        }
+
+        /// <summary>Whether a Sandbox DevTools launch has no XAML or Reactor C# source to anchor comments.</summary>
+        internal static bool SandboxCommentsOff(FileInfo project, IReadOnlyList<string>? xamlSources, Services.DevTools.ReactorBuildFacts? reactor) =>
+            xamlSources is not { Count: > 0 } && (reactor is null || GuestSourceSnapshot.ReactorCSharpSources(project).Count == 0);
 
         /// <summary>
         /// Prepares and deploys under a mutation lease, then releases it before running the app.
@@ -300,7 +331,7 @@ internal partial class RunCommand
                 GuestDevToolsCapabilities? expectedInspector = null;
                 if (inspector is not null)
                 {
-                    _ = GuestSourceSnapshot.ValidateSources(inspector.Project, inspector.Sources);
+                    _ = GuestSourceSnapshot.ValidateSources(inspector.Project, inspector.Sources, inspector.AllowNoXamlSources);
                     expectedInspector = await ReadGuestDevToolsCapabilities(cancellationToken)
                         ?? throw new InvalidOperationException("Sandbox DevTools requires a complete winapp build with its matching native and managed engines.");
                     if (!string.Equals(applicationArchitecture, expectedInspector.Architecture, StringComparison.OrdinalIgnoreCase))

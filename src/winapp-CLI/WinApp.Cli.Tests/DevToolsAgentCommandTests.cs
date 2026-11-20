@@ -333,6 +333,21 @@ public class DevToolsAgentCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Call_ExplainsRawRootHandleWithoutRewritingSelector()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Error("VisualTree.enumerate", -32602, "bad-args", "rootHandle must be a canonical non-zero decimal string");
+        var console = new TestConsole();
+        var handler = new DevToolsCallCommand.Handler(agent.Resolver(), console);
+        Assert.AreEqual(1, await handler.InvokeAsync(
+            new DevToolsCallCommand().Parse(["VisualTree.enumerate", "rootHandle=MyGrid", "--json"])));
+        using var result = JsonDocument.Parse(console.Output);
+        var message = result.RootElement.GetProperty("error").GetProperty("message").GetString()!;
+        Assert.Contains("numeric handle string", message);
+        Assert.Contains("rootHandle=<handle>", message);
+    }
+
+    [TestMethod]
     public async Task Call_PreservesWideNumericHandleAsAString()
     {
         using var agent = new FakeDevToolsProtocolAgent().Answer("Binding.walk", "{}");
