@@ -33,9 +33,17 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph)
         }
         if (RestartReason(files) is { } reason)
         {
-            return new SaveResult(Outcome.Restart, reason);
+            // Nothing here has been compiled yet: the app is stopped only once its rebuild works.
+            return await graph.CheckBuildAsync(cancellationToken).ConfigureAwait(false) is { } error
+                ? new SaveResult(Outcome.Error, error)
+                : new SaveResult(Outcome.Restart, reason);
         }
         var result = await engine.ApplyAsync(new CSharpChange(files, new Dictionary<string, string>()), cancellationToken).ConfigureAwait(false);
+        // Without a live engine nothing was compiled either.
+        if (result.Outcome == CSharpOutcome.Restart && engine is RestartingEngine && await graph.CheckBuildAsync(cancellationToken).ConfigureAwait(false) is { } buildError)
+        {
+            return new SaveResult(Outcome.Error, buildError);
+        }
         var names = string.Join(", ", files.Select(Relative));
         return result.Outcome switch
         {

@@ -110,6 +110,7 @@ internal partial class RunCommand
                 {
                     return null;
                 }
+                ansiConsole.WriteLine("[watch] restart a file was saved: rebuilding the app");
             }
             return null;
         }

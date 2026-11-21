@@ -103,7 +103,43 @@ internal sealed class ProjectGraph
         return (arguments, copyLocal, null, null);
     }
 
+    /// <summary>
+    /// Builds the project as the app's build did, but into a scratch folder, so the running app's files aren't touched.
+    /// Returns the build's first errors, or null when it succeeds. A restart only stops the app once its rebuild works.
+    /// </summary>
+    public async Task<string?> CheckBuildAsync(CancellationToken cancellationToken)
+    {
+        if (ReadLines("build.args") is not { Count: > 0 } build)
+        {
+            return null;
+        }
+        var scratch = Path.Combine(_capture, "check") + Path.DirectorySeparatorChar;
+        var arguments = build.Where(a => !a.Contains("WinAppHotReloadProject=", StringComparison.Ordinal)).Append($"-p:OutDir={scratch}");
+        var (exitCode, output) = await DotnetAsync(arguments, cancellationToken).ConfigureAwait(false);
+        if (exitCode == 0)
+        {
+            return null;
+        }
+        // "C:\app\Page.xaml(3,5): XamlCompiler error WMC1110: ... [C:\app\App.csproj]" -> "Page.xaml(3,5): XamlCompiler error WMC1110: ..."
+        var errors = output.Split('\n').Select(l => l.Trim()).Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"\berror [A-Z]+\d+:"))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s*\[[^\]]+\.\w+proj\]$", ""))
+            .Select(l => l.StartsWith(ProjectDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ? l[(ProjectDirectory.Length + 1)..] : l)
+            .Distinct().Take(3).ToList();
+        return errors.Count > 0 ? string.Join(Environment.NewLine + "  ", errors) : $"{Path.GetFileName(ProjectFile)}: the build failed (exit code {exitCode})";
+    }
+
     private async Task<string?> MSBuildAsync(IEnumerable<string> arguments, CancellationToken cancellationToken)
+    {
+        var (exitCode, output) = await DotnetAsync(arguments, cancellationToken).ConfigureAwait(false);
+        if (exitCode == 0)
+        {
+            return null;
+        }
+        var log = output.Split('\n').Where(l => l.Contains("error", StringComparison.OrdinalIgnoreCase)).Select(l => l.Trim()).Distinct().Take(3);
+        return $"{Path.GetFileName(ProjectFile)}: restoring and reading the project failed: {string.Join(" ", log)}";
+    }
+
+    private async Task<(int ExitCode, string Output)> DotnetAsync(IEnumerable<string> arguments, CancellationToken cancellationToken)
     {
         var start = new ProcessStartInfo(Environment.ProcessPath!) { WorkingDirectory = ProjectDirectory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var argument in arguments.Append("-nologo"))
@@ -114,13 +150,7 @@ internal sealed class ProjectGraph
         var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errors = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        if (process.ExitCode == 0)
-        {
-            return null;
-        }
-        var log = (await output.ConfigureAwait(false) + await errors.ConfigureAwait(false)).Split('\n')
-            .Where(l => l.Contains("error", StringComparison.OrdinalIgnoreCase)).Select(l => l.Trim()).Distinct().Take(3);
-        return $"{Path.GetFileName(ProjectFile)}: restoring and reading the project failed: {string.Join(" ", log)}";
+        return (process.ExitCode, await output.ConfigureAwait(false) + await errors.ConfigureAwait(false));
     }
 
     private List<string> ReadLines(string name)
