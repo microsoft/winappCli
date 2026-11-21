@@ -9,7 +9,8 @@
 Shared step templates live in [`templates/`](templates):
 
 - [`build-env.yaml`](templates/build-env.yaml) — agent setup (.NET, Node, internal NuGet/npm feeds and their auth). Shared by CI and release.
-- [`build.yaml`](templates/build.yaml) — the build, packaging, optional ESRP signing, signature verification, and artifact publishing.
+- [`build.yaml`](templates/build.yaml) — the build, packaging, optional ESRP signing, signature verification, and artifact publishing. It runs no tests.
+- [`test-jobs.yaml`](templates/test-jobs.yaml) — the test suites, as parallel jobs in the `Build` stage: CLI shards 1, 2 and 4, UI Automation, Node/analyzer/Pester, and the DevTools native tests. They are the same `build-cli.ps1 -OnlyTests -UseExistingArtifacts` lanes GitHub Actions runs. Later stages depend on the whole `Build` stage, so a failing lane still blocks every release stage. CI tests the `Build` job's artifacts. The release tests an unsigned copy of the same stable build (`BuildForTests`), so the tests don't wait for signing. That copy uses the committed find-ui corpus, so the `Build` job runs the find-ui corpus, search and ranking tests on the corpus it refreshed and ships.
 - [`release-assets.yaml`](templates/release-assets.yaml) — renames built packages to the unversioned asset names the release publishes. Used twice: as a preflight dry-run on a copy in the `Build` stage (where a checkout exists, so the result can be verified by a tested script), and for real in `Release_GitHub` (which has no checkout).
 
 > **Why templates and not scripts for release jobs.** 1ES release jobs
@@ -226,6 +227,7 @@ week is exactly when an external policy change slips in unnoticed.
 | Failing step | Usually means |
 |---|---|
 | Build CLI | An internal feed, package or SDK dependency changed, or a real code break. Compare against the last green CI run. |
+| A test job (`CLI tests`, `UI Automation tests`, `Node, analyzer and Pester tests`, `DevTools native tests`) | A test failed. Read the job log. Test reports (`.trx`, and Pester `.xml`) are in that job's `test-results-<lane>-<attempt>` artifact. Compare against the same lane on GitHub Actions. |
 | Replace Stubbed Files | The internal telemetry package or its feed permissions changed. CI does not run this. |
 | Generate Release Notes | `GITHUB_TOKEN_2` expired or lost access. Cannot fail the build — it falls back to a git-log changelog. |
 | `Preflight - assert asset name contract` | Package naming changed, or an architecture stopped building. Fix `templates/release-assets.yaml` — `Release_GitHub` uses the same copy. Note this gate is **not** rehearsal-only; it fails real releases too, by design. |

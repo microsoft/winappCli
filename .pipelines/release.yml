@@ -127,10 +127,10 @@ extends:
     - stage: Build
       jobs:
       - job: Build
-        # NativeAOT for two architectures plus tests, all under CodeQL tracing on this Official
-        # template, took 149 minutes in Build CLI alone (November 2026). Signing and SDL binary
-        # analysis add another ~35 minutes after it on a release.
-        timeoutInMinutes: 240
+        # NativeAOT for two architectures, the DevTools engine, signing and SDL binary analysis.
+        # Tests run in the parallel jobs below. Under CodeQL tracing the build alone took ~95
+        # minutes in November 2026, so this leaves room.
+        timeoutInMinutes: 180
         pool:
           name: Azure-Pipelines-1ESPT-ExDShared
           # Match the VS 18 compiler that GitHub Actions uses; windows-latest still has VS 2022.
@@ -155,6 +155,22 @@ extends:
               # weekly rehearsal ESRP-sign real binaries.
               DoEsrp: ${{ and(parameters.DoEsrp, startsWith(variables['Build.SourceBranch'], 'refs/heads/rel/v')) }}
               signingIdentity: ${{ parameters.signingIdentity }}
+          # The stable build above refreshed ("baked") the find-ui corpus that ships in winapp.exe.
+          # The test jobs build from a fresh checkout with the committed corpus, so run the tests
+          # that read the embedded corpus (its floors, and find-ui search and ranking) on the
+          # baked one here, before anything publishes it.
+          - task: PowerShell@2
+            displayName: Test the baked find-ui corpus
+            inputs:
+              pwsh: true
+              targetType: inline
+              errorActionPreference: stop
+              script: |
+                $tests = 'EmbeddedSnapshotTests', 'FindUi', 'Controls', 'GalleryProvider', 'ToolkitProvider'
+                $filter = ($tests | ForEach-Object { "FullyQualifiedName~WinApp.Cli.Tests.$_" }) -join '|'
+                dotnet run --project src\winapp-CLI\WinApp.Cli.Tests\WinApp.Cli.Tests.csproj -c Debug -- `
+                  --filter $filter --minimum-expected-tests 1 --no-ansi
+                if ($LASTEXITCODE -ne 0) { throw 'The baked find-ui corpus failed its tests.' }
           - task: PowerShell@2
             name: SetMeta
             displayName: Export version
@@ -363,6 +379,72 @@ extends:
             inputs:
               path: '$(Build.ArtifactStagingDirectory)/mslearn-source'
               artifactName: mslearn-source
+
+      # The same stable build, unsigned, for the test lanes. It runs alongside Build so the tests
+      # don't wait for signing; 1ES uploads Build's artifacts only when that whole job ends.
+      - job: BuildForTests
+        displayName: Build for tests (unsigned)
+        timeoutInMinutes: 120
+        pool:
+          name: Azure-Pipelines-1ESPT-ExDShared
+          image: windows-2025
+          os: windows
+          hostArchitecture: amd64
+        templateContext:
+          sdl:
+            codeql:
+              compiled:
+                enabled: false
+                justificationForDisabling: Test-only rebuild of the same sources the Build job traces and ships.
+        steps:
+          - checkout: self
+          - template: ./.pipelines/templates/build-env.yaml@self
+          - task: PowerShell@2
+            displayName: Replace Stubbed Files
+            inputs:
+              filePath: '.pipelines/Unstub.ps1'
+              arguments: '-TelemetryProviderGuid "$(TelemetryProviderGuid)"'
+          - task: PowerShell@2
+            displayName: Build CLI and NuGet packages
+            env:
+              NPM_CONFIG_USERCONFIG: $(System.DefaultWorkingDirectory)\.npmrc
+            inputs:
+              pwsh: true
+              filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
+              # -SkipBake: the corpus that ships is baked and tested in the Build job.
+              arguments: -Stable -SkipBake -SkipTests -SkipDocs -SkipMsix -SkipNpm
+          # Publish from the staging directory with the same layout as templates/build.yaml: the
+          # Guardian baselines in .config/guardian match binaries by that relative path.
+          - task: CopyFiles@2
+            displayName: Copy Artifacts - CLI Binaries (unsigned, for tests)
+            inputs:
+              sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/cli/'
+              contents: '**'
+              targetFolder: '$(Build.ArtifactStagingDirectory)/cli'
+          - task: 1ES.PublishPipelineArtifact@1
+            displayName: Upload Artifact - CLI Binaries (unsigned, for tests)
+            inputs:
+              path: '$(Build.ArtifactStagingDirectory)/cli'
+              artifactName: test-cli-binaries
+          - task: CopyFiles@2
+            displayName: Copy Artifacts - NuGet packages (unsigned, for tests)
+            inputs:
+              sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/nuget/'
+              contents: '*.nupkg'
+              targetFolder: '$(Build.ArtifactStagingDirectory)/nuget-packages'
+          - task: 1ES.PublishPipelineArtifact@1
+            displayName: Upload Artifact - NuGet packages (unsigned, for tests)
+            inputs:
+              path: '$(Build.ArtifactStagingDirectory)/nuget-packages'
+              artifactName: test-nuget-packages
+
+      - template: ./.pipelines/templates/test-jobs.yaml@self
+        parameters:
+          artifactsJob: BuildForTests
+          cliArtifact: test-cli-binaries
+          nugetArtifact: test-nuget-packages
+          unstub: true
+          disableCodeQL: true
 
     - stage: Release_GitHub
       displayName: Create GitHub Release
