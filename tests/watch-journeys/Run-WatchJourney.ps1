@@ -53,6 +53,11 @@ function Test-UiCheck($Check, [int]$ProcessId) {
     switch ([string]$Check.assert) {
         'invoke' { return Invoke-Ui (@('invoke', $target) + $app) }
         'set-value' { return Invoke-Ui (@('set-value', $target, $value) + $app) }
+        # The element's text moves on (a ticking counter): the UI thread is alive.
+        'text-changes' {
+            $first = Invoke-Ui (@('get-value', $target) + $app); Start-Sleep -Seconds 2; $second = Invoke-Ui (@('get-value', $target) + $app)
+            return [pscustomobject]@{ Ok = ($first.Ok -and $second.Ok -and $first.Output -ne $second.Output); Output = "'$($first.Output)' then '$($second.Output)'" }
+        }
         'exists' { return Invoke-Ui (@('wait-for', $target) + $app + @('-t', '5000')) }
         'absent' { return Invoke-Ui (@('wait-for', $target, '--gone') + $app + @('-t', '5000')) }
         'text-equals' { return Invoke-Ui (@('wait-for', $target, '--value', $value) + $app + @('-t', '5000')) }
@@ -81,6 +86,12 @@ function Wait-UiCheck($Check, [int]$ProcessId, [int]$TimeoutSeconds = 15) {
 
 function Use-DesktopLock([string]$Owner, [scriptblock]$Script) {
     if (-not $DesktopLock) { return & $Script }
+    # Give other sessions a turn: wait 60 s after this machine user's runs last released the lock.
+    $releasedFile = Join-Path ([IO.Path]::GetTempPath()) 'winapp-watch-journeys-lock-released.txt'
+    if (Test-Path $releasedFile) {
+        $since = (Get-Date) - [datetime](Get-Content $releasedFile -Raw).Trim()
+        if ($since.TotalSeconds -lt 60) { Start-Sleep -Seconds ([int][Math]::Ceiling(60 - $since.TotalSeconds)) }
+    }
     $said = $false
     while ($true) {
         if (Test-Path $DesktopLock) {
@@ -95,7 +106,7 @@ function Use-DesktopLock([string]$Owner, [scriptblock]$Script) {
         try { $stream = [IO.File]::Open($DesktopLock, 'CreateNew'); $bytes = [Text.Encoding]::UTF8.GetBytes("$Owner $(Get-Date -Format s)"); $stream.Write($bytes, 0, $bytes.Length); $stream.Dispose(); break }
         catch [IO.IOException] { Start-Sleep -Milliseconds 500 }
     }
-    try { & $Script } finally { Remove-Item $DesktopLock -Force -ErrorAction SilentlyContinue }
+    try { & $Script } finally { Remove-Item $DesktopLock -Force -ErrorAction SilentlyContinue; Set-Content $releasedFile (Get-Date -Format o) }
 }
 
 function Invoke-Journey([string]$Name) {
@@ -114,13 +125,16 @@ function Invoke-Journey([string]$Name) {
     $arguments = @('run', "`"$projectDir`"", '--watch') + $(if ($journey.packaged) { @('--unique-identity') } else { @() }) + @($journey.runArguments | Where-Object { $_ })
     # One file for winapp's and dotnet watch's output, in the order they wrote it.
     $process = Start-Process cmd.exe -ArgumentList '/d', '/c', "`"`"$Winapp`" $($arguments -join ' ') > `"$log`" 2>&1`"" -WorkingDirectory $projectDir -PassThru -WindowStyle Hidden
-    $script:consumed = 0
+    $script:offset = 0
+    # Whole lines only: a line still being written is read once it ends.
     function Read-NewLines {
         if (-not (Test-Path $log)) { return @() }
-        $all = @(Get-Content $log -Encoding utf8)
-        $new = @($all | Select-Object -Skip $script:consumed)
-        $script:consumed = $all.Count
-        return $new
+        $raw = Get-Content $log -Raw -Encoding utf8
+        $end = if ($raw) { $raw.LastIndexOf("`n") } else { -1 }
+        if ($end -lt $script:offset) { return @() }
+        $chunk = $raw.Substring($script:offset, $end + 1 - $script:offset)
+        $script:offset = $end + 1
+        return @($chunk -split "`r?`n" | Select-Object -SkipLast 1)
     }
     function Get-AppPid { (Get-Process $journey.process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($src, [StringComparison]::OrdinalIgnoreCase) } | Sort-Object StartTime -Descending | Select-Object -First 1).Id }
     function Invoke-Before([int]$ProcessId) { foreach ($check in @($journey.before | Where-Object { $_ })) { $null = Wait-UiCheck $check $ProcessId } }
@@ -145,16 +159,19 @@ function Invoke-Journey([string]$Name) {
                 $rows.Add([pscustomobject]$row); Write-Host ("[{0}] {1,-28} pending: {2}" -f $Name, $step.id, $step.pending); continue
             }
             $null = Read-NewLines
-            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+            $saveStart = Get-Date
             Invoke-JourneyEdit -Root $src -Step $step
             $lines = [System.Collections.Generic.List[string]]::new()
             $deadline = (Get-Date).AddSeconds($SaveTimeoutSeconds)
             $restartDeadline = $null
+            $lastLine = Get-Date
             while ($true) {
                 Start-Sleep -Milliseconds 250
-                foreach ($line in Read-NewLines) { $lines.Add($line) }
+                foreach ($line in Read-NewLines) { $lines.Add($line); $lastLine = Get-Date }
                 $result = Get-WatchOutcome -Lines $lines -Exited $process.HasExited
-                if ($result -and ($result.Outcome -notin 'restart', 'restart-no-reason', 'stuck' -or $result.Ready)) { break }
+                # An outcome counts once the output has been quiet for a moment: one save can arrive in several batches.
+                $settled = ((Get-Date) - $lastLine).TotalSeconds -ge 1.5
+                if ($result -and $settled -and ($result.Outcome -notin 'restart', 'restart-no-reason', 'stuck' -or $result.Ready)) { break }
                 # A restart is decided once the app is back, or when no app came back in the time a build takes. A
                 # failed rebuild can still recover when a later file in the same save fixes it.
                 if ($result -and -not $restartDeadline) { $restartDeadline = (Get-Date).AddSeconds(300) }
@@ -163,14 +180,15 @@ function Invoke-Journey([string]$Name) {
             if ($result -and $result.Outcome -in 'restart', 'restart-no-reason' -and -not $result.Ready) {
                 $result = [pscustomobject]@{ Outcome = 'stuck'; Reason = 'the app did not come back'; Note = $false; Ready = $false }
             }
-            $row.Ms = [int]$clock.Elapsed.TotalMilliseconds
+            # Save to the last line it printed (the time a developer waited), not counting the quiet period.
+            $row.Ms = [int](($(if ($lines.Count) { $lastLine } else { Get-Date }) - $saveStart).TotalMilliseconds)
             $row.Observed = if ($result) { $result.Outcome } elseif (@($lines | Where-Object { $_.Trim() }).Count -eq 0) { 'ignored' } else { 'timeout' }
             $row.Reason = if ($result) { $result.Reason } else { '' }
             if ($row.Observed -in 'restart', 'restart-no-reason') { Start-Sleep -Seconds 2; $appPid = Get-AppPid; if ($appPid) { Invoke-Before $appPid } }
             $row.SameProcess = ($appPid -eq $launchPid)
-            # The checks show whether the change is on screen; they only matter when the save says it reached the app.
+            # The checks show whether the change is on screen; they only count when the save says it reached the app.
             $checksOk = $true
-            if ($row.Observed -in 'applied', 'restart', 'restart-no-reason' -and $appPid) {
+            if ($row.Observed -in 'applied', 'restart', 'restart-no-reason', 'timeout' -and $appPid) {
                 $row.Checks = @(foreach ($check in @($step.checks | Where-Object { $_ })) {
                     $r = Wait-UiCheck $check $appPid
                     if (-not $r.Ok) { $checksOk = $false }

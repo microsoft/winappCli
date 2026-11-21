@@ -75,6 +75,8 @@ function Invoke-JourneyEdit {
 function Get-WatchOutcome {
     param([string[]]$Lines, [bool]$Exited)
     $outcome = $null; $reason = ''; $ready = $false
+    # dotnet watch can split one save into several batches: a file it picked up after the last outcome is still pending.
+    $pending = $false
     $notes = @($Lines | Where-Object { $_ -match '^\s+note:' } | ForEach-Object { $_.Trim() })
     foreach ($line in $Lines) {
         $text = (Remove-Ansi $line).Trim()
@@ -86,19 +88,24 @@ function Get-WatchOutcome {
         }
         if ($outcome -eq 'stuck') { if ($text -match 'The app restarted \(PID \d+\)') { $outcome = 'restart-no-reason'; $ready = $true; break }; continue }
         if ($text -match '^\[watch\] (applied|unchanged|waiting|error|restart)\b:?\s*(.*)$') {
-            $outcome = $Matches[1]; $reason = $Matches[2]
+            $outcome = $Matches[1]; $reason = $Matches[2]; $pending = $false
             if ($outcome -eq 'restart' -and -not $reason) { $outcome = 'restart-no-reason' }
             if ($outcome -notin 'restart', 'restart-no-reason') { break }
             continue
         }
-        if ($outcome) { continue }
-        if ($text -match '^dotnet watch .*(changes applied|Hot reload succeeded)') { $outcome = 'applied'; break }
-        if ($text -match '^dotnet watch .*No (managed code|C#) changes to apply') { $outcome = 'unchanged'; break }
-        if ($text -match '^dotnet watch .*Restart is needed') { $outcome = 'restart-no-reason'; continue }
-        if ($text -match '^dotnet watch .*(error (CS\d+)|compilation errors)') { $outcome = 'error'; $reason = $Matches[2]; break }
-        if ($text -match '^dotnet watch .*Failed to build project') { $outcome = 'error'; $reason = 'dotnet watch could not reload the project'; break }
-        if ($text -match '^dotnet watch .*An unexpected error occurred') { $reason = 'dotnet watch crashed' }
+        if ($outcome -in 'restart', 'restart-no-reason') { continue }
+        if ($text -match '^dotnet watch .*Files? (updated|added|deleted):') { $pending = $true; continue }
+        $was = $outcome
+        if ($text -match '^dotnet watch .*(changes applied|Hot reload succeeded)') { $outcome = 'applied'; $reason = '' }
+        elseif ($text -match '^dotnet watch .*No (managed code|C#) changes to apply') { $outcome = 'unchanged'; $reason = '' }
+        elseif ($text -match '^dotnet watch .*Restart is needed') { $outcome = 'restart-no-reason'; $reason = '' }
+        elseif ($text -match '^dotnet watch .*error (CS\d+)') { $outcome = 'error'; if (-not $reason) { $reason = $Matches[1] } }
+        elseif ($text -match '^dotnet watch .*compilation errors') { $outcome = 'error'; $reason = '' }
+        elseif ($text -match '^dotnet watch .*Failed to build project') { $outcome = 'error'; $reason = 'dotnet watch could not reload the project' }
+        elseif ($text -match '^dotnet watch .*An unexpected error occurred') { $reason = 'dotnet watch crashed' }
+        if ($outcome -ne $was -or $text -match '^dotnet watch .*(changes applied|changes to apply|compilation errors|Failed to build)') { $pending = $false }
     }
+    if ($pending -and $outcome -notin 'restart', 'restart-no-reason', 'stuck') { $outcome = $null }
     if (-not $outcome -and $Exited) { $outcome = 'crash'; if (-not $reason) { $reason = 'winapp run --watch ended' } }
     if (-not $outcome) { return $null }
     if ($outcome -eq 'applied' -and $notes) { $reason = $notes -join '; ' }
