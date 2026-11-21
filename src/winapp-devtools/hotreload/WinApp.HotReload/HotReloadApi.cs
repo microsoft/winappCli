@@ -117,12 +117,20 @@ internal sealed class HotReloadApi
         var task = (Task)_getUpdates.Invoke(_service, [solution, _runningProjects, cancellationToken])!;
         await task.ConfigureAwait(false);
         var updates = task.GetType().GetProperty("Result")!.GetValue(task)!;
-        var errors = ((ImmutableArray<Diagnostic>)_persistent.GetValue(updates)!).Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+        var persistent = (ImmutableArray<Diagnostic>)_persistent.GetValue(updates)!;
+        var errors = persistent.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
         var rude = new List<Diagnostic>();
         foreach (var entry in (IEnumerable)_transient.GetValue(updates)!)
         {
             var diagnostics = (ImmutableArray<Diagnostic>)entry.GetType().GetField("Item2")!.GetValue(entry)!;
             rude.AddRange(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+            persistent = persistent.AddRange(diagnostics.Where(d => d.Severity != DiagnosticSeverity.Error));
+        }
+        // Warnings (ENC1005: a document out of sync with the build) explain an update that skips a change; winapp
+        // shows the helper's diagnostic output with --verbose.
+        foreach (var warning in persistent.Where(d => d.Severity == DiagnosticSeverity.Warning))
+        {
+            Console.Error.WriteLine($"hot reload warning: {warning}");
         }
         var modules = new List<ModuleUpdate>();
         foreach (var update in (IEnumerable)_projectUpdates.GetValue(updates)!)

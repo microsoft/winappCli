@@ -32,6 +32,10 @@ internal sealed class ProjectGraph
     public string CompilerArgumentsFile => Path.Combine(_capture, "csc.rsp");
     public string SourcesAsBuilt => Path.Combine(_capture, "src");
 
+    /// <summary>The copy of an app source the build compiled, or null for other files.</summary>
+    public string? AsBuiltCopy(string path) =>
+        IsUnder(path, ProjectDirectory) && LibraryOf(path) is null ? Path.Combine(SourcesAsBuilt, Path.GetRelativePath(ProjectDirectory, path)) : null;
+
     /// <summary>Project files of the class libraries the app references, directly or not.</summary>
     public IReadOnlyList<string> Libraries { get; }
 

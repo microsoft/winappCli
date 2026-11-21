@@ -30,8 +30,8 @@ internal sealed class WatchLoop : IDisposable
     private readonly Dictionary<string, string> _hashes = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Starts watching right away, so saves made while the engine loads aren't missed.</summary>
-    /// <param name="builtAt">When the running app was compiled: files saved since then are handled first.</param>
-    public WatchLoop(IEnumerable<string> roots, DateTime builtAt)
+    /// <param name="asBuilt">For a file, the copy of it the running app was compiled from, if the build kept one.</param>
+    public WatchLoop(IEnumerable<string> roots, Func<string, string?> asBuilt)
     {
         _roots = [.. roots.Where(Directory.Exists)];
         foreach (var root in _roots)
@@ -49,12 +49,14 @@ internal sealed class WatchLoop : IDisposable
             _watchers.Add(watcher);
             foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Where(IsWatched))
             {
+                // Compared with what the app was compiled from: a file saved since then is a change to handle first.
+                var built = asBuilt(file) is { } copy && File.Exists(copy) ? Hash(copy) : null;
+                var now = Hash(file);
                 lock (_hashes)
                 {
-                    // Saved after the build compiled the app: not in it, so a change (its hash is unknown).
-                    _hashes[file] = File.GetLastWriteTimeUtc(file) > builtAt ? "" : Hash(file);
+                    _hashes[file] = built ?? now;
                 }
-                if (File.GetLastWriteTimeUtc(file) > builtAt)
+                if (built is not null && built != now)
                 {
                     _changes.Writer.TryWrite(file);
                 }

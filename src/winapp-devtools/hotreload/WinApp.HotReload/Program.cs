@@ -29,7 +29,7 @@ internal static class Program
         {
             var clock = Stopwatch.StartNew();
             var graph = new ProjectGraph(project, capture);
-            using var loop = new WatchLoop(graph.Roots, File.GetLastWriteTimeUtc(graph.CompilerArgumentsFile));
+            using var loop = new WatchLoop(graph.Roots, graph.AsBuiltCopy);
             var (sdkDirectory, sdkVersion) = HotReloadApi.FindSdk(graph.ProjectDirectory);
             var unsupported = HotReloadApi.Register(sdkDirectory, sdkVersion);
 

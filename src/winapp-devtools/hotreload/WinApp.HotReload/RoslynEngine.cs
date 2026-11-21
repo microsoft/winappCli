@@ -431,23 +431,24 @@ internal sealed class RoslynEngine : ICSharpEngine
     }
 
     /// <summary>
-    /// A file saved after the running app was compiled is read from the copy the build took, so the first update is
-    /// computed against what actually runs. The save itself applies once the engine is ready.
+    /// Pins a document to the text the running app was compiled from, read now: the build's copy of the sources when
+    /// it has one, the file otherwise. Read lazily, a file the developer saves before the first update would already
+    /// be the "before" text, and the save would look like no change.
     /// </summary>
     private static DocumentInfo AsBuilt(DocumentInfo document, ProjectGraph graph)
     {
-        if (document.FilePath is not { } path || !ProjectGraph.IsUnder(path, graph.ProjectDirectory) ||
-            File.GetLastWriteTimeUtc(path) <= File.GetLastWriteTimeUtc(graph.CompilerArgumentsFile))
+        if (document.FilePath is not { } path)
         {
             return document;
         }
-        var copy = Path.Combine(graph.SourcesAsBuilt, Path.GetRelativePath(graph.ProjectDirectory, path));
-        if (!File.Exists(copy))
+        var copy = graph.AsBuiltCopy(path);
+        var source = copy is not null && File.Exists(copy) ? copy : path;
+        if (!File.Exists(source))
         {
             return document;
         }
         // From the file's bytes, so the checksum matches the one the compiler recorded.
-        using var stream = File.OpenRead(copy);
+        using var stream = File.OpenRead(source);
         var text = SourceText.From(stream, checksumAlgorithm: SourceHashAlgorithm.Sha256);
         return document.WithTextLoader(TextLoader.From(TextAndVersion.Create(text, VersionStamp.Create(), path)));
     }
