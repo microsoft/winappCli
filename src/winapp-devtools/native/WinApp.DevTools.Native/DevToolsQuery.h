@@ -63,6 +63,14 @@ inline bool Numeric(const std::wstring& type)
         t == L"UInt16" || t == L"UInt32" || t == L"UInt64" || t == L"Byte" || t == L"SByte";
 }
 
+// A solid color brush is read as its #AARRGGBB color; other brushes stay unresolved objects.
+inline bool ColorBrush(const DevToolsReadProp& row)
+{
+    const auto t = ShortType(row.type);
+    return t.size() >= 5 && t.compare(t.size() - 5, 5, L"Brush") == 0 &&
+        row.value.size() == 9 && DevToolsRead_IsHexColor(row.value);
+}
+
 inline bool Number(const std::wstring& text, long double& value)
 {
     if (text.empty()) return false;
@@ -144,6 +152,11 @@ inline Evaluation Compare(const DevToolsReadProp* row, const Predicate& predicat
         bool left = false, right = false;
         if (!boolean(row->value, left) || !boolean(predicate.literal, right)) return unknown(L"boolean-required");
         order = left == right ? 0 : 1;
+    } else if (ColorBrush(*row)) {
+        if (!equality) return unknown(L"color-requires-equality");
+        const auto literal = DevToolsRead_NormalizeColor(predicate.literal);
+        if (literal.size() != 9 || !DevToolsRead_IsHexColor(literal)) return unknown(L"color-required");
+        order = DevToolsRead_NormalizeColor(row->value).compare(literal);
     } else if (!row->enumValues.empty()) {
         if (!equality) return unknown(L"enum-requires-equality");
         if (std::find(row->enumValues.begin(), row->enumValues.end(), predicate.literal) == row->enumValues.end())

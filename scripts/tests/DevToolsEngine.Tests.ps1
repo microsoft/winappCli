@@ -247,6 +247,10 @@ Describe 'Root and npm orchestration boundaries' -Tag 'DevToolsShipping' {
         $ProjectRoot = Join-Path $TestDrive "root-engine-$Mode"
         $ArtifactsPath = 'artifacts'
         $SkipTests = $true
+        # Default -Stage All: build both engines and copy each into its CLI.
+        $Stage = 'All'
+        $BuildArchitectures = @('x64', 'arm64')
+        $CombinesEngine = $true
         New-Item "$ProjectRoot\src\winapp-devtools" -ItemType Directory -Force | Out-Null
         New-EngineInputs "$ProjectRoot\seed"
         New-Item "$ProjectRoot\artifacts\cli\win-x64", "$ProjectRoot\artifacts\cli\win-arm64" -ItemType Directory -Force | Out-Null

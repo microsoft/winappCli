@@ -3,6 +3,7 @@
 
 using System.Net;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.GuestAgent;
 using WinApp.Cli.ExecutionTargets.Orchestration;
@@ -699,7 +700,7 @@ public class SandboxAdoptionTests
             harness.Cli.Operations.Any(op => op.Contains("AllowDevelopmentWithoutDevLicense", StringComparison.Ordinal)),
             "Developer Mode is machine-wide and nothing has set it in a guest winapp did not start.");
         Assert.IsTrue(
-            harness.Cli.Operations.Any(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal)),
+            harness.Cli.Operations.Any(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal)),
             "The agent's inbound rule must be created in an adopted guest too.");
     }
 
@@ -809,7 +810,7 @@ public class SandboxAdoptionTests
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
-        var rule = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var rule = harness.Cli.Operations.Single(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
         var bootstrapShare = GuestSharePaths(harness)
             .Single(path => !path.StartsWith(@"C:\WinAppBootstrapResult", StringComparison.Ordinal));
 
@@ -817,7 +818,8 @@ public class SandboxAdoptionTests
         var executable = launch.Split('"')[1];
         Assert.StartsWith(bootstrapShare + @"\payload-", executable, StringComparison.Ordinal);
         Assert.EndsWith(@"\" + GuestAgentCommandNames.BinaryName, executable, StringComparison.Ordinal);
-        Assert.Contains($"$agent='{executable}'", rule, StringComparison.Ordinal);
+        Assert.AreEqual(executable, FirewallProgram(rule));
+        Assert.AreEqual(2, rule.Split($@"program=""{executable}""").Length - 1, "Cleanup and the new rule both name this agent.");
     }
 
     [TestMethod]
@@ -828,19 +830,18 @@ public class SandboxAdoptionTests
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
-        var rule = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var rule = harness.Cli.Operations.Single(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
         var material = harness.ReadMaterial();
         var expectedName = $"WinApp-Sandbox-Agent-{WindowsSandboxBackend.EpochToken(new ExecutionTargetEpoch(material.TargetEpoch))}";
+        var program = FirewallProgram(rule);
 
-        Assert.Contains($"$rule='{expectedName}'", rule);
-        Assert.Contains("Get-NetFirewallApplicationFilter -Program $agent -PolicyStore ActiveStore", rule);
-        Assert.Contains("Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore ActiveStore", rule);
-        Assert.Contains("Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore PersistentStore", rule);
-        Assert.Contains("Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore", rule);
-        Assert.Contains("Remove-NetFirewallRule -Name $rule -PolicyStore PersistentStore", rule);
-        Assert.Contains("New-NetFirewallRule -Name $rule", rule);
-        Assert.DoesNotContain("Get-NetFirewallRule -PolicyStore ActiveStore", rule, StringComparison.Ordinal);
-        Assert.DoesNotContain("$_ | Get-NetFirewallApplicationFilter", rule, StringComparison.Ordinal);
+        // Every delete is scoped to this agent's program or this generation's name, never all rules.
+        Assert.AreEqual(expectedName, FirewallRuleName(rule));
+        var deletes = rule.Split('&').Where(step => step.Contains("delete rule", StringComparison.Ordinal)).ToList();
+        Assert.HasCount(2, deletes);
+        Assert.Contains($@"delete rule name=all program=""{program}""", deletes[0]);
+        Assert.Contains($@"delete rule name=""{expectedName}""", deletes[1]);
+        Assert.DoesNotContain("powershell", rule, StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
@@ -849,18 +850,16 @@ public class SandboxAdoptionTests
         using var harness = new AdoptionHarness();
         harness.Cli.SetRunning(ManualInstanceId);
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
-        var first = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var first = harness.Cli.Operations.Single(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
         harness.Cli.Operations.Clear();
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
-        var repaired = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
-        var assignment = first[first.IndexOf("$rule=", StringComparison.Ordinal)..];
-        assignment = assignment[..assignment.IndexOf(';')];
+        var repaired = harness.Cli.Operations.Single(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
 
-        Assert.Contains(assignment, repaired);
+        Assert.AreEqual(FirewallRuleName(first), FirewallRuleName(repaired));
         Assert.IsLessThan(
-            repaired.IndexOf("New-NetFirewallRule", StringComparison.Ordinal),
-            repaired.IndexOf("Remove-NetFirewallRule", StringComparison.Ordinal));
+            repaired.IndexOf("add rule", StringComparison.Ordinal),
+            repaired.IndexOf("delete rule", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -870,21 +869,19 @@ public class SandboxAdoptionTests
         harness.Cli.SetRunning(ManualInstanceId);
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
         var epoch = harness.ReadMaterial().TargetEpoch;
-        var first = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var first = harness.Cli.Operations.Single(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
         File.WriteAllText(Path.Join(harness.BinaryDirectory, GuestAgentCommandNames.BinaryName), "rebuilt winapp");
         harness.Cli.Operations.Clear();
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
         Assert.AreEqual(epoch, harness.ReadMaterial().TargetEpoch, "Agent repair must retain package ownership.");
-        var repaired = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
-        var originalAgent = first[first.IndexOf("$agent=", StringComparison.Ordinal)..first.IndexOf(';')];
-        Assert.DoesNotContain(originalAgent, repaired, StringComparison.Ordinal, "A rebuilt bundle must use its own immutable path.");
+        var repaired = harness.Cli.Operations.Single(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
+        Assert.DoesNotContain(FirewallProgram(first), repaired, StringComparison.Ordinal, "A rebuilt bundle must use its own immutable path.");
         var expectedName = $"WinApp-Sandbox-Agent-{WindowsSandboxBackend.EpochToken(new ExecutionTargetEpoch(epoch))}";
-        Assert.Contains($"$rule='{expectedName}'", repaired);
-        Assert.Contains("Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore", repaired);
-        Assert.IsLessThan(repaired.IndexOf("New-NetFirewallRule", StringComparison.Ordinal),
-            repaired.IndexOf("Remove-NetFirewallRule -Name $rule", StringComparison.Ordinal),
+        Assert.AreEqual(expectedName, FirewallRuleName(repaired));
+        Assert.IsLessThan(repaired.IndexOf("add rule", StringComparison.Ordinal),
+            repaired.IndexOf($@"delete rule name=""{expectedName}""", StringComparison.Ordinal),
             "The previous bundle's generation rule must be removed before reusing its name.");
     }
 
@@ -899,12 +896,16 @@ public class SandboxAdoptionTests
         await second.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
         Assert.AreNotEqual(first.ReadMaterial().TargetEpoch, second.ReadMaterial().TargetEpoch);
-        var firstRule = first.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
-        var secondRule = second.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
-        var assignment = firstRule[firstRule.IndexOf("$rule=", StringComparison.Ordinal)..];
-        assignment = assignment[..assignment.IndexOf(';')];
-        Assert.DoesNotContain(assignment, secondRule, StringComparison.Ordinal);
+        var firstRule = first.Cli.Operations.Single(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
+        var secondRule = second.Cli.Operations.Single(op => op.Contains("advfirewall firewall add rule", StringComparison.Ordinal));
+        Assert.DoesNotContain(FirewallRuleName(firstRule), secondRule, StringComparison.Ordinal);
     }
+
+    private static string FirewallRuleName(string command) =>
+        Regex.Match(command, @"add rule name=""([^""]+)""").Groups[1].Value;
+
+    private static string FirewallProgram(string command) =>
+        Regex.Match(command, @"add rule .* program=""([^""]+)""").Groups[1].Value;
 
     [TestMethod]
     public async Task ManyGenerations_ArePrunedWithoutTouchingTheCurrentOne()
@@ -965,7 +966,7 @@ public class SandboxAdoptionTests
     {
         using var harness = new AdoptionHarness();
         harness.Cli.SetRunning(ManualInstanceId);
-        harness.Cli.GuestExitCodes["New-NetFirewallRule"] = 1;
+        harness.Cli.GuestExitCodes["advfirewall firewall add rule"] = 1;
 
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => harness.Backend.EnsureConnectedAsync(

@@ -93,16 +93,43 @@ public class SandboxClientErrorProbeTests
     [TestMethod]
     public void Classify_RecognizesRendererOnlyWithKnownSessionPage()
     {
-        SandboxClientErrorProbe.Control[] page =
+        Assert.AreEqual(SandboxClientSurface.Session,
+            SandboxClientErrorProbe.Classify(Shell(renderer: true), SessionPage(), renderer: true));
+        Assert.AreEqual(SandboxClientSurface.Unknown,
+            SandboxClientErrorProbe.Classify(Shell(renderer: true), SessionPage(), renderer: false));
+    }
+
+    [TestMethod]
+    public void Classify_ViewerMenuOrTooltipOpen_IsStillASession()
+    {
+        // Opening the viewer's "Windows Sandbox options" menu adds two owned popup windows.
+        SandboxClientErrorProbe.Control popup = new("Microsoft.UI.Content.PopupWindowSiteBridge", "PopupHost", 50033, "");
+        Assert.AreEqual(SandboxClientSurface.Session,
+            SandboxClientErrorProbe.Classify([popup, popup, .. Shell(renderer: true)], SessionPage(), renderer: true));
+        Assert.AreEqual(SandboxClientSurface.Unknown,
+            SandboxClientErrorProbe.Classify([popup, .. Shell(renderer: true)], SessionPage(), renderer: false));
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void Classify_FullScreenViewer_IsASessionOnlyWithRenderer(bool connectionBarShown)
+    {
+        SandboxClientErrorProbe.Control[] shell =
         [
-            new("Image", "", 50006, "TitleBarIcon"),
-            new("TextBlock", "", 50020, "TitleTextBlock"),
-            new("Button", "", 50000, "SandboxOptions"),
+            .. connectionBarShown ? new[] { new SandboxClientErrorProbe.Control("BBarWindowClass", "BBar", 50033, "") } : [],
+            new("AtlAxWin", "", 50033, ""),
+            new("InputNonClientPointerSource", "", 50033, ""),
+            new("Microsoft.UI.Content.DesktopChildSiteBridge", "", 50033, ""),
         ];
         Assert.AreEqual(SandboxClientSurface.Session,
-            SandboxClientErrorProbe.Classify(Shell(renderer: true), page, renderer: true));
+            SandboxClientErrorProbe.Classify(shell, [], renderer: true));
         Assert.AreEqual(SandboxClientSurface.Unknown,
-            SandboxClientErrorProbe.Classify(Shell(renderer: true), page, renderer: false));
+            SandboxClientErrorProbe.Classify(shell, [], renderer: false));
+        Assert.AreEqual(SandboxClientSurface.Unknown,
+            SandboxClientErrorProbe.Classify(shell, SessionPage(), renderer: true));
+        Assert.AreEqual(SandboxClientSurface.Unknown,
+            SandboxClientErrorProbe.Classify(shell, ErrorPage(), renderer: true));
     }
 
     [TestMethod]
@@ -166,6 +193,13 @@ public class SandboxClientErrorProbeTests
         new("Microsoft.UI.Content.DesktopChildSiteBridge", "", 50033, ""),
         new("", "", 50037, "TitleBar"),
         .. renderer ? new[] { new SandboxClientErrorProbe.Control("AtlAxWin", "", 50033, "") } : [],
+    ];
+
+    private static SandboxClientErrorProbe.Control[] SessionPage() =>
+    [
+        new("Image", "", 50006, "TitleBarIcon"),
+        new("TextBlock", "", 50020, "TitleTextBlock"),
+        new("Button", "", 50000, "SandboxOptions"),
     ];
 
     internal static SandboxClientErrorProbe.Control[] ErrorPage(string glyph = "\uE783") =>

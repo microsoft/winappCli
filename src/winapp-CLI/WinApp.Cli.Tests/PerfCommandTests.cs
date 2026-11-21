@@ -313,7 +313,7 @@ public class PerfCommandTests : BaseCommandTests
                 Assert.IsFalse(summary.RootElement.GetProperty("coverage").TryGetProperty("incompleteCalls", out _));
             }
             var analysis = PerfAnalysisStore.Open(directory.FullName, CancellationToken.None);
-            Assert.AreEqual(4, analysis.Manifest.DecoderVersion);
+            Assert.AreEqual(5, analysis.Manifest.DecoderVersion);
             Assert.AreEqual(4, analysis.Manifest.AnalyzerVersion);
             Assert.AreEqual(1, analysis.Manifest.Calls);
             Assert.AreEqual(1, analysis.Manifest.DecodeErrors, "The diagnostic decoding failure must remain recorded.");
@@ -390,6 +390,19 @@ public class PerfCommandTests : BaseCommandTests
                 reactor.ReconcileStop(1, 0, 2, 0);
                 reactor.ComponentRenderStop(2);
                 reactor.RenderPassStop(1);
+                // A third pass in schema revision 3: Header's memo skips it, SlowPanel renders past its memo for
+                // nothing, and the root's effects fan out into six state writes.
+                reactor.RenderPassStart(1, 2, "SlowPanel", 1);
+                reactor.ComponentRenderStart(1, "App", "state", "App.cs", 12, 5, memoMiss: false);
+                reactor.ReconcileStart("reconcile", "StackElement");
+                reactor.ComponentSkip(3, "Header");
+                reactor.ComponentRenderStart(2, "SlowPanel", "props", "MainPage.cs", 40, 9, memoMiss: true);
+                reactor.ComponentRenderStop(2, changes: 0, ownStateSets: 2);
+                reactor.ReconcileStop(0, 0, 0, 0);
+                reactor.ComponentRenderStop(1, changes: 0, ownStateSets: 0);
+                reactor.EffectsStart(1);
+                reactor.EffectsStop(1, ownStateSets: 6);
+                reactor.RenderPassStop(1);
                 trace.Stop();
                 capture.StopQpc = Stopwatch.GetTimestamp();
                 capture.EventsLost = trace.EventsLost;
@@ -407,18 +420,48 @@ public class PerfCommandTests : BaseCommandTests
             {
                 var rows = components.RootElement.GetProperty("rows");
                 Assert.AreEqual("SlowPanel", rows[0].GetProperty("name").GetString());
-                Assert.AreEqual(2, rows[0].GetProperty("count").GetInt32());
+                Assert.AreEqual(3, rows[0].GetProperty("count").GetInt32());
                 Assert.AreEqual(1, rows[0].GetProperty("reasons").GetProperty("parent").GetInt32());
                 Assert.AreEqual(1, rows[0].GetProperty("reasons").GetProperty("state").GetInt32());
                 Assert.AreEqual("MainPage.cs:40", rows[0].GetProperty("callSites")[0].GetString());
                 Assert.IsGreaterThanOrEqualTo(20d, rows[0].GetProperty("exclusiveMs").GetDouble());
+                // Revision 3 fields come only from the third pass; the TDH-formatted Bool32 memoMiss reads as a miss.
+                Assert.AreEqual(1, rows[0].GetProperty("wastedRenders").GetInt32());
+                Assert.AreEqual(1, rows[0].GetProperty("memoMisses").GetInt32());
+                Assert.AreEqual(0d, rows[0].GetProperty("memoHitRate").GetDouble());
+                Assert.AreEqual(2, rows[0].GetProperty("stateSets").GetInt32());
                 Assert.AreEqual("App", rows[1].GetProperty("name").GetString());
                 Assert.IsGreaterThan(20d, rows[1].GetProperty("inclusiveMs").GetDouble());
+                Assert.AreEqual(6, rows[1].GetProperty("maxStateSets").GetInt32(), "The root's effects count toward the root.");
+                var header = rows.EnumerateArray().Single(row => row.GetProperty("name").GetString() == "Header");
+                Assert.AreEqual(0, header.GetProperty("count").GetInt32());
+                Assert.AreEqual(1d, header.GetProperty("memoHitRate").GetDouble());
                 var passes = components.RootElement.GetProperty("reactorPasses");
-                Assert.AreEqual(2, passes.GetProperty("count").GetInt32());
+                Assert.AreEqual(3, passes.GetProperty("count").GetInt32());
                 Assert.AreEqual("SlowPanel", passes.GetProperty("requesters")[0].GetProperty("name").GetString());
                 Assert.AreEqual(2, passes.GetProperty("reconcileEdits").GetProperty("moved").GetInt32());
+                var waste = passes.GetProperty("wastedWork");
+                Assert.AreEqual(2, waste.GetProperty("wastedRenders").GetInt32());
+                Assert.AreEqual(0.5, waste.GetProperty("memoHitRate").GetDouble());
+                Assert.AreEqual(8, waste.GetProperty("stateSets").GetInt32());
+                var insight = waste.GetProperty("insights").EnumerateArray().Single();
+                Assert.AreEqual("setstate-fan-out", insight.GetProperty("kind").GetString());
+                Assert.AreEqual("App", insight.GetProperty("component").GetString());
+                Assert.AreEqual(6, insight.GetProperty("maxStateSets").GetInt32());
+                Assert.IsFalse(insight.TryGetProperty("wastedRenders", out _), "A fan-out insight carries only its own fields.");
             }
+
+            TestAnsiConsole.Profile.Width = 4096;
+            Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
+                ["analyze", directory.FullName, "--view", "components"]));
+            Assert.Contains("Updates that changed nothing: 2 of 2", TestAnsiConsole.Output);
+            Assert.Contains("SetState fan-out: App, 6 setState calls in one render or effects run", TestAnsiConsole.Output);
+            Assert.Contains("changed nothing=1; memo hit rate=0.0% (0 skipped, 1 rendered past the memo); setState calls=2", TestAnsiConsole.Output);
+            Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<PerfCommand>(),
+                ["analyze", directory.FullName, "--view", "calls", "--family", "reactor", "--limit", "100"]));
+            Assert.Contains("created at MainPage.cs:40; changed nothing; rendered past its memo; 2 setState calls", TestAnsiConsole.Output);
+            Assert.IsTrue(TestAnsiConsole.Output.Split('\n').Any(line => line.Trim() == "6 setState calls"),
+                "The root's Effects call shows its state writes.");
 
             (stdout, stderr, code) = await InvokeProgramAsync(["perf", "analyze", directory.FullName, "--json"]);
             Assert.AreEqual(0, code, stderr);
@@ -443,7 +486,7 @@ public class PerfCommandTests : BaseCommandTests
             Assert.AreEqual(0, analysis.Manifest.DecodeErrors);
             var names = PerfAnalysisStore.Read(analysis, "events.ndjson", PerfJsonContext.Default.PerfEvent)
                 .Select(e => e.Name).ToArray();
-            Assert.AreEqual(16, names.Length, string.Join(", ", names));
+            Assert.AreEqual(27, names.Length, string.Join(", ", names));
             Assert.IsFalse(names.Any(name => name is "ReactorChildReconcile" or "ReactorKeyedListDiagnostic"));
         }
         finally

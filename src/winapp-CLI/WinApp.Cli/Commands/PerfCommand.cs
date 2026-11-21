@@ -189,6 +189,20 @@ internal sealed class PerfCommand : Command, IShortDescription
                     {
                         console.WriteLine("Reconcile edits: " + string.Join(", ", edits.Select(edit => $"{edit.Key} {edit.Value}")));
                     }
+                    if (passes.WastedWork is { } waste)
+                    {
+                        console.WriteLine($"Updates that changed nothing: {waste.WastedRenders} of {waste.Updates}; " +
+                            (waste.MemoHitRate is { } hitRate
+                                ? $"memo hit rate {Percent(hitRate)} ({waste.MemoSkips} skipped, {waste.MemoMisses} rendered past the memo); "
+                                : "no memo gate ran; ") +
+                            $"setState calls in renders and effects: {waste.StateSets}");
+                        foreach (var insight in waste.Insights)
+                        {
+                            console.WriteLine(insight.Kind == "wasted-renders"
+                                ? $"  Wasted renders: {insight.Component}, {insight.WastedRenders} of {insight.Updates} updates changed nothing"
+                                : $"  SetState fan-out: {insight.Component}, {insight.MaxStateSets} setState calls in one render or effects run ({insight.StateSets} in range)");
+                        }
+                    }
                     if (passes.OutsidePassReconciles > 0)
                     {
                         console.WriteLine($"Rows reconciled outside a pass (for example, virtualized list realization): {passes.OutsidePassReconciles}, {passes.OutsidePassReconcileMs:F3} ms");
@@ -226,6 +240,12 @@ internal sealed class PerfCommand : Command, IShortDescription
                         if (row.CallSites is { Length: > 0 } sites)
                         {
                             console.WriteLine("  created at: " + string.Join(", ", sites));
+                        }
+                        if (row.WastedRenders is { } wasted)
+                        {
+                            console.WriteLine($"  changed nothing={wasted}; " +
+                                (row.MemoHitRate is { } hitRate ? $"memo hit rate={Percent(hitRate)} ({row.MemoSkips} skipped, {row.MemoMisses} rendered past the memo); " : "") +
+                                $"setState calls={row.StateSets} (max {row.MaxStateSets} in one run)");
                         }
                         if (row.BoundaryOverlaps is > 0)
                         {
@@ -478,6 +498,8 @@ internal sealed class PerfCommand : Command, IShortDescription
 
     private static string Timing(double? value) => value?.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) ?? "unknown";
 
+    private static string Percent(double fraction) => (fraction * 100).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
     private static string? ReactorPassRequest(string? requesterId, string? requesterName, int? requestCount) =>
         requesterId is null ? null :
         (requesterId == "0" ? "not requested by a component" : $"requested by {requesterName} (component {requesterId})") +
@@ -500,9 +522,31 @@ internal sealed class PerfCommand : Command, IShortDescription
             return "edits: " + string.Join(", ", PerfQuery.ReconcileEditNames
                 .Select(edit => $"{edit} {attributes.GetValueOrDefault(edit, "?")}"));
         }
-        return ReactorEventDecoder.ComponentName(name) is not null && ReactorEventDecoder.CallSite(attributes) is { } site
-            ? "created at " + site
-            : null;
+        var details = new List<string>();
+        if (ReactorEventDecoder.ComponentName(name) is not null)
+        {
+            if (ReactorEventDecoder.CallSite(attributes) is { } site)
+            {
+                details.Add("created at " + site);
+            }
+            // Schema revision 3: what the render changed and whether a memo gate let it through.
+            if (ReactorEventDecoder.Count(attributes, "changes") is { } changes)
+            {
+                details.Add(changes == 0 && attributes.GetValueOrDefault("reason") != "mount"
+                    ? "changed nothing"
+                    : $"{changes} {(changes == 1 ? "control" : "controls")} changed in its subtree");
+            }
+            if (ReactorEventDecoder.Flag(attributes, "memoMiss") == true)
+            {
+                details.Add("rendered past its memo");
+            }
+        }
+        if ((ReactorEventDecoder.ComponentName(name) is not null || name == ReactorEventDecoder.Effects) &&
+            ReactorEventDecoder.Count(attributes, "ownStateSets") is { } stateSets && stateSets > 0)
+        {
+            details.Add($"{stateSets} setState {(stateSets == 1 ? "call" : "calls")}");
+        }
+        return details.Count > 0 ? string.Join("; ", details) : null;
     }
 
     internal static bool IsDescendant(ParseResult parse)
