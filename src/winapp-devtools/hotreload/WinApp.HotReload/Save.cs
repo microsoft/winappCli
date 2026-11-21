@@ -39,8 +39,9 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph)
                 : new SaveResult(Outcome.Restart, reason);
         }
         var result = await engine.ApplyAsync(new CSharpChange(files, new Dictionary<string, string>()), cancellationToken).ConfigureAwait(false);
-        // Without a live engine nothing was compiled either.
-        if (result.Outcome == CSharpOutcome.Restart && engine is RestartingEngine && await graph.CheckBuildAsync(cancellationToken).ConfigureAwait(false) is { } buildError)
+        // Nothing was compiled without a live engine, or when a project file change needs a rebuild.
+        var compiled = engine is not RestartingEngine && !files.Contains(graph.ProjectFile, StringComparer.OrdinalIgnoreCase);
+        if (result.Outcome == CSharpOutcome.Restart && !compiled && await graph.CheckBuildAsync(cancellationToken).ConfigureAwait(false) is { } buildError)
         {
             return new SaveResult(Outcome.Error, buildError);
         }
