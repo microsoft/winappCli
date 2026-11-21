@@ -32,10 +32,11 @@ internal sealed class FakeDesktopForegroundService : IDesktopForegroundService
 
     public Action<long>? OnRequestForeground { get; set; }
 
-    public void RequestForeground(long hwnd)
+    public bool RequestForeground(long hwnd)
     {
         ForegroundRequests.Add(hwnd);
         OnRequestForeground?.Invoke(hwnd);
+        return ForegroundRequestSucceeds;
     }
 
     /// <summary>

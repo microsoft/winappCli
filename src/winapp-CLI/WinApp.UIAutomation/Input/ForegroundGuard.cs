@@ -13,7 +13,7 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 /// There are two questions here, and they have different right answers.
 /// </para>
 /// <para>
-/// <strong>Injection</strong> — <see cref="ForegroundBelongsTo"/>, <see cref="CheckForeground"/>.
+/// <strong>Injection</strong> — <see cref="ForegroundBelongsTo"/>, <see cref="CheckForeground(long)"/>.
 /// <c>SendInput</c>-based gestures (send-keys via send-input, drag, scroll --wheel, click, hover) land
 /// on whatever window is in the foreground / under the cursor. If <c>SetForegroundWindow</c> silently
 /// failed (focus-stealing prevention, a UAC prompt, another app grabbing focus, or the session being
@@ -58,6 +58,8 @@ public static class ForegroundGuard
     internal static Func<global::Windows.Win32.Foundation.HWND, global::Windows.Win32.Foundation.HWND> s_getOwner =
         DefaultGetOwner;
 
+    internal static Func<long, uint> s_getProcessIdForWindow = SystemUiQuery.NativeGetProcessIdForWindow;
+
     private static global::Windows.Win32.Foundation.HWND DefaultGetOwner(global::Windows.Win32.Foundation.HWND hwnd) =>
         global::Windows.Win32.PInvoke.GetWindow(hwnd, global::Windows.Win32.UI.WindowsAndMessaging.GET_WINDOW_CMD.GW_OWNER);
 
@@ -78,6 +80,7 @@ public static class ForegroundGuard
         s_getForegroundWindow = global::Windows.Win32.PInvoke.GetForegroundWindow;
         s_getRootAncestor = DefaultGetRootAncestor;
         s_getOwner = DefaultGetOwner;
+        s_getProcessIdForWindow = SystemUiQuery.NativeGetProcessIdForWindow;
     }
 
     /// <summary>
@@ -86,13 +89,21 @@ public static class ForegroundGuard
     /// window) is treated as "can't verify" and returns <see langword="false"/>.
     /// </summary>
     public static bool ForegroundBelongsTo(long targetHwnd)
+        => ForegroundBelongsToCore(targetHwnd, out _, out _);
+
+    private static bool ForegroundBelongsToCore(
+        long targetHwnd,
+        out global::Windows.Win32.Foundation.HWND foreground,
+        out global::Windows.Win32.Foundation.HWND? targetRoot)
     {
+        foreground = default;
+        targetRoot = null;
         if (targetHwnd == 0)
         {
             return false;
         }
 
-        var foreground = s_getForegroundWindow();
+        foreground = s_getForegroundWindow();
         if (foreground.IsNull)
         {
             return false;
@@ -110,8 +121,8 @@ public static class ForegroundGuard
         // by owning process: a PID match would also accept a *different* top-level window of the same
         // process (common in multi-window apps) that merely happens to be foreground, which would let
         // the injection land on the wrong window.
-        var targetRoot = s_getRootAncestor(target);
-        return !targetRoot.IsNull && targetRoot == foreground;
+        targetRoot = s_getRootAncestor(target);
+        return !targetRoot.Value.IsNull && targetRoot.Value == foreground;
     }
 
     /// <summary>
@@ -139,7 +150,7 @@ public static class ForegroundGuard
     /// internal CsWin32 <c>PInvoke</c> type, so making one's internals visible to the other makes that
     /// type ambiguous (CS0436, fatal under the Release warnings-as-errors settings). The alternative
     /// was a second copy of a safety check, which is worse than one more method on a guard class that
-    /// already exposes <see cref="ForegroundBelongsTo"/> and <see cref="CheckForeground"/>.
+    /// already exposes <see cref="ForegroundBelongsTo"/> and <see cref="CheckForeground(long)"/>.
     /// </para>
     /// </remarks>
     public static bool ForegroundIsCapturableFor(long targetHwnd)
@@ -246,5 +257,39 @@ public static class ForegroundGuard
             hasTarget,
             targetIsForeground: hasTarget && ForegroundBelongsTo(targetHwnd),
             anyForegroundWindow: !NoInteractiveDesktop());
+    }
+
+    /// <summary>
+    /// Performs the same check and retains its two foreground observations when it rejects the target.
+    /// Diagnostic ownership queries run only after the decision and never affect it.
+    /// </summary>
+    /// <param name="targetHwnd">Window to protect.</param>
+    /// <param name="snapshot">Retained rejection observations, or null when the check proceeds.</param>
+    public static ForegroundCheck CheckForeground(long targetHwnd, out ForegroundCheckSnapshot? snapshot)
+    {
+        bool hasTarget = targetHwnd != 0;
+        var comparedAtUtc = DateTimeOffset.UtcNow;
+        global::Windows.Win32.Foundation.HWND foreground = default;
+        global::Windows.Win32.Foundation.HWND? root = null;
+        bool targetIsForeground = hasTarget && ForegroundBelongsToCore(targetHwnd, out foreground, out root);
+        var classifiedAtUtc = DateTimeOffset.UtcNow;
+        var classificationForeground = s_getForegroundWindow();
+        var result = Classify(hasTarget, targetIsForeground, !classificationForeground.IsNull);
+
+        snapshot = null;
+        if (result != ForegroundCheck.Proceed)
+        {
+            var metadataAtUtc = DateTimeOffset.UtcNow;
+            var targetRoot = root ?? s_getRootAncestor(new global::Windows.Win32.Foundation.HWND((nint)targetHwnd));
+            snapshot = new ForegroundCheckSnapshot(
+                comparedAtUtc, targetHwnd, (long)(nint)targetRoot, root.HasValue, (long)(nint)foreground,
+                classifiedAtUtc, (long)(nint)classificationForeground, metadataAtUtc,
+                s_getProcessIdForWindow(targetHwnd),
+                targetRoot.IsNull ? 0 : s_getProcessIdForWindow((long)(nint)targetRoot),
+                foreground.IsNull ? 0 : s_getProcessIdForWindow((long)(nint)foreground),
+                classificationForeground.IsNull ? 0 : s_getProcessIdForWindow((long)(nint)classificationForeground));
+        }
+
+        return result;
     }
 }

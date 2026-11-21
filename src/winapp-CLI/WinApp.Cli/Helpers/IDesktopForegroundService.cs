@@ -29,7 +29,8 @@ internal interface IDesktopForegroundService
     /// (focus-stealing prevention, a UAC prompt, a locked session); callers must still verify with
     /// <see cref="IForegroundGuard"/> before injecting OS-wide input.
     /// </summary>
-    void RequestForeground(long hwnd);
+    /// <returns>The native request's Boolean result, not a guarantee of continued foreground ownership.</returns>
+    bool RequestForeground(long hwnd);
 
     /// <summary>
     /// Whether <paramref name="hwnd"/> (or its top-level root) currently holds the foreground.
@@ -60,14 +61,14 @@ internal interface IDesktopForegroundService
 /// </remarks>
 internal sealed class DesktopForegroundService : IDesktopForegroundService
 {
-    public void RequestForeground(long hwnd)
+    public bool RequestForeground(long hwnd)
     {
         if (hwnd == 0)
         {
-            return;
+            return false;
         }
 
-        Windows.Win32.PInvoke.SetForegroundWindow(new Windows.Win32.Foundation.HWND((nint)hwnd));
+        return Windows.Win32.PInvoke.SetForegroundWindow(new Windows.Win32.Foundation.HWND((nint)hwnd));
     }
 
     public bool IsForeground(long hwnd)

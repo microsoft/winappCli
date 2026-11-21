@@ -14,5 +14,8 @@ internal class RealForegroundGuard : IForegroundGuard
     public ForegroundCheck CheckForeground(long targetHwnd)
         => ForegroundGuard.CheckForeground(targetHwnd);
 
+    public ForegroundCheck CheckForeground(long targetHwnd, out ForegroundCheckSnapshot? snapshot)
+        => ForegroundGuard.CheckForeground(targetHwnd, out snapshot);
+
     public bool IsRemoteSession() => ForegroundGuard.IsRemoteSession();
 }
