@@ -127,7 +127,7 @@ internal sealed class ProjectGraph
             return null;
         }
         // "C:\app\Page.xaml(3,5): XamlCompiler error WMC1110: ... [C:\app\App.csproj]" -> "Page.xaml(3,5): XamlCompiler error WMC1110: ..."
-        var errors = output.Split('\n').Select(l => l.Trim()).Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"\berror [A-Z]+\d+:"))
+        var errors = output.Split('\n').Select(l => l.Trim()).Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"\berror( [A-Z]+\d+)? ?:"))
             .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s*\[[^\]]+\.\w+proj\]$", ""))
             .Select(l => l.StartsWith(ProjectDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ? l[(ProjectDirectory.Length + 1)..] : l)
             .Distinct().Take(3).ToList();
