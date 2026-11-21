@@ -1779,6 +1779,41 @@ public class MsixServiceTests
             () => svc.UnregisterExistingPackageAsync("MyApp", CreateTestTaskContext()));
     }
 
+    [TestMethod]
+    public async Task UnregisterExistingPackageAsync_AccessDeniedFromRemoval_StopsInsteadOfContinuing()
+    {
+        // Continuing would register over the old package and surface an opaque 0x8007007B instead (#1306).
+        var fake = new FakePackageRegistrationService
+        {
+            FakeDevPackages =
+            [
+                new DevPackageInfo("MyApp_1.0.0.0_neutral__abc", "MyApp", "1.0.0.0",
+                    Path.Combine(_tempDir.FullName, "AppX"), IsDevelopmentMode: true)
+            ],
+            UnregisterByFullNameThrows = new UnauthorizedAccessException("Access is denied.")
+        };
+        var svc = CreateMsixServiceForUnregister(fake, _tempDir.FullName);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.UnregisterExistingPackageAsync("MyApp", CreateTestTaskContext()));
+
+        Assert.Contains("removing the existing registration of 'MyApp': Access is denied.", ex.Message);
+        Assert.IsInstanceOfType<UnauthorizedAccessException>(ex.InnerException);
+    }
+
+    [TestMethod]
+    [DataRow(true, 19045, true, DisplayName = "MSIX winapp on Windows 10 points to the ZIP/NuGet winapp")]
+    [DataRow(true, 22631, true, DisplayName = "MSIX winapp on Windows 11 23H2 points to the ZIP/NuGet winapp")]
+    [DataRow(true, 26100, false, DisplayName = "MSIX winapp on Windows 11 24H2 gets the generic advice")]
+    [DataRow(false, 19045, false, DisplayName = "ZIP winapp gets the generic advice")]
+    public void BuildUnregisterAccessDeniedMessage_SuggestsUnpackagedWinappOnlyWhereItHelps(bool isPackaged, int build, bool suggestsZip)
+    {
+        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "Access is denied.\r\n", isPackaged, new Version(10, 0, build, 0));
+
+        Assert.AreEqual(suggestsZip, message.Contains("release ZIP", StringComparison.Ordinal));
+        Assert.AreEqual(!suggestsZip, message.Contains("Get-AppxPackage MyApp | Remove-AppxPackage", StringComparison.Ordinal));
+    }
+
     #endregion
 
     #region IsExistingRegistrationUpToDate Tests (issue #537)

@@ -2575,6 +2575,13 @@ internal partial class MsixService
             // distinctly from a normal "no package removed" outcome.
             throw;
         }
+        catch (Exception ex) when (ex.HResult == E_ACCESSDENIED)
+        {
+            // Registering over a package Windows wouldn't let us remove fails with an unrelated,
+            // opaque code (0x8007007B / 0x8007000D), so stop here with the real reason.
+            throw new InvalidOperationException(
+                BuildUnregisterAccessDeniedMessage(packageName, ex.Message, EngineStaging.IsPackaged, Environment.OSVersion.Version), ex);
+        }
         catch (Exception ex)
         {
             // Other failures (e.g., transient deployment errors during inspection or
@@ -2583,6 +2590,29 @@ internal partial class MsixService
             taskContext.AddDebugMessage($"{UiSymbols.Note} Could not unregister existing package: {ex.Message}");
             return false;
         }
+    }
+
+    private const int E_ACCESSDENIED = unchecked((int)0x80070005);
+
+    // Windows 11 24H2 is the first release that authorizes PackageManager calls from a packaged
+    // full-trust caller by integrity level alone, without checking its package identity.
+    private const int FirstBuildWithoutPackagedCallerCheck = 26100;
+
+    internal static string BuildUnregisterAccessDeniedMessage(string packageName, string reason, bool isPackaged, Version osVersion)
+    {
+        var message =
+            $"Windows denied access when removing the existing registration of '{packageName}': {reason.Trim()}" +
+            Environment.NewLine;
+        if (isPackaged && osVersion.Build < FirstBuildWithoutPackagedCallerCheck)
+        {
+            return message +
+                "This winapp runs as an MSIX package, and Windows versions before Windows 11 24H2 can refuse to let a packaged app manage packages. " +
+                "Use the winapp from the release ZIP (https://github.com/microsoft/winappCli/releases) " +
+                "or the Microsoft.Windows.SDK.BuildTools.WinApp NuGet package (dotnet run) instead.";
+        }
+        return message +
+            "Close the app if it is running, then retry; or remove it manually with " +
+            $"'Get-AppxPackage {packageName} | Remove-AppxPackage'.";
     }
 
     /// <summary>

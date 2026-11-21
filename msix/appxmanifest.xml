@@ -60,5 +60,8 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <!-- Lets the packaged winapp register and remove development packages; Windows before 11 24H2
+         refuses PackageManager calls from a packaged caller without it. -->
+    <rescap:Capability Name="packageManagement" />
   </Capabilities>
 </Package>
