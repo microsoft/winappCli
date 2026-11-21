@@ -87,6 +87,8 @@ internal sealed class WatchLoop : IDisposable
     /// <summary>Handles saves until the app exits (returns 0) or a save needs a restart (returns <see cref="RestartExitCode"/>).</summary>
     public async Task<int> RunAsync(Save save, CancellationToken cancellationToken)
     {
+        // The files of a save that failed are handled again with the next save, so a fix doesn't drop the rest of it.
+        var retry = new List<string>();
         try
         {
             while (true)
@@ -96,6 +98,7 @@ internal sealed class WatchLoop : IDisposable
                 {
                     continue;
                 }
+                batch.AddRange(retry.Where(f => !batch.Contains(f, StringComparer.OrdinalIgnoreCase)));
                 var clock = Stopwatch.StartNew();
                 SaveResult result;
                 while (true)
@@ -115,6 +118,7 @@ internal sealed class WatchLoop : IDisposable
                 {
                     return RestartExitCode;
                 }
+                retry = result.Outcome == Outcome.Error ? batch : [];
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

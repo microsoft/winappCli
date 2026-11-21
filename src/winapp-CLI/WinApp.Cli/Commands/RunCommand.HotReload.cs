@@ -60,7 +60,26 @@ internal partial class RunCommand
                     // The app closed (the helper ends with it), or Ctrl+C.
                     var exitCode = await app;
                     StopHelper(helper);
-                    return cancellationToken.IsCancellationRequested ? -1 : exitCode;
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return -1;
+                    }
+                    if (exitCode == 0)
+                    {
+                        return 0;
+                    }
+                    // It crashed, perhaps on what was just saved: the next save rebuilds and starts it again.
+                    ansiConsole.WriteLine($"[watch] waiting the app exited (exit code {exitCode}); save a file to rebuild and start it again");
+                    try
+                    {
+                        await WaitForSaveAsync(csproj, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return -1;
+                    }
+                    ansiConsole.WriteLine("[watch] restart a file was saved after the app exited: rebuilding it");
+                    continue;
                 }
                 if (helper.ExitCode != HelperRestartExitCode)
                 {
