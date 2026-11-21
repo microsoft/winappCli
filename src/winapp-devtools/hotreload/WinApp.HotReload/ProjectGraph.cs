@@ -114,7 +114,9 @@ internal sealed class ProjectGraph
             return null;
         }
         var scratch = Path.Combine(_capture, "check") + Path.DirectorySeparatorChar;
-        var arguments = build.Where(a => !a.Contains("WinAppHotReloadProject=", StringComparison.Ordinal)).Append($"-p:OutDir={scratch}");
+        var arguments = build.Where(a => !a.Contains("WinAppHotReloadProject=", StringComparison.Ordinal))
+            // The XAML compiler copies .xbf files to OutputPath, the rest of the build to OutDir.
+            .Concat([$"-p:OutDir={scratch}", $"-p:OutputPath={scratch}"]);
         var (exitCode, output) = await DotnetAsync(arguments, cancellationToken).ConfigureAwait(false);
         if (exitCode == 0)
         {
