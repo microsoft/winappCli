@@ -19,17 +19,17 @@
     },
     {
       "id": "r58-restart-compiler-warm", "row": 58, "title": "Restart while the XAML compiler service is warm",
-      "pending": "engine B and the WinUI compiler service (session 2 onward)",
+      "pending": "needs the WinUI compiler service (work session 5)",
       "expect": { "v1": "restart", "today": "untested" }
     },
     {
       "id": "r59-private-api-missing", "row": 59, "title": "The SDK's hot reload API fails to load (SDK 9, or a changed SDK)",
-      "pending": "engine B (session 2: api-missing on SDK 9)",
+      "pending": "runs in api-missing.json, which needs an SDK 9 install (-DotnetRoot C:\\dotnet9); it passes 2/2 there",
       "expect": { "v1": "restart", "today": "untested" }
     },
     {
       "id": "r60-loose-system-dlls", "row": 60, "title": "Helper started from a folder with loose System.*.dll",
-      "pending": "engine B's helper (session 2)",
+      "pending": "a check of winapp's own folder, covered by HotReloadCaptureTests (the CLI refuses to start the helper next to System.Runtime.dll)",
       "expect": { "v1": "error", "today": "untested" }
     },
     {

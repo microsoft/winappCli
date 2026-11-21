@@ -9,7 +9,7 @@
       "id": "r16-new-page-xaml-first", "row": 16, "title": "New page, XAML saved first",
       "file": "App/AboutPage.xaml", "op": "create-file",
       "text": [ "<?xml version=\"1.0\" encoding=\"utf-8\" ?>", "<Page x:Class=\"TodoBench.AboutPage\" xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">", "    <TextBlock x:Name=\"AboutText\" Text=\"about-v1\" />", "</Page>" ],
-      "expect": { "v1": "waiting", "today": "error" }
+      "expect": { "v1": "waiting", "today": "restart" }
     },
     {
       "id": "r16-new-page-code", "row": 16, "title": "Then its code-behind, and a button that opens it",
@@ -27,7 +27,7 @@
         { "file": "App/Badge.xaml.cs", "op": "create-file", "text": [ "using Microsoft.UI.Xaml.Controls;", "", "namespace TodoBench;", "", "public sealed partial class Badge : UserControl", "{", "    public Badge()", "    {", "        InitializeComponent();", "    }", "}" ] },
         { "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <local:ContactCard x:Name=\"Card\" />", "text": "            <local:Badge x:Name=\"NewBadge\" />" }
       ],
-      "expect": { "v1": "live", "today": "error" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "BadgeText", "value": "badge-v1" } ]
     },
     {
@@ -49,7 +49,7 @@
         { "file": "App/AboutPage.xaml", "op": "delete-file" },
         { "file": "App/AboutPage.xaml.cs", "op": "delete-file" }
       ],
-      "expect": { "v1": "live", "today": "error|restart-no-reason" },
+      "expect": { "v1": "live", "today": "restart" },
       "note": "E1 (ghost page); fallback: restart with a reason"
     },
     {

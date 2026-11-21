@@ -19,13 +19,13 @@
     {
       "id": "r41-core-body", "row": 41, "title": "Library method body (Core)",
       "file": "Core/Greeter.cs", "op": "replace", "find": "\"core-v1|\"", "text": "\"core-v2|\"",
-      "expect": { "v1": "live", "today": "applied" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-equals", "target": "Header", "value": "core-v2|data-v1" } ]
     },
     {
       "id": "r41-data-body", "row": 41, "title": "Library method body two references away (Data)",
       "file": "Data/Store.cs", "op": "replace", "find": "\"data-v1\"", "text": "\"data-v2\"",
-      "expect": { "v1": "live", "today": "applied" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-equals", "target": "Header", "value": "core-v2|data-v2" } ]
     },
     {
@@ -35,7 +35,7 @@
         { "file": "Core/Greeter.cs", "op": "insert-after", "find": "namespace Core;", "text": "\npublic static class Fmt\n{\n    public static string Wrap(string s) => $\"[{s}]\";\n}" },
         { "file": "Core/Greeter.cs", "op": "replace", "find": "return \"core-v2|\" + Data.Store.Greeting();", "text": "return Fmt.Wrap(\"core-v3\") + \"|\" + Data.Store.Greeting() + \"|\" + Data.Store.Extra();" }
       ],
-      "expect": { "v1": "live", "today": "applied" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-equals", "target": "Header", "value": "[core-v3]|data-v2|x1" } ],
       "parity": true
     },
@@ -50,13 +50,13 @@
         { "file": "Data/Store.cs", "op": "insert-after", "find": "public static class Store\n{", "text": "    public static string Tag = \"tag-v1\";\n" },
         { "file": "Core/Greeter.cs", "op": "replace", "find": "+ \"|\" + Data.Store.Extra();", "text": "+ \"|\" + Data.Store.Extra() + \"|\" + Data.Store.Tag;" }
       ],
-      "expect": { "v1": "live+note", "today": "applied" },
+      "expect": { "v1": "live+note", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-equals", "target": "Header", "value": "[core-v3]|data-v2|x1|" } ]
     },
     {
       "id": "r44-comment-in-line", "row": 44, "title": "Tracker #3 in a library: a comment edit inside a line",
       "file": "Data/Store.cs", "op": "replace", "find": "namespace Data;", "text": "namespace Data; // r44",
-      "expect": { "v1": "unchanged", "today": "unchanged" }
+      "expect": { "v1": "unchanged", "today": "restart" }
     },
     {
       "id": "r44-edit-added-method", "row": 44, "title": "Tracker #3 in a library: then edit the method added earlier",

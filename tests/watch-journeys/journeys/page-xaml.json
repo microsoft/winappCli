@@ -9,31 +9,31 @@
     {
       "id": "r01-text", "row": 1, "title": "Text, layout, attribute",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\" FontSize=\"24\"", "text": "Text=\"People\" FontSize=\"28\"",
-      "expect": { "v1": "live+note", "today": "unchanged" },
+      "expect": { "v1": "live+note", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" } ],
       "parity": true
     },
     {
       "id": "r02-xbind-add", "row": 2, "title": "x:Bind added",
       "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />", "text": "            <TextBlock x:Name=\"TitleText\" Text=\"{x:Bind Vm.Title}\" />",
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "TitleText", "value": "Team" } ]
     },
     {
       "id": "r03-xbind-missing-member", "row": 3, "title": "x:Bind to a missing member",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "{x:Bind Vm.Title}", "text": "{x:Bind Vm.Subtitle}",
-      "expect": { "v1": "error", "today": "unchanged", "reason": "Subtitle" }
+      "expect": { "v1": "error", "today": "error", "reason": "Subtitle" }
     },
     {
       "id": "r03-fix", "row": 3, "title": "x:Bind fixed again",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "{x:Bind Vm.Subtitle}", "text": "{x:Bind Vm.Title}",
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "TitleText", "value": "Team" } ]
     },
     {
       "id": "r04-xname-add", "row": 4, "title": "x:Name added",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "<StackPanel x:Name=\"DetailPanel\" Grid.Row=\"2\" Grid.Column=\"1\" Spacing=\"8\">", "text": "<StackPanel x:Name=\"DetailPanel\" Grid.Row=\"2\" Grid.Column=\"1\" Spacing=\"8\">\n            <TextBlock x:Name=\"DetailHint\" Text=\"Pick a contact\" />",
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "DetailHint", "value": "Pick a contact" } ]
     },
     {
@@ -42,53 +42,53 @@
         { "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <Button x:Name=\"LibButton\" Content=\"Lib\" Click=\"OnLib\" />", "text": "            <Button x:Name=\"ByeButton\" Content=\"Bye\" Click=\"OnBye\" />" },
         { "file": "App/ContactsPage.xaml.cs", "op": "insert-before", "find": "    private void OnSelectionChanged(", "text": "    private void OnBye(object sender, RoutedEventArgs e)\n    {\n        StatusText.Text = \"bye\";\n    }\n" }
       ],
-      "expect": { "v1": "live", "today": "applied" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "ByeButton" }, { "assert": "text-equals", "target": "StatusText", "value": "bye" } ]
     },
     {
       "id": "r07-click-before-method", "row": 7, "title": "Click= before the method exists",
       "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <Button x:Name=\"ByeButton\" Content=\"Bye\" Click=\"OnBye\" />", "text": "            <Button x:Name=\"WaveButton\" Content=\"Wave\" Click=\"OnWave\" />",
-      "expect": { "v1": "waiting", "today": "unchanged" }
+      "expect": { "v1": "waiting", "today": "error" }
     },
     {
       "id": "r07-method-added", "row": 7, "title": "Then the method",
       "file": "App/ContactsPage.xaml.cs", "op": "insert-before", "find": "    private void OnSelectionChanged(", "text": "    private void OnWave(object sender, RoutedEventArgs e)\n    {\n        StatusText.Text = \"wave\";\n    }\n",
-      "expect": { "v1": "live", "today": "applied" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "WaveButton" }, { "assert": "text-equals", "target": "StatusText", "value": "wave" } ]
     },
     {
       "id": "r08-half-typed-xml", "row": 8, "title": "Half-typed XML",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"DetailHint\" Text=\"Pick a contact\" />", "text": "<TextBlock x:Name=\"DetailHint\" Text=\"Pick a contact\" /><TextBl",
-      "expect": { "v1": "error", "today": "unchanged", "reason": "XML|xml|WMC" }
+      "expect": { "v1": "error", "today": "error", "reason": "XML|xml|WMC" }
     },
     {
       "id": "r08-fixed", "row": 8, "title": "The XML is finished",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Pick a contact\" /><TextBl", "text": "Text=\"Pick someone\" />",
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "DetailHint", "value": "Pick someone" } ]
     },
     {
       "id": "r09-runtime-value-error", "row": 9, "title": "A value only the runtime rejects (Margin=\"1,2,3,4,5\")",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"DetailHint\" Text=\"Pick someone\" />", "text": "<TextBlock x:Name=\"DetailHint\" Margin=\"1,2,3,4,5\" Text=\"Pick someone\" />",
-      "expect": { "v1": "error", "today": "unchanged", "reason": "Margin|1,2,3,4,5" }
+      "expect": { "v1": "error", "today": "restart", "reason": "Margin|1,2,3,4,5" }
     },
     {
       "id": "r09-fixed", "row": 9, "title": "The value is fixed",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Margin=\"1,2,3,4,5\"", "text": "Margin=\"0,4,0,0\"",
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "property-equals", "target": "DetailHint", "value": "Margin=0,4,0,0" } ]
     },
     {
       "id": "r10-datatemplate", "row": 10, "title": "DataTemplate with x:DataType: show the email too",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"ContactName\" Text=\"{x:Bind Name}\" />", "text": "<StackPanel>\n                        <TextBlock x:Name=\"ContactName\" Text=\"{x:Bind Name}\" />\n                        <TextBlock x:Name=\"ContactEmail\" Text=\"{x:Bind Email}\" />\n                    </StackPanel>",
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "exists", "target": "ada@contoso.com" } ],
       "parity": true
     },
     {
       "id": "r11-xname-in-template", "row": 11, "title": "An x:Name renamed with its template",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "x:Name=\"ContactEmail\"", "text": "x:Name=\"ContactMail\"",
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "exists", "target": "ada@contoso.com" } ]
     },
     {
@@ -103,13 +103,13 @@
         { "file": "App/ContactsPage.xaml", "op": "insert-before", "find": "    <Grid x:Name=\"Root\"", "text": "    <Page.Resources>\n        <Style x:Key=\"HintStyle\" TargetType=\"TextBlock\">\n            <Setter Property=\"FontSize\" Value=\"18\" />\n        </Style>\n    </Page.Resources>" },
         { "file": "App/ContactsPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"DetailHint\" Margin=\"0,4,0,0\"", "text": "<TextBlock x:Name=\"DetailHint\" Style=\"{StaticResource HintStyle}\" Margin=\"0,4,0,0\"" }
       ],
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "property-equals", "target": "DetailHint", "value": "FontSize=18" } ]
     },
     {
       "id": "r13-root-attribute", "row": 13, "title": "An attribute on the page's root",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "    xmlns:local=\"using:TodoBench\">", "text": "    xmlns:local=\"using:TodoBench\"\n    Padding=\"4\">",
-      "expect": { "v1": "live+note", "today": "unchanged" },
+      "expect": { "v1": "live+note", "today": "restart" },
       "checks": [ { "assert": "property-equals", "target": "ContactsPage", "value": "Padding=4,4,4,4" } ]
     },
     {
@@ -142,7 +142,7 @@
         { "file": "App/ContactsPage.xaml", "op": "replace", "find": "x:Name=\"StatusLabel\"", "text": "x:Name=\"StatusText\"" },
         { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "StatusLabel.Text = Greeting();", "text": "StatusText.Text = Greeting();" }
       ],
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v1" } ]
     }
   ]

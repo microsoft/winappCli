@@ -48,7 +48,7 @@
       "edits": [
         { "file": "App/Models.cs", "op": "replace", "find": "Shout(string s) => s.ToUpperInvariant();", "text": "Shout(string s, string end = \"!\") => s.ToUpperInvariant() + end;" }
       ],
-      "expect": { "v1": "live", "today": "applied" },
+      "expect": { "v1": "live", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-contains", "target": "StatusText", "value": "HELLO-V2!" } ]
     },
     {

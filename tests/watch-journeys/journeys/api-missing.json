@@ -1,0 +1,27 @@
+{
+  "id": "api-missing",
+  "title": "The SDK has no hot reload API (row 59): run with -DotnetRoot C:\\dotnet9, an SDK 9 install",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "setup": [
+    { "file": "App/TodoBench.csproj", "op": "replace", "find": "<TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>", "text": "<TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>" },
+    { "file": "Core/Core.csproj", "op": "replace", "find": "<TargetFramework>net10.0</TargetFramework>", "text": "<TargetFramework>net9.0</TargetFramework>" },
+    { "file": "Data/Data.csproj", "op": "replace", "find": "<TargetFramework>net10.0</TargetFramework>", "text": "<TargetFramework>net9.0</TargetFramework>" }
+  ],
+  "steps": [
+    {
+      "id": "r59-csharp-restarts", "row": 59, "title": "A C# save restarts and says C# hot reload isn't supported on this SDK",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"hello-v2\";",
+      "expect": { "v1": "restart", "reason": "isn't supported on \\.NET SDK 9\\.", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ],
+      "note": "on SDK 10 or 11 the API exists and the save applies live, which this step records as today's outcome there"
+    },
+    {
+      "id": "r59-csharp-restarts-again", "row": 59, "title": "Every C# save restarts, not only the first",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v2\";", "text": "return \"hello-v3\";",
+      "expect": { "v1": "restart", "reason": "isn't supported on \\.NET SDK 9\\.", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v3" } ]
+    }
+  ]
+}

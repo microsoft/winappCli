@@ -18,7 +18,7 @@
     {
       "id": "r33-edit-method", "row": 33, "title": "Edit the added method",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "Added1() => \"a1\";", "text": "Added1() => \"a2\";",
-      "expect": { "v1": "live", "today": "restart" }
+            "expect": { "v1": "live", "today": "applied" }
     },
     {
       "id": "r34-add-method", "row": 34, "title": "Add another method",
@@ -33,7 +33,7 @@
     {
       "id": "r34-edit-method", "row": 34, "title": "Edit the added method",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "Added2() => \"b1\";", "text": "Added2() => \"b2\";",
-      "expect": { "v1": "live", "today": "restart" }
+            "expect": { "v1": "live", "today": "applied" }
     },
     {
       "id": "r34-xaml-between-add", "row": 34, "title": "Add a method, then a .xaml save",
@@ -43,7 +43,8 @@
     {
       "id": "r34-xaml-save", "row": 34, "title": "(the .xaml save)",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"ready\"", "text": "Text=\"steady\"",
-      "expect": { "v1": "live+note", "today": "unchanged" }
+            "expect": { "v1": "live+note", "today": "restart" },
+            "note": "engine B on stock WinUI restarts on a XAML save, with a reason; live XAML needs the WinUI runtime hook"
     },
     {
       "id": "r34-xaml-then-edit", "row": 34, "title": "Then edit the added method",

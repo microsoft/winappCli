@@ -46,7 +46,7 @@
         { "file": "App/Models.cs", "op": "replace", "find": "public sealed partial class Contact\n{\n    public string Name { get; set; } = \"\";\n    public string Email { get; set; } = \"\";\n}\n", "text": "" },
         { "file": "App/Contact.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "public sealed partial class Contact", "{", "    public string Name { get; set; } = \"\";", "    public string Email { get; set; } = \"\";", "}" ] }
       ],
-      "expect": { "v1": "live", "today": "restart-no-reason" },
+      "expect": { "v1": "live", "today": "applied" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "burst-5" } ],
       "note": "last on purpose: it adds a file, and on dotnet watch a project reload can fail and stop the session"
     }

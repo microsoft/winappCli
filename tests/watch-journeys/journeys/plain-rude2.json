@@ -8,13 +8,13 @@
     {
       "id": "p1-xaml-text", "row": 1, "title": "Change a page's text",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\"", "text": "Text=\"People\"",
-      "expect": { "v1": "live+note", "today": "unchanged" },
+      "expect": { "v1": "live+note", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" } ]
     },
     {
       "id": "p2-rude-unseal", "row": 57, "title": "Then a rude edit: unseal the page class",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "public sealed partial class ContactsPage", "text": "public partial class ContactsPage",
-      "expect": { "v1": "restart", "today": "restart-no-reason" },
+      "expect": { "v1": "restart", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" } ]
     }
   ]

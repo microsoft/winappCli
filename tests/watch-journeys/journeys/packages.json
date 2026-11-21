@@ -8,7 +8,14 @@
     {
       "id": "r38-add-package", "row": 38, "title": "Add a NuGet package",
       "file": "App/TodoBench.csproj", "op": "replace", "find": "    <ProjectReference Include=\"..\\Core\\Core.csproj\" />", "text": "    <ProjectReference Include=\"..\\Core\\Core.csproj\" />\n    <PackageReference Include=\"CommunityToolkit.WinUI.Controls.Segmented\" Version=\"8.2.250402\" />",
-      "expect": { "v1": "live", "today": "error" }
+      "expect": { "v1": "live", "today": "error" },
+      "note": "on Windows App SDK 2.7.0 this package doesn't build: it pulls in the 1.6 metapackage next to the 2.7.0 split packages (MSB4011, then the MSIX build tools error); engine B reports the build error and leaves the app running. On 2.3.1 the add and the C# use applied live"
+    },
+    {
+      "id": "r38-use-it-from-csharp-live", "row": 38, "title": "Use the new package from C# in the running app (before any restart)",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        CountText.Text = $\"clicks {_clicks}\";", "text": "        CountText.Text = $\"clicks {_clicks} \" + typeof(CommunityToolkit.WinUI.Controls.Segmented).Name;",
+      "expect": { "v1": "live", "today": "error" },
+      "checks": [ { "assert": "invoke", "target": "CountButton" }, { "assert": "text-equals", "target": "CountText", "value": "clicks 1 Segmented" } ]
     },
     {
       "id": "r38-use-its-control", "row": 38, "title": "Use its control",
@@ -16,13 +23,13 @@
         { "file": "App/ContactsPage.xaml", "op": "replace", "find": "    xmlns:local=\"using:TodoBench\">", "text": "    xmlns:local=\"using:TodoBench\"\n    xmlns:toolkit=\"using:CommunityToolkit.WinUI.Controls\">" },
         { "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <local:ContactCard x:Name=\"Card\" />", "text": "            <toolkit:Segmented x:Name=\"Picker\"><toolkit:SegmentedItem Content=\"One\" /><toolkit:SegmentedItem Content=\"Two\" /></toolkit:Segmented>" }
       ],
-      "expect": { "v1": "live", "today": "restart|stuck" },
+      "expect": { "v1": "live", "today": "error" },
       "checks": [ { "assert": "exists", "target": "Picker" } ]
     },
     {
       "id": "r38-use-it-from-csharp", "row": 38, "title": "Use the package from C#",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        StatusText.Text = Greeting();", "text": "        StatusText.Text = Greeting() + \" \" + typeof(CommunityToolkit.WinUI.Controls.Segmented).Name;",
-      "expect": { "v1": "live", "today": "error|ignored" },
+      "expect": { "v1": "live", "today": "error" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v1 Segmented" } ]
     },
     {
@@ -36,7 +43,7 @@
         { "file": "Extra/Extra.csproj", "op": "create-file", "text": [ "<Project Sdk=\"Microsoft.NET.Sdk\">", "  <PropertyGroup>", "    <TargetFramework>net10.0</TargetFramework>", "  </PropertyGroup>", "</Project>" ] },
         { "file": "Extra/Extra.cs", "op": "create-file", "text": [ "namespace Extra;", "", "public static class Info", "{", "    public static string Name => \"extra-v1\";", "}" ] },
         { "file": "App/TodoBench.csproj", "op": "replace", "find": "    <ProjectReference Include=\"..\\Core\\Core.csproj\" />", "text": "    <ProjectReference Include=\"..\\Core\\Core.csproj\" />\n    <ProjectReference Include=\"..\\Extra\\Extra.csproj\" />\n    <PackageReference Include=\"CommunityToolkit.WinUI.Controls.Segmented\" Version=\"8.2.250402\" />" },
-        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "typeof(CommunityToolkit.WinUI.Controls.Segmented).Name;", "text": "Extra.Info.Name;" }
+        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "Greeting() + \" \" + typeof(CommunityToolkit.WinUI.Controls.Segmented).Name;", "text": "Greeting() + \" \" + Extra.Info.Name;" }
       ],
       "expect": { "v1": "live", "today": "restart|error" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v1 extra-v1" } ],
