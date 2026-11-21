@@ -227,7 +227,7 @@ week is exactly when an external policy change slips in unnoticed.
 | Failing step | Usually means |
 |---|---|
 | Build CLI | An internal feed, package or SDK dependency changed, or a real code break. Compare against the last green CI run. |
-| A test job (`CLI tests`, `UI Automation tests`, `Node, analyzer and Pester tests`, `DevTools native tests`) | A test failed. Its `.trx` results are in that job's `test-results-<lane>-<attempt>` artifact. Compare against the same lane on GitHub Actions. |
+| A test job (`CLI tests`, `UI Automation tests`, `Node, analyzer and Pester tests`, `DevTools native tests`) | A test failed. Read the job log. Test reports (`.trx`, and Pester `.xml`) are in that job's `test-results-<lane>-<attempt>` artifact. Compare against the same lane on GitHub Actions. |
 | Replace Stubbed Files | The internal telemetry package or its feed permissions changed. CI does not run this. |
 | Generate Release Notes | `GITHUB_TOKEN_2` expired or lost access. Cannot fail the build — it falls back to a git-log changelog. |
 | `Preflight - assert asset name contract` | Package naming changed, or an architecture stopped building. Fix `templates/release-assets.yaml` — `Release_GitHub` uses the same copy. Note this gate is **not** rehearsal-only; it fails real releases too, by design. |
