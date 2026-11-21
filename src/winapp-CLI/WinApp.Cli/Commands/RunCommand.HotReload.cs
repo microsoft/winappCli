@@ -17,6 +17,8 @@ internal partial class RunCommand
     {
         private const int HelperRestartExitCode = 3;
 
+        private readonly HashSet<string> watchNotes = new(StringComparer.Ordinal);
+
         /// <summary>
         /// <c>winapp run --watch</c> for a WinUI app with XAML pages (engine B): launches the app the way a DevTools run
         /// does, starts the hot reload helper next to it, and prints the helper's one line per save. When a save needs a
@@ -146,6 +148,11 @@ internal partial class RunCommand
 
         private void PrintWatchLine(string line)
         {
+            // A note about the whole session (C# hot reload unsupported on this SDK) is said once, not after every restart.
+            if (line.StartsWith("[watch] note:", StringComparison.Ordinal) && !watchNotes.Add(line))
+            {
+                return;
+            }
             if (Console.IsOutputRedirected)
             {
                 // For tools that read the output: one line per outcome, never wrapped.
