@@ -101,11 +101,13 @@ internal sealed class RoslynEngine : ICSharpEngine
         }
 
         var updates = await UpdatesAsync(cancellationToken).ConfigureAwait(false);
+        var ghosted = new List<string>();
         if (updates is not null && updates.Errors.Count == 0 && (updates.RudeEdits.Count > 0 || updates.NeedsRestart) && deleted.Count > 0)
         {
             // A loaded type can't be removed. Once the rest compiles without a deleted file, its code stays for the session.
             _api.Discard();
             await KeepAsGhostsAsync(deleted, cancellationToken).ConfigureAwait(false);
+            ghosted.AddRange(deleted.Select(path => $"{Path.GetRelativePath(_graph.ProjectDirectory, path)} was deleted; its code stays in the running app until it restarts"));
             updates = await UpdatesAsync(cancellationToken).ConfigureAwait(false);
         }
         if (updates is { Errors.Count: > 0 } && updates.Errors.All(d => d.Id == "CS9346"))
@@ -133,7 +135,9 @@ internal sealed class RoslynEngine : ICSharpEngine
                 _api.Discard();
             }
             _committed = _solution;
-            return new CSharpResult(referencesChanged ? CSharpOutcome.Applied : CSharpOutcome.Unchanged);
+            return referencesChanged || ghosted.Count > 0
+                ? new CSharpResult(CSharpOutcome.Applied, ghosted.Count > 0 ? string.Join(Environment.NewLine, ghosted) : null)
+                : new CSharpResult(CSharpOutcome.Unchanged);
         }
         // Errors the runtime raises (ENC IDs) mean the code is valid but can't go into the running app.
         var restartErrors = updates.Errors.Where(d => d.Id.StartsWith("ENC", StringComparison.Ordinal)).ToList();
@@ -152,7 +156,7 @@ internal sealed class RoslynEngine : ICSharpEngine
             _api.Discard();
             return stale;
         }
-        var notes = await NotesAsync(cancellationToken).ConfigureAwait(false);
+        var notes = (await NotesAsync(cancellationToken).ConfigureAwait(false)).Concat(ghosted).ToList();
 
         HotReloadResponse response;
         try
