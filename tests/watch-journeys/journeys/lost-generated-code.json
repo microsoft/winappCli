@@ -1,0 +1,43 @@
+{
+  "id": "lost-generated-code",
+  "title": "C# edits to a page after its XAML changed (the XAML compiler's generated code must stay in the compilation)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "steps": [
+    {
+      "id": "g1-csharp", "row": 28, "title": "A C# edit to the page's code-behind",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"hello-v2\";",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ]
+    },
+    {
+      "id": "g2-xaml-adds-binding", "row": 2, "title": "XAML: add a TextBlock with x:Name and x:Bind",
+      "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />", "text": "            <TextBlock x:Name=\"TitleText\" Text=\"{x:Bind Vm.Title}\" />",
+      "expect": { "v1": "live", "today": "unchanged" },
+      "checks": [ { "assert": "text-equals", "target": "TitleText", "value": "Team" } ]
+    },
+    {
+      "id": "g3-csharp-after-xaml", "row": 2, "title": "Then a C# edit to the same page: its x:Name fields must still compile",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v2\";", "text": "return \"hello-v3\";",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v3" } ]
+    },
+    {
+      "id": "g4-three-writes", "row": 28, "title": "One save, three writes: a new class, a line that uses a field not added yet, then the field",
+      "edits": [
+        { "file": "App/Models.cs", "op": "insert-after", "find": "namespace TodoBench;", "text": "\ninternal static class Extras\n{\n    public static string Shout(string s) => s.ToUpperInvariant();\n}" },
+        { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        StatusText.Text = Greeting();", "text": "        _hellos++;\n        StatusText.Text = Extras.Shout(Greeting()) + \" \" + _hellos;" },
+        { "file": "App/ContactsPage.xaml.cs", "op": "insert-after", "find": "    private int _clicks;", "text": "    private int _hellos;" }
+      ],
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "HELLO-V3 1" } ]
+    },
+    {
+      "id": "g5-csharp-again", "row": 28, "title": "One more C# edit to the page",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v3\";", "text": "return \"hello-v4\";",
+      "expect": { "v1": "live", "today": "applied" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "HELLO-V4 2" } ]
+    }
+  ]
+}

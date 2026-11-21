@@ -1,33 +1,33 @@
 {
   "id": "rename-6files",
-  "title": "An editor's rename of a method used in 6 files, while the app keeps calling it (row 36)",
+  "title": "An editor's rename of a method used in 6 files, 400 ms apart, while a timer keeps calling it (row 36)",
   "app": "winui",
   "project": "App",
   "process": "TodoBench",
   "setup": [
-    { "file": "App/Tagger.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "internal static class Tagger", "{", "    public static string Tag(string s) => $\"#{s}\";", "}" ] },
-    { "file": "App/Use1.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "internal static class Use1", "{", "    public static string Go() => Tagger.Tag(\"1\") + Use2.Go();", "}" ] },
-    { "file": "App/Use2.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "internal static class Use2", "{", "    public static string Go() => Tagger.Tag(\"2\") + Use3.Go();", "}" ] },
-    { "file": "App/Use3.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "internal static class Use3", "{", "    public static string Go() => Tagger.Tag(\"3\") + Use4.Go();", "}" ] },
-    { "file": "App/Use4.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "internal static class Use4", "{", "    public static string Go() => Tagger.Tag(\"4\") + Use5.Go();", "}" ] },
-    { "file": "App/Use5.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "internal static class Use5", "{", "    public static string Go() => Tagger.Tag(\"5\");", "}" ] },
-    { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        InitializeComponent();\n    }", "text": "        InitializeComponent();\n        var timer = DispatcherQueue.CreateTimer();\n        timer.Interval = TimeSpan.FromMilliseconds(100);\n        timer.Tick += (_, _) => StatusText.Text = Use1.Go();\n        timer.Start();\n    }" }
+    { "file": "App/Rename/Tagger.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class Tagger", "{", "    public static string Tag() => \"t\";", "}" ] },
+    { "file": "App/Rename/RenA.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenA", "{", "    public static string V() => Tagger.Tag() + \"a\";", "}" ] },
+    { "file": "App/Rename/RenB.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenB", "{", "    public static string V() => Tagger.Tag() + \"b\";", "}" ] },
+    { "file": "App/Rename/RenC.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenC", "{", "    public static string V() => Tagger.Tag() + \"c\";", "}" ] },
+    { "file": "App/Rename/RenD.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenD", "{", "    public static string V() => Tagger.Tag() + \"d\";", "}" ] },
+    { "file": "App/Rename/RenE.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenE", "{", "    public static string V() => Tagger.Tag() + \"e\";", "}" ] },
+    { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        InitializeComponent();\n    }", "text": "        InitializeComponent();\n        var ticks = 0;\n        var timer = DispatcherQueue.CreateTimer();\n        timer.Interval = TimeSpan.FromMilliseconds(250);\n        timer.Tick += (_, _) =>\n        {\n            string ren;\n            try { ren = Rename.RenA.V() + Rename.RenB.V() + Rename.RenC.V() + Rename.RenD.V() + Rename.RenE.V(); }\n            catch (Exception ex) { ren = \"ERR \" + ex.GetType().Name; }\n            StatusText.Text = $\"ticks={++ticks} ren={ren}\";\n        };\n        timer.Start();\n    }" }
   ],
   "steps": [
     {
-      "id": "r36-rename-400ms", "row": 36, "title": "Rename Tag to Mark in 6 files, 400 ms apart",
+      "id": "r36-rename-400ms", "row": 36, "title": "Rename Tag to Mark: the declaring file, then its 5 callers, 400 ms apart",
       "delayMs": 400,
       "edits": [
-        { "file": "App/Tagger.cs", "op": "replace", "find": "string Tag(", "text": "string Mark(" },
-        { "file": "App/Use1.cs", "op": "replace", "find": "Tagger.Tag(", "text": "Tagger.Mark(" },
-        { "file": "App/Use2.cs", "op": "replace", "find": "Tagger.Tag(", "text": "Tagger.Mark(" },
-        { "file": "App/Use3.cs", "op": "replace", "find": "Tagger.Tag(", "text": "Tagger.Mark(" },
-        { "file": "App/Use4.cs", "op": "replace", "find": "Tagger.Tag(", "text": "Tagger.Mark(" },
-        { "file": "App/Use5.cs", "op": "replace", "find": "Tagger.Tag(", "text": "Tagger.Mark(" }
+        { "file": "App/Rename/Tagger.cs", "op": "replace", "find": "Tag()", "text": "Mark()" },
+        { "file": "App/Rename/RenA.cs", "op": "replace", "find": "Tagger.Tag()", "text": "Tagger.Mark()" },
+        { "file": "App/Rename/RenB.cs", "op": "replace", "find": "Tagger.Tag()", "text": "Tagger.Mark()" },
+        { "file": "App/Rename/RenC.cs", "op": "replace", "find": "Tagger.Tag()", "text": "Tagger.Mark()" },
+        { "file": "App/Rename/RenD.cs", "op": "replace", "find": "Tagger.Tag()", "text": "Tagger.Mark()" },
+        { "file": "App/Rename/RenE.cs", "op": "replace", "find": "Tagger.Tag()", "text": "Tagger.Mark()" }
       ],
-      "expect": { "v1": "live", "today": "applied" },
-      "checks": [ { "assert": "invoke", "target": "CountButton" }, { "assert": "text-equals", "target": "CountText", "value": "clicks 1" } ],
-      "note": "tracker #11 (the rename freeze) has not reproduced with this app: the app keeps responding"
+      "expect": { "v1": "live", "today": "timeout|applied" },
+      "checks": [ { "assert": "text-changes", "target": "StatusText" }, { "assert": "text-contains", "target": "StatusText", "value": "ren=tatbtctdte" } ],
+      "note": "tracker #11: on dotnet watch the deleted Tag() runs between batches and the UI freezes; the outcome is then a timeout"
     }
   ]
 }

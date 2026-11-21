@@ -49,7 +49,7 @@
         { "file": "App/AboutPage.xaml", "op": "delete-file" },
         { "file": "App/AboutPage.xaml.cs", "op": "delete-file" }
       ],
-      "expect": { "v1": "live", "today": "error" },
+      "expect": { "v1": "live", "today": "error|restart-no-reason" },
       "note": "E1 (ghost page); fallback: restart with a reason"
     },
     {

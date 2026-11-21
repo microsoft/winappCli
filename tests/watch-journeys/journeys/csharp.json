@@ -25,13 +25,13 @@
         { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        StatusText.Text = Greeting();", "text": "        _hellos++;\n        StatusText.Text = Extras.Shout(Greeting()) + \" \" + _hellos;" },
         { "file": "App/ContactsPage.xaml.cs", "op": "insert-after", "find": "    private int _clicks;", "text": "    private int _hellos;" }
       ],
-      "expect": { "v1": "live", "today": "error" },
+      "expect": { "v1": "live", "today": "applied" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "HELLO-V2 1" } ]
     },
     {
       "id": "r29-code-that-ran", "row": 29, "title": "Edit code that already ran (the constructor)",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        InitializeComponent();\n    }", "text": "        InitializeComponent();\n        CountText.Text = \"from-constructor\";\n    }",
-      "expect": { "v1": "live+note", "today": "error" }
+      "expect": { "v1": "live+note", "today": "applied" }
     },
     {
       "id": "r30-new-static-initializer", "row": 30, "title": "New static field with an initializer",
@@ -39,7 +39,7 @@
         { "file": "App/ContactsPage.xaml.cs", "op": "insert-after", "find": "    private int _hellos;", "text": "    private static string s_prefix = \"pre:\";" },
         { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "StatusText.Text = Extras.Shout(Greeting())", "text": "StatusText.Text = s_prefix + Extras.Shout(Greeting())" }
       ],
-      "expect": { "v1": "live+note", "today": "error" },
+      "expect": { "v1": "live+note", "today": "applied" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-contains", "target": "StatusText", "value": "HELLO-V2" } ],
       "note": "D4: the note says the field starts at its default until restart"
     },
@@ -48,7 +48,7 @@
       "edits": [
         { "file": "App/Models.cs", "op": "replace", "find": "Shout(string s) => s.ToUpperInvariant();", "text": "Shout(string s, string end = \"!\") => s.ToUpperInvariant() + end;" }
       ],
-      "expect": { "v1": "live", "today": "error" },
+      "expect": { "v1": "live", "today": "applied" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-contains", "target": "StatusText", "value": "HELLO-V2!" } ]
     },
     {
