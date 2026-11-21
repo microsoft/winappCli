@@ -147,6 +147,12 @@ internal sealed class RoslynEngine : ICSharpEngine
             _api.Discard();
             return CSharpResult.Restart(restartErrors.Concat(updates.RudeEdits).Select(Format).FirstOrDefault() ?? "the change can't be applied to the running app");
         }
+        if (await StaleCallerAsync(cancellationToken).ConfigureAwait(false) is { } stale)
+        {
+            _api.Discard();
+            return stale;
+        }
+        var notes = await NotesAsync(cancellationToken).ConfigureAwait(false);
 
         HotReloadResponse response;
         try
@@ -169,7 +175,99 @@ internal sealed class RoslynEngine : ICSharpEngine
         }
         _api.Commit();
         _committed = _solution;
-        return new CSharpResult(CSharpOutcome.Applied, ChangedTypes: response.UpdatedTypes);
+        return new CSharpResult(CSharpOutcome.Applied, notes.Count > 0 ? string.Join(Environment.NewLine, notes) : null, response.UpdatedTypes);
+    }
+
+    /// <summary>
+    /// A method whose signature changed (or that was removed) is replaced in the running app by one that throws, and
+    /// .NET only recompiles the files saved. A caller in another file would still call the old one, so it restarts,
+    /// or, when the caller no longer compiles, it's the build error.
+    /// </summary>
+    private async Task<CSharpResult?> StaleCallerAsync(CancellationToken cancellationToken)
+    {
+        var oldProject = _committed.GetProject(_projectId)!;
+        var changes = Project.GetChanges(oldProject);
+        var saved = changes.GetChangedDocuments().Concat(changes.GetRemovedDocuments()).ToHashSet();
+        var before = (await oldProject.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+        var after = (await Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+        foreach (var id in changes.GetChangedDocuments())
+        {
+            var tree = await oldProject.GetDocument(id)!.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+            var model = before.GetSemanticModel(tree!);
+            foreach (var declaration in tree!.GetRoot(cancellationToken).DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.BaseMethodDeclarationSyntax>())
+            {
+                if (model.GetDeclaredSymbol(declaration, cancellationToken) is not IMethodSymbol method ||
+                    DocumentationCommentId.CreateDeclarationId(method) is not { } signature ||
+                    DocumentationCommentId.GetFirstSymbolForDeclarationId(signature, after) is not null)
+                {
+                    continue;
+                }
+                var callers = await Microsoft.CodeAnalysis.FindSymbols.SymbolFinder.FindReferencesAsync(method, _committed, cancellationToken).ConfigureAwait(false);
+                var outside = callers.SelectMany(r => r.Locations).Where(l => !saved.Contains(l.Document.Id)).ToList();
+                if (outside.Count == 0)
+                {
+                    continue;
+                }
+                var caller = outside[0];
+                var callerTree = after.SyntaxTrees.FirstOrDefault(t => SamePath(t.FilePath, caller.Document.FilePath!));
+                if (callerTree is not null && after.GetSemanticModel(callerTree).GetDiagnostics(cancellationToken: cancellationToken)
+                    .FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error) is { } error)
+                {
+                    return CSharpResult.Error(Format(error));
+                }
+                var span = caller.Location.GetLineSpan();
+                return CSharpResult.Restart($"{Path.GetRelativePath(_graph.ProjectDirectory, span.Path)}({span.StartLinePosition.Line + 1},{span.StartLinePosition.Character + 1}): " +
+                    $"calls {method.Name} as it was before this save, and .NET can't update a caller in a file that wasn't saved; it takes effect when the app restarts");
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// What an applied update leaves different from a restart (decision D4): code that already ran doesn't run again.
+    /// A new static field keeps its default until a restart; objects that exist keep what their constructor did.
+    /// </summary>
+    private async Task<List<string>> NotesAsync(CancellationToken cancellationToken)
+    {
+        var notes = new List<string>();
+        var oldProject = _committed.GetProject(_projectId)!;
+        var before = (await oldProject.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+        var after = (await Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+        foreach (var id in Project.GetChanges(oldProject).GetChangedDocuments())
+        {
+            var oldTree = (await oldProject.GetDocument(id)!.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false))!;
+            var newTree = (await Project.GetDocument(id)!.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false))!;
+            var model = after.GetSemanticModel(newTree);
+            foreach (var type in newTree.GetRoot(cancellationToken).DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax>())
+            {
+                if (model.GetDeclaredSymbol(type, cancellationToken) is not INamedTypeSymbol symbol ||
+                    before.GetTypeByMetadataName(symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "")) is not { } existing)
+                {
+                    continue;
+                }
+                foreach (var field in symbol.GetMembers().OfType<IFieldSymbol>().Where(f => existing.GetMembers(f.Name).IsEmpty && !f.IsConst && !f.IsImplicitlyDeclared))
+                {
+                    var hasInitializer = field.DeclaringSyntaxReferences.Any(r => r.GetSyntax(cancellationToken) is Microsoft.CodeAnalysis.CSharp.Syntax.VariableDeclaratorSyntax { Initializer: not null });
+                    if (hasInitializer)
+                    {
+                        notes.Add(field.IsStatic
+                            ? $"{symbol.Name}.{field.Name} starts at its default until the app restarts (its initializer runs when the class first loads)"
+                            : $"{symbol.Name}.{field.Name} starts at its default in objects created before this save");
+                    }
+                }
+                var oldType = oldTree.GetRoot(cancellationToken).DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax>()
+                    .FirstOrDefault(t => t.Identifier.ValueText == type.Identifier.ValueText);
+                var oldConstructors = oldType?.Members.OfType<Microsoft.CodeAnalysis.CSharp.Syntax.ConstructorDeclarationSyntax>().ToList() ?? [];
+                foreach (var constructor in oldType is null ? [] : type.Members.OfType<Microsoft.CodeAnalysis.CSharp.Syntax.ConstructorDeclarationSyntax>()
+                    .Where(c => !oldConstructors.Any(o => Microsoft.CodeAnalysis.CSharp.SyntaxFactory.AreEquivalent(o, c))))
+                {
+                    notes.Add(constructor.Modifiers.Any(m => m.ValueText == "static")
+                        ? $"{symbol.Name}'s static constructor changed: it already ran, and runs again when the app restarts"
+                        : $"{symbol.Name}'s constructor changed: objects created before this save don't run it again");
+                }
+            }
+        }
+        return [.. notes.Distinct()];
     }
 
     public async Task<byte[]> AppImageAsync(CancellationToken cancellationToken)

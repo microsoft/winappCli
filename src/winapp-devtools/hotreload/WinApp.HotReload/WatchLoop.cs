@@ -105,6 +105,10 @@ internal sealed class WatchLoop : IDisposable
                     }
                 }
                 Console.WriteLine($"[watch] {result.Outcome.ToString().ToLowerInvariant()} {result.Detail} ({clock.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} s)");
+                foreach (var note in result.Notes ?? [])
+                {
+                    Console.WriteLine($"  note: {note}");
+                }
                 if (result.Outcome == Outcome.Restart)
                 {
                     return RestartExitCode;

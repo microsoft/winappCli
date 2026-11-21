@@ -8,7 +8,7 @@ namespace WinApp.HotReload;
 
 internal enum Outcome { Applied, Unchanged, Waiting, Error, Restart }
 
-internal sealed record SaveResult(Outcome Outcome, string Detail);
+internal sealed record SaveResult(Outcome Outcome, string Detail, IReadOnlyList<string>? Notes = null);
 
 /// <summary>
 /// One save, end to end. Until the XAML layer arrives, a XAML save restarts the app with a reason (live XAML needs
@@ -39,7 +39,7 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph)
         var names = string.Join(", ", files.Select(Relative));
         return result.Outcome switch
         {
-            CSharpOutcome.Applied => new SaveResult(Outcome.Applied, names),
+            CSharpOutcome.Applied => new SaveResult(Outcome.Applied, names, result.Detail?.Split(Environment.NewLine)),
             CSharpOutcome.Unchanged => new SaveResult(Outcome.Unchanged, names),
             CSharpOutcome.Error => new SaveResult(Outcome.Error, result.Detail!),
             _ => new SaveResult(Outcome.Restart, result.Detail!),
