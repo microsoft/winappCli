@@ -168,6 +168,11 @@ If it matches more than one element across those two identities, the command
 fails and lists selectors to use instead. When more than one app has DevTools,
 add `-a <pid, name or title>`.
 
+`winapp devtools get-property MyText FontSize` can show `26 [Default or inherited]`.
+WinUI does not distinguish the default font size from an inherited one in this case.
+The value is the effective font size; the label does not identify which parent supplied it.
+In JSON, `source` carries this label while `valueSource` remains the runtime's `Default`.
+
 `inspect` and `search` show where each element is declared, such as
 `MainWindow.xaml:37`, when DevTools can confirm it against your source. They show your
 own XAML and Reactor code; add `--all` for framework and control-template elements. `search` matches

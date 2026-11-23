@@ -1078,6 +1078,37 @@ public class DevToolsJsonParityTests
     }
 
     [TestMethod]
+    [DataRow("Default", "Default or inherited", false)]
+    [DataRow("Local", "Local", true)]
+    public async Task GetProperty_QualifiedFontSizeOrigin_PreservesRawSourceAndFiltering(
+        string valueSource, string origin, bool isSet)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Property.get", JsonSerializer.Serialize(new
+            {
+                handle = "42",
+                props = new[] { new { name = "FontSize", value = "26", valueType = "Double", valueSource, origin, writeType = "Double" } },
+            }));
+
+        var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent, ["42", "-p", "FontSize", "--json"]);
+
+        Assert.AreEqual(0, exit, output);
+        using var doc = JsonDocument.Parse(output);
+        var row = doc.RootElement.GetProperty("properties")[0];
+        Assert.AreEqual(origin, row.GetProperty("source").GetString());
+        Assert.AreEqual(valueSource, row.GetProperty("valueSource").GetString());
+        Assert.AreEqual(isSet, row.GetProperty("isSet").GetBoolean());
+        Assert.AreEqual("26", row.GetProperty("value").GetString());
+        Assert.AreEqual("Double", row.GetProperty("writeType").GetString());
+
+        var (compactExit, compactOutput) = await RunAsync(new DevToolsGetPropertyCommand(), agent, ["42", "--json"]);
+        Assert.AreEqual(0, compactExit, compactOutput);
+        using var compact = JsonDocument.Parse(compactOutput);
+        Assert.AreEqual(isSet ? 1 : 0, compact.RootElement.GetProperty("count").GetInt32());
+    }
+
+    [TestMethod]
     public async Task GetProperty_Json_ChainUsesTheSameLocationFieldsAsGetSource()
     {
         var root = Directory.CreateTempSubdirectory("winapp-chain-");
