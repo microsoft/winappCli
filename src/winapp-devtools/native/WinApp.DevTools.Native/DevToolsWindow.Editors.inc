@@ -249,6 +249,13 @@ static bool ColorPickerApplies(bool escaped, const std::wstring& chosen, const s
     return !escaped && _wcsicmp(chosen.c_str(), shown.c_str()) != 0;
 }
 
+// A picker closing after the selection moved must not touch its hex box: the row may have been reused for another
+// property, and the box now shows that property's value.
+static bool ColorPickerTargetLive(const LostFocusSink& commit)
+{
+    return !commit.retired && !commit.detached && commit.selWire == g_selWire;
+}
+
 struct KindKeySink : KindEditorSink
 {
     HRESULT Run(const KindCtx& ctx, void* args) override
@@ -1136,7 +1143,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                                 if (GetKeyState(VK_ESCAPE) & 0x8000) *escaped = true;
                             });
                             flyout.Closed([picker, hex, commit, gen, escaped](auto&&, auto&&) {
-                                if (gen != g_route1Gen) return;
+                                if (gen != g_route1Gen || !ColorPickerTargetLive(*commit)) return;
                                 const auto c = picker.Color();
                                 wchar_t chosen[10];
                                 swprintf_s(chosen, L"#%02X%02X%02X%02X", c.A, c.R, c.G, c.B);

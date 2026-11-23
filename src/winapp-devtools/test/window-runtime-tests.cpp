@@ -1572,6 +1572,19 @@ int main()
         !ColorPickerApplies(false,L"#ff000000",L"#FF000000"),
         "Esc on the color picker cancels; closing it any other way applies a changed color");
     {
+        // A picker opened on one element closes after the selection moved; its row may now show another property.
+        const InstanceHandle savedSel = g_selWire;
+        g_selWire = 500;
+        TestElement hexBox;
+        LostFocusSink pickerCommit; pickerCommit.Init(500, L"Background", L"Brush", L"#FF000000", &hexBox);
+        check(ColorPickerTargetLive(pickerCommit), "a picker closing on the same element applies its color");
+        pickerCommit.Detach();
+        g_selWire = 501;
+        check(!ColorPickerTargetLive(pickerCommit),
+            "a picker closing after the selection moved leaves the reused hex box alone");
+        g_selWire = savedSel;
+    }
+    {
         // The selected element is live: a change the app makes updates only the rows that differ, an edit in
         // progress is not replaced, and a change to an open row or a property the pane does not list rebuilds it.
         using namespace DevToolsLiveRows;
