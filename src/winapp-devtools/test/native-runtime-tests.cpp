@@ -730,6 +730,7 @@ static void CheckEffectiveValues(const std::function<void(bool,const char*)>& ch
         g_vts3 = &tree;
         for (const auto* declaringType : {L"Microsoft.UI.Xaml.Controls.TextBlock",
                 L"Microsoft.UI.Xaml.Controls.RichTextBlock", L"Microsoft.UI.Xaml.Controls.Control",
+                L"Microsoft.UI.Xaml.Controls.ContentPresenter",
                 L"Example.CustomControl", L""}) {
             tree.declaringType = declaringType;
             const bool mayInherit = tree.declaringType.rfind(L"Microsoft.UI.Xaml.Controls.", 0) == 0;
@@ -756,7 +757,7 @@ static void CheckEffectiveValues(const std::function<void(bool,const char*)>& ch
                         prop.writeType == L"Double",
                         "FontSize keeps its raw source and write capability");
                     const auto card = ToCardRow(prop);
-                    check(card.source == prop.source && card.defaultMayBeInherited == mayInherit &&
+                    check(card.source == prop.source &&
                         card.chain.size() == 4 && card.chain[0].source == expected &&
                         card.chain[1].source == L"Default",
                         "inspector keeps raw source and qualifies only the winning chain entry");

@@ -278,7 +278,6 @@ struct DevToolsCardRow
     std::wstring editKind;
     std::vector<DevToolsCardChainEntry> chain;
     std::vector<DevToolsCardRow> children;
-    bool defaultMayBeInherited = false;
 };
 
 // Reads a live target IInspectable owned by the caller.

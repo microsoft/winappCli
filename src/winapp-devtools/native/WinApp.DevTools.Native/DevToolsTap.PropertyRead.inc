@@ -526,6 +526,7 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
             prop.defaultMayBeInherited = name == L"FontSize" &&
                 (owner == L"Microsoft.UI.Xaml.Controls.TextBlock" ||
                  owner == L"Microsoft.UI.Xaml.Controls.RichTextBlock" ||
+                 owner == L"Microsoft.UI.Xaml.Controls.ContentPresenter" ||
                  owner == L"Microsoft.UI.Xaml.Controls.Control");
 
             if (isBinding)     prop.valueState = L"binding";

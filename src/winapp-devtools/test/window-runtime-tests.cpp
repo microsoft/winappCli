@@ -696,22 +696,6 @@ int main()
         check(BuildCommentsFragment({}, open).find(L"No comments for this app yet") != std::wstring::npos,
               "a project with no comments at all still says there are none");
     }
-    {
-        DevToolsCardRow font;
-        font.name = L"FontSize"; font.source = L"Default"; font.defaultMayBeInherited = true;
-        check(OriginLabel(font) == L"Default or inherited" &&
-            OriginTooltip(font).find(L"does not distinguish") != std::wstring::npos,
-            "the FontSize pill and tooltip do not claim a type default");
-        auto fresh = font;
-        fresh.source = L"Local";
-        OverlayLiveValues(font, fresh);
-        check(OriginLabel(font) == L"Local", "a live font override no longer shows uncertain provenance");
-        fresh.source = L"Default";
-        OverlayLiveValues(font, fresh);
-        check(OriginLabel(font) == L"Default or inherited", "clearing a font override restores the qualified label");
-        font.defaultMayBeInherited = false;
-        check(OriginLabel(font) == L"Default", "other default properties retain their label");
-    }
     std::map<InstanceHandle,std::wstring> values{{77,L"True"},{88,L"True"}};
     DevToolsCardRow row;
     row.name=L"IsEnabled";row.type=L"Boolean";row.valueType=L"Windows.Foundation.Boolean";

@@ -284,7 +284,6 @@ static DevToolsCardRow ToCardRow(const DevToolsReadProp& p)
     row.enumValues = p.enumValues;
     row.valueState = p.valueState;
     row.editKind = p.editKind;
-    row.defaultMayBeInherited = p.defaultMayBeInherited;
     for (const auto& c : p.chain) {
         DevToolsCardChainEntry e;
         e.source = DevToolsRead_OriginLabel(L"", L"", L"", L"", c.source, true,
