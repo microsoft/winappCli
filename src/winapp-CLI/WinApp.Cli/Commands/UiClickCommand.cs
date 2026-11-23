@@ -21,8 +21,7 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp ui click \"Name\" --type HeaderItem -a <app>",
-        "winapp ui click <selector> -a <app> --right",
-        "winapp ui click --at 1520,780 -a <app>",
+        "winapp ui click --at 1520,780 -a <app> --right",
         "winapp ui click <selector> -a <app> --modifiers ctrl",
     ];
 
