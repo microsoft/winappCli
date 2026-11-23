@@ -35,7 +35,7 @@ internal static class UiInjectionReporting
             : null;
         if (details is not null && !json)
         {
-            logger.LogError("{ForegroundDetails}", details);
+            logger.LogDebug("{ForegroundDetails}", details);
         }
 
         switch (outcome)

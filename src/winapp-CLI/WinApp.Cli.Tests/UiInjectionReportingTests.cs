@@ -64,6 +64,21 @@ public class UiInjectionReportingTests
     }
 
     [TestMethod]
+    public void TryEnsureForeground_TextDiagnosticsAreDebugWhileRefusalRemainsError()
+    {
+        var logger = new CapturingLogger();
+
+        Assert.IsFalse(new StubGuard(ForegroundCheck.ForegroundNotTarget).TryEnsureForeground(
+            10, logger, json: false, action: "drag", gate: "before-cursor"));
+
+        Assert.AreEqual(2, logger.Messages.Count);
+        Assert.AreEqual(LogLevel.Debug, logger.Messages[0].Level);
+        Assert.Contains("gate=before-cursor", logger.Messages[0].Message);
+        Assert.AreEqual(LogLevel.Error, logger.Messages[1].Level);
+        Assert.Contains("refusing to drag", logger.Messages[1].Message);
+    }
+
+    [TestMethod]
     public void TryEnsureForeground_ExistingGuardWithoutSnapshots_StillRejectsAndReportsUnavailable()
     {
         var logger = new CapturingLogger();
