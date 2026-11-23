@@ -15,6 +15,9 @@ internal class RealMouseInput : IMouseInput
     public void Click(int screenX, int screenY, bool doubleClick = false, bool rightClick = false, int settleMs = 50)
         => MouseInput.Click(screenX, screenY, doubleClick, rightClick, settleMs);
 
+    public void Click(int screenX, int screenY, ClickModifiers modifiers, bool doubleClick = false, bool rightClick = false, int settleMs = 50)
+        => MouseInput.Click(screenX, screenY, modifiers, doubleClick, rightClick, settleMs);
+
     public void Drag(int fromScreenX, int fromScreenY, int toScreenX, int toScreenY, bool rightButton = false, int holdMs = 0, int dwellMs = 0, int settleMs = 50)
         => MouseInput.Drag(fromScreenX, fromScreenY, toScreenX, toScreenY, rightButton, holdMs, dwellMs, settleMs);
 

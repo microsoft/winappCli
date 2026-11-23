@@ -268,6 +268,7 @@ winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200; winapp ui screenshot -
 When the press needs a point rather than an element's center (inside a WebView2 page, or one part of a large control), pass `--at x,y` with screen coordinates from `ui inspect` instead of a selector. `--at` can't be combined with a selector.
 ```powershell
 winapp ui click --at 1520,780 -a myapp            # add --right or --double as needed
+winapp ui click itm-row7-c1d2 -a myapp --modifiers ctrl   # hold ctrl/shift/alt during the click (multi-select, range select)
 winapp ui hover --at 1520,780 -a myapp
 ```
 

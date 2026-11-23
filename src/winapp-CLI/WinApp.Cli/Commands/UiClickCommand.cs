@@ -23,7 +23,66 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
         "winapp ui click \"Name\" --type HeaderItem -a <app>",
         "winapp ui click <selector> -a <app> --right",
         "winapp ui click --at 1520,780 -a <app>",
+        "winapp ui click <selector> -a <app> --modifiers ctrl",
     ];
+
+    /// <summary>
+    /// Parses a <c>--modifiers</c> value such as <c>ctrl</c>, <c>ctrl,alt</c>, or <c>ctrl+shift</c>.
+    /// Returns <c>false</c> with an error message for an empty list, an unknown name, or a repeated key.
+    /// </summary>
+    internal static bool TryParseModifiers(string? value, out ClickModifiers modifiers, out string? error)
+    {
+        modifiers = ClickModifiers.None;
+        error = null;
+        if (value is null)
+        {
+            return true;
+        }
+
+        var names = value.Split([',', '+'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (names.Length == 0)
+        {
+            error = "--modifiers needs at least one key: ctrl, shift, or alt (e.g. --modifiers ctrl,shift).";
+            return false;
+        }
+
+        foreach (var name in names)
+        {
+            var flag = name.ToLowerInvariant() switch
+            {
+                "ctrl" or "control" => ClickModifiers.Control,
+                "shift" => ClickModifiers.Shift,
+                "alt" => ClickModifiers.Alt,
+                _ => ClickModifiers.None,
+            };
+
+            if (flag == ClickModifiers.None)
+            {
+                error = $"Unknown modifier '{name}' in --modifiers. Use ctrl, shift, or alt (e.g. --modifiers ctrl,shift).";
+                return false;
+            }
+
+            if (modifiers.HasFlag(flag))
+            {
+                error = $"Modifier '{name}' is listed more than once in --modifiers.";
+                return false;
+            }
+
+            modifiers |= flag;
+        }
+
+        return true;
+    }
+
+    /// <summary>Formats the click type with its modifiers, e.g. <c>ctrl+alt+right-click</c>.</summary>
+    internal static string DescribeClick(ClickModifiers modifiers, bool doubleClick, bool rightClick)
+    {
+        var clickType = doubleClick ? "double-click" : rightClick ? "right-click" : "click";
+        var prefix = (modifiers.HasFlag(ClickModifiers.Control) ? "ctrl+" : "") +
+                     (modifiers.HasFlag(ClickModifiers.Shift) ? "shift+" : "") +
+                     (modifiers.HasFlag(ClickModifiers.Alt) ? "alt+" : "");
+        return prefix + clickType;
+    }
 
     public string? Usage => "winapp ui click (<selector> | --type <type> | --class-name <name> | --at <x,y>) (-a <app> | -w <hwnd>) [options]";
 
@@ -43,11 +102,18 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
         Description = "Perform a right-click instead of a left click"
     };
 
+    public static Option<string?> ModifiersOption { get; } = new("--modifiers")
+    {
+        Description = "Hold keyboard modifier keys during the click, e.g. ctrl (add to a selection), shift (select a range), " +
+                      "or ctrl,alt. Accepts ctrl, shift, and alt, separated by commas or +. " +
+                      "The keys are released after the click, even if it fails."
+    };
+
     public UiClickCommand()
         : base("click", "Click an element by slug or text search using mouse simulation. " +
                "Works on elements that don't support InvokePattern (e.g., column headers, list items). " +
                "Use --at x,y to click a screen point instead of an element. " +
-               "Use --double for double-click, --right for right-click.")
+               "Use --double for double-click, --right for right-click, --modifiers ctrl for Ctrl+click.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -55,6 +121,7 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
         Options.Add(AtOption);
         Options.Add(DoubleClickOption);
         Options.Add(RightClickOption);
+        Options.Add(ModifiersOption);
         Options.Add(WinAppRootCommand.JsonOption);
         UiQueryOptions.AddTo(this);
     }
@@ -91,6 +158,14 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
                 return 1;
             }
 
+            if (!TryParseModifiers(parseResult.GetValue(ModifiersOption), out _, out var modifierError))
+            {
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, modifierError);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, modifierError!,
+                    errorOut: parseResult.InvocationConfiguration.Error);
+                return 1;
+            }
+
             return PointerCommandSupport.ValidateSelectorOrPoint(parseResult, AtOption, "click", logger, json);
         }
 
@@ -105,7 +180,9 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var doubleClick = parseResult.GetValue(DoubleClickOption);
             var rightClick = parseResult.GetValue(RightClickOption);
-            var clickType = doubleClick ? "double-click" : rightClick ? "right-click" : "click";
+            // Preflight already validated the value.
+            _ = TryParseModifiers(parseResult.GetValue(ModifiersOption), out var modifiers, out _);
+            var clickType = DescribeClick(modifiers, doubleClick, rightClick);
 
             try
             {
@@ -134,7 +211,7 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
                             return 1;
                         }
 
-                        mouseInput.Click(at.X, at.Y, doubleClick, rightClick, settleMs: 0);
+                        Click(at.X, at.Y, modifiers, doubleClick, rightClick);
                     }
 
                     WriteResult(json, elementId: null, clickType, at.X, at.Y, uiTarget.WindowHandle, prep.OutOfWindowWarning);
@@ -218,7 +295,7 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
                     }
 
                     // Perform the click via SendInput — no extra settle, the cursor is already positioned.
-                    mouseInput.Click(centerX, centerY, doubleClick, rightClick, settleMs: 0);
+                    Click(centerX, centerY, modifiers, doubleClick, rightClick);
                 }
 
                 var elementId = (element.Selector ?? element.Id ?? "");
@@ -240,6 +317,19 @@ internal class UiClickCommand : Command, IShortDescription, IHelpExamples
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;
+            }
+        }
+
+        // A plain click keeps the original call, so its double-click pacing is unchanged.
+        private void Click(int x, int y, ClickModifiers modifiers, bool doubleClick, bool rightClick)
+        {
+            if (modifiers == ClickModifiers.None)
+            {
+                mouseInput.Click(x, y, doubleClick, rightClick, settleMs: 0);
+            }
+            else
+            {
+                mouseInput.Click(x, y, modifiers, doubleClick, rightClick, settleMs: 0);
             }
         }
 

@@ -757,12 +757,14 @@ winapp ui click btn-column1-a3f2 -a myapp              # single click by slug
 winapp ui click "Column1" -a myapp                      # single click by text search
 winapp ui click btn-column1-a3f2 -a myapp --double      # double-click
 winapp ui click btn-column1-a3f2 -a myapp --right       # right-click
+winapp ui click itm-row7-c1d2 -a myapp --modifiers ctrl # ctrl+click to add a row to the selection
 winapp ui click --at 1520,780 -a myapp                  # click a screen point instead of an element
 ```
 
 **Options:**
 - `--at <x,y>` — Click this screen point (same space `winapp ui inspect` reports) instead of an element's center. Use it inside a WebView2 page, or to press one part of a control, such as the header line of an expanded tree row. It can't be combined with a selector or with `--root`/`--type`/`--class-name`. A point outside the target window still gets clicked, with a warning (`warnings[]` in `--json`).
 - `--double` / `--right` — Double-click or right-click. Both work with `--at`.
+- `--modifiers <keys>` — Hold `ctrl`, `shift`, and/or `alt` during the click, for example `--modifiers ctrl` to add to a selection or `--modifiers shift` to select a range. Combine keys with `,` or `+` (`ctrl+shift`). The keys are released when the click finishes. Works with `--double`, `--right`, and `--at`.
 
 > Like the other input-injecting verbs, `click` brings the target to the foreground and **fails fast** (`no_interactive_desktop` on a locked/secure desktop, `foreground_not_target` if focus couldn't be transferred) rather than clicking the wrong window. It also **re-resolves the element just before the button-down**: after positioning the cursor it does one final position check, so a continuously moving/animating target fails with **`target_moved`** instead of reporting success after the click landed on empty space — a reported success means the target was still in place when the button went down. With `--at` there is no element to re-check, so the point is used as-is.
 

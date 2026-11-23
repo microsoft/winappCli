@@ -16,7 +16,7 @@ public interface IMouseInput
 
     /// <summary>
     /// Moves the cursor to the target without pressing a button. Lets the caller position the pointer,
-    /// run its own settle + confirm read, then issue <see cref="Click"/> with <c>settleMs: 0</c> so the
+    /// run its own settle + confirm read, then issue <see cref="Click(int, int, bool, bool, int)"/> with <c>settleMs: 0</c> so the
     /// button-down happens immediately after a fresh position check.
     /// </summary>
     void MoveCursor(int screenX, int screenY);
@@ -32,6 +32,31 @@ public interface IMouseInput
     /// <c>0</c> when the caller already moved the cursor and confirmed the target hasn't moved, so no
     /// extra unguarded settle window reopens the move-during-settle race.</param>
     void Click(int screenX, int screenY, bool doubleClick = false, bool rightClick = false, int settleMs = 50);
+
+    /// <summary>
+    /// Clicks at screen coordinates while holding keyboard modifier keys. The modifiers go down before the
+    /// first button-down and come up, in reverse order, after the last button-up, all in one input batch,
+    /// so no other input can land in between and no key stays held down after the call.
+    /// </summary>
+    /// <param name="screenX">X position in screen coordinates.</param>
+    /// <param name="screenY">Y position in screen coordinates.</param>
+    /// <param name="modifiers">Modifier keys to hold during the click.</param>
+    /// <param name="doubleClick">Issue a double click instead of a single one.</param>
+    /// <param name="rightClick">Use the right button instead of the left.</param>
+    /// <param name="settleMs">Cursor-settle pause (ms) after positioning, before the button-down.</param>
+    /// <remarks>The default implementation forwards to <see cref="Click(int, int, bool, bool, int)"/> when
+    /// <paramref name="modifiers"/> is <see cref="ClickModifiers.None"/> and otherwise throws
+    /// <see cref="NotSupportedException"/>, so implementations written against an earlier version of this
+    /// interface keep compiling.</remarks>
+    void Click(int screenX, int screenY, ClickModifiers modifiers, bool doubleClick = false, bool rightClick = false, int settleMs = 50)
+    {
+        if (modifiers != ClickModifiers.None)
+        {
+            throw new NotSupportedException("This IMouseInput implementation does not support clicking with modifier keys.");
+        }
+
+        Click(screenX, screenY, doubleClick, rightClick, settleMs);
+    }
 
     /// <summary>
     /// Presses the mouse button at the from-point, moves to the to-point in steps, then releases.

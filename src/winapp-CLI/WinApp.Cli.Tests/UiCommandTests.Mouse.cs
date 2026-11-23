@@ -556,6 +556,7 @@ public partial class UiCommandTests
     [DataRow(new string[0], false, false, "click")]
     [DataRow(new[] { "--right" }, false, true, "right-click")]
     [DataRow(new[] { "--double" }, true, false, "double-click")]
+    [DataRow(new[] { "--modifiers", "ctrl,alt", "--right" }, false, true, "ctrl+alt+right-click")]
     public async Task Click_At_ClicksThePointWithoutElementLookup(string[] extra, bool expectDouble, bool expectRight, string expectType)
     {
         _fakeTargetResolver.TargetResult.WindowHandle = 4242;
@@ -572,6 +573,9 @@ public partial class UiCommandTests
         Assert.AreEqual(250, click.ScreenY);
         Assert.AreEqual(expectDouble, click.DoubleClick);
         Assert.AreEqual(expectRight, click.RightClick);
+        Assert.AreEqual(expectType.StartsWith("ctrl+alt+", StringComparison.Ordinal)
+            ? ClickModifiers.Control | ClickModifiers.Alt
+            : ClickModifiers.None, click.Modifiers);
         Assert.Contains(4242L, _fakeDesktopForeground.ForegroundRequests,
             "the session window is brought to the foreground before the click");
         Assert.AreEqual(2, _fakeForeground.Calls.Count, "the foreground guard runs before and after the cursor settles");
@@ -583,6 +587,20 @@ public partial class UiCommandTests
         Assert.AreEqual(250, result.GetProperty("y").GetInt32());
         Assert.AreEqual(4242L, result.GetProperty("hwnd").GetInt64());
         Assert.IsFalse(result.TryGetProperty("warnings", out _), "an in-window point has no warnings");
+    }
+
+    [TestMethod]
+    [DataRow("win")]
+    [DataRow("ctrl,ctrl")]
+    [DataRow(",")]
+    public async Task Click_InvalidModifiers_FailsBeforeTouchingTheDesktop(string modifiers)
+    {
+        var exitCode = await InvokeMouseAtAsync("click", ["--at", "100,100", "-a", "TestApp", "--modifiers", modifiers]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode("invalid_arguments");
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters);
+        Assert.AreEqual(0, _fakeMouse.ClickCalls.Count);
     }
 
     [TestMethod]
