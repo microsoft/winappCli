@@ -387,45 +387,66 @@ static std::wstring FlushPaneEditor(PaneEditor e, bool leaving)
     }
 }
 
-// Save the property editor that has keyboard focus, as leaving it would. Returns what happened, for the status
-// line, or an empty string when no editor was focused or its text was unchanged.
-static std::wstring FlushFocusedEditor(bool leaving = false)
+// The pane editor that has keyboard focus, or null. Not a counted reference: it is only compared with the registry.
+static IUnknown* FocusedPaneEditor()
 {
-    if (g_flushingEditor || g_paneEditors.empty() || !g_inspectorContent) return std::wstring();
-    // A copy: saving can rebuild the pane and change the registry.
-    PaneEditor picked;
+    if (g_paneEditors.empty() || !g_inspectorContent) return nullptr;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, g_inspectorContent);
         auto root = object.as<DevToolsX::FrameworkElement>();
         auto focused = DevToolsXI::FocusManager::GetFocusedElement(root.XamlRoot());
-        if (!focused) return std::wstring();
+        if (!focused) return nullptr;
         const auto ident = focused.as<winrt::Windows::Foundation::IUnknown>();
         for (const auto& e : g_paneEditors)
-            if (e.ident == static_cast<IUnknown*>(winrt::get_abi(ident))) { picked = e; break; }
-    } catch (const winrt::hresult_error&) {
-        return std::wstring();
-    }
+            if (e.ident == static_cast<IUnknown*>(winrt::get_abi(ident))) return e.ident;
+    } catch (const winrt::hresult_error&) {}
+    return nullptr;
+}
+
+// Save the property editor that has keyboard focus, as leaving it would. Returns what happened, for the status
+// line, or an empty string when no editor was focused or its text was unchanged.
+static std::wstring FlushFocusedEditor(bool leaving = false)
+{
+    if (g_flushingEditor) return std::wstring();
+    IUnknown* focused = FocusedPaneEditor();
+    if (!focused) return std::wstring();
+    // A copy: saving can rebuild the pane and change the registry.
+    PaneEditor picked;
+    for (const auto& e : g_paneEditors)
+        if (e.ident == focused) { picked = e; break; }
     picked.ident = nullptr;
     return FlushPaneEditor(picked, leaving);
 }
 
-// Save every pane editor as the selection moves to another element. The pane's focus-out handlers are removed before
+// Save the pane's editors as the selection moves to another element. The pane's focus-out handlers are removed before
 // the move, so a focus-out WinUI delivers late (the user typed, then clicked another element) can no longer save the
-// edit. Returns what happened to the first editor that had an edit. A staged kind change (Literal over a resource
-// link, for example) waits for its own Apply or Replace button, so leaving discards it instead of applying it.
+// edit. Returns what happened to the first editor that had an edit.
+// - A text or colour box saves only what was typed since it last showed or saved a value, so each one is saved.
+// - Field boxes (Margin's four) compare with the property's current value, not with what they showed, so only the
+//   focused one is saved, as before: an untouched group must not write stale boxes over the app's newer value.
+// - A staged kind change (Literal over a resource link, for example) waits for its own Apply or Replace button, so
+//   leaving discards it, and retires its box so a late focus-out can't apply it either.
 static std::wstring FlushLeavingEditors()
 {
     if (g_flushingEditor || g_paneEditors.empty()) return std::wstring();
+    IUnknown* focused = FocusedPaneEditor();
     // A copy: saving can rebuild the pane and change the registry.
     std::vector<PaneEditor> editors = g_paneEditors;
+    std::vector<bool> isFocused;
     for (auto& e : editors) {
+        isFocused.push_back(focused && e.ident == focused);
         e.ident = nullptr;
         if (e.text) e.text->AddRef();
     }
     std::wstring said;
-    for (const auto& e : editors) {
-        if (PendingKindFind(e.path)) continue;
+    for (size_t i = 0; i < editors.size(); ++i) {
+        const auto& e = editors[i];
+        if (PendingKindFind(e.path)) {
+            if (e.retired) *e.retired = true;
+            continue;
+        }
+        if (!e.text && !isFocused[i]) continue;
         const std::wstring outcome = FlushPaneEditor(e, /*leaving*/ true);
         if (said.empty()) said = outcome;
     }

@@ -2047,6 +2047,50 @@ int main()
             ReleaseFieldBoxes(L""); g_pendingKind.clear(); g_linkedRows.clear(); g_propRows={text};
             g_ctx.readInputFn=priorReader;
         }
+        {
+            // Text="{StaticResource Greeting}": the user picks Literal, types Hi and selects another element without
+            // pressing Replace. The box's focus-out arrives after the move, when the resource check reads the new
+            // element's rows. It must not write either.
+            const auto priorReader=g_ctx.readInputFn;
+            g_ctx.readInputFn=[](IInspectable* box,std::wstring& t) { t=static_cast<TestElement*>(box)->text; return true; };
+            g_editRecords.clear(); g_appChanged.clear(); g_linkLost.clear(); g_pendingWrites.clear(); g_pendingKind.clear();
+            DevToolsCardRow linked=text; linked.authoredKind=L"staticResource"; linked.authoredKey=L"Greeting";
+            g_selWire=g_dirtyNode=500; g_propRows={linked}; g_linkedRows={L"Text"}; live[500]=L"Hello"; liveSource=L"Local";
+            TestElement box; box.text=L"Hello";
+            LostFocusSink staged; staged.Init(500,L"Text",L"String",L"Hello",&box);
+            box.text=L"Hi";
+            PendingKindSet(L"Text", DevToolsKind::Literal);
+            RegisterPaneEditor(L"Text",&box,&staged.retired,&staged,[&staged]{ staged.Invoke(nullptr,nullptr); },&testExpansion);
+            const unsigned editsStaged=edits;
+            FlushLeavingEditors();
+            ReleasePaneEditors(false);
+            g_selWire=g_dirtyNode=501; g_linkedRows.clear(); g_pendingKind.clear();
+            staged.Invoke(nullptr,nullptr);
+            check(edits==editsStaged && live[500]==L"Hello",
+                "a staged Literal's late focus-out after the selection moved doesn't replace the resource link");
+            g_selWire=g_dirtyNode=500; g_propRows={text}; g_ctx.readInputFn=priorReader;
+        }
+        {
+            // Margin was opened at 8,8 and left alone; the app has since set it to 16,16. Selecting another element
+            // must not write the untouched boxes back over the app's value.
+            const auto priorReader=g_ctx.readInputFn;
+            g_ctx.readInputFn=[](IInspectable* box,std::wstring& t) { t=static_cast<TestElement*>(box)->text; return true; };
+            g_editRecords.clear(); g_appChanged.clear(); g_linkLost.clear(); g_pendingWrites.clear(); g_pendingKind.clear();
+            DevToolsCardRow margin=text; margin.editKind=L"fields"; margin.fields={L"Left",L"Top"}; margin.value=L"16,16";
+            g_selWire=g_dirtyNode=500; g_propRows={margin}; live[500]=L"16,16"; liveSource=L"Local";
+            TestElement left, top; left.text=L"8"; top.text=L"8"; int owner=0;
+            g_fieldBoxes.push_back({L"Text",0,&left,&owner}); g_fieldBoxes.push_back({L"Text",1,&top,&owner});
+            KindCtx c; c.row=std::make_shared<const DevToolsCardRow>(margin); c.path=L"Text"; c.wire=500; c.expFe=&owner;
+            RegisterPaneEditor(L"Text",&left,nullptr,nullptr,[c]{ CommitKind(c, true); },&owner);
+            RegisterPaneEditor(L"Text",&top,nullptr,nullptr,[c]{ CommitKind(c, true); },&owner);
+            const unsigned editsUntouched=edits;
+            FlushLeavingEditors();
+            ReleasePaneEditors(false);
+            check(edits==editsUntouched && live[500]==L"16,16",
+                "leaving an element doesn't write untouched field boxes over the app's newer value");
+            ReleaseFieldBoxes(L""); g_propRows={text};
+            g_ctx.readInputFn=priorReader;
+        }
         // A late save to an element that is no longer selected records the original captured while it was selected,
         // and reads that element back right away so a later app change there still drops Restore.
         g_editRecords.clear(); g_appChanged.clear();
