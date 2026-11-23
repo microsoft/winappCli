@@ -2024,6 +2024,29 @@ int main()
             RestoreRowValue(500,L"Text",L"String");
             g_selLabel=priorLabel; g_ctx.readInputFn=priorReader;
         }
+        {
+            // Margin follows {ThemeResource AppMargin}. The user picks Literal, which stages a replacement that waits
+            // for Replace the resource link, then selects another element without confirming. Nothing is written and
+            // Margin keeps following the resource.
+            const auto priorReader=g_ctx.readInputFn;
+            g_ctx.readInputFn=[](IInspectable* box,std::wstring& text) { text=static_cast<TestElement*>(box)->text; return true; };
+            g_editRecords.clear(); g_appChanged.clear(); g_linkLost.clear(); g_pendingWrites.clear(); g_pendingKind.clear();
+            DevToolsCardRow margin=text; margin.editKind=L"fields"; margin.fields={L"Left",L"Top"};
+            margin.authoredKind=L"themeResource"; margin.authoredKey=L"AppMargin"; margin.value=L"12,8";
+            g_selWire=g_dirtyNode=500; g_propRows={margin}; g_linkedRows={L"Text"}; live[500]=L"12,8"; liveSource=L"Local";
+            TestElement left, top; left.text=L"12"; top.text=L"8"; int owner=0;
+            g_fieldBoxes.push_back({L"Text",0,&left,&owner}); g_fieldBoxes.push_back({L"Text",1,&top,&owner});
+            KindCtx c; c.row=std::make_shared<const DevToolsCardRow>(margin); c.path=L"Text"; c.wire=500; c.expFe=&owner;
+            PendingKindSet(L"Text", DevToolsKind::Literal);
+            RegisterPaneEditor(L"Text",&left,nullptr,nullptr,[c]{ CommitKind(c, true); },&owner);
+            const unsigned editsStaged=edits;
+            FlushLeavingEditors();
+            ReleasePaneEditors(false);
+            check(edits==editsStaged && !LinkLost(L"Text"),
+                "leaving an element doesn't apply a staged Literal over a resource link that wasn't confirmed");
+            ReleaseFieldBoxes(L""); g_pendingKind.clear(); g_linkedRows.clear(); g_propRows={text};
+            g_ctx.readInputFn=priorReader;
+        }
         // A late save to an element that is no longer selected records the original captured while it was selected,
         // and reads that element back right away so a later app change there still drops Restore.
         g_editRecords.clear(); g_appChanged.clear();

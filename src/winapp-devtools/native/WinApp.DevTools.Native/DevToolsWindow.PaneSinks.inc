@@ -412,7 +412,8 @@ static std::wstring FlushFocusedEditor(bool leaving = false)
 
 // Save every pane editor as the selection moves to another element. The pane's focus-out handlers are removed before
 // the move, so a focus-out WinUI delivers late (the user typed, then clicked another element) can no longer save the
-// edit. Returns what happened to the first editor that had an edit.
+// edit. Returns what happened to the first editor that had an edit. A staged kind change (Literal over a resource
+// link, for example) waits for its own Apply or Replace button, so leaving discards it instead of applying it.
 static std::wstring FlushLeavingEditors()
 {
     if (g_flushingEditor || g_paneEditors.empty()) return std::wstring();
@@ -424,6 +425,7 @@ static std::wstring FlushLeavingEditors()
     }
     std::wstring said;
     for (const auto& e : editors) {
+        if (PendingKindFind(e.path)) continue;
         const std::wstring outcome = FlushPaneEditor(e, /*leaving*/ true);
         if (said.empty()) said = outcome;
     }
