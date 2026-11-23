@@ -2594,25 +2594,17 @@ internal partial class MsixService
 
     private const int E_ACCESSDENIED = unchecked((int)0x80070005);
 
-    // Windows 11 24H2 is the first release that authorizes PackageManager calls from a packaged
-    // full-trust caller by integrity level alone, without checking its package identity.
-    private const int FirstBuildWithoutPackagedCallerCheck = 26100;
-
     internal static string BuildUnregisterAccessDeniedMessage(string packageName, string reason, bool isPackaged, Version osVersion)
     {
+        // Windows repeats its text ("Access is denied.\r\n\r\nAccess is denied."), so keep the first line.
+        var firstLine = reason.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? new System.ComponentModel.Win32Exception(5).Message; // ERROR_ACCESS_DENIED
         var message =
-            $"Windows denied access when removing the existing registration of '{packageName}': {reason.Trim()}" +
+            $"Windows denied access when removing the existing registration of '{packageName}': {firstLine}" +
             Environment.NewLine;
-        if (isPackaged && osVersion.Build < FirstBuildWithoutPackagedCallerCheck)
-        {
-            return message +
-                "This winapp runs as an MSIX package, and Windows versions before Windows 11 24H2 can refuse to let a packaged app manage packages. " +
-                "Use the winapp from the release ZIP (https://github.com/microsoft/winappCli/releases) " +
-                "or the Microsoft.Windows.SDK.BuildTools.WinApp NuGet package (dotnet run) instead.";
-        }
-        return message +
+        return message + (PackageRegistrationService.GetPackagedCallerHint(E_ACCESSDENIED, isPackaged, osVersion) ??
             "Close the app if it is running, then retry; or remove it manually with " +
-            $"'Get-AppxPackage {packageName} | Remove-AppxPackage'.";
+            $"'Get-AppxPackage {packageName} | Remove-AppxPackage'.");
     }
 
     /// <summary>

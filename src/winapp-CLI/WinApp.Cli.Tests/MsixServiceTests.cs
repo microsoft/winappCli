@@ -1808,10 +1808,19 @@ public class MsixServiceTests
     [DataRow(false, 19045, false, DisplayName = "ZIP winapp gets the generic advice")]
     public void BuildUnregisterAccessDeniedMessage_SuggestsUnpackagedWinappOnlyWhereItHelps(bool isPackaged, int build, bool suggestsZip)
     {
-        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "Access is denied.\r\n", isPackaged, new Version(10, 0, build, 0));
+        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "Access is denied.\r\n\r\nAccess is denied.\r\n", isPackaged, new Version(10, 0, build, 0));
 
+        Assert.AreEqual(1, message.Split("Access is denied.").Length - 1, "Windows' repeated text should appear once");
         Assert.AreEqual(suggestsZip, message.Contains("release ZIP", StringComparison.Ordinal));
         Assert.AreEqual(!suggestsZip, message.Contains("Get-AppxPackage MyApp | Remove-AppxPackage", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void BuildUnregisterAccessDeniedMessage_EmptyReason_FallsBackToWindowsText()
+    {
+        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "\r\n", isPackaged: false, new Version(10, 0, 26100, 0));
+
+        Assert.Contains($"'MyApp': {new System.ComponentModel.Win32Exception(5).Message}", message);
     }
 
     #endregion

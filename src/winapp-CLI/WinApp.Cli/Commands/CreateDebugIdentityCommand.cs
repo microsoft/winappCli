@@ -82,6 +82,11 @@ internal class CreateDebugIdentityCommand : Command, IShortDescription
                     {
                         message += $" (0x{baseEx.HResult:X8})";
                     }
+                    // The base exception is Windows' own, so the registration hint on the wrapper is lost here.
+                    if (PackageRegistrationService.GetPackagedCallerHint(baseEx.HResult) is { } hint)
+                    {
+                        message += Environment.NewLine + hint;
+                    }
                     return (1, $"{UiSymbols.Error} Failed to add package identity: {message}");
                 }
 
