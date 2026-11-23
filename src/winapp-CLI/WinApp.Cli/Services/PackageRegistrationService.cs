@@ -55,8 +55,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                     "Failed to register package",
                     result.ErrorText,
                     result.ExtendedErrorHResult,
-                    packageIdentityName: TryReadIdentityName(fullPath),
-                    hint: GetPackagedCallerHint(result.ExtendedErrorHResult));
+                    packageIdentityName: TryReadIdentityName(fullPath));
             }
 
             logger.LogDebug("Package registered from loose layout: {ManifestPath}", manifestPath);
@@ -74,8 +73,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                 ex.Message,
                 ex.HResult,
                 packageIdentityName: TryReadIdentityName(fullPath),
-                inner: ex,
-                hint: GetPackagedCallerHint(ex.HResult));
+                inner: ex);
         }
     }
 
@@ -111,8 +109,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                     "Failed to register sparse package",
                     result.ErrorText,
                     result.ExtendedErrorHResult,
-                    packageIdentityName: TryReadIdentityName(fullManifestPath),
-                    hint: GetPackagedCallerHint(result.ExtendedErrorHResult));
+                    packageIdentityName: TryReadIdentityName(fullManifestPath));
             }
 
             logger.LogDebug("Sparse package registered: {ManifestPath} (external: {ExternalLocation})", manifestPath, externalLocation);
@@ -130,8 +127,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                 ex.Message,
                 ex.HResult,
                 packageIdentityName: TryReadIdentityName(fullManifestPath),
-                inner: ex,
-                hint: GetPackagedCallerHint(ex.HResult));
+                inner: ex);
         }
     }
 
@@ -470,36 +466,6 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
     // is generic, the hint below offers that cause rather than asserting it.
     internal const int ERROR_INSTALL_FAILED = unchecked((int)0x80073CF9);
 
-    // Windows 11 24H2 is the first release that authorizes PackageManager calls from a packaged
-    // full-trust caller by integrity level alone. Before it, Windows can refuse the MSIX winapp
-    // in-process, with access denied or an opaque code and no error text (#1306).
-    internal const int FirstBuildWithoutPackagedCallerCheck = 26100;
-
-    private static readonly int[] PackagedCallerRefusalCodes =
-    [
-        unchecked((int)0x80070005), // E_ACCESSDENIED
-        unchecked((int)0x8007007B), // ERROR_INVALID_NAME, seen on Windows 10 22H2
-        unchecked((int)0x8007000D), // ERROR_INVALID_DATA, seen on Windows 10 2004
-    ];
-
-    internal const string PackagedCallerHint =
-        "This winapp runs as an MSIX package, and Windows versions before Windows 11 24H2 can refuse to let a packaged app manage packages. " +
-        "Use the winapp from the release ZIP (https://github.com/microsoft/winappCli/releases) " +
-        "or the Microsoft.Windows.SDK.BuildTools.WinApp NuGet package (dotnet run) instead.";
-
-    /// <summary>
-    /// Returns guidance for a package operation that failed with <paramref name="hresult"/> when this
-    /// winapp itself runs as an MSIX package on a Windows version that can refuse it, or null otherwise.
-    /// </summary>
-    internal static string? GetPackagedCallerHint(int? hresult) =>
-        GetPackagedCallerHint(hresult, EngineStaging.IsPackaged, Environment.OSVersion.Version);
-
-    internal static string? GetPackagedCallerHint(int? hresult, bool isPackaged, Version osVersion) =>
-        hresult is { } code && isPackaged && osVersion.Build < FirstBuildWithoutPackagedCallerCheck &&
-        PackagedCallerRefusalCodes.Contains(code)
-            ? PackagedCallerHint
-            : null;
-
     /// <summary>
     /// Builds a user-facing exception describing a failed package registration.
     /// When the HRESULT indicates a duplicate-identity conflict (0x80073CFB) and a
@@ -511,8 +477,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         string? errorText,
         int? hresult,
         string? packageIdentityName = null,
-        Exception? inner = null,
-        string? hint = null)
+        Exception? inner = null)
     {
         var sb = new System.Text.StringBuilder();
         sb.Append(prefix).Append(": ");
@@ -551,12 +516,6 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                 "validated before registration, but a nested payload file in a deep " +
                 "build-output folder can still exceed it. Try staging the layout under a " +
                 "shorter path; with winapp run, use --output-appx-directory.");
-        }
-
-        if (!string.IsNullOrEmpty(hint))
-        {
-            sb.AppendLine();
-            sb.Append(hint);
         }
 
         return inner is null

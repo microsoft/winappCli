@@ -2580,7 +2580,7 @@ internal partial class MsixService
             // Registering over a package Windows wouldn't let us remove fails with an unrelated,
             // opaque code (0x8007007B / 0x8007000D), so stop here with the real reason.
             throw new InvalidOperationException(
-                BuildUnregisterAccessDeniedMessage(packageName, ex.Message, EngineStaging.IsPackaged, Environment.OSVersion.Version), ex);
+                BuildUnregisterAccessDeniedMessage(packageName, ex.Message, EngineStaging.IsPackaged), ex);
         }
         catch (Exception ex)
         {
@@ -2594,17 +2594,18 @@ internal partial class MsixService
 
     private const int E_ACCESSDENIED = unchecked((int)0x80070005);
 
-    internal static string BuildUnregisterAccessDeniedMessage(string packageName, string reason, bool isPackaged, Version osVersion)
+    internal static string BuildUnregisterAccessDeniedMessage(string packageName, string reason, bool isPackaged)
     {
         // Windows repeats its text ("Access is denied.\r\n\r\nAccess is denied."), so keep the first line.
         var firstLine = reason.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .FirstOrDefault() ?? new System.ComponentModel.Win32Exception(5).Message; // ERROR_ACCESS_DENIED
-        var message =
-            $"Windows denied access when removing the existing registration of '{packageName}': {firstLine}" +
-            Environment.NewLine;
-        return message + (PackageRegistrationService.GetPackagedCallerHint(E_ACCESSDENIED, isPackaged, osVersion) ??
-            "Close the app if it is running, then retry; or remove it manually with " +
-            $"'Get-AppxPackage {packageName} | Remove-AppxPackage'.");
+        var removeManually = $"'Get-AppxPackage {packageName} | Remove-AppxPackage'";
+        return $"Windows denied access when removing the existing registration of '{packageName}': {firstLine}" +
+            Environment.NewLine +
+            (isPackaged
+                ? "This winapp runs as an MSIX package and Windows refused it. Use the winapp from the release ZIP " +
+                  $"(https://github.com/microsoft/winappCli/releases) or the NuGet package instead, or remove it manually with {removeManually}."
+                : $"Close the app if it is running, then retry; or remove it manually with {removeManually}.");
     }
 
     /// <summary>

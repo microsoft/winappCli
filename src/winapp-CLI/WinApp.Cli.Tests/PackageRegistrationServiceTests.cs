@@ -110,34 +110,6 @@ public class PackageRegistrationServiceTests
     }
 
     [TestMethod]
-    [DataRow(true, 19045, unchecked((int)0x8007007B), true, DisplayName = "MSIX winapp, Windows 10 22H2, opaque 0x8007007B")]
-    [DataRow(true, 19041, unchecked((int)0x8007000D), true, DisplayName = "MSIX winapp, Windows 10 2004, opaque 0x8007000D")]
-    [DataRow(true, 22631, unchecked((int)0x80070005), true, DisplayName = "MSIX winapp, Windows 11 23H2, access denied")]
-    [DataRow(true, 26100, unchecked((int)0x8007007B), false, DisplayName = "MSIX winapp on Windows 11 24H2 is not refused")]
-    [DataRow(false, 19045, unchecked((int)0x8007007B), false, DisplayName = "ZIP winapp is not refused")]
-    [DataRow(true, 19045, unchecked((int)0x80073CF3), false, DisplayName = "unrelated deployment error")]
-    public void GetPackagedCallerHint_OnlyForRefusalsOfAPackagedWinappBefore24H2(bool isPackaged, int build, int hresult, bool expected)
-    {
-        var hint = PackageRegistrationService.GetPackagedCallerHint(hresult, isPackaged, new Version(10, 0, build, 0));
-
-        Assert.AreEqual(expected, hint is not null);
-    }
-
-    [TestMethod]
-    public void BuildRegistrationException_WithHint_ReplacesOpaqueUnknownErrorWithAction()
-    {
-        // #1306: on Windows 10 the MSIX winapp's register call came back as "Unknown error (0x8007007B)" alone.
-        var ex = PackageRegistrationService.BuildRegistrationException(
-            "Failed to register package",
-            errorText: null,
-            unchecked((int)0x8007007B),
-            hint: PackageRegistrationService.PackagedCallerHint);
-
-        Assert.Contains("(0x8007007B)", ex.Message);
-        Assert.Contains("release ZIP", ex.Message);
-    }
-
-    [TestMethod]
     public void IsSideloadPolicyError_TrueForGroupPolicyHResult()
     {
         var ex = new InvalidOperationException("blocked") { HResult = ERROR_ACCESS_DISABLED_BY_POLICY };

@@ -1802,23 +1802,21 @@ public class MsixServiceTests
     }
 
     [TestMethod]
-    [DataRow(true, 19045, true, DisplayName = "MSIX winapp on Windows 10 points to the ZIP/NuGet winapp")]
-    [DataRow(true, 22631, true, DisplayName = "MSIX winapp on Windows 11 23H2 points to the ZIP/NuGet winapp")]
-    [DataRow(true, 26100, false, DisplayName = "MSIX winapp on Windows 11 24H2 gets the generic advice")]
-    [DataRow(false, 19045, false, DisplayName = "ZIP winapp gets the generic advice")]
-    public void BuildUnregisterAccessDeniedMessage_SuggestsUnpackagedWinappOnlyWhereItHelps(bool isPackaged, int build, bool suggestsZip)
+    [DataRow(true, true, DisplayName = "MSIX winapp points to the ZIP/NuGet winapp")]
+    [DataRow(false, false, DisplayName = "ZIP winapp gets the close-and-retry advice")]
+    public void BuildUnregisterAccessDeniedMessage_SuggestsUnpackagedWinappOnlyWhenPackaged(bool isPackaged, bool suggestsZip)
     {
-        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "Access is denied.\r\n\r\nAccess is denied.\r\n", isPackaged, new Version(10, 0, build, 0));
+        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "Access is denied.\r\n\r\nAccess is denied.\r\n", isPackaged);
 
         Assert.AreEqual(1, message.Split("Access is denied.").Length - 1, "Windows' repeated text should appear once");
         Assert.AreEqual(suggestsZip, message.Contains("release ZIP", StringComparison.Ordinal));
-        Assert.AreEqual(!suggestsZip, message.Contains("Get-AppxPackage MyApp | Remove-AppxPackage", StringComparison.Ordinal));
+        Assert.Contains("Get-AppxPackage MyApp | Remove-AppxPackage", message);
     }
 
     [TestMethod]
     public void BuildUnregisterAccessDeniedMessage_EmptyReason_FallsBackToWindowsText()
     {
-        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "\r\n", isPackaged: false, new Version(10, 0, 26100, 0));
+        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "\r\n", isPackaged: false);
 
         Assert.Contains($"'MyApp': {new System.ComponentModel.Win32Exception(5).Message}", message);
     }
