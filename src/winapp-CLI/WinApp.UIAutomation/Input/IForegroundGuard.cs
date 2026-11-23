@@ -15,9 +15,20 @@ public interface IForegroundGuard
 {
     /// <summary>
     /// Classifies whether the target window is in the foreground before an OS-wide input injection.
-    /// See <see cref="ForegroundGuard.CheckForeground"/> for the production semantics.
+    /// See <see cref="ForegroundGuard.CheckForeground(long)"/> for the production semantics.
     /// </summary>
     ForegroundCheck CheckForeground(long targetHwnd);
+
+    /// <summary>
+    /// Checks foreground ownership and optionally retains the observations from a rejected check.
+    /// Implementations without snapshot support still perform their original check and return null;
+    /// callers must not substitute a later foreground query for missing observations.
+    /// </summary>
+    ForegroundCheck CheckForeground(long targetHwnd, out ForegroundCheckSnapshot? snapshot)
+    {
+        snapshot = null;
+        return CheckForeground(targetHwnd);
+    }
 
     /// <summary>
     /// Returns <see langword="true"/> when running in a remote (RDP / Terminal Services) session, where

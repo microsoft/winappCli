@@ -181,9 +181,22 @@ internal class UiDragCommand : Command, IShortDescription, IHelpExamples
                         return 1;
                     }
 
+                    string? foregroundRequestDetails = null;
                     if (targetHwnd != 0)
                     {
-                        desktopForeground.RequestForeground(targetHwnd);
+                        var requestedAtUtc = DateTimeOffset.UtcNow;
+                        var requestSucceeded = desktopForeground.RequestForeground(targetHwnd);
+                        var observedAtUtc = DateTimeOffset.UtcNow;
+                        var requestForegroundHwnd = (long)systemQuery.GetForegroundWindow();
+                        var metadataAtUtc = DateTimeOffset.UtcNow;
+                        var requestForegroundPid = requestForegroundHwnd == 0
+                            ? 0 : systemQuery.GetProcessIdForWindow(requestForegroundHwnd);
+                        foregroundRequestDetails = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                            $"requestedWindowHwnd={window?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unspecified"}; " +
+                            $"resolvedWindowHwnd={uiTarget.WindowHandle}; resolvedPid={uiTarget.ProcessId}; " +
+                            $"requestTargetHwnd={targetHwnd}; requestAtUtc={requestedAtUtc:O}; requestSucceeded={requestSucceeded}; " +
+                            $"requestObservedAtUtc={observedAtUtc:O}; requestForegroundHwnd={requestForegroundHwnd}; " +
+                            $"requestMetadataAtUtc={metadataAtUtc:O}; requestForegroundPid={requestForegroundPid}");
                         await Task.Delay(100, cancellationToken);
                     }
 
@@ -208,7 +221,9 @@ internal class UiDragCommand : Command, IShortDescription, IHelpExamples
                     toY = toStable.Y;
 
                     // Verify the target STILL holds the foreground as the first gate before the OS-wide drag.
-                    if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "drag"))
+                    if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "drag",
+                            errorOut: parseResult.InvocationConfiguration.Error,
+                            gate: "before-cursor", requestDetails: foregroundRequestDetails))
                     {
                         return 1;
                     }
@@ -230,7 +245,9 @@ internal class UiDragCommand : Command, IShortDescription, IHelpExamples
                         fromY = confirmed.CenterY;
 
                         // Final foreground gate after the awaited confirm read (focus could shift during it).
-                        if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "drag"))
+                        if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "drag",
+                                errorOut: parseResult.InvocationConfiguration.Error,
+                                gate: "before-button-down", requestDetails: foregroundRequestDetails))
                         {
                             return 1;
                         }

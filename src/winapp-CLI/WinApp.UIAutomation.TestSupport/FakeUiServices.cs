@@ -476,6 +476,7 @@ public class FakeKeyboardInput : IKeyboardInput
 public class FakeForegroundGuard : IForegroundGuard
 {
     public Func<long, ForegroundCheck>? CheckResult { get; set; }
+    public ForegroundCheckSnapshot? Snapshot { get; set; }
     public record EnsureCall(long TargetHwnd);
 
     public List<EnsureCall> Calls { get; } = [];
@@ -503,6 +504,13 @@ public class FakeForegroundGuard : IForegroundGuard
 
         var deny = DenyOnCallNumber is int n ? Calls.Count == n : !Allow;
         return deny ? DenyReason : ForegroundCheck.Proceed;
+    }
+
+    public ForegroundCheck CheckForeground(long targetHwnd, out ForegroundCheckSnapshot? snapshot)
+    {
+        var result = CheckForeground(targetHwnd);
+        snapshot = result == ForegroundCheck.Proceed ? null : Snapshot;
+        return result;
     }
 }
 

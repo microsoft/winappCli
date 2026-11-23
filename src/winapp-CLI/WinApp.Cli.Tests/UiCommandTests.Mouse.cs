@@ -311,6 +311,70 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    [DataRow(1, "before-cursor", false)]
+    [DataRow(2, "before-button-down", true)]
+    public async Task Drag_ForegroundDenial_RetainsGateAndRequestObservations(
+        int rejectingCall, string expectedGate, bool requestSucceeded)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        _fakeUia.FindSingleResult = new UiElement
+        {
+            Type = "Image", Selector = "ContentSizer.Sizer", X = 100, Y = 200,
+            Width = 540, Height = 17, WindowHandle = 7777
+        };
+        _fakeDesktopForeground.ForegroundRequestSucceeds = requestSucceeded;
+        _fakeSystemQuery.ForegroundWindowResult = requestSucceeded ? 7777 : 9000;
+        _fakeSystemQuery.ProcessIdByHwnd[9000] = 42;
+        var observedAt = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        _fakeForeground.Snapshot = new ForegroundCheckSnapshot(
+            observedAt, 7777, 7000, true, 8800, observedAt.AddMilliseconds(1), 9900,
+            observedAt.AddMilliseconds(2), 1234, 1234, 88, 99);
+        _fakeForeground.CheckResult = _ =>
+        {
+            // A later query must not replace either the request observation or the guard's snapshot.
+            _fakeSystemQuery.ForegroundWindowResult = 5555;
+            return _fakeForeground.Calls.Count == rejectingCall
+                ? ForegroundCheck.ForegroundNotTarget : ForegroundCheck.Proceed;
+        };
+
+        var command = GetRequiredService<UiDragCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["ContentSizer.Sizer", "1302,893", "-w", "4242", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeMouse.DragCalls.Count);
+        Assert.AreEqual(rejectingCall - 1, _fakeMouse.MoveCursorCalls.Count);
+        Assert.AreEqual(rejectingCall, _fakeForeground.Calls.Count);
+        Assert.AreSequenceEqual(new long[] { 7777 }, _fakeDesktopForeground.ForegroundRequests,
+            "Diagnostics must not add another activation request.");
+        Assert.IsTrue(string.IsNullOrWhiteSpace(TestAnsiConsole.Output), "A refusal must not emit a drag success.");
+
+        var stderr = ConsoleStdErr.ToString();
+        var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+            stderr.AsSpan(stderr.IndexOf('{')).TrimEnd());
+        var error = result.GetProperty("error");
+        Assert.AreEqual("code,details,message",
+            string.Join(',', error.EnumerateObject().Select(p => p.Name).Order()));
+        Assert.AreEqual("foreground_not_target", error.GetProperty("code").GetString());
+        Assert.AreEqual(
+            "Target window is not in the foreground — refusing to drag to avoid acting on the wrong window. Activate the intended window manually, check for a blocking dialog, then retry.",
+            error.GetProperty("message").GetString());
+        Assert.AreEqual(System.Text.Json.JsonValueKind.String, error.GetProperty("details").ValueKind);
+        var details = error.GetProperty("details").GetString()!;
+        Assert.Contains($"gate={expectedGate};", details);
+        Assert.Contains("comparedAtUtc=2026-01-02T03:04:05.0000000+00:00;", details);
+        Assert.Contains("targetHwnd=7777; rootHwnd=7000; rootWasCompared=True; foregroundHwnd=8800;", details);
+        Assert.Contains("classificationForegroundHwnd=9900;", details);
+        Assert.Contains("targetPid=1234; rootPid=1234; foregroundPid=88; classificationForegroundPid=99;", details);
+        Assert.Contains("ownershipMetadata=queried-after-decision;", details);
+        Assert.Contains("requestedWindowHwnd=4242; resolvedWindowHwnd=4242; resolvedPid=1234;", details);
+        Assert.Contains("requestTargetHwnd=7777;", details);
+        Assert.Contains($"requestSucceeded={requestSucceeded};", details);
+        Assert.Contains($"requestForegroundHwnd={(requestSucceeded ? 7777 : 9000)};", details);
+        Assert.Contains($"requestForegroundPid={(requestSucceeded ? 1234 : 42)}", details);
+    }
+
+    [TestMethod]
     [DataRow("100,")]
     [DataRow("100,200,300")]
     [DataRow("100,abc")]
