@@ -506,6 +506,7 @@ public class RunCommandTests : BaseCommandTests
     public async Task RunCommand_AccessDeniedUsesFactualSharedFailure(bool devTools, bool json)
     {
         await CreateTestManifestAsync();
+        File.WriteAllText(Path.Combine(_tempDirectory.FullName, "Microsoft.WinUI.dll"), "");
         _fakeMsixService.ExceptionToThrow = new UnauthorizedAccessException("UnauthorizedAccess_IODenied_NoPathName");
         GetRequiredService<RunCommand.Handler>().CreateDevToolsEnvironment = (_, _) => new Dictionary<string, string?>();
         var args = new List<string> { _tempDirectory.FullName, "--detach" };
